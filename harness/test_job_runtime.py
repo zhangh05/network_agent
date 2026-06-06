@@ -220,9 +220,26 @@ class TestJobAPI:
         })
         assert resp.status_code == 200
 
+    def test_create_job_rejects_invalid_workspace_id(self, client):
+        resp = client.post("/api/jobs", json={
+            "workspace_id": "../escape", "job_type": "agent_run",
+            "title": "bad workspace", "payload": {},
+        })
+        assert resp.status_code == 400
+        data = resp.get_json()
+        assert data["ok"] is False
+        assert data["error"] == "invalid_workspace_id"
+
     def test_list_jobs_api(self, client):
         resp = client.get("/api/jobs")
         assert resp.status_code == 200
+
+    def test_list_jobs_rejects_invalid_limit(self, client):
+        resp = client.get("/api/jobs?limit=abc")
+        assert resp.status_code == 400
+        data = resp.get_json()
+        assert data["ok"] is False
+        assert data["error"] == "invalid_limit"
 
     def test_worker_status(self, client):
         resp = client.get("/api/jobs/worker/status")

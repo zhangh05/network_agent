@@ -7,6 +7,7 @@ Canonical implementation: modules/config_translation/backend/service.py
 
 from flask import request, jsonify
 
+from backend.core.limits import source_config_too_large
 from modules.config_translation.backend.schemas import TranslateRequest
 from modules.config_translation.backend.service import translate_config
 
@@ -18,6 +19,8 @@ def handle_module_translate():
     source_config = (data.get("source_config") or data.get("config_text") or "").strip()
     if not source_config:
         return jsonify({"ok": False, "error": "source_config is required"}), 400
+    if source_config_too_large(source_config):
+        return jsonify({"ok": False, "error": "source_config_too_large"}), 413
 
     req = TranslateRequest(
         source_config=source_config,

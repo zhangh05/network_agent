@@ -6,12 +6,15 @@ import time
 from typing import Optional
 from pathlib import Path
 
+from workspace.ids import validate_workspace_id
+
 ROOT = Path(__file__).resolve().parent.parent
 WS_ROOT = ROOT / "workspaces"
 
 
 def ensure_workspace(ws_id: str = "default") -> str:
     """Ensure workspace dirs exist. Creates workspace.yaml + state.json if missing."""
+    ws_id = validate_workspace_id(ws_id)
     ws = WS_ROOT / ws_id
     # Create all required subdirectories
     for d in [
@@ -63,7 +66,7 @@ def ensure_workspace(ws_id: str = "default") -> str:
 
 def get_workspace_state(ws_id: str = "default") -> dict:
     """Get workspace state. Returns empty dict if not found."""
-    ensure_workspace(ws_id)
+    ws_id = ensure_workspace(ws_id)
     try:
         state = json.loads((WS_ROOT / ws_id / "state.json").read_text())
         # Enrich with live counts
@@ -77,7 +80,7 @@ def get_workspace_state(ws_id: str = "default") -> dict:
 
 def update_workspace_state(ws_id: str, patch: dict) -> dict:
     """Update workspace state with a patch dict. Returns updated state."""
-    ensure_workspace(ws_id)
+    ws_id = ensure_workspace(ws_id)
     s = get_workspace_state(ws_id)
 
     # Merge patch — never store full configs
@@ -116,7 +119,7 @@ def list_workspaces() -> list:
 
 def get_workspace_runs(ws_id: str = "default") -> list:
     """Get all run records for a workspace."""
-    ensure_workspace(ws_id)
+    ws_id = ensure_workspace(ws_id)
     runs_dir = WS_ROOT / ws_id / "runs"
     runs = []
     if runs_dir.is_dir():
@@ -130,6 +133,7 @@ def get_workspace_runs(ws_id: str = "default") -> list:
 
 def get_run(run_id: str, ws_id: str = "default") -> Optional[dict]:
     """Get a single run record by ID."""
+    ws_id = validate_workspace_id(ws_id)
     path = WS_ROOT / ws_id / "runs" / f"{run_id}.json"
     if path.is_file():
         try:
@@ -143,6 +147,7 @@ def get_run(run_id: str, ws_id: str = "default") -> Optional[dict]:
 
 def _count_runs(ws_id: str) -> int:
     """Count actual run JSON files."""
+    ws_id = validate_workspace_id(ws_id)
     runs_dir = WS_ROOT / ws_id / "runs"
     if runs_dir.is_dir():
         return len(list(runs_dir.glob("*.json")))
@@ -151,6 +156,7 @@ def _count_runs(ws_id: str) -> int:
 
 def _count_artifacts(ws_id: str) -> int:
     """Count artifact files across all artifact subdirs."""
+    ws_id = validate_workspace_id(ws_id)
     artifacts_dir = WS_ROOT / ws_id / "artifacts"
     if not artifacts_dir.is_dir():
         return 0
@@ -164,6 +170,7 @@ def _count_artifacts(ws_id: str) -> int:
 
 def _count_memory(ws_id: str) -> int:
     """Count memory records for a project."""
+    ws_id = validate_workspace_id(ws_id)
     try:
         from memory.backends.jsonl_store import JSONLMemoryStore
         store = JSONLMemoryStore()

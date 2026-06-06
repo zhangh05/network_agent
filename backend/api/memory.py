@@ -2,6 +2,7 @@
 """Memory API — status, write, search."""
 
 from flask import request, jsonify
+from backend.api.params import parse_limit
 from memory.store import get_store
 from memory.writer import write_memory
 from memory.retriever import search_memory, list_memory
@@ -53,7 +54,10 @@ def handle_memory_search():
     data = request.get_json(silent=True) or {}
     query = data.get("query", "")
     tags = data.get("tags", None)
-    limit = int(data.get("limit", 10))
+    try:
+        limit = parse_limit(data, default=10, max_value=100)
+    except ValueError:
+        return jsonify({"ok": False, "error": "invalid_limit"}), 400
     project_id = data.get("project_id", None)
     memory_type = data.get("memory_type", None)
     scope = data.get("scope", None)

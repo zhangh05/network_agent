@@ -83,6 +83,15 @@ class TestWorkspaceManager:
         if found:
             assert found[0]["runs_count"] == 1
 
+    @pytest.mark.parametrize("bad_ws_id", ["../escape", "bad/name", " bad ", "", ".hidden"])
+    def test_invalid_workspace_id_rejected(self, temp_dirs, bad_ws_id):
+        from workspace.manager import ensure_workspace
+
+        with pytest.raises(ValueError, match="invalid_workspace_id"):
+            ensure_workspace(bad_ws_id)
+
+        assert not (Path(str(temp_dirs["workspace_dir"])).parent / "escape").exists()
+
 
 class TestRunStore:
     """Run store tests."""
@@ -258,6 +267,52 @@ class TestContextLoader:
         state = load_context(state)
 
         assert state.context["last_result"]["has_result"] is False
+
+
+class TestAgentWorkspaceBoundary:
+    def test_run_agent_rejects_invalid_workspace_id(self, temp_dirs):
+        from agent.graph import run_agent
+
+        result = run_agent(
+            user_input="translate config",
+            intent="translate_config",
+            payload={"source_config": "hostname R1"},
+            workspace_id="../escape",
+        )
+
+        assert result["ok"] is False
+        assert result["error"] == "invalid_workspace_id"
+        assert not (Path(str(temp_dirs["workspace_dir"])).parent / "escape").exists()
+
+    def test_run_agent_rejects_oversized_source_config(self, temp_dirs, monkeypatch):
+        from agent.graph import run_agent
+
+        monkeypatch.setenv("NETWORK_AGENT_MAX_SOURCE_CONFIG_BYTES", "20")
+        result = run_agent(
+            user_input="translate config",
+            intent="translate_config",
+            payload={"source_config": "hostname R1\ninterface GigabitEthernet0/1"},
+            workspace_id="size_guard",
+        )
+
+        assert result["ok"] is False
+        assert result["error"] == "source_config_too_large"
+        assert result["runtime_mode"] == "rejected"
+
+    def test_run_agent_rejects_oversized_user_input_config(self, temp_dirs, monkeypatch):
+        from agent.graph import run_agent
+
+        monkeypatch.setenv("NETWORK_AGENT_MAX_SOURCE_CONFIG_BYTES", "20")
+        result = run_agent(
+            user_input="hostname R1\ninterface GigabitEthernet0/1",
+            intent="translate_config",
+            payload={},
+            workspace_id="size_guard_input",
+        )
+
+        assert result["ok"] is False
+        assert result["error"] == "source_config_too_large"
+        assert result["runtime_mode"] == "rejected"
 
     def test_context_loader_loads_memory_hits(self, temp_dirs):
         from workspace.manager import ensure_workspace

@@ -8,7 +8,7 @@ WS_ROOT = ROOT / "workspaces"
 
 def save_artifact(ws_id, run_id, artifact_type, content, title="", sensitivity="internal"):
     from workspace.manager import ensure_workspace
-    ensure_workspace(ws_id)
+    ws_id = ensure_workspace(ws_id)
     art_id = f"{artifact_type}_{int(time.time())}"
     art_dir = WS_ROOT / ws_id / "artifacts" / artifact_type
     art_dir.mkdir(parents=True, exist_ok=True)
@@ -25,6 +25,8 @@ def save_artifact(ws_id, run_id, artifact_type, content, title="", sensitivity="
     return art_id
 
 def get_artifact(ws_id, artifact_id):
+    from workspace.ids import validate_workspace_id
+    ws_id = validate_workspace_id(ws_id)
     for art_type in ["inputs","outputs","reports","temp"]:
         art_dir = WS_ROOT / ws_id / "artifacts" / art_type
         meta_path = art_dir / f"{artifact_id}_meta.json"
@@ -37,6 +39,8 @@ def get_artifact(ws_id, artifact_id):
     return None
 
 def list_artifacts(ws_id, run_id=None, artifact_type=None):
+    from workspace.ids import validate_workspace_id
+    ws_id = validate_workspace_id(ws_id)
     results = []
     ensure = Path(__file__).resolve().parent
     for art_type in ([artifact_type] if artifact_type else ["inputs","outputs","reports","temp"]):

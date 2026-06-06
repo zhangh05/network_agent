@@ -46,6 +46,63 @@ class TestWorkspaceAPI:
         if "source_config" in text:
             assert len(text) < 500  # if present, must be brief
 
+    def test_agent_rejects_invalid_workspace_id(self, client):
+        resp = client.post("/api/agent/run", json={
+            "message": "translate config",
+            "workspace_id": "../escape",
+            "payload": {
+                "source_vendor": "cisco",
+                "target_vendor": "huawei",
+                "source_config": "hostname R1",
+            },
+        })
+        assert resp.status_code == 400
+        data = resp.get_json()
+        assert data["ok"] is False
+        assert data["error"] == "invalid_workspace_id"
+
+    def test_agent_rejects_oversized_source_config(self, client, monkeypatch):
+        monkeypatch.setenv("NETWORK_AGENT_MAX_SOURCE_CONFIG_BYTES", "20")
+        resp = client.post("/api/agent/run", json={
+            "message": "translate config",
+            "workspace_id": "test_ws",
+            "payload": {
+                "source_vendor": "cisco",
+                "target_vendor": "huawei",
+                "source_config": "hostname R1\ninterface GigabitEthernet0/1",
+            },
+        })
+        assert resp.status_code == 413
+        data = resp.get_json()
+        assert data["ok"] is False
+        assert data["error"] == "source_config_too_large"
+
+    def test_agent_rejects_oversized_message_config(self, client, monkeypatch):
+        monkeypatch.setenv("NETWORK_AGENT_MAX_SOURCE_CONFIG_BYTES", "20")
+        resp = client.post("/api/agent/run", json={
+            "intent": "translate_config",
+            "workspace_id": "test_ws",
+            "message": "hostname R1\ninterface GigabitEthernet0/1",
+        })
+        assert resp.status_code == 413
+        data = resp.get_json()
+        assert data["ok"] is False
+        assert data["error"] == "source_config_too_large"
+
+    def test_artifacts_reject_invalid_limit(self, client):
+        resp = client.get("/api/workspaces/test_ws/artifacts?limit=abc")
+        assert resp.status_code == 400
+        data = resp.get_json()
+        assert data["ok"] is False
+        assert data["error"] == "invalid_limit"
+
+    def test_artifacts_reject_zero_limit(self, client):
+        resp = client.get("/api/workspaces/test_ws/artifacts?limit=0")
+        assert resp.status_code == 400
+        data = resp.get_json()
+        assert data["ok"] is False
+        assert data["error"] == "invalid_limit"
+
 
 class TestMemoryAPI:
     def test_memory_status(self, client):
@@ -60,6 +117,13 @@ class TestMemoryAPI:
         data = resp.get_json()
         assert data["ok"] is True
         assert "records" in data
+
+    def test_memory_list_rejects_invalid_limit(self, client):
+        resp = client.get("/api/memory/list?limit=abc")
+        assert resp.status_code == 400
+        data = resp.get_json()
+        assert data["ok"] is False
+        assert data["error"] == "invalid_limit"
 
     def test_memory_write_and_delete(self, client):
         # Write
@@ -85,6 +149,16 @@ class TestMemoryAPI:
             "limit": 5,
         })
         assert resp.status_code == 200
+
+    def test_memory_search_rejects_invalid_limit(self, client):
+        resp = client.post("/api/memory/search", json={
+            "query": "test",
+            "limit": "abc",
+        })
+        assert resp.status_code == 400
+        data = resp.get_json()
+        assert data["ok"] is False
+        assert data["error"] == "invalid_limit"
 
     def test_memory_confirm(self, client):
         resp = client.post("/api/memory/confirm", json={
@@ -212,6 +286,18 @@ class TestRegression:
         assert resp.status_code == 200
         data = resp.get_json()
         assert data.get("ok") is True
+
+    def test_module_config_translate_rejects_oversized_source_config(self, client, monkeypatch):
+        monkeypatch.setenv("NETWORK_AGENT_MAX_SOURCE_CONFIG_BYTES", "20")
+        resp = client.post("/api/modules/config-translation/translate", json={
+            "source_vendor": "cisco",
+            "target_vendor": "huawei",
+            "source_config": "hostname R1\ninterface GigabitEthernet0/1",
+        })
+        assert resp.status_code == 413
+        data = resp.get_json()
+        assert data["ok"] is False
+        assert data["error"] == "source_config_too_large"
 
     def test_translate_api_gone(self, client):
         resp = client.post("/api/translate", json={"test": 1})

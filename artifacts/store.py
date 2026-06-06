@@ -52,6 +52,8 @@ def _new_artifact_id() -> str:
 
 
 def _index_path(ws_id: str) -> Path:
+    from workspace.ids import validate_workspace_id
+    ws_id = validate_workspace_id(ws_id)
     return _get_ws_root() / ws_id / "indexes" / "artifacts.index.json"
 
 
@@ -221,6 +223,8 @@ def save_artifact(workspace_id: str, content: str = "", source_path: str = "",
 
 def get_artifact(workspace_id: str, artifact_id: str) -> Optional[ArtifactRecord]:
     """Get artifact by exact ID (not sha256)."""
+    from workspace.ids import validate_workspace_id
+    workspace_id = validate_workspace_id(workspace_id)
     for type_dir in _all_type_dirs():
         meta = _get_ws_root() / workspace_id / "artifacts" / type_dir / f"{artifact_id}.meta.json"
         if meta.is_file():
@@ -305,6 +309,8 @@ def summarize_artifact_content(workspace_id: str, artifact_id: str) -> dict:
 
 
 def get_run_artifacts(workspace_id: str, run_id: str) -> dict:
+    from workspace.ids import validate_workspace_id
+    workspace_id = validate_workspace_id(workspace_id)
     p = _get_ws_root() / workspace_id / "runs" / f"{run_id}.artifacts.json"
     if p.is_file():
         try:
@@ -339,6 +345,8 @@ def sanitize_record(rec: ArtifactRecord, include_metadata: bool = False) -> dict
 # ── helpers ──
 
 def _update_run_index(ws_id, run_id, art_id, artifact_type, title):
+    from workspace.ids import validate_workspace_id
+    ws_id = validate_workspace_id(ws_id)
     idx = get_run_artifacts(ws_id, run_id)
     info = {"artifact_id": art_id, "artifact_type": artifact_type, "title": title}
     if artifact_type in ("input_config", "template", "sample"):

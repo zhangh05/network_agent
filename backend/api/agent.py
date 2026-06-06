@@ -17,7 +17,9 @@ It does NOT:
 from flask import request, jsonify
 
 from agent.graph import run_agent, get_runtime_status
+from backend.core.limits import source_config_too_large
 from backend.core.settings import BUILD_COMMIT, TRANSLATOR_ENTRY
+from workspace.ids import validate_workspace_id
 
 
 def handle_agent_status():
@@ -36,6 +38,15 @@ def handle_agent_run():
     payload = data.get("payload") or {}
     workspace_id = data.get("workspace_id", "default")
     context_ref = data.get("context_ref", "")
+
+    try:
+        workspace_id = validate_workspace_id(workspace_id)
+    except ValueError:
+        return jsonify({"ok": False, "error": "invalid_workspace_id"}), 400
+    if source_config_too_large(payload.get("source_config", "")):
+        return jsonify({"ok": False, "error": "source_config_too_large"}), 413
+    if intent == "translate_config" and not payload.get("source_config") and source_config_too_large(message):
+        return jsonify({"ok": False, "error": "source_config_too_large"}), 413
 
     # Build unified payload — context_ref goes into the agent pipeline
     effective_payload = dict(payload)

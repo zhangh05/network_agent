@@ -19,7 +19,7 @@ def _get_ws_root():
 def write_trace(trace, ws_id: str = "default") -> str:
     """Write a trace record to workspace runs directory. Returns trace_id."""
     from workspace.manager import ensure_workspace
-    ensure_workspace(ws_id)
+    ws_id = ensure_workspace(ws_id)
 
     trace_id = trace.trace_id
     run_id = trace.run_id
@@ -40,6 +40,8 @@ def write_trace(trace, ws_id: str = "default") -> str:
 
 def get_trace(run_id: str, ws_id: str = "default") -> Optional[dict]:
     """Get a trace record by run_id."""
+    from workspace.ids import validate_workspace_id
+    ws_id = validate_workspace_id(ws_id)
     WS_ROOT = _get_ws_root()
     path = WS_ROOT / ws_id / "runs" / f"{run_id}.trace.json"
     if not path.is_file():
@@ -52,6 +54,8 @@ def get_trace(run_id: str, ws_id: str = "default") -> Optional[dict]:
 
 def list_traces(ws_id: str = "default", limit: int = 50) -> list:
     """List trace records for a workspace."""
+    from workspace.ids import validate_workspace_id
+    ws_id = validate_workspace_id(ws_id)
     WS_ROOT = _get_ws_root()
     runs_dir = WS_ROOT / ws_id / "runs"
     if not runs_dir.is_dir():
@@ -79,6 +83,8 @@ def list_traces(ws_id: str = "default", limit: int = 50) -> list:
 
 def append_event(trace_id: str, event, ws_id: str = "default"):
     """Append an event to an existing trace."""
+    from workspace.ids import validate_workspace_id
+    ws_id = validate_workspace_id(ws_id)
     WS_ROOT = _get_ws_root()
     runs_dir = WS_ROOT / ws_id / "runs"
     if not runs_dir.is_dir():

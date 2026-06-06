@@ -16,7 +16,7 @@ def write_run_record(state, ws_id: str = "default") -> str:
     Returns run_id.
     """
     from workspace.manager import ensure_workspace
-    ensure_workspace(ws_id)
+    ws_id = ensure_workspace(ws_id)
 
     run_dir = WS_ROOT / ws_id / "runs"
     run_id = state.request_id or f"run_{int(time.time())}"
@@ -73,6 +73,8 @@ def write_run_record(state, ws_id: str = "default") -> str:
 
 def get_run(run_id: str, ws_id: str = "default") -> dict:
     """Get a run record."""
+    from workspace.ids import validate_workspace_id
+    ws_id = validate_workspace_id(ws_id)
     path = WS_ROOT / ws_id / "runs" / f"{run_id}.json"
     if path.is_file():
         try:
@@ -85,7 +87,7 @@ def get_run(run_id: str, ws_id: str = "default") -> dict:
 def list_runs(ws_id: str = "default", limit: int = 50) -> list:
     """List recent run records."""
     from workspace.manager import ensure_workspace
-    ensure_workspace(ws_id)
+    ws_id = ensure_workspace(ws_id)
 
     runs_dir = WS_ROOT / ws_id / "runs"
     if not runs_dir.is_dir():

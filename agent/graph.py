@@ -215,7 +215,22 @@ def _run_timed_node(state: NetworkAgentState, node_name: str, display_name: str)
 def run_agent(user_input: str = "", intent: str = "", payload: dict = None,
               workspace_id: str = "default") -> dict:
     """Run agent pipeline and return full result dict with metadata + trace."""
+    try:
+        from workspace.ids import validate_workspace_id
+        workspace_id = validate_workspace_id(workspace_id)
+    except ValueError:
+        return _rejected_result("invalid_workspace_id", intent, warning="invalid_workspace_id")
+
     payload = payload or {}
+    if payload.get("source_config"):
+        from backend.core.limits import source_config_too_large
+        if source_config_too_large(payload.get("source_config", "")):
+            return _rejected_result("source_config_too_large", intent, warning="source_config_too_large")
+    elif intent == "translate_config":
+        from backend.core.limits import source_config_too_large
+        if source_config_too_large(user_input):
+            return _rejected_result("source_config_too_large", intent, warning="source_config_too_large")
+
     context_ref = payload.pop("context_ref", "")
 
     state = NetworkAgentState(
@@ -316,6 +331,37 @@ def _build_artifact_refs(state) -> list:
         except Exception:
             pass
     return refs
+
+
+def _rejected_result(error: str, intent: str = "", warning: str = "") -> dict:
+    warnings = [warning or error]
+    return {
+        "ok": False,
+        "error": error,
+        "run_id": "",
+        "request_id": "",
+        "intent": intent or "",
+        "active_module": None,
+        "selected_skill": None,
+        "runtime_mode": "rejected",
+        "result": {},
+        "verification": {},
+        "warnings": warnings,
+        "final_response": error,
+        "workspace_id": "",
+        "memory_written": False,
+        "workspace_updated": False,
+        "memory_hits_count": 0,
+        "artifacts": [],
+        "input_artifacts": [],
+        "output_artifacts": [],
+        "report_artifacts": [],
+        "artifact_refs": [],
+        "trace_id": "",
+        "trace_available": False,
+        "timeline_summary": {},
+        "llm": {"enabled": False, "used": False},
+    }
 
 
 def get_runtime_status() -> dict:

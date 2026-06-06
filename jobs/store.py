@@ -22,6 +22,8 @@ def _get_ws_root():
         return ROOT / "workspaces"
 
 def _job_dir(ws_id, job_id=""):
+    from workspace.ids import validate_workspace_id
+    ws_id = validate_workspace_id(ws_id)
     return _get_ws_root() / ws_id / "jobs" / (job_id if job_id else "")
 
 def _ensure(ws_id, job_id=""):
@@ -29,7 +31,10 @@ def _ensure(ws_id, job_id=""):
     d.mkdir(parents=True, exist_ok=True)
     return d
 
-def _index_path(ws_id): return _get_ws_root() / ws_id / "indexes" / "jobs.index.json"
+def _index_path(ws_id):
+    from workspace.ids import validate_workspace_id
+    ws_id = validate_workspace_id(ws_id)
+    return _get_ws_root() / ws_id / "indexes" / "jobs.index.json"
 
 
 def create_job(rec: JobRecord) -> JobRecord:
@@ -81,6 +86,9 @@ def update_job(ws_id, job_id, patch: dict) -> Optional[JobRecord]:
 def list_jobs(ws_id=None, status=None, job_type=None, limit=100) -> list:
     results = []
     ws_root = _get_ws_root()
+    if ws_id:
+        from workspace.ids import validate_workspace_id
+        ws_id = validate_workspace_id(ws_id)
     for wd in ws_root.iterdir() if not ws_id else [ws_root / ws_id]:
         if not wd.is_dir() or wd.name.startswith("."): continue
         jd = wd / "jobs"

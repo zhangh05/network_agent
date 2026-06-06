@@ -2,6 +2,7 @@
 """Memory API routes — confirm, list, delete."""
 
 from flask import request, jsonify
+from backend.api.params import parse_limit
 from memory.schemas import MemoryRecord
 from memory.backends.jsonl_store import JSONLMemoryStore
 from memory.policy import can_write_memory
@@ -81,7 +82,10 @@ def handle_memory_list():
     scope = request.args.get("scope")
     memory_type = request.args.get("memory_type")
     project_id = request.args.get("project_id")
-    limit = int(request.args.get("limit", 100))
+    try:
+        limit = parse_limit(request.args, default=100, max_value=500)
+    except ValueError:
+        return jsonify({"ok": False, "error": "invalid_limit"}), 400
 
     store = JSONLMemoryStore()
     records = store.list(

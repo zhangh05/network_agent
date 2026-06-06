@@ -27,8 +27,32 @@ from backend.api.workspace import handle_workspace_status
 from backend.api.modules import handle_modules, handle_module_status, handle_registry_status, handle_capabilities
 from backend.api.memory import handle_memory_status, handle_memory_write, handle_memory_search
 from backend.api.memory_routes import handle_memory_confirm, handle_memory_delete, handle_memory_list
+from backend.api.params import parse_limit
 from backend.core.settings import UNIFIED_PORT, API_MODE, BUILD_COMMIT, TRANSLATOR_ENTRY
 from backend.core.paths import FRONTEND_DIR
+from workspace.ids import validate_workspace_id
+
+
+def _invalid_workspace_response():
+    return jsonify({"ok": False, "error": "invalid_workspace_id"}), 400
+
+
+def _validated_workspace_id(raw="default"):
+    try:
+        return validate_workspace_id(raw or "default"), None
+    except ValueError:
+        return None, _invalid_workspace_response()
+
+
+def _invalid_limit_response():
+    return jsonify({"ok": False, "error": "invalid_limit"}), 400
+
+
+def _validated_limit(default=100, max_value=500):
+    try:
+        return parse_limit(request.args, default=default, max_value=max_value), None
+    except ValueError:
+        return None, _invalid_limit_response()
 
 
 def create_app():
@@ -91,16 +115,25 @@ def create_app():
 
     @app.route("/api/workspaces/<ws_id>/state")
     def api_workspace_state(ws_id):
+        ws_id, err = _validated_workspace_id(ws_id)
+        if err:
+            return err
         from workspace.manager import get_workspace_state
         return jsonify(get_workspace_state(ws_id))
 
     @app.route("/api/workspaces/<ws_id>/runs")
     def api_workspace_runs(ws_id):
+        ws_id, err = _validated_workspace_id(ws_id)
+        if err:
+            return err
         from workspace.manager import get_workspace_runs
         return jsonify({"runs": get_workspace_runs(ws_id)})
 
     @app.route("/api/workspaces/<ws_id>/runs/<run_id>")
     def api_workspace_run(ws_id, run_id):
+        ws_id, err = _validated_workspace_id(ws_id)
+        if err:
+            return err
         from workspace.run_store import get_run
         result = get_run(run_id, ws_id)
         if not result:
@@ -109,18 +142,26 @@ def create_app():
 
     @app.route("/api/workspaces/<ws_id>/artifacts")
     def api_workspace_artifacts(ws_id):
+        ws_id, err = _validated_workspace_id(ws_id)
+        if err:
+            return err
         from artifacts.store import list_artifacts, save_artifact, get_artifact, read_artifact_content, delete_artifact, promote_artifact, summarize_artifact_content, get_run_artifacts
         run_id = request.args.get("run_id")
         art_type = request.args.get("artifact_type")
         scope = request.args.get("scope")
         sens = request.args.get("sensitivity")
         inc_del = request.args.get("include_deleted", "0") == "1"
-        lim = int(request.args.get("limit", 100))
+        lim, err = _validated_limit(default=100, max_value=500)
+        if err:
+            return err
         return jsonify({"artifacts": list_artifacts(ws_id, run_id=run_id, artifact_type=art_type,
                         scope=scope, sensitivity=sens, include_deleted=inc_del, limit=lim)})
 
     @app.route("/api/workspaces/<ws_id>/artifacts", methods=["POST"])
     def api_workspace_artifact_create(ws_id):
+        ws_id, err = _validated_workspace_id(ws_id)
+        if err:
+            return err
         from artifacts.store import save_artifact, sanitize_record
         data = request.get_json(silent=True) or {}
         rec = save_artifact(
@@ -136,6 +177,9 @@ def create_app():
 
     @app.route("/api/workspaces/<ws_id>/artifacts/upload", methods=["POST"])
     def api_workspace_artifact_upload(ws_id):
+        ws_id, err = _validated_workspace_id(ws_id)
+        if err:
+            return err
         import re
         from artifacts.store import save_artifact, sanitize_record, _get_max_size, _get_ws_root
         max_size = _get_max_size()
@@ -186,6 +230,9 @@ def create_app():
 
     @app.route("/api/workspaces/<ws_id>/artifacts/<artifact_id>")
     def api_workspace_artifact(ws_id, artifact_id):
+        ws_id, err = _validated_workspace_id(ws_id)
+        if err:
+            return err
         from artifacts.store import get_artifact
         rec = get_artifact(ws_id, artifact_id)
         if not rec:
@@ -194,6 +241,9 @@ def create_app():
 
     @app.route("/api/workspaces/<ws_id>/artifacts/<artifact_id>/content")
     def api_artifact_content(ws_id, artifact_id):
+        ws_id, err = _validated_workspace_id(ws_id)
+        if err:
+            return err
         from artifacts.store import read_artifact_content
         allow = request.args.get("allow_sensitive", "0") == "1"
         content = read_artifact_content(ws_id, artifact_id, allow_sensitive=allow)
@@ -203,12 +253,18 @@ def create_app():
 
     @app.route("/api/workspaces/<ws_id>/artifacts/<artifact_id>", methods=["DELETE"])
     def api_artifact_delete(ws_id, artifact_id):
+        ws_id, err = _validated_workspace_id(ws_id)
+        if err:
+            return err
         from artifacts.store import delete_artifact
         ok = delete_artifact(ws_id, artifact_id)
         return jsonify({"ok": ok})
 
     @app.route("/api/workspaces/<ws_id>/artifacts/<artifact_id>/promote", methods=["POST"])
     def api_artifact_promote(ws_id, artifact_id):
+        ws_id, err = _validated_workspace_id(ws_id)
+        if err:
+            return err
         data = request.get_json(silent=True) or {}
         target = data.get("target_scope", "workspace")
         from artifacts.store import promote_artifact
@@ -219,18 +275,27 @@ def create_app():
 
     @app.route("/api/workspaces/<ws_id>/artifacts/<artifact_id>/summarize")
     def api_artifact_summarize(ws_id, artifact_id):
+        ws_id, err = _validated_workspace_id(ws_id)
+        if err:
+            return err
         from artifacts.store import summarize_artifact_content
         s = summarize_artifact_content(ws_id, artifact_id)
         return jsonify({"ok": True, "summary": s})
 
     @app.route("/api/workspaces/<ws_id>/runs/<run_id>/artifacts")
     def api_run_artifacts(ws_id, run_id):
+        ws_id, err = _validated_workspace_id(ws_id)
+        if err:
+            return err
         from artifacts.store import get_run_artifacts
         return jsonify({"ok": True, **get_run_artifacts(ws_id, run_id)})
 
     # ── Trace (Observability) ──
     @app.route("/api/workspaces/<ws_id>/runs/<run_id>/trace")
     def api_workspace_trace(ws_id, run_id):
+        ws_id, err = _validated_workspace_id(ws_id)
+        if err:
+            return err
         from observability.store import get_trace
         trace = get_trace(run_id, ws_id)
         if not trace:
@@ -239,6 +304,9 @@ def create_app():
 
     @app.route("/api/workspaces/<ws_id>/traces")
     def api_workspace_traces(ws_id):
+        ws_id, err = _validated_workspace_id(ws_id)
+        if err:
+            return err
         from observability.store import list_traces
         return jsonify({"traces": list_traces(ws_id)})
 
@@ -254,10 +322,13 @@ def create_app():
     @app.route("/api/reports/create", methods=["POST"])
     def api_report_create():
         data = request.get_json(silent=True) or {}
+        workspace_id, err = _validated_workspace_id(data.get("workspace_id", "default"))
+        if err:
+            return err
         from reports_engine.schemas import ReportRequest
         from reports_engine.service import create_report as svc_create_report
         req = ReportRequest(
-            workspace_id=data.get("workspace_id", "default"),
+            workspace_id=workspace_id,
             run_id=data.get("run_id", ""),
             report_type=data.get("report_type", "config_translation"),
             title=data.get("title", ""),
@@ -270,6 +341,9 @@ def create_app():
 
     @app.route("/api/workspaces/<ws_id>/runs/<run_id>/report", methods=["POST"])
     def api_workspace_run_report(ws_id, run_id):
+        ws_id, err = _validated_workspace_id(ws_id)
+        if err:
+            return err
         data = request.get_json(silent=True) or {}
         from reports_engine.service import create_config_translation_report
         result = create_config_translation_report(
@@ -281,12 +355,18 @@ def create_app():
 
     @app.route("/api/workspaces/<ws_id>/reports")
     def api_workspace_reports(ws_id):
+        ws_id, err = _validated_workspace_id(ws_id)
+        if err:
+            return err
         from artifacts.store import list_artifacts
         arts = list_artifacts(ws_id, artifact_type="report")
         return jsonify({"reports": arts})
 
     @app.route("/api/workspaces/<ws_id>/reports/<artifact_id>/content")
     def api_report_content(ws_id, artifact_id):
+        ws_id, err = _validated_workspace_id(ws_id)
+        if err:
+            return err
         from artifacts.store import read_artifact_content
         allow = request.args.get("allow_sensitive", "0") == "1"
         content = read_artifact_content(ws_id, artifact_id, allow_sensitive=allow)
@@ -298,11 +378,14 @@ def create_app():
     @app.route("/api/jobs", methods=["POST"])
     def api_job_create():
         data = request.get_json(silent=True) or {}
+        workspace_id, err = _validated_workspace_id(data.get("workspace_id", "default"))
+        if err:
+            return err
         from jobs.manager import create_job
         from jobs.redaction import sanitize_job_record_for_api
         try:
             rec = create_job(
-                workspace_id=data.get("workspace_id", "default"),
+                workspace_id=workspace_id,
                 job_type=data.get("job_type", "agent_run"),
                 title=data.get("title", ""),
                 payload=data.get("payload", {}),
@@ -319,15 +402,25 @@ def create_app():
     @app.route("/api/jobs")
     def api_jobs_list():
         ws = request.args.get("workspace_id")
+        if ws:
+            ws, err = _validated_workspace_id(ws)
+            if err:
+                return err
         status = request.args.get("status")
         jtype = request.args.get("job_type")
-        lim = int(request.args.get("limit", 100))
+        lim, err = _validated_limit(default=100, max_value=500)
+        if err:
+            return err
         from jobs.store import list_jobs
         return jsonify({"jobs": list_jobs(ws_id=ws, status=status, job_type=jtype, limit=lim)})
 
     @app.route("/api/jobs/<job_id>")
     def api_job_detail(job_id):
         ws = request.args.get("workspace_id", "")
+        if ws:
+            ws, err = _validated_workspace_id(ws)
+            if err:
+                return err
         from jobs.store import get_job, list_jobs
         # Search for job across workspaces if ws not specified
         if ws:
@@ -342,11 +435,17 @@ def create_app():
 
     @app.route("/api/workspaces/<ws_id>/jobs")
     def api_workspace_jobs(ws_id):
+        ws_id, err = _validated_workspace_id(ws_id)
+        if err:
+            return err
         from jobs.store import list_jobs
         return jsonify({"jobs": list_jobs(ws_id=ws_id)})
 
     @app.route("/api/workspaces/<ws_id>/jobs/<job_id>")
     def api_workspace_job_detail(ws_id, job_id):
+        ws_id, err = _validated_workspace_id(ws_id)
+        if err:
+            return err
         from jobs.store import get_job
         rec = get_job(ws_id, job_id)
         if not rec: return jsonify({"ok": False, "error": "job not found"}), 404
@@ -354,7 +453,9 @@ def create_app():
 
     @app.route("/api/jobs/<job_id>/cancel", methods=["POST"])
     def api_job_cancel(job_id):
-        ws = (request.get_json(silent=True) or {}).get("workspace_id", "default")
+        ws, err = _validated_workspace_id((request.get_json(silent=True) or {}).get("workspace_id", "default"))
+        if err:
+            return err
         from jobs.manager import cancel_job
         try:
             rec = cancel_job(ws, job_id)
@@ -364,7 +465,9 @@ def create_app():
 
     @app.route("/api/jobs/<job_id>/retry", methods=["POST"])
     def api_job_retry(job_id):
-        ws = (request.get_json(silent=True) or {}).get("workspace_id", "default")
+        ws, err = _validated_workspace_id((request.get_json(silent=True) or {}).get("workspace_id", "default"))
+        if err:
+            return err
         from jobs.manager import retry_job
         try:
             rec = retry_job(ws, job_id)
@@ -374,19 +477,25 @@ def create_app():
 
     @app.route("/api/jobs/<job_id>/events")
     def api_job_events(job_id):
-        ws = request.args.get("workspace_id", "default")
+        ws, err = _validated_workspace_id(request.args.get("workspace_id", "default"))
+        if err:
+            return err
         from jobs.store import list_events
         return jsonify({"events": list_events(ws, job_id)})
 
     @app.route("/api/jobs/<job_id>/logs")
     def api_job_logs(job_id):
-        ws = request.args.get("workspace_id", "default")
+        ws, err = _validated_workspace_id(request.args.get("workspace_id", "default"))
+        if err:
+            return err
         from jobs.store import list_logs
         return jsonify({"logs": list_logs(ws, job_id)})
 
     @app.route("/api/jobs/<job_id>/artifacts")
     def api_job_artifacts(job_id):
-        ws = request.args.get("workspace_id", "default")
+        ws, err = _validated_workspace_id(request.args.get("workspace_id", "default"))
+        if err:
+            return err
         from jobs.store import get_job
         rec = get_job(ws, job_id)
         if not rec: return jsonify({"ok": False, "error": "job not found"}), 404
@@ -419,9 +528,12 @@ def create_app():
     @app.route("/api/context/resolve", methods=["POST"])
     def api_context_resolve():
         data = request.get_json(silent=True) or {}
+        workspace_id, err = _validated_workspace_id(data.get("workspace_id", "default"))
+        if err:
+            return err
         from context.resolver import resolve_context_ref
         ref = resolve_context_ref(
-            data.get("workspace_id", "default"),
+            workspace_id,
             data.get("context_ref", ""),
             data.get("payload"),
         )
@@ -430,9 +542,12 @@ def create_app():
     @app.route("/api/context/build", methods=["POST"])
     def api_context_build():
         data = request.get_json(silent=True) or {}
+        workspace_id, err = _validated_workspace_id(data.get("workspace_id", "default"))
+        if err:
+            return err
         from context.builder import build_context_bundle
         bundle = build_context_bundle(
-            workspace_id=data.get("workspace_id", "default"),
+            workspace_id=workspace_id,
             user_input=data.get("message", ""),
             intent=data.get("intent", ""),
             context_ref=data.get("context_ref", ""),
@@ -456,10 +571,13 @@ def create_app():
     @app.route("/api/prompts/render", methods=["POST"])
     def api_prompts_render():
         data = request.get_json(silent=True) or {}
+        workspace_id, err = _validated_workspace_id(data.get("workspace_id", "default"))
+        if err:
+            return err
         from prompts.loader import render_prompt
         from context.builder import build_context_bundle
         bundle = build_context_bundle(
-            workspace_id=data.get("workspace_id", "default"),
+            workspace_id=workspace_id,
             user_input=data.get("message", ""),
             intent=data.get("intent", ""),
             context_ref=data.get("context_ref", ""),
