@@ -105,13 +105,14 @@ def _deep_sanitize(obj, for_api=False):
 
 
 def _config_ref(obj, key):
-    """Replace config value with summary ref."""
+    """Replace config value with safe summary ref — NO raw content."""
     val = obj.get(key, "")
     if isinstance(val, str):
         lines = val.strip().split("\n") if val else []
         return {
             "type": "config_ref",
             "line_count": len(lines),
-            "summary": (val[:80] + "..." if len(val) > 80 else val) if not len(lines) > 5 else f"{lines[0]}...",
+            "summary": "Config content stored as artifact reference.",
+            "sensitivity": "sensitive",
         }
     return REDACTED_CONFIG

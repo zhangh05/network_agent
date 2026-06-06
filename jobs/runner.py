@@ -13,11 +13,14 @@ def run_job(ws_id: str, job_id: str):
     rec = get_job(ws_id, job_id)
     if not rec:
         return
+
+    # Planned job types: go through queued→running→succeeded
     if rec.job_type not in ("agent_run", "translate_config", "export_report", "batch_translate_config"):
-        # Planned/coming_soon — update status directly without strict transition check
-        update_job(ws_id, job_id, {"status": "succeeded", "result_summary": {"status": "coming_soon", "job_type": rec.job_type}})
-        append_event(ws_id, job_id, JobEvent(job_id=job_id, workspace_id=ws_id,
-                     event_type="job_succeeded", message=f"Job completed (coming_soon): {rec.job_type}"))
+        try:
+            mark_running(ws_id, job_id)
+        except Exception:
+            pass
+        mark_succeeded(ws_id, job_id, {"status": "coming_soon", "planned": True, "job_type": rec.job_type})
         return
 
     try:
@@ -33,9 +36,12 @@ def run_job(ws_id: str, job_id: str):
         elif rec.job_type == "batch_translate_config":
             _run_batch_translate(rec)
 
-        mark_succeeded(ws_id, job_id, {"run_count": len(rec.run_ids),
-                                        "artifact_count": len(rec.output_artifacts)})
-        append_log(ws_id, job_id, f"Job succeeded")
+        # Fresh-get final job for accurate summary
+        final = get_job(ws_id, job_id)
+        mark_succeeded(ws_id, job_id, {
+            "run_count": len(final.run_ids) if final else 0,
+            "artifact_count": len(final.output_artifacts) if final else 0,
+        })
     except Exception as e:
         error_msg = str(e)[:300]
         mark_failed(ws_id, job_id, error_msg)
@@ -187,7 +193,15 @@ def _run_batch_translate(rec: JobRecord):
                 mark_failed(ws, jid, f"Batch failed at {i}/{total}: {e}")
                 return
 
-    update_job(ws, jid, {"result_summary": {"batch_results": results, "total": total, "succeeded": sum(1 for r in results if r.get("ok"))}})
+    # Fresh-get final state for summary
+    final = get_job(ws, jid)
+    succ = sum(1 for r in results if r.get("ok"))
+    update_job(ws, jid, {"result_summary": {
+        "batch_results": results, "total": total,
+        "succeeded": succ, "failed": total - succ,
+        "run_count": len(final.run_ids) if final else 0,
+        "output_artifact_count": len(final.output_artifacts) if final else 0,
+    }})
 
 
 def _cancel_check(rec: JobRecord) -> bool:

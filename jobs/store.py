@@ -9,7 +9,7 @@ from jobs.schemas import JobRecord, JobEvent
 from jobs.redaction import (
     sanitize_job_record_for_storage, sanitize_job_record_for_api,
     sanitize_job_event_for_storage, sanitize_job_event_for_api,
-    sanitize_job_log_for_api,
+    sanitize_job_log_for_storage, sanitize_job_log_for_api,
 )
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -39,6 +39,10 @@ def create_job(rec: JobRecord) -> JobRecord:
     # Sanitize before writing to disk
     safe = sanitize_job_record_for_storage(rec.as_dict())
     _write_atomic(d / f"{rec.job_id}.json", json.dumps(safe, indent=2, ensure_ascii=False))
+    # Apply sanitization to rec before returning
+    for k, v in safe.items():
+        if hasattr(rec, k):
+            setattr(rec, k, v)
     _update_index(rec.workspace_id, rec)
     append_event(rec.workspace_id, rec.job_id,
                  JobEvent(job_id=rec.job_id, workspace_id=rec.workspace_id,
@@ -65,7 +69,11 @@ def update_job(ws_id, job_id, patch: dict) -> Optional[JobRecord]:
             setattr(rec, k, v)
     rec.updated_at = time.strftime("%Y-%m-%dT%H:%M:%S")
     d = _ensure(ws_id, job_id)
-    _write_atomic(d / f"{job_id}.json", json.dumps(sanitize_job_record_for_storage(rec.as_dict()), indent=2, ensure_ascii=False))
+    safe = sanitize_job_record_for_storage(rec.as_dict())
+    _write_atomic(d / f"{job_id}.json", json.dumps(safe, indent=2, ensure_ascii=False))
+    for k, v in safe.items():
+        if hasattr(rec, k):
+            setattr(rec, k, v)
     _update_workspace_stats(ws_id)
     return rec
 
@@ -122,8 +130,10 @@ def append_log(ws_id, job_id, message, level="info", meta=None):
     p = _job_dir(ws_id, job_id) / f"{job_id}.log.jsonl"
     entry = {"ts": time.strftime("%Y-%m-%dT%H:%M:%S"), "level": level,
              "msg": message[:1000], "meta": meta or {}}
+    # Sanitize before writing
+    safe = sanitize_job_log_for_storage(entry)
     with open(p, "a", encoding="utf-8") as f:
-        f.write(json.dumps(entry, ensure_ascii=False) + "\n")
+        f.write(json.dumps(safe, ensure_ascii=False) + "\n")
 
 
 def list_logs(ws_id, job_id, limit=200) -> list:

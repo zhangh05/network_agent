@@ -9,19 +9,22 @@ from jobs.redaction import sanitize_job_record_for_api, sanitize_job_record_for_
 # Strict transition table
 ALLOWED_TRANSITIONS = {
     "created": {"queued", "cancelled"},
-    "queued": {"running", "cancelled"},
+    "queued": {"running", "cancelled", "failed"},
     "running": {"succeeded", "failed", "cancelled", "paused"},
-    "paused": {"running", "cancelled"},
+    "paused": {"running", "cancelled", "failed"},
     "failed": {"queued", "cancelled"},
     "succeeded": set(),
     "cancelled": set(),
 }
 
+# Planned jobs can transition directly (no actual work)
+PLANNED_TRANSITIONS = {"created": {"running"}}
+
 
 def _check_transition(current: str, target: str) -> bool:
     if current == target:
         return True
-    allowed = ALLOWED_TRANSITIONS.get(current, set())
+    allowed = ALLOWED_TRANSITIONS.get(current, set()) | PLANNED_TRANSITIONS.get(current, set())
     if target not in allowed:
         raise ValueError(f"invalid_transition: {current} → {target}")
     return True
@@ -48,13 +51,20 @@ def create_job(workspace_id="default", job_type="agent_run", title="", payload=N
             )
             if art:
                 payload["artifact_id"] = art.artifact_id
-                payload["source_config_ref"] = {"artifact_id": art.artifact_id,
-                                                 "line_count": len(source_config.split("\n")),
-                                                 "summary": source_config[:80]}
+                payload["source_config_ref"] = {
+                    "artifact_id": art.artifact_id,
+                    "line_count": len(source_config.split("\n")),
+                    "sha256_short": art.sha256[:12] if art.sha256 else "",
+                    "summary": "Config content stored as artifact reference.",
+                    "sensitivity": "sensitive",
+                }
                 input_artifacts = (input_artifacts or []) + [art.artifact_id]
         except Exception:
-            payload["source_config_ref"] = {"line_count": len(source_config.split("\n")),
-                                            "summary": source_config[:80]}
+            payload["source_config_ref"] = {
+                "line_count": len(source_config.split("\n")),
+                "summary": "Config content stored as artifact reference.",
+                "sensitivity": "sensitive",
+            }
 
     rec = JobRecord(
         workspace_id=workspace_id, job_type=job_type,
@@ -137,11 +147,7 @@ def mark_succeeded(ws_id, job_id, result_summary=None) -> JobRecord:
 def mark_failed(ws_id, job_id, error="") -> JobRecord:
     rec = get_job(ws_id, job_id)
     if not rec: return None
-    # Also allow queued→failed for direct failure scenarios
-    if rec.status == "queued":
-        _check_transition("queued", "cancelled")  # soft check
-    else:
-        _check_transition(rec.status, "failed")
+    _check_transition(rec.status, "failed")
     now = time.strftime("%Y-%m-%dT%H:%M:%S")
     error = str(error)[:500]
     result = update_job(ws_id, job_id, {"status": "failed", "finished_at": now, "error": error})
