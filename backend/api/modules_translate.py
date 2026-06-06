@@ -1,5 +1,9 @@
-# backend/api/translate.py
-"""Compatibility translate API — forwarding to modules/config_translation."""
+# backend/api/modules_translate.py
+"""Module-specific config translation API.
+
+Endpoint: POST /api/modules/config-translation/translate
+Canonical implementation: modules/config_translation/backend/service.py
+"""
 
 from flask import request, jsonify
 
@@ -7,7 +11,8 @@ from modules.config_translation.backend.schemas import TranslateRequest
 from modules.config_translation.backend.service import translate_config
 
 
-def handle_translate():
+def handle_module_translate():
+    """Handle POST /api/modules/config-translation/translate."""
     data = request.get_json(silent=True) or {}
 
     source_config = (data.get("source_config") or data.get("config_text") or "").strip()

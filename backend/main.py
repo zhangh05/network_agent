@@ -22,6 +22,7 @@ from flask import Flask, send_from_directory
 
 from backend.api.version import get_version
 from backend.api.translate import handle_translate
+from backend.api.modules_translate import handle_module_translate
 from backend.api.agent import handle_agent_run
 from backend.api.skills import handle_skills, get_skill_count
 from backend.api.workspace import handle_workspace_status
@@ -77,6 +78,11 @@ def create_app():
     @app.route("/api/modules/<module_name>/status")
     def api_module_status(module_name):
         return handle_module_status(module_name)
+
+    # ── Module: config-translation ──
+    @app.route("/api/modules/config-translation/translate", methods=["POST"])
+    def api_module_config_translate():
+        return handle_module_translate()
 
     # ── Memory ──
     @app.route("/api/memory/status")
