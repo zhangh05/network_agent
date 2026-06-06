@@ -4,6 +4,8 @@
 > **Version**: v0.1  
 > **Date**: 2026-06-07  
 > **Commit**: (see latest)
+>
+> **Integration Contract**: [TOOL_RUNTIME_INTEGRATION.md](./TOOL_RUNTIME_INTEGRATION.md)
 
 ---
 
