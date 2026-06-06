@@ -404,7 +404,7 @@ This document explicitly does **NOT**:
 - Add SSH/Telnet/SNMP/nmap/ping sweep
 - Modify `config_translation` main chain
 - Modify `translate_bundle`
-- Restore `/api/translate`, `backend/services/config_translation`, or old GraphAgent
+- Re-introduce `/api/translate` (retired surface), `backend/services/config_translation` (retired), or old GraphAgent (retired)
 - Enter topology, inspection, CMDB, or knowledge_base business modules
 - Relax any existing gate
 

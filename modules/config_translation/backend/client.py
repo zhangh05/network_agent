@@ -1,3 +1,6 @@
+# RETIRED: modules/config_translation/backend/client.py
+# This is dead code — not imported or used anywhere.
+# The import below refers to backend/services/config_translation which does not exist.
 # backend/services/config_translation/client.py
 """HTTP client for config translation — used by external callers."""
 
