@@ -43,7 +43,58 @@ def execute(state: NetworkAgentState) -> NetworkAgentState:
         _add_event(state, "error", f"disabled_skill:{skill}", trace_id, ws_id, status="failed")
         return state
 
-    # ── 3. Resolve adapter path + function from registry ──
+    # ── 3. Resolve artifact_id input (if provided) ──
+    artifact_id = state.payload.get("artifact_id", "")
+    if artifact_id and not state.payload.get("source_config"):
+        try:
+            from artifacts.store import get_artifact, read_artifact_content
+            art = get_artifact(state.workspace_id or "default", artifact_id)
+            if not art:
+                state.error = f"artifact_not_found: {artifact_id}"
+                return state
+            if art.sensitivity == "secret":
+                state.error = f"artifact_type_not_allowed: secret artifact {artifact_id}"
+                return state
+            if art.artifact_type not in ("input_config", "unknown", "template"):
+                state.error = f"artifact_type_not_allowed: {art.artifact_type}"
+                return state
+            content = read_artifact_content(state.workspace_id or "default", artifact_id, allow_sensitive=True)
+            if content is None:
+                state.error = f"artifact_content_not_allowed: {artifact_id}"
+                return state
+            state.payload["source_config"] = content
+            # Trace artifact_read
+            _add_event(state, "artifact_read", f"artifact:{artifact_id}", trace_id, ws_id, status="success",
+                       metadata={"artifact_id": artifact_id, "purpose": "translate_config_input",
+                                  "artifact_type": art.artifact_type, "sensitivity": art.sensitivity,
+                                  "summary": art.summary})
+        except Exception as exc:
+            state.error = f"artifact_read_failed: {str(exc)}"
+            return state
+    # ── 3b. Auto-save source_config as input artifact ──
+    source_config = state.payload.get("source_config", "")
+    if source_config and state.intent == "translate_config" and not artifact_id:
+        try:
+            from artifacts.store import save_artifact
+            input_art = save_artifact(
+                workspace_id=state.workspace_id or "default",
+                content=source_config,
+                artifact_type="input_config", title="Agent input config",
+                scope="run", sensitivity="sensitive",
+                run_id=state.request_id, module=state.active_module,
+                skill=state.selected_skill, capability_id=capability_id,
+                source="agent_generated",
+            )
+            if input_art:
+                state.context.setdefault("input_artifacts", []).append(input_art.artifact_id)
+                _add_event(state, "artifact_saved", f"artifact:{input_art.artifact_id}", trace_id, ws_id,
+                           status="success",
+                           metadata={"artifact_id": input_art.artifact_id, "artifact_type": "input_config",
+                                     "title": input_art.title, "scope": "run"})
+        except Exception:
+            pass
+
+    # ── 4. Resolve adapter path + function from registry ──
     adapter_path = ""
     entrypoint_fn = ""
 
@@ -114,6 +165,30 @@ def execute(state: NetworkAgentState) -> NetworkAgentState:
                    metadata={"error": str(exc)[:200]})
 
     state.tool_calls.append(tool_call)
+
+    # ── 6. Auto-save output as artifact ──
+    if state.intent == "translate_config" and tool_call["status"] == "success":
+        result = state.tool_results
+        dc = result.get("deployable_config", "")
+        if dc:
+            try:
+                from artifacts.store import save_artifact
+                out_art = save_artifact(
+                    workspace_id=state.workspace_id or "default",
+                    content=dc, artifact_type="output_config",
+                    title="Translation output", scope="run",
+                    sensitivity="sensitive", run_id=state.request_id,
+                    module=state.active_module, skill=state.selected_skill,
+                    capability_id=capability_id, source="module_output",
+                )
+                if out_art:
+                    state.context.setdefault("output_artifacts", []).append(out_art.artifact_id)
+                    _add_event(state, "artifact_saved", f"artifact:{out_art.artifact_id}", trace_id, ws_id,
+                               status="success",
+                               metadata={"artifact_id": out_art.artifact_id, "artifact_type": "output_config",
+                                         "title": out_art.title, "scope": "run"})
+            except Exception:
+                pass
 
     skill_dur = round((time.time() - skill_start) * 1000, 2)
     _add_event(state, "skill_call_end", f"skill:{skill}",

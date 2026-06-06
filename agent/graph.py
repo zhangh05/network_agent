@@ -279,6 +279,9 @@ def run_agent(user_input: str = "", intent: str = "", payload: dict = None,
         "workspace_updated": state.context.get("workspace_updated", False),
         "memory_hits_count": len(state.context.get("memory_hits", [])),
         "artifacts": [],
+        "input_artifacts": state.context.get("input_artifacts", []),
+        "output_artifacts": state.context.get("output_artifacts", []),
+        "artifact_refs": _build_artifact_refs(state),
         # ── Trace ──
         "trace_id": trace_id,
         "trace_available": True,
@@ -295,6 +298,21 @@ def run_agent(user_input: str = "", intent: str = "", payload: dict = None,
             "fallback_reason": llm_ctx.get("fallback_reason"),
         },
     }
+
+
+def _build_artifact_refs(state) -> list:
+    """Build artifact refs from context (safe summary only, no full content)."""
+    refs = []
+    ws = state.workspace_id or "default"
+    for art_id in state.context.get("input_artifacts", []) + state.context.get("output_artifacts", []):
+        try:
+            from artifacts.store import summarize_artifact_content
+            s = summarize_artifact_content(ws, art_id)
+            if s:
+                refs.append(s)
+        except Exception:
+            pass
+    return refs
 
 
 def get_runtime_status() -> dict:

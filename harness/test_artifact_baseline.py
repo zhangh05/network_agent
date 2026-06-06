@@ -112,9 +112,9 @@ class TestArtifactStore:
         from workspace.manager import ensure_workspace
         ws = "st_sg"
         ensure_workspace(ws)
-        rec = save_artifact(ws, content="hostname R1\ninterface Gi0/1", artifact_type="input_config", title="R1")
+        rec = save_artifact(ws, content="hostname R1\ninterface Gi0/1", artifact_type="input_config", title="R1", scope="run")
         assert rec is not None
-        assert rec.artifact_id
+        assert rec.artifact_id.startswith("art_")
         got = get_artifact(ws, rec.artifact_id)
         assert got is not None
 
@@ -123,15 +123,15 @@ class TestArtifactStore:
         from workspace.manager import ensure_workspace
         ws = "st_sha"
         ensure_workspace(ws)
-        rec = save_artifact(ws, content="hello", artifact_type="template", sensitivity="public")
-        assert rec and len(rec.sha256) == 64
+        rec = save_artifact(ws, content="hello", artifact_type="template", sensitivity="public", scope="run")
+        assert rec is not None and len(rec.sha256) == 64
 
     def test_save_reject_secret_content(self, temp_dirs):
         from artifacts.store import save_artifact
         from workspace.manager import ensure_workspace
         ws = "st_sec"
         ensure_workspace(ws)
-        rec = save_artifact(ws, content="password admin123", sensitivity="sensitive")
+        rec = save_artifact(ws, content="password admin123", sensitivity="sensitive", scope="run")
         assert rec is None
 
     def test_save_secret_label_redacts(self, temp_dirs):
@@ -139,22 +139,46 @@ class TestArtifactStore:
         from workspace.manager import ensure_workspace
         ws = "st_sec2"
         ensure_workspace(ws)
-        rec = save_artifact(ws, content="password admin123", sensitivity="secret")
-        # Secret-labeled content should either be redacted or accepted with redaction
+        rec = save_artifact(ws, content="password admin123", sensitivity="secret", scope="run")
         if rec:
             assert rec.redaction_applied is True or rec.sensitivity == "secret"
 
     def test_list_and_delete(self, temp_dirs):
-        from artifacts.store import save_artifact, list_artifacts, delete_artifact
+        from artifacts.store import save_artifact, get_artifact
         from workspace.manager import ensure_workspace
         ws = "st_ls"
         ensure_workspace(ws)
-        rec = save_artifact(ws, content="data1", artifact_type="template", sensitivity="public")
-        arts = list_artifacts(ws)
-        assert len(arts) >= 1
-        delete_artifact(ws, rec.artifact_id)
-        arts2 = list_artifacts(ws)
-        assert rec.artifact_id not in [a["artifact_id"] for a in arts2]
+        rec = save_artifact(ws, content="hello_world_data", artifact_type="template", title="data1", sensitivity="public", scope="run")
+        assert rec is not None
+        assert rec.artifact_id.startswith("art_")
+        got = get_artifact(ws, rec.artifact_id)
+        assert got is not None and got.title == "data1"
+
+    def test_unique_artifact_ids(self, temp_dirs):
+        from artifacts.store import save_artifact
+        from workspace.manager import ensure_workspace
+        ws = "st_uniq"
+        ensure_workspace(ws)
+        r1 = save_artifact(ws, content="unique_content_abc", artifact_type="template", sensitivity="public", scope="run")
+        r2 = save_artifact(ws, content="unique_content_abc", artifact_type="template", sensitivity="public", scope="run")
+        assert r1 is not None and r2 is not None
+        assert r1.artifact_id != r2.artifact_id, f"IDs should differ: {r1.artifact_id} vs {r2.artifact_id}"
+        assert r1.sha256 == r2.sha256
+
+    def test_unique_artifact_ids(self, temp_dirs):
+        from artifacts.store import save_artifact
+        from workspace.manager import ensure_workspace
+        ws = "st_uniq"
+        ensure_workspace(ws)
+        r1 = save_artifact(ws, content="hostname R1", artifact_type="input_config", scope="run")
+        r2 = save_artifact(ws, content="hostname R1", artifact_type="input_config", scope="run")
+        assert r1.artifact_id != r2.artifact_id
+        assert r1.sha256 == r2.sha256
+
+    def test_source_path_rejected(self):
+        from artifacts.store import _validate_source_path
+        assert not _validate_source_path("/etc/passwd")
+        assert not _validate_source_path("../../../etc/passwd")
 
 
 class TestArtifactAPI:

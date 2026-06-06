@@ -16,7 +16,7 @@ _NETWORK_AGENT_DIR = Path(__file__).resolve().parent.parent
 if str(_NETWORK_AGENT_DIR) not in sys.path:
     sys.path.insert(0, str(_NETWORK_AGENT_DIR))
 
-from flask import Flask, send_from_directory, jsonify
+from flask import Flask, send_from_directory, jsonify, request
 
 from backend.api.version import get_version
 from backend.api.modules_translate import handle_module_translate
@@ -121,7 +121,7 @@ def create_app():
 
     @app.route("/api/workspaces/<ws_id>/artifacts", methods=["POST"])
     def api_workspace_artifact_create(ws_id):
-        from artifacts.store import save_artifact
+        from artifacts.store import save_artifact, sanitize_record
         data = request.get_json(silent=True) or {}
         rec = save_artifact(
             workspace_id=ws_id, content=data.get("content", ""),
@@ -132,7 +132,38 @@ def create_app():
         )
         if not rec:
             return jsonify({"ok": False, "error": "artifact creation blocked"}), 400
-        return jsonify({"ok": True, "artifact": rec.as_dict()})
+        return jsonify({"ok": True, "artifact": sanitize_record(rec)})
+
+    @app.route("/api/workspaces/<ws_id>/artifacts/upload", methods=["POST"])
+    def api_workspace_artifact_upload(ws_id):
+        import re
+        from artifacts.store import save_artifact, sanitize_record, MAX_FILE_SIZE, _get_ws_root
+        if "file" not in request.files:
+            return jsonify({"ok": False, "error": "no file provided"}), 400
+        f = request.files["file"]
+        if not f.filename:
+            return jsonify({"ok": False, "error": "empty filename"}), 400
+        safe = re.sub(r"[^a-zA-Z0-9_.-]", "_", f.filename)[:120]
+        upload_dir = _get_ws_root() / ws_id / "artifacts" / "quarantine"
+        upload_dir.mkdir(parents=True, exist_ok=True)
+        src_path = upload_dir / safe
+        f.save(str(src_path))
+        content = src_path.read_text()
+        if len(content.encode()) > MAX_FILE_SIZE:
+            src_path.unlink()
+            return jsonify({"ok": False, "error": "file_too_large"}), 413
+        rec = save_artifact(
+            workspace_id=ws_id, content=content,
+            artifact_type=request.form.get("artifact_type", ""),
+            title=request.form.get("title", f.filename),
+            scope=request.form.get("scope", "workspace"),
+            sensitivity=request.form.get("sensitivity", ""),
+            run_id=request.form.get("run_id", ""),
+        )
+        src_path.unlink()
+        if not rec:
+            return jsonify({"ok": False, "error": "artifact creation blocked"}), 400
+        return jsonify({"ok": True, "artifact": sanitize_record(rec)})
 
     @app.route("/api/workspaces/<ws_id>/artifacts/<artifact_id>")
     def api_workspace_artifact(ws_id, artifact_id):
@@ -140,7 +171,7 @@ def create_app():
         rec = get_artifact(ws_id, artifact_id)
         if not rec:
             return jsonify({"ok": False, "error": "artifact not found"}), 404
-        return jsonify({"ok": True, "artifact": rec.as_dict()})
+        return jsonify({"ok": True, "artifact": sanitize_record(rec)})
 
     @app.route("/api/workspaces/<ws_id>/artifacts/<artifact_id>/content")
     def api_artifact_content(ws_id, artifact_id):
@@ -165,7 +196,7 @@ def create_app():
         rec = promote_artifact(ws_id, artifact_id, target)
         if not rec:
             return jsonify({"ok": False, "error": "promotion blocked"}), 400
-        return jsonify({"ok": True, "artifact": rec.as_dict()})
+        return jsonify({"ok": True, "artifact": sanitize_record(rec)})
 
     @app.route("/api/workspaces/<ws_id>/artifacts/<artifact_id>/summarize")
     def api_artifact_summarize(ws_id, artifact_id):
