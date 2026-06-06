@@ -1,0 +1,30 @@
+{
+  "audit": "prompt_runtime",
+  "critical_count": 0,
+  "high_count": 0,
+  "critical": [],
+  "high": [],
+  "warnings": [
+    "OK: prompts/schemas.py",
+    "OK: prompts/loader.py",
+    "OK: prompts/renderer.py",
+    "OK: prompts/policy.py",
+    "OK: prompts/registry.yaml",
+    "OK: templates/response_compose.md",
+    "OK: templates/context_qa.md",
+    "OK: templates/manual_review_explain.md",
+    "OK: templates/result_summarize.md",
+    "OK: templates/job_failure_explain.md",
+    "OK: templates/report_summary.md",
+    "OK: templates/artifact_summary_explain.md",
+    "OK: safe_generate imports prompts runtime",
+    "OK: rendered.text used in messages",
+    "OK: composer has _select_prompt_task",
+    "OK: check_prompt_input exists",
+    "OK: check_prompt_output exists",
+    "OK: fake ref pattern exists",
+    "OK: direct deploy detection",
+    "OK: injection detection exists"
+  ],
+  "conclusion": "PASS"
+}

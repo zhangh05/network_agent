@@ -1,63 +1,70 @@
 # LLM Settings
 
-## 配置优先级 (从高到低)
+## 配置入口
 
-1. **UI Settings** (`config/LLM_setting.json`) — 最高优先级
-2. **环境变量/桌面文件** — fallback
-3. **`config/llm.yaml`** — 基础配置
-4. **默认禁用** — 无配置时
+LLM 配置由 `agent/llm/settings.py` 统一管理。
 
-如果 UI Settings 保存了 `enabled: false`，即使环境变量有 key，也不会启用。
+- **UI 配置文件**: `config/LLM_setting.json` (gitignored, 权限 600, owner-only)
+- **配置模板**: `config/LLM_setting.example.json` (tracked, 不含 key)
+- **兜底文件**: `config/llm.yaml`
 
-## 配置路径
+## 配置优先级
 
-- 主路径: `config/LLM_setting.json` (UI 写入, gitignored)
-- 模板: `config/LLM_setting.example.json` (tracked)
-- 兜底: `config/llm.yaml` / `config/llm.local.yaml`
+1. UI Settings (`config/LLM_setting.json`) — 最高优先级
+2. 环境变量 / 桌面文件 — fallback
+3. `config/llm.yaml` — 基础兜底
+4. default (disabled) — 无配置时默认禁用
 
-## UI Settings 结构
+## 默认模型
 
-```json
-{
-  "enabled": true,
-  "provider": "minimax",
-  "safe_mode": true,
-  "base_url": "https://api.minimax.chat/v1",
-  "model": "MiniMax-M3",
-  "temperature": 0.2,
-  "max_tokens": 1200,
-  "api_key": "sk-xxxx...xxxx",
-  "updated_at": "2026-06-06T09:00:00Z"
-}
-```
+**MiniMax-M3** — 所有默认值、示例、placeholder 统一使用。
+
+## Provider 类型
+
+| provider | 说明 |
+|----------|------|
+| `disabled` | 禁用 LLM |
+| `mock` | 测试用 mock 响应 |
+| `minimax` | MiniMax API (默认) |
+| `openai_compatible` | OpenAI 兼容接口 |
+| `ollama_compatible` | Ollama 本地部署 |
 
 ## API
 
 | 端点 | 说明 |
 |------|------|
-| `GET /api/agent/llm/config` | 读取配置 (不返回完整 key) |
+| `GET /api/agent/llm/config` | 读取配置，返回 `key_preview` (如 `sk-t****7890`)，不返回完整 key |
 | `POST /api/agent/llm/config` | 保存配置 |
 | `DELETE /api/agent/llm/config` | 删除配置 |
 | `GET /api/agent/llm/status` | LLM 连接状态 |
 | `POST /api/agent/llm/test` | 连通性测试 |
 
-## Security
+## LLM 红线
 
-- API key 仅本地存储
-- API 返回 `key_preview` (如 sk-t****7890)，不返回完整 key
-- UI 不写入 localStorage/sessionStorage
-- UI 不打印完整 key 到 console
-- `config/LLM_setting.json` 文件权限 600
+LLM 在任何情况下不得执行以下操作：
 
-## Runtime Wiring
+- 不生成/修改 deployable_config
+- 不隐藏 manual_review 标记或声称可直接部署
+- 不在输出中声称"可直接部署"
+- 不伪造 job 状态、artifact 状态、run 状态
+- 不输出 key / token / password / community 等敏感值
 
-- `agent/llm/settings.py` → 读取 `LLM_setting.json`
-- `agent/llm/config.py` → 优先调用 `settings.resolve_effective_llm_config()`
-- `agent/llm/runtime.py` → `safe_generate()` 使用统一 effective config
-- `agent/llm/provider.py` → `generate()` 使用 UI settings 的 provider/model/base_url/api_key
-- `agent/nodes/composer.py` → LLM metadata 包含 `config_source`
+## Prompt Runtime 集成
 
-## 默认模型
+LLM 调用通过 `safe_generate()` 统一入口，与 Prompt Runtime 集成：
 
-**MiniMax-M3** — 所有默认值、示例、placeholder、文档统一使用 MiniMax-M3。
-MiniMax-M1 仅在 migration code 中出现（M1 → M3 自动升级）。
+- 模板定义: `agent/llm/prompts/registry.yaml`
+- 渲染引擎: Jinja2 template renderer
+- 安全策略: `agent/llm/policy.py` (input + output gate)
+- 上下文构建: `agent/llm/context_builder.py` → `safe_llm_context`
+
+## LLM Runtime Wiring
+
+```
+agent/llm/settings.py    → resolve_effective_llm_config()
+agent/llm/config.py       → 优先 UI settings, fallback env/file
+agent/llm/runtime.py      → safe_generate() 统一入口
+agent/llm/provider.py     → 多 provider 适配
+agent/llm/context_builder.py → safe_llm_context 构建
+agent/llm/policy.py       → 输入/输出安全策略门控
+```

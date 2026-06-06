@@ -1,7 +1,7 @@
 # Observability Security Audit
 
 **Verdict**: PASS
-**Trace files**: 20
+**Trace files**: 0
 
 | Metric | Value |
 |--------|-------|

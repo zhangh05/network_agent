@@ -2,62 +2,74 @@
 
 ## Overview
 
-Agent 原生记忆系统，JSONL backend。
+Agent 原生记忆系统，JSONL backend (`memory/data/memories.jsonl`)。Memory 仅存储**摘要、决策、偏好、运行/任务摘要**，**不存储完整敏感内容**。所有写入走 redaction + policy 门控。
 
-## Storage
+## Memory 类型
 
-- 主文件: `memory/data/memories.jsonl`
-- 删除记录: `memory/data/.deleted_memories.json` (tombstone)
-- 旧文件 `memory_records.jsonl` 自动迁移
+| memory_type | 说明 | 写入时机 |
+|-------------|------|----------|
+| `run_summary` | Agent 运行摘要 | agent run 完成时 |
+| `job_summary` | Job 任务摘要 | job succeeded / failed / cancelled 时 |
+| `decision` | 用户决策记录 | 用户确认操作时 |
+| `user_preference` | 用户偏好 | 用户设置变更时 |
+| `project_state` | 项目状态摘要 | 项目状态变更时 |
+| `translation_rule` | 翻译规则记忆 | 人工复核确认规则时 |
+| `artifact_summary` | 产物摘要 | 产物保存时 |
 
-## Schema: MemoryRecord
+## Schema (核心字段)
 
-| 字段 | 类型 | 说明 |
-|------|------|------|
-| memory_id | str | 唯一 ID |
-| scope | str | short_term / project / long_term |
-| memory_type | str | decision / user_preference / project_state / device_profile / translation_rule / troubleshooting_case / run_summary / knowledge_note |
-| title | str | 标题 |
-| summary | str | 摘要 |
-| content | str | 正文 |
-| tags | list[str] | 标签 |
-| project_id | str | 关联项目 |
-| source | str | agent / user / system / user_confirmed |
-| confidence | str | system_generated / user_confirmed / inferred / imported |
-| sensitivity | str | public / internal / sensitive |
-| created_at | str | 创建时间 ISO |
-| updated_at | str | 更新时间 ISO |
-| expires_at | str? | 过期时间 |
-| metadata | dict | 元数据 |
-| redaction_applied | bool | 是否已脱敏 |
+| 字段 | 说明 |
+|------|------|
+| memory_id | 唯一 ID |
+| memory_type | 见上表 |
+| scope | short_term / project / long_term |
+| title | 标题 |
+| summary | 摘要 (≤500 chars) |
+| tags | 标签列表 |
+| source | agent / user / system / user_confirmed |
+| confidence | system_generated / user_confirmed / inferred |
+| sensitivity | public / internal / sensitive |
+| redaction_applied | 是否已脱敏 |
 
-## Policy
+## 写入规则
 
-写入规则：
-- 不保存完整 source_config / deployable_config
-- Secrets 必须 redaction (password, key, community, etc.)
-- long_term / decision / translation_rule 必须 user_confirmed
-- LLM 生成内容默认 short_term 或 run_summary
+- `run_summary` — agent run 完成后自动写入，仅含摘要
+- `job_summary` — job 结束后写入，含状态、时长、artifact 引用
+- `artifact_refs` — 仅存 `artifact_id` + `summary`，不存完整内容
+- `decision` / `translation_rule` / `user_preference` — 必须 `user_confirmed`
+- `report` artifact — 仅存引用和摘要，不存完整报告内容
 
-## Redaction
+## 安全规则：NEVER store
 
-脱敏模式覆盖：
-- password, secret, community, pre-shared-key
-- API key, token, Authorization
-- IPsec key, RADIUS/TACACS key
-- MINIMAX/OPENAI/DEEPSEEK API key
+| 禁止存储内容 | 说明 |
+|-------------|------|
+| source_config | 源配置文件全文 |
+| deployable_config | 可部署配置全文 |
+| report full content | 审计报告完整内容 |
+| key / secret / password | 任何密钥 |
+| community / token | 网络密钥字符串 |
+| absolute path | 本地绝对路径 |
 
-脱敏格式: `[REDACTED_SECRET]`
+## Redaction 覆盖
+
+```
+password, secret, community, pre-shared-key, API key,
+token, Authorization, IPsec key, RADIUS/TACACS key,
+MINIMAX/OPENAI/DEEPSEEK/OLLAMA key
+→ [REDACTED_SECRET]
+```
 
 ## API
 
-- `GET /api/memory/status` — 系统状态
-- `GET /api/memory/list?scope=&memory_type=&project_id=&limit=` — 列表
-- `POST /api/memory/search` — 搜索 (keyword + tags + project_id + memory_type + scope + limit)
-- `POST /api/memory/write` — 写入 (redaction + policy)
-- `POST /api/memory/confirm` — 用户确认写入
-- `DELETE /api/memory/{id}` — tombstone 删除
+| 端点 | 说明 |
+|------|------|
+| `GET /api/memory/status` | 系统状态 |
+| `GET /api/memory/list` | 记忆列表 (scope/memory_type/project_id 筛选) |
+| `POST /api/memory/search` | 搜索 |
+| `POST /api/memory/write` | 写入 (redaction + policy) |
+| `POST /api/memory/confirm` | 用户确认写入 |
+| `DELETE /api/memory/{id}` | tombstone 删除 |
 
-## Harness Isolation
+## Harness 隔离
 
 pytest 使用临时目录，不污染正式 `memory/data/`。

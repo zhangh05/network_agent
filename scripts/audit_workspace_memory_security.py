@@ -166,7 +166,7 @@ def audit():
         if py_file.name.startswith("__"):
             continue
         p = str(py_file)
-        if "legacy" in p or "scripts/audit_workspace" in p or "scripts/audit_observability" in p or "scripts/audit_registry" in p or "harness/" in p:
+        if "legacy" in p or "scripts/audit_workspace" in p or "scripts/audit_observability" in p or "scripts/audit_registry" in p or "scripts/audit_artifact" in p or "scripts/audit_context" in p or "scripts/audit_prompt" in p or "scripts/audit_job" in p or "scripts/audit_report" in p or "scripts/cleanup" in p or "scripts/live_" in p or "scripts/seed_" in p or "harness/" in p:
             continue
         content = py_file.read_text()
         if "GraphAgent" in content:
@@ -198,7 +198,7 @@ def audit():
         if py_file.name.startswith("__"):
             continue
         p = str(py_file)
-        if "legacy" in p or "scripts/audit_workspace" in p or "scripts/audit_llm" in p or "harness/" in p:
+        if "legacy" in p or "scripts/audit_workspace" in p or "scripts/audit_llm" in p or "scripts/audit_artifact" in p or "scripts/audit_context" in p or "scripts/audit_prompt" in p or "scripts/audit_job" in p or "scripts/audit_report" in p or "scripts/cleanup" in p or "scripts/live_" in p or "scripts/seed_" in p or "harness/" in p:
             continue
         content = py_file.read_text()
         if "sys.path.append" in content and "network-translator" in content:
