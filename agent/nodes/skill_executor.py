@@ -211,6 +211,35 @@ def execute(state: NetworkAgentState) -> NetworkAgentState:
             except Exception:
                 pass
 
+    # ── 7. Export report if requested ──
+    if state.intent == "translate_config" and state.payload.get("export_report") and tool_call["status"] == "success":
+        try:
+            from reports_engine.service import create_config_translation_report
+            fmt = state.payload.get("report_format", "markdown")
+            inc_dc = state.payload.get("include_deployable_config_in_report", False)
+            # Build agent_result dict from state
+            agent_result = {
+                "ok": True, "trace_id": trace_id, "runtime_mode": "fallback",
+                "result": state.tool_results, "verification": state.verification,
+                "llm": state.context.get("llm", {}),
+            }
+            report_result = create_config_translation_report(
+                ws_id, state.request_id, agent_result,
+                fmt=fmt, include_deployable=inc_dc,
+            )
+            if report_result.ok:
+                state.context.setdefault("report_artifacts", []).append(report_result.artifact_id)
+                _add_event(state, "artifact_saved", f"artifact:{report_result.artifact_id}",
+                           trace_id, ws_id, status="success",
+                           summary=f"saved report:{report_result.report_id}",
+                           metadata={"artifact_id": report_result.artifact_id,
+                                     "artifact_type": "report", "format": fmt,
+                                     "report_type": "config_translation",
+                                     "sensitivity": report_result.sensitivity,
+                                     "summary": report_result.summary})
+        except Exception:
+            pass
+
     skill_dur = round((time.time() - skill_start) * 1000, 2)
     _add_event(state, "skill_call_end", f"skill:{skill}",
                trace_id, ws_id, status=tool_call["status"], duration_ms=skill_dur,

@@ -281,6 +281,7 @@ def run_agent(user_input: str = "", intent: str = "", payload: dict = None,
         "artifacts": [],
         "input_artifacts": state.context.get("input_artifacts", []),
         "output_artifacts": state.context.get("output_artifacts", []),
+        "report_artifacts": state.context.get("report_artifacts", []),
         "artifact_refs": _build_artifact_refs(state),
         # ── Trace ──
         "trace_id": trace_id,
@@ -304,7 +305,9 @@ def _build_artifact_refs(state) -> list:
     """Build artifact refs from context (safe summary only, no full content)."""
     refs = []
     ws = state.workspace_id or "default"
-    for art_id in state.context.get("input_artifacts", []) + state.context.get("output_artifacts", []):
+    for art_id in (state.context.get("input_artifacts", []) +
+                   state.context.get("output_artifacts", []) +
+                   state.context.get("report_artifacts", [])):
         try:
             from artifacts.store import summarize_artifact_content
             s = summarize_artifact_content(ws, art_id)

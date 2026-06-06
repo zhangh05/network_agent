@@ -250,6 +250,50 @@ def create_app():
             return jsonify({"ok": False, "error": "trace not found"}), 404
         return jsonify({"ok": True, "trace": trace})
 
+    # ── Reports / Export ──
+    @app.route("/api/reports/create", methods=["POST"])
+    def api_report_create():
+        data = request.get_json(silent=True) or {}
+        from reports_engine.schemas import ReportRequest
+        from reports_engine.service import create_report as svc_create_report
+        req = ReportRequest(
+            workspace_id=data.get("workspace_id", "default"),
+            run_id=data.get("run_id", ""),
+            report_type=data.get("report_type", "config_translation"),
+            title=data.get("title", ""),
+            format=data.get("format", "markdown"),
+            include_deployable_config=data.get("include_deployable_config", False),
+            sensitivity=data.get("sensitivity", "internal"),
+        )
+        result = svc_create_report(req)
+        return jsonify(result.as_dict())
+
+    @app.route("/api/workspaces/<ws_id>/runs/<run_id>/report", methods=["POST"])
+    def api_workspace_run_report(ws_id, run_id):
+        data = request.get_json(silent=True) or {}
+        from reports_engine.service import create_config_translation_report
+        result = create_config_translation_report(
+            ws_id, run_id, {},
+            fmt=data.get("format", "markdown"),
+            include_deployable=data.get("include_deployable_config", False),
+        )
+        return jsonify(result.as_dict())
+
+    @app.route("/api/workspaces/<ws_id>/reports")
+    def api_workspace_reports(ws_id):
+        from artifacts.store import list_artifacts
+        arts = list_artifacts(ws_id, artifact_type="report")
+        return jsonify({"reports": arts})
+
+    @app.route("/api/workspaces/<ws_id>/reports/<artifact_id>/content")
+    def api_report_content(ws_id, artifact_id):
+        from artifacts.store import read_artifact_content
+        allow = request.args.get("allow_sensitive", "0") == "1"
+        content = read_artifact_content(ws_id, artifact_id, allow_sensitive=allow)
+        if content is None:
+            return jsonify({"ok": False, "error": "content not accessible"}), 403
+        return jsonify({"ok": True, "content": content})
+
     # ── Modules ──
     @app.route("/api/modules")
     def api_modules():
