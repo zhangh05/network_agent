@@ -48,6 +48,30 @@ def build_safe_context(state: NetworkAgentState) -> dict:
         m for m, s in state.context.get("modules", {}).items() if s == "planned"
     ]
 
+    # Artifact summary (max 10, no content/path/secret/temp)
+    artifact_refs = state.context.get("artifact_refs", [])
+    safe_refs = [
+        {
+            "artifact_id": r.get("artifact_id", ""),
+            "artifact_type": r.get("artifact_type", ""),
+            "title": r.get("title", ""),
+            "summary": r.get("summary", ""),
+            "scope": r.get("scope", ""),
+            "sensitivity": r.get("sensitivity", ""),
+            "metadata": r.get("metadata", {}),
+        }
+        for r in artifact_refs[:10]
+        if r.get("sensitivity") != "secret" and r.get("scope") != "temp"
+    ]
+    if safe_refs:
+        ctx["artifact_refs"] = safe_refs
+        ctx["artifact_summary"] = {
+            "input_count": sum(1 for r in safe_refs if r.get("artifact_type") == "input_config"),
+            "output_count": sum(1 for r in safe_refs if r.get("artifact_type") == "output_config"),
+            "sensitive_count": sum(1 for r in safe_refs if r.get("sensitivity") == "sensitive"),
+            "total": len(safe_refs),
+        }
+
     return ctx
 
 

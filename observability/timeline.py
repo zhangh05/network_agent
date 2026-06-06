@@ -118,4 +118,6 @@ def build_timeline_summary(state) -> dict:
         "memory_write_count": mem_count,
         "warning_count": warn_count,
         "error_count": err_count,
+        "artifact_saved_count": sum(1 for e in events if e.get("event_type") == "artifact_saved"),
+        "artifact_read_count": sum(1 for e in events if e.get("event_type") == "artifact_read"),
     }

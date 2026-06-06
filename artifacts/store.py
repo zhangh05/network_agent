@@ -66,28 +66,49 @@ def _save_index(idx: ArtifactIndex):
 
 
 def _validate_source_path(source_path: str, workspace_id: str = "") -> bool:
-    """Ensure source_path is within allowed directories. No path traversal."""
+    """Strict path boundary check using resolve().relative_to()."""
     if not source_path:
         return True
-    p = os.path.normpath(os.path.abspath(str(source_path)))
-    ws_root = str(_get_ws_root())
 
-    for allowed in ALLOWED_SOURCE_DIRS:
-        # workspace-specific: workspaces/<ws_id>/<allowed>
-        if workspace_id:
-            ws_specific = str(Path(_get_ws_root()) / workspace_id / allowed)
-            if p.startswith(ws_specific):
-                return True
-        # Global: <root>/<allowed>
-        global_allowed = str(ROOT / allowed)
-        if p.startswith(global_allowed):
-            return True
+    # Absolute vs relative
+    try:
+        resolved = Path(source_path).resolve()
+    except Exception:
+        return False
 
-    # Reject: path traversal, system files, config, etc.
-    banned_patterns = ["../", "/etc/", "config/LLM", "config/secrets", ".git/"]
-    for bp in banned_patterns:
-        if bp in p:
+    # Reject known dangerous paths
+    banned = ["/etc/", "/var/", "/tmp/", "config/LLM", ".git/", "memory/data/"]
+    p_str = str(resolved)
+    for bp in banned:
+        if bp in p_str:
             return False
+
+    # Build allowed parents
+    allowed_parents = []
+    root_path = ROOT.resolve()
+    ws_root = _get_ws_root().resolve()
+
+    allowed_parents.append(root_path / "runtime" / "uploads")
+    allowed_parents.append(root_path / "runtime" / "temp")
+    allowed_parents.extend([
+        root_path / "shared" / "knowledge",
+        root_path / "shared" / "templates",
+        root_path / "shared" / "vendor_docs",
+        root_path / "shared" / "samples",
+    ])
+    if workspace_id:
+        ws = ws_root / workspace_id
+        allowed_parents.extend([
+            ws / "artifacts" / "quarantine",
+            ws / "artifacts" / "temp",
+        ])
+
+    for parent in allowed_parents:
+        try:
+            resolved.relative_to(parent.resolve())
+            return True
+        except ValueError:
+            continue
     return False
 
 

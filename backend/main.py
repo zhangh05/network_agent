@@ -138,20 +138,38 @@ def create_app():
     def api_workspace_artifact_upload(ws_id):
         import re
         from artifacts.store import save_artifact, sanitize_record, MAX_FILE_SIZE, _get_ws_root
+
+        # 1. Pre-check content_length (with multipart overhead allowance)
+        if request.content_length and request.content_length > MAX_FILE_SIZE + 1_048_576:
+            return jsonify({"ok": False, "error": "file_too_large"}), 413
+
         if "file" not in request.files:
             return jsonify({"ok": False, "error": "no file provided"}), 400
         f = request.files["file"]
         if not f.filename:
             return jsonify({"ok": False, "error": "empty filename"}), 400
+
+        # 2. Save to quarantine
         safe = re.sub(r"[^a-zA-Z0-9_.-]", "_", f.filename)[:120]
         upload_dir = _get_ws_root() / ws_id / "artifacts" / "quarantine"
         upload_dir.mkdir(parents=True, exist_ok=True)
         src_path = upload_dir / safe
         f.save(str(src_path))
-        content = src_path.read_text()
-        if len(content.encode()) > MAX_FILE_SIZE:
+
+        # 3. Check size on disk (don't read into memory yet)
+        file_size = src_path.stat().st_size
+        if file_size > MAX_FILE_SIZE:
             src_path.unlink()
             return jsonify({"ok": False, "error": "file_too_large"}), 413
+
+        # 4. Read content (safe for text files within limits)
+        try:
+            content = src_path.read_text(errors="replace")
+        except Exception:
+            src_path.unlink()
+            return jsonify({"ok": False, "error": "cannot read file"}), 400
+
+        # 5. Save artifact
         rec = save_artifact(
             workspace_id=ws_id, content=content,
             artifact_type=request.form.get("artifact_type", ""),

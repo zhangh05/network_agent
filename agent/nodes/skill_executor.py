@@ -63,11 +63,16 @@ def execute(state: NetworkAgentState) -> NetworkAgentState:
                 state.error = f"artifact_content_not_allowed: {artifact_id}"
                 return state
             state.payload["source_config"] = content
-            # Trace artifact_read
+            # Trace artifact_read with enriched metadata
             _add_event(state, "artifact_read", f"artifact:{artifact_id}", trace_id, ws_id, status="success",
-                       metadata={"artifact_id": artifact_id, "purpose": "translate_config_input",
-                                  "artifact_type": art.artifact_type, "sensitivity": art.sensitivity,
-                                  "summary": art.summary})
+                       summary=f"read {art.artifact_type}:{art.title}",
+                       metadata={
+                           "artifact_id": artifact_id, "purpose": "translate_config_input",
+                           "artifact_type": art.artifact_type, "scope": art.scope,
+                           "sensitivity": art.sensitivity, "summary": art.summary[:100],
+                           "size_bytes": art.size_bytes, "sha256_short": art.sha256[:12] if art.sha256 else "",
+                           "allowed": True,
+                       })
         except Exception as exc:
             state.error = f"artifact_read_failed: {str(exc)}"
             return state
@@ -88,9 +93,17 @@ def execute(state: NetworkAgentState) -> NetworkAgentState:
             if input_art:
                 state.context.setdefault("input_artifacts", []).append(input_art.artifact_id)
                 _add_event(state, "artifact_saved", f"artifact:{input_art.artifact_id}", trace_id, ws_id,
-                           status="success",
-                           metadata={"artifact_id": input_art.artifact_id, "artifact_type": "input_config",
-                                     "title": input_art.title, "scope": "run"})
+                           status="success", summary=f"saved input_config:{input_art.title}",
+                           metadata={
+                               "artifact_id": input_art.artifact_id, "artifact_type": "input_config",
+                               "title": input_art.title, "scope": "run",
+                               "sensitivity": input_art.sensitivity,
+                               "size_bytes": input_art.size_bytes,
+                               "sha256_short": input_art.sha256[:12] if input_art.sha256 else "",
+                               "source": input_art.source,
+                               "module": state.active_module, "skill": state.selected_skill,
+                               "capability_id": capability_id,
+                           })
         except Exception:
             pass
 
@@ -184,9 +197,17 @@ def execute(state: NetworkAgentState) -> NetworkAgentState:
                 if out_art:
                     state.context.setdefault("output_artifacts", []).append(out_art.artifact_id)
                     _add_event(state, "artifact_saved", f"artifact:{out_art.artifact_id}", trace_id, ws_id,
-                               status="success",
-                               metadata={"artifact_id": out_art.artifact_id, "artifact_type": "output_config",
-                                         "title": out_art.title, "scope": "run"})
+                               status="success", summary=f"saved output_config:{out_art.title}",
+                               metadata={
+                                   "artifact_id": out_art.artifact_id, "artifact_type": "output_config",
+                                   "title": out_art.title, "scope": "run",
+                                   "sensitivity": out_art.sensitivity,
+                                   "size_bytes": out_art.size_bytes,
+                                   "sha256_short": out_art.sha256[:12] if out_art.sha256 else "",
+                                   "source": out_art.source,
+                                   "module": state.active_module, "skill": state.selected_skill,
+                                   "capability_id": capability_id,
+                               })
             except Exception:
                 pass
 

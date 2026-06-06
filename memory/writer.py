@@ -78,11 +78,20 @@ def write_run_summary(
     counts: str = "",
     llm_metadata: dict = None,
     project_id: str = "default",
+    artifact_refs: list = None,
 ) -> Optional[str]:
     """Write a run_summary record (always short_term, auto-redacted)."""
     content = f"intent={intent} skill={skill} module={module}{counts}"
     if llm_metadata and llm_metadata.get("used"):
         content += f" | llm:{llm_metadata.get('provider')} task:{llm_metadata.get('task')}"
+
+    meta = {}
+    if artifact_refs:
+        safe = [r for r in artifact_refs if r.get("sensitivity") != "secret" and r.get("scope") != "temp"]
+        if safe:
+            content += f" | artifacts:{len(safe)}"
+            meta["artifact_refs"] = safe
+
     return write_memory(
         title=f"Agent run: {intent}",
         content=content,
@@ -92,6 +101,7 @@ def write_run_summary(
         project_id=project_id,
         source="agent",
         sensitivity="internal",
+        metadata=meta,
     )
 
 
