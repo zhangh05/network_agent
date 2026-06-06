@@ -72,6 +72,45 @@ def translate_config(req: TranslateRequest) -> TranslateResponse:
     sn_count = len(semantic_near_items)
     un_count = len(unsupported_items)
 
+    # ═══ Quality Audit ═══
+    from modules.config_translation.core.quality import QualityAuditor
+    auditor = QualityAuditor(source_config, req.source_vendor, req.target_vendor)
+
+    # Build output accounting dict (which lines went where)
+    accounted = {}
+    for line in (bundle.deployable_lines or []):
+        key = line.strip().lower().replace(" ", "")[:40]
+        if key:
+            accounted[key] = "deployable"
+    for item in bundle.manual_review_items:
+        excerpt = item.get("source_excerpt", item.get("source_line", ""))
+        key = excerpt.strip().lower().replace(" ", "")[:40]
+        if key:
+            accounted[key] = "manual_review"
+    for item in bundle.semantic_near_items:
+        excerpt = item.get("source_excerpt", item.get("source_line", ""))
+        key = excerpt.strip().lower().replace(" ", "")[:40]
+        if key:
+            accounted[key] = "semantic_near"
+    for item in bundle.unsupported_items:
+        excerpt = item.get("source_excerpt", item.get("source_line", ""))
+        key = excerpt.strip().lower().replace(" ", "")[:40]
+        if key:
+            accounted[key] = "unsupported"
+
+    # Check for residue in deployable
+    residue_items = auditor.check_source_residue(deployable_config)
+
+    # Build quality summary
+    quality = auditor.build_quality_summary(
+        deployable_count=len(bundle.deployable_lines),
+        manual_review_count=mr_count,
+        unsupported_count=un_count,
+        semantic_near_count=sn_count,
+        accounted_in_output=accounted,
+    )
+
+    # Wire real gate values from quality audit
     audit = {
         "counts": {
             "deployable_count": len(bundle.deployable_lines),
@@ -80,8 +119,8 @@ def translate_config(req: TranslateRequest) -> TranslateResponse:
             "unsupported_count": un_count,
         },
         "gates": {
-            "silent_drop": 0,
-            "residue": 0,
+            "silent_drop": quality.silent_drop_count,
+            "residue": len(residue_items),
             "secret_leak": 0,
             "high_risk_deployable": 0,
             "default_any": 0,
@@ -99,6 +138,7 @@ def translate_config(req: TranslateRequest) -> TranslateResponse:
         semantic_near=semantic_near_items,
         unsupported=unsupported_items,
         audit=audit,
+        quality_summary=quality.as_dict(),
         manual_review_count=mr_count,
         semantic_near_count=sn_count,
         unsupported_count=un_count,

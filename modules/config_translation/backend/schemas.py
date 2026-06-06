@@ -34,6 +34,7 @@ class TranslateResponse:
     semantic_near: list = field(default_factory=list)
     unsupported: list = field(default_factory=list)
     audit: dict = field(default_factory=dict)
+    quality_summary: dict = field(default_factory=dict)
     manual_review_count: int = 0
     semantic_near_count: int = 0
     unsupported_count: int = 0
@@ -49,6 +50,7 @@ class TranslateResponse:
             "semantic_near": self.semantic_near,
             "unsupported": self.unsupported,
             "audit": self.audit,
+            "quality_summary": self.quality_summary,
             "manual_review_count": self.manual_review_count,
             "semantic_near_count": self.semantic_near_count,
             "unsupported_count": self.unsupported_count,
