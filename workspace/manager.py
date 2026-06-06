@@ -16,10 +16,10 @@ def ensure_workspace(ws_id: str = "default") -> str:
     # Create all required subdirectories
     for d in [
         "runs",
-        "artifacts/inputs",
-        "artifacts/outputs",
-        "artifacts/reports",
-        "artifacts/temp",
+        "artifacts/inputs", "artifacts/outputs", "artifacts/reports",
+        "artifacts/topology", "artifacts/knowledge", "artifacts/temp",
+        "artifacts/quarantine",
+        "indexes",
     ]:
         (ws / d).mkdir(parents=True, exist_ok=True)
 

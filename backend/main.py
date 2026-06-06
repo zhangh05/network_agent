@@ -109,16 +109,74 @@ def create_app():
 
     @app.route("/api/workspaces/<ws_id>/artifacts")
     def api_workspace_artifacts(ws_id):
-        from workspace.artifact_store import list_artifacts
-        return jsonify({"artifacts": list_artifacts(ws_id)})
+        from artifacts.store import list_artifacts, save_artifact, get_artifact, read_artifact_content, delete_artifact, promote_artifact, summarize_artifact_content, get_run_artifacts
+        run_id = request.args.get("run_id")
+        art_type = request.args.get("artifact_type")
+        scope = request.args.get("scope")
+        sens = request.args.get("sensitivity")
+        inc_del = request.args.get("include_deleted", "0") == "1"
+        lim = int(request.args.get("limit", 100))
+        return jsonify({"artifacts": list_artifacts(ws_id, run_id=run_id, artifact_type=art_type,
+                        scope=scope, sensitivity=sens, include_deleted=inc_del, limit=lim)})
+
+    @app.route("/api/workspaces/<ws_id>/artifacts", methods=["POST"])
+    def api_workspace_artifact_create(ws_id):
+        from artifacts.store import save_artifact
+        data = request.get_json(silent=True) or {}
+        rec = save_artifact(
+            workspace_id=ws_id, content=data.get("content", ""),
+            artifact_type=data.get("artifact_type", ""),
+            title=data.get("title", ""), scope=data.get("scope", "workspace"),
+            sensitivity=data.get("sensitivity", ""),
+            run_id=data.get("run_id", ""),
+        )
+        if not rec:
+            return jsonify({"ok": False, "error": "artifact creation blocked"}), 400
+        return jsonify({"ok": True, "artifact": rec.as_dict()})
 
     @app.route("/api/workspaces/<ws_id>/artifacts/<artifact_id>")
     def api_workspace_artifact(ws_id, artifact_id):
-        from workspace.artifact_store import get_artifact
-        result = get_artifact(artifact_id, ws_id)
-        if not result:
+        from artifacts.store import get_artifact
+        rec = get_artifact(ws_id, artifact_id)
+        if not rec:
             return jsonify({"ok": False, "error": "artifact not found"}), 404
-        return jsonify(result)
+        return jsonify({"ok": True, "artifact": rec.as_dict()})
+
+    @app.route("/api/workspaces/<ws_id>/artifacts/<artifact_id>/content")
+    def api_artifact_content(ws_id, artifact_id):
+        from artifacts.store import read_artifact_content
+        allow = request.args.get("allow_sensitive", "0") == "1"
+        content = read_artifact_content(ws_id, artifact_id, allow_sensitive=allow)
+        if content is None:
+            return jsonify({"ok": False, "error": "content not accessible"}), 403
+        return jsonify({"ok": True, "content": content})
+
+    @app.route("/api/workspaces/<ws_id>/artifacts/<artifact_id>", methods=["DELETE"])
+    def api_artifact_delete(ws_id, artifact_id):
+        from artifacts.store import delete_artifact
+        ok = delete_artifact(ws_id, artifact_id)
+        return jsonify({"ok": ok})
+
+    @app.route("/api/workspaces/<ws_id>/artifacts/<artifact_id>/promote", methods=["POST"])
+    def api_artifact_promote(ws_id, artifact_id):
+        data = request.get_json(silent=True) or {}
+        target = data.get("target_scope", "workspace")
+        from artifacts.store import promote_artifact
+        rec = promote_artifact(ws_id, artifact_id, target)
+        if not rec:
+            return jsonify({"ok": False, "error": "promotion blocked"}), 400
+        return jsonify({"ok": True, "artifact": rec.as_dict()})
+
+    @app.route("/api/workspaces/<ws_id>/artifacts/<artifact_id>/summarize")
+    def api_artifact_summarize(ws_id, artifact_id):
+        from artifacts.store import summarize_artifact_content
+        s = summarize_artifact_content(ws_id, artifact_id)
+        return jsonify({"ok": True, "summary": s})
+
+    @app.route("/api/workspaces/<ws_id>/runs/<run_id>/artifacts")
+    def api_run_artifacts(ws_id, run_id):
+        from artifacts.store import get_run_artifacts
+        return jsonify({"ok": True, **get_run_artifacts(ws_id, run_id)})
 
     # ── Trace (Observability) ──
     @app.route("/api/workspaces/<ws_id>/runs/<run_id>/trace")
