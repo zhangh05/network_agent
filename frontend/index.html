@@ -98,11 +98,14 @@
 
   /* ── Quick entry grid ── */
   .qe-grid{display:grid;grid-template-columns:repeat(4,1fr);gap:14px;margin-bottom:16px}
-  .qe-card{background:var(--card);border:1px solid var(--n8);border-radius:10px;padding:18px;cursor:pointer;transition:all .15s;text-align:center}
+  .qe-card{background:var(--card);border:1px solid var(--n8);border-radius:10px;padding:18px;cursor:pointer;transition:all .15s;text-align:center;position:relative}
   .qe-card:hover{border-color:var(--pri);box-shadow:0 4px 16px rgba(37,99,235,.08)}
+  .qe-card.disabled{cursor:not-allowed;opacity:.65}
+  .qe-card.disabled:hover{border-color:var(--n8);box-shadow:none}
   .qe-icon{width:40px;height:40px;border-radius:10px;display:flex;align-items:center;justify-content:center;margin:0 auto 10px;font-size:18px;background:var(--n10);color:var(--pri)}
   .qe-name{font-size:14px;font-weight:600;color:var(--n1);margin-bottom:4px}
   .qe-desc{font-size:12px;color:var(--n5)}
+  .qe-badge{position:absolute;top:8px;right:8px;font-size:10px;background:var(--n9);color:var(--n5);padding:2px 6px;border-radius:4px}
 
   /* ── Tables ── */
   table{width:100%;border-collapse:collapse;font-size:13px}
@@ -138,15 +141,6 @@
   .tr-tabs button:hover{background:var(--n10);color:var(--n2)}
   .tr-tabs button.active{background:var(--n10);color:var(--n1);font-weight:700}
   .tr-out{flex:1;overflow:auto;padding:14px;font:13px/1.7 var(--mono);white-space:pre;tab-size:2}
-
-  /* ── Topology page ── */
-  .tp-input{display:flex;gap:12px;margin-bottom:16px}
-  .tp-input .btn{flex:1;justify-content:center}
-  .tp-canvas{background:var(--card);border:1px solid var(--n8);border-radius:10px;height:420px;display:flex;align-items:center;justify-content:center;position:relative;overflow:hidden}
-
-  /* ── Inspection page ── */
-  .in-grid{display:grid;grid-template-columns:1fr 1fr;gap:14px;margin-bottom:16px}
-  .in-chart{height:220px;display:flex;align-items:center;justify-content:center}
 
   /* ── Status dot ── */
   .sdot{width:7px;height:7px;border-radius:50%;display:inline-block;margin-right:6px}
@@ -216,7 +210,6 @@
     .sb-item{justify-content:center;padding:10px}
     .stat-grid,.qe-grid{grid-template-columns:repeat(2,1fr)}
     #agent-panel{width:280px}
-    .in-grid{grid-template-columns:1fr}
   }
 </style>
 </head>
@@ -248,12 +241,6 @@
       </button>
       <button class="sb-item" disabled>
         <span style="width:18px;text-align:center">◉</span> 知识库
-      </button>
-      <button class="sb-item" disabled>
-        <span style="width:18px;text-align:center">◫</span> 技能排程
-      </button>
-      <button class="sb-item" disabled>
-        <span style="width:18px;text-align:center">◈</span> 管理中心
       </button>
     </div>
     <div class="sb-group">
@@ -287,12 +274,10 @@
     </div>
     <div class="top-proj" id="top-proj">
       <span class="status"></span>
-      <span>Core Network Migration</span>
-      <span style="color:var(--n6);font-size:11px">已连接</span>
+      <span>default</span>
+      <span style="color:var(--n6);font-size:11px" id="top-status">检测中…</span>
     </div>
     <div class="top-spc"></div>
-    <button class="top-action" title="搜索">⌕</button>
-    <button class="top-action" title="通知">🕭</button>
     <div class="top-user">A</div>
   </div>
 
@@ -305,98 +290,63 @@
           <div class="qe-card" onclick="switchPage('translate')">
             <div class="qe-icon" style="background:#dbeafe;color:#2563eb">⇄</div>
             <div class="qe-name">配置翻译</div>
-            <div class="qe-desc">多厂商配置智能转换</div>
+            <div class="qe-desc">多厂商配置转换</div>
           </div>
-          <div class="qe-card" onclick="switchPage('inspection')">
+          <div class="qe-card disabled">
+            <span class="qe-badge">planned</span>
             <div class="qe-icon" style="background:#dcfce7;color:#16a34a">◈</div>
             <div class="qe-name">巡检分析</div>
-            <div class="qe-desc">自动化网络巡检与报告</div>
+            <div class="qe-desc">planned – not enabled in current baseline</div>
           </div>
-          <div class="qe-card" onclick="switchPage('topology')">
+          <div class="qe-card disabled">
+            <span class="qe-badge">planned</span>
             <div class="qe-icon" style="background:#fef3c7;color:#d97706">⬡</div>
             <div class="qe-name">拓扑绘图</div>
-            <div class="qe-desc">网络拓扑自动发现与绘制</div>
+            <div class="qe-desc">planned – not enabled in current baseline</div>
           </div>
-          <div class="qe-card">
+          <div class="qe-card disabled">
+            <span class="qe-badge">planned</span>
             <div class="qe-icon" style="background:#f3e8ff;color:#9333ea">◉</div>
             <div class="qe-name">知识库</div>
-            <div class="qe-desc">网络知识检索与问答</div>
+            <div class="qe-desc">planned – not enabled in current baseline</div>
           </div>
         </div>
 
-        <div class="stat-grid">
+        <div class="stat-grid" id="dash-stats">
           <div class="stat-card">
             <div class="stat-label">模块</div>
-            <div class="stat-value" id="dash-mods">4</div>
-            <div class="stat-foot"><span class="sdot sdot-ok"></span>已启用 1</div>
-            <div class="stat-bar"><i style="width:25%;background:var(--pri)"></i></div>
+            <div class="stat-value" id="dash-mods">—</div>
+            <div class="stat-foot"><span class="sdot sdot-off"></span>加载中…</div>
           </div>
           <div class="stat-card">
             <div class="stat-label">Skills 数量</div>
-            <div class="stat-value" id="dash-skills">4</div>
-            <div class="stat-foot"><span class="sdot sdot-ok"></span>全部就绪</div>
-            <div class="stat-bar"><i style="width:100%;background:var(--suc)"></i></div>
+            <div class="stat-value" id="dash-skills">—</div>
+            <div class="stat-foot"><span class="sdot sdot-off"></span>加载中…</div>
           </div>
           <div class="stat-card">
             <div class="stat-label">记忆记录</div>
-            <div class="stat-value" id="dash-mems">386</div>
-            <div class="stat-foot"><span class="sdot sdot-ok"></span>JSONL 存储</div>
-            <div class="stat-bar"><i style="width:78%;background:var(--info)"></i></div>
+            <div class="stat-value" id="dash-mems">—</div>
+            <div class="stat-foot"><span class="sdot sdot-off"></span>加载中…</div>
           </div>
           <div class="stat-card">
             <div class="stat-label">最近任务</div>
-            <div class="stat-value" id="dash-tasks">12</div>
-            <div class="stat-foot"><span class="sdot sdot-warn"></span>5 需人工确认</div>
-            <div class="stat-bar"><i style="width:42%;background:var(--warn)"></i></div>
+            <div class="stat-value" id="dash-tasks">—</div>
+            <div class="stat-foot"><span class="sdot sdot-off"></span>加载中…</div>
           </div>
         </div>
 
         <div class="card">
           <div class="card-hd">
             <div class="card-title">最近运行记录</div>
-            <div class="card-more">查看全部</div>
           </div>
-          <table>
-            <thead><tr><th>名称</th><th>类型</th><th>状态</th><th>时间</th></tr></thead>
-            <tbody>
-              <tr><td>配置翻译任务 · Huawei VRP</td><td><span class="tag tag-bl">翻译</span></td><td><span class="sdot sdot-ok"></span>成功</td><td>14:20</td></tr>
-              <tr><td>配置翻译任务 · Cisco IOS</td><td><span class="tag tag-bl">翻译</span></td><td><span class="sdot sdot-warn"></span>人工确认</td><td>12:18</td></tr>
-              <tr><td>巡检分析 · Core 汇聚</td><td><span class="tag tag-gr">巡检</span></td><td><span class="sdot sdot-ok"></span>完成</td><td>昨天 18:45</td></tr>
-              <tr><td>配置翻译任务 · Ruijie</td><td><span class="tag tag-bl">翻译</span></td><td><span class="sdot sdot-dng"></span>失败</td><td>前天 18:22</td></tr>
-            </tbody>
-          </table>
+          <div id="recent-runs"><div class="empty"><div class="icon">⌘</div><div class="t">暂无运行记录</div><div style="font-size:12px">执行一次 Agent Run 或翻译任务后此区域将显示运行记录</div></div></div>
         </div>
 
         <div class="card">
           <div class="card-hd">
             <div class="card-title">系统状态</div>
           </div>
-          <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:16px;font-size:13px">
-            <div style="display:flex;align-items:center;gap:10px;padding:10px;background:var(--n10);border-radius:8px">
-              <span class="sdot sdot-ok"></span>
-              <div><div style="font-weight:600">API 服务</div><div style="font-size:11px;color:var(--n5)">正常运行</div></div>
-            </div>
-            <div style="display:flex;align-items:center;gap:10px;padding:10px;background:var(--n10);border-radius:8px">
-              <span class="sdot sdot-ok"></span>
-              <div><div style="font-weight:600">翻译引擎</div><div style="font-size:11px;color:var(--n5)">translate_bundle</div></div>
-            </div>
-            <div style="display:flex;align-items:center;gap:10px;padding:10px;background:var(--n10);border-radius:8px">
-              <span class="sdot sdot-ok"></span>
-              <div><div style="font-weight:600">Skills 注册表</div><div style="font-size:11px;color:var(--n5)">JSON 已加载</div></div>
-            </div>
-            <div style="display:flex;align-items:center;gap:10px;padding:10px;background:var(--n10);border-radius:8px">
-              <span class="sdot sdot-ok"></span>
-              <div><div style="font-weight:600">Memory 管理</div><div style="font-size:11px;color:var(--n5)">JSONL 存储</div></div>
-            </div>
-            <div style="display:flex;align-items:center;gap:10px;padding:10px;background:var(--n10);border-radius:8px">
-              <span class="sdot sdot-ok"></span>
-              <div><div style="font-weight:600">Module 注册表</div><div style="font-size:11px;color:var(--n5)">4 个模块</div></div>
-            </div>
-            <div style="display:flex;align-items:center;gap:10px;padding:10px;background:var(--n10);border-radius:8px">
-              <span class="sdot sdot-warn"></span>
-              <div><div style="font-weight:600">系统状态</div><div style="font-size:11px;color:var(--n5)">Beta 运行良好</div></div>
-            </div>
-          </div>
+          <div id="sys-status"><div id="sys-status-grid" style="display:grid;grid-template-columns:repeat(3,1fr);gap:16px;font-size:13px"><div style="display:flex;align-items:center;gap:10px;padding:10px;background:var(--n10);border-radius:8px"><span class="sdot sdot-off"></span><div><div style="font-weight:600">后端状态</div><div style="font-size:11px;color:var(--n5)">检测中…</div></div></div></div></div>
         </div>
       </div>
 
@@ -450,35 +400,11 @@ router ospf 1
       <!-- ══════ Topology ══════ -->
       <div class="page" id="page-topology">
         <div class="card">
-          <div class="card-hd"><div class="card-title">拓扑绘图</div><span class="tag tag-ye">规划中</span></div>
-          <div class="tp-input">
-            <button class="btn btn-sec">📁 上传配置文件</button>
-            <button class="btn btn-sec">🔍 从设备发现</button>
-            <button class="btn btn-sec">📄 从模板导入</button>
-          </div>
-          <div class="tp-canvas" id="tp-canvas">
-            <svg width="600" height="360" viewBox="0 0 600 360">
-              <rect x="250" y="20" width="100" height="44" rx="6" fill="#dbeafe" stroke="#2563eb" stroke-width="1.5"/>
-              <text x="300" y="46" text-anchor="middle" font-size="12" fill="#1e40af" font-weight="600">Core-R1</text>
-              <line x1="300" y1="64" x2="300" y2="110" stroke="#cbd5e1" stroke-width="1.5"/>
-              <rect x="120" y="110" width="100" height="44" rx="6" fill="#dcfce7" stroke="#16a34a" stroke-width="1.5"/>
-              <text x="170" y="136" text-anchor="middle" font-size="12" fill="#166534" font-weight="600">Dist-R1</text>
-              <line x1="220" y1="132" x2="250" y2="132" stroke="#cbd5e1" stroke-width="1.5"/>
-              <rect x="380" y="110" width="100" height="44" rx="6" fill="#dcfce7" stroke="#16a34a" stroke-width="1.5"/>
-              <text x="430" y="136" text-anchor="middle" font-size="12" fill="#166534" font-weight="600">Dist-R2</text>
-              <line x1="350" y1="132" x2="380" y2="132" stroke="#cbd5e1" stroke-width="1.5"/>
-              <line x1="170" y1="154" x2="170" y2="210" stroke="#cbd5e1" stroke-width="1.5"/>
-              <rect x="70" y="210" width="100" height="44" rx="6" fill="#fef3c7" stroke="#d97706" stroke-width="1.5"/>
-              <text x="120" y="236" text-anchor="middle" font-size="12" fill="#92400e" font-weight="600">Access-SW1</text>
-              <rect x="170" y="210" width="100" height="44" rx="6" fill="#fef3c7" stroke="#d97706" stroke-width="1.5"/>
-              <text x="220" y="236" text-anchor="middle" font-size="12" fill="#92400e" font-weight="600">Access-SW2</text>
-              <line x1="430" y1="154" x2="430" y2="210" stroke="#cbd5e1" stroke-width="1.5"/>
-              <rect x="380" y="210" width="100" height="44" rx="6" fill="#fef3c7" stroke="#d97706" stroke-width="1.5"/>
-              <text x="430" y="236" text-anchor="middle" font-size="12" fill="#92400e" font-weight="600">Access-SW3</text>
-              <rect x="480" y="210" width="100" height="44" rx="6" fill="#fef3c7" stroke="#d97706" stroke-width="1.5"/>
-              <text x="530" y="236" text-anchor="middle" font-size="12" fill="#92400e" font-weight="600">Access-SW4</text>
-              <text x="300" y="300" text-anchor="middle" font-size="12" fill="var(--n5)">拓扑预览示意图（规划中）</text>
-            </svg>
+          <div class="card-hd"><div class="card-title">拓扑绘图</div><span class="tag tag-ye">planned</span></div>
+          <div class="empty">
+            <div class="icon">⬡</div>
+            <div class="t">Topology module is planned</div>
+            <div style="font-size:12px">This module is planned and not enabled in the current Foundation Baseline.</div>
           </div>
         </div>
       </div>
@@ -486,58 +412,12 @@ router ospf 1
       <!-- ══════ Inspection ══════ -->
       <div class="page" id="page-inspection">
         <div class="card">
-          <div class="card-hd"><div class="card-title">巡检分析</div><span class="tag tag-ye">规划中</span></div>
-          <div class="in-grid">
-            <div>
-              <div style="font-size:13px;font-weight:700;margin-bottom:10px">任务配置</div>
-              <div style="display:flex;flex-direction:column;gap:10px">
-                <div style="display:flex;align-items:center;gap:10px"><span style="width:80px;font-size:12px;color:var(--n5)">设备选择</span><select style="flex:1;height:32px;border:1px solid var(--n8);border-radius:6px;padding:0 10px"><option>全部核心设备</option></select></div>
-                <div style="display:flex;align-items:center;gap:10px"><span style="width:80px;font-size:12px;color:var(--n5)">巡检模板</span><select style="flex:1;height:32px;border:1px solid var(--n8);border-radius:6px;padding:0 10px"><option>标准网络巡检</option></select></div>
-                <div style="display:flex;align-items:center;gap:10px"><span style="width:80px;font-size:12px;color:var(--n5)">定时策略</span><select style="flex:1;height:32px;border:1px solid var(--n8);border-radius:6px;padding:0 10px"><option>立即执行</option></select></div>
-                <button class="btn btn-pri" style="margin-top:4px;width:fit-content">开始分析</button>
-              </div>
-            </div>
-            <div>
-              <div style="font-size:13px;font-weight:700;margin-bottom:10px">分析结果概览</div>
-              <div style="display:grid;grid-template-columns:repeat(2,1fr);gap:10px;margin-bottom:14px">
-                <div style="padding:12px;background:var(--n10);border-radius:8px;text-align:center">
-                  <div style="font-size:22px;font-weight:700;color:var(--n1)">12</div>
-                  <div style="font-size:11px;color:var(--n5)">检查项</div>
-                </div>
-                <div style="padding:12px;background:var(--n10);border-radius:8px;text-align:center">
-                  <div style="font-size:22px;font-weight:700;color:var(--suc)">9</div>
-                  <div style="font-size:11px;color:var(--n5)">通过</div>
-                </div>
-                <div style="padding:12px;background:var(--n10);border-radius:8px;text-align:center">
-                  <div style="font-size:22px;font-weight:700;color:var(--warn)">2</div>
-                  <div style="font-size:11px;color:var(--n5)">警告</div>
-                </div>
-                <div style="padding:12px;background:var(--n10);border-radius:8px;text-align:center">
-                  <div style="font-size:22px;font-weight:700;color:var(--dng)">1</div>
-                  <div style="font-size:11px;color:var(--n5)">严重</div>
-                </div>
-              </div>
-              <div class="in-chart">
-                <svg width="140" height="140" viewBox="0 0 140 140">
-                  <circle cx="70" cy="70" r="58" fill="none" stroke="#e2e8f0" stroke-width="18"/>
-                  <circle cx="70" cy="70" r="58" fill="none" stroke="#22c55e" stroke-width="18" stroke-dasharray="272 364" stroke-dashoffset="0" transform="rotate(-90 70 70)"/>
-                  <circle cx="70" cy="70" r="58" fill="none" stroke="#eab308" stroke-width="18" stroke-dasharray="60 364" stroke-dashoffset="-272" transform="rotate(-90 70 70)"/>
-                  <circle cx="70" cy="70" r="58" fill="none" stroke="#ef4444" stroke-width="18" stroke-dasharray="32 364" stroke-dashoffset="-332" transform="rotate(-90 70 70)"/>
-                  <text x="70" y="66" text-anchor="middle" font-size="18" font-weight="700" fill="#0f172a">75%</text>
-                  <text x="70" y="84" text-anchor="middle" font-size="10" fill="#64748b">合格率</text>
-                </svg>
-              </div>
-            </div>
+          <div class="card-hd"><div class="card-title">巡检分析</div><span class="tag tag-ye">planned</span></div>
+          <div class="empty">
+            <div class="icon">◈</div>
+            <div class="t">Inspection module is planned</div>
+            <div style="font-size:12px">This module is planned and not enabled in the current Foundation Baseline.</div>
           </div>
-          <div style="font-size:13px;font-weight:700;margin:14px 0 10px">Top 风险设备</div>
-          <table>
-            <thead><tr><th>排名</th><th>设备</th><th>风险项</th><th>严重等级</th></tr></thead>
-            <tbody>
-              <tr><td>1</td><td>Core-R1</td><td>CPU 持续高载 &gt; 90%</td><td><span class="tag tag-rd">严重</span></td></tr>
-              <tr><td>2</td><td>Dist-R2</td><td>内存使用率过高</td><td><span class="tag tag-ye">警告</span></td></tr>
-              <tr><td>3</td><td>Access-SW3</td><td>未配置 STP 保护</td><td><span class="tag tag-ye">警告</span></td></tr>
-            </tbody>
-          </table>
         </div>
       </div>
 
@@ -546,52 +426,18 @@ router ospf 1
         <div class="card">
           <div class="card-hd">
             <div class="card-title">Skills 管理</div>
-            <div style="display:flex;gap:8px">
-              <button class="btn btn-sec btn-sm">已启用</button>
-              <button class="btn btn-sec btn-sm">已禁用</button>
-              <button class="btn btn-sec btn-sm">全部 Skills</button>
-            </div>
           </div>
           <table>
             <thead>
-              <tr><th>名称</th><th>状态</th><th>类型</th><th>版本</th><th>更新时间</th><th>描述</th><th>操作</th></tr>
+              <tr><th>名称</th><th>状态</th><th>类型</th><th>关联模块</th><th>描述</th></tr>
             </thead>
             <tbody id="skills-tbody">
               <tr>
                 <td style="font-weight:600">config_translation</td>
-                <td><span class="tag tag-gr">已启用</span></td>
-                <td>配置翻译与转换</td>
-                <td>v3.0</td>
-                <td>2025-08-15</td>
+                <td><span class="tag tag-gr">enabled</span></td>
+                <td>python_adapter</td>
+                <td>config_translation</td>
                 <td style="max-width:260px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">多厂商网络配置翻译与适配</td>
-                <td><button class="btn btn-sm btn-sec">编辑</button></td>
-              </tr>
-              <tr>
-                <td style="font-weight:600">inspection</td>
-                <td><span class="tag tag-gy">规划中</span></td>
-                <td>网络巡检</td>
-                <td>—</td>
-                <td>2025-08-10</td>
-                <td style="max-width:260px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">自动化网络巡检与基线对比</td>
-                <td><button class="btn btn-sm btn-sec">编辑</button></td>
-              </tr>
-              <tr>
-                <td style="font-weight:600">topology</td>
-                <td><span class="tag tag-gy">规划中</span></td>
-                <td>拓扑绘制</td>
-                <td>—</td>
-                <td>2025-08-10</td>
-                <td style="max-width:260px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">网络拓扑自动发现与可视化</td>
-                <td><button class="btn btn-sm btn-sec">编辑</button></td>
-              </tr>
-              <tr>
-                <td style="font-weight:600">knowledge_search</td>
-                <td><span class="tag tag-gy">规划中</span></td>
-                <td>知识检索</td>
-                <td>—</td>
-                <td>2025-08-10</td>
-                <td style="max-width:260px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">知识库检索与问答</td>
-                <td><button class="btn btn-sm btn-sec">编辑</button></td>
               </tr>
             </tbody>
           </table>
@@ -600,60 +446,31 @@ router ospf 1
 
       <!-- ══════ Memory ══════ -->
       <div class="page" id="page-memory">
-        <div class="stat-grid">
+        <div class="stat-grid" id="mem-stats">
           <div class="stat-card">
             <div class="stat-label">总记录数</div>
-            <div class="stat-value">386</div>
-            <div class="stat-foot">Memory 数据库</div>
+            <div class="stat-value" id="mem-total">—</div>
+            <div class="stat-foot">加载中…</div>
           </div>
           <div class="stat-card">
-            <div class="stat-label">今日新增</div>
-            <div class="stat-value">12</div>
-            <div class="stat-foot">+3 较昨日</div>
+            <div class="stat-label">项目级记忆</div>
+            <div class="stat-value" id="mem-project">—</div>
+            <div class="stat-foot">加载中…</div>
           </div>
           <div class="stat-card">
-            <div class="stat-label">永久记忆</div>
-            <div class="stat-value">45</div>
-            <div class="stat-foot">长期保留</div>
+            <div class="stat-label">长期记忆</div>
+            <div class="stat-value" id="mem-longterm">—</div>
+            <div class="stat-foot">加载中…</div>
           </div>
           <div class="stat-card">
             <div class="stat-label">短期记忆</div>
-            <div class="stat-value">341</div>
-            <div class="stat-foot">会话上下文</div>
+            <div class="stat-value" id="mem-shortterm">—</div>
+            <div class="stat-foot">加载中…</div>
           </div>
         </div>
-        <div class="in-grid">
-          <div class="card" style="margin-bottom:0">
-            <div class="card-hd"><div class="card-title">记忆记录列表</div></div>
-            <table>
-              <thead><tr><th>类型</th><th>标题</th><th>记录时间</th></tr></thead>
-              <tbody>
-                <tr><td><span class="tag tag-bl">决策</span></td><td>选择 OSPF 作为路由协议</td><td>2025-08-14 14:28</td></tr>
-                <tr><td><span class="tag tag-gr">用户偏好</span></td><td>优先使用 VRF 隔离</td><td>2025-08-14 11:05</td></tr>
-                <tr><td><span class="tag tag-ye">项目状态</span></td><td>核心汇聚层迁移完成</td><td>2025-08-13 16:30</td></tr>
-                <tr><td><span class="tag tag-bl">知识</span></td><td>Huawei VRP 链路聚合配置</td><td>2025-08-12 09:12</td></tr>
-                <tr><td><span class="tag tag-gy">运维</span></td><td>某site_静态路由调整</td><td>2025-08-10 18:22</td></tr>
-              </tbody>
-            </table>
-          </div>
-          <div class="card" style="margin-bottom:0">
-            <div class="card-hd"><div class="card-title">类型分布</div></div>
-            <div style="display:flex;align-items:center;justify-content:center;height:220px">
-              <svg width="180" height="180" viewBox="0 0 180 180">
-                <circle cx="90" cy="90" r="70" fill="none" stroke="#e2e8f0" stroke-width="24"/>
-                <circle cx="90" cy="90" r="70" fill="none" stroke="#2563eb" stroke-width="24" stroke-dasharray="220 440" stroke-dashoffset="0" transform="rotate(-90 90 90)"/>
-                <circle cx="90" cy="90" r="70" fill="none" stroke="#22c55e" stroke-width="24" stroke-dasharray="88 440" stroke-dashoffset="-220" transform="rotate(-90 90 90)"/>
-                <circle cx="90" cy="90" r="70" fill="none" stroke="#eab308" stroke-width="24" stroke-dasharray="66 440" stroke-dashoffset="-308" transform="rotate(-90 90 90)"/>
-                <circle cx="90" cy="90" r="70" fill="none" stroke="#64748b" stroke-width="24" stroke-dasharray="66 440" stroke-dashoffset="-374" transform="rotate(-90 90 90)"/>
-              </svg>
-              <div style="margin-left:20px;display:flex;flex-direction:column;gap:8px;font-size:12px">
-                <div style="display:flex;align-items:center;gap:6px"><span style="width:10px;height:10px;border-radius:2px;background:var(--pri)"></span>决策 (50%)</div>
-                <div style="display:flex;align-items:center;gap:6px"><span style="width:10px;height:10px;border-radius:2px;background:var(--suc)"></span>用户偏好 (20%)</div>
-                <div style="display:flex;align-items:center;gap:6px"><span style="width:10px;height:10px;border-radius:2px;background:var(--warn)"></span>项目状态 (15%)</div>
-                <div style="display:flex;align-items:center;gap:6px"><span style="width:10px;height:10px;border-radius:2px;background:var(--n5)"></span>其他 (15%)</div>
-              </div>
-            </div>
-          </div>
+        <div class="card">
+          <div class="card-hd"><div class="card-title">记忆记录列表</div></div>
+          <div id="mem-list"><div style="text-align:center;color:var(--n5);padding:30px">加载中…</div></div>
         </div>
       </div>
 
@@ -664,18 +481,15 @@ router ospf 1
       <div class="ag-header">
         <span style="font-size:16px">◈</span>
         <span class="title">Agent 助手</span>
-        <span class="sub">已连接</span>
+        <span class="sub" id="ag-status">未连接</span>
       </div>
       <div class="ag-body" id="ag-body">
         <div class="ag-bubble ai">
           你好，我是 Network Agent 助手。<br><br>
-          我可以帮助你：<br>
-          • 解析和翻译配置<br>
-          • 评估网络变更风险<br>
-          • 提供优化建议<br>
-          • 管理项目记忆<br><br>
+          当前唯一启用的业务模块：<b>配置翻译</b><br>
+          支持的 vendor：Cisco IOS / 华为 VRP / H3C Comware / 锐捷 RGOS<br><br>
           您想了解什么？
-          <div class="time">10:20</div>
+          <div class="time" id="ag-init-time">—:—</div>
         </div>
       </div>
       <div class="ag-input">
@@ -704,20 +518,18 @@ router ospf 1
         <div class="form-row">
           <label>LLM 提供商</label>
           <select id="llm-provider" onchange="onProviderChange()">
-            <option value="openai">OpenAI</option>
-            <option value="azure">Azure OpenAI</option>
-            <option value="deepseek">DeepSeek</option>
-            <option value="claude">Claude (Anthropic)</option>
-            <option value="ollama">Ollama (本地)</option>
+            <option value="disabled">Disabled</option>
+            <option value="mock">Mock</option>
             <option value="minimax">MiniMax</option>
-            <option value="custom">自定义</option>
+            <option value="openai_compatible">OpenAI Compatible</option>
+            <option value="ollama_compatible">Ollama Compatible</option>
           </select>
-          <div class="hint">选择您要使用的语言模型服务提供商</div>
+          <div class="hint">选择 LLM 提供商。当前设置仅在前端本地存储，save API 尚未接入。</div>
         </div>
 
         <div class="form-row">
           <label>Base URL</label>
-          <input type="text" id="llm-baseurl" placeholder="https://api.openai.com/v1">
+          <input type="text" id="llm-baseurl" placeholder="">
           <div class="hint">API 服务端点地址，留空使用默认</div>
         </div>
 
@@ -729,18 +541,18 @@ router ospf 1
 
         <div class="form-row">
           <label>模型名称</label>
-          <input type="text" id="llm-model" placeholder="gpt-4o">
-          <div class="hint">例如 gpt-4o、deepseek-chat、claude-3-sonnet 等</div>
+          <input type="text" id="llm-model" placeholder="MiniMax-M3">
+          <div class="hint">当前默认模型 MiniMax-M3。支持 disabled/mock/minimax/openai_compatible/ollama_compatible 对应的模型</div>
         </div>
 
         <div class="form-row inline">
           <div>
             <label>温度 (Temperature)</label>
-            <input type="number" id="llm-temp" min="0" max="2" step="0.1" value="0.7" placeholder="0.7">
+            <input type="number" id="llm-temp" min="0" max="2" step="0.1" value="0.2" placeholder="0.2">
           </div>
           <div>
             <label>最大 Token</label>
-            <input type="number" id="llm-maxtok" min="1" max="128000" step="1" value="4096" placeholder="4096">
+            <input type="number" id="llm-maxtok" min="1" max="128000" step="1" value="1200" placeholder="1200">
           </div>
         </div>
 
@@ -777,80 +589,123 @@ router ospf 1
     </div>
     <div class="modal-ft">
       <button class="btn btn-sec" onclick="closeSettings()">取消</button>
-      <button class="btn btn-pri" onclick="saveSettings()">保存设置</button>
+      <button class="btn btn-pri" onclick="saveSettings()">保存设置 (local only)</button>
     </div>
   </div>
 </div>
 
 <script>
+/* ── Utility helpers ── */
+function esc(s){return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');}
+
+// Security: redact sensitive text before display
+var _SENSITIVE_KEYS=['password','passwd','secret','token','api_key','apikey','key','community','authorization','bearer','private_key'];
+function redactSensitiveText(txt){
+  var s=String(txt||'');
+  // Mask common secret patterns
+  s=s.replace(/(?:password|passwd|secret|community)\s+[^\s"']+/gi,function(m){return m.replace(/\s+\S+$/,' [REDACTED]');});
+  s=s.replace(/(sk-[a-zA-Z0-9]{4})[a-zA-Z0-9]+/g,'$1****[REDACTED]');
+  s=s.replace(/Bearer\s+[^\s"']+/gi,'Bearer [REDACTED]');
+  return s;
+}
+function sanitizeDisplayText(txt){return redactSensitiveText(esc(txt));}
+
+// Fetch wrapper with timeout and error handling
+function apiFetch(url,opts){
+  opts=opts||{};
+  return fetch(url,opts).then(function(r){
+    if(!r.ok) throw new Error('HTTP '+r.status);
+    return r.json();
+  });
+}
+
+// Set status dot + text
+function setStatus(el,status,text){
+  var dot=el.querySelector('.sdot')||el.querySelector('.status');
+  var txt=el.querySelector('div:last-child')||el;
+  if(dot){dot.className='sdot sdot-'+status;}
+  if(txt&&text){txt.textContent=text;}
+}
+
+// Render unavailable placeholder
+function renderUnavailable(id,msg){var el=document.getElementById(id);if(el)el.textContent=msg||'unavailable';}
+
+// Render coming soon
+function renderComingSoon(id,label){var el=document.getElementById(id);if(el)el.innerHTML='<span class="tag tag-ye">'+(label||'coming_soon')+'</span>';}
+
 /* ── Data ── */
-let lastTranslate=null;
-const pageNames={dashboard:'Agent 工作台',translate:'配置翻译',inspection:'巡检分析',topology:'拓扑绘图',skills:'Skills 管理',memory:'Memory 管理'};
+var lastTranslate=null;
+var pageNames={dashboard:'Agent 工作台',translate:'配置翻译',inspection:'巡检分析',topology:'拓扑绘图',skills:'Skills 管理',memory:'Memory 管理'};
 
 /* ── Page switch ── */
 function switchPage(name){
-  document.querySelectorAll('.page').forEach(p=>p.classList.remove('active'));
-  document.querySelectorAll('.sb-item').forEach(b=>b.classList.remove('active'));
-  const page=document.getElementById('page-'+name);
+  document.querySelectorAll('.page').forEach(function(p){p.classList.remove('active');});
+  document.querySelectorAll('.sb-item').forEach(function(b){b.classList.remove('active');});
+  var page=document.getElementById('page-'+name);
   if(page)page.classList.add('active');
-  const btn=document.querySelector('.sb-item[data-page="'+name+'"]');
+  var btn=document.querySelector('.sb-item[data-page="'+name+'"]');
   if(btn)btn.classList.add('active');
   document.getElementById('bread-page').textContent=pageNames[name]||name;
 }
 
 /* ── Agent toggle ── */
 function toggleAgent(){
-  const p=document.getElementById('agent-panel');
+  var p=document.getElementById('agent-panel');
   p.classList.toggle('collapsed');
   document.getElementById('agent-toggle').textContent=p.classList.contains('collapsed')?'▶':'◀';
 }
 
 /* ── Agent chat ── */
 function sendAgent(){
-  const inp=document.getElementById('ag-in');
-  const txt=inp.value.trim(); if(!txt)return;
-  const body=document.getElementById('ag-body');
-  const time=new Date().toLocaleTimeString('zh-CN',{hour:'2-digit',minute:'2-digit'});
+  var inp=document.getElementById('ag-in');
+  var txt=inp.value.trim(); if(!txt)return;
+  var body=document.getElementById('ag-body');
+  var time=new Date().toLocaleTimeString('zh-CN',{hour:'2-digit',minute:'2-digit'});
   body.insertAdjacentHTML('beforeend','<div class="ag-bubble user">'+esc(txt)+'<div class="time">'+time+'</div></div>');
   inp.value=''; body.scrollTop=body.scrollHeight;
-  // Add thinking bubble
-  const thinkEl=document.createElement('div'); thinkEl.className='ag-bubble ai'; thinkEl.textContent='处理中...'; body.appendChild(thinkEl); body.scrollTop=body.scrollHeight;
-  // Call Agent API
+  var thinkEl=document.createElement('div'); thinkEl.className='ag-bubble ai'; thinkEl.textContent='处理中...'; body.appendChild(thinkEl); body.scrollTop=body.scrollHeight;
   fetch('/api/agent/run',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({message:txt,workspace_id:'default'})})
-  .then(r=>r.json()).then(d=>{
+  .then(function(r){return r.json();}).then(function(d){
     thinkEl.remove();
-    let reply='';
+    var reply='';
     if(d.ok || d.final_response){
       reply=d.final_response||'处理完成';
       if(d.active_module==='config_translation'){
         reply+='\n\n点击查看「配置翻译」模块的详细结果。';
-        setTimeout(()=>switchPage('translate'),500);
+        setTimeout(function(){switchPage('translate');},500);
       }
-      var l = d.llm||{};
-      reply+='\n<span class="time" style="margin-top:6px">runtime: '+esc(d.runtime_mode||'fallback');
-      if(l.used) reply+=' | AI 已参与回答 ('+esc(l.provider||'')+')';
-      else reply+=' | 规则回复';
+      var l=d.llm||{};
+      reply+='\n<span class="time" style="margin-top:6px">'
+        +'run_id: <code style="font-size:10px">'+esc(d.run_id||'—')+'</code>'
+        +' | status: '+esc(d.status||'ok')
+        +' | capability: '+esc(d.capability||'—');
+      if(l.used) reply+=' | AI: '+esc(l.provider||'')+' ('+esc(l.model||'')+')';
       if(l.fallback_reason) reply+=' | '+esc(l.fallback_reason);
-      // Trace timeline summary
-      var tl = d.timeline_summary||{};
+      if(d.warnings&&d.warnings.length) reply+=' | ⚠ '+esc(d.warnings.length)+' warnings';
+      var tl=d.timeline_summary||{};
       if(d.trace_id){
         reply+='<br>trace: <code style="font-size:10px">'+esc(d.trace_id)+'</code>';
         reply+=' | '+esc(tl.total_duration_ms||0)+'ms';
         reply+=' | '+esc(tl.node_count||0)+' nodes';
-        reply+=' | skill:'+esc(tl.skill_call_count||0)+' mod:'+esc(tl.module_call_count||0);
         reply+=' | llm:'+esc(tl.llm_call_count||0);
-        if(tl.warning_count) reply+=' | ⚠ '+esc(tl.warning_count);
         reply+=' <a href="#" onclick="viewTrace(\''+esc(d.run_id)+'\',\''+esc(d.workspace_id||'default')+'\')" style="font-size:10px">查看轨迹 &gt;</a>';
       }
+      if(d.artifact_refs&&d.artifact_refs.length) reply+='<br>artifacts: '+esc(d.artifact_refs.length);
+      if(d.report_refs&&d.report_refs.length) reply+='<br>reports: '+esc(d.report_refs.length);
+      if(d.job_refs&&d.job_refs.length) reply+='<br>jobs: '+esc(d.job_refs.length);
       reply+='</span>';
+      // Show manual_review warning if present
+      if(d.manual_review_count&&d.manual_review_count>0){
+        reply='⚠ Manual review required: '+esc(d.manual_review_count)+' items — config is NOT directly deployable\n'+reply;
+      }
     }else{
-      reply=(d.error||'请求失败，请稍后重试')+'\n<span class="time" style="margin-top:6px">[local fallback]</span>';
+      reply='[error] '+(d.error||'请求失败，请稍后重试')+'\n<span class="time" style="margin-top:6px">[local fallback]</span>';
     }
     body.insertAdjacentHTML('beforeend','<div class="ag-bubble ai">'+reply.replace(/\n/g,'<br>')+'<div class="time">'+new Date().toLocaleTimeString('zh-CN',{hour:'2-digit',minute:'2-digit'})+'</div></div>');
     body.scrollTop=body.scrollHeight;
-  }).catch(()=>{
+  }).catch(function(){
     thinkEl.remove();
-    let reply='请求 Agent API 失败，请确认服务已在 8010 运行。\n<span class="time" style="margin-top:6px">[local fallback]</span>';
+    var reply='[error] 请求 Agent API 失败，请确认服务已在 8010 运行。\n<span class="time" style="margin-top:6px">[local fallback]</span>';
     body.insertAdjacentHTML('beforeend','<div class="ag-bubble ai">'+reply.replace(/\n/g,'<br>')+'<div class="time">'+new Date().toLocaleTimeString('zh-CN',{hour:'2-digit',minute:'2-digit'})+'</div></div>');
     body.scrollTop=body.scrollHeight;
   });
@@ -858,22 +713,22 @@ function sendAgent(){
 
 /* ── Translate ── */
 function switchTrTab(tab){
-  document.querySelectorAll('[data-trtab]').forEach(b=>b.classList.remove('active'));
+  document.querySelectorAll('[data-trtab]').forEach(function(b){b.classList.remove('active');});
   document.querySelector('[data-trtab="'+tab+'"]').classList.add('active');
   renderTrTab(tab);
 }
 function renderTrTab(tab){
-  const out=document.getElementById('tr-out');
+  var out=document.getElementById('tr-out');
   if(!lastTranslate){out.textContent=tab==='output'?'点击「开始翻译」生成结果':'暂无数据';return}
   if(tab==='output'){
     out.textContent=lastTranslate.deployable_config||'(空)';
   }else if(tab==='review'){
-    const mr=lastTranslate.manual_review||[];
+    var mr=lastTranslate.manual_review||[];
     if(!mr.length){out.innerHTML='<div class="empty"><div class="icon">✓</div><div class="t">未发现需人工确认项</div></div>';return}
-    out.innerHTML=mr.map((item,i)=>{
-      const lvl=(item.risk_level||'medium').toLowerCase();
-      const cls=lvl==='high'?'risk-lvl-high':lvl==='low'?'risk-lvl-low':'risk-lvl-med';
-      return'<div class="risk-item"><div class="risk-hd"><span class="risk-lvl '+cls+'">'+esc(item.risk_level||'medium')+'</span><span style="font-size:12px;color:var(--n5)">#'+(i+1)+'</span></div><div class="risk-body">'+esc(item.reason||'')+'<pre>'+esc(item.source_excerpt||'')+'</pre><div style="margin-top:6px;color:var(--n5)">建议: '+esc(item.suggested_action||'')+'</div></div></div>';
+    out.innerHTML=mr.map(function(item,i){
+      var lvl=(item.risk_level||'medium').toLowerCase();
+      var cls=lvl==='high'?'risk-lvl-high':lvl==='low'?'risk-lvl-low':'risk-lvl-med';
+      return'<div class="risk-item"><div class="risk-hd"><span class="risk-lvl '+cls+'">'+esc(item.risk_level||'medium')+'</span><span style="font-size:12px;color:var(--n5)">#'+(i+1)+'</span></div><div class="risk-body">'+esc(item.reason||'')+'<pre>'+sanitizeDisplayText(item.source_excerpt||'')+'</pre><div style="margin-top:6px;color:var(--n5)">建议: '+sanitizeDisplayText(item.suggested_action||'')+'</div></div></div>';
     }).join('');
   }else if(tab==='risk'){
     out.innerHTML='<div class="empty"><div class="icon">◈</div><div class="t">风险分析模块</div><div style="font-size:12px">配置翻译结果的风险评估数据将在此展示</div></div>';
@@ -882,44 +737,26 @@ function renderTrTab(tab){
   }
 }
 function doTranslate(){
-  const cfg=document.getElementById('tr-source').value.trim();
+  var cfg=document.getElementById('tr-source').value.trim();
   if(!cfg)return;
-  const btn=document.getElementById('tr-btn');
-  const st=document.getElementById('tr-status');
+  var btn=document.getElementById('tr-btn');
+  var st=document.getElementById('tr-status');
   btn.disabled=true; st.textContent='正在处理...';
   fetch('/api/modules/config-translation/translate',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({source_config:cfg,source_vendor:document.getElementById('tr-fv').value,target_vendor:document.getElementById('tr-tv').value})})
-  .then(r=>r.json()).then(d=>{
+  .then(function(r){return r.json();}).then(function(d){
     btn.disabled=false; st.textContent=d.ok?'完成':'失败';
-    if(d.ok){lastTranslate=d; renderTrTab('output'); document.querySelector('[data-trtab="output"]').classList.add('active'); document.querySelectorAll('[data-trtab]').forEach(b=>{if(b.dataset.trtab!=='output')b.classList.remove('active')});}
-  }).catch(()=>{btn.disabled=false; st.textContent='请求失败';});
+    if(d.ok){lastTranslate=d; renderTrTab('output'); document.querySelector('[data-trtab="output"]').classList.add('active'); document.querySelectorAll('[data-trtab]').forEach(function(b){if(b.dataset.trtab!=='output')b.classList.remove('active');});}
+  }).catch(function(){btn.disabled=false; st.textContent='请求失败';});
 }
 
-/* ── Init ── */
-fetch('/api/version').then(r=>r.json()).then(d=>{
-  document.getElementById('build-id').textContent=d.build_commit||'---';
-  document.getElementById('entry-id').textContent=d.translator_entry||'translate_bundle';
-  document.getElementById('ver-tag').textContent=d.version||'v3.0';
-}).catch(()=>{});
-fetch('/api/skills').then(r=>r.json()).then(d=>{
-  const c=(d.skills||[]).length; if(c)document.getElementById('dash-skills').textContent=c;
-}).catch(()=>{});
-fetch('/api/memory/status').then(r=>r.json()).then(d=>{
-  if(d.records!==undefined)document.getElementById('dash-mems').textContent=d.records;
-}).catch(()=>{});
-fetch('/api/modules').then(r=>r.json()).then(d=>{
-  const c=(d.modules||[]).length; if(c)document.getElementById('dash-mods').textContent=c;
-}).catch(()=>{});
-
-function esc(s){return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');}
-
-// ── Trace Viewer ──
+/* ── Trace Viewer ── */
 function viewTrace(runId,wsId){
-  var body=document.getElementById('chatBody');
+  var body=document.getElementById('ag-body');
   body.insertAdjacentHTML('beforeend','<div class="ag-bubble ai"><div style="font-size:12px">加载运行轨迹...</div></div>');
   body.scrollTop=body.scrollHeight;
   fetch('/api/workspaces/'+(wsId||'default')+'/runs/'+runId+'/trace')
-  .then(r=>{if(!r.ok)throw new Error('trace not found');return r.json()})
-  .then(d=>{
+  .then(function(r){if(!r.ok)throw new Error('trace not found');return r.json();})
+  .then(function(d){
     var trace=d.trace||{};
     var events=trace.events||[];
     var nodes=events.filter(function(e){return e.event_type==='node_end'});
@@ -945,39 +782,43 @@ function viewTrace(runId,wsId){
 }
 
 /* ── Settings Modal ── */
-const _DEF_PROVIDERS={
-  openai:{baseurl:'https://api.openai.com/v1',model:'gpt-4o'},
-  azure:{baseurl:'',model:'gpt-4o'},
-  deepseek:{baseurl:'https://api.deepseek.com/v1',model:'deepseek-chat'},
-  claude:{baseurl:'https://api.anthropic.com/v1',model:'claude-3-sonnet-20240229'},
-  ollama:{baseurl:'http://localhost:11434/v1',model:'llama3.1'},
+// Backend-consistent provider values
+var _DEF_PROVIDERS={
+  disabled:{baseurl:'',model:''},
+  mock:{baseurl:'',model:'mock-model'},
   minimax:{baseurl:'https://api.minimaxi.com/v1',model:'MiniMax-M3'},
-  custom:{baseurl:'',model:''}
+  openai_compatible:{baseurl:'https://api.openai.com/v1',model:''},
+  ollama_compatible:{baseurl:'http://localhost:11434/v1',model:''}
 };
 function openSettings(){document.getElementById('settings-modal').classList.add('show'); loadSettings();}
 function closeSettings(){document.getElementById('settings-modal').classList.remove('show');}
 function switchSetTab(tab){
-  document.querySelectorAll('[data-settab]').forEach(b=>b.classList.remove('active'));
+  document.querySelectorAll('[data-settab]').forEach(function(b){b.classList.remove('active');});
   document.querySelector('[data-settab="'+tab+'"]').classList.add('active');
-  document.querySelectorAll('.set-panel').forEach(p=>p.classList.remove('active'));
+  document.querySelectorAll('.set-panel').forEach(function(p){p.classList.remove('active');});
   document.getElementById('set-'+tab).classList.add('active');
 }
 function onProviderChange(){
-  const p=document.getElementById('llm-provider').value;
-  const d=_DEF_PROVIDERS[p]||_DEF_PROVIDERS.custom;
-  const urlEl=document.getElementById('llm-baseurl');
-  const modelEl=document.getElementById('llm-model');
-  if(!urlEl.value.trim()) urlEl.value=d.baseurl;
-  if(!modelEl.value.trim()) modelEl.value=d.model;
+  var p=document.getElementById('llm-provider').value;
+  var d=_DEF_PROVIDERS[p]||{baseurl:'',model:''};
+  var urlEl=document.getElementById('llm-baseurl');
+  var modelEl=document.getElementById('llm-model');
+  if(!urlEl.value.trim()) urlEl.value=d.baseurl||'';
+  if(!modelEl.value.trim()) modelEl.value=d.model||'';
 }
 function saveSettings(){
-  const cfg={
-    llm_provider:document.getElementById('llm-provider').value,
+  var provider=document.getElementById('llm-provider').value;
+  if(provider==='openai'||provider==='azure'||provider==='deepseek'||provider==='claude'||provider==='custom'||provider==='ollama'){
+    showToast('Provider "'+provider+'" is deprecated. Please use disabled/mock/minimax/openai_compatible/ollama_compatible.');
+    return;
+  }
+  var cfg={
+    llm_provider:provider,
     llm_baseurl:document.getElementById('llm-baseurl').value.trim(),
     llm_key:document.getElementById('llm-key').value.trim(),
-    llm_model:document.getElementById('llm-model').value.trim(),
-    llm_temp:parseFloat(document.getElementById('llm-temp').value)||0.7,
-    llm_maxtok:parseInt(document.getElementById('llm-maxtok').value)||4096,
+    llm_model:document.getElementById('llm-model').value.trim()||'MiniMax-M3',
+    llm_temp:parseFloat(document.getElementById('llm-temp').value)||0.2,
+    llm_maxtok:parseInt(document.getElementById('llm-maxtok').value)||1200,
     llm_sys:document.getElementById('llm-sys').value.trim(),
     ui_lang:document.getElementById('ui-lang').value,
     ui_theme:document.getElementById('ui-theme').value,
@@ -986,18 +827,22 @@ function saveSettings(){
   };
   try{localStorage.setItem('na_settings',JSON.stringify(cfg));}catch(e){}
   closeSettings();
-  showToast('设置已保存');
+  showToast('设置已保存 (local storage only — save API unavailable)');
 }
 function loadSettings(){
-  let cfg={};
+  var cfg={};
   try{cfg=JSON.parse(localStorage.getItem('na_settings')||'{}');}catch(e){}
-  const set=(id,v)=>{const el=document.getElementById(id); if(el) el.value=v;};
-  set('llm-provider',cfg.llm_provider||'openai');
+  var set=function(id,v){var el=document.getElementById(id); if(el)el.value=v;};
+  var provider=cfg.llm_provider||'minimax';
+  // Migrate old provider values
+  var LEGACY={'openai':'openai_compatible','azure':'openai_compatible','deepseek':'openai_compatible','claude':'openai_compatible','ollama':'ollama_compatible','custom':'openai_compatible'};
+  if(LEGACY[provider]) provider=LEGACY[provider];
+  set('llm-provider',provider);
   set('llm-baseurl',cfg.llm_baseurl||'');
   set('llm-key',cfg.llm_key||'');
-  set('llm-model',cfg.llm_model||'');
-  set('llm-temp',cfg.llm_temp!==undefined?cfg.llm_temp:0.7);
-  set('llm-maxtok',cfg.llm_maxtok!==undefined?cfg.llm_maxtok:4096);
+  set('llm-model',cfg.llm_model||'MiniMax-M3');
+  set('llm-temp',cfg.llm_temp!==undefined?cfg.llm_temp:0.2);
+  set('llm-maxtok',cfg.llm_maxtok!==undefined?cfg.llm_maxtok:1200);
   set('llm-sys',cfg.llm_sys||'');
   set('ui-lang',cfg.ui_lang||'zh');
   set('ui-theme',cfg.ui_theme||'light');
@@ -1006,64 +851,50 @@ function loadSettings(){
   onProviderChange();
 }
 async function testLLMConnection(){
-  const provider=document.getElementById('llm-provider').value;
-  const baseurl=document.getElementById('llm-baseurl').value.trim()||_DEF_PROVIDERS[provider]?.baseurl||'';
-  const key=document.getElementById('llm-key').value.trim();
-  const model=document.getElementById('llm-model').value.trim();
-  const result=document.getElementById('test-result');
-  const status=document.getElementById('test-status');
+  var provider=document.getElementById('llm-provider').value;
+  var baseurl=document.getElementById('llm-baseurl').value.trim()||(_DEF_PROVIDERS[provider]||{}).baseurl||'';
+  var key=document.getElementById('llm-key').value.trim();
+  var model=document.getElementById('llm-model').value.trim();
+  var result=document.getElementById('test-result');
+  var status=document.getElementById('test-status');
   result.style.display='none'; result.className='test-result'; status.textContent='正在测试...';
   if(!baseurl){status.textContent=''; result.className='test-result err'; result.textContent='错误：Base URL 不能为空'; result.style.display='block'; return;}
+  if(provider==='disabled'||provider==='mock'){status.textContent=''; result.className='test-result ok'; result.textContent=provider==='disabled'?'LLM 已禁用':'Mock 模式，无需连通性测试'; result.style.display='block'; return;}
 
-  const ctrl=new AbortController(); const to=setTimeout(()=>ctrl.abort(),15000);
-  const base=baseurl.replace(/\/$/,'');
+  var ctrl=new AbortController(); var to=setTimeout(function(){ctrl.abort();},15000);
+  var base=baseurl.replace(/\/$/,'');
 
-  const makeHeaders=()=>{
-    const h={'Content-Type':'application/json'};
+  var makeHeaders=function(){
+    var h={'Content-Type':'application/json'};
     if(key) h['Authorization']='Bearer '+key;
-    if(provider==='claude'){h['x-api-key']=key; delete h['Authorization'];}
     return h;
   };
 
   try{
-    // Phase 1: provider-specific list endpoint
-    let url=base+'/models';
-    if(provider==='ollama') url=base.replace(/\/v1$/,'')+'/api/tags';
-    if(provider==='deepseek') url='https://api.deepseek.com/models';
-    const res=await fetch(url,{method:'GET',headers:makeHeaders(),signal:ctrl.signal});
-
+    // Try /models first
+    var res=await fetch(base+'/models',{method:'GET',headers:makeHeaders(),signal:ctrl.signal});
     if(res.ok){
       clearTimeout(to);
-      const data=await res.json().catch(()=>null);
-      let msg='连通性测试成功！';
-      if(provider==='ollama' && data && data.models){msg+=' 发现 '+data.models.length+' 个本地模型。';}
-      else if(data && data.data){msg+=' 可用模型: '+(data.data.slice(0,3).map(m=>m.id||m.model||'unknown').join(', ')||'---')+(data.data.length>3?' 等':'')+'.';}
+      var data=await res.json().catch(function(){return null;});
+      var msg='连通性测试成功！';
+      if(data&&data.data){msg+=' 可用模型: '+(data.data.slice(0,3).map(function(m){return m.id||m.model||'unknown';}).join(', ')||'---')+(data.data.length>3?' 等':'')+'.';}
       status.textContent=''; result.className='test-result ok'; result.textContent=msg; result.style.display='block'; return;
     }
-
-    // Phase 2: if 404/405, try minimal chat-completion (covers custom/OpenAI-compatible providers)
-    if(res.status===404 || res.status===405){
-      const paths=[base+'/v1/chat/completions', base+'/chat/completions'];
-      for(const chatUrl of paths){
-        const chatRes=await fetch(chatUrl,{
-          method:'POST',
-          headers:makeHeaders(),
+    // Phase 2: try chat completions
+    if(res.status===404||res.status===405){
+      var paths=[base+'/v1/chat/completions', base+'/chat/completions'];
+      for(var i=0;i<paths.length;i++){
+        var chatRes=await fetch(paths[i],{
+          method:'POST',headers:makeHeaders(),
           body:JSON.stringify({model:model||'unknown',messages:[{role:'user',content:'hi'}],max_tokens:1}),
           signal:ctrl.signal
         });
-        if(chatRes.ok){
-          clearTimeout(to);
-          status.textContent=''; result.className='test-result ok'; result.textContent='连通性测试成功！API 端点可正常调用。'; result.style.display='block'; return;
-        }
-        if(chatRes.status===401){
-          clearTimeout(to);
-          status.textContent=''; result.className='test-result warn'; result.textContent='API 端点可访问，但认证失败 (401)，请检查 API Key。'; result.style.display='block'; return;
-        }
+        if(chatRes.ok){clearTimeout(to);status.textContent='';result.className='test-result ok';result.textContent='连通性测试成功！API 端点可正常调用。';result.style.display='block';return;}
+        if(chatRes.status===401){clearTimeout(to);status.textContent='';result.className='test-result warn';result.textContent='API 端点可访问，但认证失败 (401)，请检查 API Key。';result.style.display='block';return;}
       }
     }
-
     clearTimeout(to);
-    const txt=await res.text().catch(()=>'');
+    var txt=await res.text().catch(function(){return '';});
     status.textContent=''; result.className='test-result err'; result.textContent='请求失败 ('+res.status+')：'+txt.slice(0,200); result.style.display='block';
   }catch(e){
     clearTimeout(to);
@@ -1074,12 +905,86 @@ async function testLLMConnection(){
   }
 }
 function showToast(msg){
-  const t=document.createElement('div');
+  var t=document.createElement('div');
   t.textContent=msg;
   t.style.cssText='position:fixed;bottom:24px;left:50%;transform:translateX(-50%);background:var(--n1);color:#fff;padding:10px 20px;border-radius:8px;font-size:13px;z-index:300;box-shadow:0 8px 24px rgba(0,0,0,.2);opacity:0;transition:opacity .3s';
-  document.body.appendChild(t); requestAnimationFrame(()=>t.style.opacity='1');
-  setTimeout(()=>{t.style.opacity='0'; setTimeout(()=>t.remove(),300);},2200);
+  document.body.appendChild(t); requestAnimationFrame(function(){t.style.opacity='1';});
+  setTimeout(function(){t.style.opacity='0'; setTimeout(function(){t.remove();},300);},2200);
 }
+
+/* ── Init ── */
+(function init(){
+  // Agent init time
+  document.getElementById('ag-init-time').textContent=new Date().toLocaleTimeString('zh-CN',{hour:'2-digit',minute:'2-digit'});
+
+  // Try /api/health for backend connectivity
+  apiFetch('/api/health').then(function(d){
+    document.getElementById('top-status').textContent='已连接';
+    document.getElementById('ag-status').textContent='已连接';
+    document.getElementById('top-proj').querySelector('.status').className='status sdot sdot-ok';
+    var sysGrid=document.getElementById('sys-status-grid');
+    var html='';
+    html+='<div style="display:flex;align-items:center;gap:10px;padding:10px;background:var(--n10);border-radius:8px"><span class="sdot sdot-ok"></span><div><div style="font-weight:600">API 服务</div><div style="font-size:11px;color:var(--n5)">status: '+esc(d.status||'ok')+'</div></div></div>';
+    html+='<div style="display:flex;align-items:center;gap:10px;padding:10px;background:var(--n10);border-radius:8px"><span class="sdot sdot-ok"></span><div><div style="font-weight:600">API 模式</div><div style="font-size:11px;color:var(--n5)">'+esc(d.api_mode||'—')+'</div></div></div>';
+    html+='<div style="display:flex;align-items:center;gap:10px;padding:10px;background:var(--n10);border-radius:8px"><span class="sdot sdot-ok"></span><div><div style="font-weight:600">Skills 加载</div><div style="font-size:11px;color:var(--n5)">'+esc(d.skills_loaded||'—')+' 个已加载</div></div></div>';
+    sysGrid.innerHTML=html;
+  }).catch(function(){
+    document.getElementById('top-status').textContent='未连接';
+    document.getElementById('ag-status').textContent='未连接';
+    document.getElementById('top-proj').querySelector('.status').className='status sdot sdot-off';
+    document.getElementById('sys-status-grid').innerHTML='<div style="display:flex;align-items:center;gap:10px;padding:10px;background:var(--n10);border-radius:8px"><span class="sdot sdot-dng"></span><div><div style="font-weight:600">后端不可用</div><div style="font-size:11px;color:var(--n5)">backend unavailable — 请确认服务已在 8010 运行</div></div></div>';
+  });
+
+  // Fetch version
+  apiFetch('/api/version').then(function(d){
+    document.getElementById('build-id').textContent=d.build_commit||'---';
+    document.getElementById('entry-id').textContent=d.translator_entry||'translate_bundle';
+    document.getElementById('ver-tag').textContent=d.version||'v3.0';
+  }).catch(function(){});
+
+  // Fetch modules
+  apiFetch('/api/modules').then(function(d){
+    var mods=d.modules||[];
+    var enabled=mods.filter(function(m){return m.enabled;});
+    document.getElementById('dash-mods').textContent=enabled.length+'/'+mods.length;
+    var ft=enabled.length+' enabled';
+    document.getElementById('dash-mods').parentElement.querySelector('.stat-foot').innerHTML='<span class="sdot sdot-ok"></span>'+ft;
+  }).catch(function(){
+    document.getElementById('dash-mods').textContent='—';
+    document.getElementById('dash-mods').parentElement.querySelector('.stat-foot').innerHTML='<span class="sdot sdot-dng"></span>unavailable';
+  });
+
+  // Fetch skills
+  apiFetch('/api/skills').then(function(d){
+    var c=(d.skills||[]).length;
+    document.getElementById('dash-skills').textContent=c||'0';
+    document.getElementById('dash-skills').parentElement.querySelector('.stat-foot').innerHTML='<span class="sdot sdot-ok"></span>loaded';
+  }).catch(function(){
+    document.getElementById('dash-skills').textContent='—';
+    document.getElementById('dash-skills').parentElement.querySelector('.stat-foot').innerHTML='<span class="sdot sdot-dng"></span>unavailable';
+  });
+
+  // Fetch memory status
+  apiFetch('/api/memory/status').then(function(d){
+    if(d.records!==undefined){
+      document.getElementById('dash-mems').textContent=d.records;
+      document.getElementById('dash-mems').parentElement.querySelector('.stat-foot').innerHTML='<span class="sdot sdot-ok"></span>JSONL 存储';
+    }
+  }).catch(function(){
+    document.getElementById('dash-mems').textContent='—';
+    document.getElementById('dash-mems').parentElement.querySelector('.stat-foot').innerHTML='<span class="sdot sdot-dng"></span>unavailable';
+  });
+
+  // Fetch job count
+  apiFetch('/api/jobs').then(function(d){
+    var jobs=d.jobs||[];
+    document.getElementById('dash-tasks').textContent=jobs.length||'0';
+    document.getElementById('dash-tasks').parentElement.querySelector('.stat-foot').innerHTML='<span class="sdot sdot-ok"></span>查询完成';
+  }).catch(function(){
+    document.getElementById('dash-tasks').textContent='—';
+    document.getElementById('dash-tasks').parentElement.querySelector('.stat-foot').innerHTML='<span class="sdot sdot-dng"></span>unavailable';
+  });
+})();
 </script>
 </body>
 </html>

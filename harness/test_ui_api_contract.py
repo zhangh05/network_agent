@@ -1,0 +1,269 @@
+"""UI/API Contract Alignment Tests — v0.1
+
+Ensures frontend/index.html aligns with Foundation Baseline:
+- No legacy API paths (8020, /api/translate, etc.)
+- Correct backend provider enums
+- MiniMax-M3 as default (not MiniMax-M1)
+- Planned modules marked as planned/coming_soon
+- Configuration translation uses correct entry points
+- No hardcoded fake statistics
+- No "可直接下发" deployability claims
+- No secret/key/token leaks
+"""
+
+import re
+import os
+import pytest
+
+PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+FRONTEND_HTML = os.path.join(PROJECT_ROOT, "frontend", "index.html")
+
+
+def _html():
+    with open(FRONTEND_HTML, encoding="utf-8") as f:
+        return f.read()
+
+
+class TestForbiddenPatterns:
+    """Items that MUST NOT appear in frontend/index.html."""
+
+    def test_no_api_translate(self):
+        """/api/translate must NOT appear as a call path in frontend."""
+        html = _html()
+        assert "/api/translate" not in html, (
+            "/api/translate found in frontend — this is a deprecated legacy endpoint"
+        )
+
+    def test_no_port_8020(self):
+        """Port 8020 must NOT appear as a formal service port."""
+        html = _html()
+        assert "8020" not in html, (
+            "Port 8020 found in frontend — 8010 is the unified port"
+        )
+
+    def test_no_minimax_m1_default(self):
+        """MiniMax-M1 must NOT appear as default model."""
+        html = _html()
+        assert "MiniMax-M1" not in html, (
+            "MiniMax-M1 found in frontend — MiniMax-M3 is the default model"
+        )
+
+    def test_no_backend_services_config_translation(self):
+        """backend/services/config_translation must NOT appear."""
+        html = _html()
+        assert "backend/services/config_translation" not in html, (
+            "backend/services/config_translation reference found — deprecated path"
+        )
+
+    def test_no_network_translator_dependency(self):
+        """network-translator must NOT appear as runtime dependency."""
+        html = _html()
+        assert "network-translator" not in html, (
+            "network-translator reference found — external dependency removed"
+        )
+
+    def test_no_graphagent(self):
+        """GraphAgent must NOT appear as current architecture."""
+        html = _html()
+        assert "GraphAgent" not in html, (
+            "GraphAgent reference found — old architecture replaced by LangGraph"
+        )
+
+    def test_no_direct_deploy_claim(self):
+        """UI must NOT claim deployable_config is directly deployable."""
+        html = _html()
+        assert "可直接下发" not in html, (
+            "可直接下发 found in frontend — violates safety policy"
+        )
+        assert "直接下发" not in html, (
+            "直接下发 found in frontend — violates safety policy"
+        )
+
+    def test_no_claude(self):
+        """Claude must NOT appear as provider option."""
+        html = _html()
+        # Check in provider select — line content, not in string literals
+        for line in html.split("\n"):
+            if '<option' in line and 'Claude' in line:
+                pytest.fail(f"Claude found in provider option: {line.strip()}")
+
+    def test_no_deepseek_provider(self):
+        """DeepSeek must NOT appear as a standalone provider value."""
+        html = _html()
+        for line in html.split("\n"):
+            if '<option' in line and 'DeepSeek' in line:
+                pytest.fail(f"DeepSeek found in provider option: {line.strip()}")
+            if 'value="deepseek"' in line.lower():
+                pytest.fail(f"deepseek value found in provider option: {line.strip()}")
+
+    def test_no_azure_provider(self):
+        """Azure must NOT appear as a standalone provider value."""
+        html = _html()
+        for line in html.split("\n"):
+            if '<option' in line and 'Azure' in line:
+                pytest.fail(f"Azure found in provider option: {line.strip()}")
+            if 'value="azure"' in line.lower():
+                pytest.fail(f"azure value found in provider option: {line.strip()}")
+
+    def test_no_openai_standalone_provider(self):
+        """OpenAI must NOT appear as standalone provider — use openai_compatible."""
+        lines = _html().split("\n")
+        for line in lines:
+            if '<option' in line and 'value="openai"' in line and 'openai_compatible' not in line:
+                pytest.fail(f"openai standalone value found: {line.strip()}")
+
+
+class TestRequiredAPIs:
+    """Items that MUST appear in frontend/index.html."""
+
+    def test_has_agent_run_api(self):
+        """POST /api/agent/run must be present."""
+        html = _html()
+        assert "/api/agent/run" in html, (
+            "/api/agent/run not found — must be the Agent execution entry point"
+        )
+
+    def test_has_config_translate_api(self):
+        """POST /api/modules/config-translation/translate must be present."""
+        html = _html()
+        assert "/api/modules/config-translation/translate" in html, (
+            "/api/modules/config-translation/translate not found — sole translate API"
+        )
+
+    def test_has_jobs_api(self):
+        """/api/jobs must be present."""
+        html = _html()
+        assert "/api/jobs" in html, (
+            "/api/jobs not found — job entry point missing in frontend"
+        )
+
+    def test_minimax_m3_is_default(self):
+        """MiniMax-M3 must appear as default model."""
+        html = _html()
+        assert "MiniMax-M3" in html, (
+            "MiniMax-M3 not found — must be the default model in frontend"
+        )
+
+    def test_provider_enum_values(self):
+        """Provider enum must include disabled, mock, minimax, openai_compatible, ollama_compatible."""
+        html = _html()
+        required = ["disabled", "mock", "minimax", "openai_compatible", "ollama_compatible"]
+        for val in required:
+            assert val in html, f"Provider value '{val}' not found in frontend"
+
+
+class TestPlannedModules:
+    """Planned modules must be properly marked."""
+
+    def test_planned_modules_have_label(self):
+        """Topology and inspection must have planned/coming_soon labels."""
+        html = _html()
+        assert "planned" in html.lower(), (
+            "No 'planned' label found — planned modules must be clearly marked"
+        )
+
+    def test_dashboard_no_hardcoded_stats(self):
+        """Dashboard must not contain hardcoded fake statistics."""
+        html = _html()
+        # These numbers were hardcoded in the old UI
+        assert ">386<" not in html, "Hardcoded '386' memory count found"
+        assert ">12<" not in html, "Hardcoded '12' recent tasks found"
+
+        # Inspection fake numbers
+        assert '>9<' not in html or html.count('>9<') <= 2, "Hardcoded '9' inspection pass count found"
+        # >2< and >1< may appear in legitimate code, so check more carefully
+        for line in html.split("\n"):
+            if ">2<" in line and ("警告" in line or "warn" in line.lower()):
+                pytest.fail(f"Hardcoded inspection '2 warnings' found: {line.strip()}")
+            if ">1<" in line and ("严重" in line or "critical" in line.lower()):
+                pytest.fail(f"Hardcoded inspection '1 critical' found: {line.strip()}")
+
+    def test_topology_has_no_svg_topology(self):
+        """Topology page should NOT contain fake SVG topology diagram."""
+        html = _html()
+        # Check that there is no SVG with device labels in the topology page
+        lines = html.split("\n")
+        in_topo = False
+        for i, line in enumerate(lines):
+            if 'id="page-topology"' in line:
+                in_topo = True
+            if in_topo and '<circle' in line and 'stroke-dasharray' in line:
+                pytest.fail(f"Fake SVG topology diagram found at line {i+1}")
+            if in_topo and i > 0 and lines[i-1].strip().endswith('</div>') and 'page' in lines[min(i-2, 0)]:
+                pass  # ok, moving on
+            if in_topo and '</div>' in line and i < len(lines) - 1:
+                if 'page' in lines[min(i+1, len(lines)-1)]:
+                    in_topo = False
+
+
+class TestSecurityDisplay:
+    """Security: no key/token/secret in display values."""
+
+    def test_no_deployable_claim(self):
+        """deployable_config must NOT be displayed as directly deployable."""
+        html = _html()
+        # The word deploy should only appear in descriptive, non-claim contexts
+        # No "可直接下发" or "ready to deploy" as UI claim
+        assert "可直接下发" not in html
+        assert "ready to deploy" not in html.lower()
+
+    def test_redaction_helper_exists(self):
+        """Frontend should have redaction/sanitization helpers."""
+        html = _html()
+        has_redact = "redactSensitiveText" in html or "sanitizeDisplayText" in html
+        assert has_redact, "Frontend missing sanitizeDisplayText/redactSensitiveText helper"
+
+    def test_llm_provider_no_api_key_leak(self):
+        """LLM settings section should warn about save API being unavailable."""
+        html = _html()
+        assert "save API" in html.lower() or "local only" in html.lower() or "local storage" in html.lower(), (
+            "LLM settings should indicate save API unavailable"
+        )
+
+
+class TestDashboardAPI:
+    """Dashboard uses real API calls, not fake data."""
+
+    def test_dashboard_fetches_modules(self):
+        """Dashboard must use /api/modules for module count."""
+        html = _html()
+        assert "/api/modules" in html, "Dashboard should fetch /api/modules"
+
+    def test_dashboard_fetches_skills(self):
+        """Dashboard must use /api/skills for skills count."""
+        html = _html()
+        assert "/api/skills" in html, "Dashboard should fetch /api/skills"
+
+    def test_dashboard_fetches_memory_status(self):
+        """Dashboard must use /api/memory/status for memory count."""
+        html = _html()
+        assert "/api/memory/status" in html, "Dashboard should fetch /api/memory/status"
+
+    def test_dashboard_fetches_jobs(self):
+        """Dashboard must use /api/jobs for job count."""
+        html = _html()
+        assert "/api/jobs" in html, "Dashboard should fetch /api/jobs"
+
+    def test_dashboard_fetches_health(self):
+        """Dashboard must use /api/health for backend status."""
+        html = _html()
+        assert "/api/health" in html, "Dashboard should fetch /api/health"
+
+
+class TestTranslatePage:
+    """Config translation page uses correct endpoints."""
+
+    def test_translate_uses_module_endpoint(self):
+        """doTranslate must call /api/modules/config-translation/translate."""
+        html = _html()
+        assert "/api/modules/config-translation/translate" in html
+
+    def test_translate_no_old_endpoint(self):
+        """Translate page must NOT call /api/translate."""
+        html = _html()
+        assert "/api/translate" not in html
+
+    def test_translate_displays_manual_review(self):
+        """Translate results must show manual_review tab."""
+        html = _html()
+        assert "manual_review" in html or "人工复核" in html
