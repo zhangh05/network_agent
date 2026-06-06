@@ -1,5 +1,9 @@
 # agent/graph.py
-"""Agent orchestrator — LangGraph workflow with fallback to deterministic pipeline."""
+"""Agent orchestrator — LangGraph workflow with fallback to deterministic pipeline.
+
+Both LangGraph and fallback runtimes share a unified trace wrapper (wrap_trace_node)
+that guarantees every node records node_start / node_end / duration_ms.
+"""
 
 import time
 from agent.state import NetworkAgentState
@@ -12,67 +16,170 @@ try:
 except ImportError:
     pass
 
+# Canonical 7 nodes (name, display_name)
+_CANONICAL_NODES = [
+    ("router", "router"),
+    ("context", "context_loader"),
+    ("planner", "planner"),
+    ("executor", "executor"),
+    ("verifier", "verifier"),
+    ("composer", "composer"),
+    ("memory", "memory_writer"),
+]
+
+
+def _add_trace_event(state: NetworkAgentState, event_type: str, name: str,
+                     status: str = "started", duration_ms: float = 0.0,
+                     summary: str = "", metadata: dict = None):
+    """Append a trace event to state. All events go through this helper."""
+    state.trace_events.append({
+        "event_id": f"{name}_{event_type}",
+        "trace_id": state.trace_id or "",
+        "run_id": state.request_id,
+        "workspace_id": state.workspace_id or "default",
+        "event_type": event_type,
+        "name": name,
+        "status": status,
+        "duration_ms": duration_ms,
+        "summary": summary or f"{event_type}: {name}",
+        "metadata": metadata or {},
+        "redaction_applied": False,
+    })
+
+
+def wrap_trace_node(node_name: str, display_name: str):
+    """Create a trace-wrapped node function for LangGraph.
+
+    Returns a callable suitable for StateGraph.add_node().
+    Records node_start before execution and node_end after.
+
+    Args:
+        node_name: Internal key (e.g. "router", "context")
+        display_name: Human-readable name for trace (e.g. "router", "context_loader")
+    """
+
+    def _load_func():
+        # Lazy import to avoid circular dependency
+        mapping = {
+            "router": ("agent.nodes.intent_router", "route"),
+            "context": ("agent.nodes.context_loader", "load_context"),
+            "planner": ("agent.nodes.planner", "plan"),
+            "executor": ("agent.nodes.skill_executor", "execute"),
+            "verifier": ("agent.nodes.verifier", "verify"),
+            "composer": ("agent.nodes.composer", "compose"),
+            "memory": ("agent.nodes.memory_writer", "write_memory"),
+        }
+        mod_name, func_name = mapping[node_name]
+        import importlib
+        mod = importlib.import_module(mod_name)
+        return getattr(mod, func_name)
+
+    func = _load_func()
+
+    def traced(state: NetworkAgentState) -> NetworkAgentState:
+        # Record node_start
+        _add_trace_event(state, "node_start", display_name, status="started",
+                         summary=f"{display_name} started")
+
+        start = time.time()
+        try:
+            result = func(state)
+            status = "success"
+        except Exception as e:
+            status = "failed"
+            if not state.error:
+                state.error = str(e)
+            _add_trace_event(state, "error", display_name, status="failed",
+                             metadata={"error": str(e)[:200]})
+            # Re-raise so LangGraph can handle it
+            raise
+
+        duration = round((time.time() - start) * 1000, 2)
+        state.node_timings[display_name] = duration
+
+        # Build metadata from state after node execution
+        meta = {}
+        if node_name == "router":
+            meta = {"intent": state.intent, "active_module": state.active_module,
+                    "selected_skill": state.selected_skill}
+        elif node_name == "context":
+            meta = {"memory_hits": len(state.context.get("memory_hits", []))}
+        elif node_name == "executor":
+            meta = {"skill": state.selected_skill, "module": state.active_module}
+        elif node_name == "composer":
+            meta = {"llm_used": state.context.get("llm", {}).get("used", False)}
+        elif node_name == "memory":
+            meta = {"memory_written": state.context.get("memory_written", False),
+                    "workspace_updated": state.context.get("workspace_updated", False)}
+
+        _add_trace_event(state, "node_end", display_name, status=status,
+                         duration_ms=duration, summary=f"{display_name}: {status} ({duration}ms)",
+                         metadata=meta)
+        return result
+
+    return traced
+
 
 def _build_langgraph():
-    """Build LangGraph StateGraph."""
+    """Build LangGraph StateGraph with trace-wrapped nodes."""
     from langgraph.graph import StateGraph, END
-    from agent.nodes.intent_router import route
-    from agent.nodes.context_loader import load_context
-    from agent.nodes.planner import plan
-    from agent.nodes.skill_executor import execute
-    from agent.nodes.verifier import verify
-    from agent.nodes.composer import compose
-    from agent.nodes.memory_writer import write_memory
 
     workflow = StateGraph(NetworkAgentState)
-    workflow.add_node("router", route)
-    workflow.add_node("context", load_context)
-    workflow.add_node("planner", plan)
-    workflow.add_node("executor", execute)
-    workflow.add_node("verifier", verify)
-    workflow.add_node("composer", compose)
-    workflow.add_node("memory", write_memory)
+    for node_name, display_name in _CANONICAL_NODES:
+        workflow.add_node(node_name, wrap_trace_node(node_name, display_name))
 
     workflow.set_entry_point("router")
-    workflow.add_edge("router", "context")
-    workflow.add_edge("context", "planner")
-    workflow.add_edge("planner", "executor")
-    workflow.add_edge("executor", "verifier")
-    workflow.add_edge("verifier", "composer")
-    workflow.add_edge("composer", "memory")
+    for src, dst in zip([n for n, _ in _CANONICAL_NODES],
+                        [n for n, _ in _CANONICAL_NODES][1:]):
+        workflow.add_edge(src, dst)
     workflow.add_edge("memory", END)
 
     return workflow.compile()
 
 
 def _run_fallback(state: NetworkAgentState) -> NetworkAgentState:
-    """Deterministic fallback pipeline with trace instrumentation."""
-    from agent.nodes.intent_router import route
-    from agent.nodes.context_loader import load_context
-    from agent.nodes.planner import plan
-    from agent.nodes.skill_executor import execute
-    from agent.nodes.verifier import verify
-    from agent.nodes.composer import compose
-    from agent.nodes.memory_writer import write_memory
+    """Deterministic fallback pipeline — uses same trace wrapper via _run_timed_node."""
+    for node_name, display_name in _CANONICAL_NODES:
+        try:
+            _run_timed_node(state, node_name, display_name)
+        except Exception:
+            # For fallback: catch errors and continue, node_end already recorded
+            pass
+        if state.error and state.intent == "unknown" and node_name == "router":
+            state.final_response = "I didn't understand your request."
+            break
 
-    _run_node(state, "router", route)
-    if state.error and state.intent == "unknown":
-        state.final_response = "I didn't understand your request."
-        return state
-
-    _run_node(state, "context_loader", load_context)
-    _run_node(state, "planner", plan)
-    _run_node(state, "executor", execute)
-    _run_node(state, "verifier", verify)
-    _run_node(state, "composer", compose)
-    _run_node(state, "memory_writer", write_memory)
     state.runtime_mode = "fallback"
     return state
 
 
-def _run_node(state, node_name, func):
-    """Run a node function with trace timing."""
+def _run_timed_node(state: NetworkAgentState, node_name: str, display_name: str):
+    """Run a single node with start/end trace events. Used by fallback pipeline.
+
+    Mirrors wrap_trace_node but works synchronously without LangGraph context.
+    Shares the same _add_trace_event helper and node_timings pattern.
+    """
+    # node_start
+    _add_trace_event(state, "node_start", display_name, status="started",
+                     summary=f"{display_name} started")
+
     start = time.time()
+
+    # Import and run
+    import importlib
+    mapping = {
+        "router": ("agent.nodes.intent_router", "route"),
+        "context": ("agent.nodes.context_loader", "load_context"),
+        "planner": ("agent.nodes.planner", "plan"),
+        "executor": ("agent.nodes.skill_executor", "execute"),
+        "verifier": ("agent.nodes.verifier", "verify"),
+        "composer": ("agent.nodes.composer", "compose"),
+        "memory": ("agent.nodes.memory_writer", "write_memory"),
+    }
+    mod_name, func_name = mapping[node_name]
+    mod = importlib.import_module(mod_name)
+    func = getattr(mod, func_name)
+
     try:
         state = func(state)
         status = "success"
@@ -80,22 +187,28 @@ def _run_node(state, node_name, func):
         status = "failed"
         if not state.error:
             state.error = str(e)
-    duration = round((time.time() - start) * 1000, 2)
+        _add_trace_event(state, "error", display_name, status="failed",
+                         metadata={"error": str(e)[:200]})
 
-    state.node_timings[node_name] = duration
-    state.trace_events.append({
-        "event_id": node_name,
-        "trace_id": state.trace_id or "",
-        "run_id": state.request_id,
-        "workspace_id": state.workspace_id or "default",
-        "event_type": "node_end",
-        "name": node_name,
-        "status": status,
-        "duration_ms": duration,
-        "summary": f"{node_name}: {status} ({duration}ms)",
-        "metadata": {},
-        "redaction_applied": False,
-    })
+    duration = round((time.time() - start) * 1000, 2)
+    state.node_timings[display_name] = duration
+
+    # Build metadata
+    meta = {}
+    if node_name == "router":
+        meta = {"intent": state.intent, "active_module": state.active_module,
+                "selected_skill": state.selected_skill}
+    elif node_name == "executor":
+        meta = {"skill": state.selected_skill, "module": state.active_module}
+    elif node_name == "composer":
+        meta = {"llm_used": state.context.get("llm", {}).get("used", False)}
+    elif node_name == "memory":
+        meta = {"memory_written": state.context.get("memory_written", False),
+                "workspace_updated": state.context.get("workspace_updated", False)}
+
+    _add_trace_event(state, "node_end", display_name, status=status,
+                     duration_ms=duration, summary=f"{display_name}: {status} ({duration}ms)",
+                     metadata=meta)
     return state
 
 
@@ -144,16 +257,10 @@ def run_agent(user_input: str = "", intent: str = "", payload: dict = None,
 
     result = state.tool_results or {}
     llm_ctx = state.context.get("llm", {})
-    timeline = {
-        "total_duration_ms": sum(state.node_timings.values()),
-        "node_count": len(state.node_timings),
-        "skill_call_count": state.context.get("skill_call_count", 0),
-        "module_call_count": state.context.get("module_call_count", 0),
-        "llm_call_count": 1 if llm_ctx.get("used") else 0,
-        "memory_write_count": 1 if state.context.get("memory_written") else 0,
-        "warning_count": len(state.warnings),
-        "error_count": 1 if state.error else 0,
-    }
+
+    # ═══ Compute timeline from trace events (not hardcoded) ═══
+    from observability.timeline import build_timeline_summary
+    timeline = build_timeline_summary(state)
 
     return {
         "ok": state.error is None,

@@ -4,6 +4,10 @@
 import time
 from observability.schemas import TraceEvent
 
+# Canonical node display names
+CANONICAL_NODE_NAMES = {"router", "context_loader", "planner", "executor",
+                         "verifier", "composer", "memory_writer"}
+
 
 class NodeTimer:
     """Context manager for timing a node and emitting trace events."""
@@ -70,7 +74,11 @@ def add_event(state, event_type: str, name: str, status: str = "started",
 
 
 def build_timeline_summary(state) -> dict:
-    """Build a timeline summary from state trace events."""
+    """Build a timeline summary from state trace events.
+
+    All counts are derived from trace events, never hardcoded.
+    node_count only counts the canonical 7 node_end events.
+    """
     events = state.trace_events
     if not events:
         return {
@@ -80,15 +88,26 @@ def build_timeline_summary(state) -> dict:
             "warning_count": 0, "error_count": 0,
         }
 
-    node_count = sum(1 for e in events if e.get("event_type") == "node_end")
+    # Only count canonical node_end events (excludes skill/module/llm sub-events)
+    node_count = sum(
+        1 for e in events
+        if e.get("event_type") == "node_end"
+        and e.get("name") in CANONICAL_NODE_NAMES
+    )
+
     skill_count = sum(1 for e in events if e.get("event_type") == "skill_call_end")
     module_count = sum(1 for e in events if e.get("event_type") == "module_call_end")
-    llm_count = sum(1 for e in events if e.get("event_type") == "llm_call_end" and e.get("status") == "success")
+
+    # llm_call_count: count all llm_call_end events (success, skipped, failed)
+    llm_count = sum(1 for e in events if e.get("event_type") == "llm_call_end")
+
     mem_count = sum(1 for e in events if e.get("event_type") == "memory_write")
     warn_count = sum(1 for e in events if e.get("event_type") == "warning")
     err_count = sum(1 for e in events if e.get("event_type") == "error")
 
-    total_ms = sum(e.get("duration_ms", 0) for e in events)
+    total_ms = sum(e.get("duration_ms", 0) for e in events
+                   if e.get("event_type") == "node_end"
+                   and e.get("name") in CANONICAL_NODE_NAMES)
 
     return {
         "total_duration_ms": round(total_ms, 2),
