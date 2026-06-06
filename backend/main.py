@@ -137,10 +137,11 @@ def create_app():
     @app.route("/api/workspaces/<ws_id>/artifacts/upload", methods=["POST"])
     def api_workspace_artifact_upload(ws_id):
         import re
-        from artifacts.store import save_artifact, sanitize_record, MAX_FILE_SIZE, _get_ws_root
+        from artifacts.store import save_artifact, sanitize_record, _get_max_size, _get_ws_root
+        max_size = _get_max_size()
 
         # 1. Pre-check content_length (with multipart overhead allowance)
-        if request.content_length and request.content_length > MAX_FILE_SIZE + 1_048_576:
+        if request.content_length and request.content_length > max_size + 1_048_576:
             return jsonify({"ok": False, "error": "file_too_large"}), 413
 
         if "file" not in request.files:
@@ -158,7 +159,7 @@ def create_app():
 
         # 3. Check size on disk (don't read into memory yet)
         file_size = src_path.stat().st_size
-        if file_size > MAX_FILE_SIZE:
+        if file_size > max_size:
             src_path.unlink()
             return jsonify({"ok": False, "error": "file_too_large"}), 413
 

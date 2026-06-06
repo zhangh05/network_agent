@@ -24,6 +24,17 @@ ALLOWED_SOURCE_DIRS = ["runtime/uploads", "runtime/temp",
 MAX_FILE_SIZE = 10 * 1024 * 1024  # 10MB
 
 
+def _get_max_size() -> int:
+    """Resolve max artifact size from env or default."""
+    try:
+        mb = int(os.environ.get("NETWORK_AGENT_MAX_UPLOAD_MB", "0"))
+        if mb > 0:
+            return mb * 1024 * 1024
+    except ValueError:
+        pass
+    return MAX_FILE_SIZE
+
+
 def _get_ws_root():
     try:
         from workspace.manager import WS_ROOT as w
@@ -128,11 +139,22 @@ def save_artifact(workspace_id: str, content: str = "", source_path: str = "",
         if not _validate_source_path(source_path, workspace_id):
             return None
         sp = Path(source_path)
-        if sp.is_file():
-            content = sp.read_text()
-            artifact_type = artifact_type or "unknown"
+        if not sp.is_file():
+            return None
+        # Size guard BEFORE read_text()
+        max_size = _get_max_size()
+        file_size = sp.stat().st_size
+        if file_size > max_size:
+            return None
+        content = sp.read_text()
+        artifact_type = artifact_type or "unknown"
 
     if not content:
+        return None
+
+    # Content branch size guard (text content)
+    max_size = _get_max_size()
+    if len(content.encode("utf-8")) > max_size:
         return None
 
     # Security check: reject or redact secret content
