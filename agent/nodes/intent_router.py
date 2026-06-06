@@ -1,8 +1,14 @@
 # agent/nodes/intent_router.py
-"""Intent router — classifies user message into an intent."""
+"""Intent router — keyword-based intent inference.
+
+Router ONLY identifies intent from user input.
+Module/Skill mapping is ENTIRELY from registry capabilities.
+# Router uses registry capabilities exclusively for module/skill resolution.
+"""
 
 from agent.state import NetworkAgentState
 
+# Keyword patterns for intent inference only — NO module/skill mapping
 INTENTS = {
     "translate_config": ["翻译", "translate", "转换", "config", "配置", "cisco", "huawei", "h3c", "ruijie", "juniper"],
     "topology_draw": ["拓扑", "topology", "网络图", "network map"],
@@ -14,18 +20,9 @@ INTENTS = {
     "context_qa": ["刚才", "为什么", "解释", "说明", "复核", "人工", "风险", "这些", "上次", "怎么", "如何", "是什么"],
 }
 
-LIVE_INTENTS = {"translate_config", "context_qa"}
-
-# Local intent capability map — fallback when registry unavailable
-_INTENT_CAPABILITY_MAP = {
-    "translate_config": "config.translate",
-    "context_qa": "config.review",
-}
-
 
 def route(state: NetworkAgentState) -> NetworkAgentState:
-    """Determine intent from user_input or explicit intent."""
-    # Explicit intent takes priority
+    """Determine intent. Module/skill/capability all from registry."""
     explicit = (state.intent or "").strip()
     if explicit in INTENTS:
         state.intent = explicit
@@ -36,34 +33,12 @@ def route(state: NetworkAgentState) -> NetworkAgentState:
     else:
         state.intent = _infer(state.user_input or "")
 
-    # Set active_module and selected_skill
-    state.active_module = _module_for(state.intent)
-    state.selected_skill = _skill_for(state.intent)
+    # ── Look up capability from registry ──
+    _resolve_capability(state)
 
-    # ── Map intent → capability_id via registry ──
-    try:
-        from registry.loader import load_capabilities
-        caps = load_capabilities()
-        for cap in caps:
-            if cap.intent == state.intent and cap.is_enabled():
-                state.context["capability_id"] = cap.capability_id
-                state.active_module = cap.module
-                state.selected_skill = cap.skill
-                break
-    except Exception:
-        pass
-
-    # For context_qa, keep the module from last run
-    if state.intent == "context_qa":
-        try:
-            from workspace.manager import get_workspace_state
-            ws = get_workspace_state(state.workspace_id or "default")
-            last_module = ws.get("last_active_module", "")
-            if last_module and last_module != "unknown":
-                state.active_module = last_module
-                state.selected_skill = _skill_for(ws.get("last_intent", "")) or "config_translation"
-        except Exception:
-            pass
+    # ── Determine liveness ──
+    cap_status = state.context.get("capability_status", "unknown")
+    live = cap_status == "enabled"
 
     # ── Trace: intent_routed ──
     state.trace_events.append({
@@ -75,13 +50,18 @@ def route(state: NetworkAgentState) -> NetworkAgentState:
         "name": "intent_routed",
         "status": "success",
         "duration_ms": 0.0,
-        "summary": f"intent={state.intent} module={state.active_module}",
-        "metadata": {"intent": state.intent, "active_module": state.active_module, "selected_skill": state.selected_skill},
+        "summary": f"intent={state.intent} capability={state.context.get('capability_id','?')} module={state.active_module}",
+        "metadata": {
+            "intent": state.intent,
+            "capability_id": state.context.get("capability_id", ""),
+            "capability_status": cap_status,
+            "active_module": state.active_module,
+            "selected_skill": state.selected_skill,
+        },
         "redaction_applied": False,
     })
 
-    # Set plan based on liveness
-    if state.intent not in LIVE_INTENTS:
+    if not live:
         state.warnings.append(f"Intent '{state.intent}' is planned (coming_soon)")
         state.plan = ["report_coming_soon"]
         _add_warning_event(state, f"intent_planned: {state.intent}")
@@ -92,6 +72,60 @@ def route(state: NetworkAgentState) -> NetworkAgentState:
         ]
 
     return state
+
+
+def _resolve_capability(state: NetworkAgentState):
+    """Resolve intent → capability via registry. Sets active_module/selected_skill/capability_id."""
+    try:
+        from registry.loader import load_capabilities
+        caps = load_capabilities()
+
+        # Try enabled first, then planned
+        for cap in caps:
+            if cap.intent == state.intent and cap.is_enabled():
+                _apply_capability(state, cap, "enabled")
+                return
+
+        for cap in caps:
+            if cap.intent == state.intent and cap.status == "planned":
+                _apply_capability(state, cap, "planned")
+                return
+
+        # For context_qa: if no explicit capability found, try config.review
+        if state.intent == "context_qa":
+            from registry.loader import get_capability
+            cap = get_capability("config.review")
+            if cap and cap.status == "enabled":
+                _apply_capability(state, cap, "enabled")
+                return
+
+        # Fallback: unknown module from intent name
+        state.active_module = f"unknown_{state.intent}"
+        state.selected_skill = f"unknown_{state.intent}"
+        state.context["capability_id"] = ""
+        state.context["capability_status"] = "unknown"
+
+    except Exception:
+        state.context["capability_status"] = "registry_unavailable"
+
+
+def _apply_capability(state, cap, status):
+    """Apply a capability to state."""
+    state.context["capability_id"] = cap.capability_id
+    state.context["capability_status"] = status
+    state.active_module = cap.module
+    state.selected_skill = cap.skill
+
+    # For context_qa, preserve last active module
+    if state.intent == "context_qa":
+        try:
+            from workspace.manager import get_workspace_state
+            ws = get_workspace_state(state.workspace_id or "default")
+            last_module = ws.get("last_active_module", "")
+            if last_module and last_module != "unknown":
+                state.active_module = last_module
+        except Exception:
+            pass
 
 
 def _add_warning_event(state, msg):
@@ -111,35 +145,8 @@ def _add_warning_event(state, msg):
 
 
 def _infer(text: str) -> str:
-    """Infer intent from keywords. Follow-up keywords → context_qa."""
     text_lower = text.lower()
-
-    # Check each intent category
     for intent, keywords in INTENTS.items():
         if any(kw in text_lower for kw in keywords):
             return intent
     return "unknown"
-
-
-def _module_for(intent: str) -> str:
-    mapping = {
-        "translate_config": "config_translation",
-        "topology_draw": "topology",
-        "inspection_analyze": "inspection",
-        "knowledge_search": "knowledge_base",
-        "memory_search": "memory",
-        "skill_query": "skills",
-        "module_query": "modules",
-        "context_qa": "config_translation",  # default to last active
-    }
-    return mapping.get(intent, "unknown")
-
-
-def _skill_for(intent: str) -> str:
-    mapping = {
-        "translate_config": "config_translation",
-        "topology_draw": "topology_draw",
-        "inspection_analyze": "inspection_analyze",
-        "knowledge_search": "knowledge_search",
-    }
-    return mapping.get(intent)

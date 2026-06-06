@@ -17,11 +17,13 @@ entrypoint:
 capabilities:
   - capability_id: config.translate
     intent: translate_config
+    function: translate
     description: 将网络设备配置从一个厂商语法转换为另一个厂商语法
     risk_level: medium
   - capability_id: config.review
     intent: context_qa
-    description: 人工复核翻译结果中的风险项
+    function: review
+    description: 基于最近一次配置翻译结果进行解释和问答
     risk_level: low
 
 inputs:

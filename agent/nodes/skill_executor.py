@@ -1,110 +1,144 @@
 # agent/nodes/skill_executor.py
-"""Skill executor — routes to skill adapter, records tool_call and trace events."""
+"""Skill executor — dynamically loads adapter via registry. No hardcoded imports."""
 
+import importlib
 import time
 from agent.state import NetworkAgentState
 
 
 def execute(state: NetworkAgentState) -> NetworkAgentState:
-    """Execute the selected skill via its adapter."""
+    """Execute selected skill via registry-driven dynamic adapter loading."""
     skill = state.selected_skill
+    capability_id = state.context.get("capability_id", "")
+    cap_status = state.context.get("capability_status", "unknown")
+
     if not skill:
         state.error = "No skill selected"
         return state
 
     ws_id = state.workspace_id or "default"
     trace_id = state.trace_id or ""
-    capability_id = state.context.get("capability_id", "")
 
-    # ── Check if skill is planned/disabled via registry ──
+    # ── 1. Look up skill + capability from registry ──
+    skill_spec = None
+    cap_spec = None
     try:
         from registry.loader import get_skill, get_capability
         skill_spec = get_skill(skill)
-        if skill_spec and skill_spec.is_planned():
-            state.tool_results = {"ok": False, "error": f"Skill '{skill}' is planned (coming_soon)"}
-            state.warnings.append(f"Skill '{skill}' is planned (coming_soon)")
-            _add_event(state, "warning", f"planned_skill:{skill}", trace_id, ws_id, status="skipped")
-            return state
-        if skill_spec and skill_spec.status == "disabled":
-            state.error = f"Skill '{skill}' is disabled"
-            return state
+        cap_spec = get_capability(capability_id) if capability_id else None
     except Exception:
         pass
 
-    # ── Record skill_call_start (with capability_id) ──
+    # ── 2. Block planned/disabled ──
+    if cap_status == "planned":
+        state.tool_results = {"ok": False, "error": f"Intent '{state.intent}' is planned (coming_soon)"}
+        state.warnings.append(f"Skill '{skill}' is planned (coming_soon)")
+        _add_event(state, "warning", f"planned_skill:{skill}", trace_id, ws_id, status="planned",
+                   metadata={"capability_id": capability_id})
+        state.tool_calls.append({"capability_id": capability_id, "skill": skill, "status": "planned"})
+        return state
+
+    if (skill_spec and skill_spec.status == "disabled") or cap_status == "disabled":
+        state.error = f"Skill '{skill}' is disabled"
+        _add_event(state, "error", f"disabled_skill:{skill}", trace_id, ws_id, status="failed")
+        return state
+
+    # ── 3. Resolve adapter path + function from registry ──
+    adapter_path = ""
+    entrypoint_fn = ""
+
+    if skill_spec:
+        adapter_path = skill_spec.adapter_path or ""
+        entrypoint_fn = skill_spec.entrypoint_function or ""
+
+    # Capability may override the function
+    if cap_spec and capability_id:
+        # Look for capability-specific function in skill.yaml capabilities list
+        for cap_entry in (skill_spec.capabilities if skill_spec else []):
+            if isinstance(cap_entry, dict) and cap_entry.get("capability_id") == capability_id:
+                fn = cap_entry.get("function", "")
+                if fn:
+                    entrypoint_fn = fn
+                break
+
+    if not adapter_path:
+        state.error = f"No adapter path for skill '{skill}'"
+        return state
+    if not entrypoint_fn:
+        state.error = f"No entrypoint function for capability '{capability_id}'"
+        return state
+
+    # ── 4. Record skill_call_start ──
     _add_event(state, "skill_call_start", f"skill:{skill}", trace_id, ws_id,
-               metadata={"capability_id": capability_id})
+               metadata={"capability_id": capability_id, "adapter_path": adapter_path, "entrypoint": entrypoint_fn})
     skill_start = time.time()
 
-    call = {
-        "skill": skill,
-        "module": state.active_module,
-        "entrypoint": "python_adapter",
-        "status": "failed",
+    tool_call = {
+        "capability_id": capability_id, "skill": skill,
+        "module": state.active_module, "adapter_path": adapter_path,
+        "entrypoint": entrypoint_fn, "status": "failed",
     }
 
-    if skill == "config_translation" and state.intent == "translate_config":
-        try:
-            # ── Record module_call_start ──
-            _add_event(state, "module_call_start", "module:config_translation", trace_id, ws_id,
-                       metadata={"translator_entry": "translate_bundle"})
-            mod_start = time.time()
+    # ── 5. Dynamically load and call adapter ──
+    try:
+        # Record module_call_start
+        _add_event(state, "module_call_start", f"module:{state.active_module}", trace_id, ws_id,
+                   metadata={"adapter_path": adapter_path, "entrypoint": entrypoint_fn})
+        mod_start = time.time()
 
-            from skills.config_translation.adapter import translate
-            result = translate(
-                source_config=state.payload.get("source_config", state.user_input),
-                source_vendor=state.payload.get("source_vendor", "auto"),
-                target_vendor=state.payload.get("target_vendor", "huawei"),
-            )
-            state.tool_results = result
-            call["status"] = "success" if result.get("ok") else "failed"
+        func = _load_adapter(adapter_path, entrypoint_fn)
 
-            mod_dur = round((time.time() - mod_start) * 1000, 2)
-            _add_event(state, "module_call_end", "module:config_translation",
-                       trace_id, ws_id, status=call["status"], duration_ms=mod_dur,
-                       summary=f"translate_bundle: {call['status']} ({mod_dur}ms)",
-                       metadata={"ok": result.get("ok"), "translator_entry": "translate_bundle"})
+        result = func(
+            source_config=state.payload.get("source_config", state.user_input),
+            source_vendor=state.payload.get("source_vendor", "auto"),
+            target_vendor=state.payload.get("target_vendor", "huawei"),
+        )
 
-            if not result.get("ok"):
-                state.error = result.get("error", "translate failed")
-        except Exception as exc:
-            call["status"] = "failed"
-            state.error = str(exc)
-            _add_event(state, "module_call_end", "module:config_translation",
-                       trace_id, ws_id, status="failed")
-    elif state.intent == "context_qa":
-        ws = state.payload.get("workspace_summary", {})
-        state.tool_results = {
-            "ok": True, "workspace_summary": ws,
-            "question": state.payload.get("question", ""),
-            "manual_review_count": ws.get("last_result_counts", {}).get("manual_review_count", 0),
-            "unsupported_count": ws.get("last_result_counts", {}).get("unsupported_count", 0),
-            "translator_entry": "context_qa",
-        }
-        call["status"] = "success"
-    else:
-        state.tool_results = {"ok": False, "error": f"Skill '{skill}' not implemented"}
-        call["status"] = "planned"
-        state.warnings.append(f"Skill '{skill}' is planned (coming_soon)")
+        state.tool_results = result if isinstance(result, dict) else {"ok": True, "data": result}
+        tool_call["status"] = "success" if result.get("ok", True) else "failed"
 
-    state.tool_calls.append(call)
+        if isinstance(result, dict) and not result.get("ok"):
+            state.error = result.get("error", "execution failed")
 
-    # ── Record skill_call_end ──
+        mod_dur = round((time.time() - mod_start) * 1000, 2)
+        _add_event(state, "module_call_end", f"module:{state.active_module}",
+                   trace_id, ws_id, status=tool_call["status"], duration_ms=mod_dur,
+                   summary=f"{entrypoint_fn}: {tool_call['status']} ({mod_dur}ms)",
+                   metadata={"entrypoint": entrypoint_fn, "ok": tool_call["status"] == "success"})
+
+    except Exception as exc:
+        tool_call["status"] = "failed"
+        state.error = str(exc)
+        _add_event(state, "module_call_end", f"module:{state.active_module}",
+                   trace_id, ws_id, status="failed",
+                   metadata={"error": str(exc)[:200]})
+
+    state.tool_calls.append(tool_call)
+
     skill_dur = round((time.time() - skill_start) * 1000, 2)
     _add_event(state, "skill_call_end", f"skill:{skill}",
-               trace_id, ws_id, status=call["status"], duration_ms=skill_dur,
-               summary=f"skill:{skill}: {call['status']} ({skill_dur}ms)")
+               trace_id, ws_id, status=tool_call["status"], duration_ms=skill_dur,
+               summary=f"skill:{skill}: {tool_call['status']} ({skill_dur}ms)",
+               metadata={"capability_id": capability_id, "adapter_path": adapter_path})
 
     state.context["skill_call_count"] = len(state.tool_calls)
-    state.context["module_call_count"] = 1 if skill == "config_translation" and state.intent == "translate_config" else 0
+    state.context["module_call_count"] = state.context.get("module_call_count", 0) + 1
 
     return state
+
+
+def _load_adapter(adapter_path: str, function_name: str):
+    """Dynamically load an adapter function from a path like 'skills/config_translation/adapter.py'."""
+    # Convert path → module: skills/config_translation/adapter.py → skills.config_translation.adapter
+    mod_path = adapter_path.replace(".py", "").replace("/", ".")
+    mod = importlib.import_module(mod_path)
+    return getattr(mod, function_name)
 
 
 def _add_event(state, event_type, name, trace_id, ws_id, status="started", duration_ms=0.0,
                summary="", metadata=None):
     state.trace_events.append({
-        "event_id": f"{name}_{event_type}",
+        "event_id": f"{name}_{event_type}_{len(state.trace_events)}",
         "trace_id": trace_id,
         "run_id": state.request_id,
         "workspace_id": ws_id,
