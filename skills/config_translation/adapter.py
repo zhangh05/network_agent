@@ -1,36 +1,30 @@
 # skills/config_translation/adapter.py
-"""Adapter for config_translation skill — wraps /api/translate calls."""
+"""Adapter for config_translation skill — calls module service directly.
 
-import json
-import urllib.request
-import urllib.error
-from typing import Optional
+No HTTP. No /api/translate. No external dependency.
+Calls modules.config_translation.backend.service.translate_config.
+"""
+
+from modules.config_translation.backend.schemas import TranslateRequest
+from modules.config_translation.backend.service import translate_config
 
 
-_TRANSLATE_URL = "http://127.0.0.1:8010/api/translate"
-
-
-def call_translate(
+def translate(
     source_config: str,
     source_vendor: str = "auto",
     target_vendor: str = "huawei",
-    endpoint: Optional[str] = None,
 ) -> dict:
-    """Call the translation endpoint and return the full response."""
-    url = endpoint or _TRANSLATE_URL
-    payload = json.dumps({
-        "source_config": source_config,
-        "source_vendor": source_vendor,
-        "target_vendor": target_vendor,
-    }).encode("utf-8")
+    """Translate using the embedded config_translation module.
 
-    req = urllib.request.Request(url, data=payload, headers={"Content-Type": "application/json"}, method="POST")
+    Returns a dict with keys: ok, deployable_config, manual_review, audit, etc.
+    """
+    req = TranslateRequest(
+        source_config=source_config,
+        source_vendor=source_vendor,
+        target_vendor=target_vendor,
+    )
     try:
-        with urllib.request.urlopen(req, timeout=120) as resp:
-            return json.loads(resp.read().decode("utf-8"))
-    except urllib.error.HTTPError as e:
-        return json.loads(e.read().decode("utf-8"))
-
-
-# Re-export for convenience
-translate_config = call_translate
+        result = translate_config(req)
+        return {"ok": True, **result.as_dict()}
+    except Exception as exc:
+        return {"ok": False, "error": str(exc)}

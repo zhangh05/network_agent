@@ -3,25 +3,22 @@
 Network Agent — unified backend entry point.
 
 Start:
-    python -m backend.main --port 8010
+    python backend/main.py --port 8010
 or:
-    uvicorn backend.main:app --host 127.0.0.1 --port 8010
+    python -m backend.main --port 8010
 """
 
 import sys
-import os
 from pathlib import Path
 
 # Ensure backend package is importable
-_BACKEND_DIR = Path(__file__).resolve().parent
-_NETWORK_AGENT_DIR = _BACKEND_DIR.parent
+_NETWORK_AGENT_DIR = Path(__file__).resolve().parent.parent
 if str(_NETWORK_AGENT_DIR) not in sys.path:
     sys.path.insert(0, str(_NETWORK_AGENT_DIR))
 
 from flask import Flask, send_from_directory
 
 from backend.api.version import get_version
-from backend.api.translate import handle_translate
 from backend.api.modules_translate import handle_module_translate
 from backend.api.agent import handle_agent_run
 from backend.api.skills import handle_skills, get_skill_count
@@ -55,11 +52,6 @@ def create_app():
     def api_skills():
         return handle_skills()
 
-    # ── Translate ──
-    @app.route("/api/translate", methods=["POST"])
-    def api_translate():
-        return handle_translate()
-
     # ── Agent Run ──
     @app.route("/api/agent/run", methods=["POST"])
     def api_agent_run():
@@ -79,7 +71,7 @@ def create_app():
     def api_module_status(module_name):
         return handle_module_status(module_name)
 
-    # ── Module: config-translation ──
+    # ── Module: config-translation (sole translate API) ──
     @app.route("/api/modules/config-translation/translate", methods=["POST"])
     def api_module_config_translate():
         return handle_module_translate()

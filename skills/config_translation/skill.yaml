@@ -1,14 +1,21 @@
 skill_name: config_translation
-display_name: 配置翻译
 module: config_translation
+display_name: 配置翻译
 enabled: true
-description: Use the config translation module to translate network device configuration.
-skill_doc: skills/config_translation/SKILL.md
-adapter: skills/config_translation/adapter.py
+description: Use the config translation module to translate network device configuration across vendors.
 entrypoint:
-  type: api
-  method: POST
-  path: /api/translate
+  type: python_adapter
+  module: skills.config_translation.adapter
+  function: translate
+module_api: /api/modules/config-translation/translate
+red_lines:
+  - do_not_modify_deployable_config
+  - do_not_use_full_output_as_deployable
+  - do_not_call_llm
+  - do_not_hide_manual_review
+  - do_not_bypass_translate_bundle
+risk_level: medium
+can_generate_deployable: true
 input_schema:
   required:
     - source_config
@@ -21,10 +28,3 @@ output_schema:
     - semantic_near
     - unsupported
     - audit
-rules:
-  - do_not_modify_deployable_config
-  - do_not_use_full_output_as_deployable
-  - always_check_manual_review
-  - never_hide_high_risk
-risk_level: medium
-can_generate_deployable: true

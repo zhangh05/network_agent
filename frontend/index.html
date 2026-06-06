@@ -863,7 +863,7 @@ function doTranslate(){
   const btn=document.getElementById('tr-btn');
   const st=document.getElementById('tr-status');
   btn.disabled=true; st.textContent='正在处理...';
-  fetch('/api/translate',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({source_config:cfg,source_vendor:document.getElementById('tr-fv').value,target_vendor:document.getElementById('tr-tv').value})})
+  fetch('/api/modules/config-translation/translate',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({source_config:cfg,source_vendor:document.getElementById('tr-fv').value,target_vendor:document.getElementById('tr-tv').value})})
   .then(r=>r.json()).then(d=>{
     btn.disabled=false; st.textContent=d.ok?'完成':'失败';
     if(d.ok){lastTranslate=d; renderTrTab('output'); document.querySelector('[data-trtab="output"]').classList.add('active'); document.querySelectorAll('[data-trtab]').forEach(b=>{if(b.dataset.trtab!=='output')b.classList.remove('active')});}

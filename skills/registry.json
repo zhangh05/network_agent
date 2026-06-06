@@ -1,5 +1,5 @@
 {
-  "version": "0.2.0",
+  "version": "1.0.0",
   "description": "Network Agent Skill Registry",
   "skills": [
     {
@@ -10,14 +10,20 @@
       "description": "Use the config translation module to translate network device configuration across vendors.",
       "skill_doc": "skills/config_translation/SKILL.md",
       "adapter": "skills/config_translation/adapter.py",
-      "entrypoint": {"type": "api", "method": "POST", "path": "/api/translate"},
+      "entrypoint": {
+        "type": "python_adapter",
+        "module": "skills.config_translation.adapter",
+        "function": "translate"
+      },
+      "module_api": "/api/modules/config-translation/translate",
       "input_schema": {"required": ["source_config", "source_vendor", "target_vendor"]},
       "output_schema": {"required": ["deployable_config", "manual_review", "semantic_near", "unsupported", "audit"]},
-      "rules": [
+      "red_lines": [
         "do_not_modify_deployable_config",
         "do_not_use_full_output_as_deployable",
-        "always_check_manual_review",
-        "never_hide_high_risk"
+        "do_not_call_llm",
+        "do_not_hide_manual_review",
+        "do_not_bypass_translate_bundle"
       ],
       "risk_level": "medium",
       "can_generate_deployable": true

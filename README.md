@@ -1,140 +1,99 @@
 # Network Agent
 
-网络设备配置迁移 Agent 平台。统一入口服务，Module / Skill / Memory 三层架构。
+统一网络智能 Agent 平台。Module / Skill / Memory 三层架构，统一入口 8010。
 
 ## 概念
 
-| 概念 | 说明 |
-|------|------|
-| **Module** | 固定产品功能模块。有 UI / API / 后端服务 / 状态。用户可点击进入。 |
-| **Skill** | Agent 可加载的能力包。包含 SKILL.md 操作手册、适配代码。描述 Agent 如何使用模块。 |
-| **Memory** | Agent 原生记忆系统。JSONL/SQLite backend。保留项目/会话/用户偏好/决策记录。 |
-| **Workspace** | 项目文件和运行状态。不与 Memory 混淆。 |
+| 概念 | 说明 | 目录 |
+|------|------|------|
+| **Module** | 固定产品功能模块 | `modules/` |
+| **Skill** | Agent 调用模块的能力包 | `skills/` |
+| **Memory** | Agent 原生记忆系统 | `memory/` |
+| **Agent** | LangGraph 调度 + 统一 LLM 层 | `agent/` |
+| **UI** | 统一前端 | `frontend/index.html` |
 
 ## 快速启动
 
 ```bash
 cd network_agent
 pip install -r requirements.txt
-
-# 正式入口 — 统一端口 8010
-python -m backend.main --port 8010
+python backend/main.py --port 8010
 ```
 
-访问: http://127.0.0.1:8010/
+访问: http://127.0.0.1:8010
 
 ## 目录结构
 
 ```
 network_agent/
-├── backend/main.py              # 统一入口 (Flask, 8010)
-├── backend/api/                 # API 路由
-├── backend/services/            # 服务层
-├── backend/agent/               # Agent 框架（预留 LangGraph）
+├── backend/                     # 平台 API 挂载
+│   ├── main.py                  # 统一入口 (8010)
+│   ├── api/                     # API 路由
+│   └── core/                    # 设置/路径
+├── agent/                       # Agent 主框架
+│   ├── state.py                 # NetworkAgentState
+│   ├── router.py                # 意图路由
+│   ├── planner.py               # 规划器
+│   ├── executor.py              # 执行器 (通过 skill adapter)
+│   ├── verifier.py              # 输出校验
+│   ├── composer.py              # 响应合成
+│   └── llm/                     # 统一 LLM 层 (skeleton)
 ├── modules/                     # 产品功能模块
-│   ├── registry.yaml/json       # 模块注册表
-│   ├── config_translation/      # enabled
-│   ├── topology/                # planned
-│   ├── inspection/              # planned
-│   └── knowledge_base/          # planned
+│   ├── registry.json/yaml
+│   └── config_translation/      # enabled, embedded MVP
+│       ├── backend/             # service/schemas (正式实现)
+│       └── core/                # translate_bundle 确定性管线
 ├── skills/                      # Agent 技能包
-│   ├── registry.yaml/json       # 技能注册表
-│   ├── config_translation/      # enabled (SKILL.md + adapter.py)
-│   ├── topology_draw/           # planned
-│   ├── inspection_analyze/      # planned
-│   └── knowledge_search/        # planned
-├── memory/                      # Agent 原生记忆
-│   ├── schemas.py               # MemoryRecord 定义
-│   ├── store.py                 # 后端工厂
-│   ├── retriever.py             # 搜索接口
-│   ├── writer.py                # 写入接口
-│   └── backends/
-│       ├── jsonl_store.py       # JSONL 后端（默认）
-│       └── sqlite_store.py      # SQLite 后端（planned）
+│   ├── registry.json/yaml
+│   └── config_translation/      # SKILL.md + adapter.py
+├── memory/                      # Agent 原生记忆 (JSONL)
 ├── frontend/index.html          # 统一 UI
-├── workspaces/                  # 工作区
-├── harness/                     # 测试
-├── reports/                     # 报告
-├── docs/ARCHITECTURE.md         # 平台架构
-└── apps/                        # dev-only legacy（非正式入口）
+└── harness/                     # 测试
 ```
 
 ## API
 
 | 端点 | 方法 | 说明 |
 |------|------|------|
-| /api/health | GET | 健康检查 (api_mode=unified) |
-| /api/version | GET | 版本信息 |
-| /api/modules | GET | 模块注册列表 |
-| /api/modules/{name}/status | GET | 模块状态 |
-| /api/skills | GET | 技能注册列表 |
-| /api/translate | POST | 配置翻译 |
-| /api/agent/run | POST | Agent 执行 |
+| /api/health | GET | api_mode=unified |
+| /api/version | GET | config_translation_source=embedded |
+| /api/modules | GET | 模块注册表 |
+| /api/modules/config-translation/translate | POST | 配置翻译（正式 API） |
+| /api/agent/run | POST | Agent 执行 (intent=translate_config) |
+| /api/skills | GET | 技能注册表 |
 | /api/memory/status | GET | 记忆系统状态 |
-| /api/memory/write | POST | 写入记忆 |
-| /api/memory/search | POST | 搜索记忆 |
-| /api/workspace/status | GET | 工作区状态 |
 
-## 当前模块
+## Module 定调
 
-| 模块 | 状态 |
-|------|------|
-| config_translation | enabled — beta_ready (embedded) |
-| topology | planned |
-| inspection | planned |
-| knowledge_base | planned |
+config_translation 是内置 Module，路径 `modules/config_translation/`。
 
-### config_translation 模块说明
+- 翻译引擎: RuleBasedTranslator.translate_bundle()
+- 不依赖外部 network-translator 仓库
+- 不迁旧 network-translator 前端
+- 不迁旧 LLM / GraphAgent 翻译路径
+- UI 由 network_agent 统一前端提供
 
-config_translation 是 network_agent **内置模块**，不依赖本机旧仓库。
+## Skill 定调
 
-- 核心翻译引擎 `RuleBasedTranslator.translate_bundle()` 已完整迁入 `modules/config_translation/core/`
-- 不使用 `sys.path` 指向外部 `network-translator` 仓库
-- 不使用 `os.chdir()` 到外部路径
-- 不使用 GraphAgent / LLM 翻译路径
-- `/api/version` 报告 `config_translation_source: "embedded"` 和 `external_translator_dependency: false`
+skills/config_translation/adapter.py 直接调用 module service，不通过 HTTP / LLM。
 
-## 当前技能
+## LLM 定调
 
-| 技能 | 状态 | 关联模块 |
-|------|------|----------|
-| config_translation | enabled | config_translation |
-| topology_draw | planned | topology |
-| inspection_analyze | planned | inspection |
-| knowledge_search | planned | knowledge_base |
+- LLM 属于 `agent/llm/`（当前 skeleton，未连接真实模型）
+- config_translation 模块不私接 LLM
+- LLM must not modify deployable_config
 
-## Memory
+## Memory 定调
 
-- 后端: JSONL (默认, memory/data/memory_records.jsonl)
-- 不使用 Obsidian 作为核心记忆
-- 记忆分类: short_term / project / long_term / decision / user_preference / device_profile / run_summary / knowledge_note
+- Memory 是平台原生系统，JSONL 存储
+- 不属于 config_translation 模块
 
-## 旧服务说明
+## 旧结构说明
 
-`apps/translator_service/` 和 `apps/agent_service/` 为 **dev-only legacy**，
-**非正式入口**。默认 harness 不要求 8020 启动。
-
-正式启动方式:
-
-```bash
-python backend/main.py
-# 或
-python -m backend.main --port 8010
-```
-
-正式服务监听 `127.0.0.1:8010`。`8020` 不是正式入口。
-
-## 测试
-
-```bash
-# 启动服务后运行
-NETWORK_AGENT_PORT=8010 pytest harness/test_unified_app.py harness/test_taxonomy.py -v
-```
-
-## 后续计划
-
-- LangGraph orchestrator
-- topology_draw skill
-- inspection_analyze skill
-- knowledge_search skill
-- SQLite memory backend
+| 旧结构 | 状态 |
+|--------|------|
+| apps/translator_service | 已移至 legacy/ |
+| apps/agent_service | 已移至 legacy/ |
+| 8020 | 非正式入口，不测试 |
+| backend/services/config_translation | 已删除 |
+| /api/translate | 已删除，用模块 API 替代 |

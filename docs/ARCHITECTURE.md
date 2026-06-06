@@ -3,17 +3,17 @@
 ## Concept Taxonomy
 
 ### Module（模块）
-固定产品功能模块。有 UI、API、后端服务、状态和测试。用户可在页面中点击进入。
+固定产品功能模块。有 API、后端服务、状态。UI 由统一前端提供。
 
 | 模块 | 状态 | 说明 |
 |------|------|------|
-| config_translation | enabled | 网络配置跨厂商翻译 |
+| config_translation | enabled (embedded_mvp) | 网络配置跨厂商翻译 |
 | topology | planned | 网络拓扑提取与绘图 |
 | inspection | planned | 配置巡检与合规分析 |
 | knowledge_base | planned | 网络知识库与经验积累 |
 
 ### Skill（技能）
-Agent 可加载的能力包。描述 Agent 如何使用模块或工具，包含 SKILL.md 操作手册、skill.yaml 元数据、adapter.py 适配代码。Skill 不一定有 UI。
+Agent 可加载的能力包。包含 SKILL.md、skill.yaml、adapter.py。通过 adapter 调用模块服务。
 
 | Skill | 状态 | 关联模块 |
 |------|------|----------|
@@ -23,59 +23,62 @@ Agent 可加载的能力包。描述 Agent 如何使用模块或工具，包含 
 | knowledge_search | planned | knowledge_base |
 
 ### Memory（记忆）
-Agent 原生记忆系统，SQLite/JSONL backend。不使用外部 Obsidian 作为核心。
-记忆分为：short_term / project / long_term / decision / user_preference / device_profile / run_summary / knowledge_note。
+Agent 原生记忆系统，JSONL backend。不属于任何模块，由平台统一管理。
 
-### Workspace（工作区）
-项目文件和运行状态的存放区。不等于 Memory。输入/输出/报告/会话状态都在 workspaces/ 下。
+### Agent（智能体）
+LangGraph / LLM 调度主框架。`agent/` 目录包含 router、planner、executor、verifier、composer。
 
-## 启动方式
-
-```bash
-python backend/main.py
-# or
-python -m backend.main --port 8010
-```
-
-正式服务监听 `127.0.0.1:8010`。8020 不是正式入口。
+### LLM
+统一 LLM 层预留于 `agent/llm/`。当前 skeleton，未连接真实模型。Module 不得私接 LLM。
 
 ## API
 
-| 端点 | 说明 |
-|------|------|
-| /api/health | 健康检查 (api_mode=unified) |
-| /api/version | 版本信息 + embedded 状态 |
-| /api/modules | 模块注册表 |
-| /api/modules/{name}/status | 模块状态 |
-| /api/modules/config-translation/translate | 配置翻译（模块 API） |
-| /api/translate | 配置翻译（兼容 API） |
-| /api/agent/run | Agent 执行 |
-| /api/skills | 技能注册表 |
-| /api/memory/status | 记忆系统状态 |
-| /api/memory/write | 写入记忆 |
-| /api/memory/search | 搜索记忆 |
-| /api/workspace/status | 工作区状态 |
+```
+POST /api/modules/config-translation/translate   # 配置翻译（正式模块 API）
+POST /api/agent/run                               # Agent 执行
+GET  /api/health                                  # 健康检查 (api_mode=unified)
+GET  /api/version                                 # 版本 + embedded 状态
+GET  /api/modules                                 # 模块注册表
+GET  /api/skills                                  # 技能注册表
+GET  /api/memory/status                           # 记忆系统状态
+```
 
 ## Module Placement
 
-config_translation 模块完整位于 `modules/config_translation/`：
+config_translation 模块完整位于 `modules/config_translation/`:
 
 ```
 modules/config_translation/
-├── backend/         # service/schemas/client — canonical implementation
+├── backend/         # service/schemas — canonical implementation
 ├── core/            # translate_bundle 确定性翻译管线
 ├── MODULE.md
 └── module.yaml
 ```
 
-- UI 由 network_agent 统一前端 `frontend/index.html` 提供
-- LLM belongs to Network Agent orchestrator layer; module does NOT call LLM
-- backend/services/config_translation/ is a compatibility shim only
-- 旧 network-translator LLM / GraphAgent 翻译路径未迁入
+- 后端服务: modules/config_translation/backend/service.py
+- 翻译核心: modules/config_translation/core/rule_translator.py
+- Skill 适配器: skills/config_translation/adapter.py → module service
 
-## LLM 预留
+## Skill Call Chain
 
-- `backend/agent/` — 未来统一 Agent LLM 层预留
-- `agent/` — 同上
-- config_translation 模块不私接 LLM
-- LLM must not modify deployable_config
+```
+POST /api/agent/run {intent: translate_config}
+  → backend/api/agent.py::_run_translate()
+    → skills/config_translation/adapter.py::translate()
+      → modules/config_translation/backend/service.py::translate_config()
+        → modules/config_translation/core/rule_translator.py::translate_bundle()
+```
+
+## LLM Boundary
+
+- LLM belongs to Network Agent orchestrator (`agent/llm/`)
+- config_translation module does NOT call LLM
+- LLM must NOT modify deployable_config
+- Future AI candidate translation must be produced outside deployable_config
+
+## Legacy
+
+- apps/ → legacy/apps/ (dev-only, not tested)
+- backend/services/config_translation/ → DELETED
+- 8020 → NOT a formal entry point
+- /api/translate → DELETED (use module API)
