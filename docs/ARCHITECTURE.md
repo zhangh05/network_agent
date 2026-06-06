@@ -7,13 +7,13 @@
 
 | 模块 | 状态 | 说明 |
 |------|------|------|
-| config_translation | enabled (embedded_mvp) | 网络配置跨厂商翻译 |
+| config_translation | enabled | 网络配置跨厂商翻译 |
 | topology | planned | 网络拓扑提取与绘图 |
 | inspection | planned | 配置巡检与合规分析 |
 | knowledge_base | planned | 网络知识库与经验积累 |
 
 ### Skill（技能）
-Agent 可加载的能力包。包含 SKILL.md、skill.yaml、adapter.py。通过 adapter 调用模块服务。
+Agent 可加载的能力包。通过 adapter 调用模块服务。
 
 | Skill | 状态 | 关联模块 |
 |------|------|----------|
@@ -23,24 +23,54 @@ Agent 可加载的能力包。包含 SKILL.md、skill.yaml、adapter.py。通过
 | knowledge_search | planned | knowledge_base |
 
 ### Memory（记忆）
-Agent 原生记忆系统，JSONL backend。不属于任何模块，由平台统一管理。
+Agent 原生记忆系统，JSONL backend (`memory/data/memories.jsonl`)。走 redaction + policy 门控。
+
+### Workspace（工作区）
+运行历史、状态摘要、产物管理。状态不保存完整配置，运行记录不保存 key/secrets。
 
 ### Agent（智能体）
-LangGraph / LLM 调度主框架。`agent/` 目录包含 router、planner、executor、verifier、composer。
+LangGraph / LLM 调度主框架。7 节点流水线。
+```
+router → context → planner → executor → verifier → composer → memory
+```
 
 ### LLM
-统一 LLM 层预留于 `agent/llm/`。当前 skeleton，未连接真实模型。Module 不得私接 LLM。
+**已实现**，非 skeleton。
+
+- 配置主路径: `config/LLM_setting.json` (UI Settings)
+- 优先级: UI Settings > env/file fallback > default
+- 默认模型: MiniMax-M3
+- Provider: MiniMax (OpenAI 兼容), DeepSeek, Ollama, Mock
+- LLM 仅属于 Agent 层，Module/Skill 不私接 LLM
+- LLM 只用于 Composer 和 Context QA，不改 deployable_config
 
 ## API
 
 ```
 POST /api/modules/config-translation/translate   # 配置翻译（正式模块 API）
 POST /api/agent/run                               # Agent 执行
-GET  /api/health                                  # 健康检查 (api_mode=unified)
-GET  /api/version                                 # 版本 + embedded 状态
+GET  /api/agent/status                            # Agent 状态
+GET  /api/agent/llm/config                        # LLM 配置（不含 key）
+POST /api/agent/llm/config                        # 保存 LLM 配置
+DELETE /api/agent/llm/config                      # 删除 LLM 配置
+GET  /api/agent/llm/status                        # LLM 状态
+POST /api/agent/llm/test                          # LLM 测试
+GET  /api/health                                  # 健康检查
+GET  /api/version                                 # 版本
 GET  /api/modules                                 # 模块注册表
 GET  /api/skills                                  # 技能注册表
 GET  /api/memory/status                           # 记忆系统状态
+GET  /api/memory/list                             # 记忆列表
+POST /api/memory/search                           # 记忆搜索
+POST /api/memory/write                            # 写入记忆
+POST /api/memory/confirm                          # 用户确认写入
+DELETE /api/memory/{id}                           # 删除记忆
+GET  /api/workspaces                              # 工作区列表
+GET  /api/workspaces/{id}/state                   # 工作区状态
+GET  /api/workspaces/{id}/runs                    # 运行历史
+GET  /api/workspaces/{id}/runs/{run_id}           # 单次运行
+GET  /api/workspaces/{id}/artifacts               # 产物列表
+GET  /api/workspaces/{id}/artifacts/{id}          # 产物详情
 ```
 
 ## Module Placement
@@ -55,30 +85,15 @@ modules/config_translation/
 └── module.yaml
 ```
 
-- 后端服务: modules/config_translation/backend/service.py
-- 翻译核心: modules/config_translation/core/rule_translator.py
-- Skill 适配器: skills/config_translation/adapter.py → module service
+## 已删除
+- `/api/translate` — 已删除
+- `backend/services/config_translation` — 已删除
+- `GraphAgent` — 不恢复
+- 外部 network-translator 依赖 — 不引入
+- `os.chdir`/`sys.path` 外挂 — 不存在
 
-## Skill Call Chain
-
-```
-POST /api/agent/run {intent: translate_config}
-  → backend/api/agent.py::_run_translate()
-    → skills/config_translation/adapter.py::translate()
-      → modules/config_translation/backend/service.py::translate_config()
-        → modules/config_translation/core/rule_translator.py::translate_bundle()
-```
-
-## LLM Boundary
-
-- LLM belongs to Network Agent orchestrator (`agent/llm/`)
-- config_translation module does NOT call LLM
-- LLM must NOT modify deployable_config
-- Future AI candidate translation must be produced outside deployable_config
-
-## Legacy
-
-- apps/ → legacy/apps/ (dev-only, not tested)
-- backend/services/config_translation/ → DELETED
-- 8020 → NOT a formal entry point
-- /api/translate → DELETED (use module API)
+## Core Invariants
+- `translate_bundle()` 主链不改
+- Gate 不放宽
+- Module/Skill 不私接 LLM
+- LLM 不改 deployable_config

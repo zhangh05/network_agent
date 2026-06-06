@@ -99,6 +99,27 @@ def create_app():
         from workspace.manager import get_workspace_runs
         return jsonify({"runs": get_workspace_runs(ws_id)})
 
+    @app.route("/api/workspaces/<ws_id>/runs/<run_id>")
+    def api_workspace_run(ws_id, run_id):
+        from workspace.run_store import get_run
+        result = get_run(run_id, ws_id)
+        if not result:
+            return jsonify({"ok": False, "error": "run not found"}), 404
+        return jsonify(result)
+
+    @app.route("/api/workspaces/<ws_id>/artifacts")
+    def api_workspace_artifacts(ws_id):
+        from workspace.artifact_store import list_artifacts
+        return jsonify({"artifacts": list_artifacts(ws_id)})
+
+    @app.route("/api/workspaces/<ws_id>/artifacts/<artifact_id>")
+    def api_workspace_artifact(ws_id, artifact_id):
+        from workspace.artifact_store import get_artifact
+        result = get_artifact(artifact_id, ws_id)
+        if not result:
+            return jsonify({"ok": False, "error": "artifact not found"}), 404
+        return jsonify(result)
+
     # ── Modules ──
     @app.route("/api/modules")
     def api_modules():

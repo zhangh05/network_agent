@@ -6,6 +6,7 @@ from agent.llm.client import LLMClient
 from agent.llm.settings import (
     load_llm_settings, save_llm_settings, delete_llm_settings,
     sanitize_llm_settings, validate_llm_settings,
+    resolve_effective_llm_config,
 )
 from agent.state import NetworkAgentState
 
@@ -45,6 +46,7 @@ def handle_llm_config_delete():
 
 
 def handle_llm_test():
+    """Test LLM connectivity — uses UI settings as highest priority."""
     data = request.get_json(silent=True) or {}
     task = data.get("task", "result_summarize")
     message = data.get("message", "")
@@ -52,9 +54,26 @@ def handle_llm_test():
     if task not in ("result_summarize", "context_qa", "response_compose"):
         return jsonify({"ok": False, "error": f"disallowed test task: {task}"}), 400
 
+    # Use unified effective config for test
+    cfg = resolve_effective_llm_config()
+    if not cfg.get("enabled"):
+        return jsonify({
+            "ok": False,
+            "llm_used": False,
+            "config_source": cfg.get("config_source", "default"),
+            "enabled_by_ui": cfg.get("enabled_by_ui"),
+            "provider": "disabled",
+            "model": "",
+            "fallback_reason": "disabled",
+            "message": "LLM is disabled. Enable it via System Settings.",
+        })
+
     state = NetworkAgentState(
         intent="translate_config",
-        tool_results={"ok": True, "deployable_config": "test", "manual_review": [], "unsupported": [], "audit": {}},
+        tool_results={
+            "ok": True, "deployable_config": "test",
+            "manual_review": [], "unsupported": [], "audit": {},
+        },
     )
     client = LLMClient()
     output = client.generate(task, state, user_question=message)
@@ -64,6 +83,7 @@ def handle_llm_test():
         "provider": client.provider_info().get("provider"),
         "model": client.provider_info().get("model"),
         "llm_used": output.llm_used,
+        "config_source": cfg.get("config_source", "default"),
         "policy_pass": output.policy_decision.allowed if output.policy_decision else False,
         "response": output.answer if output.safe_to_show else "[blocked by policy]",
         "fallback_reason": output.fallback_reason,

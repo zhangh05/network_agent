@@ -1,5 +1,5 @@
 # agent/llm/runtime.py
-"""LLM Runtime — safe_generate with config, policy, and deterministic fallback."""
+"""LLM Runtime — safe_generate with unified config (UI settings priority), policy, and fallback."""
 
 from typing import Optional
 from agent.state import NetworkAgentState
@@ -15,44 +15,76 @@ def safe_generate(
     state: NetworkAgentState,
     user_question: Optional[str] = None,
 ) -> SafeLLMOutput:
+    """Safe LLM generation with unified effective config.
+    
+    Uses UI settings (config/LLM_setting.json) as highest priority,
+    falls back to env/file only when UI settings don't exist.
+    """
     from agent.llm.config import resolve_provider_config
     cfg = resolve_provider_config()
 
     if not cfg.get("enabled") or cfg.get("provider_type") == "disabled":
-        return SafeLLMOutput(answer="LLM is disabled.", llm_used=False, fallback_reason="disabled")
+        return SafeLLMOutput(
+            answer="LLM is disabled.",
+            llm_used=False,
+            fallback_reason="disabled",
+        )
 
     safe_ctx = build_safe_context(state)
 
     system_prompt = _get_task_prompt(task)
     messages = _build_messages(task, safe_ctx, user_question, system_prompt)
 
-    req = LLMRequest(task=task, safe_context=safe_ctx, messages=messages,
-                     model=cfg["model"], temperature=cfg["temperature"], max_tokens=cfg["max_tokens"])
+    req = LLMRequest(
+        task=task,
+        safe_context=safe_ctx,
+        messages=messages,
+        model=cfg["model"],
+        temperature=cfg["temperature"],
+        max_tokens=cfg["max_tokens"],
+    )
 
     policy_req = check_request(req, state)
     if not policy_req.allowed:
-        return SafeLLMOutput(answer="LLM blocked by policy.", warnings=policy_req.violations,
-                             llm_used=False, fallback_reason=f"policy_blocked: {policy_req.reason}")
+        return SafeLLMOutput(
+            answer="LLM blocked by policy.",
+            warnings=policy_req.violations,
+            llm_used=False,
+            fallback_reason=f"policy_blocked: {policy_req.reason}",
+        )
 
     from agent.llm.provider import generate
     try:
         resp = generate(req)
     except Exception as e:
-        return SafeLLMOutput(answer="Provider error.", llm_used=False,
-                             fallback_reason=f"provider: {_redact(str(e))}")
+        return SafeLLMOutput(
+            answer="Provider error.",
+            llm_used=False,
+            fallback_reason=f"provider: {_redact(str(e))}",
+        )
 
     if resp.error:
-        return SafeLLMOutput(answer="Provider unavailable.", llm_used=False,
-                             fallback_reason=f"provider: {_redact(resp.error)}")
+        return SafeLLMOutput(
+            answer="Provider unavailable.",
+            llm_used=False,
+            fallback_reason=f"provider: {_redact(resp.error)}",
+        )
 
     policy_resp = check_response(resp, state)
     if not policy_resp.allowed:
-        return SafeLLMOutput(answer="Response blocked by safety policy.", warnings=policy_resp.violations,
-                             llm_used=False, fallback_reason=f"response_policy: {policy_resp.reason}")
+        return SafeLLMOutput(
+            answer="Response blocked by safety policy.",
+            warnings=policy_resp.violations,
+            llm_used=False,
+            fallback_reason=f"response_policy: {policy_resp.reason}",
+        )
 
     return SafeLLMOutput(
-        summary=resp.content, answer=resp.content, safe_to_show=True,
-        policy_decision=policy_resp, llm_used=True,
+        summary=resp.content,
+        answer=resp.content,
+        safe_to_show=True,
+        policy_decision=policy_resp,
+        llm_used=True,
     )
 
 
@@ -80,5 +112,6 @@ def _redact(msg: str) -> str:
 
 
 def get_llm_status() -> dict:
+    """Get LLM status via unified config path."""
     from agent.llm.config import get_llm_status as _get_status
     return _get_status()

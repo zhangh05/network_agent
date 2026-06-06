@@ -71,20 +71,32 @@ def _run_fallback(state: NetworkAgentState) -> NetworkAgentState:
 
 def run_agent(user_input: str = "", intent: str = "", payload: dict = None,
               workspace_id: str = "default") -> dict:
-    """Run agent pipeline and return full result dict."""
+    """Run agent pipeline and return full result dict with metadata."""
+    payload = payload or {}
+
+    # Extract context_ref from payload and put it in context
+    context_ref = payload.pop("context_ref", "")
+
     state = NetworkAgentState(
         user_input=user_input,
         intent=intent,
-        payload=payload or {},
+        payload=payload,
         workspace_id=workspace_id,
     )
+
+    # Set context_ref for context_loader
+    if context_ref:
+        state.context["context_ref"] = context_ref
 
     if _LANGGRAPH_AVAILABLE:
         try:
             app = _build_langgraph()
             result_dict = app.invoke(state)
             # LangGraph returns a dict; convert back
-            state = NetworkAgentState(**{k: v for k, v in result_dict.items() if k in NetworkAgentState.__dataclass_fields__})
+            state = NetworkAgentState(**{
+                k: v for k, v in result_dict.items()
+                if k in NetworkAgentState.__dataclass_fields__
+            })
             state.runtime_mode = "langgraph"
         except Exception:
             state = _run_fallback(state)
@@ -93,8 +105,10 @@ def run_agent(user_input: str = "", intent: str = "", payload: dict = None,
 
     result = state.tool_results or {}
     llm_ctx = state.context.get("llm", {})
+
     return {
         "ok": state.error is None,
+        "run_id": state.request_id,
         "request_id": state.request_id,
         "intent": state.intent,
         "active_module": state.active_module,
@@ -104,15 +118,19 @@ def run_agent(user_input: str = "", intent: str = "", payload: dict = None,
         "verification": state.verification,
         "warnings": state.warnings,
         "final_response": state.final_response,
-        "memory_written": len(state.tool_calls) > 0,
         "workspace_id": state.workspace_id or "default",
-        "workspace_updated": len(state.tool_calls) > 0,
+        # Memory/workspace metadata from context
+        "memory_written": state.context.get("memory_written", False),
+        "workspace_updated": state.context.get("workspace_updated", False),
+        "memory_hits_count": len(state.context.get("memory_hits", [])),
+        "artifacts": [],
         "llm": {
             "enabled": llm_ctx.get("enabled", False),
             "used": llm_ctx.get("used", False),
             "provider": llm_ctx.get("provider"),
             "model": llm_ctx.get("model"),
             "task": llm_ctx.get("task"),
+            "config_source": llm_ctx.get("config_source", "default"),
             "policy_pass": llm_ctx.get("policy_pass"),
             "fallback_reason": llm_ctx.get("fallback_reason"),
         },

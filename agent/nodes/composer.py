@@ -15,17 +15,24 @@ def compose(state: NetworkAgentState) -> NetworkAgentState:
     # Try LLM
     try:
         from agent.llm.runtime import safe_generate
-        from agent.llm.provider import get_provider_config
-        cfg = get_provider_config()
+        from agent.llm.config import resolve_provider_config
+        cfg = resolve_provider_config()
 
-        state.context.setdefault("llm", {})["enabled"] = cfg.get("enabled", False)
+        state.context.setdefault("llm", {})
+        state.context["llm"].update({
+            "enabled": cfg.get("enabled", False),
+            "config_source": cfg.get("config_source", "default"),
+            "enabled_by_ui": cfg.get("enabled_by_ui"),
+            "key_source": cfg.get("key_source", "none"),
+            "provider_type": cfg.get("provider_type", "disabled"),
+            "provider": cfg.get("provider", cfg.get("default_provider", "disabled")),
+            "model": cfg.get("model", ""),
+        })
 
         if cfg.get("enabled") and cfg.get("provider_type") != "disabled":
             output = safe_generate("response_compose", state)
             state.context["llm"].update({
                 "used": output.llm_used,
-                "provider": cfg.get("provider_type"),
-                "model": cfg.get("model"),
                 "task": "response_compose",
                 "policy_pass": output.policy_decision.allowed if output.policy_decision else False,
                 "fallback_reason": output.fallback_reason,
@@ -64,7 +71,7 @@ def _deterministic(result: dict, intent: str) -> str:
         us = result.get("unsupported_count", 0)
         if mr == 0 and us == 0:
             return "当前摘要里没有人工复核项，也没有不支持项。翻译结果看起来可以直接查看配置翻译面板。"
-        parts = [f"根据上次翻译结果："]
+        parts = ["根据上次翻译结果："]
         if mr > 0:
             parts.append(f"  - {mr} 个项目需要人工复核确认")
         if us > 0:

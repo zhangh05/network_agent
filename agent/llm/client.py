@@ -1,5 +1,5 @@
 # agent/llm/client.py
-"""LLM Client — safe external interface for LLM operations."""
+"""LLM Client — safe external interface, uses unified effective config."""
 
 from agent.state import NetworkAgentState
 from agent.llm.schemas import SafeLLMOutput
@@ -19,13 +19,16 @@ class LLMClient:
         return health(self._cfg)
 
     def is_connected(self) -> bool:
-        return self._cfg.get("enabled", False) and bool(self._cfg.get("api_key") or self._cfg.get("provider_type") == "mock")
+        return self._cfg.get("enabled", False) and bool(
+            self._cfg.get("api_key") or self._cfg.get("provider_type") == "mock"
+        )
 
     def provider_info(self) -> dict:
         return {
-            "provider": self._cfg.get("default_provider"),
+            "provider": self._cfg.get("provider", self._cfg.get("default_provider")),
             "type": self._cfg.get("provider_type"),
             "model": self._cfg.get("model"),
+            "config_source": self._cfg.get("config_source", "default"),
             "connected": self.is_connected(),
         }
 

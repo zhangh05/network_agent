@@ -1,12 +1,13 @@
 # agent/llm/config.py
-"""LLM config loader — unified config with priority: env > llm.local.yaml > llm.yaml."""
+"""LLM config loader — unified config with priority: UI settings > env > llm.local.yaml > llm.yaml."""
 
 import os
 import yaml
 from pathlib import Path
 from typing import Any, Dict, Optional
 
-from agent.llm.key_resolver import resolve_api_key, get_key_source, is_key_loaded, mask_secret
+from agent.llm.key_resolver import resolve_api_key, get_key_source, is_key_loaded
+from agent.llm.key_resolver import mask_secret as _key_mask  # use key_resolver's mask, not recursive
 
 CONFIG_DIR = Path(__file__).resolve().parent.parent.parent / "config"
 
@@ -32,7 +33,21 @@ def load_llm_config() -> dict:
 
 
 def resolve_provider_config(llm_config: dict = None) -> dict:
-    """Get the active provider config with resolved API key."""
+    """Get the active provider config with resolved API key.
+    
+    Priority: UI settings (config/LLM_setting.json) > env/file fallback > default.
+    """
+    # ═══ First: try UI settings (highest priority) ═══
+    try:
+        from agent.llm.settings import resolve_effective_llm_config as _resolve_ui
+        ui_cfg = _resolve_ui()
+        if ui_cfg.get("config_source") == "ui_settings":
+            # UI settings exist — they are authoritative
+            return ui_cfg
+    except Exception:
+        pass
+
+    # ═══ Fallback: legacy env/file config (when no UI settings) ═══
     if llm_config is None:
         llm_config = load_llm_config()
 
@@ -44,12 +59,17 @@ def resolve_provider_config(llm_config: dict = None) -> dict:
         "default_provider": default,
         "safe_mode": llm_config.get("safe_mode", True),
         "provider_type": "disabled",
+        "provider": default,
         "base_url": "",
         "api_key": "",
         "model": "",
         "timeout": llm_config.get("timeout_seconds", 30),
         "temperature": 0.2,
         "max_tokens": 1200,
+        "config_source": "file",
+        "key_loaded": False,
+        "key_source": "none",
+        "enabled_by_ui": None,  # no UI settings
     }
 
     if not result["enabled"] or default == "disabled":
@@ -62,38 +82,52 @@ def resolve_provider_config(llm_config: dict = None) -> dict:
     result["provider_type"] = provider_cfg.get("type", "disabled")
     result["base_url"] = provider_cfg.get("base_url", "")
     result["model"] = provider_cfg.get("model", "")
+
+    # Migrate MiniMax-M1 → M3
+    if result["model"] == "MiniMax-M1":
+        result["model"] = "MiniMax-M3"
+
     result["temperature"] = provider_cfg.get("temperature", 0.2)
     result["max_tokens"] = provider_cfg.get("max_tokens", 1200)
 
-    # Resolve API key
+    # Resolve API key from env/file
     env = provider_cfg.get("api_key_env", "")
     file_path = provider_cfg.get("api_key_file", "")
     result["api_key"] = resolve_api_key(env_name=env, file_path=file_path) or ""
+    result["key_loaded"] = bool(result["api_key"]) or is_key_loaded()
+    result["key_source"] = get_key_source() or "none"
+
+    # Env override takes precedence over file
+    if os.environ.get("MINIMAX_API_KEY") or os.environ.get("OPENAI_API_KEY"):
+        result["config_source"] = "env"
+        result["key_loaded"] = True
 
     return result
 
 
 def get_llm_status() -> dict:
-    """Get full LLM status for /api/agent/status."""
+    """Get full LLM status for /api/agent/llm/status."""
     cfg = load_llm_config()
     provider = resolve_provider_config(cfg)
 
     from agent.llm.schemas import ALLOWED_TASKS, BLOCKED_TASKS
 
-    key_loaded = is_key_loaded()
+    key_loaded = provider.get("key_loaded", False) or is_key_loaded()
 
     return {
-        "enabled": cfg.get("enabled", False),
-        "connected": key_loaded and provider["provider_type"] != "disabled",
-        "provider": cfg.get("default_provider", "disabled"),
-        "provider_type": provider["provider_type"],
-        "model": provider["model"],
-        "safe_mode": cfg.get("safe_mode", True),
+        "enabled": provider.get("enabled", False),
+        "connected": key_loaded and provider.get("provider_type", "disabled") != "disabled",
+        "provider": provider.get("provider", provider.get("default_provider", "disabled")),
+        "provider_type": provider.get("provider_type", "disabled"),
+        "model": provider.get("model", ""),
+        "safe_mode": provider.get("safe_mode", True),
         "allowed_tasks": sorted(ALLOWED_TASKS),
         "blocked_tasks": sorted(BLOCKED_TASKS),
-        "config_source": "config/llm.yaml",
-        "key_source": get_key_source(),
+        "config_source": provider.get("config_source", "default"),
+        "key_source": provider.get("key_source", get_key_source()),
         "key_loaded": key_loaded,
+        "enabled_by_ui": provider.get("enabled_by_ui"),
+        "settings_file_exists": provider.get("config_source") == "ui_settings",
         "health": _provider_health(provider),
         "red_lines": [
             "no_generate_deployable_config", "no_modify_deployable_config",
@@ -156,5 +190,7 @@ def _redact(msg: str) -> str:
     return msg[:100]
 
 
-def mask_secret(value: str) -> str:
-    return mask_secret(value)
+# Re-export mask_secret from key_resolver (fixes recursion bug)
+def mask_secret(value: str, show_chars: int = 4) -> str:
+    """Mask a secret string for safe display. Delegates to key_resolver."""
+    return _key_mask(value, show_chars)

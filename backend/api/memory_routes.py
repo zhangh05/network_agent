@@ -6,52 +6,101 @@ from memory.schemas import MemoryRecord
 from memory.backends.jsonl_store import JSONLMemoryStore
 from memory.policy import can_write_memory
 from memory.redaction import redact_text, contains_secret
+from memory.writer import (
+    write_user_confirmed_decision,
+    write_translation_rule,
+    write_user_preference,
+)
 
 
 def handle_memory_confirm():
+    """User-confirmed memory write for decision/rule/preference types."""
     data = request.get_json(silent=True) or {}
     memory_type = data.get("memory_type", "decision")
     title = data.get("title", "")
     content = data.get("content", "")
     tags = data.get("tags", [])
-    project_id = data.get("project_id")
+    project_id = data.get("project_id", "")
 
+    if not content and not title:
+        return jsonify({"ok": False, "error": "title or content required"}), 400
+
+    # Pre-redaction check
     if contains_secret(content):
-        return jsonify({"ok": False, "error": "Content contains secrets; redaction required"}), 400
+        return jsonify({
+            "ok": False,
+            "error": "Content contains secrets; redaction required",
+        }), 400
 
-    policy = can_write_memory(memory_type, content, "user_confirmed")
-    if not policy.allowed:
-        return jsonify({"ok": False, "error": policy.reason}), 400
+    # Use convenience writers based on type
+    if memory_type == "decision":
+        mid = write_user_confirmed_decision(
+            title=title, content=content,
+            tags=tags, project_id=project_id,
+        )
+    elif memory_type == "translation_rule":
+        mid = write_translation_rule(
+            title=title, content=content,
+            tags=tags, project_id=project_id,
+        )
+    elif memory_type == "user_preference":
+        mid = write_user_preference(
+            title=title, content=content,
+            tags=tags, project_id=project_id,
+        )
+    else:
+        # Generic user-confirmed write
+        from memory.writer import write_memory
+        mid = write_memory(
+            title=title, content=content,
+            scope="long_term", memory_type=memory_type,
+            tags=tags, project_id=project_id,
+            source="user", confidence="user_confirmed",
+            sensitivity="internal", user_confirmed=True,
+        )
 
-    record = MemoryRecord(
-        memory_type=memory_type, scope="long_term",
-        title=title, content=content, tags=tags,
-        project_id=project_id, confidence="user_confirmed",
-        sensitivity="internal", source="user_confirmed",
-    )
-    store = JSONLMemoryStore()
-    rid = store.put(record)
-    return jsonify({"ok": True, "memory_id": rid, "redaction_applied": policy.redaction_needed})
+    if not mid:
+        return jsonify({"ok": False, "error": "Blocked by policy"}), 400
+
+    return jsonify({
+        "ok": True,
+        "memory_id": mid,
+        "redaction_applied": False,
+    })
 
 
 def handle_memory_delete(memory_id):
+    """Tombstone-delete a memory record."""
     store = JSONLMemoryStore()
     ok = store.delete(str(memory_id))
     return jsonify({"ok": ok})
 
 
 def handle_memory_list():
+    """List memory records with optional filters."""
+    scope = request.args.get("scope")
+    memory_type = request.args.get("memory_type")
+    project_id = request.args.get("project_id")
+    limit = int(request.args.get("limit", 100))
+
     store = JSONLMemoryStore()
-    records = []
-    for r in store.list():
-        if hasattr(r, 'as_dict'):
-            records.append(r.as_dict())
-        elif isinstance(r, dict):
-            records.append(r)
+    records = store.list(
+        scope=scope, memory_type=memory_type,
+        project_id=project_id, limit=limit,
+    )
+
+    # Ensure all records are dicts (for backward compat)
+    clean = []
+    for r in records:
+        if isinstance(r, dict):
+            clean.append(r)
+        elif hasattr(r, 'as_dict'):
+            clean.append(r.as_dict())
         else:
-            records.append({"title": str(r), "content": str(r)})
+            clean.append({"title": str(r), "content": str(r)})
+
     return jsonify({
         "ok": True,
-        "records": records,
-        "count": len(records),
+        "records": clean,
+        "count": len(clean),
     })
