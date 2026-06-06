@@ -166,3 +166,35 @@ def write_user_preference(
         sensitivity="internal",
         user_confirmed=True,
     )
+
+
+def write_job_summary(job_record) -> Optional[str]:
+    """Write job summary to memory (sanitized, no full config/key/path)."""
+    if not job_record:
+        return None
+    jd = job_record.as_dict() if hasattr(job_record, "as_dict") else job_record
+    safe = {
+        "job_id": jd.get("job_id", ""),
+        "job_type": jd.get("job_type", ""),
+        "title": jd.get("title", ""),
+        "status": jd.get("status", ""),
+        "progress": jd.get("progress", {}),
+        "run_ids": jd.get("run_ids", []),
+        "artifact_refs": jd.get("artifact_refs", []),
+        "report_artifacts": jd.get("report_artifacts", []),
+        "result_summary": jd.get("result_summary", {}),
+        "warnings": jd.get("warnings", []),
+        "error": str(jd.get("error", ""))[:200],
+    }
+    content = f"job_id={safe['job_id']} type={safe['job_type']} status={safe['status']}"
+    return write_memory(
+        title=f"Job: {safe['job_type']} ({safe['status']})",
+        content=content,
+        scope="project",
+        memory_type="run_summary",
+        tags=["job_summary", safe.get("job_type", ""), safe.get("status", "")],
+        project_id=jd.get("workspace_id", "default"),
+        source="agent",
+        sensitivity="internal",
+        metadata={"job_summary": safe},
+    )

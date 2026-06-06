@@ -299,6 +299,7 @@ def create_app():
     def api_job_create():
         data = request.get_json(silent=True) or {}
         from jobs.manager import create_job
+        from jobs.redaction import sanitize_job_record_for_api
         try:
             rec = create_job(
                 workspace_id=data.get("workspace_id", "default"),
@@ -311,7 +312,7 @@ def create_app():
             if data.get("run_immediately"):
                 from jobs.runner import run_job
                 run_job(rec.workspace_id, rec.job_id)
-            return jsonify({"ok": True, "job": rec.as_dict()})
+            return jsonify({"ok": True, "job": sanitize_job_record_for_api(rec.as_dict())})
         except ValueError as e:
             return jsonify({"ok": False, "error": str(e)}), 400
 
@@ -332,7 +333,7 @@ def create_app():
         if ws:
             rec = get_job(ws, job_id)
             if not rec: return jsonify({"ok": False, "error": "job not found"}), 404
-            return jsonify({"ok": True, "job": rec.as_dict()})
+            return jsonify({"ok": True, "job": sanitize_job_record_for_api(rec.as_dict())})
         # Search all workspaces
         for j in list_jobs():
             if j.get("job_id") == job_id:
@@ -349,7 +350,7 @@ def create_app():
         from jobs.store import get_job
         rec = get_job(ws_id, job_id)
         if not rec: return jsonify({"ok": False, "error": "job not found"}), 404
-        return jsonify({"ok": True, "job": rec.as_dict()})
+        return jsonify({"ok": True, "job": sanitize_job_record_for_api(rec.as_dict())})
 
     @app.route("/api/jobs/<job_id>/cancel", methods=["POST"])
     def api_job_cancel(job_id):
@@ -357,7 +358,7 @@ def create_app():
         from jobs.manager import cancel_job
         try:
             rec = cancel_job(ws, job_id)
-            return jsonify({"ok": True, "job": rec.as_dict()})
+            return jsonify({"ok": True, "job": sanitize_job_record_for_api(rec.as_dict())})
         except ValueError as e:
             return jsonify({"ok": False, "error": str(e)}), 400
 
@@ -367,7 +368,7 @@ def create_app():
         from jobs.manager import retry_job
         try:
             rec = retry_job(ws, job_id)
-            return jsonify({"ok": True, "job": rec.as_dict()})
+            return jsonify({"ok": True, "job": sanitize_job_record_for_api(rec.as_dict())})
         except ValueError as e:
             return jsonify({"ok": False, "error": str(e)}), 400
 

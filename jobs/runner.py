@@ -14,7 +14,10 @@ def run_job(ws_id: str, job_id: str):
     if not rec:
         return
     if rec.job_type not in ("agent_run", "translate_config", "export_report", "batch_translate_config"):
-        mark_succeeded(ws_id, job_id, {"status": "coming_soon", "job_type": rec.job_type})
+        # Planned/coming_soon — update status directly without strict transition check
+        update_job(ws_id, job_id, {"status": "succeeded", "result_summary": {"status": "coming_soon", "job_type": rec.job_type}})
+        append_event(ws_id, job_id, JobEvent(job_id=job_id, workspace_id=ws_id,
+                     event_type="job_succeeded", message=f"Job completed (coming_soon): {rec.job_type}"))
         return
 
     try:
@@ -166,12 +169,17 @@ def _run_batch_translate(rec: JobRecord):
                 workspace_id=ws,
             )
             results.append({"aid": aid, "ok": result.get("ok")})
-            # Accumulate artifacts
-            arts = rec.output_artifacts or []
+            # Fresh-read job to avoid stale overwrite
+            fresh = get_job(ws, jid)
+            if not fresh: break
+            # Accumulate artifacts (append, don't overwrite)
+            arts = list(fresh.output_artifacts) if fresh.output_artifacts else []
             for oa in result.get("output_artifacts", []):
-                if oa not in arts:
-                    arts.append(oa)
-            update_job(ws, jid, {"output_artifacts": arts, "run_ids": (rec.run_ids or []) + [result.get("run_id", "")]})
+                if oa not in arts: arts.append(oa)
+            rids = list(fresh.run_ids) if fresh.run_ids else []
+            run_id = result.get("run_id", "")
+            if run_id and run_id not in rids: rids.append(run_id)
+            update_job(ws, jid, {"output_artifacts": arts, "run_ids": rids})
             update_progress(ws, jid, current=i+1, total=total, message=f"Translated {i+1}/{total}")
         except Exception as e:
             results.append({"aid": aid, "error": str(e)})

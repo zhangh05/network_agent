@@ -125,8 +125,9 @@ class TestJobManager:
         from workspace.manager import ensure_workspace
         ws = "jm_rt"
         ensure_workspace(ws)
-        from jobs.manager import create_job, mark_failed, retry_job
+        from jobs.manager import create_job, mark_running, mark_failed, retry_job
         rec = create_job(workspace_id=ws, job_type="agent_run")
+        mark_running(ws, rec.job_id)
         mark_failed(ws, rec.job_id, "test failure")
         retried = retry_job(ws, rec.job_id)
         assert retried.status == "queued"
@@ -136,14 +137,16 @@ class TestJobManager:
         from workspace.manager import ensure_workspace
         ws = "jm_max"
         ensure_workspace(ws)
-        from jobs.manager import create_job, mark_failed, retry_job
+        from jobs.manager import create_job, mark_running, mark_failed, retry_job
         from jobs.store import update_job
         rec = create_job(workspace_id=ws, job_type="agent_run")
         update_job(ws, rec.job_id, {"max_retries": 1})
+        mark_running(ws, rec.job_id)
         mark_failed(ws, rec.job_id, "fail")
         retry_job(ws, rec.job_id)
+        mark_running(ws, rec.job_id)
+        mark_failed(ws, rec.job_id, "fail again")
         with pytest.raises(ValueError):
-            mark_failed(ws, rec.job_id, "fail again")
             retry_job(ws, rec.job_id)
 
 

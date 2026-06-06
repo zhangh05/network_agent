@@ -6,6 +6,11 @@ from pathlib import Path
 from typing import Optional
 
 from jobs.schemas import JobRecord, JobEvent
+from jobs.redaction import (
+    sanitize_job_record_for_storage, sanitize_job_record_for_api,
+    sanitize_job_event_for_storage, sanitize_job_event_for_api,
+    sanitize_job_log_for_api,
+)
 
 ROOT = Path(__file__).resolve().parent.parent
 
@@ -31,11 +36,14 @@ def create_job(rec: JobRecord) -> JobRecord:
     from workspace.manager import ensure_workspace
     ensure_workspace(rec.workspace_id)
     d = _ensure(rec.workspace_id, rec.job_id)
-    _write_atomic(d / f"{rec.job_id}.json", json.dumps(_sanitize(rec.as_dict()), indent=2, ensure_ascii=False))
+    # Sanitize before writing to disk
+    safe = sanitize_job_record_for_storage(rec.as_dict())
+    _write_atomic(d / f"{rec.job_id}.json", json.dumps(safe, indent=2, ensure_ascii=False))
     _update_index(rec.workspace_id, rec)
     append_event(rec.workspace_id, rec.job_id,
                  JobEvent(job_id=rec.job_id, workspace_id=rec.workspace_id,
                           event_type="job_created", message=f"Job created: {rec.title}"))
+    _update_workspace_stats(rec.workspace_id)
     return rec
 
 
@@ -57,7 +65,8 @@ def update_job(ws_id, job_id, patch: dict) -> Optional[JobRecord]:
             setattr(rec, k, v)
     rec.updated_at = time.strftime("%Y-%m-%dT%H:%M:%S")
     d = _ensure(ws_id, job_id)
-    _write_atomic(d / f"{job_id}.json", json.dumps(_sanitize(rec.as_dict()), indent=2, ensure_ascii=False))
+    _write_atomic(d / f"{job_id}.json", json.dumps(sanitize_job_record_for_storage(rec.as_dict()), indent=2, ensure_ascii=False))
+    _update_workspace_stats(ws_id)
     return rec
 
 
@@ -75,7 +84,7 @@ def list_jobs(ws_id=None, status=None, job_type=None, limit=100) -> list:
                 if ws_id and j.workspace_id != ws_id: continue
                 if status and j.status != status: continue
                 if job_type and j.job_type != job_type: continue
-                results.append(j.as_dict())
+                results.append(sanitize_job_record_for_api(j.as_dict()))
                 if len(results) >= limit: break
     return results
 
@@ -91,7 +100,7 @@ def append_event(ws_id, job_id, event: JobEvent) -> JobEvent:
     _ensure(ws_id, job_id)
     p = _job_dir(ws_id, job_id) / f"{job_id}.events.jsonl"
     with open(p, "a", encoding="utf-8") as f:
-        f.write(json.dumps(_sanitize_event(event.as_dict()), ensure_ascii=False) + "\n")
+        f.write(json.dumps(sanitize_job_event_for_storage(event.as_dict()), ensure_ascii=False) + "\n")
     return event
 
 
@@ -111,9 +120,10 @@ def list_events(ws_id, job_id, limit=200) -> list:
 def append_log(ws_id, job_id, message, level="info", meta=None):
     _ensure(ws_id, job_id)
     p = _job_dir(ws_id, job_id) / f"{job_id}.log.jsonl"
+    entry = {"ts": time.strftime("%Y-%m-%dT%H:%M:%S"), "level": level,
+             "msg": message[:1000], "meta": meta or {}}
     with open(p, "a", encoding="utf-8") as f:
-        f.write(json.dumps({"ts": time.strftime("%Y-%m-%dT%H:%M:%S"), "level": level,
-                            "msg": message, "meta": meta or {}}, ensure_ascii=False) + "\n")
+        f.write(json.dumps(entry, ensure_ascii=False) + "\n")
 
 
 def list_logs(ws_id, job_id, limit=200) -> list:
@@ -143,14 +153,6 @@ def get_next_queued_job() -> Optional[JobRecord]:
 
 # ── helpers ──
 
-def _sanitize(d: dict) -> dict:
-    for k in ("source_config", "deployable_config", "key"):
-        if k in d: d[k] = "[REDACTED]"
-    return {k: v for k, v in d.items() if "path" not in k.lower() or k in ("relative_path",)}
-
-def _sanitize_event(d: dict) -> dict:
-    return _sanitize(d)
-
 def _update_index(ws_id, rec):
     p = _index_path(ws_id)
     p.parent.mkdir(parents=True, exist_ok=True)
@@ -164,6 +166,37 @@ def _update_index(ws_id, rec):
         idx["job_ids"].append(rec.job_id)
     idx["updated_at"] = time.strftime("%Y-%m-%dT%H:%M:%S")
     p.write_text(json.dumps(idx, indent=2, ensure_ascii=False))
+
+def _write_atomic(path, content):
+    tmp = str(path) + ".tmp." + str(int(time.time()))
+    with open(tmp, "w", encoding="utf-8") as f:
+        f.write(content)
+    os.replace(tmp, str(path))
+
+def _update_workspace_stats(ws_id):
+    """Update workspace state with job counts."""
+    try:
+        from workspace.manager import update_workspace_state
+        jobs = list_jobs(ws_id=ws_id, limit=500)
+        status_counts = {}
+        for j in jobs:
+            s = j.get("status", "")
+            status_counts[s] = status_counts.get(s, 0) + 1
+        counts = {
+            "jobs_count": len(jobs),
+            "queued_jobs_count": status_counts.get("queued", 0),
+            "running_jobs_count": status_counts.get("running", 0),
+            "succeeded_jobs_count": status_counts.get("succeeded", 0),
+            "failed_jobs_count": status_counts.get("failed", 0),
+            "cancelled_jobs_count": status_counts.get("cancelled", 0),
+            "last_job_id": jobs[0]["job_id"] if jobs else "",
+            "recent_jobs": [{"job_id": j.get("job_id"), "job_type": j.get("job_type"),
+                             "title": j.get("title"), "status": j.get("status"),
+                             "updated_at": j.get("updated_at")} for j in jobs[:5]],
+        }
+        update_workspace_state(ws_id, {"job_stats": counts})
+    except Exception:
+        pass
 
 def _write_atomic(path, content):
     tmp = str(path) + ".tmp." + str(int(time.time()))

@@ -1,9 +1,30 @@
 # jobs/manager.py
-"""Job manager — high-level job lifecycle operations."""
+"""Job manager — strict state machine, lifecycle operations."""
 
 import time, traceback
-from jobs.schemas import JobRecord, JobEvent, JobProgress, ENABLED_JOB_TYPES, JOB_STATUSES
+from jobs.schemas import JobRecord, JobEvent, JobProgress, ENABLED_JOB_TYPES
 from jobs.store import create_job as _create, get_job, update_job, append_event, append_log
+from jobs.redaction import sanitize_job_record_for_api, sanitize_job_record_for_storage
+
+# Strict transition table
+ALLOWED_TRANSITIONS = {
+    "created": {"queued", "cancelled"},
+    "queued": {"running", "cancelled"},
+    "running": {"succeeded", "failed", "cancelled", "paused"},
+    "paused": {"running", "cancelled"},
+    "failed": {"queued", "cancelled"},
+    "succeeded": set(),
+    "cancelled": set(),
+}
+
+
+def _check_transition(current: str, target: str) -> bool:
+    if current == target:
+        return True
+    allowed = ALLOWED_TRANSITIONS.get(current, set())
+    if target not in allowed:
+        raise ValueError(f"invalid_transition: {current} → {target}")
+    return True
 
 
 def create_job(workspace_id="default", job_type="agent_run", title="", payload=None,
@@ -11,13 +32,36 @@ def create_job(workspace_id="default", job_type="agent_run", title="", payload=N
     if job_type not in ENABLED_JOB_TYPES and job_type not in ("batch_translate_config",):
         raise ValueError(f"unsupported job_type: {job_type}")
 
+    payload = dict(payload or {})
+
+    # Auto-artifactize source_config if present
+    source_config = payload.pop("source_config", "")
+    if source_config:
+        try:
+            from artifacts.store import save_artifact
+            art = save_artifact(
+                workspace_id=workspace_id, content=source_config,
+                artifact_type="input_config", title="Job input config",
+                scope="workspace", sensitivity="sensitive",
+                source="job_input",
+                metadata={"job_id": "pending"},
+            )
+            if art:
+                payload["artifact_id"] = art.artifact_id
+                payload["source_config_ref"] = {"artifact_id": art.artifact_id,
+                                                 "line_count": len(source_config.split("\n")),
+                                                 "summary": source_config[:80]}
+                input_artifacts = (input_artifacts or []) + [art.artifact_id]
+        except Exception:
+            payload["source_config_ref"] = {"line_count": len(source_config.split("\n")),
+                                            "summary": source_config[:80]}
+
     rec = JobRecord(
         workspace_id=workspace_id, job_type=job_type,
         title=title or f"{job_type} job",
-        payload=payload or {},
+        payload=payload,
         input_artifacts=input_artifacts or [],
-        created_by=created_by,
-        status="created",
+        created_by=created_by, status="created",
     )
     rec = _create(rec)
     if enqueue:
@@ -26,36 +70,38 @@ def create_job(workspace_id="default", job_type="agent_run", title="", payload=N
 
 
 def enqueue_job(ws_id, job_id) -> JobRecord:
-    rec = _transition(ws_id, job_id, "queued", event_type="job_queued", message="Job queued")
-    return rec
+    rec = get_job(ws_id, job_id)
+    if not rec: raise ValueError("job not found")
+    _check_transition(rec.status, "queued")
+    return _transition(ws_id, job_id, "queued", "job_queued", "Job queued")
 
 
 def cancel_job(ws_id, job_id) -> JobRecord:
     rec = get_job(ws_id, job_id)
-    if not rec:
-        raise ValueError("job not found")
+    if not rec: raise ValueError("job not found")
     if rec.status == "queued":
+        _check_transition(rec.status, "cancelled")
         append_event(ws_id, job_id, JobEvent(job_id=job_id, workspace_id=ws_id,
                      event_type="job_cancelled", message="Job cancelled from queue"))
-        return _transition(ws_id, job_id, "cancelled", event_type="job_cancelled")
+        return _transition(ws_id, job_id, "cancelled", "job_cancelled")
     elif rec.status == "running":
         result = update_job(ws_id, job_id, {"cancel_requested": True})
         append_event(ws_id, job_id, JobEvent(job_id=job_id, workspace_id=ws_id,
                      event_type="job_cancel_requested", message="Cancel requested"))
         return result
+    elif rec.status in ("failed", "cancelled"):
+        return rec
     return rec
 
 
-def retry_job(ws_id, job_id) -> JobRecord:
+def retry_job(ws_id, job_id, force=False) -> JobRecord:
     rec = get_job(ws_id, job_id)
-    if not rec:
-        raise ValueError("job not found")
-    if rec.status not in ("failed", "cancelled"):
-        raise ValueError(f"cannot retry job with status {rec.status}")
+    if not rec: raise ValueError("job not found")
+    if not force:
+        _check_transition(rec.status, "queued")
     if rec.retry_count >= rec.max_retries:
-        raise ValueError("max retries exceeded")
-    patch = {"retry_count": rec.retry_count + 1, "status": "queued",
-             "error": "", "cancel_requested": False}
+        raise ValueError("retry_limit_exceeded")
+    patch = {"retry_count": rec.retry_count + 1, "status": "queued", "error": "", "cancel_requested": False}
     result = update_job(ws_id, job_id, patch)
     append_event(ws_id, job_id, JobEvent(job_id=job_id, workspace_id=ws_id,
                  event_type="job_retried", message=f"Retry #{rec.retry_count + 1}"))
@@ -63,39 +109,53 @@ def retry_job(ws_id, job_id) -> JobRecord:
 
 
 def mark_running(ws_id, job_id) -> JobRecord:
+    rec = get_job(ws_id, job_id)
+    if not rec: raise ValueError("job not found")
+    _check_transition(rec.status, "running")
     now = time.strftime("%Y-%m-%dT%H:%M:%S")
-    rec = _transition(ws_id, job_id, "running", event_type="job_started", message="Job started")
-    if rec:
+    result = _transition(ws_id, job_id, "running", "job_started", "Job started")
+    if result:
         update_job(ws_id, job_id, {"started_at": now})
-    return rec
+    return result
 
 
 def mark_succeeded(ws_id, job_id, result_summary=None) -> JobRecord:
+    rec = get_job(ws_id, job_id)
+    if not rec: return None
+    _check_transition(rec.status, "succeeded")
     now = time.strftime("%Y-%m-%dT%H:%M:%S")
     patch = {"status": "succeeded", "finished_at": now}
-    if result_summary:
-        patch["result_summary"] = result_summary
-    rec = update_job(ws_id, job_id, patch)
-    if rec:
+    if result_summary: patch["result_summary"] = result_summary
+    result = update_job(ws_id, job_id, patch)
+    if result:
         append_event(ws_id, job_id, JobEvent(job_id=job_id, workspace_id=ws_id,
                      event_type="job_succeeded", message="Job succeeded"))
-    return rec
+        _write_job_summary_memory(result)
+    return result
 
 
 def mark_failed(ws_id, job_id, error="") -> JobRecord:
+    rec = get_job(ws_id, job_id)
+    if not rec: return None
+    # Also allow queued→failed for direct failure scenarios
+    if rec.status == "queued":
+        _check_transition("queued", "cancelled")  # soft check
+    else:
+        _check_transition(rec.status, "failed")
     now = time.strftime("%Y-%m-%dT%H:%M:%S")
     error = str(error)[:500]
-    rec = update_job(ws_id, job_id, {"status": "failed", "finished_at": now, "error": error})
-    if rec:
+    result = update_job(ws_id, job_id, {"status": "failed", "finished_at": now, "error": error})
+    if result:
         append_event(ws_id, job_id, JobEvent(job_id=job_id, workspace_id=ws_id,
                      event_type="job_failed", message=f"Job failed: {error[:100]}"))
-    return rec
+        _write_job_summary_memory(result)
+    return result
 
 
 def update_progress(ws_id, job_id, current=None, total=None, message="", step=""):
     rec = get_job(ws_id, job_id)
     if not rec: return
-    prog = rec.progress or {}
+    prog = dict(rec.progress) if rec.progress else {}
     if current is not None: prog["current"] = current
     if total is not None: prog["total"] = total
     if total: prog["percent"] = min(100, int((prog.get("current", 0) / total) * 100))
@@ -104,14 +164,22 @@ def update_progress(ws_id, job_id, current=None, total=None, message="", step=""
     prog["updated_at"] = time.strftime("%Y-%m-%dT%H:%M:%S")
     update_job(ws_id, job_id, {"progress": prog})
     append_event(ws_id, job_id, JobEvent(job_id=job_id, workspace_id=ws_id,
-                 event_type="job_progress", message=message or f"Progress: {prog.get('current',0)}/{prog.get('total',0)}",
+                 event_type="job_progress", message=message or f"Progress: {prog.get('current', 0)}/{prog.get('total', 0)}",
                  progress=dict(prog)))
 
 
-def _transition(ws_id, job_id, target_status, event_type="", message=""):
-    patch = {"status": target_status}
+def _transition(ws_id, job_id, target, evt_type, msg=""):
+    patch = {"status": target}
     rec = update_job(ws_id, job_id, patch)
     if rec:
         append_event(ws_id, job_id, JobEvent(job_id=job_id, workspace_id=ws_id,
-                     event_type=event_type, message=message))
+                     event_type=evt_type, message=msg))
     return rec
+
+
+def _write_job_summary_memory(job):
+    try:
+        from memory.writer import write_job_summary
+        write_job_summary(job)
+    except Exception:
+        pass
