@@ -70,6 +70,28 @@ def load_context(state: NetworkAgentState) -> NetworkAgentState:
     except Exception:
         pass
 
+    # ── 5. Build ContextBundle ──
+    try:
+        from context.builder import build_context_bundle
+        ctx_ref = state.context.get("context_ref", "")
+        bundle = build_context_bundle(
+            workspace_id=state.workspace_id or "default",
+            user_input=state.user_input or "",
+            intent=state.intent or "",
+            capability_id=state.context.get("capability_id", ""),
+            payload=state.payload,
+            context_ref=ctx_ref,
+            state_context=state.context,
+            run_id=state.request_id,
+            trace_id=state.trace_id or "",
+        )
+        state.context["context_bundle"] = bundle.as_dict()
+        state.context["safe_llm_context"] = bundle.safe_llm_context.as_dict() if bundle.safe_llm_context else {}
+        state.context["execution_context"] = bundle.execution_context.as_dict() if bundle.execution_context else {}
+        state.context["citations"] = bundle.citations
+    except Exception:
+        pass
+
     # ── Trace: context_loaded ──
     state.trace_events.append({
         "event_id": "context_loaded",

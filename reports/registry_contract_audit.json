@@ -1,6 +1,6 @@
 {
   "audit": "REGISTRY_CONTRACT_AUDIT",
-  "timestamp": "2026-06-07T00:54:59.790012",
+  "timestamp": "2026-06-07T01:07:35.334253",
   "summary": {
     "critical": 0,
     "issues": 0,
@@ -15,12 +15,12 @@
     "valid": true,
     "errors": [],
     "warnings": [
-      "[skill:topology_draw] missing recommended red_line: do_not_call_llm",
       "[skill:topology_draw] missing recommended red_line: do_not_hide_manual_review",
-      "[skill:inspection_analyze] missing recommended red_line: do_not_call_llm",
+      "[skill:topology_draw] missing recommended red_line: do_not_call_llm",
       "[skill:inspection_analyze] missing recommended red_line: do_not_hide_manual_review",
-      "[skill:knowledge_search] missing recommended red_line: do_not_call_llm",
-      "[skill:knowledge_search] missing recommended red_line: do_not_hide_manual_review"
+      "[skill:inspection_analyze] missing recommended red_line: do_not_call_llm",
+      "[skill:knowledge_search] missing recommended red_line: do_not_hide_manual_review",
+      "[skill:knowledge_search] missing recommended red_line: do_not_call_llm"
     ],
     "error_count": 0,
     "warning_count": 6,
@@ -56,24 +56,24 @@
         "ok": true,
         "errors": [],
         "warnings": [
-          "missing recommended red_line: do_not_call_llm",
-          "missing recommended red_line: do_not_hide_manual_review"
+          "missing recommended red_line: do_not_hide_manual_review",
+          "missing recommended red_line: do_not_call_llm"
         ]
       },
       "inspection_analyze": {
         "ok": true,
         "errors": [],
         "warnings": [
-          "missing recommended red_line: do_not_call_llm",
-          "missing recommended red_line: do_not_hide_manual_review"
+          "missing recommended red_line: do_not_hide_manual_review",
+          "missing recommended red_line: do_not_call_llm"
         ]
       },
       "knowledge_search": {
         "ok": true,
         "errors": [],
         "warnings": [
-          "missing recommended red_line: do_not_call_llm",
-          "missing recommended red_line: do_not_hide_manual_review"
+          "missing recommended red_line: do_not_hide_manual_review",
+          "missing recommended red_line: do_not_call_llm"
         ]
       }
     }

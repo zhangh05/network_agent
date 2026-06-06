@@ -405,6 +405,80 @@ def create_app():
         from jobs.worker import get_worker_state
         return jsonify(get_worker_state())
 
+    # ── Context / Prompt / Harness ──
+    @app.route("/api/context/status")
+    def api_context_status():
+        return jsonify({
+            "context_runtime_enabled": True,
+            "supported_refs": ["last_result", "last_run", "last_job", "last_report",
+                               "last_artifact", "artifact:<id>", "run:<id>", "job:<id>",
+                               "report:<id>", "current_workspace"],
+            "default_budget": {"max_items": 30, "max_chars": 12000},
+        })
+
+    @app.route("/api/context/resolve", methods=["POST"])
+    def api_context_resolve():
+        data = request.get_json(silent=True) or {}
+        from context.resolver import resolve_context_ref
+        ref = resolve_context_ref(
+            data.get("workspace_id", "default"),
+            data.get("context_ref", ""),
+            data.get("payload"),
+        )
+        return jsonify(ref.as_dict())
+
+    @app.route("/api/context/build", methods=["POST"])
+    def api_context_build():
+        data = request.get_json(silent=True) or {}
+        from context.builder import build_context_bundle
+        bundle = build_context_bundle(
+            workspace_id=data.get("workspace_id", "default"),
+            user_input=data.get("message", ""),
+            intent=data.get("intent", ""),
+            context_ref=data.get("context_ref", ""),
+            payload=data.get("payload"),
+        )
+        return jsonify(bundle.as_dict())
+
+    @app.route("/api/prompts")
+    def api_prompts():
+        from prompts.loader import list_prompts
+        return jsonify({"prompts": list_prompts()})
+
+    @app.route("/api/prompts/<prompt_id>")
+    def api_prompt_detail(prompt_id):
+        from prompts.loader import get_prompt
+        spec = get_prompt(prompt_id)
+        if not spec:
+            return jsonify({"ok": False, "error": "prompt not found"}), 404
+        return jsonify(spec.as_dict())
+
+    @app.route("/api/prompts/render", methods=["POST"])
+    def api_prompts_render():
+        data = request.get_json(silent=True) or {}
+        from prompts.loader import render_prompt
+        from context.builder import build_context_bundle
+        bundle = build_context_bundle(
+            workspace_id=data.get("workspace_id", "default"),
+            user_input=data.get("message", ""),
+            intent=data.get("intent", ""),
+            context_ref=data.get("context_ref", ""),
+        )
+        safe = bundle.safe_llm_context.as_dict() if bundle.safe_llm_context else {}
+        result = render_prompt(
+            task=data.get("task", "response_compose"),
+            safe_context=safe, user_input=data.get("message", ""),
+        )
+        return jsonify(result.as_dict())
+
+    @app.route("/api/harness/status")
+    def api_harness_status():
+        return jsonify({
+            "golden_cases": 4, "scenarios": 4,
+            "prompt_cases": 3, "coverage_matrix_exists": True,
+            "status": "ready",
+        })
+
     # ── Modules ──
     @app.route("/api/modules")
     def api_modules():
