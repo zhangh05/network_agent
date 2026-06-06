@@ -1,9 +1,12 @@
 # context/builder.py
-"""Context builder — builds ContextBundle from workspace state and refs."""
+"""Context builder — full pipeline: resolve → load → select → compress → assemble."""
 
 from context.schemas import (ContextBundle, ExecutionContext, SafeLLMContext,
-                              ContextRef, ContextItem, ContextBudget)
+                              ContextBudget)
 from context.resolver import resolve_context_ref
+from context.loader import load_context_items
+from context.selector import select_context_items
+from context.compressor import compress_context_items
 
 
 def build_context_bundle(workspace_id: str, user_input: str = "",
@@ -12,15 +15,27 @@ def build_context_bundle(workspace_id: str, user_input: str = "",
                          ui_context: dict = None, budget: ContextBudget = None,
                          run_id: str = "", trace_id: str = "", job_id: str = "",
                          state_context: dict = None) -> ContextBundle:
-    """Build a complete ContextBundle from all available sources."""
-
     budget = budget or ContextBudget()
-    ctx = state_context or {}
+    warnings = []
 
     # 1. Resolve ref
     ref = resolve_context_ref(workspace_id, context_ref, payload, ui_context)
 
-    # 2. Build ExecutionContext
+    # 2. Load raw items
+    raw_items = load_context_items(
+        workspace_id=workspace_id, context_ref=ref, intent=intent,
+        payload=payload, capability_id=capability_id,
+    )
+
+    # 3. Select
+    selected, sel_warnings = select_context_items(raw_items, intent, capability_id, budget)
+    warnings.extend(sel_warnings)
+
+    # 4. Compress
+    compressed, budget, comp_warnings = compress_context_items(selected, budget, mode="safe_llm")
+    warnings.extend(comp_warnings)
+
+    # 5. Build execution context
     exec_ctx = ExecutionContext(
         workspace_id=workspace_id, run_id=run_id, job_id=job_id,
         trace_id=trace_id, capability_id=capability_id, intent=intent,
@@ -29,46 +44,33 @@ def build_context_bundle(workspace_id: str, user_input: str = "",
         selected_artifact_id=ref.ref_id if ref.ref_type == "artifact" else "",
     )
 
-    # 3. Build SafeLLMContext
+    # 6. Build safe LLM context from compressed items
     safe = SafeLLMContext(
         workspace_id=workspace_id, intent=intent, user_input=user_input,
         context_ref=ref,
-        artifact_refs=ctx.get("artifact_refs", [])[:budget.max_artifact_refs],
-        citations=ctx.get("citations", []),
-        warnings=list(ctx.get("warnings", [])),
+        artifact_refs=[i.content for i in compressed if i.item_type == "artifact_summary"][:10],
+        memory_hits=[i.content for i in compressed if i.item_type == "memory_hit"][:5],
+        warnings=list(warnings),
     )
 
-    # Load workspace state summary
+    # Load workspace state for safe context
     try:
         from workspace.manager import get_workspace_state
         ws = get_workspace_state(workspace_id)
         safe.last_result_summary = ws.get("last_result_summary", "")
-        safe.run_summary = {"last_intent": ws.get("last_intent", ""),
-                            "last_active_module": ws.get("last_active_module", "")}
         safe.job_summary = ws.get("job_stats", {})
-        exec_ctx.workspace_state = {k: v for k, v in ws.items()
-                                    if k not in ("source_config", "deployable_config")}
     except Exception:
         pass
 
-    # Load memory hits
-    try:
-        from memory.retriever import retrieve_for_context
-        safe.memory_hits = retrieve_for_context(user_input, workspace_id, limit=budget.max_memory_hits)
-    except Exception:
-        pass
-
-    # Build budget
-    budget.used_items = 5  # approximate
-    budget.used_chars = sum(len(str(v)) for v in safe.artifact_refs) + len(user_input)
-
-    # Build bundle
     bundle = ContextBundle(
         workspace_id=workspace_id, run_id=run_id, job_id=job_id,
         trace_id=trace_id, intent=intent, capability_id=capability_id,
         user_input=user_input, context_ref=ref,
+        raw_items=[r.as_dict() for r in raw_items],
+        selected_items=[s.as_dict() for s in selected],
+        compressed_items=[c.as_dict() for c in compressed],
         execution_context=exec_ctx, safe_llm_context=safe,
-        budget=budget,
+        budget=budget, warnings=warnings,
     )
 
     return bundle

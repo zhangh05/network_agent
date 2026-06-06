@@ -1,0 +1,89 @@
+version: "1.0.0"
+description: "Network Agent Prompt Registry"
+prompts:
+  - prompt_id: response.compose.v1
+    task: response_compose
+    version: v1
+    status: enabled
+    template_path: prompts/templates/response_compose.md
+    description: "Organize final response from agent results"
+    input_policy:
+      allow_full_source_config: false
+      allow_full_deployable_config: false
+      allow_full_artifact_content: false
+      allow_secret: false
+      max_context_chars: 8000
+    output_policy:
+      forbid_deployable_generation: true
+      forbid_deployable_modification: true
+      forbid_hide_manual_review: true
+      forbid_direct_deploy_claim: true
+      forbid_fake_trace_or_job_status: true
+      forbid_fake_artifact_id: true
+      forbid_secret_output: true
+    context_policy:
+      require_safe_llm_context: true
+      require_citations_for_references: true
+      max_artifact_refs: 10
+
+  - prompt_id: context.qa.v1
+    task: context_qa
+    version: v1
+    status: enabled
+    template_path: prompts/templates/context_qa.md
+    description: "Answer follow-up questions about last result"
+    input_policy:
+      allow_full_source_config: false
+      allow_full_deployable_config: false
+      allow_full_artifact_content: false
+      allow_secret: false
+      max_context_chars: 6000
+    output_policy:
+      forbid_deployable_generation: true
+      forbid_deployable_modification: true
+      forbid_hide_manual_review: true
+      forbid_direct_deploy_claim: true
+      forbid_fake_trace_or_job_status: true
+      forbid_fake_artifact_id: true
+      forbid_secret_output: true
+
+  - prompt_id: manual_review.explain.v1
+    task: manual_review_explain
+    version: v1
+    status: enabled
+    template_path: prompts/templates/manual_review_explain.md
+    description: "Explain manual review items"
+    output_policy:
+      forbid_deployable_generation: true
+      forbid_deployable_modification: true
+      forbid_hide_manual_review: true
+      forbid_direct_deploy_claim: true
+      forbid_secret_output: true
+
+  - prompt_id: result.summarize.v1
+    task: result_summarize
+    version: v1
+    status: enabled
+    template_path: prompts/templates/result_summarize.md
+    description: "Summarize deterministic translation results"
+
+  - prompt_id: job_failure.explain.v1
+    task: job_failure_explain
+    version: v1
+    status: enabled
+    template_path: prompts/templates/job_failure_explain.md
+    description: "Explain why a job failed"
+
+  - prompt_id: report.summary.v1
+    task: report_summary
+    version: v1
+    status: enabled
+    template_path: prompts/templates/report_summary.md
+    description: "Summarize a report artifact"
+
+  - prompt_id: artifact_summary.explain.v1
+    task: artifact_summary_explain
+    version: v1
+    status: enabled
+    template_path: prompts/templates/artifact_summary_explain.md
+    description: "Explain artifact metadata"
