@@ -24,7 +24,7 @@ from backend.api.agent import handle_agent_run, handle_agent_status
 from backend.api.llm_api import handle_llm_status, handle_llm_test, handle_llm_config_get, handle_llm_config_post, handle_llm_config_delete
 from backend.api.skills import handle_skills, get_skill_count
 from backend.api.workspace import handle_workspace_status
-from backend.api.modules import handle_modules, handle_module_status
+from backend.api.modules import handle_modules, handle_module_status, handle_registry_status, handle_capabilities
 from backend.api.memory import handle_memory_status, handle_memory_write, handle_memory_search
 from backend.api.memory_routes import handle_memory_confirm, handle_memory_delete, handle_memory_list
 from backend.core.settings import UNIFIED_PORT, API_MODE, BUILD_COMMIT, TRANSLATOR_ENTRY
@@ -150,6 +150,21 @@ def create_app():
     @app.route("/api/modules/<module_name>/status")
     def api_module_status(module_name):
         return handle_module_status(module_name)
+
+    # ── Registry ──
+    @app.route("/api/capabilities")
+    def api_capabilities():
+        return handle_capabilities()
+
+    @app.route("/api/registry/status")
+    def api_registry_status():
+        return handle_registry_status()
+
+    @app.route("/api/registry/reload", methods=["POST"])
+    def api_registry_reload():
+        from registry.loader import reload_all
+        reload_all()
+        return jsonify({"ok": True, **handle_registry_status().json})
 
     # ── Module: config-translation (sole translate API) ──
     @app.route("/api/modules/config-translation/translate", methods=["POST"])

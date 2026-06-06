@@ -1,23 +1,25 @@
 # Workspace/Memory Security Audit
 
-**Date**: 2026-06-06T19:40:28.620846
-**Verdict**: PASS
+**Date**: 2026-06-06T20:00:23.831172
+**Verdict**: FAIL
 
 ## Summary
 
 | Metric | Value |
 |--------|-------|
-| Critical | 0 |
+| Critical | 1 |
 | High | 1 |
 | Key Leaks | 0 |
 | MiniMax-M3 Default | True |
 
 
+## ⚠️ Critical Issues
+
+- **old_GraphAgent_found**: `/Users/zhangh01/Desktop/codex_net_trans/network-agent/scripts/audit_registry_contract.py`
+
 ## High Severity Findings
 
 - **full_source_config_in_workspace_run**: `/Users/zhangh01/Desktop/codex_net_trans/network-agent/workspaces/trace_redact_cfg/runs/r-cfg.trace.json`
-
-✅ No critical issues or key leaks found.
 
 ## Checks Performed
 

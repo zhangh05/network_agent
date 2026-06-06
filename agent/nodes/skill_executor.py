@@ -14,9 +14,26 @@ def execute(state: NetworkAgentState) -> NetworkAgentState:
 
     ws_id = state.workspace_id or "default"
     trace_id = state.trace_id or ""
+    capability_id = state.context.get("capability_id", "")
 
-    # ── Record skill_call_start ──
-    _add_event(state, "skill_call_start", f"skill:{skill}", trace_id, ws_id)
+    # ── Check if skill is planned/disabled via registry ──
+    try:
+        from registry.loader import get_skill, get_capability
+        skill_spec = get_skill(skill)
+        if skill_spec and skill_spec.is_planned():
+            state.tool_results = {"ok": False, "error": f"Skill '{skill}' is planned (coming_soon)"}
+            state.warnings.append(f"Skill '{skill}' is planned (coming_soon)")
+            _add_event(state, "warning", f"planned_skill:{skill}", trace_id, ws_id, status="skipped")
+            return state
+        if skill_spec and skill_spec.status == "disabled":
+            state.error = f"Skill '{skill}' is disabled"
+            return state
+    except Exception:
+        pass
+
+    # ── Record skill_call_start (with capability_id) ──
+    _add_event(state, "skill_call_start", f"skill:{skill}", trace_id, ws_id,
+               metadata={"capability_id": capability_id})
     skill_start = time.time()
 
     call = {

@@ -1,14 +1,19 @@
 {
   "audit": "WORKSPACE_MEMORY_SECURITY_AUDIT",
-  "timestamp": "2026-06-06T19:40:28.620846",
+  "timestamp": "2026-06-06T20:00:23.831172",
   "summary": {
-    "critical": 0,
+    "critical": 1,
     "high": 1,
     "key_leaks": 0,
     "MiniMax_M3_default": true,
-    "verdict": "PASS"
+    "verdict": "FAIL"
   },
-  "critical": [],
+  "critical": [
+    {
+      "issue": "old_GraphAgent_found",
+      "file": "/Users/zhangh01/Desktop/codex_net_trans/network-agent/scripts/audit_registry_contract.py"
+    }
+  ],
   "findings": [
     {
       "issue": "full_source_config_in_workspace_run",

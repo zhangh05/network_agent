@@ -1,7 +1,96 @@
 module_name: config_translation
 display_name: 配置翻译
+description: 确定性网络配置跨厂商翻译模块
+category: translation
+
 status: enabled
-has_ui: true
-ui_route: /modules/translate
-api_base: /api/translate
-maturity: beta_ready
+maturity: embedded_mvp
+module_path: modules/config_translation
+
+backend:
+  api_base: /api/modules/config-translation
+  primary_endpoint: /api/modules/config-translation/translate
+  health_endpoint: /api/modules/config-translation/health
+
+ui:
+  has_ui: true
+  ui_route: /modules/translate
+  ui_owned_by: network_agent_unified_ui
+  has_own_legacy_frontend: false
+
+runtime:
+  requires_llm: false
+  llm_allowed: false
+  deterministic: true
+  can_generate_deployable: true
+  deployable_output_field: deployable_config
+
+risk:
+  risk_level: medium
+  can_affect_network: true
+  requires_manual_review: true
+  high_risk_output_possible: true
+
+inputs:
+  - name: source_vendor
+    type: string
+    required: true
+  - name: target_vendor
+    type: string
+    required: true
+  - name: source_config
+    type: text
+    required: true
+    sensitivity: sensitive
+
+outputs:
+  - name: deployable_config
+    type: text
+    sensitivity: sensitive
+  - name: manual_review
+    type: list
+  - name: semantic_near
+    type: list
+  - name: unsupported
+    type: list
+  - name: audit
+    type: object
+
+artifacts:
+  input_policy: sensitive_artifact_only
+  output_policy: workspace_artifact_optional
+  report_policy: allowed
+
+memory:
+  write_run_summary: true
+  write_full_input: false
+  write_full_output: false
+  allowed_memory_types:
+    - run_summary
+    - decision
+    - translation_rule
+
+trace:
+  enabled: true
+  record_full_input: false
+  record_full_output: false
+  record_counts: true
+  record_policy: sanitized_metadata_only
+
+security:
+  no_external_repo_dependency: true
+  no_module_private_llm: true
+  no_legacy_frontend: true
+  no_legacy_graphagent: true
+  no_api_key_storage: true
+
+tests:
+  harness_tags:
+    - module
+    - config_translation
+    - safety
+  required_contract_tests:
+    - module_schema
+    - api_contract
+    - security_contract
+    - trace_contract

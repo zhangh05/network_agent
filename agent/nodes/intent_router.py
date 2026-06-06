@@ -16,6 +16,12 @@ INTENTS = {
 
 LIVE_INTENTS = {"translate_config", "context_qa"}
 
+# Local intent capability map — fallback when registry unavailable
+_INTENT_CAPABILITY_MAP = {
+    "translate_config": "config.translate",
+    "context_qa": "config.review",
+}
+
 
 def route(state: NetworkAgentState) -> NetworkAgentState:
     """Determine intent from user_input or explicit intent."""
@@ -33,6 +39,19 @@ def route(state: NetworkAgentState) -> NetworkAgentState:
     # Set active_module and selected_skill
     state.active_module = _module_for(state.intent)
     state.selected_skill = _skill_for(state.intent)
+
+    # ── Map intent → capability_id via registry ──
+    try:
+        from registry.loader import load_capabilities
+        caps = load_capabilities()
+        for cap in caps:
+            if cap.intent == state.intent and cap.is_enabled():
+                state.context["capability_id"] = cap.capability_id
+                state.active_module = cap.module
+                state.selected_skill = cap.skill
+                break
+    except Exception:
+        pass
 
     # For context_qa, keep the module from last run
     if state.intent == "context_qa":

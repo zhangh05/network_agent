@@ -1,7 +1,7 @@
 # skills/config_translation/adapter.py
 """Adapter for config_translation skill — calls module service directly.
 
-No HTTP. No /api/translate. No external dependency.
+No HTTP. No legacy translate API. No external dependency.
 Calls modules.config_translation.backend.service.translate_config.
 """
 
