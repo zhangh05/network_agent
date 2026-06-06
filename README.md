@@ -79,10 +79,20 @@ network_agent/
 
 | 模块 | 状态 |
 |------|------|
-| config_translation | enabled — beta_ready |
+| config_translation | enabled — beta_ready (embedded) |
 | topology | planned |
 | inspection | planned |
 | knowledge_base | planned |
+
+### config_translation 模块说明
+
+config_translation 是 network_agent **内置模块**，不依赖本机旧仓库。
+
+- 核心翻译引擎 `RuleBasedTranslator.translate_bundle()` 已完整迁入 `modules/config_translation/core/`
+- 不使用 `sys.path` 指向外部 `network-translator` 仓库
+- 不使用 `os.chdir()` 到外部路径
+- 不使用 GraphAgent / LLM 翻译路径
+- `/api/version` 报告 `config_translation_source: "embedded"` 和 `external_translator_dependency: false`
 
 ## 当前技能
 

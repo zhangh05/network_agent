@@ -3,6 +3,7 @@
 from backend.core.settings import (
     APP_NAME, BUILD_COMMIT, TRANSLATOR_ENTRY, API_MODE,
     SWITCH_ROUTER_STATUS, PRODUCT_READY, FIREWALL_STATUS,
+    CONFIG_TRANSLATION_SOURCE, EXTERNAL_TRANSLATOR_DEPENDENCY,
 )
 
 
@@ -15,4 +16,6 @@ def get_version():
         "product_ready": PRODUCT_READY,
         "firewall_status": FIREWALL_STATUS,
         "api_mode": API_MODE,
+        "config_translation_source": CONFIG_TRANSLATION_SOURCE,
+        "external_translator_dependency": EXTERNAL_TRANSLATOR_DEPENDENCY,
     }

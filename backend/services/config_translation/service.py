@@ -1,33 +1,23 @@
 # backend/services/config_translation/service.py
-"""Core config translation service. Wraps the canonical translate_bundle pipeline."""
+"""Core config translation service. Wraps the embedded translate_bundle pipeline.
 
-import sys
+The translator is fully embedded in modules/config_translation/core/ —
+no external network-translator repo dependency, no sys.path hack, no os.chdir.
+"""
+
 import time
-import os
-from pathlib import Path
 
-from backend.core.settings import BUILD_COMMIT, TRANSLATOR_ENTRY, TRANSLATOR_PROJECT_PATH
+from backend.core.settings import BUILD_COMMIT, TRANSLATOR_ENTRY
 from backend.services.config_translation.schemas import TranslateRequest, TranslateResponse
 
-
-# Lazy import — add translator project to path once
-def _ensure_translator_path():
-    translator_path = str(TRANSLATOR_PROJECT_PATH)
-    if translator_path not in sys.path:
-        sys.path.insert(0, translator_path)
-    # Ensure CWD is correct for relative imports inside project_store
-    os.chdir(translator_path)
-
-
-# Cache the translator instance
+# Embedded translator — imported directly as an internal module
 _translator = None
 
 
 def _get_translator():
     global _translator
     if _translator is None:
-        _ensure_translator_path()
-        from core.rule_translator import RuleBasedTranslator
+        from modules.config_translation.core.rule_translator import RuleBasedTranslator
         _translator = RuleBasedTranslator()
     return _translator
 
