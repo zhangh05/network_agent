@@ -1,4 +1,3 @@
-# config/llm.yaml — active LLM config for harness testing
 llm:
   enabled: false
   default_provider: mock

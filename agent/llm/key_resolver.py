@@ -12,11 +12,15 @@ KEY_SOURCES = []
 def resolve_api_key(env_name: str = "", file_path: str = "") -> Optional[str]:
     """Resolve API key from env or local file. Never logs or stores plaintext."""
     global KEY_SOURCES
+    KEY_SOURCES.clear()  # Reset on each call to avoid stale state
 
     # 1. Environment variable
     if env_name and os.environ.get(env_name):
         KEY_SOURCES.append(f"env:{env_name}")
         return os.environ[env_name]
+
+    # If explicit env_name given but not found, don't fall back to auto-detect
+    explicit_request = bool(env_name) or bool(file_path)
 
     # 2. Explicit file path
     if file_path:
@@ -27,8 +31,12 @@ def resolve_api_key(env_name: str = "", file_path: str = "") -> Optional[str]:
                 KEY_SOURCES.append(f"file:{path}")
                 return key
 
+    # Only auto-detect when no explicit env/file specified
+    if explicit_request:
+        return None
+
     # 3. Auto-detect desktop api key files
-    for name in ["apikey", "api_key", "minimax_apikey", "minimax_api_key"]:
+    for name in ["apikey", "api_key", "minimax_apikey", "minimax_api_key", "API_key.txt"]:
         for base in [Path.home() / "Desktop", Path.home()]:
             p = base / name
             if p.is_file():

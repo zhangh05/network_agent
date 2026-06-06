@@ -1,0 +1,13 @@
+{
+  "key_loaded": true,
+  "key_source": "file:/Users/zhangh01/Desktop/API_key.txt",
+  "llm_connected": true,
+  "llm_test_ok": true,
+  "agent_translate_ok": true,
+  "llm_used_in_translate": true,
+  "context_qa_ok": false,
+  "security_audit_ok": true,
+  "key_leak_found": false,
+  "deployable_modified_by_llm": false,
+  "manual_review_hidden": false
+}

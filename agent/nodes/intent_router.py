@@ -11,9 +11,10 @@ INTENTS = {
     "memory_search": ["记忆", "memory", "回忆", "会话", "history"],
     "skill_query": ["技能", "skill", "能力"],
     "module_query": ["模块", "module"],
+    "context_qa": ["刚才", "为什么", "解释", "说明", "复核", "人工", "风险", "这些", "上次"],
 }
 
-LIVE_INTENTS = {"translate_config"}
+LIVE_INTENTS = {"translate_config", "context_qa"}
 
 
 def route(state: NetworkAgentState) -> NetworkAgentState:

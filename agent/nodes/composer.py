@@ -20,11 +20,11 @@ def compose(state: NetworkAgentState) -> NetworkAgentState:
 
         state.context.setdefault("llm", {})["enabled"] = cfg.get("enabled", False)
 
-        if cfg.get("enabled") and cfg.get("type") != "disabled":
+        if cfg.get("enabled") and cfg.get("provider_type") != "disabled":
             output = safe_generate("response_compose", state)
             state.context["llm"].update({
                 "used": output.llm_used,
-                "provider": cfg.get("type"),
+                "provider": cfg.get("provider_type"),
                 "model": cfg.get("model"),
                 "task": "response_compose",
                 "policy_pass": output.policy_decision.allowed if output.policy_decision else False,
@@ -59,6 +59,18 @@ def _deterministic(result: dict, intent: str) -> str:
             f"  Unsupported: {len(us)}\n"
             f"Please review the result in the Config Translation panel."
         )
+    elif intent == "context_qa":
+        mr = result.get("manual_review_count", 0)
+        us = result.get("unsupported_count", 0)
+        if mr == 0 and us == 0:
+            return "当前摘要里没有人工复核项，也没有不支持项。翻译结果看起来可以直接查看配置翻译面板。"
+        parts = [f"根据上次翻译结果："]
+        if mr > 0:
+            parts.append(f"  - {mr} 个项目需要人工复核确认")
+        if us > 0:
+            parts.append(f"  - {us} 个配置项当前不支持自动翻译")
+        parts.append("请切换到「配置翻译」面板查看详情。")
+        return "\n".join(parts)
     elif intent in ("topology_draw", "inspection_analyze", "knowledge_search"):
         return f"Module '{result.get('active_module', intent)}' is planned and coming soon. No results available."
     elif intent == "unknown":

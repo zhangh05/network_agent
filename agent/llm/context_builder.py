@@ -4,7 +4,7 @@
 from agent.state import NetworkAgentState
 
 MAX_SAMPLES = 5
-SECRET_PATTERNS = ["password", "secret", "key", "community", "snmp", "tacacs", "radius", "enable"]
+SECRET_PATTERNS = ["password", "secret", "community", "snmp", "tacacs", "radius", "key_string"]
 
 
 def build_safe_context(state: NetworkAgentState) -> dict:

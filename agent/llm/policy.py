@@ -6,7 +6,7 @@ from agent.llm.schemas import (
     ALLOWED_TASKS, BLOCKED_TASKS, LLMTask,
 )
 
-SECRET_PATTERNS = ["password", "secret", "key", "community", "snmp", "enable"]
+SECRET_PATTERNS = ["password", "secret", "community", "snmp"]
 
 
 def check_request(req: LLMRequest, state=None) -> PolicyDecision:

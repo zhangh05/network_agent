@@ -140,7 +140,11 @@ def _merge(base: dict, override: dict):
 
 def _apply_env_overrides(config: dict):
     if os.environ.get("NETWORK_AGENT_LLM_ENABLED"):
-        config["enabled"] = os.environ["NETWORK_AGENT_LLM_ENABLED"].lower() in ("1","true","yes")
+        val = os.environ["NETWORK_AGENT_LLM_ENABLED"].lower()
+        if val in ("0", "false", "no"):
+            config["enabled"] = False
+        elif val in ("1", "true", "yes"):
+            config["enabled"] = True
     if os.environ.get("LLM_PROVIDER"):
         config["default_provider"] = os.environ["LLM_PROVIDER"]
 

@@ -34,6 +34,14 @@ def execute(state: NetworkAgentState) -> NetworkAgentState:
         except Exception as exc:
             call["status"] = "failed"
             state.error = str(exc)
+    elif skill == "context_qa" or state.intent == "context_qa":
+        # Context QA: answer from workspace summary, no skill needed
+        ws = state.payload.get("workspace_summary", {})
+        state.tool_results = {"ok": True, "workspace_summary": ws, "question": state.payload.get("question", ""),
+            "manual_review_count": ws.get("last_result_counts", {}).get("manual_review_count", 0),
+            "unsupported_count": ws.get("last_result_counts", {}).get("unsupported_count", 0),
+            "translator_entry": "context_qa"}
+        call["status"] = "success"
     else:
         state.tool_results = {"ok": False, "error": f"Skill '{skill}' not implemented"}
         call["status"] = "planned"
