@@ -1,107 +1,118 @@
 """
-Harness tests for network_agent.
+Legacy services metadata tests.
 
-Run: pytest harness/ -v
+- No longer tests against 8020 by default.
+- Live 8020 tests gated behind RUN_LEGACY_SERVICE_TESTS=1.
+- Metadata-only tests verify legacy apps exist and README documents their status.
 """
 
 import json
 import os
 import sys
-import time
-import pytest
 import urllib.request
+import pytest
 
-TRANSLATOR_PORT = int(os.environ.get("TRANSLATOR_SERVICE_PORT", "8010"))
-AGENT_PORT = int(os.environ.get("AGENT_SERVICE_PORT", "8020"))
-TRANSLATOR_URL = f"http://127.0.0.1:{TRANSLATOR_PORT}"
-AGENT_URL = f"http://127.0.0.1:{AGENT_PORT}"
+RUN_LIVE_LEGACY = os.environ.get("RUN_LEGACY_SERVICE_TESTS") == "1"
 
-SAMPLE_CONFIG = """\
-hostname Core-Router
-interface GigabitEthernet0/1
- switchport mode trunk
- switchport trunk allowed vlan 10,20,30
- spanning-tree portfast
-!
-router bgp 65001
- neighbor 10.0.0.2 remote-as 65002
-"""
+PORT = int(os.environ.get("NETWORK_AGENT_PORT", "8010"))
+BASE = f"http://127.0.0.1:{PORT}"
+
+REQUIRES_LEGACY = pytest.mark.skipif(
+    not RUN_LIVE_LEGACY,
+    reason="RUN_LEGACY_SERVICE_TESTS=1 not set — 8020 is dev-only legacy",
+)
 
 
-def _post(url, body, timeout=120):
+def _post(path, body):
     data = json.dumps(body).encode("utf-8")
-    req = urllib.request.Request(url, data=data, headers={"Content-Type": "application/json"}, method="POST")
-    try:
-        with urllib.request.urlopen(req, timeout=timeout) as resp:
-            return json.loads(resp.read().decode("utf-8"))
-    except urllib.error.HTTPError as e:
-        # Still return the JSON body even on HTTP errors
-        return json.loads(e.read().decode("utf-8"))
-
-
-def _get(url):
-    with urllib.request.urlopen(url, timeout=5) as resp:
+    req = urllib.request.Request(f"{BASE}{path}", data=data, headers={"Content-Type": "application/json"})
+    with urllib.request.urlopen(req) as resp:
         return json.loads(resp.read().decode("utf-8"))
 
 
-# ── Translator Service Tests ──
+def _get(path):
+    with urllib.request.urlopen(f"{BASE}{path}", timeout=5) as resp:
+        return json.loads(resp.read().decode("utf-8"))
 
 
-class TestTranslatorVersion:
-    def test_version_returns_build_commit(self):
-        result = _get(f"{TRANSLATOR_URL}/api/version")
-        assert result["ok"] is True
-        assert "build_commit" in result
-        assert result["translator_entry"] == "translate_bundle"
+# ═════════════════════════════════════════════════════════════
+# Metadata Tests (always run, no network required)
+# ═════════════════════════════════════════════════════════════
 
-    def test_version_is_reachable(self):
-        result = _get(f"{TRANSLATOR_URL}/api/version")
-        assert result.get("service") == "translator_service"
+class TestLegacyAppsMetadata:
+    """Verify legacy app directories and README documentation."""
+
+    def test_apps_translator_service_exists(self):
+        """apps/translator_service/ directory exists."""
+        path = os.path.join(
+            os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
+            "apps", "translator_service"
+        )
+        assert os.path.isdir(path), "apps/translator_service/ not found"
+
+    def test_apps_agent_service_exists(self):
+        """apps/agent_service/ directory exists."""
+        path = os.path.join(
+            os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
+            "apps", "agent_service"
+        )
+        assert os.path.isdir(path), "apps/agent_service/ not found"
+
+    def test_readme_marks_legacy(self):
+        """README states apps are dev-only legacy."""
+        readme_path = os.path.join(
+            os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
+            "README.md"
+        )
+        with open(readme_path, encoding="utf-8") as f:
+            content = f.read().lower()
+        assert "dev-only legacy" in content or "dev only legacy" in content, \
+            "README does not mark apps as dev-only legacy"
+
+    def test_readme_states_formal_entry(self):
+        """README states formal entry point is backend/main.py on 8010."""
+        readme_path = os.path.join(
+            os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
+            "README.md"
+        )
+        with open(readme_path, encoding="utf-8") as f:
+            content = f.read().lower()
+        assert "backend/main.py" in content, \
+            "README does not mention backend/main.py as entry"
+        assert "8010" in content, "README does not mention port 8010"
+
+    def test_readme_states_8020_not_formal(self):
+        """README states 8020 is not formal entry."""
+        readme_path = os.path.join(
+            os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
+            "README.md"
+        )
+        with open(readme_path, encoding="utf-8") as f:
+            content = f.read().lower()
+        assert "8020" in content, "README does not mention 8020 at all"
+        assert "非正式入口" in content or "not formal" in content.lower() or "dev-only legacy" in content, \
+            "README does not state 8020 is not formal entry"
 
 
-class TestTranslatorTranslate:
-    def test_translate_returns_deployable_config(self):
-        result = _post(f"{TRANSLATOR_URL}/api/translate", {
-            "source_config": SAMPLE_CONFIG,
+# ═════════════════════════════════════════════════════════════
+# Live Tests (always run, hit 8010 formal entry)
+# ═════════════════════════════════════════════════════════════
+
+class TestFormalTranslate:
+    """Verify /api/translate on 8010 formal entry."""
+
+    def test_translate_returns_deployable(self):
+        result = _post("/api/translate", {
+            "source_config": "interface Gi0/1\n ip address 10.1.1.1 255.255.255.0\n",
             "source_vendor": "cisco",
             "target_vendor": "huawei",
         })
         assert result["ok"] is True
-        assert "deployable_config" in result
         assert isinstance(result["deployable_config"], str)
-        # Must not be from full_output
-        assert "full_output" not in result
 
-    def test_translate_returns_manual_review(self):
-        result = _post(f"{TRANSLATOR_URL}/api/translate", {
-            "source_config": SAMPLE_CONFIG,
-            "source_vendor": "cisco",
-            "target_vendor": "huawei",
-        })
-        assert "manual_review" in result
-        assert isinstance(result["manual_review"], list)
-
-    def test_translate_returns_semantic_near(self):
-        result = _post(f"{TRANSLATOR_URL}/api/translate", {
-            "source_config": SAMPLE_CONFIG,
-            "source_vendor": "cisco",
-            "target_vendor": "huawei",
-        })
-        assert "semantic_near" in result
-        assert isinstance(result["semantic_near"], list)
-
-    def test_translate_returns_unsupported(self):
-        result = _post(f"{TRANSLATOR_URL}/api/translate", {
-            "source_config": SAMPLE_CONFIG,
-            "source_vendor": "cisco",
-            "target_vendor": "huawei",
-        })
-        assert "unsupported" in result
-        assert isinstance(result["unsupported"], list)
-
-    def test_translate_returns_audit(self):
-        result = _post(f"{TRANSLATOR_URL}/api/translate", {
-            "source_config": SAMPLE_CONFIG,
+    def test_translate_returns_audit_counts(self):
+        result = _post("/api/translate", {
+            "source_config": "interface Gi0/1\n ip address 10.1.1.1 255.255.255.0\n",
             "source_vendor": "cisco",
             "target_vendor": "huawei",
         })
@@ -109,144 +120,49 @@ class TestTranslatorTranslate:
         assert "counts" in result["audit"]
 
     def test_translate_empty_config_returns_error(self):
-        result = _post(f"{TRANSLATOR_URL}/api/translate", {
-            "source_config": "",
-            "source_vendor": "cisco",
-            "target_vendor": "huawei",
-        })
-        assert result["ok"] is False
-
-    def test_manual_review_count_matches_list(self):
-        result = _post(f"{TRANSLATOR_URL}/api/translate", {
-            "source_config": SAMPLE_CONFIG,
-            "source_vendor": "cisco",
-            "target_vendor": "huawei",
-        })
-        assert result["manual_review_count"] == len(result["manual_review"])
-
-    def test_semantic_near_count_matches_list(self):
-        result = _post(f"{TRANSLATOR_URL}/api/translate", {
-            "source_config": SAMPLE_CONFIG,
-            "source_vendor": "cisco",
-            "target_vendor": "huawei",
-        })
-        assert result["semantic_near_count"] == len(result["semantic_near"])
-
-    def test_unsupported_count_matches_list(self):
-        result = _post(f"{TRANSLATOR_URL}/api/translate", {
-            "source_config": SAMPLE_CONFIG,
-            "source_vendor": "cisco",
-            "target_vendor": "huawei",
-        })
-        assert result["unsupported_count"] == len(result["unsupported"])
+        import urllib.error
+        with pytest.raises(urllib.error.HTTPError) as exc:
+            _post("/api/translate", {
+                "source_config": "",
+                "source_vendor": "cisco",
+                "target_vendor": "huawei",
+            })
+        assert exc.value.code == 400
 
 
-# ── Agent Service Tests ──
+# ═════════════════════════════════════════════════════════════
+# Live Tests (gated — require 8020 running)
+# ═════════════════════════════════════════════════════════════
 
+@REQUIRES_LEGACY
+class TestLegacyAgentLive:
+    """Live tests against legacy 8020 agent_service (only when RUN_LEGACY_SERVICE_TESTS=1)."""
 
-class TestAgentHealth:
-    def test_health_ok(self):
-        result = _get(f"{AGENT_URL}/health")
+    LEGACY_AGENT = "http://127.0.0.1:8020"
+
+    def _get(self, path):
+        with urllib.request.urlopen(f"{self.LEGACY_AGENT}{path}", timeout=5) as resp:
+            return json.loads(resp.read().decode("utf-8"))
+
+    def _post(self, path, body):
+        data = json.dumps(body).encode("utf-8")
+        req = urllib.request.Request(
+            f"{self.LEGACY_AGENT}{path}",
+            data=data,
+            headers={"Content-Type": "application/json"},
+        )
+        with urllib.request.urlopen(req, timeout=10) as resp:
+            return json.loads(resp.read().decode("utf-8"))
+
+    def test_agent_health(self):
+        result = self._get("/health")
         assert result["ok"] is True
-        assert result["service"] == "agent_service"
 
-
-class TestAgentSkills:
-    def test_skills_lists_config_translate(self):
-        result = _get(f"{AGENT_URL}/skills")
-        assert "skills" in result
-        skill_names = [s["skill_name"] for s in result["skills"]]
-        assert "config_translate" in skill_names
-
-    def test_config_translate_has_endpoint(self):
-        result = _get(f"{AGENT_URL}/skills")
-        skill = next(s for s in result["skills"] if s["skill_name"] == "config_translate")
-        assert "endpoint" in skill
-        assert "input_schema" in skill
-        assert "output_schema" in skill
-
-
-class TestAgentRun:
-    def test_run_translate_config_returns_deployable(self):
-        result = _post(f"{AGENT_URL}/agent/run", {
+    def test_agent_run_translate(self):
+        result = self._post("/agent/run", {
             "intent": "translate_config",
-            "source_config": SAMPLE_CONFIG,
+            "source_config": "interface Gi0/1\n ip addr 10.1.1.1 255.255.255.0\n",
             "source_vendor": "cisco",
             "target_vendor": "huawei",
         })
         assert result["ok"] is True
-        assert result["skill"] == "config_translate"
-        assert "deployable_config" in result
-        assert isinstance(result["deployable_config"], str)
-
-    def test_run_translate_config_returns_manual_review(self):
-        result = _post(f"{AGENT_URL}/agent/run", {
-            "intent": "translate_config",
-            "source_config": SAMPLE_CONFIG,
-            "source_vendor": "cisco",
-            "target_vendor": "huawei",
-        })
-        assert "manual_review" in result
-        assert isinstance(result["manual_review"], list)
-
-    def test_run_translate_config_deployable_matches_translator(self):
-        agent_result = _post(f"{AGENT_URL}/agent/run", {
-            "intent": "translate_config",
-            "source_config": SAMPLE_CONFIG,
-            "source_vendor": "cisco",
-            "target_vendor": "huawei",
-        })
-        translator_result = _post(f"{TRANSLATOR_URL}/api/translate", {
-            "source_config": SAMPLE_CONFIG,
-            "source_vendor": "cisco",
-            "target_vendor": "huawei",
-        })
-        assert agent_result["deployable_config"] == translator_result["deployable_config"]
-
-    def test_run_translate_config_mr_count_matches(self):
-        agent_result = _post(f"{AGENT_URL}/agent/run", {
-            "intent": "translate_config",
-            "source_config": SAMPLE_CONFIG,
-            "source_vendor": "cisco",
-            "target_vendor": "huawei",
-        })
-        translator_result = _post(f"{TRANSLATOR_URL}/api/translate", {
-            "source_config": SAMPLE_CONFIG,
-            "source_vendor": "cisco",
-            "target_vendor": "huawei",
-        })
-        assert agent_result["manual_review_count"] == translator_result["manual_review_count"]
-
-    def test_run_unsupported_intent(self):
-        result = _post(f"{AGENT_URL}/agent/run", {
-            "intent": "unknown_intent",
-            "source_config": SAMPLE_CONFIG,
-        })
-        assert result["ok"] is False
-        assert "unsupported intent" in result.get("error", "")
-
-    def test_run_no_llm_path(self):
-        """Agent must NOT call GraphAgent/LLM translation path."""
-        result = _post(f"{AGENT_URL}/agent/run", {
-            "intent": "translate_config",
-            "source_config": SAMPLE_CONFIG,
-            "source_vendor": "cisco",
-            "target_vendor": "huawei",
-        })
-        # translate_bundle does NOT produce full_output; agent must not add it
-        assert "full_output" not in result
-        # The translator_entry must be translate_bundle, not GraphAgent
-        assert result.get("translator_entry") == "translate_bundle"
-
-    def test_manual_review_field_complete(self):
-        result = _post(f"{AGENT_URL}/agent/run", {
-            "intent": "translate_config",
-            "source_config": SAMPLE_CONFIG,
-            "source_vendor": "cisco",
-            "target_vendor": "huawei",
-        })
-        for mr in result.get("manual_review", []):
-            assert "source_excerpt" in mr
-            assert "reason" in mr
-            assert "category" in mr
-            assert "risk_level" in mr

@@ -111,12 +111,18 @@ config_translation 是 network_agent **内置模块**，不依赖本机旧仓库
 
 ## 旧服务说明
 
-`apps/translator_service/` 和 `apps/agent_service/` 为开发期遗留，
-**非正式入口**。正式启动方式:
+`apps/translator_service/` 和 `apps/agent_service/` 为 **dev-only legacy**，
+**非正式入口**。默认 harness 不要求 8020 启动。
+
+正式启动方式:
 
 ```bash
+python backend/main.py
+# 或
 python -m backend.main --port 8010
 ```
+
+正式服务监听 `127.0.0.1:8010`。`8020` 不是正式入口。
 
 ## 测试
 
