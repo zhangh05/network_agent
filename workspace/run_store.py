@@ -48,6 +48,8 @@ def write_run_record(state, ws_id: str = "default") -> str:
             "unsupported": len(result.get("unsupported", [])),
         },
         "verification": {},
+        # ── Quality summary (counts only, no full config) ──
+        "quality_summary": _safe_quality_summary(result),
         "llm_metadata": {
             "used": llm_ctx.get("used", False),
             "provider": llm_ctx.get("provider", ""),
@@ -69,6 +71,20 @@ def write_run_record(state, ws_id: str = "default") -> str:
         json.dumps(record, indent=2, ensure_ascii=False)
     )
     return run_id
+
+
+def _safe_quality_summary(result: dict) -> dict:
+    """Extract safe quality summary counts — no full config, no secrets."""
+    qs = result.get("quality_summary", {})
+    if isinstance(qs, dict):
+        return {k: v for k, v in qs.items() if isinstance(v, (int, str, bool, list)) and len(str(v)) < 500}
+    # Build from direct result fields
+    return {
+        "source_residue_count": 0,
+        "silent_drop_count": 0,
+        "review_required_count": len(result.get("manual_review", [])),
+        "unsupported_count": len(result.get("unsupported", [])),
+    }
 
 
 def get_run(run_id: str, ws_id: str = "default") -> dict:

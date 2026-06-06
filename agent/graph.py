@@ -298,6 +298,9 @@ def run_agent(user_input: str = "", intent: str = "", payload: dict = None,
         "output_artifacts": state.context.get("output_artifacts", []),
         "report_artifacts": state.context.get("report_artifacts", []),
         "artifact_refs": _build_artifact_refs(state),
+        # ── Quality ──
+        "quality_summary": result.get("quality_summary", {}),
+        "manual_review_count": len(result.get("manual_review", [])),
         # ── Trace ──
         "trace_id": trace_id,
         "trace_available": True,

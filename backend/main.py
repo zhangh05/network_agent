@@ -121,6 +121,26 @@ def create_app():
         from workspace.manager import get_workspace_state
         return jsonify(get_workspace_state(ws_id))
 
+    @app.route("/api/runs/recent")
+    def api_runs_recent():
+        """Recent runs for the default workspace — safe summaries, no full config."""
+        ws_id = request.args.get("workspace_id", "default")
+        ws_id, err = _validated_workspace_id(ws_id)
+        if err:
+            return err
+        limit = int(request.args.get("limit", "10"))
+        from workspace.manager import get_workspace_runs
+        runs = get_workspace_runs(ws_id)
+        # Sort by latest first
+        runs_sorted = sorted(runs, key=lambda r: r.get("created_at", ""), reverse=True) if runs else []
+        recent = runs_sorted[:limit]
+        # Strip any full config from summaries
+        safe_recent = []
+        for r in recent:
+            safe_run = {k: v for k, v in r.items() if k not in ("source_config", "deployable_config", "prompt", "full_context")}
+            safe_recent.append(safe_run)
+        return jsonify({"runs": safe_recent, "count": len(safe_recent)})
+
     @app.route("/api/workspaces/<ws_id>/runs")
     def api_workspace_runs(ws_id):
         ws_id, err = _validated_workspace_id(ws_id)

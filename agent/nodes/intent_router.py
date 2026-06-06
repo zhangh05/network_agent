@@ -18,6 +18,7 @@ INTENTS = {
     "skill_query": ["技能", "skill", "能力"],
     "module_query": ["模块", "module"],
     "context_qa": ["刚才", "为什么", "解释", "说明", "复核", "人工", "风险", "这些", "上次", "怎么", "如何", "是什么"],
+    "assistant_chat": ["你好", "hello", "hi", "你是谁", "help", "帮助", "能做", "可以做什么", "bye", "再见", "谢谢", "thank"],
 }
 
 

@@ -9,8 +9,11 @@ def compose(state: NetworkAgentState) -> NetworkAgentState:
     result = state.skill_results or state.tool_results or {}
     intent = state.intent
 
-    # Default deterministic response
-    deterministic = _deterministic(result, intent)
+    # Default deterministic response — assistant_chat uses full state context
+    if intent == "assistant_chat":
+        deterministic = _assistant_response(state)
+    else:
+        deterministic = _deterministic(result, intent)
 
     # Try LLM
     try:
@@ -88,8 +91,64 @@ def _deterministic(result: dict, intent: str) -> str:
     elif intent in ("topology_draw", "inspection_analyze", "knowledge_search"):
         return f"Module '{result.get('active_module', intent)}' is planned and coming soon. No results available."
     elif intent == "unknown":
-        return "I didn't understand your request. Supported: translate_config, topology_draw, inspection_analyze, knowledge_search."
+        return ("I didn't understand your request. Try:\n"
+                "- \"翻译配置\" for config translation\n"
+                "- \"你好\" for basic chat\n"
+                "- \"你能做什么\" to see capabilities")
     return "Request processed."
+
+
+def _assistant_response(state: NetworkAgentState) -> str:
+    """Generate deterministic assistant response for basic conversation."""
+    ui = (state.user_input or "").lower().strip()
+    # Greetings
+    if any(kw in ui for kw in ["你好", "hello", "hi", "hey"]):
+        return ("你好！我是 Network Agent，一个本地网络工程 AI 平台。\n\n"
+                "当前唯一启用的业务模块：**配置翻译**（支持 Cisco ↔ 华为 ↔ H3C ↔ 锐捷）\n"
+                "我可以帮你：\n"
+                "- 翻译网络设备配置\n"
+                "- 解释配置翻译结果\n"
+                "- 回答关于系统能力的问题\n\n"
+                "请输入 \"你能做什么\" 了解更多。")
+    # Identity
+    if any(kw in ui for kw in ["你是谁", "who are you"]):
+        return ("我是 Network Agent，一个 LangGraph 驱动的本地网络工程 AI 助手。\n"
+                "当前运行模式：deterministic fallback（LLM 未启用）。\n"
+                "我通过 7 个处理节点（router → context → planner → executor → verifier → composer → memory）工作。\n"
+                "唯一启用的业务模块是 config_translation（配置翻译）。")
+    # Capability
+    if any(kw in ui for kw in ["能做", "可以做什么", "what can you do", "help", "帮助"]):
+        return ("当前支持的功能：\n\n"
+                "**已启用：**\n"
+                "- 配置翻译（config_translation）：Cisco ↔ 华为 ↔ H3C ↔ 锐捷 网络设备配置互译\n"
+                "- 基础对话（assistant_chat）：回答关于系统能力和使用方式的问题\n\n"
+                "**规划中（coming soon）：**\n"
+                "- 拓扑绘图（topology）：从设备配置中提取和绘制网络拓扑\n"
+                "- 巡检分析（inspection）：合规检查和最佳实践审计\n"
+                "- 知识库（knowledge）：网络工程知识库搜索\n\n"
+                "安全说明：\n"
+                "- 配置翻译输出必须经过人工复核\n"
+                "- 不直接生成可下发的配置\n"
+                "- 不包含真实设备执行能力")
+    # Thanks / Goodbye
+    if any(kw in ui for kw in ["谢谢", "thank", "bye", "再见"]):
+        return "再见！如有配置翻译需求，随时可以使用 \"翻译配置\" 功能。"
+    # Quality / manual_review
+    if any(kw in ui for kw in ["质量", "quality", "人工", "manual_review", "风险"]):
+        return ("关于配置翻译质量：\n\n"
+                "每次翻译都会生成质量摘要（quality_summary），包含：\n"
+                "- source_residue_count：源厂商语法残留数\n"
+                "- silent_drop_count：静默丢弃的语义行数\n"
+                "- review_required_count：需要人工复核的项目数\n\n"
+                "如果 source_residue_count > 0 或 silent_drop_count > 0，结果必须经过人工复核。\n"
+                "配置翻译不声称可直接下发。")
+    # Default friendly response
+    return ("你好！有什么我可以帮助你的吗？\n\n"
+            "你可以尝试：\n"
+            "- \"翻译配置\" — 打开配置翻译\n"
+            "- \"你能做什么\" — 查看我的能力\n"
+            "- \"解释上次翻译结果\" — 查看上次结果摘要\n"
+            "直接粘贴网络配置文本也可以触发翻译。")
 
 
 def _select_prompt_task(state: NetworkAgentState) -> str:

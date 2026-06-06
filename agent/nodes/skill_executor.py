@@ -12,6 +12,20 @@ def execute(state: NetworkAgentState) -> NetworkAgentState:
     capability_id = state.context.get("capability_id", "")
     cap_status = state.context.get("capability_status", "unknown")
 
+    # ── 0. assistant_chat / no-skill intents → no-op executor ──
+    if state.intent == "assistant_chat" or (not skill and not capability_id):
+        state.skill_results = {"ok": True, "intent": state.intent}
+        state.tool_results = state.skill_results  # legacy alias
+        _add_event(state, "skill_call_start", f"skill:noop", state.trace_id or "",
+                   state.workspace_id or "default",
+                   metadata={"intent": state.intent, "status": "noop"})
+        _add_event(state, "skill_call_end", f"skill:noop", state.trace_id or "",
+                   state.workspace_id or "default", status="success",
+                   summary=f"noop for {state.intent}",
+                   metadata={"intent": state.intent})
+        state.context["skill_call_count"] = 0
+        return state
+
     if not skill:
         state.error = "No skill selected"
         return state
