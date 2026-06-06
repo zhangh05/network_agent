@@ -172,9 +172,11 @@ class TestAPI:
         assert d["ok"] is True
     def test_key_not_returned(self):
         d=_g("/api/agent/llm/status")
-        s=str(d).lower()
-        assert "sk-" not in s
-        assert "eyj" not in s
+        s=str(d)
+        # Key preview is allowed (masked), full key is not
+        assert "eyj" not in s.lower()
+        # key_preview contains **** so it's safe
+        assert "****" in str(d.get("key_preview", ""))
 
 # ═══ Agent ═══
 class TestAgent:

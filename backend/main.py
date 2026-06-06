@@ -21,7 +21,7 @@ from flask import Flask, send_from_directory, jsonify
 from backend.api.version import get_version
 from backend.api.modules_translate import handle_module_translate
 from backend.api.agent import handle_agent_run, handle_agent_status
-from backend.api.llm_api import handle_llm_status, handle_llm_test
+from backend.api.llm_api import handle_llm_status, handle_llm_test, handle_llm_config_get, handle_llm_config_post, handle_llm_config_delete
 from backend.api.skills import handle_skills, get_skill_count
 from backend.api.workspace import handle_workspace_status
 from backend.api.modules import handle_modules, handle_module_status
@@ -70,6 +70,18 @@ def create_app():
     @app.route("/api/agent/llm/test", methods=["POST"])
     def api_agent_llm_test():
         return handle_llm_test()
+
+    @app.route("/api/agent/llm/config")
+    def api_agent_llm_config_get():
+        return handle_llm_config_get()
+
+    @app.route("/api/agent/llm/config", methods=["POST"])
+    def api_agent_llm_config_post():
+        return handle_llm_config_post()
+
+    @app.route("/api/agent/llm/config", methods=["DELETE"])
+    def api_agent_llm_config_delete():
+        return handle_llm_config_delete()
 
     # ── Workspace ──
     @app.route("/api/workspaces")

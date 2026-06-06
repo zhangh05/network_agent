@@ -1,3 +1,4 @@
+# config/llm.local.yaml — local MiniMax enablement (NOT tracked by git)
 llm:
   enabled: true
   default_provider: minimax
@@ -8,6 +9,7 @@ llm:
       type: openai_compatible
       base_url: https://api.minimax.chat/v1
       api_key_env: MINIMAX_API_KEY
-      model: MiniMax-M3
+      api_key_file: ~/Desktop/API_key.txt
+      model: MiniMax-M1
       temperature: 0.2
       max_tokens: 1200
