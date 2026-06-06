@@ -1,0 +1,1029 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Network Agent</title>
+<style>
+  :root{
+    --pri:#2563eb;--pri-hv:#1d4ed8;--pri-lt:#dbeafe;
+    --suc:#22c55e;--warn:#eab308;--dng:#ef4444;--info:#0ea5e9;
+    --n1:#0f172a;--n2:#1e293b;--n3:#334155;--n4:#475569;--n5:#64748b;--n6:#94a3b8;--n7:#cbd5e1;--n8:#e2e8f0;--n9:#f1f5f9;--n10:#f8fafc;
+    --bg:#f8fafc;--card:#ffffff;
+    --font:"PingFang SC","Microsoft YaHei",system-ui,-apple-system,sans-serif;
+    --mono:"JetBrains Mono","Cascadia Code",ui-monospace,monospace;
+  }
+  *{margin:0;padding:0;box-sizing:border-box}
+  html,body{height:100%;font:14px/1.6 var(--font);color:var(--n1);background:var(--bg);-webkit-font-smoothing:antialiased}
+  body{display:flex;overflow:hidden}
+
+  /* ── Sidebar ── */
+  #sidebar{width:210px;flex-shrink:0;background:var(--n1);display:flex;flex-direction:column;overflow:hidden}
+  .sb-logo{height:52px;display:flex;align-items:center;padding:0 18px;gap:10px;border-bottom:1px solid var(--n2)}
+  .sb-logo .icon{width:26px;height:26px;background:var(--pri);border-radius:6px;display:flex;align-items:center;justify-content:center;color:#fff;font-size:13px;font-weight:700}
+  .sb-logo .text{color:#f8fafc;font-size:15px;font-weight:700;letter-spacing:.3px}
+  .sb-logo .ver{color:var(--n5);font-size:11px;margin-left:auto}
+  .sb-nav{flex:1;padding:10px 10px;overflow-y:auto}
+  .sb-nav::-webkit-scrollbar{width:4px}
+  .sb-nav::-webkit-scrollbar-thumb{background:var(--n3);border-radius:2px}
+  .sb-group{margin-bottom:14px}
+  .sb-label{padding:4px 10px;font-size:11px;color:var(--n5);text-transform:uppercase;letter-spacing:.5px;margin-bottom:2px}
+  .sb-item{display:flex;align-items:center;gap:10px;padding:9px 12px;border-radius:6px;color:var(--n6);font-size:13px;cursor:pointer;transition:all .15s;border:0;background:transparent;width:100%;text-align:left}
+  .sb-item:hover{background:var(--n2);color:var(--n9)}
+  .sb-item.active{background:var(--n2);color:#fff;font-weight:600}
+  .sb-item:disabled{opacity:.35;cursor:not-allowed}
+  .sb-item:disabled:hover{background:transparent}
+  .sb-item .dot{width:6px;height:6px;border-radius:50%;background:var(--n4);flex-shrink:0}
+  .sb-item.active .dot{background:var(--pri)}
+  .sb-item .soon{margin-left:auto;font-size:10px;color:var(--n5);background:var(--n2);padding:1px 5px;border-radius:4px}
+  .sb-foot{padding:10px;border-top:1px solid var(--n2)}
+
+  /* ── Main wrapper ── */
+  #main{flex:1;display:flex;flex-direction:column;overflow:hidden;min-width:0}
+
+  /* ── Top bar ── */
+  #topbar{height:52px;background:var(--card);border-bottom:1px solid var(--n8);display:flex;align-items:center;padding:0 20px;gap:16px;flex-shrink:0}
+  .top-bread{display:flex;align-items:center;gap:8px;color:var(--n5);font-size:13px}
+  .top-bread .sep{color:var(--n7)}
+  .top-proj{display:flex;align-items:center;gap:8px;margin-left:24px;padding:5px 12px;background:var(--n10);border:1px solid var(--n8);border-radius:6px;cursor:pointer;font-size:13px;color:var(--n2)}
+  .top-proj .status{width:7px;height:7px;border-radius:50%;background:var(--suc)}
+  .top-spc{flex:1}
+  .top-action{width:34px;height:34px;border-radius:8px;border:0;background:transparent;color:var(--n5);cursor:pointer;display:flex;align-items:center;justify-content:center;transition:all .15s}
+  .top-action:hover{background:var(--n9);color:var(--n2)}
+  .top-user{width:32px;height:32px;border-radius:50%;background:var(--pri-lt);color:var(--pri);display:flex;align-items:center;justify-content:center;font-size:12px;font-weight:700;cursor:pointer;border:2px solid var(--n8)}
+
+  /* ── Content + Agent split ── */
+  #workspace{flex:1;display:flex;overflow:hidden;min-height:0}
+  #content{flex:1;overflow:auto;padding:20px 24px;min-width:0}
+  #agent-panel{width:320px;flex-shrink:0;background:var(--card);border-left:1px solid var(--n8);display:flex;flex-direction:column;transition:width .25s}
+  #agent-panel.collapsed{width:0;overflow:hidden;border-left:0}
+  .ag-header{height:46px;border-bottom:1px solid var(--n8);display:flex;align-items:center;padding:0 14px;gap:8px;flex-shrink:0}
+  .ag-header .title{font-size:13px;font-weight:700;color:var(--n2)}
+  .ag-header .sub{color:var(--n5);font-size:11px;margin-left:auto}
+  .ag-body{flex:1;overflow-y:auto;padding:14px;display:flex;flex-direction:column;gap:14px}
+  .ag-body::-webkit-scrollbar{width:4px}
+  .ag-body::-webkit-scrollbar-thumb{background:var(--n7);border-radius:2px}
+  .ag-bubble{max-width:92%;padding:10px 12px;border-radius:10px;font-size:12.5px;line-height:1.65}
+  .ag-bubble.ai{align-self:flex-start;background:var(--n10);color:var(--n2);border:1px solid var(--n8)}
+  .ag-bubble.user{align-self:flex-end;background:var(--pri);color:#fff}
+  .ag-bubble .time{font-size:10px;color:var(--n6);margin-top:4px}
+  .ag-bubble.user .time{color:rgba(255,255,255,.65)}
+  .ag-input{flex-shrink:0;padding:10px 14px;border-top:1px solid var(--n8);display:flex;gap:8px}
+  .ag-input input{flex:1;height:36px;padding:0 12px;border:1px solid var(--n8);border-radius:8px;font-size:13px;background:var(--n10);outline:none}
+  .ag-input input:focus{border-color:var(--pri)}
+  .ag-input button{width:36px;height:36px;border:0;border-radius:8px;background:var(--pri);color:#fff;cursor:pointer;display:flex;align-items:center;justify-content:center;font-size:16px}
+  .ag-input button:hover{background:var(--pri-hv)}
+  #agent-toggle{position:absolute;right:0;top:50%;transform:translateY(-50%);width:20px;height:60px;background:var(--card);border:1px solid var(--n8);border-right:0;border-radius:8px 0 0 8px;cursor:pointer;display:flex;align-items:center;justify-content:center;color:var(--n5);font-size:12px;z-index:10}
+  #agent-toggle:hover{color:var(--pri)}
+
+  /* ── Page containers ── */
+  .page{display:none}
+  .page.active{display:block}
+
+  /* ── Cards ── */
+  .card{background:var(--card);border:1px solid var(--n8);border-radius:10px;padding:18px 20px;margin-bottom:16px}
+  .card-hd{display:flex;align-items:center;justify-content:space-between;margin-bottom:14px}
+  .card-title{font-size:15px;font-weight:700;color:var(--n1)}
+  .card-more{font-size:12px;color:var(--pri);cursor:pointer}
+  .card-more:hover{text-decoration:underline}
+
+  /* ── Stat grid ── */
+  .stat-grid{display:grid;grid-template-columns:repeat(4,1fr);gap:14px;margin-bottom:16px}
+  .stat-card{background:var(--card);border:1px solid var(--n8);border-radius:10px;padding:16px 18px}
+  .stat-label{font-size:12px;color:var(--n5);margin-bottom:6px}
+  .stat-value{font-size:26px;font-weight:700;color:var(--n1);line-height:1}
+  .stat-foot{font-size:11px;color:var(--n6);margin-top:8px;display:flex;align-items:center;gap:6px}
+  .stat-bar{height:3px;background:var(--n9);border-radius:2px;margin-top:10px;overflow:hidden}
+  .stat-bar>i{display:block;height:100%;border-radius:2px}
+
+  /* ── Quick entry grid ── */
+  .qe-grid{display:grid;grid-template-columns:repeat(4,1fr);gap:14px;margin-bottom:16px}
+  .qe-card{background:var(--card);border:1px solid var(--n8);border-radius:10px;padding:18px;cursor:pointer;transition:all .15s;text-align:center}
+  .qe-card:hover{border-color:var(--pri);box-shadow:0 4px 16px rgba(37,99,235,.08)}
+  .qe-icon{width:40px;height:40px;border-radius:10px;display:flex;align-items:center;justify-content:center;margin:0 auto 10px;font-size:18px;background:var(--n10);color:var(--pri)}
+  .qe-name{font-size:14px;font-weight:600;color:var(--n1);margin-bottom:4px}
+  .qe-desc{font-size:12px;color:var(--n5)}
+
+  /* ── Tables ── */
+  table{width:100%;border-collapse:collapse;font-size:13px}
+  th{text-align:left;padding:10px 12px;color:var(--n5);font-weight:600;border-bottom:1px solid var(--n8);font-size:12px}
+  td{padding:10px 12px;border-bottom:1px solid var(--n9);color:var(--n2)}
+  tr:hover td{background:var(--n10)}
+  .tag{font-size:11px;padding:2px 8px;border-radius:4px;font-weight:500}
+  .tag-gr{background:#dcfce7;color:#166534}
+  .tag-ye{background:#fef9c3;color:#854d0e}
+  .tag-rd{background:#fee2e2;color:#991b1b}
+  .tag-bl{background:#dbeafe;color:#1e40af}
+  .tag-gy{background:var(--n9);color:var(--n5)}
+
+  /* ── Buttons ── */
+  .btn{height:34px;padding:0 16px;border-radius:8px;font-size:13px;font-weight:600;cursor:pointer;border:0;display:inline-flex;align-items:center;gap:6px;transition:all .15s}
+  .btn-pri{background:var(--pri);color:#fff}
+  .btn-pri:hover{background:var(--pri-hv)}
+  .btn-sec{background:var(--n10);color:var(--n2);border:1px solid var(--n8)}
+  .btn-sec:hover{background:var(--n9)}
+  .btn-sm{height:28px;padding:0 10px;font-size:12px}
+
+  /* ── Translate page ── */
+  .tr-header{display:flex;align-items:center;gap:12px;padding:14px 18px;background:var(--card);border:1px solid var(--n8);border-radius:10px;margin-bottom:14px}
+  .tr-header select{height:34px;padding:0 28px 0 10px;border-radius:6px;border:1px solid var(--n8);background:var(--n10);font-size:13px;outline:none;cursor:pointer;appearance:none;background-image:url("data:image/svg+xml,%3Csvg width='10' height='6' xmlns='http://www.w3.org/2000/svg'%3E%3Cpath d='M1 1l4 4 4-4' stroke='%2364748b' fill='none' stroke-width='1.5'/%3E%3C/svg%3E");background-repeat:no-repeat;background-position:right 10px center}
+  .tr-header select:focus{border-color:var(--pri)}
+  .tr-arr{color:var(--n5);font-size:14px}
+  .tr-body{display:flex;gap:14px;height:calc(100vh - 210px);min-height:400px}
+  .tr-panel{flex:1;display:flex;flex-direction:column;background:var(--card);border:1px solid var(--n8);border-radius:10px;overflow:hidden}
+  .tr-panel .ph{padding:10px 14px;border-bottom:1px solid var(--n8);font-size:12px;font-weight:600;color:var(--n5);display:flex;align-items:center;justify-content:space-between}
+  .tr-panel textarea{flex:1;padding:14px;border:0;resize:none;font:13px/1.7 var(--mono);color:var(--n1);background:var(--card);outline:none;white-space:pre;overflow:auto;tab-size:2}
+  .tr-tabs{display:flex;padding:0 6px;height:38px;align-items:center;gap:2px;border-bottom:1px solid var(--n8);flex-shrink:0}
+  .tr-tabs button{padding:5px 12px;border:0;border-radius:6px;background:transparent;color:var(--n5);font-size:12px;cursor:pointer;font-weight:500}
+  .tr-tabs button:hover{background:var(--n10);color:var(--n2)}
+  .tr-tabs button.active{background:var(--n10);color:var(--n1);font-weight:700}
+  .tr-out{flex:1;overflow:auto;padding:14px;font:13px/1.7 var(--mono);white-space:pre;tab-size:2}
+
+  /* ── Topology page ── */
+  .tp-input{display:flex;gap:12px;margin-bottom:16px}
+  .tp-input .btn{flex:1;justify-content:center}
+  .tp-canvas{background:var(--card);border:1px solid var(--n8);border-radius:10px;height:420px;display:flex;align-items:center;justify-content:center;position:relative;overflow:hidden}
+
+  /* ── Inspection page ── */
+  .in-grid{display:grid;grid-template-columns:1fr 1fr;gap:14px;margin-bottom:16px}
+  .in-chart{height:220px;display:flex;align-items:center;justify-content:center}
+
+  /* ── Status dot ── */
+  .sdot{width:7px;height:7px;border-radius:50%;display:inline-block;margin-right:6px}
+  .sdot-ok{background:var(--suc)}
+  .sdot-warn{background:var(--warn)}
+  .sdot-dng{background:var(--dng)}
+  .sdot-off{background:var(--n7)}
+
+  /* ── Scrollbar ── */
+  ::-webkit-scrollbar{width:5px;height:5px}
+  ::-webkit-scrollbar-track{background:transparent}
+  ::-webkit-scrollbar-thumb{background:var(--n7);border-radius:3px}
+  ::-webkit-scrollbar-thumb:hover{background:var(--n6)}
+
+  /* ── Empty state ── */
+  .empty{display:flex;flex-direction:column;align-items:center;justify-content:center;gap:12px;padding:60px 20px;color:var(--n5);text-align:center}
+  .empty .icon{font-size:48px;opacity:.25}
+  .empty .t{font-size:16px;font-weight:700;color:var(--n3)}
+
+  /* ── Risk list in translate review ── */
+  .risk-item{padding:12px 14px;background:var(--n10);border-radius:8px;border:1px solid var(--n8);margin-bottom:10px}
+  .risk-hd{display:flex;align-items:center;gap:10px;margin-bottom:6px}
+  .risk-lvl{font-size:11px;padding:2px 8px;border-radius:4px;font-weight:600}
+  .risk-lvl-high{background:#fee2e2;color:#991b1b}
+  .risk-lvl-med{background:#fef3c7;color:#92400e}
+  .risk-lvl-low{background:#dcfce7;color:#166534}
+  .risk-body{font-size:12px;color:var(--n4);line-height:1.7}
+  .risk-body pre{background:var(--card);padding:8px;border-radius:4px;border:1px solid var(--n8);margin-top:6px;font:12px/1.6 var(--mono);overflow:auto;max-height:100px}
+
+  /* ── Modal ── */
+  .modal-overlay{position:fixed;inset:0;background:rgba(15,23,42,.45);backdrop-filter:blur(3px);z-index:200;display:none;align-items:center;justify-content:center;opacity:0;transition:opacity .2s}
+  .modal-overlay.show{display:flex;opacity:1}
+  .modal-box{width:520px;max-width:92vw;max-height:88vh;background:var(--card);border-radius:12px;border:1px solid var(--n8);box-shadow:0 20px 60px rgba(15,23,42,.18);display:flex;flex-direction:column;overflow:hidden;transform:translateY(12px);transition:transform .25s}
+  .modal-overlay.show .modal-box{transform:translateY(0)}
+  .modal-hd{height:52px;padding:0 18px;display:flex;align-items:center;justify-content:space-between;border-bottom:1px solid var(--n8);flex-shrink:0}
+  .modal-hd .title{font-size:15px;font-weight:700;color:var(--n1)}
+  .modal-hd .close{width:28px;height:28px;border:0;border-radius:6px;background:transparent;color:var(--n5);cursor:pointer;display:flex;align-items:center;justify-content:center;font-size:16px}
+  .modal-hd .close:hover{background:var(--n9);color:var(--n2)}
+  .modal-body{flex:1;overflow-y:auto;padding:18px}
+  .modal-body::-webkit-scrollbar{width:4px}
+  .modal-body::-webkit-scrollbar-thumb{background:var(--n7);border-radius:2px}
+  .modal-ft{padding:12px 18px;border-top:1px solid var(--n8);display:flex;justify-content:flex-end;gap:10px;flex-shrink:0}
+  .set-tabs{display:flex;gap:2px;margin-bottom:16px;border-bottom:1px solid var(--n8);padding-bottom:1px}
+  .set-tabs button{padding:6px 14px;border:0;border-radius:6px 6px 0 0;background:transparent;color:var(--n5);font-size:13px;cursor:pointer;font-weight:500;border-bottom:2px solid transparent;margin-bottom:-1px}
+  .set-tabs button:hover{color:var(--n2)}
+  .set-tabs button.active{color:var(--pri);border-bottom-color:var(--pri);background:var(--n10)}
+  .set-panel{display:none}
+  .set-panel.active{display:block}
+  .form-row{margin-bottom:14px}
+  .form-row label{display:block;font-size:12px;font-weight:600;color:var(--n4);margin-bottom:5px}
+  .form-row input,.form-row select{width:100%;height:36px;padding:0 12px;border:1px solid var(--n8);border-radius:8px;font-size:13px;background:var(--n10);outline:none;transition:border-color .15s}
+  .form-row input:focus,.form-row select:focus{border-color:var(--pri)}
+  .form-row input[type="password"]{font-family:var(--mono);letter-spacing:1px}
+  .form-row textarea{width:100%;padding:10px 12px;border:1px solid var(--n8);border-radius:8px;font-size:13px;background:var(--n10);outline:none;resize:vertical;min-height:60px;font-family:var(--mono)}
+  .form-row textarea:focus{border-color:var(--pri)}
+  .form-row .hint{font-size:11px;color:var(--n6);margin-top:4px}
+  .form-row.inline{display:flex;gap:10px;align-items:flex-end}
+  .form-row.inline>div{flex:1}
+  .test-result{margin-top:10px;padding:10px 12px;border-radius:8px;font-size:12px;display:none}
+  .test-result.ok{background:#dcfce7;color:#166534;border:1px solid #bbf7d0}
+  .test-result.err{background:#fee2e2;color:#991b1b;border:1px solid #fecaca}
+  .test-result.warn{background:#fef3c7;color:#92400e;border:1px solid #fde68a}
+
+  @media(max-width:980px){
+    #sidebar{width:64px}
+    .sb-logo .text,.sb-logo .ver,.sb-label,.sb-item span:last-child{display:none}
+    .sb-item{justify-content:center;padding:10px}
+    .stat-grid,.qe-grid{grid-template-columns:repeat(2,1fr)}
+    #agent-panel{width:280px}
+    .in-grid{grid-template-columns:1fr}
+  }
+</style>
+</head>
+<body>
+
+<!-- ═════════════════ Sidebar ═════════════════ -->
+<div id="sidebar">
+  <div class="sb-logo">
+    <div class="icon">N</div>
+    <div class="text">Network Agent</div>
+    <div class="ver" id="ver-tag">v3.0</div>
+  </div>
+  <div class="sb-nav">
+    <div class="sb-group">
+      <div class="sb-label">工作台</div>
+      <button class="sb-item active" data-page="dashboard" onclick="switchPage('dashboard')">
+        <span style="width:18px;text-align:center">⌘</span> Agent 工作台
+      </button>
+      <button class="sb-item" data-page="translate" onclick="switchPage('translate')">
+        <span style="width:18px;text-align:center">⇄</span> 配置翻译
+      </button>
+      <button class="sb-item" data-page="inspection" onclick="switchPage('inspection')">
+        <span style="width:18px;text-align:center">◈</span> 巡检分析
+        <span class="soon">规划中</span>
+      </button>
+      <button class="sb-item" data-page="topology" onclick="switchPage('topology')">
+        <span style="width:18px;text-align:center">⬡</span> 拓扑绘图
+        <span class="soon">规划中</span>
+      </button>
+      <button class="sb-item" disabled>
+        <span style="width:18px;text-align:center">◉</span> 知识库
+      </button>
+      <button class="sb-item" disabled>
+        <span style="width:18px;text-align:center">◫</span> 技能排程
+      </button>
+      <button class="sb-item" disabled>
+        <span style="width:18px;text-align:center">◈</span> 管理中心
+      </button>
+    </div>
+    <div class="sb-group">
+      <div class="sb-label">管理</div>
+      <button class="sb-item" data-page="skills" onclick="switchPage('skills')">
+        <span style="width:18px;text-align:center">◧</span> Skills 管理
+      </button>
+      <button class="sb-item" data-page="memory" onclick="switchPage('memory')">
+        <span style="width:18px;text-align:center">◉</span> Memory 管理
+      </button>
+      <button class="sb-item" onclick="openSettings()">
+        <span style="width:18px;text-align:center">◫</span> 系统设置
+      </button>
+    </div>
+  </div>
+  <div class="sb-foot">
+    <div style="font-size:11px;color:var(--n5);display:flex;justify-content:space-between">
+      <span>build <span id="build-id">---</span></span>
+      <span>entry <span id="entry-id">translate_bundle</span></span>
+    </div>
+  </div>
+</div>
+
+<!-- ═════════════════ Main ═════════════════ -->
+<div id="main">
+  <div id="topbar">
+    <div class="top-bread">
+      <span id="bread-root">Network Agent</span>
+      <span class="sep">/</span>
+      <span id="bread-page" style="color:var(--n2);font-weight:600">Agent 工作台</span>
+    </div>
+    <div class="top-proj" id="top-proj">
+      <span class="status"></span>
+      <span>Core Network Migration</span>
+      <span style="color:var(--n6);font-size:11px">已连接</span>
+    </div>
+    <div class="top-spc"></div>
+    <button class="top-action" title="搜索">⌕</button>
+    <button class="top-action" title="通知">🕭</button>
+    <div class="top-user">A</div>
+  </div>
+
+  <div id="workspace">
+    <div id="content">
+
+      <!-- ══════ Dashboard ══════ -->
+      <div class="page active" id="page-dashboard">
+        <div class="qe-grid">
+          <div class="qe-card" onclick="switchPage('translate')">
+            <div class="qe-icon" style="background:#dbeafe;color:#2563eb">⇄</div>
+            <div class="qe-name">配置翻译</div>
+            <div class="qe-desc">多厂商配置智能转换</div>
+          </div>
+          <div class="qe-card" onclick="switchPage('inspection')">
+            <div class="qe-icon" style="background:#dcfce7;color:#16a34a">◈</div>
+            <div class="qe-name">巡检分析</div>
+            <div class="qe-desc">自动化网络巡检与报告</div>
+          </div>
+          <div class="qe-card" onclick="switchPage('topology')">
+            <div class="qe-icon" style="background:#fef3c7;color:#d97706">⬡</div>
+            <div class="qe-name">拓扑绘图</div>
+            <div class="qe-desc">网络拓扑自动发现与绘制</div>
+          </div>
+          <div class="qe-card">
+            <div class="qe-icon" style="background:#f3e8ff;color:#9333ea">◉</div>
+            <div class="qe-name">知识库</div>
+            <div class="qe-desc">网络知识检索与问答</div>
+          </div>
+        </div>
+
+        <div class="stat-grid">
+          <div class="stat-card">
+            <div class="stat-label">模块</div>
+            <div class="stat-value" id="dash-mods">4</div>
+            <div class="stat-foot"><span class="sdot sdot-ok"></span>已启用 1</div>
+            <div class="stat-bar"><i style="width:25%;background:var(--pri)"></i></div>
+          </div>
+          <div class="stat-card">
+            <div class="stat-label">Skills 数量</div>
+            <div class="stat-value" id="dash-skills">4</div>
+            <div class="stat-foot"><span class="sdot sdot-ok"></span>全部就绪</div>
+            <div class="stat-bar"><i style="width:100%;background:var(--suc)"></i></div>
+          </div>
+          <div class="stat-card">
+            <div class="stat-label">记忆记录</div>
+            <div class="stat-value" id="dash-mems">386</div>
+            <div class="stat-foot"><span class="sdot sdot-ok"></span>JSONL 存储</div>
+            <div class="stat-bar"><i style="width:78%;background:var(--info)"></i></div>
+          </div>
+          <div class="stat-card">
+            <div class="stat-label">最近任务</div>
+            <div class="stat-value" id="dash-tasks">12</div>
+            <div class="stat-foot"><span class="sdot sdot-warn"></span>5 需人工确认</div>
+            <div class="stat-bar"><i style="width:42%;background:var(--warn)"></i></div>
+          </div>
+        </div>
+
+        <div class="card">
+          <div class="card-hd">
+            <div class="card-title">最近运行记录</div>
+            <div class="card-more">查看全部</div>
+          </div>
+          <table>
+            <thead><tr><th>名称</th><th>类型</th><th>状态</th><th>时间</th></tr></thead>
+            <tbody>
+              <tr><td>配置翻译任务 · Huawei VRP</td><td><span class="tag tag-bl">翻译</span></td><td><span class="sdot sdot-ok"></span>成功</td><td>14:20</td></tr>
+              <tr><td>配置翻译任务 · Cisco IOS</td><td><span class="tag tag-bl">翻译</span></td><td><span class="sdot sdot-warn"></span>人工确认</td><td>12:18</td></tr>
+              <tr><td>巡检分析 · Core 汇聚</td><td><span class="tag tag-gr">巡检</span></td><td><span class="sdot sdot-ok"></span>完成</td><td>昨天 18:45</td></tr>
+              <tr><td>配置翻译任务 · Ruijie</td><td><span class="tag tag-bl">翻译</span></td><td><span class="sdot sdot-dng"></span>失败</td><td>前天 18:22</td></tr>
+            </tbody>
+          </table>
+        </div>
+
+        <div class="card">
+          <div class="card-hd">
+            <div class="card-title">系统状态</div>
+          </div>
+          <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:16px;font-size:13px">
+            <div style="display:flex;align-items:center;gap:10px;padding:10px;background:var(--n10);border-radius:8px">
+              <span class="sdot sdot-ok"></span>
+              <div><div style="font-weight:600">API 服务</div><div style="font-size:11px;color:var(--n5)">正常运行</div></div>
+            </div>
+            <div style="display:flex;align-items:center;gap:10px;padding:10px;background:var(--n10);border-radius:8px">
+              <span class="sdot sdot-ok"></span>
+              <div><div style="font-weight:600">翻译引擎</div><div style="font-size:11px;color:var(--n5)">translate_bundle</div></div>
+            </div>
+            <div style="display:flex;align-items:center;gap:10px;padding:10px;background:var(--n10);border-radius:8px">
+              <span class="sdot sdot-ok"></span>
+              <div><div style="font-weight:600">Skills 注册表</div><div style="font-size:11px;color:var(--n5)">JSON 已加载</div></div>
+            </div>
+            <div style="display:flex;align-items:center;gap:10px;padding:10px;background:var(--n10);border-radius:8px">
+              <span class="sdot sdot-ok"></span>
+              <div><div style="font-weight:600">Memory 管理</div><div style="font-size:11px;color:var(--n5)">JSONL 存储</div></div>
+            </div>
+            <div style="display:flex;align-items:center;gap:10px;padding:10px;background:var(--n10);border-radius:8px">
+              <span class="sdot sdot-ok"></span>
+              <div><div style="font-weight:600">Module 注册表</div><div style="font-size:11px;color:var(--n5)">4 个模块</div></div>
+            </div>
+            <div style="display:flex;align-items:center;gap:10px;padding:10px;background:var(--n10);border-radius:8px">
+              <span class="sdot sdot-warn"></span>
+              <div><div style="font-weight:600">系统状态</div><div style="font-size:11px;color:var(--n5)">Beta 运行良好</div></div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- ══════ Translate ══════ -->
+      <div class="page" id="page-translate">
+        <div class="tr-header">
+          <select id="tr-fv">
+            <option value="auto">自动检测</option>
+            <option value="cisco">Cisco IOS</option>
+            <option value="huawei">华为 VRP</option>
+            <option value="h3c">H3C Comware</option>
+            <option value="ruijie">锐捷 RGOS</option>
+          </select>
+          <span class="tr-arr">→</span>
+          <select id="tr-tv">
+            <option value="huawei">华为 VRP</option>
+            <option value="cisco">Cisco IOS</option>
+            <option value="h3c">H3C Comware</option>
+            <option value="ruijie">锐捷 RGOS</option>
+          </select>
+          <button class="btn btn-pri" id="tr-btn" onclick="doTranslate()">开始翻译</button>
+          <span style="font-size:12px;color:var(--n5);margin-left:auto" id="tr-status">就绪</span>
+        </div>
+        <div class="tr-body">
+          <div class="tr-panel">
+            <div class="ph">源配置 <span style="font-weight:400;color:var(--n6)">— 粘贴原始配置命令</span></div>
+            <textarea id="tr-source" placeholder="在此粘贴网络设备配置命令...
+
+例如：
+interface GigabitEthernet0/0/1
+ description Uplink to Core
+ ip address 10.1.1.1 255.255.255.0
+ no shutdown
+!
+router ospf 1
+ network 10.1.1.0 0.0.0.255 area 0"></textarea>
+          </div>
+          <div class="tr-panel">
+            <div class="ph">目标配置 <span style="font-weight:400;color:var(--n6)">— 翻译结果</span></div>
+            <div class="tr-tabs">
+              <button class="active" data-trtab="output" onclick="switchTrTab('output')">目标配置</button>
+              <button data-trtab="review" onclick="switchTrTab('review')">人工复核</button>
+              <button data-trtab="risk" onclick="switchTrTab('risk')">风险分析</button>
+              <button data-trtab="audit" onclick="switchTrTab('audit')">审计摘要</button>
+            </div>
+            <div class="tr-out" id="tr-out">点击「开始翻译」生成结果</div>
+          </div>
+        </div>
+      </div>
+
+      <!-- ══════ Topology ══════ -->
+      <div class="page" id="page-topology">
+        <div class="card">
+          <div class="card-hd"><div class="card-title">拓扑绘图</div><span class="tag tag-ye">规划中</span></div>
+          <div class="tp-input">
+            <button class="btn btn-sec">📁 上传配置文件</button>
+            <button class="btn btn-sec">🔍 从设备发现</button>
+            <button class="btn btn-sec">📄 从模板导入</button>
+          </div>
+          <div class="tp-canvas" id="tp-canvas">
+            <svg width="600" height="360" viewBox="0 0 600 360">
+              <rect x="250" y="20" width="100" height="44" rx="6" fill="#dbeafe" stroke="#2563eb" stroke-width="1.5"/>
+              <text x="300" y="46" text-anchor="middle" font-size="12" fill="#1e40af" font-weight="600">Core-R1</text>
+              <line x1="300" y1="64" x2="300" y2="110" stroke="#cbd5e1" stroke-width="1.5"/>
+              <rect x="120" y="110" width="100" height="44" rx="6" fill="#dcfce7" stroke="#16a34a" stroke-width="1.5"/>
+              <text x="170" y="136" text-anchor="middle" font-size="12" fill="#166534" font-weight="600">Dist-R1</text>
+              <line x1="220" y1="132" x2="250" y2="132" stroke="#cbd5e1" stroke-width="1.5"/>
+              <rect x="380" y="110" width="100" height="44" rx="6" fill="#dcfce7" stroke="#16a34a" stroke-width="1.5"/>
+              <text x="430" y="136" text-anchor="middle" font-size="12" fill="#166534" font-weight="600">Dist-R2</text>
+              <line x1="350" y1="132" x2="380" y2="132" stroke="#cbd5e1" stroke-width="1.5"/>
+              <line x1="170" y1="154" x2="170" y2="210" stroke="#cbd5e1" stroke-width="1.5"/>
+              <rect x="70" y="210" width="100" height="44" rx="6" fill="#fef3c7" stroke="#d97706" stroke-width="1.5"/>
+              <text x="120" y="236" text-anchor="middle" font-size="12" fill="#92400e" font-weight="600">Access-SW1</text>
+              <rect x="170" y="210" width="100" height="44" rx="6" fill="#fef3c7" stroke="#d97706" stroke-width="1.5"/>
+              <text x="220" y="236" text-anchor="middle" font-size="12" fill="#92400e" font-weight="600">Access-SW2</text>
+              <line x1="430" y1="154" x2="430" y2="210" stroke="#cbd5e1" stroke-width="1.5"/>
+              <rect x="380" y="210" width="100" height="44" rx="6" fill="#fef3c7" stroke="#d97706" stroke-width="1.5"/>
+              <text x="430" y="236" text-anchor="middle" font-size="12" fill="#92400e" font-weight="600">Access-SW3</text>
+              <rect x="480" y="210" width="100" height="44" rx="6" fill="#fef3c7" stroke="#d97706" stroke-width="1.5"/>
+              <text x="530" y="236" text-anchor="middle" font-size="12" fill="#92400e" font-weight="600">Access-SW4</text>
+              <text x="300" y="300" text-anchor="middle" font-size="12" fill="var(--n5)">拓扑预览示意图（规划中）</text>
+            </svg>
+          </div>
+        </div>
+      </div>
+
+      <!-- ══════ Inspection ══════ -->
+      <div class="page" id="page-inspection">
+        <div class="card">
+          <div class="card-hd"><div class="card-title">巡检分析</div><span class="tag tag-ye">规划中</span></div>
+          <div class="in-grid">
+            <div>
+              <div style="font-size:13px;font-weight:700;margin-bottom:10px">任务配置</div>
+              <div style="display:flex;flex-direction:column;gap:10px">
+                <div style="display:flex;align-items:center;gap:10px"><span style="width:80px;font-size:12px;color:var(--n5)">设备选择</span><select style="flex:1;height:32px;border:1px solid var(--n8);border-radius:6px;padding:0 10px"><option>全部核心设备</option></select></div>
+                <div style="display:flex;align-items:center;gap:10px"><span style="width:80px;font-size:12px;color:var(--n5)">巡检模板</span><select style="flex:1;height:32px;border:1px solid var(--n8);border-radius:6px;padding:0 10px"><option>标准网络巡检</option></select></div>
+                <div style="display:flex;align-items:center;gap:10px"><span style="width:80px;font-size:12px;color:var(--n5)">定时策略</span><select style="flex:1;height:32px;border:1px solid var(--n8);border-radius:6px;padding:0 10px"><option>立即执行</option></select></div>
+                <button class="btn btn-pri" style="margin-top:4px;width:fit-content">开始分析</button>
+              </div>
+            </div>
+            <div>
+              <div style="font-size:13px;font-weight:700;margin-bottom:10px">分析结果概览</div>
+              <div style="display:grid;grid-template-columns:repeat(2,1fr);gap:10px;margin-bottom:14px">
+                <div style="padding:12px;background:var(--n10);border-radius:8px;text-align:center">
+                  <div style="font-size:22px;font-weight:700;color:var(--n1)">12</div>
+                  <div style="font-size:11px;color:var(--n5)">检查项</div>
+                </div>
+                <div style="padding:12px;background:var(--n10);border-radius:8px;text-align:center">
+                  <div style="font-size:22px;font-weight:700;color:var(--suc)">9</div>
+                  <div style="font-size:11px;color:var(--n5)">通过</div>
+                </div>
+                <div style="padding:12px;background:var(--n10);border-radius:8px;text-align:center">
+                  <div style="font-size:22px;font-weight:700;color:var(--warn)">2</div>
+                  <div style="font-size:11px;color:var(--n5)">警告</div>
+                </div>
+                <div style="padding:12px;background:var(--n10);border-radius:8px;text-align:center">
+                  <div style="font-size:22px;font-weight:700;color:var(--dng)">1</div>
+                  <div style="font-size:11px;color:var(--n5)">严重</div>
+                </div>
+              </div>
+              <div class="in-chart">
+                <svg width="140" height="140" viewBox="0 0 140 140">
+                  <circle cx="70" cy="70" r="58" fill="none" stroke="#e2e8f0" stroke-width="18"/>
+                  <circle cx="70" cy="70" r="58" fill="none" stroke="#22c55e" stroke-width="18" stroke-dasharray="272 364" stroke-dashoffset="0" transform="rotate(-90 70 70)"/>
+                  <circle cx="70" cy="70" r="58" fill="none" stroke="#eab308" stroke-width="18" stroke-dasharray="60 364" stroke-dashoffset="-272" transform="rotate(-90 70 70)"/>
+                  <circle cx="70" cy="70" r="58" fill="none" stroke="#ef4444" stroke-width="18" stroke-dasharray="32 364" stroke-dashoffset="-332" transform="rotate(-90 70 70)"/>
+                  <text x="70" y="66" text-anchor="middle" font-size="18" font-weight="700" fill="#0f172a">75%</text>
+                  <text x="70" y="84" text-anchor="middle" font-size="10" fill="#64748b">合格率</text>
+                </svg>
+              </div>
+            </div>
+          </div>
+          <div style="font-size:13px;font-weight:700;margin:14px 0 10px">Top 风险设备</div>
+          <table>
+            <thead><tr><th>排名</th><th>设备</th><th>风险项</th><th>严重等级</th></tr></thead>
+            <tbody>
+              <tr><td>1</td><td>Core-R1</td><td>CPU 持续高载 &gt; 90%</td><td><span class="tag tag-rd">严重</span></td></tr>
+              <tr><td>2</td><td>Dist-R2</td><td>内存使用率过高</td><td><span class="tag tag-ye">警告</span></td></tr>
+              <tr><td>3</td><td>Access-SW3</td><td>未配置 STP 保护</td><td><span class="tag tag-ye">警告</span></td></tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      <!-- ══════ Skills ══════ -->
+      <div class="page" id="page-skills">
+        <div class="card">
+          <div class="card-hd">
+            <div class="card-title">Skills 管理</div>
+            <div style="display:flex;gap:8px">
+              <button class="btn btn-sec btn-sm">已启用</button>
+              <button class="btn btn-sec btn-sm">已禁用</button>
+              <button class="btn btn-sec btn-sm">全部 Skills</button>
+            </div>
+          </div>
+          <table>
+            <thead>
+              <tr><th>名称</th><th>状态</th><th>类型</th><th>版本</th><th>更新时间</th><th>描述</th><th>操作</th></tr>
+            </thead>
+            <tbody id="skills-tbody">
+              <tr>
+                <td style="font-weight:600">config_translation</td>
+                <td><span class="tag tag-gr">已启用</span></td>
+                <td>配置翻译与转换</td>
+                <td>v3.0</td>
+                <td>2025-08-15</td>
+                <td style="max-width:260px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">多厂商网络配置翻译与适配</td>
+                <td><button class="btn btn-sm btn-sec">编辑</button></td>
+              </tr>
+              <tr>
+                <td style="font-weight:600">inspection</td>
+                <td><span class="tag tag-gy">规划中</span></td>
+                <td>网络巡检</td>
+                <td>—</td>
+                <td>2025-08-10</td>
+                <td style="max-width:260px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">自动化网络巡检与基线对比</td>
+                <td><button class="btn btn-sm btn-sec">编辑</button></td>
+              </tr>
+              <tr>
+                <td style="font-weight:600">topology</td>
+                <td><span class="tag tag-gy">规划中</span></td>
+                <td>拓扑绘制</td>
+                <td>—</td>
+                <td>2025-08-10</td>
+                <td style="max-width:260px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">网络拓扑自动发现与可视化</td>
+                <td><button class="btn btn-sm btn-sec">编辑</button></td>
+              </tr>
+              <tr>
+                <td style="font-weight:600">knowledge_search</td>
+                <td><span class="tag tag-gy">规划中</span></td>
+                <td>知识检索</td>
+                <td>—</td>
+                <td>2025-08-10</td>
+                <td style="max-width:260px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">知识库检索与问答</td>
+                <td><button class="btn btn-sm btn-sec">编辑</button></td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      <!-- ══════ Memory ══════ -->
+      <div class="page" id="page-memory">
+        <div class="stat-grid">
+          <div class="stat-card">
+            <div class="stat-label">总记录数</div>
+            <div class="stat-value">386</div>
+            <div class="stat-foot">Memory 数据库</div>
+          </div>
+          <div class="stat-card">
+            <div class="stat-label">今日新增</div>
+            <div class="stat-value">12</div>
+            <div class="stat-foot">+3 较昨日</div>
+          </div>
+          <div class="stat-card">
+            <div class="stat-label">永久记忆</div>
+            <div class="stat-value">45</div>
+            <div class="stat-foot">长期保留</div>
+          </div>
+          <div class="stat-card">
+            <div class="stat-label">短期记忆</div>
+            <div class="stat-value">341</div>
+            <div class="stat-foot">会话上下文</div>
+          </div>
+        </div>
+        <div class="in-grid">
+          <div class="card" style="margin-bottom:0">
+            <div class="card-hd"><div class="card-title">记忆记录列表</div></div>
+            <table>
+              <thead><tr><th>类型</th><th>标题</th><th>记录时间</th></tr></thead>
+              <tbody>
+                <tr><td><span class="tag tag-bl">决策</span></td><td>选择 OSPF 作为路由协议</td><td>2025-08-14 14:28</td></tr>
+                <tr><td><span class="tag tag-gr">用户偏好</span></td><td>优先使用 VRF 隔离</td><td>2025-08-14 11:05</td></tr>
+                <tr><td><span class="tag tag-ye">项目状态</span></td><td>核心汇聚层迁移完成</td><td>2025-08-13 16:30</td></tr>
+                <tr><td><span class="tag tag-bl">知识</span></td><td>Huawei VRP 链路聚合配置</td><td>2025-08-12 09:12</td></tr>
+                <tr><td><span class="tag tag-gy">运维</span></td><td>某site_静态路由调整</td><td>2025-08-10 18:22</td></tr>
+              </tbody>
+            </table>
+          </div>
+          <div class="card" style="margin-bottom:0">
+            <div class="card-hd"><div class="card-title">类型分布</div></div>
+            <div style="display:flex;align-items:center;justify-content:center;height:220px">
+              <svg width="180" height="180" viewBox="0 0 180 180">
+                <circle cx="90" cy="90" r="70" fill="none" stroke="#e2e8f0" stroke-width="24"/>
+                <circle cx="90" cy="90" r="70" fill="none" stroke="#2563eb" stroke-width="24" stroke-dasharray="220 440" stroke-dashoffset="0" transform="rotate(-90 90 90)"/>
+                <circle cx="90" cy="90" r="70" fill="none" stroke="#22c55e" stroke-width="24" stroke-dasharray="88 440" stroke-dashoffset="-220" transform="rotate(-90 90 90)"/>
+                <circle cx="90" cy="90" r="70" fill="none" stroke="#eab308" stroke-width="24" stroke-dasharray="66 440" stroke-dashoffset="-308" transform="rotate(-90 90 90)"/>
+                <circle cx="90" cy="90" r="70" fill="none" stroke="#64748b" stroke-width="24" stroke-dasharray="66 440" stroke-dashoffset="-374" transform="rotate(-90 90 90)"/>
+              </svg>
+              <div style="margin-left:20px;display:flex;flex-direction:column;gap:8px;font-size:12px">
+                <div style="display:flex;align-items:center;gap:6px"><span style="width:10px;height:10px;border-radius:2px;background:var(--pri)"></span>决策 (50%)</div>
+                <div style="display:flex;align-items:center;gap:6px"><span style="width:10px;height:10px;border-radius:2px;background:var(--suc)"></span>用户偏好 (20%)</div>
+                <div style="display:flex;align-items:center;gap:6px"><span style="width:10px;height:10px;border-radius:2px;background:var(--warn)"></span>项目状态 (15%)</div>
+                <div style="display:flex;align-items:center;gap:6px"><span style="width:10px;height:10px;border-radius:2px;background:var(--n5)"></span>其他 (15%)</div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+    </div>
+
+    <!-- ═════════════════ Agent Panel ═════════════════ -->
+    <div id="agent-panel">
+      <div class="ag-header">
+        <span style="font-size:16px">◈</span>
+        <span class="title">Agent 助手</span>
+        <span class="sub">已连接</span>
+      </div>
+      <div class="ag-body" id="ag-body">
+        <div class="ag-bubble ai">
+          你好，我是 Network Agent 助手。<br><br>
+          我可以帮助你：<br>
+          • 解析和翻译配置<br>
+          • 评估网络变更风险<br>
+          • 提供优化建议<br>
+          • 管理项目记忆<br><br>
+          您想了解什么？
+          <div class="time">10:20</div>
+        </div>
+      </div>
+      <div class="ag-input">
+        <input type="text" id="ag-in" placeholder="输入您的问题..." onkeydown="if(event.key==='Enter')sendAgent()">
+        <button onclick="sendAgent()">➤</button>
+      </div>
+    </div>
+    <div id="agent-toggle" onclick="toggleAgent()">◀</div>
+  </div>
+</div>
+
+<!-- ═════════════════ Settings Modal ═════════════════ -->
+<div class="modal-overlay" id="settings-modal" onclick="if(event.target===this)closeSettings()">
+  <div class="modal-box">
+    <div class="modal-hd">
+      <div class="title">系统设置</div>
+      <button class="close" onclick="closeSettings()">×</button>
+    </div>
+    <div class="modal-body">
+      <div class="set-tabs">
+        <button class="active" data-settab="llm" onclick="switchSetTab('llm')">LLM 配置</button>
+        <button data-settab="general" onclick="switchSetTab('general')">通用设置</button>
+      </div>
+
+      <div class="set-panel active" id="set-llm">
+        <div class="form-row">
+          <label>LLM 提供商</label>
+          <select id="llm-provider" onchange="onProviderChange()">
+            <option value="openai">OpenAI</option>
+            <option value="azure">Azure OpenAI</option>
+            <option value="deepseek">DeepSeek</option>
+            <option value="claude">Claude (Anthropic)</option>
+            <option value="ollama">Ollama (本地)</option>
+            <option value="minimax">MiniMax</option>
+            <option value="custom">自定义</option>
+          </select>
+          <div class="hint">选择您要使用的语言模型服务提供商</div>
+        </div>
+
+        <div class="form-row">
+          <label>Base URL</label>
+          <input type="text" id="llm-baseurl" placeholder="https://api.openai.com/v1">
+          <div class="hint">API 服务端点地址，留空使用默认</div>
+        </div>
+
+        <div class="form-row">
+          <label>API Key</label>
+          <input type="password" id="llm-key" placeholder="sk-...">
+          <div class="hint">您的 API 密钥，仅在本地存储，不会上传到服务器</div>
+        </div>
+
+        <div class="form-row">
+          <label>模型名称</label>
+          <input type="text" id="llm-model" placeholder="gpt-4o">
+          <div class="hint">例如 gpt-4o、deepseek-chat、claude-3-sonnet 等</div>
+        </div>
+
+        <div class="form-row inline">
+          <div>
+            <label>温度 (Temperature)</label>
+            <input type="number" id="llm-temp" min="0" max="2" step="0.1" value="0.7" placeholder="0.7">
+          </div>
+          <div>
+            <label>最大 Token</label>
+            <input type="number" id="llm-maxtok" min="1" max="128000" step="1" value="4096" placeholder="4096">
+          </div>
+        </div>
+
+        <div class="form-row">
+          <label>系统提示词 (System Prompt)</label>
+          <textarea id="llm-sys" placeholder="你是一个专业的网络运维助手...">你是一个专业的网络运维与配置翻译助手。请基于用户提供的网络设备配置，提供准确的分析、翻译和优化建议。</textarea>
+        </div>
+
+        <div style="display:flex;gap:10px;align-items:center">
+          <button class="btn btn-sec" onclick="testLLMConnection()">🌐 测试连通性</button>
+          <span id="test-status" style="font-size:12px;color:var(--n5)"></span>
+        </div>
+        <div class="test-result" id="test-result"></div>
+      </div>
+
+      <div class="set-panel" id="set-general">
+        <div class="form-row">
+          <label>界面语言</label>
+          <select id="ui-lang"><option value="zh">简体中文</option><option value="en">English</option></select>
+        </div>
+        <div class="form-row">
+          <label>主题模式</label>
+          <select id="ui-theme"><option value="light">浅色</option><option value="dark">深色</option><option value="auto">跟随系统</option></select>
+        </div>
+        <div class="form-row">
+          <label>代码字体大小</label>
+          <input type="number" id="ui-fontsize" value="13" min="10" max="20">
+        </div>
+        <div class="form-row">
+          <label>自动保存间隔（秒）</label>
+          <input type="number" id="ui-autosave" value="30" min="5" max="300">
+        </div>
+      </div>
+    </div>
+    <div class="modal-ft">
+      <button class="btn btn-sec" onclick="closeSettings()">取消</button>
+      <button class="btn btn-pri" onclick="saveSettings()">保存设置</button>
+    </div>
+  </div>
+</div>
+
+<script>
+/* ── Data ── */
+let lastTranslate=null;
+const pageNames={dashboard:'Agent 工作台',translate:'配置翻译',inspection:'巡检分析',topology:'拓扑绘图',skills:'Skills 管理',memory:'Memory 管理'};
+
+/* ── Page switch ── */
+function switchPage(name){
+  document.querySelectorAll('.page').forEach(p=>p.classList.remove('active'));
+  document.querySelectorAll('.sb-item').forEach(b=>b.classList.remove('active'));
+  const page=document.getElementById('page-'+name);
+  if(page)page.classList.add('active');
+  const btn=document.querySelector('.sb-item[data-page="'+name+'"]');
+  if(btn)btn.classList.add('active');
+  document.getElementById('bread-page').textContent=pageNames[name]||name;
+}
+
+/* ── Agent toggle ── */
+function toggleAgent(){
+  const p=document.getElementById('agent-panel');
+  p.classList.toggle('collapsed');
+  document.getElementById('agent-toggle').textContent=p.classList.contains('collapsed')?'▶':'◀';
+}
+
+/* ── Agent chat ── */
+function sendAgent(){
+  const inp=document.getElementById('ag-in');
+  const txt=inp.value.trim(); if(!txt)return;
+  const body=document.getElementById('ag-body');
+  const time=new Date().toLocaleTimeString('zh-CN',{hour:'2-digit',minute:'2-digit'});
+  body.insertAdjacentHTML('beforeend','<div class="ag-bubble user">'+esc(txt)+'<div class="time">'+time+'</div></div>');
+  inp.value=''; body.scrollTop=body.scrollHeight;
+  setTimeout(()=>{
+    let reply='收到。我正在处理您的请求...';
+    if(/翻译|转换|Cisco|华为|配置/.test(txt)){
+      reply='检测到配置翻译意图。您可以切换到「配置翻译」页面粘贴配置，或直接把配置发给我。';
+      setTimeout(()=>switchPage('translate'),800);
+    }else if(/巡检|检查|分析|健康/.test(txt)){
+      reply='我可以帮您进行网络巡检分析。该功能目前处于规划阶段，敬请期待。';
+    }else if(/拓扑|网络图|结构/.test(txt)){
+      reply='拓扑绘图模块可以帮助您可视化网络架构。该功能目前处于规划阶段。';
+    }else if(/skill|技能/.test(txt)){
+      reply='当前已加载 4 个 Skills：config_translation（已启用）、inspection、topology、knowledge_search（规划中）。';
+    }else if(/memory|记忆/.test(txt)){
+      reply='Memory 系统当前共有 386 条记录，采用 JSONL 本地存储。';
+    }
+    body.insertAdjacentHTML('beforeend','<div class="ag-bubble ai">'+reply+'<div class="time">'+new Date().toLocaleTimeString('zh-CN',{hour:'2-digit',minute:'2-digit'})+'</div></div>');
+    body.scrollTop=body.scrollHeight;
+  },600);
+}
+
+/* ── Translate ── */
+function switchTrTab(tab){
+  document.querySelectorAll('[data-trtab]').forEach(b=>b.classList.remove('active'));
+  document.querySelector('[data-trtab="'+tab+'"]').classList.add('active');
+  renderTrTab(tab);
+}
+function renderTrTab(tab){
+  const out=document.getElementById('tr-out');
+  if(!lastTranslate){out.textContent=tab==='output'?'点击「开始翻译」生成结果':'暂无数据';return}
+  if(tab==='output'){
+    out.textContent=lastTranslate.deployable_config||'(空)';
+  }else if(tab==='review'){
+    const mr=lastTranslate.manual_review||[];
+    if(!mr.length){out.innerHTML='<div class="empty"><div class="icon">✓</div><div class="t">未发现需人工确认项</div></div>';return}
+    out.innerHTML=mr.map((item,i)=>{
+      const lvl=(item.risk_level||'medium').toLowerCase();
+      const cls=lvl==='high'?'risk-lvl-high':lvl==='low'?'risk-lvl-low':'risk-lvl-med';
+      return'<div class="risk-item"><div class="risk-hd"><span class="risk-lvl '+cls+'">'+esc(item.risk_level||'medium')+'</span><span style="font-size:12px;color:var(--n5)">#'+(i+1)+'</span></div><div class="risk-body">'+esc(item.reason||'')+'<pre>'+esc(item.source_excerpt||'')+'</pre><div style="margin-top:6px;color:var(--n5)">建议: '+esc(item.suggested_action||'')+'</div></div></div>';
+    }).join('');
+  }else if(tab==='risk'){
+    out.innerHTML='<div class="empty"><div class="icon">◈</div><div class="t">风险分析模块</div><div style="font-size:12px">配置翻译结果的风险评估数据将在此展示</div></div>';
+  }else if(tab==='audit'){
+    out.innerHTML='<pre style="font:12px/1.7 var(--mono);white-space:pre-wrap">'+esc(JSON.stringify(lastTranslate.audit||{},null,2))+'</pre>';
+  }
+}
+function doTranslate(){
+  const cfg=document.getElementById('tr-source').value.trim();
+  if(!cfg)return;
+  const btn=document.getElementById('tr-btn');
+  const st=document.getElementById('tr-status');
+  btn.disabled=true; st.textContent='正在处理...';
+  fetch('/api/translate',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({source_config:cfg,source_vendor:document.getElementById('tr-fv').value,target_vendor:document.getElementById('tr-tv').value})})
+  .then(r=>r.json()).then(d=>{
+    btn.disabled=false; st.textContent=d.ok?'完成':'失败';
+    if(d.ok){lastTranslate=d; renderTrTab('output'); document.querySelector('[data-trtab="output"]').classList.add('active'); document.querySelectorAll('[data-trtab]').forEach(b=>{if(b.dataset.trtab!=='output')b.classList.remove('active')});}
+  }).catch(()=>{btn.disabled=false; st.textContent='请求失败';});
+}
+
+/* ── Init ── */
+fetch('/api/version').then(r=>r.json()).then(d=>{
+  document.getElementById('build-id').textContent=d.build_commit||'---';
+  document.getElementById('entry-id').textContent=d.translator_entry||'translate_bundle';
+  document.getElementById('ver-tag').textContent=d.version||'v3.0';
+}).catch(()=>{});
+fetch('/api/skills').then(r=>r.json()).then(d=>{
+  const c=(d.skills||[]).length; if(c)document.getElementById('dash-skills').textContent=c;
+}).catch(()=>{});
+fetch('/api/memory/status').then(r=>r.json()).then(d=>{
+  if(d.records!==undefined)document.getElementById('dash-mems').textContent=d.records;
+}).catch(()=>{});
+fetch('/api/modules').then(r=>r.json()).then(d=>{
+  const c=(d.modules||[]).length; if(c)document.getElementById('dash-mods').textContent=c;
+}).catch(()=>{});
+
+function esc(s){return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');}
+
+/* ── Settings Modal ── */
+const _DEF_PROVIDERS={
+  openai:{baseurl:'https://api.openai.com/v1',model:'gpt-4o'},
+  azure:{baseurl:'',model:'gpt-4o'},
+  deepseek:{baseurl:'https://api.deepseek.com/v1',model:'deepseek-chat'},
+  claude:{baseurl:'https://api.anthropic.com/v1',model:'claude-3-sonnet-20240229'},
+  ollama:{baseurl:'http://localhost:11434/v1',model:'llama3.1'},
+  minimax:{baseurl:'https://api.minimaxi.com/v1',model:'MiniMax-M3'},
+  custom:{baseurl:'',model:''}
+};
+function openSettings(){document.getElementById('settings-modal').classList.add('show'); loadSettings();}
+function closeSettings(){document.getElementById('settings-modal').classList.remove('show');}
+function switchSetTab(tab){
+  document.querySelectorAll('[data-settab]').forEach(b=>b.classList.remove('active'));
+  document.querySelector('[data-settab="'+tab+'"]').classList.add('active');
+  document.querySelectorAll('.set-panel').forEach(p=>p.classList.remove('active'));
+  document.getElementById('set-'+tab).classList.add('active');
+}
+function onProviderChange(){
+  const p=document.getElementById('llm-provider').value;
+  const d=_DEF_PROVIDERS[p]||_DEF_PROVIDERS.custom;
+  const urlEl=document.getElementById('llm-baseurl');
+  const modelEl=document.getElementById('llm-model');
+  if(!urlEl.value.trim()) urlEl.value=d.baseurl;
+  if(!modelEl.value.trim()) modelEl.value=d.model;
+}
+function saveSettings(){
+  const cfg={
+    llm_provider:document.getElementById('llm-provider').value,
+    llm_baseurl:document.getElementById('llm-baseurl').value.trim(),
+    llm_key:document.getElementById('llm-key').value.trim(),
+    llm_model:document.getElementById('llm-model').value.trim(),
+    llm_temp:parseFloat(document.getElementById('llm-temp').value)||0.7,
+    llm_maxtok:parseInt(document.getElementById('llm-maxtok').value)||4096,
+    llm_sys:document.getElementById('llm-sys').value.trim(),
+    ui_lang:document.getElementById('ui-lang').value,
+    ui_theme:document.getElementById('ui-theme').value,
+    ui_fontsize:parseInt(document.getElementById('ui-fontsize').value)||13,
+    ui_autosave:parseInt(document.getElementById('ui-autosave').value)||30
+  };
+  try{localStorage.setItem('na_settings',JSON.stringify(cfg));}catch(e){}
+  closeSettings();
+  showToast('设置已保存');
+}
+function loadSettings(){
+  let cfg={};
+  try{cfg=JSON.parse(localStorage.getItem('na_settings')||'{}');}catch(e){}
+  const set=(id,v)=>{const el=document.getElementById(id); if(el) el.value=v;};
+  set('llm-provider',cfg.llm_provider||'openai');
+  set('llm-baseurl',cfg.llm_baseurl||'');
+  set('llm-key',cfg.llm_key||'');
+  set('llm-model',cfg.llm_model||'');
+  set('llm-temp',cfg.llm_temp!==undefined?cfg.llm_temp:0.7);
+  set('llm-maxtok',cfg.llm_maxtok!==undefined?cfg.llm_maxtok:4096);
+  set('llm-sys',cfg.llm_sys||'');
+  set('ui-lang',cfg.ui_lang||'zh');
+  set('ui-theme',cfg.ui_theme||'light');
+  set('ui-fontsize',cfg.ui_fontsize||13);
+  set('ui-autosave',cfg.ui_autosave||30);
+  onProviderChange();
+}
+async function testLLMConnection(){
+  const provider=document.getElementById('llm-provider').value;
+  const baseurl=document.getElementById('llm-baseurl').value.trim()||_DEF_PROVIDERS[provider]?.baseurl||'';
+  const key=document.getElementById('llm-key').value.trim();
+  const model=document.getElementById('llm-model').value.trim();
+  const result=document.getElementById('test-result');
+  const status=document.getElementById('test-status');
+  result.style.display='none'; result.className='test-result'; status.textContent='正在测试...';
+  if(!baseurl){status.textContent=''; result.className='test-result err'; result.textContent='错误：Base URL 不能为空'; result.style.display='block'; return;}
+
+  const ctrl=new AbortController(); const to=setTimeout(()=>ctrl.abort(),15000);
+  const base=baseurl.replace(/\/$/,'');
+
+  const makeHeaders=()=>{
+    const h={'Content-Type':'application/json'};
+    if(key) h['Authorization']='Bearer '+key;
+    if(provider==='claude'){h['x-api-key']=key; delete h['Authorization'];}
+    return h;
+  };
+
+  try{
+    // Phase 1: provider-specific list endpoint
+    let url=base+'/models';
+    if(provider==='ollama') url=base.replace(/\/v1$/,'')+'/api/tags';
+    if(provider==='deepseek') url='https://api.deepseek.com/models';
+    const res=await fetch(url,{method:'GET',headers:makeHeaders(),signal:ctrl.signal});
+
+    if(res.ok){
+      clearTimeout(to);
+      const data=await res.json().catch(()=>null);
+      let msg='连通性测试成功！';
+      if(provider==='ollama' && data && data.models){msg+=' 发现 '+data.models.length+' 个本地模型。';}
+      else if(data && data.data){msg+=' 可用模型: '+(data.data.slice(0,3).map(m=>m.id||m.model||'unknown').join(', ')||'---')+(data.data.length>3?' 等':'')+'.';}
+      status.textContent=''; result.className='test-result ok'; result.textContent=msg; result.style.display='block'; return;
+    }
+
+    // Phase 2: if 404/405, try minimal chat-completion (covers custom/OpenAI-compatible providers)
+    if(res.status===404 || res.status===405){
+      const paths=[base+'/v1/chat/completions', base+'/chat/completions'];
+      for(const chatUrl of paths){
+        const chatRes=await fetch(chatUrl,{
+          method:'POST',
+          headers:makeHeaders(),
+          body:JSON.stringify({model:model||'unknown',messages:[{role:'user',content:'hi'}],max_tokens:1}),
+          signal:ctrl.signal
+        });
+        if(chatRes.ok){
+          clearTimeout(to);
+          status.textContent=''; result.className='test-result ok'; result.textContent='连通性测试成功！API 端点可正常调用。'; result.style.display='block'; return;
+        }
+        if(chatRes.status===401){
+          clearTimeout(to);
+          status.textContent=''; result.className='test-result warn'; result.textContent='API 端点可访问，但认证失败 (401)，请检查 API Key。'; result.style.display='block'; return;
+        }
+      }
+    }
+
+    clearTimeout(to);
+    const txt=await res.text().catch(()=>'');
+    status.textContent=''; result.className='test-result err'; result.textContent='请求失败 ('+res.status+')：'+txt.slice(0,200); result.style.display='block';
+  }catch(e){
+    clearTimeout(to);
+    status.textContent=''; result.className='test-result warn';
+    if(e.name==='AbortError') result.textContent='请求超时（15秒）。请检查 Base URL 是否正确，或网络是否可达。';
+    else result.textContent='请求异常：'+e.message;
+    result.style.display='block';
+  }
+}
+function showToast(msg){
+  const t=document.createElement('div');
+  t.textContent=msg;
+  t.style.cssText='position:fixed;bottom:24px;left:50%;transform:translateX(-50%);background:var(--n1);color:#fff;padding:10px 20px;border-radius:8px;font-size:13px;z-index:300;box-shadow:0 8px 24px rgba(0,0,0,.2);opacity:0;transition:opacity .3s';
+  document.body.appendChild(t); requestAnimationFrame(()=>t.style.opacity='1');
+  setTimeout(()=>{t.style.opacity='0'; setTimeout(()=>t.remove(),300);},2200);
+}
+</script>
+</body>
+</html>

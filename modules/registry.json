@@ -1,0 +1,48 @@
+{
+  "version": "0.1.0",
+  "description": "Network Agent Module Registry",
+  "modules": [
+    {
+      "module_name": "config_translation",
+      "display_name": "配置翻译",
+      "description": "Translate network device configuration across vendors.",
+      "status": "enabled",
+      "has_ui": true,
+      "ui_route": "/modules/translate",
+      "api_base": "/api/translate",
+      "capabilities": ["config_translate", "manual_review", "risk_audit"],
+      "owner": "backend.services.config_translation",
+      "maturity": "beta_ready"
+    },
+    {
+      "module_name": "topology",
+      "display_name": "拓扑绘图",
+      "description": "Extract and visualize network topology from device configurations.",
+      "status": "planned",
+      "has_ui": true,
+      "ui_route": "/modules/topology",
+      "capabilities": ["topology_extract", "topology_draw"],
+      "maturity": "planned"
+    },
+    {
+      "module_name": "inspection",
+      "display_name": "巡检分析",
+      "description": "Run compliance and best-practice inspections against device configurations.",
+      "status": "planned",
+      "has_ui": true,
+      "ui_route": "/modules/inspection",
+      "capabilities": ["compliance_check", "best_practice_audit", "diff_analysis"],
+      "maturity": "planned"
+    },
+    {
+      "module_name": "knowledge_base",
+      "display_name": "知识库",
+      "description": "Accumulate network engineering knowledge, troubleshooting cases, and best practices.",
+      "status": "planned",
+      "has_ui": true,
+      "ui_route": "/modules/knowledge",
+      "capabilities": ["knowledge_search", "case_retrieval", "template_library"],
+      "maturity": "planned"
+    }
+  ]
+}

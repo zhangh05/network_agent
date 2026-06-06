@@ -1,0 +1,7 @@
+module_name: config_translation
+display_name: 配置翻译
+status: enabled
+has_ui: true
+ui_route: /modules/translate
+api_base: /api/translate
+maturity: beta_ready
