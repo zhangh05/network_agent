@@ -1,6 +1,7 @@
 # agent/graph.py
 """Agent orchestrator — LangGraph workflow with fallback to deterministic pipeline."""
 
+import time
 from agent.state import NetworkAgentState
 
 # Try LangGraph; fall back to deterministic pipeline if unavailable
@@ -45,7 +46,7 @@ def _build_langgraph():
 
 
 def _run_fallback(state: NetworkAgentState) -> NetworkAgentState:
-    """Deterministic fallback pipeline."""
+    """Deterministic fallback pipeline with trace instrumentation."""
     from agent.nodes.intent_router import route
     from agent.nodes.context_loader import load_context
     from agent.nodes.planner import plan
@@ -54,27 +55,54 @@ def _run_fallback(state: NetworkAgentState) -> NetworkAgentState:
     from agent.nodes.composer import compose
     from agent.nodes.memory_writer import write_memory
 
-    state = route(state)
+    _run_node(state, "router", route)
     if state.error and state.intent == "unknown":
         state.final_response = "I didn't understand your request."
         return state
 
-    state = load_context(state)
-    state = plan(state)
-    state = execute(state)
-    state = verify(state)
-    state = compose(state)
-    state = write_memory(state)
+    _run_node(state, "context_loader", load_context)
+    _run_node(state, "planner", plan)
+    _run_node(state, "executor", execute)
+    _run_node(state, "verifier", verify)
+    _run_node(state, "composer", compose)
+    _run_node(state, "memory_writer", write_memory)
     state.runtime_mode = "fallback"
+    return state
+
+
+def _run_node(state, node_name, func):
+    """Run a node function with trace timing."""
+    start = time.time()
+    try:
+        state = func(state)
+        status = "success"
+    except Exception as e:
+        status = "failed"
+        if not state.error:
+            state.error = str(e)
+    duration = round((time.time() - start) * 1000, 2)
+
+    state.node_timings[node_name] = duration
+    state.trace_events.append({
+        "event_id": node_name,
+        "trace_id": state.trace_id or "",
+        "run_id": state.request_id,
+        "workspace_id": state.workspace_id or "default",
+        "event_type": "node_end",
+        "name": node_name,
+        "status": status,
+        "duration_ms": duration,
+        "summary": f"{node_name}: {status} ({duration}ms)",
+        "metadata": {},
+        "redaction_applied": False,
+    })
     return state
 
 
 def run_agent(user_input: str = "", intent: str = "", payload: dict = None,
               workspace_id: str = "default") -> dict:
-    """Run agent pipeline and return full result dict with metadata."""
+    """Run agent pipeline and return full result dict with metadata + trace."""
     payload = payload or {}
-
-    # Extract context_ref from payload and put it in context
     context_ref = payload.pop("context_ref", "")
 
     state = NetworkAgentState(
@@ -84,15 +112,18 @@ def run_agent(user_input: str = "", intent: str = "", payload: dict = None,
         workspace_id=workspace_id,
     )
 
-    # Set context_ref for context_loader
     if context_ref:
         state.context["context_ref"] = context_ref
 
+    # ═══ Create trace ═══
+    from observability.trace import create_trace, finalize_trace
+    trace_id = create_trace(state, workspace_id)
+
+    # ═══ Run pipeline ═══
     if _LANGGRAPH_AVAILABLE:
         try:
             app = _build_langgraph()
             result_dict = app.invoke(state)
-            # LangGraph returns a dict; convert back
             state = NetworkAgentState(**{
                 k: v for k, v in result_dict.items()
                 if k in NetworkAgentState.__dataclass_fields__
@@ -103,8 +134,26 @@ def run_agent(user_input: str = "", intent: str = "", payload: dict = None,
     else:
         state = _run_fallback(state)
 
+    # ═══ Finalize & persist trace ═══
+    try:
+        trace = finalize_trace(state, workspace_id)
+        from observability.store import write_trace
+        write_trace(trace, workspace_id)
+    except Exception:
+        pass
+
     result = state.tool_results or {}
     llm_ctx = state.context.get("llm", {})
+    timeline = {
+        "total_duration_ms": sum(state.node_timings.values()),
+        "node_count": len(state.node_timings),
+        "skill_call_count": state.context.get("skill_call_count", 0),
+        "module_call_count": state.context.get("module_call_count", 0),
+        "llm_call_count": 1 if llm_ctx.get("used") else 0,
+        "memory_write_count": 1 if state.context.get("memory_written") else 0,
+        "warning_count": len(state.warnings),
+        "error_count": 1 if state.error else 0,
+    }
 
     return {
         "ok": state.error is None,
@@ -119,11 +168,15 @@ def run_agent(user_input: str = "", intent: str = "", payload: dict = None,
         "warnings": state.warnings,
         "final_response": state.final_response,
         "workspace_id": state.workspace_id or "default",
-        # Memory/workspace metadata from context
         "memory_written": state.context.get("memory_written", False),
         "workspace_updated": state.context.get("workspace_updated", False),
         "memory_hits_count": len(state.context.get("memory_hits", [])),
         "artifacts": [],
+        # ── Trace ──
+        "trace_id": trace_id,
+        "trace_available": True,
+        "timeline_summary": timeline,
+        # ── LLM ──
         "llm": {
             "enabled": llm_ctx.get("enabled", False),
             "used": llm_ctx.get("used", False),
@@ -157,7 +210,6 @@ def get_runtime_status() -> dict:
     except Exception:
         enabled_modules = []
 
-    # Check LangGraph availability and compile status
     graph_compile_ok = False
     fallback_reason = None
     graph_nodes = []

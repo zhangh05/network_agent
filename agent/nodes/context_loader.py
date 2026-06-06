@@ -70,4 +70,19 @@ def load_context(state: NetworkAgentState) -> NetworkAgentState:
     except Exception:
         pass
 
+    # ── Trace: context_loaded ──
+    state.trace_events.append({
+        "event_id": "context_loaded",
+        "trace_id": state.trace_id or "",
+        "run_id": state.request_id,
+        "workspace_id": state.workspace_id or "default",
+        "event_type": "context_loaded",
+        "name": "context_loaded",
+        "status": "success",
+        "duration_ms": 0.0,
+        "summary": f"memory_hits={len(state.context.get('memory_hits', []))} last_result={state.context.get('last_result', {}).get('has_result', False)}",
+        "metadata": {},
+        "redaction_applied": False,
+    })
+
     return state

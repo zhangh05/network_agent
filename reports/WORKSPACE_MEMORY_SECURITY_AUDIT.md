@@ -1,6 +1,6 @@
 # Workspace/Memory Security Audit
 
-**Date**: 2026-06-06T17:38:55.191110
+**Date**: 2026-06-06T19:19:40.539150
 **Verdict**: PASS
 
 ## Summary
@@ -8,10 +8,14 @@
 | Metric | Value |
 |--------|-------|
 | Critical | 0 |
-| High | 0 |
+| High | 1 |
 | Key Leaks | 0 |
 | MiniMax-M3 Default | True |
 
+
+## High Severity Findings
+
+- **full_source_config_in_workspace_run**: `/Users/zhangh01/Desktop/codex_net_trans/network-agent/workspaces/trace_redact_cfg/runs/r-cfg.trace.json`
 
 ✅ No critical issues or key leaks found.
 

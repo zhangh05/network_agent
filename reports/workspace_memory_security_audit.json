@@ -1,14 +1,20 @@
 {
   "audit": "WORKSPACE_MEMORY_SECURITY_AUDIT",
-  "timestamp": "2026-06-06T17:38:55.191110",
+  "timestamp": "2026-06-06T19:19:40.539150",
   "summary": {
     "critical": 0,
-    "high": 0,
+    "high": 1,
     "key_leaks": 0,
     "MiniMax_M3_default": true,
     "verdict": "PASS"
   },
   "critical": [],
-  "findings": [],
+  "findings": [
+    {
+      "issue": "full_source_config_in_workspace_run",
+      "file": "/Users/zhangh01/Desktop/codex_net_trans/network-agent/workspaces/trace_redact_cfg/runs/r-cfg.trace.json",
+      "severity": "high"
+    }
+  ],
   "key_leaks": []
 }

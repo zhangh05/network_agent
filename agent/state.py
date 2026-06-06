@@ -35,6 +35,11 @@ class NetworkAgentState:
     created_at: str = field(default_factory=lambda: datetime.now(timezone.utc).isoformat())
     updated_at: str = ""
 
+    # ── Observability ──
+    trace_id: str = ""
+    trace_events: List[Dict[str, Any]] = field(default_factory=list)
+    node_timings: Dict[str, float] = field(default_factory=dict)
+
     def summary(self) -> Dict[str, Any]:
         return {
             "request_id": self.request_id,

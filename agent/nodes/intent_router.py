@@ -46,10 +46,26 @@ def route(state: NetworkAgentState) -> NetworkAgentState:
         except Exception:
             pass
 
+    # ── Trace: intent_routed ──
+    state.trace_events.append({
+        "event_id": "intent_routed",
+        "trace_id": state.trace_id or "",
+        "run_id": state.request_id,
+        "workspace_id": state.workspace_id or "default",
+        "event_type": "intent_routed",
+        "name": "intent_routed",
+        "status": "success",
+        "duration_ms": 0.0,
+        "summary": f"intent={state.intent} module={state.active_module}",
+        "metadata": {"intent": state.intent, "active_module": state.active_module, "selected_skill": state.selected_skill},
+        "redaction_applied": False,
+    })
+
     # Set plan based on liveness
     if state.intent not in LIVE_INTENTS:
         state.warnings.append(f"Intent '{state.intent}' is planned (coming_soon)")
         state.plan = ["report_coming_soon"]
+        _add_warning_event(state, f"intent_planned: {state.intent}")
     else:
         state.plan = [
             "load_context", "plan_steps", "execute_skill",
@@ -57,6 +73,22 @@ def route(state: NetworkAgentState) -> NetworkAgentState:
         ]
 
     return state
+
+
+def _add_warning_event(state, msg):
+    state.trace_events.append({
+        "event_id": f"warn_{len(state.trace_events)}",
+        "trace_id": state.trace_id or "",
+        "run_id": state.request_id,
+        "workspace_id": state.workspace_id or "default",
+        "event_type": "warning",
+        "name": "warning",
+        "status": "skipped",
+        "duration_ms": 0.0,
+        "summary": msg,
+        "metadata": {},
+        "redaction_applied": False,
+    })
 
 
 def _infer(text: str) -> str:

@@ -120,6 +120,28 @@ def create_app():
             return jsonify({"ok": False, "error": "artifact not found"}), 404
         return jsonify(result)
 
+    # ── Trace (Observability) ──
+    @app.route("/api/workspaces/<ws_id>/runs/<run_id>/trace")
+    def api_workspace_trace(ws_id, run_id):
+        from observability.store import get_trace
+        trace = get_trace(run_id, ws_id)
+        if not trace:
+            return jsonify({"ok": False, "error": "trace not found"}), 404
+        return jsonify({"ok": True, "trace": trace})
+
+    @app.route("/api/workspaces/<ws_id>/traces")
+    def api_workspace_traces(ws_id):
+        from observability.store import list_traces
+        return jsonify({"traces": list_traces(ws_id)})
+
+    @app.route("/api/agent/runs/<run_id>/trace")
+    def api_agent_run_trace(run_id):
+        from observability.store import get_trace
+        trace = get_trace(run_id, "default")
+        if not trace:
+            return jsonify({"ok": False, "error": "trace not found"}), 404
+        return jsonify({"ok": True, "trace": trace})
+
     # ── Modules ──
     @app.route("/api/modules")
     def api_modules():

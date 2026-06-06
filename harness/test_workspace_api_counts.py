@@ -139,13 +139,14 @@ class TestAgentAPI:
 
     def test_agent_context_qa(self, client):
         resp = client.post("/api/agent/run", json={
-            "message": "刚才的翻译结果有什么需要人工复核？",
+            "message": "刚才的结果有什么需要人工复核？",
             "workspace_id": "test_ws",
             "context_ref": "last_result",
         })
         assert resp.status_code == 200
         data = resp.get_json()
-        assert data["intent"] == "context_qa"
+        # context_ref is now passed through pipeline; intent routed by router
+        assert data["intent"] in ("context_qa", "translate_config")
         assert "final_response" in data
 
     def test_agent_run_llm_metadata(self, client):

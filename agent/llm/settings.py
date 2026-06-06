@@ -163,7 +163,9 @@ def validate_llm_settings(data: dict) -> list:
     if bu and not (bu.startswith("http://") or bu.startswith("https://")):
         errors.append("base_url must start with http:// or https://")
     if not data.get("model") and data.get("provider") not in ("disabled", "mock"):
-        errors.append("model is required")
+        # minimax auto-fills MiniMax-M3 in save_llm_settings; allow empty
+        if data.get("provider") != "minimax":
+            errors.append("model is required")
     temp = data.get("temperature", 0.7)
     if not isinstance(temp, (int, float)) or temp < 0 or temp > 2:
         errors.append("temperature must be 0-2")

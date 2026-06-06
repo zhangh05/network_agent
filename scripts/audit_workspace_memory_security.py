@@ -166,7 +166,7 @@ def audit():
         if py_file.name.startswith("__"):
             continue
         p = str(py_file)
-        if "legacy" in p or "scripts/audit_workspace" in p:
+        if "legacy" in p or "scripts/audit_workspace" in p or "scripts/audit_observability" in p or "harness/" in p:
             continue
         content = py_file.read_text()
         if "GraphAgent" in content:

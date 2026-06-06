@@ -831,6 +831,17 @@ function sendAgent(){
       if(l.used) reply+=' | AI 已参与回答 ('+esc(l.provider||'')+')';
       else reply+=' | 规则回复';
       if(l.fallback_reason) reply+=' | '+esc(l.fallback_reason);
+      // Trace timeline summary
+      var tl = d.timeline_summary||{};
+      if(d.trace_id){
+        reply+='<br>trace: <code style="font-size:10px">'+esc(d.trace_id)+'</code>';
+        reply+=' | '+esc(tl.total_duration_ms||0)+'ms';
+        reply+=' | '+esc(tl.node_count||0)+' nodes';
+        reply+=' | skill:'+esc(tl.skill_call_count||0)+' mod:'+esc(tl.module_call_count||0);
+        reply+=' | llm:'+esc(tl.llm_call_count||0);
+        if(tl.warning_count) reply+=' | ⚠ '+esc(tl.warning_count);
+        reply+=' <a href="#" onclick="viewTrace(\''+esc(d.run_id)+'\',\''+esc(d.workspace_id||'default')+'\')" style="font-size:10px">查看轨迹 &gt;</a>';
+      }
       reply+='</span>';
     }else{
       reply=(d.error||'请求失败，请稍后重试')+'\n<span class="time" style="margin-top:6px">[local fallback]</span>';
@@ -900,6 +911,38 @@ fetch('/api/modules').then(r=>r.json()).then(d=>{
 }).catch(()=>{});
 
 function esc(s){return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');}
+
+// ── Trace Viewer ──
+function viewTrace(runId,wsId){
+  var body=document.getElementById('chatBody');
+  body.insertAdjacentHTML('beforeend','<div class="ag-bubble ai"><div style="font-size:12px">加载运行轨迹...</div></div>');
+  body.scrollTop=body.scrollHeight;
+  fetch('/api/workspaces/'+(wsId||'default')+'/runs/'+runId+'/trace')
+  .then(r=>{if(!r.ok)throw new Error('trace not found');return r.json()})
+  .then(d=>{
+    var trace=d.trace||{};
+    var events=trace.events||[];
+    var nodes=events.filter(function(e){return e.event_type==='node_end'});
+    var html='<div style="font-size:13px;font-weight:600;margin-bottom:6px">运行轨迹</div>';
+    html+='<div style="font-size:11px;color:#94a3b8;margin-bottom:8px">trace: <code>'+esc(trace.trace_id)+'</code> | '+esc(trace.total_duration_ms||0)+'ms | '+esc(trace.status||'')+'</div>';
+    html+='<div style="display:flex;flex-direction:column;gap:3px">';
+    nodes.forEach(function(n){
+      var dur=esc(n.duration_ms||0);
+      var color=n.status==='success'?'#10b981':n.status==='failed'?'#ef4444':'#94a3b8';
+      html+='<div style="display:flex;align-items:center;gap:8px;font-size:11px;padding:2px 0">';
+      html+='<span style="color:'+color+'">●</span>';
+      html+='<span style="flex:1">'+esc(n.name||'')+'</span>';
+      html+='<span style="color:#94a3b8">'+dur+'ms</span>';
+      html+='</div>';
+    });
+    html+='</div>';
+    body.insertAdjacentHTML('beforeend','<div class="ag-bubble ai">'+html+'</div>');
+    body.scrollTop=body.scrollHeight;
+  }).catch(function(){
+    body.insertAdjacentHTML('beforeend','<div class="ag-bubble ai"><span style="font-size:12px;color:#94a3b8">轨迹暂不可用</span></div>');
+    body.scrollTop=body.scrollHeight;
+  });
+}
 
 /* ── Settings Modal ── */
 const _DEF_PROVIDERS={

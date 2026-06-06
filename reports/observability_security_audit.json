@@ -1,0 +1,23 @@
+{
+  "audit": "OBSERVABILITY_SECURITY_AUDIT",
+  "timestamp": "2026-06-06T19:19:40.480107",
+  "summary": {
+    "key_leaks": 0,
+    "trace_issues": 0,
+    "issues": 2,
+    "trace_files_found": 20,
+    "verdict": "PASS"
+  },
+  "key_leaks": [],
+  "trace_issues": [],
+  "issues": [
+    {
+      "issue": "api_translate_ref",
+      "file": "/Users/zhangh01/Desktop/codex_net_trans/network-agent/modules/config_translation/backend/client.py"
+    },
+    {
+      "issue": "api_translate_ref",
+      "file": "/Users/zhangh01/Desktop/codex_net_trans/network-agent/skills/config_translation/adapter.py"
+    }
+  ]
+}
