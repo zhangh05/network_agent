@@ -270,7 +270,7 @@ def run_agent(user_input: str = "", intent: str = "", payload: dict = None,
     except Exception:
         pass
 
-    result = state.tool_results or {}
+    result = state.skill_results or state.tool_results or {}
     llm_ctx = state.context.get("llm", {})
 
     # ═══ Compute timeline from trace events (not hardcoded) ═══

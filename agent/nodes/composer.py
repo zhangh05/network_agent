@@ -6,7 +6,7 @@ from agent.state import NetworkAgentState
 
 def compose(state: NetworkAgentState) -> NetworkAgentState:
     """Build final_response. Uses LLM if enabled and safe, otherwise deterministic."""
-    result = state.tool_results or {}
+    result = state.skill_results or state.tool_results or {}
     intent = state.intent
 
     # Default deterministic response
@@ -95,7 +95,7 @@ def _deterministic(result: dict, intent: str) -> str:
 def _select_prompt_task(state: NetworkAgentState) -> str:
     """Select prompt task based on intent, context, and user input."""
     ui = (state.user_input or "").lower()
-    result = state.tool_results or {}
+    result = state.skill_results or state.tool_results or {}
 
     if state.intent == "context_qa":
         if any(kw in ui for kw in ["失败", "失败原因", "为什么失败", "error", "failed"]):

@@ -21,7 +21,7 @@ def write_run_record(state, ws_id: str = "default") -> str:
     run_dir = WS_ROOT / ws_id / "runs"
     run_id = state.request_id or f"run_{int(time.time())}"
 
-    result = state.tool_results or {}
+    result = state.skill_results or state.tool_results or {}
     llm_ctx = state.context.get("llm", {})
 
     # Build sanitized counts (no full config strings)

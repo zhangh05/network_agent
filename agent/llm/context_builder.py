@@ -10,7 +10,7 @@ SECRET_PATTERNS = ["password", "secret", "community", "snmp", "tacacs", "radius"
 def build_safe_context(state: NetworkAgentState) -> dict:
     """Build a safe context dict for LLM consumption. No raw configs, no secrets."""
 
-    result = state.tool_results or {}
+    result = state.skill_results or state.tool_results or {}
     verification = state.verification or {}
 
     ctx = {

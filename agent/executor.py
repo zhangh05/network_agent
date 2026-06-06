@@ -16,7 +16,8 @@ def execute(state: NetworkAgentState) -> NetworkAgentState:
             source_vendor="auto",
             target_vendor="huawei",
         )
-        state.tool_results.append(result)
+        state.skill_results = result
+        state.tool_results.append(result)  # legacy: old code treated results as list
 
         if result.get("ok"):
             state.final_response = "Translate completed."

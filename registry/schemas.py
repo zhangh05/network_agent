@@ -7,6 +7,10 @@ from typing import Any, Optional
 # Valid enums
 VALID_STATUSES = {"enabled", "planned", "disabled", "deprecated"}
 VALID_MATURITIES = {"experimental", "embedded_mvp", "beta_ready", "production_ready", "planned"}
+# LEGACY / DEPRECATED: "external_tool" is pre-ToolRuntime naming.
+# It must NOT be used for future Tool Runtime design, which will use independent
+# ToolSpec / ToolRegistry / ToolInvocation / ToolResult.
+# New skills must use python_adapter, prompt_skill, or workflow_skill.
 VALID_SKILL_TYPES = {"python_adapter", "prompt_skill", "workflow_skill", "external_tool"}
 
 

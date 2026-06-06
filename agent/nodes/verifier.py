@@ -5,8 +5,8 @@ from agent.state import NetworkAgentState
 
 
 def verify(state: NetworkAgentState) -> NetworkAgentState:
-    """Verify tool_results for the executed intent."""
-    result = state.tool_results or {}
+    """Verify skill_results for the executed intent."""
+    result = state.skill_results or state.tool_results or {}
 
     if state.intent != "translate_config":
         state.verification = {"status": "planned", "intent": state.intent}

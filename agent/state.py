@@ -23,6 +23,17 @@ class NetworkAgentState:
     memory_hits: List[Dict[str, Any]] = field(default_factory=list)
 
     plan: List[str] = field(default_factory=list)
+
+    # ── Skill / Capability execution records ──
+    # skill_calls / skill_results are the PRIMARY fields for skill/capability
+    # execution records. They hold skill adapter invocation metadata and results.
+    skill_calls: List[Dict[str, Any]] = field(default_factory=list)
+    skill_results: Dict[str, Any] = field(default_factory=dict)
+
+    # LEGACY / DEPRECATED: tool_calls / tool_results are pre-ToolRuntime naming.
+    # They alias skill_calls / skill_results for backward compatibility with
+    # old state, trace, run, and test code. Do NOT use these for new Tool Runtime.
+    # Future Tool Runtime will use independent ToolSpec / ToolInvocation / ToolResult.
     tool_calls: List[Dict[str, Any]] = field(default_factory=list)
     tool_results: Dict[str, Any] = field(default_factory=dict)
 

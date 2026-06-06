@@ -31,11 +31,14 @@ def execute(state: NetworkAgentState) -> NetworkAgentState:
 
     # ── 2. Block planned/disabled ──
     if cap_status == "planned":
-        state.tool_results = {"ok": False, "error": f"Intent '{state.intent}' is planned (coming_soon)"}
+        state.skill_results = {"ok": False, "error": f"Intent '{state.intent}' is planned (coming_soon)"}
+        state.tool_results = state.skill_results  # legacy alias
         state.warnings.append(f"Skill '{skill}' is planned (coming_soon)")
         _add_event(state, "warning", f"planned_skill:{skill}", trace_id, ws_id, status="planned",
                    metadata={"capability_id": capability_id})
-        state.tool_calls.append({"capability_id": capability_id, "skill": skill, "status": "planned"})
+        planned_call = {"capability_id": capability_id, "skill": skill, "status": "planned"}
+        state.skill_calls.append(planned_call)
+        state.tool_calls.append(planned_call)  # legacy alias
         return state
 
     if (skill_spec and skill_spec.status == "disabled") or cap_status == "disabled":
@@ -137,7 +140,7 @@ def execute(state: NetworkAgentState) -> NetworkAgentState:
                metadata={"capability_id": capability_id, "adapter_path": adapter_path, "entrypoint": entrypoint_fn})
     skill_start = time.time()
 
-    tool_call = {
+    skill_call = {
         "capability_id": capability_id, "skill": skill,
         "module": state.active_module, "adapter_path": adapter_path,
         "entrypoint": entrypoint_fn, "status": "failed",
@@ -158,30 +161,32 @@ def execute(state: NetworkAgentState) -> NetworkAgentState:
             target_vendor=state.payload.get("target_vendor", "huawei"),
         )
 
-        state.tool_results = result if isinstance(result, dict) else {"ok": True, "data": result}
-        tool_call["status"] = "success" if result.get("ok", True) else "failed"
+        state.skill_results = result if isinstance(result, dict) else {"ok": True, "data": result}
+        state.tool_results = state.skill_results  # legacy alias
+        skill_call["status"] = "success" if result.get("ok", True) else "failed"
 
         if isinstance(result, dict) and not result.get("ok"):
             state.error = result.get("error", "execution failed")
 
         mod_dur = round((time.time() - mod_start) * 1000, 2)
         _add_event(state, "module_call_end", f"module:{state.active_module}",
-                   trace_id, ws_id, status=tool_call["status"], duration_ms=mod_dur,
-                   summary=f"{entrypoint_fn}: {tool_call['status']} ({mod_dur}ms)",
-                   metadata={"entrypoint": entrypoint_fn, "ok": tool_call["status"] == "success"})
+                   trace_id, ws_id, status=skill_call["status"], duration_ms=mod_dur,
+                   summary=f"{entrypoint_fn}: {skill_call['status']} ({mod_dur}ms)",
+                   metadata={"entrypoint": entrypoint_fn, "ok": skill_call["status"] == "success"})
 
     except Exception as exc:
-        tool_call["status"] = "failed"
+        skill_call["status"] = "failed"
         state.error = str(exc)
         _add_event(state, "module_call_end", f"module:{state.active_module}",
                    trace_id, ws_id, status="failed",
                    metadata={"error": str(exc)[:200]})
 
-    state.tool_calls.append(tool_call)
+    state.skill_calls.append(skill_call)
+    state.tool_calls.append(skill_call)  # legacy alias
 
     # ── 6. Auto-save output as artifact ──
-    if state.intent == "translate_config" and tool_call["status"] == "success":
-        result = state.tool_results
+    if state.intent == "translate_config" and skill_call["status"] == "success":
+        result = state.skill_results
         dc = result.get("deployable_config", "")
         if dc:
             try:
@@ -212,7 +217,7 @@ def execute(state: NetworkAgentState) -> NetworkAgentState:
                 pass
 
     # ── 7. Export report if requested ──
-    if state.intent == "translate_config" and state.payload.get("export_report") and tool_call["status"] == "success":
+    if state.intent == "translate_config" and state.payload.get("export_report") and skill_call["status"] == "success":
         try:
             from reports_engine.service import create_config_translation_report
             fmt = state.payload.get("report_format", "markdown")
@@ -220,7 +225,7 @@ def execute(state: NetworkAgentState) -> NetworkAgentState:
             # Build agent_result dict from state
             agent_result = {
                 "ok": True, "trace_id": trace_id, "runtime_mode": "fallback",
-                "result": state.tool_results, "verification": state.verification,
+                "result": state.skill_results, "verification": state.verification,
                 "llm": state.context.get("llm", {}),
             }
             report_result = create_config_translation_report(
@@ -242,11 +247,11 @@ def execute(state: NetworkAgentState) -> NetworkAgentState:
 
     skill_dur = round((time.time() - skill_start) * 1000, 2)
     _add_event(state, "skill_call_end", f"skill:{skill}",
-               trace_id, ws_id, status=tool_call["status"], duration_ms=skill_dur,
-               summary=f"skill:{skill}: {tool_call['status']} ({skill_dur}ms)",
+               trace_id, ws_id, status=skill_call["status"], duration_ms=skill_dur,
+               summary=f"skill:{skill}: {skill_call['status']} ({skill_dur}ms)",
                metadata={"capability_id": capability_id, "adapter_path": adapter_path})
 
-    state.context["skill_call_count"] = len(state.tool_calls)
+    state.context["skill_call_count"] = len(state.skill_calls)  # count primary field
     state.context["module_call_count"] = state.context.get("module_call_count", 0) + 1
 
     return state

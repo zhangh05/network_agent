@@ -5,12 +5,13 @@ from agent.state import NetworkAgentState
 
 
 def verify(state: NetworkAgentState) -> NetworkAgentState:
-    """Verify the last tool result meets expectations."""
-    if not state.tool_results:
+    """Verify the last skill result meets expectations."""
+    sr = state.skill_results or state.tool_results
+    if not sr:
         state.verification = {"status": "no_results"}
         return state
 
-    result = state.tool_results[-1]
+    result = sr if isinstance(sr, dict) else (sr[-1] if isinstance(sr, list) and sr else {})
     checks = {}
 
     # Structural checks

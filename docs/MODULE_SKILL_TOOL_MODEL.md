@@ -86,7 +86,7 @@ Steps inside `execute()`:
 6. Extract `adapter_path` + `entrypoint_function` from registry
 7. **Dynamic import**: `_load_adapter(adapter_path, entrypoint_fn)` → `importlib.import_module()`
 8. Call adapter with `(source_config, source_vendor, target_vendor)`
-9. Store result in `state.tool_results`
+9. Store result in `state.skill_results` (primary) and `state.tool_results` (legacy alias)
 10. Auto-save output as artifact (if translate_config)
 11. Optional report export
 12. Record trace events (skill_call_start/end, module_call_start/end)
@@ -97,15 +97,15 @@ Steps inside `execute()`:
 
 No `tools/` directory. No `ToolSpec`. No `ToolRegistry`. No `ToolExecutor`.
 
-However, three **confusion points** exist where "tool" terminology appears:
+However, three **naming confusion points** existed in the codebase pre-cleanup:
 
-| # | Location | Issue |
-|---|----------|-------|
-| 1 | `agent/state.py:26-27` | `tool_calls: List[Dict]` and `tool_results: Dict` field names — these actually hold **skill** execution records and results, not tool invocations |
-| 2 | `registry/schemas.py:10` | `VALID_SKILL_TYPES` includes `"external_tool"` — Tool is already a sub-type of Skill in the registry taxonomy |
-| 3 | `agent/nodes/skill_executor.py:140` | Variable `tool_call` holds skill call metadata, not a tool invocation |
+| # | Location | Issue | Status |
+|---|----------|-------|--------|
+| 1 | `agent/state.py` | `tool_calls`/`tool_results` field names — these actually hold **skill** execution records and results | ✅ Cleaned: `skill_calls`/`skill_results` are now primary; `tool_calls`/`tool_results` kept as legacy aliases |
+| 2 | `registry/schemas.py` | `VALID_SKILL_TYPES` includes `"external_tool"` — Tool is a Skill sub-type in the taxonomy | ✅ Documented as legacy/deprecated; must not be used for future Tool Runtime |
+| 3 | `agent/nodes/skill_executor.py` | Variable `tool_call` held skill call metadata | ✅ Renamed to `skill_call` |
 
-These are **naming issues only** — the runtime behavior is correct (skill adapter → module service). They originate from the early prototyping phase before formal boundary definitions.
+These were **naming issues only** — the runtime behavior is correct (skill adapter → module service). They originated from the early prototyping phase before formal boundary definitions.
 
 ---
 
@@ -353,7 +353,46 @@ Applicable to Tool Runtime design and all future implementations:
 
 ---
 
-## 10. Non-Goals
+## 10. Naming Boundary Cleanup
+
+As of commit `9bec6aa+`, a naming boundary cleanup was performed to resolve the confusion points identified in Section 2.5.
+
+### Changes applied
+
+1. **`agent/state.py`**: `skill_calls` / `skill_results` are now the **primary** fields for skill/capability execution records. `tool_calls` / `tool_results` are retained as **legacy/deprecated aliases** for backward compatibility with old state, trace, run, and test code. New code **must** use `skill_calls` / `skill_results`.
+
+2. **`agent/nodes/skill_executor.py`**: Internal variable renamed from `tool_call` to `skill_call`. Writes to both `state.skill_calls` (primary) and `state.tool_calls` (legacy alias). All reader nodes (`composer`, `verifier`, `memory_writer`, `graph.py`, `context_builder`, `run_store`) read from `skill_results or tool_results` for backward compatibility.
+
+3. **`registry/schemas.py`**: `external_tool` in `VALID_SKILL_TYPES` is marked as **legacy/deprecated**. It must not be used for new skills or for future Tool Runtime design.
+
+4. **Old fallback files** (`agent/composer.py`, `agent/verifier.py`, `agent/executor.py`): Updated to read from `skill_results or tool_results` for backward compatibility.
+
+### What these names mean
+
+| Name | Semantic | Status |
+|------|----------|--------|
+| `skill_calls` | Skill/capability execution invocation records (list) | **Primary** — new code writes here |
+| `skill_results` | Skill/capability execution results (dict) | **Primary** — new code writes here |
+| `tool_calls` | Legacy alias for `skill_calls` — NOT Tool Runtime | Legacy/deprecated alias |
+| `tool_results` | Legacy alias for `skill_results` — NOT Tool Runtime | Legacy/deprecated alias |
+| `external_tool` | Legacy skill type — NOT future Tool Runtime model | Legacy/deprecated enum value |
+
+### What these names are NOT
+
+- `tool_calls` / `tool_results` are **NOT** Tool Runtime fields. Future Tool Runtime will use independent `ToolSpec` / `ToolRegistry` / `ToolInvocation` / `ToolResult`.
+- `external_tool` is **NOT** the way to add real tool capabilities. Future tools will be registered in `ToolRegistry`, not as `skill_type=external_tool`.
+- The Agent Runtime's `skill_calls` record **skill execution metadata**, not raw tool invocations. They exist at a higher abstraction level.
+
+### Compatibility guarantee
+
+- Old runs, traces, and state objects that reference `tool_calls` / `tool_results` remain loadable.
+- New code writes to `skill_calls` / `skill_results` as primary and also populates `tool_calls` / `tool_results` for backward compat.
+- Reader code uses `skill_results or tool_results` to handle both old and new state.
+- No existing test was broken by this rename.
+
+---
+
+## 11. Non-Goals
 
 This document explicitly does **NOT**:
 

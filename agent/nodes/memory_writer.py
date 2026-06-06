@@ -11,7 +11,7 @@ def write_memory(state: NetworkAgentState) -> NetworkAgentState:
     if state.error:
         return state
 
-    result = state.tool_results or {}
+    result = state.skill_results or state.tool_results or {}
     ws_id = state.workspace_id or "default"
     memory_written = False
     workspace_updated = False
