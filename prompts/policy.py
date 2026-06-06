@@ -35,7 +35,7 @@ INJECTION_PATTERNS = [
     (r'告诉我.*key|告诉我.*密码|告诉我.*token|show me.*key', "key_request"),
 ]
 
-FAKE_REF_PATTERN = re.compile(r'(art_|job_|run_|report_|trace_)[a-z0-9]{8,16}')
+FAKE_REF_PATTERN = re.compile(r'\b(?:art|job|run|report|trace)[a-zA-Z0-9_-]{8,64}\b')
 
 
 @dataclass

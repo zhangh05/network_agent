@@ -73,28 +73,41 @@ def safe_generate(
         citations = safe_ctx.get("citations", []) if isinstance(safe_ctx, dict) else []
         rendered = render_prompt(task, safe_ctx, user_input, citations, extra)
 
-        # Text policy
+        # Text policy — BLOCK on failure
         txt_result = check_prompt_text(rendered.text, spec)
         if not txt_result.ok:
-            prompt_policy_pass = False
-            prompt_block_reason = str(txt_result.issues)
+            return SafeLLMOutput(
+                answer="LLM blocked: prompt text contains unsafe content.",
+                llm_used=False, fallback_reason=f"prompt_text_blocked",
+                metadata={"prompt_runtime_used": True, "prompt_id": prompt_id,
+                          "prompt_version": prompt_version, "prompt_policy_pass": False,
+                          "prompt_block_reason": str(txt_result.issues),
+                          "prompt_injection_detected": injection_detected,
+                          "rendered_prompt_used": True, "old_prompts_default_path": False},
+            )
 
-            # Still allow if not critical — fall back to response
-            pass  # continue to provider for now, output policy will catch
+        # Use rendered.text in messages
+        messages = [
+            LLMMessage(role="system", content="You are Network Agent explanation layer. Follow prompt exactly."),
+            LLMMessage(role="user", content=rendered.text),
+        ]
+
+        req = LLMRequest(
+            task=task, safe_context=safe_ctx, messages=messages,
+            model=cfg["model"], temperature=cfg["temperature"], max_tokens=cfg["max_tokens"],
+        )
 
     except Exception:
-        # Fallback to old path
+        # Prompt runtime unavailable — fallback
         prompt_runtime_fallback = True
+        prompt_id = "fallback"
         safe_ctx = _old_safe_context(state)
-
-    # Build messages
-    system_prompt = _get_system_prompt(task)
-    messages = _build_messages(task, safe_ctx, user_input, system_prompt)
-
-    req = LLMRequest(
-        task=task, safe_context=safe_ctx, messages=messages,
-        model=cfg["model"], temperature=cfg["temperature"], max_tokens=cfg["max_tokens"],
-    )
+        system_prompt = _get_system_prompt(task)
+        messages = _build_messages(task, safe_ctx, user_input, system_prompt)
+        req = LLMRequest(
+            task=task, safe_context=safe_ctx, messages=messages,
+            model=cfg["model"], temperature=cfg["temperature"], max_tokens=cfg["max_tokens"],
+        )
 
     # Existing policy check
     from agent.llm.policy import check_request, check_response
@@ -117,23 +130,26 @@ def safe_generate(
         return SafeLLMOutput(answer="Provider unavailable.", llm_used=False,
                              fallback_reason=f"provider: {_redact(resp.error)}")
 
-    # ── Output policy ──
+    # ── Output policy — BLOCK on failure, discard provider output ──
     output_accepted = True
     try:
         from prompts.policy import check_prompt_output
-        out_result = check_prompt_output(None, resp.content, citations if 'citations' in dir() else [])
+        out_result = check_prompt_output(None, resp.content, citations)
         if not out_result.ok:
             prompt_policy_pass = False
             prompt_block_reason = str(out_result.issues)
             output_accepted = False
             return SafeLLMOutput(
                 answer="Response blocked by prompt output policy.",
-                llm_used=False, fallback_reason=f"prompt_output_blocked: {out_result.issues}",
-                metadata={"prompt_runtime_used": True, "prompt_id": prompt_id,
-                          "prompt_version": prompt_version,
-                          "prompt_policy_pass": False, "prompt_block_reason": prompt_block_reason,
-                          "prompt_injection_detected": injection_detected,
-                          "provider_called": True, "output_accepted": False},
+                llm_used=False, fallback_reason="prompt_output_blocked",
+                metadata={
+                    "prompt_runtime_used": True, "prompt_id": prompt_id,
+                    "prompt_version": prompt_version, "prompt_task": task,
+                    "prompt_policy_pass": False, "prompt_block_reason": prompt_block_reason,
+                    "prompt_injection_detected": injection_detected,
+                    "rendered_prompt_used": True, "old_prompts_default_path": False,
+                    "provider_called": True, "output_accepted": False,
+                },
             )
     except Exception:
         pass
@@ -154,6 +170,7 @@ def safe_generate(
             "prompt_block_reason": prompt_block_reason,
             "prompt_injection_detected": injection_detected,
             "prompt_runtime_fallback": prompt_runtime_fallback,
+            "rendered_prompt_used": True, "old_prompts_default_path": False,
             "output_accepted": output_accepted,
         },
     )
