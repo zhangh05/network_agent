@@ -82,6 +82,10 @@ ReportComposer → render (Jinja2) → export (HTML/Markdown/JSON)
   → Memory (report summary + artifact_ref)
 ```
 
+## 架构模型
+
+Module / Skill / Capability / Tool 四层边界定义：[MODULE_SKILL_TOOL_MODEL.md](./MODULE_SKILL_TOOL_MODEL.md)
+
 ## 安全边界
 
 - **LLM 红线**: 不生成 deployable_config，不声称可直接部署，不隐藏 manual_review 标记
