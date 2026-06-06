@@ -1,135 +1,82 @@
 # agent/llm/provider.py
-"""LLM provider abstraction — disabled, mock, openai_compatible, ollama_compatible."""
+"""LLM provider — disabled, mock, openai_compatible, ollama_compatible, minimax."""
 
-import json
-import os
-from dataclasses import dataclass
+import json, os, urllib.request, urllib.error
 from typing import Optional
-
-from agent.llm.schemas import LLMRequest, LLMResponse, LLMMessage
-
-
-@dataclass
-class ProviderConfig:
-    type: str = "disabled"  # disabled, mock, openai_compatible, ollama_compatible
-    base_url: str = ""
-    api_key: str = ""
-    model: str = ""
-
-
-def load_config() -> dict:
-    """Load LLM config from config/llm.yaml or environment."""
-    try:
-        import yaml
-        root = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-        path = os.path.join(root, "config", "llm.yaml")
-        if os.path.isfile(path):
-            with open(path, encoding="utf-8") as f:
-                return yaml.safe_load(f).get("llm", {})
-    except Exception:
-        pass
-    return {}
+from agent.llm.schemas import LLMRequest, LLMResponse
+from agent.llm.key_resolver import mask_secret
 
 
 def get_provider_config() -> dict:
-    """Return active provider configuration."""
-    cfg = load_config()
-    enabled = cfg.get("enabled", False)
-    default = cfg.get("default_provider", "disabled")
-    providers = cfg.get("providers", {})
-
-    if not enabled or default == "disabled":
-        return {"enabled": False, "type": "disabled", "model": ""}
-
-    provider_cfg = providers.get(default, {})
-    api_key_env = provider_cfg.get("api_key_env", "")
-    api_key = os.environ.get(api_key_env, "") if api_key_env else ""
-
-    return {
-        "enabled": True,
-        "type": provider_cfg.get("type", "disabled"),
-        "base_url": provider_cfg.get("base_url", ""),
-        "api_key": api_key,
-        "model": provider_cfg.get("model", ""),
-    }
+    from agent.llm.config import resolve_provider_config
+    return resolve_provider_config()
 
 
 def generate(req: LLMRequest) -> LLMResponse:
-    """Dispatch to the appropriate provider based on config."""
     cfg = get_provider_config()
-
-    if not cfg["enabled"] or cfg["type"] == "disabled":
+    if not cfg.get("enabled") or cfg["provider_type"] == "disabled":
         return LLMResponse(error="LLM disabled")
-
-    if cfg["type"] == "mock":
+    if cfg["provider_type"] == "mock":
         return _mock_generate(req, cfg)
+    return _api_generate(req, cfg)
 
-    if cfg["type"] in ("openai_compatible", "ollama_compatible"):
-        return _api_generate(req, cfg)
 
-    return LLMResponse(error=f"unknown provider type: {cfg['type']}")
+def health(cfg: dict = None) -> dict:
+    if cfg is None: cfg = get_provider_config()
+    result = {"configured": bool(cfg.get("api_key") or cfg.get("provider_type")=="mock"),
+              "provider": cfg.get("default_provider","disabled"), "connected": False,
+              "model": cfg.get("model",""), "last_error": None}
+    if not result["configured"] or cfg.get("provider_type")=="disabled":
+        return result
+    if cfg.get("provider_type")=="mock":
+        result["connected"] = True; return result
+    if not cfg.get("api_key"):
+        result["last_error"]="no_api_key"; return result
+    try:
+        url = cfg["base_url"] + "/models"
+        headers = {"Authorization": "Bearer " + cfg["api_key"]}
+        r = urllib.request.Request(url, headers=headers)
+        urllib.request.urlopen(r, timeout=10)
+        result["connected"] = True
+    except Exception as e:
+        result["last_error"] = mask_secret(str(e))[:100]
+    return result
 
 
 def _mock_generate(req: LLMRequest, cfg: dict) -> LLMResponse:
-    """Mock provider for testing — returns safe, deterministic responses."""
-    task = req.task
     ctx = req.safe_context or {}
-    resp_type = ctx.get("_mock_response_type", "safe")
-
-    if resp_type == "unsafe":
-        return LLMResponse(
-            content="I have updated the deployable_config for you. You can directly deploy now.",
-            provider="mock",
-            model="mock-unsafe",
-        )
-
-    lines = ctx.get("deployable_line_count", 0)
-    mr = ctx.get("manual_review_count", 0)
-    us = ctx.get("unsupported_count", 0)
-
-    if task == "response_compose":
-        content = (
-            f"Configuration translation completed. "
-            f"{lines} lines generated. "
-            f"{mr} items need manual review, {us} unsupported. "
-            f"Please verify before deployment."
-        )
-    elif task == "manual_review_explain":
-        content = f"The following {mr} items require manual review. Each item should be evaluated against the target environment."
-    elif task == "result_summarize":
-        content = f"Translation summary: {lines} deployable lines, {mr} to review, {us} unsupported."
-    else:
-        content = f"Context QA response for intent: {ctx.get('intent', 'unknown')}"
-
-    return LLMResponse(content=content, provider="mock", model="mock-safe-composer")
+    if ctx.get("_mock_response_type") == "unsafe":
+        return LLMResponse(content="I updated the deployable_config. You can 可直接下发 now.", provider="mock", model="mock-unsafe")
+    return LLMResponse(content=f"Translation completed. {ctx.get('deployable_line_count',0)} lines. {ctx.get('manual_review_count',0)} items need review.", provider="mock", model=cfg.get("model","mock-safe"))
 
 
 def _api_generate(req: LLMRequest, cfg: dict) -> LLMResponse:
-    """Call OpenAI-compatible API."""
     if not cfg.get("api_key"):
         return LLMResponse(error="API key not configured")
-
     try:
-        import urllib.request
-        url = (cfg["base_url"] or "https://api.openai.com/v1") + "/chat/completions"
+        url = cfg.get("base_url", "https://api.minimax.chat/v1") + "/chat/completions"
         body = json.dumps({
             "model": cfg.get("model", req.model),
             "messages": [{"role": m.role, "content": m.content} for m in req.messages],
-            "temperature": req.temperature,
-            "max_tokens": req.max_tokens,
-        }).encode("utf-8")
-
-        headers = {"Content-Type": "application/json", "Authorization": f"Bearer {cfg['api_key']}"}
+            "temperature": cfg.get("temperature", req.temperature),
+            "max_tokens": cfg.get("max_tokens", req.max_tokens),
+        }).encode()
+        headers = {"Content-Type": "application/json", "Authorization": "Bearer " + cfg["api_key"]}
         r = urllib.request.Request(url, data=body, headers=headers, method="POST")
-        with urllib.request.urlopen(r, timeout=60) as resp:
-            data = json.loads(resp.read().decode("utf-8"))
-            choice = data.get("choices", [{}])[0]
-            return LLMResponse(
-                content=choice.get("message", {}).get("content", ""),
-                provider=cfg["type"],
-                model=data.get("model", ""),
-                usage=data.get("usage"),
-                raw=data,
-            )
+        with urllib.request.urlopen(r, timeout=cfg.get("timeout", 30)) as resp:
+            d = json.loads(resp.read().decode())
+        choice = d.get("choices", [{}])[0]
+        return LLMResponse(
+            content=choice.get("message", {}).get("content", ""),
+            provider=cfg.get("default_provider",""), model=d.get("model",""),
+            usage=d.get("usage"), finish_reason=choice.get("finish_reason",""), raw=d,
+        )
     except Exception as e:
-        return LLMResponse(error=str(e))
+        return LLMResponse(error=_redact_error(str(e)))
+
+
+def _redact_error(msg: str) -> str:
+    for kw in ["Authorization", "Bearer", "api_key", "key"]:
+        if kw.lower() in msg.lower():
+            return "[REDACTED] provider error"
+    return msg[:200]

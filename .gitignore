@@ -1,18 +1,18 @@
-# Python
 __pycache__/
 *.py[cod]
-*$py.class
-*.so
-.Python
 venv/
 .env
-
-# Pytest
-.pytest_cache/
-
-# Logs
+*.env
+config/llm.local.yaml
+config/secrets.yaml
+apikey
+api_key
+minimax_apikey
+minimax_api_key
 *.log
-
-# OS
 .DS_Store
-Thumbs.db
+memory/data/
+reports/*secret*
+reports/*apikey*
+reports/*key*
+workspaces/*/state.json

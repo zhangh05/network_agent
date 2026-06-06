@@ -171,7 +171,7 @@ def get_runtime_status() -> dict:
         "llm_allowed_tasks": llm_status["allowed_tasks"],
         "llm_blocked_tasks": llm_status["blocked_tasks"],
         "llm_config_source": llm_status["config_source"],
-        "llm_policy_red_lines": llm_status["policy_red_lines"],
+        "llm_policy_red_lines": llm_status["red_lines"],
         "supported_intents": list(INTENTS.keys()),
         "enabled_skills": enabled_skills,
         "enabled_modules": enabled_modules,

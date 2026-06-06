@@ -21,6 +21,7 @@ from flask import Flask, send_from_directory
 from backend.api.version import get_version
 from backend.api.modules_translate import handle_module_translate
 from backend.api.agent import handle_agent_run, handle_agent_status
+from backend.api.llm_api import handle_llm_status, handle_llm_test
 from backend.api.skills import handle_skills, get_skill_count
 from backend.api.workspace import handle_workspace_status
 from backend.api.modules import handle_modules, handle_module_status
@@ -60,6 +61,14 @@ def create_app():
     @app.route("/api/agent/status")
     def api_agent_status():
         return handle_agent_status()
+
+    @app.route("/api/agent/llm/status")
+    def api_agent_llm_status():
+        return handle_llm_status()
+
+    @app.route("/api/agent/llm/test", methods=["POST"])
+    def api_agent_llm_test():
+        return handle_llm_test()
 
     # ── Workspace ──
     @app.route("/api/workspace/status")
