@@ -1,0 +1,9 @@
+# config/llm.yaml — active LLM config for harness testing
+llm:
+  enabled: false
+  default_provider: mock
+  safe_mode: true
+  providers:
+    mock:
+      type: mock
+      model: mock-safe-composer

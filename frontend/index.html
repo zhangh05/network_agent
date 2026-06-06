@@ -826,7 +826,12 @@ function sendAgent(){
         reply+='\n\n点击查看「配置翻译」模块的详细结果。';
         setTimeout(()=>switchPage('translate'),500);
       }
-      reply+='\n<span class="time" style="margin-top:6px">runtime: '+esc(d.runtime_mode||'fallback')+'</span>';
+      var l = d.llm||{};
+      reply+='\n<span class="time" style="margin-top:6px">runtime: '+esc(d.runtime_mode||'fallback');
+      if(l.used) reply+=' | AI 已参与回答 ('+esc(l.provider||'')+')';
+      else reply+=' | 规则回复';
+      if(l.fallback_reason) reply+=' | '+esc(l.fallback_reason);
+      reply+='</span>';
     }else{
       reply=(d.error||'请求失败，请稍后重试')+'\n<span class="time" style="margin-top:6px">[local fallback]</span>';
     }

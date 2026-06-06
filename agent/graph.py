@@ -92,6 +92,7 @@ def run_agent(user_input: str = "", intent: str = "", payload: dict = None,
         state = _run_fallback(state)
 
     result = state.tool_results or {}
+    llm_ctx = state.context.get("llm", {})
     return {
         "ok": state.error is None,
         "request_id": state.request_id,
@@ -104,6 +105,15 @@ def run_agent(user_input: str = "", intent: str = "", payload: dict = None,
         "warnings": state.warnings,
         "final_response": state.final_response,
         "memory_written": len(state.tool_calls) > 0,
+        "llm": {
+            "enabled": llm_ctx.get("enabled", False),
+            "used": llm_ctx.get("used", False),
+            "provider": llm_ctx.get("provider"),
+            "model": llm_ctx.get("model"),
+            "task": llm_ctx.get("task"),
+            "policy_pass": llm_ctx.get("policy_pass"),
+            "fallback_reason": llm_ctx.get("fallback_reason"),
+        },
     }
 
 
@@ -141,6 +151,9 @@ def get_runtime_status() -> dict:
     else:
         fallback_reason = "langgraph_import_failed"
 
+    from agent.llm.runtime import get_llm_status
+    llm_status = get_llm_status()
+
     from agent.nodes.intent_router import INTENTS
 
     return {
@@ -150,8 +163,15 @@ def get_runtime_status() -> dict:
         "graph_compile_ok": graph_compile_ok,
         "graph_nodes": graph_nodes,
         "fallback_reason": fallback_reason,
-        "llm_connected": False,
-        "llm_provider": None,
+        "llm_enabled": llm_status["enabled"],
+        "llm_connected": llm_status["connected"],
+        "llm_provider": llm_status["provider"],
+        "llm_model": llm_status["model"],
+        "llm_safe_mode": llm_status["safe_mode"],
+        "llm_allowed_tasks": llm_status["allowed_tasks"],
+        "llm_blocked_tasks": llm_status["blocked_tasks"],
+        "llm_config_source": llm_status["config_source"],
+        "llm_policy_red_lines": llm_status["policy_red_lines"],
         "supported_intents": list(INTENTS.keys()),
         "enabled_skills": enabled_skills,
         "enabled_modules": enabled_modules,
