@@ -82,7 +82,9 @@ def run_agent(user_input: str = "", intent: str = "", payload: dict = None,
     if _LANGGRAPH_AVAILABLE:
         try:
             app = _build_langgraph()
-            state = app.invoke(state)
+            result_dict = app.invoke(state)
+            # LangGraph returns a dict; convert back
+            state = NetworkAgentState(**{k: v for k, v in result_dict.items() if k in NetworkAgentState.__dataclass_fields__})
             state.runtime_mode = "langgraph"
         except Exception:
             state = _run_fallback(state)
@@ -107,7 +109,7 @@ def run_agent(user_input: str = "", intent: str = "", payload: dict = None,
 
 def get_runtime_status() -> dict:
     """Report agent runtime status."""
-    import json, os
+    import json, os, traceback
 
     root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
@@ -125,11 +127,29 @@ def get_runtime_status() -> dict:
     except Exception:
         enabled_modules = []
 
+    # Check LangGraph availability and compile status
+    graph_compile_ok = False
+    fallback_reason = None
+    graph_nodes = []
+    if _LANGGRAPH_AVAILABLE:
+        try:
+            app = _build_langgraph()
+            graph_nodes = list(app.get_graph().nodes.keys())
+            graph_compile_ok = True
+        except Exception as e:
+            fallback_reason = f"compile_failed: {traceback.format_exception_only(e)[-1].strip()}"
+    else:
+        fallback_reason = "langgraph_import_failed"
+
     from agent.nodes.intent_router import INTENTS
 
     return {
-        "agent_runtime": "langgraph" if _LANGGRAPH_AVAILABLE else "fallback",
+        "agent_runtime": "langgraph" if _LANGGRAPH_AVAILABLE and graph_compile_ok else "fallback",
+        "langgraph_available": _LANGGRAPH_AVAILABLE,
         "fallback_available": True,
+        "graph_compile_ok": graph_compile_ok,
+        "graph_nodes": graph_nodes,
+        "fallback_reason": fallback_reason,
         "llm_connected": False,
         "llm_provider": None,
         "supported_intents": list(INTENTS.keys()),
