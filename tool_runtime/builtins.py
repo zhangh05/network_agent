@@ -1,0 +1,389 @@
+# tool_runtime/builtins.py
+"""v0.1 built-in low-risk tools.
+
+Seven tools are provided:
+  1. artifact.list          — list artifact summaries (no full content)
+  2. artifact.read_summary  — read safe summary of a single artifact
+  3. parser.parse_config_text    — shallow safe parsing of config text
+  4. parser.extract_interfaces   — extract interface names (no full blocks)
+  5. parser.extract_routes       — extract route-like line summaries
+  6. report.render_from_safe_summary — render markdown from safe summary
+  7. command.dry_run_echo    — test dry-run call chain (never executes)
+
+All tools are risk_level=low and dry_run_supported=True.
+None execute real device commands, shells, or arbitrary file access.
+"""
+
+from tool_runtime.schemas import ToolSpec, ToolInvocation
+from tool_runtime.registry import ToolRegistry
+
+
+# ═══════════════════════════════════
+# Tool Handlers
+# ═══════════════════════════════════
+
+def _handler_artifact_list(invocation: ToolInvocation) -> dict:
+    """List artifact summaries for a workspace. Returns metadata only."""
+    workspace_id = invocation.arguments.get("workspace_id", invocation.workspace_id or "default")
+    try:
+        from workspace.manager import get_workspace_state
+        state = get_workspace_state(workspace_id)
+        items = []
+        # Artifacts are tracked in workspace state with refs
+        art_refs = state.get("artifact_refs", []) if isinstance(state, dict) else []
+        return {
+            "ok": True,
+            "summary": f"Listed {len(art_refs)} artifact references",
+            "artifacts": art_refs[:50],  # limit to 50 entries
+            "workspace_id": workspace_id,
+            "warnings": ["Artifact list is metadata-only; no full content returned"] if art_refs else [],
+        }
+    except Exception as exc:
+        return {
+            "ok": False,
+            "summary": f"Failed to list artifacts: {str(exc)[:100]}",
+            "artifacts": [],
+            "warnings": [f"artifact.list failed: {str(exc)[:100]}"],
+        }
+
+
+def _handler_artifact_read_summary(invocation: ToolInvocation) -> dict:
+    """Read safe summary of a single artifact. No full content returned."""
+    artifact_id = invocation.arguments.get("artifact_id", "")
+    workspace_id = invocation.arguments.get("workspace_id", invocation.workspace_id or "default")
+
+    if not artifact_id:
+        return {"ok": False, "summary": "Missing artifact_id", "warnings": ["artifact_id required"]}
+
+    try:
+        from artifacts.store import summarize_artifact_content
+        summary = summarize_artifact_content(workspace_id, artifact_id)
+        if summary:
+            return {
+                "ok": True,
+                "summary": summary.get("summary", f"Artifact {artifact_id}"),
+                "artifact_id": artifact_id,
+                "metadata": {
+                    "artifact_type": summary.get("artifact_type", ""),
+                    "sensitivity": summary.get("sensitivity", ""),
+                    "size_bytes": summary.get("size_bytes", 0),
+                },
+            }
+        return {"ok": False, "summary": f"Artifact not found: {artifact_id}", "artifact_id": artifact_id}
+    except Exception as exc:
+        return {
+            "ok": False,
+            "summary": f"Failed to read artifact: {str(exc)[:100]}",
+            "artifact_id": artifact_id,
+            "warnings": [f"artifact.read_summary failed: {str(exc)[:100]}"],
+        }
+
+
+def _handler_parser_parse_config_text(invocation: ToolInvocation) -> dict:
+    """Shallow safe parse of config text. Returns statistics only."""
+    text = invocation.arguments.get("config_text", "")
+    if not text:
+        return {"ok": False, "summary": "No config_text provided", "warnings": ["config_text required"]}
+
+    lines = text.split("\n")
+    non_empty = [l for l in lines if l.strip() and not l.strip().startswith("!")]
+    line_count = len(lines)
+    non_empty_count = len(non_empty)
+
+    # Heuristic vendor detection
+    vendor_hint = "unknown"
+    text_lower = text.lower()
+    if "huawei" in text_lower or "vlanif" in text_lower or "sysname" in text_lower:
+        vendor_hint = "huawei"
+    elif "h3c" in text_lower or "comware" in text_lower:
+        vendor_hint = "h3c"
+    elif "cisco" in text_lower or "ios" in text_lower or "enable" in text_lower:
+        vendor_hint = "cisco"
+    elif "ruijie" in text_lower:
+        vendor_hint = "ruijie"
+
+    # Block detection
+    has_interface = "interface " in text_lower or "interface\n" in text_lower
+    has_acl = "access-list" in text_lower or "acl" in text_lower
+    has_route = "ip route" in text_lower or "route " in text_lower
+
+    warnings = []
+    if line_count > 10000:
+        warnings.append("Large config detected, consider splitting")
+
+    return {
+        "ok": True,
+        "summary": f"Parsed {line_count} lines ({non_empty_count} non-empty), vendor={vendor_hint}",
+        "line_count": line_count,
+        "non_empty_line_count": non_empty_count,
+        "vendor_hint": vendor_hint,
+        "has_interface_blocks": has_interface,
+        "has_acl_like_lines": has_acl,
+        "has_route_like_lines": has_route,
+        "warnings": warnings,
+    }
+
+
+def _handler_parser_extract_interfaces(invocation: ToolInvocation) -> dict:
+    """Extract interface names from config text. No full interface blocks returned."""
+    text = invocation.arguments.get("config_text", "")
+    if not text:
+        return {"ok": False, "summary": "No config_text provided", "warnings": ["config_text required"]}
+
+    import re
+    # Match interface definitions: "interface GigabitEthernet0/0/1" etc
+    pattern = re.compile(r'^\s*(?:interface|int)\s+(\S+)', re.IGNORECASE | re.MULTILINE)
+    matches = pattern.findall(text)
+
+    interface_names = list(dict.fromkeys(matches))  # dedup, preserve order
+    total = len(interface_names)
+    limited = interface_names[:100]
+
+    warnings = []
+    if total > 100:
+        warnings.append(f"Truncated from {total} to 100 interfaces")
+
+    return {
+        "ok": True,
+        "summary": f"Found {total} unique interface names",
+        "interface_count": total,
+        "interface_names": limited,
+        "truncated": total > 100,
+        "warnings": warnings,
+    }
+
+
+def _handler_parser_extract_routes(invocation: ToolInvocation) -> dict:
+    """Extract route-like line summaries. No full config blocks."""
+    text = invocation.arguments.get("config_text", "")
+    if not text:
+        return {"ok": False, "summary": "No config_text provided", "warnings": ["config_text required"]}
+
+    import re
+    # Match static route patterns
+    route_pattern = re.compile(
+        r'^\s*(?:ip\s+)?route(?:-static)?\s+(.+)$', re.IGNORECASE | re.MULTILINE
+    )
+    matches = route_pattern.findall(text)
+
+    # Sanitize: strip sensitive-looking content
+    sanitized = []
+    for m in matches:
+        clean = m.strip()[:120]
+        # Mask potential IPs with partial redaction (keep structure)
+        clean = re.sub(r'(\d{1,3}\.\d{1,3})\.\d{1,3}\.\d{1,3}', r'\1.x.x', clean)
+        sanitized.append(clean)
+
+    total = len(sanitized)
+    limited = sanitized[:100]
+    warnings = []
+    if total > 100:
+        warnings.append(f"Truncated from {total} to 100 route lines")
+
+    return {
+        "ok": True,
+        "summary": f"Found {total} route-like lines",
+        "route_count": total,
+        "route_summaries": limited,
+        "truncated": total > 100,
+        "warnings": warnings,
+    }
+
+
+def _handler_report_render(invocation: ToolInvocation) -> dict:
+    """Render safe summary to markdown. No full config, no docx/pdf, no fake artifacts."""
+    title = invocation.arguments.get("title", "Report")
+    summary_text = invocation.arguments.get("summary", "")
+
+    # Refuse full config input
+    if len(summary_text) > 5000:
+        return {
+            "ok": False,
+            "summary": "Summary too long (max 5000 chars) — full config not accepted",
+            "warnings": ["Full config rejected: use safe summary only"],
+        }
+
+    # Safety: check for config-like content
+    if "interface " in summary_text.lower() and len(summary_text) > 2000:
+        return {
+            "ok": False,
+            "summary": "Input appears to contain raw config — use safe summary only",
+            "warnings": ["Raw config detected and rejected"],
+        }
+
+    md = f"# {title}\n\n{summary_text}\n\n---\n*Generated by Tool Runtime v0.1 — safe summary only*"
+
+    return {
+        "ok": True,
+        "summary": f"Rendered markdown ({len(md)} chars)",
+        "markdown": md,
+        "format": "markdown",
+        "warnings": ["docx/pdf not supported in v0.1; only markdown rendering available"],
+    }
+
+
+def _handler_dry_run_echo(invocation: ToolInvocation) -> dict:
+    """Test dry-run call chain. NEVER executes any shell or command."""
+    # Always treat this as dry_run
+    args_safe = {}
+    for k, v in invocation.arguments.items():
+        if k in ("password", "secret", "token", "key", "api_key"):
+            args_safe[k] = "[REDACTED]"
+        elif isinstance(v, str) and len(v) > 200:
+            args_safe[k] = v[:197] + "..."
+        else:
+            args_safe[k] = v
+
+    return {
+        "ok": True,
+        "summary": f"dry_run_echo: received {len(args_safe)} arguments",
+        "echo": args_safe,
+        "dry_run": True,
+        "message": "This tool NEVER executes shell commands.",
+    }
+
+
+# ═══════════════════════════════════
+# ToolSpec Definitions
+# ═══════════════════════════════════
+
+BUILTIN_TOOLS = [
+    (
+        ToolSpec(
+            tool_id="artifact.list",
+            name="List Artifacts",
+            description="List artifact metadata summaries for a workspace. No full content returned.",
+            category="artifact",
+            risk_level="low",
+            reads_artifact=True,
+            input_schema={
+                "type": "object",
+                "properties": {
+                    "workspace_id": {"type": "string"},
+                },
+            },
+        ),
+        _handler_artifact_list,
+    ),
+    (
+        ToolSpec(
+            tool_id="artifact.read_summary",
+            name="Read Artifact Summary",
+            description="Read safe summary metadata of a single artifact. No full config output.",
+            category="artifact",
+            risk_level="low",
+            reads_artifact=True,
+            input_schema={
+                "type": "object",
+                "required": ["artifact_id"],
+                "properties": {
+                    "artifact_id": {"type": "string"},
+                    "workspace_id": {"type": "string"},
+                },
+            },
+        ),
+        _handler_artifact_read_summary,
+    ),
+    (
+        ToolSpec(
+            tool_id="parser.parse_config_text",
+            name="Parse Config Text",
+            description="Shallow safe parse of config text. Returns statistics and structure hints only.",
+            category="parser",
+            risk_level="low",
+            input_schema={
+                "type": "object",
+                "required": ["config_text"],
+                "properties": {
+                    "config_text": {"type": "string"},
+                },
+            },
+        ),
+        _handler_parser_parse_config_text,
+    ),
+    (
+        ToolSpec(
+            tool_id="parser.extract_interfaces",
+            name="Extract Interfaces",
+            description="Extract interface names from config text. No full interface blocks returned.",
+            category="parser",
+            risk_level="low",
+            input_schema={
+                "type": "object",
+                "required": ["config_text"],
+                "properties": {
+                    "config_text": {"type": "string"},
+                },
+            },
+        ),
+        _handler_parser_extract_interfaces,
+    ),
+    (
+        ToolSpec(
+            tool_id="parser.extract_routes",
+            name="Extract Routes",
+            description="Extract route-like line summaries from config text. IPs partially masked.",
+            category="parser",
+            risk_level="low",
+            input_schema={
+                "type": "object",
+                "required": ["config_text"],
+                "properties": {
+                    "config_text": {"type": "string"},
+                },
+            },
+        ),
+        _handler_parser_extract_routes,
+    ),
+    (
+        ToolSpec(
+            tool_id="report.render_from_safe_summary",
+            name="Render Report from Safe Summary",
+            description="Render safe summary text to markdown. No docx/pdf. No full config accepted.",
+            category="report",
+            risk_level="low",
+            input_schema={
+                "type": "object",
+                "required": ["title", "summary"],
+                "properties": {
+                    "title": {"type": "string"},
+                    "summary": {"type": "string"},
+                },
+            },
+        ),
+        _handler_report_render,
+    ),
+    (
+        ToolSpec(
+            tool_id="command.dry_run_echo",
+            name="Dry-run Echo",
+            description="Test dry-run call chain. NEVER executes shell commands. Always dry_run.",
+            category="command",
+            risk_level="low",
+            dry_run_supported=True,
+            input_schema={
+                "type": "object",
+                "properties": {},
+            },
+        ),
+        _handler_dry_run_echo,
+    ),
+]
+
+
+def register_builtin_tools(registry: ToolRegistry) -> ToolRegistry:
+    """Register all v0.1 built-in tools into the given registry.
+
+    Returns the same registry for chaining.
+    """
+    for spec, handler in BUILTIN_TOOLS:
+        registry.register_tool(spec, handler)
+    return registry
+
+
+def create_registry_with_builtins() -> ToolRegistry:
+    """Create a ToolRegistry and register all built-in tools.
+
+    Convenience factory for tests and runtime initialization.
+    """
+    return register_builtin_tools(ToolRegistry())

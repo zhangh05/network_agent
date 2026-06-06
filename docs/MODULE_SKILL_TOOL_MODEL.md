@@ -394,6 +394,8 @@ As of commit `9bec6aa+`, a naming boundary cleanup was performed to resolve the 
 
 ## 11. Non-Goals
 
+> **Update**: Tool Runtime Foundation v0.1 has been established with independent ToolSpec / ToolRegistry / ToolInvocation / ToolResult. See [TOOL_RUNTIME.md](./TOOL_RUNTIME.md). Still no real device execution.
+
 This document explicitly does **NOT**:
 
 - Implement Tool Runtime

@@ -86,6 +86,8 @@ ReportComposer → render (Jinja2) → export (HTML/Markdown/JSON)
 
 Module / Skill / Capability / Tool 四层边界定义：[MODULE_SKILL_TOOL_MODEL.md](./MODULE_SKILL_TOOL_MODEL.md)
 
+Tool Runtime Foundation v0.1：[TOOL_RUNTIME.md](./TOOL_RUNTIME.md) — 轻量原子工具执行底座（无真实设备执行）
+
 ## 安全边界
 
 - **LLM 红线**: 不生成 deployable_config，不声称可直接部署，不隐藏 manual_review 标记

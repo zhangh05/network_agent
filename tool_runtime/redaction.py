@@ -1,0 +1,111 @@
+# tool_runtime/redaction.py
+"""Tool Runtime redaction — strips secrets from tool output before return.
+
+Reuses patterns consistent with memory/ workspace/ observability redaction layers.
+Handles dict, list, and string inputs recursively.
+"""
+
+import re
+import copy
+
+# ── Secret patterns ──
+_SECRET_PATTERNS = [
+    # Key-like (sk- prefix)
+    (re.compile(r'(sk-[a-zA-Z0-9]{4})[a-zA-Z0-9]+'), r'\1****[REDACTED]'),
+    # Bearer tokens
+    (re.compile(r'Bearer\s+[^\s"\'<>]+', re.IGNORECASE), 'Bearer [REDACTED]'),
+    # Password/secret lines
+    (re.compile(r'(?:password|passwd|secret|community)\s+[^\s"\']+', re.IGNORECASE),
+     lambda m: m.group(0).split()[0] + ' [REDACTED]'),
+    # API key patterns
+    (re.compile(r'(?:api_key|apikey|api-key)\s*[:=]\s*[^\s,}"\']+', re.IGNORECASE),
+     lambda m: re.split(r'[:=]', m.group(0), 1)[0] + '=[REDACTED]'),
+    # Authorization headers
+    (re.compile(r'authorization\s*[:=]\s*[^\s,}"\']+', re.IGNORECASE),
+     lambda m: 'Authorization=[REDACTED]'),
+    # Absolute paths (Unix style)
+    (re.compile(r'(?:^|\s)/(?:home|Users|root|tmp|etc|var|opt|usr)/[^\s"\'<>]*'),
+     '[PATH_REDACTED]'),
+]
+
+# Sensitive key names to mask in dicts
+_SENSITIVE_DICT_KEYS = {
+    'password', 'passwd', 'secret', 'token', 'api_key', 'apikey',
+    'key', 'community', 'authorization', 'bearer', 'private_key',
+    'ssh_key', 'psk', 'pre_shared_key', 'access_key', 'secret_key',
+}
+
+
+def redact_string(text: str) -> str:
+    """Apply regex-based redaction to a single string."""
+    for pattern, replacement in _SECRET_PATTERNS:
+        if callable(replacement):
+            text = pattern.sub(replacement, text)
+        else:
+            text = pattern.sub(replacement, text)
+    return text
+
+
+def redact_dict(data: dict) -> dict:
+    """Deep-redact a dict: mask sensitive keys, then regex-redact all string values."""
+    result = {}
+    for key, value in data.items():
+        if key.lower() in _SENSITIVE_DICT_KEYS or any(
+            sk in key.lower() for sk in _SENSITIVE_DICT_KEYS
+        ):
+            result[key] = '[REDACTED]'
+        elif isinstance(value, dict):
+            result[key] = redact_dict(value)
+        elif isinstance(value, list):
+            result[key] = redact_list(value)
+        elif isinstance(value, str):
+            result[key] = redact_string(value)
+        else:
+            result[key] = value
+    return result
+
+
+def redact_list(data: list) -> list:
+    """Deep-redact a list."""
+    result = []
+    for item in data:
+        if isinstance(item, dict):
+            result.append(redact_dict(item))
+        elif isinstance(item, list):
+            result.append(redact_list(item))
+        elif isinstance(item, str):
+            result.append(redact_string(item))
+        else:
+            result.append(item)
+    return result
+
+
+def redact_tool_output(data: any) -> any:
+    """Main entry: redact any Python structure deeply.
+
+    Returns a deep copy — does not mutate the original.
+    All dict keys, string values, and nested structures are processed.
+    """
+    if isinstance(data, dict):
+        return redact_dict(copy.deepcopy(data))
+    elif isinstance(data, list):
+        return redact_list(copy.deepcopy(data))
+    elif isinstance(data, str):
+        return redact_string(data)
+    return data
+
+
+def contains_secret(data: any) -> bool:
+    """Check if data contains any secret patterns."""
+    text = str(data)
+    for pattern, _ in _SECRET_PATTERNS:
+        if pattern.search(text):
+            return True
+    # Also check dict keys
+    if isinstance(data, dict):
+        for key in data:
+            if key.lower() in _SENSITIVE_DICT_KEYS:
+                return True
+            if any(sk in key.lower() for sk in _SENSITIVE_DICT_KEYS):
+                return True
+    return False
