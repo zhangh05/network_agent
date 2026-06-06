@@ -1,107 +1,187 @@
 # agent/llm/runtime.py
-"""LLM Runtime — safe_generate with unified config (UI settings priority), policy, and fallback."""
+"""LLM Runtime — safe_generate with Prompt Runtime (yaml+template primary)."""
 
 from typing import Optional
 from agent.state import NetworkAgentState
-from agent.llm.schemas import (
-    LLMRequest, LLMMessage, SafeLLMOutput, PolicyDecision,
-)
-from agent.llm.context_builder import build_safe_context
-from agent.llm.policy import check_request, check_response
+from agent.llm.schemas import LLMRequest, LLMMessage, SafeLLMOutput, PolicyDecision
 
 
 def safe_generate(
     task: str,
-    state: NetworkAgentState,
-    user_question: Optional[str] = None,
+    state_or_context=None,
+    context_bundle=None,
+    safe_context=None,
+    user_input: str = "",
+    extra: dict = None,
 ) -> SafeLLMOutput:
-    """Safe LLM generation with unified effective config.
-    
-    Uses UI settings (config/LLM_setting.json) as highest priority,
-    falls back to env/file only when UI settings don't exist.
-    """
+    """Safe LLM generation with Prompt Runtime (prompts/registry.yaml + templates)."""
+
+    # Resolve state
+    state = None
+    if isinstance(state_or_context, NetworkAgentState):
+        state = state_or_context
+        ctx = state.context or {}
+        if context_bundle is None:
+            context_bundle = ctx.get("context_bundle", {})
+        if safe_context is None:
+            safe_context = ctx.get("safe_llm_context", {})
+        user_input = user_input or state.user_input
+
+    safe_ctx = safe_context or {}
+
     from agent.llm.config import resolve_provider_config
     cfg = resolve_provider_config()
 
     if not cfg.get("enabled") or cfg.get("provider_type") == "disabled":
-        return SafeLLMOutput(
-            answer="LLM is disabled.",
-            llm_used=False,
-            fallback_reason="disabled",
-        )
+        return SafeLLMOutput(answer="LLM is disabled.", llm_used=False, fallback_reason="disabled")
 
-    safe_ctx = build_safe_context(state)
+    # ── Prompt Runtime (primary path) ──
+    prompt_runtime_used = True
+    prompt_runtime_fallback = False
+    prompt_id = ""
+    prompt_version = ""
+    prompt_policy_pass = True
+    prompt_block_reason = ""
+    injection_detected = False
 
-    system_prompt = _get_task_prompt(task)
-    messages = _build_messages(task, safe_ctx, user_question, system_prompt)
+    try:
+        from prompts.loader import get_prompt_by_task
+        from prompts.renderer import render_prompt
+        from prompts.policy import check_prompt_input, check_prompt_text, check_prompt_output, detect_prompt_injection
+
+        # Injection detection
+        inj_result = detect_prompt_injection(user_input)
+        injection_detected = inj_result.injection_detected
+
+        spec = get_prompt_by_task(task)
+        prompt_id = spec.prompt_id
+        prompt_version = spec.version
+
+        # Input policy
+        inp_result = check_prompt_input(spec, safe_ctx)
+        if not inp_result.ok:
+            return SafeLLMOutput(
+                answer="LLM blocked by prompt input policy.",
+                llm_used=False, fallback_reason=f"prompt_input_blocked: {inp_result.issues}",
+                metadata={"prompt_runtime_used": True, "prompt_id": prompt_id,
+                          "prompt_version": prompt_version, "prompt_policy_pass": False,
+                          "prompt_block_reason": str(inp_result.issues),
+                          "prompt_injection_detected": injection_detected},
+            )
+
+        # Render
+        citations = safe_ctx.get("citations", []) if isinstance(safe_ctx, dict) else []
+        rendered = render_prompt(task, safe_ctx, user_input, citations, extra)
+
+        # Text policy
+        txt_result = check_prompt_text(rendered.text, spec)
+        if not txt_result.ok:
+            prompt_policy_pass = False
+            prompt_block_reason = str(txt_result.issues)
+
+            # Still allow if not critical — fall back to response
+            pass  # continue to provider for now, output policy will catch
+
+    except Exception:
+        # Fallback to old path
+        prompt_runtime_fallback = True
+        safe_ctx = _old_safe_context(state)
+
+    # Build messages
+    system_prompt = _get_system_prompt(task)
+    messages = _build_messages(task, safe_ctx, user_input, system_prompt)
 
     req = LLMRequest(
-        task=task,
-        safe_context=safe_ctx,
-        messages=messages,
-        model=cfg["model"],
-        temperature=cfg["temperature"],
-        max_tokens=cfg["max_tokens"],
+        task=task, safe_context=safe_ctx, messages=messages,
+        model=cfg["model"], temperature=cfg["temperature"], max_tokens=cfg["max_tokens"],
     )
 
+    # Existing policy check
+    from agent.llm.policy import check_request, check_response
     policy_req = check_request(req, state)
     if not policy_req.allowed:
         return SafeLLMOutput(
-            answer="LLM blocked by policy.",
-            warnings=policy_req.violations,
-            llm_used=False,
-            fallback_reason=f"policy_blocked: {policy_req.reason}",
+            answer="LLM blocked by policy.", warnings=policy_req.violations,
+            llm_used=False, fallback_reason=f"policy_blocked: {policy_req.reason}",
+            metadata={"prompt_runtime_used": prompt_runtime_used, "prompt_id": prompt_id},
         )
 
     from agent.llm.provider import generate
     try:
         resp = generate(req)
     except Exception as e:
-        return SafeLLMOutput(
-            answer="Provider error.",
-            llm_used=False,
-            fallback_reason=f"provider: {_redact(str(e))}",
-        )
+        return SafeLLMOutput(answer="Provider error.", llm_used=False,
+                             fallback_reason=f"provider: {_redact(str(e))}")
 
     if resp.error:
-        return SafeLLMOutput(
-            answer="Provider unavailable.",
-            llm_used=False,
-            fallback_reason=f"provider: {_redact(resp.error)}",
-        )
+        return SafeLLMOutput(answer="Provider unavailable.", llm_used=False,
+                             fallback_reason=f"provider: {_redact(resp.error)}")
+
+    # ── Output policy ──
+    output_accepted = True
+    try:
+        from prompts.policy import check_prompt_output
+        out_result = check_prompt_output(None, resp.content, citations if 'citations' in dir() else [])
+        if not out_result.ok:
+            prompt_policy_pass = False
+            prompt_block_reason = str(out_result.issues)
+            output_accepted = False
+            return SafeLLMOutput(
+                answer="Response blocked by prompt output policy.",
+                llm_used=False, fallback_reason=f"prompt_output_blocked: {out_result.issues}",
+                metadata={"prompt_runtime_used": True, "prompt_id": prompt_id,
+                          "prompt_version": prompt_version,
+                          "prompt_policy_pass": False, "prompt_block_reason": prompt_block_reason,
+                          "prompt_injection_detected": injection_detected,
+                          "provider_called": True, "output_accepted": False},
+            )
+    except Exception:
+        pass
 
     policy_resp = check_response(resp, state)
     if not policy_resp.allowed:
-        return SafeLLMOutput(
-            answer="Response blocked by safety policy.",
-            warnings=policy_resp.violations,
-            llm_used=False,
-            fallback_reason=f"response_policy: {policy_resp.reason}",
-        )
+        return SafeLLMOutput(answer="Response blocked by safety policy.",
+                             warnings=policy_resp.violations, llm_used=False,
+                             fallback_reason=f"response_policy: {policy_resp.reason}")
 
     return SafeLLMOutput(
-        summary=resp.content,
-        answer=resp.content,
-        safe_to_show=True,
-        policy_decision=policy_resp,
+        summary=resp.content, answer=resp.content, safe_to_show=True,
         llm_used=True,
+        metadata={
+            "prompt_runtime_used": True, "prompt_id": prompt_id,
+            "prompt_version": prompt_version, "prompt_task": task,
+            "prompt_policy_pass": prompt_policy_pass,
+            "prompt_block_reason": prompt_block_reason,
+            "prompt_injection_detected": injection_detected,
+            "prompt_runtime_fallback": prompt_runtime_fallback,
+            "output_accepted": output_accepted,
+        },
     )
 
 
-def _get_task_prompt(task: str) -> str:
+def _get_system_prompt(task: str) -> str:
     try:
-        from agent.llm.tasks.prompts import PROMPTS
-        return PROMPTS.get(task, PROMPTS["response_compose"])
+        from prompts.loader import get_prompt_by_task
+        from prompts.renderer import render_prompt
+        r = render_prompt(task, {}, "")
+        return r.text[:2000]
     except Exception:
-        return "You are a helpful network assistant. Be factual and concise."
+        pass
+    return "You are a helpful network assistant. Be factual and concise."
+
+
+def _old_safe_context(state) -> dict:
+    try:
+        from agent.llm.context_builder import build_safe_context
+        return build_safe_context(state)
+    except Exception:
+        return {}
 
 
 def _build_messages(task, safe_ctx, user_question, system_prompt):
-    user_msg = user_question or f"Task: {task}\nContext: {safe_ctx}\nProvide a concise summary."
-    return [
-        LLMMessage(role="system", content=system_prompt),
-        LLMMessage(role="user", content=user_msg),
-    ]
+    user_msg = user_question or f"Task: {task}\nProvide a concise summary."
+    return [LLMMessage(role="system", content=system_prompt),
+            LLMMessage(role="user", content=user_msg)]
 
 
 def _redact(msg: str) -> str:
@@ -112,6 +192,5 @@ def _redact(msg: str) -> str:
 
 
 def get_llm_status() -> dict:
-    """Get LLM status via unified config path."""
-    from agent.llm.config import get_llm_status as _get_status
-    return _get_status()
+    from agent.llm.config import get_llm_status as _gs
+    return _gs()

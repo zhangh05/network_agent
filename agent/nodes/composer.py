@@ -30,10 +30,17 @@ def compose(state: NetworkAgentState) -> NetworkAgentState:
         })
 
         if cfg.get("enabled") and cfg.get("provider_type") != "disabled":
-            output = safe_generate("response_compose", state)
+            # Select task based on intent and context
+            task = _select_prompt_task(state)
+            output = safe_generate(task, state, user_input=state.user_input)
             state.context["llm"].update({
                 "used": output.llm_used,
-                "task": "response_compose",
+                "task": task,
+                "prompt_task": task,
+                "prompt_id": (output.metadata or {}).get("prompt_id", "") if output.metadata else "",
+                "prompt_version": (output.metadata or {}).get("prompt_version", "") if output.metadata else "",
+                "prompt_runtime_used": (output.metadata or {}).get("prompt_runtime_used", False) if output.metadata else False,
+                "prompt_policy_pass": (output.metadata or {}).get("prompt_policy_pass", False) if output.metadata else False,
                 "policy_pass": output.policy_decision.allowed if output.policy_decision else False,
                 "fallback_reason": output.fallback_reason,
                 "violations": output.warnings,
@@ -83,3 +90,30 @@ def _deterministic(result: dict, intent: str) -> str:
     elif intent == "unknown":
         return "I didn't understand your request. Supported: translate_config, topology_draw, inspection_analyze, knowledge_search."
     return "Request processed."
+
+
+def _select_prompt_task(state: NetworkAgentState) -> str:
+    """Select prompt task based on intent, context, and user input."""
+    ui = (state.user_input or "").lower()
+    result = state.tool_results or {}
+
+    if state.intent == "context_qa":
+        if any(kw in ui for kw in ["失败", "失败原因", "为什么失败", "error", "failed"]):
+            return "job_failure_explain"
+        if any(kw in ui for kw in ["报告", "report", "导出", "文件在哪"]):
+            return "report_summary"
+        if any(kw in ui for kw in ["artifact", "文件", "输入", "输出", "是什么"]):
+            return "artifact_summary_explain"
+        return "context_qa"
+
+    mr = result.get("manual_review", [])
+    if mr and any(kw in ui for kw in ["人工复核", "为什么复核", "风险", "manual", "什么意思"]):
+        return "manual_review_explain"
+
+    if state.error or state.verification.get("status") == "fail":
+        return "job_failure_explain"
+
+    if any(kw in ui for kw in ["总结", "摘要", "summarize"]):
+        return "result_summarize"
+
+    return "response_compose"

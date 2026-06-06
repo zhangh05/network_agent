@@ -73,6 +73,7 @@ class SafeLLMOutput:
     policy_decision: Optional[PolicyDecision] = None
     llm_used: bool = False
     fallback_reason: str = ""
+    metadata: dict = field(default_factory=dict)
 
     def as_dict(self) -> dict:
         return {
