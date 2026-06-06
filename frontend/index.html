@@ -813,23 +813,31 @@ function sendAgent(){
   const time=new Date().toLocaleTimeString('zh-CN',{hour:'2-digit',minute:'2-digit'});
   body.insertAdjacentHTML('beforeend','<div class="ag-bubble user">'+esc(txt)+'<div class="time">'+time+'</div></div>');
   inp.value=''; body.scrollTop=body.scrollHeight;
-  setTimeout(()=>{
-    let reply='收到。我正在处理您的请求...';
-    if(/翻译|转换|Cisco|华为|配置/.test(txt)){
-      reply='检测到配置翻译意图。您可以切换到「配置翻译」页面粘贴配置，或直接把配置发给我。';
-      setTimeout(()=>switchPage('translate'),800);
-    }else if(/巡检|检查|分析|健康/.test(txt)){
-      reply='我可以帮您进行网络巡检分析。该功能目前处于规划阶段，敬请期待。';
-    }else if(/拓扑|网络图|结构/.test(txt)){
-      reply='拓扑绘图模块可以帮助您可视化网络架构。该功能目前处于规划阶段。';
-    }else if(/skill|技能/.test(txt)){
-      reply='当前已加载 4 个 Skills：config_translation（已启用）、inspection、topology、knowledge_search（规划中）。';
-    }else if(/memory|记忆/.test(txt)){
-      reply='Memory 系统当前共有 386 条记录，采用 JSONL 本地存储。';
+  // Add thinking bubble
+  const thinkEl=document.createElement('div'); thinkEl.className='ag-bubble ai'; thinkEl.textContent='处理中...'; body.appendChild(thinkEl); body.scrollTop=body.scrollHeight;
+  // Call Agent API
+  fetch('/api/agent/run',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({message:txt,workspace_id:'default'})})
+  .then(r=>r.json()).then(d=>{
+    thinkEl.remove();
+    let reply='';
+    if(d.ok || d.final_response){
+      reply=d.final_response||'处理完成';
+      if(d.active_module==='config_translation'){
+        reply+='\n\n点击查看「配置翻译」模块的详细结果。';
+        setTimeout(()=>switchPage('translate'),500);
+      }
+      reply+='\n<span class="time" style="margin-top:6px">runtime: '+esc(d.runtime_mode||'fallback')+'</span>';
+    }else{
+      reply=(d.error||'请求失败，请稍后重试')+'\n<span class="time" style="margin-top:6px">[local fallback]</span>';
     }
-    body.insertAdjacentHTML('beforeend','<div class="ag-bubble ai">'+reply+'<div class="time">'+new Date().toLocaleTimeString('zh-CN',{hour:'2-digit',minute:'2-digit'})+'</div></div>');
+    body.insertAdjacentHTML('beforeend','<div class="ag-bubble ai">'+reply.replace(/\n/g,'<br>')+'<div class="time">'+new Date().toLocaleTimeString('zh-CN',{hour:'2-digit',minute:'2-digit'})+'</div></div>');
     body.scrollTop=body.scrollHeight;
-  },600);
+  }).catch(()=>{
+    thinkEl.remove();
+    let reply='请求 Agent API 失败，请确认服务已在 8010 运行。\n<span class="time" style="margin-top:6px">[local fallback]</span>';
+    body.insertAdjacentHTML('beforeend','<div class="ag-bubble ai">'+reply.replace(/\n/g,'<br>')+'<div class="time">'+new Date().toLocaleTimeString('zh-CN',{hour:'2-digit',minute:'2-digit'})+'</div></div>');
+    body.scrollTop=body.scrollHeight;
+  });
 }
 
 /* ── Translate ── */
