@@ -16,7 +16,7 @@ _NETWORK_AGENT_DIR = Path(__file__).resolve().parent.parent
 if str(_NETWORK_AGENT_DIR) not in sys.path:
     sys.path.insert(0, str(_NETWORK_AGENT_DIR))
 
-from flask import Flask, send_from_directory
+from flask import Flask, send_from_directory, jsonify
 
 from backend.api.version import get_version
 from backend.api.modules_translate import handle_module_translate
@@ -26,6 +26,7 @@ from backend.api.skills import handle_skills, get_skill_count
 from backend.api.workspace import handle_workspace_status
 from backend.api.modules import handle_modules, handle_module_status
 from backend.api.memory import handle_memory_status, handle_memory_write, handle_memory_search
+from backend.api.memory_routes import handle_memory_confirm, handle_memory_delete, handle_memory_list
 from backend.core.settings import UNIFIED_PORT, API_MODE, BUILD_COMMIT, TRANSLATOR_ENTRY
 from backend.core.paths import FRONTEND_DIR
 
@@ -71,9 +72,20 @@ def create_app():
         return handle_llm_test()
 
     # ── Workspace ──
-    @app.route("/api/workspace/status")
-    def api_workspace_status():
-        return handle_workspace_status()
+    @app.route("/api/workspaces")
+    def api_workspaces_list():
+        from workspace.manager import list_workspaces
+        return jsonify({"workspaces": list_workspaces()})
+
+    @app.route("/api/workspaces/<ws_id>/state")
+    def api_workspace_state(ws_id):
+        from workspace.manager import get_workspace_state
+        return jsonify(get_workspace_state(ws_id))
+
+    @app.route("/api/workspaces/<ws_id>/runs")
+    def api_workspace_runs(ws_id):
+        from workspace.manager import get_workspace_runs
+        return jsonify({"runs": get_workspace_runs(ws_id)})
 
     # ── Modules ──
     @app.route("/api/modules")
@@ -101,6 +113,18 @@ def create_app():
     @app.route("/api/memory/search", methods=["POST"])
     def api_memory_search():
         return handle_memory_search()
+
+    @app.route("/api/memory/list")
+    def api_memory_list():
+        return handle_memory_list()
+
+    @app.route("/api/memory/confirm", methods=["POST"])
+    def api_memory_confirm():
+        return handle_memory_confirm()
+
+    @app.route("/api/memory/<memory_id>", methods=["DELETE"])
+    def api_memory_delete(memory_id):
+        return handle_memory_delete(memory_id)
 
     # ── Frontend ──
     @app.route("/")

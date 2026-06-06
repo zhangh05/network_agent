@@ -105,6 +105,8 @@ def run_agent(user_input: str = "", intent: str = "", payload: dict = None,
         "warnings": state.warnings,
         "final_response": state.final_response,
         "memory_written": len(state.tool_calls) > 0,
+        "workspace_id": state.workspace_id or "default",
+        "workspace_updated": len(state.tool_calls) > 0,
         "llm": {
             "enabled": llm_ctx.get("enabled", False),
             "used": llm_ctx.get("used", False),
