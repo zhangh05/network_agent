@@ -36,12 +36,13 @@ INTENTS = {
         "天气", "新闻", "股票", "实时", "最新", "闲聊", "聊天",
         "随便", "怎么看", "觉得", "你认为", "聊聊",
     ],
-    # context_qa: only result/explanation/review queries (NOT general chat)
+    # context_qa: only result/explanation queries with explicit context reference
     "context_qa": [
         "刚才运行", "上次运行", "上次翻译", "上一次结果",
-        "manual_review", "quality_summary", "source_residue", "silent_drop",
-        "为什么有 warning", "为什么有风险", "复核", "人工",
+        "为什么有 warning", "为什么有风险",
         "翻译结果怎么看", "转换结果怎么", "解释上次",
+        "manual_review是什么", "quality_summary是什么",
+        "source_residue是什么", "silent_drop是什么",
     ],
 }
 
