@@ -16,7 +16,7 @@ def compose(state: NetworkAgentState) -> NetworkAgentState:
         return state
 
     # ── translate_config: UI actions + post-translate LLM review ──
-    if intent == "translate_config" and result.get("ok"):
+    if intent == "translate_config":
         _compose_translate_config(state, result)
         return state
 
@@ -172,6 +172,11 @@ def _compose_translate_config(state: NetworkAgentState, result: dict):
     # ── Phase 2: Post-translate LLM review ──
     mapping_log = result.get("mapping_log", [])
     quality_summary = result.get("quality_summary", {})
+
+    # If no actual translation was performed (user triggered from chat with no prior form submission)
+    if not result.get("ok") or (not result.get("deployable_config", "").strip() and not result.get("mapping_log")):
+        state.final_response = "已为您跳转到配置翻译页面，请确认表单内容后点击翻译按钮。"
+        return
 
     # Build safe context for LLM review
     mr = result.get("manual_review", [])
