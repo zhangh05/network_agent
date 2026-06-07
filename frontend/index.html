@@ -2022,7 +2022,7 @@ function showToast(msg){
 }
 
 /* ── Init ── */
-(function init(){
+document.addEventListener('DOMContentLoaded',function init(){
   try{
     // Clean legacy localStorage
     _clearOldLocalStorage();
@@ -2047,7 +2047,7 @@ function showToast(msg){
     // ── Backend readiness check + data load ──
     _checkBackendAndLoad();
   }catch(e){}
-})();
+});
 
 // Handle bfcache (back-forward cache) — re-check backend on restore
 window.addEventListener('pageshow',function(e){
