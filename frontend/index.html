@@ -2049,11 +2049,11 @@ function showToast(msg){
   }catch(e){}
 })();
 
-// Handle bfcache (back-forward cache) — reload if restored from cache
+// Handle bfcache (back-forward cache) — re-check backend on restore
 window.addEventListener('pageshow',function(e){
   if(e.persisted){
-    // Page was restored from bfcache; force a fresh load
-    location.reload(true);
+    // Page restored from bfcache, re-check connection
+    _checkBackendAndLoad();
   }
 });
 
