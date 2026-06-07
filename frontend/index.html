@@ -2061,21 +2061,29 @@ function _checkBackendAndLoad(){
   var statusEl=document.getElementById('top-status');
   var agStatus=document.getElementById('ag-status');
   var sysGrid=document.getElementById('sys-status-grid');
-
-  apiFetch('/api/health',{retries:2,timeout:5000}).then(function(d){
+  if(!statusEl || !agStatus) return; // DOM not ready, retry later
+  statusEl.textContent='连接中…';
+  agStatus.textContent='连接中';
+  // Use raw fetch (not apiFetch) for reliability
+  fetch('/api/health').then(function(r){
+    if(!r.ok) throw new Error('HTTP '+r.status);
+    return r.json();
+  }).then(function(d){
+    if(!statusEl || !agStatus) return;
     statusEl.textContent='已连接';
     agStatus.textContent='已连接';
-    document.getElementById('top-proj').querySelector('.status').className='status sdot sdot-ok';
-    // Backend is ready — load all data
+    var dot=document.getElementById('top-proj');
+    if(dot){var s=dot.querySelector('.status');if(s)s.className='status sdot sdot-ok';}
     _loadAllData();
   }).catch(function(err){
+    if(!statusEl || !agStatus) return;
     statusEl.textContent='连接中…';
     agStatus.textContent='未连接';
-    document.getElementById('top-proj').querySelector('.status').className='status sdot sdot-off';
+    var dot=document.getElementById('top-proj');
+    if(dot){var s=dot.querySelector('.status');if(s)s.className='status sdot sdot-off';}
     if(sysGrid){
-      sysGrid.innerHTML='<div style="display:flex;align-items:center;gap:10px;padding:10px;background:var(--n10);border-radius:8px"><span class="sdot sdot-dng"></span><div><div style="font-weight:600">后端启动中</div><div style="font-size:11px;color:var(--n5)">服务尚未就绪，5秒后自动重试…</div></div></div>';
+      sysGrid.innerHTML='<div style="display:flex;align-items:center;gap:10px;padding:10px;background:var(--n10);border-radius:8px"><span class="sdot sdot-dng"></span><div><div style="font-weight:600">后端启动中</div><div style="font-size:11px;color:var(--n5)">'+esc(err.message||'连接失败')+'，5秒后重试…</div></div></div>';
     }
-    // Auto-retry after 5s
     setTimeout(_checkBackendAndLoad,5000);
   });
 }
