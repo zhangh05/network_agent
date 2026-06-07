@@ -681,7 +681,7 @@ router ospf 1
       <!-- Session bar -->
       <div class="session-bar" id="session-bar">
         <div class="session-title" id="session-title" onclick="toggleSessionList()" title="点击切换会话列表">
-          加载中…<span class="chevron">▼</span>
+          会话选择<span class="chevron">▼</span>
         </div>
         <button class="session-btn" onclick="newSession()" title="新建会话">+</button>
       </div>
@@ -1421,13 +1421,13 @@ function loadSessionMessages(sessionId){
   var ws=_getWorkspaceId();
   var body=document.getElementById('ag-body');
   var titleEl=document.getElementById('session-title');
-  titleEl.textContent='加载中…';
+  titleEl.innerHTML='会话选择<span class="chevron">▼</span>';
   body.innerHTML='<div class="ag-bubble ai"><span class="spinner" style="margin-right:6px"></span>正在恢复会话消息...</div>';
 
   apiFetch('/api/sessions/'+encodeURIComponent(sessionId)+'?workspace_id='+encodeURIComponent(ws)+'&include_messages=1')
   .then(function(d){
     var session=(d.session||{});
-    titleEl.innerHTML=esc(session.title||'未命名会话')+'<span class="chevron">▼</span>';
+    titleEl.innerHTML='会话选择<span class="chevron">▼</span>';
     var messages=(d.messages||[]);
     body.innerHTML='';
     if(messages.length===0){
@@ -1481,7 +1481,7 @@ function newSession(){
     if(d.ok && d.session){
       _currentSessionId=d.session.session_id;
       _setCurrentSessionId(_currentSessionId);
-      document.getElementById('session-title').innerHTML=esc(d.session.title||'新会话')+'<span class="chevron">▼</span>';
+      document.getElementById('session-title').innerHTML='会话选择<span class="chevron">▼</span>';
       document.getElementById('ag-body').innerHTML='<div class="ag-bubble ai">新会话已开始。有什么可以帮您的？<div class="time">'+new Date().toLocaleTimeString('zh-CN',{hour:'2-digit',minute:'2-digit'})+'</div></div>';
       _sessionListOpen=false;
       document.getElementById('session-list').classList.remove('open');
@@ -1568,7 +1568,7 @@ function doRenameSession(){
     if(d.ok){
       showToast('已重命名');
       if(sid===_currentSessionId){
-        document.getElementById('session-title').innerHTML=esc(newTitle)+'<span class="chevron">▼</span>';
+        document.getElementById('session-title').innerHTML='会话选择<span class="chevron">▼</span>';
       }
       loadSessions();
     }else{showToast('重命名失败：'+(d.error||''));}
@@ -1608,7 +1608,7 @@ function sendAgent(){
       if(d.ok && d.session){
         _currentSessionId=d.session.session_id;
         _setCurrentSessionId(_currentSessionId);
-        document.getElementById('session-title').innerHTML=esc(d.session.title||'新会话')+'<span class="chevron">▼</span>';
+        document.getElementById('session-title').innerHTML='会话选择<span class="chevron">▼</span>';
         _doSendAgent(txt,thinkEl,body,d.session.session_id,ws);
         loadSessions();
       }else{
@@ -2084,11 +2084,11 @@ function _loadAllData(){
       if(d.ok && d.session){
         _currentSessionId=d.session.session_id;
         _setCurrentSessionId(_currentSessionId);
-        document.getElementById('session-title').innerHTML=esc(d.session.title||'默认会话')+'<span class="chevron">▼</span>';
+        document.getElementById('session-title').innerHTML='会话选择<span class="chevron">▼</span>';
         loadSessionMessages(_currentSessionId);
       }
     }).catch(function(){
-      document.getElementById('session-title').innerHTML='未连接<span class="chevron">▼</span>';
+      document.getElementById('session-title').innerHTML='会话选择<span class="chevron">▼</span>';
     });
   }
 
