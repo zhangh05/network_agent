@@ -15,9 +15,13 @@ memory/data/
 reports/*secret*
 reports/*apikey*
 reports/*key*
+# workspaces runtime data (workspace.yaml tracked for default only)
 workspaces/*/state.json
-workspaces/*/runs/*.trace.json
+workspaces/*/runs/
+workspaces/*/artifacts/
+workspaces/*/indexes/
 workspaces/*/runtime_audits/
+workspaces/*/workspace.yaml
 config/LLM_setting.json
 config/llm.local.json
 API_key.txt
