@@ -16,7 +16,7 @@ User Input
     → translate_config: explicit translation request
     → topology_draw: topology request → planned/coming_soon
     → inspection_analyze: inspection request → planned/coming_soon
-    → knowledge_search: knowledge request → planned/coming_soon
+    → knowledge_search: knowledge request → enabled ✓
     → unknown: everything else → friendly suggestion
 ```
 

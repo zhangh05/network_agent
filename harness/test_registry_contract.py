@@ -330,8 +330,9 @@ class TestAPIRegistry:
     def test_planned_modules_not_enabled(self, client):
         resp = client.get("/api/modules")
         mods = resp.get_json()["modules"]
+        enabled_modules = {"config_translation", "knowledge_base"}
         for m in mods:
-            if m["module_name"] != "config_translation":
+            if m["module_name"] not in enabled_modules:
                 assert m["enabled"] is False
 
     def test_no_key_in_api(self, client):

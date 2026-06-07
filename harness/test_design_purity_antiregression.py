@@ -328,11 +328,11 @@ class TestCurrentArchitecture:
         )
 
     def test_only_config_translation_enabled(self):
-        """Only config_translation module should be enabled."""
+        """Only config_translation and knowledge_base modules should be enabled."""
         from registry.loader import load_module_registry
         mods = load_module_registry()
-        enabled = [m.module_name for m in mods if m.is_enabled()]
-        assert enabled == ['config_translation'], (
+        enabled = sorted([m.module_name for m in mods if m.is_enabled()])
+        assert enabled == sorted(['config_translation', 'knowledge_base']), (
             f"Unexpected enabled modules: {enabled}"
         )
 

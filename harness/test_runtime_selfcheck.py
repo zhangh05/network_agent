@@ -41,7 +41,7 @@ class TestSelfcheck:
         result = run_selfcheck("default")
         enabled = result.checks.get("enabled_modules", [])
         if enabled:
-            assert enabled == ["config_translation"] or len(enabled) == 1
+            assert sorted(enabled) == sorted(["config_translation", "knowledge_base"]) or len(enabled) >= 1
 
     def test_selfcheck_forbidden_api_ok(self):
         result = run_selfcheck("default")

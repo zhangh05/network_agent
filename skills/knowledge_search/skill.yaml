@@ -1,14 +1,20 @@
 skill_name: knowledge_search
-enabled: false
-status: planned
+enabled: true
+status: enabled
 display_name: 知识库搜索
-description: Planned network engineering knowledge search skill.
+description: Search the network engineering knowledge base for relevant cases and templates with Safe RAG filtering.
 category: knowledge
 module: knowledge_base
-skill_type: planned
+skill_type: prompt_skill
 
 entrypoint:
-  type: planned
+  type: knowledge_search
+  module: context.knowledge_loader
+  function: load_knowledge_context
+
+red_lines:
+  - do_not_call_llm
+  - do_not_hide_manual_review
 
 capabilities:
   - capability_id: knowledge.search

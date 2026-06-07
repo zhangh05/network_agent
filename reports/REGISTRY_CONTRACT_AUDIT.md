@@ -8,7 +8,7 @@
 | Skills | 4 |
 | Capabilities | 5 |
 | Validation Errors | 0 |
-| Validation Warnings | 9 |
+| Validation Warnings | 6 |
 | Critical | 0 |
 
 ✅ All registry contracts valid.

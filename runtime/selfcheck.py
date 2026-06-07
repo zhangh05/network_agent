@@ -179,15 +179,16 @@ def run_checks(result: SelfcheckResult, ws_id: str):
                         f"quality_summary.{field} is not int in {rf.stem[:12]}",
                         rf.stem[:12], "Fix quality_summary format"))
 
-    # 10. config_translation is only enabled module
+    # 10. config_translation and knowledge_base are enabled modules
     try:
         from registry.loader import load_module_registry
         mods = load_module_registry()
         enabled = [m.module_name for m in mods if m.is_enabled()]
-        if enabled != ["config_translation"]:
+        expected = sorted(["config_translation", "knowledge_base"])
+        if sorted(enabled) != expected:
             result.issues.append(SelfcheckIssue("warning", "MODULE_COUNT",
                 f"Unexpected enabled modules: {enabled}", "",
-                "Ensure only config_translation is enabled"))
+                f"Ensure enabled modules are {expected}"))
         result.checks["enabled_modules"] = enabled
     except Exception:
         result.issues.append(SelfcheckIssue("warning", "REGISTRY_UNAVAILABLE",

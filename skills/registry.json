@@ -54,10 +54,18 @@
       "skill_name": "knowledge_search",
       "display_name": "知识库搜索",
       "module": "knowledge_base",
-      "enabled": false,
+      "enabled": true,
       "description": "Search the network engineering knowledge base for relevant cases and templates.",
       "skill_doc": "skills/knowledge_search/SKILL.md",
-      "entrypoint": {"type": "planned"},
+      "entrypoint": {
+        "type": "python_adapter",
+        "module": "skills.knowledge_search.adapter",
+        "function": "search"
+      },
+      "red_lines": [
+        "do_not_call_llm",
+        "do_not_hide_manual_review"
+      ],
       "risk_level": "low",
       "can_generate_deployable": false
     }

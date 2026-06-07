@@ -31,7 +31,7 @@ Module is defined as a **business domain closure**:
 | `config_translation` | enabled | embedded_mvp |
 | `topology` | planned | planned |
 | `inspection` | planned | planned |
-| `knowledge_base` | planned | planned |
+| `knowledge_base` | enabled | embedded_mvp |
 
 ### 2.2 How Skill exists today
 
@@ -49,7 +49,7 @@ Skill is defined as a **thin Agent-to-Module adapter**:
 | `config_translation` | enabled | python_adapter | config_translation |
 | `topology_draw` | disabled | planned | topology |
 | `inspection_analyze` | disabled | planned | inspection |
-| `knowledge_search` | disabled | planned | knowledge_base |
+| `knowledge_search` | enabled | knowledge_search | knowledge_base |
 
 ### 2.3 How Capability is generated from Module + Skill
 

@@ -49,14 +49,14 @@
     {
       "module_name": "knowledge_base",
       "display_name": "知识库",
-      "status": "planned",
-      "maturity": "planned",
+      "status": "enabled",
+      "maturity": "embedded_mvp",
       "module_path": "modules/knowledge_base",
       "description": "Network engineering knowledge base search and retrieval.",
       "owner": "modules.knowledge_base",
       "has_ui": false,
       "has_own_legacy_frontend": false,
-      "primary_api": null,
+      "primary_api": "/api/knowledge/search",
       "external_dependency": false
     }
   ]
