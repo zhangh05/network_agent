@@ -12,7 +12,7 @@ class LLMClient:
 
     def generate(self, task: str, state: NetworkAgentState, user_question: str = None) -> SafeLLMOutput:
         from agent.llm.runtime import safe_generate
-        return safe_generate(task, state, user_question)
+        return safe_generate(task, state, user_input=user_question or "")
 
     def health(self) -> dict:
         from agent.llm.provider import health

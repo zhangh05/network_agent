@@ -13,7 +13,7 @@ modules/config_translation/
 ├── backend/
 │   ├── service.py          # translate_config 正式实现
 │   ├── schemas.py          # TranslateRequest / TranslateResponse
-│   └── client.py           # HTTP client
+│   └── client.py           # HTTP client for the formal module API
 ├── core/                    # 确定性翻译管线
 │   ├── rule_translator.py   # RuleBasedTranslator.translate_bundle()
 │   ├── translation_model.py
@@ -30,9 +30,7 @@ modules/config_translation/
 
 ## 端点
 - 正式 API: `POST /api/modules/config-translation/translate`
-- 兼容 API: `POST /api/translate`
-
-两者结果完全一致。
+- retired API: `/api/translate` is not exposed in the current platform.
 
 ## UI
 

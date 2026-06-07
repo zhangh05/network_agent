@@ -12,7 +12,7 @@ skills:
     entrypoint:
       type: api
       method: POST
-      path: /api/translate
+      path: /api/modules/config-translation/translate
     input_schema:
       required:
         - source_config

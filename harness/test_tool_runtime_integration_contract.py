@@ -248,8 +248,7 @@ class TestTraceMetadataAdapter:
         meta_str = str(meta)
         assert "x" * 10000 not in meta_str, "Full output value leaked into metadata"
         assert "hidden" not in meta_str, "Secret value leaked into metadata"
-        # output_keys in metadata is fine (structure only, no values)
-        assert "output_keys" in meta
+        assert "output_keys" not in meta
 
     def test_metadata_excludes_full_arguments(self):
         from tool_runtime.schemas import ToolResult
@@ -276,8 +275,8 @@ class TestTraceMetadataAdapter:
         result = ToolResult(invocation_id="inv", tool_id="t", status="succeeded",
                             policy_decision=pd)
         meta = build_trace_metadata_from_tool_result(result)
-        assert "policy" in meta
-        assert meta["policy"]["allowed"] is True
+        assert meta["policy_allowed"] is True
+        assert meta["risk_level"] == "low"
 
     def test_metadata_no_secrets(self):
         from tool_runtime.schemas import ToolResult

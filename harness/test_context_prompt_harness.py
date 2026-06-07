@@ -111,6 +111,16 @@ class TestContextBuilder:
         assert b.execution_context is not None
         assert b.safe_llm_context is not None
 
+    def test_request_context_contains_user_input(self, temp_dirs):
+        from workspace.manager import ensure_workspace
+        ws = "cb_user_input"
+        ensure_workspace(ws)
+        from context.builder import build_context_bundle
+        b = build_context_bundle(ws, user_input="memory怎么回事", intent="assistant_chat")
+        request_items = [i for i in b.raw_items if i.get("item_type") == "request"]
+        assert request_items
+        assert request_items[0].get("summary") == "memory怎么回事"
+
     def test_safe_context_no_secret(self, temp_dirs):
         from workspace.manager import ensure_workspace
         ws = "cb_sec"

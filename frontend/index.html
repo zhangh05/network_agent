@@ -524,7 +524,7 @@ router ospf 1
             <option value="openai_compatible">OpenAI Compatible</option>
             <option value="ollama_compatible">Ollama Compatible</option>
           </select>
-          <div class="hint">选择 LLM 提供商。当前设置仅在前端本地存储，save API 尚未接入。</div>
+          <div class="hint">选择 LLM 提供商。保存后写入后端受控配置；密钥不写入 local storage。</div>
         </div>
 
         <div class="form-row">
@@ -536,7 +536,7 @@ router ospf 1
         <div class="form-row">
           <label>API Key</label>
           <input type="password" id="llm-key" placeholder="sk-...">
-          <div class="hint">您的 API 密钥，仅在本地存储，不会上传到服务器</div>
+          <div class="hint">您的 API 密钥仅用于本次连通性测试，不会保存到浏览器历史或本地存储</div>
         </div>
 
         <div class="form-row">
@@ -589,7 +589,7 @@ router ospf 1
     </div>
     <div class="modal-ft">
       <button class="btn btn-sec" onclick="closeSettings()">取消</button>
-      <button class="btn btn-pri" onclick="saveSettings()">保存设置 (local only)</button>
+      <button class="btn btn-pri" onclick="saveSettings()">保存设置</button>
     </div>
   </div>
 </div>
@@ -646,6 +646,58 @@ function switchPage(name){
   var btn=document.querySelector('.sb-item[data-page="'+name+'"]');
   if(btn)btn.classList.add('active');
   document.getElementById('bread-page').textContent=pageNames[name]||name;
+  if(name==='memory') loadMemoryPage();
+}
+
+/* ── Memory page ── */
+function loadMemoryPage(){
+  var setText=function(id,v){var el=document.getElementById(id); if(el)el.textContent=v;};
+  setText('mem-total','—'); setText('mem-project','—'); setText('mem-longterm','—'); setText('mem-shortterm','—');
+  var list=document.getElementById('mem-list');
+  if(list) list.innerHTML='<div style="text-align:center;color:var(--n5);padding:30px">加载中…</div>';
+
+  Promise.all([
+    apiFetch('/api/memory/status'),
+    apiFetch('/api/memory/list?limit=100')
+  ]).then(function(parts){
+    var status=parts[0]||{};
+    var data=parts[1]||{};
+    var records=data.records||[];
+    var project=records.filter(function(r){return r.scope==='project'||r.project_id;}).length;
+    var longterm=records.filter(function(r){return r.scope==='long_term'||r.scope==='longterm';}).length;
+    var shortterm=records.filter(function(r){return r.scope==='short_term'||r.scope==='shortterm';}).length;
+    setText('mem-total',status.records!==undefined?status.records:records.length);
+    setText('mem-project',project);
+    setText('mem-longterm',longterm);
+    setText('mem-shortterm',shortterm);
+    ['mem-total','mem-project','mem-longterm','mem-shortterm'].forEach(function(id){
+      var el=document.getElementById(id);
+      if(el) el.parentElement.querySelector('.stat-foot').textContent='backend jsonl';
+    });
+    if(!records.length){
+      list.innerHTML='<div class="empty"><div class="icon">◉</div><div class="t">暂无记忆记录</div><div style="font-size:12px">后端 memory store 当前为空</div></div>';
+      return;
+    }
+    var html='<table><thead><tr><th>Title</th><th>Scope</th><th>Type</th><th>Project</th><th>Updated</th></tr></thead><tbody>';
+    records.slice(0,50).forEach(function(r){
+      html+='<tr>';
+      html+='<td><div style="font-weight:600">'+sanitizeDisplayText(r.title||r.summary||r.memory_id||'memory')+'</div><div style="font-size:11px;color:var(--n5);max-width:520px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">'+sanitizeDisplayText(r.summary||'')+'</div></td>';
+      html+='<td><span class="tag tag-gy">'+esc(r.scope||'—')+'</span></td>';
+      html+='<td>'+esc(r.memory_type||'—')+'</td>';
+      html+='<td>'+esc(r.project_id||'—')+'</td>';
+      html+='<td style="font-size:11px;color:var(--n5)">'+esc((r.updated_at||r.created_at||'').slice(0,19))+'</td>';
+      html+='</tr>';
+    });
+    html+='</tbody></table>';
+    list.innerHTML=html;
+  }).catch(function(){
+    setText('mem-total','—'); setText('mem-project','—'); setText('mem-longterm','—'); setText('mem-shortterm','—');
+    ['mem-total','mem-project','mem-longterm','mem-shortterm'].forEach(function(id){
+      var el=document.getElementById(id);
+      if(el) el.parentElement.querySelector('.stat-foot').innerHTML='<span class="sdot sdot-dng"></span>unavailable';
+    });
+    if(list) list.innerHTML='<div class="empty"><div class="icon">◉</div><div class="t" style="color:var(--dng)">记忆加载失败</div><div style="font-size:12px">请检查 /api/memory/status 和 /api/memory/list</div></div>';
+  });
 }
 
 /* ── Agent toggle ── */
@@ -680,7 +732,8 @@ function sendAgent(){
         +' | status: '+esc(d.status||'ok')
         +' | capability: '+esc(d.capability||'—');
       if(l.used) reply+=' | AI: '+esc(l.provider||'')+' ('+esc(l.model||'')+')';
-      if(l.fallback_reason) reply+=' | '+esc(l.fallback_reason);
+      var fb=formatLLMFallback(l.fallback_reason||'');
+      if(fb) reply+=' | '+esc(fb);
       if(d.warnings&&d.warnings.length) reply+=' | ⚠ '+esc(d.warnings.length)+' warnings';
       var tl=d.timeline_summary||{};
       if(d.trace_id){
@@ -696,7 +749,7 @@ function sendAgent(){
       reply+='</span>';
       // Show manual_review warning if present
       if(d.manual_review_count&&d.manual_review_count>0){
-        reply='⚠ Manual review required: '+esc(d.manual_review_count)+' items — config is NOT directly deployable\n'+reply;
+        reply='⚠ Manual review required: '+esc(d.manual_review_count)+' items\n'+reply;
       }
     }else{
       reply='[error] '+(d.error||'请求失败，请稍后重试')+'\n<span class="time" style="margin-top:6px">[local fallback]</span>';
@@ -709,6 +762,21 @@ function sendAgent(){
     body.insertAdjacentHTML('beforeend','<div class="ag-bubble ai">'+reply.replace(/\n/g,'<br>')+'<div class="time">'+new Date().toLocaleTimeString('zh-CN',{hour:'2-digit',minute:'2-digit'})+'</div></div>');
     body.scrollTop=body.scrollHeight;
   });
+}
+
+function formatLLMFallback(reason){
+  reason=String(reason||'');
+  if(!reason) return '';
+  if(reason==='assistant_chat_deterministic') return 'local assistant';
+  if(reason==='local_term_explain') return 'local explanation';
+  if(reason==='disabled') return 'AI disabled';
+  if(reason.indexOf('prompt_output_blocked')>=0) return 'AI response blocked by safety policy';
+  if(reason.indexOf('prompt_input_blocked')>=0) return 'AI input blocked by safety policy';
+  if(reason.indexOf('prompt_text_blocked')>=0) return 'AI prompt blocked by safety policy';
+  if(reason.indexOf('policy_blocked')>=0) return 'AI skipped by safety policy';
+  if(reason.indexOf('response_policy')>=0) return 'AI response blocked by safety policy';
+  if(reason.indexOf('provider')>=0) return 'AI provider unavailable';
+  return 'AI fallback';
 }
 
 /* ── Translate ── */
@@ -806,49 +874,70 @@ function onProviderChange(){
   if(!urlEl.value.trim()) urlEl.value=d.baseurl||'';
   if(!modelEl.value.trim()) modelEl.value=d.model||'';
 }
-function saveSettings(){
+async function saveSettings(){
   var provider=document.getElementById('llm-provider').value;
   if(provider==='openai'||provider==='azure'||provider==='deepseek'||provider==='claude'||provider==='custom'||provider==='ollama'){
     showToast('Provider "'+provider+'" is deprecated. Please use disabled/mock/minimax/openai_compatible/ollama_compatible.');
     return;
   }
-  var cfg={
-    llm_provider:provider,
-    llm_baseurl:document.getElementById('llm-baseurl').value.trim(),
-    llm_key:document.getElementById('llm-key').value.trim(),
-    llm_model:document.getElementById('llm-model').value.trim()||'MiniMax-M3',
-    llm_temp:parseFloat(document.getElementById('llm-temp').value)||0.2,
-    llm_maxtok:parseInt(document.getElementById('llm-maxtok').value)||1200,
-    llm_sys:document.getElementById('llm-sys').value.trim(),
+  var uiCfg={
     ui_lang:document.getElementById('ui-lang').value,
     ui_theme:document.getElementById('ui-theme').value,
     ui_fontsize:parseInt(document.getElementById('ui-fontsize').value)||13,
     ui_autosave:parseInt(document.getElementById('ui-autosave').value)||30
   };
-  try{localStorage.setItem('na_settings',JSON.stringify(cfg));}catch(e){}
-  closeSettings();
-  showToast('设置已保存 (local storage only — save API unavailable)');
+  try{localStorage.setItem('na_settings',JSON.stringify(uiCfg));}catch(e){}
+  var payload={
+    enabled:provider!=='disabled',
+    provider:provider,
+    base_url:document.getElementById('llm-baseurl').value.trim(),
+    api_key:document.getElementById('llm-key').value.trim(),
+    model:document.getElementById('llm-model').value.trim(),
+    temperature:parseFloat(document.getElementById('llm-temp').value)||0.2,
+    max_tokens:parseInt(document.getElementById('llm-maxtok').value)||1200,
+    safe_mode:true
+  };
+  try{
+    var resp=await fetch('/api/agent/llm/config',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(payload)});
+    var data=await resp.json().catch(function(){return{};});
+    if(!resp.ok||!data.ok){
+      showToast('LLM 配置保存失败：'+((data.errors||[data.error||'unknown']).join ? (data.errors||[data.error||'unknown']).join(', ') : 'unknown'));
+      return;
+    }
+    document.getElementById('llm-key').value='';
+    closeSettings();
+    showToast('LLM 配置已保存到后端；密钥不写入 local storage');
+  }catch(e){
+    showToast('LLM 配置保存失败：'+e.message);
+  }
 }
 function loadSettings(){
   var cfg={};
   try{cfg=JSON.parse(localStorage.getItem('na_settings')||'{}');}catch(e){}
   var set=function(id,v){var el=document.getElementById(id); if(el)el.value=v;};
-  var provider=cfg.llm_provider||'minimax';
-  // Migrate old provider values
-  var LEGACY={'openai':'openai_compatible','azure':'openai_compatible','deepseek':'openai_compatible','claude':'openai_compatible','ollama':'ollama_compatible','custom':'openai_compatible'};
-  if(LEGACY[provider]) provider=LEGACY[provider];
-  set('llm-provider',provider);
-  set('llm-baseurl',cfg.llm_baseurl||'');
-  set('llm-key',cfg.llm_key||'');
-  set('llm-model',cfg.llm_model||'MiniMax-M3');
-  set('llm-temp',cfg.llm_temp!==undefined?cfg.llm_temp:0.2);
-  set('llm-maxtok',cfg.llm_maxtok!==undefined?cfg.llm_maxtok:1200);
-  set('llm-sys',cfg.llm_sys||'');
+  set('llm-provider','minimax');
+  set('llm-baseurl','');
+  set('llm-key','');
+  set('llm-model','MiniMax-M3');
+  set('llm-temp',0.2);
+  set('llm-maxtok',1200);
+  set('llm-sys','');
   set('ui-lang',cfg.ui_lang||'zh');
   set('ui-theme',cfg.ui_theme||'light');
   set('ui-fontsize',cfg.ui_fontsize||13);
   set('ui-autosave',cfg.ui_autosave||30);
-  onProviderChange();
+  fetch('/api/agent/llm/config').then(function(r){return r.json();}).then(function(d){
+    var provider=d.provider||'minimax';
+    var LEGACY={'openai':'openai_compatible','azure':'openai_compatible','deepseek':'openai_compatible','claude':'openai_compatible','ollama':'ollama_compatible','custom':'openai_compatible'};
+    if(LEGACY[provider]) provider=LEGACY[provider];
+    set('llm-provider',provider);
+    set('llm-baseurl',d.base_url||'');
+    set('llm-model',d.model||(_DEF_PROVIDERS[provider]||{}).model||'');
+    set('llm-temp',d.temperature!==undefined?d.temperature:0.2);
+    set('llm-maxtok',d.max_tokens!==undefined?d.max_tokens:1200);
+    set('llm-key','');
+    onProviderChange();
+  }).catch(function(){onProviderChange();});
 }
 async function testLLMConnection(){
   var provider=document.getElementById('llm-provider').value;

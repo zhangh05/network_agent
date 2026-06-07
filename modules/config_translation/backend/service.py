@@ -109,8 +109,43 @@ def translate_config(req: TranslateRequest) -> TranslateResponse:
         semantic_near_count=sn_count,
         accounted_in_output=accounted,
     )
+    quality_dict = quality.as_dict()
+    quality_warnings = []
+    if quality.source_residue_count > 0:
+        quality_warnings.append(
+            f"source_residue_count={quality.source_residue_count}; manual review required"
+        )
+        mr_items.append({
+            "source_excerpt": "quality_summary.source_residue_items",
+            "reason": "Source vendor syntax residue detected in translated output.",
+            "category": "quality_gate",
+            "risk_level": "high",
+            "suggested_action": "Review and rewrite residue before using the translated result.",
+            "confirmation_points": ["Confirm target-vendor syntax equivalence"],
+            "redaction_applied": True,
+        })
+    if quality.silent_drop_count > 0:
+        quality_warnings.append(
+            f"silent_drop_count={quality.silent_drop_count}; manual review required"
+        )
+        mr_items.append({
+            "source_excerpt": "quality_summary.silent_drop_items",
+            "reason": "Meaningful source lines were not accounted for in any output layer.",
+            "category": "quality_gate",
+            "risk_level": "high",
+            "suggested_action": "Review unconverted items and decide whether target syntax is required.",
+            "confirmation_points": ["Confirm no source semantics were lost"],
+            "redaction_applied": True,
+        })
+    if quality_warnings:
+        quality_dict["warnings"] = (quality_dict.get("warnings") or []) + quality_warnings
+        quality_dict["review_required_count"] = max(
+            int(quality_dict.get("review_required_count", 0) or 0),
+            len(mr_items),
+        )
 
     # Wire real gate values from quality audit
+    mr_count = len(mr_items)
     audit = {
         "counts": {
             "deployable_count": len(bundle.deployable_lines),
@@ -138,11 +173,12 @@ def translate_config(req: TranslateRequest) -> TranslateResponse:
         semantic_near=semantic_near_items,
         unsupported=unsupported_items,
         audit=audit,
-        quality_summary=quality.as_dict(),
+        quality_summary=quality_dict,
         manual_review_count=mr_count,
         semantic_near_count=sn_count,
         unsupported_count=un_count,
         build_commit=BUILD_COMMIT,
         translator_entry=TRANSLATOR_ENTRY,
         elapsed_ms=round(elapsed_ms),
+        warnings=quality_warnings,
     )

@@ -213,12 +213,18 @@ class TestSecurityDisplay:
         has_redact = "redactSensitiveText" in html or "sanitizeDisplayText" in html
         assert has_redact, "Frontend missing sanitizeDisplayText/redactSensitiveText helper"
 
-    def test_llm_provider_no_api_key_leak(self):
-        """LLM settings section should warn about save API being unavailable."""
+    def test_llm_provider_uses_backend_save_without_browser_key_persistence(self):
+        """LLM settings should save through backend API and not persist keys in localStorage."""
         html = _html()
-        assert "save API" in html.lower() or "local only" in html.lower() or "local storage" in html.lower(), (
-            "LLM settings should indicate save API unavailable"
-        )
+        assert "/api/agent/llm/config" in html
+        assert "localStorage.setItem('llm_key'" not in html
+        assert 'localStorage.setItem("llm_key"' not in html
+
+    def test_agent_chat_hides_raw_llm_policy_reasons(self):
+        """Agent chat should map raw backend fallback strings to user-friendly text."""
+        html = _html()
+        assert "formatLLMFallback" in html
+        assert "AI skipped by safety policy" in html
 
 
 class TestDashboardAPI:

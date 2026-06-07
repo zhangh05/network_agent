@@ -8,6 +8,10 @@ def verify(state: NetworkAgentState) -> NetworkAgentState:
     """Verify skill_results for the executed intent."""
     result = state.skill_results or state.tool_results or {}
 
+    if state.intent == "assistant_chat":
+        state.verification = {"status": "pass", "intent": state.intent}
+        return state
+
     if state.intent != "translate_config":
         state.verification = {"status": "planned", "intent": state.intent}
         return state

@@ -276,12 +276,16 @@ def run_agent(user_input: str = "", intent: str = "", payload: dict = None,
     # ═══ Compute timeline from trace events (not hardcoded) ═══
     from observability.timeline import build_timeline_summary
     timeline = build_timeline_summary(state)
+    planned = state.context.get("capability_status") == "planned" or state.verification.get("status") == "planned"
+    status = "planned" if planned else ("error" if state.error else "ok")
 
     return {
-        "ok": state.error is None,
+        "ok": (state.error is None and not planned),
+        "status": status,
         "run_id": state.request_id,
         "request_id": state.request_id,
         "intent": state.intent,
+        "capability": state.context.get("capability_id", ""),
         "active_module": state.active_module,
         "selected_skill": state.selected_skill,
         "runtime_mode": state.runtime_mode,
@@ -298,8 +302,10 @@ def run_agent(user_input: str = "", intent: str = "", payload: dict = None,
         "output_artifacts": state.context.get("output_artifacts", []),
         "report_artifacts": state.context.get("report_artifacts", []),
         "artifact_refs": _build_artifact_refs(state),
+        "report_refs": [],
+        "job_refs": [],
         # ── Quality ──
-        "quality_summary": result.get("quality_summary", {}),
+        "quality_summary": _safe_quality_summary(result),
         "manual_review_count": len(result.get("manual_review", [])),
         # ── Trace ──
         "trace_id": trace_id,
@@ -336,6 +342,18 @@ def _build_artifact_refs(state) -> list:
     return refs
 
 
+def _safe_quality_summary(result: dict) -> dict:
+    qs = result.get("quality_summary", {}) if isinstance(result, dict) else {}
+    keys = [
+        "source_residue_count",
+        "silent_drop_count",
+        "unsupported_count",
+        "safe_drop_count",
+        "review_required_count",
+    ]
+    return {key: int(qs.get(key, 0) or 0) if isinstance(qs, dict) else 0 for key in keys}
+
+
 def _rejected_result(error: str, intent: str = "", warning: str = "") -> dict:
     warnings = [warning or error]
     return {
@@ -360,6 +378,10 @@ def _rejected_result(error: str, intent: str = "", warning: str = "") -> dict:
         "output_artifacts": [],
         "report_artifacts": [],
         "artifact_refs": [],
+        "report_refs": [],
+        "job_refs": [],
+        "quality_summary": {},
+        "manual_review_count": 0,
         "trace_id": "",
         "trace_available": False,
         "timeline_summary": {},

@@ -1,5 +1,13 @@
 # Artifact Design
 
+## Current Closure State
+
+Baseline entering completion: `ac6cadd`.
+
+Artifacts are real backend records, not UI-fabricated data. Run history, memory, jobs, reports, and traces may reference artifacts by safe refs only. Browser localStorage is not an artifact, job, report, or run-history store.
+
+Tool Runtime trace metadata may include `artifact_ids`, never artifact content.
+
 ## ArtifactRecord
 
 All artifacts are tracked as `ArtifactRecord` instances:

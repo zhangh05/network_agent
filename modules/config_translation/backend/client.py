@@ -1,16 +1,15 @@
-# RETIRED: modules/config_translation/backend/client.py
-# This is dead code — not imported or used anywhere.
-# The import below refers to backend/services/config_translation which does not exist.
-# backend/services/config_translation/client.py
-"""HTTP client for config translation — used by external callers."""
+"""HTTP client for the formal config translation module API."""
 
 import json
 import urllib.request
 import urllib.error
-from backend.services.config_translation.schemas import TranslateRequest, TranslateResponse
+from modules.config_translation.backend.schemas import TranslateRequest, TranslateResponse
 
 
-def translate_via_http(req: TranslateRequest, endpoint: str = "http://127.0.0.1:8010/api/translate") -> TranslateResponse:
+def translate_via_http(
+    req: TranslateRequest,
+    endpoint: str = "http://127.0.0.1:8010/api/modules/config-translation/translate",
+) -> TranslateResponse:
     """Call the translation endpoint via HTTP."""
     payload = json.dumps(req.as_dict()).encode("utf-8")
     http_req = urllib.request.Request(endpoint, data=payload, headers={"Content-Type": "application/json"}, method="POST")
@@ -27,9 +26,11 @@ def translate_via_http(req: TranslateRequest, endpoint: str = "http://127.0.0.1:
         semantic_near=data.get("semantic_near", []),
         unsupported=data.get("unsupported", []),
         audit=data.get("audit", {}),
+        quality_summary=data.get("quality_summary", {}),
         manual_review_count=data.get("manual_review_count", 0),
         semantic_near_count=data.get("semantic_near_count", 0),
         unsupported_count=data.get("unsupported_count", 0),
+        warnings=data.get("warnings", []),
         build_commit=data.get("build_commit", ""),
         translator_entry=data.get("translator_entry", "translate_bundle"),
     )

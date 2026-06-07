@@ -17,6 +17,7 @@ EVENT_TYPES = {
     "llm_call_start", "llm_call_end",
     "memory_write", "workspace_update", "artifact_saved",
     "run_record_write",
+    "tool_runtime",
     "warning", "error",
 }
 

@@ -6,9 +6,9 @@
 |--------|-------|
 | Modules | 4 |
 | Skills | 4 |
-| Capabilities | 2 |
+| Capabilities | 5 |
 | Validation Errors | 0 |
-| Validation Warnings | 6 |
+| Validation Warnings | 9 |
 | Critical | 0 |
 
 ✅ All registry contracts valid.

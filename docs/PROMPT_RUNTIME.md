@@ -1,5 +1,15 @@
 # Prompt Runtime
 
+## Current Closure State
+
+Baseline entering completion: `ac6cadd`.
+
+`assistant_chat` is an Agent base capability and may use deterministic fallback or safe prompt runtime. It is not a business module and must not produce jobs, reports, artifacts, or `deployable_config`.
+
+LLM output must never generate or modify `deployable_config`. Prompt input/output policy blocks full configs, secrets, fake refs, and direct device-execution claims.
+
+Frontend LLM settings are saved through `POST /api/agent/llm/config` and read through `GET /api/agent/llm/config`. The backend persists the effective UI configuration in gitignored `config/LLM_setting.json`; runtime config resolution gives this file priority over environment/file fallback. Browser localStorage must not store the API key.
+
 ## Main Chain
 
 ```

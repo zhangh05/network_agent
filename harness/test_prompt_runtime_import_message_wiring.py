@@ -68,8 +68,12 @@ class TestSafeGenerateWiring:
         # _get_system_prompt and _build_messages exist but are fallback only
         assert "prompts.renderer" in content
 
-    def test_disabled_fallback_has_no_error(self):
+    def test_disabled_fallback_has_no_error(self, monkeypatch):
         from agent.llm.runtime import safe_generate
+        monkeypatch.setattr("agent.llm.config.resolve_provider_config", lambda: {
+            "enabled": False,
+            "provider_type": "disabled",
+        })
         out = safe_generate("response_compose")
         assert out.llm_used is False
 
@@ -80,6 +84,36 @@ class TestSafeGenerateWiring:
         meta = out.metadata or {}
         # Disabled path doesn't render, so this is fine
         assert isinstance(meta, dict)
+
+    def test_client_passes_user_question_as_user_input(self, monkeypatch):
+        from agent.llm.client import LLMClient
+        from agent.llm.schemas import SafeLLMOutput
+        from agent.state import NetworkAgentState
+
+        seen = {}
+
+        def fake_safe_generate(task, state, **kwargs):
+            seen["task"] = task
+            seen["user_input"] = kwargs.get("user_input")
+            return SafeLLMOutput(answer="ok")
+
+        monkeypatch.setattr("agent.llm.runtime.safe_generate", fake_safe_generate)
+        out = LLMClient().generate("context_qa", NetworkAgentState(), "你是什么模型")
+        assert out.answer == "ok"
+        assert seen == {"task": "context_qa", "user_input": "你是什么模型"}
+
+    def test_all_prompt_registry_tasks_allowed_by_llm_policy(self):
+        from agent.llm.schemas import ALLOWED_TASKS
+        from prompts.loader import load_prompt_registry
+        for prompt in load_prompt_registry():
+            assert prompt.task in ALLOWED_TASKS
+
+    def test_provider_reasoning_tags_are_stripped(self):
+        from agent.llm.runtime import _sanitize_provider_output
+        text, stripped = _sanitize_provider_output("<think>secret reasoning</think>\n最终回答")
+        assert stripped is True
+        assert "secret reasoning" not in text
+        assert text == "最终回答"
 
 
 class TestPolicyBlocking:

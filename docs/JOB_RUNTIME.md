@@ -1,5 +1,15 @@
 # Job Runtime
 
+## Current Closure State
+
+Baseline entering completion: `ac6cadd`.
+
+Formal job entry: `POST /api/jobs`. Job runtime exists as a task container and event/log surface. It does not imply real device execution.
+
+Jobs must store safe summaries and refs only. Full `source_config`, full `deployable_config`, full prompts, secrets, absolute paths, and ToolResult full outputs are not job-record fields.
+
+Planned job types return coming_soon/planned state and must not fabricate topology, inspection, CMDB, knowledge, report, or artifact results.
+
 ## Definition
 
 Job is a **long-running task container** — NOT a new Agent instance. Jobs run asynchronously and track lifecycle, events, and logs independently from the agent run that created them.

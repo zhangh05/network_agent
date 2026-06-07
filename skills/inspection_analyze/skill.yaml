@@ -1,3 +1,27 @@
 skill_name: inspection_analyze
 enabled: false
 status: planned
+display_name: 巡检分析
+description: Planned compliance and best-practice inspection skill.
+category: inspection
+module: inspection
+skill_type: planned
+
+entrypoint:
+  type: planned
+
+capabilities:
+  - capability_id: inspection.analyze
+    intent: inspection_analyze
+    description: 对配置或设备摘要执行巡检分析
+    risk_level: medium
+
+execution:
+  calls_module: false
+  calls_llm: false
+  calls_http_self: false
+
+memory:
+  write_run_summary: true
+  write_full_input: false
+  write_full_output: false

@@ -12,7 +12,7 @@ Input: Cisco / Huawei / H3C / Ruijie device configuration text.
 ## How to Call
 
 ```
-POST /api/translate
+POST /api/modules/config-translation/translate
 ```
 
 Required fields:

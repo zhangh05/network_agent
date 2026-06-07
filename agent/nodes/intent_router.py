@@ -18,7 +18,12 @@ INTENTS = {
     "skill_query": ["技能", "skill", "能力"],
     "module_query": ["模块", "module"],
     "context_qa": ["刚才", "为什么", "解释", "说明", "复核", "人工", "风险", "这些", "上次", "怎么", "如何", "是什么"],
-    "assistant_chat": ["你好", "hello", "hi", "你是谁", "help", "帮助", "能做", "可以做什么", "bye", "再见", "谢谢", "thank"],
+    "assistant_chat": [
+        "你好", "hello", "hi", "你是谁", "你是什么", "什么模型", "模型",
+        "model", "help", "帮助", "能做", "可以做什么", "bye", "再见", "谢谢", "thank",
+        "状态", "健康", "后端", "连接", "端口", "地址", "llm", "大模型",
+        "memory", "记忆", "历史", "history", "怎么用", "使用",
+    ],
 }
 
 
@@ -39,7 +44,7 @@ def route(state: NetworkAgentState) -> NetworkAgentState:
 
     # ── Determine liveness ──
     cap_status = state.context.get("capability_status", "unknown")
-    live = cap_status == "enabled"
+    live = cap_status in ("enabled", "builtin")
 
     # ── Trace: intent_routed ──
     state.trace_events.append({
@@ -77,6 +82,13 @@ def route(state: NetworkAgentState) -> NetworkAgentState:
 
 def _resolve_capability(state: NetworkAgentState):
     """Resolve intent → capability via registry. Sets active_module/selected_skill/capability_id."""
+    if state.intent == "assistant_chat":
+        state.active_module = "assistant"
+        state.selected_skill = "assistant_chat"
+        state.context["capability_id"] = "assistant.chat"
+        state.context["capability_status"] = "builtin"
+        return
+
     try:
         from registry.loader import load_capabilities
         caps = load_capabilities()
@@ -147,7 +159,25 @@ def _add_warning_event(state, msg):
 
 def _infer(text: str) -> str:
     text_lower = text.lower()
+    assistant_first = [
+        "你好", "hello", "hi", "你是谁", "你是什么", "什么模型",
+        "你用什么模型", "你是什么模型", "what model", "which model",
+        "who are you", "what are you", "你能做什么", "你会什么",
+        "可以做什么", "怎么用", "帮助", "help", "当前状态", "系统状态",
+        "健康状态", "后端状态", "连接状态", "端口", "登录地址",
+        "llm配置", "大模型配置", "memory怎么回事", "记忆怎么回事",
+        "历史怎么回事", "run history",
+    ]
+    if any(kw in text_lower for kw in assistant_first):
+        return "assistant_chat"
+    if (
+        any(kw in text_lower for kw in ["模型", "llm", "大模型", "memory", "记忆", "历史", "状态", "健康"])
+        and not any(kw in text_lower for kw in ["配置翻译", "翻译配置", "source_config", "deployable_config"])
+    ):
+        return "assistant_chat"
     for intent, keywords in INTENTS.items():
         if any(kw in text_lower for kw in keywords):
             return intent
+    if text_lower.endswith(("?", "？", "吗", "呢")):
+        return "assistant_chat"
     return "unknown"

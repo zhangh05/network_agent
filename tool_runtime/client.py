@@ -70,7 +70,9 @@ class ToolRuntimeClient:
         )
 
         # ── Execute through full pipeline ──
-        return self._executor.execute(invocation)
+        result = self._executor.execute(invocation)
+        self._append_trace_event(result, context)
+        return result
 
     def list_tools(self) -> list:
         """List all registered tools as metadata dicts (no handler callables)."""
@@ -84,3 +86,36 @@ class ToolRuntimeClient:
     @property
     def tool_count(self) -> int:
         return self._registry.count()
+
+    def _append_trace_event(self, result: ToolResult, context: ToolRuntimeContext = None):
+        """Append safe ToolResult metadata to an existing observability trace."""
+        if not context or not context.trace_id:
+            return
+        try:
+            from observability.store import append_event
+            from tool_runtime.trace_metadata import build_trace_metadata_from_tool_result
+
+            meta = build_trace_metadata_from_tool_result(result)
+            meta.update({
+                "workspace_id": context.workspace_id or "",
+                "run_id": context.run_id or "",
+                "job_id": context.job_id or "",
+                "capability": context.capability or "",
+                "skill": context.skill or "",
+                "module": context.module or "",
+            })
+            status = "success" if result.status in ("succeeded", "dry_run") else "failed"
+            append_event(context.trace_id, {
+                "trace_id": context.trace_id,
+                "run_id": context.run_id or "",
+                "workspace_id": context.workspace_id or "default",
+                "event_type": "tool_runtime",
+                "name": f"tool:{result.tool_id}",
+                "status": status,
+                "duration_ms": result.duration_ms,
+                "summary": f"tool:{result.tool_id}: {result.status}",
+                "metadata": meta,
+                "redaction_applied": True,
+            }, ws_id=context.workspace_id or "default")
+        except Exception:
+            return

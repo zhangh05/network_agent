@@ -8,12 +8,12 @@ modules:
     status: enabled
     has_ui: true
     ui_route: /modules/translate
-    api_base: /api/translate
+    api_base: /api/modules/config-translation
     capabilities:
       - config_translate
       - manual_review
       - risk_audit
-    owner: backend.services.config_translation
+    owner: modules.config_translation
     maturity: beta_ready
 
   - module_name: topology

@@ -124,6 +124,8 @@ def get_workspace_runs(ws_id: str = "default") -> list:
     runs = []
     if runs_dir.is_dir():
         for f in sorted(runs_dir.glob("*.json"), reverse=True):
+            if f.name.endswith(".trace.json"):
+                continue
             try:
                 runs.append(json.loads(f.read_text()))
             except Exception:
@@ -150,7 +152,7 @@ def _count_runs(ws_id: str) -> int:
     ws_id = validate_workspace_id(ws_id)
     runs_dir = WS_ROOT / ws_id / "runs"
     if runs_dir.is_dir():
-        return len(list(runs_dir.glob("*.json")))
+        return len([p for p in runs_dir.glob("*.json") if not p.name.endswith(".trace.json")])
     return 0
 
 

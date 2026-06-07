@@ -1,4 +1,4 @@
-# backend/services/config_translation/schemas.py
+# modules/config_translation/backend/schemas.py
 
 from dataclasses import dataclass, field
 from typing import Optional
@@ -38,6 +38,7 @@ class TranslateResponse:
     manual_review_count: int = 0
     semantic_near_count: int = 0
     unsupported_count: int = 0
+    warnings: list = field(default_factory=list)
     build_commit: str = ""
     translator_entry: str = "translate_bundle"
     elapsed_ms: float = 0
@@ -54,6 +55,7 @@ class TranslateResponse:
             "manual_review_count": self.manual_review_count,
             "semantic_near_count": self.semantic_near_count,
             "unsupported_count": self.unsupported_count,
+            "warnings": self.warnings,
             "build_commit": self.build_commit,
             "translator_entry": self.translator_entry,
             "elapsed_ms": self.elapsed_ms,

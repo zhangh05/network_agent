@@ -94,8 +94,10 @@ def append_event(trace_id: str, event, ws_id: str = "default"):
         try:
             data = json.loads(path.read_text())
             if data.get("trace_id") == trace_id:
+                from observability.redaction import redact_trace_event
                 events = data.get("events", [])
-                events.append(event.as_dict() if hasattr(event, "as_dict") else event)
+                event_data = event.as_dict() if hasattr(event, "as_dict") else event
+                events.append(redact_trace_event(event_data))
                 data["events"] = events
                 path.write_text(json.dumps(data, indent=2, ensure_ascii=False))
                 return

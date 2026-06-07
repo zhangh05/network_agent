@@ -1,5 +1,16 @@
 # Network Agent Architecture
 
+## Current Closure State
+
+- Baseline entering this completion pass: `ac6cadd`
+- Baseline test evidence: `pytest harness -q` = `850 passed, 7 skipped, 0 failed`
+- Current enabled business module: `config_translation`
+- Agent base capability: `assistant_chat` (not a business module)
+- Planned only: Topology, Inspection, CMDB, Knowledge
+- Tool Runtime has Foundation + Client + Integration, but no real device execution.
+- Run history is backend workspace state, not browser-local history.
+- `quality_summary` is carried through API, Agent result, run history, UI, trace metadata, and report summaries.
+
 ## 总体架构
 
 ```
@@ -13,6 +24,7 @@ Frontend → API (8010) → Agent (LangGraph)
 Horizontal base:
 Workspace / Memory / Artifact / Report / Job / Trace /
 LLM Settings / Prompt / Harness
+Tool Runtime
 ```
 
 ## Agent 调用链

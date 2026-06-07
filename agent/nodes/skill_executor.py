@@ -181,6 +181,8 @@ def execute(state: NetworkAgentState) -> NetworkAgentState:
 
         if isinstance(result, dict) and not result.get("ok"):
             state.error = result.get("error", "execution failed")
+        if isinstance(result, dict) and result.get("warnings"):
+            state.warnings.extend(str(w) for w in result.get("warnings", [])[:20])
 
         mod_dur = round((time.time() - mod_start) * 1000, 2)
         _add_event(state, "module_call_end", f"module:{state.active_module}",

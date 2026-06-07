@@ -25,6 +25,7 @@ def build_context_bundle(workspace_id: str, user_input: str = "",
     raw_items = load_context_items(
         workspace_id=workspace_id, context_ref=ref, intent=intent,
         payload=payload, capability_id=capability_id,
+        user_input=user_input,
     )
 
     # 3. Select

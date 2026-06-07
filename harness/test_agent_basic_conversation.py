@@ -27,6 +27,22 @@ class TestIntentRouter:
         intent = _infer("你能做什么")
         assert intent == "assistant_chat"
 
+    def test_what_model_intent(self):
+        intent = _infer("你是什么模型")
+        assert intent == "assistant_chat"
+
+    def test_memory_question_intent(self):
+        intent = _infer("memory怎么回事")
+        assert intent == "assistant_chat"
+
+    def test_status_question_intent(self):
+        intent = _infer("当前状态怎么样")
+        assert intent == "assistant_chat"
+
+    def test_llm_config_question_intent(self):
+        intent = _infer("LLM配置在哪里")
+        assert intent == "assistant_chat"
+
     def test_translate_still_works(self):
         intent = _infer("翻译配置")
         assert intent == "translate_config"
@@ -34,6 +50,14 @@ class TestIntentRouter:
     def test_topology_planned(self):
         intent = _infer("帮我画拓扑")
         assert intent == "topology_draw"
+
+    def test_route_topology_as_planned_capability(self):
+        state = NetworkAgentState(user_input="帮我画拓扑")
+        state = route(state)
+        assert state.intent == "topology_draw"
+        assert state.context.get("capability_status") == "planned"
+        assert state.context.get("capability_id") == "topology.draw"
+        assert state.selected_skill == "topology_draw"
 
     def test_help_intent(self):
         intent = _infer("help")
@@ -60,6 +84,27 @@ class TestAssistantResponse:
         state = NetworkAgentState(user_input="你是谁", intent="assistant_chat")
         resp = _assistant_response(state)
         assert "Network Agent" in resp
+
+    def test_model_response(self):
+        state = NetworkAgentState(user_input="你是什么模型", intent="assistant_chat")
+        resp = _assistant_response(state)
+        assert "Network Agent" in resp
+        assert "LLM" in resp or "assistant_chat" in resp
+        assert "provider=" in resp or "deterministic assistant_chat" in resp
+        assert "人工复核" not in resp
+
+    def test_memory_response(self):
+        state = NetworkAgentState(user_input="memory怎么回事", intent="assistant_chat")
+        resp = _assistant_response(state)
+        assert "Memory" in resp
+        assert "localStorage" in resp
+        assert "source_config" in resp
+
+    def test_status_response(self):
+        state = NetworkAgentState(user_input="当前状态怎么样", intent="assistant_chat")
+        resp = _assistant_response(state)
+        assert "0.0.0.0:8010" in resp
+        assert "config_translation" in resp
 
     def test_no_deployable_config(self):
         state = NetworkAgentState(user_input="你好", intent="assistant_chat")

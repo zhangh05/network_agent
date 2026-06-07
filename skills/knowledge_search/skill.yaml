@@ -1,3 +1,27 @@
 skill_name: knowledge_search
 enabled: false
 status: planned
+display_name: 知识库搜索
+description: Planned network engineering knowledge search skill.
+category: knowledge
+module: knowledge_base
+skill_type: planned
+
+entrypoint:
+  type: planned
+
+capabilities:
+  - capability_id: knowledge.search
+    intent: knowledge_search
+    description: 搜索网络工程知识库
+    risk_level: low
+
+execution:
+  calls_module: false
+  calls_llm: false
+  calls_http_self: false
+
+memory:
+  write_run_summary: true
+  write_full_input: false
+  write_full_output: false

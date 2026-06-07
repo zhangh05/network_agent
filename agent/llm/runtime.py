@@ -1,6 +1,7 @@
 # agent/llm/runtime.py
 """LLM Runtime — safe_generate with Prompt Runtime (yaml+template primary)."""
 
+import re
 from typing import Optional
 from agent.state import NetworkAgentState
 from agent.llm.schemas import LLMRequest, LLMMessage, SafeLLMOutput, PolicyDecision
@@ -130,6 +131,9 @@ def safe_generate(
         return SafeLLMOutput(answer="Provider unavailable.", llm_used=False,
                              fallback_reason=f"provider: {_redact(resp.error)}")
 
+    cleaned_content, reasoning_stripped = _sanitize_provider_output(resp.content)
+    resp.content = cleaned_content
+
     # ── Output policy — BLOCK on failure, discard provider output ──
     output_accepted = True
     try:
@@ -172,6 +176,7 @@ def safe_generate(
             "prompt_runtime_fallback": prompt_runtime_fallback,
             "rendered_prompt_used": True, "old_prompts_default_path": False,
             "output_accepted": output_accepted,
+            "reasoning_stripped": reasoning_stripped,
         },
     )
 
@@ -206,6 +211,17 @@ def _redact(msg: str) -> str:
         if kw.lower() in msg.lower():
             return "[REDACTED]"
     return msg[:100]
+
+
+def _sanitize_provider_output(content: str) -> tuple[str, bool]:
+    """Remove provider reasoning markup before UI/history/policy handling."""
+    text = content or ""
+    original = text
+    text = re.sub(r"<think\b[^>]*>.*?</think>", "", text, flags=re.IGNORECASE | re.DOTALL)
+    text = re.sub(r"<reasoning\b[^>]*>.*?</reasoning>", "", text, flags=re.IGNORECASE | re.DOTALL)
+    text = re.sub(r"(?is)^\s*(reasoning|思考过程)\s*[:：].*?(?=\n\s*(answer|回答|结论)\s*[:：]|\Z)", "", text)
+    text = re.sub(r"(?i)</?(think|reasoning)\b[^>]*>", "", text)
+    return text.strip(), text != original
 
 
 def get_llm_status() -> dict:

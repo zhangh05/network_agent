@@ -39,6 +39,8 @@ def finalize_trace(state, ws_id: str = "default") -> TraceRecord:
     duration = round((time.time() - _parse_time(state.created_at)) * 1000, 2) if state.created_at else 0.0
 
     summary = build_timeline_summary(state)
+    result = state.skill_results or state.tool_results or {}
+    summary["quality_summary"] = _safe_quality_summary(result)
 
     end_evt = {
         "event_id": str(uuid.uuid4())[:8],
@@ -86,3 +88,15 @@ def _parse_time(ts: str) -> float:
         return dt.timestamp()
     except Exception:
         return time.time()
+
+
+def _safe_quality_summary(result: dict) -> dict:
+    qs = result.get("quality_summary", {}) if isinstance(result, dict) else {}
+    keys = [
+        "source_residue_count",
+        "silent_drop_count",
+        "unsupported_count",
+        "safe_drop_count",
+        "review_required_count",
+    ]
+    return {key: int(qs.get(key, 0) or 0) if isinstance(qs, dict) else 0 for key in keys}

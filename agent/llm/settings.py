@@ -28,6 +28,12 @@ def load_llm_settings() -> Optional[dict]:
 
 def save_llm_settings(data: dict) -> dict:
     existing = load_llm_settings() or {}
+    data = dict(data)
+
+    if data.get("provider") == "openai_compatible":
+        data["provider_type"] = "openai_compatible"
+    elif data.get("provider") == "ollama_compatible":
+        data["provider_type"] = "ollama_compatible"
 
     # Preserve existing key if not provided
     if "api_key" not in data or not data.get("api_key"):
@@ -99,20 +105,29 @@ def resolve_effective_llm_config() -> dict:
 
     if ui is not None:
         # UI settings exist — respect them
+        provider = ui.get("provider", "disabled")
+        provider_type = ui.get("provider_type")
+        if not provider_type:
+            if provider == "minimax":
+                provider_type = "openai_compatible"
+            elif provider in ("openai_compatible", "ollama_compatible", "mock", "disabled"):
+                provider_type = provider
+            else:
+                provider_type = provider or "disabled"
         result = {
             "enabled": ui.get("enabled", False),
-            "provider": ui.get("provider", "disabled"),
+            "provider": provider,
             "safe_mode": ui.get("safe_mode", True),
             "base_url": ui.get("base_url", ""),
             "model": ui.get("model", ""),
             "temperature": ui.get("temperature", 0.2),
             "max_tokens": ui.get("max_tokens", 1200),
             "api_key": ui.get("api_key", ""),
-            "provider_type": "openai_compatible" if ui.get("provider")=="minimax" else ui.get("provider","disabled"),
+            "provider_type": provider_type,
             "config_source": "ui_settings",
             "key_loaded": bool(ui.get("api_key")),
             "key_source": "ui_settings",
-            "default_provider": ui.get("provider", "disabled"),
+            "default_provider": provider,
             "timeout": 30,
         }
         # If UI says disabled, enforce it regardless of env
@@ -156,7 +171,11 @@ def resolve_effective_llm_config() -> dict:
 
 def validate_llm_settings(data: dict) -> list:
     errors = []
-    valid_providers = ["minimax", "disabled", "mock", "openai", "deepseek", "ollama", "custom"]
+    valid_providers = [
+        "minimax", "disabled", "mock", "openai",
+        "deepseek", "ollama", "custom",
+        "openai_compatible", "ollama_compatible",
+    ]
     if data.get("provider") not in valid_providers:
         errors.append(f"invalid provider: {data.get('provider')}")
     bu = data.get("base_url", "")
@@ -164,7 +183,7 @@ def validate_llm_settings(data: dict) -> list:
         errors.append("base_url must start with http:// or https://")
     if not data.get("model") and data.get("provider") not in ("disabled", "mock"):
         # minimax auto-fills MiniMax-M3 in save_llm_settings; allow empty
-        if data.get("provider") != "minimax":
+        if data.get("provider") not in ("minimax", "ollama_compatible"):
             errors.append("model is required")
     temp = data.get("temperature", 0.7)
     if not isinstance(temp, (int, float)) or temp < 0 or temp > 2:

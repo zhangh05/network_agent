@@ -6,6 +6,7 @@ from context.schemas import ContextItem, ContextRef
 
 def load_context_items(workspace_id: str, context_ref=None, intent: str = "",
                        payload: dict = None, capability_id: str = "",
+                       user_input: str = "",
                        include_memory=True, include_workspace=True,
                        include_artifacts=True, include_jobs=True,
                        include_reports=True, include_trace=True) -> list:
@@ -13,7 +14,7 @@ def load_context_items(workspace_id: str, context_ref=None, intent: str = "",
     w = []  # warnings
 
     # 1. Request item (P0)
-    msg = (payload or {}).get("message", "")
+    msg = user_input or (payload or {}).get("message", "")
     items.append(ContextItem(
         item_type="request", source="request", priority=0,
         title="User request", summary=msg[:200],
@@ -51,7 +52,7 @@ def load_context_items(workspace_id: str, context_ref=None, intent: str = "",
     if include_memory:
         try:
             from memory.retriever import retrieve_for_context
-            hits = retrieve_for_context(intent or "", workspace_id, limit=10)
+            hits = retrieve_for_context(user_input or intent or "", workspace_id, limit=10)
             for h in hits:
                 items.append(ContextItem(
                     item_type="memory_hit", source="memory", priority=40,

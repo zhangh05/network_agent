@@ -5,6 +5,12 @@
 > **Date**: 2026-06-07  
 > **Depends on**: [Tool Runtime Foundation v0.1](./TOOL_RUNTIME.md)
 
+Current closure baseline: `ac6cadd`. Baseline harness evidence: `850 passed, 7 skipped, 0 failed`.
+
+Current integration status: `ToolRuntimeContext`, `ToolRuntimeClient`, and safe trace metadata integration are implemented. `ToolRuntimeClient.invoke()` writes allowlisted metadata to the observability trace store when `trace_id` is provided in context.
+
+No public Tool invoke HTTP API exists. No Tool invoke UI exists. Agent code must not freely call tools; Module/Service code remains the controlled caller boundary.
+
 ---
 
 ## 1. Purpose
@@ -60,6 +66,7 @@ Module Service
   ctx = ToolRuntimeContext(
     workspace_id=ws_id,
     run_id=run_id,
+    trace_id=trace_id,
     module="config_translation",
     skill="config_translation",
     requested_by="module:config_translation",

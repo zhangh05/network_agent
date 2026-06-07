@@ -60,6 +60,7 @@ def render_config_translation_report(
     mr = res.get("manual_review", [])
     sn = res.get("semantic_near", [])
     us = res.get("unsupported", [])
+    qs = res.get("quality_summary", {}) if isinstance(res.get("quality_summary", {}), dict) else {}
     out_arts = [a for a in art if a.get("artifact_type") == "output_config"]
     trans_lines = [
         f"- Deployable lines: {len(dc.split(chr(10))) if dc else 0}",
@@ -72,6 +73,15 @@ def render_config_translation_report(
     for a in out_arts:
         trans_lines.append(f"- Output artifact: `{a['artifact_id']}` — {a.get('title','')}")
     sections.append(ReportSection("translation", "翻译结果摘要", 2, "\n".join(trans_lines), "markdown"))
+
+    quality_lines = [
+        f"- source_residue_count: {int(qs.get('source_residue_count', 0) or 0)}",
+        f"- silent_drop_count: {int(qs.get('silent_drop_count', 0) or 0)}",
+        f"- unsupported_count: {int(qs.get('unsupported_count', 0) or 0)}",
+        f"- safe_drop_count: {int(qs.get('safe_drop_count', 0) or 0)}",
+        f"- review_required_count: {int(qs.get('review_required_count', len(mr)) or 0)}",
+    ]
+    sections.append(ReportSection("quality_summary", "质量摘要", 2, "\n".join(quality_lines), "markdown"))
 
     # 5. Deployable config (only if requested)
     if include_deployable and dc:
@@ -131,11 +141,23 @@ def render_config_translation_report(
 
     doc.sections = sections
     section_count = len(sections)
-    doc.summary = (f"Config translation report with {section_count} sections, "
-                   f"{len(input_arts)} input, {len(out_arts)} output artifacts.")
+    doc.summary = (
+        f"Config translation report with {section_count} sections, "
+        f"{len(input_arts)} input, {len(out_arts)} output artifacts, "
+        f"quality_summary residue={int(qs.get('source_residue_count', 0) or 0)} "
+        f"silent_drop={int(qs.get('silent_drop_count', 0) or 0)} "
+        f"review_required={int(qs.get('review_required_count', len(mr)) or 0)}."
+    )
     doc.metadata = {
         "section_count": section_count, "report_type": "config_translation",
         "include_deployable_config": include_deployable,
         "generated_by": "reports_engine",
+        "quality_summary": {
+            "source_residue_count": int(qs.get("source_residue_count", 0) or 0),
+            "silent_drop_count": int(qs.get("silent_drop_count", 0) or 0),
+            "unsupported_count": int(qs.get("unsupported_count", 0) or 0),
+            "safe_drop_count": int(qs.get("safe_drop_count", 0) or 0),
+            "review_required_count": int(qs.get("review_required_count", len(mr)) or 0),
+        },
     }
     return doc

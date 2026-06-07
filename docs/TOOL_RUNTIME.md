@@ -7,6 +7,14 @@
 >
 > **Integration Contract**: [TOOL_RUNTIME_INTEGRATION.md](./TOOL_RUNTIME_INTEGRATION.md)
 
+Current closure baseline: `ac6cadd`. Baseline harness evidence: `850 passed, 7 skipped, 0 failed`.
+
+Tool Runtime currently includes Foundation + Client + Integration. It can append safe ToolResult metadata to observability traces through `ToolRuntimeClient.invoke()` when a trace context is supplied.
+
+Allowed trace metadata fields are limited to invocation/tool/status/duration/dry-run/redaction/policy/risk/artifact IDs plus workspace/run/job/capability/skill/module association. Full arguments, full output, configs, secrets, and absolute paths are not stored.
+
+Tool Runtime still does not support real device execution, SSH, Telnet, SNMP, nmap, ping sweep, arbitrary shell, or config push.
+
 ---
 
 ## 1. Purpose

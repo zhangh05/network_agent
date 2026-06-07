@@ -128,26 +128,56 @@ def create_app():
         ws_id, err = _validated_workspace_id(ws_id)
         if err:
             return err
-        limit = int(request.args.get("limit", "10"))
-        from workspace.manager import get_workspace_runs
-        runs = get_workspace_runs(ws_id)
+        limit, err = _validated_limit(default=10, max_value=100)
+        if err:
+            return err
+        from workspace.run_store import list_runs
+        runs = list_runs(ws_id, limit=limit)
         # Sort by latest first
         runs_sorted = sorted(runs, key=lambda r: r.get("created_at", ""), reverse=True) if runs else []
         recent = runs_sorted[:limit]
         # Strip any full config from summaries
         safe_recent = []
         for r in recent:
-            safe_run = {k: v for k, v in r.items() if k not in ("source_config", "deployable_config", "prompt", "full_context")}
+            safe_run = {k: v for k, v in r.items() if k not in ("source_config", "deployable_config", "prompt", "full_context", "safe_context")}
             safe_recent.append(safe_run)
         return jsonify({"runs": safe_recent, "count": len(safe_recent)})
+
+    @app.route("/api/runs/<run_id>")
+    def api_run_detail(run_id):
+        """Run detail for a workspace (default unless workspace_id query is supplied)."""
+        ws_id = request.args.get("workspace_id", "default")
+        ws_id, err = _validated_workspace_id(ws_id)
+        if err:
+            return err
+        from workspace.run_store import get_run
+        result = get_run(run_id, ws_id)
+        if not result:
+            return jsonify({"ok": False, "error": "run not found"}), 404
+        return jsonify(result)
 
     @app.route("/api/workspaces/<ws_id>/runs")
     def api_workspace_runs(ws_id):
         ws_id, err = _validated_workspace_id(ws_id)
         if err:
             return err
-        from workspace.manager import get_workspace_runs
-        return jsonify({"runs": get_workspace_runs(ws_id)})
+        limit, err = _validated_limit(default=100, max_value=500)
+        if err:
+            return err
+        from workspace.run_store import list_runs
+        return jsonify({"runs": list_runs(ws_id, limit=limit)})
+
+    @app.route("/api/workspaces/<ws_id>/history")
+    def api_workspace_history(ws_id):
+        ws_id, err = _validated_workspace_id(ws_id)
+        if err:
+            return err
+        limit, err = _validated_limit(default=100, max_value=500)
+        if err:
+            return err
+        from workspace.run_store import list_runs
+        runs = sorted(list_runs(ws_id, limit=limit), key=lambda r: r.get("created_at", ""), reverse=True)
+        return jsonify({"workspace_id": ws_id, "runs": runs, "count": len(runs)})
 
     @app.route("/api/workspaces/<ws_id>/runs/<run_id>")
     def api_workspace_run(ws_id, run_id):
@@ -689,7 +719,7 @@ def main():
     import argparse
     parser = argparse.ArgumentParser(description="Network Agent — Unified Backend")
     parser.add_argument("--port", type=int, default=UNIFIED_PORT, help="Port to listen on (default: 8010)")
-    parser.add_argument("--host", type=str, default="127.0.0.1", help="Host to bind to")
+    parser.add_argument("--host", type=str, default="0.0.0.0", help="Host to bind to")
     args = parser.parse_args()
 
     port = args.port

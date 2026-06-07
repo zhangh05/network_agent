@@ -30,6 +30,7 @@ class ToolRuntimeContext:
 
     workspace_id: Optional[str] = None
     run_id: Optional[str] = None
+    trace_id: Optional[str] = None
     job_id: Optional[str] = None
     capability: Optional[str] = None
     skill: Optional[str] = None
@@ -41,6 +42,7 @@ class ToolRuntimeContext:
         return {
             "workspace_id": self.workspace_id,
             "run_id": self.run_id,
+            "trace_id": self.trace_id,
             "job_id": self.job_id,
             "capability": self.capability,
             "skill": self.skill,

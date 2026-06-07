@@ -11,6 +11,9 @@ class LLMTask(str, Enum):
     MANUAL_REVIEW_EXPLAIN = "manual_review_explain"
     RESULT_SUMMARIZE = "result_summarize"
     CONTEXT_QA = "context_qa"
+    JOB_FAILURE_EXPLAIN = "job_failure_explain"
+    REPORT_SUMMARY = "report_summary"
+    ARTIFACT_SUMMARY_EXPLAIN = "artifact_summary_explain"
 
 
 ALLOWED_TASKS = {t.value for t in LLMTask}

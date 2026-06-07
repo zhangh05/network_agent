@@ -10,8 +10,8 @@ Provides:
 from tool_runtime.registry import ToolRegistry
 from tool_runtime.policy import ToolPolicy
 from tool_runtime.client import ToolRuntimeClient
-from tool_runtime.schemas import ToolResult
 from tool_runtime.builtins import register_builtin_tools
+from tool_runtime.trace_metadata import build_trace_metadata_from_tool_result
 
 # ── Module-level default (lazy singleton) ──
 _default_client: ToolRuntimeClient = None
@@ -45,42 +45,3 @@ def create_tool_runtime_client(
     if policy is None:
         policy = ToolPolicy()
     return ToolRuntimeClient(registry, policy)
-
-
-def build_trace_metadata_from_tool_result(result: ToolResult) -> dict:
-    """Build safe trace/observability metadata from a ToolResult.
-
-    Returns a dict suitable for trace event metadata or audit log.
-    Contains ONLY summary-level fields — no full output, no full arguments,
-    no keys, no passwords, no paths.
-
-    Args:
-        result: A completed ToolResult.
-
-    Returns:
-        dict with safe metadata fields.
-    """
-    meta = {
-        "invocation_id": result.invocation_id,
-        "tool_id": result.tool_id,
-        "status": result.status,
-        "duration_ms": result.duration_ms,
-        "redacted": result.redacted,
-        "artifact_ids": result.artifact_ids,
-        "dry_run": result.status == "dry_run",
-        "warning_count": len(result.warnings),
-        "error_count": len(result.errors),
-        "output_keys": list(result.output.keys()) if isinstance(result.output, dict) else [],
-        "summary": result.summary[:200],
-    }
-
-    # Policy decision (safe: no full arguments)
-    if result.policy_decision:
-        meta["policy"] = {
-            "allowed": result.policy_decision.allowed,
-            "risk_level": result.policy_decision.risk_level,
-            "blocked_rules": result.policy_decision.blocked_rules,
-            "reason": result.policy_decision.reason[:200],
-        }
-
-    return meta
