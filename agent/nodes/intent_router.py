@@ -190,11 +190,23 @@ def _infer(text: str) -> str:
     if any(kw in text_lower for kw in assistant_first):
         return "assistant_chat"
     # Context QA: result/explanation queries — check BEFORE translate_config
-    if any(kw in text_lower for kw in
-           ["该怎么看", "怎么看结果", "翻译结果怎么看", "怎么看翻译结果",
-            "结果怎么看", "怎么看上次", "上次翻译怎么看", "解释上次",
-            "有什么风险", "风险是什么", "刚才的结果", "刚才结果",
-            "复核", "人工", "warning", "warnings"]):
+    # Must have explicit context reference (上次/刚才/这次/结果) OR platform term query
+    # Generic questions like "warning是什么意思" without context go to assistant_chat
+    _context_words = [
+        "该怎么看", "怎么看结果", "翻译结果怎么看", "怎么看翻译结果",
+        "结果怎么看", "怎么看上次", "上次翻译怎么看", "解释上次",
+        "有什么风险", "风险是什么", "刚才的结果", "刚才结果",
+        "这次", "上次", "刚才", "结果",
+    ]
+    _ctx_term_explain = [
+        "manual_review是什么", "quality_summary是什么",
+        "source_residue是什么", "silent_drop是什么",
+        "manual_review 是什么", "quality_summary 是什么",
+        "source_residue 是什么", "silent_drop 是什么",
+    ]
+    if any(kw in text_lower for kw in _context_words):
+        return "context_qa"
+    if any(kw in text_lower for kw in _ctx_term_explain):
         return "context_qa"
     if (
         any(kw in text_lower for kw in ["模型", "llm", "大模型", "memory", "记忆", "历史", "状态", "健康"])

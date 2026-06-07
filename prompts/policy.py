@@ -73,8 +73,9 @@ def check_prompt_text(text: str, prompt_spec=None) -> PolicyResult:
 
 # ── Negation context detection ──
 # Chinese negation characters & words that may precede a forbidden phrase
+# NOTE: single-char "无" removed — too ambiguous (appears in dangerous phrases like "无需人工复核")
 _CN_NEGATION_WORDS = [
-    "不", "没", "非", "无", "勿", "别", "莫", "未",
+    "不", "没", "非", "勿", "别", "莫", "未",
     "不会", "不可", "绝不", "并非", "不是", "从未",
     "禁止", "否定", "绝不",
 ]

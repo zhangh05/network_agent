@@ -174,35 +174,18 @@ def _assistant_response(state: NetworkAgentState) -> str:
     ui = (state.user_input or "").lower().strip()
     # Greetings
     if any(kw in ui for kw in ["你好", "hello", "hi", "hey"]):
-        return ("你好！我是 Network Agent，一个本地网络工程 AI 平台。\n\n"
-                "当前唯一启用的业务模块：**配置翻译**（支持 Cisco ↔ 华为 ↔ H3C ↔ 锐捷）\n"
-                "我可以帮你：\n"
-                "- 翻译网络设备配置\n"
-                "- 解释配置翻译结果\n"
-                "- 回答关于系统能力的问题\n\n"
-                "请输入 \"你能做什么\" 了解更多。")
+        return ("你好，我是 Network Agent，一个本地网络工程 Agent。\n"
+                "当前正式启用的业务模块是配置翻译；拓扑、巡检、知识库、CMDB 还在规划中。")
     # Identity
     if any(kw in ui for kw in ["什么模型", "你是什么", "model", "what are you"]):
         return _model_response()
     if any(kw in ui for kw in ["你是谁", "who are you"]):
-        return ("我是 Network Agent，一个 LangGraph 驱动的本地网络工程 AI 助手。\n"
-                "我通过 7 个处理节点（router → context → planner → executor → verifier → composer → memory）工作。\n"
-                "唯一启用的业务模块是 config_translation（配置翻译）。\n"
-                "基础对话由本地 assistant_chat 处理；需要 LLM 增强时，会使用后端已配置的 LLM。")
+        return ("我是 Network Agent，本地网络工程 Agent 平台。\n"
+                "你可以和我正常对话；当你明确提出配置翻译需求时，我会进入配置翻译流程。")
     # Capability
     if any(kw in ui for kw in ["能做", "可以做什么", "what can you do", "help", "帮助"]):
-        return ("当前支持的功能：\n\n"
-                "**已启用：**\n"
-                "- 配置翻译（config_translation）：Cisco ↔ 华为 ↔ H3C ↔ 锐捷 网络设备配置互译\n"
-                "- 基础对话（assistant_chat）：回答关于系统能力和使用方式的问题\n\n"
-                "**规划中（coming soon）：**\n"
-                "- 拓扑绘图（topology）：从设备配置中提取和绘制网络拓扑\n"
-                "- 巡检分析（inspection）：合规检查和最佳实践审计\n"
-                "- 知识库（knowledge）：网络工程知识库搜索\n\n"
-                "安全说明：\n"
-                "- 配置翻译输出必须经过人工复核\n"
-                "- 不声明配置可用于设备执行\n"
-                "- 不包含真实设备执行能力")
+        return ("目前我能正常对话、解释平台能力，并处理配置翻译。\n"
+                "拓扑、巡检、知识库、CMDB 仍是 planned，不会伪造结果。")
     if any(kw in ui for kw in ["状态", "健康", "后端", "连接", "端口", "地址"]):
         return _status_response()
     if any(kw in ui for kw in ["memory", "记忆", "历史", "history", "run history"]):
@@ -212,19 +195,18 @@ def _assistant_response(state: NetworkAgentState) -> str:
         return "再见！如有配置翻译需求，随时可以使用 \"翻译配置\" 功能。"
     # Quality / manual_review
     if any(kw in ui for kw in ["质量", "quality", "人工", "manual_review", "风险"]):
-        return ("关于配置翻译质量：\n\n"
-                "每次翻译都会生成质量摘要（quality_summary），包含：\n"
-                "- source_residue_count：源厂商语法残留数\n"
-                "- silent_drop_count：静默丢弃的语义行数\n"
-                "- review_required_count：需要人工复核的项目数\n\n"
-                "如果 source_residue_count > 0 或 silent_drop_count > 0，结果必须经过人工复核。\n"
-                "配置翻译不声明结果可用于设备执行。")
+        return ("配置翻译质量摘要包含 source_residue_count（源残留）、silent_drop_count（静默丢弃）、"
+                "review_required_count（需复核）。\n"
+                "如有残留或丢弃项，结果必须经过人工复核；配置翻译不声明结果可用于设备执行。")
+    # Weather / real-time / news — no tools available
+    if any(kw in ui for kw in ["天气", "weather", "新闻", "news", "股票", "stock", "热搜"]):
+        return ("我当前没有接入实时查询工具，无法查询最新天气、新闻或股票数据。\n"
+                "后续接入对应工具后才能处理这类实时问题。")
     # Default friendly response
     return ("你好！有什么我可以帮助你的吗？\n\n"
             "你可以尝试：\n"
             "- \"翻译配置\" — 打开配置翻译\n"
             "- \"你能做什么\" — 查看我的能力\n"
-            "- \"解释上次翻译结果\" — 查看上次结果摘要\n"
             "直接粘贴网络配置文本也可以触发翻译。")
 
 

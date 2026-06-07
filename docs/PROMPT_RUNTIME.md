@@ -16,9 +16,9 @@ Frontend LLM settings are saved through `POST /api/agent/llm/config` and read th
 _compose_assistant_chat
   → resolve_provider_config (UI settings priority)
   → safe_generate("assistant_chat")
-    → get_prompt_by_task → render_prompt → check_prompt_input
-    → check_prompt_text → provider(MiniMax-M3) → check_prompt_output
-    → deterministic_fallback (if any step fails)
+    → get_prompt_by_task → render_prompt (produces rendered prompt text)
+    → check_prompt_input → check_prompt_text → provider(MiniMax-M3)
+    → check_prompt_output → deterministic_fallback (if any step fails)
 ```
 
 ## Prompt Registry
