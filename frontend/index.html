@@ -18,25 +18,39 @@
   body{display:flex;overflow:hidden}
 
   /* ── Sidebar ── */
-  #sidebar{width:210px;flex-shrink:0;background:var(--n1);display:flex;flex-direction:column;overflow:hidden}
-  .sb-logo{height:52px;display:flex;align-items:center;padding:0 18px;gap:10px;border-bottom:1px solid var(--n2)}
-  .sb-logo .icon{width:26px;height:26px;background:var(--pri);border-radius:6px;display:flex;align-items:center;justify-content:center;color:#fff;font-size:13px;font-weight:700}
-  .sb-logo .text{color:#f8fafc;font-size:15px;font-weight:700;letter-spacing:.3px}
-  .sb-logo .ver{color:var(--n5);font-size:11px;margin-left:auto}
-  .sb-nav{flex:1;padding:10px 10px;overflow-y:auto}
-  .sb-nav::-webkit-scrollbar{width:4px}
-  .sb-nav::-webkit-scrollbar-thumb{background:var(--n3);border-radius:2px}
-  .sb-group{margin-bottom:14px}
-  .sb-label{padding:4px 10px;font-size:11px;color:var(--n5);text-transform:uppercase;letter-spacing:.5px;margin-bottom:2px}
-  .sb-item{display:flex;align-items:center;gap:10px;padding:9px 12px;border-radius:6px;color:var(--n6);font-size:13px;cursor:pointer;transition:all .15s;border:0;background:transparent;width:100%;text-align:left}
-  .sb-item:hover{background:var(--n2);color:var(--n9)}
-  .sb-item.active{background:var(--n2);color:#fff;font-weight:600}
-  .sb-item:disabled{opacity:.35;cursor:not-allowed}
-  .sb-item:disabled:hover{background:transparent}
-  .sb-item .dot{width:6px;height:6px;border-radius:50%;background:var(--n4);flex-shrink:0}
-  .sb-item.active .dot{background:var(--pri)}
-  .sb-item .soon{margin-left:auto;font-size:10px;color:var(--n5);background:var(--n2);padding:1px 5px;border-radius:4px}
-  .sb-foot{padding:10px;border-top:1px solid var(--n2)}
+  #sidebar{width:240px;flex-shrink:0;background:linear-gradient(180deg,#111827 0%,#0b1220 100%);display:flex;flex-direction:column;overflow:hidden;border-right:1px solid rgba(255,255,255,.04)}
+
+  /* Logo */
+  .sb-logo{height:60px;display:flex;align-items:center;padding:0 20px;gap:10px;border-bottom:1px solid rgba(255,255,255,.06)}
+  .sb-logo .icon{width:28px;height:28px;background:linear-gradient(135deg,var(--pri) 0%,#1d4ed8 100%);border-radius:7px;display:flex;align-items:center;justify-content:center;color:#fff;font-size:14px;font-weight:700;box-shadow:0 2px 8px rgba(37,99,235,.25)}
+  .sb-logo .text{color:#f1f5f9;font-size:15px;font-weight:700;letter-spacing:0}
+  .sb-logo .ver{color:var(--n5);font-size:10px;margin-left:auto;font-weight:500}
+
+  /* Nav */
+  .sb-nav{flex:1;padding:16px 14px;overflow-y:auto}
+  .sb-nav::-webkit-scrollbar{width:3px}
+  .sb-nav::-webkit-scrollbar-thumb{background:rgba(255,255,255,.1);border-radius:2px}
+  .sb-group{margin-bottom:22px}
+  .sb-group:last-child{margin-bottom:0}
+  .sb-label{padding:0 10px 8px;font-size:11px;color:#6b7280;font-weight:500;letter-spacing:1px;display:flex;align-items:center;gap:6px}
+  .sb-label::after{content:'';flex:1;height:1px;background:rgba(255,255,255,.06)}
+
+  /* Nav Item */
+  .sb-item{display:flex;align-items:center;gap:10px;padding:10px 12px;border-radius:8px;color:#94a3b8;font-size:13px;cursor:pointer;transition:all .18s;border:0;background:transparent;width:100%;text-align:left;position:relative;margin-bottom:3px}
+  .sb-item::before{content:'';position:absolute;left:0;top:8px;bottom:8px;width:3px;border-radius:0 2px 2px 0;background:var(--pri);opacity:0;transition:opacity .18s}
+  .sb-item:hover{background:rgba(255,255,255,.05);color:#e2e8f0}
+  .sb-item.active{background:rgba(37,99,235,.12);color:#fff;font-weight:600}
+  .sb-item.active::before{opacity:1}
+  .sb-item:disabled{opacity:.3;cursor:not-allowed}
+  .sb-item:disabled:hover{background:transparent;color:#94a3b8}
+  .sb-item .icn{width:20px;height:20px;display:flex;align-items:center;justify-content:center;flex-shrink:0;font-size:15px;line-height:1}
+  .sb-item .soon{margin-left:auto;font-size:10px;color:#6b7280;background:rgba(255,255,255,.06);padding:2px 6px;border-radius:5px;font-weight:500}
+  .sb-item.active .soon{background:rgba(37,99,235,.18);color:rgba(255,255,255,.6)}
+
+  /* Footer */
+  .sb-foot{padding:12px 16px;border-top:1px solid rgba(255,255,255,.06)}
+  .sb-foot-inner{display:flex;justify-content:space-between;align-items:center;font-size:10px;color:#4b5563}
+  .sb-foot-inner .build-id{font-family:var(--mono);letter-spacing:.5px}
 
   /* ── Main wrapper ── */
   #main{flex:1;display:flex;flex-direction:column;overflow:hidden;min-width:0}
@@ -226,9 +240,9 @@
   /* ── Loading spinner ── */
   .spinner{display:inline-block;width:14px;height:14px;border:2px solid var(--n7);border-top-color:var(--pri);border-radius:50%;animation:spin .8s linear infinite}
   @keyframes spin{to{transform:rotate(360deg)}}
-    #sidebar{width:64px}
-    .sb-logo .text,.sb-logo .ver,.sb-label,.sb-item span:last-child{display:none}
-    .sb-item{justify-content:center;padding:10px}
+    #sidebar{width:64px!important}
+    .sb-logo .text,.sb-logo .ver,.sb-label,.sb-item .txt,.sb-item .soon{display:none}
+    .sb-item{justify-content:center;padding:10px;gap:0}
     .stat-grid,.qe-grid{grid-template-columns:repeat(2,1fr)}
     #agent-panel{width:280px}
   }
@@ -247,39 +261,39 @@
     <div class="sb-group">
       <div class="sb-label">工作台</div>
       <button class="sb-item active" data-page="dashboard" onclick="switchPage('dashboard')">
-        <span style="width:18px;text-align:center">⌘</span> Agent 工作台
+        <span class="icn">&#9679;</span><span class="txt">Agent 工作台</span>
       </button>
       <button class="sb-item" data-page="translate" onclick="switchPage('translate')">
-        <span style="width:18px;text-align:center">⇄</span> 配置翻译
+        <span class="icn">&#8644;</span><span class="txt">配置翻译</span>
       </button>
       <button class="sb-item" data-page="inspection" onclick="switchPage('inspection')">
-        <span style="width:18px;text-align:center">◈</span> 巡检分析
+        <span class="icn">&#10070;</span><span class="txt">巡检分析</span>
         <span class="soon">规划中</span>
       </button>
       <button class="sb-item" data-page="topology" onclick="switchPage('topology')">
-        <span style="width:18px;text-align:center">⬡</span> 拓扑绘图
+        <span class="icn">&#11042;</span><span class="txt">拓扑绘图</span>
         <span class="soon">规划中</span>
       </button>
       <button class="sb-item" disabled>
-        <span style="width:18px;text-align:center">◉</span> 知识库
+        <span class="icn">&#9673;</span><span class="txt">知识库</span>
       </button>
     </div>
     <div class="sb-group">
       <div class="sb-label">管理</div>
       <button class="sb-item" data-page="skills" onclick="switchPage('skills')">
-        <span style="width:18px;text-align:center">◧</span> Skills 管理
+        <span class="icn">&#9635;</span><span class="txt">Skills 管理</span>
       </button>
       <button class="sb-item" data-page="memory" onclick="switchPage('memory')">
-        <span style="width:18px;text-align:center">◉</span> Memory 管理
+        <span class="icn">&#9673;</span><span class="txt">Memory 管理</span>
       </button>
       <button class="sb-item" onclick="openSettings()">
-        <span style="width:18px;text-align:center">◫</span> 系统设置
+        <span class="icn">&#9678;</span><span class="txt">系统设置</span>
       </button>
     </div>
   </div>
   <div class="sb-foot">
-    <div style="font-size:11px;color:var(--n5);display:flex;justify-content:space-between">
-      <span>build <span id="build-id">---</span></span>
+    <div class="sb-foot-inner">
+      <span>build <span class="build-id" id="build-id">---</span></span>
       <span>entry <span id="entry-id">translate_bundle</span></span>
     </div>
   </div>
