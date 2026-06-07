@@ -56,8 +56,12 @@ def check_response(resp: LLMResponse, state=None) -> PolicyDecision:
         ("no issues found", "claims no issues found"),
     ]
     for kw, reason in unsafe_claims:
-        if kw in content:
-            violations.append(reason)
+        idx = content.find(kw)
+        if idx >= 0:
+            # Check negation context — LLM may say "不会声称'可直接下发'"
+            from prompts.policy import _is_negation_context
+            if not _is_negation_context(resp.content, idx):
+                violations.append(reason)
 
     # Must not leak secrets
     for secret in SECRET_PATTERNS:

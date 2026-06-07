@@ -204,7 +204,9 @@
   .test-result.err{background:#fee2e2;color:#991b1b;border:1px solid #fecaca}
   .test-result.warn{background:#fef3c7;color:#92400e;border:1px solid #fde68a}
 
-  @media(max-width:980px){
+  /* ── Loading spinner ── */
+  .spinner{display:inline-block;width:14px;height:14px;border:2px solid var(--n7);border-top-color:var(--pri);border-radius:50%;animation:spin .8s linear infinite}
+  @keyframes spin{to{transform:rotate(360deg)}}
     #sidebar{width:64px}
     .sb-logo .text,.sb-logo .ver,.sb-label,.sb-item span:last-child{display:none}
     .sb-item{justify-content:center;padding:10px}
@@ -487,10 +489,9 @@ router ospf 1
       </div>
       <div class="ag-body" id="ag-body">
         <div class="ag-bubble ai">
-          你好，我是 Network Agent 助手。<br><br>
-          当前唯一启用的业务模块：<b>配置翻译</b><br>
-          支持的 vendor：Cisco IOS / 华为 VRP / H3C Comware / 锐捷 RGOS<br><br>
-          您想了解什么？
+          你好！我是 Network Agent，你的本地网络工程 AI 助手。<br><br>
+          我可以通过 LLM 进行自然语言对话，也可以帮你完成<strong>跨厂商配置翻译</strong>（Cisco ↔ 华为 ↔ H3C ↔ 锐捷）。<br><br>
+          试着问我 "你能做什么"，或者直接粘贴网络配置文本触发翻译。
           <div class="time" id="ag-init-time">—:—</div>
         </div>
       </div>
@@ -615,6 +616,11 @@ function sanitizeDisplayText(txt){return redactSensitiveText(esc(txt));}
 // Fetch wrapper with timeout and error handling
 function apiFetch(url,opts){
   opts=opts||{};
+  if(!opts.signal){
+    var ctrl=new AbortController();
+    opts.signal=ctrl.signal;
+    setTimeout(function(){ctrl.abort();},opts.timeout||8000);
+  }
   return fetch(url,opts).then(function(r){
     if(!r.ok) throw new Error('HTTP '+r.status);
     return r.json();
@@ -674,7 +680,7 @@ function loadMemoryPage(){
     setText('mem-shortterm',shortterm);
     ['mem-total','mem-project','mem-longterm','mem-shortterm'].forEach(function(id){
       var el=document.getElementById(id);
-      if(el) el.parentElement.querySelector('.stat-foot').textContent='backend jsonl';
+      if(el) el.parentElement.querySelector('.stat-foot').textContent='后端 JSONL 存储';
     });
     if(!records.length){
       list.innerHTML='<div class="empty"><div class="icon">◉</div><div class="t">暂无记忆记录</div><div style="font-size:12px">后端 memory store 当前为空</div></div>';
@@ -696,7 +702,7 @@ function loadMemoryPage(){
     setText('mem-total','—'); setText('mem-project','—'); setText('mem-longterm','—'); setText('mem-shortterm','—');
     ['mem-total','mem-project','mem-longterm','mem-shortterm'].forEach(function(id){
       var el=document.getElementById(id);
-      if(el) el.parentElement.querySelector('.stat-foot').innerHTML='<span class="sdot sdot-dng"></span>unavailable';
+      if(el) el.parentElement.querySelector('.stat-foot').innerHTML='<span class="sdot sdot-dng"></span>不可用';
     });
     if(list) list.innerHTML='<div class="empty"><div class="icon">◉</div><div class="t" style="color:var(--dng)">记忆加载失败</div><div style="font-size:12px">请检查 /api/memory/status 和 /api/memory/list</div></div>';
   });
@@ -717,51 +723,67 @@ function sendAgent(){
   var time=new Date().toLocaleTimeString('zh-CN',{hour:'2-digit',minute:'2-digit'});
   body.insertAdjacentHTML('beforeend','<div class="ag-bubble user">'+esc(txt)+'<div class="time">'+time+'</div></div>');
   inp.value=''; body.scrollTop=body.scrollHeight;
-  var thinkEl=document.createElement('div'); thinkEl.className='ag-bubble ai'; thinkEl.textContent='处理中...'; body.appendChild(thinkEl); body.scrollTop=body.scrollHeight;
+  var thinkEl=document.createElement('div');
+  thinkEl.className='ag-bubble ai';
+  thinkEl.innerHTML='<span class="spinner" style="margin-right:6px"></span>处理中...';
+  body.appendChild(thinkEl); body.scrollTop=body.scrollHeight;
+
   fetch('/api/agent/run',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({message:txt,workspace_id:'default'})})
   .then(function(r){return r.json();}).then(function(d){
     thinkEl.remove();
-    var reply='';
+    var mainReply='';
+    var metaHtml='';
+
     if(d.ok || d.final_response){
-      reply=d.final_response||'处理完成';
-      if(d.active_module==='config_translation'){
-        reply+='\n\n点击查看「配置翻译」模块的详细结果。';
-        setTimeout(function(){switchPage('translate');},500);
+      mainReply=esc(d.final_response||'处理完成');
+
+      // Sync translate_config result to translate page
+      if(d.intent==='translate_config' && d.result){
+        var tr=d.result;
+        if(tr.deployable_config || tr.manual_review){
+          lastTranslate=tr;
+          // If on translate page, refresh tabs
+          var activeTrTab=document.querySelector('[data-trtab].active');
+          if(activeTrTab) renderTrTab(activeTrTab.dataset.trtab);
+        }
       }
+
+      // Build collapsible metadata
       var l=d.llm||{};
-      reply+='\n<span class="time" style="margin-top:6px">'
-        +'run_id: <code style="font-size:10px">'+esc(d.run_id||'—')+'</code>'
-        +' | status: '+esc(d.status||'ok')
-        +' | capability: '+esc(d.capability||'—');
-      if(l.used) reply+=' | AI: '+esc(l.provider||'')+' ('+esc(l.model||'')+')';
+      var metaParts=[];
+      metaParts.push('run: <code style="font-size:10px">'+esc((d.run_id||'').slice(0,12))+'</code>');
+      metaParts.push('status: '+esc(d.status||'ok'));
+      if(d.capability) metaParts.push('cap: '+esc(d.capability));
+      if(l.used) metaParts.push('AI: '+esc(l.model||l.provider||''));
       var fb=formatLLMFallback(l.fallback_reason||'');
-      if(fb) reply+=' | '+esc(fb);
-      if(d.warnings&&d.warnings.length) reply+=' | ⚠ '+esc(d.warnings.length)+' warnings';
+      if(fb) metaParts.push('fallback: '+esc(fb));
+      if(d.warnings&&d.warnings.length) metaParts.push('⚠ '+d.warnings.length);
+      if(d.manual_review_count&&d.manual_review_count>0) metaParts.push('review: '+d.manual_review_count);
       var tl=d.timeline_summary||{};
       if(d.trace_id){
-        reply+='<br>trace: <code style="font-size:10px">'+esc(d.trace_id)+'</code>';
-        reply+=' | '+esc(tl.total_duration_ms||0)+'ms';
-        reply+=' | '+esc(tl.node_count||0)+' nodes';
-        reply+=' | llm:'+esc(tl.llm_call_count||0);
-        reply+=' <a href="#" onclick="viewTrace(\''+esc(d.run_id)+'\',\''+esc(d.workspace_id||'default')+'\')" style="font-size:10px">查看轨迹 &gt;</a>';
+        metaParts.push('<a href="#" onclick="viewTrace(\''+esc(d.run_id)+'\',\''+esc(d.workspace_id||'default')+'\')" style="font-size:10px">trace &gt;</a>');
+        metaParts.push(esc(tl.total_duration_ms||0)+'ms');
       }
-      if(d.artifact_refs&&d.artifact_refs.length) reply+='<br>artifacts: '+esc(d.artifact_refs.length);
-      if(d.report_refs&&d.report_refs.length) reply+='<br>reports: '+esc(d.report_refs.length);
-      if(d.job_refs&&d.job_refs.length) reply+='<br>jobs: '+esc(d.job_refs.length);
-      reply+='</span>';
-      // Show manual_review warning if present
-      if(d.manual_review_count&&d.manual_review_count>0){
-        reply='⚠ Manual review required: '+esc(d.manual_review_count)+' items\n'+reply;
-      }
+
+      var metaId='meta-'+Date.now();
+      metaHtml='<div style="margin-top:8px;padding-top:6px;border-top:1px solid var(--n8)">'
+        +'<div style="font-size:11px;color:var(--n5);cursor:pointer" onclick="var el=document.getElementById(\''+metaId+'\');el.style.display=el.style.display===\'none\'?\'block\':\'none\';this.textContent=el.style.display===\'none\'?\'▶ 详情\':\'▼ 详情\';">▶ 详情</div>'
+        +'<div id="'+metaId+'" style="display:none;font-size:11px;color:var(--n5);margin-top:4px;line-height:1.8">'
+        +metaParts.join(' | ')
+        +'</div></div>';
     }else{
-      reply='[error] '+(d.error||'请求失败，请稍后重试')+'\n<span class="time" style="margin-top:6px">[local fallback]</span>';
+      mainReply='[error] '+esc(d.error||'请求失败，请稍后重试');
     }
-    body.insertAdjacentHTML('beforeend','<div class="ag-bubble ai">'+reply.replace(/\n/g,'<br>')+'<div class="time">'+new Date().toLocaleTimeString('zh-CN',{hour:'2-digit',minute:'2-digit'})+'</div></div>');
+
+    body.insertAdjacentHTML('beforeend',
+      '<div class="ag-bubble ai">'+mainReply.replace(/\n/g,'<br>')+metaHtml
+      +'<div class="time">'+new Date().toLocaleTimeString('zh-CN',{hour:'2-digit',minute:'2-digit'})+'</div></div>');
     body.scrollTop=body.scrollHeight;
   }).catch(function(){
     thinkEl.remove();
-    var reply='[error] 请求 Agent API 失败，请确认服务已在 8010 运行。\n<span class="time" style="margin-top:6px">[local fallback]</span>';
-    body.insertAdjacentHTML('beforeend','<div class="ag-bubble ai">'+reply.replace(/\n/g,'<br>')+'<div class="time">'+new Date().toLocaleTimeString('zh-CN',{hour:'2-digit',minute:'2-digit'})+'</div></div>');
+    var reply='[error] 请求 Agent API 失败，请确认服务已在 8010 端口运行。';
+    body.insertAdjacentHTML('beforeend',
+      '<div class="ag-bubble ai">'+esc(reply)+'<div class="time">'+new Date().toLocaleTimeString('zh-CN',{hour:'2-digit',minute:'2-digit'})+'</div></div>');
     body.scrollTop=body.scrollHeight;
   });
 }
@@ -803,7 +825,46 @@ function renderTrTab(tab){
   }else if(tab==='risk'){
     out.innerHTML='<div class="empty"><div class="icon">◈</div><div class="t">风险分析模块</div><div style="font-size:12px">配置翻译结果的风险评估数据将在此展示</div></div>';
   }else if(tab==='audit'){
-    out.innerHTML='<pre style="font:12px/1.7 var(--mono);white-space:pre-wrap">'+esc(JSON.stringify(lastTranslate.audit||{},null,2))+'</pre>';
+    if(!lastTranslate.quality_summary){
+      out.innerHTML='<div class="empty"><div class="icon">◈</div><div class="t">暂无质量数据</div><div style="font-size:12px">执行配置翻译后将在此展示质量审计摘要</div></div>';
+      return;
+    }
+    var qs=lastTranslate.quality_summary;
+    var html='<div style="font-size:13px;line-height:1.8">';
+    html+='<div style="font-weight:600;margin-bottom:10px">质量审计摘要</div>';
+    html+='<div style="display:grid;grid-template-columns:repeat(2,1fr);gap:10px;margin-bottom:14px">';
+    var qItems=[
+      {k:'source_residue_count',l:'源残留',c:'tag-ye'},
+      {k:'silent_drop_count',l:'静默丢弃',c:'tag-ye'},
+      {k:'unsupported_count',l:'不支持',c:'tag-rd'},
+      {k:'safe_drop_count',l:'安全丢弃',c:'tag-gr'},
+      {k:'review_required_count',l:'需复核',c:'tag-bl'},
+    ];
+    qItems.forEach(function(item){
+      var v=qs[item.k]||0;
+      html+='<div style="padding:8px 12px;background:var(--n10);border-radius:6px;display:flex;justify-content:space-between;align-items:center"><span style="font-size:12px;color:var(--n5)">'+item.l+'</span><span class="tag '+item.c+'">'+v+'</span></div>';
+    });
+    html+='</div>';
+    if(qs.source_residue_items&&qs.source_residue_items.length){
+      html+='<div style="font-weight:600;margin:10px 0 6px">源残留项</div>';
+      qs.source_residue_items.forEach(function(item){
+        html+='<div style="padding:6px 10px;background:var(--n10);border-radius:4px;font-size:12px;margin-bottom:4px"><code>'+esc(item.keyword||'')+'</code> — '+esc(item.residue_type||'')+' <span class="tag tag-ye">'+esc(item.severity||'')+'</span></div>';
+      });
+    }
+    if(qs.silent_drop_items&&qs.silent_drop_items.length){
+      html+='<div style="font-weight:600;margin:10px 0 6px">静默丢弃项</div>';
+      qs.silent_drop_items.forEach(function(item){
+        html+='<div style="padding:6px 10px;background:var(--n10);border-radius:4px;font-size:12px;margin-bottom:4px"><code>'+esc(item.line||'')+'</code> <span class="tag tag-ye">'+esc(item.severity||'')+'</span></div>';
+      });
+    }
+    if(lastTranslate.warnings&&lastTranslate.warnings.length){
+      html+='<div style="font-weight:600;margin:10px 0 6px">警告</div>';
+      lastTranslate.warnings.forEach(function(w){
+        html+='<div style="padding:6px 10px;background:#fef3c7;border-radius:4px;font-size:12px;margin-bottom:4px;color:#92400e">'+esc(w)+'</div>';
+      });
+    }
+    html+='</div>';
+    out.innerHTML=html;
   }
 }
 function doTranslate(){
@@ -1013,17 +1074,11 @@ function showToast(msg){
     document.getElementById('top-status').textContent='已连接';
     document.getElementById('ag-status').textContent='已连接';
     document.getElementById('top-proj').querySelector('.status').className='status sdot sdot-ok';
-    var sysGrid=document.getElementById('sys-status-grid');
-    var html='';
-    html+='<div style="display:flex;align-items:center;gap:10px;padding:10px;background:var(--n10);border-radius:8px"><span class="sdot sdot-ok"></span><div><div style="font-weight:600">API 服务</div><div style="font-size:11px;color:var(--n5)">status: '+esc(d.status||'ok')+'</div></div></div>';
-    html+='<div style="display:flex;align-items:center;gap:10px;padding:10px;background:var(--n10);border-radius:8px"><span class="sdot sdot-ok"></span><div><div style="font-weight:600">API 模式</div><div style="font-size:11px;color:var(--n5)">'+esc(d.api_mode||'—')+'</div></div></div>';
-    html+='<div style="display:flex;align-items:center;gap:10px;padding:10px;background:var(--n10);border-radius:8px"><span class="sdot sdot-ok"></span><div><div style="font-weight:600">Skills 加载</div><div style="font-size:11px;color:var(--n5)">'+esc(d.skills_loaded||'—')+' 个已加载</div></div></div>';
-    sysGrid.innerHTML=html;
   }).catch(function(){
     document.getElementById('top-status').textContent='未连接';
     document.getElementById('ag-status').textContent='未连接';
     document.getElementById('top-proj').querySelector('.status').className='status sdot sdot-off';
-    document.getElementById('sys-status-grid').innerHTML='<div style="display:flex;align-items:center;gap:10px;padding:10px;background:var(--n10);border-radius:8px"><span class="sdot sdot-dng"></span><div><div style="font-weight:600">后端不可用</div><div style="font-size:11px;color:var(--n5)">backend unavailable — 请确认服务已在 8010 运行</div></div></div>';
+    document.getElementById('sys-status-grid').innerHTML='<div style="display:flex;align-items:center;gap:10px;padding:10px;background:var(--n10);border-radius:8px"><span class="sdot sdot-dng"></span><div><div style="font-weight:600">后端不可用</div><div style="font-size:11px;color:var(--n5)">请确认服务已在 8010 端口运行</div></div></div>';
   });
 
   // Fetch version
@@ -1042,7 +1097,7 @@ function showToast(msg){
     document.getElementById('dash-mods').parentElement.querySelector('.stat-foot').innerHTML='<span class="sdot sdot-ok"></span>'+ft;
   }).catch(function(){
     document.getElementById('dash-mods').textContent='—';
-    document.getElementById('dash-mods').parentElement.querySelector('.stat-foot').innerHTML='<span class="sdot sdot-dng"></span>unavailable';
+    document.getElementById('dash-mods').parentElement.querySelector('.stat-foot').innerHTML='<span class="sdot sdot-dng"></span>不可用';
   });
 
   // Fetch skills
@@ -1052,7 +1107,7 @@ function showToast(msg){
     document.getElementById('dash-skills').parentElement.querySelector('.stat-foot').innerHTML='<span class="sdot sdot-ok"></span>loaded';
   }).catch(function(){
     document.getElementById('dash-skills').textContent='—';
-    document.getElementById('dash-skills').parentElement.querySelector('.stat-foot').innerHTML='<span class="sdot sdot-dng"></span>unavailable';
+    document.getElementById('dash-skills').parentElement.querySelector('.stat-foot').innerHTML='<span class="sdot sdot-dng"></span>不可用';
   });
 
   // Fetch memory status
@@ -1063,7 +1118,7 @@ function showToast(msg){
     }
   }).catch(function(){
     document.getElementById('dash-mems').textContent='—';
-    document.getElementById('dash-mems').parentElement.querySelector('.stat-foot').innerHTML='<span class="sdot sdot-dng"></span>unavailable';
+    document.getElementById('dash-mems').parentElement.querySelector('.stat-foot').innerHTML='<span class="sdot sdot-dng"></span>不可用';
   });
 
   // Fetch job count
@@ -1073,7 +1128,7 @@ function showToast(msg){
     document.getElementById('dash-tasks').parentElement.querySelector('.stat-foot').innerHTML='<span class="sdot sdot-ok"></span>查询完成';
   }).catch(function(){
     document.getElementById('dash-tasks').textContent='—';
-    document.getElementById('dash-tasks').parentElement.querySelector('.stat-foot').innerHTML='<span class="sdot sdot-dng"></span>unavailable';
+    document.getElementById('dash-tasks').parentElement.querySelector('.stat-foot').innerHTML='<span class="sdot sdot-dng"></span>不可用';
   });
 
   // Fetch recent runs
@@ -1096,7 +1151,8 @@ function showToast(msg){
       html+='<tr>';
       html+='<td style="font-family:var(--mono);font-size:11px">'+esc((r.run_id||'').slice(0,12))+'</td>';
       html+='<td>'+esc(r.intent||'—')+'</td>';
-      html+='<td>'+(r.status==='ok'?'<span class="tag tag-gr">ok</span>':'<span class="tag tag-ye">'+esc(r.status||'—')+'</span>')+'</td>';
+      var statusTag=r.status==='ok'?'tag-gr':r.status==='error'?'tag-rd':'tag-ye';
+      html+='<td><span class="tag '+statusTag+'">'+esc(r.status||'—')+'</span></td>';
       html+='<td>'+esc(r.active_module||'—')+'</td>';
       html+='<td>'+qsBadge+'</td>';
       html+='<td style="font-size:11px;color:var(--n5)">'+esc((r.created_at||'').slice(0,19))+'</td>';
@@ -1108,19 +1164,32 @@ function showToast(msg){
     document.getElementById('recent-runs').innerHTML='<div class="empty"><div class="icon">⌘</div><div class="t" style="color:var(--dng)">历史加载失败</div></div>';
   });
 
-  // Fetch runtime diagnostics
+  // Fetch runtime diagnostics for system status panel
   apiFetch('/api/runtime/health').then(function(d){
-    var extras=document.getElementById('runtime-status-extras');
-    var html='<div style="font-size:12px;color:var(--n5);margin-top:6px">';
+    var sysGrid=document.getElementById('sys-status-grid');
     var comps=d.components||[];
+    var html='';
     comps.forEach(function(c){
-      var s=c.status==='ok'?'🟢':c.status==='warning'?'🟡':'🔴';
-      html+=s+' '+esc(c.name)+': '+esc(c.message)+'<br>';
+      var status=c.status||'unknown';
+      var sdotClass=status==='ok'?'sdot-ok':status==='warning'?'sdot-warn':'sdot-dng';
+      html+='<div style="display:flex;align-items:center;gap:10px;padding:10px;background:var(--n10);border-radius:8px"><span class="sdot '+sdotClass+'"></span><div><div style="font-weight:600">'+esc(c.name||'')+'</div><div style="font-size:11px;color:var(--n5)">'+esc(c.message||'')+'</div></div></div>';
     });
-    if(comps.length===0) html+='暂无诊断数据';
-    html+='</div>';
-    extras.innerHTML=html;
-  }).catch(function(){});
+    if(comps.length===0){
+      html='<div style="display:flex;align-items:center;gap:10px;padding:10px;background:var(--n10);border-radius:8px"><span class="sdot sdot-off"></span><div><div style="font-weight:600">暂无诊断数据</div><div style="font-size:11px;color:var(--n5)">runtime diagnostics unavailable</div></div></div>';
+    }
+    sysGrid.innerHTML=html;
+    var summary=d.summary||{};
+    var extra='';
+    if(summary.total){
+      extra='<div style="margin-top:10px;font-size:11px;color:var(--n5)">组件: '+summary.ok+' OK';
+      if(summary.warning) extra+=' / '+summary.warning+' Warning';
+      if(summary.error) extra+=' / '+summary.error+' Error';
+      extra+=' (共 '+summary.total+')</div>';
+    }
+    document.getElementById('runtime-status-extras').innerHTML=extra;
+  }).catch(function(){
+    document.getElementById('sys-status-grid').innerHTML='<div style="display:flex;align-items:center;gap:10px;padding:10px;background:var(--n10);border-radius:8px"><span class="sdot sdot-dng"></span><div><div style="font-weight:600">诊断不可用</div><div style="font-size:11px;color:var(--n5)">/api/runtime/health 调用失败</div></div></div>';
+  });
 
   // Fetch archive preview
   apiFetch('/api/workspaces/default/archive/preview').then(function(d){

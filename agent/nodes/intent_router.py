@@ -12,7 +12,16 @@ from agent.state import NetworkAgentState
 # Order matters: first match wins. assistant_chat before context_qa prevents
 # open questions like "天气如何" from being misrouted as result explanations.
 INTENTS = {
-    "translate_config": ["翻译", "translate", "转换", "cisco", "huawei", "h3c", "ruijie", "juniper"],
+    "translate_config": [
+        "翻译", "translate", "转换",
+        "cisco", "huawei", "h3c", "ruijie", "juniper",
+        "hostname", "sysname", "interface", "ip address", "undo shutdown", "no shutdown",
+        "router ospf", "router bgp", "ospf", "bgp", "isis", "eigrp",
+        "vlan", "access-list", "acl", "prefix-list", "route-map",
+        "snmp-server", "ntp", "logging", "banner", "line vty",
+        "gigabitethernet", "fastethernet", "ethernet", "serial", "loopback",
+        "network 10.", "network 172.", "network 192.168.",
+    ],
     "topology_draw": ["拓扑", "topology", "网络图", "network map"],
     "inspection_analyze": ["巡检", "inspection", "audit", "合规", "diagnose"],
     "knowledge_search": ["知识", "knowledge", "文档", "documentation", "搜索"],

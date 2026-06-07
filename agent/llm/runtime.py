@@ -166,7 +166,7 @@ def safe_generate(
 
     return SafeLLMOutput(
         summary=resp.content, answer=resp.content, safe_to_show=True,
-        llm_used=True,
+        llm_used=True, policy_decision=policy_resp,
         metadata={
             "prompt_runtime_used": True, "prompt_id": prompt_id,
             "prompt_version": prompt_version, "prompt_task": task,

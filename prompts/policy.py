@@ -8,7 +8,7 @@ FORBIDDEN_INPUT_PATTERNS = [
     (r'(hostname\s+\S+[\s\S]{0,200}interface\s+\S+[\s\S]{0,200}ip\s+address)', "full_config_snippet"),
     (r'snmp-server\s+community\s+\S+', "community_secret"),
     (r'(password|passwd)\s+\S+', "password"),
-    (r'(secret\s+\S+|community\s+\S+)', "secret"),
+    (r'(secret\s+\S+)', "secret"),  # community already covered by dedicated snmp pattern below
     (r'sk-[A-Za-z0-9]{16,}', "api_key"),
     (r'token[=:]\s*\S{8,}', "token"),
     (r'-----BEGIN\s.*PRIVATE\sKEY-----', "private_key"),
@@ -71,6 +71,40 @@ def check_prompt_text(text: str, prompt_spec=None) -> PolicyResult:
     return result
 
 
+# ── Negation context detection ──
+# Chinese negation characters & words that may precede a forbidden phrase
+_CN_NEGATION_WORDS = [
+    "不", "没", "非", "无", "勿", "别", "莫", "未",
+    "不会", "不可", "绝不", "并非", "不是", "从未",
+    "禁止", "否定", "绝不",
+]
+_EN_NEGATION_WORDS = ["not", "never", "don't", "doesn't", "won't", "can't", "cannot"]
+
+
+def _is_negation_context(text: str, match_start: int) -> bool:
+    """Check if a forbidden-pattern match exists within a negation phrase.
+    
+    Scans a window of up to 20 characters before the match for negation
+    words that would make the flagged text part of a boundary disclaimer
+    (e.g. "我不会声称'可直接下发'" — the LLM is stating it won't claim deployability).
+    """
+    window_start = max(0, match_start - 20)
+    before = text[window_start:match_start].lower()
+    for word in _CN_NEGATION_WORDS:
+        # Check if negation word is in the window and actually precedes the match
+        idx = before.rfind(word)
+        if idx >= 0:
+            # Require the negation to be reasonably close (not from a previous sentence)
+            chars_between = len(before) - idx - len(word)
+            if chars_between <= 12:  # negation word within ~12 chars of the match
+                return True
+    for word in _EN_NEGATION_WORDS:
+        idx = before.rfind(word)
+        if idx >= 0 and len(before) - idx - len(word) <= 8:
+            return True
+    return False
+
+
 def check_prompt_output(prompt_spec, llm_output: str, citations: list = None) -> PolicyResult:
     """Check LLM output for forbidden content and fake references."""
     result = PolicyResult()
@@ -78,9 +112,11 @@ def check_prompt_output(prompt_spec, llm_output: str, citations: list = None) ->
     citations = citations or []
 
     for pattern, rule in FORBIDDEN_OUTPUT_PATTERNS:
-        if re.search(pattern, text, re.IGNORECASE):
-            result.ok = False
-            result.issues.append({"rule": rule, "pattern": pattern[:40]})
+        for m in re.finditer(pattern, text, re.IGNORECASE):
+            if not _is_negation_context(llm_output, m.start()):
+                result.ok = False
+                result.issues.append({"rule": rule, "pattern": pattern[:40],
+                                      "matched": m.group()[:80]})
 
     # Fake reference detection
     cite_ids = {c.get("citation_id", "") for c in citations}
