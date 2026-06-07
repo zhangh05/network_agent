@@ -115,7 +115,7 @@ class TestAgentChat:
 
     def test_translate_intent_still_active(self):
         from agent.nodes.intent_router import _infer
-        assert _infer("请把这段配置从 Cisco 转华为") == "translate_config"
+        assert _infer("请把这段配置从 Cisco 翻译成华为") == "translate_config"
 
 
 class TestUIAgentExperience:

@@ -9,18 +9,19 @@ Module/Skill mapping is ENTIRELY from registry capabilities.
 from agent.state import NetworkAgentState
 
 # Keyword patterns for intent inference only — NO module/skill mapping
-# Order matters: first match wins. assistant_chat before context_qa prevents
-# open questions like "天气如何" from being misrouted as result explanations.
+# Order matters: first match wins.
+#
+# translate_config now uses a two-tier approach:
+#   Tier 1 (explicit intent): user says "翻译" / "translate" → direct match
+#   Tier 2 (config detection): message looks like a config block → fallback match
+# This prevents casual questions about "interface" or "vlan" from routing
+# to config translation.
 INTENTS = {
     "translate_config": [
-        "翻译", "translate", "转换",
-        "cisco", "huawei", "h3c", "ruijie", "juniper",
-        "hostname", "sysname", "interface", "ip address", "undo shutdown", "no shutdown",
-        "router ospf", "router bgp", "router isis", "router eigrp",
-        "vlan", "access-list", "acl", "prefix-list", "route-map",
-        "snmp-server", "ntp", "logging", "banner", "line vty",
-        "gigabitethernet", "fastethernet", "ethernet", "serial", "loopback",
-        "network 10.", "network 172.", "network 192.168.",
+        # Tier 1 — explicit translation intent
+        "翻译", "translate", "转换", "翻译成", "转成",
+        "帮我翻译", "翻译一下", "翻译这段", "翻译这个",
+        "convert to", "translate to",
     ],
     "topology_draw": ["拓扑", "topology", "网络图", "network map"],
     "inspection_analyze": ["巡检", "inspection", "audit", "合规", "diagnose"],
@@ -203,20 +204,17 @@ def _add_warning_event(state, msg):
 
 def _infer(text: str) -> str:
     text_lower = text.lower()
-    assistant_first = [
-        "你好", "hello", "hi", "你是谁", "你是什么", "什么模型",
-        "你用什么模型", "你是什么模型", "what model", "which model",
-        "who are you", "what are you", "你能做什么", "你会什么",
-        "可以做什么", "怎么用", "帮助", "help", "当前状态", "系统状态",
-        "健康状态", "后端状态", "连接状态", "端口", "登录地址",
-        "llm配置", "大模型配置", "memory怎么回事", "记忆怎么回事",
-        "历史怎么回事", "run history",
-    ]
-    if any(kw in text_lower for kw in assistant_first):
+    # Root-level pre-check: exact-match greetings only
+    # "hi" matched "this" before, so we check hi with word boundaries
+    text_lower = text.lower().strip()
+    is_greeting = (
+        text_lower in ("你好", "hello", "hi", "hey", "嗨")
+        or text_lower.startswith(("你好", "hello ", "hi ", "hey ", "嗨 "))
+    )
+    if is_greeting:
         return "assistant_chat"
-    # Context QA: result/explanation queries — check BEFORE translate_config
-    # Must have explicit context reference (上次/刚才/这次/结果) OR platform term query
-    # Generic questions like "warning是什么意思" without context go to assistant_chat
+
+    # Context QA: result/explanation queries
     _context_words = [
         "该怎么看", "怎么看结果", "翻译结果怎么看", "怎么看翻译结果",
         "结果怎么看", "怎么看上次", "上次翻译怎么看", "解释上次",
@@ -233,15 +231,108 @@ def _infer(text: str) -> str:
         return "context_qa"
     if any(kw in text_lower for kw in _ctx_term_explain):
         return "context_qa"
+
+    # General platform questions → assistant_chat
     if (
         any(kw in text_lower for kw in ["模型", "llm", "大模型", "memory", "记忆", "历史", "状态", "健康"])
         and not any(kw in text_lower for kw in ["配置翻译", "翻译配置", "source_config", "deployable_config"])
     ):
         return "assistant_chat"
+
+    # Knowledge query: explicit catalog/document search words
+    _knowledge_context = [
+        "知识库", "资料库", "资料", "文档", "上传", "文件",
+        "查一下", "找一下", "搜索", "搜一下", "检索",
+        "资料里", "文档里", "知识里", "库里", "书里",
+        "之前上传", "上传的", "那个文件", "那些资料",
+        "根据知识", "根据资料", "根据文档",
+        "这个报告", "那个报告", "报告里", "artifact",
+        "有没有关于", "有没有提到", "有没有讲到",
+        "提到了吗", "提到过吗", "相关资料",
+    ]
+    if any(kw in text_lower for kw in _knowledge_context):
+        return "knowledge_query"
+
+    # Iterate INTENTS for explicit matches (translate_config etc.)
     for intent, keywords in INTENTS.items():
         if any(kw in text_lower for kw in keywords):
             return intent
+
+    # Tier 2 config detection: message looks like a config block
+    if _looks_like_config(text):
+        return "translate_config"
+
+    # Question marks → assistant_chat
     if text_lower.endswith(("?", "？", "吗", "呢")):
         return "assistant_chat"
-    # Default: anything not matching a business intent is assistant chat
+
     return "assistant_chat"
+
+
+# ═══════════════ Config Text Detection ═══════════════
+
+_CONFIG_SIGNALS = [
+    # Interface patterns
+    r'interface\s+\S+', r'gigabitethernet', r'fastethernet',
+    r'\S+ethernet', r'serial\s+\S', r'loopback\s+\d',
+    # Config commands
+    r'ip\s+address\s+\d+\.\d+\.\d+\.\d+', r'no\s+shutdown',
+    r'undo\s+shutdown', r'shutdown',
+    # Routing
+    r'router\s+(ospf|bgp|isis|eigrp|rip)\s+\d+',
+    r'network\s+\d+\.\d+\.\d+\.\d+',
+    # VLAN
+    r'vlan\s+\d+', r'vlan\s+batch', r'access-list\s+\d+',
+    r'prefix-list\s+\S+', r'route-map\s+\S+',
+    # System config
+    r'hostname\s+\S+', r'sysname\s+\S+', r'snmp-server\s+\S+',
+    r'ntp\s+server', r'logging\s+\S+', r'banner\s+\S+',
+    r'line\s+vty\s+\d+',
+    # ACL
+    r'^\s*(permit|deny)\s+(ip|tcp|udp|icmp)',
+]
+
+import re as _re
+
+_CONFIG_SIGNAL_RE = [_re.compile(p, _re.I | _re.M) for p in _CONFIG_SIGNALS]
+
+
+def _looks_like_config(text: str) -> bool:
+    """Check if text looks like a network device config block.
+
+    Returns True if enough config signal patterns match,
+    indicating the user pasted a config rather than chatting.
+    """
+    if not text or len(text) < 20:
+        return False
+
+    lines = text.strip().split('\n')
+
+    # Too short for config
+    if len(lines) < 3:
+        return False
+
+    # Count matching signals
+    signal_count = 0
+    for pattern in _CONFIG_SIGNAL_RE:
+        if pattern.search(text):
+            signal_count += 1
+            if signal_count >= 3:  # Need 3+ signals to be confident
+                return True
+
+    # Density check: if it has many config-like lines
+    if len(lines) >= 10:
+        config_lines = 0
+        for line in lines:
+            stripped = line.strip()
+            if not stripped or stripped.startswith('!') or stripped.startswith('#'):
+                continue
+            # Check if line looks like a config command
+            if any(pattern.search(stripped) for pattern in _CONFIG_SIGNAL_RE):
+                config_lines += 1
+        # At least 30% of non-empty lines look like config
+        non_empty = [l for l in lines if l.strip() and not l.strip().startswith(('!', '#'))]
+        if non_empty and config_lines / len(non_empty) >= 0.3:
+            return True
+
+    return False
