@@ -223,6 +223,9 @@ def create_app():
         resp.headers["Cache-Control"] = "no-cache, no-store, must-revalidate"
         resp.headers["Pragma"] = "no-cache"
         resp.headers["Expires"] = "0"
+        # Prevent 304 conditional responses — force full re-download every time
+        resp.headers.pop("Last-Modified", None)
+        resp.headers.pop("ETag", None)
         return resp
 
     return app
