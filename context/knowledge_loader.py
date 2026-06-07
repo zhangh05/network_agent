@@ -79,26 +79,45 @@ def load_knowledge_context(
 
 def _extract_query(user_input: str) -> str:
     """Extract meaningful search keywords from user input."""
-    # Remove common question patterns
     import re
     cleaned = user_input
     # Remove polite prefixes
     cleaned = re.sub(r'请问|帮我|请帮我|能不能|可不可以|能否', '', cleaned)
     # Remove knowledge context words (keep the actual search terms)
+    # Order: longer patterns first to avoid partial matches
     noise_words = [
-        "查一下", "找一下", "搜索", "搜一下", "检索",
-        "知识库", "资料库", "资料", "文档", "文件",
-        "之前上传", "上传的", "那个", "那些", "这个", "那个",
-        "书里", "资料里", "文档里", "知识里", "库里",
-        "根据知识", "根据资料", "根据文档",
-        "有没有关于", "有没有提到", "有没有讲到",
-        "提到了吗", "提到过吗", "有没有相关资料",
-        "这个报告", "那个报告", "报告里", "有什么",
-        "了", "吗", "呢", "？", "?", "的",
+        # Long patterns (context phrases)
+        "有没有相关资料", "有没有关于",
+        "提到了吗", "提到过吗", "有没有提到", "有没有讲到",
+        "根据知识库回答", "根据知识库", "根据知识", "根据资料", "根据文档",
+        "之前上传的文档里", "之前上传的", "上传的",
+        # Location/context indicators
+        "知识库里", "知识库中", "资料库里", "文档库里",
+        "知识库", "资料库", "资料里", "文档里", "报告里",
+        # Action verbs
+        "查一下", "找一下", "搜一下", "搜索", "检索", "查找",
+        # Question patterns
+        "是什么", "什么是", "告诉我", "提到了", "有什么",
+        # Document references
+        "这个报告", "那个报告", "那个文档", "这个文档",
+        "文档", "文件", "资料", "报告",
+        # Demonstratives (longer first)
+        "那个", "那些", "这个", "这些",
+        # Punctuation
+        "？", "?", "，", ",",
     ]
     for w in sorted(noise_words, key=len, reverse=True):
         cleaned = cleaned.replace(w, " ")
     cleaned = re.sub(r'\s+', ' ', cleaned).strip()
+    # Split CJK text into individual chars as additional search tokens
+    # This helps match partial queries like "辣椒加肉" against "辣椒+肉"
+    import unicodedata
+    def _has_cjk(s):
+        return any(unicodedata.category(c).startswith('Lo') or '\u4e00' <= c <= '\u9fff' for c in s)
+    if _has_cjk(cleaned) and len(cleaned) > 1:
+        # If the cleaned text is CJK, add space between chars for token-based search
+        chars = list(cleaned)
+        cleaned = ' '.join(chars)
     return cleaned or user_input
 
 
