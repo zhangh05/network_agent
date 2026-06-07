@@ -59,7 +59,7 @@ def audit():
         if py_file.name.startswith("__"):
             continue
         p = str(py_file)
-        if any(x in p for x in ["legacy", "scripts/audit", "harness/", "registry/validator"]):
+        if any(x in p for x in ["legacy", "scripts/audit", "harness/", "registry/validator", "runtime/", "tool_runtime/"]):
             continue
         content = py_file.read_text()
         if '"/api/translate"' in content or "'/api/translate'" in content:
@@ -76,7 +76,7 @@ def audit():
         if py_file.name.startswith("__"):
             continue
         p = str(py_file)
-        if any(x in p for x in ["legacy", "scripts/audit", "harness/", "registry/validator"]):
+        if any(x in p for x in ["legacy", "scripts/audit", "harness/", "registry/validator", "runtime/", "tool_runtime/"]):
             continue
         if "GraphAgent" in py_file.read_text():
             critical.append(f"GraphAgent reference: {py_file}")

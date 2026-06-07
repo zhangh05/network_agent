@@ -68,6 +68,41 @@ def create_app():
             "skills_loaded": get_skill_count(),
         }
 
+    # ── Runtime Diagnostics ──
+    @app.route("/api/runtime/health")
+    def api_runtime_health():
+        from runtime.diagnostics import get_diagnostics
+        report = get_diagnostics()
+        return jsonify(report.as_dict())
+
+    @app.route("/api/runtime/selfcheck")
+    def api_runtime_selfcheck():
+        ws_id = request.args.get("workspace_id", "default")
+        ws_id, err = _validated_workspace_id(ws_id)
+        if err:
+            return err
+        from runtime.selfcheck import run_selfcheck
+        result = run_selfcheck(ws_id)
+        return jsonify(result.as_dict())
+
+    @app.route("/api/workspaces/<ws_id>/selfcheck")
+    def api_workspace_selfcheck(ws_id):
+        ws_id, err = _validated_workspace_id(ws_id)
+        if err:
+            return err
+        from runtime.selfcheck import run_selfcheck
+        result = run_selfcheck(ws_id)
+        return jsonify(result.as_dict())
+
+    @app.route("/api/workspaces/<ws_id>/retention/preview")
+    def api_workspace_retention_preview(ws_id):
+        ws_id, err = _validated_workspace_id(ws_id)
+        if err:
+            return err
+        from runtime.retention import preview_retention, default_retention_policy
+        preview = preview_retention(ws_id, default_retention_policy())
+        return jsonify(preview.as_dict())
+
     # ── Version ──
     @app.route("/api/version")
     def api_version():

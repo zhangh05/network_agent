@@ -272,9 +272,9 @@
       <span class="sep">/</span>
       <span id="bread-page" style="color:var(--n2);font-weight:600">Agent 工作台</span>
     </div>
-    <div class="top-proj" id="top-proj">
+    <div class="top-proj" id="top-proj" onclick="switchWorkspace()" style="cursor:pointer">
       <span class="status"></span>
-      <span>default</span>
+      <span id="ws-display">default</span>
       <span style="color:var(--n6);font-size:11px" id="top-status">检测中…</span>
     </div>
     <div class="top-spc"></div>
@@ -345,8 +345,10 @@
         <div class="card">
           <div class="card-hd">
             <div class="card-title">系统状态</div>
+            <span style="font-size:11px;color:var(--n5)">workspace: <b id="ws-badge">default</b></span>
           </div>
           <div id="sys-status"><div id="sys-status-grid" style="display:grid;grid-template-columns:repeat(3,1fr);gap:16px;font-size:13px"><div style="display:flex;align-items:center;gap:10px;padding:10px;background:var(--n10);border-radius:8px"><span class="sdot sdot-off"></span><div><div style="font-weight:600">后端状态</div><div style="font-size:11px;color:var(--n5)">检测中…</div></div></div></div></div>
+          <div id="runtime-status-extras" style="margin-top:10px"></div>
         </div>
       </div>
 
@@ -1105,7 +1107,42 @@ function showToast(msg){
   }).catch(function(){
     document.getElementById('recent-runs').innerHTML='<div class="empty"><div class="icon">⌘</div><div class="t" style="color:var(--dng)">历史加载失败</div></div>';
   });
+
+  // Fetch runtime diagnostics
+  apiFetch('/api/runtime/health').then(function(d){
+    var extras=document.getElementById('runtime-status-extras');
+    var html='<div style="font-size:12px;color:var(--n5);margin-top:6px">';
+    var comps=d.components||[];
+    comps.forEach(function(c){
+      var s=c.status==='ok'?'🟢':c.status==='warning'?'🟡':'🔴';
+      html+=s+' '+esc(c.name)+': '+esc(c.message)+'<br>';
+    });
+    if(comps.length===0) html+='暂无诊断数据';
+    html+='</div>';
+    extras.innerHTML=html;
+  }).catch(function(){});
+
+  // Fetch workspace list
+  apiFetch('/api/workspaces').then(function(d){
+    var wss=d.workspaces||[];
+    document.getElementById('ws-badge').textContent='default'+(wss.length>1?' (+'+(wss.length-1)+' more)':'');
+  }).catch(function(){});
+
+  // Workspace ID in localStorage
+  try{
+    var savedWs=localStorage.getItem('na_workspace_id');
+    if(savedWs && savedWs!=='default'){
+      document.getElementById('ws-badge').textContent=savedWs;
+    }
+  }catch(e){}
 })();
+
+function switchWorkspace(){
+  var newWs=prompt('输入 workspace_id（默认 default）:',localStorage.getItem('na_workspace_id')||'default');
+  if(!newWs)return;
+  try{localStorage.setItem('na_workspace_id',newWs);}catch(e){}
+  location.reload();
+}
 </script>
 </body>
 </html>
