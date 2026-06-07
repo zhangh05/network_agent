@@ -9,20 +9,30 @@ Module/Skill mapping is ENTIRELY from registry capabilities.
 from agent.state import NetworkAgentState
 
 # Keyword patterns for intent inference only — NO module/skill mapping
+# Order matters: first match wins. assistant_chat before context_qa prevents
+# open questions like "天气如何" from being misrouted as result explanations.
 INTENTS = {
-    "translate_config": ["翻译", "translate", "转换", "config", "配置", "cisco", "huawei", "h3c", "ruijie", "juniper"],
+    "translate_config": ["翻译", "translate", "转换", "cisco", "huawei", "h3c", "ruijie", "juniper"],
     "topology_draw": ["拓扑", "topology", "网络图", "network map"],
-    "inspection_analyze": ["巡检", "检查", "inspection", "audit", "合规", "diagnose"],
+    "inspection_analyze": ["巡检", "inspection", "audit", "合规", "diagnose"],
     "knowledge_search": ["知识", "knowledge", "文档", "documentation", "搜索"],
-    "memory_search": ["记忆", "memory", "回忆", "会话", "history"],
+    "memory_search": ["记忆", "memory_recall", "回忆"],
     "skill_query": ["技能", "skill", "能力"],
     "module_query": ["模块", "module"],
-    "context_qa": ["刚才", "为什么", "解释", "说明", "复核", "人工", "风险", "这些", "上次", "怎么", "如何", "是什么"],
+    # assistant_chat MUST come before context_qa to catch open questions
     "assistant_chat": [
         "你好", "hello", "hi", "你是谁", "你是什么", "什么模型", "模型",
         "model", "help", "帮助", "能做", "可以做什么", "bye", "再见", "谢谢", "thank",
         "状态", "健康", "后端", "连接", "端口", "地址", "llm", "大模型",
-        "memory", "记忆", "历史", "history", "怎么用", "使用",
+        "天气", "新闻", "股票", "实时", "最新", "闲聊", "聊天",
+        "随便", "怎么看", "觉得", "你认为", "聊聊",
+    ],
+    # context_qa: only result/explanation/review queries (NOT general chat)
+    "context_qa": [
+        "刚才运行", "上次运行", "上次翻译", "上一次结果",
+        "manual_review", "quality_summary", "source_residue", "silent_drop",
+        "为什么有 warning", "为什么有风险", "复核", "人工",
+        "翻译结果怎么看", "转换结果怎么", "解释上次",
     ],
 }
 
@@ -170,6 +180,13 @@ def _infer(text: str) -> str:
     ]
     if any(kw in text_lower for kw in assistant_first):
         return "assistant_chat"
+    # Context QA: result/explanation queries — check BEFORE translate_config
+    if any(kw in text_lower for kw in
+           ["该怎么看", "怎么看结果", "翻译结果怎么看", "怎么看翻译结果",
+            "结果怎么看", "怎么看上次", "上次翻译怎么看", "解释上次",
+            "有什么风险", "风险是什么", "刚才的结果", "刚才结果",
+            "复核", "人工", "warning", "warnings"]):
+        return "context_qa"
     if (
         any(kw in text_lower for kw in ["模型", "llm", "大模型", "memory", "记忆", "历史", "状态", "健康"])
         and not any(kw in text_lower for kw in ["配置翻译", "翻译配置", "source_config", "deployable_config"])
@@ -180,4 +197,5 @@ def _infer(text: str) -> str:
             return intent
     if text_lower.endswith(("?", "？", "吗", "呢")):
         return "assistant_chat"
-    return "unknown"
+    # Default: anything not matching a business intent is assistant chat
+    return "assistant_chat"

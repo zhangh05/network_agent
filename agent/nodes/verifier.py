@@ -12,6 +12,10 @@ def verify(state: NetworkAgentState) -> NetworkAgentState:
         state.verification = {"status": "pass", "intent": state.intent}
         return state
 
+    if state.intent == "context_qa":
+        state.verification = {"status": "pass", "intent": state.intent}
+        return state
+
     if state.intent != "translate_config":
         state.verification = {"status": "planned", "intent": state.intent}
         return state

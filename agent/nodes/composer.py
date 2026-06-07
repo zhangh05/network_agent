@@ -58,10 +58,22 @@ def compose(state: NetworkAgentState) -> NetworkAgentState:
                 "violations": output.warnings,
             })
 
-            if output.llm_used and output.safe_to_show:
-                state.final_response = output.answer
-                state.warnings.extend(output.warnings)
-                return state
+        if output.llm_used and output.safe_to_show:
+            state.final_response = output.answer
+            state.warnings.extend(output.warnings)
+            return state
+
+        # Not LLM-augmented? Try assistant_chat via LLM specifically
+        if intent == "assistant_chat" and cfg.get("enabled") and cfg.get("provider_type") != "disabled":
+            try:
+                output2 = safe_generate("assistant_chat", state, user_input=state.user_input)
+                if output2.llm_used and output2.safe_to_show:
+                    state.final_response = output2.answer
+                    state.warnings.extend(output2.warnings)
+                    state.context["llm"].update({"used": True, "task": "assistant_chat"})
+                    return state
+            except Exception:
+                pass
     except Exception:
         pass
 
@@ -91,13 +103,13 @@ def _deterministic(result: dict, intent: str) -> str:
             f"  Unsupported: {len(us)}\n"
             f"  Quality summary: source_residue={residue}, silent_drop={silent}, "
             f"unsupported={len(us)}, safe_drop={safe_drop}, review_required={review_required}\n"
-            f"Please review the result in the Config Translation panel."
+            f"请回顾配置翻译面板；生产使用前仍需人工复核。"
         )
     elif intent == "context_qa":
         mr = result.get("manual_review_count", 0)
         us = result.get("unsupported_count", 0)
         if mr == 0 and us == 0:
-            return "当前摘要里没有人工复核项，也没有不支持项。翻译结果看起来可以直接查看配置翻译面板。"
+            return "当前没有人工复核项和不支持项。翻译结果已生成，请在配置翻译面板查看；生产使用前仍需人工复核。"
         parts = ["根据上次翻译结果："]
         if mr > 0:
             parts.append(f"  - {mr} 个项目需要人工复核确认")
