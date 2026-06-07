@@ -172,15 +172,12 @@ class TestComposerKnowledge:
         assert "knowledge_query" in composer_py
 
     def test_composer_fallback_shows_not_found(self):
-        """Deterministic fallback must show 'not found' when no results."""
+        """Composer must show 'not found' message when no knowledge results."""
         composer_py = (PROJECT_ROOT / "agent" / "nodes" / "composer.py").read_text()
-        # Fallback must mention not-found
-        kb_fb = re.search(
-            r"elif intent == .knowledge_query.*?(?=elif|def |class )",
-            composer_py, re.DOTALL
+        # _compose_knowledge_query must have Chinese not-found message
+        assert "未在当前知识索引中找到相关资料" in composer_py, (
+            "composer must have Chinese not-found message"
         )
-        if kb_fb:
-            assert "find" in kb_fb.group().lower() or "not" in kb_fb.group().lower()
 
     def test_verifier_handles_knowledge_query(self):
         """Verifier must have knowledge_query checks."""

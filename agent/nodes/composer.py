@@ -27,6 +27,9 @@ def compose(state: NetworkAgentState) -> NetworkAgentState:
             _set_llm_bypass_metadata(state, "local_term_explain")
             return state
         deterministic = _deterministic(result, intent)
+    elif intent == "knowledge_query":
+        _compose_knowledge_query(state)
+        return state
     else:
         deterministic = _deterministic(result, intent)
 
@@ -292,15 +295,8 @@ def _deterministic(result: dict, intent: str) -> str:
     elif intent in ("topology_draw", "inspection_analyze", "knowledge_search"):
         return f"Module '{result.get('active_module', intent)}' is planned and coming soon. No results available."
     elif intent == "knowledge_query":
-        # Fallback: search result summary
-        kr = result.get("knowledge_results", []) if isinstance(result, dict) else []
-        if kr:
-            items = "\n".join(
-                f"  [{r.get('artifact_id','')[:8]}] {r.get('title','')}: {r.get('safe_excerpt','')[:120]}"
-                for r in kr[:3]
-            )
-            return f"Knowledge search found {len(kr)} result(s):\n{items}\n\nNote: 这些是安全摘录，不是完整文件。"
-        return "No relevant knowledge found in index."
+        # This path should not be reached — _compose_knowledge_query handles it
+        return "未在当前知识索引中找到相关资料。请先通过 Artifacts 页面上传文档并加入索引。"
     elif intent == "unknown":
         return ("I didn't understand your request. Try:\n"
                 "- \"翻译配置\" for config translation\n"
