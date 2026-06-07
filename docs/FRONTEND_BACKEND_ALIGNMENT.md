@@ -1,8 +1,8 @@
-# Frontend / Backend API Alignment v0.5
+# Frontend / Backend API Alignment v0.6
 
-> **Baseline**: Knowledge Index Runtime v0.1 — 1191 tests, 7 skipped
-> **Commit**: a869430 (2026-06-07)
-> **Backend**: main.py 244 lines (routes split into 6 sub-modules incl. knowledge)
+> **Baseline**: UI Hardening + Workspace Management — 1224 tests, 7 skipped
+> **Commit**: 732cf1b (2026-06-07)
+> **Backend**: main.py 247 lines (routes split into 6 sub-modules)
 
 ## Frontend API Usage
 
@@ -30,7 +30,9 @@
 | **Session Restore** | `POST /api/sessions/<id>/restore` | `@app.route("/api/sessions/<id>/restore")` | ✅ v3.1 |
 | **Session Soft Delete** | `POST /api/sessions/<id>/soft-delete` | `@app.route("/api/sessions/<id>/soft-delete")` | ✅ v3.1 |
 | **Knowledge Sources** | `GET /api/knowledge/sources` | `@app.route("/api/knowledge/sources")` | ✅ v0.1 |
-| **Knowledge From Artifact** | `POST /api/knowledge/sources/from-artifact` | `@app.route("/api/knowledge/sources/from-artifact")` | ✅ v0.1 |
+| **Session Rename** | `PUT /api/sessions/<id>` | `@app.route("/api/sessions/<session_id>", methods=["PUT"])` | ✅ v0.6 |
+| **Workspace Delete** | `DELETE /api/workspaces/<id>` | `@app.route("/api/workspaces/<ws_id>", methods=["DELETE"])` | ✅ v0.6 |
+| **Workspace Rename** | `POST /api/workspaces/<id>/rename` | `@app.route("/api/workspaces/<ws_id>/rename")` | ✅ v0.6 |
 | **Knowledge Reindex** | `POST /api/knowledge/sources/<id>/reindex` | `@app.route("/api/knowledge/sources/<id>/reindex")` | ✅ v0.1 |
 | **Knowledge Search** | `GET /api/knowledge/search?q=...` | `@app.route("/api/knowledge/search")` | ✅ v0.1 |
 | **Knowledge Chunk** | `GET /api/knowledge/chunks/<id>` | `@app.route("/api/knowledge/chunks/<id>")` | ✅ v0.1 |
