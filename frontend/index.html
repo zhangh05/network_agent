@@ -59,8 +59,20 @@
   #topbar{height:52px;background:var(--card);border-bottom:1px solid var(--n8);display:flex;align-items:center;padding:0 20px;gap:16px;flex-shrink:0}
   .top-bread{display:flex;align-items:center;gap:8px;color:var(--n5);font-size:13px}
   .top-bread .sep{color:var(--n7)}
-  .top-proj{display:flex;align-items:center;gap:8px;margin-left:24px;padding:5px 12px;background:var(--n10);border:1px solid var(--n8);border-radius:6px;cursor:pointer;font-size:13px;color:var(--n2)}
+  .top-proj{display:flex;align-items:center;gap:8px;margin-left:24px;padding:5px 12px;background:var(--n10);border:1px solid var(--n8);border-radius:6px;cursor:pointer;font-size:13px;color:var(--n2);position:relative}
   .top-proj .status{width:7px;height:7px;border-radius:50%;background:var(--suc)}
+
+  /* ── Workspace dropdown ── */
+  .ws-dropdown{position:absolute;top:calc(100% + 6px);left:0;background:var(--card);border:1px solid var(--n8);border-radius:10px;box-shadow:0 8px 24px rgba(0,0,0,.12);z-index:300;min-width:180px;display:none;overflow:hidden}
+  .ws-dropdown.show{display:block}
+  .ws-d-head{padding:10px 14px;font-size:11px;font-weight:600;color:var(--n5);border-bottom:1px solid var(--n8);text-transform:uppercase;letter-spacing:.5px}
+  .ws-d-item{padding:9px 14px;font-size:13px;color:var(--n2);cursor:pointer;display:flex;align-items:center;gap:8px;transition:background .1s}
+  .ws-d-item:hover{background:var(--n10)}
+  .ws-d-item.active{background:var(--n10);font-weight:600;color:var(--pri)}
+  .ws-d-item.active::before{content:'✓';font-size:11px}
+  .ws-d-divider{height:1px;background:var(--n8);margin:2px 0}
+  .ws-d-new{color:var(--pri);font-weight:600}
+
   .top-spc{flex:1}
   .top-action{width:34px;height:34px;border-radius:8px;border:0;background:transparent;color:var(--n5);cursor:pointer;display:flex;align-items:center;justify-content:center;transition:all .15s}
   .top-action:hover{background:var(--n9);color:var(--n2)}
@@ -354,10 +366,17 @@
       <span class="sep">/</span>
       <span id="bread-page" style="color:var(--n2);font-weight:600">Agent 工作台</span>
     </div>
-    <div class="top-proj" id="top-proj" onclick="switchWorkspace()" style="cursor:pointer">
+    <div class="top-proj" id="top-proj" onclick="toggleWorkspaceMenu(event)" style="cursor:pointer;position:relative">
       <span class="status"></span>
       <span id="ws-display">default</span>
       <span style="color:var(--n6);font-size:11px" id="top-status">检测中…</span>
+      <!-- Workspace dropdown -->
+      <div class="ws-dropdown" id="ws-dropdown">
+        <div class="ws-d-head">切换 Workspace</div>
+        <div id="ws-d-list"><div class="ws-d-item active" data-ws="default" onclick="selectWorkspace('default',event)">default</div></div>
+        <div class="ws-d-divider"></div>
+        <div class="ws-d-item ws-d-new" onclick="createNewWorkspace(event)">+ 新建 Workspace</div>
+      </div>
     </div>
     <div class="top-spc"></div>
     <div class="top-user">A</div>
@@ -808,15 +827,29 @@ function sanitizeDisplayText(txt){return redactSensitiveText(esc(txt));}
 // Fetch wrapper with timeout and error handling
 function apiFetch(url,opts){
   opts=opts||{};
-  if(!opts.signal){
-    var ctrl=new AbortController();
-    opts.signal=ctrl.signal;
-    setTimeout(function(){ctrl.abort();},opts.timeout||8000);
-  }
-  return fetch(url,opts).then(function(r){
-    if(!r.ok) throw new Error('HTTP '+r.status);
-    return r.json();
-  });
+  var retries=opts.retries!==undefined?opts.retries:1;
+  var attempt=function(retryCount){
+    var fetchOpts=Object.assign({},opts);
+    delete fetchOpts.retries;
+    delete fetchOpts.timeout;
+    if(!fetchOpts.signal){
+      var ctrl=new AbortController();
+      fetchOpts.signal=ctrl.signal;
+      setTimeout(function(){ctrl.abort();},opts.timeout||8000);
+    }
+    return fetch(url,fetchOpts).then(function(r){
+      if(!r.ok) throw new Error('HTTP '+r.status);
+      return r.json();
+    }).catch(function(err){
+      if(retryCount>0 && err.name!=='AbortError'){
+        return new Promise(function(resolve){
+          setTimeout(function(){resolve(attempt(retryCount-1));},500);
+        });
+      }
+      throw err;
+    });
+  };
+  return attempt(retries);
 }
 
 // Set status dot + text
@@ -1930,14 +1963,41 @@ function showToast(msg){
     document.getElementById('ws-display').textContent=_currentWorkspaceId;
   }
 
+  // ── Backend readiness check + data load ──
+  _checkBackendAndLoad();
+})();
+
+function _checkBackendAndLoad(){
+  var statusEl=document.getElementById('top-status');
+  var agStatus=document.getElementById('ag-status');
+  var sysGrid=document.getElementById('sys-status-grid');
+
+  apiFetch('/api/health',{retries:2,timeout:5000}).then(function(d){
+    statusEl.textContent='已连接';
+    agStatus.textContent='已连接';
+    document.getElementById('top-proj').querySelector('.status').className='status sdot sdot-ok';
+    // Backend is ready — load all data
+    _loadAllData();
+  }).catch(function(err){
+    statusEl.textContent='连接中…';
+    agStatus.textContent='未连接';
+    document.getElementById('top-proj').querySelector('.status').className='status sdot sdot-off';
+    if(sysGrid){
+      sysGrid.innerHTML='<div style="display:flex;align-items:center;gap:10px;padding:10px;background:var(--n10);border-radius:8px"><span class="sdot sdot-dng"></span><div><div style="font-weight:600">后端启动中</div><div style="font-size:11px;color:var(--n5)">服务尚未就绪，5秒后自动重试…</div></div></div>';
+    }
+    // Auto-retry after 5s
+    setTimeout(_checkBackendAndLoad,5000);
+  });
+}
+
+function _loadAllData(){
   // Load current session or get/create default
   var savedSid=_getCurrentSessionId();
   if(savedSid){
     _currentSessionId=savedSid;
     loadSessionMessages(savedSid);
   }else{
-    // Get or create default session
-    apiFetch('/api/sessions/default?workspace_id='+encodeURIComponent(_currentWorkspaceId))
+    apiFetch('/api/sessions/default?workspace_id='+encodeURIComponent(_currentWorkspaceId),{retries:1})
     .then(function(d){
       if(d.ok && d.session){
         _currentSessionId=d.session.session_id;
@@ -1956,27 +2016,15 @@ function showToast(msg){
   // Agent init time
   document.getElementById('ag-init-time').textContent=new Date().toLocaleTimeString('zh-CN',{hour:'2-digit',minute:'2-digit'});
 
-  // Try /api/health for backend connectivity
-  apiFetch('/api/health').then(function(d){
-    document.getElementById('top-status').textContent='已连接';
-    document.getElementById('ag-status').textContent='已连接';
-    document.getElementById('top-proj').querySelector('.status').className='status sdot sdot-ok';
-  }).catch(function(){
-    document.getElementById('top-status').textContent='未连接';
-    document.getElementById('ag-status').textContent='未连接';
-    document.getElementById('top-proj').querySelector('.status').className='status sdot sdot-off';
-    document.getElementById('sys-status-grid').innerHTML='<div style="display:flex;align-items:center;gap:10px;padding:10px;background:var(--n10);border-radius:8px"><span class="sdot sdot-dng"></span><div><div style="font-weight:600">后端不可用</div><div style="font-size:11px;color:var(--n5)">请确认服务已在 8010 端口运行</div></div></div>';
-  });
-
   // Fetch version
-  apiFetch('/api/version').then(function(d){
+  apiFetch('/api/version',{retries:1}).then(function(d){
     document.getElementById('build-id').textContent=d.build_commit||'---';
     document.getElementById('entry-id').textContent=d.translator_entry||'translate_bundle';
     document.getElementById('ver-tag').textContent=d.version||'v3.0';
   }).catch(function(){});
 
   // Fetch modules
-  apiFetch('/api/modules').then(function(d){
+  apiFetch('/api/modules',{retries:1}).then(function(d){
     var mods=d.modules||[];
     var enabled=mods.filter(function(m){return m.enabled;});
     document.getElementById('dash-mods').textContent=enabled.length+'/'+mods.length;
@@ -1988,7 +2036,7 @@ function showToast(msg){
   });
 
   // Fetch skills
-  apiFetch('/api/skills').then(function(d){
+  apiFetch('/api/skills',{retries:1}).then(function(d){
     var c=(d.skills||[]).length;
     document.getElementById('dash-skills').textContent=c||'0';
     document.getElementById('dash-skills').parentElement.querySelector('.stat-foot').innerHTML='<span class="sdot sdot-ok"></span>loaded';
@@ -1998,7 +2046,7 @@ function showToast(msg){
   });
 
   // Fetch memory status
-  apiFetch('/api/memory/status').then(function(d){
+  apiFetch('/api/memory/status',{retries:1}).then(function(d){
     if(d.records!==undefined){
       document.getElementById('dash-mems').textContent=d.records;
       document.getElementById('dash-mems').parentElement.querySelector('.stat-foot').innerHTML='<span class="sdot sdot-ok"></span>JSONL 存储';
@@ -2009,7 +2057,7 @@ function showToast(msg){
   });
 
   // Fetch job count
-  apiFetch('/api/jobs').then(function(d){
+  apiFetch('/api/jobs',{retries:1}).then(function(d){
     var jobs=d.jobs||[];
     document.getElementById('dash-tasks').textContent=jobs.length||'0';
     document.getElementById('dash-tasks').parentElement.querySelector('.stat-foot').innerHTML='<span class="sdot sdot-ok"></span>查询完成';
@@ -2019,7 +2067,7 @@ function showToast(msg){
   });
 
   // Fetch recent runs
-  apiFetch('/api/runs/recent?limit=5').then(function(d){
+  apiFetch('/api/runs/recent?limit=5',{retries:1}).then(function(d){
     var runs=d.runs||[];
     var table=document.getElementById('recent-runs');
     if(runs.length===0){
@@ -2136,7 +2184,73 @@ function switchWorkspace(){
   if(!newWs)return;
   try{
     localStorage.setItem('na_workspace_id',newWs);
-    // Clear current session so next load picks default for new workspace
+    localStorage.removeItem('na_current_session_id');
+  }catch(e){}
+  location.reload();
+}
+
+/* ── Workspace dropdown ── */
+var _wsMenuOpen=false;
+function toggleWorkspaceMenu(event){
+  event.stopPropagation();
+  var dd=document.getElementById('ws-dropdown');
+  _wsMenuOpen=!_wsMenuOpen;
+  if(_wsMenuOpen){
+    dd.classList.add('show');
+    loadWorkspaceList();
+    setTimeout(function(){
+      document.addEventListener('click',hideWorkspaceMenu,{once:true});
+    },50);
+  }else{
+    dd.classList.remove('show');
+  }
+}
+function hideWorkspaceMenu(e){
+  var dd=document.getElementById('ws-dropdown');
+  if(dd && !dd.contains(e.target)){
+    dd.classList.remove('show');
+    _wsMenuOpen=false;
+  }
+}
+function loadWorkspaceList(){
+  var list=document.getElementById('ws-d-list');
+  var current=_getWorkspaceId();
+  apiFetch('/api/workspaces',{retries:1}).then(function(d){
+    var wss=d.workspaces||[];
+    if(!wss.length){wss=['default'];}
+    var html='';
+    wss.forEach(function(ws){
+      var isActive=ws===current;
+      html+='<div class="ws-d-item '+(isActive?'active':'')+'" data-ws="'+esc(ws)+'" onclick="selectWorkspace(\''+esc(ws)+'\',event)">'+esc(ws)+'</div>';
+    });
+    list.innerHTML=html;
+  }).catch(function(){
+    list.innerHTML='<div class="ws-d-item active">'+esc(current)+'</div>';
+  });
+}
+function selectWorkspace(wsId,event){
+  event.stopPropagation();
+  if(!wsId || wsId===_getWorkspaceId()){
+    document.getElementById('ws-dropdown').classList.remove('show');
+    _wsMenuOpen=false;
+    return;
+  }
+  try{
+    localStorage.setItem('na_workspace_id',wsId);
+    localStorage.removeItem('na_current_session_id');
+  }catch(e){}
+  location.reload();
+}
+function createNewWorkspace(event){
+  event.stopPropagation();
+  var newWs=prompt('输入新 workspace_id（仅允许字母、数字、下划线、连字符）：','');
+  if(!newWs)return;
+  if(!/^[a-zA-Z0-9_-]+$/.test(newWs)){
+    showToast('workspace_id 只能包含字母、数字、下划线和连字符');
+    return;
+  }
+  try{
+    localStorage.setItem('na_workspace_id',newWs);
     localStorage.removeItem('na_current_session_id');
   }catch(e){}
   location.reload();
