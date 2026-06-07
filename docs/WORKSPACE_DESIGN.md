@@ -10,6 +10,8 @@
 workspaces/default/
 ├── workspace.yaml           # 工作区元数据
 ├── state.json               # 当前状态摘要
+├── sessions/                # 会话记录 (v3.1+)
+│   └── {session_id}.json    # 会话元数据 (title, status, run_ids)
 ├── runs/                    # 运行记录 (.json + .trace.json)
 ├── artifacts/               # 产物文件
 │   ├── inputs/
@@ -28,6 +30,7 @@ workspaces/default/
 | name | str | 名称 |
 | last_run_id | str | 最近运行 ID |
 | last_job_id | str | 最近任务 ID |
+| last_session_id | str | 当前会话 ID (v3.1+) |
 | last_result | str | 最近结果摘要 (≤200 chars) |
 | current_artifacts | list | 当前产物引用列表 |
 | artifact_counts | dict | 各类产物计数 |
@@ -67,6 +70,7 @@ workspaces/default/
 |------|------|
 | run_id | 运行 ID |
 | workspace_id | 关联工作区 |
+| session_id | 关联会话 (v3.1+) |
 | intent / active_module / selected_skill | 意图与路由信息 |
 | result_counts | 结果统计（不含完整配置） |
 | llm_metadata | LLM 使用信息 |
@@ -82,6 +86,8 @@ workspaces/default/
 
 ## API
 
+### Workspace API
+
 | 端点 | 说明 |
 |------|------|
 | `GET /api/workspaces` | 工作区列表 |
@@ -90,6 +96,21 @@ workspaces/default/
 | `GET /api/workspaces/{id}/runs/{run_id}` | 单次运行详情 |
 | `GET /api/workspaces/{id}/artifacts` | 产物列表 |
 | `GET /api/workspaces/{id}/artifacts/{id}` | 产物详情 |
+
+### Session API (v3.1+)
+
+会话管理 API — 详见 [SESSION_MANAGEMENT.md](./SESSION_MANAGEMENT.md)：
+
+| 端点 | 说明 |
+|------|------|
+| `POST /api/sessions` | 创建会话 |
+| `GET /api/sessions?workspace_id=` | 会话列表 |
+| `GET /api/sessions/default` | 获取或创建默认会话 |
+| `GET /api/sessions/{id}?include_messages=1` | 会话详情 + 消息 |
+| `POST /api/sessions/{id}/archive` | 归档 |
+| `POST /api/sessions/{id}/restore` | 恢复 |
+| `POST /api/sessions/{id}/soft-delete` | 软删除 |
+| `DELETE /api/sessions/{id}?confirm=true` | 物理删除（保留 run 记录） |
 
 ## 测试隔离
 

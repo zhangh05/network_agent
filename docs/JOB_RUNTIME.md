@@ -66,6 +66,7 @@ created → queued → running → succeeded
 ## Runner
 
 - Calls `run_agent()` — never directly imports Module, Skill, or LLM
+- Supports `session_id` passthrough (v3.1+): if the job payload includes `session_id`, the run is auto-associated with that session
 - All execution goes through Agent Runtime graph
 
 ## Auto-Artifactization

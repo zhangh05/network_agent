@@ -22,7 +22,7 @@ router → context → planner → executor → verifier → composer → memory
 | executor_start/end | skill_name, module_name, adapter_called |
 | verifier_start/end | result_valid, gate_pass |
 | composer_start/end | llm_calls, llm_metadata, config_source |
-| memory_start/end | memory_written, workspace_updated, run_record_written |
+| memory_start/end | memory_written, workspace_updated, run_record_written, session_associated (v3.1+) |
 
 ## Context Metadata (trace 内）
 

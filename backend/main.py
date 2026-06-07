@@ -27,6 +27,18 @@ from backend.api.workspace import handle_workspace_status
 from backend.api.modules import handle_modules, handle_module_status, handle_registry_status, handle_capabilities
 from backend.api.memory import handle_memory_status, handle_memory_write, handle_memory_search
 from backend.api.memory_routes import handle_memory_confirm, handle_memory_delete, handle_memory_list
+from backend.api.session_routes import (
+    handle_session_create,
+    handle_session_list,
+    handle_session_detail,
+    handle_session_update,
+    handle_session_archive,
+    handle_session_restore,
+    handle_session_soft_delete,
+    handle_session_delete_permanently,
+    handle_session_messages,
+    handle_session_default,
+)
 from backend.api.params import parse_limit
 from backend.core.settings import UNIFIED_PORT, API_MODE, BUILD_COMMIT, TRANSLATOR_ENTRY
 from backend.core.paths import FRONTEND_DIR
@@ -195,6 +207,47 @@ def create_app():
     @app.route("/api/agent/status")
     def api_agent_status():
         return handle_agent_status()
+
+    # ── Sessions ──
+    @app.route("/api/sessions", methods=["POST"])
+    def api_sessions_create():
+        return handle_session_create()
+
+    @app.route("/api/sessions")
+    def api_sessions_list():
+        return handle_session_list()
+
+    @app.route("/api/sessions/default")
+    def api_session_default():
+        return handle_session_default()
+
+    @app.route("/api/sessions/<session_id>")
+    def api_session_detail(session_id):
+        return handle_session_detail(session_id)
+
+    @app.route("/api/sessions/<session_id>", methods=["PUT"])
+    def api_session_update(session_id):
+        return handle_session_update(session_id)
+
+    @app.route("/api/sessions/<session_id>/archive", methods=["POST"])
+    def api_session_archive(session_id):
+        return handle_session_archive(session_id)
+
+    @app.route("/api/sessions/<session_id>/restore", methods=["POST"])
+    def api_session_restore(session_id):
+        return handle_session_restore(session_id)
+
+    @app.route("/api/sessions/<session_id>/soft-delete", methods=["POST"])
+    def api_session_soft_delete(session_id):
+        return handle_session_soft_delete(session_id)
+
+    @app.route("/api/sessions/<session_id>", methods=["DELETE"])
+    def api_session_delete(session_id):
+        return handle_session_delete_permanently(session_id)
+
+    @app.route("/api/sessions/<session_id>/messages")
+    def api_session_messages(session_id):
+        return handle_session_messages(session_id)
 
     @app.route("/api/agent/llm/status")
     def api_agent_llm_status():

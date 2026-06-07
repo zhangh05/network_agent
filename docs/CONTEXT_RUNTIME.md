@@ -49,6 +49,7 @@ For deterministic nodes (skill/module/job runner):
 | `job:<id>` | Specific job summary |
 | `report:<id>` | Specific report summary |
 | `current_workspace` | Workspace metadata |
+| `current_session` | Current session metadata (v3.1+) |
 | `current_topology` | Topology (if available) |
 | `selected_artifact` | Currently selected artifact |
 

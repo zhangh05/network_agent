@@ -15,6 +15,7 @@ Agent 原生记忆系统，JSONL backend (`memory/data/memories.jsonl`)。Memory
 | `project_state` | 项目状态摘要 | 项目状态变更时 |
 | `translation_rule` | 翻译规则记忆 | 人工复核确认规则时 |
 | `artifact_summary` | 产物摘要 | 产物保存时 |
+| `session_summary` | **会话摘要 (v3.1+)** | **session archive / 关闭时** |
 
 ## Schema (核心字段)
 

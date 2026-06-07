@@ -17,6 +17,7 @@ It does NOT:
 from flask import request, jsonify
 
 from agent.graph import run_agent, get_runtime_status
+from workspace.session_store import get_or_create_default_session
 from backend.core.limits import source_config_too_large
 from backend.core.settings import BUILD_COMMIT, TRANSLATOR_ENTRY
 from workspace.ids import validate_workspace_id
@@ -37,6 +38,7 @@ def handle_agent_run():
     intent = (data.get("intent") or "").strip()
     payload = data.get("payload") or {}
     workspace_id = data.get("workspace_id", "default")
+    session_id = (data.get("session_id") or "").strip()
     context_ref = data.get("context_ref", "")
 
     try:
@@ -65,6 +67,7 @@ def handle_agent_run():
         intent=intent,
         payload=effective_payload,
         workspace_id=workspace_id,
+        session_id=session_id,
     )
 
     return jsonify({

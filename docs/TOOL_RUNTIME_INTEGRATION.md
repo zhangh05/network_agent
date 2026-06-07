@@ -87,6 +87,7 @@ Standard context for tool invocations:
 | Field | Type | Description |
 |-------|------|-------------|
 | `workspace_id` | str\|None | Current workspace |
+| `session_id` | str\|None | Current session (v3.1+) |
 | `run_id` | str\|None | Current Agent run |
 | `job_id` | str\|None | Current Job |
 | `capability` | str\|None | Current Capability ID |

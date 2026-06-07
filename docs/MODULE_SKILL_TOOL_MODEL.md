@@ -350,6 +350,8 @@ Applicable to Tool Runtime design and all future implementations:
    - **Recommendation**: Yes — direct import of module service, no HTTP, no LLM — this is the correct pattern.
 4. Should the current `agent/nodes/skill_executor.py` be renamed to distinguish Skill execution from future Tool execution?
    - **Recommendation**: Not urgent. The node name "skill_executor" is clear. If Tool Runtime adds tool-level orchestration to Module, that becomes the Module's responsibility, not the Agent's.
+5. Should `state.session_id` (v3.1+) be formally part of the agent state contract?
+   - **Answer**: Yes. `NetworkAgentState.session_id` is set by `run_agent()` → flows through all 7 graph nodes → used by `memory_writer` to auto-associate runs with sessions. It is a first-class state field alongside `workspace_id`. See [SESSION_MANAGEMENT.md](./SESSION_MANAGEMENT.md).
 
 ---
 

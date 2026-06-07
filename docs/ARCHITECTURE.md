@@ -23,9 +23,25 @@ Frontend → API (8010) → Agent (LangGraph)
 
 Horizontal base:
 Workspace / Memory / Artifact / Report / Job / Trace /
-LLM Settings / Prompt / Harness
+Session / LLM Settings / Prompt / Harness
 Tool Runtime
 ```
+
+## Session 会话层
+
+v3.1 新增会话（Session）抽象，将独立的 Agent Run 组织为可恢复的对话线程。
+
+```
+Session Store ──→ workspaces/<ws>/sessions/<sid>.json
+   ├── create / list / get / update / archive / soft-delete / permanent-delete
+   ├── add_run_to_session ── 自动关联 run 到 session
+   ├── get_session_messages ── 将 runs 转为 Chat UI 消息列表
+   └── auto_title_from_input ── 首条消息自动生成会话标题
+```
+
+前端通过 `/api/sessions/<id>?include_messages=1` 加载完整对话历史，
+`localStorage` 仅保存 `na_current_session_id` 指针，不保存消息内容。
+详见：[SESSION_MANAGEMENT.md](./SESSION_MANAGEMENT.md)
 
 ## Agent 调用链
 

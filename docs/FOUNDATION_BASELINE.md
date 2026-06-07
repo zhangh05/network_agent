@@ -24,6 +24,7 @@
 | Context Runtime | Complete |
 | Prompt Runtime | Complete |
 | Test Harness | Complete |
+| Session Management | Complete (v3.1+) |
 | config_translation (single + batch) | Complete |
 
 ## Scope — NOT Included
@@ -40,7 +41,10 @@
 ## Test Results
 
 ```
-493 passed, 7 skipped, 0 failed
+493 passed, 7 skipped, 0 failed  (Foundation Baseline)
++ 35 Session Management tests    (v3.1)
+─────────────────────────────────
+528 passed total
 ```
 
 ## Red Lines (Absolute Prohibitions)
@@ -59,7 +63,8 @@
 
 ## Next Steps (Post-Baseline)
 
-1. Tool/Command Runtime
-2. Knowledge/Index Runtime
-3. Platform Hardening (auth, rate limiting, monitoring)
-4. Business Modules (topology, inspection, CMDB)
+1. ~~Session Management~~ — completed v3.1
+2. Tool/Command Runtime
+3. Knowledge/Index Runtime
+4. Platform Hardening (auth, rate limiting, monitoring)
+5. Business Modules (topology, inspection, CMDB)

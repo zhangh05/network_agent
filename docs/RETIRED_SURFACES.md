@@ -38,7 +38,7 @@ The following names are **retired/prohibited surfaces** that have been physicall
 
 | API | Description |
 |-----|-------------|
-| `POST /api/agent/run` | Agent execution |
+| `POST /api/agent/run` | Agent execution (supports `session_id` v3.1+) |
 | `POST /api/modules/config-translation/translate` | Config translation |
 | `POST /api/jobs` | Job management |
 | `GET /api/runs/recent` | Recent run history |
@@ -46,11 +46,19 @@ The following names are **retired/prohibited surfaces** that have been physicall
 | `GET /api/runtime/selfcheck` | Workspace selfcheck |
 | `GET /api/workspaces/<id>/retention/preview` | Retention preview |
 | `GET /api/workspaces/<id>/archive/preview` | Archive preview |
+| `GET /api/sessions?workspace_id=` | Session list (v3.1+) |
+| `POST /api/sessions` | Create session (v3.1+) |
+| `GET /api/sessions/<id>?include_messages=1` | Session detail + messages (v3.1+) |
+| `POST /api/sessions/<id>/archive` | Archive session (v3.1+) |
+| `POST /api/sessions/<id>/soft-delete` | Soft delete session (v3.1+) |
+| `DELETE /api/sessions/<id>?confirm=true` | Permanent delete session (v3.1+) |
 
 ## Anti-Regression
 
 - `harness/test_ui_api_contract.py` — checks that retired surfaces are absent
 - `harness/test_design_purity_antiregression.py` — 37 regression gates
 - `harness/test_source_integrity_runtime_safety.py` — format + boundary + redaction
+- `harness/test_session_management.py` — 23 session store tests (v3.1+)
+- `harness/test_session_api_contract.py` — 12 session API tests (v3.1+)
 
 Any attempt to restore a retired surface **will fail the test suite**.

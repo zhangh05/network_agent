@@ -1,0 +1,12 @@
+{
+  "session_id": "a694f593931241f4",
+  "workspace_id": "api_contract_test",
+  "title": "Soft Delete",
+  "status": "deleted",
+  "created_at": "2026-06-07T07:25:47.891697+00:00",
+  "updated_at": "2026-06-07T07:25:48.018905+00:00",
+  "run_ids": [
+    "152a5bd1a82b"
+  ],
+  "metadata": {}
+}

@@ -33,6 +33,16 @@ User Input
 | Topology/Inspection/etc | `topology_draw` etc | Returns coming_soon |
 | Unknown | `unknown` | Friendly suggestion with available capabilities |
 
+## Conversation Persistence (v3.1+)
+
+Agent conversations are now organized into **Sessions**:
+
+- Each `POST /api/agent/run` can include a `session_id`
+- Sessions group runs into persistent chat threads
+- Page load restores full conversation history from backend session store
+- `localStorage` only holds `na_current_session_id` — not message content
+- Archive/soft-delete preserve run records for audit; permanent delete only removes session metadata
+
 ## Execution Model for assistant_chat
 
 ```

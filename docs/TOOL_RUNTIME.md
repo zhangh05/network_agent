@@ -93,6 +93,7 @@ ToolInvocation
 | `tool_id` | str | Which tool to invoke |
 | `arguments` | dict | Tool arguments (schema-validated) |
 | `workspace_id` | str | Optional workspace context |
+| `session_id` | str | Optional session context (v3.1+) |
 | `run_id` | str | Optional Agent run context |
 | `dry_run` | bool | If true, execute dry-run path |
 

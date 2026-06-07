@@ -1,6 +1,6 @@
-# Frontend / Backend API Alignment v0.2
+# Frontend / Backend API Alignment v0.3
 
-> **Baseline**: `7eb0e61` — 18 API integration tests passed, 0 failed
+> **Baseline**: Session Management v3.1 — 35 tests passed, 0 failed
 
 ## Frontend API Usage
 
@@ -20,12 +20,22 @@
 | Settings | `/api/agent/llm/config` (GET + POST) | `@app.route("/api/agent/llm/config")` | ✅ |
 | Agent Chat | `POST /api/agent/run` | `@app.route("/api/agent/run")` | ✅ |
 | Config Translate | `POST /api/modules/config-translation/translate` | `@app.route("/api/modules/config-translation/translate")` | ✅ |
+| **Session List** | `GET /api/sessions?status=active` | `@app.route("/api/sessions")` | ✅ v3.1 |
+| **Session Default** | `GET /api/sessions/default` | `@app.route("/api/sessions/default")` | ✅ v3.1 |
+| **Session Detail** | `GET /api/sessions/<id>?include_messages=1` | `@app.route("/api/sessions/<session_id>")` | ✅ v3.1 |
+| **Session Create** | `POST /api/sessions` | `@app.route("/api/sessions", methods=["POST"])` | ✅ v3.1 |
+| **Session Archive** | `POST /api/sessions/<id>/archive` | `@app.route("/api/sessions/<id>/archive")` | ✅ v3.1 |
+| **Session Restore** | `POST /api/sessions/<id>/restore` | `@app.route("/api/sessions/<id>/restore")` | ✅ v3.1 |
+| **Session Soft Delete** | `POST /api/sessions/<id>/soft-delete` | `@app.route("/api/sessions/<id>/soft-delete")` | ✅ v3.1 |
 
-## Frontend UI Features (v0.2)
+## Frontend UI Features (v0.3)
 
 | Feature | Description |
 |---------|-------------|
 | System Status Panel | Dynamic grid from `/api/runtime/health` — 10 components with color-coded status dots (ok/warning/error) + summary counts |
+| **Session Bar** | Session title (click to toggle list) + "+" (new session) + "☰" (list toggle). Auto-title from first message |
+| **Session List** | Dropdown list of active sessions with last-update time. ⋮ menu per session: archive / soft-delete |
+| **Chat Auto-Restore** | Page load reads `na_current_session_id` from localStorage, fetches messages from `/api/sessions/<id>?include_messages=1`, renders full chat history |
 | Agent Chat | Collapsible metadata (▶ 详情 toggle), spinner animation, XSS-safe `esc()` on all user-facing text, 8s timeout via `AbortController` |
 | Translate Audit Tab | Rich quality_summary dashboard: grid counters, source residue items, silent drop items, warnings |
 | Recent Runs | Status badges: green=ok, red=error, yellow=planned. Quality badges for residue/drop/review |
@@ -45,9 +55,12 @@ All API calls use `apiFetch()` with 8s timeout and `.catch()` handlers. On failu
 | Key | Purpose | Type |
 |-----|---------|------|
 | `na_workspace_id` | Current workspace ID | string |
-| `na_settings` | UI preferences | object |
+| `na_current_session_id` | Current session ID pointer | string |
+| `na_settings` | UI preferences (lang, theme, font size, autosave) | object |
 
-- Conversation history is NOT stored in localStorage
+- **Conversation history is NOT stored in localStorage** — loaded from `/api/sessions/<id>?include_messages=1`
+- **Legacy keys auto-cleaned** — any `na_chat_*` or `na_history_*` keys are removed on init
+- **Workspace switch clears session** — changing workspace resets `na_current_session_id` so the new workspace's default session is loaded
 - Run history is server-authoritative (workspace/run_store)
 
 ## Redaction / Safety

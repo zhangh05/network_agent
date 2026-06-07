@@ -213,8 +213,16 @@ def _run_timed_node(state: NetworkAgentState, node_name: str, display_name: str)
 
 
 def run_agent(user_input: str = "", intent: str = "", payload: dict = None,
-              workspace_id: str = "default") -> dict:
-    """Run agent pipeline and return full result dict with metadata + trace."""
+              workspace_id: str = "default", session_id: str = "") -> dict:
+    """Run agent pipeline and return full result dict with metadata + trace.
+
+    Args:
+        user_input: The user's input text.
+        intent: Optional forced intent.
+        payload: Additional payload data.
+        workspace_id: Workspace identifier.
+        session_id: Optional session identifier for conversation grouping.
+    """
     try:
         from workspace.ids import validate_workspace_id
         workspace_id = validate_workspace_id(workspace_id)
@@ -238,6 +246,7 @@ def run_agent(user_input: str = "", intent: str = "", payload: dict = None,
         intent=intent,
         payload=payload,
         workspace_id=workspace_id,
+        session_id=session_id or None,
     )
 
     if context_ref:
@@ -284,6 +293,7 @@ def run_agent(user_input: str = "", intent: str = "", payload: dict = None,
         "status": status,
         "run_id": state.request_id,
         "request_id": state.request_id,
+        "session_id": state.session_id or "",
         "intent": state.intent,
         "capability": state.context.get("capability_id", ""),
         "active_module": state.active_module,

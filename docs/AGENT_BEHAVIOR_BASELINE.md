@@ -14,6 +14,8 @@
 | Report export | Export reports as artifacts |
 | Job translate_config | Async config translation via Job Runtime |
 | Context Q&A | Answer questions based on safe context |
+| **Session management** | **Create, switch, archive, delete conversation sessions (v3.1+)** |
+| **Session restore** | **Restore chat history from session on page load (v3.1+)** |
 
 ## What the Agent CANNOT Do
 

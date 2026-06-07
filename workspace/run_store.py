@@ -14,6 +14,9 @@ WS_ROOT = ROOT / "workspaces"
 def write_run_record(state, ws_id: str = "default") -> str:
     """Write a sanitized run record. No full configs, no keys.
 
+    If state.session_id is set, the run is automatically associated
+    with that session via add_run_to_session.
+
     Returns run_id.
     """
     from workspace.manager import ensure_workspace
@@ -38,6 +41,7 @@ def write_run_record(state, ws_id: str = "default") -> str:
     record = {
         "run_id": run_id,
         "workspace_id": ws_id,
+        "session_id": state.session_id or "",
         "request_id": state.request_id,
         "created_at": state.created_at,
         "user_input_summary": redact_text(state.user_input or "")[:120],
@@ -84,6 +88,18 @@ def write_run_record(state, ws_id: str = "default") -> str:
     (run_dir / f"{run_id}.json").write_text(
         json.dumps(record, indent=2, ensure_ascii=False)
     )
+
+    # Associate run with session if session_id is present
+    if state.session_id:
+        try:
+            from workspace.session_store import add_run_to_session, auto_title_from_input
+            add_run_to_session(state.session_id, run_id, ws_id)
+            # Auto-title session from first meaningful user input
+            if state.user_input and len(state.user_input.strip()) > 0:
+                auto_title_from_input(state.session_id, state.user_input, ws_id)
+        except Exception:
+            pass
+
     return run_id
 
 

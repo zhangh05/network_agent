@@ -4,6 +4,24 @@
 
 Agent runtime uses **LangGraph** as primary execution engine, with a deterministic fallback runtime preserved for cases where LLM is blocked or unavailable.
 
+### Entry Point
+
+```python
+def run_agent(
+    user_input: str,
+    workspace_id: str = "default",
+    session_id: str | None = None,   # v3.1+ — associates run with conversation session
+    intent: str = "",
+    payload: dict | None = None,
+    context_ref: str = "",
+) -> dict:
+```
+
+When `session_id` is provided:
+1. `NetworkAgentState.session_id` is set before graph execution
+2. `memory_writer` → `write_run_record()` auto-associates the run with the session
+3. First user input auto-titles the session (if title is generic)
+
 ### Graph Nodes (7 Trace Nodes)
 
 ```
@@ -18,7 +36,7 @@ router → context_loader → planner → executor → verifier → composer →
 | `executor` | Executes via capability → skill → adapter → module chain |
 | `verifier` | Validates execution output against capability contract |
 | `composer` | Assembles final response text |
-| `memory_writer` | Persists run summary to Memory store |
+| `memory_writer` | Persists run summary to Memory store + associates with session (v3.1+) |
 
 ### Router
 

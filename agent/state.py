@@ -16,6 +16,7 @@ class NetworkAgentState:
     intent: Optional[str] = None
     active_module: Optional[str] = None
     workspace_id: str = "default"
+    session_id: Optional[str] = None
 
     selected_skill: Optional[str] = None
     payload: Dict[str, Any] = field(default_factory=dict)

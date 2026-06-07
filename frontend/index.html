@@ -149,6 +149,25 @@
   .sdot-dng{background:var(--dng)}
   .sdot-off{background:var(--n7)}
 
+  /* ── Session list inside Agent Panel ── */
+  .session-bar{height:38px;border-bottom:1px solid var(--n8);display:flex;align-items:center;padding:0 10px;gap:4px;flex-shrink:0;background:var(--n10)}
+  .session-title{flex:1;font-size:12px;font-weight:600;color:var(--n2);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;cursor:pointer;padding:3px 6px;border-radius:4px}
+  .session-title:hover{background:var(--n8)}
+  .session-btn{width:26px;height:26px;border:0;border-radius:5px;background:transparent;color:var(--n5);cursor:pointer;display:flex;align-items:center;justify-content:center;font-size:13px}
+  .session-btn:hover{background:var(--n8);color:var(--n2)}
+  .session-list{display:none;flex-shrink:0;max-height:180px;overflow-y:auto;border-bottom:1px solid var(--n8);background:var(--card)}
+  .session-list.open{display:block}
+  .session-item{display:flex;align-items:center;gap:6px;padding:7px 12px;cursor:pointer;font-size:12px;color:var(--n3);border-left:3px solid transparent;transition:all .1s}
+  .session-item:hover{background:var(--n10)}
+  .session-item.active{border-left-color:var(--pri);background:var(--n10);font-weight:600}
+  .session-item .s-title{flex:1;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .session-item .s-time{font-size:10px;color:var(--n5);white-space:nowrap}
+  .session-item .s-menu{width:20px;height:20px;border:0;border-radius:4px;background:transparent;color:var(--n5);cursor:pointer;display:flex;align-items:center;justify-content:center;font-size:12px;opacity:0}
+  .session-item:hover .s-menu{opacity:1}
+  .session-item:hover .s-menu:hover{background:var(--n8);color:var(--n2)}
+  .session-empty{padding:14px;text-align:center;color:var(--n5);font-size:11px}
+  .session-divider{height:1px;background:var(--n8);margin:2px 10px}
+
   /* ── Scrollbar ── */
   ::-webkit-scrollbar{width:5px;height:5px}
   ::-webkit-scrollbar-track{background:transparent}
@@ -487,6 +506,16 @@ router ospf 1
         <span class="title">Agent 助手</span>
         <span class="sub" id="ag-status">未连接</span>
       </div>
+      <!-- Session bar -->
+      <div class="session-bar" id="session-bar">
+        <div class="session-title" id="session-title" onclick="toggleSessionList()" title="点击切换会话">加载中…</div>
+        <button class="session-btn" onclick="newSession()" title="新建会话">+</button>
+        <button class="session-btn" onclick="toggleSessionList()" title="会话列表">☰</button>
+      </div>
+      <!-- Session list dropdown -->
+      <div class="session-list" id="session-list">
+        <div class="session-empty">加载会话列表…</div>
+      </div>
       <div class="ag-body" id="ag-body">
         <div class="ag-bubble ai">
           你好！我是 Network Agent，你的本地网络工程 AI 助手。<br><br>
@@ -645,6 +674,43 @@ function renderComingSoon(id,label){var el=document.getElementById(id);if(el)el.
 var lastTranslate=null;
 var pageNames={dashboard:'Agent 工作台',translate:'配置翻译',inspection:'巡检分析',topology:'拓扑绘图',skills:'Skills 管理',memory:'Memory 管理'};
 
+/* ── Session State ── */
+var _currentSessionId=null;
+var _currentWorkspaceId='default';
+var _sessionListOpen=false;
+
+function _getWorkspaceId(){
+  try{
+    var ws=localStorage.getItem('na_workspace_id');
+    if(ws) return ws;
+  }catch(e){}
+  return 'default';
+}
+function _setWorkspaceId(ws){
+  try{localStorage.setItem('na_workspace_id',ws);}catch(e){}
+}
+function _getCurrentSessionId(){
+  try{
+    var sid=localStorage.getItem('na_current_session_id');
+    if(sid) return sid;
+  }catch(e){}
+  return null;
+}
+function _setCurrentSessionId(sid){
+  try{localStorage.setItem('na_current_session_id',sid||'');}catch(e){}
+}
+function _clearOldLocalStorage(){
+  // Remove any legacy chat history keys
+  var legacyKeys=[];
+  try{
+    for(var i=0;i<localStorage.length;i++){
+      var k=localStorage.key(i);
+      if(k && (k.indexOf('na_chat_')===0 || k.indexOf('na_history_')===0)) legacyKeys.push(k);
+    }
+    legacyKeys.forEach(function(k){localStorage.removeItem(k);});
+  }catch(e){}
+}
+
 /* ── Page switch ── */
 function switchPage(name){
   document.querySelectorAll('.page').forEach(function(p){p.classList.remove('active');});
@@ -708,6 +774,175 @@ function loadMemoryPage(){
   });
 }
 
+/* ── Session Management ── */
+function loadSessions(){
+  var ws=_getWorkspaceId();
+  apiFetch('/api/sessions?workspace_id='+encodeURIComponent(ws)+'&status=active&limit=50')
+  .then(function(d){
+    var sessions=(d.sessions||[]);
+    renderSessionList(sessions);
+    // If no current session, pick the first active one
+    if(!_currentSessionId && sessions.length>0){
+      switchSession(sessions[0].session_id);
+    }
+  }).catch(function(){
+    renderSessionList([]);
+  });
+}
+
+function renderSessionList(sessions){
+  var list=document.getElementById('session-list');
+  if(!sessions.length){
+    list.innerHTML='<div class="session-empty">暂无会话，点击 + 新建</div>';
+    return;
+  }
+  var html='';
+  sessions.forEach(function(s){
+    var isActive=s.session_id===_currentSessionId;
+    var timeStr='';
+    if(s.updated_at){
+      var d=new Date(s.updated_at);
+      timeStr=(d.getMonth()+1)+'/'+d.getDate()+' '+d.getHours()+':'+(d.getMinutes()<10?'0':'')+d.getMinutes();
+    }
+    html+='<div class="session-item '+(isActive?'active':'')+'" onclick="switchSession(\''+esc(s.session_id)+'\')">';
+    html+='<span class="s-title">'+esc(s.title||'未命名会话')+'</span>';
+    html+='<span class="s-time">'+esc(timeStr)+'</span>';
+    html+='<button class="s-menu" onclick="event.stopPropagation();sessionMenu(\''+esc(s.session_id)+'\',event)" title="操作">⋮</button>';
+    html+='</div>';
+  });
+  list.innerHTML=html;
+}
+
+function toggleSessionList(){
+  var list=document.getElementById('session-list');
+  _sessionListOpen=!_sessionListOpen;
+  if(_sessionListOpen){
+    list.classList.add('open');
+    loadSessions();
+  }else{
+    list.classList.remove('open');
+  }
+}
+
+function switchSession(sessionId){
+  if(!sessionId || sessionId===_currentSessionId) return;
+  _currentSessionId=sessionId;
+  _setCurrentSessionId(sessionId);
+  _sessionListOpen=false;
+  document.getElementById('session-list').classList.remove('open');
+  // Load messages for this session
+  loadSessionMessages(sessionId);
+  // Refresh session list highlight
+  loadSessions();
+}
+
+function loadSessionMessages(sessionId){
+  var ws=_getWorkspaceId();
+  var body=document.getElementById('ag-body');
+  var titleEl=document.getElementById('session-title');
+  titleEl.textContent='加载中…';
+  body.innerHTML='<div class="ag-bubble ai"><span class="spinner" style="margin-right:6px"></span>正在恢复会话消息...</div>';
+
+  apiFetch('/api/sessions/'+encodeURIComponent(sessionId)+'?workspace_id='+encodeURIComponent(ws)+'&include_messages=1')
+  .then(function(d){
+    var session=(d.session||{});
+    titleEl.textContent=session.title||'未命名会话';
+    var messages=(d.messages||[]);
+    body.innerHTML='';
+    if(messages.length===0){
+      // Show welcome message
+      body.innerHTML='<div class="ag-bubble ai">你好！我是 Network Agent，你的本地网络工程 AI 助手。<br><br>我可以通过 LLM 进行自然语言对话，也可以帮你完成<strong>跨厂商配置翻译</strong>（Cisco ↔ 华为 ↔ H3C ↔ 锐捷）。<br><br>试着问我 "你能做什么"，或者直接粘贴网络配置文本触发翻译。<div class="time">'+new Date().toLocaleTimeString('zh-CN',{hour:'2-digit',minute:'2-digit'})+'</div></div>';
+      return;
+    }
+    messages.forEach(function(m){
+      var isUser=m.role==='user';
+      var bubbleCls=isUser?'ag-bubble user':'ag-bubble ai';
+      var timeStr='';
+      if(m.created_at){
+        var dt=new Date(m.created_at);
+        timeStr=dt.toLocaleTimeString('zh-CN',{hour:'2-digit',minute:'2-digit'});
+      }
+      var content=esc(m.content||'');
+      if(!isUser && m.metadata){
+        // Build collapsible metadata for assistant messages
+        var meta=m.metadata;
+        var metaParts=[];
+        metaParts.push('run: <code style="font-size:10px">'+esc((meta.run_id||'').slice(0,12))+'</code>');
+        metaParts.push('status: '+esc(meta.status||'ok'));
+        if(meta.capability) metaParts.push('cap: '+esc(meta.capability));
+        if(meta.llm_metadata && meta.llm_metadata.used) metaParts.push('AI: '+esc(meta.llm_metadata.model||meta.llm_metadata.provider||''));
+        if(meta.manual_review_count && meta.manual_review_count>0) metaParts.push('review: '+meta.manual_review_count);
+        if(meta.trace_id){
+          metaParts.push('<a href="#" onclick="viewTrace(\''+esc(meta.run_id)+'\',\''+esc(_getWorkspaceId())+'\')" style="font-size:10px">trace &gt;</a>');
+        }
+        var metaId='meta-'+meta.run_id+'-'+Math.floor(Math.random()*10000);
+        content+='<div style="margin-top:8px;padding-top:6px;border-top:1px solid var(--n8)">'
+          +'<div style="font-size:11px;color:var(--n5);cursor:pointer" onclick="var el=document.getElementById(\''+metaId+'\');el.style.display=el.style.display===\'none\'?\'block\':\'none\';this.textContent=el.style.display===\'none\'?\'▶ 详情\':\'▼ 详情\';">▶ 详情</div>'
+          +'<div id="'+metaId+'" style="display:none;font-size:11px;color:var(--n5);margin-top:4px;line-height:1.8">'
+          +metaParts.join(' | ')
+          +'</div></div>';
+      }
+      body.insertAdjacentHTML('beforeend',
+        '<div class="'+bubbleCls+'">'+content.replace(/\n/g,'<br>')+'<div class="time">'+timeStr+'</div></div>');
+    });
+    body.scrollTop=body.scrollHeight;
+  }).catch(function(){
+    titleEl.textContent='加载失败';
+    body.innerHTML='<div class="ag-bubble ai"><span style="color:var(--dng)">会话加载失败，请刷新重试。</span></div>';
+  });
+}
+
+function newSession(){
+  var ws=_getWorkspaceId();
+  fetch('/api/sessions',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({workspace_id:ws,title:''})})
+  .then(function(r){return r.json();})
+  .then(function(d){
+    if(d.ok && d.session){
+      _currentSessionId=d.session.session_id;
+      _setCurrentSessionId(_currentSessionId);
+      document.getElementById('session-title').textContent=d.session.title||'新会话';
+      document.getElementById('ag-body').innerHTML='<div class="ag-bubble ai">新会话已开始。有什么可以帮您的？<div class="time">'+new Date().toLocaleTimeString('zh-CN',{hour:'2-digit',minute:'2-digit'})+'</div></div>';
+      _sessionListOpen=false;
+      document.getElementById('session-list').classList.remove('open');
+      loadSessions();
+      showToast('新会话已创建');
+    }else{
+      showToast('创建会话失败：'+(d.error||'unknown'));
+    }
+  }).catch(function(){showToast('创建会话失败');});
+}
+
+function sessionMenu(sessionId,event){
+  var action=prompt('会话操作：\n1. 归档\n2. 删除（软删除）\n3. 取消\n\n请输入数字 (1-3)：','');
+  if(!action) return;
+  var ws=_getWorkspaceId();
+  if(action==='1'){
+    fetch('/api/sessions/'+encodeURIComponent(sessionId)+'/archive?workspace_id='+encodeURIComponent(ws),{method:'POST'})
+    .then(function(r){return r.json();})
+    .then(function(d){
+      if(d.ok){showToast('会话已归档');loadSessions();}
+      else{showToast('归档失败：'+(d.error||''));}
+    }).catch(function(){showToast('归档失败');});
+  }else if(action==='2'){
+    if(!confirm('确定要删除此会话吗？运行记录将保留，仅移除会话分组。')) return;
+    fetch('/api/sessions/'+encodeURIComponent(sessionId)+'/soft-delete?workspace_id='+encodeURIComponent(ws),{method:'POST'})
+    .then(function(r){return r.json();})
+    .then(function(d){
+      if(d.ok){
+        showToast('会话已删除');
+        if(sessionId===_currentSessionId){
+          _currentSessionId=null;
+          _setCurrentSessionId('');
+          loadSessions();
+          // Will auto-pick first active session or create new
+        }else{
+          loadSessions();
+        }
+      }else{showToast('删除失败：'+(d.error||''));}
+    }).catch(function(){showToast('删除失败');});
+  }
+}
+
 /* ── Agent toggle ── */
 function toggleAgent(){
   var p=document.getElementById('agent-panel');
@@ -728,7 +963,38 @@ function sendAgent(){
   thinkEl.innerHTML='<span class="spinner" style="margin-right:6px"></span>处理中...';
   body.appendChild(thinkEl); body.scrollTop=body.scrollHeight;
 
-  fetch('/api/agent/run',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({message:txt,workspace_id:'default'})})
+  var ws=_getWorkspaceId();
+  var sid=_currentSessionId;
+
+  // If no session, auto-create one on first message
+  if(!sid){
+    fetch('/api/sessions',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({workspace_id:ws,title:txt.slice(0,30)})})
+    .then(function(r){return r.json();})
+    .then(function(d){
+      if(d.ok && d.session){
+        _currentSessionId=d.session.session_id;
+        _setCurrentSessionId(_currentSessionId);
+        document.getElementById('session-title').textContent=d.session.title||'新会话';
+        _doSendAgent(txt,thinkEl,body,d.session.session_id,ws);
+        loadSessions();
+      }else{
+        thinkEl.remove();
+        body.insertAdjacentHTML('beforeend','<div class="ag-bubble ai"><span style="color:var(--dng)">创建会话失败，请重试。</span><div class="time">'+new Date().toLocaleTimeString('zh-CN',{hour:'2-digit',minute:'2-digit'})+'</div></div>');
+        body.scrollTop=body.scrollHeight;
+      }
+    }).catch(function(){
+      thinkEl.remove();
+      body.insertAdjacentHTML('beforeend','<div class="ag-bubble ai"><span style="color:var(--dng)">网络错误，请确认服务已启动。</span><div class="time">'+new Date().toLocaleTimeString('zh-CN',{hour:'2-digit',minute:'2-digit'})+'</div></div>');
+      body.scrollTop=body.scrollHeight;
+    });
+    return;
+  }
+
+  _doSendAgent(txt,thinkEl,body,sid,ws);
+}
+
+function _doSendAgent(txt,thinkEl,body,sessionId,workspaceId){
+  fetch('/api/agent/run',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({message:txt,workspace_id:workspaceId,session_id:sessionId})})
   .then(function(r){return r.json();}).then(function(d){
     thinkEl.remove();
     var mainReply='';
@@ -1066,6 +1332,39 @@ function showToast(msg){
 
 /* ── Init ── */
 (function init(){
+  // Clean legacy localStorage
+  _clearOldLocalStorage();
+
+  // Load workspace ID
+  _currentWorkspaceId=_getWorkspaceId();
+  if(_currentWorkspaceId!=='default'){
+    document.getElementById('ws-badge').textContent=_currentWorkspaceId;
+    document.getElementById('ws-display').textContent=_currentWorkspaceId;
+  }
+
+  // Load current session or get/create default
+  var savedSid=_getCurrentSessionId();
+  if(savedSid){
+    _currentSessionId=savedSid;
+    loadSessionMessages(savedSid);
+  }else{
+    // Get or create default session
+    apiFetch('/api/sessions/default?workspace_id='+encodeURIComponent(_currentWorkspaceId))
+    .then(function(d){
+      if(d.ok && d.session){
+        _currentSessionId=d.session.session_id;
+        _setCurrentSessionId(_currentSessionId);
+        document.getElementById('session-title').textContent=d.session.title||'默认会话';
+        loadSessionMessages(_currentSessionId);
+      }
+    }).catch(function(){
+      document.getElementById('session-title').textContent='未连接';
+    });
+  }
+
+  // Load session list in background
+  loadSessions();
+
   // Agent init time
   document.getElementById('ag-init-time').textContent=new Date().toLocaleTimeString('zh-CN',{hour:'2-digit',minute:'2-digit'});
 
@@ -1218,12 +1517,34 @@ function showToast(msg){
       document.getElementById('ws-badge').textContent=savedWs;
     }
   }catch(e){}
+
+  // Restore last translate result from recent runs
+  apiFetch('/api/runs/recent?limit=5&workspace_id='+encodeURIComponent(_currentWorkspaceId))
+  .then(function(d){
+    var runs=(d.runs||[]);
+    for(var i=0;i<runs.length;i++){
+      var r=runs[i];
+      if(r.intent==='translate_config' && r.result_counts && r.result_counts.deployable_lines>0){
+        // We have a recent translate run; try to get full result
+        apiFetch('/api/runs/'+encodeURIComponent(r.run_id)+'?workspace_id='+encodeURIComponent(_currentWorkspaceId))
+        .then(function(rd){
+          // The run record doesn't have full config, but we can at least note it
+          // For now we just know a translate was done; full restore would need artifact content
+        }).catch(function(){});
+        break;
+      }
+    }
+  }).catch(function(){});
 })();
 
 function switchWorkspace(){
   var newWs=prompt('输入 workspace_id（默认 default）:',localStorage.getItem('na_workspace_id')||'default');
   if(!newWs)return;
-  try{localStorage.setItem('na_workspace_id',newWs);}catch(e){}
+  try{
+    localStorage.setItem('na_workspace_id',newWs);
+    // Clear current session so next load picks default for new workspace
+    localStorage.removeItem('na_current_session_id');
+  }catch(e){}
   location.reload();
 }
 </script>
