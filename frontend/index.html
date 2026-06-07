@@ -345,7 +345,7 @@
         <span class="icn"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="18" cy="5" r="3"/><circle cx="6" cy="12" r="3"/><circle cx="18" cy="19" r="3"/><path d="M8.59 13.51l6.83 3.98M15.41 6.51l-6.82 3.98"/></svg></span><span class="txt">拓扑绘图</span>
         <span class="soon">规划中</span>
       </button>
-      <button class="sb-item" disabled>
+      <button class="sb-item" data-page="knowledge" onclick="switchPage('knowledge')">
         <span class="icn"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"/><path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z"/></svg></span><span class="txt">知识库</span>
       </button>
     </div>
@@ -426,11 +426,10 @@
             <div class="qe-name">拓扑绘图</div>
             <div class="qe-desc">planned – not enabled in current baseline</div>
           </div>
-          <div class="qe-card disabled">
-            <span class="qe-badge">planned</span>
+          <div class="qe-card" onclick="switchPage('knowledge')">
             <div class="qe-icon" style="background:#f3e8ff;color:#9333ea">◉</div>
             <div class="qe-name">知识库</div>
-            <div class="qe-desc">planned – not enabled in current baseline</div>
+            <div class="qe-desc">网络工程知识库检索</div>
           </div>
         </div>
 
@@ -541,6 +540,27 @@ router ospf 1
             <div class="icon">◈</div>
             <div class="t">Inspection module is planned</div>
             <div style="font-size:12px">This module is planned and not enabled in the current Foundation Baseline.</div>
+          </div>
+        </div>
+      </div>
+
+      <!-- ══════ Knowledge Base ══════ -->
+      <div class="page" id="page-knowledge">
+        <div class="card">
+          <div class="card-hd">
+            <div class="card-title">知识库检索</div>
+            <span class="tag tag-gn" style="margin-left:8px">v0.3</span>
+          </div>
+          <div style="padding:16px">
+            <div style="display:flex;gap:8px;margin-bottom:12px">
+              <input id="kb-search-input" type="text" placeholder="输入检索关键词..." style="flex:1;padding:8px 12px;border:1px solid var(--n4);border-radius:6px;font-size:13px" onkeydown="if(event.key==='Enter')searchKnowledge()">
+              <button class="btn btn-pri" onclick="searchKnowledge()" style="padding:8px 16px;white-space:nowrap">搜索</button>
+              <button class="btn" onclick="refreshKnowledgeIndex()" style="padding:8px 16px;white-space:nowrap">刷新索引</button>
+            </div>
+            <div style="font-size:12px;color:var(--n5);margin-bottom:8px" id="kb-index-status">索引状态: 查询中…</div>
+            <div id="kb-search-results" style="font-size:13px">
+              <div class="empty"><div class="icon">◉</div><div class="t">输入关键词开始检索</div><div style="font-size:12px">基于 Safe RAG 的知识库语义搜索</div></div>
+            </div>
           </div>
         </div>
       </div>
@@ -884,7 +904,7 @@ function renderComingSoon(id,label){var el=document.getElementById(id);if(el)el.
 
 /* ── Data ── */
 var lastTranslate=null;
-var pageNames={dashboard:'Agent 工作台',translate:'配置翻译',inspection:'巡检分析',topology:'拓扑绘图',skills:'Skills 管理',memory:'Memory 管理',artifacts:'Artifacts 管理'};
+var pageNames={dashboard:'Agent 工作台',translate:'配置翻译',inspection:'巡检分析',topology:'拓扑绘图',knowledge:'知识库',skills:'Skills 管理',memory:'Memory 管理',artifacts:'Artifacts 管理'};
 
 /* ── Session State ── */
 var _currentSessionId=null;
@@ -1012,6 +1032,60 @@ function switchPage(name){
   if(name==='memory') loadMemoryPage();
   if(name==='artifacts'){loadArtifacts();loadKnowledgeStatus();}
   if(name==='skills') loadSkillsPage();
+  if(name==='knowledge') loadKnowledgeStatus();
+}
+
+/* ── Knowledge page ── */
+function loadKnowledgeStatus(){
+  apiFetch('/api/knowledge/sources').then(function(s){
+    var el=document.getElementById('kb-index-status');
+    if(el){
+      var total=s.counts&&s.counts.total||0;
+      var indexed=s.counts&&s.counts.indexed||0;
+      el.innerHTML='索引状态：<span style="color:var(--n8)">'+(s.ok?'正常':'异常')+'</span>，'
+        +'知识源：<span style="color:var(--n8)">'+total+'</span>，'
+        +'已索引：<span style="color:var(--g3)">'+indexed+'</span>';
+    }
+  }).catch(function(){
+    var el=document.getElementById('kb-index-status');
+    if(el) el.innerHTML='<span style="color:#e11d48">索引服务不可用</span>';
+  });
+}
+
+function searchKnowledge(){
+  var q=document.getElementById('kb-search-input').value.trim();
+  if(!q) return;
+  var out=document.getElementById('kb-search-results');
+  out.innerHTML='<div style="text-align:center;color:var(--n5);padding:20px">搜索中…</div>';
+  apiFetch('/api/knowledge/search?q='+encodeURIComponent(q)+'&limit=10').then(function(data){
+    if(!data.results||!data.results.length){
+      out.innerHTML='<div class="empty"><div class="icon">◉</div><div class="t">无匹配结果</div><div style="font-size:12px">尝试使用不同的关键词</div></div>';
+      return;
+    }
+    var html='<div style="font-size:12px;color:var(--n5);margin-bottom:8px">找到 '+data.results.length+' 条结果 <span style="color:var(--n6)">('+(data.query||'')+')</span></div>';
+    data.results.forEach(function(r,i){
+      var src=r.source_id||r.artifact_name||'unknown';
+      var text=r.safe_excerpt||r.summary||(r.content||'').substring(0,500);
+      var safe=r.llm_safe!==undefined?r.llm_safe:true;
+      var safeTag=safe?'<span class="tag tag-gn" style="font-size:10px">safe</span>':'<span class="tag tag-ye" style="font-size:10px">filtered</span>';
+      html+='<div style="border:1px solid var(--n4);border-radius:6px;padding:10px;margin-bottom:8px">'
+        +'<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:4px">'
+        +'<span style="font-weight:600;font-size:12px">'+esc(src)+'</span>'+safeTag
+        +'</div>'
+        +'<div style="font-size:12px;color:var(--n6);white-space:pre-wrap;max-height:120px;overflow-y:auto">'
+        +sanitizeDisplayText(text)
+        +'</div></div>';
+    });
+    out.innerHTML=html;
+  }).catch(function(e){
+    out.innerHTML='<div class="empty"><div class="icon" style="color:#e11d48">!</div><div class="t">搜索失败</div><div style="font-size:12px">'+esc(e.message||'网络错误')+'</div></div>';
+  });
+}
+
+function refreshKnowledgeIndex(){
+  var status=document.getElementById('kb-index-status');
+  if(status) status.innerHTML='<span style="color:var(--n5)">刷新中…</span>';
+  loadKnowledgeStatus();
 }
 
 /* ── Memory page ── */
