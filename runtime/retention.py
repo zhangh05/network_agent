@@ -214,13 +214,23 @@ def preview_retention(workspace_id: str = "default",
 
 def apply_retention(workspace_id: str = "default",
                     policy: RetentionPolicy = None,
-                    dry_run: bool = True) -> RetentionPreview:
-    """Apply retention. If dry_run=True (default), preview only. If False, actually delete."""
+                    dry_run: bool = True,
+                    confirm: bool = False) -> RetentionPreview:
+    """Apply retention. Requires confirm=True for actual deletion.
+
+    Args:
+        dry_run: If True (default), preview only, nothing deleted.
+        confirm: Must be True when dry_run=False. Safety guard.
+    """
     preview = preview_retention(workspace_id, policy)
     preview.dry_run = dry_run
 
     if dry_run:
-        preview.warnings.append("DRY RUN — no files were deleted. Use dry_run=False to apply.")
+        preview.warnings.append("DRY RUN — no files were deleted. Use dry_run=False + confirm=True to apply.")
+        return preview
+
+    if not confirm:
+        preview.warnings.append("BLOCKED: confirm=True is required when dry_run=False.")
         return preview
 
     # Actually delete
@@ -247,4 +257,56 @@ def apply_retention(workspace_id: str = "default",
             preview.warnings.append(f"Failed to delete {name}: {str(e)[:100]}")
 
     preview.deleted_counts = deleted
+    # Write audit record
+    _write_audit(preview, workspace_id)
     return preview
+
+
+def _write_audit(preview: RetentionPreview, workspace_id: str):
+    """Write a retention audit record."""
+    import uuid
+    audit_dir = WS_ROOT / workspace_id / "runtime_audits"
+    audit_dir.mkdir(parents=True, exist_ok=True)
+    audit_id = uuid.uuid4().hex[:12]
+    record = {
+        "audit_id": audit_id,
+        "created_at": __import__("datetime").datetime.now().isoformat(),
+        "workspace_id": workspace_id,
+        "dry_run": preview.dry_run,
+        "confirmed": not preview.dry_run,
+        "policy": preview.policy,
+        "candidate_counts": preview.candidate_counts,
+        "deleted_counts": preview.deleted_counts,
+        "blocked_count": len(preview.blocked_items),
+        "blocked_reasons": [b.get("reason", "") for b in preview.blocked_items[:20]],
+        "warnings": preview.warnings[:20],
+    }
+    (audit_dir / f"{audit_id}.json").write_text(
+        __import__("json").dumps(record, indent=2, ensure_ascii=False)
+    )
+
+
+def get_audits(workspace_id: str = "default") -> list:
+    """List retention audit records."""
+    audit_dir = WS_ROOT / workspace_id / "runtime_audits"
+    if not audit_dir.is_dir():
+        return []
+    audits = []
+    for af in sorted(audit_dir.iterdir(), key=lambda p: p.stat().st_mtime, reverse=True):
+        if af.suffix == ".json":
+            try:
+                audits.append(json.loads(af.read_text()))
+            except Exception:
+                pass
+    return audits[:50]
+
+
+def get_audit(workspace_id: str, audit_id: str) -> dict:
+    """Get a specific retention audit record."""
+    audit_path = WS_ROOT / workspace_id / "runtime_audits" / f"{audit_id}.json"
+    if audit_path.is_file():
+        try:
+            return json.loads(audit_path.read_text())
+        except Exception:
+            pass
+    return {}

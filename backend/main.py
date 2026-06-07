@@ -103,6 +103,38 @@ def create_app():
         preview = preview_retention(ws_id, default_retention_policy())
         return jsonify(preview.as_dict())
 
+    @app.route("/api/workspaces/<ws_id>/retention/apply", methods=["POST"])
+    def api_workspace_retention_apply(ws_id):
+        ws_id, err = _validated_workspace_id(ws_id)
+        if err:
+            return err
+        dry_run = request.json.get("dry_run", True) if request.is_json else True
+        confirm = request.json.get("confirm", False) if request.is_json else False
+        from runtime.retention import apply_retention, default_retention_policy
+        preview = apply_retention(ws_id, default_retention_policy(),
+                                  dry_run=dry_run, confirm=confirm)
+        return jsonify(preview.as_dict())
+
+    @app.route("/api/workspaces/<ws_id>/retention/audits")
+    def api_workspace_retention_audits(ws_id):
+        ws_id, err = _validated_workspace_id(ws_id)
+        if err:
+            return err
+        from runtime.retention import get_audits
+        audits = get_audits(ws_id)
+        return jsonify({"audits": audits})
+
+    @app.route("/api/workspaces/<ws_id>/retention/audits/<audit_id>")
+    def api_workspace_retention_audit(ws_id, audit_id):
+        ws_id, err = _validated_workspace_id(ws_id)
+        if err:
+            return err
+        from runtime.retention import get_audit
+        audit = get_audit(ws_id, audit_id)
+        if not audit:
+            return jsonify({"ok": False, "error": "audit not found"}), 404
+        return jsonify(audit)
+
     # ── Version ──
     @app.route("/api/version")
     def api_version():

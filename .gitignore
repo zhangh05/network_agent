@@ -17,6 +17,7 @@ reports/*apikey*
 reports/*key*
 workspaces/*/state.json
 workspaces/*/runs/*.trace.json
+workspaces/*/runtime_audits/
 config/LLM_setting.json
 config/llm.local.json
 API_key.txt
