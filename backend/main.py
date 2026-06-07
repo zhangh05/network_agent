@@ -135,6 +135,48 @@ def create_app():
             return jsonify({"ok": False, "error": "audit not found"}), 404
         return jsonify(audit)
 
+    # ── Archive ──
+    @app.route("/api/workspaces/<ws_id>/archive/preview")
+    def api_archive_preview(ws_id):
+        ws_id, err = _validated_workspace_id(ws_id)
+        if err:
+            return err
+        from runtime.archive import preview_archive_candidates, default_archive_policy
+        preview = preview_archive_candidates(ws_id, default_archive_policy())
+        return jsonify(preview.as_dict())
+
+    @app.route("/api/workspaces/<ws_id>/archive/apply", methods=["POST"])
+    def api_archive_apply(ws_id):
+        ws_id, err = _validated_workspace_id(ws_id)
+        if err:
+            return err
+        dry_run = request.json.get("dry_run", True) if request.is_json else True
+        confirm = request.json.get("confirm", False) if request.is_json else False
+        from runtime.archive import apply_archive, default_archive_policy
+        result = apply_archive(ws_id, default_archive_policy(),
+                               dry_run=dry_run, confirm=confirm)
+        return jsonify(result.as_dict())
+
+    @app.route("/api/workspaces/<ws_id>/archive/audits")
+    def api_archive_audits(ws_id):
+        ws_id, err = _validated_workspace_id(ws_id)
+        if err:
+            return err
+        from runtime.archive import get_archive_audits
+        audits = get_archive_audits(ws_id)
+        return jsonify({"audits": audits})
+
+    @app.route("/api/workspaces/<ws_id>/archive/audits/<audit_id>")
+    def api_archive_audit(ws_id, audit_id):
+        ws_id, err = _validated_workspace_id(ws_id)
+        if err:
+            return err
+        from runtime.archive import get_archive_audit
+        audit = get_archive_audit(ws_id, audit_id)
+        if not audit:
+            return jsonify({"ok": False, "error": "audit not found"}), 404
+        return jsonify(audit)
+
     # ── Version ──
     @app.route("/api/version")
     def api_version():

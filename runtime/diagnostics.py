@@ -132,7 +132,17 @@ def get_diagnostics(workspace_id: str = "default") -> DiagnosticReport:
     except Exception as e:
         components.append(ComponentStatus("llm", "warning", str(e)[:100]))
 
-    # 9. Memory
+    # 9. Archive
+    try:
+        from runtime.archive import get_archive_audits
+        audits = get_archive_audits(workspace_id)
+        components.append(ComponentStatus("archive", "ok",
+            f"{len(audits)} archive audits",
+            {"audit_count": len(audits)}))
+    except Exception as e:
+        components.append(ComponentStatus("archive", "warning", str(e)[:100]))
+
+    # 10. Memory
     try:
         from backend.api.memory import handle_memory_status
         components.append(ComponentStatus("memory", "ok", "Memory system available"))

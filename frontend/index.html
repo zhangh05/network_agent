@@ -1122,6 +1122,20 @@ function showToast(msg){
     extras.innerHTML=html;
   }).catch(function(){});
 
+  // Fetch archive preview
+  apiFetch('/api/workspaces/default/archive/preview').then(function(d){
+    var cands=d.candidate_counts||{};
+    var blocked=Array.isArray(d.blocked_items)?d.blocked_items.length:0;
+    var total=0;
+    for(var k in cands) total+=cands[k];
+    var abadge=document.createElement('span');
+    abadge.style.cssText='font-size:11px;margin-left:8px;padding:2px 6px;border-radius:4px;';
+    if(total>0) abadge.style.cssText+='background:#fef3c7;color:#92400e';
+    else abadge.style.cssText+='background:#dcfce7;color:#166534';
+    abadge.textContent='Archive: '+(total||0)+' candidates';
+    document.getElementById('ws-badge').parentElement.appendChild(abadge);
+  }).catch(function(){});
+
   // Fetch workspace list
   apiFetch('/api/workspaces').then(function(d){
     var wss=d.workspaces||[];
