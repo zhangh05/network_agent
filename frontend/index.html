@@ -747,9 +747,9 @@ router ospf 1
         </div>
 
         <div class="form-row">
-          <label>API Key</label>
-          <input type="password" id="llm-key" placeholder="sk-...">
-          <div class="hint">您的 API 密钥仅用于本次连通性测试，不会保存到浏览器历史或本地存储</div>
+          <label>API Key <span id="llm-key-status" style="font-size:11px;color:var(--n5)"></span></label>
+          <input type="password" id="llm-key" placeholder="sk-...（已配置则无需重新输入）">
+          <div class="hint">密钥已安全存储在后端，仅在需要更换时填写。留空则保留现有密钥。</div>
         </div>
 
         <div class="form-row">
@@ -1900,16 +1900,18 @@ async function saveSettings(){
     ui_autosave:parseInt(document.getElementById('ui-autosave').value)||30
   };
   try{localStorage.setItem('na_settings',JSON.stringify(uiCfg));}catch(e){}
+  var apiKey=document.getElementById('llm-key').value.trim();
   var payload={
     enabled:provider!=='disabled',
     provider:provider,
     base_url:document.getElementById('llm-baseurl').value.trim(),
-    api_key:document.getElementById('llm-key').value.trim(),
     model:document.getElementById('llm-model').value.trim(),
     temperature:parseFloat(document.getElementById('llm-temp').value)||0.2,
     max_tokens:parseInt(document.getElementById('llm-maxtok').value)||4096,
     safe_mode:true
   };
+  // Only send API key if user entered a new one (don't overwrite stored key with empty)
+  if(apiKey) payload.api_key=apiKey;
   try{
     var resp=await fetch('/api/agent/llm/config',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(payload)});
     var data=await resp.json().catch(function(){return{};});
@@ -1919,7 +1921,7 @@ async function saveSettings(){
     }
     document.getElementById('llm-key').value='';
     closeSettings();
-    showToast('LLM 配置已保存到后端；密钥不写入 local storage');
+    showToast('LLM 配置已保存；密钥已安全存储');
   }catch(e){
     showToast('LLM 配置保存失败：'+e.message);
   }
@@ -1928,6 +1930,12 @@ function loadSettings(){
   var cfg={};
   try{cfg=JSON.parse(localStorage.getItem('na_settings')||'{}');}catch(e){}
   var set=function(id,v){var el=document.getElementById(id); if(el)el.value=v;};
+  // Load UI settings from localStorage
+  set('ui-lang',cfg.ui_lang||'zh');
+  set('ui-theme',cfg.ui_theme||'light');
+  set('ui-fontsize',cfg.ui_fontsize||13);
+  set('ui-autosave',cfg.ui_autosave||30);
+  // Load LLM config from backend (persisted), fallback to defaults only if unreachable
   set('llm-provider','minimax');
   set('llm-baseurl','');
   set('llm-key','');
@@ -1935,10 +1943,6 @@ function loadSettings(){
   set('llm-temp',0.2);
   set('llm-maxtok',4096);
   set('llm-sys','');
-  set('ui-lang',cfg.ui_lang||'zh');
-  set('ui-theme',cfg.ui_theme||'light');
-  set('ui-fontsize',cfg.ui_fontsize||13);
-  set('ui-autosave',cfg.ui_autosave||30);
   fetch('/api/agent/llm/config').then(function(r){return r.json();}).then(function(d){
     var provider=d.provider||'minimax';
     var LEGACY={'openai':'openai_compatible','azure':'openai_compatible','deepseek':'openai_compatible','claude':'openai_compatible','ollama':'ollama_compatible','custom':'openai_compatible'};
@@ -1949,6 +1953,9 @@ function loadSettings(){
     set('llm-temp',d.temperature!==undefined?d.temperature:0.2);
     set('llm-maxtok',d.max_tokens!==undefined?d.max_tokens:4096);
     set('llm-key','');
+    // Show key status indicator
+    var ks=document.getElementById('llm-key-status');
+    if(ks) ks.textContent=d.key_configured?'（已配置）':'';
     onProviderChange();
   }).catch(function(){onProviderChange();});
 }
