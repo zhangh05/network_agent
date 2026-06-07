@@ -1,6 +1,7 @@
 # agent/nodes/composer.py
 """Composer — deterministic by default, LLM-enhanced when available and safe."""
 
+import re
 from agent.state import NetworkAgentState
 
 
@@ -146,19 +147,27 @@ def _compose_translate_config(state: NetworkAgentState, result: dict):
     source_vendor = state.payload.get("source_vendor", "auto")
     target_vendor = state.payload.get("target_vendor", "huawei")
 
-    # Only generate UI actions when translation was triggered from chat
-    # (not when user manually used the translation panel)
+    # When triggered from chat without explicit payload, extract config from message
+    if not source_config:
+        user_input = state.user_input or ""
+        source_config = _extract_config_block(user_input)
+        if not source_vendor or source_vendor == "auto":
+            source_vendor = _detect_vendor(user_input, prefer="source") or source_vendor
+        if not target_vendor or target_vendor == "huawei":
+            detected_tgt = _detect_vendor(user_input, prefer="target")
+            if detected_tgt:
+                target_vendor = detected_tgt
+
+    # Always navigate to translate page + fill form if we have config
+    ui_actions = [{"action": "switch_page", "target": "translate", "params": {}}]
     if source_config:
-        ui_actions = [
-            {"action": "switch_page", "target": "translate", "params": {}},
-            {"action": "fill_form", "target": "tr-source", "value": source_config},
-        ]
+        ui_actions.append({"action": "fill_form", "target": "tr-source", "value": source_config})
         if source_vendor and source_vendor != "auto":
             ui_actions.append({"action": "set_select", "target": "tr-fv", "value": source_vendor})
         if target_vendor:
             ui_actions.append({"action": "set_select", "target": "tr-tv", "value": target_vendor})
         ui_actions.append({"action": "highlight", "target": "tr-btn", "params": {"effect": "pulse"}})
-        state.ui_actions = ui_actions
+    state.ui_actions = ui_actions
 
     # ── Phase 2: Post-translate LLM review ──
     mapping_log = result.get("mapping_log", [])
@@ -573,3 +582,108 @@ def _compose_knowledge_query(state: NetworkAgentState):
 
     llm["fallback"] = True
     llm["fallback_reason"] = llm.get("fallback_reason") or "deterministic fallback"
+
+
+# ═══════════════════════════════════
+# Helpers: config extraction & vendor detection
+# ═══════════════════════════════════
+
+_VENDOR_MAP = {
+    "cisco": ["思科", "cisco", "ios", "nx-os", "nxos", "asa"],
+    "huawei": ["华为", "华三", "huawei", "vrp", "h3c", "comware"],
+    "h3c": ["华三", "h3c", "comware"],
+    "ruijie": ["锐捷", "ruijie", "rgos"],
+}
+
+def _extract_config_block(text: str) -> str:
+    """Extract network config lines from a message that mixes natural language and config.
+
+    Heuristic: return lines that look like config commands.
+    """
+    lines = text.split("\n")
+    config_lines = []
+    for line in lines:
+        stripped = line.strip()
+        if not stripped:
+            continue
+        # Skip natural language lines (Chinese markers, no config patterns)
+        if re.match(r'^(请|帮|把|将|这个|这段|以下|翻译|转换|convert|translate|hi|hello|你好)', 
+                    stripped, re.IGNORECASE):
+            continue
+        # Skip short chinese-only lines
+        if re.match(r'^[\u4e00-\u9fff\s，。！？、]+$', stripped) and len(stripped) < 20:
+            continue
+        # Accept lines with config patterns or that look like commands
+        if (re.search(r'(interface|ip\s+address|router\s+|vlan|switchport|access-list|route-map|'
+                      r'no\s+|undo\s+|description|hostname|neighbor|network\s+[\d.]+|'
+                      r'area\s+\d|redistribute|passive|password|snmp|ntp|logging|'
+                      r'!\s*$|end\s*$|exit\s*$|speed\s+|duplex\s+|encapsulation|'
+                      r'spanning-tree|port-channel|channel-group|trunk|native|'
+                      r'ip\s+route|default-gateway|line\s+vty|line\s+con)', 
+                      stripped, re.IGNORECASE)):
+            config_lines.append(line)
+            continue
+        # Anything that starts with specific config keywords
+        if re.match(r'(interface|router|ip|no|undo|description|hostname|vlan|'
+                     r'access-list|route-map|neighbor|network|redistribute|'
+                     r'passive|snmp|ntp|logging|line|banner|username|enable|'
+                     r'service|aaa|dot1x|radius|tacacs|spanning|port-channel)\b',
+                     stripped, re.IGNORECASE):
+            config_lines.append(line)
+            continue
+    return "\n".join(config_lines) if config_lines else ""
+
+
+def _detect_vendor(text: str, prefer: str = "source") -> str:
+    """Detect vendor from text (source or target preference)."""
+    text_lower = text.lower()
+    
+    # Look for "从X翻译到Y" patterns
+    source_hints = []
+    target_hints = []
+    
+    # Pattern: "从X翻译到Y" / "from X to Y" / "X→Y" / "X to Y" / "X转Y"
+    to_patterns = [
+        r'从(\S+)翻译[到成为]*(\S+)',
+        r'from\s+(\S+)\s+to\s+(\S+)',
+        r'(\S+)\s*[→➡️]\s*(\S+)',
+        r'(\S+)[到转至]\s*(\S+)',
+        r'翻译[成为到]\s*(\S+)',
+        r'translate\s+to\s+(\S+)',
+    ]
+    for pattern in to_patterns:
+        m = re.search(pattern, text_lower)
+        if m:
+            groups = m.groups()
+            if len(groups) == 2:
+                source_hints.append(groups[0])
+                target_hints.append(groups[1])
+            elif len(groups) == 1:
+                target_hints.append(groups[0])
+            break
+    
+    # Match hints to vendor map
+    def _match_vendor(hints):
+        for hint in hints:
+            hint = hint.lower().rstrip('。，！？,.!?')
+            for vendor, keywords in _VENDOR_MAP.items():
+                for kw in keywords:
+                    if kw in hint:
+                        return vendor
+        return ""
+    
+    if prefer == "source":
+        result = _match_vendor(source_hints)
+        if result:
+            return result
+        # Fallback: search whole text for any vendor mention
+        for vendor, keywords in _VENDOR_MAP.items():
+            for kw in keywords:
+                if kw in text_lower:
+                    return vendor
+    else:
+        result = _match_vendor(target_hints)
+        if result:
+            return result
+    
+    return ""
