@@ -215,9 +215,15 @@ def create_app():
     @app.route("/")
     @app.route("/<path:filename>")
     def serve_frontend(filename="index.html"):
+        from flask import make_response
         if "." in filename:
-            return send_from_directory(str(FRONTEND_DIR), filename)
-        return send_from_directory(str(FRONTEND_DIR), "index.html")
+            resp = make_response(send_from_directory(str(FRONTEND_DIR), filename))
+        else:
+            resp = make_response(send_from_directory(str(FRONTEND_DIR), "index.html"))
+        resp.headers["Cache-Control"] = "no-cache, no-store, must-revalidate"
+        resp.headers["Pragma"] = "no-cache"
+        resp.headers["Expires"] = "0"
+        return resp
 
     return app
 
