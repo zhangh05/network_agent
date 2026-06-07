@@ -65,7 +65,7 @@ def resolve_provider_config(llm_config: dict = None) -> dict:
         "model": "",
         "timeout": llm_config.get("timeout_seconds", 30),
         "temperature": 0.2,
-        "max_tokens": 1200,
+        "max_tokens": 4096,
         "config_source": "file",
         "key_loaded": False,
         "key_source": "none",
@@ -89,7 +89,7 @@ def resolve_provider_config(llm_config: dict = None) -> dict:
         result["model"] = "MiniMax-M3"
 
     result["temperature"] = provider_cfg.get("temperature", 0.2)
-    result["max_tokens"] = provider_cfg.get("max_tokens", 1200)
+    result["max_tokens"] = provider_cfg.get("max_tokens", 4096)
 
     # Resolve API key from env/file
     env = provider_cfg.get("api_key_env", "")

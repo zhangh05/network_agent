@@ -182,6 +182,28 @@
   .session-empty{padding:14px;text-align:center;color:var(--n5);font-size:11px}
   .session-divider{height:1px;background:var(--n8);margin:2px 10px}
 
+  /* ── Artifacts Page ── */
+  .art-actions{display:flex;align-items:center;gap:10px;margin-bottom:14px;flex-wrap:wrap}
+  .art-actions .btn{margin:0}
+  .art-filters{display:flex;align-items:center;gap:8px;margin-left:auto}
+  .art-filters select{height:34px;padding:0 28px 0 10px;border-radius:6px;border:1px solid var(--n8);background:var(--n10);font-size:13px;outline:none;cursor:pointer;appearance:none;background-image:url("data:image/svg+xml,%3Csvg width='10' height='6' xmlns='http://www.w3.org/2000/svg'%3E%3Cpath d='M1 1l4 4 4-4' stroke='%2364748b' fill='none' stroke-width='1.5'/%3E%3C/svg%3E");background-repeat:no-repeat;background-position:right 10px center}
+  .art-filters select:focus{border-color:var(--pri)}
+  .art-search{height:34px;padding:0 12px;border:1px solid var(--n8);border-radius:8px;font-size:13px;background:var(--n10);outline:none;width:160px}
+  .art-search:focus{border-color:var(--pri)}
+  .art-upload-zone{border:2px dashed var(--n8);border-radius:10px;padding:30px 20px;text-align:center;color:var(--n5);font-size:13px;margin-bottom:14px;cursor:pointer;transition:all .15s;background:var(--n10)}
+  .art-upload-zone:hover{border-color:var(--pri);color:var(--pri);background:rgba(37,99,235,.03)}
+  .art-upload-zone.dragover{border-color:var(--pri);background:rgba(37,99,235,.06);color:var(--pri)}
+  .art-upload-zone .art-upload-icon{font-size:28px;margin-bottom:8px;opacity:.5}
+  .art-upload-zone p{margin:0;line-height:1.6}
+  .art-upload-zone .art-upload-hint{font-size:11px;color:var(--n6);margin-top:4px}
+  .art-type-badge{font-size:10px;padding:2px 6px;border-radius:4px;font-weight:500;text-transform:uppercase}
+  .art-type-config{background:#dbeafe;color:#1e40af}
+  .art-type-report{background:#dcfce7;color:#166534}
+  .art-type-other{background:var(--n9);color:var(--n5)}
+  .art-content-preview{background:var(--n10);border:1px solid var(--n8);border-radius:8px;padding:14px;font:12px/1.8 var(--mono);white-space:pre-wrap;word-break:break-all;max-height:50vh;overflow:auto;color:var(--n1)}
+  .art-empty-state{display:flex;flex-direction:column;align-items:center;justify-content:center;padding:50px 20px;text-align:center;color:var(--n5)}
+  .art-empty-state .art-empty-icon{font-size:40px;margin-bottom:12px;opacity:.25}
+
   /* ── Scrollbar ── */
   ::-webkit-scrollbar{width:5px;height:5px}
   ::-webkit-scrollbar-track{background:transparent}
@@ -285,6 +307,9 @@
       </button>
       <button class="sb-item" data-page="memory" onclick="switchPage('memory')">
         <span class="icn">&#9673;</span><span class="txt">Memory 管理</span>
+      </button>
+      <button class="sb-item" data-page="artifacts" onclick="switchPage('artifacts')">
+        <span class="icn">&#128193;</span><span class="txt">Artifacts</span>
       </button>
       <button class="sb-item" onclick="openSettings()">
         <span class="icn">&#9678;</span><span class="txt">系统设置</span>
@@ -482,6 +507,68 @@ router ospf 1
       </div>
 
       <!-- ══════ Memory ══════ -->
+      <div class="page" id="page-artifacts">
+        <div class="stat-grid" id="art-stats">
+          <div class="stat-card">
+            <div class="stat-label">总文件数</div>
+            <div class="stat-value" id="art-total">—</div>
+          </div>
+          <div class="stat-card">
+            <div class="stat-label">配置文件</div>
+            <div class="stat-value" id="art-configs">—</div>
+          </div>
+          <div class="stat-card">
+            <div class="stat-label">报告文件</div>
+            <div class="stat-value" id="art-reports">—</div>
+          </div>
+          <div class="stat-card">
+            <div class="stat-label">其他文件</div>
+            <div class="stat-value" id="art-others">—</div>
+          </div>
+        </div>
+
+        <div class="art-upload-zone" id="art-upload-zone" onclick="document.getElementById('art-file-input').click()">
+          <div class="art-upload-icon">&#128229;</div>
+          <p>点击上传文件，或拖拽文件到此处</p>
+          <div class="art-upload-hint">支持文本文件（.txt .json .yaml .csv .md .log .conf .cfg），最大 10MB</div>
+          <input type="file" id="art-file-input" style="display:none" onchange="uploadArtifact()" accept=".txt,.json,.yaml,.yml,.csv,.md,.log,.conf,.cfg">
+        </div>
+
+        <div class="art-actions">
+          <button class="btn btn-pri btn-sm" onclick="document.getElementById('art-file-input').click()">&#128229; 上传</button>
+          <span style="font-size:12px;color:var(--n5)" id="art-count-text">0 个文件</span>
+          <div class="art-filters">
+            <input class="art-search" id="art-search" placeholder="搜索文件名…" oninput="filterArtifacts()">
+            <select id="art-type-filter" onchange="filterArtifacts()">
+              <option value="">全部类型</option>
+              <option value="config">配置</option>
+              <option value="report">报告</option>
+              <option value="knowledge">知识</option>
+              <option value="other">其他</option>
+            </select>
+            <button class="btn btn-sec btn-sm" onclick="loadArtifacts()">&#8635; 刷新</button>
+          </div>
+        </div>
+
+        <div class="card" style="padding:0;overflow:hidden">
+          <table>
+            <thead><tr>
+              <th style="width:40%">文件名</th>
+              <th style="width:12%">类型</th>
+              <th style="width:12%">大小</th>
+              <th style="width:18%">时间</th>
+              <th style="width:18%">操作</th>
+            </tr></thead>
+          </table>
+          <div id="art-list" style="max-height:calc(100vh - 420px);overflow-y:auto">
+            <div class="art-empty-state">
+              <div class="art-empty-icon">&#128194;</div>
+              <div>暂无文件，上传第一个吧</div>
+            </div>
+          </div>
+        </div>
+      </div>
+
       <div class="page" id="page-memory">
         <div class="stat-grid" id="mem-stats">
           <div class="stat-card">
@@ -640,6 +727,23 @@ router ospf 1
   </div>
 </div>
 
+<!-- ═════════════════ Artifact Preview Modal ═════════════════ -->
+<div class="modal-overlay" id="art-preview-modal" onclick="if(event.target===this)closeArtPreview()">
+  <div class="modal-box" style="width:720px;max-width:95vw">
+    <div class="modal-hd">
+      <div class="title" id="art-preview-title">文件预览</div>
+      <button class="close" onclick="closeArtPreview()">&times;</button>
+    </div>
+    <div class="modal-body" style="padding:0">
+      <div class="art-content-preview" id="art-preview-content">加载中…</div>
+    </div>
+    <div class="modal-ft">
+      <button class="btn btn-sec" onclick="copyArtContent()">&#128203; 复制</button>
+      <button class="btn btn-pri" onclick="closeArtPreview()">关闭</button>
+    </div>
+  </div>
+</div>
+
 <script>
 /* ── Utility helpers ── */
 function esc(s){return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');}
@@ -686,7 +790,7 @@ function renderComingSoon(id,label){var el=document.getElementById(id);if(el)el.
 
 /* ── Data ── */
 var lastTranslate=null;
-var pageNames={dashboard:'Agent 工作台',translate:'配置翻译',inspection:'巡检分析',topology:'拓扑绘图',skills:'Skills 管理',memory:'Memory 管理'};
+var pageNames={dashboard:'Agent 工作台',translate:'配置翻译',inspection:'巡检分析',topology:'拓扑绘图',skills:'Skills 管理',memory:'Memory 管理',artifacts:'Artifacts 管理'};
 
 /* ── Session State ── */
 var _currentSessionId=null;
@@ -735,6 +839,7 @@ function switchPage(name){
   if(btn)btn.classList.add('active');
   document.getElementById('bread-page').textContent=pageNames[name]||name;
   if(name==='memory') loadMemoryPage();
+  if(name==='artifacts') loadArtifacts();
 }
 
 /* ── Memory page ── */
@@ -787,6 +892,169 @@ function loadMemoryPage(){
     if(list) list.innerHTML='<div class="empty"><div class="icon">◉</div><div class="t" style="color:var(--dng)">记忆加载失败</div><div style="font-size:12px">请检查 /api/memory/status 和 /api/memory/list</div></div>';
   });
 }
+
+/* ── Artifacts Management ── */
+var _allArtifacts=[];
+function loadArtifacts(){
+  var ws=_getWorkspaceId();
+  apiFetch('/api/workspaces/'+encodeURIComponent(ws)+'/artifacts?limit=200')
+  .then(function(d){
+    _allArtifacts=(d.artifacts||[]);
+    renderArtifacts(_allArtifacts);
+    updateArtStats(_allArtifacts);
+  }).catch(function(){
+    document.getElementById('art-list').innerHTML='<div class="art-empty-state"><div class="art-empty-icon">&#9888;</div><div style="color:var(--dng)">加载失败，请检查后端服务</div></div>';
+    document.getElementById('art-total').textContent='—';
+  });
+}
+
+function updateArtStats(arts){
+  document.getElementById('art-total').textContent=arts.length;
+  document.getElementById('art-configs').textContent=arts.filter(function(a){return a.artifact_type==='config';}).length;
+  document.getElementById('art-reports').textContent=arts.filter(function(a){return a.artifact_type==='report';}).length;
+  document.getElementById('art-others').textContent=arts.filter(function(a){return a.artifact_type!=='config'&&a.artifact_type!=='report';}).length;
+  document.getElementById('art-count-text').textContent=arts.length+' 个文件';
+}
+
+function filterArtifacts(){
+  var search=document.getElementById('art-search').value.toLowerCase();
+  var type=document.getElementById('art-type-filter').value;
+  var filtered=_allArtifacts.filter(function(a){
+    var title=(a.title||a.artifact_id||'').toLowerCase();
+    if(search && title.indexOf(search)===-1) return false;
+    if(type && a.artifact_type!==type) return false;
+    return true;
+  });
+  renderArtifacts(filtered);
+}
+
+function renderArtifacts(arts){
+  var list=document.getElementById('art-list');
+  if(!arts.length){
+    var search=document.getElementById('art-search').value;
+    list.innerHTML='<div class="art-empty-state"><div class="art-empty-icon">'+(search?'&#128269;':'&#128194;')+'</div><div>'+(search?'没有匹配的文件':'暂无文件，上传第一个吧')+'</div></div>';
+    return;
+  }
+  var html='<table><tbody>';
+  arts.forEach(function(a){
+    var atype=a.artifact_type||'other';
+    var badgeCls=atype==='config'?'art-type-config':atype==='report'?'art-type-report':'art-type-other';
+    var typeLabel=atype==='config'?'配置':atype==='report'?'报告':atype==='knowledge'?'知识':'其他';
+    var size=formatFileSize(a.size_bytes||(a.content||'').length||0);
+    var time=(a.created_at||'').slice(0,16).replace('T',' ')||'—';
+    var title=esc(a.title||a.artifact_id||'unnamed');
+    html+='<tr>';
+    html+='<td><div style="font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:300px" title="'+esc(a.title||a.artifact_id||'')+'">'+title+'</div></td>';
+    html+='<td><span class="art-type-badge '+badgeCls+'">'+typeLabel+'</span></td>';
+    html+='<td style="font-size:12px;color:var(--n5)">'+size+'</td>';
+    html+='<td style="font-size:12px;color:var(--n5)">'+time+'</td>';
+    html+='<td>';
+    html+='<button class="btn btn-sec btn-sm" onclick="previewArtifact(\''+esc(a.artifact_id)+'\')" title="预览" style="margin-right:4px">&#128065; 预览</button>';
+    html+='<button class="btn btn-sec btn-sm" onclick="deleteArtifact(\''+esc(a.artifact_id)+'\',\''+esc(a.title||a.artifact_id)+'\')" title="删除" style="color:var(--dng);border-color:var(--dng)">&#10005;</button>';
+    html+='</td>';
+    html+='</tr>';
+  });
+  html+='</tbody></table>';
+  list.innerHTML=html;
+}
+
+function previewArtifact(artifactId){
+  var ws=_getWorkspaceId();
+  var modal=document.getElementById('art-preview-modal');
+  var titleEl=document.getElementById('art-preview-title');
+  var contentEl=document.getElementById('art-preview-content');
+  titleEl.textContent='加载中…';
+  contentEl.textContent='加载中…';
+  modal.classList.add('show');
+  apiFetch('/api/workspaces/'+encodeURIComponent(ws)+'/artifacts/'+encodeURIComponent(artifactId)+'/content')
+  .then(function(d){
+    titleEl.textContent=esc(d.title||'文件预览');
+    contentEl.textContent=typeof d.content==='string'?d.content:JSON.stringify(d.content,null,2);
+  }).catch(function(){
+    titleEl.textContent='加载失败';
+    contentEl.textContent='无法加载文件内容，请检查后端服务。';
+  });
+}
+
+function closeArtPreview(){
+  document.getElementById('art-preview-modal').classList.remove('show');
+}
+
+function copyArtContent(){
+  var content=document.getElementById('art-preview-content').textContent;
+  navigator.clipboard.writeText(content).then(function(){
+    showToast('已复制到剪贴板');
+  }).catch(function(){
+    var ta=document.createElement('textarea');
+    ta.value=content;
+    ta.style.cssText='position:fixed;left:-9999px';
+    document.body.appendChild(ta);
+    ta.select();
+    document.execCommand('copy');
+    document.body.removeChild(ta);
+    showToast('已复制到剪贴板');
+  });
+}
+
+function uploadArtifact(){
+  var input=document.getElementById('art-file-input');
+  var file=input.files[0];
+  if(!file) return;
+  showToast('上传中…');
+  var ws=_getWorkspaceId();
+  var form=new FormData();
+  form.append('file',file);
+  form.append('title',file.name);
+  form.append('workspace_id',ws);
+  fetch('/api/workspaces/'+encodeURIComponent(ws)+'/artifacts/upload',{method:'POST',body:form})
+  .then(function(r){return r.json();})
+  .then(function(d){
+    if(d.ok){showToast('上传成功');loadArtifacts();}
+    else{showToast('上传失败：'+(d.error||'未知错误'));}
+  }).catch(function(){showToast('上传失败');});
+  input.value='';
+}
+
+function deleteArtifact(artifactId,title){
+  if(!confirm('确定要删除 "'+(title||artifactId)+'" 吗？此操作不可撤销。')) return;
+  var ws=_getWorkspaceId();
+  fetch('/api/workspaces/'+encodeURIComponent(ws)+'/artifacts/'+encodeURIComponent(artifactId),{method:'DELETE'})
+  .then(function(r){return r.json();})
+  .then(function(d){
+    if(d.ok){showToast('已删除');loadArtifacts();}
+    else{showToast('删除失败：'+(d.error||'未知错误'));}
+  }).catch(function(){showToast('删除失败');});
+}
+
+function formatFileSize(bytes){
+  if(!bytes||bytes<1) return '0 B';
+  if(bytes<1024) return bytes+' B';
+  if(bytes<1024*1024) return (bytes/1024).toFixed(1)+' KB';
+  return (bytes/(1024*1024)).toFixed(1)+' MB';
+}
+
+(function(){
+  var zone=document.getElementById('art-upload-zone');
+  if(!zone) return;
+  ['dragenter','dragover','dragleave','drop'].forEach(function(evt){
+    document.addEventListener(evt,function(e){e.preventDefault();e.stopPropagation();});
+  });
+  ['dragenter','dragover'].forEach(function(evt){
+    zone.addEventListener(evt,function(){zone.classList.add('dragover');});
+  });
+  ['dragleave','drop'].forEach(function(evt){
+    zone.addEventListener(evt,function(){zone.classList.remove('dragover');});
+  });
+  zone.addEventListener('drop',function(e){
+    var files=e.dataTransfer.files;
+    if(files.length>0){
+      var dt=new DataTransfer();
+      dt.items.add(files[0]);
+      document.getElementById('art-file-input').files=dt.files;
+      uploadArtifact();
+    }
+  });
+})();
 
 /* ── Session Management ── */
 function loadSessions(){
