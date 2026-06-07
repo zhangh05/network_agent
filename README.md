@@ -2,11 +2,11 @@
 
 Network Agent 是一个网络工程本地 Agent 平台，面向网络工程师提供配置翻译、拓扑发现、巡检分析、知识管理等 AI 驱动的网络运维能力。平台基于 LangGraph 运行时调度，以 Module / Skill / Memory 三层架构组织，统一入口端口 8010。
 
-## Platform Runtime Closure v0.2
+## Platform Runtime Closure — Current Baseline
 
-Baseline entering this completion pass: `ac6cadd`.
+Current commit: `2002069`
 
-Current verified remote-main baseline before this pass: `pytest harness -q` reported `850 passed, 7 skipped, 0 failed`.
+Current test baseline: `pytest harness -q = 945 passed, 7 skipped, 0 failed`.
 
 Network Agent is a new local network-engineering Agent platform, not a legacy framework migration. The current runtime chain is:
 
@@ -79,7 +79,7 @@ python backend/main.py --port 8010
 
 ```bash
 pytest harness -q
-# 493 passed, 7 skipped, 0 failed
+# 945 passed, 7 skipped, 0 failed
 ```
 
 ## 目录结构

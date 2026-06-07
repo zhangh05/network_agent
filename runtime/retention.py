@@ -80,12 +80,13 @@ def default_retention_policy() -> RetentionPolicy:
 
 
 def _is_safe_path(path: Path, ws_dir: Path) -> bool:
-    """Verify path is within workspace and not a symlink outside."""
+    """Verify path is within workspace — uses relative_to(), NOT string startswith."""
     try:
         resolved = path.resolve()
         ws_resolved = ws_dir.resolve()
-        return str(resolved).startswith(str(ws_resolved))
-    except Exception:
+        resolved.relative_to(ws_resolved)
+        return True
+    except (ValueError, OSError):
         return False
 
 
