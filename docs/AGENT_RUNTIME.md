@@ -22,37 +22,40 @@ router → context_loader → planner → executor → verifier → composer →
 
 ### Router
 
-- Resolves user intent against Capability registry
-- Matches intent string → `capability_id` → dispatches to planner
-- Unknown intent → default to `context_qa` or `response_compose`
+`agent/nodes/intent_router.py::_infer()` — keyword-based intent inference with ordered matching:
 
-### Executor Chain
+1. **assistant_first** (greetings, identity, help) → `assistant_chat`
+2. **context_qa** (result/explanation queries) → `context_qa`
+3. **LLM-related** (模型/llm/状态 etc, unless config-related) → `assistant_chat`
+4. **INTENTS dict** (ordered) → first match wins:
+   - `translate_config`: 翻译/厂商名 + config keywords (hostname, interface, ip address, ospf, vlan, acl, gigabitethernet, network 10./172./192.168., etc.)
+   - `topology_draw`, `inspection_analyze`, `knowledge_search`, etc.
+5. **Question-ending** (？/?/吗/呢) → `assistant_chat`
+6. **Default** → `assistant_chat`
 
-```
-capability → skill → adapter → module
-```
-
-- Capability: registry contract defining what can be done
-- Skill: wraps module with entrypoints, LLM call flags, red lines
-- Adapter: normalizes IO between skill and module
-- Module: implementation unit (no direct LLM, no hardcoded paths)
-
-### Context Loader
-
-Calls `context.builder.build_context_bundle(context_ref)` from Context Runtime. Produces a `ContextBundle` containing execution context (for deterministic nodes) and safe LLM context (for LLM nodes).
+Config text detection: user can paste raw network config (e.g. `hostname R1\ninterface G0/0/1\n ip address 10.1.1.1`) and the router will match `translate_config` keywords without requiring explicit "translate" command.
 
 ### Composer
 
-Uses prompt task selection via `_select_prompt_task()`:
-- Determines which prompt template to use based on run context
-- Routes to: `context_qa`, `job_failure`, `manual_review`, `report`, `artifact`, `result_summarize`, `response_compose`
+`agent/nodes/composer.py::compose()`:
+
+| Intent | Path |
+|--------|------|
+| `assistant_chat` | `_compose_assistant_chat()` → try `safe_generate("assistant_chat")` with MiniMax-M3 → fallback `_assistant_response(state)` |
+| `response_compose` / business | `safe_generate(task)` via prompt runtime |
+| `context_qa` | `_compose_context_qa()` |
+| Unknown | `_deterministic(state)` fallback |
 
 ### LLM Blocked / Deterministic Fallback
 
 When LLM is unavailable or blocked by policy:
-- Planner falls back to static plan map
-- Composer uses deterministic text templates (no provider call)
-- Verifier skips LLM-based checks
+- `_compose_assistant_chat()` catches all exceptions and falls to deterministic template
+- Fallback reasons recorded in `state.context.llm.fallback_reason`:
+  - `"llm disabled"` — config `enabled=false` or provider `disabled`
+  - `"prompt_text_blocked"` — rendered prompt text fails input policy check
+  - `"prompt_output_blocked"` — LLM output fails output policy check
+  - `"response_policy: ..."` — LLM policy `check_response()` violation
+  - `"provider unavailable: ..."` — API call exception
 - Run still completes with degraded state marker
 
 ### Trace

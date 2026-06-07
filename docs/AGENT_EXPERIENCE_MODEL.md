@@ -24,10 +24,10 @@ User Input
 
 | Type | Intent | Behavior |
 |------|--------|----------|
-| Greeting | `assistant_chat` | Deterministic greeting + capability hints |
-| Identity Q | `assistant_chat` | "I'm Network Agent..." |
-| Capability Q | `assistant_chat` | Lists enabled + planned + safety notes |
-| Help / Thanks | `assistant_chat` | Guidance + farewell |
+| Greeting | `assistant_chat` | LLM (MiniMax-M3) with deterministic fallback |
+| Identity Q | `assistant_chat` | LLM response with capability hints |
+| Capability Q | `assistant_chat` | LLM lists enabled + planned + safety notes |
+| Help / Thanks | `assistant_chat` | LLM guidance + farewell |
 | Explain last | `context_qa` | Summarizes last run, manual_review, quality |
 | Config translate | `translate_config` | Executes config_translation skill |
 | Topology/Inspection/etc | `topology_draw` etc | Returns coming_soon |
@@ -39,21 +39,36 @@ User Input
 router → intent=assistant_chat
   → planner → no-op plan
   → executor → no-op (returns early)
-  → composer → _assistant_response(state)
+  → composer → _compose_assistant_chat(state)
+      → try safe_generate("assistant_chat") → MiniMax-M3
+      → fallback: _assistant_response(state) if LLM disabled/blocked
   → memory_writer → writes summary only
 ```
 
+- LLM path: `safe_generate → get_prompt_by_task → render_prompt → check_prompt_text → check_prompt_input → provider(MiniMax-M3) → check_prompt_output → response`
+- Deterministic fallback: always available if LLM fails (provider error, policy block, disabled)
 - No skill loaded, no module called, no tool invoked
 - No deployable_config generated
 - No job/artifact/report created
+
+## Intent Router: Config Text Detection
+
+The router now recognizes raw network configuration text via command keywords:
+
+```
+hostname, interface, ip address, no shutdown, router ospf/bgp,
+ospf, bgp, isis, vlan, acl, gigabitethernet, network 10./172./192.168.
+```
+
+When a user pastes raw config text (without explicit "translate" keywords), it routes to `translate_config` automatically.
 
 ## Safety Red Lines
 
 1. assistant_chat NEVER enters business module
 2. assistant_chat NEVER calls Tool Runtime
 3. assistant_chat NEVER generates deployable_config
-4. LLM (if enabled) goes through Prompt Runtime policy
+4. LLM goes through Prompt Runtime policy with negation context detection
 5. deterministic fallback always available
 6. Manual review not hidden
 7. High risk not downgraded
-8. No "可直接下发" claims
+8. No "可直接下发" claims (LLM disclaimers using negation NOT blocked)

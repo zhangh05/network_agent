@@ -47,16 +47,26 @@ LLM 在任何情况下不得执行以下操作：
 - 不隐藏 manual_review 标记或声称可直接部署
 - 不在输出中声称"可直接部署"
 - 不伪造 job 状态、artifact 状态、run 状态
-- 不输出 key / token / password / community 等敏感值
+- 不输出 key / token / password / SNMP community 等敏感值
+- 安全策略使用否定语境检测 (_is_negation_context)，LLM 表达边界免责声明时不会被误拦截
 
 ## Prompt Runtime 集成
 
 LLM 调用通过 `safe_generate()` 统一入口，与 Prompt Runtime 集成：
 
-- 模板定义: `agent/llm/prompts/registry.yaml`
+- 模板定义: `prompts/registry.yaml`
 - 渲染引擎: Jinja2 template renderer
-- 安全策略: `agent/llm/policy.py` (input + output gate)
-- 上下文构建: `agent/llm/context_builder.py` → `safe_llm_context`
+- 安全策略: `agent/llm/policy.py` (request + response gate, 含否定语境检测)
+  - `prompts/policy.py` (prompt input/output gate, 含 `_is_negation_context()` 否定语境检测)
+- 上下文构建: `context/builder.py` → `safe_llm_context`
+
+## Policy 审计历史
+
+| Date | Change |
+|------|--------|
+| 2026-06-07 | `community\s+\S+` 从 FORBIDDEN_INPUT_PATTERNS 移除（与 `snmp-server\s+community\s+\S+` 冗余，导致 assistant_chat 模板误拦截） |
+| 2026-06-07 | 新增 `_is_negation_context()` — 输出策略中检测 CN/EN 否定语境，避免安全免责声明被误拦截 |
+| 2026-06-07 | `check_response()` 集成否定语境检测，LLM 表达的 "我不会声称'可直接下发'" 不再被拦截 |
 
 ## LLM Runtime Wiring
 
