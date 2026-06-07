@@ -76,7 +76,7 @@
   .ws-d-item:hover .ws-d-actions{opacity:1}
   .ws-d-actions:hover{background:var(--n8);color:var(--n2)}
 
-  .ws-popup{position:absolute;background:var(--card);border:1px solid var(--n8);border-radius:8px;box-shadow:0 4px 16px rgba(0,0,0,.15);z-index:400;min-width:120px;overflow:hidden;display:none}
+  .ws-popup{position:fixed;background:var(--card);border:1px solid var(--n8);border-radius:8px;box-shadow:0 4px 16px rgba(0,0,0,.15);z-index:400;min-width:120px;overflow:hidden;display:none}
   .ws-popup.show{display:block}
   .ws-popup .wp-item{padding:8px 12px;font-size:12px;color:var(--n2);cursor:pointer;display:flex;align-items:center;gap:8px;transition:background .1s}
   .ws-popup .wp-item:hover{background:var(--n10)}
@@ -2279,9 +2279,10 @@ function showWsMenu(wsId,event){
   event.stopPropagation();
   _wsMenuTargetId=wsId;
   var popup=document.getElementById('ws-popup');
-  popup.style.display='block';
   var rect=event.target.getBoundingClientRect();
-  popup.style.left=(rect.left-100)+'px';
+  // Position popup near the button, below and aligned right-edge
+  popup.style.display='block';
+  popup.style.left=(rect.right-120)+'px';
   popup.style.top=(rect.bottom+4)+'px';
   setTimeout(function(){
     document.addEventListener('click',hideWsMenu,{once:true});
@@ -2289,10 +2290,11 @@ function showWsMenu(wsId,event){
 }
 function hideWsMenu(e){
   var popup=document.getElementById('ws-popup');
-  if(popup && !popup.contains(e.target)){
-    popup.style.display='none';
-    _wsMenuTargetId=null;
-  }
+  if(!popup)return;
+  // Don't hide if clicking inside popup or on a ws-d-actions button
+  if(popup.contains(e.target) || (e.target.classList && e.target.classList.contains('ws-d-actions'))) return;
+  popup.style.display='none';
+  _wsMenuTargetId=null;
 }
 function doRenameWs(){
   document.getElementById('ws-popup').style.display='none';
