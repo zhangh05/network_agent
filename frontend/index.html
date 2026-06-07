@@ -3,6 +3,9 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
+<meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
+<meta http-equiv="Pragma" content="no-cache">
+<meta http-equiv="Expires" content="0">
 <title>Network Agent</title>
 <style>
   :root{
@@ -1970,27 +1973,39 @@ function showToast(msg){
 
 /* ── Init ── */
 (function init(){
-  // Clean legacy localStorage
-  _clearOldLocalStorage();
-
-  // Fix corrupted workspace ID (e.g. [object Object])
   try{
-    var rawWs=localStorage.getItem('na_workspace_id');
-    if(rawWs && (rawWs.indexOf('object Object')>=0 || !/^[a-zA-Z0-9_-]+$/.test(rawWs))){
-      localStorage.removeItem('na_workspace_id');
+    // Clean legacy localStorage
+    _clearOldLocalStorage();
+
+    // Fix corrupted workspace ID (e.g. [object Object])
+    try{
+      var rawWs=localStorage.getItem('na_workspace_id');
+      if(rawWs && (rawWs.indexOf('object Object')>=0 || !/^[a-zA-Z0-9_-]+$/.test(rawWs))){
+        localStorage.removeItem('na_workspace_id');
+      }
+    }catch(e){}
+
+    // Load workspace ID
+    _currentWorkspaceId=_getWorkspaceId();
+    var badge=document.getElementById('ws-badge');
+    var display=document.getElementById('ws-display');
+    if(_currentWorkspaceId!=='default'){
+      if(badge) badge.textContent=_currentWorkspaceId;
+      if(display) display.textContent=_currentWorkspaceId;
     }
+
+    // ── Backend readiness check + data load ──
+    _checkBackendAndLoad();
   }catch(e){}
-
-  // Load workspace ID
-  _currentWorkspaceId=_getWorkspaceId();
-  if(_currentWorkspaceId!=='default'){
-    document.getElementById('ws-badge').textContent=_currentWorkspaceId;
-    document.getElementById('ws-display').textContent=_currentWorkspaceId;
-  }
-
-  // ── Backend readiness check + data load ──
-  _checkBackendAndLoad();
 })();
+
+// Handle bfcache (back-forward cache) — reload if restored from cache
+window.addEventListener('pageshow',function(e){
+  if(e.persisted){
+    // Page was restored from bfcache; force a fresh load
+    location.reload(true);
+  }
+});
 
 function _checkBackendAndLoad(){
   var statusEl=document.getElementById('top-status');
