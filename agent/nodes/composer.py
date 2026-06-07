@@ -644,11 +644,11 @@ def _detect_vendor(text: str, prefer: str = "source") -> str:
     
     # Pattern: "从X翻译到Y" / "from X to Y" / "X→Y" / "X to Y" / "X转Y"
     to_patterns = [
-        r'从(\S+)翻译[到成为]*(\S+)',
+        r'从(\S+)翻译[为到成]+\s*(\S+?)[，。\s\n]',
         r'from\s+(\S+)\s+to\s+(\S+)',
         r'(\S+)\s*[→➡️]\s*(\S+)',
-        r'(\S+)[到转至]\s*(\S+)',
-        r'翻译[成为到]\s*(\S+)',
+        r'(\S+)[到转至]\s*(\S+?)($|[，。\s\n])',
+        r'翻译[成为到]+\s*(\S+?)[，。\s\n]',
         r'translate\s+to\s+(\S+)',
     ]
     for pattern in to_patterns:
@@ -676,14 +676,35 @@ def _detect_vendor(text: str, prefer: str = "source") -> str:
         result = _match_vendor(source_hints)
         if result:
             return result
-        # Fallback: search whole text for any vendor mention
+        # Fallback: search whole text for first vendor
+        found = []
         for vendor, keywords in _VENDOR_MAP.items():
             for kw in keywords:
                 if kw in text_lower:
-                    return vendor
+                    found.append(vendor)
+                    break
+        if found:
+            return found[0]
     else:
         result = _match_vendor(target_hints)
         if result:
             return result
+        # Fallback: search for second vendor, or guess opposite
+        found = []
+        for vendor, keywords in _VENDOR_MAP.items():
+            for kw in keywords:
+                if kw in text_lower:
+                    found.append(vendor)
+                    break
+        if len(found) > 1:
+            return found[1]
+        if found:
+            source = found[0]
+            if source == "cisco":
+                return "huawei"
+            elif source == "huawei":
+                return "cisco"
+            elif source == "h3c":
+                return "cisco"
     
     return ""
