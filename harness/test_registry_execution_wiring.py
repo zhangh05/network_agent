@@ -79,7 +79,7 @@ class TestExecutor:
         # Test actual dynamic loading
         func = _load_adapter("skills/config_translation/adapter.py", "translate")
         assert callable(func)
-        result = func(source_config="hostname R1", source_vendor="cisco", target_vendor="huawei")
+        result = func(payload={"source_config": "hostname R1", "source_vendor": "cisco", "target_vendor": "huawei"})
         assert isinstance(result, dict)
         assert result.get("ok") is True
 
@@ -87,7 +87,7 @@ class TestExecutor:
         from agent.nodes.skill_executor import _load_adapter
         func = _load_adapter("skills/config_translation/adapter.py", "review")
         assert callable(func)
-        result = func()
+        result = func(payload={})
         assert isinstance(result, dict)
 
     def test_translate_config_executes_via_registry(self, client):
@@ -138,7 +138,7 @@ class TestContextQA:
     def test_context_qa_adapter_review_function(self):
         from agent.nodes.skill_executor import _load_adapter
         func = _load_adapter("skills/config_translation/adapter.py", "review")
-        result = func()
+        result = func(payload={})
         assert isinstance(result, dict)
 
     def test_context_qa_no_context_message(self, client):

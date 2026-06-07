@@ -242,6 +242,8 @@ def _parse_skill_yaml(data: dict, name: str, path: str) -> SkillSpec:
         memory_full_input=data.get("memory", {}).get("write_full_input", False),
         memory_full_output=data.get("memory", {}).get("write_full_output", False),
         test_contracts=data.get("tests", {}).get("required_contract_tests", []),
+        artifact=data.get("artifact", {}),
+        compose=data.get("compose", {}),
     )
 
 

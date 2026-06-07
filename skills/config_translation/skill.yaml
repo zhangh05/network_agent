@@ -13,6 +13,7 @@ adapter_path: skills/config_translation/adapter.py
 entrypoint:
   type: python
   function: translate
+  signature: payload        # adapter receives payload dict
 
 capabilities:
   - capability_id: config.translate
@@ -26,22 +27,40 @@ capabilities:
     description: 基于最近一次配置翻译结果进行解释和问答
     risk_level: low
 
-inputs:
-  - source_vendor
-  - target_vendor
-  - source_config
+# ── Artifact auto-save (generic, driven by skill.yaml) ──
+artifact:
+  auto_save_input: true
+  auto_save_output: true
+  input_type: input_config
+  output_type: output_config
+  output_field: deployable_config
+  sensitivity: sensitive
+  scope: run
 
-outputs:
-  - deployable_config
-  - manual_review
-  - semantic_near
-  - unsupported
-  - audit
+# ── Response compose (generic, driven by skill.yaml) ──
+compose:
+  mode: structured            # structured | template | raw
+  status_path: ok             # where in result to find ok/fail
+  summary_fields:
+    - field: deployable_config
+      label: Deployable lines
+      type: line_count
+    - field: manual_review
+      label: Manual review
+      type: count
+    - field: semantic_near
+      label: Semantic near
+      type: count
+    - field: unsupported
+      label: Unsupported
+      type: count
+    - field: quality_summary
+      label: Quality
+      type: quality
 
 execution:
   calls_module: true
   calls_llm: false
-  calls_http_self: false
 
 red_lines:
   - do_not_modify_deployable_config

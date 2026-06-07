@@ -128,6 +128,9 @@ class SkillSpec:
     memory_full_input: bool = False
     memory_full_output: bool = False
     test_contracts: list = field(default_factory=list)
+    # ── v0.3: generic artifact auto-save and compose config ──
+    artifact: dict = field(default_factory=dict)
+    compose: dict = field(default_factory=dict)
 
     def is_enabled(self) -> bool: return self.status == "enabled"
     def is_planned(self) -> bool: return self.status == "planned"
