@@ -8,7 +8,7 @@ All endpoints follow the pattern:
 
 from flask import request, jsonify
 
-from workspace.ids import validate_workspace_id
+from workspace.ids import validate_workspace_id, validate_session_id
 from workspace.session_store import (
     create_session,
     get_session,
@@ -28,11 +28,22 @@ def _invalid_ws():
     return jsonify({"ok": False, "error": "invalid_workspace_id"}), 400
 
 
+def _invalid_sid():
+    return jsonify({"ok": False, "error": "invalid_session_id"}), 400
+
+
 def _validated_ws_id(raw="default"):
     try:
         return validate_workspace_id(raw or "default"), None
     except ValueError:
         return None, _invalid_ws()
+
+
+def _validated_session_id(sid):
+    try:
+        return validate_session_id(sid), None
+    except ValueError:
+        return None, _invalid_sid()
 
 
 # ─── Routes ───
@@ -82,6 +93,9 @@ def handle_session_list():
 
 def handle_session_detail(session_id):
     """GET /api/sessions/<session_id> — Get session + messages."""
+    session_id, err = _validated_session_id(session_id)
+    if err:
+        return err
     ws_id = request.args.get("workspace_id", "default")
     ws_id, err = _validated_ws_id(ws_id)
     if err:
@@ -102,6 +116,9 @@ def handle_session_detail(session_id):
 
 def handle_session_update(session_id):
     """PUT /api/sessions/<session_id> — Update session metadata."""
+    session_id, err = _validated_session_id(session_id)
+    if err:
+        return err
     ws_id = request.args.get("workspace_id", "default")
     ws_id, err = _validated_ws_id(ws_id)
     if err:
@@ -126,6 +143,9 @@ def handle_session_update(session_id):
 
 def handle_session_archive(session_id):
     """POST /api/sessions/<session_id>/archive — Archive a session."""
+    session_id, err = _validated_session_id(session_id)
+    if err:
+        return err
     ws_id = request.args.get("workspace_id", "default")
     ws_id, err = _validated_ws_id(ws_id)
     if err:
@@ -140,6 +160,9 @@ def handle_session_archive(session_id):
 
 def handle_session_restore(session_id):
     """POST /api/sessions/<session_id>/restore — Restore an archived/deleted session."""
+    session_id, err = _validated_session_id(session_id)
+    if err:
+        return err
     ws_id = request.args.get("workspace_id", "default")
     ws_id, err = _validated_ws_id(ws_id)
     if err:
@@ -154,6 +177,9 @@ def handle_session_restore(session_id):
 
 def handle_session_soft_delete(session_id):
     """POST /api/sessions/<session_id>/soft-delete — Soft delete a session."""
+    session_id, err = _validated_session_id(session_id)
+    if err:
+        return err
     ws_id = request.args.get("workspace_id", "default")
     ws_id, err = _validated_ws_id(ws_id)
     if err:
@@ -171,6 +197,9 @@ def handle_session_delete_permanently(session_id):
 
     Requires ?confirm=true. Run records are NOT deleted.
     """
+    session_id, err = _validated_session_id(session_id)
+    if err:
+        return err
     ws_id = request.args.get("workspace_id", "default")
     ws_id, err = _validated_ws_id(ws_id)
     if err:
@@ -196,6 +225,9 @@ def handle_session_delete_permanently(session_id):
 
 def handle_session_messages(session_id):
     """GET /api/sessions/<session_id>/messages — Get chat messages for a session."""
+    session_id, err = _validated_session_id(session_id)
+    if err:
+        return err
     ws_id = request.args.get("workspace_id", "default")
     ws_id, err = _validated_ws_id(ws_id)
     if err:

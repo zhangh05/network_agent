@@ -2,14 +2,16 @@
 
 ## Current Closure State
 
-- Baseline entering this completion pass: `ac6cadd`
-- Baseline test evidence: `pytest harness -q` = `850 passed, 7 skipped, 0 failed`
+- Baseline commit: `a869430` (2026-06-07)
+- Baseline test evidence: `pytest harness -q` = `1191 passed, 7 skipped, 0 failed`
 - Current enabled business module: `config_translation`
+- Knowledge Index Runtime (Safe Local RAG Foundation v0.1): indexing + search, no auto RAG
 - Agent base capability: `assistant_chat` (not a business module)
 - Planned only: Topology, Inspection, CMDB, Knowledge
 - Tool Runtime has Foundation + Client + Integration, but no real device execution.
 - Run history is backend workspace state, not browser-local history.
 - `quality_summary` is carried through API, Agent result, run history, UI, trace metadata, and report summaries.
+- Backend routes: main.py (244 lines, 34 thin wrappers) + 5 sub-route files (artifact, job, runtime, context, workspace)
 
 ## 总体架构
 

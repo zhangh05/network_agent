@@ -161,6 +161,16 @@ def _deterministic(result: dict, intent: str) -> str:
         return "\n".join(parts)
     elif intent in ("topology_draw", "inspection_analyze", "knowledge_search"):
         return f"Module '{result.get('active_module', intent)}' is planned and coming soon. No results available."
+    elif intent == "knowledge_query":
+        # Fallback: search result summary
+        kr = result.get("knowledge_results", []) if isinstance(result, dict) else []
+        if kr:
+            items = "\n".join(
+                f"  [{r.get('artifact_id','')[:8]}] {r.get('title','')}: {r.get('safe_excerpt','')[:120]}"
+                for r in kr[:3]
+            )
+            return f"Knowledge search found {len(kr)} result(s):\n{items}\n\nNote: 这些是安全摘录，不是完整文件。"
+        return "No relevant knowledge found in index."
     elif intent == "unknown":
         return ("I didn't understand your request. Try:\n"
                 "- \"翻译配置\" for config translation\n"
@@ -332,3 +342,108 @@ def _select_prompt_task(state: NetworkAgentState) -> str:
         return "result_summarize"
 
     return "response_compose"
+
+
+# ═══════════════════ Knowledge Query Composer ═══════════════════
+
+def _compose_knowledge_query(state: NetworkAgentState):
+    """Compose knowledge_query: search index → LLM answer with source refs."""
+    import traceback
+    state.context.setdefault("llm", {})
+    llm = state.context["llm"]
+
+    # 1. Search knowledge index
+    try:
+        from context.knowledge_loader import load_knowledge_context
+        knowledge = load_knowledge_context(
+            user_input=state.user_input or "",
+            workspace_id=state.workspace_id or "default",
+            top_k=5,
+        )
+        # Store in state for later use (verifier, memory_writer)
+        state.skill_results = knowledge
+        state.context["knowledge_results"] = knowledge.get("results", [])
+        state.context["knowledge_results_count"] = knowledge.get("count", 0)
+        state.context["knowledge_not_found"] = knowledge.get("not_found", True)
+        state.context["knowledge_sources"] = knowledge.get("sources", [])
+        state.context["knowledge_chunks"] = knowledge.get("chunks", [])
+    except Exception as e:
+        state.skill_results = {"error": str(e), "not_found": True, "results": []}
+        state.context["knowledge_results"] = []
+        state.context["knowledge_results_count"] = 0
+        state.context["knowledge_not_found"] = True
+        state.context["knowledge_sources"] = []
+        state.context["knowledge_chunks"] = []
+
+    results = state.context.get("knowledge_results", [])
+
+    # 2. Try LLM for knowledge_answer
+    # Build safe context for prompt template
+    knowledge_context = {
+        "knowledge_results": results[:5],
+        "user_input": state.user_input or "",
+        "knowledge_results_count": len(results),
+        "knowledge_not_found": knowledge.get("not_found", True),
+    }
+    state.context["safe_llm_context"] = knowledge_context
+
+    try:
+        from agent.llm.runtime import safe_generate
+        from agent.llm.config import resolve_provider_config
+        cfg = resolve_provider_config()
+
+        llm.update({
+            "enabled": cfg.get("enabled", False),
+            "config_source": cfg.get("config_source", "default"),
+            "provider_type": cfg.get("provider_type", "disabled"),
+            "provider": cfg.get("provider", cfg.get("default_provider", "disabled")),
+            "model": cfg.get("model", ""),
+        })
+
+        if cfg.get("enabled") and cfg.get("provider_type") != "disabled":
+            try:
+                output = safe_generate("knowledge_answer", state, user_input=state.user_input)
+                llm.update({
+                    "used": output.llm_used,
+                    "task": "knowledge_answer",
+                    "prompt_id": (output.metadata or {}).get("prompt_id", "") if output.metadata else "",
+                    "policy_pass": output.policy_decision.allowed if output.policy_decision else False,
+                    "fallback_reason": output.fallback_reason,
+                })
+                if output.llm_used and output.safe_to_show:
+                    state.final_response = output.answer
+                    llm["fallback"] = False
+                    return
+                else:
+                    llm["fallback"] = True
+                    llm["fallback_reason"] = output.fallback_reason or "llm output blocked by policy"
+            except Exception as e:
+                llm["fallback"] = True
+                llm["fallback_reason"] = f"provider unavailable: {str(e)[:100]}"
+        else:
+            llm["fallback"] = True
+            llm["fallback_reason"] = "llm disabled"
+    except Exception as e:
+        llm["fallback"] = True
+        llm["fallback_reason"] = f"config error: {str(e)[:100]}"
+
+    # 3. Deterministic fallback: search result summary
+    if results:
+        items = []
+        for i, r in enumerate(results[:3]):
+            items.append(
+                f"[{r.get('artifact_id', '')[:8]}] {r.get('title', '')}\n"
+                f"  {r.get('safe_excerpt', '')[:120]}"
+            )
+        srcs = ", ".join(f"[{r.get('artifact_id','')[:8]}]" for r in results)
+        state.final_response = (
+            f"Knowledge search found {len(results)} result(s). "
+            f"Sources: {srcs}\n\n" +
+            "\n".join(items) +
+            f"\n\nNote: 这些是安全摘录，不是完整文件。"
+        )
+    else:
+        state.final_response = "未在当前知识索引中找到相关资料。请先通过 Artifacts 页面上传文档并加入索引。"
+
+    llm["fallback"] = True
+    llm["fallback_reason"] = llm.get("fallback_reason") or "deterministic fallback"

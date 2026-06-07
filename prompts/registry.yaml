@@ -108,3 +108,28 @@ prompts:
     status: enabled
     template_path: prompts/templates/artifact_summary_explain.md
     description: "Explain artifact metadata"
+
+  - prompt_id: knowledge.answer.v1
+    task: knowledge_answer
+    version: v1
+    status: enabled
+    template_path: prompts/templates/knowledge_answer.md
+    description: "Answer questions from knowledge index search results — safe RAG"
+    input_policy:
+      allow_full_source_config: false
+      allow_full_deployable_config: false
+      allow_full_artifact_content: false
+      allow_secret: false
+      max_context_chars: 6000
+    output_policy:
+      forbid_deployable_generation: true
+      forbid_deployable_modification: true
+      forbid_hide_manual_review: true
+      forbid_direct_deploy_claim: true
+      forbid_fake_trace_or_job_status: true
+      forbid_fake_artifact_id: true
+      forbid_secret_output: true
+    context_policy:
+      require_safe_llm_context: true
+      require_citations_for_references: true
+      max_artifact_refs: 5

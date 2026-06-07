@@ -41,10 +41,16 @@ def handle_agent_run():
     session_id = (data.get("session_id") or "").strip()
     context_ref = data.get("context_ref", "")
 
+    from workspace.ids import validate_workspace_id, validate_session_id
     try:
         workspace_id = validate_workspace_id(workspace_id)
     except ValueError:
         return jsonify({"ok": False, "error": "invalid_workspace_id"}), 400
+    if session_id:
+        try:
+            session_id = validate_session_id(session_id)
+        except ValueError:
+            return jsonify({"ok": False, "error": "invalid_session_id"}), 400
     if source_config_too_large(payload.get("source_config", "")):
         return jsonify({"ok": False, "error": "source_config_too_large"}), 413
     if intent == "translate_config" and not payload.get("source_config") and source_config_too_large(message):

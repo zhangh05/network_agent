@@ -18,6 +18,14 @@ class TestFrontendBackendAlignment:
             "/api/runs/recent", "/api/runtime/health", "/api/workspaces",
         ]
         backend_text = (PROJECT_ROOT / "backend" / "main.py").read_text()
+        # Also include route files since routes are registered via register_*_routes
+        route_files = ["backend/api/artifact_routes.py", "backend/api/job_routes.py",
+                       "backend/api/runtime_routes.py", "backend/api/context_routes.py",
+                       "backend/api/workspace_routes.py"]
+        for rf in route_files:
+            p = PROJECT_ROOT / rf
+            if p.exists():
+                backend_text += "\n" + p.read_text()
         for api in frontend_apis:
             route = api.split("?")[0].rstrip("/")
             # Backend uses angle brackets for params — normalize to compare
@@ -42,7 +50,7 @@ class TestFrontendBackendAlignment:
         setitems = [l for l in html.split('\n') if 'localStorage.setItem' in l]
         for line in setitems:
             line = line.strip()
-            if 'na_workspace_id' not in line and 'na_settings' not in line and 'na_' not in line:
+            if 'na_workspace_id' not in line and 'na_settings' not in line and 'na_current_session_id' not in line and 'na_' not in line:
                 pytest.fail(f"Unexpected localStorage key in: {line}")
 
 
@@ -139,7 +147,9 @@ class TestUIAgentExperience:
 class TestRunHistory:
     def test_recent_runs_api_available(self):
         backend = (PROJECT_ROOT / "backend" / "main.py").read_text()
-        assert "/api/runs/recent" in backend
+        ws_routes = (PROJECT_ROOT / "backend" / "api" / "workspace_routes.py").read_text()
+        combined = backend + "\n" + ws_routes
+        assert "/api/runs/recent" in combined
 
     def test_run_store_writes_summary_only(self):
         from workspace.run_store import write_run_record, get_run

@@ -16,7 +16,7 @@ INTENTS = {
         "翻译", "translate", "转换",
         "cisco", "huawei", "h3c", "ruijie", "juniper",
         "hostname", "sysname", "interface", "ip address", "undo shutdown", "no shutdown",
-        "router ospf", "router bgp", "ospf", "bgp", "isis", "eigrp",
+        "router ospf", "router bgp", "router isis", "router eigrp",
         "vlan", "access-list", "acl", "prefix-list", "route-map",
         "snmp-server", "ntp", "logging", "banner", "line vty",
         "gigabitethernet", "fastethernet", "ethernet", "serial", "loopback",
@@ -24,7 +24,24 @@ INTENTS = {
     ],
     "topology_draw": ["拓扑", "topology", "网络图", "network map"],
     "inspection_analyze": ["巡检", "inspection", "audit", "合规", "diagnose"],
-    "knowledge_search": ["知识", "knowledge", "文档", "documentation", "搜索"],
+    "knowledge_query": [
+        # 明确提到知识库/资料/文档
+        "知识库", "资料库", "资料", "文档", "文件", "上传",
+        "查一下", "找一下", "搜索", "搜一下", "检索",
+        # 在知识库/资料里查找
+        "书里", "资料里", "文档里", "知识里", "库里",
+        "之前上传", "上传的", "那个文件", "那些资料",
+        "根据知识", "根据资料", "根据文档",
+        "这个报告", "那个报告", "报告里说了", "报告里有什么",
+        "artifact里", "artifact 里",
+        # 明确说查/搜 + 主题
+        "有没有关于", "有没有提到", "有没有讲到",
+        "提到了吗", "提到过吗",
+        "有没有相关资料", "相关资料",
+        # 知识主题关键词(含上下文)
+        "联软准入", "cucm", "cu cm", "nat ",
+        "网络准入", "准入方案", "准入策略",
+    ],
     "memory_search": ["记忆", "memory_recall", "回忆"],
     "skill_query": ["技能", "skill", "能力"],
     "module_query": ["模块", "module"],
@@ -106,6 +123,13 @@ def _resolve_capability(state: NetworkAgentState):
         state.active_module = "assistant"
         state.selected_skill = "assistant_chat"
         state.context["capability_id"] = "assistant.chat"
+        state.context["capability_status"] = "builtin"
+        return
+
+    if state.intent == "knowledge_query":
+        state.active_module = "knowledge"
+        state.selected_skill = "knowledge_query"
+        state.context["capability_id"] = "knowledge.query"
         state.context["capability_status"] = "builtin"
         return
 

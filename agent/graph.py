@@ -314,6 +314,11 @@ def run_agent(user_input: str = "", intent: str = "", payload: dict = None,
         "artifact_refs": _build_artifact_refs(state),
         "report_refs": [],
         "job_refs": [],
+        # ── Knowledge ──
+        "knowledge_results_count": state.context.get("knowledge_results_count", 0),
+        "knowledge_sources": state.context.get("knowledge_sources", []),
+        "knowledge_chunks": state.context.get("knowledge_chunks", []),
+        "knowledge_not_found": state.context.get("knowledge_not_found", False),
         # ── Quality ──
         "quality_summary": _safe_quality_summary(result),
         "manual_review_count": len(result.get("manual_review", [])),

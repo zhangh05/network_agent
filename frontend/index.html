@@ -82,6 +82,8 @@
   .ag-bubble.user{align-self:flex-end;background:var(--pri);color:#fff}
   .ag-bubble .time{font-size:10px;color:var(--n6);margin-top:4px}
   .ag-bubble.user .time{color:rgba(255,255,255,.65)}
+  .summary-badge{display:inline-block;font-size:10px;padding:0px 6px;margin-bottom:4px;border-radius:3px;background:rgba(100,116,139,.08);color:var(--n5);cursor:help;letter-spacing:.3px}
+  .ag-bubble.user .summary-badge{background:rgba(255,255,255,.15);color:rgba(255,255,255,.7)}
   .ag-input{flex-shrink:0;padding:10px 14px;border-top:1px solid var(--n8);display:flex;gap:8px}
   .ag-input input{flex:1;height:36px;padding:0 12px;border:1px solid var(--n8);border-radius:8px;font-size:13px;background:var(--n10);outline:none}
   .ag-input input:focus{border-color:var(--pri)}
@@ -541,22 +543,38 @@ router ospf 1
             <input class="art-search" id="art-search" placeholder="搜索文件名…" oninput="filterArtifacts()">
             <select id="art-type-filter" onchange="filterArtifacts()">
               <option value="">全部类型</option>
-              <option value="config">配置</option>
+              <option value="input_config">输入配置</option>
+              <option value="output_config">输出配置</option>
               <option value="report">报告</option>
-              <option value="knowledge">知识</option>
+              <option value="knowledge_doc">知识文档</option>
+              <option value="temp">临时文件</option>
+              <option value="quarantine">隔离区</option>
               <option value="other">其他</option>
             </select>
             <button class="btn btn-sec btn-sm" onclick="loadArtifacts()">&#8635; 刷新</button>
           </div>
         </div>
 
+        <!-- Knowledge Search -->
+        <div class="card" style="padding:12px 16px;margin-bottom:10px">
+          <div style="display:flex;align-items:center;gap:10px">
+            <input id="kn-search" class="art-search" placeholder="搜索知识索引…" oninput="searchKnowledge()" style="flex:1">
+            <button class="btn btn-pri btn-sm" onclick="searchKnowledge()">&#128269; 搜索</button>
+            <span style="font-size:11px;color:var(--n5)">搜索结果为安全摘录，非完整文件</span>
+          </div>
+          <div id="kn-results" style="display:none;margin-top:8px;border-top:1px solid var(--n8);padding-top:8px"></div>
+        </div>
+
         <div class="card" style="padding:0;overflow:hidden">
           <table>
             <thead><tr>
-              <th style="width:40%">文件名</th>
-              <th style="width:12%">类型</th>
-              <th style="width:12%">大小</th>
-              <th style="width:18%">时间</th>
+              <th style="width:22%">文件名</th>
+              <th style="width:8%">类型</th>
+              <th style="width:6%">大小</th>
+              <th style="width:6%">状态</th>
+              <th style="width:6%">敏感度</th>
+              <th style="width:8%">索引</th>
+              <th style="width:12%">时间</th>
               <th style="width:18%">操作</th>
             </tr></thead>
           </table>
@@ -685,7 +703,7 @@ router ospf 1
           </div>
           <div>
             <label>最大 Token</label>
-            <input type="number" id="llm-maxtok" min="1" max="128000" step="1" value="1200" placeholder="1200">
+            <input type="number" id="llm-maxtok" min="1" max="128000" step="1" value="4096" placeholder="4096">
           </div>
         </div>
 
@@ -839,7 +857,7 @@ function switchPage(name){
   if(btn)btn.classList.add('active');
   document.getElementById('bread-page').textContent=pageNames[name]||name;
   if(name==='memory') loadMemoryPage();
-  if(name==='artifacts') loadArtifacts();
+  if(name==='artifacts'){loadArtifacts();loadKnowledgeStatus();}
 }
 
 /* ── Memory page ── */
@@ -910,9 +928,9 @@ function loadArtifacts(){
 
 function updateArtStats(arts){
   document.getElementById('art-total').textContent=arts.length;
-  document.getElementById('art-configs').textContent=arts.filter(function(a){return a.artifact_type==='config';}).length;
+  document.getElementById('art-configs').textContent=arts.filter(function(a){return a.artifact_type==='input_config'||a.artifact_type==='output_config';}).length;
   document.getElementById('art-reports').textContent=arts.filter(function(a){return a.artifact_type==='report';}).length;
-  document.getElementById('art-others').textContent=arts.filter(function(a){return a.artifact_type!=='config'&&a.artifact_type!=='report';}).length;
+  document.getElementById('art-others').textContent=arts.filter(function(a){return a.artifact_type!=='input_config'&&a.artifact_type!=='output_config'&&a.artifact_type!=='report';}).length;
   document.getElementById('art-count-text').textContent=arts.length+' 个文件';
 }
 
@@ -938,8 +956,12 @@ function renderArtifacts(arts){
   var html='<table><tbody>';
   arts.forEach(function(a){
     var atype=a.artifact_type||'other';
-    var badgeCls=atype==='config'?'art-type-config':atype==='report'?'art-type-report':'art-type-other';
-    var typeLabel=atype==='config'?'配置':atype==='report'?'报告':atype==='knowledge'?'知识':'其他';
+    var badgeCls='art-type-other';
+    if(atype==='input_config'||atype==='output_config') badgeCls='art-type-config';
+    else if(atype==='report') badgeCls='art-type-report';
+    else if(atype==='knowledge_doc') badgeCls='art-type-knowledge';
+    var typeLabels={'input_config':'输入配置','output_config':'输出配置','report':'报告','knowledge_doc':'知识','temp':'临时','quarantine':'隔离'};
+    var typeLabel=typeLabels[atype]||atype;
     var size=formatFileSize(a.size_bytes||(a.content||'').length||0);
     var time=(a.created_at||'').slice(0,16).replace('T',' ')||'—';
     var title=esc(a.title||a.artifact_id||'unnamed');
@@ -947,9 +969,28 @@ function renderArtifacts(arts){
     html+='<td><div style="font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:300px" title="'+esc(a.title||a.artifact_id||'')+'">'+title+'</div></td>';
     html+='<td><span class="art-type-badge '+badgeCls+'">'+typeLabel+'</span></td>';
     html+='<td style="font-size:12px;color:var(--n5)">'+size+'</td>';
+    var lc=a.lifecycle||'active';
+    var lcLabel={'active':'活跃','archived':'已归档','deleted':'已删除','promoted':'已提升','quarantined':'已隔离'}[lc]||lc;
+    var lcColor=lc==='deleted'?'var(--dng)':lc==='archived'?'var(--n5)':'';
+    html+='<td style="font-size:11px;color:'+(lcColor||'var(--n5)')+'">'+lcLabel+'</td>';
+    var sens=a.sensitivity||'internal';
+    var sensLabel={'public':'公开','internal':'内部','sensitive':'敏感','secret':'机密'}[sens]||sens;
+    var sensColor=sens==='secret'?'var(--dng)':sens==='sensitive'?'var(--warn)':'';
+    html+='<td style="font-size:11px;color:'+(sensColor||'var(--n5)')+'">'+sensLabel+'</td>';
+    // Knowledge index status
+    var ks=_ksIdx[a.artifact_id];
+    var ksStatus=ks?ks.status:'not_indexed';
+    var ksLabel={'indexed':'<span style="color:var(--suc)">&#10003; 已索引</span>','pending':'<span style="color:var(--warn)">&#8987; 待处理</span>','indexing':'<span style="color:var(--info)">&#8635; 索引中</span>','failed':'<span style="color:var(--dng)">&#10007; 失败</span>','not_indexed':'<span style="color:var(--n5)">—</span>'}[ksStatus]||'<span style="color:var(--n5)">—</span>';
+    html+='<td style="font-size:11px">'+ksLabel+'</td>';
     html+='<td style="font-size:12px;color:var(--n5)">'+time+'</td>';
     html+='<td>';
-    html+='<button class="btn btn-sec btn-sm" onclick="previewArtifact(\''+esc(a.artifact_id)+'\')" title="预览" style="margin-right:4px">&#128065; 预览</button>';
+    html+='<button class="btn btn-sec btn-sm" onclick="previewArtifact(\''+esc(a.artifact_id)+'\')" title="预览" style="margin-right:2px">&#128065;</button>';
+    if(ksStatus==='indexed'){
+      html+='<button class="btn btn-sec btn-sm" onclick="reindexArtifact(\''+esc(a.artifact_id)+'\')" title="重新索引" style="margin-right:2px">&#8634;</button>';
+    }
+    if(ksStatus==='not_indexed'||ksStatus==='failed'){
+      html+='<button class="btn btn-sec btn-sm" onclick="addToKnowledge(\''+esc(a.artifact_id)+'\',\''+esc(a.title||a.artifact_id)+'\')" title="加入知识索引" style="margin-right:2px;color:var(--pri);border-color:var(--pri)">&#9733;</button>';
+    }
     html+='<button class="btn btn-sec btn-sm" onclick="deleteArtifact(\''+esc(a.artifact_id)+'\',\''+esc(a.title||a.artifact_id)+'\')" title="删除" style="color:var(--dng);border-color:var(--dng)">&#10005;</button>';
     html+='</td>';
     html+='</tr>';
@@ -966,8 +1007,13 @@ function previewArtifact(artifactId){
   titleEl.textContent='加载中…';
   contentEl.textContent='加载中…';
   modal.classList.add('show');
-  apiFetch('/api/workspaces/'+encodeURIComponent(ws)+'/artifacts/'+encodeURIComponent(artifactId)+'/content')
+  apiFetch('/api/workspaces/'+encodeURIComponent(ws)+'/artifacts/'+encodeURIComponent(artifactId)+'/content?allow_sensitive=1')
   .then(function(d){
+    if(!d.ok){
+      titleEl.textContent='无法访问';
+      contentEl.textContent='此文件内容不可访问（敏感级/机密级）。';
+      return;
+    }
     titleEl.textContent=esc(d.title||'文件预览');
     contentEl.textContent=typeof d.content==='string'?d.content:JSON.stringify(d.content,null,2);
   }).catch(function(){
@@ -1016,7 +1062,7 @@ function uploadArtifact(){
 }
 
 function deleteArtifact(artifactId,title){
-  if(!confirm('确定要删除 "'+(title||artifactId)+'" 吗？此操作不可撤销。')) return;
+  if(!confirm('确定要删除 "'+(title||artifactId)+'" 吗？删除后文件标记为已删除，可联系管理员恢复。')) return;
   var ws=_getWorkspaceId();
   fetch('/api/workspaces/'+encodeURIComponent(ws)+'/artifacts/'+encodeURIComponent(artifactId),{method:'DELETE'})
   .then(function(r){return r.json();})
@@ -1024,6 +1070,98 @@ function deleteArtifact(artifactId,title){
     if(d.ok){showToast('已删除');loadArtifacts();}
     else{showToast('删除失败：'+(d.error||'未知错误'));}
   }).catch(function(){showToast('删除失败');});
+}
+
+/* ── Knowledge Index ── */
+var _ksIdx={};
+function loadKnowledgeStatus(){
+  var ws=_getWorkspaceId();
+  apiFetch('/api/knowledge/sources?workspace_id='+encodeURIComponent(ws))
+  .then(function(d){
+    var sources=(d.sources||[]);
+    _ksIdx={};
+    sources.forEach(function(s){_ksIdx[s.artifact_id]=s;});
+    // Re-render if artifacts are loaded
+    if(_allArtifacts.length>0) renderArtifacts(_allArtifacts);
+  }).catch(function(){});
+}
+
+function addToKnowledge(artifactId,title){
+  showToast('正在索引: '+esc(title||artifactId));
+  var ws=_getWorkspaceId();
+  fetch('/api/knowledge/sources/from-artifact',{
+    method:'POST',headers:{'Content-Type':'application/json'},
+    body:JSON.stringify({workspace_id:ws,artifact_id:artifactId})
+  }).then(function(r){return r.json();})
+  .then(function(d){
+    if(d.ok){
+      showToast('已加入知识索引');
+      loadKnowledgeStatus();
+    }else{
+      showToast('索引失败: '+(d.error||'unknown'));
+    }
+  }).catch(function(){showToast('索引请求失败');});
+}
+
+function reindexArtifact(artifactId){
+  var ws=_getWorkspaceId();
+  showToast('重新索引中…');
+  apiFetch('/api/knowledge/sources?workspace_id='+encodeURIComponent(ws))
+  .then(function(d){
+    var sources=(d.sources||[]);
+    var sourceId=null;
+    for(var i=0;i<sources.length;i++){
+      if(sources[i].artifact_id===artifactId){sourceId=sources[i].source_id;break;}
+    }
+    if(!sourceId){showToast('未找到索引源');return;}
+    fetch('/api/knowledge/sources/'+encodeURIComponent(sourceId)+'/reindex?workspace_id='+encodeURIComponent(ws),{method:'POST'})
+    .then(function(r){return r.json();})
+    .then(function(dd){
+      if(dd.ok){showToast('重新索引完成');loadKnowledgeStatus();}
+      else{showToast('重新索引失败: '+(dd.error||''));}
+    }).catch(function(){showToast('重新索引请求失败');});
+  }).catch(function(){showToast('获取索引源失败');});
+}
+
+function searchKnowledge(){
+  var q=document.getElementById('kn-search').value.trim();
+  var resultsDiv=document.getElementById('kn-results');
+  if(!q){
+    resultsDiv.style.display='none';
+    return;
+  }
+  var ws=_getWorkspaceId();
+  apiFetch('/api/knowledge/search?q='+encodeURIComponent(q)+'&workspace_id='+encodeURIComponent(ws)+'&limit=10')
+  .then(function(d){
+    var results=(d.results||[]);
+    if(results.length===0){
+      resultsDiv.style.display='block';
+      resultsDiv.innerHTML='<div style="padding:8px;color:var(--n5);font-size:12px">未找到匹配的知识条目。</div>';
+      return;
+    }
+    resultsDiv.style.display='block';
+    var html='';
+    results.forEach(function(r){
+      var sens=r.sensitivity||'internal';
+      var sensColor=sens==='secret'?'var(--dng)':sens==='sensitive'?'var(--warn)':'var(--n5)';
+      html+='<div style="padding:8px 0;border-bottom:1px solid var(--n8)">';
+      html+='<div style="display:flex;justify-content:space-between;align-items:center">';
+      html+='<div style="font-weight:600;font-size:12px">'+esc(r.title||'无标题')+'</div>';
+      html+='<div style="font-size:10px;color:var(--n5)">score: '+r.score.toFixed(1)+'</div>';
+      html+='</div>';
+      html+='<div style="font-size:11px;color:var(--n5);margin:4px 0">'+esc(r.artifact_type||'')+' · <span style="color:'+sensColor+'">'+esc(sens)+'</span></div>';
+      html+='<div style="font-size:11px;color:var(--n4);line-height:1.5">'+esc(r.summary||'')+'</div>';
+      if(r.safe_excerpt){
+        html+='<div style="font-size:11px;color:var(--n5);margin-top:4px;padding:4px 8px;background:var(--n10);border-radius:4px;max-height:60px;overflow:hidden">'+esc(r.safe_excerpt)+'</div>';
+      }
+      html+='</div>';
+    });
+    html+='<div style="font-size:10px;color:var(--n5);margin-top:6px">'+results.length+' 条结果 — 搜索结果为安全摘录，不是全文</div>';
+    resultsDiv.innerHTML=html;
+  }).catch(function(){
+    resultsDiv.style.display='block';
+    resultsDiv.innerHTML='<div style="padding:8px;color:var(--dng);font-size:12px">搜索失败，请检查后端服务。</div>';
+  });
 }
 
 function formatFileSize(bytes){
@@ -1165,7 +1303,7 @@ function loadSessionMessages(sessionId){
           +'</div></div>';
       }
       body.insertAdjacentHTML('beforeend',
-        '<div class="'+bubbleCls+'">'+content.replace(/\n/g,'<br>')+'<div class="time">'+timeStr+'</div></div>');
+        '<div class="'+bubbleCls+'"><div class="summary-badge" title="恢复的是安全摘要，非完整原始内容。完整配置/敏感信息不在聊天历史中保存。">&#128274; 安全摘要</div>'+content.replace(/\n/g,'<br>')+'<div class="time">'+timeStr+'</div></div>');
     });
     body.scrollTop=body.scrollHeight;
   }).catch(function(){
@@ -1242,7 +1380,9 @@ function sendAgent(){
   inp.value=''; body.scrollTop=body.scrollHeight;
   var thinkEl=document.createElement('div');
   thinkEl.className='ag-bubble ai';
-  thinkEl.innerHTML='<span class="spinner" style="margin-right:6px"></span>处理中...';
+  // Check if message looks like a knowledge query
+  var isKnowledgeQuery=_isLikelyKnowledgeQuery(txt);
+  thinkEl.innerHTML='<span class="spinner" style="margin-right:6px"></span>'+(isKnowledgeQuery?'正在检索知识索引...':'处理中...');
   body.appendChild(thinkEl); body.scrollTop=body.scrollHeight;
 
   var ws=_getWorkspaceId();
@@ -1296,6 +1436,29 @@ function _doSendAgent(txt,thinkEl,body,sessionId,workspaceId){
         }
       }
 
+      // Knowledge query: show source refs
+      if(d.intent==='knowledge_query' && d.knowledge_sources){
+        var srcs=d.knowledge_sources||[];
+        var chunks=d.knowledge_chunks||[];
+        if(srcs.length>0){
+          mainReply+='\n\n<div style="font-size:10px;color:var(--n5);margin-top:6px;padding-top:6px;line-height:1.6">';
+          mainReply+='&#128218; 来源: ';
+          srcs.forEach(function(s,i){
+            mainReply+=esc((s||'').slice(0,12))+(i<srcs.length-1?', ':'');
+          });
+          if(chunks.length>0){
+            mainReply+=' ('+chunks.length+' chunks)';
+          }
+          mainReply+='<br>检索到 '+esc(d.knowledge_results_count||0)+' 条结果';
+          if(d.knowledge_not_found){
+            mainReply+='<br><span style="color:var(--warn)">未找到相关资料</span>';
+          }
+          mainReply+='</div>';
+        }else if(d.knowledge_not_found){
+          mainReply+='\n\n<div style="font-size:10px;color:var(--warn);margin-top:6px">未在当前知识索引中找到相关资料</div>';
+        }
+      }
+
       // Build collapsible metadata
       var l=d.llm||{};
       var metaParts=[];
@@ -1336,6 +1499,15 @@ function _doSendAgent(txt,thinkEl,body,sessionId,workspaceId){
   });
 }
 
+function _isLikelyKnowledgeQuery(txt){
+  var t=txt.toLowerCase();
+  var kw=["知识库","资料库","资料","文档","上传","查一下","找一下","搜索","检索",
+          "之前上传","根据知识","根据资料","根据文档","报告里","有没有关于",
+          "有没有提到","相关资料","知识里","库里"];
+  for(var i=0;i<kw.length;i++){if(t.indexOf(kw[i])>=0)return true;}
+  return false;
+}
+
 function formatLLMFallback(reason){
   reason=String(reason||'');
   if(!reason) return '';
@@ -1361,7 +1533,19 @@ function renderTrTab(tab){
   var out=document.getElementById('tr-out');
   if(!lastTranslate){out.textContent=tab==='output'?'点击「开始翻译」生成结果':'暂无数据';return}
   if(tab==='output'){
-    out.textContent=lastTranslate.deployable_config||'(空)';
+    if(lastTranslate.deployable_config){
+      out.textContent=lastTranslate.deployable_config;
+    }else if(lastTranslate.restored_from_run){
+      out.innerHTML='<div class="empty"><div class="icon">&#128273;</div><div class="t">安全摘要恢复</div><div style="font-size:12px;margin-top:6px;color:var(--n5)">完整配置仅在执行翻译时可见。已恢复以下摘要信息：</div>'
+        +'<div style="margin-top:14px;display:grid;grid-template-columns:repeat(2,1fr);gap:8px;font-size:12px">'
+        +'<div style="padding:8px;background:var(--n10);border-radius:6px"><div style="color:var(--n5)">可部署行数</div><div style="font-weight:600;font-size:16px">'+(lastTranslate.deployable_lines||0)+'</div></div>'
+        +'<div style="padding:8px;background:var(--n10);border-radius:6px"><div style="color:var(--n5)">需人工复核</div><div style="font-weight:600;font-size:16px">'+(lastTranslate.manual_review_count||0)+'</div></div>'
+        +'</div>'
+        +'<div style="margin-top:8px;font-size:11px;color:var(--n5)">Run: '+esc((lastTranslate.restored_from_run||'').slice(0,16))+' — 点击"Audit"查看质量详情</div>'
+        +'</div>';
+    }else{
+      out.textContent='(空)';
+    }
   }else if(tab==='review'){
     var mr=lastTranslate.manual_review||[];
     if(!mr.length){out.innerHTML='<div class="empty"><div class="icon">✓</div><div class="t">未发现需人工确认项</div></div>';return}
@@ -1505,7 +1689,7 @@ async function saveSettings(){
     api_key:document.getElementById('llm-key').value.trim(),
     model:document.getElementById('llm-model').value.trim(),
     temperature:parseFloat(document.getElementById('llm-temp').value)||0.2,
-    max_tokens:parseInt(document.getElementById('llm-maxtok').value)||1200,
+    max_tokens:parseInt(document.getElementById('llm-maxtok').value)||4096,
     safe_mode:true
   };
   try{
@@ -1531,7 +1715,7 @@ function loadSettings(){
   set('llm-key','');
   set('llm-model','MiniMax-M3');
   set('llm-temp',0.2);
-  set('llm-maxtok',1200);
+  set('llm-maxtok',4096);
   set('llm-sys','');
   set('ui-lang',cfg.ui_lang||'zh');
   set('ui-theme',cfg.ui_theme||'light');
@@ -1545,7 +1729,7 @@ function loadSettings(){
     set('llm-baseurl',d.base_url||'');
     set('llm-model',d.model||(_DEF_PROVIDERS[provider]||{}).model||'');
     set('llm-temp',d.temperature!==undefined?d.temperature:0.2);
-    set('llm-maxtok',d.max_tokens!==undefined?d.max_tokens:1200);
+    set('llm-maxtok',d.max_tokens!==undefined?d.max_tokens:4096);
     set('llm-key','');
     onProviderChange();
   }).catch(function(){onProviderChange();});
@@ -1800,19 +1984,25 @@ function showToast(msg){
     }
   }catch(e){}
 
-  // Restore last translate result from recent runs
+  // Restore last translate result summary from recent runs
   apiFetch('/api/runs/recent?limit=5&workspace_id='+encodeURIComponent(_currentWorkspaceId))
   .then(function(d){
     var runs=(d.runs||[]);
     for(var i=0;i<runs.length;i++){
       var r=runs[i];
       if(r.intent==='translate_config' && r.result_counts && r.result_counts.deployable_lines>0){
-        // We have a recent translate run; try to get full result
-        apiFetch('/api/runs/'+encodeURIComponent(r.run_id)+'?workspace_id='+encodeURIComponent(_currentWorkspaceId))
-        .then(function(rd){
-          // The run record doesn't have full config, but we can at least note it
-          // For now we just know a translate was done; full restore would need artifact content
-        }).catch(function(){});
+        // Restore summary fields to translate page (safe summary only, no full config)
+        lastTranslate={
+          quality_summary: r.quality_summary||{},
+          manual_review: [],
+          manual_review_count: r.manual_review_count||0,
+          deployable_config: '',
+          deployable_lines: r.result_counts.deployable_lines||0,
+          warnings: r.warnings||[],
+          audit: r.audit||{},
+          restored_from_run: r.run_id,
+          restored_note: '安全摘要——完整配置仅在执行翻译时可见'
+        };
         break;
       }
     }

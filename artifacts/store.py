@@ -251,6 +251,11 @@ def read_artifact_content(workspace_id: str, artifact_id: str,
     if rec.lifecycle == "deleted":
         return None
     path = Path(rec.path) if rec.path else None
+    # Fallback: if path is empty (old artifacts), try relative_path
+    if (not path or not path.is_file()) and rec.relative_path:
+        fallback = _get_ws_root() / workspace_id / "artifacts" / rec.relative_path
+        if fallback.is_file():
+            path = fallback
     if path and path.is_file():
         return path.read_text()
     return None

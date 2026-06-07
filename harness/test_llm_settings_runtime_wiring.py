@@ -24,7 +24,7 @@ class TestLLMSettingsPriority:
             "enabled": True, "provider": "minimax",
             "base_url": "https://api.minimax.chat/v1",
             "model": "MiniMax-M3", "api_key": "sk-test12345678",
-            "temperature": 0.2, "max_tokens": 1200,
+            "temperature": 0.2, "max_tokens": 4096,
         }
         (cfg_dir / "LLM_setting.json").write_text(json.dumps(settings))
 

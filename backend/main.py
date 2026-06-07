@@ -23,23 +23,22 @@ from backend.api.modules_translate import handle_module_translate
 from backend.api.agent import handle_agent_run, handle_agent_status
 from backend.api.llm_api import handle_llm_status, handle_llm_test, handle_llm_config_get, handle_llm_config_post, handle_llm_config_delete
 from backend.api.skills import handle_skills, get_skill_count
-from backend.api.workspace import handle_workspace_status
 from backend.api.modules import handle_modules, handle_module_status, handle_registry_status, handle_capabilities
 from backend.api.memory import handle_memory_status, handle_memory_write, handle_memory_search
 from backend.api.memory_routes import handle_memory_confirm, handle_memory_delete, handle_memory_list
 from backend.api.session_routes import (
-    handle_session_create,
-    handle_session_list,
-    handle_session_detail,
-    handle_session_update,
-    handle_session_archive,
-    handle_session_restore,
-    handle_session_soft_delete,
-    handle_session_delete_permanently,
-    handle_session_messages,
-    handle_session_default,
+    handle_session_create, handle_session_list,
+    handle_session_detail, handle_session_update,
+    handle_session_archive, handle_session_restore,
+    handle_session_soft_delete, handle_session_delete_permanently,
+    handle_session_messages, handle_session_default,
 )
-from backend.api.params import parse_limit
+from backend.api.artifact_routes import register_artifact_routes
+from backend.api.job_routes import register_job_routes
+from backend.api.runtime_routes import register_runtime_routes
+from backend.api.context_routes import register_context_routes
+from backend.api.workspace_routes import register_workspace_routes
+from backend.api.knowledge_routes import register_knowledge_routes
 from backend.core.settings import UNIFIED_PORT, API_MODE, BUILD_COMMIT, TRANSLATOR_ENTRY
 from backend.core.paths import FRONTEND_DIR
 from workspace.ids import validate_workspace_id
@@ -56,17 +55,6 @@ def _validated_workspace_id(raw="default"):
         return None, _invalid_workspace_response()
 
 
-def _invalid_limit_response():
-    return jsonify({"ok": False, "error": "invalid_limit"}), 400
-
-
-def _validated_limit(default=100, max_value=500):
-    try:
-        return parse_limit(request.args, default=default, max_value=max_value), None
-    except ValueError:
-        return None, _invalid_limit_response()
-
-
 def create_app():
     app = Flask(__name__, static_folder=None)
     app.config["PORT"] = UNIFIED_PORT
@@ -79,115 +67,6 @@ def create_app():
             "api_mode": API_MODE,
             "skills_loaded": get_skill_count(),
         }
-
-    # ── Runtime Diagnostics ──
-    @app.route("/api/runtime/health")
-    def api_runtime_health():
-        from runtime.diagnostics import get_diagnostics
-        report = get_diagnostics()
-        return jsonify(report.as_dict())
-
-    @app.route("/api/runtime/selfcheck")
-    def api_runtime_selfcheck():
-        ws_id = request.args.get("workspace_id", "default")
-        ws_id, err = _validated_workspace_id(ws_id)
-        if err:
-            return err
-        from runtime.selfcheck import run_selfcheck
-        result = run_selfcheck(ws_id)
-        return jsonify(result.as_dict())
-
-    @app.route("/api/workspaces/<ws_id>/selfcheck")
-    def api_workspace_selfcheck(ws_id):
-        ws_id, err = _validated_workspace_id(ws_id)
-        if err:
-            return err
-        from runtime.selfcheck import run_selfcheck
-        result = run_selfcheck(ws_id)
-        return jsonify(result.as_dict())
-
-    @app.route("/api/workspaces/<ws_id>/retention/preview")
-    def api_workspace_retention_preview(ws_id):
-        ws_id, err = _validated_workspace_id(ws_id)
-        if err:
-            return err
-        from runtime.retention import preview_retention, default_retention_policy
-        preview = preview_retention(ws_id, default_retention_policy())
-        return jsonify(preview.as_dict())
-
-    @app.route("/api/workspaces/<ws_id>/retention/apply", methods=["POST"])
-    def api_workspace_retention_apply(ws_id):
-        ws_id, err = _validated_workspace_id(ws_id)
-        if err:
-            return err
-        dry_run = request.json.get("dry_run", True) if request.is_json else True
-        confirm = request.json.get("confirm", False) if request.is_json else False
-        from runtime.retention import apply_retention, default_retention_policy
-        preview = apply_retention(ws_id, default_retention_policy(),
-                                  dry_run=dry_run, confirm=confirm)
-        return jsonify(preview.as_dict())
-
-    @app.route("/api/workspaces/<ws_id>/retention/audits")
-    def api_workspace_retention_audits(ws_id):
-        ws_id, err = _validated_workspace_id(ws_id)
-        if err:
-            return err
-        from runtime.retention import get_audits
-        audits = get_audits(ws_id)
-        return jsonify({"audits": audits})
-
-    @app.route("/api/workspaces/<ws_id>/retention/audits/<audit_id>")
-    def api_workspace_retention_audit(ws_id, audit_id):
-        ws_id, err = _validated_workspace_id(ws_id)
-        if err:
-            return err
-        from runtime.retention import get_audit
-        audit = get_audit(ws_id, audit_id)
-        if not audit:
-            return jsonify({"ok": False, "error": "audit not found"}), 404
-        return jsonify(audit)
-
-    # ── Archive ──
-    @app.route("/api/workspaces/<ws_id>/archive/preview")
-    def api_archive_preview(ws_id):
-        ws_id, err = _validated_workspace_id(ws_id)
-        if err:
-            return err
-        from runtime.archive import preview_archive_candidates, default_archive_policy
-        preview = preview_archive_candidates(ws_id, default_archive_policy())
-        return jsonify(preview.as_dict())
-
-    @app.route("/api/workspaces/<ws_id>/archive/apply", methods=["POST"])
-    def api_archive_apply(ws_id):
-        ws_id, err = _validated_workspace_id(ws_id)
-        if err:
-            return err
-        dry_run = request.json.get("dry_run", True) if request.is_json else True
-        confirm = request.json.get("confirm", False) if request.is_json else False
-        from runtime.archive import apply_archive, default_archive_policy
-        result = apply_archive(ws_id, default_archive_policy(),
-                               dry_run=dry_run, confirm=confirm)
-        return jsonify(result.as_dict())
-
-    @app.route("/api/workspaces/<ws_id>/archive/audits")
-    def api_archive_audits(ws_id):
-        ws_id, err = _validated_workspace_id(ws_id)
-        if err:
-            return err
-        from runtime.archive import get_archive_audits
-        audits = get_archive_audits(ws_id)
-        return jsonify({"audits": audits})
-
-    @app.route("/api/workspaces/<ws_id>/archive/audits/<audit_id>")
-    def api_archive_audit(ws_id, audit_id):
-        ws_id, err = _validated_workspace_id(ws_id)
-        if err:
-            return err
-        from runtime.archive import get_archive_audit
-        audit = get_archive_audit(ws_id, audit_id)
-        if not audit:
-            return jsonify({"ok": False, "error": "audit not found"}), 404
-        return jsonify(audit)
 
     # ── Version ──
     @app.route("/api/version")
@@ -249,6 +128,7 @@ def create_app():
     def api_session_messages(session_id):
         return handle_session_messages(session_id)
 
+    # ── LLM ──
     @app.route("/api/agent/llm/status")
     def api_agent_llm_status():
         return handle_llm_status()
@@ -268,546 +148,6 @@ def create_app():
     @app.route("/api/agent/llm/config", methods=["DELETE"])
     def api_agent_llm_config_delete():
         return handle_llm_config_delete()
-
-    # ── Workspace ──
-    @app.route("/api/workspaces")
-    def api_workspaces_list():
-        from workspace.manager import list_workspaces
-        return jsonify({"workspaces": list_workspaces()})
-
-    @app.route("/api/workspaces/<ws_id>/state")
-    def api_workspace_state(ws_id):
-        ws_id, err = _validated_workspace_id(ws_id)
-        if err:
-            return err
-        from workspace.manager import get_workspace_state
-        return jsonify(get_workspace_state(ws_id))
-
-    @app.route("/api/runs/recent")
-    def api_runs_recent():
-        """Recent runs for the default workspace — safe summaries, no full config."""
-        ws_id = request.args.get("workspace_id", "default")
-        ws_id, err = _validated_workspace_id(ws_id)
-        if err:
-            return err
-        limit, err = _validated_limit(default=10, max_value=100)
-        if err:
-            return err
-        from workspace.run_store import list_runs
-        runs = list_runs(ws_id, limit=limit)
-        # Sort by latest first
-        runs_sorted = sorted(runs, key=lambda r: r.get("created_at", ""), reverse=True) if runs else []
-        recent = runs_sorted[:limit]
-        # Strip any full config from summaries
-        safe_recent = []
-        for r in recent:
-            safe_run = {k: v for k, v in r.items() if k not in ("source_config", "deployable_config", "prompt", "full_context", "safe_context")}
-            safe_recent.append(safe_run)
-        return jsonify({"runs": safe_recent, "count": len(safe_recent)})
-
-    @app.route("/api/runs/<run_id>")
-    def api_run_detail(run_id):
-        """Run detail for a workspace (default unless workspace_id query is supplied)."""
-        ws_id = request.args.get("workspace_id", "default")
-        ws_id, err = _validated_workspace_id(ws_id)
-        if err:
-            return err
-        from workspace.run_store import get_run
-        result = get_run(run_id, ws_id)
-        if not result:
-            return jsonify({"ok": False, "error": "run not found"}), 404
-        return jsonify(result)
-
-    @app.route("/api/workspaces/<ws_id>/runs")
-    def api_workspace_runs(ws_id):
-        ws_id, err = _validated_workspace_id(ws_id)
-        if err:
-            return err
-        limit, err = _validated_limit(default=100, max_value=500)
-        if err:
-            return err
-        from workspace.run_store import list_runs
-        return jsonify({"runs": list_runs(ws_id, limit=limit)})
-
-    @app.route("/api/workspaces/<ws_id>/history")
-    def api_workspace_history(ws_id):
-        ws_id, err = _validated_workspace_id(ws_id)
-        if err:
-            return err
-        limit, err = _validated_limit(default=100, max_value=500)
-        if err:
-            return err
-        from workspace.run_store import list_runs
-        runs = sorted(list_runs(ws_id, limit=limit), key=lambda r: r.get("created_at", ""), reverse=True)
-        return jsonify({"workspace_id": ws_id, "runs": runs, "count": len(runs)})
-
-    @app.route("/api/workspaces/<ws_id>/runs/<run_id>")
-    def api_workspace_run(ws_id, run_id):
-        ws_id, err = _validated_workspace_id(ws_id)
-        if err:
-            return err
-        from workspace.run_store import get_run
-        result = get_run(run_id, ws_id)
-        if not result:
-            return jsonify({"ok": False, "error": "run not found"}), 404
-        return jsonify(result)
-
-    @app.route("/api/workspaces/<ws_id>/artifacts")
-    def api_workspace_artifacts(ws_id):
-        ws_id, err = _validated_workspace_id(ws_id)
-        if err:
-            return err
-        from artifacts.store import list_artifacts, save_artifact, get_artifact, read_artifact_content, delete_artifact, promote_artifact, summarize_artifact_content, get_run_artifacts
-        run_id = request.args.get("run_id")
-        art_type = request.args.get("artifact_type")
-        scope = request.args.get("scope")
-        sens = request.args.get("sensitivity")
-        inc_del = request.args.get("include_deleted", "0") == "1"
-        lim, err = _validated_limit(default=100, max_value=500)
-        if err:
-            return err
-        return jsonify({"artifacts": list_artifacts(ws_id, run_id=run_id, artifact_type=art_type,
-                        scope=scope, sensitivity=sens, include_deleted=inc_del, limit=lim)})
-
-    @app.route("/api/workspaces/<ws_id>/artifacts", methods=["POST"])
-    def api_workspace_artifact_create(ws_id):
-        ws_id, err = _validated_workspace_id(ws_id)
-        if err:
-            return err
-        from artifacts.store import save_artifact, sanitize_record
-        data = request.get_json(silent=True) or {}
-        rec = save_artifact(
-            workspace_id=ws_id, content=data.get("content", ""),
-            artifact_type=data.get("artifact_type", ""),
-            title=data.get("title", ""), scope=data.get("scope", "workspace"),
-            sensitivity=data.get("sensitivity", ""),
-            run_id=data.get("run_id", ""),
-        )
-        if not rec:
-            return jsonify({"ok": False, "error": "artifact creation blocked"}), 400
-        return jsonify({"ok": True, "artifact": sanitize_record(rec)})
-
-    @app.route("/api/workspaces/<ws_id>/artifacts/upload", methods=["POST"])
-    def api_workspace_artifact_upload(ws_id):
-        ws_id, err = _validated_workspace_id(ws_id)
-        if err:
-            return err
-        import re
-        from artifacts.store import save_artifact, sanitize_record, _get_max_size, _get_ws_root
-        max_size = _get_max_size()
-
-        # 1. Pre-check content_length (with multipart overhead allowance)
-        if request.content_length and request.content_length > max_size + 1_048_576:
-            return jsonify({"ok": False, "error": "file_too_large"}), 413
-
-        if "file" not in request.files:
-            return jsonify({"ok": False, "error": "no file provided"}), 400
-        f = request.files["file"]
-        if not f.filename:
-            return jsonify({"ok": False, "error": "empty filename"}), 400
-
-        # 2. Save to quarantine
-        safe = re.sub(r"[^a-zA-Z0-9_.-]", "_", f.filename)[:120]
-        upload_dir = _get_ws_root() / ws_id / "artifacts" / "quarantine"
-        upload_dir.mkdir(parents=True, exist_ok=True)
-        src_path = upload_dir / safe
-        f.save(str(src_path))
-
-        # 3. Check size on disk (don't read into memory yet)
-        file_size = src_path.stat().st_size
-        if file_size > max_size:
-            src_path.unlink()
-            return jsonify({"ok": False, "error": "file_too_large"}), 413
-
-        # 4. Read content (safe for text files within limits)
-        try:
-            content = src_path.read_text(errors="replace")
-        except Exception:
-            src_path.unlink()
-            return jsonify({"ok": False, "error": "cannot read file"}), 400
-
-        # 5. Save artifact
-        rec = save_artifact(
-            workspace_id=ws_id, content=content,
-            artifact_type=request.form.get("artifact_type", ""),
-            title=request.form.get("title", f.filename),
-            scope=request.form.get("scope", "workspace"),
-            sensitivity=request.form.get("sensitivity", ""),
-            run_id=request.form.get("run_id", ""),
-        )
-        src_path.unlink()
-        if not rec:
-            return jsonify({"ok": False, "error": "artifact creation blocked"}), 400
-        return jsonify({"ok": True, "artifact": sanitize_record(rec)})
-
-    @app.route("/api/workspaces/<ws_id>/artifacts/<artifact_id>")
-    def api_workspace_artifact(ws_id, artifact_id):
-        ws_id, err = _validated_workspace_id(ws_id)
-        if err:
-            return err
-        from artifacts.store import get_artifact
-        rec = get_artifact(ws_id, artifact_id)
-        if not rec:
-            return jsonify({"ok": False, "error": "artifact not found"}), 404
-        return jsonify({"ok": True, "artifact": sanitize_record(rec)})
-
-    @app.route("/api/workspaces/<ws_id>/artifacts/<artifact_id>/content")
-    def api_artifact_content(ws_id, artifact_id):
-        ws_id, err = _validated_workspace_id(ws_id)
-        if err:
-            return err
-        from artifacts.store import read_artifact_content
-        allow = request.args.get("allow_sensitive", "0") == "1"
-        content = read_artifact_content(ws_id, artifact_id, allow_sensitive=allow)
-        if content is None:
-            return jsonify({"ok": False, "error": "content not accessible"}), 403
-        return jsonify({"ok": True, "content": content})
-
-    @app.route("/api/workspaces/<ws_id>/artifacts/<artifact_id>", methods=["DELETE"])
-    def api_artifact_delete(ws_id, artifact_id):
-        ws_id, err = _validated_workspace_id(ws_id)
-        if err:
-            return err
-        from artifacts.store import delete_artifact
-        ok = delete_artifact(ws_id, artifact_id)
-        return jsonify({"ok": ok})
-
-    @app.route("/api/workspaces/<ws_id>/artifacts/<artifact_id>/promote", methods=["POST"])
-    def api_artifact_promote(ws_id, artifact_id):
-        ws_id, err = _validated_workspace_id(ws_id)
-        if err:
-            return err
-        data = request.get_json(silent=True) or {}
-        target = data.get("target_scope", "workspace")
-        from artifacts.store import promote_artifact
-        rec = promote_artifact(ws_id, artifact_id, target)
-        if not rec:
-            return jsonify({"ok": False, "error": "promotion blocked"}), 400
-        return jsonify({"ok": True, "artifact": sanitize_record(rec)})
-
-    @app.route("/api/workspaces/<ws_id>/artifacts/<artifact_id>/summarize")
-    def api_artifact_summarize(ws_id, artifact_id):
-        ws_id, err = _validated_workspace_id(ws_id)
-        if err:
-            return err
-        from artifacts.store import summarize_artifact_content
-        s = summarize_artifact_content(ws_id, artifact_id)
-        return jsonify({"ok": True, "summary": s})
-
-    @app.route("/api/workspaces/<ws_id>/runs/<run_id>/artifacts")
-    def api_run_artifacts(ws_id, run_id):
-        ws_id, err = _validated_workspace_id(ws_id)
-        if err:
-            return err
-        from artifacts.store import get_run_artifacts
-        return jsonify({"ok": True, **get_run_artifacts(ws_id, run_id)})
-
-    # ── Trace (Observability) ──
-    @app.route("/api/workspaces/<ws_id>/runs/<run_id>/trace")
-    def api_workspace_trace(ws_id, run_id):
-        ws_id, err = _validated_workspace_id(ws_id)
-        if err:
-            return err
-        from observability.store import get_trace
-        trace = get_trace(run_id, ws_id)
-        if not trace:
-            return jsonify({"ok": False, "error": "trace not found"}), 404
-        return jsonify({"ok": True, "trace": trace})
-
-    @app.route("/api/workspaces/<ws_id>/traces")
-    def api_workspace_traces(ws_id):
-        ws_id, err = _validated_workspace_id(ws_id)
-        if err:
-            return err
-        from observability.store import list_traces
-        return jsonify({"traces": list_traces(ws_id)})
-
-    @app.route("/api/agent/runs/<run_id>/trace")
-    def api_agent_run_trace(run_id):
-        from observability.store import get_trace
-        trace = get_trace(run_id, "default")
-        if not trace:
-            return jsonify({"ok": False, "error": "trace not found"}), 404
-        return jsonify({"ok": True, "trace": trace})
-
-    # ── Reports / Export ──
-    @app.route("/api/reports/create", methods=["POST"])
-    def api_report_create():
-        data = request.get_json(silent=True) or {}
-        workspace_id, err = _validated_workspace_id(data.get("workspace_id", "default"))
-        if err:
-            return err
-        from reports_engine.schemas import ReportRequest
-        from reports_engine.service import create_report as svc_create_report
-        req = ReportRequest(
-            workspace_id=workspace_id,
-            run_id=data.get("run_id", ""),
-            report_type=data.get("report_type", "config_translation"),
-            title=data.get("title", ""),
-            format=data.get("format", "markdown"),
-            include_deployable_config=data.get("include_deployable_config", False),
-            sensitivity=data.get("sensitivity", "internal"),
-        )
-        result = svc_create_report(req)
-        return jsonify(result.as_dict())
-
-    @app.route("/api/workspaces/<ws_id>/runs/<run_id>/report", methods=["POST"])
-    def api_workspace_run_report(ws_id, run_id):
-        ws_id, err = _validated_workspace_id(ws_id)
-        if err:
-            return err
-        data = request.get_json(silent=True) or {}
-        from reports_engine.service import create_config_translation_report
-        result = create_config_translation_report(
-            ws_id, run_id, {},
-            fmt=data.get("format", "markdown"),
-            include_deployable=data.get("include_deployable_config", False),
-        )
-        return jsonify(result.as_dict())
-
-    @app.route("/api/workspaces/<ws_id>/reports")
-    def api_workspace_reports(ws_id):
-        ws_id, err = _validated_workspace_id(ws_id)
-        if err:
-            return err
-        from artifacts.store import list_artifacts
-        arts = list_artifacts(ws_id, artifact_type="report")
-        return jsonify({"reports": arts})
-
-    @app.route("/api/workspaces/<ws_id>/reports/<artifact_id>/content")
-    def api_report_content(ws_id, artifact_id):
-        ws_id, err = _validated_workspace_id(ws_id)
-        if err:
-            return err
-        from artifacts.store import read_artifact_content
-        allow = request.args.get("allow_sensitive", "0") == "1"
-        content = read_artifact_content(ws_id, artifact_id, allow_sensitive=allow)
-        if content is None:
-            return jsonify({"ok": False, "error": "content not accessible"}), 403
-        return jsonify({"ok": True, "content": content})
-
-    # ── Jobs / Task Runtime ──
-    @app.route("/api/jobs", methods=["POST"])
-    def api_job_create():
-        data = request.get_json(silent=True) or {}
-        workspace_id, err = _validated_workspace_id(data.get("workspace_id", "default"))
-        if err:
-            return err
-        from jobs.manager import create_job
-        from jobs.redaction import sanitize_job_record_for_api
-        try:
-            rec = create_job(
-                workspace_id=workspace_id,
-                job_type=data.get("job_type", "agent_run"),
-                title=data.get("title", ""),
-                payload=data.get("payload", {}),
-                input_artifacts=data.get("input_artifacts", []),
-                enqueue=data.get("enqueue", True),
-            )
-            if data.get("run_immediately"):
-                from jobs.runner import run_job
-                run_job(rec.workspace_id, rec.job_id)
-            return jsonify({"ok": True, "job": sanitize_job_record_for_api(rec.as_dict())})
-        except ValueError as e:
-            return jsonify({"ok": False, "error": str(e)}), 400
-
-    @app.route("/api/jobs")
-    def api_jobs_list():
-        ws = request.args.get("workspace_id")
-        if ws:
-            ws, err = _validated_workspace_id(ws)
-            if err:
-                return err
-        status = request.args.get("status")
-        jtype = request.args.get("job_type")
-        lim, err = _validated_limit(default=100, max_value=500)
-        if err:
-            return err
-        from jobs.store import list_jobs
-        return jsonify({"jobs": list_jobs(ws_id=ws, status=status, job_type=jtype, limit=lim)})
-
-    @app.route("/api/jobs/<job_id>")
-    def api_job_detail(job_id):
-        ws = request.args.get("workspace_id", "")
-        if ws:
-            ws, err = _validated_workspace_id(ws)
-            if err:
-                return err
-        from jobs.store import get_job, list_jobs
-        # Search for job across workspaces if ws not specified
-        if ws:
-            rec = get_job(ws, job_id)
-            if not rec: return jsonify({"ok": False, "error": "job not found"}), 404
-            return jsonify({"ok": True, "job": sanitize_job_record_for_api(rec.as_dict())})
-        # Search all workspaces
-        for j in list_jobs():
-            if j.get("job_id") == job_id:
-                return jsonify({"ok": True, "job": j})
-        return jsonify({"ok": False, "error": "job not found"}), 404
-
-    @app.route("/api/workspaces/<ws_id>/jobs")
-    def api_workspace_jobs(ws_id):
-        ws_id, err = _validated_workspace_id(ws_id)
-        if err:
-            return err
-        from jobs.store import list_jobs
-        return jsonify({"jobs": list_jobs(ws_id=ws_id)})
-
-    @app.route("/api/workspaces/<ws_id>/jobs/<job_id>")
-    def api_workspace_job_detail(ws_id, job_id):
-        ws_id, err = _validated_workspace_id(ws_id)
-        if err:
-            return err
-        from jobs.store import get_job
-        rec = get_job(ws_id, job_id)
-        if not rec: return jsonify({"ok": False, "error": "job not found"}), 404
-        return jsonify({"ok": True, "job": sanitize_job_record_for_api(rec.as_dict())})
-
-    @app.route("/api/jobs/<job_id>/cancel", methods=["POST"])
-    def api_job_cancel(job_id):
-        ws, err = _validated_workspace_id((request.get_json(silent=True) or {}).get("workspace_id", "default"))
-        if err:
-            return err
-        from jobs.manager import cancel_job
-        try:
-            rec = cancel_job(ws, job_id)
-            return jsonify({"ok": True, "job": sanitize_job_record_for_api(rec.as_dict())})
-        except ValueError as e:
-            return jsonify({"ok": False, "error": str(e)}), 400
-
-    @app.route("/api/jobs/<job_id>/retry", methods=["POST"])
-    def api_job_retry(job_id):
-        ws, err = _validated_workspace_id((request.get_json(silent=True) or {}).get("workspace_id", "default"))
-        if err:
-            return err
-        from jobs.manager import retry_job
-        try:
-            rec = retry_job(ws, job_id)
-            return jsonify({"ok": True, "job": sanitize_job_record_for_api(rec.as_dict())})
-        except ValueError as e:
-            return jsonify({"ok": False, "error": str(e)}), 400
-
-    @app.route("/api/jobs/<job_id>/events")
-    def api_job_events(job_id):
-        ws, err = _validated_workspace_id(request.args.get("workspace_id", "default"))
-        if err:
-            return err
-        from jobs.store import list_events
-        return jsonify({"events": list_events(ws, job_id)})
-
-    @app.route("/api/jobs/<job_id>/logs")
-    def api_job_logs(job_id):
-        ws, err = _validated_workspace_id(request.args.get("workspace_id", "default"))
-        if err:
-            return err
-        from jobs.store import list_logs
-        return jsonify({"logs": list_logs(ws, job_id)})
-
-    @app.route("/api/jobs/<job_id>/artifacts")
-    def api_job_artifacts(job_id):
-        ws, err = _validated_workspace_id(request.args.get("workspace_id", "default"))
-        if err:
-            return err
-        from jobs.store import get_job
-        rec = get_job(ws, job_id)
-        if not rec: return jsonify({"ok": False, "error": "job not found"}), 404
-        return jsonify({"input_artifacts": rec.input_artifacts,
-                        "output_artifacts": rec.output_artifacts,
-                        "report_artifacts": rec.report_artifacts})
-
-    @app.route("/api/jobs/worker/run-once", methods=["POST"])
-    def api_worker_run_once():
-        from jobs.worker import run_once
-        result = run_once()
-        return jsonify({"ok": True, **result})
-
-    @app.route("/api/jobs/worker/status")
-    def api_worker_status():
-        from jobs.worker import get_worker_state
-        return jsonify(get_worker_state())
-
-    # ── Context / Prompt / Harness ──
-    @app.route("/api/context/status")
-    def api_context_status():
-        return jsonify({
-            "context_runtime_enabled": True,
-            "supported_refs": ["last_result", "last_run", "last_job", "last_report",
-                               "last_artifact", "artifact:<id>", "run:<id>", "job:<id>",
-                               "report:<id>", "current_workspace"],
-            "default_budget": {"max_items": 30, "max_chars": 12000},
-        })
-
-    @app.route("/api/context/resolve", methods=["POST"])
-    def api_context_resolve():
-        data = request.get_json(silent=True) or {}
-        workspace_id, err = _validated_workspace_id(data.get("workspace_id", "default"))
-        if err:
-            return err
-        from context.resolver import resolve_context_ref
-        ref = resolve_context_ref(
-            workspace_id,
-            data.get("context_ref", ""),
-            data.get("payload"),
-        )
-        return jsonify(ref.as_dict())
-
-    @app.route("/api/context/build", methods=["POST"])
-    def api_context_build():
-        data = request.get_json(silent=True) or {}
-        workspace_id, err = _validated_workspace_id(data.get("workspace_id", "default"))
-        if err:
-            return err
-        from context.builder import build_context_bundle
-        bundle = build_context_bundle(
-            workspace_id=workspace_id,
-            user_input=data.get("message", ""),
-            intent=data.get("intent", ""),
-            context_ref=data.get("context_ref", ""),
-            payload=data.get("payload"),
-        )
-        return jsonify(bundle.as_dict())
-
-    @app.route("/api/prompts")
-    def api_prompts():
-        from prompts.loader import list_prompts
-        return jsonify({"prompts": list_prompts()})
-
-    @app.route("/api/prompts/<prompt_id>")
-    def api_prompt_detail(prompt_id):
-        from prompts.loader import get_prompt
-        spec = get_prompt(prompt_id)
-        if not spec:
-            return jsonify({"ok": False, "error": "prompt not found"}), 404
-        return jsonify(spec.as_dict())
-
-    @app.route("/api/prompts/render", methods=["POST"])
-    def api_prompts_render():
-        data = request.get_json(silent=True) or {}
-        workspace_id, err = _validated_workspace_id(data.get("workspace_id", "default"))
-        if err:
-            return err
-        from prompts.loader import render_prompt
-        from context.builder import build_context_bundle
-        bundle = build_context_bundle(
-            workspace_id=workspace_id,
-            user_input=data.get("message", ""),
-            intent=data.get("intent", ""),
-            context_ref=data.get("context_ref", ""),
-        )
-        safe = bundle.safe_llm_context.as_dict() if bundle.safe_llm_context else {}
-        result = render_prompt(
-            task=data.get("task", "response_compose"),
-            safe_context=safe, user_input=data.get("message", ""),
-        )
-        return jsonify(result.as_dict())
-
-    @app.route("/api/harness/status")
-    def api_harness_status():
-        return jsonify({
-            "golden_cases": 4, "scenarios": 4,
-            "prompt_cases": 3, "coverage_matrix_exists": True,
-            "status": "ready",
-        })
 
     # ── Modules ──
     @app.route("/api/modules")
@@ -833,7 +173,7 @@ def create_app():
         reload_all()
         return jsonify({"ok": True, **handle_registry_status().json})
 
-    # ── Module: config-translation (sole translate API) ──
+    # ── Module: config-translation ──
     @app.route("/api/modules/config-translation/translate", methods=["POST"])
     def api_module_config_translate():
         return handle_module_translate()
@@ -862,6 +202,14 @@ def create_app():
     @app.route("/api/memory/<memory_id>", methods=["DELETE"])
     def api_memory_delete(memory_id):
         return handle_memory_delete(memory_id)
+
+    # ── Sub-route registrations ──
+    register_runtime_routes(app)      # /api/runtime/*, /api/workspaces/<ws>/selfcheck, retention, archive
+    register_workspace_routes(app)    # /api/workspaces, /api/runs/*, /api/*/trace, /api/*/reports
+    register_artifact_routes(app)     # /api/workspaces/<ws>/artifacts/*
+    register_job_routes(app)          # /api/jobs/*
+    register_context_routes(app)      # /api/context/*, /api/prompts/*, /api/harness/*
+    register_knowledge_routes(app)    # /api/knowledge/* (sources, search, chunks)
 
     # ── Frontend ──
     @app.route("/")
