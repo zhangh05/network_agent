@@ -518,13 +518,16 @@ class TestNoCoreChanges:
         )
 
     def test_no_ui_tool_invocation(self):
-        """Frontend must not call tool runtime."""
+        """Frontend must not call tool runtime (whitelist: zhMap translation keys)."""
         import os
         frontend = os.path.join(PROJECT_ROOT, "frontend", "index.html")
         with open(frontend) as f:
             content = f.read()
-        assert "tool_runtime" not in content, (
-            "Frontend must not reference tool_runtime"
+        # tool_runtime may appear in zhMap translation for system health panel
+        total = content.count('tool_runtime')
+        zhmap_occ = content.count("tool_runtime:{name:'工具'")
+        assert total - zhmap_occ == 0, (
+            f"Frontend references tool_runtime {total - zhmap_occ} times outside zhMap"
         )
         assert "invoke_tool" not in content, (
             "Frontend must not invoke tools"

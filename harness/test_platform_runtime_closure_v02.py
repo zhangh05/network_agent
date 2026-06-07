@@ -116,7 +116,7 @@ def test_frontend_localstorage_not_history_or_secret_store():
     assert "llm_key:" not in html
     assert "llm_sys:" not in html
     assert "/api/agent/llm/config" in html
-    assert "api_key:" in html
+    assert "payload.api_key" in html  # sent to backend only when user enters new key
     assert "localStorage.setItem('na_settings',JSON.stringify(uiCfg))" in html
 
 

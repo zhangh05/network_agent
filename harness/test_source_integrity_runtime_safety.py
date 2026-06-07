@@ -47,10 +47,10 @@ class TestSourceFormat:
 
 
 class TestReadmeBaseline:
-    def test_readme_has_945_passed(self):
+    def test_readme_has_1224_passed(self):
         with open("README.md") as f:
             c = f.read()
-        assert "945 passed" in c
+        assert "1224 passed" in c
 
     def test_readme_no_old_baseline_493(self):
         with open("README.md") as f:

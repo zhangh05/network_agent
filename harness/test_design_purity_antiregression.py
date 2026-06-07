@@ -285,9 +285,15 @@ class TestNoPublicToolAPI:
         assert '/api/tool' not in c, "Tool HTTP API route found in backend"
 
     def test_no_tool_frontend_invocation(self):
-        """frontend must not call tool runtime."""
+        """frontend must not call tool runtime (whitelist: zhMap + _SENSITIVE_KEYS)."""
         c = _read(PROJECT_ROOT / 'frontend' / 'index.html')
-        assert 'tool_runtime' not in c, "tool_runtime referenced in frontend"
+        # tool_runtime may appear in:
+        # 1. zhMap translation for system health panel
+        # 2. _SENSITIVE_KEYS array (but tool_runtime is not a secret key name)
+        # Count total occurrences and subtract whitelisted ones
+        total = c.count('tool_runtime')
+        zhmap_occ = c.count("tool_runtime:{name:'工具'")
+        assert total - zhmap_occ == 0, f"tool_runtime referenced {total - zhmap_occ} times outside zhMap"
         assert 'invoke_tool' not in c, "invoke_tool referenced in frontend"
 
 
