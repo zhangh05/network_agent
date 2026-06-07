@@ -1,6 +1,6 @@
 {
   "audit": "REGISTRY_CONTRACT_AUDIT",
-  "timestamp": "2026-06-07T12:01:35.427490",
+  "timestamp": "2026-06-07T13:23:16.983438",
   "summary": {
     "critical": 0,
     "issues": 0,
@@ -16,14 +16,14 @@
     "errors": [],
     "warnings": [
       "[skill:topology_draw] unknown skill_type: planned",
-      "[skill:topology_draw] missing recommended red_line: do_not_hide_manual_review",
       "[skill:topology_draw] missing recommended red_line: do_not_call_llm",
+      "[skill:topology_draw] missing recommended red_line: do_not_hide_manual_review",
       "[skill:inspection_analyze] unknown skill_type: planned",
-      "[skill:inspection_analyze] missing recommended red_line: do_not_hide_manual_review",
       "[skill:inspection_analyze] missing recommended red_line: do_not_call_llm",
+      "[skill:inspection_analyze] missing recommended red_line: do_not_hide_manual_review",
       "[skill:knowledge_search] unknown skill_type: planned",
-      "[skill:knowledge_search] missing recommended red_line: do_not_hide_manual_review",
-      "[skill:knowledge_search] missing recommended red_line: do_not_call_llm"
+      "[skill:knowledge_search] missing recommended red_line: do_not_call_llm",
+      "[skill:knowledge_search] missing recommended red_line: do_not_hide_manual_review"
     ],
     "error_count": 0,
     "warning_count": 9,
@@ -60,8 +60,8 @@
         "errors": [],
         "warnings": [
           "unknown skill_type: planned",
-          "missing recommended red_line: do_not_hide_manual_review",
-          "missing recommended red_line: do_not_call_llm"
+          "missing recommended red_line: do_not_call_llm",
+          "missing recommended red_line: do_not_hide_manual_review"
         ]
       },
       "inspection_analyze": {
@@ -69,8 +69,8 @@
         "errors": [],
         "warnings": [
           "unknown skill_type: planned",
-          "missing recommended red_line: do_not_hide_manual_review",
-          "missing recommended red_line: do_not_call_llm"
+          "missing recommended red_line: do_not_call_llm",
+          "missing recommended red_line: do_not_hide_manual_review"
         ]
       },
       "knowledge_search": {
@@ -78,8 +78,8 @@
         "errors": [],
         "warnings": [
           "unknown skill_type: planned",
-          "missing recommended red_line: do_not_hide_manual_review",
-          "missing recommended red_line: do_not_call_llm"
+          "missing recommended red_line: do_not_call_llm",
+          "missing recommended red_line: do_not_hide_manual_review"
         ]
       }
     }
