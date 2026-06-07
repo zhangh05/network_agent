@@ -46,6 +46,26 @@ def register_workspace_routes(app):
         from workspace.manager import get_workspace_state
         return jsonify(get_workspace_state(ws_id))
 
+    @app.route("/api/workspaces/<ws_id>", methods=["DELETE"])
+    def api_workspace_delete(ws_id):
+        ws_id, err = _validated_ws_id(ws_id)
+        if err:
+            return err
+        from workspace.manager import delete_workspace
+        return jsonify(delete_workspace(ws_id))
+
+    @app.route("/api/workspaces/<ws_id>/rename", methods=["POST"])
+    def api_workspace_rename(ws_id):
+        ws_id, err = _validated_ws_id(ws_id)
+        if err:
+            return err
+        data = request.get_json(silent=True) or {}
+        new_id = data.get("new_workspace_id", "")
+        if not new_id:
+            return jsonify({"ok": False, "error": "new_workspace_id required"}), 400
+        from workspace.manager import rename_workspace
+        return jsonify(rename_workspace(ws_id, new_id))
+
     # ── Runs ──
     @app.route("/api/runs/recent")
     def api_runs_recent():

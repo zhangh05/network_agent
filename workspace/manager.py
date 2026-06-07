@@ -118,6 +118,59 @@ def list_workspaces() -> list:
     return workspaces
 
 
+def rename_workspace(old_id: str, new_id: str) -> dict:
+    """Rename a workspace directory. Returns result dict."""
+    old_id = validate_workspace_id(old_id)
+    new_id = validate_workspace_id(new_id)
+    old_path = WS_ROOT / old_id
+    new_path = WS_ROOT / new_id
+    if not old_path.is_dir():
+        return {"ok": False, "error": "workspace not found"}
+    if new_path.exists():
+        return {"ok": False, "error": "target workspace already exists"}
+    try:
+        old_path.rename(new_path)
+        # Update workspace.yaml
+        yaml_path = new_path / "workspace.yaml"
+        if yaml_path.is_file():
+            lines = yaml_path.read_text().splitlines()
+            updated = []
+            for line in lines:
+                if line.startswith("id: "):
+                    updated.append(f"id: {new_id}")
+                elif line.startswith("name: "):
+                    updated.append(f"name: {new_id}")
+                else:
+                    updated.append(line)
+            yaml_path.write_text("\n".join(updated) + "\n")
+        # Update state.json
+        state_path = new_path / "state.json"
+        if state_path.is_file():
+            s = json.loads(state_path.read_text())
+            s["workspace_id"] = new_id
+            s["name"] = new_id
+            state_path.write_text(json.dumps(s, indent=2, ensure_ascii=False))
+        return {"ok": True, "workspace_id": new_id}
+    except Exception as e:
+        return {"ok": False, "error": str(e)}
+
+
+def delete_workspace(ws_id: str) -> dict:
+    """Delete a workspace directory. Returns result dict."""
+    ws_id = validate_workspace_id(ws_id)
+    ws_path = WS_ROOT / ws_id
+    if not ws_path.is_dir():
+        return {"ok": False, "error": "workspace not found"}
+    if ws_id == "default":
+        return {"ok": False, "error": "cannot delete default workspace"}
+    try:
+        import shutil
+        shutil.rmtree(ws_path)
+        return {"ok": True}
+    except Exception as e:
+        return {"ok": False, "error": str(e)}
+
+
 def get_workspace_runs(ws_id: str = "default") -> list:
     """Get all run records for a workspace."""
     ws_id = ensure_workspace(ws_id)

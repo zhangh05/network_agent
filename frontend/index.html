@@ -43,7 +43,7 @@
   .sb-item.active::before{opacity:1}
   .sb-item:disabled{opacity:.3;cursor:not-allowed}
   .sb-item:disabled:hover{background:transparent;color:#94a3b8}
-  .sb-item .icn{width:20px;height:20px;display:flex;align-items:center;justify-content:center;flex-shrink:0;font-size:15px;line-height:1}
+  .sb-item .icn{width:20px;height:20px;display:flex;align-items:center;justify-content:center;flex-shrink:0}
   .sb-item .soon{margin-left:auto;font-size:10px;color:#6b7280;background:rgba(255,255,255,.06);padding:2px 6px;border-radius:5px;font-weight:500}
   .sb-item.active .soon{background:rgba(37,99,235,.18);color:rgba(255,255,255,.6)}
 
@@ -72,6 +72,17 @@
   .ws-d-item.active::before{content:'✓';font-size:11px}
   .ws-d-divider{height:1px;background:var(--n8);margin:2px 0}
   .ws-d-new{color:var(--pri);font-weight:600}
+  .ws-d-actions{margin-left:auto;width:22px;height:22px;border-radius:4px;border:0;background:transparent;color:var(--n5);cursor:pointer;display:flex;align-items:center;justify-content:center;font-size:14px;opacity:0;transition:opacity .15s}
+  .ws-d-item:hover .ws-d-actions{opacity:1}
+  .ws-d-actions:hover{background:var(--n8);color:var(--n2)}
+
+  .ws-popup{position:absolute;background:var(--card);border:1px solid var(--n8);border-radius:8px;box-shadow:0 4px 16px rgba(0,0,0,.15);z-index:400;min-width:120px;overflow:hidden;display:none}
+  .ws-popup.show{display:block}
+  .ws-popup .wp-item{padding:8px 12px;font-size:12px;color:var(--n2);cursor:pointer;display:flex;align-items:center;gap:8px;transition:background .1s}
+  .ws-popup .wp-item:hover{background:var(--n10)}
+  .ws-popup .wp-item.danger{color:var(--dng)}
+  .ws-popup .wp-item.danger:hover{background:#fee2e2}
+  .ws-popup .wp-divider{height:1px;background:var(--n8);margin:2px 0}
 
   .top-spc{flex:1}
   .top-action{width:34px;height:34px;border-radius:8px;border:0;background:transparent;color:var(--n5);cursor:pointer;display:flex;align-items:center;justify-content:center;transition:all .15s}
@@ -309,7 +320,7 @@
 <!-- ═════════════════ Sidebar ═════════════════ -->
 <div id="sidebar">
   <div class="sb-logo">
-    <div class="icon">N</div>
+    <div class="icon"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M12 2v4M12 18v4M4.93 4.93l2.83 2.83M16.24 16.24l2.83 2.83M2 12h4M18 12h4M4.93 19.07l2.83-2.83M16.24 7.76l2.83-2.83"/></svg></div>
     <div class="text">Network Agent</div>
     <div class="ver" id="ver-tag">v3.0</div>
   </div>
@@ -317,36 +328,36 @@
     <div class="sb-group">
       <div class="sb-label">工作台</div>
       <button class="sb-item active" data-page="dashboard" onclick="switchPage('dashboard')">
-        <span class="icn">&#9679;</span><span class="txt">Agent 工作台</span>
+        <span class="icn"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/></svg></span><span class="txt">Agent 工作台</span>
       </button>
       <button class="sb-item" data-page="translate" onclick="switchPage('translate')">
-        <span class="icn">&#8644;</span><span class="txt">配置翻译</span>
+        <span class="icn"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M5 8l6 6M11 8l-6 6M19 5h-4M17 5v12M21 17h-8"/></svg></span><span class="txt">配置翻译</span>
       </button>
       <button class="sb-item" data-page="inspection" onclick="switchPage('inspection')">
-        <span class="icn">&#10070;</span><span class="txt">巡检分析</span>
+        <span class="icn"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"/><path d="M21 21l-4.35-4.35"/><path d="M11 8v6M8 11h6"/></svg></span><span class="txt">巡检分析</span>
         <span class="soon">规划中</span>
       </button>
       <button class="sb-item" data-page="topology" onclick="switchPage('topology')">
-        <span class="icn">&#11042;</span><span class="txt">拓扑绘图</span>
+        <span class="icn"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="18" cy="5" r="3"/><circle cx="6" cy="12" r="3"/><circle cx="18" cy="19" r="3"/><path d="M8.59 13.51l6.83 3.98M15.41 6.51l-6.82 3.98"/></svg></span><span class="txt">拓扑绘图</span>
         <span class="soon">规划中</span>
       </button>
       <button class="sb-item" disabled>
-        <span class="icn">&#9673;</span><span class="txt">知识库</span>
+        <span class="icn"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"/><path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z"/></svg></span><span class="txt">知识库</span>
       </button>
     </div>
     <div class="sb-group">
       <div class="sb-label">管理</div>
       <button class="sb-item" data-page="skills" onclick="switchPage('skills')">
-        <span class="icn">&#9635;</span><span class="txt">Skills 管理</span>
+        <span class="icn"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94l-3.76 3.76z"/></svg></span><span class="txt">Skills 管理</span>
       </button>
       <button class="sb-item" data-page="memory" onclick="switchPage('memory')">
-        <span class="icn">&#9673;</span><span class="txt">Memory 管理</span>
+        <span class="icn"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><ellipse cx="12" cy="5" rx="9" ry="3"/><path d="M21 12c0 1.66-4 3-9 3s-9-1.34-9-3"/><path d="M3 5v14c0 1.66 4 3 9 3s9-1.34 9-3V5"/></svg></span><span class="txt">Memory 管理</span>
       </button>
       <button class="sb-item" data-page="artifacts" onclick="switchPage('artifacts')">
-        <span class="icn">&#128193;</span><span class="txt">Artifacts</span>
+        <span class="icn"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/></svg></span><span class="txt">Artifacts</span>
       </button>
       <button class="sb-item" onclick="openSettings()">
-        <span class="icn">&#9678;</span><span class="txt">系统设置</span>
+        <span class="icn"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg></span><span class="txt">系统设置</span>
       </button>
     </div>
   </div>
@@ -376,6 +387,12 @@
         <div id="ws-d-list"><div class="ws-d-item active" data-ws="default" onclick="selectWorkspace('default',event)">default</div></div>
         <div class="ws-d-divider"></div>
         <div class="ws-d-item ws-d-new" onclick="createNewWorkspace(event)">+ 新建 Workspace</div>
+      </div>
+      <!-- Workspace popup menu -->
+      <div class="ws-popup" id="ws-popup">
+        <div class="wp-item" onclick="doRenameWs()">&#9998; 重命名</div>
+        <div class="wp-divider"></div>
+        <div class="wp-item danger" onclick="doDeleteWs()">&#128465; 删除</div>
       </div>
     </div>
     <div class="top-spc"></div>
@@ -1956,6 +1973,14 @@ function showToast(msg){
   // Clean legacy localStorage
   _clearOldLocalStorage();
 
+  // Fix corrupted workspace ID (e.g. [object Object])
+  try{
+    var rawWs=localStorage.getItem('na_workspace_id');
+    if(rawWs && (rawWs.indexOf('object Object')>=0 || !/^[a-zA-Z0-9_-]+$/.test(rawWs))){
+      localStorage.removeItem('na_workspace_id');
+    }
+  }catch(e){}
+
   // Load workspace ID
   _currentWorkspaceId=_getWorkspaceId();
   if(_currentWorkspaceId!=='default'){
@@ -2143,7 +2168,8 @@ function _loadAllData(){
   // Fetch workspace list
   apiFetch('/api/workspaces').then(function(d){
     var wss=d.workspaces||[];
-    document.getElementById('ws-badge').textContent='default'+(wss.length>1?' (+'+(wss.length-1)+' more)':'');
+    var wsNames=wss.map(function(w){return w.workspace_id||w;});
+    document.getElementById('ws-badge').textContent='default'+(wsNames.length>1?' (+'+(wsNames.length-1)+' more)':'');
   }).catch(function(){});
 
   // Workspace ID in localStorage
@@ -2217,11 +2243,16 @@ function loadWorkspaceList(){
   var current=_getWorkspaceId();
   apiFetch('/api/workspaces',{retries:1}).then(function(d){
     var wss=d.workspaces||[];
-    if(!wss.length){wss=['default'];}
+    if(!wss.length){wss=[{workspace_id:'default'}];}
     var html='';
     wss.forEach(function(ws){
-      var isActive=ws===current;
-      html+='<div class="ws-d-item '+(isActive?'active':'')+'" data-ws="'+esc(ws)+'" onclick="selectWorkspace(\''+esc(ws)+'\',event)">'+esc(ws)+'</div>';
+      var wsId=(ws&&ws.workspace_id)?ws.workspace_id:ws;
+      var isActive=wsId===current;
+      var stats='';
+      if(ws&&ws.runs_count!==undefined){
+        stats='<span style="margin-left:auto;font-size:11px;color:var(--n5)">runs:'+ws.runs_count+' art:'+ws.artifacts_count+'</span>';
+      }
+      html+='<div class="ws-d-item '+(isActive?'active':'')+'" data-ws="'+esc(wsId)+'" onclick="selectWorkspace(\''+esc(wsId)+'\',event)">'+esc(wsId)+stats+'<button class="ws-d-actions" onclick="event.stopPropagation();showWsMenu(\''+esc(wsId)+'\',event)">&#8942;</button></div>';
     });
     list.innerHTML=html;
   }).catch(function(){
@@ -2240,6 +2271,77 @@ function selectWorkspace(wsId,event){
     localStorage.removeItem('na_current_session_id');
   }catch(e){}
   location.reload();
+}
+
+/* ── Workspace management ── */
+var _wsMenuTargetId=null;
+function showWsMenu(wsId,event){
+  event.stopPropagation();
+  _wsMenuTargetId=wsId;
+  var popup=document.getElementById('ws-popup');
+  popup.style.display='block';
+  var rect=event.target.getBoundingClientRect();
+  popup.style.left=(rect.left-100)+'px';
+  popup.style.top=(rect.bottom+4)+'px';
+  setTimeout(function(){
+    document.addEventListener('click',hideWsMenu,{once:true});
+  },50);
+}
+function hideWsMenu(e){
+  var popup=document.getElementById('ws-popup');
+  if(popup && !popup.contains(e.target)){
+    popup.style.display='none';
+    _wsMenuTargetId=null;
+  }
+}
+function doRenameWs(){
+  document.getElementById('ws-popup').style.display='none';
+  if(!_wsMenuTargetId || _wsMenuTargetId==='default'){
+    showToast('default workspace 不可重命名');
+    return;
+  }
+  var newName=prompt('重命名 workspace "'+_wsMenuTargetId+'" 为：','');
+  if(!newName || newName===_wsMenuTargetId) return;
+  if(!/^[a-zA-Z0-9_-]+$/.test(newName)){
+    showToast('workspace_id 只能包含字母、数字、下划线和连字符');
+    return;
+  }
+  apiFetch('/api/workspaces/'+encodeURIComponent(_wsMenuTargetId)+'/rename',{method:'POST',body:JSON.stringify({new_workspace_id:newName}),headers:{'Content-Type':'application/json'}})
+  .then(function(d){
+    if(d.ok){
+      showToast('已重命名为 '+newName);
+      var saved=_getWorkspaceId();
+      if(saved===_wsMenuTargetId){
+        try{localStorage.setItem('na_workspace_id',newName);}catch(e){}
+      }
+      loadWorkspaceList();
+    }else{
+      showToast(d.error||'重命名失败');
+    }
+  }).catch(function(){showToast('重命名请求失败');});
+}
+function doDeleteWs(){
+  document.getElementById('ws-popup').style.display='none';
+  if(!_wsMenuTargetId || _wsMenuTargetId==='default'){
+    showToast('default workspace 不可删除');
+    return;
+  }
+  if(!confirm('确定要删除 workspace "'+_wsMenuTargetId+'" 吗？\n该操作不可恢复，所有关联数据将被清除。')) return;
+  apiFetch('/api/workspaces/'+encodeURIComponent(_wsMenuTargetId),{method:'DELETE'})
+  .then(function(d){
+    if(d.ok){
+      showToast('已删除 '+_wsMenuTargetId);
+      var saved=_getWorkspaceId();
+      if(saved===_wsMenuTargetId){
+        try{localStorage.removeItem('na_workspace_id');localStorage.removeItem('na_current_session_id');}catch(e){}
+        location.reload();
+      }else{
+        loadWorkspaceList();
+      }
+    }else{
+      showToast(d.error||'删除失败');
+    }
+  }).catch(function(){showToast('删除请求失败');});
 }
 function createNewWorkspace(event){
   event.stopPropagation();
