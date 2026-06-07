@@ -18,10 +18,17 @@ reports/*key*
 # workspaces runtime data (workspace.yaml tracked for default only)
 workspaces/*/state.json
 workspaces/*/runs/
+workspaces/*/sessions/
 workspaces/*/artifacts/
 workspaces/*/indexes/
 workspaces/*/runtime_audits/
 workspaces/*/workspace.yaml
+# Exclude test workspaces entirely
+workspaces/api_contract_test/
+workspaces/test_ws/
+workspaces/ws_a/
+workspaces/ws_b/
+workspaces/default_get_or_create/
 config/LLM_setting.json
 config/llm.local.json
 API_key.txt
