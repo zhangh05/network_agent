@@ -9,12 +9,13 @@ def compose(state: NetworkAgentState) -> NetworkAgentState:
     result = state.skill_results or state.tool_results or {}
     intent = state.intent
 
-    # Default deterministic response — assistant_chat uses full state context
+    # ── assistant_chat: try LLM first, fallback to deterministic ──
     if intent == "assistant_chat":
-        state.final_response = _assistant_response(state)
-        _set_llm_bypass_metadata(state, "assistant_chat_deterministic")
+        _compose_assistant_chat(state)
         return state
-    elif intent == "context_qa":
+
+    # ── context_qa: term explain shortcut ──
+    if intent == "context_qa":
         term = _quality_term_response(state.user_input or "")
         if term:
             state.final_response = term
@@ -24,7 +25,7 @@ def compose(state: NetworkAgentState) -> NetworkAgentState:
     else:
         deterministic = _deterministic(result, intent)
 
-    # Try LLM
+    # Try LLM for non-chat intents
     try:
         from agent.llm.runtime import safe_generate
         from agent.llm.config import resolve_provider_config
@@ -42,7 +43,6 @@ def compose(state: NetworkAgentState) -> NetworkAgentState:
         })
 
         if cfg.get("enabled") and cfg.get("provider_type") != "disabled":
-            # Select task based on intent and context
             task = _select_prompt_task(state)
             output = safe_generate(task, state, user_input=state.user_input)
             state.context["llm"].update({
@@ -58,28 +58,70 @@ def compose(state: NetworkAgentState) -> NetworkAgentState:
                 "violations": output.warnings,
             })
 
-        if output.llm_used and output.safe_to_show:
-            state.final_response = output.answer
-            state.warnings.extend(output.warnings)
-            return state
-
-        # Not LLM-augmented? Try assistant_chat via LLM specifically
-        if intent == "assistant_chat" and cfg.get("enabled") and cfg.get("provider_type") != "disabled":
-            try:
-                output2 = safe_generate("assistant_chat", state, user_input=state.user_input)
-                if output2.llm_used and output2.safe_to_show:
-                    state.final_response = output2.answer
-                    state.warnings.extend(output2.warnings)
-                    state.context["llm"].update({"used": True, "task": "assistant_chat"})
-                    return state
-            except Exception:
-                pass
+            if output.llm_used and output.safe_to_show:
+                state.final_response = output.answer
+                state.warnings.extend(output.warnings)
+                return state
     except Exception:
         pass
 
     # Fallback to deterministic
     state.final_response = deterministic
     return state
+
+
+def _compose_assistant_chat(state: NetworkAgentState):
+    """Compose assistant_chat response: try LLM, fallback to deterministic."""
+    import traceback
+    state.context.setdefault("llm", {})
+    llm = state.context["llm"]
+
+    # 1. Try LLM
+    try:
+        from agent.llm.runtime import safe_generate
+        from agent.llm.config import resolve_provider_config
+        cfg = resolve_provider_config()
+
+        llm.update({
+            "enabled": cfg.get("enabled", False),
+            "config_source": cfg.get("config_source", "default"),
+            "provider_type": cfg.get("provider_type", "disabled"),
+            "provider": cfg.get("provider", cfg.get("default_provider", "disabled")),
+            "model": cfg.get("model", ""),
+        })
+
+        if cfg.get("enabled") and cfg.get("provider_type") != "disabled":
+            try:
+                output = safe_generate("assistant_chat", state, user_input=state.user_input)
+                llm.update({
+                    "used": output.llm_used,
+                    "task": "assistant_chat",
+                    "prompt_id": (output.metadata or {}).get("prompt_id", "") if output.metadata else "",
+                    "policy_pass": output.policy_decision.allowed if output.policy_decision else False,
+                })
+                if output.llm_used and output.safe_to_show:
+                    state.final_response = output.answer
+                    state.warnings.extend(output.warnings)
+                    llm["fallback"] = False
+                    return
+                else:
+                    llm["fallback"] = True
+                    llm["fallback_reason"] = output.fallback_reason or "llm output blocked by policy"
+            except Exception as e:
+                llm["fallback"] = True
+                llm["fallback_reason"] = f"provider unavailable: {str(e)[:100]}"
+        else:
+            llm["fallback"] = True
+            llm["fallback_reason"] = "llm disabled"
+    except Exception as e:
+        llm["fallback"] = True
+        llm["fallback_reason"] = f"config error: {str(e)[:100]}"
+
+    # 2. Deterministic fallback
+    state.final_response = _assistant_response(state)
+    if not llm.get("fallback"):
+        llm["fallback"] = True
+        llm["fallback_reason"] = llm.get("fallback_reason") or "deterministic fallback"
 
 
 def _deterministic(result: dict, intent: str) -> str:

@@ -1,6 +1,27 @@
 version: "1.0.0"
 description: "Network Agent Prompt Registry"
 prompts:
+  - prompt_id: assistant.chat.v1
+    task: assistant_chat
+    version: v1
+    status: enabled
+    template_path: prompts/templates/assistant_chat.md
+    description: "Basic assistant conversation for Network Agent"
+    input_policy:
+      allow_full_source_config: false
+      allow_full_deployable_config: false
+      allow_full_artifact_content: false
+      allow_secret: false
+      max_context_chars: 4000
+    output_policy:
+      forbid_deployable_generation: true
+      forbid_deployable_modification: true
+      forbid_hide_manual_review: true
+      forbid_direct_deploy_claim: true
+      forbid_fake_trace_or_job_status: true
+      forbid_fake_artifact_id: true
+      forbid_secret_output: true
+
   - prompt_id: response.compose.v1
     task: response_compose
     version: v1

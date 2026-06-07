@@ -7,6 +7,7 @@ from enum import Enum
 
 
 class LLMTask(str, Enum):
+    ASSISTANT_CHAT = "assistant_chat"
     RESPONSE_COMPOSE = "response_compose"
     MANUAL_REVIEW_EXPLAIN = "manual_review_explain"
     RESULT_SUMMARIZE = "result_summarize"
