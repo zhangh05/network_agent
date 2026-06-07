@@ -552,16 +552,10 @@ router ospf 1
           </div>
           <table>
             <thead>
-              <tr><th>名称</th><th>状态</th><th>类型</th><th>关联模块</th><th>描述</th></tr>
+              <tr><th>名称</th><th>显示名</th><th>状态</th><th>模块</th><th>已规划</th></tr>
             </thead>
             <tbody id="skills-tbody">
-              <tr>
-                <td style="font-weight:600">config_translation</td>
-                <td><span class="tag tag-gr">enabled</span></td>
-                <td>python_adapter</td>
-                <td>config_translation</td>
-                <td style="max-width:260px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">多厂商网络配置翻译与适配</td>
-              </tr>
+              <tr><td colspan="5" style="text-align:center;color:var(--n5);padding:24px"><span class="spinner" style="margin-right:6px"></span>加载中…</td></tr>
             </tbody>
           </table>
         </div>
@@ -930,6 +924,33 @@ function _clearOldLocalStorage(){
 
 /* ── Page switch ── */
 
+/* ── Skills page ── */
+function loadSkillsPage(){
+  var tbody=document.getElementById('skills-tbody');
+  apiFetch('/api/skills',{retries:1}).then(function(d){
+    var skills=d.skills||[];
+    if(!skills.length){
+      tbody.innerHTML='<tr><td colspan="5" style="text-align:center;color:var(--n5);padding:24px">暂无注册 Skill</td></tr>';
+      return;
+    }
+    var html='';
+    skills.forEach(function(s){
+      var statusTag=s.enabled?'tag-gr':'tag-ye';
+      var statusText=s.enabled?'enabled':(s.planned?'planned':'disabled');
+      html+='<tr>';
+      html+='<td style="font-weight:600">'+esc(s.skill_name||'')+'</td>';
+      html+='<td>'+esc(s.display_name||'—')+'</td>';
+      html+='<td><span class="tag '+statusTag+'">'+statusText+'</span></td>';
+      html+='<td>'+esc(s.module||'—')+'</td>';
+      html+='<td>'+(s.planned?'<span class="tag tag-ye">yes</span>':'<span class="tag tag-gy">no</span>')+'</td>';
+      html+='</tr>';
+    });
+    tbody.innerHTML=html;
+  }).catch(function(){
+    tbody.innerHTML='<tr><td colspan="5" style="text-align:center;color:var(--dng);padding:24px">加载失败</td></tr>';
+  });
+}
+
 /* ── UI Actions: Agent → Frontend instruction bridge ── */
 function executeUIActions(actions){
   if(!actions || !actions.length) return;
@@ -988,6 +1009,7 @@ function switchPage(name){
   document.getElementById('bread-page').textContent=pageNames[name]||name;
   if(name==='memory') loadMemoryPage();
   if(name==='artifacts'){loadArtifacts();loadKnowledgeStatus();}
+  if(name==='skills') loadSkillsPage();
 }
 
 /* ── Memory page ── */
