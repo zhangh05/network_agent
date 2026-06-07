@@ -322,6 +322,8 @@ def run_agent(user_input: str = "", intent: str = "", payload: dict = None,
         # ── Quality ──
         "quality_summary": _safe_quality_summary(result),
         "manual_review_count": len(result.get("manual_review", [])),
+        # ── UI Actions (Agent → Frontend bridge) ──
+        "ui_actions": state.ui_actions,
         # ── Trace ──
         "trace_id": trace_id,
         "trace_available": True,

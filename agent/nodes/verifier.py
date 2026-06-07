@@ -38,6 +38,19 @@ def verify(state: NetworkAgentState) -> NetworkAgentState:
     checks["no_full_output"] = "full_output" not in result
     checks["external_dep_clean"] = result.get("external_translator_dependency") in (False, None)
     checks["no_llm_deployable"] = result.get("translator_entry") == "translate_bundle"
+    checks["has_mapping_log"] = bool(result.get("mapping_log"))
+
+    # Post-translate review safety: verify LLM output doesn't leak deployable config
+    if state.final_response and result.get("ok"):
+        response = state.final_response.lower()
+        secret_kws = ["password:", "token:", "api_key:", "private_key:", "community:", "enable secret", "snmp-server community"]
+        checks["post_review_no_secrets"] = not any(kw in response for kw in secret_kws)
+        deploy_kws = ["可直接下发", "可直接部署", "可以直接配置", "可以直接执行"]
+        checks["post_review_no_deploy_claim"] = not any(dc in response for dc in deploy_kws)
+        # Check response doesn't contain full deployable_config (more than ~5 lines of config)
+        lines = state.final_response.split("\n")
+        config_like_lines = sum(1 for l in lines if l.strip() and not l.strip().startswith(("#", "-", "*", ">", " ", ":", "1.", "2.", "3.", "4.", "5.")))
+        checks["post_review_no_full_config"] = config_like_lines <= 10
 
     if result.get("ok"):
         checks["status"] = "pass" if all(checks.values()) else "fail"

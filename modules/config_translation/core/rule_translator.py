@@ -44,7 +44,7 @@ COMWARE_VENDORS = {"h3c", "huawei", "ruijie"}
 
 
 def _make_review_candidate(source_line, reason, from_vendor, to_vendor,
-                            module=""):
+                            module="", source_line_number=0, rule_id=""):
     """Create a MANUAL_REVIEW TranslationCandidate."""
     from modules.config_translation.core.translation_model import TranslationCandidate, Provenance, Confidence, Origin
     return TranslationCandidate(
@@ -57,6 +57,8 @@ def _make_review_candidate(source_line, reason, from_vendor, to_vendor,
         origin=Origin.RAW_FALLBACK,
         module=module,
         evidence={"reason": reason},
+        source_line_number=source_line_number,
+        rule_id=rule_id or f"manual_review__{reason[:40]}",
     )
 
 
@@ -255,6 +257,24 @@ class RuleBasedTranslator:
                     el = evidence.get("source_line_end", 0)
                     for ln in range(sl, el + 1):
                         typed_covered_lines.add(ln)
+                    # Annotate rule_id for mapping log
+                    block_type = evidence.get("block_type", "")
+                    protocol = evidence.get("protocol", "")
+                    if not tc.rule_id:
+                        if block_type.startswith("interface"):
+                            tc.rule_id = "typed_interface"
+                        elif protocol:
+                            tc.rule_id = f"typed_{protocol}"
+                        elif block_type == "vlan":
+                            tc.rule_id = "typed_vlan"
+                        elif block_type == "static_route":
+                            tc.rule_id = "typed_static_route"
+                        elif block_type == "lldp":
+                            tc.rule_id = "typed_lldp"
+                        else:
+                            tc.rule_id = f"typed_ir__{block_type}"
+                    if tc.source_line_number <= 0:
+                        tc.source_line_number = sl
                     # Interface tracking
                     if evidence.get("block_type", "").startswith("interface"):
                         typed_interface_count += 1
@@ -331,6 +351,8 @@ class RuleBasedTranslator:
                 candidates.append(_make_review_candidate(
                     raw, "high-risk pattern: requires manual review",
                     from_vendor, to_vendor, module="firewall",
+                    source_line_number=line_num,
+                    rule_id="manual_review__high_risk",
                 ))
                 review_count += 1
                 continue
@@ -345,6 +367,10 @@ class RuleBasedTranslator:
                         item.evidence = {}
                     if item.evidence.get("source_line_start", 0) <= 0:
                         item.evidence["source_line_start"] = line_num
+                    if item.source_line_number <= 0:
+                        item.source_line_number = line_num
+                    if not item.rule_id:
+                        item.rule_id = item.evidence.get("rule_id", f"factory__{item.module or 'unknown'}")
                     candidates.append(item)
                     candidate_count += 1
                 continue
@@ -362,6 +388,8 @@ class RuleBasedTranslator:
                     source_platform=from_vendor, target_platform=to_vendor,
                     provenance=prov, confidence=conf,
                     origin=Origin.SAME_VENDOR, module=module,
+                    source_line_number=line_num,
+                    rule_id=f"passthrough__{module or 'unknown'}",
                 ))
             else:
                 # Cross-vendor unmatched → conservative: manual_review
@@ -369,12 +397,16 @@ class RuleBasedTranslator:
                     candidates.append(_make_review_candidate(
                         raw, f"cross-vendor {module}: requires manual review",
                         from_vendor, to_vendor, module=module,
+                        source_line_number=line_num,
+                        rule_id="manual_review__cross_vendor_comware",
                     ))
                     review_count += 1
                 else:
                     candidates.append(_make_review_candidate(
                         raw, f"cross-vendor '{stripped[:50]}': requires manual review",
                         from_vendor, to_vendor, module=module,
+                        source_line_number=line_num,
+                        rule_id="manual_review__cross_vendor_unmatched",
                     ))
                     review_count += 1
 

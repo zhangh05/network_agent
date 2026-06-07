@@ -177,6 +177,7 @@ def translate_config(req: TranslateRequest) -> TranslateResponse:
         manual_review_count=mr_count,
         semantic_near_count=sn_count,
         unsupported_count=un_count,
+        mapping_log=bundle.mapping_log,
         build_commit=BUILD_COMMIT,
         translator_entry=TRANSLATOR_ENTRY,
         elapsed_ms=round(elapsed_ms),

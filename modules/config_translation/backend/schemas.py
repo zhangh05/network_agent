@@ -38,6 +38,7 @@ class TranslateResponse:
     manual_review_count: int = 0
     semantic_near_count: int = 0
     unsupported_count: int = 0
+    mapping_log: list = field(default_factory=list)
     warnings: list = field(default_factory=list)
     build_commit: str = ""
     translator_entry: str = "translate_bundle"
@@ -55,6 +56,7 @@ class TranslateResponse:
             "manual_review_count": self.manual_review_count,
             "semantic_near_count": self.semantic_near_count,
             "unsupported_count": self.unsupported_count,
+            "mapping_log": self.mapping_log,
             "warnings": self.warnings,
             "build_commit": self.build_commit,
             "translator_entry": self.translator_entry,

@@ -264,6 +264,10 @@
   /* ── Loading spinner ── */
   .spinner{display:inline-block;width:14px;height:14px;border:2px solid var(--n7);border-top-color:var(--pri);border-radius:50%;animation:spin .8s linear infinite}
   @keyframes spin{to{transform:rotate(360deg)}}
+  @keyframes pulse-ring{0%{box-shadow:0 0 0 0 rgba(99,153,34,.5)}70%{box-shadow:0 0 0 10px rgba(99,153,34,0)}100%{box-shadow:0 0 0 0 rgba(99,153,34,0)}}
+  @keyframes tooltipFade{0%{opacity:0;transform:translateY(4px)}20%{opacity:1;transform:translateY(0)}80%{opacity:1}100%{opacity:0}}
+  .pulse-ring{animation:pulse-ring 1.5s ease-out 2}
+  .ui-tooltip{font-family:-apple-system,BlinkMacSystemFont,sans-serif}
     #sidebar{width:64px!important}
     .sb-logo .text,.sb-logo .ver,.sb-label,.sb-item .txt,.sb-item .soon{display:none}
     .sb-item{justify-content:center;padding:10px;gap:0}
@@ -848,6 +852,55 @@ function _clearOldLocalStorage(){
 }
 
 /* ── Page switch ── */
+
+/* ── UI Actions: Agent → Frontend instruction bridge ── */
+function executeUIActions(actions){
+  if(!actions || !actions.length) return;
+  actions.forEach(function(act){
+    switch(act.action){
+      case 'switch_page':
+        switchPage(act.target);
+        break;
+      case 'fill_form':
+        var el=document.getElementById(act.target);
+        if(el){
+          el.value=act.value||'';
+          el.dispatchEvent(new Event('input',{bubbles:true}));
+        }
+        break;
+      case 'set_select':
+        var sel=document.getElementById(act.target);
+        if(sel){
+          sel.value=act.value||'';
+          sel.dispatchEvent(new Event('change',{bubbles:true}));
+        }
+        break;
+      case 'highlight':
+        var btn=document.getElementById(act.target);
+        if(btn){
+          btn.classList.add('pulse-ring');
+          setTimeout(function(){btn.classList.remove('pulse-ring');},3000);
+        }
+        break;
+      case 'tooltip':
+        var tgt=document.getElementById(act.target);
+        if(tgt){
+          var tip=document.createElement('div');
+          tip.className='ui-tooltip';
+          tip.textContent=act.value||act.params?.message||'';
+          var rect=tgt.getBoundingClientRect();
+          tip.style.cssText='position:fixed;top:'+(rect.top-28)+'px;left:'+rect.left+'px;'
+            +'background:#333;color:#fff;padding:4px 10px;border-radius:6px;font-size:12px;'
+            +'z-index:9999;pointer-events:none;white-space:nowrap;'
+            +'animation:tooltipFade 2s ease-out forwards;';
+          document.body.appendChild(tip);
+          setTimeout(function(){tip.remove();},2200);
+        }
+        break;
+    }
+  });
+}
+
 function switchPage(name){
   document.querySelectorAll('.page').forEach(function(p){p.classList.remove('active');});
   document.querySelectorAll('.sb-item').forEach(function(b){b.classList.remove('active');});
@@ -1434,6 +1487,11 @@ function _doSendAgent(txt,thinkEl,body,sessionId,workspaceId){
           var activeTrTab=document.querySelector('[data-trtab].active');
           if(activeTrTab) renderTrTab(activeTrTab.dataset.trtab);
         }
+      }
+
+      // Execute UI Actions from Agent
+      if(d.ui_actions && d.ui_actions.length>0){
+        executeUIActions(d.ui_actions);
       }
 
       // Knowledge query: show source refs

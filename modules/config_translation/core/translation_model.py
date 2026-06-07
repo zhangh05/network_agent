@@ -14,9 +14,31 @@ All deployable_config writes MUST go through TranslationBundle.
 
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass, field
 from enum import Enum
 from typing import Any, Dict, List, Optional
+
+
+# Regex patterns for secret redaction in mapping log
+_SECRET_PATTERNS: List[tuple] = [
+    (re.compile(r'(password\s+)(\S+)', re.IGNORECASE), r'\1[REDACTED]'),
+    (re.compile(r'(secret\s+)(\S+)', re.IGNORECASE), r'\1[REDACTED]'),
+    (re.compile(r'(key\s+)(\S+)', re.IGNORECASE), r'\1[REDACTED]'),
+    (re.compile(r'(community\s+)(\S+)', re.IGNORECASE), r'\1[REDACTED]'),
+    (re.compile(r'(pre-shared-key\s+)(\S+)', re.IGNORECASE), r'\1[REDACTED]'),
+    (re.compile(r'(encrypted\s+)(\S+)', re.IGNORECASE), r'\1[REDACTED]'),
+    (re.compile(r'(cipher\s+)(\S+)', re.IGNORECASE), r'\1[REDACTED]'),
+    (re.compile(r'(snmp-server\s+community\s+)(\S+)', re.IGNORECASE), r'\1[REDACTED]'),
+]
+
+
+def _redact_secrets_for_log(text: str) -> str:
+    """Redact secrets/passwords from a single line for safe logging."""
+    result = text
+    for pattern, replacement in _SECRET_PATTERNS:
+        result = pattern.sub(replacement, result)
+    return result
 
 
 # ── Enums ──────────────────────────────────────────────────────────────────
@@ -73,6 +95,8 @@ class TranslationCandidate:
     risk_tags: List[str] = field(default_factory=list)
     evidence: Dict[str, Any] = field(default_factory=dict)
     origin: Origin = Origin.RAW_FALLBACK
+    source_line_number: int = 0                   # 1-based line number in source config
+    rule_id: str = ""                             # rule identifier (e.g. "interface_name", "typed_bgp")
 
     @property
     def is_cross_vendor(self) -> bool:
@@ -231,6 +255,85 @@ class TranslationBundle:
             "full_output": self.wrapped_full_output,
             "audit": self.audit,
         }
+
+    @property
+    def mapping_log(self) -> List[Dict[str, Any]]:
+        """Decision log: per-line mapping trace for Agent/LLM consumption.
+
+        Each entry records: what source line → what target line → which rule → confidence.
+        No deployable_config or raw secrets — safe for LLM context.
+        """
+        log: List[Dict[str, Any]] = []
+        source_lines = self._source_text.splitlines() if self._source_text else []
+
+        for classified_item in self.classified:
+            # Determine source line number and text
+            source_excerpt = (classified_item.source_line or "").strip()
+            line_num = 0
+            # Try to find the matching source line by content
+            for idx, sl in enumerate(source_lines):
+                stripped = sl.strip()
+                if stripped and stripped == source_excerpt:
+                    line_num = idx + 1
+                    break
+
+            # Redact secrets from source_excerpt
+            safe_source = _redact_secrets_for_log(source_excerpt)
+            safe_target = _redact_secrets_for_log(classified_item.line.strip())
+
+            # Determine rule_type and rule_id
+            rule_type = "unknown"
+            rule_id = classified_item.reason or ""
+            if classified_item.target == TranslationTarget.DEPLOYABLE:
+                if classified_item.provenance == Provenance.EXACT_RULE:
+                    rule_type = "exact_match"
+                elif classified_item.provenance == Provenance.TYPED_RENDERER:
+                    rule_type = "typed_ir"
+                elif classified_item.origin == Origin.SAME_VENDOR:
+                    rule_type = "passthrough"
+                else:
+                    rule_type = "pattern_match"
+            elif classified_item.target == TranslationTarget.MANUAL_REVIEW:
+                rule_type = "manual_review"
+            elif classified_item.target == TranslationTarget.SEMANTIC_NEAR:
+                rule_type = "semantic_near"
+            elif classified_item.target == TranslationTarget.UNSUPPORTED:
+                rule_type = "unsupported"
+
+            # Confidence score
+            conf_map = {
+                Confidence.EXACT: 1.0,
+                Confidence.HIGH: 0.9,
+                Confidence.MEDIUM: 0.7,
+                Confidence.LOW: 0.4,
+                Confidence.NONE: 0.0,
+            }
+            confidence_score = conf_map.get(classified_item.confidence, 0.0)
+
+            # Build comment
+            comment_parts = []
+            if classified_item.target == TranslationTarget.MANUAL_REVIEW:
+                comment_parts.append(f"需要人工复核: {classified_item.reason}")
+            elif classified_item.target == TranslationTarget.SEMANTIC_NEAR:
+                comment_parts.append(f"语义近似转换: {classified_item.reason}")
+            elif classified_item.target == TranslationTarget.UNSUPPORTED:
+                comment_parts.append(f"不支持: {classified_item.reason}")
+
+            # Add confirmation points
+            for cp in classified_item.confirmation_points:
+                comment_parts.append(cp)
+
+            log.append({
+                "line_number": line_num,
+                "source_line": safe_source,
+                "target_line": safe_target,
+                "rule_id": rule_id,
+                "rule_type": rule_type,
+                "confidence": round(confidence_score, 2),
+                "comment": "; ".join(comment_parts) if comment_parts else "直接映射",
+            })
+
+        return log
 
     @classmethod
     def from_classified(cls, classified: List[ClassifiedTranslation],

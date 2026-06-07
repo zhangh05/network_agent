@@ -14,6 +14,11 @@ def compose(state: NetworkAgentState) -> NetworkAgentState:
         _compose_assistant_chat(state)
         return state
 
+    # ── translate_config: UI actions + post-translate LLM review ──
+    if intent == "translate_config" and result.get("ok"):
+        _compose_translate_config(state, result)
+        return state
+
     # ── context_qa: term explain shortcut ──
     if intent == "context_qa":
         term = _quality_term_response(state.user_input or "")
@@ -122,6 +127,131 @@ def _compose_assistant_chat(state: NetworkAgentState):
     if not llm.get("fallback"):
         llm["fallback"] = True
         llm["fallback_reason"] = llm.get("fallback_reason") or "deterministic fallback"
+
+
+def _compose_translate_config(state: NetworkAgentState, result: dict):
+    """Compose translate_config: generate UI actions + post-translate LLM review.
+
+    Two-phase:
+      1. UI Actions: auto-fill translation panel (if triggered from chat)
+      2. Post-translate LLM review: read mapping_log → generate feedback
+    """
+    llm = state.context.setdefault("llm", {})
+
+    # ── Phase 1: Generate UI actions to auto-fill translation panel ──
+    source_config = state.payload.get("source_config", "")
+    source_vendor = state.payload.get("source_vendor", "auto")
+    target_vendor = state.payload.get("target_vendor", "huawei")
+
+    # Only generate UI actions when translation was triggered from chat
+    # (not when user manually used the translation panel)
+    if source_config:
+        ui_actions = [
+            {"action": "switch_page", "target": "translate", "params": {}},
+            {"action": "fill_form", "target": "tr-source", "value": source_config},
+        ]
+        if source_vendor and source_vendor != "auto":
+            ui_actions.append({"action": "set_select", "target": "tr-fv", "value": source_vendor})
+        if target_vendor:
+            ui_actions.append({"action": "set_select", "target": "tr-tv", "value": target_vendor})
+        ui_actions.append({"action": "highlight", "target": "tr-btn", "params": {"effect": "pulse"}})
+        state.ui_actions = ui_actions
+
+    # ── Phase 2: Post-translate LLM review ──
+    mapping_log = result.get("mapping_log", [])
+    quality_summary = result.get("quality_summary", {})
+
+    # Build safe context for LLM review
+    mr = result.get("manual_review", [])
+    sn = result.get("semantic_near", [])
+    us = result.get("unsupported", [])
+
+    dc = result.get("deployable_config", "")
+    deployable_lines = len([l for l in dc.strip().split("\n") if l.strip()]) if dc else 0
+
+    # Summary stats
+    stats = {
+        "total_lines": len(mapping_log),
+        "deployable_lines": deployable_lines,
+        "manual_review_count": len(mr),
+        "semantic_near_count": len(sn),
+        "unsupported_count": len(us),
+        "exact_match_count": sum(1 for m in mapping_log if m.get("rule_type") == "exact_match"),
+        "typed_ir_count": sum(1 for m in mapping_log if m.get("rule_type") == "typed_ir"),
+        "passthrough_count": sum(1 for m in mapping_log if m.get("rule_type") == "passthrough"),
+        "pattern_match_count": sum(1 for m in mapping_log if m.get("rule_type") == "pattern_match"),
+        "manual_review_log_count": sum(1 for m in mapping_log if m.get("rule_type") == "manual_review"),
+        "unsupported_log_count": sum(1 for m in mapping_log if m.get("rule_type") == "unsupported"),
+        "high_confidence": sum(1 for m in mapping_log if m.get("confidence", 0) >= 0.9),
+        "low_confidence": sum(1 for m in mapping_log if m.get("confidence", 0) <= 0.4),
+    }
+
+    # Top manual review items (with safe excerpts)
+    top_review = [
+        {
+            "line_number": m.get("line_number", 0),
+            "source_line": m.get("source_line", ""),
+            "target_line": m.get("target_line", ""),
+            "comment": m.get("comment", ""),
+        }
+        for m in mapping_log
+        if m.get("rule_type") in ("manual_review", "unsupported", "semantic_near")
+    ][:5]
+
+    # Build safe context for prompt template
+    review_context = {
+        "stats": stats,
+        "quality_summary": {
+            "source_residue_count": quality_summary.get("source_residue_count", 0),
+            "silent_drop_count": quality_summary.get("silent_drop_count", 0),
+            "unsupported_count": quality_summary.get("unsupported_count", len(us)),
+            "safe_drop_count": quality_summary.get("safe_drop_count", 0),
+            "review_required_count": quality_summary.get("review_required_count", len(mr)),
+        },
+        "top_review_items": top_review,
+        "mapping_log_sample": mapping_log[:10],
+    }
+    state.context["safe_llm_context"] = review_context
+
+    # Try LLM for post-translate review
+    try:
+        from agent.llm.runtime import safe_generate
+        from agent.llm.config import resolve_provider_config
+        cfg = resolve_provider_config()
+
+        llm.update({
+            "enabled": cfg.get("enabled", False),
+            "config_source": cfg.get("config_source", "default"),
+            "enabled_by_ui": cfg.get("enabled_by_ui"),
+            "key_source": cfg.get("key_source", "none"),
+            "provider_type": cfg.get("provider_type", "disabled"),
+            "provider": cfg.get("provider", cfg.get("default_provider", "disabled")),
+            "model": cfg.get("model", ""),
+        })
+
+        if cfg.get("enabled") and cfg.get("provider_type") != "disabled":
+            output = safe_generate("post_translate_review", state, user_input=state.user_input)
+            llm.update({
+                "used": output.llm_used,
+                "task": "post_translate_review",
+                "prompt_id": (output.metadata or {}).get("prompt_id", "") if output.metadata else "",
+                "prompt_version": (output.metadata or {}).get("prompt_version", "") if output.metadata else "",
+                "policy_pass": output.policy_decision.allowed if output.policy_decision else False,
+                "fallback_reason": output.fallback_reason,
+                "violations": output.warnings,
+            })
+
+            if output.llm_used and output.safe_to_show:
+                state.final_response = output.answer
+                state.warnings.extend(output.warnings)
+                return
+    except Exception:
+        pass
+
+    # Fallback to deterministic
+    state.final_response = _deterministic(result, state.intent or "translate_config")
+    llm["fallback"] = True
+    llm["fallback_reason"] = llm.get("fallback_reason") or "deterministic fallback"
 
 
 def _deterministic(result: dict, intent: str) -> str:
