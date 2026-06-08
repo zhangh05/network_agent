@@ -119,7 +119,7 @@
   #agent-toggle:hover{color:var(--pri)}
 
   /* ── Page containers ── */
-  .page{display:none}
+  .page{display:none;position:relative}
   .page.active{display:block}
 
   /* ── Cards ── */
@@ -160,6 +160,7 @@
   .tag-rd{background:#fee2e2;color:#991b1b}
   .tag-bl{background:#dbeafe;color:#1e40af}
   .tag-gy{background:var(--n9);color:var(--n5)}
+  .tag-gn{background:#dcfce7;color:#166534;font-weight:500}
 
   /* ── Buttons ── */
   .btn{height:34px;padding:0 16px;border-radius:8px;font-size:13px;font-weight:600;cursor:pointer;border:0;display:inline-flex;align-items:center;gap:6px;transition:all .15s}
@@ -168,6 +169,37 @@
   .btn-sec{background:var(--n10);color:var(--n2);border:1px solid var(--n8)}
   .btn-sec:hover{background:var(--n9)}
   .btn-sm{height:28px;padding:0 10px;font-size:12px}
+  .btn-warn{background:var(--warn);color:#fff}
+  .btn-warn:hover{background:#ca8a04}
+
+  /* ── Tool Catalog Tabs ── */
+  .toolstab{padding:7px 16px;border:0;border-radius:6px 6px 0 0;background:transparent;color:var(--n5);font-size:13px;cursor:pointer;font-weight:500;border-bottom:2px solid transparent;transition:all .15s}
+  .toolstab:hover{color:var(--n2);background:rgba(37,99,235,.04)}
+  .toolstab.active{color:var(--pri);border-bottom-color:var(--pri);background:var(--card);font-weight:600}
+  .tool-panel{display:none;padding:0}
+  .tool-panel.active{display:block}
+
+  /* ── Invoke Modal ── */
+  .invoke-backdrop{display:none;position:absolute;top:0;left:0;right:0;bottom:0;background:rgba(15,23,42,.35);z-index:200;align-items:flex-start;justify-content:center;padding-top:60px}
+  .invoke-backdrop.show{display:flex}
+  .invoke-modal{background:var(--card);border-radius:12px;border:1px solid var(--n8);width:520px;max-height:75vh;overflow-y:auto;box-shadow:0 12px 40px rgba(0,0,0,.15)}
+  .invoke-hd{display:flex;align-items:center;justify-content:space-between;padding:16px 20px;border-bottom:1px solid var(--n8)}
+  .invoke-body{padding:16px 20px;display:flex;flex-direction:column;gap:12px}
+  .invoke-result{padding:0 20px 16px;border-top:1px solid var(--n8);margin-top:4px}
+  .invoke-ft{display:flex;gap:8px;justify-content:flex-end;padding:12px 20px;border-top:1px solid var(--n8)}
+
+  .invoke-field{display:flex;flex-direction:column;gap:4px}
+  .invoke-field label{font-size:12px;font-weight:500;color:var(--n4)}
+  .invoke-field .req{color:var(--dng)}
+  .invoke-field input,.invoke-field textarea{padding:8px 10px;border:1px solid var(--n7);border-radius:6px;font-size:13px;background:var(--n10);outline:none;font-family:var(--mono)}
+  .invoke-field input:focus,.invoke-field textarea:focus{border-color:var(--pri)}
+  .invoke-field textarea{resize:vertical;min-height:60px}
+
+  /* ── Tool card hover ── */
+  .tool-card{cursor:pointer;transition:border-color .15s,box-shadow .15s}
+  .tool-card:hover{border-color:var(--pri)!important;box-shadow:0 2px 8px rgba(37,99,235,.08)}
+  .tool-card.forbidden{cursor:not-allowed;opacity:.45}
+  .tool-card.forbidden:hover{border-color:var(--n8)!important;box-shadow:none}
 
   /* ── Translate page ── */
   .tr-header{display:flex;align-items:center;gap:12px;padding:14px 18px;background:var(--card);border:1px solid var(--n8);border-radius:10px;margin-bottom:14px}
@@ -704,12 +736,83 @@ router ospf 1
       <div class="page" id="page-tools">
         <div class="card">
           <div class="card-hd">
-            <div class="card-title">Tool Catalog <span class="tag tag-gn" style="margin-left:8px">v0.2</span></div>
-            <span style="font-size:11px;color:var(--n5)">只读目录 · 无执行入口 · high-risk 工具需审批</span>
+            <div class="card-title">Tool Catalog <span class="tag tag-gn" style="margin-left:8px">v0.3</span></div>
+            <span style="font-size:11px;color:var(--n5)" id="tool-catalog-subtitle">交互式调用 · 55 工具 · 风险分级</span>
           </div>
-          <div style="padding:12px">
-            <div id="tool-catalog-status" style="font-size:12px;color:var(--n5);margin-bottom:8px">加载中…</div>
-            <div id="tool-catalog-grid" style="display:grid;grid-template-columns:repeat(auto-fill,minmax(280px,1fr));gap:8px;font-size:12px"></div>
+          <!-- Tabs -->
+          <div style="display:flex;gap:4px;padding:8px 12px 0;border-bottom:1px solid var(--n8);background:var(--n10);border-radius:8px 8px 0 0">
+            <button id="toolstab-catalog" onclick="switchToolTab('catalog')" class="toolstab active">Tool Catalog</button>
+            <button id="toolstab-history" onclick="switchToolTab('history')" class="toolstab">Exec History</button>
+            <button id="toolstab-approvals" onclick="switchToolTab('approvals')" class="toolstab">Approvals</button>
+            <div style="margin-left:auto;display:flex;gap:8px;align-items:center;padding-right:8px">
+              <span style="font-size:11px;color:var(--n5)" id="tools-ws-label">ws: default</span>
+              <button onclick="loadToolsPermissions()" class="btn-sm" title="权限配置">&#9881;</button>
+            </div>
+          </div>
+          <!-- Catalog Panel -->
+          <div class="tool-panel active" id="tp-catalog">
+            <div style="padding:12px;display:flex;gap:8px;align-items:center;flex-wrap:wrap">
+              <input type="text" id="tool-search" placeholder="搜索工具名称或描述..." oninput="filterToolCards()" style="flex:1;min-width:160px;padding:7px 10px;border:1px solid var(--n7);border-radius:6px;font-size:13px;background:var(--card);outline:none">
+              <select id="tool-risk-filter" onchange="filterToolCards()" style="padding:7px 10px;border:1px solid var(--n7);border-radius:6px;font-size:12px;background:var(--card);cursor:pointer">
+                <option value="all">全部风险等级</option>
+                <option value="low">Low</option>
+                <option value="medium">Medium</option>
+                <option value="high">High</option>
+                <option value="forbidden">Forbidden</option>
+              </select>
+              <select id="tool-cat-filter" onchange="filterToolCards()" style="padding:7px 10px;border:1px solid var(--n7);border-radius:6px;font-size:12px;background:var(--card);cursor:pointer">
+                <option value="all">全部分类</option>
+              </select>
+            </div>
+            <div id="tool-catalog-status" style="font-size:12px;color:var(--n5);padding:0 12px;margin-bottom:8px">加载中…</div>
+            <div id="tool-catalog-grid" style="display:grid;grid-template-columns:repeat(auto-fill,minmax(280px,1fr));gap:8px;padding:0 12px 12px;font-size:12px"></div>
+          </div>
+          <!-- History Panel -->
+          <div class="tool-panel" id="tp-history">
+            <div style="padding:12px;display:flex;gap:8px;align-items:center">
+              <select id="hist-status-filter" onchange="loadToolHistory()" style="padding:6px 10px;border:1px solid var(--n7);border-radius:6px;font-size:12px;background:var(--card);cursor:pointer">
+                <option value="all">全部状态</option>
+                <option value="succeeded">成功</option>
+                <option value="failed">失败</option>
+                <option value="blocked">已阻止</option>
+                <option value="dry_run">Dry Run</option>
+              </select>
+              <span style="font-size:12px;color:var(--n5)" id="hist-count">0 条记录</span>
+            </div>
+            <div id="tool-history-list" style="padding:0 12px 12px;display:flex;flex-direction:column;gap:6px"></div>
+          </div>
+          <!-- Approvals Panel -->
+          <div class="tool-panel" id="tp-approvals">
+            <div style="padding:12px;display:flex;gap:8px;align-items:center">
+              <span style="font-size:13px;font-weight:600;color:var(--n2)">待审批</span>
+              <span style="font-size:12px;color:var(--n5)" id="approval-count">0 条</span>
+            </div>
+            <div id="tool-approval-list" style="padding:0 12px 12px;display:flex;flex-direction:column;gap:8px"></div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Invoke Modal -->
+      <div class="invoke-backdrop" id="invoke-backdrop" onclick="if(event.target===this)closeInvoke()">
+        <div class="invoke-modal" id="invoke-modal" onclick="event.stopPropagation()">
+          <div class="invoke-hd">
+            <div>
+              <div style="font-size:15px;font-weight:600;color:var(--n2)" id="invoke-tool-name"></div>
+              <div style="font-size:12px;color:var(--n5)" id="invoke-tool-desc"></div>
+            </div>
+            <button onclick="closeInvoke()" style="border:none;background:none;font-size:18px;cursor:pointer;color:var(--n5);padding:4px">&times;</button>
+          </div>
+          <div class="invoke-body" id="invoke-params"></div>
+          <div class="invoke-result" id="invoke-result" style="display:none">
+            <div style="font-size:12px;font-weight:600;color:var(--n5);margin-bottom:8px">执行结果</div>
+            <pre id="invoke-result-text" style="background:var(--n10);border-radius:6px;padding:12px;font-size:11px;font-family:var(--mono);color:var(--n2);margin:0;max-height:220px;overflow-y:auto;white-space:pre-wrap;word-break:break-all"></pre>
+          </div>
+          <div class="invoke-ft">
+            <span id="invoke-risk-badge" class="tag tag-gr" style="margin-right:auto;font-size:11px">Low</span>
+            <span id="invoke-status-text" style="font-size:12px;color:var(--n5);margin-right:auto;display:none"></span>
+            <button onclick="invokeDryRun()" id="btn-dry-run" class="btn btn-sec" style="display:none">Dry Run</button>
+            <button onclick="invokeExecute()" id="btn-execute" class="btn btn-pri">Execute</button>
+            <button onclick="invokeRequestApproval()" id="btn-request-approval" class="btn btn-warn" style="display:none">Request Approval</button>
           </div>
         </div>
       </div>
@@ -1158,33 +1261,351 @@ function loadToolsCatalog(){
   var grid=document.getElementById('tool-catalog-grid');
   status.textContent='加载中…';
   apiFetch('/api/tools/catalog').then(function(d){
-    var tools=d.tools||[];
-    status.innerHTML='共 <b>'+tools.length+'</b> 个工具 · 只读目录 · 禁止执行';
+    window._allTools=d.tools||[];
+    status.innerHTML='共 <b>'+window._allTools.length+'</b> 个工具';
+    document.getElementById('tool-catalog-subtitle').textContent='交互式调用 · '+window._allTools.length+' 工具 · 风险分级';
+    // Populate category filter
     var cats={};
-    tools.forEach(function(t){cats[t.category]=(cats[t.category]||0)+1;});
-    var html='';
-    // Group by category
-    Object.keys(cats).sort().forEach(function(cat){
-      var catTools=tools.filter(function(t){return t.category===cat;});
-      html+='<div style="grid-column:1/-1;margin-top:8px;font-weight:600;font-size:13px;color:var(--n8);border-bottom:1px solid var(--n8);padding-bottom:4px">'+esc(cat)+' ('+catTools.length+')</div>';
-      catTools.forEach(function(t){
-        var riskBadge=t.risk_level==='high'?'<span class="tag tag-rd" style="font-size:10px">high</span>':t.risk_level==='medium'?'<span class="tag tag-ye" style="font-size:10px">medium</span>':'<span class="tag tag-gr" style="font-size:10px">low</span>';
-        var statusBadge=t.enabled?'<span class="tag tag-gn" style="font-size:10px">enabled</span>':'<span class="tag tag-rd" style="font-size:10px">disabled</span>';
-        var approvalBadge=t.requires_approval?'<span class="tag tag-ye" style="font-size:10px">审批</span>':'';
-        html+='<div style="border:1px solid var(--n4);border-radius:6px;padding:8px;background:var(--n10)">'
-          +'<div style="font-weight:600;font-size:12px;margin-bottom:4px">'+esc(t.tool_id)+'</div>'
-          +'<div style="font-size:11px;color:var(--n6);margin-bottom:4px">'+esc(t.description||'').slice(0,80)+'</div>'
-          +'<div style="display:flex;gap:4px;flex-wrap:wrap">'+riskBadge+statusBadge+approvalBadge
-          +(t.dry_run_supported?'<span class="tag" style="font-size:10px;background:var(--n9)">dry_run</span>':'')
-          +'</div>'
-          +'</div>';
-      });
+    window._allTools.forEach(function(t){cats[t.category]=(cats[t.category]||0)+1;});
+    var catSel=document.getElementById('tool-cat-filter');
+    var catHTML='<option value="all">全部分类</option>';
+    Object.keys(cats).sort().forEach(function(c){
+      catHTML+='<option value="'+esc(c)+'">'+esc(c)+' ('+cats[c]+')</option>';
     });
-    grid.innerHTML=html;
+    catSel.innerHTML=catHTML;
+    filterToolCards();
   }).catch(function(){
     status.textContent='加载失败';
-    grid.innerHTML='<div style="color:var(--dng)">无法加载工具目录</div>';
+    grid.innerHTML='<div style="color:var(--dng);padding:20px">无法加载工具目录</div>';
   });
+}
+
+/* ── Tool Catalog: Filter & Render ── */
+function filterToolCards(){
+  var search=(document.getElementById('tool-search').value||'').toLowerCase();
+  var risk=document.getElementById('tool-risk-filter').value;
+  var cat=document.getElementById('tool-cat-filter').value;
+  var all=window._allTools||[];
+  var filtered=all.filter(function(t){
+    if(risk!=='all'&&t.risk_level!==risk) return false;
+    if(cat!=='all'&&t.category!==cat) return false;
+    if(search&&t.tool_id.toLowerCase().indexOf(search)===-1&&(t.description||'').toLowerCase().indexOf(search)===-1) return false;
+    return true;
+  });
+  document.getElementById('tool-catalog-status').innerHTML='共 <b>'+filtered.length+'</b> 个工具'+(search?' 匹配 "'+esc(search)+'"':'');
+  renderToolCards(filtered);
+}
+
+function renderToolCards(tools){
+  var grid=document.getElementById('tool-catalog-grid');
+  var riskLabels={low:'Low',medium:'Medium',high:'High',forbidden:'Blocked'};
+  var riskClasses={low:'tag-gr',medium:'tag-ye',high:'tag-rd',forbidden:'tag-gy'};
+  grid.innerHTML='';
+  // Group by category
+  var grouped={};
+  tools.forEach(function(t){grouped[t.category]=grouped[t.category]||[];grouped[t.category].push(t);});
+  Object.keys(grouped).sort().forEach(function(cat){
+    var catTools=grouped[cat];
+    var header=document.createElement('div');
+    header.style.cssText='grid-column:1/-1;margin-top:6px;font-weight:600;font-size:13px;color:var(--n8);border-bottom:1px solid var(--n8);padding-bottom:4px';
+    header.textContent=cat+' ('+catTools.length+')';
+    grid.appendChild(header);
+    catTools.forEach(function(t){
+      var card=document.createElement('div');
+      var isForbidden=t.risk_level==='forbidden';
+      card.className='tool-card'+(isForbidden?' forbidden':'');
+      card.style.cssText='border:1px solid var(--n4);border-radius:6px;padding:10px;background:var(--n10)';
+      var statusTag=t.enabled?'<span class="tag tag-gn" style="font-size:10px">enabled</span>':'<span class="tag tag-rd" style="font-size:10px">disabled</span>';
+      var approvalTag=t.requires_approval?'<span class="tag tag-ye" style="font-size:10px">审批</span>':'';
+      var dryTag=t.dry_run_supported?'<span class="tag tag-bl" style="font-size:10px">dry_run</span>':'';
+      card.innerHTML='<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:4px">'
+        +'<span style="font-weight:600;font-size:12px;color:var(--n2)">'+esc(t.tool_id)+'</span>'
+        +'<span class="tag '+riskClasses[t.risk_level]+'" style="font-size:10px">'+riskLabels[t.risk_level]+'</span>'
+        +'</div>'
+        +'<div style="font-size:11px;color:var(--n6);margin-bottom:6px;line-height:1.4">'+esc((t.description||'').slice(0,90))+'</div>'
+        +'<div style="display:flex;gap:4px;flex-wrap:wrap">'+statusTag+approvalTag+dryTag
+        +(t.version?'<span class="tag tag-gy" style="font-size:10px">v'+esc(t.version)+'</span>':'')
+        +'</div>';
+      if(!isForbidden){
+        card.addEventListener('click',function(){openInvoke(t);});
+      }
+      grid.appendChild(card);
+    });
+  });
+  if(tools.length===0){
+    grid.innerHTML='<div style="grid-column:1/-1;text-align:center;color:var(--n5);padding:30px">没有匹配的工具</div>';
+  }
+}
+
+/* ── Tool Tabs ── */
+function switchToolTab(tab){
+  document.querySelectorAll('.toolstab').forEach(function(b){b.classList.remove('active');});
+  document.querySelectorAll('.tool-panel').forEach(function(p){p.classList.remove('active');});
+  document.getElementById('toolstab-'+tab).classList.add('active');
+  document.getElementById('tp-'+tab).classList.add('active');
+  if(tab==='history') loadToolHistory();
+  if(tab==='approvals') loadToolApprovals();
+  // Update workspace label
+  document.getElementById('tools-ws-label').textContent='ws: '+_getWorkspaceId();
+}
+
+/* ── Invoke Modal ── */
+var _currentInvokeTool=null;
+
+function openInvoke(tool){
+  _currentInvokeTool=tool;
+  document.getElementById('invoke-tool-name').textContent=tool.tool_id;
+  document.getElementById('invoke-tool-desc').textContent=tool.description||'';
+  document.getElementById('invoke-result').style.display='none';
+  // Buttons by risk level
+  var isHigh=tool.risk_level==='high';
+  var isMedium=tool.risk_level==='medium';
+  document.getElementById('btn-dry-run').style.display=(isMedium&&tool.dry_run_supported)?'inline-flex':'none';
+  document.getElementById('btn-execute').style.display=isHigh?'none':'inline-flex';
+  document.getElementById('btn-request-approval').style.display=isHigh?'inline-flex':'none';
+  // Risk badge
+  var rb=document.getElementById('invoke-risk-badge');
+  rb.className='tag';
+  if(tool.risk_level==='low'){rb.className+=' tag-gr';rb.textContent='Low Risk';}
+  else if(tool.risk_level==='medium'){rb.className+=' tag-ye';rb.textContent='Medium Risk';}
+  else{rb.className+=' tag-rd';rb.textContent='High Risk - 需审批';}
+  document.getElementById('invoke-status-text').style.display='none';
+
+  // Build parameter form from input_schema
+  var schema=(tool.input_schema||{});
+  var props=schema.properties||{};
+  var required=schema.required||[];
+  var keys=Object.keys(props);
+  var html='';
+  if(keys.length===0){
+    html='<div style="font-size:13px;color:var(--n5);text-align:center;padding:12px">此工具无需参数</div>';
+  }else{
+    keys.forEach(function(k){
+      var prop=props[k]||{};
+      var isReq=required.indexOf(k)!==-1;
+      var type=prop.type||'string';
+      var desc=prop.description||'';
+      var defaultVal=prop.default!==undefined?prop.default:'';
+      html+='<div class="invoke-field">'
+        +'<label>'+esc(k)+(isReq?' <span class="req">*</span>':'')
+        +(desc?' <span style="font-weight:400;color:var(--n6);font-size:11px">('+esc(desc.slice(0,60))+')</span>':'')
+        +'</label>';
+      if(type==='object'||type==='array'||k==='content'||k==='text'||k==='body'||k==='config_text'||k==='data'){
+        html+='<textarea id="invoke-param-'+esc(k)+'" rows="3">'+esc(String(defaultVal))+'</textarea>';
+      }else if(type==='boolean'){
+        html+='<select id="invoke-param-'+esc(k)+'" style="padding:8px 10px;border:1px solid var(--n7);border-radius:6px;font-size:13px;background:var(--n10);outline:none;cursor:pointer">'
+          +'<option value="true"'+(defaultVal===true?' selected':'')+'>true</option>'
+          +'<option value="false"'+(defaultVal===false?' selected':'')+'>false</option>'
+          +'</select>';
+      }else{
+        html+='<input type="text" id="invoke-param-'+esc(k)+'" value="'+esc(String(defaultVal))+'">';
+      }
+      html+='</div>';
+    });
+  }
+  document.getElementById('invoke-params').innerHTML=html;
+  document.getElementById('invoke-backdrop').classList.add('show');
+}
+
+function closeInvoke(){
+  document.getElementById('invoke-backdrop').classList.remove('show');
+  _currentInvokeTool=null;
+}
+
+// ESC key closes invoke modal
+document.addEventListener('keydown',function(e){
+  if(e.key==='Escape'&&document.getElementById('invoke-backdrop').classList.contains('show')){
+    closeInvoke();
+  }
+});
+
+function _collectInvokeArgs(){
+  if(!_currentInvokeTool) return {};
+  var schema=(_currentInvokeTool.input_schema||{});
+  var props=schema.properties||{};
+  var args={};
+  Object.keys(props).forEach(function(k){
+    var el=document.getElementById('invoke-param-'+k);
+    if(!el) return;
+    var type=props[k].type||'string';
+    var val=el.value;
+    if(type==='number'||type==='integer'){
+      if(val.trim()==='') return;
+      val=parseFloat(val);
+    }else if(type==='boolean'){
+      val=val==='true';
+    }else{
+      val=val.trim();
+      if(!val) return;
+      if(type==='object'||type==='array'){
+        try{val=JSON.parse(val);}catch(e){/* keep as string */}
+      }
+    }
+    args[k]=val;
+  });
+  return args;
+}
+
+function invokeDryRun(){
+  if(!_currentInvokeTool) return;
+  var args=_collectInvokeArgs();
+  apiFetch('/api/tools/dry-run',{
+    method:'POST',headers:{'Content-Type':'application/json'},
+    body:JSON.stringify({tool_id:_currentInvokeTool.tool_id,arguments:args})
+  }).then(function(d){
+    _showInvokeResult(JSON.stringify(d,null,2),d.ok?'succeeded':'failed');
+  }).catch(function(e){
+    _showInvokeResult('Error: '+e.message,'failed');
+  });
+}
+
+function invokeExecute(){
+  if(!_currentInvokeTool) return;
+  var args=_collectInvokeArgs();
+  var ws=_getWorkspaceId();
+  var body={tool_id:_currentInvokeTool.tool_id,arguments:args,workspace_id:ws};
+  // If high risk, try to get approval_id from localStorage
+  if(_currentInvokeTool.risk_level==='high'||_currentInvokeTool.requires_approval){
+    body.approval_id=localStorage.getItem('tool_approval_'+_currentInvokeTool.tool_id)||'';
+  }
+  apiFetch('/api/tools/invoke?workspace_id='+encodeURIComponent(ws),{
+    method:'POST',headers:{'Content-Type':'application/json'},
+    body:JSON.stringify(body),timeout:30000
+  }).then(function(d){
+    _showInvokeResult(JSON.stringify(d,null,2),d.status||(d.ok?'succeeded':'failed'));
+  }).catch(function(e){
+    _showInvokeResult('Error: '+e.message,'failed');
+  });
+}
+
+function invokeRequestApproval(){
+  if(!_currentInvokeTool) return;
+  var reason=prompt('申请理由（简短说明）：','需要执行 '+_currentInvokeTool.tool_id);
+  if(!reason) return;
+  var ws=_getWorkspaceId();
+  apiFetch('/api/tools/approvals',{
+    method:'POST',headers:{'Content-Type':'application/json'},
+    body:JSON.stringify({tool_id:_currentInvokeTool.tool_id,reason:reason,workspace_id:ws,user:'ui_user'})
+  }).then(function(d){
+    if(d.ok&&d.approval_id){
+      localStorage.setItem('tool_approval_'+_currentInvokeTool.tool_id,d.approval_id);
+    }
+    _showInvokeResult(JSON.stringify(d,null,2),'dry_run');
+  }).catch(function(e){
+    _showInvokeResult('Error: '+e.message,'failed');
+  });
+}
+
+function _showInvokeResult(text,status){
+  var resultDiv=document.getElementById('invoke-result');
+  resultDiv.style.display='block';
+  document.getElementById('invoke-result-text').textContent=text;
+  var st=document.getElementById('invoke-status-text');
+  st.style.display='block';
+  if(status==='succeeded'){st.textContent='执行成功';st.style.color='var(--suc)';}
+  else if(status==='dry_run'){st.textContent='预览 / 已提交';st.style.color='var(--warn)';}
+  else{st.textContent='执行失败 / 被阻止';st.style.color='var(--dng)';}
+}
+
+/* ── Execution History ── */
+function loadToolHistory(){
+  var ws=_getWorkspaceId();
+  var status=document.getElementById('hist-status-filter').value;
+  apiFetch('/api/tools/history?workspace_id='+encodeURIComponent(ws)+'&limit=100'+(status!=='all'?'&status='+status:'')).then(function(d){
+    var records=d.records||[];
+    document.getElementById('hist-count').textContent=records.length+' 条记录';
+    var list=document.getElementById('tool-history-list');
+    if(!records.length){list.innerHTML='<div style="text-align:center;color:var(--n5);padding:24px">暂无执行记录</div>';return;}
+    var stColors={succeeded:'var(--suc)',failed:'var(--dng)',blocked:'var(--warn)',dry_run:'var(--n6)'};
+    var stBgs={succeeded:'#dcfce7',failed:'#fee2e2',blocked:'#fef9c3',dry_run:'var(--n9)'};
+    list.innerHTML='';
+    records.forEach(function(r){
+      var row=document.createElement('div');
+      var st=r.status||'unknown';
+      row.style.cssText='border:1px solid var(--n4);border-radius:6px;padding:10px 14px;display:flex;align-items:center;gap:12px;background:var(--card)';
+      var duration=r.duration_ms?r.duration_ms+'ms':'';
+      var risk=r.risk_level||'';
+      var riskBadge=risk==='high'?'<span class="tag tag-rd" style="font-size:10px">high</span>':risk==='medium'?'<span class="tag tag-ye" style="font-size:10px">medium</span>':'';
+      row.innerHTML='<span style="font-size:10px;padding:2px 8px;border-radius:4px;background:'+stBgs[st]+';color:'+stColors[st]+';min-width:56px;text-align:center">'+st+'</span>'
+        +'<span style="font-weight:600;font-size:12px;color:var(--n2);min-width:180px">'+esc(r.tool_id||'')+'</span>'
+        +riskBadge
+        +'<span style="font-size:11px;color:var(--n5);margin-left:auto">'+(r.created_at||'').slice(11,19)+'</span>'
+        +'<span style="font-size:11px;color:var(--n6)">'+duration+'</span>';
+      var replayBtn=document.createElement('button');
+      replayBtn.textContent='Replay';
+      replayBtn.style.cssText='padding:3px 10px;border:1px solid var(--n7);border-radius:5px;background:transparent;font-size:11px;cursor:pointer;color:var(--n5)';
+      replayBtn.addEventListener('click',(function(tid){return function(){replayHistory(tid);};})(r.tool_id));
+      row.appendChild(replayBtn);
+      list.appendChild(row);
+    });
+  }).catch(function(){
+    document.getElementById('tool-history-list').innerHTML='<div style="text-align:center;color:var(--dng);padding:24px">加载失败</div>';
+  });
+}
+
+function replayHistory(toolId){
+  var tool=null;
+  (window._allTools||[]).forEach(function(t){
+    if(t.tool_id===toolId) tool=t;
+  });
+  if(tool&&tool.risk_level!=='forbidden') openInvoke(tool);
+}
+
+/* ── Approvals ── */
+function loadToolApprovals(){
+  var ws=_getWorkspaceId();
+  apiFetch('/api/tools/approvals?workspace_id='+encodeURIComponent(ws)).then(function(d){
+    var approvals=d.approvals||[];
+    document.getElementById('approval-count').textContent=approvals.length+' 条';
+    var list=document.getElementById('tool-approval-list');
+    if(!approvals.length){list.innerHTML='<div style="text-align:center;color:var(--n5);padding:24px">暂无待审批请求</div>';return;}
+    list.innerHTML='';
+    approvals.forEach(function(a){
+      var card=document.createElement('div');
+      card.style.cssText='border:1px solid var(--n4);border-radius:8px;padding:12px 14px;background:var(--card);display:flex;flex-direction:column;gap:8px';
+      card.innerHTML='<div style="display:flex;align-items:center;gap:10px">'
+        +'<span style="font-weight:600;font-size:12px;color:var(--n5)">'+esc(a.approval_id||'')+'</span>'
+        +'<span style="font-weight:600;font-size:13px;color:var(--n2)">'+esc(a.tool_id||'')+'</span>'
+        +'<span style="font-size:11px;color:var(--n5)">by '+esc(a.user||'')+'</span>'
+        +'<span style="margin-left:auto;font-size:11px;color:var(--n6)">'+(a.created_at||'').slice(0,19)+'</span>'
+        +'</div>'
+        +'<div style="font-size:12px;color:var(--n5)">理由: '+esc(a.reason||'无')+'</div>'
+        +'<div style="display:flex;gap:6px">'
+        +'<button onclick="approveReq(\''+esc(a.approval_id)+'\')" class="btn-sm" style="background:#dcfce7;color:#166534;border:0;cursor:pointer;border-radius:6px">Approve</button>'
+        +'<button onclick="rejectReq(\''+esc(a.approval_id)+'\')" class="btn-sm" style="background:#fee2e2;color:#991b1b;border:0;cursor:pointer;border-radius:6px">Reject</button>'
+        +'</div>';
+      list.appendChild(card);
+    });
+  }).catch(function(){
+    document.getElementById('tool-approval-list').innerHTML='<div style="text-align:center;color:var(--dng);padding:24px">加载失败</div>';
+  });
+}
+
+function approveReq(approvalId){
+  if(!confirm('确认批准此审批请求？')) return;
+  apiFetch('/api/tools/approvals/'+encodeURIComponent(approvalId)+'/approve',{method:'PUT'}).then(function(d){
+    if(d.ok){loadToolApprovals();}
+  });
+}
+
+function rejectReq(approvalId){
+  if(!confirm('确认拒绝此审批请求？')) return;
+  apiFetch('/api/tools/approvals/'+encodeURIComponent(approvalId)+'/reject',{method:'PUT'}).then(function(d){
+    if(d.ok){loadToolApprovals();}
+  });
+}
+
+function loadToolsPermissions(){
+  var ws=_getWorkspaceId();
+  apiFetch('/api/tools/permissions?workspace_id='+encodeURIComponent(ws)).then(function(d){
+    var msg='Workspace: '+ws+'\\n\\n'
+      +'工具总数: '+(d.tools||[]).length+'\\n'
+      +'高风险工具: '+d.high_risk_count+'\\n'
+      +'需审批工具: '+d.approval_required_count+'\\n'
+      +'禁止工具: '+d.forbidden_count+'\\n\\n'
+      +'提示：高风险工具执行需审批通过后获得 approval_id。';
+    alert(msg);
+  }).catch(function(){alert('加载权限配置失败');});
 }
 
 function loadMemoryPage(){
