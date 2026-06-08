@@ -357,6 +357,9 @@
       <button class="sb-item" data-page="memory" onclick="switchPage('memory')">
         <span class="icn"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><ellipse cx="12" cy="5" rx="9" ry="3"/><path d="M21 12c0 1.66-4 3-9 3s-9-1.34-9-3"/><path d="M3 5v14c0 1.66 4 3 9 3s9-1.34 9-3V5"/></svg></span><span class="txt">Memory 管理</span>
       </button>
+      <button class="sb-item" data-page="tools" onclick="switchPage('tools')">
+        <span class="icn"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="6" width="20" height="12" rx="2"/><line x1="12" y1="18" x2="12" y2="18.01"/></svg></span><span class="txt">Tool Catalog</span>
+      </button>
       <button class="sb-item" data-page="artifacts" onclick="switchPage('artifacts')">
         <span class="icn"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/></svg></span><span class="txt">Artifacts</span>
       </button>
@@ -696,6 +699,20 @@ router ospf 1
       </div>
 
     </div>
+
+      <!-- ══════════ Tool Catalog ══════════ -->
+      <div class="page" id="page-tools">
+        <div class="card">
+          <div class="card-hd">
+            <div class="card-title">Tool Catalog <span class="tag tag-gn" style="margin-left:8px">v0.2</span></div>
+            <span style="font-size:11px;color:var(--n5)">只读目录 · 无执行入口 · high-risk 工具需审批</span>
+          </div>
+          <div style="padding:12px">
+            <div id="tool-catalog-status" style="font-size:12px;color:var(--n5);margin-bottom:8px">加载中…</div>
+            <div id="tool-catalog-grid" style="display:grid;grid-template-columns:repeat(auto-fill,minmax(280px,1fr));gap:8px;font-size:12px"></div>
+          </div>
+        </div>
+      </div>
 
     <!-- ═════════════════ Agent Panel ═════════════════ -->
     <div id="agent-panel">
@@ -1038,6 +1055,7 @@ function switchPage(name){
   if(btn)btn.classList.add('active');
   document.getElementById('bread-page').textContent=pageNames[name]||name;
   if(name==='memory') loadMemoryPage();
+  if(name==='tools') loadToolsCatalog();
   if(name==='artifacts'){loadArtifacts();loadKnowledgeIndexForArtifacts();}
   if(name==='skills') loadSkillsPage();
   if(name==='knowledge') loadKnowledgeStatus();
@@ -1135,6 +1153,40 @@ function refreshKnowledgeStatus(){
 }
 
 /* ── Memory page ── */
+function loadToolsCatalog(){
+  var status=document.getElementById('tool-catalog-status');
+  var grid=document.getElementById('tool-catalog-grid');
+  status.textContent='加载中…';
+  apiFetch('/api/tools/catalog').then(function(d){
+    var tools=d.tools||[];
+    status.innerHTML='共 <b>'+tools.length+'</b> 个工具 · 只读目录 · 禁止执行';
+    var cats={};
+    tools.forEach(function(t){cats[t.category]=(cats[t.category]||0)+1;});
+    var html='';
+    // Group by category
+    Object.keys(cats).sort().forEach(function(cat){
+      var catTools=tools.filter(function(t){return t.category===cat;});
+      html+='<div style="grid-column:1/-1;margin-top:8px;font-weight:600;font-size:13px;color:var(--n8);border-bottom:1px solid var(--n8);padding-bottom:4px">'+esc(cat)+' ('+catTools.length+')</div>';
+      catTools.forEach(function(t){
+        var riskBadge=t.risk_level==='high'?'<span class="tag tag-rd" style="font-size:10px">high</span>':t.risk_level==='medium'?'<span class="tag tag-ye" style="font-size:10px">medium</span>':'<span class="tag tag-gr" style="font-size:10px">low</span>';
+        var statusBadge=t.enabled?'<span class="tag tag-gn" style="font-size:10px">enabled</span>':'<span class="tag tag-rd" style="font-size:10px">disabled</span>';
+        var approvalBadge=t.requires_approval?'<span class="tag tag-ye" style="font-size:10px">审批</span>':'';
+        html+='<div style="border:1px solid var(--n4);border-radius:6px;padding:8px;background:var(--n10)">'
+          +'<div style="font-weight:600;font-size:12px;margin-bottom:4px">'+esc(t.tool_id)+'</div>'
+          +'<div style="font-size:11px;color:var(--n6);margin-bottom:4px">'+esc(t.description||'').slice(0,80)+'</div>'
+          +'<div style="display:flex;gap:4px;flex-wrap:wrap">'+riskBadge+statusBadge+approvalBadge
+          +(t.dry_run_supported?'<span class="tag" style="font-size:10px;background:var(--n9)">dry_run</span>':'')
+          +'</div>'
+          +'</div>';
+      });
+    });
+    grid.innerHTML=html;
+  }).catch(function(){
+    status.textContent='加载失败';
+    grid.innerHTML='<div style="color:var(--dng)">无法加载工具目录</div>';
+  });
+}
+
 function loadMemoryPage(){
   var setText=function(id,v){var el=document.getElementById(id); if(el)el.textContent=v;};
   setText('mem-total','—'); setText('mem-project','—'); setText('mem-longterm','—'); setText('mem-shortterm','—');

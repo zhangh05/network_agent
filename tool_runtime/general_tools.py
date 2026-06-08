@@ -1027,7 +1027,11 @@ _reg("powershell.approved_script", "Approved PowerShell", "powershell", "high",
 
 
 def register_all_general_tools(registry):
-    """Register all general tools into a ToolRegistry."""
+    """Register all general tools into a ToolRegistry.
+
+    Creates copies of ToolSpec instances to prevent cross-registry mutation.
+    """
+    from copy import deepcopy
     for spec, handler in ALL_GENERAL_TOOLS:
-        registry.register_tool(spec, handler)
+        registry.register_tool(deepcopy(spec), handler)
     return registry

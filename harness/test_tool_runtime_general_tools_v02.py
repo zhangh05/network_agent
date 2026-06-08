@@ -58,9 +58,12 @@ class TestRiskLevels:
     """Verify risk level distribution and policy enforcement."""
 
     def test_high_risk_default_disabled(self):
-        client = _get_client()
-        tools = client.list_tools()
-        for t in tools:
+        from backend.main import app
+        app.testing = True
+        client = app.test_client()
+        resp = client.get("/api/tools/catalog")
+        data = resp.get_json()
+        for t in data["tools"]:
             if t["risk_level"] == "high":
                 assert not t["enabled"], f"{t['tool_id']} should be disabled by default"
 
