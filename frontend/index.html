@@ -552,14 +552,17 @@ router ospf 1
             <span class="tag tag-gn" style="margin-left:8px">v0.3</span>
           </div>
           <div style="padding:16px">
-            <div style="display:flex;gap:8px;margin-bottom:12px">
-              <input id="kb-search-input" type="text" placeholder="输入检索关键词..." style="flex:1;padding:8px 12px;border:1px solid var(--n4);border-radius:6px;font-size:13px" onkeydown="if(event.key==='Enter')searchKnowledge()">
-              <button class="btn btn-pri" onclick="searchKnowledge()" style="padding:8px 16px;white-space:nowrap">搜索</button>
-              <button class="btn" onclick="refreshKnowledgeStatus()" style="padding:8px 16px;white-space:nowrap">刷新状态</button>
+            <div style="font-size:12px;color:var(--n5);margin-bottom:12px;line-height:1.6">
+              在已上传的文档中搜索。先在 <a href="javascript:switchPage('artifacts')" style="color:var(--pri);text-decoration:underline">Artifacts</a> 上传文档并点击 <b>Add to Knowledge Index</b>，即可在此搜索。
             </div>
-            <div style="font-size:12px;color:var(--n5);margin-bottom:8px" id="kb-index-status">索引状态: 查询中…</div>
+            <div style="display:flex;gap:8px;margin-bottom:12px">
+              <input id="kb-search-input" type="text" placeholder="输入关键词搜索（如：辣椒炒肉）..." style="flex:1;padding:8px 12px;border:1px solid var(--n4);border-radius:6px;font-size:13px" onkeydown="if(event.key==='Enter')searchKnowledge()">
+              <button class="btn btn-pri" onclick="searchKnowledge()" style="padding:8px 16px;white-space:nowrap">🔍 搜索</button>
+              <button class="btn" onclick="refreshKnowledgeStatus()" style="padding:8px 16px;white-space:nowrap">刷新</button>
+            </div>
+            <div style="font-size:12px;color:var(--n5);margin-bottom:8px" id="kb-index-status">加载中…</div>
             <div id="kb-search-results" style="font-size:13px">
-              <div class="empty"><div class="icon">◉</div><div class="t">输入关键词开始检索</div><div style="font-size:12px">基于 Safe RAG 的知识库语义搜索</div></div>
+              <div class="empty"><div class="icon">◉</div><div class="t">加载中…</div></div>
             </div>
           </div>
         </div>
@@ -632,8 +635,8 @@ router ospf 1
         <!-- Knowledge Search -->
         <div class="card" style="padding:12px 16px;margin-bottom:10px">
           <div style="display:flex;align-items:center;gap:10px">
-            <input id="kn-search" class="art-search" placeholder="搜索知识索引…" oninput="searchKnowledge()" style="flex:1">
-            <button class="btn btn-pri btn-sm" onclick="searchKnowledge()">&#128269; 搜索</button>
+            <input id="kn-search" class="art-search" placeholder="搜索知识索引…" oninput="searchKnowledgeInArtifacts()" style="flex:1">
+            <button class="btn btn-pri btn-sm" onclick="searchKnowledgeInArtifacts()">&#128269; 搜索</button>
             <span style="font-size:11px;color:var(--n5)">搜索结果为安全摘录，非完整文件</span>
           </div>
           <div id="kn-results" style="display:none;margin-top:8px;border-top:1px solid var(--n8);padding-top:8px"></div>
@@ -1062,21 +1065,27 @@ function loadKnowledgeSources(sources){
   var out=document.getElementById('kb-search-results');
   if(!out) return;
   if(!sources||!sources.length){
-    out.innerHTML='<div class="empty"><div class="icon">◉</div><div class="t">暂无知识源</div><div style="font-size:12px">请先在 Artifacts 页面上传文档并加入索引</div></div>';
+    out.innerHTML='<div class="empty"><div class="icon">◉</div><div class="t">暂无知识源</div><div class="desc">请先在 Artifacts 页面上传文档并点击 <b>Add to Knowledge Index</b></div></div>';
     return;
   }
-  var html='<div style="font-size:12px;color:var(--n5);margin-bottom:8px">已索引知识源 <span style="color:var(--n8)">'+sources.length+'</span> 个</div>';
+  var html='<div style="font-size:12px;color:var(--n5);margin-bottom:10px">已索引 <b style="color:var(--n8)">'+sources.length+'</b> 个知识源，点击卡片可搜索相关内容</div>';
   sources.forEach(function(s,i){
-    var name=s.name||s.source_id||'unknown';
+    var title=s.title||s.name||s.source_id||'unknown';
+    var summary=s.summary||'';
     var status=s.status||'pending';
+    var stLabel=status==='indexed'?'已索引':(status==='failed'?'索引失败':status);
     var stColor=status==='indexed'?'var(--g3)':(status==='failed'?'#e11d48':'var(--warn)');
-    var type=s.artifact_type||s.type||'doc';
-    html+='<div style="border:1px solid var(--n4);border-radius:6px;padding:10px;margin-bottom:8px;cursor:pointer" onclick="document.getElementById(\'kb-search-input\').value=\''+esc(name)+'\';searchKnowledge()">'
-      +'<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:4px">'
-      +'<span style="font-weight:600;font-size:12px">'+esc(name)+'</span>'
-      +'<span style="font-size:10px;color:'+stColor+'">'+esc(status)+'</span>'
+    var type=s.artifact_type||'doc';
+    var typeLabel=type==='knowledge_doc'?'知识文档':(type==='report'?'报告':type);
+    html+='<div class="kb-card" style="border:1px solid var(--n4);border-radius:8px;padding:12px;margin-bottom:8px;cursor:pointer;transition:border-color .15s" '
+      +'onmouseover="this.style.borderColor=\\'var(--pri)\\'" onmouseout="this.style.borderColor=\\'var(--n4)\\'" '
+      +'onclick="document.getElementById(\\'kb-search-input\\').value=\\''+esc(title)+'\\';searchKnowledge()">'
+      +'<div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:4px">'
+      +'<div style="font-weight:600;font-size:14px;color:var(--n8)">'+esc(title)+'</div>'
+      +'<span class="tag tag-gn" style="font-size:10px;flex-shrink:0">'+esc(stLabel)+'</span>'
       +'</div>'
-      +'<div style="font-size:12px;color:var(--n6)">类型: '+esc(type)+' | 敏感度: '+(s.sensitivity||'normal')+'</div>'
+      +'<div style="font-size:11px;color:var(--n5);margin-bottom:4px">'+esc(typeLabel)+' · '+esc(s.sensitivity||'internal')+' · art:'+(s.artifact_id||'').slice(0,8)+'</div>'
+      +(summary?'<div style="font-size:11px;color:var(--n6);line-height:1.5;max-height:40px;overflow:hidden">'+esc(summary.slice(0,120))+'</div>':'')
       +'</div>';
   });
   out.innerHTML=html;
@@ -1386,7 +1395,7 @@ function reindexArtifact(artifactId){
   }).catch(function(){showToast('获取索引源失败');});
 }
 
-function searchKnowledge(){
+function searchKnowledgeInArtifacts(){
   var q=document.getElementById('kn-search').value.trim();
   var resultsDiv=document.getElementById('kn-results');
   if(!q){
