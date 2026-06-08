@@ -1,21 +1,36 @@
-# Frontend / Backend API Alignment v0.7
+# Frontend / Backend API Alignment v0.8
 
-> **Baseline**: Tool Runtime Catalog v0.2.1 — 1254+ tests, 7 skipped
-> **Commit**: 11115c9 (2026-06-08)
+> **Baseline**: Tool Runtime Interactive UI v0.3 — 211 tests, 0 skipped
+> **Commit**: 36d251d (2026-06-08)
 > **Tools**: 55 total (7 v0.1 + 48 v0.2)
 
-## New API Endpoints (v0.2)
+## New API Endpoints (v0.3)
 
 | Endpoint | Method | Description |
 |----------|--------|-------------|
 | `/api/tools/catalog` | GET | Read-only tool catalog (55 tools) |
+| `/api/tools/invoke` | POST | Execute tool through full safety pipeline |
+| `/api/tools/dry-run` | POST | Preview invocation without execution |
+| `/api/tools/history` | GET | Execution history (per workspace, optional status filter) |
+| `/api/tools/approvals` | GET | List pending approval requests |
+| `/api/tools/approvals` | POST | Submit high-risk tool approval request |
+| `/api/tools/approvals/<id>/approve` | PUT | Approve a pending request |
+| `/api/tools/approvals/<id>/reject` | PUT | Reject a pending request |
+| `/api/tools/permissions` | GET | Workspace-level permission summary |
 | `/api/runtime/health?workspace_id=` | GET | Per-workspace runtime health |
 | `/api/runs/recent?workspace_id=` | GET | Per-workspace recent runs |
 | `/api/jobs?workspace_id=` | GET | Per-workspace jobs list |
 
-## Frontend Features Added
+## Frontend Features Added (v0.3)
 
-- Tool Catalog page (sidebar: "Tool Catalog") — read-only display
+- **Interactive Tool Catalog** — 3-tab layout: Catalog | Exec History | Approvals
+- **Tool Search & Filter** — search by name/description, filter by risk level + category
+- **Invoke Modal** — auto-generated parameter forms from ToolSpec input_schema
+- **Risk Routing** — low→Execute, medium→Dry Run+Execute, high→Request Approval
+- **Execution History** — status filter (success/failed/blocked/dry_run), Replay button
+- **Approval Queue** — pending requests with Approve/Reject controls (with confirm dialog)
+- **ESC Key** — closes invoke modal
+- **Permissions Button** — shows workspace-level tool permission summary
 - Refresh button (top bar) — reloads all dashboard data
 - Workspace-scoped system status
 
@@ -51,6 +66,15 @@
 | **Knowledge Reindex** | `POST /api/knowledge/sources/<id>/reindex` | `@app.route("/api/knowledge/sources/<id>/reindex")` | ✅ v0.1 |
 | **Knowledge Search** | `GET /api/knowledge/search?q=...` | `@app.route("/api/knowledge/search")` | ✅ v0.1 |
 | **Knowledge Chunk** | `GET /api/knowledge/chunks/<id>` | `@app.route("/api/knowledge/chunks/<id>")` | ✅ v0.1 |
+| **Tool Catalog** | `GET /api/tools/catalog` | `@app.route("/api/tools/catalog")` | ✅ v0.3 |
+| **Tool Invoke** | `POST /api/tools/invoke` | `@app.route("/api/tools/invoke")` | ✅ v0.3 |
+| **Tool Dry Run** | `POST /api/tools/dry-run` | `@app.route("/api/tools/dry-run")` | ✅ v0.3 |
+| **Tool History** | `GET /api/tools/history` | `@app.route("/api/tools/history")` | ✅ v0.3 |
+| **Tool Approvals** | `GET /api/tools/approvals` | `@app.route("/api/tools/approvals")` | ✅ v0.3 |
+| **Tool Approvals** | `POST /api/tools/approvals` | `@app.route("/api/tools/approvals")` | ✅ v0.3 |
+| **Tool Approve** | `PUT /api/tools/approvals/<id>/approve` | `@app.route("/api/tools/approvals/<id>/approve")` | ✅ v0.3 |
+| **Tool Reject** | `PUT /api/tools/approvals/<id>/reject` | `@app.route("/api/tools/approvals/<id>/reject")` | ✅ v0.3 |
+| **Tool Permissions** | `GET /api/tools/permissions` | `@app.route("/api/tools/permissions")` | ✅ v0.3 |
 
 ## Frontend UI Features (v0.3)
 
@@ -81,6 +105,7 @@ All API calls use `apiFetch()` with 8s timeout and `.catch()` handlers. On failu
 | `na_workspace_id` | Current workspace ID | string |
 | `na_current_session_id` | Current session ID pointer | string |
 | `na_settings` | UI preferences (lang, theme, font size, autosave) | object |
+| `tool_approval_<tool_id>` | Cached approval_id for high-risk tools | string |
 
 - **Conversation history is NOT stored in localStorage** — loaded from `/api/sessions/<id>?include_messages=1`
 - **Legacy keys auto-cleaned** — any `na_chat_*` or `na_history_*` keys are removed on init

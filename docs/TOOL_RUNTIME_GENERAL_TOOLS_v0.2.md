@@ -127,11 +127,18 @@ snmp.walk, nmap.scan, ping.sweep, config.push, file.read_any,
 file.write_any
 ```
 
-## API
+## API (v0.3)
 
-- `GET /api/tools/catalog` — Read-only tool catalog (metadata only, no invoke)
-- No `/api/tools/invoke` endpoint exists
-- No Tool Invoke UI
+- `GET /api/tools/catalog` — Read-only tool catalog (metadata only)
+- `POST /api/tools/invoke` — Execute tool through full safety pipeline
+- `POST /api/tools/dry-run` — Preview invocation without executing
+- `GET /api/tools/history` — Execution history with workspace + status filtering
+- `GET /api/tools/approvals` — List pending approval requests
+- `POST /api/tools/approvals` — Submit approval request
+- `PUT /api/tools/approvals/<id>/approve` — Approve pending request
+- `PUT /api/tools/approvals/<id>/reject` — Reject pending request
+- `GET /api/tools/permissions` — Workspace-level permission summary
+- **Interactive UI**: 3-tab layout with invoke modal, history, and approval queue
 
 ## Web Safety
 
@@ -156,9 +163,10 @@ file.write_any
 - No absolute paths
 - Sensitive/confidential artifacts excluded
 
-## Tests
+## Tests (v0.3)
 
 - `test_tool_runtime_general_tools_v02.py` — 24 tests
 - `test_tool_runtime_catalog_v021.py` — 13 tests
 - `test_tool_runtime_client_integration_v021.py` — 21 tests
-- Total: **58** tool-specific tests
+- `test_tool_runtime_api_invoke_v03.py` — 33 tests (invoke, dry-run, history, approvals, permissions, E2E)
+- Total: **91** tool-specific tests (211 total across all tool runtime test files)
