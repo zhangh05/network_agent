@@ -2385,14 +2385,18 @@ function _loadAllData(){
       var status=c.status||'unknown';
       var sdotClass=status==='ok'?'sdot-ok':status==='warning'?'sdot-warn':'sdot-dng';
       var details=c.details||{};
-      // Show detail numbers from real data when available
-      var detailText='';
-      if(c.name==='runs' && details.count!==undefined) detailText=' (共 '+details.count+' 条)';
-      else if(c.name==='artifacts' && details.count!==undefined) detailText=' (共 '+details.count+' 个)';
-      else if(c.name==='jobs' && details.count!==undefined) detailText=' (共 '+details.count+' 个)';
-      else if(c.name==='tool_runtime' && details.tool_count!==undefined) detailText=' (共 '+details.tool_count+' 个)';
-      else if(c.name==='archive' && details.audit_count!==undefined) detailText=' (共 '+details.audit_count+' 条)';
-      html+='<div style="display:flex;align-items:center;gap:10px;padding:10px;background:var(--n10);border-radius:8px"><span class="sdot '+sdotClass+'"></span><div><div style="font-weight:600">'+esc(zhName(c))+detailText+'</div><div style="font-size:11px;color:var(--n5)">'+esc(zhMsg(c))+'</div></div></div>';
+      // Show count in title — message is description only (no duplicate numbers)
+      var countText='';
+      if(c.name==='runs' && details.count!==undefined) countText=' ('+details.count+')';
+      else if(c.name==='artifacts' && details.count!==undefined) countText=' ('+details.count+')';
+      else if(c.name==='jobs' && details.count!==undefined) countText=' ('+details.count+')';
+      else if(c.name==='tool_runtime' && details.tool_count!==undefined) countText=' ('+details.tool_count+')';
+      else if(c.name==='archive' && details.audit_count!==undefined) countText=' ('+details.audit_count+')';
+      // Strip number prefix from message — already shown in title
+      // If title already shows the count, message just needs a brief status
+      var msg=zhMsg(c);
+      if(countText && status==='ok') msg='数据正常';
+      html+='<div style="display:flex;align-items:center;gap:10px;padding:10px;background:var(--n10);border-radius:8px"><span class="sdot '+sdotClass+'"></span><div><div style="font-weight:600">'+esc(zhName(c))+countText+'</div><div style="font-size:11px;color:var(--n5)">'+esc(msg)+'</div></div></div>';
     });
     if(comps.length===0){
       html='<div style="display:flex;align-items:center;gap:10px;padding:10px;background:var(--n10);border-radius:8px"><span class="sdot sdot-off"></span><div><div style="font-weight:600">暂无诊断数据</div><div style="font-size:11px;color:var(--n5)">runtime diagnostics unavailable</div></div></div>';
