@@ -26,10 +26,19 @@ def register_knowledge_routes(app):
         ws_id, err = _validated_ws_id(ws_id)
         if err:
             return err
-        from knowledge.store import list_sources, get_source_count
+        from knowledge.store import list_sources
         status = request.args.get("status")
         sources = list_sources(ws_id, status=status)
-        counts = get_source_count(ws_id)
+        # Filter out sources whose artifacts have been deleted
+        sources = _filter_deleted_artifact_sources(ws_id, sources)
+        # Recalculate counts after filtering
+        counts = {
+            "total": len(sources),
+            "indexed": sum(1 for s in sources if s.get("status") == "indexed"),
+            "pending": sum(1 for s in sources if s.get("status") == "pending"),
+            "indexing": sum(1 for s in sources if s.get("status") == "indexing"),
+            "failed": sum(1 for s in sources if s.get("status") == "failed"),
+        }
         return jsonify({"ok": True, "sources": sources, "counts": counts})
 
     @app.route("/api/knowledge/sources/from-artifact", methods=["POST"])
@@ -129,3 +138,27 @@ def register_knowledge_routes(app):
             "llm_safe": chunk.get("llm_safe"), "created_at": chunk.get("created_at"),
         }
         return jsonify({"ok": True, "chunk": safe})
+
+
+def _filter_deleted_artifact_sources(workspace_id: str, sources: list) -> list:
+    """Filter out knowledge sources whose artifacts have been deleted.
+    
+    Ensures knowledge index doesn't show orphaned entries for deleted artifacts.
+    """
+    try:
+        from artifacts.store import get_artifact
+    except ImportError:
+        return sources
+    filtered = []
+    for s in sources:
+        artifact_id = s.get("artifact_id", "")
+        if not artifact_id:
+            filtered.append(s)
+            continue
+        art = get_artifact(workspace_id, artifact_id)
+        # Only remove source if artifact exists AND is explicitly deleted
+        # If artifact not found, keep source (could be in a test workspace)
+        if art is not None and getattr(art, "lifecycle", "active") == "deleted":
+            continue
+        filtered.append(s)
+    return filtered

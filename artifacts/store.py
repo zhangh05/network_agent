@@ -286,7 +286,35 @@ def delete_artifact(workspace_id: str, artifact_id: str) -> bool:
     rec.updated_at = time.strftime("%Y-%m-%dT%H:%M:%S")
     meta_path = _get_ws_root() / workspace_id / "artifacts" / _type_dir(rec.artifact_type) / f"{artifact_id}.meta.json"
     meta_path.write_text(json.dumps(sanitize_record(rec), indent=2, ensure_ascii=False))
+    # Also remove from knowledge index
+    _remove_from_knowledge_index(workspace_id, artifact_id)
     return True
+
+
+def _remove_from_knowledge_index(workspace_id: str, artifact_id: str):
+    """Remove knowledge source entries for a deleted artifact."""
+    try:
+        from knowledge.store import _sources_path, _chunks_path, _read_jsonl, _write_jsonl
+        from workspace.ids import validate_workspace_id
+        validate_workspace_id(workspace_id)
+
+        # Remove from sources
+        spath = _sources_path(workspace_id)
+        if spath.exists():
+            sources = _read_jsonl(spath)
+            remaining = [s for s in sources if s.get("artifact_id") != artifact_id]
+            if len(remaining) < len(sources):
+                _write_jsonl(spath, remaining)
+
+        # Remove from chunks
+        cpath = _chunks_path(workspace_id)
+        if cpath.exists():
+            chunks = _read_jsonl(cpath)
+            remaining = [c for c in chunks if c.get("artifact_id") != artifact_id]
+            if len(remaining) < len(chunks):
+                _write_jsonl(cpath, remaining)
+    except Exception:
+        pass  # Best-effort cleanup, don't block deletion
 
 
 def promote_artifact(workspace_id: str, artifact_id: str, target_scope: str) -> Optional[ArtifactRecord]:
