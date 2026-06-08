@@ -28,6 +28,7 @@ BUILD_COMMIT = _resolve_build_commit()
 
 # App identity
 APP_NAME = "network_agent"
+APP_VERSION = "v0.4"
 TRANSLATOR_ENTRY = "translate_bundle"
 API_MODE = "unified"
 SWITCH_ROUTER_STATUS = "BETA_READY"

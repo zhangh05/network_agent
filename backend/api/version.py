@@ -1,7 +1,7 @@
 # backend/api/version.py
 
 from backend.core.settings import (
-    APP_NAME, BUILD_COMMIT, TRANSLATOR_ENTRY, API_MODE,
+    APP_NAME, APP_VERSION, BUILD_COMMIT, TRANSLATOR_ENTRY, API_MODE,
     SWITCH_ROUTER_STATUS, PRODUCT_READY, FIREWALL_STATUS,
     CONFIG_TRANSLATION_SOURCE, EXTERNAL_TRANSLATOR_DEPENDENCY,
 )
@@ -10,6 +10,7 @@ from backend.core.settings import (
 def get_version():
     return {
         "app": APP_NAME,
+        "version": APP_VERSION,
         "build_commit": BUILD_COMMIT,
         "translator_entry": TRANSLATOR_ENTRY,
         "switch_router_status": SWITCH_ROUTER_STATUS,

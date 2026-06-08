@@ -82,15 +82,18 @@ class SearchResult:
     tags: List[str] = field(default_factory=list)
     score: float = 0.0
     source_ref: str = ""
+    llm_safe: bool = True  # Whether this chunk passed Safe RAG filter
 
     def as_dict(self) -> dict:
         return {
             "chunk_id": self.chunk_id, "source_id": self.source_id,
             "artifact_id": self.artifact_id, "title": self.title,
+            "artifact_name": self.title,  # alias for frontend compatibility
             "summary": self.summary, "safe_excerpt": self.safe_excerpt,
             "artifact_type": self.artifact_type, "sensitivity": self.sensitivity,
             "tags": self.tags, "score": round(self.score, 3),
             "source_ref": self.source_ref,
+            "llm_safe": self.llm_safe,
         }
 
 

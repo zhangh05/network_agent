@@ -109,6 +109,7 @@ def search(
                 tags=chunk.get("tags", []),
                 score=score,
                 source_ref=f"artifact:{chunk.get('artifact_id', '')}",
+                llm_safe=chunk.get("llm_safe", True),
             )
             results.append(result)
 

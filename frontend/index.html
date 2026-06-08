@@ -1030,7 +1030,7 @@ function switchPage(name){
   if(btn)btn.classList.add('active');
   document.getElementById('bread-page').textContent=pageNames[name]||name;
   if(name==='memory') loadMemoryPage();
-  if(name==='artifacts'){loadArtifacts();loadKnowledgeStatus();}
+  if(name==='artifacts'){loadArtifacts();loadKnowledgeIndexForArtifacts();}
   if(name==='skills') loadSkillsPage();
   if(name==='knowledge') loadKnowledgeStatus();
 }
@@ -1334,7 +1334,7 @@ function deleteArtifact(artifactId,title){
 
 /* ── Knowledge Index ── */
 var _ksIdx={};
-function loadKnowledgeStatus(){
+function loadKnowledgeIndexForArtifacts(){
   var ws=_getWorkspaceId();
   apiFetch('/api/knowledge/sources?workspace_id='+encodeURIComponent(ws))
   .then(function(d){
@@ -1356,7 +1356,7 @@ function addToKnowledge(artifactId,title){
   .then(function(d){
     if(d.ok){
       showToast('已加入知识索引');
-      loadKnowledgeStatus();
+      loadKnowledgeIndexForArtifacts();
     }else{
       showToast('索引失败: '+(d.error||'unknown'));
     }
@@ -1377,7 +1377,7 @@ function reindexArtifact(artifactId){
     fetch('/api/knowledge/sources/'+encodeURIComponent(sourceId)+'/reindex?workspace_id='+encodeURIComponent(ws),{method:'POST'})
     .then(function(r){return r.json();})
     .then(function(dd){
-      if(dd.ok){showToast('重新索引完成');loadKnowledgeStatus();}
+      if(dd.ok){showToast('重新索引完成');loadKnowledgeIndexForArtifacts();}
       else{showToast('重新索引失败: '+(dd.error||''));}
     }).catch(function(){showToast('重新索引请求失败');});
   }).catch(function(){showToast('获取索引源失败');});

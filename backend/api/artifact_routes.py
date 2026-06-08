@@ -136,7 +136,11 @@ def register_artifact_routes(app):
         content = read_artifact_content(ws_id, artifact_id, allow_sensitive=allow)
         if content is None:
             return jsonify({"ok": False, "error": "content not accessible"}), 403
-        return jsonify({"ok": True, "content": content})
+        # Include title for frontend display
+        from artifacts.store import get_artifact
+        art = get_artifact(ws_id, artifact_id)
+        title = art.title if art else ""
+        return jsonify({"ok": True, "content": content, "title": title})
 
     @app.route("/api/workspaces/<ws_id>/artifacts/<artifact_id>", methods=["DELETE"])
     def api_artifact_delete(ws_id, artifact_id):
