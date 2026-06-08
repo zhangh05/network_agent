@@ -11,6 +11,7 @@ from tool_runtime.registry import ToolRegistry
 from tool_runtime.policy import ToolPolicy
 from tool_runtime.client import ToolRuntimeClient
 from tool_runtime.builtins import register_builtin_tools
+from tool_runtime.general_tools import register_all_general_tools
 from tool_runtime.trace_metadata import build_trace_metadata_from_tool_result
 
 # ── Module-level default (lazy singleton) ──
@@ -18,7 +19,7 @@ _default_client: ToolRuntimeClient = None
 
 
 def get_default_tool_runtime_client() -> ToolRuntimeClient:
-    """Get or create the default ToolRuntimeClient with v0.1 built-in tools.
+    """Get or create the default ToolRuntimeClient with all built-in and general tools.
 
     Returns a singleton instance. Thread-safe for creation (not mutation).
     Uses independent ToolInvocation/ToolResult — does NOT import agent/state.py.
@@ -26,6 +27,7 @@ def get_default_tool_runtime_client() -> ToolRuntimeClient:
     global _default_client
     if _default_client is None:
         registry = register_builtin_tools(ToolRegistry())
+        registry = register_all_general_tools(registry)
         policy = ToolPolicy()
         _default_client = ToolRuntimeClient(registry, policy)
     return _default_client

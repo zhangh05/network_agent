@@ -20,7 +20,7 @@ Key components:
 
 from tool_runtime.schemas import ToolSpec, ToolInvocation, ToolResult, PolicyDecision
 from tool_runtime.registry import ToolRegistry
-from tool_runtime.policy import ToolPolicy, V01_FORBIDDEN_TOOLS
+from tool_runtime.policy import ToolPolicy, V02_FORBIDDEN_TOOLS
 from tool_runtime.executor import ToolExecutor
 from tool_runtime.redaction import redact_tool_output, contains_secret
 from tool_runtime.audit import build_audit_event

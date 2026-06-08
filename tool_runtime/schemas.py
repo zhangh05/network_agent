@@ -16,11 +16,16 @@ VALID_RISK_LEVELS = {"low", "medium", "high", "forbidden"}
 VALID_TOOL_STATUSES = {"succeeded", "failed", "blocked", "dry_run"}
 VALID_TOOL_CATEGORIES = {
     "artifact", "parser", "report", "command",
-    # Future categories (NOT allowed in v0.1 policy, but valid for ToolSpec creation):
-    "network", "device", "shell", "ssh", "telnet", "snmp", "nmap", "file",
+    "knowledge", "web", "session", "runtime", "text", "workspace",
+    "shell", "powershell",
+    "network", "device", "ssh", "telnet", "snmp", "nmap", "file",
 }
-# v0.1 only these categories are allowed
-V01_ALLOWED_CATEGORIES = {"artifact", "parser", "report", "command"}
+# v0.2 — expanded categories for general agent tools
+V02_ALLOWED_CATEGORIES = {
+    "artifact", "parser", "report", "command",
+    "knowledge", "web", "session", "runtime", "text", "workspace",
+    "shell", "powershell",  # high-risk: only approved_exec allowed
+}
 
 
 @dataclass
@@ -87,6 +92,7 @@ class ToolInvocation:
     job_id: Optional[str] = None
     dry_run: bool = False
     requested_by: str = ""            # e.g. "module:config_translation", "agent:admin"
+    approval_id: Optional[str] = None  # Required for high-risk tools
     created_at: str = field(default_factory=lambda: datetime.now(timezone.utc).isoformat())
 
 

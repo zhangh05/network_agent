@@ -41,6 +41,15 @@ def register_runtime_routes(app):
         result = run_selfcheck(ws_id)
         return jsonify(result.as_dict())
 
+    @app.route("/api/tools/catalog")
+    def api_tools_catalog():
+        """Return read-only tool catalog — metadata only, no invoke capability."""
+        from tool_runtime.integration import get_default_tool_runtime_client
+        client = get_default_tool_runtime_client()
+        tools = client.list_tools()
+        return jsonify({"tools": tools, "count": len(tools),
+                        "note": "Read-only catalog. High-risk tools require approval."})
+
     @app.route("/api/workspaces/<ws_id>/selfcheck")
     def api_workspace_selfcheck(ws_id):
         ws_id, err = _validated_ws_id(ws_id)
