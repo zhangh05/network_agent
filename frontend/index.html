@@ -975,6 +975,23 @@ router ospf 1
 <script>
 /* ── Utility helpers ── */
 function esc(s){return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');}
+function safeSetText(id,value){
+  var el=document.getElementById(id);
+  if(el) el.textContent=value;
+  return el;
+}
+function safeSetHTML(id,value){
+  var el=document.getElementById(id);
+  if(el) el.innerHTML=value;
+  return el;
+}
+function safeSetStat(id,value,footHtml){
+  var el=safeSetText(id,value);
+  if(!el || footHtml===undefined) return el;
+  var foot=el.parentElement&&el.parentElement.querySelector('.stat-foot');
+  if(foot) foot.innerHTML=footHtml;
+  return el;
+}
 
 // Security: redact sensitive text before display
 var _SENSITIVE_KEYS=['password','passwd','secret','token','api_key','apikey','key','community','authorization','bearer','private_key'];
@@ -1351,6 +1368,7 @@ function switchToolTab(tab){
 
 /* ── Invoke Modal ── */
 var _currentInvokeTool=null;
+var _toolApprovalIds={};
 
 function openInvoke(tool){
   _currentInvokeTool=tool;
@@ -1464,9 +1482,9 @@ function invokeExecute(){
   var args=_collectInvokeArgs();
   var ws=_getWorkspaceId();
   var body={tool_id:_currentInvokeTool.tool_id,arguments:args,workspace_id:ws};
-  // If high risk, try to get approval_id from localStorage
+  // If high risk, use only this page's in-memory approval_id cache.
   if(_currentInvokeTool.risk_level==='high'||_currentInvokeTool.requires_approval){
-    body.approval_id=localStorage.getItem('tool_approval_'+_currentInvokeTool.tool_id)||'';
+    body.approval_id=_toolApprovalIds[_currentInvokeTool.tool_id]||'';
   }
   apiFetch('/api/tools/invoke?workspace_id='+encodeURIComponent(ws),{
     method:'POST',headers:{'Content-Type':'application/json'},
@@ -1488,7 +1506,7 @@ function invokeRequestApproval(){
     body:JSON.stringify({tool_id:_currentInvokeTool.tool_id,reason:reason,workspace_id:ws,user:'ui_user'})
   }).then(function(d){
     if(d.ok&&d.approval_id){
-      localStorage.setItem('tool_approval_'+_currentInvokeTool.tool_id,d.approval_id);
+      _toolApprovalIds[_currentInvokeTool.tool_id]=d.approval_id;
     }
     _showInvokeResult(JSON.stringify(d,null,2),'dry_run');
   }).catch(function(e){
@@ -1754,7 +1772,7 @@ function previewArtifact(artifactId){
   titleEl.textContent='加载中…';
   contentEl.textContent='加载中…';
   modal.classList.add('show');
-  apiFetch('/api/workspaces/'+encodeURIComponent(ws)+'/artifacts/'+encodeURIComponent(artifactId)+'/content?allow_sensitive=1')
+  apiFetch('/api/workspaces/'+encodeURIComponent(ws)+'/artifacts/'+encodeURIComponent(artifactId)+'/content')
   .then(function(d){
     if(!d.ok){
       titleEl.textContent='无法访问';
@@ -2695,7 +2713,7 @@ function _checkBackendAndLoad(){
     agStatus.textContent='已连接';
     var dot=document.getElementById('top-proj');
     if(dot){var s=dot.querySelector('.status');if(s)s.className='status sdot sdot-ok';}
-    _loadAllData();
+    try{_loadAllData();}catch(e){console.warn('dashboard load warning',e);}
   }).catch(function(err){
     clearTimeout(timeout);
     if(!statusEl || !agStatus) return;
@@ -2721,6 +2739,7 @@ function refreshDashboard(){
   apiFetch('/api/runs/recent?limit=5&workspace_id='+encodeURIComponent(ws),{retries:1}).then(function(d){
     var runs=d.runs||[];
     var table=document.getElementById('recent-runs');
+    if(!table) return;
     if(runs.length===0){table.innerHTML='<div class="empty"><div class="icon">⌘</div><div class="t">暂无运行记录</div></div>';return;}
     var html='<table><thead><tr><th>Run ID</th><th>Intent</th><th>Status</th><th>Module</th><th>Quality</th><th>Time</th></tr></thead><tbody>';
     runs.forEach(function(r){
@@ -2732,10 +2751,10 @@ function refreshDashboard(){
       html+='<td><span class="tag '+st+'">'+esc(r.status||'—')+'</span></td><td>'+esc(r.active_module||'—')+'</td><td>'+qsBadge+'</td><td style="font-size:11px;color:var(--n5)">'+esc((r.created_at||'').slice(0,19))+'</td></tr>';
     });
     html+='</tbody></table>';table.innerHTML=html;
-  }).catch(function(){document.getElementById('recent-runs').innerHTML='<div class="empty"><div class="t" style="color:var(--dng)">刷新失败</div></div>';});
+  }).catch(function(){safeSetHTML('recent-runs','<div class="empty"><div class="t" style="color:var(--dng)">刷新失败</div></div>');});
   // Jobs
   apiFetch('/api/jobs?workspace_id='+encodeURIComponent(ws),{retries:1}).then(function(d){
-    document.getElementById('dash-tasks').textContent=(d.jobs||[]).length||'0';
+    safeSetText('dash-tasks',(d.jobs||[]).length||'0');
   });
   // Runtime health
   refreshRuntimeHealth();
@@ -2744,17 +2763,14 @@ function refreshDashboard(){
 function refreshDashStats(){
   apiFetch('/api/modules').then(function(d){
     var mods=(d.modules||[]).filter(function(m){return m.enabled;});
-    document.getElementById('dash-modules').textContent=mods.length;
-    document.getElementById('dash-modules').parentElement.querySelector('.stat-foot').innerHTML='<span class="sdot sdot-ok"></span>实时';
+    safeSetStat('dash-mods',mods.length,'<span class="sdot sdot-ok"></span>实时');
   }).catch(function(){});
   apiFetch('/api/skills').then(function(d){
     var skills=d.skills||[];
-    document.getElementById('dash-skills').textContent=skills.length;
-    document.getElementById('dash-skills').parentElement.querySelector('.stat-foot').innerHTML='<span class="sdot sdot-ok"></span>实时';
+    safeSetStat('dash-skills',skills.length,'<span class="sdot sdot-ok"></span>实时');
   }).catch(function(){});
   apiFetch('/api/memory/status').then(function(d){
-    document.getElementById('dash-mems').textContent=(d.records||[]).length||'0';
-    document.getElementById('dash-mems').parentElement.querySelector('.stat-foot').innerHTML='<span class="sdot sdot-ok"></span>实时';
+    safeSetStat('dash-mems',(d.records||[]).length||'0','<span class="sdot sdot-ok"></span>实时');
   }).catch(function(){});
 }
 
@@ -2770,74 +2786,65 @@ function _loadAllData(){
       if(d.ok && d.session){
         _currentSessionId=d.session.session_id;
         _setCurrentSessionId(_currentSessionId);
-        document.getElementById('session-title').innerHTML='会话选择<span class="chevron">▼</span>';
+        safeSetHTML('session-title','会话选择<span class="chevron">▼</span>');
         loadSessionMessages(_currentSessionId);
       }
-    }).catch(function(){
-      document.getElementById('session-title').innerHTML='会话选择<span class="chevron">▼</span>';
-    });
+    }).catch(function(){safeSetHTML('session-title','会话选择<span class="chevron">▼</span>');});
   }
 
   // Load session list in background
   loadSessions();
 
   // Agent init time
-  document.getElementById('ag-init-time').textContent=new Date().toLocaleTimeString('zh-CN',{hour:'2-digit',minute:'2-digit'});
+  safeSetText('ag-init-time',new Date().toLocaleTimeString('zh-CN',{hour:'2-digit',minute:'2-digit'}));
 
   // Fetch version
   apiFetch('/api/version',{retries:1}).then(function(d){
-    document.getElementById('build-id').textContent=d.build_commit||'---';
-    document.getElementById('entry-id').textContent=d.translator_entry||'translate_bundle';
-    document.getElementById('ver-tag').textContent=d.version||'v3.0';
+    safeSetText('build-id',d.build_commit||'---');
+    safeSetText('entry-id',d.translator_entry||'translate_bundle');
+    safeSetText('ver-tag',d.version||'v3.0');
   }).catch(function(){});
 
   // Fetch modules
   apiFetch('/api/modules',{retries:1}).then(function(d){
     var mods=d.modules||[];
     var enabled=mods.filter(function(m){return m.enabled;});
-    document.getElementById('dash-mods').textContent=enabled.length+'/'+mods.length;
     var ft=enabled.length+' enabled';
-    document.getElementById('dash-mods').parentElement.querySelector('.stat-foot').innerHTML='<span class="sdot sdot-ok"></span>'+ft;
+    safeSetStat('dash-mods',enabled.length+'/'+mods.length,'<span class="sdot sdot-ok"></span>'+ft);
   }).catch(function(){
-    document.getElementById('dash-mods').textContent='—';
-    document.getElementById('dash-mods').parentElement.querySelector('.stat-foot').innerHTML='<span class="sdot sdot-dng"></span>不可用';
+    safeSetStat('dash-mods','—','<span class="sdot sdot-dng"></span>不可用');
   });
 
   // Fetch skills
   apiFetch('/api/skills',{retries:1}).then(function(d){
     var c=(d.skills||[]).length;
-    document.getElementById('dash-skills').textContent=c||'0';
-    document.getElementById('dash-skills').parentElement.querySelector('.stat-foot').innerHTML='<span class="sdot sdot-ok"></span>loaded';
+    safeSetStat('dash-skills',c||'0','<span class="sdot sdot-ok"></span>loaded');
   }).catch(function(){
-    document.getElementById('dash-skills').textContent='—';
-    document.getElementById('dash-skills').parentElement.querySelector('.stat-foot').innerHTML='<span class="sdot sdot-dng"></span>不可用';
+    safeSetStat('dash-skills','—','<span class="sdot sdot-dng"></span>不可用');
   });
 
   // Fetch memory status
   apiFetch('/api/memory/status',{retries:1}).then(function(d){
     if(d.records!==undefined){
-      document.getElementById('dash-mems').textContent=d.records;
-      document.getElementById('dash-mems').parentElement.querySelector('.stat-foot').innerHTML='<span class="sdot sdot-ok"></span>JSONL 存储';
+      safeSetStat('dash-mems',d.records,'<span class="sdot sdot-ok"></span>JSONL 存储');
     }
   }).catch(function(){
-    document.getElementById('dash-mems').textContent='—';
-    document.getElementById('dash-mems').parentElement.querySelector('.stat-foot').innerHTML='<span class="sdot sdot-dng"></span>不可用';
+    safeSetStat('dash-mems','—','<span class="sdot sdot-dng"></span>不可用');
   });
 
   // Fetch job count
   apiFetch('/api/jobs?workspace_id='+encodeURIComponent(_currentWorkspaceId),{retries:1}).then(function(d){
     var jobs=d.jobs||[];
-    document.getElementById('dash-tasks').textContent=jobs.length||'0';
-    document.getElementById('dash-tasks').parentElement.querySelector('.stat-foot').innerHTML='<span class="sdot sdot-ok"></span>查询完成';
+    safeSetStat('dash-tasks',jobs.length||'0','<span class="sdot sdot-ok"></span>查询完成');
   }).catch(function(){
-    document.getElementById('dash-tasks').textContent='—';
-    document.getElementById('dash-tasks').parentElement.querySelector('.stat-foot').innerHTML='<span class="sdot sdot-dng"></span>不可用';
+    safeSetStat('dash-tasks','—','<span class="sdot sdot-dng"></span>不可用');
   });
 
   // Fetch recent runs
   apiFetch('/api/runs/recent?limit=5&workspace_id='+encodeURIComponent(_currentWorkspaceId),{retries:1}).then(function(d){
     var runs=d.runs||[];
     var table=document.getElementById('recent-runs');
+    if(!table) return;
     if(runs.length===0){
       table.innerHTML='<div class="empty"><div class="icon">⌘</div><div class="t">暂无运行记录</div><div style="font-size:12px">执行一次 Agent Run 或翻译任务后此区域将显示运行记录</div></div>';
       return;
@@ -2864,12 +2871,13 @@ function _loadAllData(){
     html+='</tbody></table>';
     table.innerHTML=html;
   }).catch(function(){
-    document.getElementById('recent-runs').innerHTML='<div class="empty"><div class="icon">⌘</div><div class="t" style="color:var(--dng)">历史加载失败</div></div>';
+    safeSetHTML('recent-runs','<div class="empty"><div class="icon">⌘</div><div class="t" style="color:var(--dng)">历史加载失败</div></div>');
   });
 
   // Fetch runtime diagnostics for system status panel
   apiFetch('/api/runtime/health?workspace_id='+encodeURIComponent(_currentWorkspaceId)).then(function(d){
     var sysGrid=document.getElementById('sys-status-grid');
+    if(!sysGrid) return;
     var comps=d.components||[];
     // Chinese translation map for component names ONLY (messages use dynamic regex)
     var zhMap={
@@ -2933,9 +2941,9 @@ function _loadAllData(){
       if(summary.error) extra+=' / '+summary.error+' 异常';
       extra+=' (共 '+summary.total+')</div>';
     }
-    document.getElementById('runtime-status-extras').innerHTML=extra;
+    safeSetHTML('runtime-status-extras',extra);
   }).catch(function(){
-    document.getElementById('sys-status-grid').innerHTML='<div style="display:flex;align-items:center;gap:10px;padding:10px;background:var(--n10);border-radius:8px"><span class="sdot sdot-dng"></span><div><div style="font-weight:600">诊断不可用</div><div style="font-size:11px;color:var(--n5)">/api/runtime/health 调用失败</div></div></div>';
+    safeSetHTML('sys-status-grid','<div style="display:flex;align-items:center;gap:10px;padding:10px;background:var(--n10);border-radius:8px"><span class="sdot sdot-dng"></span><div><div style="font-weight:600">诊断不可用</div><div style="font-size:11px;color:var(--n5)">/api/runtime/health 调用失败</div></div></div>');
   });
 
   // Fetch archive preview
@@ -2949,21 +2957,22 @@ function _loadAllData(){
     if(total>0) abadge.style.cssText+='background:#fef3c7;color:#92400e';
     else abadge.style.cssText+='background:#dcfce7;color:#166534';
     abadge.textContent='Archive: '+(total||0)+' candidates';
-    document.getElementById('ws-badge').parentElement.appendChild(abadge);
+    var wsBadge=document.getElementById('ws-badge');
+    if(wsBadge && wsBadge.parentElement) wsBadge.parentElement.appendChild(abadge);
   }).catch(function(){});
 
   // Fetch workspace list
   apiFetch('/api/workspaces').then(function(d){
     var wss=d.workspaces||[];
     var wsNames=wss.map(function(w){return w.workspace_id||w;});
-    document.getElementById('ws-badge').textContent='default'+(wsNames.length>1?' (+'+(wsNames.length-1)+' more)':'');
+    safeSetText('ws-badge','default'+(wsNames.length>1?' (+'+(wsNames.length-1)+' more)':''));
   }).catch(function(){});
 
   // Workspace ID in localStorage
   try{
     var savedWs=localStorage.getItem('na_workspace_id');
     if(savedWs && savedWs!=='default'){
-      document.getElementById('ws-badge').textContent=savedWs;
+      safeSetText('ws-badge',savedWs);
     }
   }catch(e){}
 

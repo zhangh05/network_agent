@@ -203,8 +203,16 @@ def test_required_agent_conversation_inputs_via_http_api():
             assert "coming soon" in text.lower() or "coming_soon" in serialized
 
 
-def test_agent_model_question_is_basic_assistant_chat():
+def test_agent_model_question_is_basic_assistant_chat(monkeypatch, tmp_path):
+    import agent.llm.settings as settings_mod
     from backend.main import app
+    settings_path = tmp_path / "LLM_setting.json"
+    settings_path.write_text(json.dumps({
+        "enabled": False,
+        "provider": "disabled",
+        "safe_mode": True,
+    }))
+    monkeypatch.setattr(settings_mod, "SETTINGS_PATH", settings_path)
 
     resp = app.test_client().post("/api/agent/run", json={
         "message": "你是什么模型",

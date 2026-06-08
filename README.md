@@ -27,7 +27,7 @@ Run history is backend/workspace-backed. Browser `localStorage` is for UI prefer
 
 LLM settings saved from the frontend are persisted by the backend through `POST /api/agent/llm/config` into gitignored `config/LLM_setting.json`. The browser does not persist the API key. When the key field is left empty on re-save, the existing stored key is preserved (not overwritten). The settings panel shows "(已配置)" indicator when a key is already stored. LLM configuration is global — one file for all workspaces.
 
-## Tool Runtime v0.2
+## Tool Runtime v0.3
 
 Current tool count: **55** (7 v0.1 builtins + 48 v0.2 general tools).
 
@@ -49,11 +49,16 @@ See [docs/TOOL_RUNTIME_GENERAL_TOOLS_v0.2.md](docs/TOOL_RUNTIME_GENERAL_TOOLS_v0
 | **Total** | **55** | |
 
 ### Safety
-- `GET /api/tools/catalog` — read-only tool metadata. **No Tool Invoke API.**
-- **No Tool Invoke UI** — frontend Tool Catalog page is read-only display.
-- High-risk tools (`command.approved_exec`, `powershell.approved_script`) default disabled, require `approval_id`.
+- `GET /api/tools/catalog` — read-only tool metadata.
+- `POST /api/tools/invoke` — executes enabled tools only through ToolPolicy, ToolExecutor, redaction, and audit history.
+- Tool Invoke UI is available for low/medium tools; high-risk tools require an `approval_id` with approved status that matches the same tool and workspace.
+- High-risk tools (`command.approved_exec`, `powershell.approved_script`) default disabled, require matching approved status, and still only support allowlisted read-only actions.
 - `shell.exec`, `powershell.exec`, `command.exec`, `ssh.exec`, `telnet.exec`, `snmp.walk`, `nmap.scan`, `ping.sweep`, `config.push`, `file.read_any`, `file.write_any` — **all forbidden**.
 - No real device access. No config push.
+
+### Latest Verification
+- 2026-06-09: full harness after frontend/backend safety fixes — `1351 passed, 7 skipped`.
+- Browser reload check on `127.0.0.1:8010` verified top status and Agent status stay `已连接` with no console errors.
 
 Tool Runtime has Foundation + Client + Integration contracts and writes safe ToolResult metadata into observability traces when invoked with trace context. It still does **not** support SSH/Telnet/SNMP/nmap/ping sweep/arbitrary shell/config push or real device execution.
 

@@ -53,6 +53,22 @@ class TestFrontendBackendAlignment:
             if 'na_workspace_id' not in line and 'na_settings' not in line and 'na_current_session_id' not in line and 'na_' not in line:
                 pytest.fail(f"Unexpected localStorage key in: {line}")
 
+    def test_dashboard_refresh_uses_existing_module_stat_id(self):
+        """Dashboard refresh must not write to a missing stat card element."""
+        html = (PROJECT_ROOT / "frontend" / "index.html").read_text()
+        assert 'id="dash-mods"' in html
+        assert "safeSetStat('dash-mods'" in html
+        assert "getElementById('dash-modules')" not in html
+
+    def test_backend_health_success_not_reversed_by_dashboard_load_error(self):
+        """Dashboard load errors must not be handled as backend health failures."""
+        html = (PROJECT_ROOT / "frontend" / "index.html").read_text()
+        start = html.index("function _checkBackendAndLoad()")
+        end = html.index("function refreshDashboard()", start)
+        body = html[start:end]
+        assert "statusEl.textContent='已连接'" in body
+        assert "try{_loadAllData();}" in body.replace(" ", "")
+
 
 class TestAgentChat:
     def test_hello_intent(self):

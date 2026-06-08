@@ -95,6 +95,23 @@ class TestWorkspaceArtifact:
         raw = json.dumps(state)
         assert "no shutdown" not in raw or len(raw) < 500
 
+    def test_sensitive_artifact_content_requires_server_side_capability(self, client):
+        resp = client.post("/api/workspaces/aw_sensitive/artifacts", json={
+            "content": "interface Gi0/1\n description internal design note",
+            "artifact_type": "knowledge_doc",
+            "title": "Sensitive design note",
+            "scope": "workspace",
+            "sensitivity": "sensitive",
+        })
+        assert resp.status_code == 200
+        artifact_id = resp.get_json()["artifact"]["artifact_id"]
+
+        blocked = client.get(
+            f"/api/workspaces/aw_sensitive/artifacts/{artifact_id}/content?allow_sensitive=1"
+        )
+        assert blocked.status_code == 403
+        assert blocked.get_json().get("error") == "content not accessible"
+
 
 class TestLLMSafeContext:
     def test_safe_context_artifact_summary(self, temp_dirs):

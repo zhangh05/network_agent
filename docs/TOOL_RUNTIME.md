@@ -47,7 +47,9 @@ Frontend UI:
 |-------|----------|
 | low | Always allowed, read-only |
 | medium | Allowed, dry_run supported, writes artifact only |
-| high | Default disabled, requires `approval_id`, allowlisted only |
+| high | Default disabled, requires matching approved `approval_id`, allowlisted only |
+
+Approval IDs are stateful and authoritative. `/api/tools/invoke` accepts a high-risk or `requires_approval` invocation only when the provided `approval_id` exists, has status `approved`, and matches both the requested `tool_id` and `workspace_id`. Pending, rejected, fake, cross-tool, or cross-workspace approval IDs are blocked before handler execution and are written to tool history as blocked invocations.
 
 ## Forbidden Tools
 
@@ -87,5 +89,11 @@ User clicks tool card
 4. No tool can push config to real devices
 5. All outputs are redacted (password/token/path masking)
 6. Audit metadata is written for every invocation
-7. High-risk tools require approval_id
+7. High-risk tools require an approved `approval_id` that matches tool and workspace
 8. Execution history is thread-safe and persisted to JSON
+
+## Verification
+
+- 2026-06-09 full harness: `1351 passed, 7 skipped`
+- Tool Runtime/API/artifact/design regression slice: `102 passed`
+- High-risk approval tests cover missing, fake, cross-workspace, pending, rejected, and approved IDs

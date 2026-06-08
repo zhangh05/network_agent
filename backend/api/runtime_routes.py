@@ -16,7 +16,7 @@ from workspace.ids import validate_workspace_id
 # ── In-memory state for execution history and approvals ──
 _TOOL_HISTORY_MAX = 200
 _tool_exec_history = OrderedDict()
-_tool_pending_approvals = OrderedDict()
+_tool_approvals = OrderedDict()
 _lock = threading.Lock()
 
 _HISTORY_FILE = os.path.join(os.path.dirname(__file__), '..', '..', 'data', 'tool_history.json')
@@ -36,7 +36,7 @@ def _persist_history():
 
 def _persist_approvals():
     with _lock:
-        snapshot = list(_tool_pending_approvals.values())
+        snapshot = list(_tool_approvals.values())
     try:
         os.makedirs(os.path.dirname(_APPROVALS_FILE), exist_ok=True)
         with open(_APPROVALS_FILE, 'w') as f:
@@ -59,8 +59,9 @@ def _load_persisted():
             with open(_APPROVALS_FILE) as f:
                 items = json.load(f) or []
             for item in items:
-                if item.get('status') == 'pending':
-                    _tool_pending_approvals[item.get('approval_id', '')] = item
+                approval_id = item.get('approval_id', '')
+                if approval_id:
+                    _tool_approvals[approval_id] = item
     except Exception:
         pass
 
@@ -86,6 +87,68 @@ def _get_tool_risk_level(client, tool_id: str) -> str:
         return spec.risk_level if spec else "unknown"
     except Exception:
         return "unknown"
+
+
+def _requires_runtime_approval(spec) -> bool:
+    return bool(spec and (spec.risk_level == "high" or spec.requires_approval))
+
+
+def _validate_approved_tool_invocation(approval_id: str, tool_id: str, workspace_id: str) -> bool:
+    """Return True only for an approved ID that matches tool and workspace."""
+    if not approval_id:
+        return False
+    with _lock:
+        approval = dict(_tool_approvals.get(approval_id, {}))
+    return (
+        approval.get("status") == "approved"
+        and approval.get("tool_id") == tool_id
+        and approval.get("workspace_id") == workspace_id
+    )
+
+
+def _blocked_tool_response(invocation, ws_id: str, risk_level: str, reason: str):
+    """Return and persist a blocked tool invocation without reaching a handler."""
+    hist_entry = {
+        "invocation_id": invocation.invocation_id,
+        "tool_id": invocation.tool_id,
+        "status": "blocked",
+        "summary": reason,
+        "artifact_ids": [],
+        "warnings": [],
+        "errors": [reason],
+        "duration_ms": 0,
+        "redacted": True,
+        "policy_decision": {
+            "allowed": False,
+            "reason": reason,
+            "risk_level": risk_level,
+            "blocked_rules": ["approval_state"],
+            "requires_approval": True,
+        },
+        "created_at": invocation.created_at,
+        "workspace_id": ws_id,
+        "dry_run": invocation.dry_run,
+        "risk_level": risk_level,
+    }
+    with _lock:
+        _tool_exec_history[invocation.invocation_id] = hist_entry
+        while len(_tool_exec_history) > _TOOL_HISTORY_MAX:
+            _tool_exec_history.popitem(last=False)
+    _persist_history()
+
+    return jsonify({
+        "ok": False,
+        "invocation_id": invocation.invocation_id,
+        "tool_id": invocation.tool_id,
+        "status": "blocked",
+        "summary": reason,
+        "output": {},
+        "duration_ms": 0,
+        "redacted": True,
+        "policy_decision": hist_entry["policy_decision"],
+        "errors": [reason],
+        "warnings": [],
+    })
 
 
 def _safe_output(output: dict) -> dict:
@@ -163,6 +226,7 @@ def register_runtime_routes(app):
         from tool_runtime.schemas import ToolInvocation
 
         client = get_default_tool_runtime_client()
+        spec = client._registry.get_tool(tool_id)
 
         # Build invocation with approval_id
         invocation = ToolInvocation(
@@ -173,6 +237,12 @@ def register_runtime_routes(app):
             requested_by="ui:tool_catalog",
             approval_id=approval_id,
         )
+
+        if _requires_runtime_approval(spec) and not _validate_approved_tool_invocation(approval_id, tool_id, ws_id):
+            return _blocked_tool_response(
+                invocation, ws_id, _get_tool_risk_level(client, tool_id),
+                "invalid_or_unapproved_approval_id",
+            )
 
         # Run through executor directly (policy check included)
         result = client._executor.execute(invocation)
@@ -264,9 +334,12 @@ def register_runtime_routes(app):
         ws_id = request.args.get("workspace_id", "default")
 
         with _lock:
-            all_pending = list(_tool_pending_approvals.values())
+            all_approvals = list(_tool_approvals.values())
 
-        records = [r for r in all_pending if r.get("workspace_id", "") == ws_id]
+        records = [
+            r for r in all_approvals
+            if r.get("workspace_id", "") == ws_id and r.get("status") == "pending"
+        ]
         return jsonify({
             "approvals": records,
             "count": len(records),
@@ -277,12 +350,11 @@ def register_runtime_routes(app):
     def api_tools_approve(approval_id):
         """Approve a pending tool approval."""
         with _lock:
-            approval = _tool_pending_approvals.get(approval_id)
-            if not approval:
+            approval = _tool_approvals.get(approval_id)
+            if not approval or approval.get("status") != "pending":
                 return jsonify({"ok": False, "error": "approval not found"}), 404
             approval["status"] = "approved"
             approval["resolved_at"] = datetime.now(timezone.utc).isoformat()
-            del _tool_pending_approvals[approval_id]
         _persist_approvals()
 
         return jsonify({"ok": True, "approval_id": approval_id, "status": "approved",
@@ -292,12 +364,11 @@ def register_runtime_routes(app):
     def api_tools_reject(approval_id):
         """Reject a pending tool approval."""
         with _lock:
-            approval = _tool_pending_approvals.get(approval_id)
-            if not approval:
+            approval = _tool_approvals.get(approval_id)
+            if not approval or approval.get("status") != "pending":
                 return jsonify({"ok": False, "error": "approval not found"}), 404
             approval["status"] = "rejected"
             approval["resolved_at"] = datetime.now(timezone.utc).isoformat()
-            del _tool_pending_approvals[approval_id]
         _persist_approvals()
 
         return jsonify({"ok": True, "approval_id": approval_id, "status": "rejected"})
@@ -313,6 +384,9 @@ def register_runtime_routes(app):
 
         if not tool_id or not reason:
             return jsonify({"ok": False, "error": "tool_id and reason are required"}), 400
+        ws_id, err = _validated_ws_id(ws_id)
+        if err:
+            return err
 
         approval_id = "APR-" + uuid.uuid4().hex[:8].upper()
         entry = {
@@ -325,7 +399,7 @@ def register_runtime_routes(app):
             "created_at": datetime.now(timezone.utc).isoformat(),
         }
         with _lock:
-            _tool_pending_approvals[approval_id] = entry
+            _tool_approvals[approval_id] = entry
         _persist_approvals()
 
         return jsonify({"ok": True, "approval_id": approval_id, "status": "pending",

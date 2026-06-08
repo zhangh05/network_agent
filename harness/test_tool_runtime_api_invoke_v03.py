@@ -6,11 +6,16 @@ Version: v0.3 — Interactive Tool UI support
 
 import json
 import pytest
+import uuid
 
 
 PROJECT_ROOT = __file__.rsplit("/harness", 1)[0]
 
 EXPECTED_TOOLS = 55
+
+
+def _unique_ws(prefix="toolapi"):
+    return f"{prefix}_{uuid.uuid4().hex[:8]}"
 
 
 def _get_app():
@@ -65,17 +70,64 @@ class TestInvokeEndpoint:
         # Should be blocked since no approval_id
         assert data.get("status") in ("blocked", "failed")
 
-    def test_invoke_high_risk_with_approval(self):
+    def test_invoke_high_risk_rejects_unapproved_approval_id(self):
         client = _get_client()
         resp = client.post("/api/tools/invoke", json={
             "tool_id": "command.approved_exec",
             "arguments": {"command_id": "system.platform_info"},
-            "approval_id": "APR-TEST001",
+            "approval_id": "APR-FAKE001",
         })
         data = resp.get_json()
         assert resp.status_code == 200
-        # With approval_id, should proceed (actual result depends on env)
         assert data.get("invocation_id")
+        assert data.get("status") == "blocked"
+        assert data.get("errors") == ["invalid_or_unapproved_approval_id"]
+
+    def test_invoke_high_risk_approval_must_match_workspace(self):
+        client = _get_client()
+        approved_ws = _unique_ws("approved")
+        other_ws = _unique_ws("other")
+
+        r = client.post("/api/tools/approvals", json={
+            "tool_id": "command.approved_exec",
+            "reason": "Need to run health check",
+            "workspace_id": approved_ws,
+            "user": "test_user",
+        })
+        aid = r.get_json()["approval_id"]
+        client.put(f"/api/tools/approvals/{aid}/approve")
+
+        resp = client.post(f"/api/tools/invoke?workspace_id={other_ws}", json={
+            "tool_id": "command.approved_exec",
+            "arguments": {"command_id": "system.platform_info"},
+            "approval_id": aid,
+        })
+        data = resp.get_json()
+        assert resp.status_code == 200
+        assert data.get("status") == "blocked"
+        assert data.get("errors") == ["invalid_or_unapproved_approval_id"]
+
+    def test_invoke_high_risk_with_approved_id_reaches_policy(self):
+        client = _get_client()
+        ws = _unique_ws("approved")
+        r = client.post("/api/tools/approvals", json={
+            "tool_id": "command.approved_exec",
+            "reason": "Need to run health check",
+            "workspace_id": ws,
+            "user": "test_user",
+        })
+        aid = r.get_json()["approval_id"]
+        client.put(f"/api/tools/approvals/{aid}/approve")
+
+        resp = client.post(f"/api/tools/invoke?workspace_id={ws}", json={
+            "tool_id": "command.approved_exec",
+            "arguments": {"command_id": "system.platform_info"},
+            "approval_id": aid,
+        })
+        data = resp.get_json()
+        assert resp.status_code == 200
+        assert data.get("invocation_id")
+        assert data.get("errors") != ["invalid_or_unapproved_approval_id"]
 
     def test_invoke_rejects_unknown_command_id(self):
         client = _get_client()
@@ -303,6 +355,16 @@ class TestPermissionsEndpoint:
         client = _get_client()
         resp = client.get("/api/tools/permissions?workspace_id=../../etc")
         assert resp.status_code == 400
+
+
+class TestToolRuntimeDocsAlignment:
+    def test_readme_describes_v03_invoke_contract(self):
+        from pathlib import Path
+        readme = (Path(PROJECT_ROOT) / "README.md").read_text(encoding="utf-8")
+        assert "No Tool Invoke API" not in readme
+        assert "No Tool Invoke UI" not in readme
+        assert "POST /api/tools/invoke" in readme
+        assert "approved status" in readme
 
 
 class TestCatalogStillWorks:

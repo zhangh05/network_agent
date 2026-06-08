@@ -1,7 +1,7 @@
-# Frontend / Backend API Alignment v0.8
+# Frontend / Backend API Alignment v0.9
 
-> **Baseline**: Tool Runtime Interactive UI v0.3 — 211 tests, 0 skipped
-> **Commit**: 36d251d (2026-06-08)
+> **Baseline**: Tool Runtime Interactive UI v0.3 — full harness `1351 passed, 7 skipped` (2026-06-09)
+> **Alignment checks**: `101 passed` across frontend/backend alignment, UI API contract, and session/artifact UI hardening
 > **Tools**: 55 total (7 v0.1 + 48 v0.2)
 
 ## New API Endpoints (v0.3)
@@ -33,6 +33,7 @@
 - **Permissions Button** — shows workspace-level tool permission summary
 - Refresh button (top bar) — reloads all dashboard data
 - Workspace-scoped system status
+- **Reload-safe connection state** — `/api/health` success is not reversed by dashboard DOM/load errors
 
 ## Frontend API Usage
 
@@ -98,6 +99,8 @@ All API calls use `apiFetch()` with 8s timeout and `.catch()` handlers. On failu
 - Recent runs shows "历史加载失败"
 - No fake/placeholder data is shown
 
+The top connection pill is driven only by `/api/health`. After a successful health response, dashboard data loading is isolated in a guarded `_loadAllData()` call so optional widget failures cannot move the top status back to "连接中" or "未连接". Dashboard stat writes use safe DOM helpers and skip missing optional nodes.
+
 ## localStorage Policy
 
 | Key | Purpose | Type |
@@ -105,7 +108,7 @@ All API calls use `apiFetch()` with 8s timeout and `.catch()` handlers. On failu
 | `na_workspace_id` | Current workspace ID | string |
 | `na_current_session_id` | Current session ID pointer | string |
 | `na_settings` | UI preferences (lang, theme, font size, autosave) | object |
-| `tool_approval_<tool_id>` | Cached approval_id for high-risk tools | string |
+| `_toolApprovalIds` | In-memory only approval_id cache for the current page session | object |
 
 - **Conversation history is NOT stored in localStorage** — loaded from `/api/sessions/<id>?include_messages=1`
 - **Legacy keys auto-cleaned** — any `na_chat_*` or `na_history_*` keys are removed on init

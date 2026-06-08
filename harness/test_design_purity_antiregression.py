@@ -275,17 +275,20 @@ class TestForbiddenToolHandlers:
 
 
 # ══════════════════════════════════════════════════
-# No Public Tool HTTP API
+# Public Tool HTTP API Safety Contract
 # ══════════════════════════════════════════════════
 
-class TestNoPublicToolAPI:
-    def test_no_tool_routes_in_backend(self):
-        """backend/main.py must not register /api/tool or /api/tools routes."""
+class TestPublicToolAPISafetyContract:
+    def test_tool_routes_live_in_runtime_routes(self):
+        """Tool HTTP API routes must stay isolated in runtime_routes."""
         c = _read(PROJECT_ROOT / 'backend' / 'main.py')
-        assert '/api/tool' not in c, "Tool HTTP API route found in backend"
+        runtime = _read(PROJECT_ROOT / 'backend' / 'api' / 'runtime_routes.py')
+        assert '/api/tools' not in c, "Tool routes must not be registered directly in backend/main.py"
+        assert '@app.route("/api/tools/invoke", methods=["POST"])' in runtime
+        assert '_validate_approved_tool_invocation' in runtime
 
-    def test_no_tool_frontend_invocation(self):
-        """frontend must not call tool runtime (whitelist: zhMap + _SENSITIVE_KEYS)."""
+    def test_frontend_uses_tool_invoke_api_not_legacy_helper(self):
+        """frontend may call v0.3 tool APIs but must not use legacy invoke_tool helpers."""
         c = _read(PROJECT_ROOT / 'frontend' / 'index.html')
         # tool_runtime may appear in:
         # 1. zhMap translation for system health panel
@@ -297,6 +300,7 @@ class TestNoPublicToolAPI:
         allowed_extra = 1
         assert total - zhmap_occ <= allowed_extra, f"tool_runtime referenced {total - zhmap_occ} times outside zhMap (allowed: {allowed_extra})"
         assert 'invoke_tool' not in c, "invoke_tool referenced in frontend"
+        assert '/api/tools/invoke' in c, "v0.3 Tool Invoke UI should call the protected API endpoint"
 
 
 # ══════════════════════════════════════════════════

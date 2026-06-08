@@ -56,10 +56,12 @@ Unsupported formats return explicit "not supported" — no fake success.
 | Rule | Behavior |
 |------|----------|
 | Sensitive report (default) | Metadata only; content blocked |
-| Sensitive report with `allow_sensitive=true` | Full content returned |
+| Sensitive report through public artifact content API | Content blocked; no client query flag can override sensitivity |
 | All reports in Memory | Summary only (no full content) |
 | All reports in Trace | Metadata only (no content) |
 | All reports in LLM context | Summary only (no full content) |
+
+The public artifact content route always calls the artifact store with `allow_sensitive=false`. Sensitive report/config content remains available only to internal server-side flows that already hold the trusted store context; browser query parameters cannot elevate access.
 
 ## Report Storage
 

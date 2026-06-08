@@ -94,8 +94,16 @@ class TestSafeGenerateWiring:
         # Old default path should not be primary
         assert "from agent.llm.tasks.prompts import" not in content
 
-    def test_safe_generate_disabled_fallback(self):
+    def test_safe_generate_disabled_fallback(self, monkeypatch, tmp_path):
+        import agent.llm.settings as settings_mod
         from agent.llm.runtime import safe_generate
+        settings_path = tmp_path / "LLM_setting.json"
+        settings_path.write_text(json.dumps({
+            "enabled": False,
+            "provider": "disabled",
+            "safe_mode": True,
+        }))
+        monkeypatch.setattr(settings_mod, "SETTINGS_PATH", settings_path)
         output = safe_generate("response_compose")
         assert output.llm_used is False
 

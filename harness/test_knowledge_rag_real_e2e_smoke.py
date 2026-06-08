@@ -7,6 +7,7 @@ Relies on pre-existing test artifact indexed in default workspace.
 
 import json
 from pathlib import Path
+import pytest
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 
@@ -26,6 +27,18 @@ def _get_client():
     from backend.main import app
     app.testing = True
     return app.test_client()
+
+
+@pytest.fixture
+def disabled_llm(monkeypatch, tmp_path):
+    import agent.llm.settings as settings_mod
+    settings_path = tmp_path / "LLM_setting.json"
+    settings_path.write_text(json.dumps({
+        "enabled": False,
+        "provider": "disabled",
+        "safe_mode": True,
+    }))
+    monkeypatch.setattr(settings_mod, "SETTINGS_PATH", settings_path)
 
 
 def _find_pepper_artifact(client):
@@ -137,6 +150,7 @@ class TestArtifactAndSearch:
 
 # ═══════════════ Agent Chat ═══════════════
 
+@pytest.mark.usefixtures("disabled_llm")
 class TestAgentKnowledgeQuery:
 
     def test_agent_knowledge_query_intent(self):
@@ -256,11 +270,14 @@ class TestNoRegression:
         assert resp.get_json().get("intent") == "assistant_chat"
 
     def test_frontend_no_new_tool_api(self):
-        """Frontend must not reference Tool Runtime outside zhMap."""
+        """Frontend may use v0.3 tool APIs but not legacy invoke helpers."""
         html = _read(PROJECT_ROOT / "frontend" / "index.html")
         total = html.count("tool_runtime")
-        zhmap_occ = html.count("tool_runtime:{name:'工具'")
-        assert total - zhmap_occ == 0
+        zhmap_occ = html.count("tool_runtime:'工具'")
+        allowed_extra = 1
+        assert total - zhmap_occ <= allowed_extra
+        assert "invoke_tool" not in html
+        assert "/api/tools/invoke" in html
 
     def test_composer_has_knowledge_query(self):
         """Composer handles knowledge_query."""

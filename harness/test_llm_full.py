@@ -83,9 +83,17 @@ class TestProvider:
 
 # ═══ Runtime ═══
 class TestRuntime:
-    def test_disabled_fallback(self):
+    def test_disabled_fallback(self, monkeypatch, tmp_path):
+        import agent.llm.settings as settings_mod
         from agent.llm.runtime import safe_generate
         from agent.state import NetworkAgentState
+        settings_path = tmp_path / "LLM_setting.json"
+        settings_path.write_text(json.dumps({
+            "enabled": False,
+            "provider": "disabled",
+            "safe_mode": True,
+        }))
+        monkeypatch.setattr(settings_mod, "SETTINGS_PATH", settings_path)
         s=NetworkAgentState(intent="translate_config")
         o=safe_generate("response_compose",s)
         assert o.llm_used is False

@@ -132,8 +132,9 @@ def register_artifact_routes(app):
         ws_id, err = _validated_ws_id(ws_id)
         if err:
             return err
-        allow = request.args.get("allow_sensitive", "0") == "1"
-        content = read_artifact_content(ws_id, artifact_id, allow_sensitive=allow)
+        # Public HTTP callers can preview only non-sensitive artifact content.
+        # Internal server-side flows that need sensitive artifacts call the store directly.
+        content = read_artifact_content(ws_id, artifact_id, allow_sensitive=False)
         if content is None:
             return jsonify({"ok": False, "error": "content not accessible"}), 403
         # Include title for frontend display

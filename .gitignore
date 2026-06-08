@@ -12,6 +12,7 @@ minimax_api_key
 *.log
 .DS_Store
 memory/data/
+data/
 reports/*secret*
 reports/*apikey*
 reports/*key*
