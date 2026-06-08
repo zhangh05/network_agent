@@ -748,6 +748,9 @@ router ospf 1
       </div>
 
       <div class="set-panel active" id="set-llm">
+        <div style="background:var(--n1);border:1px solid var(--g3);border-radius:6px;padding:8px 12px;margin-bottom:12px;font-size:12px;color:var(--n6)">
+          <strong>&#127760; 全局配置</strong> — LLM 设置对所有 workspace 和会话生效，存储在 <code style="font-size:11px" id="llm-config-path">config/LLM_setting.json</code>
+        </div>
         <div class="form-row">
           <label>LLM 提供商</label>
           <select id="llm-provider" onchange="onProviderChange()">
@@ -2084,6 +2087,9 @@ function loadSettings(){
     // Show key status indicator
     var ks=document.getElementById('llm-key-status');
     if(ks) ks.textContent=d.key_configured?'（已配置）':'';
+    // Show config path (proves it's global)
+    var cp=document.getElementById('llm-config-path');
+    if(cp && d.config_path) cp.textContent=d.config_path;
     onProviderChange();
   }).catch(function(){onProviderChange();});
 }

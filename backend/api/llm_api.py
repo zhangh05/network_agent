@@ -1,5 +1,10 @@
 # backend/api/llm_api.py
-"""LLM API endpoints — status, test, config CRUD."""
+"""LLM API endpoints — status, test, config CRUD.
+
+LLM configuration is GLOBAL — it does NOT vary by workspace or session.
+The config is stored in a single file: config/LLM_setting.json
+Workspace-specific LLM config is intentionally not supported.
+"""
 
 from flask import request, jsonify
 from agent.llm.client import LLMClient
@@ -7,6 +12,7 @@ from agent.llm.settings import (
     load_llm_settings, save_llm_settings, delete_llm_settings,
     sanitize_llm_settings, validate_llm_settings,
     resolve_effective_llm_config,
+    get_llm_setting_path,
 )
 from agent.state import NetworkAgentState
 
@@ -25,19 +31,45 @@ def handle_llm_status():
 
 
 def handle_llm_config_get():
+    # LLM config is global — reject any attempt to scope by workspace
+    if request.args.get("workspace_id"):
+        return jsonify({
+            "ok": False,
+            "error": "LLM config is global and does not accept workspace_id parameter. "
+                     "Configuration is stored in config/LLM_setting.json and applies to all workspaces."
+        }), 400
     settings = load_llm_settings()
     if settings:
-        return jsonify(sanitize_llm_settings(settings))
-    return jsonify({"enabled": False, "provider": "disabled"})
+        result = sanitize_llm_settings(settings)
+        result["config_path"] = get_llm_setting_path()
+        result["global"] = True
+        return jsonify(result)
+    return jsonify({
+        "enabled": False, "provider": "disabled",
+        "config_path": get_llm_setting_path(),
+        "global": True,
+        "note": "No UI settings saved yet. Use POST /api/agent/llm/config to configure. "
+                "Configuration is global — one setting for all workspaces."
+    })
 
 
 def handle_llm_config_post():
     data = request.get_json(silent=True) or {}
+    # LLM config is global — reject workspace_id
+    if data.get("workspace_id"):
+        return jsonify({
+            "ok": False,
+            "error": "LLM config is global and does not accept workspace_id. "
+                     "Configuration applies to all workspaces."
+        }), 400
     errors = validate_llm_settings(data)
     if errors:
         return jsonify({"ok": False, "errors": errors}), 400
     settings = save_llm_settings(data)
-    return jsonify({"ok": True, "config": sanitize_llm_settings(settings)})
+    result = sanitize_llm_settings(settings)
+    result["config_path"] = get_llm_setting_path()
+    result["global"] = True
+    return jsonify({"ok": True, "config": result})
 
 
 def handle_llm_config_delete():

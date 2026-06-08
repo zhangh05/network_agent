@@ -13,9 +13,33 @@ def get_llm_setting_path() -> str:
     return str(SETTINGS_PATH)
 
 
+def _ensure_default_exists():
+    """Create config/LLM_setting.json from example template on first access.
+    
+    This ensures LLM settings are ALWAYS persisted globally, not per-workspace.
+    """
+    example = SETTINGS_PATH.parent / "LLM_setting.example.json"
+    if example.is_file() and not SETTINGS_PATH.is_file():
+        try:
+            from datetime import datetime, timezone
+            data = json.loads(example.read_text())
+            data["updated_at"] = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+            SETTINGS_PATH.parent.mkdir(exist_ok=True)
+            SETTINGS_PATH.write_text(json.dumps(data, indent=2, ensure_ascii=False))
+            try:
+                os.chmod(str(SETTINGS_PATH), stat.S_IRUSR | stat.S_IWUSR)
+            except Exception:
+                pass
+        except Exception:
+            pass
+
+
 def load_llm_settings() -> Optional[dict]:
     if not SETTINGS_PATH.is_file():
-        return None
+        # Try to create from example template on first access
+        _ensure_default_exists()
+        if not SETTINGS_PATH.is_file():
+            return None
     try:
         data = json.loads(SETTINGS_PATH.read_text())
         # Migrate MiniMax-M1 to MiniMax-M3
