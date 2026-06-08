@@ -1760,12 +1760,32 @@ function _doSendAgent(txt,thinkEl,body,sessionId,workspaceId){
         executeUIActions(d.ui_actions);
       }
 
-      // Knowledge query: show source refs
-      if(d.intent==='knowledge_query' && d.knowledge_sources){
+      // Knowledge query: show source refs with metadata
+      if(d.intent==='knowledge_query'){
+        var details=d.knowledge_result_details||[];
         var srcs=d.knowledge_sources||[];
         var chunks=d.knowledge_chunks||[];
-        if(srcs.length>0){
-          mainReply+='\n\n<div style="font-size:10px;color:var(--n5);margin-top:6px;padding-top:6px;line-height:1.6">';
+        var cnt=d.knowledge_results_count||0;
+
+        if(details.length>0){
+          mainReply+='\n\n<div style="font-size:10px;color:var(--n5);margin-top:6px;padding-top:6px;border-top:1px solid var(--n4);line-height:1.6">';
+          mainReply+='&#128218; 知识索引检索结果 <b>'+cnt+'</b> 条';
+          details.forEach(function(dt,i){
+            var sensColor=dt.sensitivity==='confidential'?'#e11d48':(dt.sensitivity==='internal'?'var(--warn)':'var(--g3)');
+            mainReply+='<div style="margin:4px 0 0 8px;color:var(--n6)">'
+              +'<span style="font-weight:600">'+esc(dt.title||'untitled')+'</span>'
+              +' <code style="font-size:9px;color:var(--n5)">art:'+(dt.artifact_id||'')+' chunk:'+(dt.chunk_id||'')+'</code>'
+              +' <span style="font-size:9px;color:'+sensColor+'">'+esc(dt.sensitivity||'internal')+'</span>'
+              +(dt.score!==undefined?' <span style="font-size:9px;color:var(--n5)">score:'+dt.score+'</span>':'')
+              +'</div>';
+          });
+          if(chunks.length>0){
+            mainReply+='<div style="margin:4px 0 0 8px;font-size:9px;color:var(--n5)">共 '+chunks.length+' 个安全区块</div>';
+          }
+          mainReply+='</div>';
+        }else if(srcs.length>0){
+          // Fallback: simple source list (backward compat)
+          mainReply+='\n\n<div style="font-size:10px;color:var(--n5);margin-top:6px;padding-top:6px;border-top:1px solid var(--n4);line-height:1.6">';
           mainReply+='&#128218; 来源: ';
           srcs.forEach(function(s,i){
             mainReply+=esc((s||'').slice(0,12))+(i<srcs.length-1?', ':'');
@@ -1773,13 +1793,15 @@ function _doSendAgent(txt,thinkEl,body,sessionId,workspaceId){
           if(chunks.length>0){
             mainReply+=' ('+chunks.length+' chunks)';
           }
-          mainReply+='<br>检索到 '+esc(d.knowledge_results_count||0)+' 条结果';
-          if(d.knowledge_not_found){
-            mainReply+='<br><span style="color:var(--warn)">未找到相关资料</span>';
-          }
+          mainReply+='<br>检索到 '+cnt+' 条结果';
           mainReply+='</div>';
-        }else if(d.knowledge_not_found){
-          mainReply+='\n\n<div style="font-size:10px;color:var(--warn);margin-top:6px">未在当前知识索引中找到相关资料</div>';
+        }
+
+        if(d.knowledge_not_found && !details.length){
+          mainReply+='\n\n<div style="font-size:11px;color:var(--warn);margin-top:6px;padding:8px;background:var(--n1);border-radius:4px;line-height:1.6">'
+            +'&#9888; 未在当前知识索引中找到相关资料。'
+            +'<br>可以先到 <span style="color:var(--pri);cursor:pointer;text-decoration:underline" onclick="switchPage(\'artifacts\')">Artifacts</span> 页面上传文档，并点击 <b>Add to Knowledge Index</b>。'
+            +'</div>';
         }
       }
 

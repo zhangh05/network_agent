@@ -319,6 +319,7 @@ def run_agent(user_input: str = "", intent: str = "", payload: dict = None,
         "knowledge_sources": state.context.get("knowledge_sources", []),
         "knowledge_chunks": state.context.get("knowledge_chunks", []),
         "knowledge_not_found": state.context.get("knowledge_not_found", False),
+        "knowledge_result_details": _safe_knowledge_details(state.context.get("knowledge_results", [])),
         # ── Quality ──
         "quality_summary": _safe_quality_summary(result),
         "manual_review_count": len(result.get("manual_review", [])),
@@ -369,6 +370,24 @@ def _safe_quality_summary(result: dict) -> dict:
         "review_required_count",
     ]
     return {key: int(qs.get(key, 0) or 0) if isinstance(qs, dict) else 0 for key in keys}
+
+
+def _safe_knowledge_details(results: list) -> list:
+    """Build safe knowledge result details for frontend display.
+
+    Only includes metadata — no full content, secrets, or config.
+    """
+    details = []
+    for r in results[:10]:  # Max 10 results for display
+        d = r if isinstance(r, dict) else {}
+        details.append({
+            "artifact_id": (d.get("artifact_id", "") or "")[:8],
+            "chunk_id": (d.get("chunk_id", "") or "")[:8],
+            "title": d.get("title", "")[:80],
+            "sensitivity": d.get("sensitivity", "internal"),
+            "score": round(float(d.get("score", 0) or 0), 3),
+        })
+    return details
 
 
 def _rejected_result(error: str, intent: str = "", warning: str = "") -> dict:

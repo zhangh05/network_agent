@@ -440,3 +440,88 @@ class TestClientSafety:
                             output={'secret': 'hidden_value'})
         meta = build_trace_metadata_from_tool_result(result)
         assert 'hidden_value' not in str(meta), "Secret value leaked into trace metadata"
+
+    # ── Knowledge Search Registry & Adapter Safety ──
+
+    def test_knowledge_search_skill_enabled_in_registry(self):
+        """knowledge_search skill must be enabled in registry."""
+        from registry.loader import load_skill_registry
+        skills = load_skill_registry()
+        ks = [s for s in skills if s.skill_name == 'knowledge_search']
+        assert len(ks) == 1, f"Expected 1 knowledge_search skill, got {len(ks)}"
+        assert ks[0].is_enabled(), "knowledge_search skill is not enabled"
+
+    def test_knowledge_search_adapter_no_llm_import(self):
+        """knowledge_search adapter must NOT import any LLM provider."""
+        import inspect
+        from skills.knowledge_search import adapter
+        source = inspect.getsource(adapter)
+        assert 'from agent.llm' not in source, "adapter imports LLM module"
+        assert 'safe_generate' not in source, "adapter calls LLM safe_generate"
+        assert 'resolve_provider' not in source, "adapter calls LLM provider resolution"
+        assert 'minimax' not in source.lower(), "adapter references LLM provider"
+        assert 'openai' not in source.lower(), "adapter references LLM provider"
+
+    def test_knowledge_search_adapter_calls_loader(self):
+        """knowledge_search adapter must call knowledge_loader."""
+        import inspect
+        from skills.knowledge_search import adapter
+        source = inspect.getsource(adapter)
+        assert 'load_knowledge_context' in source, "adapter must call load_knowledge_context"
+
+    def test_enabled_modules_are_config_translation_and_knowledge_base(self):
+        """Enabled modules must be exactly config_translation and knowledge_base."""
+        from registry.loader import load_module_registry
+        mods = load_module_registry()
+        enabled = sorted([m.module_name for m in mods if m.is_enabled()])
+        assert enabled == sorted(['config_translation', 'knowledge_base']), (
+            f"Wrong enabled modules: {enabled}"
+        )
+
+    def test_topology_and_inspection_still_planned(self):
+        """Topology and inspection modules must remain planned."""
+        from registry.loader import load_module_registry
+        mods = load_module_registry()
+        planned = {m.module_name: m.maturity for m in mods if not m.is_enabled()}
+        assert 'topology' in planned, "topology not found in modules"
+        assert planned['topology'] == 'planned', f"topology maturity: {planned.get('topology')}"
+        assert 'inspection' in planned, "inspection not found in modules"
+        assert planned['inspection'] == 'planned', f"inspection maturity: {planned.get('inspection')}"
+
+    def test_knowledge_query_graph_has_result_details(self):
+        """Agent graph response must include knowledge_result_details for frontend display."""
+        from agent.graph import run_agent
+        result = run_agent(
+            user_input='查一下知识库里辣椒炒肉是什么',
+            intent='', payload={}, workspace_id='default', session_id='',
+        )
+        assert result['intent'] == 'knowledge_query'
+        details = result.get('knowledge_result_details', [])
+        assert isinstance(details, list), "knowledge_result_details must be a list"
+        if not result.get('knowledge_not_found'):
+            assert len(details) > 0, "Should have result details when found"
+            for d in details:
+                assert 'title' in d, "each detail must have title"
+                assert 'artifact_id' in d, "each detail must have artifact_id"
+                assert 'chunk_id' in d, "each detail must have chunk_id"
+                assert 'sensitivity' in d, "each detail must have sensitivity"
+                # No full content / secrets
+                assert 'deployable_config' not in d, "detail must not have deployable_config"
+                assert 'password' not in str(d).lower(), "detail must not have password"
+
+    def test_knowledge_query_not_found_response_safe(self):
+        """Not-found response must NOT contain paths, secrets, or full config."""
+        from agent.graph import run_agent
+        result = run_agent(
+            user_input='zzz_no_such_thing_xyz_999',
+            intent='', payload={}, workspace_id='default', session_id='',
+        )
+        fr = result.get('final_response', '')
+        # Must not leak paths
+        assert '/Users/' not in fr, "Not-found response contains filesystem path"
+        # Must not leak secrets
+        assert 'password' not in fr.lower(), "Not-found response contains password"
+        assert 'api_key' not in fr.lower(), "Not-found response contains api_key"
+        # Must be not_found
+        if result['intent'] == 'knowledge_query':
+            assert result.get('knowledge_not_found', True), "Expected not_found for nonexistent query"

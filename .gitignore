@@ -32,3 +32,5 @@ workspaces/default_get_or_create/
 config/LLM_setting.json
 config/llm.local.json
 API_key.txt
+# Runtime-generated audit reports (avoid diff noise)
+reports/*.json

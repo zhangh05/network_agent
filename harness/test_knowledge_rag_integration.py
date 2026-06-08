@@ -268,6 +268,39 @@ class TestKnowledgeSafetyGates:
         # This is a soft check — actual verification via pytest output
         pass
 
+    def test_knowledge_result_details_present_in_agent_response(self):
+        """Agent response must include knowledge_result_details with metadata."""
+        from agent.graph import run_agent
+        result = run_agent(
+            user_input='查一下知识库里辣椒炒肉是什么',
+            intent='', payload={}, workspace_id='default', session_id='',
+        )
+        assert result['intent'] == 'knowledge_query'
+        details = result.get('knowledge_result_details', [])
+        assert isinstance(details, list)
+        assert len(details) > 0, "knowledge_result_details must not be empty when results found"
+        # Verify structure
+        first = details[0]
+        assert 'title' in first
+        assert 'artifact_id' in first and len(first['artifact_id']) <= 8
+        assert 'chunk_id' in first and len(first['chunk_id']) <= 8
+        assert 'sensitivity' in first
+        assert 'score' in first
+
+    def test_knowledge_response_no_full_content(self):
+        """Agent response for knowledge_query must NOT contain full file content."""
+        from agent.graph import run_agent
+        result = run_agent(
+            user_input='查一下知识库里辣椒炒肉是什么',
+            intent='', payload={}, workspace_id='default', session_id='',
+        )
+        fr = result.get('final_response', '')
+        # Must not leak config patterns
+        assert 'interface ' not in fr.lower(), "Response contains config lines"
+        assert 'ip address' not in fr.lower(), "Response contains IP address config"
+        # Must not leak filesystem paths
+        assert '/workspaces/' not in fr, "Response contains filesystem path"
+
 
 if __name__ == "__main__":
     pytest.main([__file__, "-v"])
