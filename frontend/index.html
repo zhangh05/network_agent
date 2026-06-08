@@ -459,6 +459,7 @@
         <div class="card">
           <div class="card-hd">
             <div class="card-title">最近运行记录</div>
+            <button class="btn btn-sec btn-sm" onclick="refreshDashboard()" style="font-size:11px">🔄 刷新</button>
           </div>
           <div id="recent-runs"><div class="empty"><div class="icon">⌘</div><div class="t">暂无运行记录</div><div style="font-size:12px">执行一次 Agent Run 或翻译任务后此区域将显示运行记录</div></div></div>
         </div>
@@ -2232,6 +2233,76 @@ function _checkBackendAndLoad(){
       sysGrid.innerHTML='<div style="display:flex;align-items:center;gap:10px;padding:10px;background:var(--n10);border-radius:8px"><span class="sdot sdot-dng"></span><div><div style="font-weight:600">后端启动中</div><div style="font-size:11px;color:var(--n5)">'+esc(err.message||'连接失败')+'，3秒后重试…</div></div></div>';
     }
     setTimeout(_checkBackendAndLoad,3000);
+  });
+}
+
+function refreshDashboard(){
+  // Re-fetch dashboard data without full page reload
+  var ws=_currentWorkspaceId;
+  // Recent runs
+  apiFetch('/api/runs/recent?limit=5&workspace_id='+encodeURIComponent(ws),{retries:1}).then(function(d){
+    var runs=d.runs||[];
+    var table=document.getElementById('recent-runs');
+    if(runs.length===0){
+      table.innerHTML='<div class="empty"><div class="icon">⌘</div><div class="t">暂无运行记录</div><div style="font-size:12px">执行一次 Agent Run 或翻译任务后此区域将显示运行记录</div></div>';
+      return;
+    }
+    var html='<table><thead><tr><th>Run ID</th><th>Intent</th><th>Status</th><th>Module</th><th>Quality</th><th>Time</th></tr></thead><tbody>';
+    runs.forEach(function(r){
+      var qs=r.quality_summary||{};
+      var qsBadge='';
+      if(qs.source_residue_count>0||qs.silent_drop_count>0) qsBadge='<span class="tag tag-ye">⚠ quality</span>';
+      else if(qs.review_required_count>0) qsBadge='<span class="tag tag-bl">review</span>';
+      html+='<tr>';
+      html+='<td style="font-family:var(--mono);font-size:11px">'+esc((r.run_id||'').slice(0,12))+'</td>';
+      html+='<td>'+esc(r.intent||'—')+'</td>';
+      var statusTag=r.status=='ok'?'tag-gr':r.status=='error'?'tag-rd':'tag-ye';
+      html+='<td><span class="tag '+statusTag+'">'+esc(r.status||'—')+'</span></td>';
+      html+='<td>'+esc(r.active_module||'—')+'</td>';
+      html+='<td>'+qsBadge+'</td>';
+      html+='<td style="font-size:11px;color:var(--n5)">'+esc((r.created_at||'').slice(0,19))+'</td>';
+      html+='</tr>';
+    });
+    html+='</tbody></table>';
+    table.innerHTML=html;
+  }).catch(function(){
+    document.getElementById('recent-runs').innerHTML='<div class="empty"><div class="icon">⌘</div><div class="t" style="color:var(--dng)">刷新失败</div></div>';
+  });
+  // Runtime health
+  apiFetch('/api/runtime/health?workspace_id='+encodeURIComponent(ws)).then(function(d){
+    var sysGrid=document.getElementById('sys-status-grid');
+    var comps=d.components||[];
+    var zhMap={workspace:'工作空间',registry:'模块注册',runs:'运行记录',artifacts:'产物',jobs:'任务',agent:'智能体',tool_runtime:'工具',llm:'大模型',archive:'归档',memory:'记忆'};
+    function zn(c){return zhMap[c.name]||c.name;}
+    function zm(c){
+      var msg=c.message||'';
+      msg=msg.replace(/(\d+) run records/,'$1 条运行记录');
+      msg=msg.replace(/(\d+) artifacts/,'$1 个产物');
+      msg=msg.replace(/No jobs/,'无任务');
+      msg=msg.replace(/(\d+) tools registered/,'已注册 $1 个工具');
+      msg=msg.replace(/(\d+) archive audits/,'$1 条归档审计');
+      msg=msg.replace(/(\d+) modules, (\d+) skills, (\d+) capabilities/,'$1 模块, $2 技能, $3 能力');
+      msg=msg.replace(/Enabled: True, Provider: (\w+)/,'已启用, 提供商: $1');
+      msg=msg.replace(/Workspace '(\w+)' exists/,'工作空间"$1"已就绪');
+      msg=msg.replace(/Memory system available/,'记忆系统可用');
+      return msg;
+    }
+    var html='';
+    comps.forEach(function(c){
+      var s=c.status||'unknown';
+      var sc=s=='ok'?'sdot-ok':s=='warning'?'sdot-warn':'sdot-dng';
+      var de=c.details||{};
+      var ct='';
+      if(c.name=='runs'&&de.count!==undefined) ct=' ('+de.count+')';
+      else if(c.name=='artifacts'&&de.count!==undefined) ct=' ('+de.count+')';
+      html+='<div style="display:flex;align-items:center;gap:10px;padding:10px;background:var(--n10);border-radius:8px"><span class="sdot '+sc+'"></span><div><div style="font-weight:600">'+esc(zn(c))+ct+'</div><div style="font-size:11px;color:var(--n5)">'+esc(zm(c))+'</div></div></div>';
+    });
+    sysGrid.innerHTML=html;
+  });
+  // Jobs count
+  apiFetch('/api/jobs?workspace_id='+encodeURIComponent(ws),{retries:1}).then(function(d){
+    var jobs=d.jobs||[];
+    document.getElementById('dash-tasks').textContent=jobs.length||'0';
   });
 }
 
