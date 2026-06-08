@@ -246,25 +246,39 @@ class TestLLMConfigAPI:
 
     def test_post_llm_config_no_key_preserved(self, client, tmp_path):
         """POST without api_key should preserve existing key."""
-        from agent.llm.settings import SETTINGS_PATH, load_llm_settings, save_llm_settings, delete_llm_settings
-        old_path = str(SETTINGS_PATH)
-        # Temp override
         import agent.llm.settings as settings_mod
+        old_path = settings_mod.SETTINGS_PATH
         test_path = tmp_path / "LLM_setting.json"
-        # First save with key
-        save_llm_settings({"enabled": True, "provider": "minimax", "api_key": "sk-preserve-me", "model": "MiniMax-M3"})
-        # Then POST without key
-        resp = client.post("/api/agent/llm/config", json={
-            "enabled": True, "provider": "minimax", "model": "MiniMax-M3",
-        })
-        assert resp.status_code == 200
-        # Cleanup
-        delete_llm_settings()
+        test_path.parent.mkdir(exist_ok=True)
+        # Use temp path to avoid overwriting real user settings
+        settings_mod.SETTINGS_PATH = test_path
+        try:
+            from agent.llm.settings import save_llm_settings, delete_llm_settings
+            # First save with key
+            save_llm_settings({"enabled": True, "provider": "minimax", "api_key": "sk-preserve-me", "model": "MiniMax-M3"})
+            # Then POST without key (uses temp path via monkeypatch)
+            resp = client.post("/api/agent/llm/config", json={
+                "enabled": True, "provider": "minimax", "model": "MiniMax-M3",
+            })
+            assert resp.status_code == 200
+            # Cleanup temp
+            delete_llm_settings()
+        finally:
+            settings_mod.SETTINGS_PATH = old_path
 
-    def test_delete_llm_config(self, client):
-        resp = client.delete("/api/agent/llm/config")
-        assert resp.status_code == 200
-        assert resp.get_json()["ok"] is True
+    def test_delete_llm_config(self, client, tmp_path):
+        """DELETE /api/agent/llm/config should work (uses temp path to protect real settings)."""
+        import agent.llm.settings as settings_mod
+        old_path = settings_mod.SETTINGS_PATH
+        test_path = tmp_path / "LLM_setting.json"
+        test_path.parent.mkdir(exist_ok=True)
+        settings_mod.SETTINGS_PATH = test_path
+        try:
+            resp = client.delete("/api/agent/llm/config")
+            assert resp.status_code == 200
+            assert resp.get_json()["ok"] is True
+        finally:
+            settings_mod.SETTINGS_PATH = old_path
 
     def test_llm_status(self, client):
         resp = client.get("/api/agent/llm/status")

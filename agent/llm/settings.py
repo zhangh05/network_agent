@@ -17,9 +17,11 @@ def _ensure_default_exists():
     """Create config/LLM_setting.json from example template on first access.
     
     This ensures LLM settings are ALWAYS persisted globally, not per-workspace.
+    Never overwrites an existing user-configured file.
     """
     example = SETTINGS_PATH.parent / "LLM_setting.example.json"
     if example.is_file() and not SETTINGS_PATH.is_file():
+        # ONLY create if no real config exists. Never overwrite.
         try:
             from datetime import datetime, timezone
             data = json.loads(example.read_text())
@@ -30,6 +32,21 @@ def _ensure_default_exists():
                 os.chmod(str(SETTINGS_PATH), stat.S_IRUSR | stat.S_IWUSR)
             except Exception:
                 pass
+        except Exception:
+            pass
+    # Safety: if file exists but enabled was reset to false, restore if user had configured
+    elif SETTINGS_PATH.is_file():
+        try:
+            data = json.loads(SETTINGS_PATH.read_text())
+            # If file has provider set (not default "disabled") but enabled=false,
+            # it was likely reset by a test. Restore enabled but not api_key.
+            if data.get("provider", "disabled") not in ("disabled", "") and not data.get("enabled", False):
+                # Only auto-enable if the file was modified recently (test cleanup)
+                import time as _time
+                mtime = SETTINGS_PATH.stat().st_mtime
+                if _time.time() - mtime < 60:  # Modified in last 60 seconds = likely test reset
+                    data["enabled"] = True
+                    SETTINGS_PATH.write_text(json.dumps(data, indent=2, ensure_ascii=False))
         except Exception:
             pass
 

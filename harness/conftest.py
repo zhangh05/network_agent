@@ -83,6 +83,20 @@ def temp_dirs(monkeypatch):
                 pass
 
 
+@pytest.fixture(autouse=True)
+def protect_llm_config():
+    """Backup and restore real LLM config to prevent test pollution."""
+    import agent.llm.settings as mod
+    real_path = Path(__file__).resolve().parent.parent / "config" / "LLM_setting.json"
+    backup = None
+    if real_path.is_file():
+        backup = real_path.read_text()
+    yield
+    if backup is not None:
+        real_path.parent.mkdir(exist_ok=True)
+        real_path.write_text(backup)
+
+
 @pytest.fixture
 def fresh_workspace(temp_dirs):
     """Get a fresh workspace for a test."""
