@@ -1078,8 +1078,8 @@ function loadKnowledgeSources(sources){
     var type=s.artifact_type||'doc';
     var typeLabel=type==='knowledge_doc'?'知识文档':(type==='report'?'报告':type);
     html+='<div class="kb-card" style="border:1px solid var(--n4);border-radius:8px;padding:12px;margin-bottom:8px;cursor:pointer;transition:border-color .15s" '
-      +'onmouseover="this.style.borderColor=\\'var(--pri)\\'" onmouseout="this.style.borderColor=\\'var(--n4)\\'" '
-      +'onclick="document.getElementById(\\'kb-search-input\\').value=\\''+esc(title)+'\\';searchKnowledge()">'
+      +'onmouseover="this.style.borderColor=\'var(--pri)\'" onmouseout="this.style.borderColor=\'var(--n4)\'" '
+      +'onclick="document.getElementById(\'kb-search-input\').value=\''+esc(title)+'\';searchKnowledge()">'
       +'<div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:4px">'
       +'<div style="font-weight:600;font-size:14px;color:var(--n8)">'+esc(title)+'</div>'
       +'<span class="tag tag-gn" style="font-size:10px;flex-shrink:0">'+esc(stLabel)+'</span>'
