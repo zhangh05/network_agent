@@ -2348,31 +2348,34 @@ function _loadAllData(){
   apiFetch('/api/runtime/health').then(function(d){
     var sysGrid=document.getElementById('sys-status-grid');
     var comps=d.components||[];
-    // Chinese translation map for component names & messages
+    // Chinese translation map for component names ONLY (messages use dynamic regex)
     var zhMap={
-      workspace:{name:'工作空间',msg:{'Workspace \'default\' exists':'默认工作空间已就绪'}},
-      registry:{name:'模块注册',msg:{'4 modules, 4 skills, 5 capabilities':'4 模块, 4 技能, 5 能力'}},
-      runs:{name:'运行记录',msg:{'109 run records':'109 条运行记录'}},
-      artifacts:{name:'产物',msg:{'7 artifacts':'7 个产物'}},
-      jobs:{name:'任务',msg:{'No jobs':'无任务'}},
-      agent:{name:'智能体',msg:{'Runtime: langgraph, LangGraph: True':'运行时: LangGraph, 已启用'}},
-      tool_runtime:{name:'工具',msg:{'7 tools registered':'已注册 7 个工具'}},
-      llm:{name:'大模型',msg:{'Enabled: True, Provider: minimax':'已启用, 提供商: MiniMax'}},
-      archive:{name:'归档',msg:{'50 archive audits':'50 条归档审计'}},
-      memory:{name:'记忆',msg:{'Memory system available':'记忆系统可用'}}
+      workspace:'工作空间',
+      registry:'模块注册',
+      runs:'运行记录',
+      artifacts:'产物',
+      jobs:'任务',
+      agent:'智能体',
+      tool_runtime:'工具',
+      llm:'大模型',
+      archive:'归档',
+      memory:'记忆'
     };
-    function zhName(c){var m=zhMap[c.name];return m?m.name:c.name;}
-    function zhMsg(c){var m=zhMap[c.name];if(!m||!m.msg)return c.message||'';
-      // generic: replace common English patterns
+    function zhName(c){return zhMap[c.name]||c.name;}
+    function zhMsg(c){
       var msg=c.message||'';
+      // Dynamic regex-based translation — handles any real number
       msg=msg.replace(/(\d+) run records/,'$1 条运行记录');
       msg=msg.replace(/(\d+) artifacts/,'$1 个产物');
       msg=msg.replace(/No jobs/,'无任务');
+      msg=msg.replace(/(\d+) jobs/,'$1 个任务');
       msg=msg.replace(/(\d+) tools registered/,'已注册 $1 个工具');
       msg=msg.replace(/(\d+) archive audits/,'$1 条归档审计');
       msg=msg.replace(/(\d+) modules, (\d+) skills, (\d+) capabilities/,'$1 模块, $2 技能, $3 能力');
       msg=msg.replace(/Enabled: True, Provider: (\w+)/,'已启用, 提供商: $1');
+      msg=msg.replace(/Enabled: False, Provider: (\w+)/,'已禁用, 提供商: $1');
       msg=msg.replace(/Workspace '(\w+)' exists/,'工作空间"$1"已就绪');
+      msg=msg.replace(/Workspace '(\w+)' not found/,'工作空间"$1"不存在');
       msg=msg.replace(/Runtime: (\w+), LangGraph: True/,'运行时: $1, 已启用');
       msg=msg.replace(/Memory system available/,'记忆系统可用');
       return msg;
@@ -2381,7 +2384,15 @@ function _loadAllData(){
     comps.forEach(function(c){
       var status=c.status||'unknown';
       var sdotClass=status==='ok'?'sdot-ok':status==='warning'?'sdot-warn':'sdot-dng';
-      html+='<div style="display:flex;align-items:center;gap:10px;padding:10px;background:var(--n10);border-radius:8px"><span class="sdot '+sdotClass+'"></span><div><div style="font-weight:600">'+esc(zhName(c))+'</div><div style="font-size:11px;color:var(--n5)">'+esc(zhMsg(c))+'</div></div></div>';
+      var details=c.details||{};
+      // Show detail numbers from real data when available
+      var detailText='';
+      if(c.name==='runs' && details.count!==undefined) detailText=' (共 '+details.count+' 条)';
+      else if(c.name==='artifacts' && details.count!==undefined) detailText=' (共 '+details.count+' 个)';
+      else if(c.name==='jobs' && details.count!==undefined) detailText=' (共 '+details.count+' 个)';
+      else if(c.name==='tool_runtime' && details.tool_count!==undefined) detailText=' (共 '+details.tool_count+' 个)';
+      else if(c.name==='archive' && details.audit_count!==undefined) detailText=' (共 '+details.audit_count+' 条)';
+      html+='<div style="display:flex;align-items:center;gap:10px;padding:10px;background:var(--n10);border-radius:8px"><span class="sdot '+sdotClass+'"></span><div><div style="font-weight:600">'+esc(zhName(c))+detailText+'</div><div style="font-size:11px;color:var(--n5)">'+esc(zhMsg(c))+'</div></div></div>';
     });
     if(comps.length===0){
       html='<div style="display:flex;align-items:center;gap:10px;padding:10px;background:var(--n10);border-radius:8px"><span class="sdot sdot-off"></span><div><div style="font-weight:600">暂无诊断数据</div><div style="font-size:11px;color:var(--n5)">runtime diagnostics unavailable</div></div></div>';
