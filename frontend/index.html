@@ -2207,8 +2207,11 @@ function _checkBackendAndLoad(){
   if(!statusEl || !agStatus) return; // DOM not ready, retry later
   statusEl.textContent='连接中…';
   agStatus.textContent='连接中';
-  // Use raw fetch (not apiFetch) for reliability
-  fetch('/api/health').then(function(r){
+  // Use AbortController with timeout to prevent hanging on cached responses
+  var ctrl=new AbortController();
+  var timeout=setTimeout(function(){ctrl.abort();},3000);
+  fetch('/api/health?_='+Date.now(),{signal:ctrl.signal,cache:'no-cache'}).then(function(r){
+    clearTimeout(timeout);
     if(!r.ok) throw new Error('HTTP '+r.status);
     return r.json();
   }).then(function(d){
@@ -2219,15 +2222,16 @@ function _checkBackendAndLoad(){
     if(dot){var s=dot.querySelector('.status');if(s)s.className='status sdot sdot-ok';}
     _loadAllData();
   }).catch(function(err){
+    clearTimeout(timeout);
     if(!statusEl || !agStatus) return;
     statusEl.textContent='连接中…';
     agStatus.textContent='未连接';
     var dot=document.getElementById('top-proj');
     if(dot){var s=dot.querySelector('.status');if(s)s.className='status sdot sdot-off';}
     if(sysGrid){
-      sysGrid.innerHTML='<div style="display:flex;align-items:center;gap:10px;padding:10px;background:var(--n10);border-radius:8px"><span class="sdot sdot-dng"></span><div><div style="font-weight:600">后端启动中</div><div style="font-size:11px;color:var(--n5)">'+esc(err.message||'连接失败')+'，5秒后重试…</div></div></div>';
+      sysGrid.innerHTML='<div style="display:flex;align-items:center;gap:10px;padding:10px;background:var(--n10);border-radius:8px"><span class="sdot sdot-dng"></span><div><div style="font-weight:600">后端启动中</div><div style="font-size:11px;color:var(--n5)">'+esc(err.message||'连接失败')+'，3秒后重试…</div></div></div>';
     }
-    setTimeout(_checkBackendAndLoad,5000);
+    setTimeout(_checkBackendAndLoad,3000);
   });
 }
 
