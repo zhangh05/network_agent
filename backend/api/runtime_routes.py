@@ -22,7 +22,13 @@ def register_runtime_routes(app):
     @app.route("/api/runtime/health")
     def api_runtime_health():
         from runtime.diagnostics import get_diagnostics
-        report = get_diagnostics()
+        from workspace.ids import validate_workspace_id
+        ws_id = request.args.get("workspace_id", "default")
+        try:
+            ws_id = validate_workspace_id(ws_id)
+        except ValueError:
+            ws_id = "default"
+        report = get_diagnostics(ws_id)
         return jsonify(report.as_dict())
 
     @app.route("/api/runtime/selfcheck")

@@ -2345,7 +2345,7 @@ function _loadAllData(){
   });
 
   // Fetch runtime diagnostics for system status panel
-  apiFetch('/api/runtime/health').then(function(d){
+  apiFetch('/api/runtime/health?workspace_id='+encodeURIComponent(_currentWorkspaceId)).then(function(d){
     var sysGrid=document.getElementById('sys-status-grid');
     var comps=d.components||[];
     // Chinese translation map for component names ONLY (messages use dynamic regex)
