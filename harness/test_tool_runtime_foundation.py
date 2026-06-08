@@ -210,7 +210,7 @@ class TestToolPolicy:
 
     def test_block_forbidden_tool_ids(self):
         from tool_runtime.schemas import ToolSpec, ToolInvocation
-        from tool_runtime.policy import ToolPolicy, V01_FORBIDDEN_TOOLS
+        from tool_runtime.policy import ToolPolicy, V02_FORBIDDEN_TOOLS
         forbidden = ["ssh.exec", "telnet.exec", "snmp.walk", "nmap.scan",
                      "ping.sweep", "command.exec", "shell.exec", "device.exec", "config.push"]
         policy = ToolPolicy()
@@ -236,7 +236,8 @@ class TestToolPolicy:
         spec = ToolSpec(tool_id="test.med", category="parser", risk_level="medium", enabled=True)
         inv = ToolInvocation(tool_id="test.med")
         pd = ToolPolicy().check(spec, inv)
-        assert pd.allowed is False
+        # v0.2: medium risk is allowed (conditional)
+        assert pd.allowed is True
 
     def test_block_dry_run_not_supported(self):
         from tool_runtime.schemas import ToolSpec, ToolInvocation
@@ -699,9 +700,10 @@ class TestDocContent:
     def test_no_claim_v02_is_done(self):
         with open(os.path.join(PROJECT_ROOT, "docs", "TOOL_RUNTIME.md")) as f:
             c = f.read()
-        # v0.2/v1.0 should only appear in future phases section
-        if "v0.2" in c:
-            assert "Future Phases" in c, "v0.2 should only be in Future Phases"
+        # v0.2 is current dev phase — allowed in Version History
+        # v1.0 should only appear in future phases
+        if "v1.0" in c:
+            assert "Future Phases" in c, "v1.0 should only be in Future Phases"
 
 
 # ══════════════════════════════════════════════════

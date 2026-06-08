@@ -1,8 +1,23 @@
-# Frontend / Backend API Alignment v0.6
+# Frontend / Backend API Alignment v0.7
 
-> **Baseline**: UI Hardening + Workspace Management — 1224 tests, 7 skipped
-> **Commit**: 732cf1b (2026-06-07)
-> **Backend**: main.py 247 lines (routes split into 6 sub-modules)
+> **Baseline**: Tool Runtime Catalog v0.2.1 — 1254+ tests, 7 skipped
+> **Commit**: 11115c9 (2026-06-08)
+> **Tools**: 55 total (7 v0.1 + 48 v0.2)
+
+## New API Endpoints (v0.2)
+
+| Endpoint | Method | Description |
+|----------|--------|-------------|
+| `/api/tools/catalog` | GET | Read-only tool catalog (55 tools) |
+| `/api/runtime/health?workspace_id=` | GET | Per-workspace runtime health |
+| `/api/runs/recent?workspace_id=` | GET | Per-workspace recent runs |
+| `/api/jobs?workspace_id=` | GET | Per-workspace jobs list |
+
+## Frontend Features Added
+
+- Tool Catalog page (sidebar: "Tool Catalog") — read-only display
+- Refresh button (top bar) — reloads all dashboard data
+- Workspace-scoped system status
 
 ## Frontend API Usage
 
