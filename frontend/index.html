@@ -2302,7 +2302,7 @@ function _loadAllData(){
   });
 
   // Fetch job count
-  apiFetch('/api/jobs',{retries:1}).then(function(d){
+  apiFetch('/api/jobs?workspace_id='+encodeURIComponent(_currentWorkspaceId),{retries:1}).then(function(d){
     var jobs=d.jobs||[];
     document.getElementById('dash-tasks').textContent=jobs.length||'0';
     document.getElementById('dash-tasks').parentElement.querySelector('.stat-foot').innerHTML='<span class="sdot sdot-ok"></span>查询完成';
@@ -2312,7 +2312,7 @@ function _loadAllData(){
   });
 
   // Fetch recent runs
-  apiFetch('/api/runs/recent?limit=5',{retries:1}).then(function(d){
+  apiFetch('/api/runs/recent?limit=5&workspace_id='+encodeURIComponent(_currentWorkspaceId),{retries:1}).then(function(d){
     var runs=d.runs||[];
     var table=document.getElementById('recent-runs');
     if(runs.length===0){
