@@ -48,7 +48,7 @@ def health(cfg: dict = None) -> dict:
         url = cfg["base_url"].rstrip("/") + "/models"
         headers = {"Authorization": "Bearer " + cfg["api_key"]}
         r = urllib.request.Request(url, headers=headers)
-        urllib.request.urlopen(r, timeout=10)
+        urllib.request.urlopen(r, timeout=15)
         result["connected"] = True
     except Exception as e:
         result["last_error"] = mask_secret(str(e))[:100]
@@ -89,7 +89,7 @@ def _api_generate(req: LLMRequest, cfg: dict) -> LLMResponse:
             "Authorization": "Bearer " + cfg["api_key"],
         }
         r = urllib.request.Request(url, data=body, headers=headers, method="POST")
-        with urllib.request.urlopen(r, timeout=cfg.get("timeout", 30)) as resp:
+        with urllib.request.urlopen(r, timeout=cfg.get("timeout", 90)) as resp:
             d = json.loads(resp.read().decode())
         choice = d.get("choices", [{}])[0]
         message = choice.get("message", {})
