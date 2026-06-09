@@ -1,20 +1,25 @@
-# Platform Runtime Closure v0.3
+# Platform Runtime Closure v0.4
 
-Baseline entering completion: `ac6cadd` → Session Management v3.1.
+Baseline entering completion: `8cf0a1b` → SSE streaming, rate limiting, LLM orchestrator, context v0.2, lifecycle refactor.
 
-Baseline harness evidence provided for remote main: `850 passed, 7 skipped, 0 failed` + 35 session tests.
+Baseline harness evidence: `1351 passed, 7 skipped, 0 failed`.
 
 ## Current Runtime Scope
 
-- Agent chain: `router → context → planner → executor (+ supervised Tool Bridge for explicit safe tool requests) → verifier → composer → memory`
+- Agent chain: `router → context → planner → skill_executor (→ orchestrator for chat/knowledge) → verifier → composer → memory`
 - Formal APIs:
-  - `POST /api/agent/run` (supports `session_id` v3.1+)
+  - `POST /api/agent/run` (supports `session_id` v3.1+, `stream=true` SSE v0.4)
   - `POST /api/modules/config-translation/translate`
   - `POST /api/jobs`
   - `GET/POST/PUT/DELETE /api/sessions/*` (10 endpoints, v3.1+)
 - Enabled business module: `config_translation`
+- Enabled base capability: `knowledge_base` (knowledge_search MVP)
 - Agent base capability: `assistant_chat` (not a business module)
+- LLM Orchestrator: agentic loop (up to 10 steps) with disabled deterministic fallback
 - Session Management: conversation threads with archive/soft-delete/permanent-delete (v3.1+)
+- SSE Streaming: `stream=true` for real-time Agent execution progress
+- Rate Limiting: IP-based token bucket middleware
+- Context v0.2: dynamic budget, semantic dedup, regex-sensitive keys
 - Planned only: Topology, Inspection, CMDB
 
 ## Closure Rules

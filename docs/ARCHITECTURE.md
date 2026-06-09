@@ -2,31 +2,39 @@
 
 ## Current Closure State
 
-- Baseline commit: `a869430` (2026-06-07)
-- Baseline test evidence: `pytest harness -q` = `1191 passed, 7 skipped, 0 failed`
+- Baseline commit: `8cf0a1b` (2026-06-09)
+- Baseline test evidence: `pytest harness -q` = `1351 passed, 7 skipped, 0 failed`
 - Current enabled business module: `config_translation`
+- Current enabled base capability: `knowledge_base` (knowledge_search MVP)
 - Knowledge Index Runtime (Safe Local RAG Foundation v0.1): indexing + search, no auto RAG
 - Agent base capability: `assistant_chat` (not a business module)
-- Planned only: Topology, Inspection, CMDB, Knowledge
+- LLM Orchestrator: agentic loop for chat/knowledge with disabled fallback
+- SSE Streaming: `POST /api/agent/run` supports `stream=true`
+- Rate Limit: IP-based middleware for all API endpoints
+- Planned only: Topology, Inspection, CMDB
 - Tool Runtime has Foundation + Client + Integration + supervised Agent Tool Bridge, but no real device execution.
 - Run history is backend workspace state, not browser-local history.
 - `quality_summary` is carried through API, Agent result, run history, UI, trace metadata, and report summaries.
-- Backend routes: main.py (244 lines, 34 thin wrappers) + 5 sub-route files (artifact, job, runtime, context, workspace)
+- Backend routes: main.py + sub-route files (agent, artifact, context, job, knowledge, llm, memory, modules, runtime, session, skills, sse, version, workspace)
 
 ## 总体架构
 
 ```
 Frontend → API (8010) → Agent (LangGraph)
-                           ├── Context (loader, resolver, builder)
+                           ├── Intent Router (keyword-based)
+                           ├── Context (loader, compressor v0.2, builder)
                            ├── Registry / Capability / Skill / Module
+                           ├── LLM Orchestrator (agentic loop / disabled fallback)
+                           ├── Skill Executor
                            ├── Verifier
                            ├── Composer (LLM)
-                           └── Memory (writer, redaction, policy)
+                           └── Memory (writer, redaction, policy, cleanup_expired)
 
 Horizontal base:
 Workspace / Memory / Artifact / Report / Job / Trace /
 Session / LLM Settings / Prompt / Harness
-Tool Runtime
+Tool Runtime / SSE Streaming / Rate Limiting
+Lifecycle Utilities (lifecycle_base)
 ```
 
 ## Session 会话层
@@ -48,28 +56,40 @@ Session Store ──→ workspaces/<ws>/sessions/<sid>.json
 ## Agent 调用链
 
 ```
-POST /api/agent/run → graph
-  → context_loader   (上下文加载、压缩、构建 ContextBundle)
-  → planner          (任务分解、Skill 选取)
-  → executor         (调用 Skill adapter → Module service；或 assistant_chat 安全 Tool Bridge)
-  → verifier         (结果校验)
-  → composer         (LLM 响应合成)
-  → memory_writer    (记忆写入、Workspace 更新、Run 落盘)
+POST /api/agent/run → graph (stream=true → SSE)
+  → intent_router    (intent inference via keyword matching)
+  → context_loader   (上下文加载、压缩 v0.2 dynamic budget + dedup)
+  → planner          (execution plan setup)
+  → skill_executor   (→ orchestrator for chat/knowledge, adapter → module for translate)
+  → verifier         (结果校验 + quality gate)
+  → composer         (LLM 响应合成, 4 intent-specific paths)
+  → memory_writer    (记忆写入、Workspace 更新、Run 落盘、cleanup_expired)
+```
+
+Orchestrator (embedded in executor for chat/knowledge):
+```
+llm_orchestrator  → LLM enabled?  → agentic loop (up to 10 steps)
+                  → LLM disabled? → deterministic tool queries → execution
+                  → blocked?      → graceful degradation
 ```
 
 ## Agent Tool Bridge
 
 ```
-assistant_chat 明确工具请求
-  → agent/nodes/tool_planner.py
+assistant_chat / knowledge_query 明确工具请求
+  → agent/nodes/llm_orchestrator.py (agentic loop)
   → ToolRuntimeClient
   → ToolPolicy / ToolExecutor / Redaction / Audit
 ```
 
 边界：
+- LLM enabled: LLM function calling → tool selection → safe execution → verification loop
+- LLM disabled: keyword-based tool matching → deterministic execution
 - low 风险且 enabled 的工具可由 Agent 自动调用
 - medium 风险只允许明确 dry-run/预演
 - high 或 requires_approval 工具只返回审批提示，不自动执行
+
+Note: `agent/nodes/tool_planner.py` is legacy — its logic has been superseded by `llm_orchestrator.py::_handle_llm_disabled()`.
 
 ## config_translation 调用链
 
@@ -104,11 +124,13 @@ Composer → safe_generate
 
 ```
 context_ref → resolver → loader → selector
-  → compressor → builder
+  → compressor (v0.2: dynamic budget per model, semantic dedup, regex-sensitive keys)
+  → builder
   → ContextBundle { execution_context, safe_llm_context }
 ```
 
 ContextBundle 的 `safe_llm_context` 经过脱敏和截断后方可进入 LLM prompt。
+Dynamic budget 按模型分配 (MiniMax 64k, Qwen 128k 等)。
 
 ## Artifact 统一文件基座
 
@@ -140,3 +162,13 @@ Tool Runtime Integration Contract：[TOOL_RUNTIME_INTEGRATION.md](./TOOL_RUNTIME
 - **Redaction 层**: Memory 写入、Trace 写入、State 写入、Run 写入均经 redaction
 - **Artifact 隔离**: sensitive artifact 标记，跨 workspace 访问默认拒绝
 - **Module 隔离**: Module / Skill 不得私接 LLM
+- **Rate Limit**: IP-based middleware 保护所有 API 端点
+- **Lifecycle**: `runtime/lifecycle_base.py` 消除 archive/retention 重复
+
+## SSE Streaming
+
+`POST /api/agent/run` with `stream=true` enables Server-Sent Events streaming:
+```
+SSE event types: node_start, node_progress, tool_call, tool_result, text_chunk, node_end, error, done
+```
+Implemented in `backend/api/sse.py`. Frontend uses `EventSource` or fetch with `ReadableStream`.

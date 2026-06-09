@@ -2,7 +2,7 @@
 
 ## Current Closure State
 
-Baseline entering completion: `ac6cadd`.
+Baseline entering completion: `8cf0a1b`.
 
 Formal job entry: `POST /api/jobs`. Job runtime exists as a task container and event/log surface. It does not imply real device execution.
 

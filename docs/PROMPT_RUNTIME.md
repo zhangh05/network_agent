@@ -2,7 +2,7 @@
 
 ## Current Closure State
 
-Baseline: `f3660d5`.
+Baseline: `8cf0a1b`.
 
 `assistant_chat` uses `safe_generate("assistant_chat")` → MiniMax-M3 LLM with deterministic fallback. It is not a business module and must not produce jobs, reports, artifacts, or `deployable_config`.
 

@@ -4,7 +4,7 @@
 
 | Metric | Count |
 |--------|-------|
-| Passed | 493 |
+| Passed | 1351 |
 | Skipped | 7 |
 | Failed | 0 |
 

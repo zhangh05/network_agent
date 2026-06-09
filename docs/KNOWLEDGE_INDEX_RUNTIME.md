@@ -1,8 +1,8 @@
 # Knowledge / Index Runtime Foundation v0.1
 
 **Date:** 2026-06-07
-**Commit base:** a869430
-**Status:** ✅ 1191 passed, 7 skipped
+**Commit base:** 8cf0a1b
+**Status:** ✅ 1351 passed, 7 skipped
 
 ## 定位
 

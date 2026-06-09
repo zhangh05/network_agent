@@ -2,7 +2,7 @@
 
 ## Current Closure State
 
-Baseline entering completion: `ac6cadd`.
+Baseline entering completion: `8cf0a1b`.
 
 Artifacts are real backend records, not UI-fabricated data. Run history, memory, jobs, reports, and traces may reference artifacts by safe refs only. Browser localStorage is not an artifact, job, report, or run-history store.
 

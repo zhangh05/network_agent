@@ -22,21 +22,22 @@ When `session_id` is provided:
 2. `memory_writer` → `write_run_record()` auto-associates the run with the session
 3. First user input auto-titles the session (if title is generic)
 
-### Graph Nodes (7 Trace Nodes)
+### Graph Nodes (8 Trace Nodes)
 
 ```
-router → context_loader → planner → executor → verifier → composer → memory_writer
+router → context_loader → planner → skill_executor (orchestrator for chat/knowledge) → verifier → composer → memory_writer
 ```
 
 | Node | Role |
 |------|------|
 | `router` | Resolves intent via Registry/Capability lookup |
-| `context_loader` | Calls Context Runtime to build context bundle |
+| `context_loader` | Calls Context Runtime v0.2 to build context bundle (dynamic budget + dedup) |
 | `planner` | Produces execution plan from resolved capability |
-| `executor` | Executes via capability → skill → adapter → module chain; for assistant_chat, may use supervised Tool Bridge for explicit safe tool requests |
+| `skill_executor` | Executes via capability → skill → adapter → module chain; for assistant_chat/knowledge_query, delegates to llm_orchestrator for agentic loop |
+| `llm_orchestrator` | (embedded in executor) LLM agentic loop with function calling; disabled fallback via deterministic tool queries |
 | `verifier` | Validates execution output against capability contract |
-| `composer` | Assembles final response text |
-| `memory_writer` | Persists run summary to Memory store + associates with session (v3.1+) |
+| `composer` | Assembles final response text (4 intent-specific paths) |
+| `memory_writer` | Persists run summary to Memory store + associates with session; runs cleanup_expired + compact |
 
 ### Router
 
@@ -64,6 +65,17 @@ Config text detection: user can paste raw network config (e.g. `hostname R1\nint
 | `context_qa` | `_compose_context_qa()` |
 | Unknown | `_deterministic(state)` fallback |
 
+### LLM Orchestrator
+
+`agent/nodes/llm_orchestrator.py::orchestrate()` — agentic loop execution for `assistant_chat` and `knowledge_query` intents.
+
+Flow:
+1. LLM enabled → build tool definitions → send to LLM with function calling → parse tool calls → execute via ToolPolicy/ToolExecutor → feed results back to LLM → loop (up to 10 steps) → compose final response
+2. LLM disabled → `_handle_llm_disabled()` → keyword-based tool matching → deterministic execution → compose response
+3. LLM blocked → graceful degradation with `fallback_reason` recorded
+
+Each LLM call passes through `safe_generate()` with input/output policy checks.
+
 ### LLM Blocked / Deterministic Fallback
 
 When LLM is unavailable or blocked by policy:
@@ -78,7 +90,7 @@ When LLM is unavailable or blocked by policy:
 
 ### Agent Tool Bridge
 
-`agent/nodes/tool_planner.py` is called from the executor for `assistant_chat` only. It handles explicit tool catalog questions and direct safe tool requests without turning the Agent into an arbitrary tool runner.
+Tool execution for `assistant_chat` / `knowledge_query` is handled by the **LLM Orchestrator** (`agent/nodes/llm_orchestrator.py`), not the legacy `tool_planner.py`.
 
 Rules:
 - low-risk enabled tools can execute through `ToolRuntimeClient`
@@ -86,8 +98,56 @@ Rules:
 - high-risk or `requires_approval` tools are blocked with approval guidance
 - returned `tool_invocations` contain safe metadata only
 
+Note: `agent/nodes/tool_planner.py` contains legacy code superseded by `llm_orchestrator.py::_handle_llm_disabled()`. Consider removal.
+
 ### Trace
 
-Currently 7 trace nodes are recorded per run, each with:
+Currently 8 trace nodes are recorded per run, each with:
 - Node type, start/end timestamps, input/output metadata (no secrets)
 - Trace stored in run record, never includes full config or report content
+
+## SSE Streaming
+
+`POST /api/agent/run` with `stream=true` enables real-time Server-Sent Events:
+
+| Event Type | Description |
+|-----------|-------------|
+| `node_start` | Node execution begins (node name, step index) |
+| `node_progress` | Progress update from node (message, percent) |
+| `tool_call` | LLM orchestrator calls a tool (tool name, args) |
+| `tool_result` | Tool execution result (status, summary) |
+| `text_chunk` | LLM-generated text chunk (streaming) |
+| `node_end` | Node execution complete (elapsed, metadata) |
+| `error` | Error occurred (node, message) |
+| `done` | Full execution complete (final response) |
+
+Implemented in `backend/api/sse.py`. The stream endpoint strips sensitive fields before emitting.
+
+## Rate Limiting
+
+IP-based rate limiting via `backend/core/rate_limit.py`:
+
+- Per-IP token bucket algorithm
+- Configurable bucket capacity and refill rate
+- Applied as Flask `@app.before_request` middleware
+- Returns 429 with `Retry-After` header when exceeded
+- Tests disabled (`na_rate_limit_disabled=1`) via `test_platform_runtime_closure_v02.py`
+
+## Context Compressor v0.2
+
+`context/compressor.py` — v0.2 improvements:
+- **Dynamic budget**: `resolve_budget_for_model()` allocates token budgets per model (MiniMax 64k, Qwen 128k, etc.)
+- **Semantic deduplication**: removes redundant entries based on content similarity
+- **Regex-sensitive keys**: patterns like `password`, `secret`, `community`, `snmp`, `tacacs`, `radius`, `key_string` trigger redaction
+- Used by `context_loader` node for LLM context compaction
+
+## Lifecycle Utilities
+
+`runtime/lifecycle_base.py` — shared utilities extracted from `runtime/archive.py` and `runtime/retention.py`:
+
+- `is_safe_path(base, target)` — path traversal prevention
+- `get_active_refs(workspace_root)` — scans for active run references
+- `scan_directory(path, pattern)` — safe directory scanning
+- `write_audit(workspace_root, records)` — audit trail logging
+
+Eliminates ~80 lines of duplicated code between archive and retention modules.

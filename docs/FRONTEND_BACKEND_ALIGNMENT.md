@@ -52,6 +52,7 @@
 | Dashboard Stats | `/api/workspaces/default/archive/preview` | `@app.route("/api/workspaces/<ws_id>/archive/preview")` | ✅ |
 | Settings | `/api/agent/llm/config` (GET + POST) | `@app.route("/api/agent/llm/config")` | ✅ |
 | Agent Chat | `POST /api/agent/run` | `@app.route("/api/agent/run")` | ✅ |
+| Agent Chat (SSE) | `POST /api/agent/run?stream=true` | `@app.route("/api/agent/run")` | ✅ v0.4 |
 | Config Translate | `POST /api/modules/config-translation/translate` | `@app.route("/api/modules/config-translation/translate")` | ✅ |
 | **Session List** | `GET /api/sessions?status=active` | `@app.route("/api/sessions")` | ✅ v3.1 |
 | **Session Default** | `GET /api/sessions/default` | `@app.route("/api/sessions/default")` | ✅ v3.1 |

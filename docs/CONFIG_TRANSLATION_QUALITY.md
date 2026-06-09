@@ -1,6 +1,6 @@
 # Config Translation Quality
 
-Baseline entering completion: `ac6cadd`.
+Baseline entering completion: `8cf0a1b`.
 
 The canonical config translation path remains `RuleBasedTranslator.translate_bundle()` through `modules/config_translation/backend/service.py`. The LLM must not generate or modify `deployable_config`.
 
