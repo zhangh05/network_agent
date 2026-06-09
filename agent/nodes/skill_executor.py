@@ -105,17 +105,15 @@ def execute(state: NetworkAgentState) -> NetworkAgentState:
         state.skill_results = result if isinstance(result, dict) else {"ok": True, "data": result}
         state.tool_results = state.skill_results
 
+    except Exception as exc:
+        skill_call["status"] = "failed"
+        state.error = str(exc)
+    else:
         skill_call["status"] = "success" if result.get("ok", True) else "failed"
         if not result.get("ok"):
             state.error = result.get("error", "execution_failed")
         if result.get("warnings"):
             state.warnings.extend(str(w) for w in result.get("warnings", [])[:20])
-
-    except Exception as exc:
-        skill_call["status"] = "failed"
-        state.error = str(exc)
-        _add_event(state, "module_call_end", f"module:{state.active_module}",
-                   ws_id=ws_id, status="failed", metadata={"error": str(exc)[:200]})
 
     dur = round((time.time() - t0) * 1000, 2)
     _add_event(state, "module_call_end", f"module:{state.active_module}",

@@ -134,6 +134,7 @@ def orchestrate(state: NetworkAgentState) -> NetworkAgentState:
     # 6. Set result
     if not final_answer:
         final_answer = _build_partial_answer(all_tool_results, "no response")
+        state.warnings.append(f"orchestration max steps ({MAX_ORCHESTRATION_STEPS}) reached")
 
     state.tool_results = {
         "ok": True,
@@ -189,9 +190,15 @@ def _clean_response(text: str) -> str:
     t = text
     t = re.sub(r"<think\b[^>]*>.*?</think>", "", t, flags=re.IGNORECASE | re.DOTALL)
     t = re.sub(r"<reasoning\b[^>]*>.*?</reasoning>", "", t, flags=re.IGNORECASE | re.DOTALL)
-    t = re.sub(r"(?is)^\s*(思考|思考过程|reasoning)\s*[:：].*?(?=\n\s*(回答|答案|answer|conclusion)\s*[:：]|\Z)", "", t)
+    t = re.sub(r"(?ism)^\s*(思考|思考过程|reasoning)\s*[:：].*?(?=\n\s*(回答|答案|answer|conclusion)\s*[:：]|\Z)", "", t)
     t = re.sub(r"(?i)</?(think|reasoning)\b[^>]*>", "", t)
-    return t.strip() or text.strip()
+    cleaned = t.strip()
+    if cleaned:
+        return cleaned
+    # If all content was inside think tags, return a fallback message instead of raw think content
+    if text.strip() and (text.strip() != cleaned):
+        return "思考过程已过滤。请重新描述您的问题。"
+    return text.strip()
 
 
 def _build_partial_answer(tool_results: list, error: str) -> str:

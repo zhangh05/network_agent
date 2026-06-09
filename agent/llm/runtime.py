@@ -219,7 +219,7 @@ def _sanitize_provider_output(content: str) -> tuple[str, bool]:
     original = text
     text = re.sub(r"<think\b[^>]*>.*?</think>", "", text, flags=re.IGNORECASE | re.DOTALL)
     text = re.sub(r"<reasoning\b[^>]*>.*?</reasoning>", "", text, flags=re.IGNORECASE | re.DOTALL)
-    text = re.sub(r"(?is)^\s*(reasoning|思考过程)\s*[:：].*?(?=\n\s*(answer|回答|结论)\s*[:：]|\Z)", "", text)
+    text = re.sub(r"(?ism)^\s*(reasoning|思考过程)\s*[:：].*?(?=\n\s*(answer|回答|结论)\s*[:：]|\Z)", "", text)
     text = re.sub(r"(?i)</?(think|reasoning)\b[^>]*>", "", text)
     return text.strip(), text != original
 

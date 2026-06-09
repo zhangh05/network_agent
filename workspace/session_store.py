@@ -7,6 +7,7 @@ for audit purposes.
 """
 
 import json
+import re
 import time
 import uuid
 from pathlib import Path
@@ -25,8 +26,12 @@ def _session_dir(ws_id: str) -> Path:
 
 
 def _session_path(session_id: str, ws_id: str) -> Path:
-    """Return the file path for a session record."""
-    return _session_dir(ws_id) / f"{session_id}.json"
+    """Return the file path for a session record. Validates session_id to prevent path traversal."""
+    # Validate session_id: only allow alphanumeric + underscore + hyphen
+    safe_id = re.sub(r'[^a-zA-Z0-9_-]', '', str(session_id))
+    if safe_id != str(session_id) or not safe_id:
+        raise ValueError(f"Invalid session_id: {session_id}")
+    return _session_dir(ws_id) / f"{safe_id}.json"
 
 
 def _now_iso() -> str:
@@ -289,10 +294,12 @@ def auto_title_from_input(session_id: str, user_input: str, ws_id: str = "defaul
 
 
 def _write_session(session: Dict[str, Any], ws_id: str):
-    """Persist session to disk."""
+    """Persist session to disk atomically to prevent corruption on concurrent writes."""
     _session_dir(ws_id).mkdir(parents=True, exist_ok=True)
     path = _session_path(session["session_id"], ws_id)
-    path.write_text(json.dumps(session, indent=2, ensure_ascii=False), encoding="utf-8")
+    tmp = path.with_suffix(".tmp")
+    tmp.write_text(json.dumps(session, indent=2, ensure_ascii=False), encoding="utf-8")
+    tmp.rename(path)  # atomic on POSIX
 
 
 # ─── Cleanup helpers ───

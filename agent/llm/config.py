@@ -187,7 +187,7 @@ def _apply_env_overrides(config: dict):
 def _redact(msg: str) -> str:
     for kw in ["key", "password", "token", "auth"]:
         if kw.lower() in msg.lower():
-            return f"[REDACTED] {msg[:40]}..."
+            return "[REDACTED] sensitive error"
     return msg[:100]
 
 

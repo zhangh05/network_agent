@@ -78,8 +78,10 @@ def compose(state: NetworkAgentState) -> NetworkAgentState:
                 state.final_response = output.answer
                 state.warnings.extend(output.warnings)
                 return state
-    except Exception:
-        pass
+    except Exception as e:
+        state.warnings.append(f"composer_llm_failed: {str(e)[:100]}")
+        state.context.setdefault("llm", {})["fallback"] = True
+        state.context["llm"]["fallback_reason"] = f"composer: {str(e)[:80]}"
 
     # Fallback to deterministic
     state.final_response = deterministic
@@ -285,8 +287,10 @@ def _compose_translate_config(state: NetworkAgentState, result: dict):
                 state.final_response = output.answer
                 state.warnings.extend(output.warnings)
                 return
-    except Exception:
-        pass
+    except Exception as e:
+        state.warnings.append(f"composer_llm_failed: {str(e)[:100]}")
+        state.context.setdefault("llm", {})["fallback"] = True
+        state.context["llm"]["fallback_reason"] = f"composer: {str(e)[:80]}"
 
     # Fallback to deterministic
     state.final_response = _deterministic(result, state.intent or "translate_config")
@@ -455,8 +459,10 @@ def _model_response() -> str:
                 "但基础问候、身份说明和安全边界说明会优先使用本地 deterministic assistant_chat，"
                 "避免把简单对话误路由到业务模块或生成不安全结论。"
             )
-    except Exception:
-        pass
+    except Exception as e:
+        state.warnings.append(f"composer_llm_failed: {str(e)[:100]}")
+        state.context.setdefault("llm", {})["fallback"] = True
+        state.context["llm"]["fallback_reason"] = f"composer: {str(e)[:80]}"
     return (
         "我是 Network Agent，本地网络工程 Agent 平台里的基础助手。\n"
         "当前基础对话由 deterministic assistant_chat 处理；LLM 仅在允许的增强任务中使用。"
@@ -494,8 +500,10 @@ def _memory_response() -> str:
     try:
         from memory.store import get_store
         total = get_store().count()
-    except Exception:
-        pass
+    except Exception as e:
+        state.warnings.append(f"composer_llm_failed: {str(e)[:100]}")
+        state.context.setdefault("llm", {})["fallback"] = True
+        state.context["llm"]["fallback_reason"] = f"composer: {str(e)[:80]}"
     total_line = f"- 当前可见记忆记录：{total}\n" if total is not None else ""
     return (
         "Memory 是后端工作区记忆层，不再靠浏览器 localStorage 伪造历史。\n"
@@ -591,7 +599,7 @@ def _compose_knowledge_query(state: NetworkAgentState):
         "knowledge_results": results[:5],
         "user_input": state.user_input or "",
         "knowledge_results_count": len(results),
-        "knowledge_not_found": knowledge.get("not_found", True),
+        "knowledge_not_found": state.context.get("knowledge_not_found", True),
     }
     state.context["safe_llm_context"] = knowledge_context
 
