@@ -1,5 +1,5 @@
 # agent/llm/schemas.py
-"""LLM schemas — task types, messages, safe output."""
+"""LLM schemas — task types, messages, safe output, function calling support."""
 
 from dataclasses import dataclass, field
 from typing import List, Optional, Dict, Any
@@ -34,8 +34,10 @@ BLOCKED_TASKS = {
 
 @dataclass
 class LLMMessage:
-    role: str  # system, user, assistant
+    role: str  # system, user, assistant, tool
     content: str
+    tool_call_id: Optional[str] = None  # for role=tool responses
+    tool_calls: Optional[List[dict]] = None  # for role=assistant with function_call
 
 
 @dataclass
@@ -47,6 +49,14 @@ class LLMRequest:
     temperature: float = 0.7
     max_tokens: int = 2048
     metadata: Dict[str, Any] = field(default_factory=dict)
+    tools: Optional[List[dict]] = None  # OpenAI function definitions
+
+
+@dataclass
+class LLMToolCall:
+    id: str
+    name: str
+    arguments: dict = field(default_factory=dict)
 
 
 @dataclass
@@ -58,6 +68,10 @@ class LLMResponse:
     finish_reason: str = ""
     raw: Optional[Dict[str, Any]] = None
     error: Optional[str] = None
+    tool_calls: List[LLMToolCall] = field(default_factory=list)
+
+    def has_tool_calls(self) -> bool:
+        return len(self.tool_calls) > 0
 
 
 @dataclass

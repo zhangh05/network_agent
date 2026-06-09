@@ -64,6 +64,7 @@ def wrap_trace_node(node_name: str, display_name: str):
             "router": ("agent.nodes.intent_router", "route"),
             "context": ("agent.nodes.context_loader", "load_context"),
             "planner": ("agent.nodes.planner", "plan"),
+            "orchestrator": ("agent.nodes.llm_orchestrator", "orchestrate"),
             "executor": ("agent.nodes.skill_executor", "execute"),
             "verifier": ("agent.nodes.verifier", "verify"),
             "composer": ("agent.nodes.composer", "compose"),

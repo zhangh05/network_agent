@@ -33,19 +33,20 @@ def execute(state: NetworkAgentState) -> NetworkAgentState:
     ws_id = state.workspace_id or "default"
     trace_id = state.trace_id or ""
 
-    # ── 0. No-op / supervised tool bridge for builtins ──
+    # ── 0. No-op / LLM orchestrator for builtins ──
     if state.intent in ("assistant_chat", "knowledge_query") or (not skill and not capability_id):
         handled = False
         if state.intent == "assistant_chat":
-            from agent.nodes.tool_planner import maybe_execute_tool
-            handled = maybe_execute_tool(state)
+            from agent.nodes.llm_orchestrator import orchestrate
+            handled = True
+            state = orchestrate(state)
         if not handled:
             state.skill_results = {"ok": True, "intent": state.intent, "mode": "builtin"}
             state.tool_results = state.skill_results
         _add_event(state, "skill_call_start", "skill:noop", ws_id=ws_id,
-                   metadata={"intent": state.intent, "status": "tool_bridge" if handled else "noop"})
+                   metadata={"intent": state.intent, "status": "llm_orchestrated" if handled else "noop"})
         _add_event(state, "skill_call_end", "skill:noop", ws_id=ws_id, status="success",
-                   summary=f"{'tool bridge' if handled else 'noop'} for {state.intent}")
+                   summary=f"{'llm orchestrated' if handled else 'noop'} for {state.intent}")
         state.context["skill_call_count"] = 0
         return state
 
