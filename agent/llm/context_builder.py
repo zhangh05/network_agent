@@ -2,9 +2,9 @@
 """Safe context builder — strips secrets, limits data to summary only."""
 
 from agent.state import NetworkAgentState
+from agent.llm.policy import SECRET_PATTERNS
 
 MAX_SAMPLES = 5
-SECRET_PATTERNS = ["password", "secret", "community", "snmp", "tacacs", "radius", "key_string"]
 
 
 def build_safe_context(state: NetworkAgentState) -> dict:

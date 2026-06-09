@@ -1,9 +1,6 @@
 """Memory writer node — memory + workspace state + run record with artifact refs."""
 
-import json, os, time
 from agent.state import NetworkAgentState
-
-ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 
 def write_memory(state: NetworkAgentState) -> NetworkAgentState:

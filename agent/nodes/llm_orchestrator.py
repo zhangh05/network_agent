@@ -160,16 +160,12 @@ def _execute_tool(tool_id: str, arguments: dict, workspace_id: str) -> dict:
     """Execute a tool through the Tool Runtime safety pipeline."""
     try:
         from tool_runtime.integration import get_default_tool_runtime_client
-        from tool_runtime.schemas import ToolInvocation
 
         client = get_default_tool_runtime_client()
-        invocation = ToolInvocation(
+        result = client.invoke(
             tool_id=tool_id,
             arguments=arguments,
-            workspace_id=workspace_id,
-            requested_by="llm:orchestrator",
         )
-        result = client._executor.execute(invocation)
         return {
             "ok": result.status in ("succeeded", "dry_run"),
             "status": result.status,
@@ -191,19 +187,18 @@ def _truncate(text, max_len: int) -> str:
 
 
 def _clean_response(text: str) -> str:
-    """Remove provider reasoning markup from LLM output."""
+    """Remove provider reasoning markup from LLM output.
+
+    Delegates to agent.llm.runtime.sanitize_provider_output for canonical cleanup.
+    """
     if not text:
         return ""
-    t = text
-    t = re.sub(r"<think\b[^>]*>.*?</think>", "", t, flags=re.IGNORECASE | re.DOTALL)
-    t = re.sub(r"<reasoning\b[^>]*>.*?</reasoning>", "", t, flags=re.IGNORECASE | re.DOTALL)
-    t = re.sub(r"(?ism)^\s*(思考|思考过程|reasoning)\s*[:：].*?(?=\n\s*(回答|答案|answer|conclusion)\s*[:：]|\Z)", "", t)
-    t = re.sub(r"(?i)</?(think|reasoning)\b[^>]*>", "", t)
-    cleaned = t.strip()
+    from agent.llm.runtime import sanitize_provider_output
+    cleaned, _ = sanitize_provider_output(text)
     if cleaned:
         return cleaned
-    # If all content was inside think tags, return a fallback message instead of raw think content
-    if text.strip() and (text.strip() != cleaned):
+    # If all content was inside think tags, return a fallback message
+    if text.strip():
         return "思考过程已过滤。请重新描述您的问题。"
     return text.strip()
 

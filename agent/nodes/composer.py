@@ -5,6 +5,27 @@ import re
 from agent.state import NetworkAgentState
 
 
+def _resolve_and_update_llm(state: NetworkAgentState) -> dict:
+    """Resolve LLM config and update state.context.llm in one call.
+    
+    Centralizes the 4× repeated config resolution + llm.update() pattern.
+    Returns the resolved config dict.
+    """
+    from agent.llm.config import resolve_provider_config
+    cfg = resolve_provider_config()
+    llm = state.context.setdefault("llm", {})
+    llm.update({
+        "enabled": cfg.get("enabled", False),
+        "config_source": cfg.get("config_source", "default"),
+        "enabled_by_ui": cfg.get("enabled_by_ui"),
+        "key_source": cfg.get("key_source", "none"),
+        "provider_type": cfg.get("provider_type", "disabled"),
+        "provider": cfg.get("provider", cfg.get("default_provider", "disabled")),
+        "model": cfg.get("model", ""),
+    })
+    return cfg
+
+
 def compose(state: NetworkAgentState) -> NetworkAgentState:
     """Build final_response. Uses LLM if enabled and safe, otherwise deterministic."""
     result = state.skill_results or state.tool_results or {}
@@ -46,19 +67,7 @@ def compose(state: NetworkAgentState) -> NetworkAgentState:
     # Try LLM for non-chat intents
     try:
         from agent.llm.runtime import safe_generate
-        from agent.llm.config import resolve_provider_config
-        cfg = resolve_provider_config()
-
-        state.context.setdefault("llm", {})
-        state.context["llm"].update({
-            "enabled": cfg.get("enabled", False),
-            "config_source": cfg.get("config_source", "default"),
-            "enabled_by_ui": cfg.get("enabled_by_ui"),
-            "key_source": cfg.get("key_source", "none"),
-            "provider_type": cfg.get("provider_type", "disabled"),
-            "provider": cfg.get("provider", cfg.get("default_provider", "disabled")),
-            "model": cfg.get("model", ""),
-        })
+        cfg = _resolve_and_update_llm(state)
 
         if cfg.get("enabled") and cfg.get("provider_type") != "disabled":
             task = _select_prompt_task(state)
@@ -115,16 +124,8 @@ def _compose_assistant_chat(state: NetworkAgentState):
     # 1. Try LLM
     try:
         from agent.llm.runtime import safe_generate
-        from agent.llm.config import resolve_provider_config
-        cfg = resolve_provider_config()
-
-        llm.update({
-            "enabled": cfg.get("enabled", False),
-            "config_source": cfg.get("config_source", "default"),
-            "provider_type": cfg.get("provider_type", "disabled"),
-            "provider": cfg.get("provider", cfg.get("default_provider", "disabled")),
-            "model": cfg.get("model", ""),
-        })
+        cfg = _resolve_and_update_llm(state)
+        llm = state.context["llm"]
 
         if cfg.get("enabled") and cfg.get("provider_type") != "disabled":
             try:
@@ -260,18 +261,8 @@ def _compose_translate_config(state: NetworkAgentState, result: dict):
     # Try LLM for post-translate review
     try:
         from agent.llm.runtime import safe_generate
-        from agent.llm.config import resolve_provider_config
-        cfg = resolve_provider_config()
-
-        llm.update({
-            "enabled": cfg.get("enabled", False),
-            "config_source": cfg.get("config_source", "default"),
-            "enabled_by_ui": cfg.get("enabled_by_ui"),
-            "key_source": cfg.get("key_source", "none"),
-            "provider_type": cfg.get("provider_type", "disabled"),
-            "provider": cfg.get("provider", cfg.get("default_provider", "disabled")),
-            "model": cfg.get("model", ""),
-        })
+        cfg = _resolve_and_update_llm(state)
+        llm = state.context["llm"]
 
         if cfg.get("enabled") and cfg.get("provider_type") != "disabled":
             output = safe_generate("post_translate_review", state, user_input=state.user_input)
@@ -448,7 +439,8 @@ def _quality_term_response(user_input: str) -> str:
     return None
 
 
-def _model_response(state: NetworkAgentState = None) -> str:
+def _model_response(state: NetworkAgentState) -> str:
+    """Generate deterministic model info response. state is required."""
     try:
         from agent.llm.config import resolve_provider_config
         cfg = resolve_provider_config()
@@ -497,7 +489,8 @@ def _status_response() -> str:
     )
 
 
-def _memory_response(state: NetworkAgentState = None) -> str:
+def _memory_response(state: NetworkAgentState) -> str:
+    """Generate deterministic memory info response. state is required."""
     total = None
     try:
         from memory.store import get_store
@@ -631,16 +624,8 @@ def _compose_knowledge_query(state: NetworkAgentState):
 
     try:
         from agent.llm.runtime import safe_generate
-        from agent.llm.config import resolve_provider_config
-        cfg = resolve_provider_config()
-
-        llm.update({
-            "enabled": cfg.get("enabled", False),
-            "config_source": cfg.get("config_source", "default"),
-            "provider_type": cfg.get("provider_type", "disabled"),
-            "provider": cfg.get("provider", cfg.get("default_provider", "disabled")),
-            "model": cfg.get("model", ""),
-        })
+        cfg = _resolve_and_update_llm(state)
+        llm = state.context["llm"]
 
         if cfg.get("enabled") and cfg.get("provider_type") != "disabled":
             try:

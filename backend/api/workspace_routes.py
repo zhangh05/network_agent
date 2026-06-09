@@ -82,8 +82,15 @@ def register_workspace_routes(app):
         runs_sorted = sorted(runs, key=lambda r: r.get("created_at", ""), reverse=True) if runs else []
         recent = runs_sorted[:limit]
         safe_recent = []
+        # Whitelist of safe fields for public run history (never expose secrets, configs, or prompts)
+        _SAFE_RUN_KEYS = frozenset({
+            "run_id", "workspace_id", "session_id", "intent",
+            "active_module", "selected_skill", "status", "error",
+            "warnings", "quality_summary", "elapsed_ms", "created_at",
+            "node_timings", "trace_id", "user_input_summary", "final_response",
+        })
         for r in recent:
-            safe_run = {k: v for k, v in r.items() if k not in ("source_config", "deployable_config", "prompt", "full_context", "safe_context")}
+            safe_run = {k: v for k, v in r.items() if k in _SAFE_RUN_KEYS}
             safe_recent.append(safe_run)
         return jsonify({"runs": safe_recent, "count": len(safe_recent)})
 

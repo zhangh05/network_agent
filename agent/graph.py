@@ -16,7 +16,7 @@ try:
 except ImportError:
     pass
 
-# Canonical 7 nodes (name, display_name)
+# Canonical 8 nodes (name, display_name)
 _CANONICAL_NODES = [
     ("router", "router"),
     ("context", "context_loader"),
@@ -25,6 +25,7 @@ _CANONICAL_NODES = [
     ("verifier", "verifier"),
     ("composer", "composer"),
     ("memory", "memory_writer"),
+    ("orchestrator", "llm_orchestrator"),
 ]
 
 
@@ -47,40 +48,11 @@ def _add_trace_event(state: NetworkAgentState, event_type: str, name: str,
     })
 
 
-def wrap_trace_node(node_name: str, display_name: str):
-    """Create a trace-wrapped node function for LangGraph.
-
-    Returns a callable suitable for StateGraph.add_node().
-    Records node_start before execution and node_end after.
-
-    Args:
-        node_name: Internal key (e.g. "router", "context")
-        display_name: Human-readable name for trace (e.g. "router", "context_loader")
-    """
-
-    def _load_func():
-        # Lazy import to avoid circular dependency
-        mapping = {
-            "router": ("agent.nodes.intent_router", "route"),
-            "context": ("agent.nodes.context_loader", "load_context"),
-            "planner": ("agent.nodes.planner", "plan"),
-            "orchestrator": ("agent.nodes.llm_orchestrator", "orchestrate"),
-            "executor": ("agent.nodes.skill_executor", "execute"),
-            "verifier": ("agent.nodes.verifier", "verify"),
-            "composer": ("agent.nodes.composer", "compose"),
-            "memory": ("agent.nodes.memory_writer", "write_memory"),
-        }
-        mod_name, func_name = mapping[node_name]
-        import importlib
-        mod = importlib.import_module(mod_name)
-        return getattr(mod, func_name)
-
-    func = _load_func()
-
 # Node retry configuration: node_name → (max_retries, retry_delay_seconds)
 _NODE_RETRY_CONFIG = {
     "context": (1, 0.5),     # context_loader: retry once
     "executor": (1, 0.5),    # skill_executor: retry once
+    "orchestrator": (2, 0.3),# llm_orchestrator: retry twice (LLM may flake)
     "composer": (2, 0.3),    # composer: retry twice (LLM may flake)
 }
 

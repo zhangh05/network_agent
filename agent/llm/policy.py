@@ -6,7 +6,7 @@ from agent.llm.schemas import (
     ALLOWED_TASKS, BLOCKED_TASKS, LLMTask,
 )
 
-SECRET_PATTERNS = ["password", "secret", "community", "snmp"]
+SECRET_PATTERNS = ["password", "secret", "community", "snmp", "tacacs", "radius", "key_string"]
 
 
 def check_request(req: LLMRequest, state=None) -> PolicyDecision:
@@ -59,16 +59,22 @@ def check_response(resp: LLMResponse, state=None) -> PolicyDecision:
         idx = content.find(kw)
         if idx >= 0:
             # Check negation context — LLM may say "不会声称'可直接下发'"
-            from prompts.policy import _is_negation_context
-            if not _is_negation_context(resp.content, idx):
+            try:
+                from prompts.policy import is_negation_context
+            except ImportError:
+                # Fallback: simple negation check if prompt policy unavailable
+                def is_negation_context(text, idx, window=80):
+                    snippet = text[max(0, idx-window):idx]
+                    return any(neg in snippet.lower() for neg in ("不会", "不", "cannot", "won't", "never"))
+            if not is_negation_context(resp.content, idx):
                 violations.append(reason)
 
-    # Must not leak secrets
+    # Must not leak secrets — pattern-based detection
     for secret in SECRET_PATTERNS:
-        if secret in content and f"{secret}123" not in content and f"{secret}:" not in content:
-            # Only flag if the secret appears as a key=value pattern
-            pass  # Too aggressive to flag individual words; rely on context_builder redaction
-        if f"  {secret} " in content and content.count(secret) < 3:
+        # Flag only when secret appears with surrounding whitespace or 
+        # key=value-like patterns suggesting intentional secret exposure
+        word_boundary_hits = content.count(f" {secret} ") + content.count(f"\n{secret} ")
+        if word_boundary_hits > 0 and content.count(secret) < 3:
             violations.append(f"potential {secret} leak in response")
 
     # Must not fake planned module results

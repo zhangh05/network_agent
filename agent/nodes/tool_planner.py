@@ -1,9 +1,11 @@
 # agent/nodes/tool_planner.py
-"""Agent-supervised Tool Runtime bridge.
+"""DEPRECATED — Agent-supervised Tool Runtime bridge.
 
-This bridge lets assistant_chat use explicitly requested safe tools without
-turning the Agent into an arbitrary tool runner.
-"""
+This module has been superseded by agent/nodes/llm_orchestrator.py::_handle_llm_disabled().
+It is no longer called from any active LangGraph node and will be removed in a future release.
+
+Original purpose: assistant_chat tool execution via ToolRuntimeClient.
+""""""
 
 import re
 from typing import Optional

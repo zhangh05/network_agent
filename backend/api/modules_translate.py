@@ -5,11 +5,15 @@ Endpoint: POST /api/modules/config-translation/translate
 Canonical implementation: modules/config_translation/backend/service.py
 """
 
+import logging
+
 from flask import request, jsonify
 
 from backend.core.limits import source_config_too_large
 from modules.config_translation.backend.schemas import TranslateRequest
 from modules.config_translation.backend.service import translate_config
+
+logger = logging.getLogger(__name__)
 
 
 def handle_module_translate():
@@ -35,7 +39,8 @@ def handle_module_translate():
     try:
         result = translate_config(req)
     except Exception as exc:
-        return jsonify({"ok": False, "error": f"translate_config failed: {exc}"}), 500
+        logger.error("translate_config failed: %s", exc, exc_info=True)
+        return jsonify({"ok": False, "error": "translate_config failed"}), 500
 
     return jsonify({
         "ok": True,

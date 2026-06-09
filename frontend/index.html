@@ -1030,7 +1030,8 @@ function safeSetText(id,value){
   if(el) el.textContent=value;
   return el;
 }
-function safeSetHTML(id,value){
+/** WARNING: Only use with trusted HTML content. For user input, use safeSetText! */
+function setInnerHTML(id,value){
   var el=document.getElementById(id);
   if(el) el.innerHTML=value;
   return el;
@@ -2815,7 +2816,7 @@ function refreshDashboard(){
       html+='<td><span class="tag '+st+'">'+esc(r.status||'—')+'</span></td><td>'+esc(r.active_module||'—')+'</td><td>'+qsBadge+'</td><td style="font-size:11px;color:var(--n5)">'+esc((r.created_at||'').slice(0,19))+'</td></tr>';
     });
     html+='</tbody></table>';table.innerHTML=html;
-  }).catch(function(){safeSetHTML('recent-runs','<div class="empty"><div class="t" style="color:var(--dng)">刷新失败</div></div>');});
+  }).catch(function(){setInnerHTML('recent-runs','<div class="empty"><div class="t" style="color:var(--dng)">刷新失败</div></div>');});
   // Jobs
   apiFetch('/api/jobs?workspace_id='+encodeURIComponent(ws),{retries:1}).then(function(d){
     safeSetText('dash-tasks',(d.jobs||[]).length||'0');
@@ -2850,10 +2851,10 @@ function _loadAllData(){
       if(d.ok && d.session){
         _currentSessionId=d.session.session_id;
         _setCurrentSessionId(_currentSessionId);
-        safeSetHTML('session-title','会话选择<span class="chevron">▼</span>');
+        setInnerHTML('session-title','会话选择<span class="chevron">▼</span>');
         loadSessionMessages(_currentSessionId);
       }
-    }).catch(function(){safeSetHTML('session-title','会话选择<span class="chevron">▼</span>');});
+    }).catch(function(){setInnerHTML('session-title','会话选择<span class="chevron">▼</span>');});
   }
 
   // Load session list in background
@@ -2935,7 +2936,7 @@ function _loadAllData(){
     html+='</tbody></table>';
     table.innerHTML=html;
   }).catch(function(){
-    safeSetHTML('recent-runs','<div class="empty"><div class="icon">⌘</div><div class="t" style="color:var(--dng)">历史加载失败</div></div>');
+    setInnerHTML('recent-runs','<div class="empty"><div class="icon">⌘</div><div class="t" style="color:var(--dng)">历史加载失败</div></div>');
   });
 
   // Fetch runtime diagnostics for system status panel
@@ -3005,9 +3006,9 @@ function _loadAllData(){
       if(summary.error) extra+=' / '+summary.error+' 异常';
       extra+=' (共 '+summary.total+')</div>';
     }
-    safeSetHTML('runtime-status-extras',extra);
+    setInnerHTML('runtime-status-extras',extra);
   }).catch(function(){
-    safeSetHTML('sys-status-grid','<div style="display:flex;align-items:center;gap:10px;padding:10px;background:var(--n10);border-radius:8px"><span class="sdot sdot-dng"></span><div><div style="font-weight:600">诊断不可用</div><div style="font-size:11px;color:var(--n5)">/api/runtime/health 调用失败</div></div></div>');
+    setInnerHTML('sys-status-grid','<div style="display:flex;align-items:center;gap:10px;padding:10px;background:var(--n10);border-radius:8px"><span class="sdot sdot-dng"></span><div><div style="font-weight:600">诊断不可用</div><div style="font-size:11px;color:var(--n5)">/api/runtime/health 调用失败</div></div></div>');
   });
 
   // Fetch archive preview

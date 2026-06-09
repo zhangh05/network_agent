@@ -100,11 +100,16 @@ def _get_limiter(endpoint: str) -> _WindowCounter:
 
 
 def _get_client_ip() -> str:
-    """Extract client IP from request."""
-    # Check X-Forwarded-For header (reverse proxy)
-    forwarded = request.headers.get("X-Forwarded-For", "")
-    if forwarded:
-        return forwarded.split(",")[0].strip()
+    """Extract client IP from request.
+
+    Only trusts X-Forwarded-For when the app is explicitly configured
+    behind a trusted reverse proxy (TRUSTED_PROXY=true env).
+    Otherwise defaults to request.remote_addr to prevent IP spoofing.
+    """
+    if os.environ.get("TRUSTED_PROXY", "").lower() in ("1", "true", "yes"):
+        forwarded = request.headers.get("X-Forwarded-For", "")
+        if forwarded:
+            return forwarded.split(",")[0].strip()
     return request.remote_addr or "0.0.0.0"
 
 

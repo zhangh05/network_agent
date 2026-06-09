@@ -35,6 +35,9 @@ def handle_agent_run():
     """
     data = request.get_json(silent=True) or {}
     message = (data.get("message") or "").strip()
+    # Prevent OOM from oversized message strings
+    if len(message) > 1_000_000:
+        return jsonify({"ok": False, "error": "message_too_large"}), 413
     intent = (data.get("intent") or "").strip()
     payload = data.get("payload") or {}
     workspace_id = data.get("workspace_id", "default")

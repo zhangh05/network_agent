@@ -239,6 +239,7 @@ class RuleBasedTranslator:
         _dedup_keys: set[tuple] = set()
 
         # ── Phase 0: Typed IR v2 pipeline ──
+        typed_ir_fallback = False
         try:
             from modules.config_translation.core.parser.config_block_parser import parse_config_blocks
             from modules.config_translation.core.ir_parser import parse_typed_ir
@@ -327,6 +328,7 @@ class RuleBasedTranslator:
                             candidates.append(tc)
                             candidate_count += 1
         except Exception as e:
+            typed_ir_fallback = True
             logger.warning("Typed IR pipeline error (falling through to factory): %s", e)
 
         # ── Phase 1: Line-by-line factory path ──
@@ -498,5 +500,6 @@ class RuleBasedTranslator:
             "typed_routing_neighbor_review_count": typed_routing_neighbor_review_count,
             "typed_routing_policy_review_count": typed_routing_policy_review_count,
             "typed_routing_auth_review_count": typed_routing_auth_review_count,
+            "typed_ir_fallback": typed_ir_fallback,
         }
         return bundle

@@ -2,10 +2,12 @@
 """Context loader — loads workspace state, memory hits, registry info."""
 
 import json
+import logging
 import os
 
 from agent.state import NetworkAgentState
 
+logger = logging.getLogger(__name__)
 ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 
@@ -36,6 +38,7 @@ def load_context(state: NetworkAgentState) -> NetworkAgentState:
                 "llm_metadata": ws.get("llm_metadata", {}),
             }
     except Exception:
+        logger.debug("context_loader: workspace state load failed", exc_info=True)
         state.context["last_result"] = {"has_result": False}
 
     # ═══ 2. Memory hits via retriever ═══
@@ -48,6 +51,7 @@ def load_context(state: NetworkAgentState) -> NetworkAgentState:
         )
         state.context["memory_hits"] = hits
     except Exception:
+        logger.debug("context_loader: memory retriever failed", exc_info=True)
         state.context["memory_hits"] = []
 
     # ═══ 3. Module registry ═══
@@ -58,7 +62,7 @@ def load_context(state: NetworkAgentState) -> NetworkAgentState:
             m["module_name"]: m["status"] for m in modules.get("modules", [])
         }
     except Exception:
-        pass
+        logger.debug("context_loader: module registry load failed", exc_info=True)
 
     # ═══ 4. Skill registry ═══
     try:
@@ -68,7 +72,7 @@ def load_context(state: NetworkAgentState) -> NetworkAgentState:
             s["skill_name"]: s.get("enabled", False) for s in skills.get("skills", [])
         }
     except Exception:
-        pass
+        logger.debug("context_loader: skill registry load failed", exc_info=True)
 
     # ── 5. Build ContextBundle ──
     try:
@@ -90,7 +94,7 @@ def load_context(state: NetworkAgentState) -> NetworkAgentState:
         state.context["execution_context"] = bundle.execution_context.as_dict() if bundle.execution_context else {}
         state.context["citations"] = bundle.citations
     except Exception:
-        pass
+        logger.warning("context_loader: context_bundle build failed", exc_info=True)
 
     # ── Trace: context_loaded ──
     state.trace_events.append({
