@@ -124,6 +124,7 @@
 
   /* ── Cards ── */
   .card{background:var(--card);border:1px solid var(--n8);border-radius:10px;padding:18px 20px;margin-bottom:16px}
+  .card-flush{background:var(--card);border:1px solid var(--n8);border-radius:10px;margin-bottom:16px;padding:0;overflow:hidden}
   .card-hd{display:flex;align-items:center;justify-content:space-between;margin-bottom:14px}
   .card-title{font-size:15px;font-weight:700;color:var(--n1)}
   .card-more{font-size:12px;color:var(--pri);cursor:pointer}
@@ -761,24 +762,24 @@ router ospf 1
 
       <!-- ══════════ Tool Catalog ══════════ -->
       <div class="page" id="page-tools">
-        <div class="card">
-          <div class="card-hd">
+        <div class="card-flush">
+          <div class="card-hd" style="padding:16px 20px;border-bottom:1px solid var(--n8)">
             <div class="card-title">Tool Catalog <span class="tag tag-gn" style="margin-left:8px">v0.3</span></div>
             <span style="font-size:11px;color:var(--n5)" id="tool-catalog-subtitle">交互式调用 · 55 工具 · 风险分级</span>
           </div>
           <!-- Tabs -->
-          <div style="display:flex;gap:4px;padding:8px 12px 0;border-bottom:1px solid var(--n8);background:var(--n10);border-radius:8px 8px 0 0">
+          <div style="display:flex;gap:4px;padding:8px 20px 0;border-bottom:1px solid var(--n8);background:var(--n10)">
             <button id="toolstab-catalog" onclick="switchToolTab('catalog')" class="toolstab active">Tool Catalog</button>
             <button id="toolstab-history" onclick="switchToolTab('history')" class="toolstab">Exec History</button>
             <button id="toolstab-approvals" onclick="switchToolTab('approvals')" class="toolstab">Approvals</button>
-            <div style="margin-left:auto;display:flex;gap:8px;align-items:center;padding-right:8px">
+            <div style="margin-left:auto;display:flex;gap:8px;align-items:center">
               <span style="font-size:11px;color:var(--n5)" id="tools-ws-label">ws: default</span>
               <button onclick="loadToolsPermissions()" class="btn-sm" title="权限配置">&#9881;</button>
             </div>
           </div>
           <!-- Catalog Panel -->
           <div class="tool-panel active" id="tp-catalog">
-            <div style="padding:14px 16px;display:flex;gap:10px;align-items:center;flex-wrap:wrap;background:var(--card);border-bottom:1px solid var(--n8)">
+            <div style="padding:14px 20px;display:flex;gap:10px;align-items:center;flex-wrap:wrap;background:var(--card);border-bottom:1px solid var(--n8)">
               <div class="tool-search-wrap">
                 <input type="text" id="tool-search" placeholder="搜索工具名称或描述..." oninput="filterToolCards()">
               </div>
@@ -793,12 +794,12 @@ router ospf 1
                 <option value="all">全部分类</option>
               </select>
             </div>
-            <div id="tool-catalog-status" style="font-size:12px;color:var(--n5);padding:10px 16px 0">加载中…</div>
-            <div id="tool-catalog-grid" style="display:grid;grid-template-columns:repeat(auto-fill,minmax(260px,1fr));gap:12px;padding:10px 16px 16px;font-size:12px"></div>
+            <div id="tool-catalog-status" style="font-size:12px;color:var(--n5);padding:10px 20px 0">加载中…</div>
+            <div id="tool-catalog-grid" style="display:grid;grid-template-columns:repeat(auto-fill,minmax(260px,1fr));gap:12px;padding:10px 20px 20px;font-size:12px"></div>
           </div>
           <!-- History Panel -->
           <div class="tool-panel" id="tp-history">
-            <div style="padding:12px 16px;display:flex;gap:10px;align-items:center;background:var(--card);border-bottom:1px solid var(--n8)">
+            <div style="padding:12px 20px;display:flex;gap:10px;align-items:center;background:var(--card);border-bottom:1px solid var(--n8)">
               <select id="hist-status-filter" onchange="loadToolHistory()" class="tool-sel">
                 <option value="all">全部状态</option>
                 <option value="succeeded">成功</option>
@@ -808,15 +809,15 @@ router ospf 1
               </select>
               <span style="font-size:12px;color:var(--n5)" id="hist-count">0 条记录</span>
             </div>
-            <div id="tool-history-list" style="padding:10px 16px 16px;display:flex;flex-direction:column;gap:8px"></div>
+            <div id="tool-history-list" style="padding:10px 20px 20px;display:flex;flex-direction:column;gap:8px"></div>
           </div>
           <!-- Approvals Panel -->
           <div class="tool-panel" id="tp-approvals">
-            <div style="padding:12px 16px;display:flex;gap:10px;align-items:center;background:var(--card);border-bottom:1px solid var(--n8)">
+            <div style="padding:12px 20px;display:flex;gap:10px;align-items:center;background:var(--card);border-bottom:1px solid var(--n8)">
               <span style="font-size:14px;font-weight:700;color:var(--n2)">待审批</span>
               <span style="font-size:12px;color:var(--n5)" id="approval-count">0 条</span>
             </div>
-            <div id="tool-approval-list" style="padding:10px 16px 16px;display:flex;flex-direction:column;gap:10px"></div>
+            <div id="tool-approval-list" style="padding:10px 20px 20px;display:flex;flex-direction:column;gap:10px"></div>
           </div>
         </div>
       </div>
