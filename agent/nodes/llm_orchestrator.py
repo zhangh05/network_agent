@@ -56,6 +56,22 @@ def orchestrate(state: NetworkAgentState) -> NetworkAgentState:
 
     # 3. Normal LLM orchestration flow
 
+    # ── Pre-turn compaction check ──
+    from context.compaction import should_compact, compact_session_history, estimate_tokens
+    context_size = estimate_tokens(str(state.context.get("safe_llm_context", {})))
+    compact_needed, cur_tokens, budget = should_compact(context_size, cfg.get("model", "default"))
+    if compact_needed:
+        logger.info("Pre-turn compaction triggered: %d/%d tokens", cur_tokens, budget)
+        from context.compaction import compact_llm_context
+        state.context["safe_llm_context"] = compact_llm_context(
+            state.context.get("safe_llm_context", {}),
+            cfg.get("model", "default"),
+        )
+        state.context.setdefault("compaction_meta", {})
+        state.context["compaction_meta"]["pre_turn"] = {
+            "original_tokens": cur_tokens, "budget": budget,
+        }
+
     # 2. Build tool definitions
     from agent.llm.tool_adapter import list_tools_for_orchestrator, build_system_prompt_with_tools
     tools = list_tools_for_orchestrator()
@@ -132,8 +148,26 @@ def orchestrate(state: NetworkAgentState) -> NetworkAgentState:
             messages.append(assistant_msg)
 
             for tc in resp.tool_calls:
-                tool_result = _execute_tool(tc.name, tc.arguments, ws_id)
+                # ── PreToolUse hook (can deny or rewrite input) ──
+                from agent.hooks_integration import run_pre_tool_hooks
+                allowed, updated_args, deny_reason = run_pre_tool_hooks(
+                    state, tc.name, tc.arguments
+                )
+                if not allowed:
+                    tool_result = {"ok": False, "status": "denied_by_hook",
+                                   "summary": deny_reason, "errors": [deny_reason], "warnings": []}
+                else:
+                    effective_args = updated_args if updated_args else tc.arguments
+                    tool_result = _execute_tool(tc.name, effective_args, ws_id)
+
                 turn.record_tool_call(tc.name, tc.arguments, tool_result)
+
+                # ── PostToolUse hook (can stop the turn) ──
+                from agent.hooks_integration import run_post_tool_hooks
+                should_continue, feedback = run_post_tool_hooks(state, tc.name, tool_result)
+                if feedback:
+                    tool_result["hook_feedback"] = feedback
+
                 all_tool_results.append({
                     "tool_id": tc.name,
                     "arguments": tc.arguments,
@@ -160,6 +194,27 @@ def orchestrate(state: NetworkAgentState) -> NetworkAgentState:
 
         final_answer = _clean_response(resp.content)
         turn.complete(final_answer)
+
+        # ── Stop hook: can block completion (force continue) ──
+        from agent.hooks_integration import run_stop_hooks
+        should_stop, block_reason = run_stop_hooks(state)
+        if not should_stop:
+            logger.info("Stop hook blocked completion: %s", block_reason)
+            # Inject the block reason as context for next turn
+            messages.append(LLMMessage(
+                role="system",
+                content=f"Hook feedback: {block_reason}. Please continue.",
+            ))
+            req = LLMRequest(
+                task="assistant_chat",
+                messages=messages,
+                model=cfg["model"],
+                temperature=cfg["temperature"],
+                max_tokens=cfg["max_tokens"],
+                tools=tools,
+            )
+            continue
+
         break
 
     # 6. Set result and complete task

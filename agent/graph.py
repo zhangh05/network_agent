@@ -317,6 +317,16 @@ def run_agent(user_input: str = "", intent: str = "", payload: dict = None,
     from observability.trace import create_trace, finalize_trace
     trace_id = create_trace(state, workspace_id)
 
+    # ═══ SessionStart hooks ──
+    from agent.hooks_integration import run_session_start_hooks
+    should_start, context_injections, stop_reason = run_session_start_hooks(state)
+    if not should_start:
+        return _rejected_result("session_blocked_by_hook", intent,
+                                warning=f"SessionStart hook blocked: {stop_reason}")
+    if context_injections:
+        state.context.setdefault("hook_context", [])
+        state.context["hook_context"].extend(context_injections)
+
     # ═══ Run pipeline ═══
     if _LANGGRAPH_AVAILABLE:
         try:
