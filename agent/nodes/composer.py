@@ -29,6 +29,13 @@ def compose(state: NetworkAgentState) -> NetworkAgentState:
             return state
         deterministic = _deterministic(result, intent)
     elif intent == "knowledge_query":
+        # If LLM orchestrator already handled this, use its answer
+        if result.get("mode") == "llm_orchestrated":
+            state.final_response = result.get("answer", "")
+            state.context.setdefault("llm", {})["used"] = True
+            state.context["llm"]["provider"] = "llm_orchestrator"
+            state.context["llm"]["model"] = "MiniMax-M3 (orchestrated)"
+            return state
         _compose_knowledge_query(state)
         return state
     else:
@@ -88,6 +95,14 @@ def _compose_assistant_chat(state: NetworkAgentState):
         state.context.setdefault("llm", {})["used"] = False
         state.context["llm"]["fallback"] = True
         state.context["llm"]["fallback_reason"] = "deterministic tool bridge response"
+        return
+
+    # LLM orchestrator already handled the full response — don't overwrite
+    if result.get("mode") == "llm_orchestrated":
+        state.final_response = result.get("answer", "")
+        state.context.setdefault("llm", {})["used"] = True
+        state.context["llm"]["provider"] = "llm_orchestrator"
+        state.context["llm"]["model"] = "MiniMax-M3 (orchestrated)"
         return
 
     state.context.setdefault("llm", {})
