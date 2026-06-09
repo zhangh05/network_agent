@@ -73,7 +73,10 @@ def route(state: NetworkAgentState) -> NetworkAgentState:
     elif explicit:
         state.intent = "unknown"
         state.error = f"unsupported intent: {explicit}"
-        return state
+        state.context["capability_status"] = "unknown"
+        state.context["capability_id"] = ""
+        state.active_module = "unknown"
+        state.selected_skill = "unknown"
     else:
         state.intent = _infer(state.user_input or "")
 

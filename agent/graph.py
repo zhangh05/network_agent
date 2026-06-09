@@ -396,10 +396,13 @@ def _rejected_result(error: str, intent: str = "", warning: str = "") -> dict:
     warnings = [warning or error]
     return {
         "ok": False,
+        "status": "error",
         "error": error,
         "run_id": "",
         "request_id": "",
+        "session_id": "",
         "intent": intent or "",
+        "capability": "",
         "active_module": None,
         "selected_skill": None,
         "runtime_mode": "rejected",
@@ -424,6 +427,12 @@ def _rejected_result(error: str, intent: str = "", warning: str = "") -> dict:
         "trace_id": "",
         "trace_available": False,
         "timeline_summary": {},
+        "ui_actions": [],
+        "knowledge_results_count": 0,
+        "knowledge_sources": [],
+        "knowledge_chunks": [],
+        "knowledge_not_found": False,
+        "knowledge_result_details": [],
         "llm": {"enabled": False, "used": False},
     }
 

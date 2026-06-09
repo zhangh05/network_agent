@@ -67,7 +67,7 @@ def ensure_workspace(ws_id: str = "default") -> str:
 
 def get_workspace_state(ws_id: str = "default") -> dict:
     """Get workspace state. Returns empty dict if not found."""
-    ws_id = ensure_workspace(ws_id)
+    ws_id = validate_workspace_id(ws_id)
     try:
         state = json.loads((WS_ROOT / ws_id / "state.json").read_text())
         # Enrich with live counts

@@ -264,7 +264,7 @@ def register_runtime_routes(app):
             "invocation_id": result.invocation_id,
             "tool_id": result.tool_id,
             "status": result.status,
-            "summary": result.summary[:500],
+            "summary": (result.summary or "")[:500],
             "output": _safe_output(result.output),
             "duration_ms": result.duration_ms,
             "redacted": result.redacted,

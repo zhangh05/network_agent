@@ -92,6 +92,18 @@ def orchestrate(state: NetworkAgentState) -> NetworkAgentState:
             break
 
         if resp.has_tool_calls():
+            # Build ONE assistant message with ALL tool calls (OpenAI protocol)
+            assistant_msg = LLMMessage(
+                role="assistant",
+                content=resp.content if resp.content else "",
+                tool_calls=[{
+                    "id": tc.id,
+                    "type": "function",
+                    "function": {"name": tc.name, "arguments": json.dumps(tc.arguments, ensure_ascii=False)},
+                } for tc in resp.tool_calls],
+            )
+            messages.append(assistant_msg)
+
             for tc in resp.tool_calls:
                 tool_result = _execute_tool(tc.name, tc.arguments, ws_id)
                 all_tool_results.append({
@@ -101,16 +113,6 @@ def orchestrate(state: NetworkAgentState) -> NetworkAgentState:
                     "summary": _truncate(tool_result.get("summary", ""), 500),
                     "errors": tool_result.get("errors", [])[:5],
                 })
-                assistant_msg = LLMMessage(
-                    role="assistant",
-                    content="",
-                    tool_calls=[{
-                        "id": tc.id,
-                        "type": "function",
-                        "function": {"name": tc.name, "arguments": json.dumps(tc.arguments, ensure_ascii=False)},
-                    }],
-                )
-                messages.append(assistant_msg)
                 tool_msg = LLMMessage(
                     role="tool",
                     content=json.dumps(tool_result, ensure_ascii=False)[:1000],

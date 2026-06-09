@@ -1024,7 +1024,7 @@ router ospf 1
 
 <script>
 /* ── Utility helpers ── */
-function esc(s){return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');}
+function esc(s){return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/'/g,'&#39;').replace(/"/g,'&#34;');}
 function safeSetText(id,value){
   var el=document.getElementById(id);
   if(el) el.textContent=value;
@@ -3214,10 +3214,17 @@ function createNewWorkspace(event){
     return;
   }
   try{
-    localStorage.setItem('na_workspace_id',newWs);
-    localStorage.removeItem('na_current_session_id');
-  }catch(e){}
-  location.reload();
+    fetch('/api/workspaces',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({workspace_id:newWs})})
+    .then(function(r){return r.json();}).then(function(d){
+      if(d.ok){
+        localStorage.setItem('na_workspace_id',newWs);
+        localStorage.removeItem('na_current_session_id');
+        location.reload();
+      }else{
+        showToast('创建失败: '+(d.error||'unknown'));
+      }
+    }).catch(function(){showToast('网络错误');});
+  }catch(e){showToast('创建失败');}
 }
 </script>
 </body>

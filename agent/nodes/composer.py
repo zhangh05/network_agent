@@ -400,7 +400,7 @@ def _assistant_response(state: NetworkAgentState) -> str:
                 "当前正式启用的业务模块是配置翻译；拓扑、巡检、知识库、CMDB 还在规划中。")
     # Identity
     if any(kw in ui for kw in ["什么模型", "你是什么", "model", "what are you"]):
-        return _model_response()
+        return _model_response(state)
     if any(kw in ui for kw in ["你是谁", "who are you"]):
         return ("我是 Network Agent，本地网络工程 Agent 平台。\n"
                 "你可以和我正常对话；当你明确提出配置翻译需求时，我会进入配置翻译流程。")
@@ -411,7 +411,7 @@ def _assistant_response(state: NetworkAgentState) -> str:
     if any(kw in ui for kw in ["状态", "健康", "后端", "连接", "端口", "地址"]):
         return _status_response()
     if any(kw in ui for kw in ["memory", "记忆", "历史", "history", "run history"]):
-        return _memory_response()
+        return _memory_response(state)
     # Thanks / Goodbye
     if any(kw in ui for kw in ["谢谢", "thank", "bye", "再见"]):
         return "再见！如有配置翻译需求，随时可以使用 \"翻译配置\" 功能。"
@@ -446,7 +446,7 @@ def _quality_term_response(user_input: str) -> str:
     return None
 
 
-def _model_response() -> str:
+def _model_response(state: NetworkAgentState = None) -> str:
     try:
         from agent.llm.config import resolve_provider_config
         cfg = resolve_provider_config()
@@ -495,7 +495,7 @@ def _status_response() -> str:
     )
 
 
-def _memory_response() -> str:
+def _memory_response(state: NetworkAgentState = None) -> str:
     total = None
     try:
         from memory.store import get_store
