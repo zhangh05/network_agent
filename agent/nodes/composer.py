@@ -35,6 +35,8 @@ def compose(state: NetworkAgentState) -> NetworkAgentState:
             state.context.setdefault("llm", {})["used"] = True
             state.context["llm"]["provider"] = "llm_orchestrator"
             state.context["llm"]["model"] = "MiniMax-M3 (orchestrated)"
+            # Still need to populate knowledge context for result details
+            _populate_knowledge_context(state)
             return state
         _compose_knowledge_query(state)
         return state
@@ -561,6 +563,30 @@ def _select_prompt_task(state: NetworkAgentState) -> str:
 
 
 # ═══════════════════ Knowledge Query Composer ═══════════════════
+
+
+def _populate_knowledge_context(state: NetworkAgentState):
+    """Load knowledge context into state (used by both LLM-orchestrated and fallback paths)."""
+    try:
+        from context.knowledge_loader import load_knowledge_context
+        knowledge = load_knowledge_context(
+            user_input=state.user_input or "",
+            workspace_id=state.workspace_id or "default",
+            top_k=5,
+        )
+        state.skill_results = knowledge
+        state.context["knowledge_results"] = knowledge.get("results", [])
+        state.context["knowledge_results_count"] = knowledge.get("count", 0)
+        state.context["knowledge_not_found"] = knowledge.get("not_found", True)
+        state.context["knowledge_sources"] = knowledge.get("sources", [])
+        state.context["knowledge_chunks"] = knowledge.get("chunks", [])
+    except Exception:
+        state.context["knowledge_results"] = []
+        state.context["knowledge_results_count"] = 0
+        state.context["knowledge_not_found"] = True
+        state.context["knowledge_sources"] = []
+        state.context["knowledge_chunks"] = []
+
 
 def _compose_knowledge_query(state: NetworkAgentState):
     """Compose knowledge_query: search index → LLM answer with source refs."""

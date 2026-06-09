@@ -28,6 +28,25 @@ V02_FORBIDDEN_TOOLS = {
     "powershell.exec",
 }
 
+# v0.2 forbidden tool_id patterns — regex patterns that catch variants
+# e.g. shell_exec_v2, config.push_force, ssh.exec_legacy
+import re as _re
+V02_FORBIDDEN_PATTERNS = [
+    _re.compile(r"^shell[\._].*exec", _re.IGNORECASE),
+    _re.compile(r"^ssh[\._].*exec", _re.IGNORECASE),
+    _re.compile(r"^telnet[\._].*exec", _re.IGNORECASE),
+    _re.compile(r"^snmp[\._].*(walk|set|write)", _re.IGNORECASE),
+    _re.compile(r"^nmap[\._].*scan", _re.IGNORECASE),
+    _re.compile(r"^ping[\._].*sweep", _re.IGNORECASE),
+    _re.compile(r"^command\.exec$"),
+    _re.compile(r"^command[\._]exec(?!_approved)[_\w]*$", _re.IGNORECASE),
+    _re.compile(r"^device[\._].*exec", _re.IGNORECASE),
+    _re.compile(r"^config[\._].*push", _re.IGNORECASE),
+    _re.compile(r"^file[\._].*(read_any|write_any|delete_any)", _re.IGNORECASE),
+    _re.compile(r"^powershell\.exec$"),
+    _re.compile(r"^powershell[\._]exec(?!_approved)[_\w]*$", _re.IGNORECASE),
+]
+
 # v0.2 high-risk approved_exec gated tools (NOT in forbidden, but need approval+allowlist)
 V02_APPROVED_EXEC_TOOLS = {
     "command.approved_exec",
@@ -90,6 +109,15 @@ class ToolPolicy:
         if spec.tool_id in V02_FORBIDDEN_TOOLS:
             blocked.append("forbidden_tool_id")
             reason_parts.append(f"Tool '{spec.tool_id}' is forbidden in v0.2")
+        else:
+            # Check regex patterns for forbidden variants
+            for pattern in V02_FORBIDDEN_PATTERNS:
+                if pattern.search(spec.tool_id):
+                    blocked.append("forbidden_tool_id_pattern")
+                    reason_parts.append(
+                        f"Tool '{spec.tool_id}' matches forbidden pattern"
+                    )
+                    break
 
         # ── 4. Category check ──
         if spec.category and spec.category not in V02_ALLOWED_CATEGORIES:

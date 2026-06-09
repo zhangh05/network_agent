@@ -77,23 +77,97 @@ def wrap_trace_node(node_name: str, display_name: str):
 
     func = _load_func()
 
+# Node retry configuration: node_name → (max_retries, retry_delay_seconds)
+_NODE_RETRY_CONFIG = {
+    "context": (1, 0.5),     # context_loader: retry once
+    "executor": (1, 0.5),    # skill_executor: retry once
+    "composer": (2, 0.3),    # composer: retry twice (LLM may flake)
+}
+
+# Non-critical nodes that can be skipped without killing the pipeline
+_NON_CRITICAL_NODES = {"memory"}  # memory_writer failure shouldn't break the pipeline
+
+
+def _safe_execute_node(func, state: NetworkAgentState, node_name: str,
+                       display_name: str) -> tuple:
+    """Execute a node function with retry and graceful degradation.
+
+    Returns:
+        (result_state, status, error_message)
+    """
+    max_retries, retry_delay = _NODE_RETRY_CONFIG.get(node_name, (0, 0))
+    last_error = None
+
+    for attempt in range(max_retries + 1):
+        try:
+            result = func(state)
+            return result, "success", None
+        except Exception as e:
+            last_error = str(e)[:500]
+            if attempt < max_retries:
+                import time as _time
+                _time.sleep(retry_delay)
+                continue
+            break
+
+    # All retries exhausted
+    return None, "failed", last_error
+
+
+def wrap_trace_node(node_name: str, display_name: str):
+    """Create a trace-wrapped node function for LangGraph.
+
+    Returns a callable suitable for StateGraph.add_node().
+    Records node_start before execution and node_end after.
+
+    Args:
+        node_name: Internal key (e.g. "router", "context")
+        display_name: Human-readable name for trace (e.g. "router", "context_loader")
+    """
+
+    def _load_func():
+        # Lazy import to avoid circular dependency
+        mapping = {
+            "router": ("agent.nodes.intent_router", "route"),
+            "context": ("agent.nodes.context_loader", "load_context"),
+            "planner": ("agent.nodes.planner", "plan"),
+            "orchestrator": ("agent.nodes.llm_orchestrator", "orchestrate"),
+            "executor": ("agent.nodes.skill_executor", "execute"),
+            "verifier": ("agent.nodes.verifier", "verify"),
+            "composer": ("agent.nodes.composer", "compose"),
+            "memory": ("agent.nodes.memory_writer", "write_memory"),
+        }
+        mod_name, func_name = mapping[node_name]
+        import importlib
+        mod = importlib.import_module(mod_name)
+        return getattr(mod, func_name)
+
+    func = _load_func()
+
     def traced(state: NetworkAgentState) -> NetworkAgentState:
         # Record node_start
         _add_trace_event(state, "node_start", display_name, status="started",
                          summary=f"{display_name} started")
 
         start = time.time()
-        try:
-            result = func(state)
-            status = "success"
-        except Exception as e:
-            status = "failed"
+        result, status, error_msg = _safe_execute_node(func, state, node_name, display_name)
+
+        if status == "failed":
             if not state.error:
-                state.error = str(e)
+                state.error = error_msg
             _add_trace_event(state, "error", display_name, status="failed",
-                             metadata={"error": str(e)[:200]})
-            # Re-raise so LangGraph can handle it
-            raise
+                             metadata={"error": (error_msg or "")[:200]})
+
+            # Non-critical nodes: log warning but don't break the pipeline
+            if node_name in _NON_CRITICAL_NODES:
+                state.warnings.append(f"{display_name} failed (non-critical, skipped): {(error_msg or '')[:100]}")
+                _add_trace_event(state, "node_end", display_name, status="skipped",
+                                 duration_ms=round((time.time() - start) * 1000, 2),
+                                 summary=f"{display_name}: skipped (non-critical)")
+                return state
+
+            # Critical nodes: re-raise so LangGraph can handle it
+            raise Exception(error_msg)
 
         duration = round((time.time() - start) * 1000, 2)
         state.node_timings[display_name] = duration
@@ -182,14 +256,28 @@ def _run_timed_node(state: NetworkAgentState, node_name: str, display_name: str)
     func = getattr(mod, func_name)
 
     try:
-        state = func(state)
-        status = "success"
+        result_state, status, error_msg = _safe_execute_node(func, state, node_name, display_name)
+        if result_state is not None:
+            state = result_state
+        else:
+            status = "failed"
+            if not state.error:
+                state.error = error_msg
+            _add_trace_event(state, "error", display_name, status="failed",
+                             metadata={"error": (error_msg or "")[:200]})
+
+            # Non-critical nodes: skip and continue
+            if node_name in _NON_CRITICAL_NODES:
+                state.warnings.append(f"{display_name} failed (non-critical, skipped)")
+                status = "skipped"
+            else:
+                # Critical node failure in fallback: set error but try to continue
+                state.warnings.append(f"{display_name} failed: {(error_msg or '')[:100]}")
     except Exception as e:
+        # Should not happen since _safe_execute_node handles exceptions,
+        # but just in case, record it
         status = "failed"
-        if not state.error:
-            state.error = str(e)
-        _add_trace_event(state, "error", display_name, status="failed",
-                         metadata={"error": str(e)[:200]})
+        state.warnings.append(f"{display_name} unexpected error: {str(e)[:100]}")
 
     duration = round((time.time() - start) * 1000, 2)
     state.node_timings[display_name] = duration

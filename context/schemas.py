@@ -50,8 +50,50 @@ class ContextBudget:
     used_chars: int = 0
     truncated: bool = False
     truncation_reason: str = ""
+    model_context_window: int = 0   # 0 = use default max_chars; >0 = model's window in chars
+    dedup_enabled: bool = True       # Enable semantic dedup
 
     def as_dict(self): return self.__dict__.copy()
+
+
+# Model context window sizes (approximate, in chars — roughly 4 chars per token)
+MODEL_CONTEXT_WINDOWS = {
+    "minimax-m3": 245_000,
+    "minimax-m1": 245_000,
+    "gpt-4o": 100_000,
+    "gpt-4-turbo": 100_000,
+    "gpt-3.5-turbo": 12_000,
+    "claude-3.5-sonnet": 140_000,
+    "claude-3-opus": 140_000,
+    "deepseek-chat": 100_000,
+    "deepseek-v3": 100_000,
+    "qwen-max": 24_000,
+    "glm-4": 100_000,
+}
+
+
+def resolve_budget_for_model(model: str = "") -> ContextBudget:
+    """Create a ContextBudget adjusted for the active LLM model's context window.
+
+    Strategy:
+      - Use 25% of the model's context window as the context budget.
+      - Floor at 8000 chars, cap at 80_000 chars.
+      - If model unknown, use the default 12000 chars.
+    """
+    model_lower = model.lower().strip()
+    window = 0
+    for key, size in MODEL_CONTEXT_WINDOWS.items():
+        if key in model_lower:
+            window = size
+            break
+
+    if window > 0:
+        # 25% of window for context, with sensible bounds
+        budget_chars = max(8000, min(80_000, window // 4))
+    else:
+        budget_chars = 12_000  # safe default
+
+    return ContextBudget(max_chars=budget_chars, model_context_window=window)
 
 
 @dataclass

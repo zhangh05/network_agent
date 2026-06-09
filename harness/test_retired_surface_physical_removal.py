@@ -60,31 +60,33 @@ class TestRetiredSurfacesDoc:
 
 class TestPathBoundary:
     def test_archive_no_startswith_path_boundary(self):
-        c = (PROJECT_ROOT / "runtime" / "archive.py").read_text()
-        # Find the _is_safe_path function
-        func_start = c.find("def _is_safe_path")
-        func_text = c[func_start:func_start + 500] if func_start >= 0 else c
+        # is_safe_path now lives in runtime/lifecycle_base.py
+        c = (PROJECT_ROOT / "runtime" / "lifecycle_base.py").read_text()
         # Must use relative_to
-        assert "relative_to" in func_text
+        assert "relative_to" in c
+        # archive.py should import is_safe_path from lifecycle_base
+        c2 = (PROJECT_ROOT / "runtime" / "archive.py").read_text()
+        assert "is_safe_path" in c2
         # Must NOT use startswith for path checking
-        assert "startswith(str(ws_resolved))" not in func_text
+        assert "startswith(str(ws_resolved))" not in c2
 
     def test_retention_no_startswith_path_boundary(self):
-        c = (PROJECT_ROOT / "runtime" / "retention.py").read_text()
-        func_start = c.find("def _is_safe_path")
-        func_text = c[func_start:func_start + 500] if func_start >= 0 else c
-        assert "relative_to" in func_text
-        assert "startswith(str(ws_resolved))" not in func_text
+        # is_safe_path now lives in runtime/lifecycle_base.py
+        c = (PROJECT_ROOT / "runtime" / "lifecycle_base.py").read_text()
+        assert "relative_to" in c
+        c2 = (PROJECT_ROOT / "runtime" / "retention.py").read_text()
+        assert "is_safe_path" in c2
+        assert "startswith(str(ws_resolved))" not in c2
 
     def test_default2_not_pass_default(self):
-        from runtime.archive import _is_safe_path
+        from runtime.lifecycle_base import is_safe_path
         ws = PROJECT_ROOT / "workspaces" / "default"
         ws2 = PROJECT_ROOT / "workspaces" / "default2"
         if ws.exists():
             if ws2.exists() and ws2.is_dir():
                 test_file = ws2 / "test.txt"
                 test_file.write_text("test")
-                result = _is_safe_path(test_file, ws)
+                result = is_safe_path(test_file, ws)
                 test_file.unlink()
                 assert result is False
 
@@ -92,7 +94,7 @@ class TestPathBoundary:
         import warnings
         c = (PROJECT_ROOT / "runtime" / "archive.py").read_text()
         # apply_archive should call _is_safe_path before moving
-        assert "_is_safe_path" in c
+        assert "is_safe_path" in c
 
 
 class TestRedaction:

@@ -65,33 +65,39 @@ class TestReadmeBaseline:
 
 class TestPathBoundary:
     def test_archive_uses_relative_to(self):
+        # is_safe_path now lives in runtime/lifecycle_base.py
+        with open("runtime/lifecycle_base.py") as f:
+            c = f.read()
+        assert "relative_to" in c
         with open("runtime/archive.py") as f:
             c = f.read()
-        assert "relative_to" in c
-        assert "str(" not in c or "startswith" not in c or "NOT string startswith" in c
+        assert "is_safe_path" in c  # imports from lifecycle_base
 
     def test_retention_uses_relative_to(self):
-        with open("runtime/retention.py") as f:
+        with open("runtime/lifecycle_base.py") as f:
             c = f.read()
         assert "relative_to" in c
+        with open("runtime/retention.py") as f:
+            c = f.read()
+        assert "is_safe_path" in c  # imports from lifecycle_base
 
     def test_default2_not_pass_default(self):
-        from runtime.archive import _is_safe_path
+        from runtime.lifecycle_base import is_safe_path
         ws = PROJECT_PATH / "workspaces" / "default"
         ws2 = PROJECT_PATH / "workspaces" / "default2"
         if ws.exists():
             if ws2.exists() and ws2.is_dir():
                 test_file = ws2 / "test.txt"
                 test_file.write_text("test")
-                assert _is_safe_path(test_file, ws) is False
+                assert is_safe_path(test_file, ws) is False
                 test_file.unlink()
 
     def test_path_traversal_blocked(self):
-        from runtime.archive import _is_safe_path
+        from runtime.lifecycle_base import is_safe_path
         ws = PROJECT_PATH / "workspaces" / "default"
         if ws.exists():
             traversal = PROJECT_PATH / "workspaces" / "default" / ".." / ".." / "etc"
-            assert _is_safe_path(traversal.resolve(), ws) is False
+            assert is_safe_path(traversal.resolve(), ws) is False
 
 
 class TestRedaction:

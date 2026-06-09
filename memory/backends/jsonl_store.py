@@ -198,6 +198,95 @@ class JSONLMemoryStore:
             total += 1
         return total
 
+    def cleanup_expired(self, dry_run: bool = True) -> dict:
+        """Remove expired memory records (expires_at < now).
+
+        Args:
+            dry_run: If True, only preview what would be cleaned up.
+
+        Returns:
+            Dict with 'removed_count', 'kept_count', 'removed_ids' (dry_run only).
+        """
+        now = datetime.now(timezone.utc)
+        deleted = self._get_deleted_ids()
+        expired_ids = []
+        kept = 0
+
+        for record in self._iter_all():
+            if record.memory_id in deleted:
+                continue
+            if record.expires_at:
+                try:
+                    exp = datetime.fromisoformat(record.expires_at)
+                    if exp.tzinfo is None:
+                        exp = exp.replace(tzinfo=timezone.utc)
+                    if exp < now:
+                        expired_ids.append(record.memory_id)
+                        continue
+                except (ValueError, TypeError):
+                    pass  # Malformed expires_at — keep the record
+            kept += 1
+
+        result = {
+            "removed_count": len(expired_ids),
+            "kept_count": kept,
+            "dry_run": dry_run,
+        }
+
+        if dry_run:
+            result["removed_ids"] = expired_ids[:50]
+            return result
+
+        # Actually tombstone the expired records
+        deleted.update(expired_ids)
+        self._save_deleted_ids(deleted)
+        result["removed_ids"] = expired_ids[:50]
+        return result
+
+    def compact(self) -> dict:
+        """Rewrite the JSONL file, removing deleted and expired records.
+
+        This is a maintenance operation — the file grows append-only,
+        so periodic compaction reclaims disk space.
+
+        Returns:
+            Dict with 'before_count', 'after_count', 'removed_count'.
+        """
+        deleted = self._get_deleted_ids()
+        now = datetime.now(timezone.utc)
+
+        active = []
+        before = 0
+        for record in self._iter_all():
+            before += 1
+            if record.memory_id in deleted:
+                continue
+            # Also drop expired records during compaction
+            if record.expires_at:
+                try:
+                    exp = datetime.fromisoformat(record.expires_at)
+                    if exp.tzinfo is None:
+                        exp = exp.replace(tzinfo=timezone.utc)
+                    if exp < now:
+                        continue
+                except (ValueError, TypeError):
+                    pass
+            active.append(record)
+
+        # Rewrite the file
+        with open(self._path, "w", encoding="utf-8") as f:
+            for record in active:
+                f.write(json.dumps(record.as_dict(), ensure_ascii=False) + "\n")
+
+        # Clear tombstones since we already removed them physically
+        self._save_deleted_ids(set())
+
+        return {
+            "before_count": before,
+            "after_count": len(active),
+            "removed_count": before - len(active),
+        }
+
     def _iter_all(self):
         """Iterate all records from JSONL file."""
         if not self._path.exists():

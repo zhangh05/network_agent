@@ -21,6 +21,7 @@ from flask import Flask, send_from_directory, jsonify, request
 from backend.api.version import get_version
 from backend.api.modules_translate import handle_module_translate
 from backend.api.agent import handle_agent_run, handle_agent_status
+from backend.api.sse import handle_agent_run_sse
 from backend.api.llm_api import handle_llm_status, handle_llm_test, handle_llm_config_get, handle_llm_config_post, handle_llm_config_delete
 from backend.api.skills import handle_skills, get_skill_count
 from backend.api.modules import handle_modules, handle_module_status, handle_registry_status, handle_capabilities
@@ -41,6 +42,7 @@ from backend.api.workspace_routes import register_workspace_routes
 from backend.api.knowledge_routes import register_knowledge_routes
 from backend.core.settings import UNIFIED_PORT, API_MODE, BUILD_COMMIT, TRANSLATOR_ENTRY
 from backend.core.paths import FRONTEND_DIR
+from backend.core.rate_limit import rate_limit_middleware
 from workspace.ids import validate_workspace_id
 
 
@@ -58,6 +60,9 @@ def _validated_workspace_id(raw="default"):
 def create_app():
     app = Flask(__name__, static_folder=None)
     app.config["PORT"] = UNIFIED_PORT
+
+    # ── Rate limiting (before all routes) ──
+    rate_limit_middleware(app)
 
     # ── Health ──
     @app.route("/api/health")
@@ -81,6 +86,9 @@ def create_app():
     # ── Agent Run ──
     @app.route("/api/agent/run", methods=["POST"])
     def api_agent_run():
+        data = request.get_json(silent=True) or {}
+        if data.get("stream"):
+            return handle_agent_run_sse()
         return handle_agent_run()
 
     @app.route("/api/agent/status")

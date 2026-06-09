@@ -14,8 +14,10 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Optional
 
-ROOT = Path(__file__).resolve().parent.parent
-WS_ROOT = ROOT / "workspaces"
+from runtime.lifecycle_base import (
+    WS_ROOT, is_safe_path, get_active_refs, scan_directory, write_audit,
+)
+
 
 # Default policy (all in days or counts)
 DEFAULT_POLICY = {
@@ -79,37 +81,6 @@ def default_retention_policy() -> RetentionPolicy:
     return RetentionPolicy()
 
 
-def _is_safe_path(path: Path, ws_dir: Path) -> bool:
-    """Verify path is within workspace — uses relative_to(), NOT string startswith."""
-    try:
-        resolved = path.resolve()
-        ws_resolved = ws_dir.resolve()
-        resolved.relative_to(ws_resolved)
-        return True
-    except (ValueError, OSError):
-        return False
-
-
-def _get_active_artifact_ids(ws_dir: Path) -> set:
-    """Get artifact IDs referenced by recent runs — these are protected."""
-    active = set()
-    runs_dir = ws_dir / "runs"
-    if runs_dir.is_dir():
-        for rf in runs_dir.iterdir():
-            if rf.suffix != ".json":
-                continue
-            try:
-                record = json.loads(rf.read_text())
-                art_refs = record.get("artifact_refs", [])
-                if isinstance(art_refs, list):
-                    for ref in art_refs:
-                        aid = ref.get("artifact_id", ref) if isinstance(ref, dict) else str(ref)
-                        active.add(aid)
-            except Exception:
-                pass
-    return active
-
-
 def preview_retention(workspace_id: str = "default",
                       policy: RetentionPolicy = None) -> RetentionPreview:
     """Preview what would be pruned. NEVER deletes. Always safe."""
@@ -125,66 +96,45 @@ def preview_retention(workspace_id: str = "default",
         preview.warnings.append(f"Workspace '{workspace_id}' not found")
         return preview
 
-    active_artifacts = _get_active_artifact_ids(ws_dir)
-    now = time.time()
+    active_artifacts = get_active_refs(ws_dir)
     candidates = []
     blocked = []
 
-    # Scan runs
-    runs_dir = ws_dir / "runs"
-    if runs_dir.is_dir():
-        run_files = sorted(runs_dir.iterdir(), key=lambda p: p.stat().st_mtime)
-        expired = []
-        for rf in run_files:
-            if not _is_safe_path(rf, ws_dir):
-                blocked.append({"path": rf.name, "reason": "path_not_in_workspace"})
-                continue
-            age_days = (now - rf.stat().st_mtime) / 86400
-            if age_days > policy.runs_max_age_days:
-                expired.append(rf.name)
-
-        # Keep last runs_max_count, prune the rest
-        if len(run_files) > policy.runs_max_count:
-            to_prune = run_files[:-policy.runs_max_count]
-            for rf in to_prune:
-                if rf not in [Path(runs_dir) / e for e in expired]:
-                    expired.append(rf.name)
-
-        for name in expired:
-            candidates.append({"type": "run", "name": name})
-
+    # ── Scan runs (shared utility) ──
+    runs_result = scan_directory(ws_dir, "runs",
+                                 max_age_days=policy.runs_max_age_days,
+                                 max_count=policy.runs_max_count,
+                                 active_refs=active_artifacts)
+    for name in runs_result["candidates"]:
+        candidates.append({"type": "run", "name": name})
+    blocked.extend(runs_result["blocked"])
     preview.candidate_counts["runs"] = len([c for c in candidates if c["type"] == "run"])
 
-    # Scan traces
-    trace_dir = ws_dir / "traces"
-    if trace_dir.is_dir():
-        trace_files = sorted(trace_dir.iterdir(), key=lambda p: p.stat().st_mtime)
-        for tf in trace_files:
-            if not _is_safe_path(tf, ws_dir):
-                blocked.append({"path": tf.name, "reason": "path_not_in_workspace"})
-                continue
-            age_days = (now - tf.stat().st_mtime) / 86400
-            if age_days > policy.traces_max_age_days:
-                candidates.append({"type": "trace", "name": tf.name})
+    # ── Scan traces (shared utility) ──
+    traces_result = scan_directory(ws_dir, "traces",
+                                   max_age_days=policy.traces_max_age_days,
+                                   max_count=policy.traces_max_count,
+                                   active_refs=active_artifacts)
+    for name in traces_result["candidates"]:
+        candidates.append({"type": "trace", "name": name})
+    blocked.extend(traces_result["blocked"])
     preview.candidate_counts["traces"] = len([c for c in candidates if c["type"] == "trace"])
 
-    # Scan jobs
-    jobs_dir = ws_dir / "jobs"
-    if jobs_dir.is_dir():
-        for jf in jobs_dir.iterdir():
-            if not _is_safe_path(jf, ws_dir):
-                blocked.append({"path": jf.name, "reason": "path_not_in_workspace"})
-                continue
-            age_days = (now - jf.stat().st_mtime) / 86400
-            if age_days > policy.jobs_max_age_days:
-                candidates.append({"type": "job", "name": jf.name})
+    # ── Scan jobs (shared utility) ──
+    jobs_result = scan_directory(ws_dir, "jobs",
+                                 max_age_days=policy.jobs_max_age_days,
+                                 active_refs=active_artifacts)
+    for name in jobs_result["candidates"]:
+        candidates.append({"type": "job", "name": name})
+    blocked.extend(jobs_result["blocked"])
     preview.candidate_counts["jobs"] = len([c for c in candidates if c["type"] == "job"])
 
-    # Scan artifacts (only temp lifecycle, not active)
+    # ── Scan artifacts (only temp lifecycle, not active) ──
+    now = time.time()
     art_dir = ws_dir / "artifacts"
     if art_dir.is_dir():
         for af in art_dir.iterdir():
-            if not _is_safe_path(af, ws_dir):
+            if not is_safe_path(af, ws_dir):
                 blocked.append({"path": af.name, "reason": "path_not_in_workspace"})
                 continue
             age_days = (now - af.stat().st_mtime) / 86400
@@ -206,6 +156,18 @@ def preview_retention(workspace_id: str = "default",
             if age_days > policy.artifacts_temp_max_age_days:
                 candidates.append({"type": "artifact", "name": af.name})
     preview.candidate_counts["artifacts"] = len([c for c in candidates if c["type"] == "artifact"])
+
+    # ── Scan expired memories ──
+    try:
+        from memory.store import get_store
+        store = get_store()
+        mem_preview = store.cleanup_expired(dry_run=True)
+        expired_count = mem_preview.get("removed_count", 0)
+        if expired_count > 0:
+            candidates.append({"type": "memory_expired", "name": f"{expired_count}_expired_memories", "count": expired_count})
+    except Exception:
+        pass  # Memory store not available — skip
+    preview.candidate_counts["memories"] = len([c for c in candidates if c["type"] == "memory_expired"])
 
     preview.candidates = candidates
     preview.blocked_items = blocked
@@ -236,12 +198,22 @@ def apply_retention(workspace_id: str = "default",
 
     # Actually delete
     ws_dir = WS_ROOT / workspace_id
-    deleted = {"runs": 0, "traces": 0, "jobs": 0, "artifacts": 0}
+    deleted = {"runs": 0, "traces": 0, "jobs": 0, "artifacts": 0, "memories": 0}
 
     for candidate in preview.candidates:
         path = None
         ctype = candidate["type"]
         name = candidate["name"]
+        if ctype == "memory_expired":
+            # Handle memory expiration via store API
+            try:
+                from memory.store import get_store
+                store = get_store()
+                mem_result = store.cleanup_expired(dry_run=False)
+                deleted["memories"] = mem_result.get("removed_count", 0)
+            except Exception as e:
+                preview.warnings.append(f"Failed to cleanup expired memories: {str(e)[:100]}")
+            continue
         try:
             if ctype == "run":
                 path = ws_dir / "runs" / name
@@ -251,40 +223,26 @@ def apply_retention(workspace_id: str = "default",
                 path = ws_dir / "jobs" / name
             elif ctype == "artifact":
                 path = ws_dir / "artifacts" / name
-            if path and path.exists() and _is_safe_path(path, ws_dir):
+            if path and path.exists() and is_safe_path(path, ws_dir):
                 path.unlink()
                 deleted[ctype] = deleted.get(ctype, 0) + 1
         except Exception as e:
             preview.warnings.append(f"Failed to delete {name}: {str(e)[:100]}")
 
     preview.deleted_counts = deleted
-    # Write audit record
-    _write_audit(preview, workspace_id)
-    return preview
-
-
-def _write_audit(preview: RetentionPreview, workspace_id: str):
-    """Write a retention audit record."""
-    import uuid
-    audit_dir = WS_ROOT / workspace_id / "runtime_audits"
-    audit_dir.mkdir(parents=True, exist_ok=True)
-    audit_id = uuid.uuid4().hex[:12]
-    record = {
-        "audit_id": audit_id,
-        "created_at": __import__("datetime").datetime.now().isoformat(),
-        "workspace_id": workspace_id,
-        "dry_run": preview.dry_run,
-        "confirmed": not preview.dry_run,
-        "policy": preview.policy,
-        "candidate_counts": preview.candidate_counts,
-        "deleted_counts": preview.deleted_counts,
-        "blocked_count": len(preview.blocked_items),
-        "blocked_reasons": [b.get("reason", "") for b in preview.blocked_items[:20]],
-        "warnings": preview.warnings[:20],
-    }
-    (audit_dir / f"{audit_id}.json").write_text(
-        __import__("json").dumps(record, indent=2, ensure_ascii=False)
+    # Write audit record (shared utility)
+    write_audit(
+        audit_dir=ws_dir / "runtime_audits",
+        record_type="retention",
+        workspace_id=workspace_id,
+        dry_run=False,
+        policy=preview.policy,
+        candidate_counts=preview.candidate_counts,
+        result_counts=deleted,
+        warnings=preview.warnings,
+        blocked_count=len(preview.blocked_items),
     )
+    return preview
 
 
 def get_audits(workspace_id: str = "default") -> list:
@@ -294,7 +252,7 @@ def get_audits(workspace_id: str = "default") -> list:
         return []
     audits = []
     for af in sorted(audit_dir.iterdir(), key=lambda p: p.stat().st_mtime, reverse=True):
-        if af.suffix == ".json":
+        if af.suffix == ".json" and not af.name.startswith("archive_"):
             try:
                 audits.append(json.loads(af.read_text()))
             except Exception:

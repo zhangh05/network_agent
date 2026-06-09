@@ -25,14 +25,19 @@ def orchestrate(state: NetworkAgentState) -> NetworkAgentState:
     ws_id = state.workspace_id or "default"
     user_input = state.user_input or ""
 
-    # 1. Get LLM config
+    # 1. If LLM is disabled, handle ALL queries deterministically
     from agent.llm.config import resolve_provider_config
     cfg = resolve_provider_config()
     if not cfg.get("enabled") or cfg.get("provider_type") == "disabled":
-        state.tool_results = {"ok": True, "answer": "LLM is disabled. Cannot orchestrate tools.",
-                              "mode": "llm_disabled"}
-        state.skill_results = state.tool_results
+        _handle_llm_disabled(state, ws_id)
         return state
+
+    # 2. If LLM is enabled but intent is assistant_chat, skip LLM orchestration
+    if state.intent == "assistant_chat":
+        state.context.setdefault("llm", {})["used"] = False
+        return state
+
+    # 3. Normal LLM orchestration flow
 
     # 2. Build tool definitions
     from agent.llm.tool_adapter import list_tools_for_orchestrator, build_system_prompt_with_tools
@@ -214,6 +219,139 @@ def _build_partial_answer(tool_results: list, error: str) -> str:
     return msg
 
 
+def _handle_llm_disabled(state: NetworkAgentState, workspace_id: str):
+    """Handle tool-related queries when LLM is disabled.
+
+    Deterministic logic to:
+    1. Answer tool capability questions (tool count, catalog)
+    2. Execute low-risk tool calls directly
+    3. Block high-risk tool calls
+    """
+    user_input = (state.user_input or "").lower().strip()
+
+    # ── 1. Tool capability questions ──
+    _TOOL_QUERY_KEYWORDS = [
+        "多少tool", "多少 tool", "工具数量", "tool 数量",
+        "tool count", "how many tool", "tool catalog",
+        "工具目录", "有哪些tool", "有哪些 tool",
+        "你能做什么", "你能调用", "能力",
+    ]
+    if any(kw in user_input for kw in _TOOL_QUERY_KEYWORDS):
+        try:
+            from tool_runtime.integration import get_default_tool_runtime_client
+            client = get_default_tool_runtime_client()
+            tools = client.list_tools()
+            count = client.tool_count
+            # Build catalog dict matching what tests expect
+            by_risk = {}
+            by_category = {}
+            auto_callable = 0
+            for t in tools:
+                risk = t.get("risk_level", "unknown")
+                by_risk[risk] = by_risk.get(risk, 0) + 1
+                cat = t.get("category", "unknown")
+                by_category[cat] = by_category.get(cat, 0) + 1
+                if risk == "low":
+                    auto_callable += 1
+            catalog = {
+                "count": count,
+                "auto_callable_count": auto_callable,
+                "by_risk": by_risk,
+                "by_category": by_category,
+                "tools": tools[:20],
+            }
+            state.skill_results = {
+                "ok": True,
+                "mode": "tool_catalog",
+                "tool_catalog": catalog,
+            }
+            state.tool_results = state.skill_results
+            return
+        except Exception as e:
+            state.warnings.append(f"tool_catalog failed: {str(e)[:100]}")
+            # fall through to general response
+
+    # ── 2. Tool invocation requests ──
+    _INVOKE_PATTERNS = [
+        r"调用\s+(\S+)", r"invoke\s+(\S+)", r"执行\s+(\S+)",
+        r"run\s+(\S+)", r"call\s+(\S+)", r"帮我调用\s+(\S+)",
+    ]
+    import re as _re
+    tool_id = None
+    for pattern in _INVOKE_PATTERNS:
+        m = _re.search(pattern, user_input, _re.IGNORECASE)
+        if m:
+            tool_id = m.group(1).strip()
+            break
+
+    if tool_id:
+        try:
+            from tool_runtime.integration import get_default_tool_runtime_client
+            from tool_runtime.schemas import ToolInvocation
+
+            client = get_default_tool_runtime_client()
+            tool_spec = client.get_tool(tool_id)
+
+            if tool_spec and tool_spec.get("risk_level") in ("high", "forbidden"):
+                state.tool_results = {
+                    "ok": False,
+                    "mode": "tool_runtime_blocked",
+                    "tool_id": tool_id,
+                    "reason": "approval_required",
+                    "risk_level": tool_spec.get("risk_level"),
+                }
+                state.skill_results = state.tool_results
+                return
+
+            # Low/medium risk: execute
+            invocation = ToolInvocation(
+                tool_id=tool_id,
+                arguments={},
+                workspace_id=workspace_id,
+                requested_by="deterministic:llm_disabled",
+            )
+            result = client._executor.execute(invocation)
+            state.tool_results = {
+                "ok": result.status in ("succeeded", "dry_run"),
+                "mode": "tool_runtime",
+                "tool_id": tool_id,
+                "status": result.status,
+                "summary": result.summary,
+                "output": _safe_dict(result.output) if hasattr(result, "output") else {},
+                "errors": result.errors[:5] if hasattr(result, "errors") else [],
+                "warnings": result.warnings[:5] if hasattr(result, "warnings") else [],
+                "duration_ms": result.duration_ms if hasattr(result, "duration_ms") else 0,
+            }
+            state.skill_results = state.tool_results
+            state.context.setdefault("tool_invocations", []).append({
+                "tool_id": tool_id,
+                "status": result.status,
+                "summary": (result.summary or "")[:200],
+            })
+            return
+
+        except Exception as e:
+            state.tool_results = {
+                "ok": False,
+                "mode": "tool_runtime",
+                "tool_id": tool_id,
+                "status": "failed",
+                "error": str(e)[:200],
+            }
+            state.skill_results = state.tool_results
+            return
+
+    # ── 3. General chat: mark LLM as disabled ──
+    state.context.setdefault("llm", {})["enabled"] = False
+    state.context["llm"]["provider_type"] = "disabled"
+    # Set deterministic response for composer
+    state.tool_results = {
+        "ok": True,
+        "mode": "assistant_chat",
+        "answer": "LLM is disabled. I can still help with tool calls and deterministic tasks."
+    }
+    state.skill_results = state.tool_results
+
 def _safe_dict(d: dict) -> dict:
     """Return a sanitized shallow copy."""
     if not d:
@@ -225,3 +363,5 @@ def _safe_dict(d: dict) -> dict:
         else:
             result[k] = v
     return result
+
+
