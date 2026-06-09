@@ -38,12 +38,26 @@ def orchestrate(state: NetworkAgentState) -> NetworkAgentState:
     from agent.llm.tool_adapter import list_tools_for_orchestrator, build_system_prompt_with_tools
     tools = list_tools_for_orchestrator()
 
-    # 3. Build messages
+    # 3. Build messages with session history
     system_prompt = build_system_prompt_with_tools(ws_id)
-    messages = [
-        LLMMessage(role="system", content=system_prompt),
-        LLMMessage(role="user", content=user_input),
-    ]
+    messages = [LLMMessage(role="system", content=system_prompt)]
+
+    # Load recent conversation history if session exists
+    session_id = getattr(state, 'session_id', None)
+    if session_id:
+        try:
+            from workspace.session_store import get_session_messages
+            history = get_session_messages(session_id, ws_id)
+            recent = history[-8:]  # Last 4 turns (8 messages) max
+            for m in recent:
+                role = m.get("role", "user")
+                content = (m.get("content") or "")[:1000]
+                if role in ("user", "assistant"):
+                    messages.append(LLMMessage(role=role, content=content))
+        except Exception:
+            pass
+
+    messages.append(LLMMessage(role="user", content=user_input))
 
     # 4. Build initial request
     req = LLMRequest(
