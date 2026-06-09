@@ -172,6 +172,14 @@
   .btn-warn{background:var(--warn);color:#fff}
   .btn-warn:hover{background:#ca8a04}
 
+  /* ── Tool Catalog ── */
+  .tool-search-wrap{position:relative;display:flex;align-items:center;flex:1;min-width:160px}
+  .tool-search-wrap input{width:100%;padding:8px 12px 8px 34px;border:1px solid var(--n7);border-radius:8px;font-size:13px;background:var(--card);outline:none;transition:border-color .2s,box-shadow .2s}
+  .tool-search-wrap input:focus{border-color:var(--pri);box-shadow:0 0 0 3px rgba(37,99,235,.08)}
+  .tool-search-wrap::before{content:"";position:absolute;left:11px;width:14px;height:14px;background:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='14' height='14' fill='none' stroke='%2394a3b8' stroke-width='2'%3E%3Ccircle cx='5.5' cy='5.5' r='4'/%3E%3Cpath d='M10 10l3 3'/%3E%3C/svg%3E") no-repeat center/14px}
+  .tool-sel{padding:8px 26px 8px 10px;border:1px solid var(--n7);border-radius:8px;font-size:12px;background:var(--card);cursor:pointer;appearance:none;background-image:url("data:image/svg+xml,%3Csvg width='10' height='6' xmlns='http://www.w3.org/2000/svg'%3E%3Cpath d='M1 1l4 4 4-4' stroke='%2364748b' fill='none' stroke-width='1.5'/%3E%3C/svg%3E");background-repeat:no-repeat;background-position:right 10px center;outline:none;transition:border-color .2s,color .2s}
+  .tool-sel:focus{border-color:var(--pri)}
+
   /* ── Tool Catalog Tabs ── */
   .toolstab{padding:7px 16px;border:0;border-radius:6px 6px 0 0;background:transparent;color:var(--n5);font-size:13px;cursor:pointer;font-weight:500;border-bottom:2px solid transparent;transition:all .15s}
   .toolstab:hover{color:var(--n2);background:rgba(37,99,235,.04)}
@@ -195,11 +203,30 @@
   .invoke-field input:focus,.invoke-field textarea:focus{border-color:var(--pri)}
   .invoke-field textarea{resize:vertical;min-height:60px}
 
-  /* ── Tool card hover ── */
-  .tool-card{cursor:pointer;transition:border-color .15s,box-shadow .15s}
-  .tool-card:hover{border-color:var(--pri)!important;box-shadow:0 2px 8px rgba(37,99,235,.08)}
+  /* ── Tool cards ── */
+  .tool-card{cursor:pointer;transition:transform .12s,border-color .15s,box-shadow .15s;background:var(--card);border:1px solid var(--n4);border-radius:8px;padding:12px 14px;position:relative;overflow:hidden}
+  .tool-card:hover{border-color:var(--pri);box-shadow:0 2px 12px rgba(37,99,235,.1);transform:translateY(-1px)}
   .tool-card.forbidden{cursor:not-allowed;opacity:.45}
-  .tool-card.forbidden:hover{border-color:var(--n8)!important;box-shadow:none}
+  .tool-card.forbidden:hover{border-color:var(--n4);box-shadow:none;transform:none}
+  .tool-card .tc-name{font-size:13px;font-weight:600;color:var(--n2);font-family:var(--mono);letter-spacing:-.01em}
+  .tool-card .tc-desc{font-size:11.5px;color:var(--n6);line-height:1.5;margin-top:5px;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
+  .tool-card .tc-tags{display:flex;gap:5px;flex-wrap:wrap;margin-top:9px;align-items:center}
+  .tool-card .tc-tag{display:inline-flex;align-items:center;padding:1px 7px;border-radius:4px;font-size:10.5px;font-weight:500;line-height:1.5}
+  .tool-card .tc-tag.gn{background:#ecfdf5;color:#047857}
+  .tool-card .tc-tag.rd{background:#fef2f2;color:#b91c1c}
+  .tool-card .tc-tag.ye{background:#fefce8;color:#a16207}
+  .tool-card .tc-tag.bl{background:#eff6ff;color:#1d4ed8}
+  .tool-card .tc-tag.gy{background:var(--n10);color:var(--n5)}
+  .tool-card .tc-tag.risk-low{background:#ecfdf5;color:#047857}
+  .tool-card .tc-tag.risk-med{background:#fefce8;color:#a16207}
+  .tool-card .tc-tag.risk-high{background:#fef2f2;color:#b91c1c}
+  .tool-card .tc-tag.risk-block{background:var(--n9);color:var(--n5)}
+  .tool-card .tc-risk{position:absolute;top:10px;right:10px}
+
+  /* ── Tool category header ── */
+  .tc-cat-header{grid-column:1/-1;margin-top:4px;padding-bottom:6px;border-bottom:1px solid var(--n8);display:flex;align-items:center;gap:8px}
+  .tc-cat-name{font-size:14px;font-weight:700;color:var(--n2);letter-spacing:.3px;text-transform:capitalize}
+  .tc-cat-count{font-size:11px;color:var(--n5);font-weight:500;background:var(--n10);padding:1px 8px;border-radius:12px}
 
   /* ── Translate page ── */
   .tr-header{display:flex;align-items:center;gap:12px;padding:14px 18px;background:var(--card);border:1px solid var(--n8);border-radius:10px;margin-bottom:14px}
@@ -751,26 +778,28 @@ router ospf 1
           </div>
           <!-- Catalog Panel -->
           <div class="tool-panel active" id="tp-catalog">
-            <div style="padding:12px;display:flex;gap:8px;align-items:center;flex-wrap:wrap">
-              <input type="text" id="tool-search" placeholder="搜索工具名称或描述..." oninput="filterToolCards()" style="flex:1;min-width:160px;padding:7px 10px;border:1px solid var(--n7);border-radius:6px;font-size:13px;background:var(--card);outline:none">
-              <select id="tool-risk-filter" onchange="filterToolCards()" style="padding:7px 10px;border:1px solid var(--n7);border-radius:6px;font-size:12px;background:var(--card);cursor:pointer">
+            <div style="padding:14px 16px;display:flex;gap:10px;align-items:center;flex-wrap:wrap;background:var(--card);border-bottom:1px solid var(--n8)">
+              <div class="tool-search-wrap">
+                <input type="text" id="tool-search" placeholder="搜索工具名称或描述..." oninput="filterToolCards()">
+              </div>
+              <select id="tool-risk-filter" onchange="filterToolCards()" class="tool-sel">
                 <option value="all">全部风险等级</option>
                 <option value="low">Low</option>
                 <option value="medium">Medium</option>
                 <option value="high">High</option>
                 <option value="forbidden">Forbidden</option>
               </select>
-              <select id="tool-cat-filter" onchange="filterToolCards()" style="padding:7px 10px;border:1px solid var(--n7);border-radius:6px;font-size:12px;background:var(--card);cursor:pointer">
+              <select id="tool-cat-filter" onchange="filterToolCards()" class="tool-sel">
                 <option value="all">全部分类</option>
               </select>
             </div>
-            <div id="tool-catalog-status" style="font-size:12px;color:var(--n5);padding:0 12px;margin-bottom:8px">加载中…</div>
-            <div id="tool-catalog-grid" style="display:grid;grid-template-columns:repeat(auto-fill,minmax(280px,1fr));gap:8px;padding:0 12px 12px;font-size:12px"></div>
+            <div id="tool-catalog-status" style="font-size:12px;color:var(--n5);padding:10px 16px 0">加载中…</div>
+            <div id="tool-catalog-grid" style="display:grid;grid-template-columns:repeat(auto-fill,minmax(260px,1fr));gap:12px;padding:10px 16px 16px;font-size:12px"></div>
           </div>
           <!-- History Panel -->
           <div class="tool-panel" id="tp-history">
-            <div style="padding:12px;display:flex;gap:8px;align-items:center">
-              <select id="hist-status-filter" onchange="loadToolHistory()" style="padding:6px 10px;border:1px solid var(--n7);border-radius:6px;font-size:12px;background:var(--card);cursor:pointer">
+            <div style="padding:12px 16px;display:flex;gap:10px;align-items:center;background:var(--card);border-bottom:1px solid var(--n8)">
+              <select id="hist-status-filter" onchange="loadToolHistory()" class="tool-sel">
                 <option value="all">全部状态</option>
                 <option value="succeeded">成功</option>
                 <option value="failed">失败</option>
@@ -779,15 +808,15 @@ router ospf 1
               </select>
               <span style="font-size:12px;color:var(--n5)" id="hist-count">0 条记录</span>
             </div>
-            <div id="tool-history-list" style="padding:0 12px 12px;display:flex;flex-direction:column;gap:6px"></div>
+            <div id="tool-history-list" style="padding:10px 16px 16px;display:flex;flex-direction:column;gap:8px"></div>
           </div>
           <!-- Approvals Panel -->
           <div class="tool-panel" id="tp-approvals">
-            <div style="padding:12px;display:flex;gap:8px;align-items:center">
-              <span style="font-size:13px;font-weight:600;color:var(--n2)">待审批</span>
+            <div style="padding:12px 16px;display:flex;gap:10px;align-items:center;background:var(--card);border-bottom:1px solid var(--n8)">
+              <span style="font-size:14px;font-weight:700;color:var(--n2)">待审批</span>
               <span style="font-size:12px;color:var(--n5)" id="approval-count">0 条</span>
             </div>
-            <div id="tool-approval-list" style="padding:0 12px 12px;display:flex;flex-direction:column;gap:8px"></div>
+            <div id="tool-approval-list" style="padding:10px 16px 16px;display:flex;flex-direction:column;gap:10px"></div>
           </div>
         </div>
       </div>
@@ -1315,8 +1344,6 @@ function filterToolCards(){
 
 function renderToolCards(tools){
   var grid=document.getElementById('tool-catalog-grid');
-  var riskLabels={low:'Low',medium:'Medium',high:'High',forbidden:'Blocked'};
-  var riskClasses={low:'tag-gr',medium:'tag-ye',high:'tag-rd',forbidden:'tag-gy'};
   grid.innerHTML='';
   // Group by category
   var grouped={};
@@ -1324,25 +1351,23 @@ function renderToolCards(tools){
   Object.keys(grouped).sort().forEach(function(cat){
     var catTools=grouped[cat];
     var header=document.createElement('div');
-    header.style.cssText='grid-column:1/-1;margin-top:6px;font-weight:600;font-size:13px;color:var(--n8);border-bottom:1px solid var(--n8);padding-bottom:4px';
-    header.textContent=cat+' ('+catTools.length+')';
+    header.className='tc-cat-header';
+    header.innerHTML='<span class="tc-cat-name">'+esc(cat)+'</span><span class="tc-cat-count">'+catTools.length+'</span>';
     grid.appendChild(header);
     catTools.forEach(function(t){
       var card=document.createElement('div');
       var isForbidden=t.risk_level==='forbidden';
       card.className='tool-card'+(isForbidden?' forbidden':'');
-      card.style.cssText='border:1px solid var(--n4);border-radius:6px;padding:10px;background:var(--n10)';
-      var statusTag=t.enabled?'<span class="tag tag-gn" style="font-size:10px">enabled</span>':'<span class="tag tag-rd" style="font-size:10px">disabled</span>';
-      var approvalTag=t.requires_approval?'<span class="tag tag-ye" style="font-size:10px">审批</span>':'';
-      var dryTag=t.dry_run_supported?'<span class="tag tag-bl" style="font-size:10px">dry_run</span>':'';
-      card.innerHTML='<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:4px">'
-        +'<span style="font-weight:600;font-size:12px;color:var(--n2)">'+esc(t.tool_id)+'</span>'
-        +'<span class="tag '+riskClasses[t.risk_level]+'" style="font-size:10px">'+riskLabels[t.risk_level]+'</span>'
+      var riskClass='risk-'+(t.risk_level==='low'?'low':t.risk_level==='medium'?'med':t.risk_level==='high'?'high':'block');
+      var statusTag=t.enabled?'<span class="tc-tag gn">enabled</span>':'<span class="tc-tag rd">disabled</span>';
+      var dryTag=t.dry_run_supported?'<span class="tc-tag bl">dry_run</span>':'';
+      var versionTag=t.version?'<span class="tc-tag gy">v'+esc(t.version)+'</span>':'';
+      card.innerHTML='<div class="tc-risk">'
+        +'<span class="tc-tag '+riskClass+'">'+(t.risk_level==='forbidden'?'Blocked':t.risk_level.charAt(0).toUpperCase()+t.risk_level.slice(1))+'</span>'
         +'</div>'
-        +'<div style="font-size:11px;color:var(--n6);margin-bottom:6px;line-height:1.4">'+esc((t.description||'').slice(0,90))+'</div>'
-        +'<div style="display:flex;gap:4px;flex-wrap:wrap">'+statusTag+approvalTag+dryTag
-        +(t.version?'<span class="tag tag-gy" style="font-size:10px">v'+esc(t.version)+'</span>':'')
-        +'</div>';
+        +'<div class="tc-name">'+esc(t.tool_id)+'</div>'
+        +'<div class="tc-desc">'+esc((t.description||'').slice(0,110))+'</div>'
+        +'<div class="tc-tags">'+statusTag+dryTag+versionTag+'</div>';
       if(!isForbidden){
         card.addEventListener('click',function(){openInvoke(t);});
       }
@@ -1540,12 +1565,15 @@ function loadToolHistory(){
     records.forEach(function(r){
       var row=document.createElement('div');
       var st=r.status||'unknown';
-      row.style.cssText='border:1px solid var(--n4);border-radius:6px;padding:10px 14px;display:flex;align-items:center;gap:12px;background:var(--card)';
+      row.style.cssText='border:1px solid var(--n4);border-radius:8px;padding:10px 14px;display:flex;align-items:center;gap:12px;background:var(--card);transition:background .15s';
+      row.onmouseenter=function(){this.style.background='var(--n10)';};
+      row.onmouseleave=function(){this.style.background='var(--card)';};
       var duration=r.duration_ms?r.duration_ms+'ms':'';
       var risk=r.risk_level||'';
-      var riskBadge=risk==='high'?'<span class="tag tag-rd" style="font-size:10px">high</span>':risk==='medium'?'<span class="tag tag-ye" style="font-size:10px">medium</span>':'';
-      row.innerHTML='<span style="font-size:10px;padding:2px 8px;border-radius:4px;background:'+stBgs[st]+';color:'+stColors[st]+';min-width:56px;text-align:center">'+st+'</span>'
-        +'<span style="font-weight:600;font-size:12px;color:var(--n2);min-width:180px">'+esc(r.tool_id||'')+'</span>'
+      var riskBadge=risk==='high'?'<span class="tc-tag" style="background:#fef2f2;color:#b91c1c">high</span>':risk==='medium'?'<span class="tc-tag" style="background:#fefce8;color:#a16207">medium</span>':'';
+      var stBadgeMap={succeeded:'<span class="tc-tag" style="background:#ecfdf5;color:#047857">成功</span>',failed:'<span class="tc-tag" style="background:#fef2f2;color:#b91c1c">失败</span>',blocked:'<span class="tc-tag" style="background:#fefce8;color:#a16207">已阻止</span>',dry_run:'<span class="tc-tag" style="background:var(--n9);color:var(--n5)">dry_run</span>'};
+      row.innerHTML=stBadgeMap[st]||'<span class="tc-tag" style="background:var(--n9);color:var(--n5)">'+st+'</span>'
+        +'<span style="font-weight:600;font-size:12px;color:var(--n2);min-width:160px;font-family:var(--mono)">'+esc(r.tool_id||'')+'</span>'
         +riskBadge
         +'<span style="font-size:11px;color:var(--n5);margin-left:auto">'+(r.created_at||'').slice(11,19)+'</span>'
         +'<span style="font-size:11px;color:var(--n6)">'+duration+'</span>';
@@ -1580,18 +1608,30 @@ function loadToolApprovals(){
     list.innerHTML='';
     approvals.forEach(function(a){
       var card=document.createElement('div');
-      card.style.cssText='border:1px solid var(--n4);border-radius:8px;padding:12px 14px;background:var(--card);display:flex;flex-direction:column;gap:8px';
+      card.style.cssText='border:1px solid var(--n4);border-radius:8px;padding:14px;background:var(--card);display:flex;flex-direction:column;gap:10px';
       card.innerHTML='<div style="display:flex;align-items:center;gap:10px">'
-        +'<span style="font-weight:600;font-size:12px;color:var(--n5)">'+esc(a.approval_id||'')+'</span>'
-        +'<span style="font-weight:600;font-size:13px;color:var(--n2)">'+esc(a.tool_id||'')+'</span>'
+        +'<span style="font-weight:600;font-size:11px;color:var(--n5);font-family:var(--mono);background:var(--n10);padding:2px 8px;border-radius:4px">'+esc(a.approval_id||'')+'</span>'
+        +'<span style="font-weight:700;font-size:13px;color:var(--n2);font-family:var(--mono)">'+esc(a.tool_id||'')+'</span>'
         +'<span style="font-size:11px;color:var(--n5)">by '+esc(a.user||'')+'</span>'
         +'<span style="margin-left:auto;font-size:11px;color:var(--n6)">'+(a.created_at||'').slice(0,19)+'</span>'
         +'</div>'
-        +'<div style="font-size:12px;color:var(--n5)">理由: '+esc(a.reason||'无')+'</div>'
-        +'<div style="display:flex;gap:6px">'
-        +'<button onclick="approveReq(\''+esc(a.approval_id)+'\')" class="btn-sm" style="background:#dcfce7;color:#166534;border:0;cursor:pointer;border-radius:6px">Approve</button>'
-        +'<button onclick="rejectReq(\''+esc(a.approval_id)+'\')" class="btn-sm" style="background:#fee2e2;color:#991b1b;border:0;cursor:pointer;border-radius:6px">Reject</button>'
-        +'</div>';
+        +'<div style="font-size:12px;color:var(--n5);line-height:1.5;background:var(--n10);padding:8px 10px;border-radius:6px">理由: '+esc(a.reason||'无')+'</div>'
+        +'<div style="display:flex;gap:8px">';
+      var actions=document.createElement('div');
+      actions.style.cssText='display:flex;gap:8px';
+      var apBtn=document.createElement('button');
+      apBtn.textContent='Approve';
+      apBtn.className='btn-sm';
+      apBtn.style.cssText='background:#ecfdf5;color:#047857;border:0;cursor:pointer;border-radius:6px;padding:4px 14px;font-weight:500';
+      apBtn.addEventListener('click',(function(id){return function(){approveReq(id);};})(a.approval_id));
+      var reBtn=document.createElement('button');
+      reBtn.textContent='Reject';
+      reBtn.className='btn-sm';
+      reBtn.style.cssText='background:#fef2f2;color:#b91c1c;border:0;cursor:pointer;border-radius:6px;padding:4px 14px;font-weight:500';
+      reBtn.addEventListener('click',(function(id){return function(){rejectReq(id);};})(a.approval_id));
+      actions.appendChild(apBtn);
+      actions.appendChild(reBtn);
+      card.appendChild(actions);
       list.appendChild(card);
     });
   }).catch(function(){
