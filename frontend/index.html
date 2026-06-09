@@ -2268,7 +2268,7 @@ function sendAgent(){
   thinkEl.className='ag-bubble ai';
   // Check if message looks like a knowledge query
   var isKnowledgeQuery=_isLikelyKnowledgeQuery(txt);
-  thinkEl.innerHTML='<span class="spinner" style="margin-right:6px"></span>'+(isKnowledgeQuery?'正在检索知识索引...':'处理中...');
+  thinkEl.innerHTML='<span class="spinner" style="margin-right:6px"></span>AI 正在思考...';
   body.appendChild(thinkEl); body.scrollTop=body.scrollHeight;
 
   var ws=_getWorkspaceId();
@@ -2329,6 +2329,8 @@ function _doSendAgent(txt,thinkEl,body,sessionId,workspaceId){
 
       // Knowledge query: show source refs with metadata
       if(d.intent==='knowledge_query'){
+        var _resMode=(d.result||{}).mode||'';
+        if(_resMode!=='llm_orchestrated'){
         var details=d.knowledge_result_details||[];
         var srcs=d.knowledge_sources||[];
         var chunks=d.knowledge_chunks||[];
@@ -2370,7 +2372,7 @@ function _doSendAgent(txt,thinkEl,body,sessionId,workspaceId){
             +'<br>可以先到 <span style="color:var(--pri);cursor:pointer;text-decoration:underline" onclick="switchPage(\'artifacts\')">Artifacts</span> 页面上传文档，并点击 <b>Add to Knowledge Index</b>。'
             +'</div>';
         }
-      }
+      }} // close llm_orchestrated guard
 
       // Build collapsible metadata
       var l=d.llm||{};
