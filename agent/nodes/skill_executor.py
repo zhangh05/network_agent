@@ -36,7 +36,7 @@ def execute(state: NetworkAgentState) -> NetworkAgentState:
     # ── 0. No-op / LLM orchestrator for builtins ──
     if state.intent in ("assistant_chat", "knowledge_query") or (not skill and not capability_id):
         handled = False
-        if state.intent == "assistant_chat":
+        if state.intent in ("assistant_chat", "knowledge_query"):
             from agent.nodes.llm_orchestrator import orchestrate
             handled = True
             state = orchestrate(state)
