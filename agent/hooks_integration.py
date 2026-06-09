@@ -30,6 +30,12 @@ def register_hook(hook: HookDefinition) -> None:
     get_hook_registry().register(hook)
 
 
+def reset_hook_registry() -> None:
+    """Reset the hook registry (for test isolation)."""
+    global _DEFAULT_REGISTRY
+    _DEFAULT_REGISTRY = None
+
+
 # ── Pipeline integration helpers ──
 
 def run_pre_tool_hooks(state, tool_id: str, arguments: dict) -> tuple[bool, dict | None, str]:

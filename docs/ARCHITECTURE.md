@@ -22,9 +22,10 @@
 ```
 Frontend → API (8010) → Agent (LangGraph)
                            ├── Intent Router (keyword-based)
-                           ├── Context (loader, compressor v0.2, builder)
+                           ├── Context (fragments v0.1, compressor v0.2, compaction, builder)
                            ├── Registry / Capability / Skill / Module
                            ├── LLM Orchestrator (agentic loop / disabled fallback)
+                           ├── Hook System (8 events, disjunctive folding)
                            ├── Skill Executor
                            ├── Verifier
                            ├── Composer (LLM)
@@ -154,6 +155,33 @@ Module / Skill / Capability / Tool 四层边界定义：[MODULE_SKILL_TOOL_MODEL
 
 Tool Runtime Foundation v0.1：[TOOL_RUNTIME.md](./TOOL_RUNTIME.md) — 轻量原子工具执行底座（无真实设备执行）
 Tool Runtime Integration Contract：[TOOL_RUNTIME_INTEGRATION.md](./TOOL_RUNTIME_INTEGRATION.md) — Module/Trace/Job 集成契约
+
+## Hook System v0.1
+
+`agent/hooks.py` — composable pre/post processing pipeline (Codex-inspired):
+
+```
+Hook Registry → Event Dispatch → Priority-ordered Execution → Result Folding
+```
+
+8 event types: PreToolUse, PostToolUse, PreTurn, PostTurn, SessionStart, Stop, PreCompact, PostCompact.
+
+Disjunctive folding semantics:
+- PreToolUse: any Deny wins immediately; last Allow's updated_input wins
+- PostToolUse: any stop=true wins; feedback concatenated
+- Stop: block overrides stop (force continue)
+- SessionStart: any stop=true wins; contexts merged
+
+Integrated at: SessionStart (graph.py), tool calls (orchestrator), turn completion (orchestrator).
+
+## Context Compaction
+
+`context/compaction.py` — dual-limit token budget management:
+- Auto-compact trigger at 80% of model budget
+- Per-model budgets: MiniMax 64k, GPT-4o 128k, Qwen 128k
+- Pre-turn check in orchestrator
+- compact_session_history(): old turn summarization
+- compact_llm_context(): field-level truncation
 
 ## 安全边界
 

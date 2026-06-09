@@ -85,6 +85,20 @@ Dynamic budget allocation per model (MiniMax 64k, Qwen 128k, etc.), semantic ded
 ### CI Pipeline
 `.github/workflows/ci.yml` runs tests on Python 3.10/3.11/3.12 + ruff lint on every push to main/develop and every PR.
 
+## Architecture v0.5 (Codex-inspired)
+
+### Context Fragment System
+`context/fragments/` — composable context sources with independent token budgets, error isolation, and priority ordering. 5 standard fragments: WorkspaceState, MemoryHits, ModuleRegistry, SkillRegistry, ContextBundle. New fragments can be registered without modifying loader code.
+
+### Task/Turn Model
+`agent/task.py`, `agent/turn.py` — explicit state machine for execution lifecycle. Task: CREATED→RUNNING→COMPLETED/FAILED/CANCELLED. Turn: per-LLM-cycle tracking with tool call recording and elapsed timing. Integrated into the orchestrator for agentic loop observability.
+
+### Hook System
+`agent/hooks.py` — composable pre/post processing pipeline with 8 event types (PreToolUse, PostToolUse, PreTurn, PostTurn, SessionStart, Stop, PreCompact, PostCompact). Disjunctive result folding (any Deny wins, block overrides stop). Regex matcher support for tool/intent targeting. Integrated at SessionStart, tool execution, and turn completion.
+
+### Context Compaction
+`context/compaction.py` — dual-limit token budget (auto-compact at 80%, full window limit). Per-model budgets (MiniMax 64k, GPT-4o 128k). Pre-turn trigger in orchestrator. Session history summarization for old turns.
+
 ## Foundation Baseline (historical)
 
 | # | 组件 | 状态 |
@@ -104,7 +118,11 @@ Dynamic budget allocation per model (MiniMax 64k, Qwen 128k, etc.), semantic ded
 | 13 | LLM Orchestrator (agentic loop, disabled fallback) | completed |
 | 14 | SSE Streaming | completed |
 | 15 | Rate Limit Middleware | completed |
-| 16 | Harness Runtime | completed |
+| 16 | Context Fragment System (composable, budgeted) | completed |
+| 17 | Task/Turn Model (lifecycle tracking) | completed |
+| 18 | Hook System (8 events, disjunctive folding) | completed |
+| 19 | Context Compaction (dual-limit budget) | completed |
+| 20 | Harness Runtime | completed |
 
 ## Business Module
 

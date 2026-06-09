@@ -157,6 +157,21 @@ After studying OpenAI Codex's agent architecture, two key patterns were adopted:
 - Task: state machine (CREATED → RUNNING → COMPLETED | FAILED | CANCELLED)
 - Turn: per-LLM-cycle tracking (tool calls, model response, elapsed, status)
 - Integrated into `llm_orchestrator.py` for agentic loop observability
+
+### 3. Hook System (`agent/hooks.py`, `agent/hooks_integration.py`)
+- 8 event types: PreToolUse, PostToolUse, PreTurn, PostTurn, SessionStart, Stop, PreCompact, PostCompact
+- Disjunctive result folding (any Deny wins, block overrides stop)
+- Regex matcher for tool/intent targeting
+- Integrated at: SessionStart (graph.py), PreToolUse/PostToolUse/Stop (orchestrator)
+- Inspired by Codex's Pipeline + Sum-Type result folding pattern
+
+### 4. Context Compaction (`context/compaction.py`)
+- Dual-limit token budget: auto-compact at 80% of model budget
+- Per-model budgets (MiniMax 64k, GPT-4o 128k, Qwen 128k)
+- Pre-turn trigger in orchestrator
+- compact_session_history(): turn-based summarization
+- compact_llm_context(): field-level truncation
+- Inspired by Codex's auto_compact_token_status + run_compact_task_inner
 - Inspired by Codex's Session → Task → Turn model
 
 ## INFO / Cleanup
