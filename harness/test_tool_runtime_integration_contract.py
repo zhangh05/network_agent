@@ -386,12 +386,12 @@ class TestDocContent:
             "Doc must state ToolResult must be summarized/redacted before LLM context"
         )
 
-    def test_no_public_tool_http_api(self, doc):
+    def test_public_tool_http_api_is_policy_gated(self, doc):
         text = doc.lower()
-        assert any(phrase in text for phrase in [
-            "no public tool", "no http", "not expose",
-            "no tool http api", "no tool api",
-        ]), "Doc must state no public Tool HTTP API"
+        assert "public tool" in text and "http" in text, "Doc must mention public Tool HTTP API"
+        assert "policy" in text and "approval" in text, (
+            "Doc must state public Tool HTTP API is policy/approval gated"
+        )
 
     def test_forbidden_ssh_telnet_snmp_nmap(self, doc):
         text = doc.lower()

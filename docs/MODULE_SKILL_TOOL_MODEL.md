@@ -157,8 +157,8 @@ Tool is a **reusable, auditable, policy-controlled atomic action**.
 | What it is | A single, well-defined operation with schema validation |
 | Where it would live | `tools/<category>/<name>.py` or `tools/registry.yaml` |
 | Responsibilities | Single atomic action, schema parameter validation, policy permission check, timeout, redaction, trace event, artifact output, structured result |
-| Forbidden actions | Expressing full business modules, being called by Agent bypassing Module, real device command execution by default, arbitrary local path access, dumping sensitive output, Memory writes |
-| Current status | **Not yet implemented** (see Section 2.5 for confusion points) |
+| Forbidden actions | Expressing full business modules, being called by Agent as arbitrary execution, real device command execution by default, arbitrary local path access, dumping sensitive output, Memory writes |
+| Current status | **Implemented as Tool Runtime v0.3** with catalog, HTTP invoke, UI, approvals, and supervised Agent Tool Bridge |
 
 ---
 
@@ -215,7 +215,7 @@ Agent
 
 ### Principles
 
-1. **Agent never calls Tool directly**. Tool access is gated behind Module.
+1. **Agent must not execute arbitrary tools directly**. Business workflows use Module; explicit safe tool requests use the supervised Agent Tool Bridge.
 2. **Skill defaults to not calling Tool directly**. Module orchestrates Tool calls.
 3. **Module orchestrates Tool**. Module service determines which tools to invoke and in what order.
 4. **Tool does one atomic action**. Single responsibility, schema-validated inputs, structured outputs.

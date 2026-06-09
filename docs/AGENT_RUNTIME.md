@@ -33,7 +33,7 @@ router → context_loader → planner → executor → verifier → composer →
 | `router` | Resolves intent via Registry/Capability lookup |
 | `context_loader` | Calls Context Runtime to build context bundle |
 | `planner` | Produces execution plan from resolved capability |
-| `executor` | Executes via capability → skill → adapter → module chain |
+| `executor` | Executes via capability → skill → adapter → module chain; for assistant_chat, may use supervised Tool Bridge for explicit safe tool requests |
 | `verifier` | Validates execution output against capability contract |
 | `composer` | Assembles final response text |
 | `memory_writer` | Persists run summary to Memory store + associates with session (v3.1+) |
@@ -75,6 +75,16 @@ When LLM is unavailable or blocked by policy:
   - `"response_policy: ..."` — LLM policy `check_response()` violation
   - `"provider unavailable: ..."` — API call exception
 - Run still completes with degraded state marker
+
+### Agent Tool Bridge
+
+`agent/nodes/tool_planner.py` is called from the executor for `assistant_chat` only. It handles explicit tool catalog questions and direct safe tool requests without turning the Agent into an arbitrary tool runner.
+
+Rules:
+- low-risk enabled tools can execute through `ToolRuntimeClient`
+- medium-risk tools require explicit dry-run/预演 wording and run as dry-run
+- high-risk or `requires_approval` tools are blocked with approval guidance
+- returned `tool_invocations` contain safe metadata only
 
 ### Trace
 

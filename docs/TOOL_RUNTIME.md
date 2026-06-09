@@ -15,6 +15,7 @@ Network Agent Tool Runtime provides safe, auditable, policy-controlled tool exec
 - **11 categories**: artifact, parser, report, command, knowledge, web, session, runtime, text, workspace, powershell
 - **9 API endpoints** (1 read-only catalog + 8 interactive)
 - **Interactive UI**: 3-tab Tool Catalog with invoke, history, and approvals
+- **Agent Tool Bridge**: explicit safe low-risk tool requests can be invoked from assistant_chat
 - **No real device access** (SSH/Telnet/SNMP/Nmap forbidden)
 - **No config push** (forbidden)
 - **No arbitrary shell** (shell.exec, powershell.exec, command.exec forbidden)
@@ -39,6 +40,13 @@ Frontend UI:
                             Approval Queue (approve/reject)
                                    ↓
                             Exec History (status filter + replay)
+
+Agent Tool Bridge:
+  assistant_chat explicit request
+    ├── catalog question → ToolRuntimeClient.list_tools()
+    ├── risk=low + enabled → ToolRuntimeClient.invoke()
+    ├── risk=medium → dry-run only when user explicitly asks
+    └── risk=high/requires_approval → blocked with approval guidance
 ```
 
 ## Risk Levels
@@ -48,6 +56,8 @@ Frontend UI:
 | low | Always allowed, read-only |
 | medium | Allowed, dry_run supported, writes artifact only |
 | high | Default disabled, requires matching approved `approval_id`, allowlisted only |
+
+Agent Tool Bridge uses a stricter subset: low-risk tools may auto-execute, medium-risk tools may only dry-run when explicitly requested, and high-risk tools are blocked for approval.
 
 Approval IDs are stateful and authoritative. `/api/tools/invoke` accepts a high-risk or `requires_approval` invocation only when the provided `approval_id` exists, has status `approved`, and matches both the requested `tool_id` and `workspace_id`. Pending, rejected, fake, cross-tool, or cross-workspace approval IDs are blocked before handler execution and are written to tool history as blocked invocations.
 
@@ -97,3 +107,4 @@ User clicks tool card
 - 2026-06-09 full harness: `1351 passed, 7 skipped`
 - Tool Runtime/API/artifact/design regression slice: `102 passed`
 - High-risk approval tests cover missing, fake, cross-workspace, pending, rejected, and approved IDs
+- Agent Tool Bridge tests cover catalog count, low-risk invocation, and high-risk blocking

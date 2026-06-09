@@ -1,15 +1,15 @@
-# Tool Runtime Integration Contract v0.1
+# Tool Runtime Integration Contract v0.3
 
 > **Status**: Integration contract established — no real device execution  
-> **Version**: v0.1  
-> **Date**: 2026-06-07  
-> **Depends on**: [Tool Runtime Foundation v0.1](./TOOL_RUNTIME.md)
+> **Version**: v0.3  
+> **Date**: 2026-06-09  
+> **Depends on**: [Tool Runtime](./TOOL_RUNTIME.md)
 
-Current closure baseline: `ac6cadd`. Baseline harness evidence: `850 passed, 7 skipped, 0 failed`.
+Current full harness evidence: `1351 passed, 7 skipped`.
 
-Current integration status: `ToolRuntimeContext`, `ToolRuntimeClient`, and safe trace metadata integration are implemented. `ToolRuntimeClient.invoke()` writes allowlisted metadata to the observability trace store when `trace_id` is provided in context.
+Current integration status: `ToolRuntimeContext`, `ToolRuntimeClient`, safe trace metadata integration, HTTP Tool API, Tool Catalog UI, and supervised Agent Tool Bridge are implemented. `ToolRuntimeClient.invoke()` writes allowlisted metadata to the observability trace store when `trace_id` is provided in context.
 
-No public Tool invoke HTTP API exists. No Tool invoke UI exists. Agent code must not freely call tools; Module/Service code remains the controlled caller boundary.
+Public Tool HTTP APIs and Tool Catalog UI exist in v0.3. Agent code still must not freely call arbitrary tools; ordinary business orchestration stays behind Capability → Skill → Module, while explicit low-risk tool requests may go through the supervised Agent Tool Bridge.
 
 ---
 
@@ -22,6 +22,7 @@ This contract ensures that:
 - Tool invocations carry proper **context** (workspace, run, job, caller identity)
 - Tool results enter trace/audit as **safe metadata only**
 - **Agent never directly calls arbitrary tools**
+- **Agent Tool Bridge calls only enabled low-risk tools automatically, medium tools as explicit dry-run, and blocks high-risk tools for approval**
 - The system remains auditable and policy-gated
 
 ---
@@ -162,15 +163,20 @@ class MyModuleService:
 ```
 CORRECT:
   Agent → Capability → Skill Adapter → Module Service → ToolRuntimeClient
+  Agent → Agent Tool Bridge → ToolRuntimeClient (explicit safe low-risk tool request)
 
-WRONG (v0.1):
+WRONG:
   Agent → ToolRuntimeClient (bypassing Module)
+  Agent → high-risk ToolRuntimeClient call without approval
   Skill Adapter → ToolRuntimeClient (bypassing Module business logic)
 ```
 
-**Current status**: No agent code was changed. `skill_executor.py` continues to call skill adapters which call module services. The integration contract establishes the future pattern without modifying existing behavior.
+**Current status**: `agent/nodes/tool_planner.py` implements Agent Tool Bridge. It handles explicit tool catalog questions, direct tool IDs, and a small set of natural-language mappings to low-risk tools such as `runtime.health`, `run.list_recent`, `workspace.get_metadata`, `artifact.list`, and `knowledge.search`.
 
-If future use cases require Agent-level tool access, it must be through a **special allowlist capability** — never a default-available path.
+Safety behavior:
+- low risk + enabled + no approval required: execute through `ToolRuntimeClient`
+- medium risk: dry-run only when the user explicitly asks for dry-run/预演
+- high risk or `requires_approval`: block and route the user to Tool Catalog approval
 
 ---
 
@@ -245,8 +251,8 @@ ToolResult carries `artifact_ids` — a list of artifact ID references:
 6. `ToolResult` must be summarized and redacted before any external use.
 7. Real device execution is out of scope for v0.1.
 8. SSH / Telnet / SNMP / nmap / ping sweep are out of scope for v0.1.
-9. No public Tool HTTP API in v0.1.
-10. No Tool UI in v0.1.
+9. Public Tool HTTP APIs must enforce policy and approval status.
+10. Tool UI must not cache approval IDs in persistent browser storage.
 11. Tool invocations use independent `ToolInvocation`/`ToolResult` — not legacy `tool_calls`/`tool_results`.
 12. Tool output must be redacted before return.
 
@@ -257,10 +263,7 @@ ToolResult carries `artifact_ids` — a list of artifact ID references:
 This v0.1 integration contract explicitly does NOT:
 
 - Require config_translation to use Tool Runtime
-- Modify Agent executor logic
 - Modify Job Runtime main logic
-- Add HTTP API endpoints for tools
-- Add UI for tool invocation
 - Add real device execution
 - Add SSH / Telnet / SNMP / nmap / ping sweep
 - Add arbitrary shell
@@ -270,6 +273,5 @@ This v0.1 integration contract explicitly does NOT:
 
 ## 14. Future Phases
 
-- v0.2: Agent-supervised tool invocation with explicit allowlist capabilities
-- v0.3: Job-level tool batching and progress tracking
+- v0.4: Job-level tool batching and progress tracking
 - v1.0: Real device dry-run validation (no execution, schema check only)

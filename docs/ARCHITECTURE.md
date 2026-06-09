@@ -8,7 +8,7 @@
 - Knowledge Index Runtime (Safe Local RAG Foundation v0.1): indexing + search, no auto RAG
 - Agent base capability: `assistant_chat` (not a business module)
 - Planned only: Topology, Inspection, CMDB, Knowledge
-- Tool Runtime has Foundation + Client + Integration, but no real device execution.
+- Tool Runtime has Foundation + Client + Integration + supervised Agent Tool Bridge, but no real device execution.
 - Run history is backend workspace state, not browser-local history.
 - `quality_summary` is carried through API, Agent result, run history, UI, trace metadata, and report summaries.
 - Backend routes: main.py (244 lines, 34 thin wrappers) + 5 sub-route files (artifact, job, runtime, context, workspace)
@@ -51,11 +51,25 @@ Session Store ──→ workspaces/<ws>/sessions/<sid>.json
 POST /api/agent/run → graph
   → context_loader   (上下文加载、压缩、构建 ContextBundle)
   → planner          (任务分解、Skill 选取)
-  → executor         (调用 Skill adapter → Module service)
+  → executor         (调用 Skill adapter → Module service；或 assistant_chat 安全 Tool Bridge)
   → verifier         (结果校验)
   → composer         (LLM 响应合成)
   → memory_writer    (记忆写入、Workspace 更新、Run 落盘)
 ```
+
+## Agent Tool Bridge
+
+```
+assistant_chat 明确工具请求
+  → agent/nodes/tool_planner.py
+  → ToolRuntimeClient
+  → ToolPolicy / ToolExecutor / Redaction / Audit
+```
+
+边界：
+- low 风险且 enabled 的工具可由 Agent 自动调用
+- medium 风险只允许明确 dry-run/预演
+- high 或 requires_approval 工具只返回审批提示，不自动执行
 
 ## config_translation 调用链
 

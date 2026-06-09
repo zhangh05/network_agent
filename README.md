@@ -52,6 +52,7 @@ See [docs/TOOL_RUNTIME_GENERAL_TOOLS_v0.2.md](docs/TOOL_RUNTIME_GENERAL_TOOLS_v0
 - `GET /api/tools/catalog` — read-only tool metadata.
 - `POST /api/tools/invoke` — executes enabled tools only through ToolPolicy, ToolExecutor, redaction, and audit history.
 - Tool Invoke UI is available for low/medium tools; high-risk tools require an `approval_id` with approved status that matches the same tool and workspace.
+- Agent Tool Bridge can answer tool catalog questions and invoke explicit low-risk tools from chat; medium tools are dry-run only when explicitly requested, and high-risk tools require approval.
 - High-risk tools (`command.approved_exec`, `powershell.approved_script`) default disabled, require matching approved status, and still only support allowlisted read-only actions.
 - `shell.exec`, `powershell.exec`, `command.exec`, `ssh.exec`, `telnet.exec`, `snmp.walk`, `nmap.scan`, `ping.sweep`, `config.push`, `file.read_any`, `file.write_any` — **all forbidden**.
 - No real device access. No config push.

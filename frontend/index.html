@@ -180,9 +180,21 @@
   .tool-search-wrap::before{content:"";position:absolute;left:11px;width:14px;height:14px;background:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='14' height='14' fill='none' stroke='%2394a3b8' stroke-width='2'%3E%3Ccircle cx='5.5' cy='5.5' r='4'/%3E%3Cpath d='M10 10l3 3'/%3E%3C/svg%3E") no-repeat center/14px}
   .tool-sel{padding:8px 26px 8px 10px;border:1px solid var(--n7);border-radius:8px;font-size:12px;background:var(--card);cursor:pointer;appearance:none;background-image:url("data:image/svg+xml,%3Csvg width='10' height='6' xmlns='http://www.w3.org/2000/svg'%3E%3Cpath d='M1 1l4 4 4-4' stroke='%2364748b' fill='none' stroke-width='1.5'/%3E%3C/svg%3E");background-repeat:no-repeat;background-position:right 10px center;outline:none;transition:border-color .2s,color .2s}
   .tool-sel:focus{border-color:var(--pri)}
+  #page-tools{width:100%;height:100%;min-width:0}
+  #page-tools .tool-shell{width:100%;max-width:none;height:calc(100vh - 92px);min-height:560px;margin:0;display:flex;flex-direction:column}
+  .tool-head{height:54px;padding:0 18px;border-bottom:1px solid var(--n8);margin:0;flex-shrink:0}
+  .tool-tabs{height:48px;display:flex;gap:4px;padding:8px 18px 0;border-bottom:1px solid var(--n8);background:var(--n10);flex-shrink:0}
+  .tool-tabs-meta{margin-left:auto;display:flex;gap:8px;align-items:center}
+  .tool-filterbar{padding:10px 18px;display:grid;grid-template-columns:minmax(240px,1fr) 150px 160px;gap:10px;align-items:center;background:var(--card);border-bottom:1px solid var(--n8);flex-shrink:0}
+  .tool-catalog-status{font-size:12px;color:var(--n5);padding:8px 18px 6px;flex-shrink:0}
+  .tool-catalog-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(210px,1fr));gap:8px;padding:0 18px 14px;font-size:12px;overflow:auto;align-content:start;min-height:0;flex:1}
+  #page-tools .tool-panel.active{display:flex;flex-direction:column;min-height:0;flex:1}
+  #tp-history.tool-panel.active,#tp-approvals.tool-panel.active{overflow:auto}
+  .tool-listbar{padding:10px 18px;display:flex;gap:10px;align-items:center;background:var(--card);border-bottom:1px solid var(--n8);flex-shrink:0}
+  .tool-list-body{padding:8px 18px 14px;display:flex;flex-direction:column;gap:8px;overflow:auto;min-height:0;flex:1}
 
   /* ── Tool Catalog Tabs ── */
-  .toolstab{padding:7px 16px;border:0;border-radius:6px 6px 0 0;background:transparent;color:var(--n5);font-size:13px;cursor:pointer;font-weight:500;border-bottom:2px solid transparent;transition:all .15s}
+  .toolstab{padding:6px 14px;border:0;border-radius:6px 6px 0 0;background:transparent;color:var(--n5);font-size:13px;cursor:pointer;font-weight:500;border-bottom:2px solid transparent;transition:all .15s}
   .toolstab:hover{color:var(--n2);background:rgba(37,99,235,.04)}
   .toolstab.active{color:var(--pri);border-bottom-color:var(--pri);background:var(--card);font-weight:600}
   .tool-panel{display:none;padding:0}
@@ -205,15 +217,15 @@
   .invoke-field textarea{resize:vertical;min-height:60px}
 
   /* ── Tool cards ── */
-  .tool-card{cursor:pointer;transition:transform .12s,border-color .15s,box-shadow .15s;background:var(--card);border:1px solid var(--n4);border-radius:8px;padding:12px 14px;display:flex;flex-direction:column}
+  .tool-card{cursor:pointer;transition:transform .12s,border-color .15s,box-shadow .15s;background:var(--card);border:1px solid var(--n8);border-radius:7px;padding:9px 10px;display:flex;flex-direction:column;min-height:108px}
   .tool-card:hover{border-color:var(--pri);box-shadow:0 2px 12px rgba(37,99,235,.1);transform:translateY(-1px)}
   .tool-card.forbidden{cursor:not-allowed;opacity:.45}
   .tool-card.forbidden:hover{border-color:var(--n4);box-shadow:none;transform:none}
   .tool-card .tc-head{display:flex;align-items:center;justify-content:space-between;min-height:20px}
-  .tool-card .tc-name{font-size:13px;font-weight:600;color:var(--n2);font-family:var(--mono)}
-  .tool-card .tc-desc{font-size:11.5px;color:var(--n6);line-height:1.5;margin-top:6px;min-height:17px}
-  .tool-card .tc-tags{display:flex;gap:5px;flex-wrap:wrap;margin-top:auto;padding-top:8px}
-  .tool-card .tc-tag{display:inline-flex;align-items:center;padding:1px 7px;border-radius:4px;font-size:10.5px;font-weight:500;line-height:1.5}
+  .tool-card .tc-name{font-size:12.5px;font-weight:700;color:var(--n2);font-family:var(--mono);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;min-width:0;padding-right:8px}
+  .tool-card .tc-desc{font-size:11px;color:var(--n6);line-height:1.45;margin-top:5px;min-height:32px;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
+  .tool-card .tc-tags{display:flex;gap:4px;flex-wrap:wrap;margin-top:auto;padding-top:7px}
+  .tool-card .tc-tag{display:inline-flex;align-items:center;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:500;line-height:1.45;white-space:nowrap}
   .tool-card .tc-tag.gn{background:#ecfdf5;color:#047857}
   .tool-card .tc-tag.rd{background:#fef2f2;color:#b91c1c}
   .tool-card .tc-tag.ye{background:#fefce8;color:#a16207}
@@ -225,8 +237,8 @@
   .tool-card .tc-tag.risk-block{background:var(--n9);color:var(--n5)}
 
   /* ── Tool category header ── */
-  .tc-cat-header{grid-column:1/-1;margin-top:4px;padding-bottom:6px;border-bottom:1px solid var(--n8);display:flex;align-items:center;gap:8px}
-  .tc-cat-name{font-size:14px;font-weight:700;color:var(--n2);letter-spacing:.3px;text-transform:capitalize}
+  .tc-cat-header{grid-column:1/-1;margin-top:6px;padding:6px 0 4px;border-bottom:1px solid var(--n8);display:flex;align-items:center;gap:8px}
+  .tc-cat-name{font-size:13px;font-weight:700;color:var(--n2);text-transform:capitalize}
   .tc-cat-count{font-size:11px;color:var(--n5);font-weight:500;background:var(--n10);padding:1px 8px;border-radius:12px}
 
   /* ── Translate page ── */
@@ -367,12 +379,20 @@
   @keyframes tooltipFade{0%{opacity:0;transform:translateY(4px)}20%{opacity:1;transform:translateY(0)}80%{opacity:1}100%{opacity:0}}
   .pulse-ring{animation:pulse-ring 1.5s ease-out 2}
   .ui-tooltip{font-family:-apple-system,BlinkMacSystemFont,sans-serif}
+  @media (max-width:1400px){
+    .tool-catalog-grid{grid-template-columns:repeat(auto-fill,minmax(190px,1fr))}
+  }
   @media (max-width:1200px){
     #sidebar{width:64px!important}
     .sb-logo .text,.sb-logo .ver,.sb-label,.sb-item .txt,.sb-item .soon{display:none}
     .sb-item{justify-content:center;padding:10px;gap:0}
     .stat-grid,.qe-grid{grid-template-columns:repeat(2,1fr)}
     #agent-panel{width:420px}
+    .tool-filterbar{grid-template-columns:1fr 130px 140px}
+  }
+  @media (max-width:900px){
+    .tool-filterbar{grid-template-columns:1fr}
+    #page-tools .tool-shell{height:auto;min-height:calc(100vh - 92px)}
   }
   @media (min-width:1600px){
     #agent-panel{width:640px}
@@ -762,24 +782,24 @@ router ospf 1
 
       <!-- ══════════ Tool Catalog ══════════ -->
       <div class="page" id="page-tools">
-        <div class="card-flush">
-          <div class="card-hd" style="padding:16px 20px;border-bottom:1px solid var(--n8)">
+        <div class="card-flush tool-shell">
+          <div class="card-hd tool-head">
             <div class="card-title">Tool Catalog <span class="tag tag-gn" style="margin-left:8px">v0.3</span></div>
             <span style="font-size:11px;color:var(--n5)" id="tool-catalog-subtitle">交互式调用 · 55 工具 · 风险分级</span>
           </div>
           <!-- Tabs -->
-          <div style="display:flex;gap:4px;padding:8px 20px 0;border-bottom:1px solid var(--n8);background:var(--n10)">
+          <div class="tool-tabs">
             <button id="toolstab-catalog" onclick="switchToolTab('catalog')" class="toolstab active">Tool Catalog</button>
             <button id="toolstab-history" onclick="switchToolTab('history')" class="toolstab">Exec History</button>
             <button id="toolstab-approvals" onclick="switchToolTab('approvals')" class="toolstab">Approvals</button>
-            <div style="margin-left:auto;display:flex;gap:8px;align-items:center">
+            <div class="tool-tabs-meta">
               <span style="font-size:11px;color:var(--n5)" id="tools-ws-label">ws: default</span>
               <button onclick="loadToolsPermissions()" class="btn-sm" title="权限配置">&#9881;</button>
             </div>
           </div>
           <!-- Catalog Panel -->
           <div class="tool-panel active" id="tp-catalog">
-            <div style="padding:14px 20px;display:flex;gap:10px;align-items:center;flex-wrap:wrap;background:var(--card);border-bottom:1px solid var(--n8)">
+            <div class="tool-filterbar">
               <div class="tool-search-wrap">
                 <input type="text" id="tool-search" placeholder="搜索工具名称或描述..." oninput="filterToolCards()">
               </div>
@@ -794,12 +814,12 @@ router ospf 1
                 <option value="all">全部分类</option>
               </select>
             </div>
-            <div id="tool-catalog-status" style="font-size:12px;color:var(--n5);padding:10px 20px 0">加载中…</div>
-            <div id="tool-catalog-grid" style="display:grid;grid-template-columns:repeat(auto-fill,minmax(260px,1fr));gap:12px;padding:10px 20px 20px;font-size:12px"></div>
+            <div id="tool-catalog-status" class="tool-catalog-status">加载中…</div>
+            <div id="tool-catalog-grid" class="tool-catalog-grid"></div>
           </div>
           <!-- History Panel -->
           <div class="tool-panel" id="tp-history">
-            <div style="padding:12px 20px;display:flex;gap:10px;align-items:center;background:var(--card);border-bottom:1px solid var(--n8)">
+            <div class="tool-listbar">
               <select id="hist-status-filter" onchange="loadToolHistory()" class="tool-sel">
                 <option value="all">全部状态</option>
                 <option value="succeeded">成功</option>
@@ -809,15 +829,15 @@ router ospf 1
               </select>
               <span style="font-size:12px;color:var(--n5)" id="hist-count">0 条记录</span>
             </div>
-            <div id="tool-history-list" style="padding:10px 20px 20px;display:flex;flex-direction:column;gap:8px"></div>
+            <div id="tool-history-list" class="tool-list-body"></div>
           </div>
           <!-- Approvals Panel -->
           <div class="tool-panel" id="tp-approvals">
-            <div style="padding:12px 20px;display:flex;gap:10px;align-items:center;background:var(--card);border-bottom:1px solid var(--n8)">
+            <div class="tool-listbar">
               <span style="font-size:14px;font-weight:700;color:var(--n2)">待审批</span>
               <span style="font-size:12px;color:var(--n5)" id="approval-count">0 条</span>
             </div>
-            <div id="tool-approval-list" style="padding:10px 20px 20px;display:flex;flex-direction:column;gap:10px"></div>
+            <div id="tool-approval-list" class="tool-list-body"></div>
           </div>
         </div>
       </div>

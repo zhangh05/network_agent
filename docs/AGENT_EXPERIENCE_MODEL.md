@@ -26,7 +26,7 @@ User Input
 |------|--------|----------|
 | Greeting | `assistant_chat` | LLM (MiniMax-M3) with deterministic fallback |
 | Identity Q | `assistant_chat` | LLM response with capability hints |
-| Capability Q | `assistant_chat` | LLM lists enabled + planned + safety notes |
+| Capability Q | `assistant_chat` | Reports enabled modules and Tool Runtime catalog counts |
 | Help / Thanks | `assistant_chat` | LLM guidance + farewell |
 | Explain last | `context_qa` | Summarizes last run, manual_review, quality |
 | Config translate | `translate_config` | Executes config_translation skill |
@@ -48,7 +48,7 @@ Agent conversations are now organized into **Sessions**:
 ```
 router → intent=assistant_chat
   → planner → no-op plan
-  → executor → no-op (returns early)
+  → executor → no-op, or Agent Tool Bridge for explicit safe tool requests
   → composer → _compose_assistant_chat(state)
       → try safe_generate("assistant_chat") → MiniMax-M3
       → fallback: _assistant_response(state) if LLM disabled/blocked
@@ -57,7 +57,10 @@ router → intent=assistant_chat
 
 - LLM path: `safe_generate → get_prompt_by_task → render_prompt → check_prompt_text → check_prompt_input → provider(MiniMax-M3) → check_prompt_output → response`
 - Deterministic fallback: always available if LLM fails (provider error, policy block, disabled)
-- No skill loaded, no module called, no tool invoked
+- For ordinary chat, no skill loaded and no module called
+- For explicit tool requests, Agent Tool Bridge may call low-risk Tool Runtime tools through `ToolRuntimeClient`
+- Medium-risk tools are dry-run only when the user explicitly asks for dry-run/预演
+- High-risk or `requires_approval` tools are not executed by Agent; the response routes the user to Tool Catalog approval
 - No deployable_config generated
 - No job/artifact/report created
 
@@ -75,7 +78,7 @@ When a user pastes raw config text (without explicit "translate" keywords), it r
 ## Safety Red Lines
 
 1. assistant_chat NEVER enters business module
-2. assistant_chat NEVER calls Tool Runtime
+2. assistant_chat may use only the supervised Agent Tool Bridge; it must not execute arbitrary Tool Runtime tools
 3. assistant_chat NEVER generates deployable_config
 4. LLM goes through Prompt Runtime policy with negation context detection
 5. deterministic fallback always available

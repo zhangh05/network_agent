@@ -69,6 +69,15 @@ class TestFrontendBackendAlignment:
         assert "statusEl.textContent='已连接'" in body
         assert "try{_loadAllData();}" in body.replace(" ", "")
 
+    def test_tool_catalog_uses_dense_full_width_layout(self):
+        """Tool Catalog should use a dense workspace layout instead of a narrow card."""
+        html = (PROJECT_ROOT / "frontend" / "index.html").read_text()
+        assert 'class="card-flush tool-shell"' in html
+        assert 'class="tool-filterbar"' in html
+        assert 'class="tool-catalog-grid"' in html
+        assert "minmax(210px,1fr)" in html
+        assert "minmax(260px,1fr)" not in html
+
 
 class TestAgentChat:
     def test_hello_intent(self):

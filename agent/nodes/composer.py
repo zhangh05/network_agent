@@ -82,6 +82,14 @@ def compose(state: NetworkAgentState) -> NetworkAgentState:
 def _compose_assistant_chat(state: NetworkAgentState):
     """Compose assistant_chat response: try LLM, fallback to deterministic."""
     import traceback
+    result = state.skill_results or state.tool_results or {}
+    if result.get("mode") in ("tool_catalog", "tool_runtime", "tool_runtime_blocked"):
+        state.final_response = _assistant_response(state)
+        state.context.setdefault("llm", {})["used"] = False
+        state.context["llm"]["fallback"] = True
+        state.context["llm"]["fallback_reason"] = "deterministic tool bridge response"
+        return
+
     state.context.setdefault("llm", {})
     llm = state.context["llm"]
 
@@ -322,6 +330,51 @@ def _deterministic(result: dict, intent: str) -> str:
 def _assistant_response(state: NetworkAgentState) -> str:
     """Generate deterministic assistant response for basic conversation."""
     ui = (state.user_input or "").lower().strip()
+    result = state.skill_results or state.tool_results or {}
+    if result.get("mode") == "tool_catalog":
+        catalog = result.get("tool_catalog", {})
+        by_risk = catalog.get("by_risk", {})
+        by_category = catalog.get("by_category", {})
+        cats = "、".join(f"{k}:{v}" for k, v in sorted(by_category.items())[:8])
+        return (
+            "我当前可以通过 Tool Runtime 识别和调用工具。\n"
+            f"- Tool 总数：{catalog.get('count', 0)}\n"
+            f"- 可自动调用的低风险工具：{catalog.get('auto_callable_count', 0)}\n"
+            f"- 风险分布：low={by_risk.get('low', 0)}, medium={by_risk.get('medium', 0)}, "
+            f"high={by_risk.get('high', 0)}, forbidden={by_risk.get('forbidden', 0)}\n"
+            f"- 分类示例：{cats}\n"
+            "我可以自动调用 low 风险只读工具；medium 工具只支持明确 dry-run；high 工具需要审批。"
+        )
+    if result.get("mode") == "tool_runtime":
+        output = result.get("output", {})
+        lines = [
+            f"已调用 Tool Runtime 工具 `{result.get('tool_id')}`。",
+            f"- 状态：{result.get('status')}",
+        ]
+        if result.get("dry_run"):
+            lines.append("- 模式：dry-run")
+        summary = result.get("summary")
+        if summary:
+            lines.append(f"- 摘要：{summary}")
+        if output:
+            safe_items = []
+            for k, v in list(output.items())[:8]:
+                safe_items.append(f"{k}={str(v)[:120]}")
+            lines.append("- 输出：" + "；".join(safe_items))
+        return "\n".join(lines)
+    if result.get("mode") == "tool_runtime_blocked":
+        tool_id = result.get("tool_id", "")
+        reason = result.get("reason", "")
+        if reason == "approval_required":
+            return (
+                f"`{tool_id}` 是高风险或需审批工具，我不能在对话中自动执行。\n"
+                "请在 Tool Catalog 里提交审批，审批通过后再通过受控入口调用。"
+            )
+        return (
+            f"`{tool_id}` 不是自动执行工具。\n"
+            "如果它支持 dry-run，请明确说明 dry-run/预演；涉及写入或外部访问的操作不会由 Agent 直接执行。"
+        )
+
     # Greetings
     if any(kw in ui for kw in ["你好", "hello", "hi", "hey"]):
         return ("你好，我是 Network Agent，一个本地网络工程 Agent。\n"
