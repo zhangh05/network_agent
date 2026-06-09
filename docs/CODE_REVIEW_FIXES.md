@@ -1,6 +1,8 @@
 # Code Review Findings — 2026-06-09
 
-Baseline commit: `8cf0a1b`. Review scope: full codebase including agent graph, nodes, llm, backend API, frontend, modules, runtime, tests, docs.
+Baseline commit: `5a56b1f`. Review scope: full codebase including agent graph, nodes, llm, backend API, frontend, modules, runtime, tests, docs.
+
+**Status: ALL HIGH + ALL MEDIUM + key LOW issues RESOLVED.** Architecture refactored with Codex-inspired Context Fragment + Task/Turn models.
 
 ---
 
@@ -139,6 +141,23 @@ Baseline commit: `8cf0a1b`. Review scope: full codebase including agent graph, n
 ### 25-33. Minor: unused variables, dead module-level code, etc. (see full review)
 
 ---
+
+## Architecture Refactoring (2026-06-09)
+
+After studying OpenAI Codex's agent architecture, two key patterns were adopted:
+
+### 1. Context Fragment System (`context/fragments/`)
+- Replaces 5 ad-hoc try/except blocks in `context_loader.py`
+- 5 standard fragments: WorkspaceState, MemoryHits, ModuleRegistry, SkillRegistry, ContextBundle
+- Each fragment: independent build(), token budget cap, priority ordering, error isolation
+- Extensibility: new fragments can be registered without touching loader code
+- Inspired by Codex's `ContextualUserFragment` trait + `FragmentRegistration` pattern
+
+### 2. Task/Turn Model (`agent/task.py`, `agent/turn.py`)
+- Task: state machine (CREATED → RUNNING → COMPLETED | FAILED | CANCELLED)
+- Turn: per-LLM-cycle tracking (tool calls, model response, elapsed, status)
+- Integrated into `llm_orchestrator.py` for agentic loop observability
+- Inspired by Codex's Session → Task → Turn model
 
 ## INFO / Cleanup
 
