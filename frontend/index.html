@@ -205,13 +205,14 @@
   .invoke-field textarea{resize:vertical;min-height:60px}
 
   /* ── Tool cards ── */
-  .tool-card{cursor:pointer;transition:transform .12s,border-color .15s,box-shadow .15s;background:var(--card);border:1px solid var(--n4);border-radius:8px;padding:12px 14px;position:relative;overflow:hidden}
+  .tool-card{cursor:pointer;transition:transform .12s,border-color .15s,box-shadow .15s;background:var(--card);border:1px solid var(--n4);border-radius:8px;padding:12px 14px;display:flex;flex-direction:column}
   .tool-card:hover{border-color:var(--pri);box-shadow:0 2px 12px rgba(37,99,235,.1);transform:translateY(-1px)}
   .tool-card.forbidden{cursor:not-allowed;opacity:.45}
   .tool-card.forbidden:hover{border-color:var(--n4);box-shadow:none;transform:none}
-  .tool-card .tc-name{font-size:13px;font-weight:600;color:var(--n2);font-family:var(--mono);letter-spacing:-.01em}
-  .tool-card .tc-desc{font-size:11.5px;color:var(--n6);line-height:1.5;margin-top:5px;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
-  .tool-card .tc-tags{display:flex;gap:5px;flex-wrap:wrap;margin-top:9px;align-items:center}
+  .tool-card .tc-head{display:flex;align-items:center;justify-content:space-between;min-height:20px}
+  .tool-card .tc-name{font-size:13px;font-weight:600;color:var(--n2);font-family:var(--mono)}
+  .tool-card .tc-desc{font-size:11.5px;color:var(--n6);line-height:1.5;margin-top:6px;min-height:17px}
+  .tool-card .tc-tags{display:flex;gap:5px;flex-wrap:wrap;margin-top:auto;padding-top:8px}
   .tool-card .tc-tag{display:inline-flex;align-items:center;padding:1px 7px;border-radius:4px;font-size:10.5px;font-weight:500;line-height:1.5}
   .tool-card .tc-tag.gn{background:#ecfdf5;color:#047857}
   .tool-card .tc-tag.rd{background:#fef2f2;color:#b91c1c}
@@ -222,7 +223,6 @@
   .tool-card .tc-tag.risk-med{background:#fefce8;color:#a16207}
   .tool-card .tc-tag.risk-high{background:#fef2f2;color:#b91c1c}
   .tool-card .tc-tag.risk-block{background:var(--n9);color:var(--n5)}
-  .tool-card .tc-risk{position:absolute;top:10px;right:10px}
 
   /* ── Tool category header ── */
   .tc-cat-header{grid-column:1/-1;margin-top:4px;padding-bottom:6px;border-bottom:1px solid var(--n8);display:flex;align-items:center;gap:8px}
@@ -1346,7 +1346,6 @@ function filterToolCards(){
 function renderToolCards(tools){
   var grid=document.getElementById('tool-catalog-grid');
   grid.innerHTML='';
-  // Group by category
   var grouped={};
   tools.forEach(function(t){grouped[t.category]=grouped[t.category]||[];grouped[t.category].push(t);});
   Object.keys(grouped).sort().forEach(function(cat){
@@ -1360,15 +1359,17 @@ function renderToolCards(tools){
       var isForbidden=t.risk_level==='forbidden';
       card.className='tool-card'+(isForbidden?' forbidden':'');
       var riskClass='risk-'+(t.risk_level==='low'?'low':t.risk_level==='medium'?'med':t.risk_level==='high'?'high':'block');
-      var statusTag=t.enabled?'<span class="tc-tag gn">enabled</span>':'<span class="tc-tag rd">disabled</span>';
-      var dryTag=t.dry_run_supported?'<span class="tc-tag bl">dry_run</span>':'';
-      var versionTag=t.version?'<span class="tc-tag gy">v'+esc(t.version)+'</span>':'';
-      card.innerHTML='<div class="tc-risk">'
-        +'<span class="tc-tag '+riskClass+'">'+(t.risk_level==='forbidden'?'Blocked':t.risk_level.charAt(0).toUpperCase()+t.risk_level.slice(1))+'</span>'
+      var riskLabel=t.risk_level==='forbidden'?'Blocked':t.risk_level.charAt(0).toUpperCase()+t.risk_level.slice(1);
+      var tags=[];
+      if(t.enabled) tags.push('<span class="tc-tag gn">enabled</span>'); else tags.push('<span class="tc-tag rd">disabled</span>');
+      if(t.dry_run_supported) tags.push('<span class="tc-tag bl">dry_run</span>');
+      if(t.version) tags.push('<span class="tc-tag gy">v'+esc(t.version)+'</span>');
+      card.innerHTML='<div class="tc-head">'
+        +'<span class="tc-name">'+esc(t.tool_id)+'</span>'
+        +'<span class="tc-tag '+riskClass+'">'+riskLabel+'</span>'
         +'</div>'
-        +'<div class="tc-name">'+esc(t.tool_id)+'</div>'
         +'<div class="tc-desc">'+esc((t.description||'').slice(0,110))+'</div>'
-        +'<div class="tc-tags">'+statusTag+dryTag+versionTag+'</div>';
+        +'<div class="tc-tags">'+tags.join('')+'</div>';
       if(!isForbidden){
         card.addEventListener('click',function(){openInvoke(t);});
       }
