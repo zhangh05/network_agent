@@ -20,8 +20,23 @@ MAX_ORCHESTRATION_STEPS = 10
 def orchestrate(state: NetworkAgentState) -> NetworkAgentState:
     """LLM-driven agentic loop: LLM decides tools -> execute -> loop -> final answer.
 
-    Replaces the old keyword-based tool_planner entirely.
+    Uses Task/Turn model for lifecycle tracking (inspired by Codex).
+    Each LLM decision cycle is a Turn; the entire user request is a Task.
     """
+    from agent.task import Task
+    from agent.turn import Turn
+
+    # Initialize Task tracking
+    task = Task(
+        intent=state.intent or "unknown",
+        user_input=state.user_input or "",
+        workspace_id=state.workspace_id or "default",
+        session_id=getattr(state, "session_id", ""),
+    )
+    task.start()
+    state.context.setdefault("task", {})
+    state.context["task"] = task.as_dict()
+
     ws_id = state.workspace_id or "default"
     user_input = state.user_input or ""
 
@@ -30,6 +45,8 @@ def orchestrate(state: NetworkAgentState) -> NetworkAgentState:
     cfg = resolve_provider_config()
     if not cfg.get("enabled") or cfg.get("provider_type") == "disabled":
         _handle_llm_disabled(state, ws_id)
+        task.complete({"mode": "deterministic"})
+        state.context["task"] = task.as_dict()
         return state
 
     # 2. If LLM is enabled but intent is assistant_chat, skip LLM orchestration
@@ -83,9 +100,14 @@ def orchestrate(state: NetworkAgentState) -> NetworkAgentState:
 
     while step < MAX_ORCHESTRATION_STEPS:
         step += 1
+
+        # Track this turn
+        turn = Turn(task.record_turn())
+
         try:
             resp = generate(req)
         except Exception as e:
+            turn.fail(str(e)[:200])
             final_answer = _build_partial_answer(all_tool_results, str(e)[:200])
             break
 
@@ -111,6 +133,7 @@ def orchestrate(state: NetworkAgentState) -> NetworkAgentState:
 
             for tc in resp.tool_calls:
                 tool_result = _execute_tool(tc.name, tc.arguments, ws_id)
+                turn.record_tool_call(tc.name, tc.arguments, tool_result)
                 all_tool_results.append({
                     "tool_id": tc.name,
                     "arguments": tc.arguments,
@@ -136,13 +159,18 @@ def orchestrate(state: NetworkAgentState) -> NetworkAgentState:
             continue
 
         final_answer = _clean_response(resp.content)
+        turn.complete(final_answer)
         break
 
-    # 6. Set result
+    # 6. Set result and complete task
     if not final_answer:
         final_answer = _build_partial_answer(all_tool_results, "no response")
         state.warnings.append(f"orchestration max steps ({MAX_ORCHESTRATION_STEPS}) reached")
+        task.fail("max_steps_reached")
+    else:
+        task.complete({"turn_count": step, "tool_calls": len(all_tool_results)})
 
+    state.context["task"] = task.as_dict()
     state.tool_results = {
         "ok": True,
         "answer": final_answer,
