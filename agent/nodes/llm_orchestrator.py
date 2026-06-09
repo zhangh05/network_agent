@@ -7,6 +7,7 @@ further decisions or final response.
 """
 
 import json
+import re
 import time
 from typing import List, Optional
 
@@ -17,14 +18,14 @@ MAX_ORCHESTRATION_STEPS = 10
 
 
 def orchestrate(state: NetworkAgentState) -> NetworkAgentState:
-    """LLM-driven agentic loop: LLM decides tools → execute → loop → final answer.
+    """LLM-driven agentic loop: LLM decides tools -> execute -> loop -> final answer.
 
     Replaces the old keyword-based tool_planner entirely.
     """
     ws_id = state.workspace_id or "default"
     user_input = state.user_input or ""
 
-    # ── 1. Get LLM config ──
+    # 1. Get LLM config
     from agent.llm.config import resolve_provider_config
     cfg = resolve_provider_config()
     if not cfg.get("enabled") or cfg.get("provider_type") == "disabled":
@@ -33,18 +34,18 @@ def orchestrate(state: NetworkAgentState) -> NetworkAgentState:
         state.skill_results = state.tool_results
         return state
 
-    # ── 2. Build tool definitions ──
+    # 2. Build tool definitions
     from agent.llm.tool_adapter import list_tools_for_orchestrator, build_system_prompt_with_tools
     tools = list_tools_for_orchestrator()
 
-    # ── 3. Build messages ──
+    # 3. Build messages
     system_prompt = build_system_prompt_with_tools(ws_id)
     messages = [
         LLMMessage(role="system", content=system_prompt),
         LLMMessage(role="user", content=user_input),
     ]
 
-    # ── 4. Build initial request ──
+    # 4. Build initial request
     req = LLMRequest(
         task="assistant_chat",
         messages=messages,
@@ -54,7 +55,7 @@ def orchestrate(state: NetworkAgentState) -> NetworkAgentState:
         tools=tools,
     )
 
-    # ── 5. Agentic loop ──
+    # 5. Agentic loop
     from agent.llm.provider import generate
 
     all_tool_results = []
@@ -63,14 +64,20 @@ def orchestrate(state: NetworkAgentState) -> NetworkAgentState:
 
     while step < MAX_ORCHESTRATION_STEPS:
         step += 1
-        resp = generate(req)
+        try:
+            resp = generate(req)
+        except Exception as e:
+            final_answer = _build_partial_answer(all_tool_results, str(e)[:200])
+            break
 
         if resp.error:
-            final_answer = f"LLM error: {resp.error}"
+            if step == 1:
+                final_answer = f"LLM error: {resp.error}"
+            else:
+                final_answer = _build_partial_answer(all_tool_results, resp.error)
             break
 
         if resp.has_tool_calls():
-            # Execute each tool call
             for tc in resp.tool_calls:
                 tool_result = _execute_tool(tc.name, tc.arguments, ws_id)
                 all_tool_results.append({
@@ -80,7 +87,6 @@ def orchestrate(state: NetworkAgentState) -> NetworkAgentState:
                     "summary": _truncate(tool_result.get("summary", ""), 500),
                     "errors": tool_result.get("errors", [])[:5],
                 })
-                # Append tool result to conversation
                 assistant_msg = LLMMessage(
                     role="assistant",
                     content="",
@@ -91,7 +97,6 @@ def orchestrate(state: NetworkAgentState) -> NetworkAgentState:
                     }],
                 )
                 messages.append(assistant_msg)
-
                 tool_msg = LLMMessage(
                     role="tool",
                     content=json.dumps(tool_result, ensure_ascii=False)[:1000],
@@ -99,7 +104,6 @@ def orchestrate(state: NetworkAgentState) -> NetworkAgentState:
                 )
                 messages.append(tool_msg)
 
-            # Update request with accumulated messages
             req = LLMRequest(
                 task="assistant_chat",
                 messages=messages,
@@ -110,13 +114,12 @@ def orchestrate(state: NetworkAgentState) -> NetworkAgentState:
             )
             continue
 
-        # No more tool calls — LLM produced final content
-        final_answer = resp.content or ""
+        final_answer = _clean_response(resp.content)
         break
 
-    # ── 6. Set result ──
+    # 6. Set result
     if not final_answer:
-        final_answer = "No response from LLM."
+        final_answer = _build_partial_answer(all_tool_results, "no response")
 
     state.tool_results = {
         "ok": True,
@@ -158,10 +161,34 @@ def _execute_tool(tool_id: str, arguments: dict, workspace_id: str) -> dict:
         return {"ok": False, "status": "failed", "summary": str(e)[:200], "errors": [str(e)[:200]]}
 
 
-def _truncate(text: str, max_len: int) -> str:
+def _truncate(text, max_len: int) -> str:
     if not text:
         return ""
-    return text[:max_len] + ("..." if len(text) > max_len else "")
+    s = str(text)
+    return s[:max_len] + ("..." if len(s) > max_len else "")
+
+
+def _clean_response(text: str) -> str:
+    """Remove provider reasoning markup from LLM output."""
+    if not text:
+        return ""
+    t = text
+    t = re.sub(r"<think\b[^>]*>.*?</think>", "", t, flags=re.IGNORECASE | re.DOTALL)
+    t = re.sub(r"<reasoning\b[^>]*>.*?</reasoning>", "", t, flags=re.IGNORECASE | re.DOTALL)
+    t = re.sub(r"(?is)^\s*(思考|思考过程|reasoning)\s*[:：].*?(?=\n\s*(回答|答案|answer|conclusion)\s*[:：]|\Z)", "", t)
+    t = re.sub(r"(?i)</?(think|reasoning)\b[^>]*>", "", t)
+    return t.strip() or text.strip()
+
+
+def _build_partial_answer(tool_results: list, error: str) -> str:
+    """Build a partial answer when LLM fails after some tool calls."""
+    if not tool_results:
+        return f"LLM error: {error}"
+    successes = [r for r in tool_results if r.get("ok")]
+    msg = f"部分工具执行完成（{len(successes)}/{len(tool_results)} 成功），但 LLM 处理出错：{error}"
+    for r in tool_results[:3]:
+        msg += f"\n- {r.get('tool_id', '')}: {'OK' if r.get('ok') else 'FAILED'}"
+    return msg
 
 
 def _safe_dict(d: dict) -> dict:
