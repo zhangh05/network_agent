@@ -346,9 +346,38 @@ def register_runtime_routes(app):
             "workspace_id": ws_id,
         })
 
+    def _require_admin():
+        """Check if request has admin privileges for approval operations.
+
+        Admin authentication methods (in order of priority):
+        1. X-Admin-Token header matching NETWORK_AGENT_ADMIN_TOKEN env var
+        2. localhost access (127.0.0.1 or ::1) if no admin token is configured
+
+        Returns:
+            True if admin, False otherwise
+        """
+        # Check Admin Token header
+        admin_token = request.headers.get("X-Admin-Token", "")
+        expected_token = os.environ.get("NETWORK_AGENT_ADMIN_TOKEN", "")
+        if expected_token:
+            # If admin token is configured, it MUST be provided
+            if admin_token == expected_token:
+                return True
+            return False
+        else:
+            # If no admin token configured, allow localhost access only
+            client_ip = request.remote_addr
+            if client_ip in ("127.0.0.1", "::1"):
+                return True
+            return False
+
     @app.route("/api/tools/approvals/<approval_id>/approve", methods=["PUT"])
     def api_tools_approve(approval_id):
         """Approve a pending tool approval."""
+        # Admin authentication required
+        if not _require_admin():
+            return jsonify({"ok": False, "error": "admin_access_required"}), 403
+
         with _lock:
             approval = _tool_approvals.get(approval_id)
             if not approval or approval.get("status") != "pending":
@@ -363,6 +392,10 @@ def register_runtime_routes(app):
     @app.route("/api/tools/approvals/<approval_id>/reject", methods=["PUT"])
     def api_tools_reject(approval_id):
         """Reject a pending tool approval."""
+        # Admin authentication required
+        if not _require_admin():
+            return jsonify({"ok": False, "error": "admin_access_required"}), 403
+
         with _lock:
             approval = _tool_approvals.get(approval_id)
             if not approval or approval.get("status") != "pending":
