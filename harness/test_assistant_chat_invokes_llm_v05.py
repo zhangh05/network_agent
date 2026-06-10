@@ -89,7 +89,7 @@ class TestAssistantChatWithToolsMode:
         }
 
         with patch("agent.llm.runtime.invoke_llm", return_value=mock_resp):
-            with patch("agent.nodes.llm_orchestrator._execute_tool", return_value=mock_tool_result):
+            with patch("agent.legacy.llm_orchestrator._execute_tool", return_value=mock_tool_result):
                 result = orchestrate(state)
 
                 # Verify that tool_results contains the tool execution

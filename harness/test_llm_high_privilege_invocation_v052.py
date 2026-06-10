@@ -91,7 +91,7 @@ class TestComposerReturnsLLMAnswerSafeToShowFalse:
             warnings=["response_policy_warning"],
         )
 
-        with patch("agent.nodes.composer._resolve_and_update_llm") as mock_cfg:
+        with patch("agent.legacy.composer._resolve_and_update_llm") as mock_cfg:
             mock_cfg.return_value = {
                 "enabled": True,
                 "provider_type": "openai_compatible",
@@ -288,7 +288,7 @@ class TestAssistantChatKeepsWithTools:
                 "temperature": 0.2,
                 "max_tokens": 4096,
             }
-            with patch("agent.nodes.llm_orchestrator._execute_tool", side_effect=fake_execute):
+            with patch("agent.legacy.llm_orchestrator._execute_tool", side_effect=fake_execute):
                 with patch("agent.llm.runtime.invoke_llm", return_value=mock_resp):
                     from agent.state import NetworkAgentState
                     from agent.legacy.llm_orchestrator import orchestrate

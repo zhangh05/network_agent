@@ -102,7 +102,7 @@ class TestOrchestratorMapping:
             LLMToolCall(id="call_1", name="runtime__health", arguments={"check": "all"})
         ]
 
-        with patch("agent.nodes.llm_orchestrator._execute_tool", side_effect=fake_execute):
+        with patch("agent.legacy.llm_orchestrator._execute_tool", side_effect=fake_execute):
             with patch("agent.llm.runtime.invoke_llm", return_value=mock_resp):
                 from agent.legacy.llm_orchestrator import orchestrate
                 from agent.state import NetworkAgentState
