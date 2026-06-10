@@ -1,1 +1,1 @@
-# config_translation module stub
+# agent/modules/config_translation/__init__.py

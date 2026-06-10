@@ -44,11 +44,32 @@ def default_runtime_services() -> RuntimeServices:
 
 
 def _build_default_registry() -> "ToolRegistry":
-    """Build ToolRegistry from the real ToolRuntime catalog."""
+    """Build ToolRegistry from the real ToolRuntime catalog + capability tools."""
     from agent.tools.registry import ToolRegistry
+    reg = ToolRegistry()
     try:
         from tool_runtime.integration import get_default_tool_runtime_client
         client = get_default_tool_runtime_client()
-        return ToolRegistry.from_runtime_client(client)
+        reg = ToolRegistry.from_runtime_client(client)
     except Exception:
-        return ToolRegistry()
+        pass
+    # Register capability-layer tools
+    _register_capability_tools(reg)
+    return reg
+
+
+def _register_capability_tools(registry: "ToolRegistry"):
+    """Register config_translation and knowledge tools in the registry."""
+    from agent.tools.schemas import ToolSpec as AgentToolSpec
+    from agent.modules.config_translation.tools import TOOL_CONFIG_TRANSLATION, tool_handler as config_handler
+    from agent.modules.knowledge.tools import TOOL_KNOWLEDGE_QUERY, tool_handler as knowledge_handler
+
+    for spec, handler in [
+        (TOOL_CONFIG_TRANSLATION, config_handler),
+        (TOOL_KNOWLEDGE_QUERY, knowledge_handler),
+    ]:
+        if spec.tool_id not in registry._specs:
+            registry._specs[spec.tool_id] = spec
+            if not hasattr(registry, '_handlers'):
+                registry._handlers = {}
+            registry._handlers[spec.tool_id] = handler

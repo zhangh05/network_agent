@@ -21,8 +21,8 @@ SKILL_CONFIG_TRANSLATION = SkillSpec(
     name="Config Translation",
     description="Translate network configuration between vendor formats",
     status="enabled",
-    related_tools=["parser.parse_config_text", "parser.extract_interfaces"],
-    prompt_summary="I can translate network device configuration between vendors (Cisco, Huawei, Juniper, etc.). Just paste your config.",
+    related_tools=["config_translation.translate_config", "parser.parse_config_text", "parser.extract_interfaces"],
+    prompt_summary="Use this skill to translate network device configuration. Requires source_config and target_vendor. Does not claim deployable_config is authoritative unless module validation generated it.",
     module_id="config_translation",
 )
 
@@ -41,8 +41,8 @@ SKILL_KNOWLEDGE = SkillSpec(
     name="Knowledge Query",
     description="Query network documentation and knowledge base",
     status="enabled",
-    related_tools=["knowledge.search"],
-    prompt_summary="I can search network documentation for specific topics.",
+    related_tools=["knowledge.query", "knowledge.search"],
+    prompt_summary="Use this skill to query local knowledge. Never fabricate sources. If no results are found, report honestly.",
     module_id="knowledge",
 )
 

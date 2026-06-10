@@ -20,8 +20,9 @@ MODULE_CONFIG_TRANSLATION = ModuleSpec(
     module_id="config_translation",
     name="Config Translation",
     status="enabled",
+    service_path="agent.modules.config_translation.service",
     skill_id="config_translation",
-    related_tools=["parser.parse_config_text", "parser.extract_interfaces"],
+    related_tools=["config_translation.translate_config", "parser.parse_config_text", "parser.extract_interfaces"],
     description="Translate network configuration between vendors",
 )
 
@@ -29,8 +30,9 @@ MODULE_KNOWLEDGE = ModuleSpec(
     module_id="knowledge",
     name="Knowledge / RAG",
     status="enabled",
+    service_path="agent.modules.knowledge.service",
     skill_id="knowledge_query",
-    related_tools=["knowledge.search"],
+    related_tools=["knowledge.query", "knowledge.search"],
     description="Query network documentation",
 )
 

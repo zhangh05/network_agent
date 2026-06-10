@@ -9,6 +9,7 @@ class ToolRegistry:
     def __init__(self):
         self._specs: dict = {}       # tool_id → ToolSpec
         self._tool_client = None
+        self._handlers: dict = {}    # tool_id → callable (capability-layer handlers)
 
     @classmethod
     def from_runtime_client(cls, client) -> "ToolRegistry":
@@ -48,7 +49,15 @@ class ToolRegistry:
         return self._specs.get(tool_id)
 
     def dispatch(self, tool_id: str, args: dict, context=None) -> dict:
-        """Execute tool via ToolRuntimeClient."""
+        """Execute tool via capability handler or ToolRuntimeClient."""
+        # Check capability-layer handlers first
+        if tool_id in self._handlers:
+            try:
+                return self._handlers[tool_id](args, context)
+            except Exception as e:
+                return {"ok": False, "status": "failed", "summary": str(e)[:200], "errors": [str(e)[:200]]}
+
+        # Fall through to ToolRuntimeClient
         if self._tool_client is None:
             return {"ok": False, "status": "failed", "summary": "No tool client", "errors": ["no tool client"]}
         try:
