@@ -70,8 +70,16 @@ _limiters_lock = threading.Lock()
 _LIMITER_TTL = 3600  # Evict limiters idle > 1 hour
 
 
-def _get_limiter(endpoint: str) -> _WindowCounter:
-    """Get or create a rate limiter for an endpoint."""
+def _get_limiter(endpoint: str, client_ip: str) -> _WindowCounter:
+    """Get or create a rate limiter for a client IP + endpoint combination.
+
+    Args:
+        endpoint: The API endpoint path (e.g., "/api/agent/run")
+        client_ip: The client's IP address (from _get_client_ip())
+
+    Returns:
+        A _WindowCounter instance for this client IP + endpoint
+    """
     # Find matching limit config (longest prefix match)
     matched = DEFAULT_LIMIT
     matched_len = 0
@@ -81,7 +89,8 @@ def _get_limiter(endpoint: str) -> _WindowCounter:
             matched_len = len(prefix)
 
     max_req, window = matched
-    key = f"{endpoint}:{max_req}:{window}"
+    # Key includes client_ip to ensure per-IP rate limiting
+    key = f"{client_ip}:{endpoint}:{max_req}:{window}"
     now = time.time()
 
     with _limiters_lock:
@@ -131,8 +140,7 @@ def rate_limit_middleware(app):
             return None
 
         client_ip = _get_client_ip()
-        limiter_key = f"{client_ip}:{request.path}"
-        limiter = _get_limiter(request.path)
+        limiter = _get_limiter(request.path, client_ip)
 
         if not limiter.allow():
             return jsonify({
