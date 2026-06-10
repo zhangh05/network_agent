@@ -7,6 +7,7 @@ Network Agent Tool Runtime provides safe, auditable, policy-controlled tool exec
 - **v0.1**: 7 built-in tools (artifact, parser, report, command — low risk only)
 - **v0.2**: 55 tools across 11 categories. See [TOOL_RUNTIME_GENERAL_TOOLS_v0.2.md](TOOL_RUNTIME_GENERAL_TOOLS_v0.2.md)
 - **v0.3 (current)**: Interactive UI with invoke, dry-run, history, and approval workflows. See below.
+- **v0.4.1**: ToolRuntimeContext propagation to `ToolRuntimeClient.invoke()`; Approval admin boundary (`_require_admin()`).
 - Integration details: see [TOOL_RUNTIME_INTEGRATION.md](TOOL_RUNTIME_INTEGRATION.md)
 
 ## Current State (v0.3)

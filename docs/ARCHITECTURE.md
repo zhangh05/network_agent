@@ -38,6 +38,20 @@ Tool Runtime / SSE Streaming / Rate Limiting
 Lifecycle Utilities (lifecycle_base)
 ```
 
+## v0.4.1 Architecture Hardening
+
+### Orchestrator Single Entry
+Orchestrator removed from graph nodes — runs inside `skill_executor.execute()`. Pipeline is now 7-node trace chain: router→context→planner→executor→verifier→composer→memory. Module_call events produced via `_record_module_event()` in `llm_orchestrator.py`.
+
+### Rate Limit per-IP + Endpoint
+`backend/core/rate_limit.py` refactored: sliding window uses request timestamp list (accurate). Per-IP + endpoint key: `{client_ip}:{endpoint}:{max_req}:{window}`. Respects `TRUSTED_PROXY` env var.
+
+### ToolRuntimeContext Propagation
+`llm_orchestrator.py`::_execute_tool() now passes `ToolRuntimeContext(workspace_id, run_id, trace_id, requested_by)` to `ToolRuntimeClient.invoke()`. Enables workspace isolation + audit for orchestrator-triggered tool executions.
+
+### Approval Admin Boundary
+`backend/api/runtime_routes.py` now checks admin via `_require_admin()`: `X-Admin-Token` header matching `NETWORK_AGENT_ADMIN_TOKEN`, or localhost fallback. High-risk tool approvals require admin privileges.
+
 ## Session 会话层
 
 v3.1 新增会话（Session）抽象，将独立的 Agent Run 组织为可恢复的对话线程。

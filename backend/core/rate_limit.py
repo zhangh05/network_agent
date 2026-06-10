@@ -34,32 +34,37 @@ DEFAULT_LIMIT = (60, 60)
 # ─── Sliding window counter ───
 
 class _WindowCounter:
-    """Thread-safe sliding window counter."""
-
+    """Thread-safe sliding window counter.
+    
+    Uses a list of request timestamps for accurate sliding window.
+    Each allow() call prunes expired timestamps and checks the count against max_requests.
+    """
+    
     def __init__(self, max_requests: int, window_seconds: int):
         self.max_requests = max_requests
         self.window_seconds = window_seconds
-        self._buckets = defaultdict(int)   # timestamp_bucket → count
+        self._requests = []  # List of request timestamps (float)
         self._lock = threading.Lock()
-
+    
     def allow(self) -> bool:
-        """Check if request is allowed. Returns True if under limit."""
+        """Check if request is allowed. Returns True if under limit.
+        
+        Prunes expired requests (older than window_seconds) and checks
+        if the count is under max_requests.
+        """
         now = time.time()
-        bucket = int(now)
-        cutoff = bucket - self.window_seconds
-
+        cutoff = now - self.window_seconds
+        
         with self._lock:
-            # Prune old buckets
-            old_keys = [k for k in self._buckets if k < cutoff]
-            for k in old_keys:
-                del self._buckets[k]
-
-            # Count requests in window
-            total = sum(v for k, v in self._buckets.items() if k >= cutoff)
-            if total >= self.max_requests:
+            # Remove old requests outside the window
+            self._requests = [t for t in self._requests if t >= cutoff]
+            
+            # Check if under limit
+            if len(self._requests) >= self.max_requests:
                 return False
-
-            self._buckets[bucket] += 1
+            
+            # Add current request
+            self._requests.append(now)
             return True
 
 

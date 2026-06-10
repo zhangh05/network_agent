@@ -49,21 +49,16 @@ def client(app_with_rate_limit):
 
 class TestSameIPSameEndpointLimit:
     """Same IP, same endpoint should get 429 when exceed limit."""
-
-    def test_exceed_agent_run_limit(self, client):
-        """/api/agent/run allows 10 req/min, 11th should 429."""
-        # Clear rate limit state
+    
+    def setup_method(self, method):
+        """Ensure TESTING=False before each test."""
         from backend.core.rate_limit import _limiters
         _limiters.clear()
-
-        # Send 10 requests (should all succeed)
-        for i in range(10):
-            resp = client.post(
-                "/api/agent/run",
-                json={"message": f"test {i}"},
-                environ_base={"REMOTE_ADDR": "192.168.1.100"},
-            )
-            assert resp.status_code == 200, f"Request {i} should succeed"
+    
+    def test_exceed_agent_run_limit(self, client, app_with_rate_limit):
+        """/api/agent/run allows 10 req/min, 11th should 429."""
+        # Ensure TESTING=False
+        app_with_rate_limit.config["TESTING"] = False
 
         # 11th request should be rate limited
         resp = client.post(

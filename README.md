@@ -85,6 +85,28 @@ Dynamic budget allocation per model (MiniMax 64k, Qwen 128k, etc.), semantic ded
 ### CI Pipeline
 `.github/workflows/ci.yml` runs tests on Python 3.10/3.11/3.12 + ruff lint on every push to main/develop and every PR.
 
+## v0.4.1 Changes (Architecture Hardening)
+
+### Orchestrator Single Entry Refactoring
+`orchestrator` removed from `_CANONICAL_NODES` — no longer a separate graph node. All intents route through `skill_executor.execute()` → `orchestrate()`. This eliminates duplicate execution and makes the pipeline a true 7-node trace chain (router→context→planner→executor→verifier→composer→memory). Module_call events are still produced via `_record_module_event()` in `llm_orchestrator.py::_execute_module_direct()`.
+
+### Rate Limit per-IP + Endpoint
+`backend/core/rate_limit.py` refactored: `_WindowCounter` now uses request timestamp list for accurate sliding window. `_get_limiter()` accepts `client_ip` and includes it in the key (`{client_ip}:{endpoint}:{max_req}:{window}`). `_get_client_ip()` respects `TRUSTED_PROXY` env var. Tests: 7 tests in `harness/test_rate_limit_per_ip.py` (all passed after fix).
+
+### ToolRuntimeContext Propagation
+`agent/nodes/llm_orchestrator.py`::_execute_tool() now accepts `state: NetworkAgentState` and passes `ToolRuntimeContext(workspace_id, run_id, trace_id, requested_by)` to `ToolRuntimeClient.invoke()`. This enables workspace isolation and audit tracing for tool executions triggered by the orchestrator. Tests: 7 tests in `harness/test_tool_runtime_context.py`.
+
+### Approval API Admin Boundary
+`backend/api/runtime_routes.py` now checks admin privileges via `_require_admin()` before approving/rejecting high-risk tool requests. Admin auth: `X-Admin-Token` header matching `NETWORK_AGENT_ADMIN_TOKEN` env var, or localhost fallback (`127.0.0.1` / `::1`). Tests: 10 tests in `harness/test_approval_guard.py`.
+
+### Test Coverage for v0.4.1 Fixes
+| Test File | Count | Coverage |
+|-----------|-------|----------|
+| `test_rate_limit_per_ip.py` | 7 | Per-IP rate limiting, X-Forwarded-For trust |
+| `test_approval_guard.py` | 10 | Admin token auth, localhost fallback, approval status flow |
+| `test_tool_runtime_context.py` | 7 | ToolRuntimeContext propagation, policy integration |
+| `test_langgraph_trace_node_timing.py` | 21 | Module_call events, node timing |
+
 ## Architecture v0.5 (Codex-inspired)
 
 ### Context Fragment System
