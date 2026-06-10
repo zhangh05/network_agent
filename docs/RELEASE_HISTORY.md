@@ -22,6 +22,9 @@
 | `2ae76bcb` | v0.6.3 | harden runtime tool routing | `default_runtime_services` 构建真实 `ToolRouter`；`llm_name_map` 白名单（未知 tool → `tool_call_failed`）；`RuntimeSnapshot` 区分 `total_tool_count` / `visible_tool_count`；System prompt 升级为 Runtime Contract；新增 20 tests | **不变** |
 | `ff6cff5d` | v0.7 | integrate config translation and knowledge capabilities | 接入 `config_translation.translate_config` 与 `knowledge.query`；Tool 数 55 → **57**；`topology` / `inspection` / `cmdb` 仍 planned；新增 21 tests | **不变** |
 | `15565d18` | v0.7.1 | enrich capability artifacts and sources | `translated_config` 保存为 artifact（`authoritative=false, deployable_config=false`）；`manual_review_items` 结构化；knowledge `source_summary`（≤200 字符，无伪造）；`AgentResult.tool_calls` 增强；`ToolResultMessage.content` 1000 → 2000 字符；新增 20 tests | **不变** |
+| `0d160ce` | v0.7.1 sync | docs baseline sync (README + ARCHITECTURE + CAPABILITY_LAYER_V071 + RELEASE_HISTORY) | 文档基线同步到 v0.7.1；新增 `docs/CAPABILITY_LAYER_V071.md` | **不变** |
+| `1c9f89b` | v0.7.1 align | align legacy provider timeout diagnostics assertion | 修复 v0.5 `test_timeout_returns_provider_timeout` 断言（accept "timeout" / "timed out" 两种 wording，主断言 `metadata.provider_error_type == "provider_timeout"`）；新增 wording-agnostic regression test | **不变** |
+| TBD (v0.8) | v0.8 | introduce capability manifest registry | 新增 `agent/capabilities/{schemas,registry,builtin}.py` + 5 个 module `capability.py`；`CapabilityRegistry` 作为能力真相源；`ModuleRegistry.from_capabilities()` / `SkillRegistry.from_capabilities()` / `ToolRegistry.register_capability_tools()`；`RuntimeServices.capability_registry` 字段；`RuntimeSnapshot.build_runtime_snapshot()` 优先从 CapabilityRegistry 投影；`planned` 三个 capability 仍 `NOT callable`；Tool count 仍 = 57；新增 20 tests | **不变** |
 
 ## 各版本能力对照
 

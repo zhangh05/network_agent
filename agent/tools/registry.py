@@ -45,6 +45,41 @@ class ToolRegistry:
         return [s for s in self._specs.values()
                 if s.enabled and not s.forbidden and s.callable_by_llm]
 
+    def register_capability_tools(self, capability_registry) -> int:
+        """Register capability tools from a CapabilityRegistry.
+
+        Only enabled capabilities contribute tools. For each tool ref:
+        - status == "enabled"  → registered as an enabled ToolSpec with
+          the resolved handler (callable_by_llm preserved)
+        - status == "planned"  → SKIPPED (planned tools are not injected)
+
+        Returns the number of newly registered tool_ids.
+        """
+        if capability_registry is None:
+            return 0
+        registered = 0
+        for tool_ref in capability_registry.enabled_tools():
+            if tool_ref.status != "enabled":
+                continue
+            if tool_ref.tool_id in self._specs:
+                continue  # already present, do not overwrite
+            spec = ToolSpec(
+                tool_id=tool_ref.tool_id,
+                name=tool_ref.tool_id,
+                category="capability",
+                description=tool_ref.description,
+                risk_level=tool_ref.risk_level,
+                enabled=True,
+                requires_approval=tool_ref.requires_approval,
+                input_schema=dict(tool_ref.input_schema),
+                callable_by_llm=tool_ref.callable_by_llm,
+                forbidden=tool_ref.forbidden,
+                source=f"capability:{tool_ref.tool_id}",
+            )
+            self._specs[spec.tool_id] = spec
+            registered += 1
+        return registered
+
     def get(self, tool_id: str) -> ToolSpec:
         return self._specs.get(tool_id)
 

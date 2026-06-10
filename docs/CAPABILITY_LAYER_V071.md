@@ -214,3 +214,9 @@ User request
 - Tool call 归因 / 观测性增强：tool_call 事件链、跨 module 引用追踪
 - 跨工作区协作 + 多租户隔离强化
 - 业务模块按规划逐步启用：`topology` → `inspection` → `cmdb`
+
+> **2026-06-10 更新**：v0.7.1 之后已经迈入 **v0.8 — Capability Manifest Refactor**。
+> 业务能力层从"分散的 ModuleRegistry / SkillRegistry / ToolRegistry hardcode 常量"重构为统一的 **`CapabilityManifest` + `CapabilityRegistry`**；
+> RuntimeSnapshot 从 CapabilityRegistry 投影；Module/Skill/Tool Registry 提供 `from_capabilities()` / `register_capability_tools()` 派生路径。
+> v0.7.1 的能力（`config_translation.translate_config` + `knowledge.query`）的**业务输出合同不变**，仅被 manifest 化。
+> 详细见 [CAPABILITY_MANIFEST_V08.md](CAPABILITY_MANIFEST_V08.md)。

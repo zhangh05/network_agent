@@ -1,6 +1,6 @@
 # Network Agent Architecture
 
-## Agent Backend v0.7.1 — Capability Quality & Artifact Integration (CURRENT)
+## Agent Backend v0.8 — Capability Manifest Refactor (CURRENT)
 
 > **HEAD**: `15565d1` (2026-06-10) · **Runtime**: Codex-style (v0.6 底座 + v0.7/v0.7.1 能力层) · **Tool count**: 57
 >
@@ -108,22 +108,24 @@ Capability Layer 在 v0.7 起形成**显式三层**结构，业务能力接入 T
 
 详细契约见 [MODULE_SKILL_TOOL_MODEL.md](MODULE_SKILL_TOOL_MODEL.md) 与 [CAPABILITY_LAYER_V071.md](CAPABILITY_LAYER_V071.md)。
 
-## Current Closure State (v0.7.1)
+## Current Closure State (v0.8)
 
-- **HEAD**: `15565d1` (2026-06-10, Agent Backend v0.7.1 — Capability Quality & Artifact Integration)
+- **HEAD**: v0.8 commit（refactor(agent): introduce capability manifest registry）
 - **Test baseline (focused regression, 2026-06-10)**:
-  - v0.7/v0.7.1 capability tests: **41 passed, 0 failed**
-  - v0.6.x ~ v0.7.1 broader focused regression: **615 passed, 7 skipped, 0 failed**（2026-06-10 当日修复了 v0.5 `test_llm_provider_diagnostics_v05.py::test_timeout_returns_provider_timeout` 的 timeout wording 不一致；+1 = 新增的 wording-agnostic regression test）
-  - Full harness `pytest harness -q` 在本轮 docs-only sync 中未重跑
-- **Runtime architecture**: Codex-style Agent Runtime（Thread / Session / Turn / RuntimeLoop）— v0.6 引入，v0.6.1 ~ v0.7.1 主链未变
+  - v0.8 capability manifest tests: **20 / 20 passed**（`harness/test_capability_manifest_v08.py`）
+  - v0.7/v0.7.1 capability tests: **41 passed, 0 failed**（**未回归**）
+  - v0.6.x ~ v0.8 broader focused regression: **635 passed, 7 skipped, 0 failed**（v0.7.1 baseline 615 + v0.8 新增 20）
+  - Full harness `pytest harness -q` 本轮 docs-only sync + 架构 refactor 中**未**重跑
+- **Runtime architecture**: Codex-style Agent Runtime（Thread / Session / Turn / RuntimeLoop）— v0.6 引入，**v0.6.1 ~ v0.8 主链未变**
+- **CapabilityRegistry (NEW v0.8)**: `agent.capabilities.get_default_capability_registry()` — 5 个 capability（2 enabled + 3 planned），是 ModuleRegistry / SkillRegistry / ToolRegistry / RuntimeSnapshot 的**单一真相源**
 - **Enabled business tools** (v0.7+):
   - `config_translation.translate_config`（capability service: `agent.modules.config_translation.service.translate_config`）
   - `knowledge.query`（capability service: `agent.modules.knowledge.service.query_knowledge`）
 - **Enabled Skills**: `assistant_chat`（基础能力，非业务模块） / `config_translation` / `knowledge_query`
 - **Enabled Modules**: `config_translation` / `knowledge`
-- **Planned (NOT callable)**: `topology` / `inspection` / `cmdb`（在 SkillRegistry / ModuleRegistry / RuntimeSnapshot 中显式标记，**不允许 LLM 调用、不允许伪造数据**）
-- **Tool count**: 55 (v0.6.x) → **57** (v0.7+)，新增 `config_translation.translate_config` + `knowledge.query`
-- **Tool execution 唯一入口**: `ToolRouter → ToolRuntimeClient`（v0.6.3 起由 `default_runtime_services` 构建真实 ToolRouter；v0.6.3 引入 `llm_name_map` 白名单）
+- **Planned (NOT callable)**: `topology` / `inspection` / `cmdb`（在 CapabilityManifest 中以 `status="planned"` 显式标记，所有 planned tool `callable_by_llm=False`；`CapabilityRegistry.visible_tool_ids()` fail-closed 不返回）
+- **Tool count**: 55 (v0.6.x) → **57** (v0.7+)，新增 `config_translation.translate_config` + `knowledge.query`；**v0.8 不变**
+- **Tool execution 唯一入口**: `ToolRouter → ToolRuntimeClient`（v0.6.3 起由 `default_runtime_services` 构建真实 ToolRouter；v0.6.3 引入 `llm_name_map` 白名单；v0.8 通过 `ToolRegistry.register_capability_tools(capability_registry)` 把 capability tools 注入）
 - **Capability output contract (v0.7.1)**:
   - `translated_config` 以 `translated_config` 类型 artifact 持久化（`authoritative=false, deployable_config=false, sensitivity=sensitive`）
   - `manual_review_items` 结构化（item_id / severity / category / line_no / reason / requires_human_review …）

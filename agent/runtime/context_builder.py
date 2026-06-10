@@ -3,12 +3,18 @@
 
 import uuid
 from agent.core.turn_context import TurnContext
-from agent.context.snapshot import RuntimeSnapshot
+from agent.context.snapshot import RuntimeSnapshot, build_runtime_snapshot
 from agent.llm.config import resolve_provider_config
 
 
 def build_turn_context(session, turn, services) -> TurnContext:
-    """Build complete TurnContext for a turn execution."""
+    """Build complete TurnContext for a turn execution.
+
+    v0.8: when services.capability_registry is available, RuntimeSnapshot
+    is built from the CapabilityRegistry (truth-source). Otherwise, falls
+    back to the legacy skill/module snapshots and tags the snapshot with
+    a fallback warning.
+    """
     ctx = TurnContext(
         turn_id=turn.turn_id,
         session_id=session.session_id,
@@ -64,16 +70,27 @@ def build_turn_context(session, turn, services) -> TurnContext:
         except Exception:
             all_tools_count = len(visible_tools)
 
-    snapshot = RuntimeSnapshot(
+    # v0.8: prefer CapabilityRegistry when available.
+    cap_reg = getattr(services, "capability_registry", None) if services else None
+    # Pull base / system skills (e.g. assistant_chat) from the legacy
+    # SkillRegistry so the snapshot still lists them.
+    base_enabled = []
+    if services and services.skill_service:
+        try:
+            base_enabled = [s.skill_id for s in services.skill_service.list_enabled_skills()
+                            if s.skill_id == "assistant_chat"]
+        except Exception:
+            base_enabled = []
+    snapshot = build_runtime_snapshot(
         tool_count=all_tools_count,
         visible_tool_count=len(visible_tools),
-        enabled_skills=[s.get("skill_id", s.get("name", "")) for s in skill_snap.get("enabled", [])],
-        planned_skills=[s.get("skill_id", s.get("name", "")) for s in skill_snap.get("planned", [])],
-        enabled_modules=[m.get("module_id", m.get("name", "")) for m in module_snap.get("enabled", [])],
-        planned_modules=[m.get("module_id", m.get("name", "")) for m in module_snap.get("planned", [])],
         workspace_id=ctx.workspace_id,
         session_id=ctx.session_id,
         model=ctx.model_config.get("model", ""),
+        capability_registry=cap_reg,
+        skill_snap=skill_snap,
+        module_snap=module_snap,
+        base_enabled_skills=base_enabled,
     )
     ctx.runtime_snapshot = snapshot.to_dict()
 

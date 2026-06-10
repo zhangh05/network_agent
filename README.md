@@ -2,28 +2,34 @@
 
 Network Agent 是一个网络工程本地 Agent 平台，面向网络工程师提供配置翻译、知识检索等 AI 驱动的网络运维能力。平台基于 Codex-style Agent Runtime (v0.6 底座 + v0.7.1 能力层)，以 Module / Skill / Tool 三层架构组织，统一入口端口 8010。
 
+> **v0.8 — Capability Manifest Refactor**（当前基线）：把 Module / Skill / Tool 三层的元数据**统一**为 `CapabilityManifest`，由 `CapabilityRegistry` 作为能力真相源；`ModuleRegistry` / `SkillRegistry` / `ToolRegistry` 全部从 CapabilityRegistry 派生。Runtime 主链、ToolRouter、Tool count 57、config_translation / knowledge 的业务输出合同**均不变**。详见 [docs/CAPABILITY_MANIFEST_V08.md](docs/CAPABILITY_MANIFEST_V08.md)。
+
 ## Platform Runtime — Current Baseline
 
-- **Agent Backend v0.7.1 — Capability Quality & Artifact Integration**
-- **HEAD**：`15565d1` (2026-06-10)
+- **Agent Backend v0.8 — Capability Manifest Refactor**
+- **HEAD**：(see git log — v0.8 refactor(agent): introduce capability manifest registry)
 - **Runtime architecture**：Codex-style Agent Runtime (Thread / Session / Turn / RuntimeLoop)
-- **Tool count**：**57** (v0.6.x: 55 → v0.7: 57，新增 2 个能力工具)
+- **Tool count**：**57** (v0.6.x: 55 → v0.7: 57，v0.8 不变)
+- **CapabilityRegistry (NEW v0.8)**：5 个 capability (2 enabled + 3 planned)，是 Module/Skill/Tool Registry 和 RuntimeSnapshot 的**单一真相源**
 - **Enabled business tools**：
   - `config_translation.translate_config`
   - `knowledge.query`
-- **Planned modules (NOT callable)**：`topology`, `inspection`, `cmdb`
+- **Enabled skills**：`assistant_chat`（base skill） / `config_translation` / `knowledge_query`
+- **Enabled modules**：`config_translation` / `knowledge`
+- **Planned modules (NOT callable)**：`topology`, `inspection`, `cmdb`（在 `CapabilityManifest` 中以 `status="planned"` 显式标记；`visible_tool_ids()` fail-closed 不返回）
 
 ### Test Baseline (re-measured 2026-06-10 on developer machine)
 
 | Suite | Passed | Skipped | Failed | Note |
 |-------|--------|---------|--------|------|
-| v0.7/v0.7.1 capability tests (focused) | **41** | 0 | 0 | `test_capability_config_translation_v07.py` + `test_capability_knowledge_v07.py` + `test_capability_artifacts_v071.py` + `test_capability_knowledge_sources_v071.py` |
-| v0.6.x ~ v0.7.1 broader focused regression | **615** | 7 | 0 | 7 skipped = `RUN_LIVE_TESTS=1` live LLM tests. **0 failed** — the previously failing v0.5 `test_llm_provider_diagnostics_v05.py::test_timeout_returns_provider_timeout` has been resolved by aligning the legacy assertion to the diagnostics contract (metadata `provider_error_type == "provider_timeout"`, message accepts both `"timeout"` and `"timed out"`); see `test(llm): align legacy provider timeout diagnostics assertion`. |
-| Full harness `pytest harness -q` | — | — | — | Not re-run in this round (docs-only sync). On a TRAE sandbox full-run reports env-blockers (`PermissionError` on `config/LLM_setting.json` chmod 600 and `data/*.json`) — run on a developer machine for a clean full number. |
+| v0.8 capability manifest tests | **20** | 0 | 0 | `harness/test_capability_manifest_v08.py` — 5 capabilities / planned NOT callable / visible_tool_ids / to_snapshot_dict / from_capabilities / ToolRegistry / RuntimeServices / RuntimeSnapshot / Tool count 57 |
+| v0.7/v0.7.1 capability tests (focused) | **41** | 0 | 0 | `test_capability_config_translation_v07.py` + `test_capability_knowledge_v07.py` + `test_capability_artifacts_v071.py` + `test_capability_knowledge_sources_v071.py` — **未回归** |
+| v0.6.x ~ v0.8 broader focused regression | **635** | 7 | 0 | 7 skipped = `RUN_LIVE_TESTS=1` live LLM tests. v0.7.1 baseline 615 + v0.8 新增 20. **0 failed**. |
+| Full harness `pytest harness -q` | — | — | — | Not re-run in this round (docs + refactor). On a TRAE sandbox full-run reports env-blockers (`PermissionError` on `config/LLM_setting.json` chmod 600 and `data/*.json`) — run on a developer machine for a clean full number. |
 
 Retired surfaces record: [docs/RETIRED_SURFACES.md](docs/RETIRED_SURFACES.md)
 
-## Version Evolution (v0.6 → v0.7.1)
+## Version Evolution (v0.6 → v0.8)
 
 | Commit | Version | Title | Key Changes |
 |--------|---------|-------|-------------|
@@ -33,7 +39,10 @@ Retired surfaces record: [docs/RETIRED_SURFACES.md](docs/RETIRED_SURFACES.md)
 | `bf555a0a` | v0.6.2 | stabilize rate limit and provider timeout | 修复 `RATE_LIMIT_DISABLED` 跨测试污染；URLError timeout 归类为 `provider_timeout`；`retryable=True`；中文友好超时；新增 16 tests |
 | `2ae76bcb` | v0.6.3 | harden runtime tool routing | `default_runtime_services` 构建真实 `ToolRouter`；`llm_name_map` 白名单；unknown tool → `tool_call_failed`；`RuntimeSnapshot` 区分 total/visible tool count；System prompt 升级为 Runtime Contract；新增 20 tests |
 | `ff6cff5d` | v0.7 | integrate config translation and knowledge capabilities | 接入 `config_translation.translate_config` 与 `knowledge.query`；Tool 数 55 → 57；topology/inspection/cmdb 保持 planned；新增 21 tests |
-| `15565d18` | v0.7.1 | enrich capability artifacts and sources | `translated_config` 保存为 artifact（`authoritative=false, deployable_config=false`）；`manual_review_items` 结构化；knowledge `source_summary`（≤200 字符，无伪造）；`AgentResult.tool_calls` 增强；新增 20 tests |
+| `15565d18` | v0.7.1 | enrich capability artifacts and sources | `translated_config` 保存为 artifact（`authoritative=false, deployable_config=false`）；`manual_review_items` 结构化；knowledge `source_summary`（≤200 字符，无伪造）；`AgentResult.tool_calls` 增强；`ToolResultMessage.content` 1000 → 2000 字符；新增 20 tests |
+| `0d160ce` | v0.7.1 sync | docs baseline sync | README / ARCHITECTURE / CAPABILITY_LAYER_V071 / RELEASE_HISTORY 同步到 v0.7.1 |
+| `1c9f89b` | v0.7.1 align | align legacy provider timeout diagnostics assertion | 修复 v0.5 `test_timeout_returns_provider_timeout` 断言（accept "timeout" / "timed out" 两种 wording）；新增 wording-agnostic regression test |
+| TBD | v0.8 | introduce capability manifest registry | 新增 `agent/capabilities/{schemas,registry,builtin}.py` + 5 个 module `capability.py`；`CapabilityRegistry` 作为能力真相源；`Module/Skill/ToolRegistry.from_capabilities()` / `register_capability_tools()`；`RuntimeServices.capability_registry`；`RuntimeSnapshot.build_runtime_snapshot()` 优先从 CapabilityRegistry 投影；planned 三个 capability 仍 `NOT callable`；Tool count 仍 = 57；新增 20 tests |
 
 完整版本表见 [docs/RELEASE_HISTORY.md](docs/RELEASE_HISTORY.md)。
 

@@ -1,9 +1,17 @@
 # agent/context/snapshot.py
-"""RuntimeSnapshot — injected into every LLM turn as system context."""
+"""RuntimeSnapshot — injected into every LLM turn as system context.
+
+v0.8: when a CapabilityRegistry is attached, RuntimeSnapshot summarizes
+the registry's view (enabled / planned capabilities, visible business
+tools, safety contract). The registry is the truth-source.
+
+Falls back to legacy enabled_* / planned_* lists when no registry is
+attached; metadata.warnings records the fallback.
+"""
 
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
-from typing import List
+from typing import List, Optional
 
 
 @dataclass
@@ -18,6 +26,11 @@ class RuntimeSnapshot:
     session_id: str = ""
     model: str = ""
     generated_at: str = field(default_factory=lambda: datetime.now(timezone.utc).isoformat())
+    # v0.8 additions
+    capability_baseline: dict = field(default_factory=dict)
+    visible_business_tools: List[str] = field(default_factory=list)
+    safety_baseline: dict = field(default_factory=dict)
+    metadata: dict = field(default_factory=dict)
 
     def to_prompt_text(self) -> str:
         lines = ["[RUNTIME SNAPSHOT]"]
@@ -25,30 +38,72 @@ class RuntimeSnapshot:
         lines.append(f"Model: {self.model}")
         lines.append("")
 
-        lines.append("Current Tools (available NOW):")
-        lines.append(f"  Total: {self.tool_count} tools in catalog, {self.visible_tool_count} visible to LLM")
-        if self.visible_tool_count > 0:
-            pass  # Already shown above
+        # Capability baseline (v0.8 — comes from CapabilityRegistry)
+        if self.capability_baseline:
+            enabled_caps = self.capability_baseline.get("enabled_capabilities", [])
+            planned_caps = self.capability_baseline.get("planned_capabilities", [])
+
+            lines.append("Current Capability Baseline:")
+            if enabled_caps:
+                lines.append("- Enabled capabilities:")
+                for c in enabled_caps:
+                    lines.append(f"  - {c.get('capability_id', '')}")
+            if planned_caps:
+                lines.append("- Planned capabilities:")
+                for c in planned_caps:
+                    lines.append(f"  - {c.get('capability_id', '')}")
+                lines.append("  Note: planned capabilities are NOT callable.")
+            lines.append("")
+
+            lines.append("Enabled skills:")
+            for s in self.enabled_skills:
+                lines.append(f"  - {s}")
+            lines.append("")
+
+            if self.visible_business_tools:
+                lines.append("Visible business tools:")
+                for t in self.visible_business_tools:
+                    lines.append(f"  - {t}")
+                lines.append("")
+
+            lines.append("Tool count:")
+            lines.append(f"  total: {self.tool_count}")
+            lines.append(f"  visible: {self.visible_tool_count}")
+            lines.append("")
+
+            if self.safety_baseline:
+                lines.append("Safety:")
+                lines.append("  - No real device access")
+                lines.append("  - config.push forbidden")
+                lines.append("  - translated_config is not deployable_config")
+                lines.append("  - knowledge sources must not be fabricated")
         else:
-            lines.append("  (no tools available)")
+            # Legacy fallback (no capability registry available).
+            if self.metadata.get("capability_registry_fallback"):
+                lines.append("[WARN] CapabilityRegistry not attached — "
+                             "falling back to legacy enabled_* / planned_* lists.")
+                lines.append("")
+            lines.append("Current Tools (available NOW):")
+            lines.append(f"  Total: {self.tool_count} tools in catalog, "
+                         f"{self.visible_tool_count} visible to LLM")
+            lines.append("")
 
-        lines.append("")
-        lines.append("Enabled Skills:")
-        for s in self.enabled_skills:
-            lines.append(f"  ✅ {s}")
-        if self.planned_skills:
-            lines.append("Planned Skills (NOT yet available):")
-            for s in self.planned_skills:
-                lines.append(f"  🔧 {s} — planned, not callable")
+            lines.append("Enabled Skills:")
+            for s in self.enabled_skills:
+                lines.append(f"  ✅ {s}")
+            if self.planned_skills:
+                lines.append("Planned Skills (NOT yet available):")
+                for s in self.planned_skills:
+                    lines.append(f"  🔧 {s} — planned, not callable")
 
-        lines.append("")
-        lines.append("Enabled Modules:")
-        for m in self.enabled_modules:
-            lines.append(f"  ✅ {m}")
-        if self.planned_modules:
-            lines.append("Planned Modules (NOT yet available):")
-            for m in self.planned_modules:
-                lines.append(f"  🔧 {m} — planned, not callable")
+            lines.append("")
+            lines.append("Enabled Modules:")
+            for m in self.enabled_modules:
+                lines.append(f"  ✅ {m}")
+            if self.planned_modules:
+                lines.append("Planned Modules (NOT yet available):")
+                for m in self.planned_modules:
+                    lines.append(f"  🔧 {m} — planned, not callable")
 
         return "\n".join(lines)
 
@@ -64,4 +119,68 @@ class RuntimeSnapshot:
             "session_id": self.session_id,
             "model": self.model,
             "generated_at": self.generated_at,
+            "capability_baseline": self.capability_baseline,
+            "visible_business_tools": self.visible_business_tools,
+            "safety_baseline": self.safety_baseline,
+            "metadata": self.metadata,
         }
+
+
+def build_runtime_snapshot(
+    *,
+    tool_count: int,
+    visible_tool_count: int,
+    workspace_id: str = "",
+    session_id: str = "",
+    model: str = "",
+    capability_registry=None,
+    skill_snap: Optional[dict] = None,
+    module_snap: Optional[dict] = None,
+    base_enabled_skills: Optional[list] = None,
+) -> RuntimeSnapshot:
+    """Build a RuntimeSnapshot. If capability_registry is given, summarize
+    from it. Otherwise, fall back to the legacy skill/module snapshots
+    and record a fallback warning in metadata.
+
+    `base_enabled_skills` is the list of system / base skill ids that
+    are NOT carried by a Capability (e.g. `assistant_chat`). They are
+    added to the enabled-skill list so the prompt still reflects them.
+    """
+    snap = RuntimeSnapshot(
+        tool_count=tool_count,
+        visible_tool_count=visible_tool_count,
+        workspace_id=workspace_id,
+        session_id=session_id,
+        model=model,
+    )
+    if capability_registry is not None:
+        snap.capability_baseline = capability_registry.to_snapshot_dict()
+        snap.visible_business_tools = list(capability_registry.visible_tool_ids())
+        snap.safety_baseline = capability_registry.safety_summary()
+        # Mirror enabled/planned modules + skills from the registry so
+        # downstream consumers (legacy APIs) keep working.
+        cap_enabled = [s["skill_id"] for s in capability_registry.enabled_skills()]
+        if base_enabled_skills:
+            # Preserve order: base skills first, capability skills after,
+            # dedup.
+            seen = set()
+            merged = []
+            for s in base_enabled_skills + cap_enabled:
+                if s and s not in seen:
+                    merged.append(s)
+                    seen.add(s)
+            snap.enabled_skills = merged
+        else:
+            snap.enabled_skills = cap_enabled
+        snap.planned_skills = [s["skill_id"] for s in capability_registry.planned_skills()]
+        snap.enabled_modules = [m["module_id"] for m in capability_registry.enabled_modules()]
+        snap.planned_modules = [m["module_id"] for m in capability_registry.planned_modules()]
+    else:
+        snap.metadata = {"capability_registry_fallback": True}
+        if skill_snap:
+            snap.enabled_skills = [s.get("skill_id", "") for s in skill_snap.get("enabled", [])]
+            snap.planned_skills = [s.get("skill_id", "") for s in skill_snap.get("planned", [])]
+        if module_snap:
+            snap.enabled_modules = [m.get("module_id", "") for m in module_snap.get("enabled", [])]
+            snap.planned_modules = [m.get("module_id", "") for m in module_snap.get("planned", [])]
+    return snap

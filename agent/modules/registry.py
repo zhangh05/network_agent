@@ -87,3 +87,30 @@ class ModuleRegistry:
             "planned": [{"module_id": m.module_id, "name": m.name, "description": m.description}
                         for m in self.list_planned_modules()],
         }
+
+    @classmethod
+    def from_capabilities(cls, capability_registry) -> "ModuleRegistry":
+        """Build a ModuleRegistry from a CapabilityRegistry.
+
+        The CapabilityRegistry is the truth-source. This method projects
+        each enabled / planned capability's module spec into a
+        ModuleSpec, so the legacy ModuleRegistry API keeps working.
+
+        Falls back to defaults if capability_registry is None.
+        """
+        reg = cls()
+        if capability_registry is None:
+            return reg
+        # Override defaults with capability-derived specs.
+        for cap in capability_registry.list_all():
+            m = cap.module
+            reg._modules[m.module_id] = ModuleSpec(
+                module_id=m.module_id,
+                name=cap.name,
+                status=m.status,
+                service_path=m.service_path,
+                skill_id=(cap.skills[0].skill_id if cap.skills else ""),
+                related_tools=[t.tool_id for t in cap.tools],
+                description=m.description or cap.description,
+            )
+        return reg
