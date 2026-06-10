@@ -1,6 +1,6 @@
-# Capability Manifest v0.8
+# Capability Manifest v0.8 → v0.8.1
 
-> Single source of truth for capabilities. v0.8 refactor.
+> Single source of truth for capabilities. v0.8 refactor + v0.8.1 per-turn SkillSelector / Dynamic Tool Visibility.
 > 配套：[README.md](../README.md) · [ARCHITECTURE.md](ARCHITECTURE.md) · [AGENT_BACKEND_RUNTIME_V06.md](AGENT_BACKEND_RUNTIME_V06.md) · [CAPABILITY_LAYER_V071.md](CAPABILITY_LAYER_V071.md) · [RELEASE_HISTORY.md](RELEASE_HISTORY.md)
 
 ## 1. Why CapabilityManifest
@@ -163,10 +163,108 @@ Safety:
 
 未挂 `capability_registry` 时走 fallback 路径（保留旧 `Enabled Skills:` / `Planned Modules:` 段落），并把 `metadata.capability_registry_fallback=True` 写到 snapshot 里，作为可见警告。
 
-## 9. Future Work
+## 9. v0.8.1 — Per-Turn SkillSelector + Dynamic Tool Visibility
+
+v0.8 让 Module/Skill/Tool Registry 从 CapabilityRegistry 派生，但**每轮** LLM 仍能看到所有 enabled capability 的 tools。v0.8.1 在每轮注入 LLM 之前增加**两层过滤**：
+
+### 9.1 SkillSelector
+
+`agent/skills/selector.py`：
+
+```python
+select_skills(user_message, capability_registry, base_skills=None) -> list[str]
+```
+
+规则（rule-based，**不**使用 LLM 做选择）：
+
+| 规则 | 行为 |
+|------|------|
+| `assistant_chat` | 永远注入 |
+| 命中 capability 的 `intent_patterns` 或 `EXTRA_KEYWORDS` | 注入对应 skill |
+| "你能做什么 / help / what can you do / list tools" | 注入 `capability_discovery`（meta-skill） |
+| 无命中 | 只返回 `[assistant_chat]` |
+| planned / disabled skill | **绝不**注入 |
+| selector 任何异常 | fallback 到 `[assistant_chat]`（不 crash） |
+
+### 9.2 ToolRouter Dynamic Visibility
+
+`agent/tools/router.py`：
+
+```python
+tool_router.apply_dynamic_visibility(allowed_tool_ids: Iterable[str])
+```
+
+最终白名单 = `registry_visible ∩ allowed_tool_ids`（**fail-closed**）：
+- capability.tools 的 `related_tools` 是**候选**集合
+- `ToolRegistry.list_model_visible()` 是**安全过滤**（forbidden / planned / disabled 仍被排除）
+- 即使调用方传 `{"config.push", "ssh.exec", "topology.extract"}`，这些 tool 也**永远不会**出现
+- 传 `None` 或空 set → 关闭动态可见性，回退 v0.8 全量
+
+### 9.3 ContextBuilder 流程
+
+```
+Turn 输入 (user_message)
+   ↓
+1. SkillSelector.select(user_message, capability_registry)
+   → selected_skills
+   ↓
+2. 遍历 selected_skills，收集 related_tools → candidates
+   ↓
+3. tool_router.apply_dynamic_visibility(candidates)
+   → model_visible_specs = registry ∩ candidates
+   ↓
+4. RuntimeSnapshot 记录:
+   - selected_skills
+   - selected_visible_tools
+   - dynamic_tool_visibility: True
+   ↓
+5. 任何步骤异常 → fallback 到 v0.8 全量 + metadata.warnings 记录
+```
+
+### 9.4 场景示例
+
+| 用户输入 | selected_skills | selected_visible_tools | dynamic_visibility |
+|----------|----------------|------------------------|--------------------|
+| "请把 Cisco ACL 翻译成华为" | `assistant_chat` + `config_translation` | `config_translation.translate_config` | True |
+| "查一下知识库关于 OSPF" | `assistant_chat` + `knowledge_query` | `knowledge.query` | True |
+| "你能做什么？" | `assistant_chat` + `capability_discovery` | `[]` | False (v0.8 全量) |
+| "请帮我画一下网络拓扑" | `assistant_chat` | `[]` | False (planned 绝不暴露) |
+| "今天天气如何？" | `assistant_chat` | `[]` | False (无业务意图) |
+
+### 9.5 RuntimeSnapshot 新增字段
+
+```python
+RuntimeSnapshot:
+    selected_skills:        list[str] = []
+    selected_visible_tools: list[str] = []
+    dynamic_tool_visibility: bool    = False
+```
+
+`to_prompt_text()` 新增段落：
+
+```text
+Selected skills for this turn:
+  - assistant_chat
+  - config_translation
+
+Visible tools for this turn (1):
+  - config_translation.translate_config
+
+Planned capabilities are NOT callable.
+```
+
+### 9.6 不变量
+
+- **Tool count 总数** = 57（不变）
+- **planned tools**（topology / inspection / cmdb）**永不**可见
+- **forbidden tools**（config.push / ssh.exec / nmap.scan）**永不**可见
+- **selector 异常** → fallback v0.8（不 crash）
+- **capability_discovery** 永远**不**带 business tool，仅在 `selected_skills` 里
+
+## 10. Future Work
 
 | 版本 | 主题 |
 |------|------|
-| v0.8.1 | SkillSelector（按 intent 选择 Skill）+ Dynamic Tool Visibility（按会话态控制 visibility） |
 | v0.8.2 | Result Contract 标准化（ModuleResult / ToolResult / AgentResult 三层 schema 统一） |
 | v0.9 | Artifact Consumption Flow（基于 Capability Output Contract 跨能力级联：config_translation → knowledge → report） |
+| v0.9.x | LLM-based SkillSelector（用模型替代 rule-based） |

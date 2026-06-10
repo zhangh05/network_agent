@@ -1,6 +1,6 @@
 # Network Agent Architecture
 
-## Agent Backend v0.8 — Capability Manifest Refactor (CURRENT)
+## Agent Backend v0.8.1 — SkillSelector + Dynamic Tool Visibility (CURRENT)
 
 > **HEAD**: `15565d1` (2026-06-10) · **Runtime**: Codex-style (v0.6 底座 + v0.7/v0.7.1 能力层) · **Tool count**: 57
 >
@@ -108,16 +108,22 @@ Capability Layer 在 v0.7 起形成**显式三层**结构，业务能力接入 T
 
 详细契约见 [MODULE_SKILL_TOOL_MODEL.md](MODULE_SKILL_TOOL_MODEL.md) 与 [CAPABILITY_LAYER_V071.md](CAPABILITY_LAYER_V071.md)。
 
-## Current Closure State (v0.8)
+## Current Closure State (v0.8.1)
 
-- **HEAD**: v0.8 commit（refactor(agent): introduce capability manifest registry）
+- **HEAD**: v0.8.1 commit（refactor(agent): add skill selector and dynamic tool visibility）
 - **Test baseline (focused regression, 2026-06-10)**:
-  - v0.8 capability manifest tests: **20 / 20 passed**（`harness/test_capability_manifest_v08.py`）
+  - v0.8.1 skill selector tests: **23 / 23 passed**（`harness/test_skill_selector_v081.py`）
+  - v0.8 capability manifest tests: **20 / 20 passed**（**未回归**）
   - v0.7/v0.7.1 capability tests: **41 passed, 0 failed**（**未回归**）
-  - v0.6.x ~ v0.8 broader focused regression: **635 passed, 7 skipped, 0 failed**（v0.7.1 baseline 615 + v0.8 新增 20）
+  - v0.6.x ~ v0.8.1 broader focused regression: **658 passed, 7 skipped, 0 failed**（v0.8 baseline 635 + v0.8.1 新增 23）
   - Full harness `pytest harness -q` 本轮 docs-only sync + 架构 refactor 中**未**重跑
-- **Runtime architecture**: Codex-style Agent Runtime（Thread / Session / Turn / RuntimeLoop）— v0.6 引入，**v0.6.1 ~ v0.8 主链未变**
-- **CapabilityRegistry (NEW v0.8)**: `agent.capabilities.get_default_capability_registry()` — 5 个 capability（2 enabled + 3 planned），是 ModuleRegistry / SkillRegistry / ToolRegistry / RuntimeSnapshot 的**单一真相源**
+- **Runtime architecture**: Codex-style Agent Runtime（Thread / Session / Turn / RuntimeLoop）— v0.6 引入，**v0.6.1 ~ v0.8.1 主链未变**
+- **CapabilityRegistry (v0.8)**: 5 个 capability（2 enabled + 3 planned），**单一真相源**（不变）
+- **v0.8.1 NEW**:
+  - `SkillSelector`（`agent/skills/selector.py`）：rule-based per-turn skill 选择
+  - `ToolRouter.apply_dynamic_visibility(allowed_tool_ids)`：动态 tool 可见性
+  - `RuntimeServices.skill_selector` 字段；`ContextBuilder` 每轮调用 selector + 同步 router
+  - `RuntimeSnapshot.selected_skills` / `selected_visible_tools` / `dynamic_tool_visibility` 三个 per-turn 字段
 - **Enabled business tools** (v0.7+):
   - `config_translation.translate_config`（capability service: `agent.modules.config_translation.service.translate_config`）
   - `knowledge.query`（capability service: `agent.modules.knowledge.service.query_knowledge`）

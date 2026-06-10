@@ -31,6 +31,10 @@ class RuntimeSnapshot:
     visible_business_tools: List[str] = field(default_factory=list)
     safety_baseline: dict = field(default_factory=dict)
     metadata: dict = field(default_factory=dict)
+    # v0.8.1 additions (per-turn)
+    selected_skills: List[str] = field(default_factory=list)
+    selected_visible_tools: List[str] = field(default_factory=list)
+    dynamic_tool_visibility: bool = False
 
     def to_prompt_text(self) -> str:
         lines = ["[RUNTIME SNAPSHOT]"]
@@ -77,6 +81,23 @@ class RuntimeSnapshot:
                 lines.append("  - config.push forbidden")
                 lines.append("  - translated_config is not deployable_config")
                 lines.append("  - knowledge sources must not be fabricated")
+
+            # v0.8.1: per-turn dynamic skill/tool visibility
+            if self.dynamic_tool_visibility:
+                lines.append("")
+                lines.append("Selected skills for this turn:")
+                for s in self.selected_skills:
+                    lines.append(f"  - {s}")
+                lines.append("")
+                lines.append(f"Visible tools for this turn ({len(self.selected_visible_tools)}):")
+                for t in self.selected_visible_tools:
+                    lines.append(f"  - {t}")
+                lines.append("")
+                lines.append("Planned capabilities are NOT callable.")
+            else:
+                lines.append("")
+                lines.append("(v0.8 fallback: per-turn skill selection not active; "
+                             "all enabled capability skills are shown.)")
         else:
             # Legacy fallback (no capability registry available).
             if self.metadata.get("capability_registry_fallback"):
@@ -123,6 +144,9 @@ class RuntimeSnapshot:
             "visible_business_tools": self.visible_business_tools,
             "safety_baseline": self.safety_baseline,
             "metadata": self.metadata,
+            "selected_skills": self.selected_skills,
+            "selected_visible_tools": self.selected_visible_tools,
+            "dynamic_tool_visibility": self.dynamic_tool_visibility,
         }
 
 
@@ -137,6 +161,9 @@ def build_runtime_snapshot(
     skill_snap: Optional[dict] = None,
     module_snap: Optional[dict] = None,
     base_enabled_skills: Optional[list] = None,
+    selected_skills: Optional[list] = None,
+    selected_visible_tools: Optional[list] = None,
+    dynamic_tool_visibility: bool = False,
 ) -> RuntimeSnapshot:
     """Build a RuntimeSnapshot. If capability_registry is given, summarize
     from it. Otherwise, fall back to the legacy skill/module snapshots
@@ -145,6 +172,9 @@ def build_runtime_snapshot(
     `base_enabled_skills` is the list of system / base skill ids that
     are NOT carried by a Capability (e.g. `assistant_chat`). They are
     added to the enabled-skill list so the prompt still reflects them.
+
+    v0.8.1: per-turn `selected_skills` / `selected_visible_tools` /
+    `dynamic_tool_visibility` are projected into the snapshot.
     """
     snap = RuntimeSnapshot(
         tool_count=tool_count,
@@ -183,4 +213,8 @@ def build_runtime_snapshot(
         if module_snap:
             snap.enabled_modules = [m.get("module_id", "") for m in module_snap.get("enabled", [])]
             snap.planned_modules = [m.get("module_id", "") for m in module_snap.get("planned", [])]
+    # v0.8.1 per-turn projection
+    snap.selected_skills = list(selected_skills or [])
+    snap.selected_visible_tools = list(selected_visible_tools or [])
+    snap.dynamic_tool_visibility = bool(dynamic_tool_visibility)
     return snap

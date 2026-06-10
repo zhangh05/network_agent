@@ -25,6 +25,7 @@
 | `0d160ce` | v0.7.1 sync | docs baseline sync (README + ARCHITECTURE + CAPABILITY_LAYER_V071 + RELEASE_HISTORY) | 文档基线同步到 v0.7.1；新增 `docs/CAPABILITY_LAYER_V071.md` | **不变** |
 | `1c9f89b` | v0.7.1 align | align legacy provider timeout diagnostics assertion | 修复 v0.5 `test_timeout_returns_provider_timeout` 断言（accept "timeout" / "timed out" 两种 wording，主断言 `metadata.provider_error_type == "provider_timeout"`）；新增 wording-agnostic regression test | **不变** |
 | TBD (v0.8) | v0.8 | introduce capability manifest registry | 新增 `agent/capabilities/{schemas,registry,builtin}.py` + 5 个 module `capability.py`；`CapabilityRegistry` 作为能力真相源；`ModuleRegistry.from_capabilities()` / `SkillRegistry.from_capabilities()` / `ToolRegistry.register_capability_tools()`；`RuntimeServices.capability_registry` 字段；`RuntimeSnapshot.build_runtime_snapshot()` 优先从 CapabilityRegistry 投影；`planned` 三个 capability 仍 `NOT callable`；Tool count 仍 = 57；新增 20 tests | **不变** |
+| TBD (v0.8.1) | v0.8.1 | add skill selector and dynamic tool visibility | 新增 `agent/skills/selector.py`（`SkillSelector` + `select_skills` rule-based API：assistant_chat always-on + intent_patterns 命中 + capability_discovery meta-skill + planned 绝不注入 + 异常 fallback）；`ToolRouter.apply_dynamic_visibility()`（fail-closed 交集 = `registry_visible ∩ allowed_tool_ids`）；`RuntimeServices.skill_selector` 字段；`ContextBuilder` 每轮调用 selector + 同步 router + 异常 fallback；`RuntimeSnapshot.selected_skills` / `selected_visible_tools` / `dynamic_tool_visibility` 新字段 + `to_prompt_text()` 新增 per-turn 段落；新增 23 tests | **不变** |
 
 ## 各版本能力对照
 
@@ -69,8 +70,10 @@ v0.6 → v0.7.1 **始终保持**：
 
 | Suite | Passed | Skipped | Failed |
 |-------|--------|---------|--------|
+| v0.8.1 skill selector (focused) | **23** | 0 | 0 |
+| v0.8 capability manifest (focused) | **20** | 0 | 0 |
 | v0.7/v0.7.1 capability (focused) | **41** | 0 | 0 |
-| v0.6.x ~ v0.7.1 broader focused regression | **615** | 7 | 0 |
+| v0.6.x ~ v0.8.1 broader focused regression | **658** | 7 | 0 |
 | Full harness `pytest harness -q` | — | — | Not re-run (docs-only sync) |
 
 > 2026-06-10 update：曾记录的 v0.5 `test_llm_provider_diagnostics_v05.py::test_timeout_returns_provider_timeout` 失败已在同日的 legacy diagnostics alignment 中修复（断言改为兼容 "timeout" / "timed out" 两种文案，并主断言 `metadata.provider_error_type == "provider_timeout"`）。broader focused regression 由 613 passed / 1 failed 提升至 **615 passed / 0 failed**（+1 = 新增的 wording-agnostic regression test）。

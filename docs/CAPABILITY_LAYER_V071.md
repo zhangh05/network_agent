@@ -215,8 +215,12 @@ User request
 - 跨工作区协作 + 多租户隔离强化
 - 业务模块按规划逐步启用：`topology` → `inspection` → `cmdb`
 
-> **2026-06-10 更新**：v0.7.1 之后已经迈入 **v0.8 — Capability Manifest Refactor**。
-> 业务能力层从"分散的 ModuleRegistry / SkillRegistry / ToolRegistry hardcode 常量"重构为统一的 **`CapabilityManifest` + `CapabilityRegistry`**；
+> **2026-06-10 更新**：v0.7.1 之后已经迈入 **v0.8 — Capability Manifest Refactor**，并随后跟进 **v0.8.1 — SkillSelector + Dynamic Tool Visibility**。
+>
+> v0.8 业务能力层从"分散的 ModuleRegistry / SkillRegistry / ToolRegistry hardcode 常量"重构为统一的 **`CapabilityManifest` + `CapabilityRegistry`**；
 > RuntimeSnapshot 从 CapabilityRegistry 投影；Module/Skill/Tool Registry 提供 `from_capabilities()` / `register_capability_tools()` 派生路径。
 > v0.7.1 的能力（`config_translation.translate_config` + `knowledge.query`）的**业务输出合同不变**，仅被 manifest 化。
-> 详细见 [CAPABILITY_MANIFEST_V08.md](CAPABILITY_MANIFEST_V08.md)。
+>
+> v0.8.1 在每轮 turn 注入 LLM 之前增加 `SkillSelector`（rule-based 选 skill）+ `ToolRouter.apply_dynamic_visibility()`（动态 tool 白名单）：
+> config 翻译场景只暴露 `config_translation.translate_config`；knowledge 场景只暴露 `knowledge.query`；topology / inspection / cmdb 永远不可见；任何 selector 异常 fallback 到 v0.8 全量 + warning。
+> 详细见 [CAPABILITY_MANIFEST_V08.md](CAPABILITY_MANIFEST_V08.md) § 9。

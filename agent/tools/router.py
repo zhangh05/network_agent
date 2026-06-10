@@ -18,10 +18,17 @@ class ToolRouter:
         self.registry = registry or ToolRegistry()
         self.model_visible_specs: list = []
         self.llm_name_map: dict = {}  # llm_safe_name → real_tool_id
+        # v0.8.1 dynamic visibility: when set, model_visible_specs is
+        # the intersection of (registry visible) ∩ (allowed_tool_ids).
+        self._allowed_tool_ids: set[str] | None = None
+        self._dynamic_visibility: bool = False
         self._build()
 
     def _build(self):
         visible = self.registry.list_model_visible()
+        # If dynamic visibility is active, intersect with the allowlist.
+        if self._allowed_tool_ids is not None:
+            visible = [s for s in visible if s.tool_id in self._allowed_tool_ids]
         self.model_visible_specs = []
         self.llm_name_map = {}
         for spec in visible:
@@ -34,6 +41,39 @@ class ToolRouter:
             )
             self.model_visible_specs.append(llm_spec)
             self.llm_name_map[llm_name] = spec.tool_id
+
+    def apply_dynamic_visibility(self, allowed_tool_ids):
+        """Restrict the LLM-visible whitelist to the given tool_ids.
+
+        Rules:
+        - Only tools that are present in the underlying ToolRegistry's
+          list_model_visible() are eligible; this is a safety net so
+          caller cannot accidentally expose a forbidden / planned tool.
+        - The final whitelist is the intersection
+          registry_visible ∩ allowed_tool_ids.
+        - Forbidden, disabled, or planned tools (which are already
+          excluded by registry.list_model_visible()) remain excluded.
+        - Pass None / empty set to disable dynamic visibility and
+          fall back to the full registry view (v0.8 behavior).
+        """
+        if not allowed_tool_ids:
+            self._allowed_tool_ids = None
+            self._dynamic_visibility = False
+        else:
+            # Pre-validate: only keep ids that are actually visible
+            # in the registry (so the safety filter runs first).
+            eligible = {s.tool_id for s in self.registry.list_model_visible()}
+            self._allowed_tool_ids = {t for t in allowed_tool_ids if t in eligible}
+            self._dynamic_visibility = True
+        self._build()
+
+    @property
+    def dynamic_visibility(self) -> bool:
+        return self._dynamic_visibility
+
+    @property
+    def allowed_tool_ids(self) -> set[str] | None:
+        return set(self._allowed_tool_ids) if self._allowed_tool_ids is not None else None
 
     @classmethod
     def from_turn_context(cls, context) -> "ToolRouter":

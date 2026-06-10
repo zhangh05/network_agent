@@ -17,6 +17,9 @@ class RuntimeServices:
     # v0.8: CapabilityRegistry is the truth-source for capabilities.
     # None means "fall back to legacy default registries".
     capability_registry: object = None  # CapabilityRegistry | None
+    # v0.8.1: SkillSelector decides per-turn skills; if None, the
+    # ContextBuilder falls back to v0.8 behavior (all enabled skills).
+    skill_selector: object = None       # SkillSelector | None
 
 
 def default_runtime_services() -> RuntimeServices:
@@ -25,6 +28,7 @@ def default_runtime_services() -> RuntimeServices:
     from agent.tools.registry import ToolRegistry
     from agent.skills.registry import SkillRegistry
     from agent.modules.registry import ModuleRegistry
+    from agent.skills.selector import SkillSelector
     from agent.audit.events import EventRecorder
     from agent.audit.trace import TraceRecorder
     from agent.audit.rollout import RolloutRecorder
@@ -42,6 +46,9 @@ def default_runtime_services() -> RuntimeServices:
     module_reg = ModuleRegistry.from_capabilities(cap_reg)
     skill_reg = SkillRegistry.from_capabilities(cap_reg, base_skill_registry=SkillRegistry())
 
+    # v0.8.1: SkillSelector driven by CapabilityRegistry.
+    skill_sel = SkillSelector(capability_registry=cap_reg)
+
     svc = RuntimeServices(
         tool_service=tool_router,
         skill_service=skill_reg,
@@ -52,6 +59,7 @@ def default_runtime_services() -> RuntimeServices:
             "rollout": RolloutRecorder(),
         },
         capability_registry=cap_reg,
+        skill_selector=skill_sel,
     )
     return svc
 
