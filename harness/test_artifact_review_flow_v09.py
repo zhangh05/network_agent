@@ -336,11 +336,15 @@ class TestCapabilityRegistryV09:
         assert m.status == "enabled"
         assert len(m.tools) == 2
 
-    def test_visible_tools_includes_all_8(self, reg):
+    def test_visible_tools_includes_all_13(self, reg):
+        # v1.0 added 5 knowledge tools (import/list/read/disable/delete).
         v = sorted(reg.visible_tool_ids())
         assert v == sorted([
             "config_translation.translate_config",
             "knowledge.query",
+            "knowledge.import_document", "knowledge.list_sources",
+            "knowledge.read_source", "knowledge.disable_source",
+            "knowledge.delete_source",
             "artifact.list", "artifact.read", "artifact.diff", "artifact.export",
             "review.list_items", "review.update_item",
         ])
@@ -348,15 +352,16 @@ class TestCapabilityRegistryV09:
 
 # ── 12. Tool count is 62 ──
 class TestToolCountV09:
-    def test_total_tool_count_is_62(self):
+    def test_total_tool_count_is_67(self):
+        # v1.0 adds 5 knowledge tool_ids (import/list/read/disable/delete)
+        # to the catalog. Capability layer contributes 13 (2 + 4 + 2 + 5).
         from agent.runtime.services import default_runtime_services
         svc = default_runtime_services()
         tr = svc.tool_service
         total = len(tr.registry.list_all())
-        assert total == 62
-        # The capability layer contributes 8 (2 + 4 + 2)
+        assert total == 67
         reg = get_default_capability_registry()
-        assert len(reg.enabled_tools()) == 8
+        assert len(reg.enabled_tools()) == 13
 
 
 # ── 13. planned topology / inspection / cmdb are still NOT visible ──

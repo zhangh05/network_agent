@@ -210,15 +210,18 @@ class TestSkillRegistryFromCapabilities:
 # ── 14. ToolRegistry registers enabled capability tools ──
 class TestToolRegistryCapabilityTools:
     def test_tool_registry_registers_enabled_capability_tools(self):
-        # v0.9: 8 capability tools (2 + 4 artifact + 2 review).
+        # v1.0: 13 capability tools (2 + 4 artifact + 2 review + 5 knowledge).
         from agent.tools.registry import ToolRegistry
         reg = get_default_capability_registry()
         tr = ToolRegistry()
         n = tr.register_capability_tools(reg)
-        assert n == 8
+        assert n == 13
         for tid in (
             "config_translation.translate_config",
             "knowledge.query",
+            "knowledge.import_document", "knowledge.list_sources",
+            "knowledge.read_source", "knowledge.disable_source",
+            "knowledge.delete_source",
             "artifact.list", "artifact.read", "artifact.diff", "artifact.export",
             "review.list_items", "review.update_item",
         ):
@@ -270,10 +273,13 @@ class TestRuntimeSnapshotUsesRegistry:
         assert snap.capability_baseline
         assert "config_translation" in [c["capability_id"]
                                          for c in snap.capability_baseline["enabled_capabilities"]]
-        # Visible business tools are exactly the 8 enabled ones (v0.9)
+        # Visible business tools are exactly the 13 enabled ones (v1.0)
         assert sorted(snap.visible_business_tools) == sorted([
             "config_translation.translate_config",
             "knowledge.query",
+            "knowledge.import_document", "knowledge.list_sources",
+            "knowledge.read_source", "knowledge.disable_source",
+            "knowledge.delete_source",
             "artifact.list", "artifact.read", "artifact.diff", "artifact.export",
             "review.list_items", "review.update_item",
         ])
@@ -287,26 +293,24 @@ class TestRuntimeSnapshotUsesRegistry:
         assert "planned capabilities are NOT callable." in text
 
 
-# ── 18. Tool count is now 62 (v0.9: 54 general + 8 capability) ──
+# ── 18. Tool count is now 67 (v1.0: 54 general + 13 capability) ──
 class TestToolCount:
-    def test_total_tool_count_is_62(self):
-        """v0.9 catalog total = 62.
+    def test_total_tool_count_is_67(self):
+        """v1.0 catalog total = 67.
 
-        Was 57 at v0.8 baseline (55 general + 2 capability).
-        v0.9 added 6 new capability tool_ids (4 artifact + 2 review),
-        but `artifact.list` was already in the ToolRuntime catalog
-        (a pre-existing general tool). So only 5 new tool_ids actually
-        increased the total: 57 + 5 = 62. The capability layer's
-        registry is still 8 (2 + 4 + 2); only the catalog total is 62.
+        Was 62 at v0.9 (57 v0.8 + 5 v0.9 dedup). v1.0 adds 5 new
+        knowledge tool_ids (import / list / read / disable / delete).
+        The capability layer registry is 13 (2 + 4 + 2 + 5); only
+        the catalog total is 67.
         """
         from agent.runtime.services import default_runtime_services
         svc = default_runtime_services()
         tr = svc.tool_service
         total = len(tr.registry.list_all())
-        assert total == 62
+        assert total == 67
 
     def test_visible_tools_include_capability_tools(self):
-        """All 8 capability tools must be in the LLM-visible whitelist."""
+        """All 13 capability tools must be in the LLM-visible whitelist."""
         from agent.runtime.services import default_runtime_services
         svc = default_runtime_services()
         tr = svc.tool_service
@@ -314,6 +318,11 @@ class TestToolCount:
         for n in (
             "config_translation__translate_config",
             "knowledge__query",
+            "knowledge__import_document",
+            "knowledge__list_sources",
+            "knowledge__read_source",
+            "knowledge__disable_source",
+            "knowledge__delete_source",
             "artifact__list", "artifact__read",
             "artifact__diff", "artifact__export",
             "review__list_items", "review__update_item",

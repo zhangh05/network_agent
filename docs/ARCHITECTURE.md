@@ -1,6 +1,6 @@
 # Network Agent Architecture
 
-## Agent Backend v0.9 — Artifact Consumption & Review Flow (CURRENT)
+## Agent Backend v1.0 — Knowledge Store Management (CURRENT)
 
 > **HEAD**: `15565d1` (2026-06-10) · **Runtime**: Codex-style (v0.6 底座 + v0.7/v0.7.1 能力层) · **Tool count**: 57
 >
@@ -108,19 +108,20 @@ Capability Layer 在 v0.7 起形成**显式三层**结构，业务能力接入 T
 
 详细契约见 [MODULE_SKILL_TOOL_MODEL.md](MODULE_SKILL_TOOL_MODEL.md) 与 [CAPABILITY_LAYER_V071.md](CAPABILITY_LAYER_V071.md)。
 
-## Current Closure State (v0.9)
+## Current Closure State (v1.0)
 
-- **HEAD**: v0.9 commit（feat(agent): add artifact consumption and review flow）
+- **HEAD**: v1.0 commit（feat(agent): add knowledge store management）
 - **Test baseline (focused regression, 2026-06-10)**:
-  - v0.9 artifact / review flow tests: **29 / 29 passed**（`harness/test_artifact_review_flow_v09.py`）
+  - v1.0 knowledge store tests: **29 / 29 passed**（`harness/test_knowledge_store_v10.py`）
+  - v0.9 artifact / review flow tests: **29 / 29 passed**（**未回归**）
   - v0.8.2 result contract tests: **28 / 28 passed**（**未回归**）
   - v0.8.1 skill selector tests: **23 / 23 passed**（**未回归**）
   - v0.8 capability manifest tests: **20 / 20 passed**（**未回归**）
   - v0.7/v0.7.1 capability tests: **41 passed, 0 failed**（**未回归**）
-  - v0.6.x ~ v0.9 broader focused regression: **715 passed, 7 skipped, 0 failed**（v0.8.2 baseline 686 + v0.9 新增 29）
+  - v0.6.x ~ v1.0 broader focused regression: **744 passed, 7 skipped, 0 failed**（v0.9 baseline 715 + v1.0 新增 29）
   - Full harness `pytest harness -q` 本轮 docs-only sync + 架构 refactor 中**未**重跑
-- **Runtime architecture**: Codex-style Agent Runtime（Thread / Session / Turn / RuntimeLoop）— v0.6 引入，**v0.6.1 ~ v0.9 主链未变**
-- **CapabilityRegistry (v0.9)**: 7 个 capability（4 enabled + 3 planned），**单一真相源**
+- **Runtime architecture**: Codex-style Agent Runtime（Thread / Session / Turn / RuntimeLoop）— v0.6 引入，**v0.6.1 ~ v1.0 主链未变**
+- **CapabilityRegistry (v1.0)**: 7 个 capability（4 enabled + 3 planned），**单一真相源**
 - **v0.9 NEW — Artifact Consumption & Review Flow**:
   - 新增 `agent.modules.artifact/`：`service` + `tools` + `capability`（4 tools: list/read/diff/export）
   - 新增 `agent.modules.review/`：`service` + `tools` + `capability`（2 tools: list_items/update_item）
@@ -129,6 +130,15 @@ Capability Layer 在 v0.7 起形成**显式三层**结构，业务能力接入 T
   - `translated_config` 仍是 `authoritative=false / deployable_config=False`
   - Tool count: 57 → **62**（+5；`artifact.list` 与已有 ToolRuntime catalog 去重）
   - v0.7.1 capability tests 41/41 零回归
+- **v1.0 NEW — Knowledge Store Management**:
+  - 新增 `agent.modules.knowledge.store.KnowledgeStore`：JSONL + thread-lock + atomic write
+  - 新增 5 个 knowledge tool：import_document / list_sources / read_source / disable_source / delete_source
+  - 保留 `knowledge.query`，现由 KnowledgeStore 驱动（store 空时 fallback 到 v0.7.1 legacy loader）
+  - token-overlap scoring（不要求向量库）
+  - `source_summary` snippet ≤ 200 字符；无 hits → `[]`（**不**伪造）
+  - caller 传本地路径 → redact 为 `redacted-local-path`
+  - v0.7.1 capability tests 41/41 零回归
+  - Tool count: 62 → **67**（+5）
 - **Enabled business tools** (v0.7+):
   - `config_translation.translate_config`（capability service: `agent.modules.config_translation.service.translate_config`）
   - `knowledge.query`（capability service: `agent.modules.knowledge.service.query_knowledge`）

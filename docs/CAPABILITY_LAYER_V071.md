@@ -215,7 +215,7 @@ User request
 - 跨工作区协作 + 多租户隔离强化
 - 业务模块按规划逐步启用：`topology` → `inspection` → `cmdb`
 
-> **2026-06-10 更新**：v0.7.1 之后已经迈入 **v0.8 — Capability Manifest Refactor**，并随后跟进 **v0.8.1 — SkillSelector + Dynamic Tool Visibility**、**v0.8.2 — Result Contract Standardization** 与 **v0.9 — Artifact Consumption & Review Flow**。
+> **2026-06-10 更新**：v0.7.1 之后已经迈入 **v0.8 — Capability Manifest Refactor**，并随后跟进 **v0.8.1 — SkillSelector + Dynamic Tool Visibility**、**v0.8.2 — Result Contract Standardization**、**v0.9 — Artifact Consumption & Review Flow** 与 **v1.0 — Knowledge Store Management**。
 >
 > v0.8 业务能力层从"分散的 ModuleRegistry / SkillRegistry / ToolRegistry hardcode 常量"重构为统一的 **`CapabilityManifest` + `CapabilityRegistry`**；
 > RuntimeSnapshot 从 CapabilityRegistry 投影；Module/Skill/Tool Registry 提供 `from_capabilities()` / `register_capability_tools()` 派生路径。
@@ -233,4 +233,13 @@ User request
 > `review.update_item` 写 sidecar JSON 存 status/user_note，**不**修改 translated_config 原文，**不**生成 deployable_config。
 > Tool count 57 → 62（v0.9 计划 +6，但 `artifact.list` 与已有 ToolRuntime catalog 去重，实际净增 +5）。
 > CapabilityRegistry 5 → 7（+2）；planned 三个 capability 永不暴露。
-> 详细见 [CAPABILITY_MANIFEST_V08.md](CAPABILITY_MANIFEST_V08.md) § 9 (v0.8.1) / § 10 (v0.8.2) 与 [ARTIFACT_REVIEW_FLOW_V09.md](ARTIFACT_REVIEW_FLOW_V09.md)。
+>
+> v1.0 升级 `knowledge` capability（enabled → enabled），把 `knowledge.query` 从"查询已有上下文/loader"升级为**完整后端知识库能力**：
+> - 新增 5 个 knowledge tool：import_document / list_sources / read_source / disable_source / delete_source
+> - 保留 `knowledge.query`（现由 KnowledgeStore 驱动；store 无内容时 fallback 到 v0.7.1 legacy loader）
+> - `KnowledgeStore` 内部：JSONL + thread-lock + atomic write；workspace 隔离；不依赖外部 DB
+> - `source_summary` snippet ≤ 200 字符；无 hits → `[]`（**不**伪造）
+> - caller 传本地路径 → store 内部 redact 为 `redacted-local-path`
+>
+> Tool count 62 → 67（+5）；CapabilityRegistry 7 → 7（不变，upgrade 已有 capability）。
+> 详细见 [CAPABILITY_MANIFEST_V08.md](CAPABILITY_MANIFEST_V08.md) § 9 (v0.8.1) / § 10 (v0.8.2) 与 [ARTIFACT_REVIEW_FLOW_V09.md](ARTIFACT_REVIEW_FLOW_V09.md) / [KNOWLEDGE_STORE_V10.md](KNOWLEDGE_STORE_V10.md)。
