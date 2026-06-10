@@ -1,0 +1,1 @@
+# cmdb module stub
