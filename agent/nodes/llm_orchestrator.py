@@ -52,6 +52,15 @@ def orchestrate(state: NetworkAgentState) -> NetworkAgentState:
     # 2. If LLM is enabled but intent is assistant_chat, skip LLM orchestration
     if state.intent == "assistant_chat":
         state.context.setdefault("llm", {})["used"] = False
+        task.complete({"mode": "assistant_chat_deferred"})
+        state.context["task"] = task.as_dict()
+        return state
+
+    # 2b. Module intents (translate_config, etc.) → direct adapter execution
+    MODULE_INTENTS = {"translate_config", "context_qa"}
+    if state.intent in MODULE_INTENTS:
+        _execute_module_direct(state, task, ws_id)
+        state.context["task"] = task.as_dict()
         return state
 
     # 3. Normal LLM orchestration flow
@@ -237,6 +246,110 @@ def orchestrate(state: NetworkAgentState) -> NetworkAgentState:
     state.final_response = final_answer
 
     return state
+
+
+def _execute_module_direct(state: NetworkAgentState, task: "Task", ws_id: str) -> None:
+    """Execute a module intent directly (translate_config, etc.) within Task/Turn lifecycle.
+
+    Unlike the LLM agentic loop, module intents call the registered adapter
+    directly. But they still get:
+    - Task/Turn tracking
+    - PreTurn/PostTurn/Stop hooks
+    - Result recording in skill_results
+    """
+    from agent.turn import Turn
+    import importlib
+
+    skill = state.selected_skill or ""
+    capability_id = state.context.get("capability_id", "")
+
+    # ── Create a Turn for this direct execution ──
+    turn = Turn(task.record_turn())
+
+    # ── PreTurn hooks ──
+    from agent.hooks_integration import run_pre_turn_hooks
+    should_continue, context_injections, block_reason = run_pre_turn_hooks(state, turn.turn_number)
+    if context_injections:
+        state.context.setdefault("hook_context", []).extend(context_injections)
+
+    if not should_continue:
+        state.error = f"PreTurn hook blocked: {block_reason}"
+        state.skill_results = {"ok": False, "error": state.error}
+        task.fail(state.error)
+        return
+
+    # ── Execute adapter (same logic as skill_executor's old path) ──
+    if not skill:
+        state.error = "No skill selected"
+        task.fail(state.error)
+        return
+
+    try:
+        from registry.loader import get_skill
+        spec = get_skill(skill)
+        if not spec:
+            state.error = f"skill_spec_not_found: {skill}"
+            task.fail(state.error)
+            return
+
+        if spec.status == "planned":
+            state.skill_results = {"ok": False, "error": f"Intent '{state.intent}' is planned"}
+            state.warnings.append(f"Skill '{skill}' is planned (coming_soon)")
+            task.complete({"mode": "planned"})
+            return
+
+        if spec.status == "disabled":
+            state.error = f"Skill '{skill}' is disabled"
+            task.fail(state.error)
+            return
+
+        # Resolve entrypoint
+        entrypoint_fn = spec.entrypoint_function or ""
+        for cap in (spec.capabilities or []):
+            if isinstance(cap, dict) and cap.get("capability_id") == capability_id:
+                fn = cap.get("function", "")
+                if fn:
+                    entrypoint_fn = fn
+                break
+
+        adapter_path = spec.adapter_path or ""
+        if adapter_path and entrypoint_fn:
+            mod_path = adapter_path.replace(".py", "").replace("/", ".")
+            mod = importlib.import_module(mod_path)
+            func = getattr(mod, entrypoint_fn)
+            result = func(payload=state.payload)
+        else:
+            result = {"ok": False, "error": f"No adapter for {skill}"}
+
+    except Exception as exc:
+        result = {"ok": False, "error": str(exc)}
+
+    # ── Record result ──
+    state.skill_results = result if isinstance(result, dict) else {"ok": True, "data": result}
+    state.tool_results = state.skill_results
+
+    if not result.get("ok"):
+        state.error = result.get("error", "execution_failed")
+        task.fail(state.error)
+    else:
+        turn.record_tool_call(skill, state.payload, result)
+
+    # ── PostTurn hooks ──
+    from agent.hooks_integration import run_post_turn_hooks
+    force_continue, post_context = run_post_turn_hooks(
+        state, turn.turn_number, str(result.get("summary", ""))[:200]
+    )
+    if post_context:
+        state.context.setdefault("hook_context", []).extend(post_context)
+
+    # ── Stop hooks ──
+    from agent.hooks_integration import run_stop_hooks
+    should_stop, block_reason = run_stop_hooks(state)
+    if not should_stop:
+        logger.info("Stop hook blocked module completion: %s", block_reason)
+
+    turn.complete(str(state.skill_results.get("summary", ""))[:200])
+    task.complete({"mode": "module_direct", "skill": skill})
 
 
 def _execute_tool(tool_id: str, arguments: dict, workspace_id: str) -> dict:

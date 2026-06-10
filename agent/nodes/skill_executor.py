@@ -10,7 +10,6 @@ No executor/composer code changes needed.
 """
 
 import importlib
-import time
 from typing import Dict, Any, Callable
 from agent.state import NetworkAgentState
 
@@ -33,103 +32,18 @@ def execute(state: NetworkAgentState) -> NetworkAgentState:
     ws_id = state.workspace_id or "default"
     trace_id = state.trace_id or ""
 
-    # ── 0. No-op / LLM orchestrator for builtins ──
-    if state.intent in ("assistant_chat", "knowledge_query") or (not skill and not capability_id):
-        handled = False
-        if state.intent in ("assistant_chat", "knowledge_query"):
-            from agent.nodes.llm_orchestrator import orchestrate
-            handled = True
-            state = orchestrate(state)
-        if not handled:
-            state.skill_results = {"ok": True, "intent": state.intent, "mode": "builtin"}
-            state.tool_results = state.skill_results
-        _add_event(state, "skill_call_start", "skill:noop", ws_id=ws_id,
-                   metadata={"intent": state.intent, "status": "llm_orchestrated" if handled else "noop"})
-        _add_event(state, "skill_call_end", "skill:noop", ws_id=ws_id, status="success",
-                   summary=f"{'llm orchestrated' if handled else 'noop'} for {state.intent}")
-        state.context["skill_call_count"] = 0
-        return state
-
-    if not skill:
-        state.error = "No skill selected"
-        return state
-
-    # ── 1. Load skill spec ──
-    skill_spec = _load_skill_spec(skill)
-    if not skill_spec:
-        state.error = f"skill_spec_not_found: {skill}"
-        return state
-
-    # ── 2. Gate check ──
-    if cap_status == "planned":
-        state.skill_results = {"ok": False, "error": f"Intent '{state.intent}' is planned (coming_soon)"}
-        state.tool_results = state.skill_results
-        state.warnings.append(f"Skill '{skill}' is planned (coming_soon)")
-        _add_event(state, "warning", f"planned_skill:{skill}", ws_id=ws_id, status="planned")
-        state.skill_calls.append({"capability_id": capability_id, "skill": skill, "status": "planned"})
-        state.tool_calls = state.skill_calls
-        return state
-
-    if skill_spec.get("status") == "disabled" or cap_status == "disabled":
-        state.error = f"Skill '{skill}' is disabled"
-        return state
-
-    # ── 3. Resolve artifact_id → source_config ──
-    _resolve_artifact_input(state)
-
-    # ── 4. Auto-save input artifact ──
-    _auto_save_input(state, skill_spec)
-
-    # ── 5. Load and call adapter ──
-    entrypoint_fn = _resolve_entrypoint(skill_spec, capability_id)
-    if not entrypoint_fn:
-        state.error = f"No entrypoint for capability '{capability_id}'"
-        return state
-
-    adapter_path = skill_spec.get("adapter_path", "")
-    skill_call = {"capability_id": capability_id, "skill": skill,
-                  "module": state.active_module, "adapter_path": adapter_path,
-                  "entrypoint": entrypoint_fn, "status": "failed"}
-
-    _add_event(state, "skill_call_start", f"skill:{skill}", ws_id=ws_id,
-               metadata={"capability_id": capability_id, "adapter_path": adapter_path})
-    _add_event(state, "module_call_start", f"module:{state.active_module}", ws_id=ws_id)
-
-    t0 = time.time()
-    try:
-        func = _load_adapter(adapter_path, entrypoint_fn)
-
-        # Universal signature: adapter receives payload dict
-        result = func(payload=state.payload)
-
-        state.skill_results = result if isinstance(result, dict) else {"ok": True, "data": result}
-        state.tool_results = state.skill_results
-
-    except Exception as exc:
-        skill_call["status"] = "failed"
-        state.error = str(exc)
-    else:
-        skill_call["status"] = "success" if result.get("ok", True) else "failed"
-        if not result.get("ok"):
-            state.error = result.get("error", "execution_failed")
-        if result.get("warnings"):
-            state.warnings.extend(str(w) for w in result.get("warnings", [])[:20])
-
-    dur = round((time.time() - t0) * 1000, 2)
-    _add_event(state, "module_call_end", f"module:{state.active_module}",
-               ws_id=ws_id, status=skill_call["status"], duration_ms=dur,
-               summary=f"{entrypoint_fn}: {skill_call['status']} ({dur}ms)")
-    _add_event(state, "skill_call_end", f"skill:{skill}", ws_id=ws_id,
-               status=skill_call["status"], duration_ms=dur)
-
-    state.skill_calls.append(skill_call)
-    state.tool_calls = state.skill_calls
-    state.context["skill_call_count"] = len(state.skill_calls)
-    state.context["module_call_count"] = state.context.get("module_call_count", 0) + 1
-
-    # ── 6. Auto-save output artifact ──
-    _auto_save_output(state, skill_spec)
-
+    # ── 0. Route ALL intents through orchestrator for unified lifecycle ──
+    # The orchestrator handles:
+    #   - assistant_chat / knowledge_query → agentic loop (LLM-driven tool selection)
+    #   - translate_config / other modules → direct execution (adapter call)
+    #   - All intents get Task/Turn tracking + hook integration
+    from agent.nodes.llm_orchestrator import orchestrate
+    state = orchestrate(state)
+    _add_event(state, "skill_call_start", "skill:orchestrated", ws_id=ws_id,
+               metadata={"intent": state.intent, "mode": "orchestrated"})
+    _add_event(state, "skill_call_end", "skill:orchestrated", ws_id=ws_id, status="success",
+               summary=f"orchestrated for {state.intent}")
+    state.context["skill_call_count"] = 0
     return state
 
 
