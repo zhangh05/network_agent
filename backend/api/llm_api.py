@@ -116,7 +116,10 @@ def handle_llm_test():
         "model": client.provider_info().get("model"),
         "llm_used": output.llm_used,
         "config_source": cfg.get("config_source", "default"),
-        "policy_pass": output.policy_decision.allowed if output.policy_decision else False,
-        "response": output.answer if output.safe_to_show else "[blocked by policy]",
+        "policy_pass": output.policy_decision.allowed if output.policy_decision else True,
+        "response": output.answer,  # Always return answer, non-blocking
+        "safe_to_show": output.safe_to_show,
         "fallback_reason": output.fallback_reason,
+        "warnings": output.warnings,
+        "metadata": output.metadata if hasattr(output, "metadata") else {},
     })

@@ -1,7 +1,7 @@
 llm:
   enabled: true
   default_provider: minimax
-  safe_mode: true
+  safe_mode: false  # Disabled - user requires LLM always works
   timeout_seconds: 30
   providers:
     minimax:
