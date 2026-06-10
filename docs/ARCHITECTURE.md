@@ -1,10 +1,18 @@
 # Network Agent Architecture
 
-## Agent Backend v0.6 — Codex-style Runtime (CURRENT)
+## Agent Backend v0.7.1 — Capability Quality & Artifact Integration (CURRENT)
+
+> **HEAD**: `15565d1` (2026-06-10) · **Runtime**: Codex-style (v0.6 底座 + v0.7/v0.7.1 能力层) · **Tool count**: 57
+>
+> 本文档是 Network Agent 的总体架构图谱，按"Runtime 主链（v0.6）→ 能力层（v0.7 / v0.7.1）"分层描述。
+> - Runtime 底座单一权威：[AGENT_BACKEND_RUNTIME_V06.md](AGENT_BACKEND_RUNTIME_V06.md)
+> - 能力层单一权威：[CAPABILITY_LAYER_V071.md](CAPABILITY_LAYER_V071.md)
+> - 版本演化：[RELEASE_HISTORY.md](RELEASE_HISTORY.md)
+> - 用户入口：[README.md](../README.md)
 
 ### Overview
 
-Agent Backend v0.6 rewrites the backend around a Codex-style Agent Runtime, replacing the old LangGraph 7-node pipeline with a modern Thread/Session/Turn/RuntimeLoop architecture.
+Agent Backend v0.6 rewrites the backend around a Codex-style Agent Runtime, replacing the old LangGraph 7-node pipeline with a modern Thread/Session/Turn/RuntimeLoop architecture. v0.6.1 / v0.6.2 / v0.6.3 围绕稳定性、tool routing 做增量；v0.7 / v0.7.1 在底座之上引入 **Capability Layer（config_translation / knowledge_query）**，**未触碰** Runtime 主链。
 
 ### New Master Chain
 
@@ -61,22 +69,78 @@ The old 7-node LangGraph pipeline is preserved in `agent/legacy/`:
 - TraceRecorder: model_request, model_response, tool_call, tool_result
 - RolloutRecorder: persist_turn (basic implementation)
 
-## Current Closure State
+## Module / Skill / Tool 三层关系 (v0.7+)
 
-- Baseline commit: `e526ed6` (2026-06-10, Agent Backend v0.6 Final)
-- Baseline test evidence: `pytest harness -q` = XXX passed, 7 skipped, 0 failed
-- Current enabled business module: `config_translation`
-- Current enabled base capability: `knowledge_base` (knowledge_search MVP)
+Capability Layer 在 v0.7 起形成**显式三层**结构，业务能力接入 ToolRouter 仍走**唯一**的 `ToolRuntimeClient.invoke()` 路径。
+
+```
+┌─────────────────────────────────────────────────────────────────────┐
+│ Skill  (agent/skills/)   ← LLM 看到的能力描述，绑定到 SkillRegistry │
+│  ├─ assistant_chat          (enabled)                                │
+│  ├─ config_translation      (enabled, v0.7)                          │
+│  ├─ knowledge_query         (enabled, v0.7)                          │
+│  ├─ topology                (planned, NOT injected)                  │
+│  ├─ inspection              (planned, NOT injected)                  │
+│  └─ cmdb                    (planned, NOT injected)                  │
+├─────────────────────────────────────────────────────────────────────┤
+│ Module (agent/modules/)  ← 业务能力的服务实现，绑到 ModuleRegistry  │
+│  ├─ config_translation.service.translate_config  (v0.7)             │
+│  ├─ knowledge.service.query_knowledge             (v0.7)             │
+│  ├─ topology                                    (planned)            │
+│  ├─ inspection                                  (planned)            │
+│  └─ cmdb                                        (planned)            │
+├─────────────────────────────────────────────────────────────────────┤
+│ Tool   (model_visible_tools)  ← 真正给 LLM function_call 的工具    │
+│  ├─ config_translation.translate_config          (v0.7, 1)          │
+│  ├─ knowledge.query                              (v0.7, 1)          │
+│  └─ ToolRuntime catalog 其它 55 个 enabled visible tools            │
+│       (artifact / parser / report / command / web / session /        │
+│        runtime / text / workspace / powershell / knowledge)         │
+└─────────────────────────────────────────────────────────────────────┘
+```
+
+边界：
+- **Skill → Module** 通过 `agent/skills/{name}/adapter.py` 适配；Skill 不直接调 LLM、不直接读模块实现。
+- **Module → Tool** 通过 `agent/modules/{name}/service.py` + `ToolRouter` 注入；Module 不私接 LLM。
+- **Tool execution 唯一入口**：`ToolRouter.dispatch()` → `ToolRuntimeClient.invoke()` → ToolPolicy / ToolExecutor / Redaction / Audit。
+- **planned = NOT callable**：planned Skill/Module 不出现在 RuntimeSnapshot 的 enabled 部分，对应 tool 不在 `model_visible_tools()` 中；LLM 永远无法触发它们，也不允许伪造其结果。
+- **v0.7.1 起**：Tool 的输出经过 `artifacts.store` 落库（capability tools）或原样返回（general tools），`AgentResult.tool_calls` 携带 `artifacts / source_count / manual_review_count` 等富化字段，反馈到 LLM 下一轮。
+
+详细契约见 [MODULE_SKILL_TOOL_MODEL.md](MODULE_SKILL_TOOL_MODEL.md) 与 [CAPABILITY_LAYER_V071.md](CAPABILITY_LAYER_V071.md)。
+
+## Current Closure State (v0.7.1)
+
+- **HEAD**: `15565d1` (2026-06-10, Agent Backend v0.7.1 — Capability Quality & Artifact Integration)
+- **Test baseline (focused regression, 2026-06-10)**:
+  - v0.7/v0.7.1 capability tests: **41 passed, 0 failed**
+  - v0.6.x ~ v0.7.1 broader focused regression: **613 passed, 7 skipped, 1 failed**（1 fail = v0.5 `test_llm_provider_diagnostics_v05.py::test_timeout_returns_provider_timeout`，在 v0.7.1 范围外）
+  - Full harness `pytest harness -q` 在本轮 docs-only sync 中未重跑
+- **Runtime architecture**: Codex-style Agent Runtime（Thread / Session / Turn / RuntimeLoop）— v0.6 引入，v0.6.1 ~ v0.7.1 主链未变
+- **Enabled business tools** (v0.7+):
+  - `config_translation.translate_config`（capability service: `agent.modules.config_translation.service.translate_config`）
+  - `knowledge.query`（capability service: `agent.modules.knowledge.service.query_knowledge`）
+- **Enabled Skills**: `assistant_chat`（基础能力，非业务模块） / `config_translation` / `knowledge_query`
+- **Enabled Modules**: `config_translation` / `knowledge`
+- **Planned (NOT callable)**: `topology` / `inspection` / `cmdb`（在 SkillRegistry / ModuleRegistry / RuntimeSnapshot 中显式标记，**不允许 LLM 调用、不允许伪造数据**）
+- **Tool count**: 55 (v0.6.x) → **57** (v0.7+)，新增 `config_translation.translate_config` + `knowledge.query`
+- **Tool execution 唯一入口**: `ToolRouter → ToolRuntimeClient`（v0.6.3 起由 `default_runtime_services` 构建真实 ToolRouter；v0.6.3 引入 `llm_name_map` 白名单）
+- **Capability output contract (v0.7.1)**:
+  - `translated_config` 以 `translated_config` 类型 artifact 持久化（`authoritative=false, deployable_config=false, sensitivity=sensitive`）
+  - `manual_review_items` 结构化（item_id / severity / category / line_no / reason / requires_human_review …）
+  - `knowledge.source_summary`（≤ 5 条，snippet ≤ 200 字符，**绝不伪造**）
+  - `AgentResult.tool_calls` 增强（call_id / artifacts / source_count / manual_review_count / errors / warnings / metadata）
+  - `ToolResultMessage.content` 1000 → 2000 字符
 - Knowledge Index Runtime (Safe Local RAG Foundation v0.1): indexing + search, no auto RAG
 - Agent base capability: `assistant_chat` (not a business module)
 - LLM Orchestrator: agentic loop for chat/knowledge with disabled fallback
 - SSE Streaming: `POST /api/agent/run` supports `stream=true`
 - Rate Limit: IP-based middleware for all API endpoints
-- Planned only: Topology, Inspection, CMDB
-- Tool Runtime has Foundation + Client + Integration + supervised Agent Tool Bridge, but no real device execution.
-- Run history is backend workspace state, not browser-local history.
-- `quality_summary` is carried through API, Agent result, run history, UI, trace metadata, and report summaries.
+- Tool Runtime has Foundation + Client + Integration + supervised Agent Tool Bridge, but **no real device execution**
+- Run history is backend workspace state, not browser-local history
+- `quality_summary` is carried through API, Agent result, run history, UI, trace metadata, and report summaries
 - Backend routes: main.py + sub-route files (agent, artifact, context, job, knowledge, llm, memory, modules, runtime, session, skills, sse, version, workspace)
+
+> 详细能力契约、Artifact 契约、Manual Review Schema、Knowledge Source 规则、Runtime Result Enrichment 见 [CAPABILITY_LAYER_V071.md](CAPABILITY_LAYER_V071.md)。
 
 ## 总体架构
 

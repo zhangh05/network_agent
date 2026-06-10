@@ -13,13 +13,13 @@ Network Agent 是一个网络工程本地 Agent 平台，面向网络工程师�
   - `knowledge.query`
 - **Planned modules (NOT callable)**：`topology`, `inspection`, `cmdb`
 
-### Test Baseline
+### Test Baseline (re-measured 2026-06-10 on developer machine)
 
-| Suite | Passed | Skipped | Failed | Errors | Note |
-|-------|--------|---------|--------|--------|------|
-| v0.7/v0.7.1 capability tests (focused) | **41** | 0 | 0 | 0 | `test_capability_config_translation_v07.py` + `test_capability_knowledge_v07.py` + `test_capability_artifacts_v071.py` + `test_capability_knowledge_sources_v071.py` |
-| v0.6.x ~ v0.7.1 broader focused regression | **611** | 7 | 3 | 621 | 7 skipped = `RUN_LIVE_TESTS=1` live LLM tests; **3 failed + 621 errors are all TRAE sandbox `PermissionError` on `config/LLM_setting.json`** (env-blocked, not code) |
-| Full harness `pytest harness -q` | — | — | — | — | **Environment-blocked**: TRAE sandbox restricts writes to `config/LLM_setting.json` (chmod 600 secret) and `data/*.json`, so test isolation fixtures that need to re-write these files fail with `PermissionError`. Run on a developer machine outside the sandbox for a clean full number. |
+| Suite | Passed | Skipped | Failed | Note |
+|-------|--------|---------|--------|------|
+| v0.7/v0.7.1 capability tests (focused) | **41** | 0 | 0 | `test_capability_config_translation_v07.py` + `test_capability_knowledge_v07.py` + `test_capability_artifacts_v071.py` + `test_capability_knowledge_sources_v071.py` |
+| v0.6.x ~ v0.7.1 broader focused regression | **613** | 7 | 1 | 7 skipped = `RUN_LIVE_TESTS=1` live LLM tests. The 1 failure is `test_llm_provider_diagnostics_v05.py::test_timeout_returns_provider_timeout` (v0.5 timeout-message text assertion: expects `"timeout"` substring, actual is `"timed out"`); it is a v0.5 doc/test mismatch, **outside the v0.7.1 Runtime main chain and Capability Layer**; left untouched per the docs-only sync scope. |
+| Full harness `pytest harness -q` | — | — | — | Not re-run in this round (docs-only sync). On a TRAE sandbox full-run reports env-blockers (`PermissionError` on `config/LLM_setting.json` chmod 600 and `data/*.json`) — run on a developer machine for a clean full number. |
 
 Retired surfaces record: [docs/RETIRED_SURFACES.md](docs/RETIRED_SURFACES.md)
 
@@ -237,7 +237,7 @@ pytest harness -q -k "capability_artifacts or capability_knowledge_sources or \
                        capability_config_translation or capability_knowledge or \
                        runtime_hardening or agent_backend_runtime or provider_timeout or \
                        rate_limit or approval or redaction or tool_runtime or llm"
-# 611 passed, 7 skipped (live LLM), env-blocked on full run
+# 613 passed, 7 skipped (live LLM), 1 failed (v0.5 timeout-message test, out of v0.7.1 scope)
 
 # Full harness
 pytest harness -q
