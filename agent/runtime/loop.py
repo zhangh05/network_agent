@@ -3,6 +3,7 @@
 
 import json
 from agent.protocol.message import UserMessage, SystemMessage, AssistantMessage, ToolResultMessage, RuntimeContextMessage
+from agent.protocol.tool_result import ToolResult
 from agent.runtime.result import AgentResult
 from agent.llm.runtime import invoke_llm
 
@@ -138,7 +139,34 @@ def run_turn(session, turn, services=None) -> AgentResult:
             messages.append(assistant_msg.to_llm_message())
 
             for tc in resp.tool_calls:
-                tool_call = context.tool_router.build_tool_call(tc)
+                llm_name = tc.name if hasattr(tc, 'name') else tc.get("name", "unknown")
+
+                # Try to build ToolCall (may raise UnknownToolCallError)
+                try:
+                    tool_call = context.tool_router.build_tool_call(tc)
+                except Exception as e:
+                    # Unknown tool — record and feed back to LLM
+                    error_name = getattr(e, '__class__', type(e)).__name__
+                    if audit_events:
+                        audit_events.emit("tool_call_failed", session_id=session.session_id, turn_id=turn.turn_id,
+                                          tool_id=llm_name, errors=[str(e)[:200]])
+                    if audit_trace:
+                        audit_trace.record_tool_result(turn.turn_id, step, llm_name, False, str(e)[:100])
+                    all_tool_results.append({
+                        "tool_id": llm_name,
+                        "ok": False,
+                        "summary": f"Tool not visible to model: {llm_name}",
+                    })
+                    tool_msg = ToolResultMessage(
+                        content=json.dumps({
+                            "ok": False,
+                            "error": f"{error_name}: {str(e)[:200]}",
+                            "hint": "Only call tools from the provided function list."
+                        }, ensure_ascii=False)[:1000],
+                        tool_call_id=tc.id if hasattr(tc, 'id') else tc.get("id", ""),
+                    )
+                    messages.append(tool_msg.to_llm_message())
+                    continue
 
                 if audit_events:
                     audit_events.emit("tool_call_started", session_id=session.session_id, turn_id=turn.turn_id,
@@ -158,7 +186,16 @@ def run_turn(session, turn, services=None) -> AgentResult:
                     if audit_trace:
                         audit_trace.record_tool_result(turn.turn_id, step, tool_call.real_tool_id, result.ok, result.summary)
                 except Exception as e:
-                    result = type('obj', (object,), {'ok': False, 'summary': str(e)[:200], 'errors': [str(e)[:200]]})()
+                    if audit_events:
+                        audit_events.emit("tool_call_failed", session_id=session.session_id, turn_id=turn.turn_id,
+                                          tool_id=tool_call.real_tool_id, errors=[str(e)[:200]])
+                    if audit_trace:
+                        audit_trace.record_tool_result(turn.turn_id, step, tool_call.real_tool_id, False, str(e)[:100])
+                    result = ToolResult(
+                        ok=False,
+                        summary=str(e)[:200],
+                        errors=[str(e)[:200]],
+                    )
 
                 all_tool_results.append({
                     "tool_id": tool_call.real_tool_id,
@@ -219,12 +256,17 @@ def run_turn(session, turn, services=None) -> AgentResult:
                           warning="max_steps exceeded")
     return AgentResult(
         ok=True,
-        final_response=_build_partial_answer(all_tool_results),
+        final_response=f"[partial] {_build_partial_answer(all_tool_results)}",
         session_id=session.session_id,
         turn_id=turn.turn_id,
         trace_id=context.trace_id,
-        warnings=["max_steps exceeded"],
+        warnings=[f"max_steps ({MAX_STEPS}) reached — partial result"],
         events=_collect_events(audit_events, turn.turn_id),
+        metadata={
+            "terminal_reason": "max_steps_exceeded",
+            "partial": True,
+            "steps": MAX_STEPS,
+        },
     )
 
 
@@ -233,10 +275,9 @@ def _build_initial_messages(context, services) -> list:
     messages = []
 
     # System prompt
+    from agent.runtime.prompts import build_system_prompt
     messages.append(SystemMessage(
-        content="You are Network Agent, an AI assistant for network operations. "
-                "You can use tools to help users with network configuration, queries, and analysis. "
-                "Be concise and helpful. Use tools when appropriate."
+        content=build_system_prompt()
     ).to_llm_message())
 
     # Runtime snapshot

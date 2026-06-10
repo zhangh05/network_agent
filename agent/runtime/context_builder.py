@@ -52,14 +52,20 @@ def build_turn_context(session, turn, services) -> TurnContext:
 
     # 6. Build RuntimeSnapshot
     visible_tools = []
+    all_tools_count = 0
     if ctx.tool_router:
         try:
             visible_tools = ctx.tool_router.model_visible_tools()
         except Exception:
             pass
+        try:
+            if ctx.tool_router.registry:
+                all_tools_count = len(ctx.tool_router.registry.list_all())
+        except Exception:
+            all_tools_count = len(visible_tools)
 
     snapshot = RuntimeSnapshot(
-        tool_count=len(visible_tools),
+        tool_count=all_tools_count,
         visible_tool_count=len(visible_tools),
         enabled_skills=[s.get("skill_id", s.get("name", "")) for s in skill_snap.get("enabled", [])],
         planned_skills=[s.get("skill_id", s.get("name", "")) for s in skill_snap.get("planned", [])],

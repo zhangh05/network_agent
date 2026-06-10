@@ -26,8 +26,9 @@ class RuntimeSnapshot:
         lines.append("")
 
         lines.append("Current Tools (available NOW):")
+        lines.append(f"  Total: {self.tool_count} tools in catalog, {self.visible_tool_count} visible to LLM")
         if self.visible_tool_count > 0:
-            lines.append(f"  {self.visible_tool_count} tools visible to LLM")
+            pass  # Already shown above
         else:
             lines.append("  (no tools available)")
 

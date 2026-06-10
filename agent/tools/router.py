@@ -8,6 +8,11 @@ from agent.protocol.tool_call import ToolCall
 from agent.protocol.tool_result import ToolResult
 
 
+class UnknownToolCallError(Exception):
+    """Raised when LLM attempts to call a tool not in model-visible whitelist."""
+    pass
+
+
 class ToolRouter:
     def __init__(self, registry: ToolRegistry = None):
         self.registry = registry or ToolRegistry()
@@ -41,13 +46,33 @@ class ToolRouter:
         return [s.to_openai_function() for s in self.model_visible_specs]
 
     def build_tool_call(self, raw_llm_tool_call) -> ToolCall:
-        """Convert raw LLM tool_call to ToolCall with real_tool_id."""
+        """Convert raw LLM tool_call to ToolCall with real_tool_id.
+
+        Validates that the LLM tool name is in the model-visible whitelist.
+        Raises UnknownToolCallError if the tool is not exposed to the model.
+        """
         llm_name = raw_llm_tool_call.name if hasattr(raw_llm_tool_call, 'name') else raw_llm_tool_call.get("name", "")
+
+        # Whitelist check: only allow tools that were explicitly exposed to LLM
+        if llm_name not in self.llm_name_map:
+            raise UnknownToolCallError(f"Tool not visible to model: {llm_name}")
+
+        call_id = raw_llm_tool_call.id if hasattr(raw_llm_tool_call, 'id') else raw_llm_tool_call.get("id", "")
+        args = raw_llm_tool_call.arguments if hasattr(raw_llm_tool_call, 'arguments') else raw_llm_tool_call.get("arguments", {})
+
+        if isinstance(args, str):
+            import json
+            try:
+                args = json.loads(args)
+            except Exception:
+                args = {"raw": args}
+
+        real_tool_id = self.llm_name_map[llm_name]
         tc = ToolCall(
-            call_id=raw_llm_tool_call.id if hasattr(raw_llm_tool_call, 'id') else raw_llm_tool_call.get("id", ""),
+            call_id=call_id,
             llm_tool_name=llm_name,
-            real_tool_id=from_llm_tool_name(llm_name),
-            arguments=raw_llm_tool_call.arguments if hasattr(raw_llm_tool_call, 'arguments') else raw_llm_tool_call.get("arguments", {}),
+            real_tool_id=real_tool_id,
+            arguments=args,
         )
         return tc
 

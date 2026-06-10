@@ -26,17 +26,12 @@ def default_runtime_services() -> RuntimeServices:
     from agent.audit.trace import TraceRecorder
     from agent.audit.rollout import RolloutRecorder
 
-    # Build tool registry from ToolRuntimeClient if available
-    tool_registry = ToolRegistry()
-    try:
-        from tool_runtime.client import ToolRuntimeClient
-        client = ToolRuntimeClient()
-        tool_registry = ToolRegistry.from_runtime_client(client)
-    except Exception:
-        pass
+    # Build tool router from real ToolRuntime catalog
+    tool_registry = _build_default_registry()
+    tool_router = ToolRouter(registry=tool_registry)
 
     svc = RuntimeServices(
-        tool_service=ToolRouter(registry=tool_registry),
+        tool_service=tool_router,
         skill_service=SkillRegistry(),
         module_service=ModuleRegistry(),
         audit_service={
@@ -46,3 +41,14 @@ def default_runtime_services() -> RuntimeServices:
         },
     )
     return svc
+
+
+def _build_default_registry() -> "ToolRegistry":
+    """Build ToolRegistry from the real ToolRuntime catalog."""
+    from agent.tools.registry import ToolRegistry
+    try:
+        from tool_runtime.integration import get_default_tool_runtime_client
+        client = get_default_tool_runtime_client()
+        return ToolRegistry.from_runtime_client(client)
+    except Exception:
+        return ToolRegistry()
