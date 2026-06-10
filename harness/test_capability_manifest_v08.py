@@ -38,11 +38,13 @@ def _reset_capability_registry_cache():
 
 # ── 1. default registry has the five v0.8 capabilities ──
 class TestDefaultRegistryContents:
-    def test_default_registry_contains_all_five_capabilities(self):
+    def test_default_registry_contains_all_seven_capabilities_v09(self):
+        # v0.9 added 'artifact' and 'review' (both enabled).
         reg = get_default_capability_registry()
         ids = {m.capability_id for m in reg.list_all()}
         assert ids == {
             "config_translation", "knowledge",
+            "artifact", "review",
             "topology", "inspection", "cmdb",
         }
 
@@ -50,9 +52,10 @@ class TestDefaultRegistryContents:
 # ── 2. enabled capabilities = config_translation + knowledge ──
 class TestEnabledCapabilities:
     def test_enabled_capabilities_are_config_translation_and_knowledge(self):
+        # v0.9 added 'artifact' and 'review' (both enabled).
         reg = get_default_capability_registry()
         enabled = sorted([m.capability_id for m in reg.list_enabled()])
-        assert enabled == ["config_translation", "knowledge"]
+        assert enabled == ["artifact", "config_translation", "knowledge", "review"]
 
 
 # ── 3. planned capabilities = topology / inspection / cmdb ──
@@ -182,10 +185,10 @@ class TestModuleRegistryFromCapabilities:
         from agent.modules.registry import ModuleRegistry
         reg = get_default_capability_registry()
         mr = ModuleRegistry.from_capabilities(reg)
-        # Must include the 2 enabled + 3 planned modules
+        # v0.9: 4 enabled + 3 planned modules
         enabled = sorted(m.module_id for m in mr.list_enabled_modules())
         planned = sorted(m.module_id for m in mr.list_planned_modules())
-        assert enabled == ["config_translation", "knowledge"]
+        assert enabled == ["artifact", "config_translation", "knowledge", "review"]
         assert planned == ["cmdb", "inspection", "topology"]
 
 
@@ -207,13 +210,19 @@ class TestSkillRegistryFromCapabilities:
 # ── 14. ToolRegistry registers enabled capability tools ──
 class TestToolRegistryCapabilityTools:
     def test_tool_registry_registers_enabled_capability_tools(self):
+        # v0.9: 8 capability tools (2 + 4 artifact + 2 review).
         from agent.tools.registry import ToolRegistry
         reg = get_default_capability_registry()
         tr = ToolRegistry()
         n = tr.register_capability_tools(reg)
-        assert n == 2
-        assert tr.get("config_translation.translate_config") is not None
-        assert tr.get("knowledge.query") is not None
+        assert n == 8
+        for tid in (
+            "config_translation.translate_config",
+            "knowledge.query",
+            "artifact.list", "artifact.read", "artifact.diff", "artifact.export",
+            "review.list_items", "review.update_item",
+        ):
+            assert tr.get(tid) is not None
 
     # ── 15. ToolRegistry does NOT register planned tools as LLM-visible ──
     def test_tool_registry_does_not_register_planned_as_llm_visible(self):
@@ -238,8 +247,8 @@ class TestRuntimeServicesExposesRegistry:
         assert svc.capability_registry is not None
         # The exposed registry is the same kind as get_default_capability_registry
         assert isinstance(svc.capability_registry, CapabilityRegistry)
-        # And has 5 capabilities
-        assert len(svc.capability_registry.list_all()) == 5
+        # And has 7 capabilities (5 v0.8 + artifact + review from v0.9)
+        assert len(svc.capability_registry.list_all()) == 7
 
 
 # ── 17. RuntimeSnapshot uses CapabilityRegistry ──
@@ -261,10 +270,12 @@ class TestRuntimeSnapshotUsesRegistry:
         assert snap.capability_baseline
         assert "config_translation" in [c["capability_id"]
                                          for c in snap.capability_baseline["enabled_capabilities"]]
-        # Visible business tools are exactly the 2 enabled ones
+        # Visible business tools are exactly the 8 enabled ones (v0.9)
         assert sorted(snap.visible_business_tools) == sorted([
             "config_translation.translate_config",
             "knowledge.query",
+            "artifact.list", "artifact.read", "artifact.diff", "artifact.export",
+            "review.list_items", "review.update_item",
         ])
         # Safety baseline is populated
         assert snap.safety_baseline["real_device_access"] is False
@@ -276,24 +287,38 @@ class TestRuntimeSnapshotUsesRegistry:
         assert "planned capabilities are NOT callable." in text
 
 
-# ── 18. Tool count is still 57 ──
+# ── 18. Tool count is now 62 (v0.9: 54 general + 8 capability) ──
 class TestToolCount:
-    def test_total_tool_count_is_57(self):
-        """Catalog total = 55 general tools + 2 capability tools = 57."""
+    def test_total_tool_count_is_62(self):
+        """v0.9 catalog total = 62.
+
+        Was 57 at v0.8 baseline (55 general + 2 capability).
+        v0.9 added 6 new capability tool_ids (4 artifact + 2 review),
+        but `artifact.list` was already in the ToolRuntime catalog
+        (a pre-existing general tool). So only 5 new tool_ids actually
+        increased the total: 57 + 5 = 62. The capability layer's
+        registry is still 8 (2 + 4 + 2); only the catalog total is 62.
+        """
         from agent.runtime.services import default_runtime_services
         svc = default_runtime_services()
         tr = svc.tool_service
         total = len(tr.registry.list_all())
-        assert total == 57
+        assert total == 62
 
     def test_visible_tools_include_capability_tools(self):
-        """The 2 capability tools must be in the LLM-visible whitelist."""
+        """All 8 capability tools must be in the LLM-visible whitelist."""
         from agent.runtime.services import default_runtime_services
         svc = default_runtime_services()
         tr = svc.tool_service
         names = {t["function"]["name"] for t in tr.model_visible_tools()}
-        assert "config_translation__translate_config" in names
-        assert "knowledge__query" in names
+        for n in (
+            "config_translation__translate_config",
+            "knowledge__query",
+            "artifact__list", "artifact__read",
+            "artifact__diff", "artifact__export",
+            "review__list_items", "review__update_item",
+        ):
+            assert n in names
 
     def test_visible_tools_exclude_disabled_general_tools(self):
         """High-risk tools (e.g. command.approved_exec) are kept in the

@@ -1,6 +1,6 @@
 # Network Agent Architecture
 
-## Agent Backend v0.8.2 — Result Contract Standardization (CURRENT)
+## Agent Backend v0.9 — Artifact Consumption & Review Flow (CURRENT)
 
 > **HEAD**: `15565d1` (2026-06-10) · **Runtime**: Codex-style (v0.6 底座 + v0.7/v0.7.1 能力层) · **Tool count**: 57
 >
@@ -108,30 +108,27 @@ Capability Layer 在 v0.7 起形成**显式三层**结构，业务能力接入 T
 
 详细契约见 [MODULE_SKILL_TOOL_MODEL.md](MODULE_SKILL_TOOL_MODEL.md) 与 [CAPABILITY_LAYER_V071.md](CAPABILITY_LAYER_V071.md)。
 
-## Current Closure State (v0.8.2)
+## Current Closure State (v0.9)
 
-- **HEAD**: v0.8.2 commit（refactor(agent): standardize result contracts）
+- **HEAD**: v0.9 commit（feat(agent): add artifact consumption and review flow）
 - **Test baseline (focused regression, 2026-06-10)**:
-  - v0.8.2 result contract tests: **28 / 28 passed**（`harness/test_result_contract_v082.py`）
+  - v0.9 artifact / review flow tests: **29 / 29 passed**（`harness/test_artifact_review_flow_v09.py`）
+  - v0.8.2 result contract tests: **28 / 28 passed**（**未回归**）
   - v0.8.1 skill selector tests: **23 / 23 passed**（**未回归**）
   - v0.8 capability manifest tests: **20 / 20 passed**（**未回归**）
   - v0.7/v0.7.1 capability tests: **41 passed, 0 failed**（**未回归**）
-  - v0.6.x ~ v0.8.2 broader focused regression: **686 passed, 7 skipped, 0 failed**（v0.8.1 baseline 658 + v0.8.2 新增 28）
+  - v0.6.x ~ v0.9 broader focused regression: **715 passed, 7 skipped, 0 failed**（v0.8.2 baseline 686 + v0.9 新增 29）
   - Full harness `pytest harness -q` 本轮 docs-only sync + 架构 refactor 中**未**重跑
-- **Runtime architecture**: Codex-style Agent Runtime（Thread / Session / Turn / RuntimeLoop）— v0.6 引入，**v0.6.1 ~ v0.8.2 主链未变**
-- **CapabilityRegistry (v0.8)**: 5 个 capability（2 enabled + 3 planned），**单一真相源**（不变）
-- **v0.8.1**:
-  - `SkillSelector`（`agent/skills/selector.py`）：rule-based per-turn skill 选择
-  - `ToolRouter.apply_dynamic_visibility(allowed_tool_ids)`：动态 tool 可见性
-  - `RuntimeServices.skill_selector` 字段；`ContextBuilder` 每轮调用 selector + 同步 router
-  - `RuntimeSnapshot.selected_skills` / `selected_visible_tools` / `dynamic_tool_visibility` 三个 per-turn 字段
-- **v0.8.2 NEW — Result Contract Standardization**:
-  - `agent.protocol.module_result.ModuleResult`（业务输出合同）
-  - `agent.protocol.tool_result.ToolResult.from_module_result` / `from_legacy_dict`（运行时合同）
-  - `agent.runtime.loop._to_standard_tool_call`（审计 / UI 合同）
-  - `config_translation.service.to_module_result` / `knowledge.service.to_module_result`（service 适配）
-  - `config_translation.tools` / `knowledge.tools` 改用 `to_module_result` + `from_module_result`（tool handler 适配）
-  - v0.7.1 业务输出合同**不变**（仍是 `dict`），41/41 capability 测试零回归
+- **Runtime architecture**: Codex-style Agent Runtime（Thread / Session / Turn / RuntimeLoop）— v0.6 引入，**v0.6.1 ~ v0.9 主链未变**
+- **CapabilityRegistry (v0.9)**: 7 个 capability（4 enabled + 3 planned），**单一真相源**
+- **v0.9 NEW — Artifact Consumption & Review Flow**:
+  - 新增 `agent.modules.artifact/`：`service` + `tools` + `capability`（4 tools: list/read/diff/export）
+  - 新增 `agent.modules.review/`：`service` + `tools` + `capability`（2 tools: list_items/update_item）
+  - 2 个 enabled skills: `artifact_management` / `review_flow`
+  - `review.update_item` 写 sidecar JSON 存 status/user_note；**不**修改 translated_config 原文
+  - `translated_config` 仍是 `authoritative=false / deployable_config=False`
+  - Tool count: 57 → **62**（+5；`artifact.list` 与已有 ToolRuntime catalog 去重）
+  - v0.7.1 capability tests 41/41 零回归
 - **Enabled business tools** (v0.7+):
   - `config_translation.translate_config`（capability service: `agent.modules.config_translation.service.translate_config`）
   - `knowledge.query`（capability service: `agent.modules.knowledge.service.query_knowledge`）

@@ -67,6 +67,15 @@ EXTRA_KEYWORDS: dict[str, list[str]] = {
         "查知识", "查资料", "知识库", "rfc", "standard",
         "lookup", "search docs", "search docs", "find in",
     ],
+    "artifact_management": [
+        "产物", "artifact", "导出", "对比结果", "比较结果",
+        "diff", "export", "artifact list", "read artifact",
+    ],
+    "review_flow": [
+        "复核", "人工复核", "人工审核", "review item",
+        "accept", "ignore", "modify suggestion", "manual review",
+        "review",
+    ],
 }
 
 

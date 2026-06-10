@@ -71,8 +71,14 @@ class ArtifactRecord:
             "tags": self.tags, "redaction_applied": self.redaction_applied,
             "parent_artifact_id": self.parent_artifact_id,
         }
+        # v0.9 fix: always include metadata in the meta file so that
+        # callers can recover the original metadata (e.g. review service
+        # needs manual_review_items). The include_content flag still
+        # controls the larger content body. Existing consumers that use
+        # sanitize_record() for the API surface are unaffected.
+        d["metadata"] = self.metadata
         if include_content:
-            d["metadata"] = self.metadata
+            pass  # placeholder for future larger content body
         return d
 
     def as_summary(self) -> dict:

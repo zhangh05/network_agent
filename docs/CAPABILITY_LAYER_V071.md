@@ -215,7 +215,7 @@ User request
 - 跨工作区协作 + 多租户隔离强化
 - 业务模块按规划逐步启用：`topology` → `inspection` → `cmdb`
 
-> **2026-06-10 更新**：v0.7.1 之后已经迈入 **v0.8 — Capability Manifest Refactor**，并随后跟进 **v0.8.1 — SkillSelector + Dynamic Tool Visibility** 与 **v0.8.2 — Result Contract Standardization**。
+> **2026-06-10 更新**：v0.7.1 之后已经迈入 **v0.8 — Capability Manifest Refactor**，并随后跟进 **v0.8.1 — SkillSelector + Dynamic Tool Visibility**、**v0.8.2 — Result Contract Standardization** 与 **v0.9 — Artifact Consumption & Review Flow**。
 >
 > v0.8 业务能力层从"分散的 ModuleRegistry / SkillRegistry / ToolRegistry hardcode 常量"重构为统一的 **`CapabilityManifest` + `CapabilityRegistry`**；
 > RuntimeSnapshot 从 CapabilityRegistry 投影；Module/Skill/Tool Registry 提供 `from_capabilities()` / `register_capability_tools()` 派生路径。
@@ -225,4 +225,12 @@ User request
 > config 翻译场景只暴露 `config_translation.translate_config`；knowledge 场景只暴露 `knowledge.query`；topology / inspection / cmdb 永远不可见；任何 selector 异常 fallback 到 v0.8 全量 + warning。
 >
 > v0.8.2 统一结果链路 `ModuleResult → ToolResult → AgentResult.tool_calls`，让所有能力输出结构一致；v0.7.1 业务输出合同不变（仍为 `dict`），但 Module / Tool / Loop 三层提供 `to_module_result` / `from_module_result` / `_to_standard_tool_call` 投影。
-> 详细见 [CAPABILITY_MANIFEST_V08.md](CAPABILITY_MANIFEST_V08.md) § 9 (v0.8.1) / § 10 (v0.8.2)。
+>
+> v0.9 在 v0.8 capability 层之上**新增**两个 enabled capability：
+> - `artifact`（4 tools: list/read/diff/export）— 让 LLM 浏览 / 读取 / diff / 导出已有 artifact
+> - `review`（2 tools: list_items/update_item）— 让用户逐条复核 manual_review_items 并打 status / user_note
+>
+> `review.update_item` 写 sidecar JSON 存 status/user_note，**不**修改 translated_config 原文，**不**生成 deployable_config。
+> Tool count 57 → 62（v0.9 计划 +6，但 `artifact.list` 与已有 ToolRuntime catalog 去重，实际净增 +5）。
+> CapabilityRegistry 5 → 7（+2）；planned 三个 capability 永不暴露。
+> 详细见 [CAPABILITY_MANIFEST_V08.md](CAPABILITY_MANIFEST_V08.md) § 9 (v0.8.1) / § 10 (v0.8.2) 与 [ARTIFACT_REVIEW_FLOW_V09.md](ARTIFACT_REVIEW_FLOW_V09.md)。

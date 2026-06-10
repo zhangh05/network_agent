@@ -260,10 +260,12 @@ class TestPerTurnReApplication:
         v2 = {t["function"]["name"] for t in tr.model_visible_tools()}
         assert v2 == {"knowledge__query"}
 
-        # Turn 3: empty (chat) — fall back to v0.8 (full set)
+        # Turn 3: empty (chat) — fall back to full visible set
         tr.apply_dynamic_visibility([])
         assert tr.dynamic_visibility is False
         assert tr.allowed_tool_ids is None
         v3 = {t["function"]["name"] for t in tr.model_visible_tools()}
-        # v0.8 fallback: 55 visible (53 enabled general + 2 capability)
-        assert len(v3) == 55
+        # v0.9 fallback: 60 visible (53 enabled general + 7 unique
+        # capability tools; artifact.list overlaps with the pre-existing
+        # ToolRuntime 'artifact.list' so is counted only once).
+        assert len(v3) == 60

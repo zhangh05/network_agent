@@ -1,9 +1,11 @@
 # agent/capabilities/builtin.py
 """Built-in capability registry — the default set of capabilities.
 
-v0.8 defaults:
+v0.9 defaults:
 - config_translation: enabled
 - knowledge:          enabled
+- artifact:           enabled  (NEW v0.9)
+- review:             enabled  (NEW v0.9)
 - topology:           planned
 - inspection:         planned
 - cmdb:               planned
@@ -19,6 +21,8 @@ from agent.capabilities.schemas import CapabilityManifest
 
 from agent.modules.config_translation.capability import CAPABILITY_CONFIG_TRANSLATION
 from agent.modules.knowledge.capability import CAPABILITY_KNOWLEDGE
+from agent.modules.artifact.capability import CAPABILITY_ARTIFACT
+from agent.modules.review.capability import CAPABILITY_REVIEW
 from agent.modules.topology.capability import CAPABILITY_TOPOLOGY
 from agent.modules.inspection.capability import CAPABILITY_INSPECTION
 from agent.modules.cmdb.capability import CAPABILITY_CMDB
@@ -27,6 +31,8 @@ from agent.modules.cmdb.capability import CAPABILITY_CMDB
 BUILTIN_CAPABILITIES: list[CapabilityManifest] = [
     CAPABILITY_CONFIG_TRANSLATION,
     CAPABILITY_KNOWLEDGE,
+    CAPABILITY_ARTIFACT,
+    CAPABILITY_REVIEW,
     CAPABILITY_TOPOLOGY,
     CAPABILITY_INSPECTION,
     CAPABILITY_CMDB,
@@ -41,8 +47,9 @@ def get_default_capability_registry() -> CapabilityRegistry:
     ToolRegistry, RuntimeSnapshot) sees the SAME registry instance.
     """
     reg = CapabilityRegistry(BUILTIN_CAPABILITIES)
-    # Sanity: assert the five v0.8 expected entries exist.
-    expected = {"config_translation", "knowledge", "topology", "inspection", "cmdb"}
+    # Sanity: assert the seven v0.9 expected entries exist.
+    expected = {"config_translation", "knowledge", "artifact", "review",
+                "topology", "inspection", "cmdb"}
     ids = {m.capability_id for m in reg.list_all()}
     missing = expected - ids
     if missing:

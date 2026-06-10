@@ -27,6 +27,7 @@
 | TBD (v0.8) | v0.8 | introduce capability manifest registry | 新增 `agent/capabilities/{schemas,registry,builtin}.py` + 5 个 module `capability.py`；`CapabilityRegistry` 作为能力真相源；`ModuleRegistry.from_capabilities()` / `SkillRegistry.from_capabilities()` / `ToolRegistry.register_capability_tools()`；`RuntimeServices.capability_registry` 字段；`RuntimeSnapshot.build_runtime_snapshot()` 优先从 CapabilityRegistry 投影；`planned` 三个 capability 仍 `NOT callable`；Tool count 仍 = 57；新增 20 tests | **不变** |
 | TBD (v0.8.1) | v0.8.1 | add skill selector and dynamic tool visibility | 新增 `agent/skills/selector.py`（`SkillSelector` + `select_skills` rule-based API：assistant_chat always-on + intent_patterns 命中 + capability_discovery meta-skill + planned 绝不注入 + 异常 fallback）；`ToolRouter.apply_dynamic_visibility()`（fail-closed 交集 = `registry_visible ∩ allowed_tool_ids`）；`RuntimeServices.skill_selector` 字段；`ContextBuilder` 每轮调用 selector + 同步 router + 异常 fallback；`RuntimeSnapshot.selected_skills` / `selected_visible_tools` / `dynamic_tool_visibility` 新字段 + `to_prompt_text()` 新增 per-turn 段落；新增 23 tests | **不变** |
 | TBD (v0.8.2) | v0.8.2 | standardize result contracts | 新增 `agent/protocol/module_result.py`（`ModuleResult` 业务输出合同 + `success`/`failure`/`to_dict`/`from_dict`）；`ToolResult` 升级为含 `data` / `artifacts` / `source_count` / `manual_review_count` 字段；`ToolResult.from_module_result` / `from_legacy_dict`（运行时合同）；`config_translation.service.to_module_result` / `knowledge.service.to_module_result`（service 适配）；`config_translation.tools` / `knowledge.tools` 改用 `to_module_result` + `from_module_result`（tool handler 适配）；`agent/runtime/loop.py::_to_standard_tool_call`（审计 / UI 合同：10 标准字段，缺失填默认）；`AgentResult.tool_calls` 严格 10 字段；v0.7.1 业务输出合同不变；新增 28 tests | **不变** |
+| TBD (v0.9) | v0.9 | add artifact consumption and review flow | 新增 `agent/modules/artifact/`（`service` + `tools` + `capability`）— 4 tools: list/read/diff/export；新增 `agent/modules/review/`（`service` + `tools` + `capability`）— 2 tools: list_items/update_item；2 个 enabled skills: `artifact_management` / `review_flow`；`review.update_item` 写 sidecar JSON 存 status/user_note，**不**修改 translated_config 原文，**不**生成 deployable_config；`agent/capabilities/builtin.py` 加入 artifact + review；Tool count 57 → 62（+5：`artifact.list` 与已有 ToolRuntime catalog 去重）；`artifacts.schemas.ArtifactRecord.as_dict()` 修复 metadata 持久化（v0.9 配套小修复）；v0.7.1 capability tests 41/41 零回归；新增 29 tests | **不变** |
 
 ## 各版本能力对照
 
@@ -71,12 +72,13 @@ v0.6 → v0.7.1 **始终保持**：
 
 | Suite | Passed | Skipped | Failed |
 |-------|--------|---------|--------|
+| v0.9 artifact / review flow (focused) | **29** | 0 | 0 |
 | v0.8.2 result contract (focused) | **28** | 0 | 0 |
 | v0.8.1 skill selector (focused) | **23** | 0 | 0 |
 | v0.8 capability manifest (focused) | **20** | 0 | 0 |
 | v0.7/v0.7.1 capability (focused) | **41** | 0 | 0 |
-| v0.6.x ~ v0.8.2 broader focused regression | **686** | 7 | 0 |
-| Full harness `pytest harness -q` | — | — | Not re-run (docs-only sync) |
+| v0.6.x ~ v0.9 broader focused regression | **715** | 7 | 0 |
+| Full harness `pytest harness -q` | — | — | Not re-run (docs + refactor) |
 
 > 2026-06-10 update：曾记录的 v0.5 `test_llm_provider_diagnostics_v05.py::test_timeout_returns_provider_timeout` 失败已在同日的 legacy diagnostics alignment 中修复（断言改为兼容 "timeout" / "timed out" 两种文案，并主断言 `metadata.provider_error_type == "provider_timeout"`）。broader focused regression 由 613 passed / 1 failed 提升至 **615 passed / 0 failed**（+1 = 新增的 wording-agnostic regression test）。
 
