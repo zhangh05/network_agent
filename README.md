@@ -202,7 +202,7 @@ pytest harness -q
 network_agent/
 ├── agent/                    # Agent 主框架 (LangGraph + LLM)
 │   ├── nodes/                # 8 节点: router, context, planner, executor(orchestrator), verifier, composer, memory, tool_planner
-│   └── llm/                  # safe_generate, provider, policy, context_builder (v0.2 dynamic budget)
+│   └── llm/                  # invoke_llm (统一入口), safe_generate (公共 API), provider, policy (NON-BLOCKING), settings, tool_adapter
 ├── modules/                  # 业务模块
 │   └── config_translation/   # translate_bundle 管线
 ├── skills/                   # Agent 技能包 (adapter → module)

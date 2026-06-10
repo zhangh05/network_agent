@@ -127,13 +127,18 @@ Job 默认归属当前 workspace。
 ## LLM / Prompt 链
 
 ```
-Composer → safe_generate
+Composer / Orchestrator → invoke_llm (统一入口)
   → prompts.loader (registry.yaml 加载模板)
   → renderer       (Jinja2 渲染)
-  → policy input   (安全策略门控)
+  → policy input   (安全策略门控, NON-BLOCKING)
   → provider       (MiniMax / OpenAI Compatible / Ollama / Mock)
-  → policy output  (安全策略门控)
+  → policy output  (安全策略门控, NON-BLOCKING)
+  → safe_generate  (公共 API 包装, 返回 SafeLLMOutput)
 ```
+
+`invoke_llm()` 是所有 LLM 调用的**唯一入口点**，直接调用 `provider.generate()`。
+`safe_generate()` 是其公共包装，添加 policy 检查和 SafeLLMOutput 返回格式。
+Policy 检查是**非阻塞**的：失败仅记录到 metadata/warnings，不阻断 provider 调用。
 
 ## Context 链
 

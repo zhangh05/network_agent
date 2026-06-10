@@ -60,8 +60,8 @@ Config text detection: user can paste raw network config (e.g. `hostname R1\nint
 
 | Intent | Path |
 |--------|------|
-| `assistant_chat` | `_compose_assistant_chat()` → try `safe_generate("assistant_chat")` with MiniMax-M3 → fallback `_assistant_response(state)` |
-| `response_compose` / business | `safe_generate(task)` via prompt runtime |
+| `assistant_chat` | `_compose_assistant_chat()` → try `safe_generate("assistant_chat")` (which wraps `invoke_llm()`, the unified entry point) with MiniMax-M3 → fallback `_assistant_response(state)` |
+| `response_compose` / business | `safe_generate(task)` via prompt runtime → `invoke_llm()` |
 | `context_qa` | `_compose_context_qa()` |
 | Unknown | `_deterministic(state)` fallback |
 
@@ -74,7 +74,7 @@ Flow:
 2. LLM disabled → `_handle_llm_disabled()` → keyword-based tool matching → deterministic execution → compose response
 3. LLM blocked → graceful degradation with `fallback_reason` recorded
 
-Each LLM call passes through `safe_generate()` with input/output policy checks.
+Each LLM call passes through `invoke_llm()` (single entry point) → `provider.generate()`. Callers use `safe_generate()` (public API) which wraps `invoke_llm()` with non-blocking input/output policy checks and returns `SafeLLMOutput`.
 
 ### LLM Blocked / Deterministic Fallback
 
@@ -93,6 +93,8 @@ When LLM is unavailable or blocked by policy:
 Tool execution for `assistant_chat` / `knowledge_query` is handled by the **LLM Orchestrator** (`agent/nodes/llm_orchestrator.py`), not the legacy `tool_planner.py`.
 
 Rules:
+- Tool names use bidirectional mapping: `.` (internal) ↔ `__` (LLM-safe), via `to_llm_tool_name()` / `from_llm_tool_name()`
+- `invoke_llm()` sends tools with LLM-safe names; orchestrator converts back before `_execute_tool()`
 - low-risk enabled tools can execute through `ToolRuntimeClient`
 - medium-risk tools require explicit dry-run/预演 wording and run as dry-run
 - high-risk or `requires_approval` tools are blocked with approval guidance
