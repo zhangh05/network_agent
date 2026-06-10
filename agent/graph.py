@@ -3,6 +3,12 @@
 
 Both LangGraph and fallback runtimes share a unified trace wrapper (wrap_trace_node)
 that guarantees every node records node_start / node_end / duration_ms.
+
+Architecture note:
+  - orchestrator (llm_orchestrator.orchestrate) is NOT a separate graph node.
+  - It is called internally by skill_executor.execute() for ALL intents,
+    ensuring unified Task/Turn lifecycle + hook integration.
+  - _CANONICAL_NODES defines the 7-node pipeline executed by LangGraph/fallback.
 """
 
 import time
@@ -16,7 +22,8 @@ try:
 except ImportError:
     pass
 
-# Canonical 8 nodes (name, display_name)
+# Canonical 7 nodes (name, display_name)
+# orchestrator is NOT a separate node — it runs inside executor (skill_executor)
 _CANONICAL_NODES = [
     ("router", "router"),
     ("context", "context_loader"),
@@ -25,7 +32,6 @@ _CANONICAL_NODES = [
     ("verifier", "verifier"),
     ("composer", "composer"),
     ("memory", "memory_writer"),
-    ("orchestrator", "llm_orchestrator"),
 ]
 
 
@@ -49,10 +55,11 @@ def _add_trace_event(state: NetworkAgentState, event_type: str, name: str,
 
 
 # Node retry configuration: node_name → (max_retries, retry_delay_seconds)
+# Note: "orchestrator" is not a separate node (runs inside executor),
+#       so its retry is covered by the "executor" entry.
 _NODE_RETRY_CONFIG = {
     "context": (1, 0.5),     # context_loader: retry once
-    "executor": (1, 0.5),    # skill_executor: retry once
-    "orchestrator": (2, 0.3),# llm_orchestrator: retry twice (LLM may flake)
+    "executor": (1, 0.5),    # skill_executor: retry once (covers orchestrator too)
     "composer": (2, 0.3),    # composer: retry twice (LLM may flake)
 }
 
@@ -99,11 +106,11 @@ def wrap_trace_node(node_name: str, display_name: str):
 
     def _load_func():
         # Lazy import to avoid circular dependency
+        # Note: "orchestrator" is not a separate node — it runs inside executor
         mapping = {
             "router": ("agent.nodes.intent_router", "route"),
             "context": ("agent.nodes.context_loader", "load_context"),
             "planner": ("agent.nodes.planner", "plan"),
-            "orchestrator": ("agent.nodes.llm_orchestrator", "orchestrate"),
             "executor": ("agent.nodes.skill_executor", "execute"),
             "verifier": ("agent.nodes.verifier", "verify"),
             "composer": ("agent.nodes.composer", "compose"),
