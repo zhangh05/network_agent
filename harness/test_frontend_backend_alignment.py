@@ -81,37 +81,37 @@ class TestFrontendBackendAlignment:
 
 class TestAgentChat:
     def test_hello_intent(self):
-        from agent.nodes.intent_router import _infer
+        from agent.legacy.intent_router import _infer
         assert _infer("你好") == "assistant_chat"
 
     def test_who_are_you(self):
-        from agent.nodes.intent_router import _infer
+        from agent.legacy.intent_router import _infer
         assert _infer("你是谁") == "assistant_chat"
 
     def test_capability(self):
-        from agent.nodes.intent_router import _infer
+        from agent.legacy.intent_router import _infer
         assert _infer("你能做什么") == "assistant_chat"
 
     def test_translate_still_works(self):
-        from agent.nodes.intent_router import _infer
+        from agent.legacy.intent_router import _infer
         assert _infer("翻译配置") == "translate_config"
 
     def test_topology_planned(self):
-        from agent.nodes.intent_router import _infer
+        from agent.legacy.intent_router import _infer
         assert _infer("帮我画拓扑") == "topology_draw"
 
     def test_inspection_planned(self):
-        from agent.nodes.intent_router import _infer
+        from agent.legacy.intent_router import _infer
         assert _infer("帮我巡检") == "inspection_analyze"
 
     def test_unknown_handled(self):
-        from agent.nodes.intent_router import _infer
+        from agent.legacy.intent_router import _infer
         intent = _infer("帮我做 CMDB")
         assert intent in ("unknown", "assistant_chat", "context_qa")
 
     def test_hello_compose_ok(self):
         from agent.state import NetworkAgentState
-        from agent.nodes.composer import compose
+        from agent.legacy.composer import compose
         s = NetworkAgentState(user_input="你好", intent="assistant_chat")
         s = compose(s)
         assert "didn't understand" not in s.final_response
@@ -120,26 +120,26 @@ class TestAgentChat:
     def test_chat_no_deployable(self):
         """Chat must not produce deployable_config."""
         from agent.state import NetworkAgentState
-        from agent.nodes.composer import compose
+        from agent.legacy.composer import compose
         s = NetworkAgentState(user_input="你好", intent="assistant_chat")
         s = compose(s)
         assert "deployable" not in s.final_response.lower()
 
     def test_planned_response(self):
         from agent.state import NetworkAgentState
-        from agent.nodes.composer import _deterministic
+        from agent.legacy.composer import _deterministic
         s = _deterministic({}, "topology_draw")
         assert "planned" in s.lower() or "coming" in s.lower()
 
     def test_executor_noop_for_chat(self):
-        from agent.nodes.skill_executor import execute
+        from agent.legacy.skill_executor import execute
         from agent.state import NetworkAgentState
         s = NetworkAgentState(intent="assistant_chat", selected_skill=None)
         s = execute(s)
         assert s.error is None or "No skill" not in str(s.error)
 
     def test_translate_intent_still_active(self):
-        from agent.nodes.intent_router import _infer
+        from agent.legacy.intent_router import _infer
         assert _infer("请把这段配置从 Cisco 翻译成华为") == "translate_config"
 
 

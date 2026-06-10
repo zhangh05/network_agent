@@ -4,8 +4,8 @@ Tests for assistant_chat intent and basic conversation capability.
 """
 import pytest
 from agent.state import NetworkAgentState
-from agent.nodes.intent_router import route, _infer
-from agent.nodes.composer import compose, _assistant_response
+from agent.legacy.intent_router import route, _infer
+from agent.legacy.composer import compose, _assistant_response
 
 
 class TestIntentRouter:
@@ -125,7 +125,7 @@ class TestAssistantResponse:
 
 class TestNoopExecutor:
     def test_assistant_chat_noop(self):
-        from agent.nodes.skill_executor import execute
+        from agent.legacy.skill_executor import execute
         state = NetworkAgentState(user_input="你好", intent="assistant_chat",
                                   selected_skill=None)
         state = execute(state)

@@ -53,7 +53,7 @@ class TestToolRuntimeContextPropagation:
 
     def test_invoke_called_with_context(self, mock_tool_runtime, state_with_context):
         """_execute_tool should call client.invoke() with ToolRuntimeContext."""
-        from agent.nodes.llm_orchestrator import _execute_tool
+        from agent.legacy.llm_orchestrator import _execute_tool
 
         # Call _execute_tool
         result = _execute_tool(
@@ -82,7 +82,7 @@ class TestToolRuntimeContextPropagation:
 
     def test_context_fields_correct(self, mock_tool_runtime, state_with_context):
         """Verify all context fields are set correctly."""
-        from agent.nodes.llm_orchestrator import _execute_tool
+        from agent.legacy.llm_orchestrator import _execute_tool
 
         _execute_tool("test_tool", {}, "test_ws", state_with_context)
 
@@ -226,7 +226,7 @@ class TestToolCountUnchanged:
             workspace_id="test",
         )
 
-        from agent.nodes.llm_orchestrator import _execute_tool
+        from agent.legacy.llm_orchestrator import _execute_tool
         _execute_tool("test_tool", {}, "test", state)
 
         # Tool count should not have changed
@@ -283,7 +283,7 @@ class TestIntegrationOrchestratorContext:
         """When orchestrate() calls tools, context should be passed."""
         # This is an integration test that requires mocking the full pipeline
         # For now, just verify the code path exists
-        import agent.nodes.llm_orchestrator as mod
+        import agent.legacy.llm_orchestrator as mod
         import inspect
 
         # Check that _execute_tool is called with state

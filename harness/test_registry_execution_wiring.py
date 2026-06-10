@@ -33,7 +33,7 @@ class TestRouter:
         assert "_INTENT_CAPABILITY_MAP" not in content, "Router still has hardcoded _INTENT_CAPABILITY_MAP"
 
     def test_router_recognizes_translate(self):
-        from agent.nodes.intent_router import _infer
+        from agent.legacy.intent_router import _infer
         assert _infer("翻译 cisco 到 huawei") == "translate_config"
 
     def test_router_maps_via_registry(self, client):
@@ -75,7 +75,7 @@ class TestExecutor:
         assert "registry" in content.lower()
 
     def test_dynamic_adapter_loading_code_exists(self):
-        from agent.nodes.skill_executor import _load_adapter
+        from agent.legacy.skill_executor import _load_adapter
         # Test actual dynamic loading
         func = _load_adapter("skills/config_translation/adapter.py", "translate")
         assert callable(func)
@@ -84,7 +84,7 @@ class TestExecutor:
         assert result.get("ok") is True
 
     def test_dynamic_review_loading(self):
-        from agent.nodes.skill_executor import _load_adapter
+        from agent.legacy.skill_executor import _load_adapter
         func = _load_adapter("skills/config_translation/adapter.py", "review")
         assert callable(func)
         result = func(payload={})
@@ -136,7 +136,7 @@ class TestContextQA:
         assert c.intent == "context_qa"
 
     def test_context_qa_adapter_review_function(self):
-        from agent.nodes.skill_executor import _load_adapter
+        from agent.legacy.skill_executor import _load_adapter
         func = _load_adapter("skills/config_translation/adapter.py", "review")
         result = func(payload={})
         assert isinstance(result, dict)

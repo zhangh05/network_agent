@@ -89,7 +89,7 @@ class TestLLMRequestWithTools:
 
 class TestToolExecution:
     def test_execute_low_risk_tool(self):
-        from agent.nodes.llm_orchestrator import _execute_tool
+        from agent.legacy.llm_orchestrator import _execute_tool
         from agent.state import NetworkAgentState
         state = NetworkAgentState()
         result = _execute_tool("runtime.health", {}, "default", state)
@@ -97,21 +97,21 @@ class TestToolExecution:
         assert result["status"] == "succeeded"
 
     def test_execute_unknown_tool(self):
-        from agent.nodes.llm_orchestrator import _execute_tool
+        from agent.legacy.llm_orchestrator import _execute_tool
         from agent.state import NetworkAgentState
         state = NetworkAgentState()
         result = _execute_tool("nonexistent.tool", {}, "default", state)
         assert result["ok"] is False
 
     def test_execute_forbidden_tool_blocked(self):
-        from agent.nodes.llm_orchestrator import _execute_tool
+        from agent.legacy.llm_orchestrator import _execute_tool
         from agent.state import NetworkAgentState
         state = NetworkAgentState()
         result = _execute_tool("shell.exec", {"cmd": "ls"}, "default", state)
         assert result["ok"] is False
 
     def test_execute_artifact_list_returns_data(self):
-        from agent.nodes.llm_orchestrator import _execute_tool
+        from agent.legacy.llm_orchestrator import _execute_tool
         from agent.state import NetworkAgentState
         state = NetworkAgentState()
         result = _execute_tool("artifact.list", {}, "default", state)
@@ -126,7 +126,7 @@ class TestLLMOrchestrator:
             intent="assistant_chat",
             workspace_id="default",
         )
-        from agent.nodes.llm_orchestrator import orchestrate
+        from agent.legacy.llm_orchestrator import orchestrate
         result = orchestrate(state)
         # With disabled or configured LLM, should still return state
         assert result.tool_results is not None
@@ -138,7 +138,7 @@ class TestLLMOrchestrator:
             intent="assistant_chat",
             workspace_id="default",
         )
-        from agent.nodes.llm_orchestrator import orchestrate
+        from agent.legacy.llm_orchestrator import orchestrate
         result = orchestrate(state)
         assert result.skill_results is not None
 
@@ -148,7 +148,7 @@ class TestLLMOrchestrator:
             intent="assistant_chat",
             workspace_id="default",
         )
-        from agent.nodes.llm_orchestrator import orchestrate
+        from agent.legacy.llm_orchestrator import orchestrate
         result = orchestrate(state)
         assert result.tool_results is not None
 
@@ -238,12 +238,12 @@ class TestNoRegression:
         pass
 
     def test_graph_still_compiles(self):
-        from agent.graph import _LANGGRAPH_AVAILABLE, get_runtime_status
+        from agent.legacy.graph import _LANGGRAPH_AVAILABLE, get_runtime_status
         status = get_runtime_status()
         assert "agent_runtime" in status
 
     def test_skill_executor_delegates_to_orchestrator(self):
-        from agent.nodes.skill_executor import execute
+        from agent.legacy.skill_executor import execute
         state = NetworkAgentState(
             user_input="test",
             intent="assistant_chat",

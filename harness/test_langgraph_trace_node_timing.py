@@ -159,7 +159,7 @@ class TestFallbackConsistency:
     def test_fallback_pipeline_node_timing(self, temp_dirs):
         """Test _run_fallback directly records 7 node_start + 7 node_end."""
         from agent.state import NetworkAgentState
-        from agent.graph import _run_fallback
+        from agent.legacy.graph import _run_fallback
 
         state = NetworkAgentState(
             user_input="translate cisco to huawei",
@@ -190,7 +190,7 @@ class TestFallbackConsistency:
 
     def test_fallback_node_timings_populated(self, temp_dirs):
         from agent.state import NetworkAgentState
-        from agent.graph import _run_fallback
+        from agent.legacy.graph import _run_fallback
         from observability.trace import create_trace
 
         state = NetworkAgentState(
@@ -218,7 +218,7 @@ class TestNodeFailure:
 
     def test_failed_node_records_end(self, temp_dirs):
         from agent.state import NetworkAgentState
-        from agent.graph import _run_timed_node
+        from agent.legacy.graph import _run_timed_node
         from observability.trace import create_trace
 
         state = NetworkAgentState(

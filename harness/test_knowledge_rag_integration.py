@@ -21,37 +21,37 @@ PROJECT_ROOT = Path(__file__).resolve().parent.parent
 
 class TestKnowledgeIntentRouter:
     def test_knowledge_query_explicit(self):
-        from agent.nodes.intent_router import _infer
+        from agent.legacy.intent_router import _infer
         assert _infer("查一下知识库 NAT") == "knowledge_query"
 
     def test_knowledge_query_search(self):
-        from agent.nodes.intent_router import _infer
+        from agent.legacy.intent_router import _infer
         assert _infer("在资料里找一下联软准入") == "knowledge_query"
 
     def test_knowledge_query_doc(self):
-        from agent.nodes.intent_router import _infer
+        from agent.legacy.intent_router import _infer
         assert _infer("之前上传的文档里有没有提到 CUCM") == "knowledge_query"
 
     def test_knowledge_query_report(self):
-        from agent.nodes.intent_router import _infer
+        from agent.legacy.intent_router import _infer
         assert _infer("这个报告里说了什么") == "knowledge_query"
 
     def test_assistant_chat_not_knowledge(self):
-        from agent.nodes.intent_router import _infer
+        from agent.legacy.intent_router import _infer
         assert _infer("你好") == "assistant_chat"
 
     def test_translate_config_not_knowledge(self):
-        from agent.nodes.intent_router import _infer
+        from agent.legacy.intent_router import _infer
         assert _infer("翻译配置") == "translate_config"
 
     def test_simple_question_not_knowledge(self):
         """Simple question without knowledge context words should be assistant_chat."""
-        from agent.nodes.intent_router import _infer
+        from agent.legacy.intent_router import _infer
         # "NAT是什么" without context words → assistant_chat
         assert _infer("NAT是什么") == "assistant_chat"
 
     def test_knowledge_builtin_capability(self):
-        from agent.nodes.intent_router import _resolve_capability
+        from agent.legacy.intent_router import _resolve_capability
         from agent.state import NetworkAgentState
         state = NetworkAgentState(intent="knowledge_query", workspace_id="default")
         _resolve_capability(state)
@@ -270,7 +270,7 @@ class TestKnowledgeSafetyGates:
 
     def test_knowledge_result_details_present_in_agent_response(self):
         """Agent response must include knowledge_result_details with metadata."""
-        from agent.graph import run_agent
+        from agent.legacy.graph import run_agent
         result = run_agent(
             user_input='查一下知识库里辣椒炒肉是什么',
             intent='', payload={}, workspace_id='default', session_id='',
@@ -291,7 +291,7 @@ class TestKnowledgeSafetyGates:
 
     def test_knowledge_response_no_full_content(self):
         """Agent response for knowledge_query must NOT contain full file content."""
-        from agent.graph import run_agent
+        from agent.legacy.graph import run_agent
         result = run_agent(
             user_input='查一下知识库里辣椒炒肉是什么',
             intent='', payload={}, workspace_id='default', session_id='',

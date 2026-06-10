@@ -104,7 +104,7 @@ class TestOrchestratorMapping:
 
         with patch("agent.nodes.llm_orchestrator._execute_tool", side_effect=fake_execute):
             with patch("agent.llm.runtime.invoke_llm", return_value=mock_resp):
-                from agent.nodes.llm_orchestrator import orchestrate
+                from agent.legacy.llm_orchestrator import orchestrate
                 from agent.state import NetworkAgentState
                 state = NetworkAgentState()
                 state.user_input = "check health"
@@ -133,7 +133,7 @@ class TestToolResultsRecordRealToolId:
         ]
 
         with patch("agent.llm.runtime.invoke_llm", return_value=mock_resp):
-            from agent.nodes.llm_orchestrator import orchestrate
+            from agent.legacy.llm_orchestrator import orchestrate
             from agent.state import NetworkAgentState
             state = NetworkAgentState()
             state.user_input = "check health"

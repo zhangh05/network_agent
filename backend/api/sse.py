@@ -67,7 +67,7 @@ def handle_agent_run_sse():
     def _run_pipeline():
         """Run the agent pipeline in a background thread."""
         try:
-            from agent.graph import run_agent
+            from agent.legacy.graph import run_agent
             result = run_agent(
                 user_input=user_input,
                 intent=intent,

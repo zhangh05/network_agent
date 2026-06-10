@@ -216,7 +216,7 @@ class TestContextLoader:
     def test_context_loader_loads_workspace_state(self, temp_dirs):
         from workspace.manager import ensure_workspace, update_workspace_state
         from agent.state import NetworkAgentState
-        from agent.nodes.context_loader import load_context
+        from agent.legacy.context_loader import load_context
 
         ws_id = "ctx_test"
         ensure_workspace(ws_id)
@@ -232,7 +232,7 @@ class TestContextLoader:
     def test_context_loader_context_ref_last_result(self, temp_dirs):
         from workspace.manager import ensure_workspace, update_workspace_state
         from agent.state import NetworkAgentState
-        from agent.nodes.context_loader import load_context
+        from agent.legacy.context_loader import load_context
 
         ws_id = "ctx_ref_test"
         ensure_workspace(ws_id)
@@ -254,7 +254,7 @@ class TestContextLoader:
     def test_context_loader_no_last_result(self, temp_dirs):
         from workspace.manager import ensure_workspace
         from agent.state import NetworkAgentState
-        from agent.nodes.context_loader import load_context
+        from agent.legacy.context_loader import load_context
 
         ws_id = "no_result_test"
         ensure_workspace(ws_id)
@@ -271,7 +271,7 @@ class TestContextLoader:
 
 class TestAgentWorkspaceBoundary:
     def test_run_agent_rejects_invalid_workspace_id(self, temp_dirs):
-        from agent.graph import run_agent
+        from agent.legacy.graph import run_agent
 
         result = run_agent(
             user_input="translate config",
@@ -285,7 +285,7 @@ class TestAgentWorkspaceBoundary:
         assert not (Path(str(temp_dirs["workspace_dir"])).parent / "escape").exists()
 
     def test_run_agent_rejects_oversized_source_config(self, temp_dirs, monkeypatch):
-        from agent.graph import run_agent
+        from agent.legacy.graph import run_agent
 
         monkeypatch.setenv("NETWORK_AGENT_MAX_SOURCE_CONFIG_BYTES", "20")
         result = run_agent(
@@ -300,7 +300,7 @@ class TestAgentWorkspaceBoundary:
         assert result["runtime_mode"] == "rejected"
 
     def test_run_agent_rejects_oversized_user_input_config(self, temp_dirs, monkeypatch):
-        from agent.graph import run_agent
+        from agent.legacy.graph import run_agent
 
         monkeypatch.setenv("NETWORK_AGENT_MAX_SOURCE_CONFIG_BYTES", "20")
         result = run_agent(
@@ -317,7 +317,7 @@ class TestAgentWorkspaceBoundary:
     def test_context_loader_loads_memory_hits(self, temp_dirs):
         from workspace.manager import ensure_workspace
         from agent.state import NetworkAgentState
-        from agent.nodes.context_loader import load_context
+        from agent.legacy.context_loader import load_context
 
         ws_id = "mem_hits_test"
         ensure_workspace(ws_id)

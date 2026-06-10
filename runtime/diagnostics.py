@@ -101,7 +101,7 @@ def get_diagnostics(workspace_id: str = "default") -> DiagnosticReport:
 
     # 6. Agent runtime
     try:
-        from agent.graph import get_runtime_status
+        from agent.legacy.graph import get_runtime_status
         agent_status = get_runtime_status()
         components.append(ComponentStatus("agent", "ok",
             f"Runtime: {agent_status.get('agent_runtime', '?')}, "

@@ -16,7 +16,7 @@ It does NOT:
 
 from flask import request, jsonify
 
-from agent.graph import run_agent, get_runtime_status
+from agent.legacy.graph import run_agent, get_runtime_status
 from workspace.session_store import get_or_create_default_session
 from backend.core.limits import source_config_too_large
 from backend.core.settings import BUILD_COMMIT, TRANSLATOR_ENTRY

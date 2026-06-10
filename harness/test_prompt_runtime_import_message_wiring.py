@@ -164,11 +164,11 @@ class TestPolicyBlocking:
 
 class TestComposer:
     def test_select_task_exists(self):
-        from agent.nodes.composer import _select_prompt_task
+        from agent.legacy.composer import _select_prompt_task
         assert callable(_select_prompt_task)
 
     def test_context_qa_route(self):
-        from agent.nodes.composer import _select_prompt_task
+        from agent.legacy.composer import _select_prompt_task
         from agent.state import NetworkAgentState
         s = NetworkAgentState(intent="context_qa", user_input="刚才的结果有什么风险？")
         t = _select_prompt_task(s)

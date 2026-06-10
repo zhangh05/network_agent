@@ -496,7 +496,7 @@ class TestClientSafety:
 
     def test_knowledge_query_graph_has_result_details(self):
         """Agent graph response must include knowledge_result_details for frontend display."""
-        from agent.graph import run_agent
+        from agent.legacy.graph import run_agent
         result = run_agent(
             user_input='查一下知识库里辣椒炒肉是什么',
             intent='', payload={}, workspace_id='default', session_id='',
@@ -517,7 +517,7 @@ class TestClientSafety:
 
     def test_knowledge_query_not_found_response_safe(self):
         """Not-found response must NOT contain paths, secrets, or full config."""
-        from agent.graph import run_agent
+        from agent.legacy.graph import run_agent
         result = run_agent(
             user_input='zzz_no_such_thing_xyz_999',
             intent='', payload={}, workspace_id='default', session_id='',

@@ -100,7 +100,7 @@ class TestComposerReturnsLLMAnswerSafeToShowFalse:
             }
             with patch("agent.llm.runtime.safe_generate", return_value=output):
                 from agent.state import NetworkAgentState
-                from agent.nodes.composer import _compose_assistant_chat
+                from agent.legacy.composer import _compose_assistant_chat
 
                 state = NetworkAgentState()
                 state.user_input = "test"
@@ -133,7 +133,7 @@ class TestComposerReturnsLLMAnswerSafeToShowFalse:
 
         with patch("agent.llm.runtime.safe_generate", return_value=output):
             from agent.state import NetworkAgentState
-            from agent.nodes.composer import compose
+            from agent.legacy.composer import compose
 
             state = NetworkAgentState()
             state.user_input = "summarize result"
@@ -244,7 +244,7 @@ class TestAssistantChatKeepsWithTools:
             }
             with patch("agent.llm.runtime.invoke_llm", side_effect=capture_invoke):
                 from agent.state import NetworkAgentState
-                from agent.nodes.llm_orchestrator import orchestrate
+                from agent.legacy.llm_orchestrator import orchestrate
 
                 state = NetworkAgentState()
                 state.user_input = "help"
@@ -291,7 +291,7 @@ class TestAssistantChatKeepsWithTools:
             with patch("agent.nodes.llm_orchestrator._execute_tool", side_effect=fake_execute):
                 with patch("agent.llm.runtime.invoke_llm", return_value=mock_resp):
                     from agent.state import NetworkAgentState
-                    from agent.nodes.llm_orchestrator import orchestrate
+                    from agent.legacy.llm_orchestrator import orchestrate
 
                     state = NetworkAgentState()
                     state.user_input = "check health"

@@ -11,7 +11,7 @@ class TestAssistantChatInvokesLLM:
     def test_assistant_chat_no_deferred(self):
         """assistant_chat intent must NOT set mode=assistant_chat_deferred."""
         from agent.state import NetworkAgentState
-        from agent.nodes.llm_orchestrator import orchestrate
+        from agent.legacy.llm_orchestrator import orchestrate
 
         state = NetworkAgentState(intent="assistant_chat", user_input="Hello")
 
@@ -38,7 +38,7 @@ class TestAssistantChatNoToolsMode:
     def test_no_tools_mode_succeeds(self):
         """Normal assistant_chat (no tool request) succeeds with no-tools mode."""
         from agent.state import NetworkAgentState
-        from agent.nodes.llm_orchestrator import orchestrate
+        from agent.legacy.llm_orchestrator import orchestrate
 
         state = NetworkAgentState(intent="assistant_chat", user_input="What is  OSPF?")
 
@@ -62,7 +62,7 @@ class TestAssistantChatWithToolsMode:
     def test_with_tools_mode_does_not_break_toolpolicy(self):
         """Tool-request chat with-tools mode must not bypass ToolPolicy."""
         from agent.state import NetworkAgentState
-        from agent.nodes.llm_orchestrator import orchestrate
+        from agent.legacy.llm_orchestrator import orchestrate
         from agent.llm.schemas import LLMResponse, LLMToolCall
 
         state = NetworkAgentState(
@@ -107,7 +107,7 @@ class TestAssistantChatDisabledFallback:
     def test_disabled_does_not_call_provider(self):
         """When LLM is disabled, assistant_chat uses deterministic fallback."""
         from agent.state import NetworkAgentState
-        from agent.nodes.llm_orchestrator import orchestrate
+        from agent.legacy.llm_orchestrator import orchestrate
 
         state = NetworkAgentState(intent="assistant_chat", user_input="Hello")
 
@@ -131,7 +131,7 @@ class TestAssistantChatUnifiedRuntime:
     def test_assistant_chat_calls_invoke_llm(self):
         """Verify that assistant_chat intent calls invoke_llm() (unified entry point)."""
         from agent.state import NetworkAgentState
-        from agent.nodes.llm_orchestrator import orchestrate
+        from agent.legacy.llm_orchestrator import orchestrate
 
         state = NetworkAgentState(intent="assistant_chat", user_input="Hello")
 

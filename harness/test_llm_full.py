@@ -156,13 +156,13 @@ class TestSafeContext:
 # ═══ Composer ═══
 class TestComposer:
     def test_deterministic_when_disabled(self):
-        from agent.nodes.composer import compose
+        from agent.legacy.composer import compose
         from agent.state import NetworkAgentState
         s=NetworkAgentState(intent="translate_config",tool_results={"ok":True,"deployable_config":"x","manual_review":[],"unsupported":[],"semantic_near":[],"audit":{},"translator_entry":"translate_bundle"})
         compose(s)
         assert s.final_response
     def test_no_modify_result(self):
-        from agent.nodes.composer import compose
+        from agent.legacy.composer import compose
         from agent.state import NetworkAgentState
         r={"ok":True,"deployable_config":"keep","manual_review":[],"unsupported":[],"semantic_near":[],"audit":{},"translator_entry":"translate_bundle"}
         s=NetworkAgentState(intent="translate_config",tool_results=r)

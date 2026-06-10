@@ -66,7 +66,7 @@ class TestAssistantChatLLMPath:
 
     def test_llm_enabled_calls_safe_generate(self, monkeypatch):
         """LLM enabled & available → safe_generate('assistant_chat') is called."""
-        import agent.nodes.composer as mod
+        import agent.legacy.composer as mod
         from agent.llm import runtime as llm_runtime
         called = []
 
@@ -85,7 +85,7 @@ class TestAssistantChatLLMPath:
 
     def test_llm_output_used_in_final_response(self, monkeypatch):
         """safe_generate returns compliant output → final_response uses LLM text."""
-        import agent.nodes.composer as mod
+        import agent.legacy.composer as mod
         from agent.llm import runtime as llm_runtime
 
         def fake_safe_generate(task, state, **kwargs):
@@ -103,7 +103,7 @@ class TestAssistantChatLLMPath:
 
     def test_llm_metadata_used_true(self, monkeypatch):
         """llm metadata marks used=True on successful LLM path."""
-        import agent.nodes.composer as mod
+        import agent.legacy.composer as mod
         from agent.llm import runtime as llm_runtime
 
         def fake_safe_generate(task, state, **kwargs):
@@ -121,7 +121,7 @@ class TestAssistantChatLLMPath:
 
     def test_fallback_false_on_success(self, monkeypatch):
         """fallback=False when LLM succeeds."""
-        import agent.nodes.composer as mod
+        import agent.legacy.composer as mod
         from agent.llm import runtime as llm_runtime
 
         def fake_safe_generate(task, state, **kwargs):
@@ -138,7 +138,7 @@ class TestAssistantChatLLMPath:
 
     def test_llm_disabled_falls_back(self, monkeypatch):
         """LLM disabled → does NOT call provider, uses deterministic fallback."""
-        import agent.nodes.composer as mod
+        import agent.legacy.composer as mod
         from agent.llm import runtime as llm_runtime
         called = []
 
@@ -161,7 +161,7 @@ class TestAssistantChatLLMPath:
 
     def test_provider_unavailable_falls_back(self, monkeypatch):
         """Provider throws exception → fallback=True with clear reason."""
-        import agent.nodes.composer as mod
+        import agent.legacy.composer as mod
         from agent.llm import runtime as llm_runtime
 
         def fake_safe_generate_raises(task, state, **kwargs):
@@ -181,7 +181,7 @@ class TestAssistantChatLLMPath:
 
     def test_safe_generate_exception_falls_back(self, monkeypatch):
         """safe_generate throws ANY exception → fallback=True."""
-        import agent.nodes.composer as mod
+        import agent.legacy.composer as mod
         from agent.llm import runtime as llm_runtime
 
         def fake_safe_generate_error(task, state, **kwargs):
@@ -200,7 +200,7 @@ class TestAssistantChatLLMPath:
 
     def test_policy_blocked_falls_back(self, monkeypatch):
         """safe_generate returns blocked output → fallback=True."""
-        import agent.nodes.composer as mod
+        import agent.legacy.composer as mod
         from agent.llm import runtime as llm_runtime
 
         def fake_safe_generate_blocked(task, state, **kwargs):
@@ -225,7 +225,7 @@ class TestAssistantChatLLMPath:
 
     def test_fallback_final_response_not_empty(self, monkeypatch):
         """Fallback path always produces non-empty final_response."""
-        import agent.nodes.composer as mod
+        import agent.legacy.composer as mod
         from agent.llm import runtime as llm_runtime
 
         monkeypatch.setattr(llm_runtime, "safe_generate",
@@ -240,7 +240,7 @@ class TestAssistantChatLLMPath:
 
     def test_fallback_reason_clear(self, monkeypatch):
         """Fallback metadata contains a human-readable reason."""
-        import agent.nodes.composer as mod
+        import agent.legacy.composer as mod
         from agent.llm import runtime as llm_runtime
 
         monkeypatch.setattr(llm_runtime, "safe_generate",
@@ -257,7 +257,7 @@ class TestAssistantChatLLMPath:
 
     def test_no_deployable_config_produced(self, monkeypatch):
         """assistant_chat never produces deployable_config."""
-        import agent.nodes.composer as mod
+        import agent.legacy.composer as mod
         from agent.llm import runtime as llm_runtime
 
         def fake_safe_generate(task, state, **kwargs):
@@ -274,7 +274,7 @@ class TestAssistantChatLLMPath:
 
     def test_no_tool_runtime_called(self, monkeypatch):
         """assistant_chat does not call Tool Runtime."""
-        import agent.nodes.composer as mod
+        import agent.legacy.composer as mod
         from agent.llm import runtime as llm_runtime
 
         monkeypatch.setattr(llm_runtime, "safe_generate",
@@ -290,7 +290,7 @@ class TestAssistantChatLLMPath:
 
     def test_no_fake_job_artifact_report(self, monkeypatch):
         """assistant_chat does not fabricate jobs/artifacts/reports."""
-        import agent.nodes.composer as mod
+        import agent.legacy.composer as mod
         from agent.llm import runtime as llm_runtime
 
         monkeypatch.setattr(llm_runtime, "safe_generate",
@@ -312,7 +312,7 @@ class TestComposeDispatch:
 
     def test_compose_routes_to_assistant_chat_path(self, monkeypatch):
         """compose() with intent=assistant_chat calls _compose_assistant_chat."""
-        import agent.nodes.composer as mod
+        import agent.legacy.composer as mod
         dispatched = []
 
         def fake_compose_assistant_chat(st):
@@ -330,7 +330,7 @@ class TestComposeDispatch:
 
     def test_compose_does_not_reroute_translate_config(self, monkeypatch):
         """compose() with intent=translate_config does NOT call _compose_assistant_chat."""
-        import agent.nodes.composer as mod
+        import agent.legacy.composer as mod
         dispatched = []
 
         def fake_compose_assistant_chat(st):

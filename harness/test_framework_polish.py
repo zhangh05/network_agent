@@ -45,7 +45,7 @@ class TestAPILayerCleanliness:
 
     def test_context_ref_passed_into_state(self):
         """context_ref should be passed into agent state/payload, not handled in API."""
-        from agent.graph import run_agent
+        from agent.legacy.graph import run_agent
         result = run_agent(
             user_input="上次翻译结果如何?",
             intent="",
@@ -152,14 +152,14 @@ class TestContextQA:
         assert data["ok"] is True
 
     def test_router_follow_up_message(self):
-        from agent.nodes.intent_router import _infer
+        from agent.legacy.intent_router import _infer
         # Follow-up messages should route to context_qa
         assert _infer("刚才的结果有什么风险") == "context_qa"
 
     def test_context_loader_loads_last_result(self, temp_dirs):
         from workspace.manager import ensure_workspace, update_workspace_state
         from agent.state import NetworkAgentState
-        from agent.nodes.context_loader import load_context
+        from agent.legacy.context_loader import load_context
 
         ws_id = "ctx_fw_test"
         ensure_workspace(ws_id)

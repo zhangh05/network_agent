@@ -117,39 +117,39 @@ class TestSafeGenerateWiring:
 
 class TestComposerTaskSelection:
     def test_composer_has_select_task(self):
-        from agent.nodes.composer import _select_prompt_task
+        from agent.legacy.composer import _select_prompt_task
         assert callable(_select_prompt_task)
 
     def test_default_response_compose(self):
-        from agent.nodes.composer import _select_prompt_task
+        from agent.legacy.composer import _select_prompt_task
         from agent.state import NetworkAgentState
         state = NetworkAgentState(intent="translate_config", user_input="translate")
         task = _select_prompt_task(state)
         assert task == "response_compose"
 
     def test_context_qa_task(self):
-        from agent.nodes.composer import _select_prompt_task
+        from agent.legacy.composer import _select_prompt_task
         from agent.state import NetworkAgentState
         state = NetworkAgentState(intent="context_qa", user_input="刚才的翻译结果有什么风险？")
         task = _select_prompt_task(state)
         assert task == "context_qa"
 
     def test_job_failure_task(self):
-        from agent.nodes.composer import _select_prompt_task
+        from agent.legacy.composer import _select_prompt_task
         from agent.state import NetworkAgentState
         state = NetworkAgentState(intent="context_qa", user_input="上次为什么失败了？")
         task = _select_prompt_task(state)
         assert task == "job_failure_explain"
 
     def test_report_question_task(self):
-        from agent.nodes.composer import _select_prompt_task
+        from agent.legacy.composer import _select_prompt_task
         from agent.state import NetworkAgentState
         state = NetworkAgentState(intent="context_qa", user_input="报告在哪？帮我看看报告")
         task = _select_prompt_task(state)
         assert task == "report_summary"
 
     def test_manual_review_task(self):
-        from agent.nodes.composer import _select_prompt_task
+        from agent.legacy.composer import _select_prompt_task
         from agent.state import NetworkAgentState
         state = NetworkAgentState(intent="translate_config", user_input="为什么需要人工复核？")
         from agent.state import NetworkAgentState
