@@ -248,6 +248,32 @@ def orchestrate(state: NetworkAgentState) -> NetworkAgentState:
     return state
 
 
+def _record_module_event(state: NetworkAgentState, event_type: str, skill: str,
+                         capability_id: str, status: str = "started",
+                         summary: str = "") -> None:
+    """Record a module_call event in trace_events.
+
+    Used by _execute_module_direct() to record module execution lifecycle.
+    """
+    state.trace_events.append({
+        "event_id": f"{skill}_{event_type}_{len(state.trace_events)}",
+        "trace_id": state.trace_id or "",
+        "run_id": state.request_id,
+        "workspace_id": state.workspace_id or "default",
+        "event_type": event_type,
+        "name": skill,
+        "status": status,
+        "duration_ms": 0.0,
+        "summary": summary or f"{event_type}: {skill}",
+        "metadata": {
+            "skill": skill,
+            "capability_id": capability_id,
+            "intent": state.intent,
+        },
+        "redaction_applied": False,
+    })
+
+
 def _execute_module_direct(state: NetworkAgentState, task: "Task", ws_id: str) -> None:
     """Execute a module intent directly (translate_config, etc.) within Task/Turn lifecycle.
 
@@ -278,10 +304,14 @@ def _execute_module_direct(state: NetworkAgentState, task: "Task", ws_id: str) -
         task.fail(state.error)
         return
 
+    # ── Record module_call_start event ──
+    _record_module_event(state, "module_call_start", skill, capability_id)
+
     # ── Execute adapter (same logic as skill_executor's old path) ──
     if not skill:
         state.error = "No skill selected"
         task.fail(state.error)
+        _record_module_event(state, "module_call_end", skill, capability_id, status="failed", summary=state.error)
         return
 
     try:
@@ -290,17 +320,20 @@ def _execute_module_direct(state: NetworkAgentState, task: "Task", ws_id: str) -
         if not spec:
             state.error = f"skill_spec_not_found: {skill}"
             task.fail(state.error)
+            _record_module_event(state, "module_call_end", skill, capability_id, status="failed", summary=state.error)
             return
 
         if spec.status == "planned":
             state.skill_results = {"ok": False, "error": f"Intent '{state.intent}' is planned"}
             state.warnings.append(f"Skill '{skill}' is planned (coming_soon)")
             task.complete({"mode": "planned"})
+            _record_module_event(state, "module_call_end", skill, capability_id, status="skipped", summary="planned")
             return
 
         if spec.status == "disabled":
             state.error = f"Skill '{skill}' is disabled"
             task.fail(state.error)
+            _record_module_event(state, "module_call_end", skill, capability_id, status="failed", summary="disabled")
             return
 
         # Resolve entrypoint
@@ -331,8 +364,11 @@ def _execute_module_direct(state: NetworkAgentState, task: "Task", ws_id: str) -
     if not result.get("ok"):
         state.error = result.get("error", "execution_failed")
         task.fail(state.error)
+        _record_module_event(state, "module_call_end", skill, capability_id, status="failed", summary=state.error)
     else:
         turn.record_tool_call(skill, state.payload, result)
+        _record_module_event(state, "module_call_end", skill, capability_id, status="succeeded",
+                            summary=str(result.get("summary", ""))[:200])
 
     # ── PostTurn hooks ──
     from agent.hooks_integration import run_post_turn_hooks
