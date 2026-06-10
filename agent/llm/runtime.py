@@ -45,7 +45,14 @@ def invoke_llm(
     cfg = resolve_provider_config()
 
     if not cfg.get("enabled") or cfg.get("provider_type") == "disabled":
-        return LLMResponse(error="LLM is disabled.")
+        return LLMResponse(
+            error="LLM is disabled.",
+            metadata={
+                "error_type": "disabled_by_user",
+                "http_status": None,
+                "error_detail": "LLM disabled by effective configuration",
+            },
+        )
 
     # ── Build messages if not provided ──
     if messages is None:
@@ -191,7 +198,15 @@ def safe_generate(
     # ── Request policy (NON-BLOCKING) ──
     try:
         from agent.llm.policy import check_request
-        policy_req = check_request(LLMRequest(task=task, messages=messages, model=cfg.get("model", ""), temperature=cfg.get("temperature", 0.2), max_tokens=cfg.get("max_tokens", 4096)), state)
+        policy_req = check_request(LLMRequest(
+            task=task,
+            messages=messages,
+            safe_context=safe_ctx,
+            model=cfg.get("model", ""),
+            temperature=cfg.get("temperature", 0.2),
+            max_tokens=cfg.get("max_tokens", 4096),
+            tools=tools,
+        ), state)
         if not policy_req.allowed:
             request_policy_ok = False
             request_policy_violations = policy_req.violations
@@ -210,21 +225,28 @@ def safe_generate(
     )
 
     if resp.error:
+        provider_meta = resp.metadata or {}
         redacted = _redact(resp.error)
+        base_meta = _build_metadata(
+            prompt_runtime_used, prompt_id, prompt_version, prompt_policy_pass,
+            injection_detected, prompt_input_ok, prompt_input_issues,
+            prompt_text_ok, prompt_text_issues,
+            request_policy_ok, request_policy_violations,
+            output_policy_ok, output_policy_issues,
+            response_policy_ok, response_policy_violations,
+            provider_called=True, output_accepted=False,
+        )
+        # Merge provider diagnostics into metadata
+        base_meta["provider_error_type"] = provider_meta.get("error_type")
+        base_meta["http_status"] = provider_meta.get("http_status")
+        base_meta["provider_error_message"] = provider_meta.get("error_detail")
+        base_meta["raw_error_redacted"] = redacted[:200]
         return SafeLLMOutput(
             answer=f"Provider unavailable: {redacted}",
             llm_used=False,
             fallback_reason=f"provider_unavailable: {redacted}",
             warnings=[f"provider_error: {redacted}"],
-            metadata=_build_metadata(
-                prompt_runtime_used, prompt_id, prompt_version, prompt_policy_pass,
-                injection_detected, prompt_input_ok, prompt_input_issues,
-                prompt_text_ok, prompt_text_issues,
-                request_policy_ok, request_policy_violations,
-                output_policy_ok, output_policy_issues,
-                response_policy_ok, response_policy_violations,
-                provider_called=True, output_accepted=False,
-            ),
+            metadata=base_meta,
         )
 
     cleaned_content, reasoning_stripped = _sanitize_provider_output(resp.content)

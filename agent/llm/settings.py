@@ -246,14 +246,49 @@ def _build_ui_config(ui: dict, source: str) -> dict:
             provider_type = provider or "disabled"
     
     api_key = ui.get("api_key", "")
-    # If api_key is empty but env has key, use env key (for auto_default)
-    if not api_key:
-        env_key = resolve_api_key(env_name="MINIMAX_API_KEY")
-        if env_key:
-            api_key = env_key
-    
+    enabled = ui.get("enabled", False)
+    key_fallback_used = False
+    key_source = "none"
+
+    if source == SOURCE_UI_SETTINGS:
+        if api_key:
+            # Rule 1: UI settings file has api_key
+            key_source = "ui_settings"
+        elif enabled and not api_key:
+            # Rule 2: UI settings enabled=true, no api_key in file
+            env_key = resolve_api_key(env_name="MINIMAX_API_KEY")
+            if env_key:
+                api_key = env_key
+                key_source = "env_fallback"
+                key_fallback_used = True
+            else:
+                key_source = get_key_source() or "none"
+        elif not enabled:
+            # Rule 3: UI settings enabled=false — deliberate disable
+            # Do NOT fall back to env key
+            key_source = "none"
+            api_key = ""
+    elif source == SOURCE_AUTO_DEFAULT:
+        # auto_default: use env key as fallback
+        if not api_key:
+            env_key = resolve_api_key(env_name="MINIMAX_API_KEY")
+            if env_key:
+                api_key = env_key
+                key_source = "env"
+            else:
+                key_source = get_key_source() or "none"
+        else:
+            key_source = "ui_settings"
+    else:
+        # Unknown source: use env key as fallback
+        if not api_key:
+            env_key = resolve_api_key(env_name="MINIMAX_API_KEY")
+            if env_key:
+                api_key = env_key
+        key_source = "ui_settings" if api_key else (get_key_source() or "none")
+
     result = {
-        "enabled": ui.get("enabled", False),
+        "enabled": enabled,
         "provider": provider,
         "safe_mode": ui.get("safe_mode", True),
         "base_url": ui.get("base_url", ""),
@@ -263,8 +298,9 @@ def _build_ui_config(ui: dict, source: str) -> dict:
         "api_key": api_key,
         "provider_type": provider_type,
         "config_source": source,
-        "key_loaded": bool(api_key) or is_key_loaded(),
-        "key_source": "ui_settings" if api_key else get_key_source() or "none",
+        "key_loaded": bool(api_key) or (enabled and is_key_loaded()),
+        "key_source": key_source,
+        "key_fallback_used": key_fallback_used,
         "default_provider": provider,
         "timeout": 30,
         "source": source,

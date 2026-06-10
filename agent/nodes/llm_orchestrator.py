@@ -100,17 +100,7 @@ def orchestrate(state: NetworkAgentState) -> NetworkAgentState:
 
     messages.append(LLMMessage(role="user", content=user_input))
 
-    # 4. Build initial request
-    req = LLMRequest(
-        task="assistant_chat",
-        messages=messages,
-        model=cfg["model"],
-        temperature=cfg["temperature"],
-        max_tokens=cfg["max_tokens"],
-        tools=tools,
-    )
-
-    # 5. Agentic loop
+    # 4. Agentic loop
     from agent.llm.runtime import invoke_llm
 
     all_tool_results = []
@@ -192,14 +182,6 @@ def orchestrate(state: NetworkAgentState) -> NetworkAgentState:
                 )
                 messages.append(tool_msg)
 
-            req = LLMRequest(
-                task="assistant_chat",
-                messages=messages,
-                model=cfg["model"],
-                temperature=cfg["temperature"],
-                max_tokens=cfg["max_tokens"],
-                tools=tools,
-            )
             continue
 
         final_answer = _clean_response(resp.content)
@@ -215,14 +197,6 @@ def orchestrate(state: NetworkAgentState) -> NetworkAgentState:
                 role="system",
                 content=f"Hook feedback: {block_reason}. Please continue.",
             ))
-            req = LLMRequest(
-                task="assistant_chat",
-                messages=messages,
-                model=cfg["model"],
-                temperature=cfg["temperature"],
-                max_tokens=cfg["max_tokens"],
-                tools=tools,
-            )
             continue
 
         break
