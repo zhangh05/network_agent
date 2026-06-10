@@ -67,7 +67,9 @@ v0.6 → v0.7.1 **始终保持**：
 | Suite | Passed | Skipped | Failed |
 |-------|--------|---------|--------|
 | v0.7/v0.7.1 capability (focused) | **41** | 0 | 0 |
-| v0.6.x ~ v0.7.1 broader focused regression | **613** | 7 | 1 (v0.5 timeout-message test, out-of-scope) |
+| v0.6.x ~ v0.7.1 broader focused regression | **615** | 7 | 0 |
 | Full harness `pytest harness -q` | — | — | Not re-run (docs-only sync) |
+
+> 2026-06-10 update：曾记录的 v0.5 `test_llm_provider_diagnostics_v05.py::test_timeout_returns_provider_timeout` 失败已在同日的 legacy diagnostics alignment 中修复（断言改为兼容 "timeout" / "timed out" 两种文案，并主断言 `metadata.provider_error_type == "provider_timeout"`）。broader focused regression 由 613 passed / 1 failed 提升至 **615 passed / 0 failed**（+1 = 新增的 wording-agnostic regression test）。
 
 > 完整说明见 [README.md §"Test Baseline"](../README.md)。

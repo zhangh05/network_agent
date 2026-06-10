@@ -113,7 +113,7 @@ Capability Layer 在 v0.7 起形成**显式三层**结构，业务能力接入 T
 - **HEAD**: `15565d1` (2026-06-10, Agent Backend v0.7.1 — Capability Quality & Artifact Integration)
 - **Test baseline (focused regression, 2026-06-10)**:
   - v0.7/v0.7.1 capability tests: **41 passed, 0 failed**
-  - v0.6.x ~ v0.7.1 broader focused regression: **613 passed, 7 skipped, 1 failed**（1 fail = v0.5 `test_llm_provider_diagnostics_v05.py::test_timeout_returns_provider_timeout`，在 v0.7.1 范围外）
+  - v0.6.x ~ v0.7.1 broader focused regression: **615 passed, 7 skipped, 0 failed**（2026-06-10 当日修复了 v0.5 `test_llm_provider_diagnostics_v05.py::test_timeout_returns_provider_timeout` 的 timeout wording 不一致；+1 = 新增的 wording-agnostic regression test）
   - Full harness `pytest harness -q` 在本轮 docs-only sync 中未重跑
 - **Runtime architecture**: Codex-style Agent Runtime（Thread / Session / Turn / RuntimeLoop）— v0.6 引入，v0.6.1 ~ v0.7.1 主链未变
 - **Enabled business tools** (v0.7+):

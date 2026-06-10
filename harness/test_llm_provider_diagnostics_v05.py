@@ -54,7 +54,15 @@ class TestProviderErrorClassification:
         assert "Rate limited" in detail or "429" in detail
 
     def test_timeout_returns_provider_timeout(self):
-        """Timeout → error_type=provider_timeout."""
+        """Timeout → error_type=provider_timeout.
+
+        The real contract is on the diagnostics metadata (error_type),
+        not on the exact user-facing wording. The runtime message is
+        allowed to use either "timeout" or "timed out" — the v0.6.2
+        timeout tests already accept both forms. The `retryable=True`
+        contract on the underlying LLMResponse is covered separately
+        by `harness/test_llm_provider_timeout_v062.py`.
+        """
         from agent.llm.provider import ERROR_TYPE_PROVIDER_TIMEOUT
 
         # Mock TimeoutError
@@ -62,7 +70,29 @@ class TestProviderErrorClassification:
             from agent.llm.runtime import safe_generate
             output = safe_generate("result_summarize", user_input="test")
             assert output.llm_used is False
-            assert "timeout" in output.answer.lower() or "Timeout" in output.answer
+            # Primary: diagnostics metadata classifies the failure
+            assert output.metadata.get("provider_error_type") == ERROR_TYPE_PROVIDER_TIMEOUT
+            # Secondary: user-facing message clearly indicates a timeout
+            # (accept both "timeout" and "timed out" wordings).
+            msg = output.answer.lower()
+            assert "timeout" in msg or "timed out" in msg
+
+    def test_timeout_classification_does_not_depend_on_user_facing_wording(self):
+        """Regression: assert error_type=provider_timeout regardless of which
+        timeout phrasing the runtime uses ("timeout" vs "timed out").
+
+        This guards the diagnostics contract so future copy edits to the
+        timeout message cannot silently change the error_type classification.
+        """
+        from agent.llm.runtime import safe_generate
+
+        with patch("agent.llm.provider.generate", side_effect=TimeoutError("Request timed out")):
+            output = safe_generate("result_summarize", user_input="test")
+
+        # The classification must be stable across wording variants.
+        assert output.metadata.get("provider_error_type") == "provider_timeout"
+        # The message must be a non-empty string (we don't pin the exact copy).
+        assert isinstance(output.answer, str) and output.answer
 
 
 class TestProviderHealthChecks:
