@@ -4,8 +4,11 @@ import json
 import os
 import pytest
 
-# Disable rate limiter during tests
-os.environ["RATE_LIMIT_DISABLED"] = "1"
+
+@pytest.fixture(autouse=True)
+def _disable_rate_limit_for_closure(monkeypatch):
+    """Ensure rate limiter is disabled during closure tests to avoid 429."""
+    monkeypatch.setenv("RATE_LIMIT_DISABLED", "1")
 
 
 def test_run_history_endpoints_are_workspace_backed_and_safe():

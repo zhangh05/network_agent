@@ -63,16 +63,22 @@ def run_turn(session, turn, services=None) -> AgentResult:
                 user_input=context.user_input,
             )
         except Exception as e:
+            error_str = str(e)[:200]
+            is_timeout = "timeout" in error_str.lower() or "timed out" in error_str.lower()
             if audit_events:
                 audit_events.emit("turn_failed", session_id=session.session_id, turn_id=turn.turn_id,
-                                  error=str(e)[:200])
+                                  error=error_str)
             turn.status = "failed"
-            turn.errors.append(str(e)[:200])
+            turn.errors.append(error_str)
+            user_msg = "LLM 服务请求超时，请稍后重试。" if is_timeout else f"LLM 调用异常：{error_str}"
             return AgentResult(
-                ok=False, final_response=f"LLM error: {str(e)[:200]}",
+                ok=False,
+                final_response=user_msg,
                 session_id=session.session_id, turn_id=turn.turn_id, trace_id=context.trace_id,
-                errors=[str(e)[:200]],
+                errors=[error_str],
                 events=_collect_events(audit_events, turn.turn_id),
+                metadata={"provider_error_type": "provider_timeout" if is_timeout else "provider_error",
+                          "retryable": is_timeout},
             )
 
         if audit_events:
@@ -85,16 +91,38 @@ def run_turn(session, turn, services=None) -> AgentResult:
 
         # Handle provider error
         if resp.error:
+            provider_meta = resp.metadata or {}
+            error_type = provider_meta.get("error_type", "provider_error")
+            is_timeout = error_type == "provider_timeout"
+            retryable = provider_meta.get("retryable", is_timeout)
+
             if audit_events:
                 audit_events.emit("turn_failed", session_id=session.session_id, turn_id=turn.turn_id,
-                                  error=f"Provider error: {resp.error}")
+                                  error=f"Provider error ({error_type}): {resp.error}")
+
             turn.status = "failed"
             turn.errors.append(resp.error)
+
+            # User-friendly message
+            if is_timeout:
+                user_msg = "LLM 服务请求超时，请稍后重试。系统已保留本轮事件记录。"
+            else:
+                user_msg = f"LLM 服务暂不可用：{resp.error[:200]}"
+
             return AgentResult(
-                ok=False, final_response=f"Provider unavailable: {resp.error}",
-                session_id=session.session_id, turn_id=turn.turn_id, trace_id=context.trace_id,
+                ok=False,
+                final_response=user_msg,
+                session_id=session.session_id,
+                turn_id=turn.turn_id,
+                trace_id=context.trace_id,
                 errors=[resp.error],
+                warnings=["provider_timeout"] if is_timeout else [],
                 events=_collect_events(audit_events, turn.turn_id),
+                metadata={
+                    "provider_error_type": error_type,
+                    "retryable": retryable,
+                    "provider_error_detail": provider_meta.get("error_detail", ""),
+                },
             )
 
         # Handle tool calls

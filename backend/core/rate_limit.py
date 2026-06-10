@@ -154,3 +154,10 @@ def rate_limit_middleware(app):
                 "detail": f"Rate limit exceeded for {request.path}. Try again later.",
                 "retry_after_seconds": limiter.window_seconds,
             }), 429
+
+
+def clear_rate_limit_state_for_tests():
+    """Clear all rate limiter state. ONLY for test isolation."""
+    global _limiters
+    with _limiters_lock:
+        _limiters.clear()

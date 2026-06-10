@@ -18,8 +18,11 @@ from pathlib import Path
 
 PROJECT_ROOT = Path(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-# Disable rate limiter for tests
-os.environ["RATE_LIMIT_DISABLED"] = "1"
+
+@pytest.fixture(autouse=True)
+def _disable_rate_limit_for_v061(monkeypatch):
+    """Ensure rate limiter is disabled during v0.6.1 tests."""
+    monkeypatch.setenv("RATE_LIMIT_DISABLED", "1")
 
 
 # ── Helper ──

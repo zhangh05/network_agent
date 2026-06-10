@@ -15,6 +15,17 @@ from unittest.mock import patch, MagicMock
 import pytest
 
 
+@pytest.fixture(autouse=True)
+def _isolate_rate_limit(monkeypatch):
+    """Isolate rate limiter state and env between tests."""
+    monkeypatch.delenv("RATE_LIMIT_DISABLED", raising=False)
+    monkeypatch.delenv("TRUSTED_PROXY", raising=False)
+    from backend.core.rate_limit import clear_rate_limit_state_for_tests
+    clear_rate_limit_state_for_tests()
+    yield
+    clear_rate_limit_state_for_tests()
+
+
 @pytest.fixture
 def app_with_rate_limit():
     """Create a Flask app with rate limiting enabled."""
@@ -57,8 +68,16 @@ class TestSameIPSameEndpointLimit:
     
     def test_exceed_agent_run_limit(self, client, app_with_rate_limit):
         """/api/agent/run allows 10 req/min, 11th should 429."""
-        # Ensure TESTING=False
         app_with_rate_limit.config["TESTING"] = False
+
+        # Send 10 requests first (should succeed)
+        for i in range(10):
+            resp = client.post(
+                "/api/agent/run",
+                json={"message": f"test {i}"},
+                environ_base={"REMOTE_ADDR": "192.168.1.100"},
+            )
+            assert resp.status_code == 200, f"Request {i} should succeed"
 
         # 11th request should be rate limited
         resp = client.post(

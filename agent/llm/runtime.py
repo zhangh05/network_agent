@@ -75,8 +75,13 @@ def invoke_llm(
         resp = generate(req)
     except TimeoutError:
         return LLMResponse(
-            error=f"{ERROR_TYPE_PROVIDER_TIMEOUT}: Request timed out",
-            metadata={"error_type": ERROR_TYPE_PROVIDER_TIMEOUT, "error_detail": "Request timed out"},
+            error="LLM provider request timed out. Please try again.",
+            metadata={
+                "error_type": ERROR_TYPE_PROVIDER_TIMEOUT,
+                "error_detail": "Request timed out",
+                "http_status": None,
+                "retryable": True,
+            },
         )
     except Exception as e:
         redacted = _redact(str(e))

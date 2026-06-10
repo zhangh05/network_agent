@@ -230,25 +230,34 @@ def _api_generate(req: LLMRequest, cfg: dict) -> LLMResponse:
             },
         )
     except urllib.error.URLError as e:
-        # Network error (DNS, timeout, etc.)
-        error_type = ERROR_TYPE_PROVIDER_NETWORK_ERROR
+        # Network error — classify timeout vs other network errors
+        reason = str(e.reason) if hasattr(e, 'reason') else str(e)
+        is_timeout = 'timeout' in reason.lower() or 'timed out' in reason.lower()
+        error_type = ERROR_TYPE_PROVIDER_TIMEOUT if is_timeout else ERROR_TYPE_PROVIDER_NETWORK_ERROR
         redacted = _redact_error_detail(str(e))
+        meta = {
+            "error_type": error_type,
+            "http_status": None,
+            "error_detail": redacted[:200],
+        }
+        if is_timeout:
+            meta["retryable"] = True
+            meta["timeout_seconds"] = cfg.get("timeout", 90)
         return LLMResponse(
             error=f"{error_type}: {redacted}",
-            metadata={
-                "error_type": error_type,
-                "http_status": None,
-                "error_detail": redacted[:200],
-            },
+            metadata=meta,
         )
     except TimeoutError:
         error_type = ERROR_TYPE_PROVIDER_TIMEOUT
+        timeout_s = cfg.get('timeout', 90)
         return LLMResponse(
-            error=f"{error_type}: Request timed out after {cfg.get('timeout', 90)} seconds",
+            error=f"{error_type}: Request timed out after {timeout_s} seconds",
             metadata={
                 "error_type": error_type,
                 "http_status": None,
-                "error_detail": f"timeout after {cfg.get('timeout', 90)}s",
+                "error_detail": f"timeout after {timeout_s}s",
+                "retryable": True,
+                "timeout_seconds": timeout_s,
             },
         )
     except json.JSONDecodeError as e:
