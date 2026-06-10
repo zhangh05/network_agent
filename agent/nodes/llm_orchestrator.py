@@ -13,6 +13,7 @@ from typing import List, Optional
 
 from agent.state import NetworkAgentState
 from agent.llm.schemas import LLMRequest, LLMMessage, LLMResponse, LLMToolCall
+from agent.llm.tool_adapter import to_llm_tool_name, from_llm_tool_name
 
 MAX_ORCHESTRATION_STEPS = 10
 
@@ -46,13 +47,6 @@ def orchestrate(state: NetworkAgentState) -> NetworkAgentState:
     if not cfg.get("enabled") or cfg.get("provider_type") == "disabled":
         _handle_llm_disabled(state, ws_id)
         task.complete({"mode": "deterministic"})
-        state.context["task"] = task.as_dict()
-        return state
-
-    # 2. If LLM is enabled but intent is assistant_chat, skip LLM orchestration
-    if state.intent == "assistant_chat":
-        state.context.setdefault("llm", {})["used"] = False
-        task.complete({"mode": "assistant_chat_deferred"})
         state.context["task"] = task.as_dict()
         return state
 
@@ -117,7 +111,7 @@ def orchestrate(state: NetworkAgentState) -> NetworkAgentState:
     )
 
     # 5. Agentic loop
-    from agent.llm.provider import generate
+    from agent.llm.runtime import invoke_llm
 
     all_tool_results = []
     final_answer = ""
@@ -130,7 +124,11 @@ def orchestrate(state: NetworkAgentState) -> NetworkAgentState:
         turn = Turn(task.record_turn())
 
         try:
-            resp = generate(req)
+            resp = invoke_llm(
+                task="assistant_chat",
+                messages=messages,
+                tools=tools,
+            )
         except Exception as e:
             turn.fail(str(e)[:200])
             final_answer = _build_partial_answer(all_tool_results, str(e)[:200])
@@ -157,28 +155,31 @@ def orchestrate(state: NetworkAgentState) -> NetworkAgentState:
             messages.append(assistant_msg)
 
             for tc in resp.tool_calls:
+                # ── Map LLM-safe name back to real tool_id ──
+                real_tool_id = from_llm_tool_name(tc.name)
+
                 # ── PreToolUse hook (can deny or rewrite input) ──
                 from agent.hooks_integration import run_pre_tool_hooks
                 allowed, updated_args, deny_reason = run_pre_tool_hooks(
-                    state, tc.name, tc.arguments
+                    state, real_tool_id, tc.arguments
                 )
                 if not allowed:
                     tool_result = {"ok": False, "status": "denied_by_hook",
                                    "summary": deny_reason, "errors": [deny_reason], "warnings": []}
                 else:
                     effective_args = updated_args if updated_args else tc.arguments
-                    tool_result = _execute_tool(tc.name, effective_args, ws_id, state)
+                    tool_result = _execute_tool(real_tool_id, effective_args, ws_id, state)
 
-                turn.record_tool_call(tc.name, tc.arguments, tool_result)
+                turn.record_tool_call(real_tool_id, tc.arguments, tool_result)
 
                 # ── PostToolUse hook (can stop the turn) ──
                 from agent.hooks_integration import run_post_tool_hooks
-                should_continue, feedback = run_post_tool_hooks(state, tc.name, tool_result)
+                should_continue, feedback = run_post_tool_hooks(state, real_tool_id, tool_result)
                 if feedback:
                     tool_result["hook_feedback"] = feedback
 
                 all_tool_results.append({
-                    "tool_id": tc.name,
+                    "tool_id": real_tool_id,
                     "arguments": tc.arguments,
                     "ok": tool_result.get("ok", False),
                     "summary": _truncate(tool_result.get("summary", ""), 500),

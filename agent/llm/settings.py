@@ -1,5 +1,18 @@
 # agent/llm/settings.py
-"""LLM Settings — CRUD for config/LLM_setting.json, priority over env/file fallback."""
+"""LLM Settings — CRUD for config/LLM_setting.json, priority over env/file fallback.
+
+Config precedence (lowest to highest):
+1. default (disabled, no key)
+2. file (config/llm.yaml, config/llm.local.yaml)
+3. env (MINIMAX_API_KEY, LLM_PROVIDER, etc.)
+4. auto_default (auto-generated config/LLM_setting.json with source="auto_default")
+5. ui_settings (user-saved config/LLM_setting.json with source="ui_settings")
+
+Rules:
+- auto_default with enabled=false MUST NOT override env key (if MINIMAX_API_KEY exists → enabled=true)
+- ui_settings with enabled=false → respected (user explicitly disabled)
+- ui_settings with api_key → use UI key (highest priority)
+"""
 
 import json, os, stat
 from pathlib import Path
@@ -7,6 +20,13 @@ from typing import Optional
 
 ROOT = Path(__file__).resolve().parent.parent.parent
 SETTINGS_PATH = ROOT / "config" / "LLM_setting.json"
+
+# Source constants (used in config_source field)
+SOURCE_AUTO_DEFAULT = "auto_default"
+SOURCE_UI_SETTINGS = "ui_settings"
+SOURCE_ENV = "env"
+SOURCE_FILE = "file"
+SOURCE_DEFAULT = "default"
 
 
 def get_llm_setting_path() -> str:
@@ -16,15 +36,16 @@ def get_llm_setting_path() -> str:
 def _ensure_default_exists():
     """Create config/LLM_setting.json from example template on first access.
     
-    This ensures LLM settings are ALWAYS persisted globally, not per-workspace.
-    Never overwrites an existing user-configured file.
+    Marks it as source="auto_default" so the resolver knows
+    it should not override env keys.
     """
     example = SETTINGS_PATH.parent / "LLM_setting.example.json"
     if example.is_file() and not SETTINGS_PATH.is_file():
-        # ONLY create if no real config exists. Never overwrite.
         try:
             from datetime import datetime, timezone
             data = json.loads(example.read_text())
+            # Mark as auto-generated default
+            data["source"] = SOURCE_AUTO_DEFAULT
             data["updated_at"] = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
             SETTINGS_PATH.parent.mkdir(exist_ok=True)
             SETTINGS_PATH.write_text(json.dumps(data, indent=2, ensure_ascii=False))
@@ -34,26 +55,10 @@ def _ensure_default_exists():
                 pass
         except Exception:
             pass
-    # Safety: if file exists but enabled was reset to false, restore if user had configured
-    elif SETTINGS_PATH.is_file():
-        try:
-            data = json.loads(SETTINGS_PATH.read_text())
-            # If file has provider set (not default "disabled") but enabled=false,
-            # it was likely reset by a test. Restore enabled but not api_key.
-            if data.get("provider", "disabled") not in ("disabled", "") and not data.get("enabled", False):
-                # Only auto-enable if the file was modified recently (test cleanup)
-                import time as _time
-                mtime = SETTINGS_PATH.stat().st_mtime
-                if _time.time() - mtime < 60:  # Modified in last 60 seconds = likely test reset
-                    data["enabled"] = True
-                    SETTINGS_PATH.write_text(json.dumps(data, indent=2, ensure_ascii=False))
-        except Exception:
-            pass
 
 
 def load_llm_settings() -> Optional[dict]:
     if not SETTINGS_PATH.is_file():
-        # Try to create from example template on first access
         _ensure_default_exists()
         if not SETTINGS_PATH.is_file():
             return None
@@ -68,6 +73,7 @@ def load_llm_settings() -> Optional[dict]:
 
 
 def save_llm_settings(data: dict) -> dict:
+    """Save LLM settings — always marks as ui_settings."""
     existing = load_llm_settings() or {}
     data = dict(data)
 
@@ -95,6 +101,8 @@ def save_llm_settings(data: dict) -> dict:
 
     from datetime import datetime, timezone
     data["updated_at"] = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+    # Mark as user_saved (highest priority, explicit action)
+    data["source"] = SOURCE_UI_SETTINGS
 
     SETTINGS_PATH.parent.mkdir(exist_ok=True)
     SETTINGS_PATH.write_text(json.dumps(data, indent=2, ensure_ascii=False))
@@ -126,10 +134,11 @@ def sanitize_llm_settings(data: dict) -> dict:
         "base_url": data.get("base_url", ""),
         "model": data.get("model", ""),
         "temperature": data.get("temperature", 0.2),
-        "max_tokens": data.get("max_tokens", 4096),
+        "max_tokens": data.get("max_tokens", 1200),
         "key_configured": bool(key),
         "key_preview": mask_key(key) if key else None,
         "updated_at": data.get("updated_at"),
+        "source": data.get("source", SOURCE_AUTO_DEFAULT),
     }
     return result
 
@@ -141,71 +150,124 @@ def mask_key(key: str) -> str:
 
 
 def resolve_effective_llm_config() -> dict:
-    """Return effective config with priority: UI settings > env/file fallback > default."""
-    ui = load_llm_settings()
-
-    if ui is not None:
-        # UI settings exist — respect them
-        provider = ui.get("provider", "disabled")
-        provider_type = ui.get("provider_type")
-        if not provider_type:
-            if provider == "minimax":
-                provider_type = "openai_compatible"
-            elif provider in ("openai_compatible", "ollama_compatible", "mock", "disabled"):
-                provider_type = provider
-            else:
-                provider_type = provider or "disabled"
-        result = {
-            "enabled": ui.get("enabled", False),
-            "provider": provider,
-            "safe_mode": ui.get("safe_mode", True),
-            "base_url": ui.get("base_url", ""),
-            "model": ui.get("model", ""),
-            "temperature": ui.get("temperature", 0.2),
-            "max_tokens": ui.get("max_tokens", 1200),
-            "api_key": ui.get("api_key", ""),
-            "provider_type": provider_type,
-            "config_source": "ui_settings",
-            "key_loaded": bool(ui.get("api_key")),
-            "key_source": "ui_settings",
-            "default_provider": provider,
-            "timeout": 30,
-        }
-        # If UI says disabled, enforce it regardless of env
-        if not result["enabled"]:
-            return result
-        return result
-
-    # No UI settings — fallback to env/file
+    """Return effective config with priority: ui_settings > env > auto_default > file > default.
+    
+    Key rules:
+    - ui_settings (source="ui_settings"): highest priority, always respected
+    - auto_default (source="auto_default"): MUST NOT override env key
+    - env key without UI settings: enabled=true
+    """
     from agent.llm.key_resolver import resolve_api_key, get_key_source, is_key_loaded
     from agent.llm.config import load_llm_config
 
+    ui = load_llm_settings()
+
+    # 1. UI settings exist — check source
+    if ui is not None:
+        source = ui.get("source", SOURCE_UI_SETTINGS)
+        
+        # ui_settings: highest priority, always respected
+        if source == SOURCE_UI_SETTINGS:
+            return _build_ui_config(ui, source)
+        
+        # auto_default: MUST NOT override env key
+        if source == SOURCE_AUTO_DEFAULT:
+            env_key = resolve_api_key(env_name="MINIMAX_API_KEY")
+            cfg = _build_ui_config(ui, source)
+            # If env key exists, override enabled=true (auto_default disabled is not authoritative)
+            if env_key and not cfg.get("enabled"):
+                cfg["enabled"] = True
+                cfg["enabled_reason"] = "env_key_override_auto_default"
+                cfg["config_source"] = SOURCE_ENV
+            return cfg
+        
+        # Unknown source — treat as ui_settings (conservative)
+        return _build_ui_config(ui, source)
+
+    # 2. No UI settings — fallback to env/file
     cfg = load_llm_config()
     env_key = resolve_api_key(env_name="MINIMAX_API_KEY")
-    default = cfg.get("default_provider", "disabled")
-    providers = cfg.get("providers", {})
-    provider_cfg = providers.get(default, {})
-
-    # Migrate M1→M3 in provider config
-    model = provider_cfg.get("model", "")
-    if model == "MiniMax-M1":
-        model = "MiniMax-M3"
-
+    
     result = {
         "enabled": cfg.get("enabled", False) or bool(env_key),
-        "provider": default,
+        "provider": cfg.get("default_provider", "disabled"),
         "safe_mode": cfg.get("safe_mode", True),
-        "base_url": provider_cfg.get("base_url", ""),
-        "model": model,
-        "temperature": provider_cfg.get("temperature", 0.2),
-        "max_tokens": provider_cfg.get("max_tokens", 1200),
+        "base_url": "",
+        "model": "",
+        "temperature": 0.2,
+        "max_tokens": 4096,
         "api_key": env_key or "",
-        "provider_type": provider_cfg.get("type", "disabled"),
-        "config_source": "env" if env_key else "file" if is_key_loaded() else "default",
+        "provider_type": "disabled",
+        "config_source": SOURCE_ENV if env_key else SOURCE_FILE,
         "key_loaded": bool(env_key) or is_key_loaded(),
         "key_source": get_key_source() or "none",
-        "default_provider": default,
+        "default_provider": cfg.get("default_provider", "disabled"),
         "timeout": cfg.get("timeout_seconds", 30),
+    }
+
+    # Merge provider-specific config
+    providers = cfg.get("providers", {})
+    default_provider = cfg.get("default_provider", "disabled")
+    provider_cfg = providers.get(default_provider, {})
+    if provider_cfg:
+        result["provider_type"] = provider_cfg.get("type", "disabled")
+        result["base_url"] = provider_cfg.get("base_url", "")
+        result["model"] = provider_cfg.get("model", "")
+        result["temperature"] = provider_cfg.get("temperature", 0.2)
+        result["max_tokens"] = provider_cfg.get("max_tokens", 4096)
+        # Only use file key if env key not present
+        if not env_key:
+            file_key = resolve_api_key(
+                env_name=provider_cfg.get("api_key_env", ""),
+                file_path=provider_cfg.get("api_key_file", ""),
+            )
+            result["api_key"] = file_key or ""
+
+    # Env override takes precedence
+    if os.environ.get("MINIMAX_API_KEY") or os.environ.get("OPENAI_API_KEY"):
+        result["config_source"] = SOURCE_ENV
+        result["key_loaded"] = True
+
+    return result
+
+
+def _build_ui_config(ui: dict, source: str) -> dict:
+    """Build config dict from UI settings."""
+    from agent.llm.key_resolver import resolve_api_key, get_key_source, is_key_loaded
+    
+    provider = ui.get("provider", "disabled")
+    provider_type = ui.get("provider_type")
+    if not provider_type:
+        if provider == "minimax":
+            provider_type = "openai_compatible"
+        elif provider in ("openai_compatible", "ollama_compatible", "mock", "disabled"):
+            provider_type = provider
+        else:
+            provider_type = provider or "disabled"
+    
+    api_key = ui.get("api_key", "")
+    # If api_key is empty but env has key, use env key (for auto_default)
+    if not api_key:
+        env_key = resolve_api_key(env_name="MINIMAX_API_KEY")
+        if env_key:
+            api_key = env_key
+    
+    result = {
+        "enabled": ui.get("enabled", False),
+        "provider": provider,
+        "safe_mode": ui.get("safe_mode", True),
+        "base_url": ui.get("base_url", ""),
+        "model": ui.get("model", ""),
+        "temperature": ui.get("temperature", 0.2),
+        "max_tokens": ui.get("max_tokens", 1200),
+        "api_key": api_key,
+        "provider_type": provider_type,
+        "config_source": source,
+        "key_loaded": bool(api_key) or is_key_loaded(),
+        "key_source": "ui_settings" if api_key else get_key_source() or "none",
+        "default_provider": provider,
+        "timeout": 30,
+        "source": source,
     }
     return result
 

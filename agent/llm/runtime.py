@@ -1,14 +1,83 @@
 # agent/llm/runtime.py
-"""LLM Runtime — safe_generate with Prompt Runtime (yaml+template primary).
+"""LLM Runtime — unified invocation entry point (invoke_llm) + safe_generate wrapper.
 
-Policy checks are NON-BLOCKING: results are recorded in metadata/warnings,
-but LLM provider is ALWAYS called when enabled=true and api_key exists.
+Design:
+- invoke_llm() is the SINGLE entry point that calls provider.generate().
+- safe_generate() is the public API that wraps invoke_llm() and returns SafeLLMOutput.
+- composer / LLMClient / orchestrator ALL go through invoke_llm(), never call generate() directly.
+- Policy checks are NON-BLOCKING: results recorded in metadata/warnings only.
 """
 
 import re
-from typing import Optional
+from typing import Optional, List
 from agent.state import NetworkAgentState
-from agent.llm.schemas import LLMRequest, LLMMessage, SafeLLMOutput, PolicyDecision
+from agent.llm.schemas import LLMRequest, LLMMessage, SafeLLMOutput, PolicyDecision, LLMResponse
+
+
+def invoke_llm(
+    task: str,
+    messages: List[LLMMessage] = None,
+    tools: List[dict] = None,
+    state_or_context=None,
+    safe_context: dict = None,
+    user_input: str = "",
+    extra: dict = None,
+) -> LLMResponse:
+    """Unified LLM invocation entry point — THE ONLY place that calls generate().
+
+    All LLM calls (composer, orchestrator, LLMClient) MUST go through this function.
+    provider.generate() is ONLY called from this function.
+
+    Args:
+        task: Prompt task name (used for prompt rendering if messages not provided)
+        messages: Pre-built messages (if provided, skip prompt rendering)
+        tools: OpenAI-format tool definitions (for function calling)
+        state_or_context: NetworkAgentState or dict
+        safe_context: Safe context dict for prompt rendering
+        user_input: User input (used for prompt rendering)
+        extra: Extra context for prompt rendering
+
+    Returns:
+        LLMResponse from provider
+    """
+    # ── Resolve config ──
+    from agent.llm.config import resolve_provider_config
+    cfg = resolve_provider_config()
+
+    if not cfg.get("enabled") or cfg.get("provider_type") == "disabled":
+        return LLMResponse(error="LLM is disabled.")
+
+    # ── Build messages if not provided ──
+    if messages is None:
+        messages = _build_prompt_messages(task, state_or_context, safe_context, user_input, extra)
+
+    # ── Build request ──
+    req = LLMRequest(
+        task=task,
+        messages=messages,
+        model=cfg["model"],
+        temperature=cfg["temperature"],
+        max_tokens=cfg["max_tokens"],
+        tools=tools,
+    )
+
+    # ── Call provider (ONLY place that calls generate()) ──
+    from agent.llm.provider import generate, ERROR_TYPE_PROVIDER_TIMEOUT, ERROR_TYPE_PROVIDER_UNKNOWN
+    try:
+        resp = generate(req)
+    except TimeoutError:
+        return LLMResponse(
+            error=f"{ERROR_TYPE_PROVIDER_TIMEOUT}: Request timed out",
+            metadata={"error_type": ERROR_TYPE_PROVIDER_TIMEOUT, "error_detail": "Request timed out"},
+        )
+    except Exception as e:
+        redacted = _redact(str(e))
+        return LLMResponse(
+            error=f"Provider error: {redacted}",
+            metadata={"error_type": ERROR_TYPE_PROVIDER_UNKNOWN, "error_detail": redacted[:200]},
+        )
+
+    return resp
 
 
 def safe_generate(
@@ -18,9 +87,13 @@ def safe_generate(
     safe_context=None,
     user_input: str = "",
     extra: dict = None,
+    messages: List[LLMMessage] = None,
+    tools: List[dict] = None,
 ) -> SafeLLMOutput:
-    """Safe LLM generation — policy failures NEVER block the provider call."""
+    """Safe LLM generation — policy failures NEVER block the provider call.
 
+    Wraps invoke_llm() and returns SafeLLMOutput with policy metadata.
+    """
     # ── Resolve state ──
     state = None
     if isinstance(state_or_context, NetworkAgentState):
@@ -102,15 +175,10 @@ def safe_generate(
         except Exception:
             pass
 
-        messages = [
+        messages = messages or [
             LLMMessage(role="system", content="You are Network Agent explanation layer. Follow prompt exactly."),
             LLMMessage(role="user", content=rendered.text),
         ]
-
-        req = LLMRequest(
-            task=task, safe_context=safe_ctx, messages=messages,
-            model=cfg["model"], temperature=cfg["temperature"], max_tokens=cfg["max_tokens"],
-        )
 
     except Exception:
         # Prompt runtime unavailable — fallback
@@ -118,43 +186,28 @@ def safe_generate(
         prompt_id = "fallback"
         safe_ctx = _old_safe_context(state)
         system_prompt = _get_system_prompt(task)
-        messages = _build_messages(task, safe_ctx, user_input, system_prompt)
-        req = LLMRequest(
-            task=task, safe_context=safe_ctx, messages=messages,
-            model=cfg["model"], temperature=cfg["temperature"], max_tokens=cfg["max_tokens"],
-        )
+        messages = messages or _build_messages(task, safe_ctx, user_input, system_prompt)
 
     # ── Request policy (NON-BLOCKING) ──
     try:
         from agent.llm.policy import check_request
-        policy_req = check_request(req, state)
+        policy_req = check_request(LLMRequest(task=task, messages=messages, model=cfg.get("model", ""), temperature=cfg.get("temperature", 0.2), max_tokens=cfg.get("max_tokens", 4096)), state)
         if not policy_req.allowed:
             request_policy_ok = False
             request_policy_violations = policy_req.violations
     except Exception:
         pass
 
-    # ── ALWAYS call provider if enabled ──
-    from agent.llm.provider import generate
-    try:
-        resp = generate(req)
-    except Exception as e:
-        redacted = _redact(str(e))
-        return SafeLLMOutput(
-            answer=f"Provider error: {redacted}",
-            llm_used=False,
-            fallback_reason=f"provider_error: {redacted}",
-            warnings=[f"provider_exception: {redacted}"],
-            metadata=_build_metadata(
-                prompt_runtime_used, prompt_id, prompt_version, prompt_policy_pass,
-                injection_detected, prompt_input_ok, prompt_input_issues,
-                prompt_text_ok, prompt_text_issues,
-                request_policy_ok, request_policy_violations,
-                output_policy_ok=False, output_policy_issues=[],
-                response_policy_ok=False, response_policy_violations=[],
-                provider_called=False, output_accepted=False,
-            ),
-        )
+    # ── ALWAYS call provider via unified entry point ──
+    resp = invoke_llm(
+        task=task,
+        messages=messages,
+        tools=tools,
+        state_or_context=state,
+        safe_context=safe_ctx,
+        user_input=user_input,
+        extra=extra,
+    )
 
     if resp.error:
         redacted = _redact(resp.error)
@@ -168,8 +221,8 @@ def safe_generate(
                 injection_detected, prompt_input_ok, prompt_input_issues,
                 prompt_text_ok, prompt_text_issues,
                 request_policy_ok, request_policy_violations,
-                output_policy_ok=False, output_policy_issues=[],
-                response_policy_ok=False, response_policy_violations=[],
+                output_policy_ok, output_policy_issues,
+                response_policy_ok, response_policy_violations,
                 provider_called=True, output_accepted=False,
             ),
         )
@@ -231,6 +284,31 @@ def safe_generate(
             reasoning_stripped=reasoning_stripped,
         ),
     )
+
+
+def _build_prompt_messages(
+    task: str,
+    state_or_context=None,
+    safe_context: dict = None,
+    user_input: str = "",
+    extra: dict = None,
+) -> List[LLMMessage]:
+    """Build messages by rendering prompt (used when messages not provided to invoke_llm())."""
+    try:
+        from prompts.loader import get_prompt_by_task
+        from prompts.renderer import render_prompt
+        spec = get_prompt_by_task(task)
+        citations = (safe_context or {}).get("citations", []) if isinstance(safe_context, dict) else []
+        rendered = render_prompt(task, safe_context or {}, user_input, citations, extra)
+        return [
+            LLMMessage(role="system", content="You are Network Agent explanation layer. Follow prompt exactly."),
+            LLMMessage(role="user", content=rendered.text),
+        ]
+    except Exception:
+        # Fallback
+        safe_ctx = safe_context or {}
+        system_prompt = _get_system_prompt(task)
+        return _build_messages(task, safe_ctx, user_input, system_prompt)
 
 
 def _build_metadata(

@@ -69,6 +69,7 @@ class LLMResponse:
     raw: Optional[Dict[str, Any]] = None
     error: Optional[str] = None
     tool_calls: List[LLMToolCall] = field(default_factory=list)
+    metadata: Dict[str, Any] = field(default_factory=dict)
 
     def has_tool_calls(self) -> bool:
         return len(self.tool_calls) > 0

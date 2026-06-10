@@ -21,8 +21,8 @@ class TestToolAdapter:
         from agent.llm.tool_adapter import list_tools_for_orchestrator
         tools = list_tools_for_orchestrator()
         names = [t["function"]["name"] for t in tools]
-        assert "web.search" in names
-        ws = [t for t in tools if t["function"]["name"] == "web.search"][0]
+        assert "web__search" in names
+        ws = [t for t in tools if t["function"]["name"] == "web__search"][0]
         assert "Search public web" in ws["function"]["description"]
         assert "parameters" in ws["function"]
 
@@ -30,7 +30,7 @@ class TestToolAdapter:
         from agent.llm.tool_adapter import build_system_prompt_with_tools
         prompt = build_system_prompt_with_tools()
         assert "Network Agent" in prompt
-        assert "web.search" in prompt or "web" in prompt
+        assert "web__search" in prompt or "web" in prompt
         assert len(prompt) > 500
 
     def test_high_risk_tool_excluded(self):
@@ -38,15 +38,15 @@ class TestToolAdapter:
         tools = list_tools_for_orchestrator()
         names = [t["function"]["name"] for t in tools]
         # Forbidden tools should not appear
-        assert "shell.exec" not in names
-        assert "config.push" not in names
+        assert "shell__exec" not in names
+        assert "config__push" not in names
 
     def test_disabled_tool_excluded(self):
         from agent.llm.tool_adapter import list_tools_for_orchestrator
         tools = list_tools_for_orchestrator()
         names = [t["function"]["name"] for t in tools]
-        assert "powershell.exec" not in names
-        assert "ssh.exec" not in names
+        assert "powershell__exec" not in names
+        assert "ssh__exec" not in names
 
 
 class TestLLMRequestWithTools:
@@ -90,23 +90,31 @@ class TestLLMRequestWithTools:
 class TestToolExecution:
     def test_execute_low_risk_tool(self):
         from agent.nodes.llm_orchestrator import _execute_tool
-        result = _execute_tool("runtime.health", {}, "default")
+        from agent.state import NetworkAgentState
+        state = NetworkAgentState()
+        result = _execute_tool("runtime.health", {}, "default", state)
         assert result["ok"] is True
         assert result["status"] == "succeeded"
 
     def test_execute_unknown_tool(self):
         from agent.nodes.llm_orchestrator import _execute_tool
-        result = _execute_tool("nonexistent.tool", {}, "default")
+        from agent.state import NetworkAgentState
+        state = NetworkAgentState()
+        result = _execute_tool("nonexistent.tool", {}, "default", state)
         assert result["ok"] is False
 
     def test_execute_forbidden_tool_blocked(self):
         from agent.nodes.llm_orchestrator import _execute_tool
-        result = _execute_tool("shell.exec", {"cmd": "ls"}, "default")
+        from agent.state import NetworkAgentState
+        state = NetworkAgentState()
+        result = _execute_tool("shell.exec", {"cmd": "ls"}, "default", state)
         assert result["ok"] is False
 
     def test_execute_artifact_list_returns_data(self):
         from agent.nodes.llm_orchestrator import _execute_tool
-        result = _execute_tool("artifact.list", {}, "default")
+        from agent.state import NetworkAgentState
+        state = NetworkAgentState()
+        result = _execute_tool("artifact.list", {}, "default", state)
         assert result["ok"] is True
         assert "summary" in result
 
