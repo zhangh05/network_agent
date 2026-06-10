@@ -72,6 +72,7 @@ def run_turn(session, turn, services=None) -> AgentResult:
                 ok=False, final_response=f"LLM error: {str(e)[:200]}",
                 session_id=session.session_id, turn_id=turn.turn_id, trace_id=context.trace_id,
                 errors=[str(e)[:200]],
+                events=_collect_events(audit_events, turn.turn_id),
             )
 
         if audit_events:
@@ -93,6 +94,7 @@ def run_turn(session, turn, services=None) -> AgentResult:
                 ok=False, final_response=f"Provider unavailable: {resp.error}",
                 session_id=session.session_id, turn_id=turn.turn_id, trace_id=context.trace_id,
                 errors=[resp.error],
+                events=_collect_events(audit_events, turn.turn_id),
             )
 
         # Handle tool calls
@@ -166,6 +168,8 @@ def run_turn(session, turn, services=None) -> AgentResult:
             trace_id=context.trace_id,
             tool_calls=all_tool_results,
             warnings=turn.warnings,
+            events=_collect_events(audit_events, turn.turn_id),
+            metadata={"model": context.model_config.get("model", ""), "steps": step},
         )
 
         # Persist rollout
@@ -192,6 +196,7 @@ def run_turn(session, turn, services=None) -> AgentResult:
         turn_id=turn.turn_id,
         trace_id=context.trace_id,
         warnings=["max_steps exceeded"],
+        events=_collect_events(audit_events, turn.turn_id),
     )
 
 
@@ -235,6 +240,13 @@ def _build_initial_messages(context, services) -> list:
     messages.append(UserMessage(content=context.user_input).to_llm_message())
 
     return messages
+
+
+def _collect_events(audit_events, turn_id: str) -> list:
+    """Collect events for a turn from the event recorder."""
+    if audit_events and hasattr(audit_events, 'events_for_turn_dicts'):
+        return audit_events.events_for_turn_dicts(turn_id)
+    return []
 
 
 def _build_partial_answer(tool_results: list) -> str:

@@ -44,3 +44,9 @@ class EventRecorder:
 
     def events_for_turn(self, turn_id: str) -> list:
         return self.list_events(turn_id=turn_id)
+
+    def events_for_turn_dicts(self, turn_id: str) -> list:
+        """Return events as dicts for serialization."""
+        return [{"event_id": e.event_id, "session_id": e.session_id, "turn_id": e.turn_id,
+                 "type": e.type, "payload": e.payload, "timestamp": e.timestamp}
+                for e in self.events_for_turn(turn_id)]

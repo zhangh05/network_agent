@@ -24,6 +24,7 @@ class AgentResult:
             "session_id": self.session_id,
             "turn_id": self.turn_id,
             "trace_id": self.trace_id,
+            "events": self.events,
             "tool_calls": self.tool_calls,
             "warnings": self.warnings,
             "errors": self.errors,

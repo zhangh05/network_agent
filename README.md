@@ -87,9 +87,9 @@ See [docs/TOOL_RUNTIME_GENERAL_TOOLS_v0.2.md](docs/TOOL_RUNTIME_GENERAL_TOOLS_v0
 - No real device access. No config push.
 
 ### Latest Verification
-- 2026-06-10: Agent Backend v0.6 Final — Codex-style Runtime Rewrite complete. Full regression: XXX passed, 7 skipped.
-- 2026-06-09: full harness after frontend/backend safety fixes + SSE streaming/rate limit/LLM orchestrator hardening — `1351 passed, 7 skipped`.
-- Browser reload check on `127.0.0.1:8010` verified top status and Agent status stay `已连接` with no console errors.
+- 2026-06-10: Agent Backend v0.6.1 Stabilization — API route registered, events fixed, legacy isolation verified, 25 stabilization tests.
+- 2026-06-10: Agent Backend v0.6 Final — Codex-style Runtime Rewrite complete.
+- 2026-06-09: full harness after frontend/backend safety fixes — `1351 passed, 7 skipped`.
 
 Tool Runtime has Foundation + Client + Integration contracts and writes safe ToolResult metadata into observability traces when invoked with trace context. It still does **not** support SSH/Telnet/SNMP/nmap/ping sweep/arbitrary shell/config push or real device execution.
 

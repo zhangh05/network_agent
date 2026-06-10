@@ -140,11 +140,36 @@ Still supported through `agent/legacy/graph.run_agent()`. Response format matche
 ## 11. 测试与门控
 
 - `harness/test_agent_backend_runtime_v06.py`: 15 tests (core v0.6 runtime)
+- `harness/test_agent_backend_runtime_v061.py`: 25 tests (v0.6.1 stabilization)
 - Focused regression: `pytest harness -q -k "agent_backend_runtime or llm or tool_runtime or approval or redaction or config_translation or knowledge"` — 656 passed
-- Full regression: `pytest harness -q` — XXX passed
+- Full regression: `pytest harness -q` — 1502 tests
 - Gate: all core + focused regression must pass
 
-## 12. 迁移说明
+## 12. v0.6.1 Stabilization (2026-06-10)
+
+### Fixes
+- Registered `/api/agent/message` route in `backend/main.py`
+- Added missing `events` field to AgentResult.to_dict()
+- Added `events_for_turn_dicts()` to EventRecorder
+- Added `_collect_events()` helper to RuntimeLoop
+- All AgentResult paths now include events
+
+### Legacy Import Isolation Verified
+- `agent/app/` — no agent.legacy imports ✅
+- `agent/core/` — no agent.legacy imports ✅
+- `agent/runtime/` — no agent.legacy imports ✅
+- `agent/tools/` — no agent.legacy imports ✅
+- `agent/skills/` — no agent.legacy imports ✅
+- `agent/modules/` — no agent.legacy imports ✅
+- `backend/api/agent_routes.py` — no agent.legacy imports ✅
+
+### Events Observability Verified
+Every turn: turn_started, context_built, model_request_started, model_response_received, assistant_message/turn_failed, turn_finished ✅
+
+### No Regressions
+Tool count: 55 (unchanged). No new business tools. assistant_chat with-tools default.
+
+## 13. 迁移说明
 
 ### 从旧代码迁移
 

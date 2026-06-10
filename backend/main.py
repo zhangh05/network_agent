@@ -91,6 +91,12 @@ def create_app():
             return handle_agent_run_sse()
         return handle_agent_run()
 
+    @app.route("/api/agent/message", methods=["POST"])
+    def api_agent_message():
+        """POST /api/agent/message — v0.6 Codex-style runtime endpoint."""
+        from backend.api.agent_routes import agent_message
+        return agent_message()
+
     @app.route("/api/agent/status")
     def api_agent_status():
         return handle_agent_status()
