@@ -1,9 +1,70 @@
 # Network Agent Architecture
 
+## Agent Backend v0.6 — Codex-style Runtime (CURRENT)
+
+### Overview
+
+Agent Backend v0.6 rewrites the backend around a Codex-style Agent Runtime, replacing the old LangGraph 7-node pipeline with a modern Thread/Session/Turn/RuntimeLoop architecture.
+
+### New Master Chain
+
+```
+POST /api/agent/message
+  → AgentApp.submit_user_message()
+  → AgentThread.submit()
+  → AgentSession.submit()
+  → AgentTurn
+  → RuntimeLoop.run_turn()
+  → invoke_llm() [agent/llm/runtime.py]
+  → AgentResult.to_dict()
+```
+
+Key modules:
+- `agent/app/` — AgentApp, Thread, Session, Turn
+- `agent/runtime/` — RuntimeLoop, ToolRouter, ToolRegistry
+- `agent/context/` — RuntimeSnapshot, safe_context injection
+- `agent/skills/` — SkillRegistry (assistant_chat, config_translation, knowledge_query)
+- `agent/modules/` — ModuleRegistry (config_translation, knowledge)
+- `agent/tools/` — ToolRouter (model_visible_tools, dispatch)
+- `agent/audit/` — Event stream, TraceRecorder, RolloutRecorder
+- `agent/llm/` — invoke_llm() unified entry, safe_generate, policy, settings
+
+### assistant_chat Behavior
+- **v0.6**: assistant_chat defaults to **with-tools** (LLM-tool loop)
+- Tools exposed via RuntimeSnapshot injection
+- Tool calls route through ToolRouter → ToolRuntimeClient.invoke()
+- Results re-injected as ToolResultMessage back into LLM
+
+### Legacy Compatibility
+
+The old 7-node LangGraph pipeline is preserved in `agent/legacy/`:
+- `POST /api/agent/run` → `agent/legacy/graph.run_agent()` (still works)
+- `agent/legacy/` is NOT imported by the new master chain
+- All legacy node files: intent_router, context_loader, planner, skill_executor, verifier, composer, memory_writer, llm_orchestrator
+
+### ToolRouter / ToolRegistry
+- ToolRegistry built from ToolRuntimeClient.list_tools()
+- disabled / forbidden tools hidden from model
+- high-risk tools exposed but execute through ToolRuntime + Approval
+- Safe name mapping: `runtime__health` → `runtime.health`
+- model_visible_specs separated from internal registry
+
+### Skill / Module / Snapshot
+- SkillRegistry: assistant_chat, config_translation, knowledge_query enabled; topology, inspection, cmdb planned
+- ModuleRegistry: config_translation, knowledge enabled; topology, inspection, cmdb planned
+- RuntimeSnapshot.to_prompt_text(): distinguishes enabled vs planned, tools available vs NOT callable
+- "工具呢？" now backed by RuntimeSnapshot, not static product description
+
+### Audit / Trace / Rollout
+- Every turn has: turn_started, context_built, model_request_started, model_response_received, assistant_message, turn_finished
+- Tool-call turns additionally: tool_call_started, tool_call_finished
+- TraceRecorder: model_request, model_response, tool_call, tool_result
+- RolloutRecorder: persist_turn (basic implementation)
+
 ## Current Closure State
 
-- Baseline commit: `8cf0a1b` (2026-06-09)
-- Baseline test evidence: `pytest harness -q` = `1351 passed, 7 skipped, 0 failed`
+- Baseline commit: `e526ed6` (2026-06-10, Agent Backend v0.6 Final)
+- Baseline test evidence: `pytest harness -q` = XXX passed, 7 skipped, 0 failed
 - Current enabled business module: `config_translation`
 - Current enabled base capability: `knowledge_base` (knowledge_search MVP)
 - Knowledge Index Runtime (Safe Local RAG Foundation v0.1): indexing + search, no auto RAG
@@ -70,8 +131,21 @@ Session Store ──→ workspaces/<ws>/sessions/<sid>.json
 
 ## Agent 调用链
 
+### v0.6 Master Chain (NEW)
 ```
-POST /api/agent/run → graph (stream=true → SSE)
+POST /api/agent/message → AgentApp.submit_user_message()
+  → AgentThread → AgentSession → AgentTurn
+  → RuntimeLoop.run_turn()
+  → invoke_llm() (unified entry, with-tools)
+  → ToolRouter.dispatch() (if tool_calls)
+  → ToolRuntimeClient.invoke()
+  → ToolResultMessage → LLM follow-up
+  → AgentResult.to_dict()
+```
+
+### Legacy Chain (DEPRECATED, preserved for backward compat)
+```
+POST /api/agent/run → graph.run_agent() (agent/legacy/)
   → intent_router    (intent inference via keyword matching)
   → context_loader   (上下文加载、压缩 v0.2 dynamic budget + dedup)
   → planner          (execution plan setup)

@@ -20,15 +20,15 @@ def client(temp_dirs):
 
 class TestRouter:
     def test_router_no_hardcoded_module(self):
-        content = (PROJECT_ROOT / "agent" / "nodes" / "intent_router.py").read_text()
+        content = (PROJECT_ROOT / "agent" / "legacy" / "intent_router.py").read_text()
         assert "def _module_for" not in content
 
     def test_router_no_hardcoded_skill(self):
-        content = (PROJECT_ROOT / "agent" / "nodes" / "intent_router.py").read_text()
+        content = (PROJECT_ROOT / "agent" / "legacy" / "intent_router.py").read_text()
         assert "def _skill_for" not in content
 
     def test_router_no_intent_capability_map(self):
-        content = (PROJECT_ROOT / "agent" / "nodes" / "intent_router.py").read_text()
+        content = (PROJECT_ROOT / "agent" / "legacy" / "intent_router.py").read_text()
         # The hardcoded map should be gone
         assert "_INTENT_CAPABILITY_MAP" not in content, "Router still has hardcoded _INTENT_CAPABILITY_MAP"
 
@@ -53,25 +53,25 @@ class TestRouter:
 
 class TestExecutor:
     def test_executor_no_hardcoded_config_import(self):
-        content = (PROJECT_ROOT / "agent" / "nodes" / "skill_executor.py").read_text()
+        content = (PROJECT_ROOT / "agent" / "legacy" / "skill_executor.py").read_text()
         assert "from skills.config_translation.adapter import translate" not in content
 
     def test_executor_no_hardcoded_config_skill_check(self):
-        content = (PROJECT_ROOT / "agent" / "nodes" / "skill_executor.py").read_text()
+        content = (PROJECT_ROOT / "agent" / "legacy" / "skill_executor.py").read_text()
         assert "if skill == 'config_translation'" not in content
         assert 'if skill == "config_translation"' not in content
 
     def test_executor_no_context_qa_special_case(self):
-        content = (PROJECT_ROOT / "agent" / "nodes" / "skill_executor.py").read_text()
+        content = (PROJECT_ROOT / "agent" / "legacy" / "skill_executor.py").read_text()
         assert "elif state.intent == 'context_qa'" not in content
         assert 'elif state.intent == "context_qa"' not in content
 
     def test_executor_uses_importlib(self):
-        content = (PROJECT_ROOT / "agent" / "nodes" / "skill_executor.py").read_text()
+        content = (PROJECT_ROOT / "agent" / "legacy" / "skill_executor.py").read_text()
         assert "importlib" in content
 
     def test_executor_references_registry(self):
-        content = (PROJECT_ROOT / "agent" / "nodes" / "skill_executor.py").read_text()
+        content = (PROJECT_ROOT / "agent" / "legacy" / "skill_executor.py").read_text()
         assert "registry" in content.lower()
 
     def test_dynamic_adapter_loading_code_exists(self):

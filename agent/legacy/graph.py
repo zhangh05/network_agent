@@ -108,13 +108,13 @@ def wrap_trace_node(node_name: str, display_name: str):
         # Lazy import to avoid circular dependency
         # Note: "orchestrator" is not a separate node — it runs inside executor
         mapping = {
-            "router": ("agent.nodes.intent_router", "route"),
-            "context": ("agent.nodes.context_loader", "load_context"),
-            "planner": ("agent.nodes.planner", "plan"),
-            "executor": ("agent.nodes.skill_executor", "execute"),
-            "verifier": ("agent.nodes.verifier", "verify"),
-            "composer": ("agent.nodes.composer", "compose"),
-            "memory": ("agent.nodes.memory_writer", "write_memory"),
+            "router": ("agent.legacy.intent_router", "route"),
+            "context": ("agent.legacy.context_loader", "load_context"),
+            "planner": ("agent.legacy.planner", "plan"),
+            "executor": ("agent.legacy.skill_executor", "execute"),
+            "verifier": ("agent.legacy.verifier", "verify"),
+            "composer": ("agent.legacy.composer", "compose"),
+            "memory": ("agent.legacy.memory_writer", "write_memory"),
         }
         mod_name, func_name = mapping[node_name]
         import importlib
@@ -222,13 +222,13 @@ def _run_timed_node(state: NetworkAgentState, node_name: str, display_name: str)
     # Import and run
     import importlib
     mapping = {
-        "router": ("agent.nodes.intent_router", "route"),
-        "context": ("agent.nodes.context_loader", "load_context"),
-        "planner": ("agent.nodes.planner", "plan"),
-        "executor": ("agent.nodes.skill_executor", "execute"),
-        "verifier": ("agent.nodes.verifier", "verify"),
-        "composer": ("agent.nodes.composer", "compose"),
-        "memory": ("agent.nodes.memory_writer", "write_memory"),
+        "router": ("agent.legacy.intent_router", "route"),
+        "context": ("agent.legacy.context_loader", "load_context"),
+        "planner": ("agent.legacy.planner", "plan"),
+        "executor": ("agent.legacy.skill_executor", "execute"),
+        "verifier": ("agent.legacy.verifier", "verify"),
+        "composer": ("agent.legacy.composer", "compose"),
+        "memory": ("agent.legacy.memory_writer", "write_memory"),
     }
     mod_name, func_name = mapping[node_name]
     mod = importlib.import_module(mod_name)
@@ -550,7 +550,7 @@ def get_runtime_status() -> dict:
     from agent.llm.runtime import get_llm_status
     llm_status = get_llm_status()
 
-    from agent.nodes.intent_router import INTENTS
+    from agent.legacy.intent_router import INTENTS
 
     return {
         "agent_runtime": "langgraph" if _LANGGRAPH_AVAILABLE and graph_compile_ok else "fallback",

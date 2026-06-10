@@ -221,7 +221,7 @@ class TestBoundary:
     def test_executor_no_llm(self):
         """Executor must not import agent.llm or call LLM APIs directly.
         Passing state.context llm metadata is allowed (read-only aggregation)."""
-        fp=os.path.join(ROOT,"agent","nodes","skill_executor.py")
+        fp=os.path.join(ROOT,"agent","legacy","skill_executor.py")
         with open(fp,encoding="utf-8") as f:
             content = f.read()
         # Must not import agent.llm

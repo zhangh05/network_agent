@@ -167,13 +167,13 @@ class TestKnowledgePrompt:
 class TestComposerKnowledge:
     def test_composer_handles_knowledge_query(self):
         """Composer must have knowledge_query handler."""
-        composer_py = (PROJECT_ROOT / "agent" / "nodes" / "composer.py").read_text()
+        composer_py = (PROJECT_ROOT / "agent" / "legacy" / "composer.py").read_text()
         assert "_compose_knowledge_query" in composer_py
         assert "knowledge_query" in composer_py
 
     def test_composer_fallback_shows_not_found(self):
         """Composer must show 'not found' message when no knowledge results."""
-        composer_py = (PROJECT_ROOT / "agent" / "nodes" / "composer.py").read_text()
+        composer_py = (PROJECT_ROOT / "agent" / "legacy" / "composer.py").read_text()
         # _compose_knowledge_query must have Chinese not-found message
         assert "未在当前知识索引中找到相关资料" in composer_py, (
             "composer must have Chinese not-found message"
@@ -181,7 +181,7 @@ class TestComposerKnowledge:
 
     def test_verifier_handles_knowledge_query(self):
         """Verifier must have knowledge_query checks."""
-        verifier_py = (PROJECT_ROOT / "agent" / "nodes" / "verifier.py").read_text()
+        verifier_py = (PROJECT_ROOT / "agent" / "legacy" / "verifier.py").read_text()
         assert "_verify_knowledge_query" in verifier_py
         assert "no_secrets" in verifier_py
         assert "no_deploy_claim" in verifier_py
@@ -193,7 +193,7 @@ class TestComposerKnowledge:
 class TestKnowledgeAPIResponse:
     def test_agent_result_has_knowledge_fields(self):
         """run_agent result must include knowledge_* fields."""
-        graph_py = (PROJECT_ROOT / "agent" / "graph.py").read_text()
+        graph_py = (PROJECT_ROOT / "agent" / "legacy" / "graph.py").read_text()
         assert "knowledge_results_count" in graph_py
         assert "knowledge_sources" in graph_py
         assert "knowledge_chunks" in graph_py

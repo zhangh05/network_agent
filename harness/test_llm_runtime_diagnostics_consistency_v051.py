@@ -224,7 +224,7 @@ class TestOrchestratorNoUnusedReq:
         from pathlib import Path
 
         root = Path(__file__).resolve().parent.parent
-        orch_path = root / "agent" / "nodes" / "llm_orchestrator.py"
+        orch_path = root / "agent" / "legacy" / "llm_orchestrator.py"
         source = orch_path.read_text()
 
         # LLMRequest should only appear in the import line

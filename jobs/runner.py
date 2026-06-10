@@ -57,7 +57,7 @@ def _run_agent_job(rec: JobRecord):
     if _cancel_check(rec):
         return
 
-    from agent.graph import run_agent
+    from agent.legacy.graph import run_agent
     result = run_agent(
         user_input=payload.pop("message", ""),
         intent=payload.pop("intent", ""),
@@ -92,7 +92,7 @@ def _run_translate_config(rec: JobRecord):
     append_event(ws, jid, JobEvent(job_id=jid, workspace_id=ws,
                  event_type="job_run_started", message="Starting translate_config"))
 
-    from agent.graph import run_agent
+    from agent.legacy.graph import run_agent
     result = run_agent(
         user_input=payload.pop("message", "translate config"),
         intent="translate_config",
@@ -167,7 +167,7 @@ def _run_batch_translate(rec: JobRecord):
             return
 
         try:
-            from agent.graph import run_agent
+            from agent.legacy.graph import run_agent
             result = run_agent(
                 user_input="translate config",
                 intent="translate_config",

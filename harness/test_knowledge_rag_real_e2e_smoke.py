@@ -281,7 +281,7 @@ class TestNoRegression:
 
     def test_composer_has_knowledge_query(self):
         """Composer handles knowledge_query."""
-        composer = _read(PROJECT_ROOT / "agent" / "nodes" / "composer.py")
+        composer = _read(PROJECT_ROOT / "agent" / "legacy" / "composer.py")
         assert "_compose_knowledge_query" in composer
         assert "未在当前知识索引中找到相关资料" in composer
 

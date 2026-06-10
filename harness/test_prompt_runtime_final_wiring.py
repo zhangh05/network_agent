@@ -159,7 +159,7 @@ class TestComposerTaskSelection:
         assert task == "manual_review_explain"
 
     def test_composer_no_longer_fixed_response_compose(self):
-        content = (PROJECT_ROOT / "agent" / "nodes" / "composer.py").read_text()
+        content = (PROJECT_ROOT / "agent" / "legacy" / "composer.py").read_text()
         # Should call _select_prompt_task, not hardcode response_compose
         assert "_select_prompt_task" in content
 

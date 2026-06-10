@@ -37,7 +37,7 @@ def execute(state: NetworkAgentState) -> NetworkAgentState:
     #   - assistant_chat / knowledge_query → agentic loop (LLM-driven tool selection)
     #   - translate_config / other modules → direct execution (adapter call)
     #   - All intents get Task/Turn tracking + hook integration
-    from agent.nodes.llm_orchestrator import orchestrate
+    from agent.legacy.llm_orchestrator import orchestrate
     state = orchestrate(state)
     _add_event(state, "skill_call_start", "skill:orchestrated", ws_id=ws_id,
                metadata={"intent": state.intent, "mode": "orchestrated"})

@@ -23,7 +23,7 @@ def audit():
     issues = []
 
     # 1. Router must not have hardcoded module/skill maps
-    router = PROJECT_ROOT / "agent" / "nodes" / "intent_router.py"
+    router = PROJECT_ROOT / "agent" / "legacy" / "intent_router.py"
     router_content = router.read_text()
 
     if "_module_for" in router_content and "def _module_for" in router_content:
@@ -34,7 +34,7 @@ def audit():
         critical.append("Router has hardcoded _INTENT_CAPABILITY_MAP")
 
     # 2. Executor must not have hardcoded config_translation
-    executor = PROJECT_ROOT / "agent" / "nodes" / "skill_executor.py"
+    executor = PROJECT_ROOT / "agent" / "legacy" / "skill_executor.py"
     exec_content = executor.read_text()
 
     if "from skills.config_translation.adapter import translate" in exec_content:

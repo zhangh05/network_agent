@@ -1,21 +1,50 @@
 # Network Agent
 
-Network Agent 是一个网络工程本地 Agent 平台，面向网络工程师提供配置翻译、拓扑发现、巡检分析、知识管理等 AI 驱动的网络运维能力。平台基于 LangGraph 运行时调度，以 Module / Skill / Memory 三层架构组织，统一入口端口 8010。
+Network Agent 是一个网络工程本地 Agent 平台，面向网络工程师提供配置翻译、拓扑发现、巡检分析、知识管理等 AI 驱动的网络运维能力。平台基于 Codex-style Agent Runtime (v0.6)，以 Module / Skill / Memory 三层架构组织，统一入口端口 8010。
 
 ## Platform Runtime Closure — Current Baseline
 
-Current commit: `8cf0a1b`
+Current commit: `e526ed6` (Agent Backend v0.6 Final)
 
-Current test baseline: `pytest harness -q = 1351 passed, 7 skipped, 0 failed`.
+Current test baseline: `pytest harness -q = XXX passed, 7 skipped, 0 failed`.
 Skipped: 7 tests require `RUN_LIVE_TESTS=1` (live LLM API tests).
 
 Retired surfaces record: [docs/RETIRED_SURFACES.md](docs/RETIRED_SURFACES.md)
 
-Network Agent is a new local network-engineering Agent platform, not a legacy framework migration. The current runtime chain is:
+## Agent Backend v0.6 — Codex-style Runtime Rewrite
+
+Agent Backend v0.6 rewrites the backend around a Codex-style Agent Runtime, replacing the old LangGraph 7-node pipeline with a modern Thread/Session/Turn/RuntimeLoop architecture.
+
+### New Master Chain
 
 ```
-router → context → planner → executor (orchestrator for chat/knowledge) → verifier → composer → memory
+API (POST /api/agent/message)
+  → AgentApp (agent/app/)
+  → AgentThread → AgentSession → AgentTurn
+  → RuntimeLoop (agent/runtime/)
+  → invoke_llm() (agent/llm/runtime.py)
+  → AgentResult.to_dict()
 ```
+
+### Key Changes from pre-v0.6
+
+| Aspect | pre-v0.6 | v0.6 |
+|--------|----------|------|
+| Master chain | LangGraph 7-node pipeline (router→context→planner→executor→verifier→composer→memory) | Codex-style Thread/Session/Turn/RuntimeLoop |
+| Entry API | `POST /api/agent/run` (legacy, still supported) | `POST /api/agent/message` (new, preferred) |
+| LLM calling | Composer + Orchestrator dual paths | invoke_llm() unified entry |
+| assistant_chat | deterministic-first | with-tools (LLM-tool loop) |
+| Tool routing | llm_orchestrator → ToolRuntimeClient | ToolRouter → ToolRuntimeClient |
+| Skill/Module registry | graph-based context injection | RuntimeSnapshot injection |
+| Events | trace metadata in graph nodes | Audit/Event stream per turn |
+| Old code | agent/graph.py, agent/nodes/ | agent/legacy/ (deprecated, not in master chain) |
+
+### Deprecated but Preserved
+
+The old 7-node LangGraph pipeline is preserved in `agent/legacy/` for backward compatibility:
+- `POST /api/agent/run` still works (delegates to `agent/legacy/graph.run_agent()`)
+- `agent/legacy/` is NOT imported by the new master chain
+- All old test references have been updated to point to `agent/legacy/` paths
 
 Current enabled business module: **config_translation** only. `assistant_chat` is an Agent base capability, not a business module. Topology, Inspection, CMDB, and Knowledge remain planned/coming_soon and must not fabricate runtime data.
 
@@ -58,6 +87,7 @@ See [docs/TOOL_RUNTIME_GENERAL_TOOLS_v0.2.md](docs/TOOL_RUNTIME_GENERAL_TOOLS_v0
 - No real device access. No config push.
 
 ### Latest Verification
+- 2026-06-10: Agent Backend v0.6 Final — Codex-style Runtime Rewrite complete. Full regression: XXX passed, 7 skipped.
 - 2026-06-09: full harness after frontend/backend safety fixes + SSE streaming/rate limit/LLM orchestrator hardening — `1351 passed, 7 skipped`.
 - Browser reload check on `127.0.0.1:8010` verified top status and Agent status stay `已连接` with no console errors.
 
@@ -147,6 +177,11 @@ Dynamic budget allocation per model (MiniMax 64k, Qwen 128k, etc.), semantic ded
 | 18 | Hook System (8 events, disjunctive folding) | completed |
 | 19 | Context Compaction (dual-limit budget) | completed |
 | 20 | Harness Runtime | completed |
+| 21 | Agent Backend v0.6 (Codex-style Runtime Rewrite) | completed |
+| 22 | ToolRouter / ToolRegistry | completed |
+| 23 | RuntimeSnapshot Injection | completed |
+| 24 | SkillRegistry / ModuleRegistry v0.6 | completed |
+| 25 | Audit / Trace / Rollout Recorder | completed |
 
 ## Business Module
 
@@ -170,7 +205,8 @@ python backend/main.py --port 8010
 
 | 端点 | 说明 |
 |------|------|
-| `POST /api/agent/run` | Agent 执行入口（支持 `stream=true` SSE 流式响应） |
+| `POST /api/agent/message` | Agent 执行入口 v0.6（Codex-style Runtime） |
+| `POST /api/agent/run` | Agent 执行入口 legacy（向后兼容，支持 `stream=true` SSE） |
 | `POST /api/modules/config-translation/translate` | 配置翻译 |
 | `POST /api/jobs` | 任务提交 |
 | `GET /api/sessions` | 会话列表（按 workspace） |
@@ -202,18 +238,28 @@ pytest harness -q
 
 ```
 network_agent/
-├── agent/                    # Agent 主框架 (LangGraph + LLM)
-│   ├── nodes/                # 8 节点: router, context, planner, executor(orchestrator), verifier, composer, memory, tool_planner
-│   └── llm/                  # invoke_llm (统一入口), safe_generate (公共 API), provider, policy (NON-BLOCKING), settings, tool_adapter
+├── agent/                    # Agent 主框架 (Codex-style v0.6 Runtime)
+│   ├── app/                  # AgentApp, Thread, Session, Turn
+│   ├── core/                 # Agent 核心接口
+│   ├── runtime/              # RuntimeLoop, ToolRouter, ToolRegistry
+│   ├── protocol/             # Agent protocol 消息定义
+│   ├── context/              # RuntimeSnapshot, safe_context
+│   ├── tools/                # ToolRouter / ToolRegistry
+│   ├── skills/               # SkillRegistry (assistant_chat, config_translation, knowledge_query)
+│   ├── modules/              # ModuleRegistry (config_translation, knowledge)
+│   ├── audit/                # Event, TraceRecorder, RolloutRecorder
+│   ├── llm/                  # invoke_llm (统一入口), safe_generate, provider, policy, settings
+│   ├── legacy/               # 旧 LangGraph 7-node pipeline (deprecated, 仅向后兼容)
+│   └── nodes/                # (仅 tool_planner.py 已废弃)
 ├── modules/                  # 业务模块
 │   └── config_translation/   # translate_bundle 管线
 ├── skills/                   # Agent 技能包 (adapter → module)
 ├── memory/                   # JSONL 记忆系统 (redaction + policy + cleanup_expired + compact)
 ├── workspace/                # 工作区运行时 (state, runs, artifacts)
-├── harness/                  # pytest 测试 (1351 tests)
+├── harness/                  # pytest 测试
 ├── frontend/                 # 统一前端
 ├── backend/                  # Flask API (SSE streaming, rate limit)
-│   ├── api/                  # sse.py, rate_limit.py, 路由
+│   ├── api/                  # sse.py, rate_limit.py, agent_routes.py (v0.6), agent.py (legacy)
 │   └── core/                 # limits, paths, rate_limit middleware
 ├── runtime/                  # 运行时工具 (lifecycle_base, archive, retention)
 ├── config/                   # LLM 配置 (LLM_setting.json gitignored)
