@@ -85,9 +85,11 @@ def compose(state: NetworkAgentState) -> NetworkAgentState:
                 "violations": output.warnings,
             })
 
-            if output.llm_used and output.safe_to_show:
+            if output.llm_used:
                 state.final_response = output.answer
                 state.warnings.extend(output.warnings)
+                # Record safe_to_show as metadata only (never hide answer)
+                state.context["llm"]["safe_to_show"] = output.safe_to_show
                 return state
     except Exception as e:
         state.warnings.append(f"composer_llm_failed: {str(e)[:100]}")
@@ -136,10 +138,11 @@ def _compose_assistant_chat(state: NetworkAgentState):
                     "prompt_id": (output.metadata or {}).get("prompt_id", "") if output.metadata else "",
                     "policy_pass": output.policy_decision.allowed if output.policy_decision else False,
                 })
-                if output.llm_used and output.safe_to_show:
+                if output.llm_used:
                     state.final_response = output.answer
                     state.warnings.extend(output.warnings)
                     llm["fallback"] = False
+                    llm["safe_to_show"] = output.safe_to_show
                     return
                 else:
                     llm["fallback"] = True
@@ -276,7 +279,7 @@ def _compose_translate_config(state: NetworkAgentState, result: dict):
                 "violations": output.warnings,
             })
 
-            if output.llm_used and output.safe_to_show:
+            if output.llm_used:
                 state.final_response = output.answer
                 state.warnings.extend(output.warnings)
                 return
@@ -637,7 +640,7 @@ def _compose_knowledge_query(state: NetworkAgentState):
                     "policy_pass": output.policy_decision.allowed if output.policy_decision else False,
                     "fallback_reason": output.fallback_reason,
                 })
-                if output.llm_used and output.safe_to_show:
+                if output.llm_used:
                     state.final_response = output.answer
                     llm["fallback"] = False
                     return

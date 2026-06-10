@@ -62,6 +62,7 @@ def invoke_llm(
     req = LLMRequest(
         task=task,
         messages=messages,
+        safe_context=safe_context or {},
         model=cfg["model"],
         temperature=cfg["temperature"],
         max_tokens=cfg["max_tokens"],
@@ -116,9 +117,6 @@ def safe_generate(
 
     from agent.llm.config import resolve_provider_config
     cfg = resolve_provider_config()
-
-    if not cfg.get("enabled") or cfg.get("provider_type") == "disabled":
-        return SafeLLMOutput(answer="LLM is disabled.", llm_used=False, fallback_reason="disabled")
 
     # ── Prompt Runtime (primary path) ──
     prompt_runtime_used = True

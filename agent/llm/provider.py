@@ -68,6 +68,7 @@ def health(cfg: dict = None) -> dict:
         "base_url_reachable": False,
         "models_endpoint_ok": False,
         "chat_completion_ok": False,
+        "chat_completion_endpoint_reachable": False,
         "model": cfg.get("model", ""),
         "last_error": None,
         "last_error_type": None,
@@ -82,6 +83,7 @@ def health(cfg: dict = None) -> dict:
         result["base_url_reachable"] = True
         result["models_endpoint_ok"] = True
         result["chat_completion_ok"] = True
+        result["chat_completion_endpoint_reachable"] = True
         return result
     if not has_key:
         result["last_error"] = "no_api_key"
@@ -140,9 +142,15 @@ def health(cfg: dict = None) -> dict:
             result["chat_completion_ok"] = 200 <= resp.status < 400
             result["connected"] = result["chat_completion_ok"]
     except urllib.error.HTTPError as e:
-        # HTTP error still means the endpoint exists and responded
-        result["chat_completion_ok"] = e.code in (200, 400)  # 400 might mean invalid model, but endpoint works
-        result["connected"] = result["chat_completion_ok"]
+        # HTTP error means endpoint responded but with error
+        result["chat_completion_endpoint_reachable"] = True
+        if 200 <= e.code < 300:
+            result["chat_completion_ok"] = True
+            result["connected"] = True
+        else:
+            # HTTP 400/401/403/429 etc — endpoint reachable but request/token invalid
+            result["chat_completion_ok"] = False
+            result["connected"] = False
         if not result["last_error"]:
             result["last_error"] = _redact_error_detail(str(e))
             result["last_error_type"] = f"provider_http_{e.code}"
