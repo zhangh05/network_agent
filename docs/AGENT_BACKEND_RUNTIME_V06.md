@@ -190,3 +190,69 @@ Tool count: 55 (unchanged). No new business tools. assistant_chat with-tools def
 | - | agent/tools/ | 新增 (v0.6) |
 | - | agent/audit/ | 新增 (v0.6) |
 | - | backend/api/agent_routes.py | 新增 (v0.6 API) |
+
+## 14. Post-v0.6 Runtime Consumers (v0.6.1 ~ v0.7.1)
+
+> 本节说明 v0.6 之后的下游消费者。Runtime 底座本身在 v0.6.1 / v0.6.2 / v0.6.3 / v0.7 / v0.7.1 各版本中**未发生主链破坏性变更**，仅围绕稳定性、tool routing 和 capability 接入做增量。
+
+### 14.1 v0.6.1 Stabilization (2026-06-10)
+- 路由注册：`/api/agent/message` 在 `backend/main.py` 中正式注册
+- `AgentResult.to_dict()` 补 `events` 字段
+- `EventRecorder.events_for_turn_dicts()` / `RuntimeLoop._collect_events()` 辅助
+- 25 stabilization tests
+- **Runtime 主链未变**
+
+### 14.2 v0.6.2 Stabilization (2026-06-10)
+- rate_limit 测试隔离：`RATE_LIMIT_DISABLED` 跨测试污染修复
+- 新增 `clear_rate_limit_state_for_tests()` + monkeypatch fixtures
+- provider timeout 诊断：URLError → `provider_timeout`，`retryable=True`
+- RuntimeLoop 中文友好超时消息
+- **Runtime 主链未变**
+
+### 14.3 v0.6.3 Hardening (2026-06-10)
+- `default_runtime_services` 从 ToolRuntime catalog 构建真实 ToolRouter
+- `ToolRouter.build_tool_call` 强制 `llm_name_map` 白名单（未知 tool → `UnknownToolCallError`）
+- `RuntimeSnapshot` 区分 `total_tool_count` / `visible_tool_count`
+- System prompt 升级为 Runtime Contract（`agent/runtime/prompts.py`）
+- max_steps AgentResult 新增 `metadata.terminal_reason / partial / steps`
+- 20 hardening tests
+- **Runtime 主链未变**
+
+### 14.4 v0.7 Capability Layer Phase 1 (2026-06-10)
+- 在 RuntimeLoop 之下挂入 Capability Layer
+- `agent.modules.config_translation.service.translate_config()` 注册为 tool `config_translation.translate_config`
+- `agent.modules.knowledge.service.query_knowledge()` 注册为 tool `knowledge.query`
+- Tool count: 55 → **57**
+- topology / inspection / cmdb 仍 planned（**未注入、未暴露**）
+- 21 capability tests
+- **Runtime 主链未变；ToolRouter / ToolRuntime 调用路径不变**
+
+### 14.5 v0.7.1 Capability Quality & Artifacts (2026-06-10)
+- `translated_config` 保存为 artifact（`authoritative=false, deployable_config=false`）
+- `manual_review_items` 结构化（item_id / severity / category / line_no / reason / requires_human_review …）
+- knowledge `source_summary`（最多 5 条，snippet ≤ 200 字符）
+- `RuntimeLoop.run_turn()` 增强 `all_tool_results`（`call_id`, `artifacts`, `source_count`, `manual_review_count`, `errors`, `warnings`, `metadata`）
+- `ToolResultMessage.content` 1000 → 2000 字符，附 `artifact_count` + 前 3 个 artifact 摘要 + `source_summary` + `manual_review_count`
+- 20 capability artifact / source tests
+- 累计 v0.7/v0.7.1 capability tests: **41/41 passed**
+- **Runtime 主链未变；ToolRouter / ToolRuntime 调用路径不变**
+
+### 14.6 消费者清单（v0.6 底座 + 增量）
+
+| Consumer | 接入点 | 引入版本 | 文档 |
+|----------|--------|---------|------|
+| `config_translation.translate_config` | ToolRouter → ToolRuntimeClient | v0.7 | [CAPABILITY_LAYER_V071.md](CAPABILITY_LAYER_V071.md) §3-§6 |
+| `knowledge.query` | ToolRouter → ToolRuntimeClient | v0.7 | [CAPABILITY_LAYER_V071.md](CAPABILITY_LAYER_V071.md) §7-§9 |
+| `translated_config` artifact | `artifacts.store.save_artifact` | v0.7.1 | [CAPABILITY_LAYER_V071.md](CAPABILITY_LAYER_V071.md) §5 |
+| knowledge `source_summary` | RuntimeLoop 反馈 | v0.7.1 | [CAPABILITY_LAYER_V071.md](CAPABILITY_LAYER_V071.md) §8-§9 |
+| `manual_review_count` | RuntimeLoop 反馈 | v0.7.1 | [CAPABILITY_LAYER_V071.md](CAPABILITY_LAYER_V071.md) §6, §9 |
+| planned modules (`topology` / `inspection` / `cmdb`) | — | planned (NOT injected) | [CAPABILITY_LAYER_V071.md](CAPABILITY_LAYER_V071.md) §10 |
+
+### 14.7 不变量（v0.6 → v0.7.1 一直保持）
+
+- 主链调用路径：`API → AgentApp → AgentThread → AgentSession → AgentTurn → RuntimeLoop → invoke_llm`
+- 工具执行唯一入口：`ToolRouter → ToolRuntimeClient`
+- 模型名称映射：`. ↔ __`，由 `ToolRouter.llm_name_map` 集中维护
+- 高危工具白名单 + approval_id 鉴权
+- `config.push` / 真实设备执行 永久禁止
+- planned 模块永不注入，永不允许 LLM 调用
