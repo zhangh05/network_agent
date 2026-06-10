@@ -4,6 +4,17 @@
 This tool wraps the config_translation module service.
 It does NOT connect to real devices. It does NOT push configuration.
 It does NOT produce authoritative deployable_config without module validation.
+
+v0.8.2 result contract:
+  tool_handler returns a dict that is **structurally a ToolResult**
+  (call_id / tool_id / ok / summary / content / data / artifacts /
+  source_count / manual_review_count / errors / warnings / metadata).
+  Internally:
+    translate_config(args) -> result dict
+    -> service.to_module_result(result)         # business output
+    -> ToolResult.from_module_result(...)        # runtime contract
+  Legacy fields (manual_review_count, source_count) are preserved
+  at the top level for v0.7.x consumers (loop.py / trace recorder).
 """
 
 from agent.tools.schemas import ToolSpec
@@ -53,9 +64,10 @@ TOOL_CONFIG_TRANSLATION = ToolSpec(
 def tool_handler(args: dict, context=None) -> dict:
     """Handle config_translation.translate_config tool invocations.
 
-    Called by ToolRegistry.dispatch().
+    v0.8.2: returns a dict that is structurally a ToolResult.
     """
-    from agent.modules.config_translation.service import translate_config
+    from agent.modules.config_translation.service import translate_config, to_module_result
+    from agent.protocol.tool_result import ToolResult
 
     source_config = args.get("source_config", "")
     source_vendor = args.get("source_vendor", "auto")
@@ -64,10 +76,13 @@ def tool_handler(args: dict, context=None) -> dict:
 
     workspace_id = "default"
     session_id = ""
+    call_id = ""
     if context:
         workspace_id = getattr(context, "workspace_id", workspace_id)
         session_id = getattr(context, "session_id", session_id)
+        call_id = getattr(context, "call_id", call_id) or getattr(context, "tool_call_id", "")
 
+    # 1. Service call
     result = translate_config(
         source_config=source_config,
         source_vendor=source_vendor,
@@ -77,20 +92,21 @@ def tool_handler(args: dict, context=None) -> dict:
         session_id=session_id,
     )
 
-    return {
-        "ok": result["ok"],
-        "summary": result.get("summary", ""),
-        "content": {
-            "translated_config": result.get("translated_config", ""),
-            "manual_review_items": result.get("manual_review_items", []),
-            "manual_review_count": result.get("manual_review_count", 0),
-            "source_vendor": result.get("source_vendor", ""),
-            "target_vendor": result.get("target_vendor", ""),
-            "line_count": result.get("line_count", 0),
-        },
-        "artifacts": result.get("artifacts", []),
-        "manual_review_count": result.get("manual_review_count", 0),
-        "errors": result.get("errors", []),
-        "warnings": result.get("warnings", []),
-        "metadata": result.get("metadata", {}),
-    }
+    # 2. Project to ModuleResult (business output contract)
+    mr = to_module_result(result)
+
+    # 3. Project to ToolResult (runtime / LLM contract)
+    tr = ToolResult.from_module_result(
+        tool_id="config_translation.translate_config",
+        call_id=call_id,
+        module_result=mr,
+    )
+
+    # 4. Return as a dict (the loop / registry expects a dict today)
+    out = tr.to_dict()
+    # Backward-compat top-level fields for v0.7.x consumers
+    # that read manual_review_count / source_count directly from the
+    # handler return value.
+    out["manual_review_count"] = tr.manual_review_count
+    out["source_count"] = tr.source_count
+    return out

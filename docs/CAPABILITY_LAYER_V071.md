@@ -215,7 +215,7 @@ User request
 - 跨工作区协作 + 多租户隔离强化
 - 业务模块按规划逐步启用：`topology` → `inspection` → `cmdb`
 
-> **2026-06-10 更新**：v0.7.1 之后已经迈入 **v0.8 — Capability Manifest Refactor**，并随后跟进 **v0.8.1 — SkillSelector + Dynamic Tool Visibility**。
+> **2026-06-10 更新**：v0.7.1 之后已经迈入 **v0.8 — Capability Manifest Refactor**，并随后跟进 **v0.8.1 — SkillSelector + Dynamic Tool Visibility** 与 **v0.8.2 — Result Contract Standardization**。
 >
 > v0.8 业务能力层从"分散的 ModuleRegistry / SkillRegistry / ToolRegistry hardcode 常量"重构为统一的 **`CapabilityManifest` + `CapabilityRegistry`**；
 > RuntimeSnapshot 从 CapabilityRegistry 投影；Module/Skill/Tool Registry 提供 `from_capabilities()` / `register_capability_tools()` 派生路径。
@@ -223,4 +223,6 @@ User request
 >
 > v0.8.1 在每轮 turn 注入 LLM 之前增加 `SkillSelector`（rule-based 选 skill）+ `ToolRouter.apply_dynamic_visibility()`（动态 tool 白名单）：
 > config 翻译场景只暴露 `config_translation.translate_config`；knowledge 场景只暴露 `knowledge.query`；topology / inspection / cmdb 永远不可见；任何 selector 异常 fallback 到 v0.8 全量 + warning。
-> 详细见 [CAPABILITY_MANIFEST_V08.md](CAPABILITY_MANIFEST_V08.md) § 9。
+>
+> v0.8.2 统一结果链路 `ModuleResult → ToolResult → AgentResult.tool_calls`，让所有能力输出结构一致；v0.7.1 业务输出合同不变（仍为 `dict`），但 Module / Tool / Loop 三层提供 `to_module_result` / `from_module_result` / `_to_standard_tool_call` 投影。
+> 详细见 [CAPABILITY_MANIFEST_V08.md](CAPABILITY_MANIFEST_V08.md) § 9 (v0.8.1) / § 10 (v0.8.2)。

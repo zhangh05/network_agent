@@ -10,6 +10,66 @@ from agent.llm.runtime import invoke_llm
 MAX_STEPS = 8
 
 
+# v0.8.2 — Standard tool_call projection
+
+def _to_standard_tool_call(call_id: str, tool_id: str, result) -> dict:
+    """Build a v0.8.2 standard tool_call dict from any handler result.
+
+    The result can be a ToolResult instance, a dict (legacy v0.7.x shape),
+    or any object exposing attributes. The output has all 10 standard
+    fields present, with safe defaults. This guarantees the public
+    AgentResult.tool_calls contract holds even for older handlers.
+    """
+    if isinstance(result, ToolResult):
+        tr = result
+        if not tr.call_id:
+            tr.call_id = call_id
+        if not tr.tool_id:
+            tr.tool_id = tool_id
+        return {
+            "call_id": tr.call_id,
+            "tool_id": tr.tool_id,
+            "ok": tr.ok,
+            "summary": tr.summary,
+            "artifacts": list(tr.artifacts or []),
+            "source_count": tr.source_count,
+            "manual_review_count": tr.manual_review_count,
+            "errors": list(tr.errors or []),
+            "warnings": list(tr.warnings or []),
+            "metadata": dict(tr.metadata or {}),
+        }
+    # Dict-like result (v0.7.x or v0.8.2 dict-shaped)
+    if isinstance(result, dict):
+        tr = ToolResult.from_legacy_dict(tool_id=tool_id, call_id=call_id, d=result)
+    else:
+        # Object with attributes (e.g. a ToolSpec-ish result)
+        tr = ToolResult(
+            call_id=call_id,
+            tool_id=tool_id,
+            ok=bool(getattr(result, 'ok', False)),
+            summary=str(getattr(result, 'summary', str(result))[:500]),
+            artifacts=list(getattr(result, 'artifacts', []) or []),
+            source_count=getattr(result, 'source_count', None),
+            manual_review_count=getattr(result, 'manual_review_count', None),
+            errors=list(getattr(result, 'errors', []) or []),
+            warnings=list(getattr(result, 'warnings', []) or []),
+            metadata=dict(getattr(result, 'metadata', {}) or {}),
+            data=dict(getattr(result, 'data', {}) or {}),
+        )
+    return {
+        "call_id": tr.call_id,
+        "tool_id": tr.tool_id,
+        "ok": tr.ok,
+        "summary": tr.summary,
+        "artifacts": list(tr.artifacts or []),
+        "source_count": tr.source_count,
+        "manual_review_count": tr.manual_review_count,
+        "errors": list(tr.errors or []),
+        "warnings": list(tr.warnings or []),
+        "metadata": dict(tr.metadata or {}),
+    }
+
+
 def run_turn(session, turn, services=None) -> AgentResult:
     """Execute a single turn: user message → LLM → tools → LLM → ... → final answer."""
     from agent.runtime.context_builder import build_turn_context
@@ -197,18 +257,9 @@ def run_turn(session, turn, services=None) -> AgentResult:
                         errors=[str(e)[:200]],
                     )
 
-                all_tool_results.append({
-                    "call_id": tool_call.call_id,
-                    "tool_id": tool_call.real_tool_id,
-                    "ok": result.ok,
-                    "summary": getattr(result, 'summary', str(result))[:500],
-                    "artifacts": _safe_get(result, 'artifacts', []),
-                    "source_count": _safe_get(result, 'source_count'),
-                    "manual_review_count": _safe_get(result, 'manual_review_count'),
-                    "errors": getattr(result, 'errors', [])[:5] if hasattr(result, 'errors') else [],
-                    "warnings": getattr(result, 'warnings', [])[:5] if hasattr(result, 'warnings') else [],
-                    "metadata": _safe_get(result, 'metadata', {}),
-                })
+                all_tool_results.append(_to_standard_tool_call(
+                    tool_call.call_id, tool_call.real_tool_id, result
+                ))
 
                 # Build richer ToolResultMessage for LLM
                 tool_msg_payload = {"ok": result.ok, "summary": getattr(result, 'summary', '')}

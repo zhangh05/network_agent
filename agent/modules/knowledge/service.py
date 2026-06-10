@@ -149,3 +149,46 @@ def _build_source_summary(hits: list) -> list:
             "snippet": snippet,
         })
     return summaries
+
+
+# ── v0.8.2 — ModuleResult projection ──
+
+def to_module_result(result: dict) -> "ModuleResult":
+    """Project a v0.7.1 result dict into a standard ModuleResult.
+
+    The result dict's keys (hits, source_count, source_summary,
+    query, artifacts, warnings, errors, metadata, ok, summary) all
+    become first-class ModuleResult fields:
+      - data: {query, hits, source_count, source_summary}
+      - artifacts: result["artifacts"]  (verbatim, if any)
+      - errors / warnings / metadata: verbatim
+      - ok / summary: verbatim
+    """
+    from agent.protocol.module_result import ModuleResult
+    if not isinstance(result, dict):
+        return ModuleResult.failure(
+            summary="query_knowledge returned non-dict result",
+            errors=["invalid_result_shape"],
+        )
+    ok = bool(result.get("ok", False))
+    data = {
+        "query": result.get("query", ""),
+        "hits": list(result.get("hits") or []),
+        "source_count": int(result.get("source_count", 0)),
+        "source_summary": list(result.get("source_summary") or []),
+    }
+    if ok:
+        return ModuleResult.success(
+            summary=str(result.get("summary", "")),
+            data=data,
+            artifacts=list(result.get("artifacts") or []),
+            warnings=list(result.get("warnings") or []),
+            metadata=dict(result.get("metadata") or {}),
+        )
+    return ModuleResult.failure(
+        summary=str(result.get("summary", "")),
+        errors=list(result.get("errors") or ["unknown_error"]),
+        warnings=list(result.get("warnings") or []),
+        data=data,
+        metadata=dict(result.get("metadata") or {}),
+    )

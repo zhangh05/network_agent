@@ -227,3 +227,51 @@ def _save_translation_artifact(
     except Exception as e:
         warnings.append("artifact_save_failed")
         return []
+
+
+# ── v0.8.2 — ModuleResult projection ──
+
+def to_module_result(result: dict) -> "ModuleResult":
+    """Project a v0.7.1 result dict into a standard ModuleResult.
+
+    The result dict's keys (translated_config, manual_review_items,
+    manual_review_count, source_vendor, target_vendor, line_count,
+    artifacts, warnings, errors, metadata, ok, summary) all become
+    first-class ModuleResult fields:
+      - data: {translated_config, manual_review_items,
+               manual_review_count, source_vendor, target_vendor,
+               line_count}
+      - artifacts: result["artifacts"]  (verbatim)
+      - errors / warnings / metadata: verbatim
+      - ok / summary: verbatim
+    """
+    from agent.protocol.module_result import ModuleResult
+    if not isinstance(result, dict):
+        return ModuleResult.failure(
+            summary="translate_config returned non-dict result",
+            errors=["invalid_result_shape"],
+        )
+    ok = bool(result.get("ok", False))
+    data = {
+        "translated_config": result.get("translated_config", ""),
+        "manual_review_items": list(result.get("manual_review_items") or []),
+        "manual_review_count": int(result.get("manual_review_count", 0)),
+        "source_vendor": result.get("source_vendor", ""),
+        "target_vendor": result.get("target_vendor", ""),
+        "line_count": int(result.get("line_count", 0)),
+    }
+    if ok:
+        return ModuleResult.success(
+            summary=str(result.get("summary", "")),
+            data=data,
+            artifacts=list(result.get("artifacts") or []),
+            warnings=list(result.get("warnings") or []),
+            metadata=dict(result.get("metadata") or {}),
+        )
+    return ModuleResult.failure(
+        summary=str(result.get("summary", "")),
+        errors=list(result.get("errors") or ["unknown_error"]),
+        warnings=list(result.get("warnings") or []),
+        data=data,
+        metadata=dict(result.get("metadata") or {}),
+    )

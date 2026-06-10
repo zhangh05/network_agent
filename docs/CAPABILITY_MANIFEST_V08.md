@@ -261,10 +261,107 @@ Planned capabilities are NOT callable.
 - **selector 异常** → fallback v0.8（不 crash）
 - **capability_discovery** 永远**不**带 business tool，仅在 `selected_skills` 里
 
-## 10. Future Work
+## 10. v0.8.2 — Result Contract Standardization
+
+v0.7.1 → v0.8.1 的能力层把数据格式留给了各 Module 自己（如 `translate_config()` 返回 `dict`、knowledge 同理）；前端 / 审计 / LLM 链路要兼容很多种格式。
+v0.8.2 把结果链路统一为三层 schema：
+
+```
+ModuleResult (业务输出合同)
+     │   to_module_result(result_dict)
+     ▼
+ToolResult (Runtime / LLM 合同)
+     │   from_module_result(tool_id, call_id, module_result)
+     ▼
+AgentResult.tool_calls[] (审计 / UI 合同)
+     │   _to_standard_tool_call(call_id, tool_id, result)
+     ▼
+```
+
+### 10.1 ModuleResult（业务输出合同）
+
+`agent/protocol/module_result.py`：
+
+```python
+@dataclass
+class ModuleResult:
+    ok:        bool
+    summary:   str
+    data:      dict         # capability-specific payload
+    artifacts: list
+    warnings:  list[str]
+    errors:    list[str]
+    metadata:  dict
+```
+
+工厂方法：
+- `ModuleResult.success(summary, data, artifacts, warnings, metadata)` — `ok=True, errors=[]`
+- `ModuleResult.failure(summary, errors, warnings, data, metadata)` — `ok=False, errors` 必填（空则填 `unknown_error`）
+
+序列化：
+- `to_dict() / from_dict(d)` — 双向 roundtrip；`from_dict` 容忍缺字段、用 `errors` 推断 `ok`
+
+### 10.2 ToolResult（Runtime / LLM 合同）
+
+`agent/protocol/tool_result.py`：
+
+```python
+@dataclass
+class ToolResult:
+    call_id, tool_id, ok, summary, content   # legacy
+    data, artifacts, source_count, manual_review_count  # v0.7.1+
+    errors, warnings, raw, metadata
+```
+
+工厂方法：
+- `from_module_result(tool_id, call_id, module_result)` — 业务合同 → 运行时合同
+- `from_legacy_dict(tool_id, call_id, d)` — 兼容 v0.7.x 老 handler 返回的 dict
+
+`content` 字段保留（JSON 序列化 + 2000 字符截断），但**不**强制把 data 转字符串；`data` 是**结构化**字段。
+
+### 10.3 AgentResult.tool_calls（审计 / UI 合同）
+
+`agent/runtime/loop.py::_to_standard_tool_call(call_id, tool_id, result)`：
+
+```python
+{
+  "call_id":              str,
+  "tool_id":              str,
+  "ok":                   bool,
+  "summary":              str,
+  "artifacts":            list,
+  "source_count":         int | None,
+  "manual_review_count":  int | None,
+  "errors":               list,
+  "warnings":             list,
+  "metadata":             dict
+}
+```
+
+缺失字段填默认（空 list / None / {} / `False`），**不允许 KeyError**。
+
+输入兼容：ToolResult 实例 / dict（v0.7.x 旧 shape）/ 任意带属性的 object。
+
+### 10.4 模块接入现状（v0.8.2）
+
+| Module | service 函数 | `to_module_result` | `ToolResult.from_module_result` |
+|--------|--------------|---------------------|----------------------------------|
+| `config_translation` | `translate_config()` | ✓ | ✓ |
+| `knowledge` | `query_knowledge()` | ✓ | ✓ |
+| `topology` (planned) | — | — | — |
+| `inspection` (planned) | — | — | — |
+| `cmdb` (planned) | — | — | — |
+
+### 10.5 不变量
+
+- **Module 业务输出合同不变**：`translate_config` / `query_knowledge` 的 v0.7.1 字段（`translated_config` / `manual_review_items` / `hits` / `source_summary`）一字不动
+- **v0.7.1 capability 测试零回归**：`harness/test_capability_*` 41/41 仍然通过
+- **`ToolResult` 至少 10 字段**：`call_id / tool_id / ok / summary / artifacts / source_count / manual_review_count / errors / warnings / metadata`（+ 4 个 legacy：`content / data / raw / `）
+- **`AgentResult.tool_calls[i]` 严格 10 字段**：缺失默认
+
+## 11. Future Work
 
 | 版本 | 主题 |
 |------|------|
-| v0.8.2 | Result Contract 标准化（ModuleResult / ToolResult / AgentResult 三层 schema 统一） |
 | v0.9 | Artifact Consumption Flow（基于 Capability Output Contract 跨能力级联：config_translation → knowledge → report） |
 | v0.9.x | LLM-based SkillSelector（用模型替代 rule-based） |
