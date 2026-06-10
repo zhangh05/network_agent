@@ -167,7 +167,7 @@ def orchestrate(state: NetworkAgentState) -> NetworkAgentState:
                                    "summary": deny_reason, "errors": [deny_reason], "warnings": []}
                 else:
                     effective_args = updated_args if updated_args else tc.arguments
-                    tool_result = _execute_tool(tc.name, effective_args, ws_id)
+                    tool_result = _execute_tool(tc.name, effective_args, ws_id, state)
 
                 turn.record_tool_call(tc.name, tc.arguments, tool_result)
 
@@ -388,15 +388,33 @@ def _execute_module_direct(state: NetworkAgentState, task: "Task", ws_id: str) -
     task.complete({"mode": "module_direct", "skill": skill})
 
 
-def _execute_tool(tool_id: str, arguments: dict, workspace_id: str) -> dict:
-    """Execute a tool through the Tool Runtime safety pipeline."""
+def _execute_tool(tool_id: str, arguments: dict, workspace_id: str, state: NetworkAgentState) -> dict:
+    """Execute a tool through the Tool Runtime safety pipeline.
+
+    Args:
+        tool_id: The tool to invoke
+        arguments: Tool arguments
+        workspace_id: Workspace ID for isolation
+        state: Current agent state (used to build ToolRuntimeContext)
+    """
     try:
         from tool_runtime.integration import get_default_tool_runtime_client
+        from tool_runtime.context import ToolRuntimeContext
 
         client = get_default_tool_runtime_client()
+
+        # Build ToolRuntimeContext for proper workspace isolation, trace, and audit
+        ctx = ToolRuntimeContext(
+            workspace_id=workspace_id,
+            run_id=state.request_id,
+            trace_id=state.trace_id,
+            requested_by=f"orchestrator:{state.intent}",
+        )
+
         result = client.invoke(
             tool_id=tool_id,
             arguments=arguments,
+            context=ctx,
         )
         return {
             "ok": result.status in ("succeeded", "dry_run"),
