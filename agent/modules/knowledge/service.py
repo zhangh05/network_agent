@@ -39,6 +39,7 @@ def query_knowledge(
             "query": query or "",
             "hits": [],
             "source_count": 0,
+            "source_summary": [],
             "warnings": [],
             "errors": ["missing_query"],
             "metadata": {},
@@ -85,12 +86,15 @@ def query_knowledge(
                 + "。"
             )
 
+        source_summary = _build_source_summary(hits)
+
         return {
             "ok": True,
             "summary": summary,
             "query": query.strip(),
             "hits": hits,
             "source_count": hit_count,
+            "source_summary": source_summary,
             "warnings": warnings,
             "errors": errors,
             "metadata": {
@@ -111,6 +115,7 @@ def query_knowledge(
             "query": query.strip(),
             "hits": [],
             "source_count": 0,
+            "source_summary": [],
             "warnings": [],
             "errors": ["knowledge_unavailable"],
             "metadata": {},
@@ -122,7 +127,25 @@ def query_knowledge(
             "query": query.strip(),
             "hits": [],
             "source_count": 0,
+            "source_summary": [],
             "warnings": [],
             "errors": [f"knowledge_error: {str(e)[:200]}"],
             "metadata": {},
         }
+
+
+def _build_source_summary(hits: list) -> list:
+    """Build lightweight source summary from hits for LLM citation."""
+    if not hits:
+        return []
+    summaries = []
+    for h in hits[:5]:
+        content = h.get("content", h.get("llm_safe_content", ""))
+        snippet = content[:200] if content else ""
+        summaries.append({
+            "title": h.get("title", ""),
+            "source": h.get("source", ""),
+            "score": h.get("score"),
+            "snippet": snippet,
+        })
+    return summaries

@@ -4,8 +4,10 @@
 Exposes translate_config() for the RuntimeLoop → ToolRouter → ToolRegistry path.
 Does NOT bypass the config_translation module.
 Does NOT generate deployable_config directly from LLM.
+Saves translated_config as an artifact with authoritative=false, deployable_config=false.
 """
 
+import uuid
 from typing import Optional
 
 
@@ -17,25 +19,10 @@ def translate_config(
     workspace_id: str = "default",
     session_id: str = "",
 ) -> dict:
-    """Execute config translation via the canonical module service.
-
-    Args:
-        source_config: Source device configuration text.
-        source_vendor: Source vendor hint (e.g., "cisco", "auto").
-        target_vendor: Target vendor (e.g., "huawei").
-        options: Optional extra parameters.
-        workspace_id: Workspace identifier.
-        session_id: Session identifier.
-
-    Returns:
-        dict with keys: ok, summary, source_vendor, target_vendor,
-        line_count, translated_config, manual_review_items, warnings,
-        errors, artifacts, metadata.
-    """
+    """Execute config translation via the canonical module service."""
     warnings = []
     errors = []
 
-    # Validate source_config
     if not source_config or not source_config.strip():
         return {
             "ok": False,
@@ -51,7 +38,6 @@ def translate_config(
             "metadata": {},
         }
 
-    # Resolve vendors
     source_vendor = source_vendor or "auto"
     target_vendor = target_vendor or "huawei"
 
@@ -75,43 +61,48 @@ def translate_config(
         result = _translate(req)
         result_dict = result.as_dict()
 
-        # Build structured response
-        manual_review_items = result_dict.get(
-            "manual_review_items", result_dict.get("manual_review", [])
-        )
+        raw_items = result_dict.get("manual_review_items", result_dict.get("manual_review", []))
+        manual_review_items = _normalize_review_items(raw_items)
         quality = result_dict.get("quality_summary", {})
         audit = result_dict.get("audit", {})
+        translated_config = result_dict.get("deployable_config", "")
+        line_count = len(source_config.strip().splitlines())
+        mr_count = len(manual_review_items)
 
-        has_quality_warnings = (
-            quality.get("source_residue_count", 0) > 0 or
-            quality.get("silent_drop_count", 0) > 0
-        )
-
-        if has_quality_warnings:
+        if quality.get("source_residue_count", 0) > 0 or quality.get("silent_drop_count", 0) > 0:
             warnings.append("quality_gate: source_residue or silent_drop detected, manual review required")
 
-        line_count = len(source_config.strip().splitlines())
+        # Save translated_config as artifact
+        artifacts = []
+        if translated_config:
+            artifacts = _save_translation_artifact(
+                translated_config, source_vendor, target_vendor,
+                workspace_id, session_id, line_count, mr_count, quality, warnings,
+            )
 
         return {
             "ok": True,
             "summary": (
                 f"翻译完成: {audit.get('counts', {}).get('deployable_count', 0)} 条可部署, "
-                f"{len(manual_review_items)} 条需人工复核, "
+                f"{mr_count} 条需人工复核, "
                 f"{audit.get('counts', {}).get('unsupported_count', 0)} 条不支持自动翻译."
             ),
             "source_vendor": source_vendor,
             "target_vendor": target_vendor,
             "line_count": line_count,
-            "translated_config": result_dict.get("deployable_config", ""),
+            "translated_config": translated_config,
             "manual_review_items": manual_review_items,
+            "manual_review_count": mr_count,
             "warnings": warnings + (result_dict.get("warnings", []) or []),
             "errors": errors,
-            "artifacts": result_dict.get("artifacts", []),
+            "artifacts": artifacts,
             "metadata": {
                 "elapsed_ms": result_dict.get("elapsed_ms", 0),
                 "quality_summary": quality,
                 "audit": audit,
                 "build_commit": result_dict.get("build_commit", ""),
+                "manual_review_count": mr_count,
+                "line_count": line_count,
             },
         }
 
@@ -124,8 +115,115 @@ def translate_config(
             "line_count": 0,
             "translated_config": "",
             "manual_review_items": [],
+            "manual_review_count": 0,
             "warnings": [],
             "errors": [f"translation_error: {str(e)[:200]}"],
             "artifacts": [],
             "metadata": {},
         }
+
+
+def _normalize_review_items(raw_items: list) -> list:
+    """Normalize manual_review_items to structured format."""
+    normalized = []
+    for i, item in enumerate(raw_items):
+        if isinstance(item, str):
+            normalized.append({
+                "item_id": str(uuid.uuid4())[:8],
+                "severity": "medium",
+                "category": "unknown",
+                "line_no": None,
+                "source_text": item[:200],
+                "translated_text": "",
+                "reason": item[:200],
+                "recommendation": "请人工复核后确认",
+                "requires_human_review": True,
+            })
+        elif isinstance(item, dict):
+            normalized.append({
+                "item_id": item.get("item_id", str(uuid.uuid4())[:8]),
+                "severity": item.get("severity", item.get("risk_level", "medium")),
+                "category": _map_category(item.get("category", item.get("reason", "unknown"))),
+                "line_no": item.get("line_no"),
+                "source_text": item.get("source_excerpt", item.get("source_text", "")),
+                "translated_text": item.get("translated_text", item.get("suggested_lines", "")),
+                "reason": item.get("reason", item.get("source_excerpt", ""))[:200],
+                "recommendation": item.get("recommendation", item.get("suggested_action", "请人工复核后确认")),
+                "requires_human_review": True,
+            })
+    return normalized
+
+
+def _map_category(raw: str) -> str:
+    raw_lower = (raw or "").lower()
+    if "syntax" in raw_lower or "residue" in raw_lower:
+        return "syntax"
+    if "semantic" in raw_lower or "near" in raw_lower:
+        return "semantic"
+    if "unsupported" in raw_lower or "not supported" in raw_lower:
+        return "unsupported_feature"
+    if "vendor" in raw_lower or "difference" in raw_lower:
+        return "vendor_difference"
+    if "security" in raw_lower or "secret" in raw_lower or "redact" in raw_lower:
+        return "security"
+    return "unknown"
+
+
+def _save_translation_artifact(
+    translated_config: str,
+    source_vendor: str,
+    target_vendor: str,
+    workspace_id: str,
+    session_id: str,
+    line_count: int,
+    mr_count: int,
+    quality: dict,
+    warnings: list,
+) -> list:
+    """Save translated_config as an artifact. Never blocks translation."""
+    try:
+        from artifacts.store import save_artifact
+        rec = save_artifact(
+            workspace_id=workspace_id,
+            content=translated_config,
+            artifact_type="translated_config",
+            title=f"Translated config: {source_vendor} to {target_vendor}",
+            scope="workspace",
+            sensitivity="sensitive",
+            module="config_translation",
+            skill="config_translation",
+            source="module_output",
+            metadata={
+                "source_vendor": source_vendor,
+                "target_vendor": target_vendor,
+                "line_count": line_count,
+                "manual_review_count": mr_count,
+                "authoritative": False,
+                "deployable_config": False,
+                "quality_gate_passed": not bool(
+                    quality.get("source_residue_count", 0) or
+                    quality.get("silent_drop_count", 0)
+                ),
+            },
+        )
+        if rec:
+            return [{
+                "artifact_id": rec.artifact_id,
+                "artifact_type": "translated_config",
+                "title": f"Translated config: {source_vendor} to {target_vendor}",
+                "scope": "workspace",
+                "sensitivity": "sensitive",
+                "source": "module_output",
+                "metadata": {
+                    "authoritative": False,
+                    "deployable_config": False,
+                    "source_vendor": source_vendor,
+                    "target_vendor": target_vendor,
+                },
+            }]
+        # save_artifact returned None (blocked or failed silently)
+        warnings.append("artifact_save_failed")
+        return []
+    except Exception as e:
+        warnings.append("artifact_save_failed")
+        return []

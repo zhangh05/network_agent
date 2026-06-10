@@ -198,13 +198,33 @@ def run_turn(session, turn, services=None) -> AgentResult:
                     )
 
                 all_tool_results.append({
+                    "call_id": tool_call.call_id,
                     "tool_id": tool_call.real_tool_id,
                     "ok": result.ok,
                     "summary": getattr(result, 'summary', str(result))[:500],
+                    "artifacts": _safe_get(result, 'artifacts', []),
+                    "source_count": _safe_get(result, 'source_count'),
+                    "manual_review_count": _safe_get(result, 'manual_review_count'),
+                    "errors": getattr(result, 'errors', [])[:5] if hasattr(result, 'errors') else [],
+                    "warnings": getattr(result, 'warnings', [])[:5] if hasattr(result, 'warnings') else [],
+                    "metadata": _safe_get(result, 'metadata', {}),
                 })
 
+                # Build richer ToolResultMessage for LLM
+                tool_msg_payload = {"ok": result.ok, "summary": getattr(result, 'summary', '')}
+                if hasattr(result, 'source_count'):
+                    tool_msg_payload["source_count"] = result.source_count
+                if hasattr(result, 'manual_review_count'):
+                    tool_msg_payload["manual_review_count"] = result.manual_review_count
+                if hasattr(result, 'artifacts') and result.artifacts:
+                    tool_msg_payload["artifact_count"] = len(result.artifacts)
+                    tool_msg_payload["artifacts"] = [{"artifact_id": a.get("artifact_id", ""),
+                                                       "artifact_type": a.get("artifact_type", ""),
+                                                       "title": a.get("title", "")} for a in result.artifacts[:3]]
+                if hasattr(result, 'source_summary'):
+                    tool_msg_payload["source_summary"] = result.source_summary
                 tool_msg = ToolResultMessage(
-                    content=json.dumps({"ok": result.ok, "summary": getattr(result, 'summary', '')}, ensure_ascii=False)[:1000],
+                    content=json.dumps(tool_msg_payload, ensure_ascii=False)[:2000],
                     tool_call_id=tc.id,
                 )
                 messages.append(tool_msg.to_llm_message())
@@ -316,6 +336,15 @@ def _collect_events(audit_events, turn_id: str) -> list:
     if audit_events and hasattr(audit_events, 'events_for_turn_dicts'):
         return audit_events.events_for_turn_dicts(turn_id)
     return []
+
+
+def _safe_get(obj, attr: str, default=None):
+    """Safely get attribute or key from result object/dict."""
+    if isinstance(obj, dict):
+        return obj.get(attr, default)
+    if hasattr(obj, attr):
+        return getattr(obj, attr)
+    return default
 
 
 def _build_partial_answer(tool_results: list) -> str:

@@ -83,10 +83,13 @@ def tool_handler(args: dict, context=None) -> dict:
         "content": {
             "translated_config": result.get("translated_config", ""),
             "manual_review_items": result.get("manual_review_items", []),
+            "manual_review_count": result.get("manual_review_count", 0),
             "source_vendor": result.get("source_vendor", ""),
             "target_vendor": result.get("target_vendor", ""),
             "line_count": result.get("line_count", 0),
         },
+        "artifacts": result.get("artifacts", []),
+        "manual_review_count": result.get("manual_review_count", 0),
         "errors": result.get("errors", []),
         "warnings": result.get("warnings", []),
         "metadata": result.get("metadata", {}),

@@ -72,8 +72,10 @@ def tool_handler(args: dict, context=None) -> dict:
         "content": {
             "hits": result.get("hits", []),
             "source_count": result.get("source_count", 0),
+            "source_summary": result.get("source_summary", []),
             "query": result.get("query", ""),
         },
+        "source_count": result.get("source_count", 0),
         "errors": result.get("errors", []),
         "warnings": result.get("warnings", []),
         "metadata": result.get("metadata", {}),
