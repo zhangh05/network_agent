@@ -140,6 +140,16 @@ Composer / Orchestrator → invoke_llm (统一入口)
 `safe_generate()` 是其公共包装，添加 policy 检查和 SafeLLMOutput 返回格式。
 Policy 检查是**非阻塞**的：失败仅记录到 metadata/warnings，不阻断 provider 调用。
 
+### v0.5.1 — Diagnostics Consistency (2026-06-10)
+
+- `safe_generate()` 错误分支透传 provider metadata（`provider_error_type`, `http_status`, `provider_error_message`）
+- `invoke_llm()` disabled 分支返回 `error_type=disabled_by_user`
+- `check_request()` 接收 `safe_context` + `tools`（非阻断）
+- `key_source` 准确区分：`ui_settings` / `env_fallback` / `env`
+- `ui_settings` disabled=true 不被 env key 覆盖
+- `auto_default` disabled + env key → `enabled=true`, `config_source="env"`, `key_source="env"`
+- orchestrator 清理 3 处 unused `req = LLMRequest(...)` 残留
+
 ## Context 链
 
 ```

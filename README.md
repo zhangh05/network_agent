@@ -128,6 +128,8 @@ Dynamic budget allocation per model (MiniMax 64k, Qwen 128k, etc.), semantic ded
 | 1 | LangGraph Runtime (8 trace nodes) | completed |
 | 2 | Registry / Capability / Skill / Module Contract | completed |
 | 3 | LLM Settings (MiniMax-M3 default) | completed |
+| 3.1 | LLM Runtime v0.5 (invoke_llm unified entry) | completed |
+| 3.2 | LLM Runtime v0.5.1 (diagnostics consistency) | completed |
 | 4 | Workspace Runtime | completed |
 | 5 | Memory Runtime (cleanup_expired + compact) | completed |
 | 6 | Run History | completed |
