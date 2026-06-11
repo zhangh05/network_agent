@@ -9,72 +9,40 @@ export type ToolStatus = "enabled" | "planned" | "disabled";
 export type RiskLevel = "low" | "medium" | "high" | "forbidden";
 export type Sensitivity = "public" | "internal" | "sensitive" | "secret";
 
-/* ───────────────────────── CapabilityManifest ───────────────────────── */
-
-export interface CapabilityModuleSpec {
-  module_id: string;
-  status: CapabilityStatus;
-  service_path: string;
-  operations: string[];
-  description: string;
-}
-
-export interface CapabilitySkillSpec {
-  skill_id: string;
-  status: CapabilityStatus;
-  related_tools: string[];
-  intent_patterns: string[];
-  required_inputs: string[];
-  prompt_summary: string;
-  preconditions: string[];
-  postconditions: string[];
-  safety_rules: string[];
-}
-
-export interface CapabilityToolRef {
-  tool_id: string;
-  status: ToolStatus;
-  callable_by_llm: boolean;
-  risk_level: RiskLevel;
-  requires_approval: boolean;
-  forbidden: boolean;
-  handler_ref: string;
-  input_schema: Record<string, unknown>;
-  description: string;
-}
-
-export interface CapabilityOutputSpec {
-  output_id: string;
-  output_type: string;
-  description: string;
-  artifact_type: string;
-  visible_to_user: boolean;
-  sensitivity: Sensitivity;
-  authoritative: boolean;
-  metadata: Record<string, unknown>;
-}
-
-export interface CapabilitySafetySpec {
-  real_device_access: boolean;
-  allows_config_push: boolean;
-  produces_deployable_config: boolean;
-  may_fabricate_sources: boolean;
-  requires_human_review: boolean;
-  notes: string;
-}
+/* ───────────────────────── CapabilityManifest ─────────────────────────
+ *
+ * Wire shape produced by `registry/loader.py::_generate_capabilities`
+ * (and projected to JSON via `CapabilitySpec.as_dict`). The v1.0.1
+ * frontend used the nested `agent/capabilities/schemas.py::CapabilityManifest`
+ * shape; that does NOT match what `/api/capabilities` actually returns.
+ * This interface reflects the REAL response.
+ */
 
 export interface CapabilityManifest {
+  /** Unique capability id, e.g. `config.translate`. */
   capability_id: string;
-  name: string;
+  /** Whether the capability is callable by the LLM. */
+  enabled: boolean;
+  /** Lifecycle status: "enabled" | "planned" | "disabled". */
   status: CapabilityStatus;
+  /** Human-readable description (may be empty). */
   description: string;
-  module: CapabilityModuleSpec;
-  skills: CapabilitySkillSpec[];
-  tools: CapabilityToolRef[];
-  outputs: CapabilityOutputSpec[];
-  safety: CapabilitySafetySpec;
-  dependencies: string[];
-  metadata: Record<string, unknown>;
+  /** Category bucket, e.g. "translation" | "knowledge" | "review". */
+  category: string;
+  /** Stable intent key, e.g. `translate_config`. */
+  intent: string;
+  /** Module id (string), e.g. `config_translation`. */
+  module: string;
+  /** Skill id (string), e.g. `config_translation`. */
+  skill: string;
+  /** Risk level for downstream reasoning / UI. */
+  risk_level: RiskLevel;
+  /** True if outputs of this capability can be deployed. */
+  can_generate_deployable: boolean;
+  /** True if a human reviewer is required before deployment. */
+  requires_verification: boolean;
+  /** True iff status === "enabled" (mirror of `status` for callers). */
+  requires_human_review: boolean;
 }
 
 /* ──────────────────────── AgentResult & Tool Calls ──────────────────────── */

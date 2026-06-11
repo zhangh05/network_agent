@@ -1,7 +1,8 @@
+import { useMemo } from "react";
 import { capabilitiesApi } from "../../api";
 import { useAsync, AsyncView, Badge, InlineCode } from "../../components/common";
 import type { CapabilityManifest, CapabilityStatus, RiskLevel } from "../../types";
-import { IconBolt, IconLayers, IconShield } from "../../components/Icon";
+import { IconBolt, IconLayers, IconShield, IconSparkle } from "../../components/Icon";
 
 const STATUS_KIND: Record<CapabilityStatus, "ok" | "muted" | "warn"> = {
   enabled: "ok",
@@ -29,24 +30,24 @@ const RISK_LABEL: Record<RiskLevel, string> = {
   forbidden: "禁止",
 };
 
-const SAFETY_LABEL: Record<keyof CapabilityManifest["safety"], string> = {
-  real_device_access: "真实设备访问",
-  allows_config_push: "允许 config.push",
-  produces_deployable_config: "产生可下发配置",
-  may_fabricate_sources: "可能伪造来源",
-  requires_human_review: "需要人工评审",
-  notes: "备注",
-};
-
 export function CapabilityCenter() {
-  const list = useAsync<{ capabilities: CapabilityManifest[] }>((s) =>
+  const list = useAsync<{ capabilities: CapabilityManifest[]; enabled: string[] }>((s) =>
     capabilitiesApi.manifest(s),
   );
 
-  const caps = list.state.kind === "success" ? list.state.data.capabilities ?? [] : [];
-  const enabledCount = caps.filter((c) => c.status === "enabled").length;
-  const plannedCount = caps.filter((c) => c.status === "planned").length;
-  const toolCount = caps.reduce((s, c) => s + (c.tools?.length ?? 0), 0);
+  const counts = useMemo(() => {
+    if (list.state.kind !== "success") {
+      return { enabled: 0, planned: 0, total: 0, high: 0, deployable: 0 };
+    }
+    const caps = list.state.data.capabilities ?? [];
+    return {
+      enabled: caps.filter((c) => c.status === "enabled").length,
+      planned: caps.filter((c) => c.status === "planned").length,
+      total: caps.length,
+      high: caps.filter((c) => c.risk_level === "high" || c.risk_level === "forbidden").length,
+      deployable: caps.filter((c) => c.can_generate_deployable).length,
+    };
+  }, [list.state]);
 
   return (
     <div className="page" data-testid="page-capabilities">
@@ -62,17 +63,21 @@ export function CapabilityCenter() {
             从后端 CapabilityRegistry 动态读取 · 规划中 capability 仅展示状态，<strong>不</strong>提供调用入口
           </div>
         </div>
-        <div className="row-flex" style={{ gap: 6 }}>
-          <span className="status-pill" data-testid="cap-count-enabled">
+        <div className="row-flex" style={{ gap: 6, flexWrap: "wrap" }}>
+          <span className="status-pill" data-testid="cap-count-total">
             <span className="dot" />
-            已启用 {enabledCount}
+            全部 {counts.total}
+          </span>
+          <span className="status-pill" data-testid="cap-count-enabled">
+            <span className="dot" style={{ background: "var(--success)" }} />
+            已启用 {counts.enabled}
           </span>
           <span className="status-pill" data-testid="cap-count-planned">
             <span className="dot warn" />
-            规划中 {plannedCount}
+            规划中 {counts.planned}
           </span>
-          <span className="status-pill" data-testid="cap-count-tools">
-            <IconBolt size={10} /> 工具 {toolCount}
+          <span className="status-pill" data-testid="cap-count-deployable">
+            <IconBolt size={10} /> 可下发 {counts.deployable}
           </span>
         </div>
       </div>
@@ -87,7 +92,7 @@ export function CapabilityCenter() {
             <div
               style={{
                 display: "grid",
-                gridTemplateColumns: "repeat(auto-fill, minmax(380px, 1fr))",
+                gridTemplateColumns: "repeat(auto-fill, minmax(360px, 1fr))",
                 gap: 14,
               }}
               data-testid="capability-list"
@@ -110,22 +115,27 @@ function CapabilityCard({ cap }: { cap: CapabilityManifest }) {
       className="card"
       data-testid={`cap-${cap.capability_id}`}
       data-status={cap.status}
-      style={{ marginBottom: 0 }}
+      style={{ marginBottom: 0, position: "relative" }}
     >
-      <div className="row-flex" style={{ justifyContent: "space-between", alignItems: "flex-start" }}>
+      {/* 标题区 */}
+      <div
+        className="row-flex"
+        style={{ justifyContent: "space-between", alignItems: "flex-start" }}
+      >
         <div style={{ minWidth: 0 }}>
           <h3
             style={{
               fontFamily: "var(--font-display)",
               fontSize: 15,
               margin: 0,
+              marginBottom: 2,
             }}
           >
-            {cap.name || cap.capability_id}
-          </h3>
-          <div className="mono text-xs muted" style={{ marginTop: 2 }}>
             {cap.capability_id}
-          </div>
+          </h3>
+          {cap.intent && (
+            <div className="mono text-xs muted">intent: {cap.intent}</div>
+          )}
         </div>
         <div
           className="row-flex"
@@ -133,15 +143,19 @@ function CapabilityCard({ cap }: { cap: CapabilityManifest }) {
           style={{ flexShrink: 0 }}
         >
           <Badge kind={STATUS_KIND[cap.status]} withDot>
-            {STATUS_LABEL[cap.status]}
+            {STATUS_LABEL[cap.status] || cap.status}
           </Badge>
           {isPlanned && (
-            <span className="text-xs muted" data-testid={`cap-planned-tag-${cap.capability_id}`}>
+            <span
+              className="text-xs muted"
+              data-testid={`cap-planned-tag-${cap.capability_id}`}
+            >
               (不可调用)
             </span>
           )}
         </div>
       </div>
+
       {cap.description && (
         <div
           className="text-sm"
@@ -151,90 +165,26 @@ function CapabilityCard({ cap }: { cap: CapabilityManifest }) {
         </div>
       )}
 
+      {/* Module + Skill */}
       <div className="card-title" style={{ marginTop: 14 }}>
-        <IconLayers size={11} />
-        Module
+        <IconLayers size={11} /> Module &amp; Skill
       </div>
-      <div className="text-sm row-flex" style={{ gap: 6 }}>
-        <InlineCode>{cap.module.module_id || "(none)"}</InlineCode>
-        <Badge kind={STATUS_KIND[cap.module.status]}>
-          {STATUS_LABEL[cap.module.status] || cap.module.status}
-        </Badge>
+      <div className="row-flex" style={{ gap: 6, flexWrap: "wrap" }}>
+        <InlineCode>{cap.module}</InlineCode>
+        <span className="muted text-xs">·</span>
+        <InlineCode>{cap.skill}</InlineCode>
       </div>
-      {cap.module.service_path && (
-        <div className="text-xs muted" style={{ marginTop: 4 }}>
-          {cap.module.service_path}
+      {cap.category && (
+        <div className="text-xs muted mt-2">
+          分类: <Badge kind="muted">{cap.category}</Badge>
         </div>
       )}
 
+      {/* Safety / risk */}
       <div className="card-title" style={{ marginTop: 14 }}>
-        Skills · {cap.skills.length}
-      </div>
-      {cap.skills.length === 0 ? (
-        <div className="muted text-sm">无 skill</div>
-      ) : (
-        <div className="row-flex" style={{ flexWrap: "wrap", gap: 4 }}>
-          {cap.skills.map((s) => (
-            <Badge key={s.skill_id} kind={STATUS_KIND[s.status]}>
-              {s.skill_id}
-            </Badge>
-          ))}
-        </div>
-      )}
-
-      <div className="card-title" style={{ marginTop: 14 }}>
-        <IconBolt size={11} />
-        Tools · {cap.tools.length}
-      </div>
-      {cap.tools.length === 0 ? (
-        <div className="muted text-sm">无 tool</div>
-      ) : (
-        <table
-          className="tbl"
-          data-testid={`cap-tools-${cap.capability_id}`}
-          style={{ fontSize: 12 }}
-        >
-          <thead>
-            <tr>
-              <th>tool</th>
-              <th>状态</th>
-              <th>LLM 可调用</th>
-              <th>风险</th>
-            </tr>
-          </thead>
-          <tbody>
-            {cap.tools.map((t) => (
-              <tr key={t.tool_id} data-testid={`cap-tool-${cap.capability_id}-${t.tool_id}`}>
-                <td><InlineCode>{t.tool_id}</InlineCode></td>
-                <td>
-                  <Badge kind={STATUS_KIND[t.status as CapabilityStatus]}>
-                    {STATUS_LABEL[t.status as CapabilityStatus] || t.status}
-                  </Badge>
-                </td>
-                <td>
-                  {t.callable_by_llm ? (
-                    <Badge kind="ok">是</Badge>
-                  ) : (
-                    <Badge kind="muted">否</Badge>
-                  )}
-                </td>
-                <td>
-                  <Badge kind={RISK_KIND[t.risk_level]}>
-                    {RISK_LABEL[t.risk_level]}
-                  </Badge>
-                </td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      )}
-
-      <div className="card-title" style={{ marginTop: 14 }}>
-        <IconShield size={11} />
-        Safety
+        <IconShield size={11} /> Safety
       </div>
       <div
-        className="text-sm"
         data-testid={`cap-safety-${cap.capability_id}`}
         style={{
           display: "grid",
@@ -242,44 +192,63 @@ function CapabilityCard({ cap }: { cap: CapabilityManifest }) {
           gap: "4px 16px",
         }}
       >
-        {(
-          [
-            ["real_device_access", cap.safety.real_device_access],
-            ["allows_config_push", cap.safety.allows_config_push],
-            ["produces_deployable_config", cap.safety.produces_deployable_config],
-            ["may_fabricate_sources", cap.safety.may_fabricate_sources],
-            ["requires_human_review", cap.safety.requires_human_review],
-          ] as Array<[keyof CapabilityManifest["safety"], boolean]>
-        ).map(([key, val]) => (
-          <div key={key} className="row-flex" style={{ gap: 6, fontSize: 12 }}>
-            {renderBool(val)}
-            <span className="muted">{SAFETY_LABEL[key]}</span>
-          </div>
-        ))}
+        <SafetyRow label="风险等级">
+          <Badge kind={RISK_KIND[cap.risk_level]}>
+            {RISK_LABEL[cap.risk_level]}
+          </Badge>
+        </SafetyRow>
+        <SafetyRow label="可下发配置">
+          {cap.can_generate_deployable ? (
+            <Badge kind="warn">true</Badge>
+          ) : (
+            <Badge kind="ok" withDot>无</Badge>
+          )}
+        </SafetyRow>
+        <SafetyRow label="需要评审">
+          {cap.requires_verification ? (
+            <Badge kind="warn">true</Badge>
+          ) : (
+            <Badge kind="ok" withDot>无需</Badge>
+          )}
+        </SafetyRow>
+        <SafetyRow label="LLM 可调用">
+          {cap.enabled ? (
+            <Badge kind="ok" withDot>可</Badge>
+          ) : (
+            <Badge kind="muted">否</Badge>
+          )}
+        </SafetyRow>
       </div>
-      {cap.safety.notes && (
+
+      {/* 装饰：规划中 capability 的禁止调用视觉提示 */}
+      {isPlanned && (
         <div
-          className="text-xs muted mt-2"
           style={{
-            padding: "6px 10px",
-            background: "var(--bg-soft)",
-            borderRadius: "var(--r-sm)",
-            fontStyle: "italic",
+            position: "absolute",
+            top: 8,
+            right: 8,
+            fontSize: 10,
+            color: "var(--warning)",
+            opacity: 0.4,
+            pointerEvents: "none",
           }}
+          aria-hidden
         >
-          备注：{cap.safety.notes}
+          <IconSparkle size={32} />
         </div>
       )}
     </div>
   );
 }
 
-function renderBool(b: boolean) {
-  return b ? (
-    <Badge kind="warn">true</Badge>
-  ) : (
-    <Badge kind="ok" withDot>
-      false
-    </Badge>
+function SafetyRow({ label, children }: { label: string; children: React.ReactNode }) {
+  return (
+    <div
+      className="row-flex"
+      style={{ gap: 6, fontSize: 12, alignItems: "center" }}
+    >
+      <span className="muted" style={{ flexShrink: 0 }}>{label}</span>
+      {children}
+    </div>
   );
 }

@@ -1,5 +1,9 @@
 /**
  * Test 6 — planned capability 不显示调用按钮
+ *
+ * v1.0.1 UI 重设计后：/api/capabilities 返回的 CapabilityManifest 改为
+ * 扁平结构（见 registry/loader.py::_generate_capabilities）。本测试 mock
+ * 的数据形状已对齐到真实 wire format。
  */
 
 import { describe, it, expect, beforeEach } from "vitest";
@@ -11,38 +15,31 @@ import type { CapabilityManifest } from "../types";
 const sampleCaps: CapabilityManifest[] = [
   {
     capability_id: "config_translation",
-    name: "Config Translation",
     status: "enabled",
+    enabled: true,
     description: "Translate vendor configs to canonical IR",
-    module: { module_id: "config_translation", status: "enabled", service_path: "agent.modules.config_translation.service", operations: ["translate_config"], description: "" },
-    skills: [
-      { skill_id: "config_translation", status: "enabled", related_tools: ["config_translation.translate_config"], intent_patterns: ["translate config"], required_inputs: [], prompt_summary: "", preconditions: [], postconditions: [], safety_rules: [] },
-    ],
-    tools: [
-      { tool_id: "config_translation.translate_config", status: "enabled", callable_by_llm: true, risk_level: "low", requires_approval: false, forbidden: false, handler_ref: "agent.modules.config_translation.tools", input_schema: {}, description: "" },
-    ],
-    outputs: [],
-    safety: { real_device_access: false, allows_config_push: false, produces_deployable_config: false, may_fabricate_sources: false, requires_human_review: false, notes: "" },
-    dependencies: [],
-    metadata: {},
+    category: "translation",
+    intent: "translate_config",
+    module: "config_translation",
+    skill: "config_translation",
+    risk_level: "low",
+    can_generate_deployable: true,
+    requires_verification: true,
+    requires_human_review: false,
   },
   {
     capability_id: "topology",
-    name: "Topology",
     status: "planned",
+    enabled: false,
     description: "Topology discovery & rendering (planned)",
-    module: { module_id: "topology", status: "planned", service_path: "agent.modules.topology.service", operations: [], description: "" },
-    skills: [
-      { skill_id: "topology_draw", status: "planned", related_tools: [], intent_patterns: [], required_inputs: [], prompt_summary: "", preconditions: [], postconditions: [], safety_rules: [] },
-    ],
-    tools: [
-      { tool_id: "topology.extract", status: "planned", callable_by_llm: false, risk_level: "low", requires_approval: false, forbidden: false, handler_ref: "", input_schema: {}, description: "" },
-      { tool_id: "topology.render", status: "planned", callable_by_llm: false, risk_level: "low", requires_approval: false, forbidden: false, handler_ref: "", input_schema: {}, description: "" },
-    ],
-    outputs: [],
-    safety: { real_device_access: false, allows_config_push: false, produces_deployable_config: false, may_fabricate_sources: false, requires_human_review: false, notes: "" },
-    dependencies: [],
-    metadata: {},
+    category: "topology",
+    intent: "topology_render",
+    module: "topology",
+    skill: "topology_draw",
+    risk_level: "low",
+    can_generate_deployable: false,
+    requires_verification: false,
+    requires_human_review: false,
   },
 ];
 
@@ -58,12 +55,12 @@ describe("CapabilityCenter — planned capability has NO invoke button", () => {
     await screen.findByTestId("cap-config_translation");
     const planned = await screen.findByTestId("cap-topology");
     expect(planned.dataset.status).toBe("planned");
-    // The (not callable) tag is present, but no button to invoke.
+    // The (不可调用) tag is present, but no button to invoke.
     expect(screen.getByTestId("cap-planned-tag-topology")).toBeInTheDocument();
-    // Sanity: no buttons inside the planned card whose text is "Invoke" / "调用" / "Run"
+    // Sanity: no buttons inside the planned card whose text is "调用" / "Run" / "Invoke"
     const buttons = planned.querySelectorAll("button");
     buttons.forEach((b) => {
-      expect(b.textContent).not.toMatch(/invoke|调用|run|execute/i);
+      expect(b.textContent).not.toMatch(/调用|invoke|run|execute/i);
     });
   });
 });
