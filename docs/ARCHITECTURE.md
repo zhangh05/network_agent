@@ -119,7 +119,10 @@ Capability Layer 在 v0.7 起形成**显式三层**结构，业务能力接入 T
   - v0.8.1 skill selector tests: **23 / 23 passed**（**未回归**）
   - v0.8 capability manifest tests: **20 / 20 passed**（**未回归**）
   - v0.7/v0.7.1 capability tests: **41 passed, 0 failed**（**未回归**）
-  - v0.6.x ~ v1.0.1 broader focused regression: **764 passed, 7 skipped, 2 failed**（2 failed = pre-existing live-LLM timeout tests unrelated to v1.0.1; v1.0.1-related: 737 passed, 0 failed）
+  - v1.0.1 broader focused baseline: **744 passed, 7 skipped, 0 failed**（7 skipped = `RUN_LIVE_TESTS=1` live LLM tests. v0.7.1 baseline 615 + v0.8/v0.8.1/v0.8.2/v0.9/v1.0 capability layer tests + v1.0.1 ingestion 22 = 744. **0 failed**）
+  - v1.0.1.1 security focused suite: **266 passed, 2 skipped, 0 failed**（2 skipped = `RUN_LIVE_TESTS=1` gated live-LLM tests. v0.7.1 baseline 41 capability + v0.8/v0.8.1/v0.8.2/v0.9/v1.0 capability layer + v1.0.1 ingestion 22 + v1.0.1.1 security 16 = 266. **0 failed**）
+
+  > 两个数字**不**是同一 regression 的演进——它们是两次**不同筛选范围**的 focused 套件。
   - Full harness `pytest harness -q` 本轮 docs-only sync + 架构 refactor 中**未**重跑
 - **Runtime architecture**: Codex-style Agent Runtime（Thread / Session / Turn / RuntimeLoop）— v0.6 引入，**v0.6.1 ~ v1.0.1 主链未变**
 - **CapabilityRegistry (v1.0.1)**: 7 个 capability（4 enabled + 3 planned），**单一真相源**

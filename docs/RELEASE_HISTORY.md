@@ -83,10 +83,13 @@ v0.6 → v0.7.1 **始终保持**：
 | v0.8.1 skill selector (focused) | **23** | 0 | 0 |
 | v0.8 capability manifest (focused) | **20** | 0 | 0 |
 | v0.7/v0.7.1 capability (focused) | **41** | 0 | 0 |
-| v0.6.x ~ v1.0.1.1 broader focused regression | **266** | 2 | 0 |
+| v1.0.1 broader focused baseline | **744** | 7 | 0 |
+| v1.0.1.1 security focused suite | **266** | 2 | 0 |
 | Full harness `pytest harness -q` | — | — | Not re-run (docs + refactor) |
 
-注：2 skipped = pre-existing live-LLM tests (`test_tools_question_uses_snapshot`, `test_knowledge_query_handles_no_data`) 在 v1.0.1.1 中加了 `RUN_LIVE_TESTS=1` gate。**默认环境 skipped = 0 failed**。
+注 1：2 skipped = pre-existing live-LLM tests (`test_tools_question_uses_snapshot`, `test_knowledge_query_handles_no_data`) 在 v1.0.1.1 中加了 `RUN_LIVE_TESTS=1` gate。**默认环境 skipped = 0 failed**。
+
+注 2：744 与 266 是**两次不同筛选范围**的 focused 套件，**不**是同一 baseline 的演进。直接对比二者无意义。
 
 > 2026-06-10 update：曾记录的 v0.5 `test_llm_provider_diagnostics_v05.py::test_timeout_returns_provider_timeout` 失败已在同日的 legacy diagnostics alignment 中修复（断言改为兼容 "timeout" / "timed out" 两种文案，并主断言 `metadata.provider_error_type == "provider_timeout"`）。broader focused regression 由 613 passed / 1 failed 提升至 **615 passed / 0 failed**（+1 = 新增的 wording-agnostic regression test）。
 
