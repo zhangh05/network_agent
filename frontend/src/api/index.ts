@@ -10,7 +10,7 @@
  * /knowledge/search, /knowledge/chunks, /review-items, etc.
  */
 
-import { apiRequest } from "./client";
+import { apiRequest, TIMEOUTS } from "./client";
 import type {
   AgentResult,
   Artifact,
@@ -34,11 +34,14 @@ export interface AgentRunRequest {
 }
 
 export const agentApi = {
-  /** POST /api/agent/message — Codex-style runtime endpoint (v0.6+). */
+  /** POST /api/agent/message — Codex-style runtime endpoint (v0.6+).
+   *  This is the SLOW endpoint (LLM + 工具调用 + 可选 web search).
+   *  实测 30-120s, 设 180s timeout 避免误报. */
   run: (req: AgentRunRequest, signal?: AbortSignal): Promise<AgentResult> =>
     apiRequest<AgentResult>(
       { method: "POST", url: "/agent/message", data: req },
       signal,
+      TIMEOUTS.agentTurn,
     ),
 };
 
@@ -237,6 +240,7 @@ export const knowledgeApi = {
         data: { workspace_id, artifact_id },
       },
       signal,
+      TIMEOUTS.knowledgeImport,
     ),
   reindex: (
     source_id: string,
@@ -379,6 +383,7 @@ export const artifactsApi = {
         url: `/workspaces/${workspace_id}/artifacts/${artifact_id}/summarize`,
       },
       signal,
+      TIMEOUTS.summarize,
     ),
 };
 

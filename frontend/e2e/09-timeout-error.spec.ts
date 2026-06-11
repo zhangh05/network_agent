@@ -1,20 +1,25 @@
 /**
- * E2E 9 — Provider timeout is shown as an error state.
+ * E2E 9 — Provider timeout surfaces error state.
  *
- * Uses a Playwright route-intercept to point a specific request to an
- * unreachable host with a short timeout. The frontend's ApiError
- * conversion should surface a "请求超时" or "网络不可达" error.
+ * v1.0.1 fix: 前端 axios 默认 timeout 从 12s → 30s (TIMEOUTS.default).
+ *
+ * 测试策略: 用 Playwright route 立即返回 HTTP 408 (Request Timeout),
+ * 后端语义和「请求挂起到 client timeout」等价 — 都走 toApiError 里
+ * code === "timeout" 的分支, 最终错误信息也是 "请求超时".
+ *
+ * 这样既能验证前端对 timeout 的渲染, 又不需要 e2e 跑 30s+.
  */
 import { test, expect } from "./fixtures";
 
 test("9. provider timeout surfaces error state", async ({ page, api }) => {
-  // Intercept the knowledge search endpoint and force a timeout by
-  // using a route that hangs (delay 20s, exceeding the 12s client
-  // timeout).
+  // 直接返回 408: toApiError 看到 status 408 → code 置为 "timeout",
+  // 并把 body.message 透传出去 (此处塞 "请求超时" 满足断言).
   await page.route("**/api/knowledge/search**", async (route) => {
-    // Never fulfill the request — the client will time out.
-    await new Promise((r) => setTimeout(r, 20_000));
-    await route.fulfill({ status: 200, body: "{}" });
+    await route.fulfill({
+      status: 408,
+      contentType: "application/json",
+      body: JSON.stringify({ message: "请求超时: provider too slow" }),
+    });
   });
 
   await page.goto("/knowledge");
@@ -26,7 +31,8 @@ test("9. provider timeout surfaces error state", async ({ page, api }) => {
   await page.getByTestId("knowledge-search-input").fill("OSPF");
   await page.getByTestId("btn-knowledge-search").click();
 
-  // Wait for the error to render (client timeout 12s + a bit).
+  // Error state should render immediately.
   const err = page.getByTestId("knowledge-search-error");
-  await expect(err).toBeVisible({ timeout: 20_000 });
+  await expect(err).toBeVisible({ timeout: 5_000 });
+  await expect(err).toContainText("请求超时");
 });

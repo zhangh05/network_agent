@@ -6,6 +6,7 @@ import { useToastStore } from "../../stores/toast";
 import { Badge } from "../../components/common";
 import { isApiError } from "../../types";
 import type { AgentResult, SourceSummary, ToolCallResult } from "../../types";
+import { TIMEOUTS } from "../../api/client";
 import {
   IconAlert,
   IconBolt,
@@ -27,9 +28,23 @@ export function AgentWorkbench() {
   const { history, sending, appendUser, appendAssistant, setSending, clear } =
     useWorkbenchStore();
   const [input, setInput] = useState("");
+  const [elapsed, setElapsed] = useState(0);
   const streamRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
   const toast = useToastStore((s) => s.show);
+
+  // Elapsed-time ticker — gives the user a sense of "still working"
+  // for long agent turns (web search, multi-tool, LLM slow).
+  useEffect(() => {
+    if (!sending) {
+      setElapsed(0);
+      return;
+    }
+    const t0 = Date.now();
+    setElapsed(0);
+    const id = window.setInterval(() => setElapsed(Math.floor((Date.now() - t0) / 1000)), 1000);
+    return () => window.clearInterval(id);
+  }, [sending]);
 
   useEffect(() => {
     const el = streamRef.current;
@@ -159,13 +174,29 @@ export function AgentWorkbench() {
             ))
           )}
           {sending && (
-            <div className="chat-msg assistant">
+            <div className="chat-msg assistant" data-testid="chat-sending">
               <div className="chat-avatar">智</div>
-              <div className="chat-bubble" style={{ minWidth: 120 }}>
-                <div className="row-flex" style={{ gap: 8 }}>
+              <div className="chat-bubble" style={{ minWidth: 200 }}>
+                <div className="row-flex" style={{ gap: 8, alignItems: "center" }}>
                   <span className="spinner" />
                   <span className="muted text-sm">agent 正在思考…</span>
+                  <span
+                    className="mono text-xs"
+                    style={{ marginLeft: "auto", color: "var(--ink-faint)" }}
+                    data-testid="chat-elapsed"
+                  >
+                    {formatElapsed(elapsed)} / {formatElapsed(TIMEOUTS.agentTurn / 1000)}
+                  </span>
                 </div>
+                {elapsed > 30 && (
+                  <div
+                    className="text-xs mt-2"
+                    style={{ color: "var(--ink-mute)" }}
+                  >
+                    Agent turn 较慢（含 LLM 推理 / 工具调用 / 可选 web search），
+                    最长可等 {formatElapsed(TIMEOUTS.agentTurn / 1000)}
+                  </div>
+                )}
               </div>
             </div>
           )}
@@ -306,4 +337,11 @@ function ToolCallInline({ tc }: { tc: ToolCallResult }) {
       </span>
     </div>
   );
+}
+
+function formatElapsed(seconds: number): string {
+  if (seconds < 60) return `${seconds}s`;
+  const m = Math.floor(seconds / 60);
+  const s = seconds % 60;
+  return `${m}m${s.toString().padStart(2, "0")}s`;
 }
