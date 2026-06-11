@@ -336,15 +336,17 @@ class TestCapabilityRegistryV09:
         assert m.status == "enabled"
         assert len(m.tools) == 2
 
-    def test_visible_tools_includes_all_13(self, reg):
-        # v1.0 added 5 knowledge tools (import/list/read/disable/delete).
+    def test_visible_tools_includes_all_19(self, reg):
+        # v1.0.1 added 6 more knowledge tools.
         v = sorted(reg.visible_tool_ids())
         assert v == sorted([
             "config_translation.translate_config",
-            "knowledge.query",
-            "knowledge.import_document", "knowledge.list_sources",
-            "knowledge.read_source", "knowledge.disable_source",
-            "knowledge.delete_source",
+            "knowledge.query", "knowledge.import_document",
+            "knowledge.list_sources", "knowledge.read_source",
+            "knowledge.disable_source", "knowledge.delete_source",
+            "knowledge.import_file", "knowledge.list_chunks",
+            "knowledge.search_chunks", "knowledge.read_chunk",
+            "knowledge.read_parent", "knowledge.reindex_source",
             "artifact.list", "artifact.read", "artifact.diff", "artifact.export",
             "review.list_items", "review.update_item",
         ])
@@ -352,16 +354,17 @@ class TestCapabilityRegistryV09:
 
 # ── 12. Tool count is 62 ──
 class TestToolCountV09:
-    def test_total_tool_count_is_67(self):
-        # v1.0 adds 5 knowledge tool_ids (import/list/read/disable/delete)
-        # to the catalog. Capability layer contributes 13 (2 + 4 + 2 + 5).
+    def test_total_tool_count_is_73(self):
+        # v1.0.1 adds 6 knowledge tool_ids (import_file / list_chunks /
+        # search_chunks / read_chunk / read_parent / reindex_source).
+        # Capability layer contributes 19 (2 + 4 + 2 + 6 + 5).
         from agent.runtime.services import default_runtime_services
         svc = default_runtime_services()
         tr = svc.tool_service
         total = len(tr.registry.list_all())
-        assert total == 67
+        assert total == 73
         reg = get_default_capability_registry()
-        assert len(reg.enabled_tools()) == 13
+        assert len(reg.enabled_tools()) == 19
 
 
 # ── 13. planned topology / inspection / cmdb are still NOT visible ──

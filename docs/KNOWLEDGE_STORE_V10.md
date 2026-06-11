@@ -1,5 +1,20 @@
 # Knowledge Store Management v1.0
 
+> **2026-06-10 更新**：v1.0 之后已经迈入 **v1.0.1 — Document Ingestion & Book Library**。
+>
+> v1.0 把 `knowledge` capability 从"分散的 `query`"升级为**完整后端知识库能力**（5 个新 tool + 保留 query），KnowledgeStore 用 JSONL 存数据，token-overlap 做检索。
+> 详细见 [KNOWLEDGE_STORE_V10.md](KNOWLEDGE_STORE_V10.md)。
+>
+> v1.0.1 在 v1.0 之上**新增**：
+> - `parsers/` 子包（md / txt / html / docx / text-pdf）
+> - `chunking.py`（结构优先 + 保护块 + 父子分块）
+> - `index.py`（纯 Python BM25 + scope boost）
+> - `ingestion.py`（file → NormalizedDocument → Source + chunks）
+> - 6 个新 knowledge tool（import_file / list_chunks / search_chunks / read_chunk / read_parent / reindex_source）
+> - `knowledge.query` 改为 3 段 fallback：chunk→v1.0 store→legacy loader
+> - Tool count 67 → 73（+6）
+> 详细见 [DOCUMENT_INGESTION_BOOK_LIBRARY_V101.md](DOCUMENT_INGESTION_BOOK_LIBRARY_V101.md)。
+
 > 把 `knowledge.query` 从"查询已有上下文 / loader"升级为**完整后端知识库能力**：导入、列表、读取、删除 / 禁用、查询、`source_summary` 展开。
 > 本轮只做后端，不做前端。
 > 配套：[README.md](../README.md) · [ARCHITECTURE.md](ARCHITECTURE.md) · [CAPABILITY_MANIFEST_V08.md](CAPABILITY_MANIFEST_V08.md) · [CAPABILITY_LAYER_V071.md](CAPABILITY_LAYER_V071.md) · [RELEASE_HISTORY.md](RELEASE_HISTORY.md) · [ARTIFACT_REVIEW_FLOW_V09.md](ARTIFACT_REVIEW_FLOW_V09.md)

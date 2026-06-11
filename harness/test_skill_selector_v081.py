@@ -265,8 +265,8 @@ class TestPerTurnReApplication:
         assert tr.dynamic_visibility is False
         assert tr.allowed_tool_ids is None
         v3 = {t["function"]["name"] for t in tr.model_visible_tools()}
-        # v1.0 fallback: 65 visible (53 enabled general + 5 knowledge +
-        # 4 artifact + 2 review + 1 config_translation = 65; the
+        # v1.0.1 fallback: 71 visible (53 enabled general + 11 knowledge
+        # + 4 artifact + 2 review + 1 config_translation = 71; the
         # pre-existing ToolRuntime tools with shared prefixes are
         # counted only once).
-        assert len(v3) == 65
+        assert len(v3) == 71

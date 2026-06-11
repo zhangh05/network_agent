@@ -210,18 +210,20 @@ class TestSkillRegistryFromCapabilities:
 # ── 14. ToolRegistry registers enabled capability tools ──
 class TestToolRegistryCapabilityTools:
     def test_tool_registry_registers_enabled_capability_tools(self):
-        # v1.0: 13 capability tools (2 + 4 artifact + 2 review + 5 knowledge).
+        # v1.0.1: 19 capability tools (2 + 4 artifact + 2 review + 11 knowledge).
         from agent.tools.registry import ToolRegistry
         reg = get_default_capability_registry()
         tr = ToolRegistry()
         n = tr.register_capability_tools(reg)
-        assert n == 13
+        assert n == 19
         for tid in (
             "config_translation.translate_config",
-            "knowledge.query",
-            "knowledge.import_document", "knowledge.list_sources",
-            "knowledge.read_source", "knowledge.disable_source",
-            "knowledge.delete_source",
+            "knowledge.query", "knowledge.import_document",
+            "knowledge.list_sources", "knowledge.read_source",
+            "knowledge.disable_source", "knowledge.delete_source",
+            "knowledge.import_file", "knowledge.list_chunks",
+            "knowledge.search_chunks", "knowledge.read_chunk",
+            "knowledge.read_parent", "knowledge.reindex_source",
             "artifact.list", "artifact.read", "artifact.diff", "artifact.export",
             "review.list_items", "review.update_item",
         ):
@@ -273,13 +275,15 @@ class TestRuntimeSnapshotUsesRegistry:
         assert snap.capability_baseline
         assert "config_translation" in [c["capability_id"]
                                          for c in snap.capability_baseline["enabled_capabilities"]]
-        # Visible business tools are exactly the 13 enabled ones (v1.0)
+        # Visible business tools are exactly the 19 enabled ones (v1.0.1)
         assert sorted(snap.visible_business_tools) == sorted([
             "config_translation.translate_config",
-            "knowledge.query",
-            "knowledge.import_document", "knowledge.list_sources",
-            "knowledge.read_source", "knowledge.disable_source",
-            "knowledge.delete_source",
+            "knowledge.query", "knowledge.import_document",
+            "knowledge.list_sources", "knowledge.read_source",
+            "knowledge.disable_source", "knowledge.delete_source",
+            "knowledge.import_file", "knowledge.list_chunks",
+            "knowledge.search_chunks", "knowledge.read_chunk",
+            "knowledge.read_parent", "knowledge.reindex_source",
             "artifact.list", "artifact.read", "artifact.diff", "artifact.export",
             "review.list_items", "review.update_item",
         ])
@@ -293,36 +297,37 @@ class TestRuntimeSnapshotUsesRegistry:
         assert "planned capabilities are NOT callable." in text
 
 
-# ── 18. Tool count is now 67 (v1.0: 54 general + 13 capability) ──
+# ── 18. Tool count is now 73 (v1.0.1: 54 general + 19 capability) ──
 class TestToolCount:
-    def test_total_tool_count_is_67(self):
-        """v1.0 catalog total = 67.
+    def test_total_tool_count_is_73(self):
+        """v1.0.1 catalog total = 73.
 
-        Was 62 at v0.9 (57 v0.8 + 5 v0.9 dedup). v1.0 adds 5 new
-        knowledge tool_ids (import / list / read / disable / delete).
-        The capability layer registry is 13 (2 + 4 + 2 + 5); only
-        the catalog total is 67.
+        Was 67 at v1.0 (62 v0.9 + 5 v1.0). v1.0.1 adds 6 new
+        knowledge tool_ids (import_file / list_chunks / search_chunks /
+        read_chunk / read_parent / reindex_source). The capability
+        layer registry is 19 (2 + 4 + 2 + 11); only the catalog
+        total is 73.
         """
         from agent.runtime.services import default_runtime_services
         svc = default_runtime_services()
         tr = svc.tool_service
         total = len(tr.registry.list_all())
-        assert total == 67
+        assert total == 73
 
     def test_visible_tools_include_capability_tools(self):
-        """All 13 capability tools must be in the LLM-visible whitelist."""
+        """All 19 capability tools must be in the LLM-visible whitelist."""
         from agent.runtime.services import default_runtime_services
         svc = default_runtime_services()
         tr = svc.tool_service
         names = {t["function"]["name"] for t in tr.model_visible_tools()}
         for n in (
             "config_translation__translate_config",
-            "knowledge__query",
-            "knowledge__import_document",
-            "knowledge__list_sources",
-            "knowledge__read_source",
-            "knowledge__disable_source",
-            "knowledge__delete_source",
+            "knowledge__query", "knowledge__import_document",
+            "knowledge__list_sources", "knowledge__read_source",
+            "knowledge__disable_source", "knowledge__delete_source",
+            "knowledge__import_file", "knowledge__list_chunks",
+            "knowledge__search_chunks", "knowledge__read_chunk",
+            "knowledge__read_parent", "knowledge__reindex_source",
             "artifact__list", "artifact__read",
             "artifact__diff", "artifact__export",
             "review__list_items", "review__update_item",

@@ -341,11 +341,14 @@ class TestCapabilityRegistry:
         assert expected.issubset(visible), \
             f"missing: {expected - visible}"
 
-    def test_knowledge_capability_tool_count_is_6(self, reg):
+    def test_knowledge_capability_tool_count_is_12(self, reg):
+        # v1.0.1 added 6 more knowledge tools: import_file /
+        # list_chunks / search_chunks / read_chunk / read_parent /
+        # reindex_source. 6 (v1.0) + 6 (v1.0.1) = 12.
         m = reg.get("knowledge")
         assert m is not None
         assert m.status == "enabled"
-        assert len(m.tools) == 6
+        assert len(m.tools) == 12
         for t in m.tools:
             assert t.callable_by_llm is True
             assert t.forbidden is False
@@ -390,15 +393,15 @@ class TestKnowledgeSafety:
 
 # ── Extra: Tool count check ──
 class TestToolCountV10:
-    def test_total_tool_count_is_67(self):
+    def test_total_tool_count_is_73(self):
         from agent.runtime.services import default_runtime_services
         svc = default_runtime_services()
         tr = svc.tool_service
         total = len(tr.registry.list_all())
-        # Was 62 at v0.9; v1.0 adds 5 knowledge tool_ids (import /
-        # list / read / disable / delete) which were not previously
-        # in the catalog.
-        assert total == 67
+        # v1.0.1 adds 6 new knowledge tool_ids (import_file / list_chunks
+        # / search_chunks / read_chunk / read_parent / reindex_source).
+        # v1.0 was 67; v1.0.1 = 73.
+        assert total == 73
 
 
 # ── Extra: query scoring is deterministic + 0.0 for non-matches ──

@@ -363,5 +363,7 @@ class ToolResult:
 
 | 版本 | 主题 |
 |------|------|
-| v0.9 | Artifact Consumption Flow（基于 Capability Output Contract 跨能力级联：config_translation → knowledge → report） |
-| v0.9.x | LLM-based SkillSelector（用模型替代 rule-based） |
+| v1.0.x | embedding-based scoring（与 BM25 并存） |
+| v1.0.x | 前端 API 对齐（FastAPI 路由 / SSE 推送 chunk 命中） |
+| v1.1 | 跨 workspace 知识联邦（按 visibility 策略） |
+| v1.1 | 多模态：图片型 PDF（OCR via tesseract） |
