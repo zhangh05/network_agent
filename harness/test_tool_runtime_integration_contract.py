@@ -334,25 +334,24 @@ class TestArtifactReferenceContract:
 
 class TestDocExists:
     def test_integration_doc_exists(self):
-        assert os.path.exists(os.path.join(PROJECT_ROOT, "docs",
-                            "TOOL_RUNTIME_INTEGRATION.md"))
+        assert os.path.exists(os.path.join(PROJECT_ROOT, "docs", "RUNTIME.md"))
+        assert os.path.exists(os.path.join(PROJECT_ROOT, "docs", "CAPABILITIES_AND_TOOLS.md"))
 
     def test_tool_runtime_doc_links_integration(self):
-        with open(os.path.join(PROJECT_ROOT, "docs", "TOOL_RUNTIME.md")) as f:
+        with open(os.path.join(PROJECT_ROOT, "docs", "CAPABILITIES_AND_TOOLS.md")) as f:
             c = f.read()
-        assert "TOOL_RUNTIME_INTEGRATION.md" in c
+        assert "ToolRouter" in c or "model-visible" in c
 
     def test_arch_links_integration(self):
         with open(os.path.join(PROJECT_ROOT, "docs", "ARCHITECTURE.md")) as f:
             c = f.read()
-        assert "TOOL_RUNTIME_INTEGRATION.md" in c
+        assert "ToolRuntime" in c and "ToolRouter" in c
 
 
 class TestDocContent:
     @pytest.fixture
     def doc(self):
-        with open(os.path.join(PROJECT_ROOT, "docs",
-                               "TOOL_RUNTIME_INTEGRATION.md")) as f:
+        with open(os.path.join(PROJECT_ROOT, "docs", "RUNTIME.md")) as f:
             return f.read()
 
     def test_agent_not_call_arbitrary_tools(self, doc):

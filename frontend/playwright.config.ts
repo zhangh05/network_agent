@@ -3,7 +3,7 @@ import { defineConfig, devices } from "@playwright/test";
 /**
  * Playwright config for frontend E2E.
  *
- * The E2E suite needs both the FastAPI backend and the Vite dev server
+ * The E2E suite needs both the Flask backend and the Vite dev server
  * running. We use `webServer` to start the dev server automatically
  * (with the API proxy → backend). The backend is started externally
  * (see scripts/run-e2e.sh) so its lifecycle is independent of the test

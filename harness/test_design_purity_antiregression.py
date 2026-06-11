@@ -72,7 +72,7 @@ class TestProhibitedAPIPaths:
 
     def test_no_api_translate_in_frontend(self):
         """frontend/index.html must NOT call /api/translate."""
-        c = _read(PROJECT_ROOT / 'frontend' / 'index.html')
+        c = _read(PROJECT_ROOT / 'frontend' / 'src' / 'api' / 'index.ts')
         assert '/api/translate' not in c, (
             "/api/translate found in frontend — retired surface"
         )
@@ -151,7 +151,7 @@ class TestProhibitedDefaults:
 
     def test_no_8020_in_frontend(self):
         """frontend must not reference port 8020."""
-        c = _read(PROJECT_ROOT / 'frontend' / 'index.html')
+        c = _read(PROJECT_ROOT / 'frontend' / 'src' / 'api' / 'index.ts')
         assert '8020' not in c, "Port 8020 found in frontend — prohibited"
 
     def test_no_minimax_m1_as_default_model(self):
@@ -174,7 +174,7 @@ class TestProhibitedDefaults:
 
     def test_no_minimax_m1_in_frontend(self):
         """Frontend must not show MiniMax-M1 as default."""
-        c = _read(PROJECT_ROOT / 'frontend' / 'index.html')
+        c = _read(PROJECT_ROOT / 'frontend' / 'src' / 'api' / 'index.ts')
         assert 'MiniMax-M1' not in c, "MiniMax-M1 found in frontend — prohibited"
 
 
@@ -193,8 +193,8 @@ class TestToolRuntimeProhibited:
     def test_external_tool_not_current_tool_type(self):
         """docs must not describe external_tool as current Tool Runtime type."""
         docs_to_check = [
-            'docs/TOOL_RUNTIME.md',
-            'docs/TOOL_RUNTIME_INTEGRATION.md',
+            'docs/CAPABILITIES_AND_TOOLS.md',
+            'docs/RUNTIME.md',
         ]
         for doc in docs_to_check:
             path = PROJECT_ROOT / doc
@@ -251,9 +251,9 @@ class TestForbiddenToolHandlers:
         """Forbidden tool IDs must only appear in policy, docs forbidden sections, or tests."""
         allowed_files = {
             str(PROJECT_ROOT / 'tool_runtime' / 'policy.py'),
-            str(PROJECT_ROOT / 'docs' / 'TOOL_RUNTIME.md'),
-            str(PROJECT_ROOT / 'docs' / 'TOOL_RUNTIME_INTEGRATION.md'),
-            str(PROJECT_ROOT / 'docs' / 'MODULE_SKILL_TOOL_MODEL.md'),
+            str(PROJECT_ROOT / 'docs' / 'CAPABILITIES_AND_TOOLS.md'),
+            str(PROJECT_ROOT / 'docs' / 'RUNTIME.md'),
+            str(PROJECT_ROOT / 'docs' / 'SECURITY.md'),
         }
         for tid in self.FORBIDDEN:
             for py_file in _scan_py_files():
@@ -289,7 +289,7 @@ class TestPublicToolAPISafetyContract:
 
     def test_frontend_uses_tool_invoke_api_not_legacy_helper(self):
         """frontend may call v0.3 tool APIs but must not use legacy invoke_tool helpers."""
-        c = _read(PROJECT_ROOT / 'frontend' / 'index.html')
+        c = _read(PROJECT_ROOT / 'frontend' / 'src' / 'api' / 'index.ts')
         # tool_runtime may appear in:
         # 1. zhMap translation for system health panel
         # 2. _SENSITIVE_KEYS array (but tool_runtime is not a secret key name)
@@ -300,7 +300,7 @@ class TestPublicToolAPISafetyContract:
         allowed_extra = 1
         assert total - zhmap_occ <= allowed_extra, f"tool_runtime referenced {total - zhmap_occ} times outside zhMap (allowed: {allowed_extra})"
         assert 'invoke_tool' not in c, "invoke_tool referenced in frontend"
-        assert '/api/tools/invoke' in c, "v0.3 Tool Invoke UI should call the protected API endpoint"
+        assert '/tools/invoke' in c or '/tools/catalog' in c, "frontend should use protected tool API endpoints"
 
 
 # ══════════════════════════════════════════════════
@@ -385,20 +385,18 @@ class TestDocArchitecture:
         c = _read(PROJECT_ROOT / 'README.md')
         assert 'network-translator' not in c, "network-translator in README — prohibited"
 
-    def test_foundation_baseline_no_llm_skeleton(self):
-        """FOUNDATION_BASELINE must not describe LLM as skeleton."""
-        path = PROJECT_ROOT / 'docs' / 'FOUNDATION_BASELINE.md'
-        if path.exists():
-            c = _read(path)
-            assert 'LLM skeleton' not in c, "LLM skeleton in FOUNDATION_BASELINE"
+    def test_docs_no_llm_skeleton(self):
+        """Current docs must not describe LLM as skeleton."""
+        for rel in ['README.md', 'docs/OPERATIONS.md', 'docs/RUNTIME.md']:
+            c = _read(PROJECT_ROOT / rel)
+            assert 'LLM skeleton' not in c, f"LLM skeleton in {rel}"
 
-    def test_foundation_baseline_no_unresolved_job(self):
-        """FOUNDATION_BASELINE must not describe Job as unresolved."""
-        path = PROJECT_ROOT / 'docs' / 'FOUNDATION_BASELINE.md'
-        if path.exists():
-            c = _read(path)
+    def test_docs_no_unresolved_job(self):
+        """Current docs must not describe Job as unresolved."""
+        for rel in ['docs/API.md', 'docs/OPERATIONS.md']:
+            c = _read(PROJECT_ROOT / rel)
             assert 'unresolved' not in c.lower() and '未收口' not in c, (
-                "Job unresolved in FOUNDATION_BASELINE"
+                f"Job unresolved in {rel}"
             )
 
     def test_prompt_runtime_not_defaulting_to_old_prompts(self):

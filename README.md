@@ -1,423 +1,69 @@
 # Network Agent
 
-Network Agent 是一个网络工程本地 Agent 平台，面向网络工程师提供配置翻译、知识检索等 AI 驱动的网络运维能力。平台基于 Codex-style Agent Runtime (v0.6 底座 + v0.7.1 能力层)，以 Module / Skill / Tool 三层架构组织，统一入口端口 8010。
+Network Agent 是一个运行在本机的网络工程 Agent 平台。当前源码由 Flask 后端、Codex-style Agent Runtime、React/Vite 前端、工具运行时和 workspace 文件存储组成。
 
-> **Frontend v1.0.1 — Real API Integration & E2E Stabilization**（当前基线）：将 v1.0 React 前端从 mock/demo 状态接入**真实后端**，完成核心业务 E2E 闭环。10 个 API 模块（agent / sessions / workspaces / capabilities / tools / knowledge / artifacts / reviews / runtime_audit / settings）按真实后端合同对齐；错误统一转 `ApiError`（覆盖 401/403/404/408/413/422/429/5xx/timeout/network/parse 6 类）；**部署**：`VITE_API_BASE` / `VITE_DEV_API_TARGET` 环境变量；Vite dev proxy → 127.0.0.1:8010；生产 build 输出 `dist/` 可由 FastAPI 或独立静态服务托管。**E2E**：Playwright 1.60 + 10 个 spec 覆盖 10 类断言（health / agent message / session lifecycle / knowledge import / search / artifact / review / planned 无按钮 / provider timeout / 页面刷新恢复）。**Gates**：`typecheck` / `build` / `test` (13/13 Vitest) / `e2e` (10/10 Playwright) 全部 PASS。后端**仅**薄包装 `backend/api/review_routes.py`（**不**新增 Tool），Tool count 仍为 **73**；planned 仍 0 可见；不接真实设备；不开 SSH·Telnet·SNMP·nmap；`config.push` 永久禁止。详见 [docs/FRONTEND_API_E2E_V101.md](docs/FRONTEND_API_E2E_V101.md)。
->
-> **v1.0.1.1 — Knowledge Ingestion Security & Gate Fix**（前一基线）：在 v1.0.1 之上做**安全硬补丁**（不扩展能力）。`import_file` 仅接受 `workspace/{ws_id}/{uploads,inbox}/` 内的路径；拒绝 `..` / 符号链接逃逸 / 文件不存在 / > 50MB / DOCX archive bomb。`knowledge.read_source` 设为 `callable_by_llm=False`（LLM 只能 `list_sources` / `search_chunks` / `read_chunk` / `read_parent`）。`tags` schema 统一为 `array[string]`。文档术语统一为 **BM25 lexical retrieval + scope boost + parent expansion**（**不**再称 hybrid retrieval）。2 个 live-LLM 测试改为 `RUN_LIVE_TESTS=1` 才执行。Tool count 仍为 **73**（无新增工具）。详见 [docs/DOCUMENT_INGESTION_BOOK_LIBRARY_V101.md](docs/DOCUMENT_INGESTION_BOOK_LIBRARY_V101.md) § v1.0.1.1。
->
-> **v1.0.1 — Document Ingestion & Book Library**（前一基线）：把 `knowledge` capability 升级为**完整后端知识库能力**——原始文件 → 标准化 Markdown → Source → Parent/Child Chunks → BM25 lexical retrieval + scope boost + parent expansion → 真实来源返回。新增 6 个 knowledge tool。Tool count: **67 → 73**（+6）。
->
-> **v1.0 — Knowledge Store Management**：详见 [docs/KNOWLEDGE_STORE_V10.md](docs/KNOWLEDGE_STORE_V10.md)。
->
-> **v0.9 — Artifact Consumption & Review Flow**。
-> **v0.8.2 — Result Contract Standardization**。
-> **v0.8.1 — SkillSelector + Dynamic Tool Visibility**。
-> 详见 [docs/CAPABILITY_MANIFEST_V08.md](docs/CAPABILITY_MANIFEST_V08.md) § 9 / § 10。
+## Current Source Baseline
 
-## Platform Runtime — Current Baseline
+- Backend: Flask app in `backend/main.py`
+- Default backend port: `8010`
+- Frontend: React 18 + TypeScript + Vite 5 in `frontend/`
+- Default frontend dev port: `5173`
+- Main agent endpoint: `POST /api/agent/message`
+- Legacy-compatible endpoint: `POST /api/agent/run`
+- Runtime tool registry: **73 registered / 70 model-visible**
+- Runtime capabilities: 7 total, 4 enabled, 3 planned
+- Public `/api/capabilities`: YAML registry projection, 5 total, 3 enabled, 2 planned
 
-- **Agent Backend v1.0.2 — Retrieval Quality & Evaluation**（前基线）
-- **Frontend v1.0 — Capability-driven Agent Workbench Rewrite**（当前基线）
-- **HEAD**：(see git log — v1.0 refactor(frontend): rewrite capability-driven agent workbench)
-- **Runtime architecture**：Codex-style Agent Runtime (Thread / Session / Turn / RuntimeLoop)
-- **Tool count**：**73** (v0.6.x: 55 → v0.7: 57 → v0.9: 62 → v1.0: 67 → v1.0.1: 73 → v1.0.1.1: 73 → v1.0.2: 73 → v1.0 frontend: 73，**+0**)
-- **CapabilityRegistry (v0.8 / v0.9 / v1.0.1.1)**：7 个 capability (4 enabled + 3 planned)，是 Module/Skill/Tool Registry 和 RuntimeSnapshot 的**单一真相源**
-  - 4 enabled:
-    - `config_translation`（v0.7.1 起）
-    - `knowledge`（v0.7.1 起；v1.0.1 升级为完整后端知识库）
-    - `artifact`（v0.9 起）
-    - `review`（v0.9 起）
-  - 3 planned（永久 NOT callable）:
-    - `topology`
-    - `inspection`
-    - `cmdb`
-- **v0.8.1 — SkillSelector + Dynamic Tool Visibility**：
-  - 每轮 `SkillSelector.select(user_message)` 决定本轮 selected_skills
-  - selected_skills → candidates (related_tools) → `ToolRouter.apply_dynamic_visibility()` fail-closed
-  - config 翻译场景只暴露 `config_translation.translate_config`；knowledge 场景只暴露 `knowledge.query`；planned 永远不可见；forbidden 永远不可见；selector 异常 fallback v0.8 全量 + warning
-- **v0.8.2 — Result Contract Standardization**：
-  - 三层结果合同：`ModuleResult`（业务输出合同）/ `ToolResult`（Runtime/LLM 合同）/ `AgentResult.tool_calls`（审计/UI 合同）
-  - `ModuleResult.success` / `failure` / `to_dict` / `from_dict`；`ToolResult.from_module_result` / `from_legacy_dict`；`loop._to_standard_tool_call` 投影
-  - v0.7.1 业务输出合同**不变**；capability tests 41/41 零回归
-- **v0.9 — Artifact Consumption & Review Flow**：
-  - 新增 `artifact` capability（4 tools: list/read/diff/export）
-  - 新增 `review` capability（2 tools: list_items/update_item）
-  - 2 个新 enabled skills: `artifact_management` / `review_flow`
-  - review 用 sidecar JSON 存储 status/user_note；**不**修改 translated_config 原文
-  - `translated_config` 仍是 `authoritative=false / deployable_config=False`
-  - v0.7.1 业务输出合同**不变**；capability tests 41/41 零回归
-- **v1.0 — Knowledge Store Management**：
-  - 新增 5 个 knowledge tool（import_document / list_sources / read_source / disable_source / delete_source）
-  - 保留 `knowledge.query`（由 KnowledgeStore 驱动）
-  - KnowledgeStore: workspace 隔离 JSONL 存储，无外部 DB 依赖
-  - Token-overlap scoring（不要求向量库）；metadata 显式 `retrieval_backend=local_store`
-  - `source_summary` snippet ≤ 200 字符；无 hits → `[]`（不伪造）
-  - caller 传本地路径 → store 内部 redact 为 `redacted-local-path`
-  - v0.7.1 业务输出合同**不变**；capability tests 41/41 零回归
-- **v1.0.1 — Document Ingestion & Book Library**：
-  - 新增 6 个 knowledge tool（import_file / list_chunks / search_chunks / read_chunk / read_parent / reindex_source）
-  - `knowledge.query` 改为高层封装（3 段 fallback：chunk→v1.0 store→legacy loader）
-  - `parsers/` 子包：md / txt / html / docx / text-pdf（扫描型 PDF 返回 `unsupported_ocr`）
-  - 标准化 Markdown；父子分块（child 180-1200 chars / overlap 80；parent 1200-3000 chars）
-  - 纯 Python BM25 索引（k1=1.2, b=0.75）；scope boost（session 1.30 / workspace 1.10 / global 1.00）
-  - `index_text = title | chapter | section | tags | body`（body 保持原文，不混入人工前缀）
-  - 每个 hit 携带 `lexical_score` / `semantic_score=null` / `final_score` / `scoring_version`（**禁止 LLM 修改**）
-  - v0.7.1 业务输出合同**不变**；capability tests 41/41 零回归
-- **v1.0.1.1 — Knowledge Ingestion Security & Gate Fix**：
-  - `import_file` 路径白名单：`workspace/{ws_id}/{uploads,inbox}/`
-  - 拒绝 `..` / 符号链接逃逸 / 文件不存在 / > 50MB / DOCX archive bomb
-  - `knowledge.read_source` `callable_by_llm=False`（LLM 只能 `list_sources` / `search_chunks` / `read_chunk` / `read_parent`）
-  - `tags` schema 统一为 `array[string]`（import_file / search_chunks）
-  - 文档术语统一：**BM25 lexical retrieval + scope boost + parent expansion**（**不**再称 hybrid retrieval）
-  - 2 个 live-LLM 测试改为 `RUN_LIVE_TESTS=1` 才执行
-  - Tool count 仍为 **73**（无新增工具）
-- **v1.0.2 — Retrieval Quality & Evaluation**：
-  - CJK 2-gram + 3-gram 混合分词（无字典）；中英文混合 query 同步生成 word tokens + CJK n-grams
-  - 字段加权 BM25：`{title: 2.0, chapter: 1.5, section: 1.2, tags: 1.2, body: 1.0}`
-  - `KNOWLEDGE_BM25_K1` / `KNOWLEDGE_BM25_B` 环境变量可调
-  - 确定性查询扩展（OSPF↔开放式最短路径优先 / BGP↔边界网关协议 / DR / BDR / 邻居 / 邻接 等 60+ 项；**不**调 LLM；**不**改写原 query；**全部**记入 `metadata.query_expansions`）
-  - 兄弟 chunk 去重（同 source_id + Jaccard≥0.85 → 只保留最高分；`metadata.deduplicated_count` 记录被丢弃数；跨源 / 跨章节**不**去重）
-  - H3 子章节入 metadata（`KnowledgeChunk.subsection`；hit dict 增加 `subsection` 字段）
-  - Body filter：原始 query token 必须至少 1 个在 body（避免 title-only 噪声）
-  - `metadata` 新增 `tokenizer_version=v1_cjk_ngram` / `scoring_version=v1_bm25_field_weighted`
-  - **新增** `harness/fixtures/retrieval_eval_v102.json`（5 文档 / 15 查询）+ `scripts/evaluate_retrieval_v102.py` + `harness/test_retrieval_quality_v102.py`（19 测试含 1 个子进程门禁）
-  - 详见 [docs/RETRIEVAL_QUALITY_V102.md](docs/RETRIEVAL_QUALITY_V102.md)
-- **Frontend v1.0 — Capability-driven Agent Workbench Rewrite**：
-  - 技术栈：React 18 + TypeScript 5 (strict) + Vite 5 + React Router 6 + Zustand 4 + Axios + Vitest 2 + @testing-library/react 16
-  - 目录：`frontend/src/{app,api,types,stores,layouts,components,pages,styles,test}/` + `frontend/legacy/index.html.legacy`
-  - 三栏布局：左 Workspace/Sessions/Recent Runs · 中 Agent 对话与执行结果 · 右 Turn Inspector（collapsible）
-  - 7 page：`/workbench` `/knowledge` `/artifacts` `/reviews` `/capabilities` `/audit` `/settings`
-  - 9 TS 类型（`AgentResult` / `ToolCallResult` / `RuntimeEvent` / `Artifact` / `ReviewItem` / `KnowledgeSource` / `KnowledgeChunk` / `CapabilityManifest` / `ApiError`）严格映射后端 dataclass `as_dict()`
-  - 10 axios API 模块（agent / sessions / workspaces / capabilities / tools / knowledge / artifacts / reviews / runtime_audit / settings），错误统一转 `ApiError`
-  - 4 个 Zustand store（session / UI / workbench / toast）
-  - planned capability **不**渲染调用按钮；Tool Catalog 移到 `/audit` 下的开发者区域
-  - **不**引入 Material-UI / Ant Design / Chakra；纯 Vanilla CSS + CSS variables（light/dark）
-  - 10 个 Vitest 测试覆盖 10 类断言（agentResult / toolCalls / artifactCard / sourceSummary / reviewItem / plannedCapability / apiError / emptyState / sessionSwitch / inspectorToggle）
-  - 详见 [docs/FRONTEND_V1.md](docs/FRONTEND_V1.md)
-- **Enabled business tools**：
-  - `config_translation.translate_config`
-  - `knowledge.query`
-- **Enabled skills**：`assistant_chat`（base skill） / `config_translation` / `knowledge_query`
-- **Enabled modules**：`config_translation` / `knowledge`
-- **Planned modules (NOT callable)**：`topology`, `inspection`, `cmdb`（在 `CapabilityManifest` 中以 `status="planned"` 显式标记；`visible_tool_ids()` fail-closed 不返回）
+The detailed source-derived status is in [docs/SOURCE_DERIVED_STATUS.md](docs/SOURCE_DERIVED_STATUS.md).
 
-### Test Baseline (re-measured 2026-06-10 on developer machine)
-
-| Suite | Passed | Skipped | Failed | Note |
-|-------|--------|---------|--------|------|
-| v1.0.1 frontend E2E | **10 / 10** | 0 | 0 | `frontend/e2e/0[1-9]-*.spec.ts` + `10-refresh-restore.spec.ts` — 10 个 Playwright 浏览器测试覆盖 10 类断言（health / agent message / session lifecycle / knowledge import / search / artifact view / review status / planned 无按钮 / provider timeout / 页面刷新恢复）；`npm run e2e` 全过；后端**仅**薄包装 `backend/api/review_routes.py`（**不**新增 Tool）；Tool count 仍 73 |
-| v1.0 frontend Vitest | **13 / 13** | 0 | 0 | `frontend/src/test/*.test.tsx` — 13 个 Vitest 测试覆盖 10 类断言（agentResult / toolCalls / artifactCard / sourceSummary / reviewItem / plannedCapability / apiError / emptyState / sessionSwitch / inspectorToggle）；npm `typecheck` / `build` / `test` 三门禁全过；**v1.0.1 不回归** |
-| v1.0 alignment tests | **37 / 37** | 0 | 0 | `harness/test_frontend_backend_alignment.py` — TestViteWorkbench（6）覆盖新 Vite 入口；TestFrontendBackendAlignment（5）覆盖 backend API 对齐 + 4 项 legacy 备份的 legacy 标记；TestAgentChat（12）覆盖 intent router；TestUIAgentExperience（5）覆盖 legacy UI 不出现 forbidden claim；TestRunHistory（4）+ TestNoRegression（5）覆盖后端契约 |
-| v1.0.2 retrieval quality tests | **19** | 0 | 0 | `harness/test_retrieval_quality_v102.py` — CJK 2/3-gram + 英文 word + 混合模式；字段加权 BM25；`KNOWLEDGE_BM25_K1` / `B` env 覆盖；确定性查询扩展（OSPF / BGP / 邻居 / 不相关）；metadata `tokenizer_version` / `scoring_version` / `query_expansions` 暴露；兄弟 dedup（同源去重 + 跨源不破坏）；no-hit 不伪造；Tool count 73；planned 仍不可见；**门禁测试**：子进程跑 `evaluate_retrieval_v102.py` 并断言 Recall@3≥0.85 / MRR≥0.75 / no_hit_precision=1.0 / duplicate_rate≤0.20 |
-| v1.0.1.1 ingestion security tests | **16** | 0 | 0 | `harness/test_knowledge_ingestion_security_v1011.py` — workspace uploads/inbox 允许；外部绝对路径 / `..` / symlink 逃逸拒绝；超大文件 / DOCX archive bomb 拒绝；read_source `callable_by_llm=False`；list_sources / search_chunks / read_chunk / read_parent 仍 LLM 可见；tags schema `array[string]`；Tool count 仍 73；planned 仍不可见 |
-| v1.0.1 document ingestion tests | **22** | 0 | 0 | `harness/test_document_ingestion_book_library_v101.py` — MD 标题解析；TXT fallback；DOCX heading；HTML heading；text-PDF；扫描 PDF 返回 `unsupported_ocr`；parent/child 关系；config 代码块不拆；表格不拆；chunk 长度边界；index_text 含标题层级；scope 隔离；BM25 真实命中；无 hits 不伪造；source_id 过滤；read_chunk / read_parent；reindex；query 父级扩展；Tool count 73；planned 仍不可见 |
-| v1.0 knowledge store tests | **29** | 0 | 0 | `harness/test_knowledge_store_v10.py` — import_document / list_sources / read_source / disable_source / delete_source / query；source_count 真实；无 hits → []；snippet ≤ 200；不伪造；本地路径 redact；CapabilityRegistry 7 capabilities；Tool count 73；planned 仍不可见 |
-| v0.9 artifact / review flow tests | **29** | 0 | 0 | `harness/test_artifact_review_flow_v09.py` — artifact.list/read/diff/export；review.list_items/update_item；translated_config 不可改；不生成 deployable_config；CapabilityRegistry 7 capabilities；Tool count 62；planned 仍不可见；skill selector 路由 |
-| v0.8.2 result contract tests | **28** | 0 | 0 | `harness/test_result_contract_v082.py` — ModuleResult success/failure/to_dict/from_dict；ToolResult.from_module_result（data + artifacts + warnings + errors）；config & knowledge service.to_module_result；config & knowledge tool handler 标准化；AgentResult.tool_calls 10 字段；缺失字段默认；v0.7.1 artifact/source_summary/manual_review_count 保留；legacy dict 适配 |
-| v0.8.1 skill selector tests | **23** | 0 | 0 | `harness/test_skill_selector_v081.py` — config translation / knowledge / discovery / no-match / planned 注入控制 / config & knowledge 场景 visible tools / topology 阻断 / forbidden 阻断 / selector 异常 fallback / Snapshot 字段 / default services selector / per-turn 状态 |
-| v0.8 capability manifest tests | **20** | 0 | 0 | `harness/test_capability_manifest_v08.py` — 7 capabilities (4 enabled: config_translation, knowledge, artifact, review; 3 planned: topology, inspection, cmdb) / planned NOT callable / visible_tool_ids / to_snapshot_dict / from_capabilities / ToolRegistry / RuntimeServices / RuntimeSnapshot |
-| v0.7/v0.7.1 capability tests (focused) | **41** | 0 | 0 | `test_capability_config_translation_v07.py` + `test_capability_knowledge_v07.py` + `test_capability_artifacts_v071.py` + `test_capability_knowledge_sources_v071.py` — **未回归** |
-| v1.0.1 broader focused baseline | **744** | 7 | 0 | 7 skipped = `RUN_LIVE_TESTS=1` live LLM tests. v0.7.1 baseline 615 + v0.8 新增 20 + v0.8.1 新增 23 + v0.8.2 新增 28 + v0.9 新增 29 + v1.0 新增 29. **0 failed**. |
-| v1.0.1.1 security focused suite | **266** | 2 | 0 | 2 skipped = pre-existing live-LLM tests (`test_tools_question_uses_snapshot`, `test_knowledge_query_handles_no_data`) now gated behind `RUN_LIVE_TESTS=1` (default env: skip, no random timeout fail). v0.7.1 baseline 41 capability + v0.8/v0.8.1/v0.8.2/v0.9/v1.0 capability layer tests + v1.0.1 ingestion 22 + v1.0.1.1 security 16. **0 failed**. |
-
-> 两个数字**不**是同一 regression 的演进——它们是两次**不同筛选范围**的 focused 套件：
-> - **v1.0.1 broader focused baseline = 744**：含 capability + 22 ingestion 测试。
-> - **v1.0.1.1 security focused suite = 266**：本轮 spec-required focused 套件（v1.0.1.1 改 capability 数字 → 11/19 LLM-visible 后，registry 的回归测试数重算为 19 个 + ingestion 22 + security 16 + 其它 = 266）。
-> 直接对比二者**没有意义**；两行独立呈现。
-| Full harness `pytest harness -q` | — | — | — | Not re-run in this round (docs + refactor). On a TRAE sandbox full-run reports env-blockers (`PermissionError` on `config/LLM_setting.json` chmod 600 and `data/*.json`) — run on a developer machine for a clean full number. |
-
-Retired surfaces record: [docs/RETIRED_SURFACES.md](docs/RETIRED_SURFACES.md)
-
-## Version Evolution (v0.6 → v1.0.1.1)
-
-| Commit | Version | Title | Key Changes |
-|--------|---------|-------|-------------|
-| `f45c3053` | v0.6 | rewrite backend around codex-style runtime | 删除 `agent/graph.py` + `agent/nodes/*` 主链，移入 `agent/legacy/`；新增 `agent/{app,core,runtime,protocol,context,tools,skills,modules,audit}/`；新增 `POST /api/agent/message`；15 tests |
-| `569982a8` | v0.6 | finalize codex-style runtime | 修复 `agent.legacy` 动态导入路径；更新 harness 路径；新增 [docs/AGENT_BACKEND_RUNTIME_V06.md](docs/AGENT_BACKEND_RUNTIME_V06.md) |
-| `e5487212` | v0.6.1 | stabilize codex-style runtime | 注册 `/api/agent/message`；`AgentResult.to_dict()` 增加 events；新增 25 tests |
-| `bf555a0a` | v0.6.2 | stabilize rate limit and provider timeout | 修复 `RATE_LIMIT_DISABLED` 跨测试污染；URLError timeout 归类为 `provider_timeout`；`retryable=True`；中文友好超时；新增 16 tests |
-| `2ae76bcb` | v0.6.3 | harden runtime tool routing | `default_runtime_services` 构建真实 `ToolRouter`；`llm_name_map` 白名单；unknown tool → `tool_call_failed`；`RuntimeSnapshot` 区分 total/visible tool count；System prompt 升级为 Runtime Contract；新增 20 tests |
-| `ff6cff5d` | v0.7 | integrate config translation and knowledge capabilities | 接入 `config_translation.translate_config` 与 `knowledge.query`；Tool 数 55 → 57；topology/inspection/cmdb 保持 planned；新增 21 tests |
-| `15565d18` | v0.7.1 | enrich capability artifacts and sources | `translated_config` 保存为 artifact（`authoritative=false, deployable_config=false`）；`manual_review_items` 结构化；knowledge `source_summary`（≤200 字符，无伪造）；`AgentResult.tool_calls` 增强；`ToolResultMessage.content` 1000 → 2000 字符；新增 20 tests |
-| `0d160ce` | v0.7.1 sync | docs baseline sync | README / ARCHITECTURE / CAPABILITY_LAYER_V071 / RELEASE_HISTORY 同步到 v0.7.1 |
-| `1c9f89b` | v0.7.1 align | align legacy provider timeout diagnostics assertion | 修复 v0.5 `test_timeout_returns_provider_timeout` 断言（accept "timeout" / "timed out" 两种 wording）；新增 wording-agnostic regression test |
-| TBD | v0.8 | introduce capability manifest registry | 新增 `agent/capabilities/{schemas,registry,builtin}.py` + 5 个 module `capability.py`；`CapabilityRegistry` 作为能力真相源；`Module/Skill/ToolRegistry.from_capabilities()` / `register_capability_tools()`；`RuntimeServices.capability_registry`；`RuntimeSnapshot.build_runtime_snapshot()` 优先从 CapabilityRegistry 投影；planned 三个 capability 仍 `NOT callable`；Tool count 仍 = 57；新增 20 tests |
-| TBD | v0.8.1 | add skill selector and dynamic tool visibility | 新增 `agent/skills/selector.py`（`SkillSelector` rule-based API：assistant_chat always-on + intent_patterns 命中 + capability_discovery meta-skill + planned 绝不注入 + 异常 fallback）；`ToolRouter.apply_dynamic_visibility()`（fail-closed 交集 = `registry_visible ∩ allowed_tool_ids`）；`RuntimeServices.skill_selector`；`ContextBuilder` 每轮调用 selector + 同步 router + 异常 fallback；`RuntimeSnapshot.selected_skills` / `selected_visible_tools` / `dynamic_tool_visibility` 新字段 + `to_prompt_text()` per-turn 段落；新增 23 tests |
-| TBD | v0.8.2 | standardize result contracts | 新增 `agent/protocol/module_result.py`（`ModuleResult` + `success`/`failure`/`to_dict`/`from_dict`）；`ToolResult` 升级含 `data` / `artifacts` / `source_count` / `manual_review_count`；`ToolResult.from_module_result` / `from_legacy_dict`；`config_translation.service.to_module_result` / `knowledge.service.to_module_result`（service 适配）；`config_translation.tools` / `knowledge.tools` 改用 `to_module_result` + `from_module_result`（tool handler 适配）；`agent/runtime/loop.py::_to_standard_tool_call` 投影 10 标准字段；`AgentResult.tool_calls` 严格 10 字段；v0.7.1 业务输出合同不变；新增 28 tests |
-| TBD | v0.9 | add artifact consumption and review flow | 新增 `agent/modules/artifact/`（`service` + `tools` + `capability`）— 4 tools: list/read/diff/export；新增 `agent/modules/review/`（`service` + `tools` + `capability`）— 2 tools: list_items/update_item；2 个 enabled skills: `artifact_management` / `review_flow`；`review.update_item` 写 sidecar JSON 存 status/user_note，**不**修改 translated_config 原文，**不**生成 deployable_config；`agent/capabilities/builtin.py` 加入 artifact + review；Tool count 57 → 62（+5：`artifact.list` 与已有 ToolRuntime catalog 去重）；v0.7.1 capability tests 41/41 零回归；新增 29 tests |
-| TBD | v1.0 | add knowledge store management | 新增 `agent/modules/knowledge/store.py`（KnowledgeStore：JSONL + thread-lock + atomic write）；新增 5 个 knowledge tool：import_document / list_sources / read_source / disable_source / delete_source；保留 `knowledge.query`（现由 KnowledgeStore 驱动，store 无内容时 fallback 到 v0.7.1 legacy loader）；token-overlap scoring（不要求向量库）；`source_summary` snippet ≤ 200 字符，无 hits → `[]`（**不**伪造）；caller 传本地路径 → redact 为 `redacted-local-path`；v0.7.1 capability tests 41/41 零回归；Tool count 62 → 67（+5）；新增 29 tests |
-| TBD | v1.0.1 | add document ingestion and book library | 新增 `agent/modules/knowledge/parsers/`（md / txt / html / docx / text-pdf；扫描 PDF 返回 `unsupported_ocr`）；新增 `agent/modules/knowledge/chunking.py`（结构优先 + 保护块 + 父子分块；child 180-1200 chars / overlap 80；parent 1200-3000 chars）；新增 `agent/modules/knowledge/index.py`（纯 Python BM25 + scope boost + scope 优先级）；新增 `agent/modules/knowledge/ingestion.py`（file → NormalizedDocument → Source + chunks）；新增 `agent/modules/knowledge/schemas.py`（NormalizedDocument / KnowledgeSource / KnowledgeChunk）；新增 6 个 knowledge tool：import_file / list_chunks / search_chunks / read_chunk / read_parent / reindex_source；`knowledge.query` 改为 3 段 fallback：chunk→v1.0 store→legacy loader；Tool count 67 → 73（+6）；v0.7.1 capability tests 41/41 零回归；新增 22 tests |
-| TBD | v1.0.1.1 | fix knowledge ingestion boundaries and test gate | `import_file` 路径白名单：`workspace/{ws_id}/{uploads,inbox}/`；拒绝 `..` / 符号链接逃逸 / 文件不存在 / > 50MB / DOCX archive bomb；`knowledge.read_source` `callable_by_llm=False`（LLM 只能 `list_sources` / `search_chunks` / `read_chunk` / `read_parent`）；`tags` schema 统一为 `array[string]`（import_file / search_chunks）；文档术语统一为 **BM25 lexical retrieval + scope boost + parent expansion**（**不**再称 hybrid retrieval）；2 个 live-LLM 测试改为 `RUN_LIVE_TESTS=1` 才执行；Tool count 仍 73（**无**新增工具）；focused regression **failed=0**；新增 16 tests |
-
-完整版本表见 [docs/RELEASE_HISTORY.md](docs/RELEASE_HISTORY.md)。
-
-## Current Master Chain
-
-```
-API (POST /api/agent/message)
-  → AgentApp            (agent/app/facade.py)
-  → AgentThread         (agent/core/thread.py)
-  → AgentSession        (agent/core/session.py)
-  → AgentTurn           (agent/core/turn.py)
-  → RuntimeLoop         (agent/runtime/loop.py)
-  → ToolRouter / RuntimeServices
-  → invoke_llm() / ToolResultMessage
-  → AgentResult.to_dict()
-```
-
-Legacy 入口 `POST /api/agent/run`（`agent/legacy/graph.run_agent()`）仍向后兼容，支持 `stream=true` SSE。
-
-## Runtime Capabilities
-
-### Enabled Skills
-- `assistant_chat`（Agent 基础能力，非业务模块）
-- `config_translation`
-- `knowledge_query`
-
-### Enabled Modules
-- `config_translation`
-- `knowledge`
-
-### Enabled Tools (model-visible)
-- 业务能力工具：
-  - `config_translation.translate_config`
-  - `knowledge.query`
-- 通用工具：ToolRuntime v0.2 catalog 中的 55 个 enabled visible 工具（artifact / parser / report / command / web / session / runtime / text / workspace / powershell 等分类）
-
-### Planned (NOT callable)
-- `topology`
-- `inspection`
-- `cmdb`
-
-> **planned means NOT callable**：planned 模块在 SkillRegistry / ModuleRegistry / RuntimeSnapshot 中显式标记为 planned，**不允许 LLM 调用**，**不允许伪造数据**。
-
-### Tool Count
-| Version | Total | Delta | 备注 |
-|---------|-------|-------|------|
-| v0.6.x | 55 | — | ToolRuntime v0.3 = 7 builtins + 48 general tools |
-| v0.7+ | **57** | +2 | +`config_translation.translate_config`，+`knowledge.query` |
-
-## Tool Runtime v0.3
-
-Current tool count: **57** (7 v0.1 builtins + 48 v0.2 general + 2 v0.7 capability tools).
-
-See [docs/TOOL_RUNTIME_GENERAL_TOOLS_v0.2.md](docs/TOOL_RUNTIME_GENERAL_TOOLS_v0.2.md) for full catalog.
-
-| Category | Count | Risk |
-|----------|-------|------|
-| artifact | 7 | low/medium |
-| parser | 3 | low |
-| report | 6 | low/medium |
-| command | 2 | low/high |
-| knowledge | 6 | low/medium |
-| web | 5 | low/medium |
-| session | 7 | low/medium |
-| runtime | 5 | low |
-| text | 8 | low |
-| workspace | 5 | low/medium |
-| powershell | 1 | high |
-| **Capability (v0.7)** | **2** | low/medium |
-| **Total** | **57** | |
-
-### Safety
-- `GET /api/tools/catalog` — read-only tool metadata.
-- `POST /api/tools/invoke` — executes enabled tools only through ToolPolicy, ToolExecutor, redaction, and audit history.
-- Tool Invoke UI is available for low/medium tools; high-risk tools require an `approval_id` with approved status that matches the same tool and workspace.
-- Agent Tool Bridge can answer tool catalog questions and invoke explicit low-risk tools from chat; medium tools are dry-run only when explicitly requested, and high-risk tools require approval.
-- High-risk tools (`command.approved_exec`, `powershell.approved_script`) default disabled, require matching approved status, and still only support allowlisted read-only actions.
-- `shell.exec`, `powershell.exec`, `command.exec`, `ssh.exec`, `telnet.exec`, `snmp.walk`, `nmap.scan`, `ping.sweep`, `config.push`, `file.read_any`, `file.write_any` — **all forbidden**.
-- **No real device access. No config push.**
-
-## Capability Output Contract (v0.7.1)
-
-### Config Translation
-- 输入：`source_config`（必填）、`source_vendor`（默认 `auto`）、`target_vendor`（默认 `huawei`）、`options`（可选）
-- 输出字段：
-  - `ok`, `summary`
-  - `source_vendor`, `target_vendor`
-  - `line_count`, `translated_config`
-  - `manual_review_items`（**结构化**，见下）
-  - `manual_review_count`
-  - `artifacts`（**translated_config 保存为 artifact**）
-  - `warnings`, `errors`
-  - `metadata`（含 `elapsed_ms`, `quality_summary`, `audit`, `build_commit`）
-- **Artifact 契约**：
-  - `artifact_type = "translated_config"`
-  - `sensitivity = "sensitive"`
-  - `source = "module_output"`
-  - `metadata.authoritative = false`（**不可宣称权威**）
-  - `metadata.deployable_config = false`（**不可直接部署**）
-- **artifact 保存失败只警告，不阻塞翻译**（`warnings` 追加 `artifact_save_failed`）
-- `quality_summary.source_residue_count > 0` 或 `silent_drop_count > 0` 时，结果要求人工复核，不可描述为"可直接部署"
-
-### Knowledge Query
-- 输入：`query`（必填）
-- 输出字段：
-  - `ok`, `summary`
-  - `query`, `hits`, `source_count`
-  - `source_summary`（**最多 5 条**，每条 `title/source/score/snippet`，`snippet ≤ 200` 字符）
-  - `warnings`, `errors`
-  - `metadata`
-- **绝不伪造引用**：
-  - 无 hits → `hits=[]`，`source_count=0`，`source_summary=[]`
-  - knowledge 不可用 → `errors=["knowledge_unavailable"]`，`source_summary=[]`
-  - 任何情况下都不会编造 title / source / score / citation
-
-### Manual Review Item Schema (v0.7.1)
-```json
-{
-  "item_id": "<uuid8>",
-  "severity": "low|medium|high",
-  "category": "syntax|semantic|unsupported_feature|vendor_difference|security|unknown",
-  "line_no": 42,
-  "source_text": "...",
-  "translated_text": "...",
-  "reason": "...",
-  "recommendation": "...",
-  "requires_human_review": true
-}
-```
-
-### Runtime Result Enrichment (v0.7.1)
-`AgentResult.tool_calls[]` 在 v0.7.1 增强：
-```json
-{
-  "call_id": "<uuid>",
-  "tool_id": "config_translation.translate_config",
-  "ok": true,
-  "summary": "...",
-  "artifacts": [...],
-  "source_count": 0,
-  "manual_review_count": 3,
-  "errors": [...],
-  "warnings": [...],
-  "metadata": {...}
-}
-```
-`ToolResultMessage.content` 由 1000 字符扩到 2000 字符，并附 `artifact_count` + 前 3 个 artifact 摘要 + `source_summary` + `manual_review_count`，使 LLM 在下一轮能基于真实结果继续。
-
-详细设计见 [docs/CAPABILITY_LAYER_V071.md](docs/CAPABILITY_LAYER_V071.md)。
-
-## Quick Start
+## Run Locally
 
 ```bash
-cd network_agent
-pip install -r requirements.txt
-python backend/main.py --port 8010
-# 本机访问 http://127.0.0.1:8010
-# 局域网访问 http://<这台机器的网口IP>:8010
+cd /Users/zhangh01/Desktop/network_agent
+./venv/bin/python backend/main.py --port 8010
 ```
 
-## 入口 API
-
-| 端点 | 说明 |
-|------|------|
-| `POST /api/agent/message` | Agent 执行入口 v0.6+（Codex-style Runtime，preferred） |
-| `POST /api/agent/run` | Agent 执行入口 legacy（向后兼容，支持 `stream=true` SSE） |
-| `POST /api/modules/config-translation/translate` | 配置翻译（业务模块直连入口） |
-| `POST /api/tools/invoke` | 工具调用（ToolRuntimeClient） |
-| `GET  /api/tools/catalog` | 工具目录（只读元数据） |
-| `POST /api/jobs` | 任务提交 |
-| `GET  /api/sessions` | 会话列表（按 workspace） |
-| `POST /api/sessions` | 创建新会话 |
-| `PUT  /api/sessions/{id}` | 更新会话（重命名等） |
-| `GET  /api/sessions/{id}` | 会话详情 + 消息 |
-| `POST /api/sessions/{id}/archive` | 归档会话 |
-| `POST /api/sessions/{id}/soft-delete` | 软删除会话 |
-| `GET  /api/runs/recent` | 后端工作区运行历史摘要 |
-| `GET  /api/runs/{run_id}` | 默认/指定工作区运行详情 |
-| `GET  /api/workspaces/{id}/history` | 指定工作区运行历史 |
-| `DELETE /api/workspaces/{id}` | 删除工作区 |
-| `POST /api/workspaces/{id}/rename` | 重命名工作区 |
-| `GET  /api/agent/status` | Agent 状态 |
-| `POST /api/agent/llm/config` | 保存 LLM 配置 |
-| `GET  /api/agent/llm/config` | 读取 LLM 配置（不返回完整 key） |
-| `GET  /api/workspaces/{id}/state` | 工作区状态 |
-| `GET  /api/memory/list` | 记忆列表 |
-| `GET  /api/runtime/health` | 系统健康诊断 |
-
-## 测试
+For frontend development:
 
 ```bash
-# Capability Layer (v0.7/v0.7.1) — clean focused baseline
-pytest harness/test_capability_config_translation_v07.py \
-        harness/test_capability_knowledge_v07.py \
-        harness/test_capability_artifacts_v071.py \
-        harness/test_capability_knowledge_sources_v071.py -q
-# 41 passed, 0 failed
-
-# Focused regression (v0.6.x → v0.7.1)
-pytest harness -q -k "capability_artifacts or capability_knowledge_sources or \
-                       capability_config_translation or capability_knowledge or \
-                       runtime_hardening or agent_backend_runtime or provider_timeout or \
-                       rate_limit or approval or redaction or tool_runtime or llm"
-# 615 passed, 7 skipped (live LLM), 0 failed (v0.5 timeout-message test resolved in this round)
-
-# Full harness
-pytest harness -q
-# 真实数字：本地沙箱外运行（沙箱限制 config/LLM_setting.json 写）
+cd /Users/zhangh01/Desktop/network_agent/frontend
+npm run dev
 ```
 
-## 目录结构
+Open:
 
+- Backend/static app: `http://127.0.0.1:8010`
+- Vite dev app: `http://127.0.0.1:5173`
+
+## Documentation
+
+- [Architecture](docs/ARCHITECTURE.md)
+- [API](docs/API.md)
+- [Runtime](docs/RUNTIME.md)
+- [Capabilities and Tools](docs/CAPABILITIES_AND_TOOLS.md)
+- [Frontend](docs/FRONTEND.md)
+- [Knowledge](docs/KNOWLEDGE.md)
+- [Operations](docs/OPERATIONS.md)
+- [Testing](docs/TESTING.md)
+- [Security](docs/SECURITY.md)
+
+## Important Safety Boundaries
+
+- No real device access by default.
+- No SSH, Telnet, SNMP, nmap, ping sweep, or config push exposed to the model.
+- `config.push` remains forbidden.
+- Planned capabilities are not callable.
+- High-risk runtime tools are disabled and require explicit approval paths.
+
+## Useful Commands
+
+```bash
+# Backend focused checks
+./venv/bin/python -m pytest harness/test_loop_persistence.py harness/test_session_api_contract.py -q
+
+# Frontend checks
+cd frontend
+npm run typecheck
+npm run test
+npm run build
 ```
-network_agent/
-├── agent/                    # Agent 主框架 (Codex-style Runtime)
-│   ├── app/                  # AgentApp, Thread, Session, Turn
-│   ├── core/                 # Agent 核心接口
-│   ├── runtime/              # RuntimeLoop, ToolRouter, ToolRegistry, prompts
-│   ├── protocol/             # Agent protocol 消息定义
-│   ├── context/              # RuntimeSnapshot, safe_context
-│   ├── tools/                # ToolRouter / ToolRegistry
-│   ├── skills/               # SkillRegistry (assistant_chat, config_translation, knowledge_query)
-│   ├── modules/              # ModuleRegistry + Capability services
-│   │   ├── config_translation/  # v0.7 capability service
-│   │   └── knowledge/            # v0.7 capability service
-│   ├── audit/                # Event, TraceRecorder, RolloutRecorder
-│   ├── llm/                  # invoke_llm (统一入口), safe_generate, provider, policy, settings
-│   ├── legacy/               # 旧 LangGraph 7-node pipeline (deprecated, 仅向后兼容)
-│   └── nodes/                # (已废弃，迁入 legacy/)
-├── modules/                  # 业务模块 (modules-level)
-├── skills/                   # Agent 技能包 (adapter → module)
-├── memory/                   # JSONL 记忆系统 (redaction + policy + cleanup_expired + compact)
-├── workspace/                # 工作区运行时 (state, runs, artifacts)
-├── harness/                  # pytest 测试 (含 v0.7.1 capability 测试)
-├── frontend/                 # 统一前端
-├── backend/                  # Flask API (SSE streaming, rate limit)
-│   ├── api/                  # sse.py, rate_limit.py, agent_routes.py (v0.6+), agent.py (legacy)
-│   └── core/                 # limits, paths, rate_limit middleware
-├── runtime/                  # 运行时工具 (lifecycle_base, archive, retention)
-├── config/                   # LLM 配置 (LLM_setting.json gitignored, 600)
-├── context/                  # 上下文压缩器 v0.2 (dynamic budget, dedup)
-├── tool_runtime/             # 工具运行时 (regex forbidden patterns)
-├── .github/workflows/        # CI pipeline (py3.10-3.12, ruff lint)
-├── scripts/                  # 审计/清理工具
-├── reports/                  # 审计报告
-└── docs/
-    ├── AGENT_BACKEND_RUNTIME_V06.md   # v0.6 Runtime 底座
-    ├── CAPABILITY_LAYER_V071.md       # v0.7.1 Capability Layer
-    ├── RELEASE_HISTORY.md             # 完整版本演化
-    ├── ARCHITECTURE.md                # 总体架构
-    └── ...                            # 各子系统设计文档
-```
-
-## 安全基线
-
-- LLM 不改 `deployable_config`，不产生可直接部署的输出
-- 不宣称"可直接部署"，不以 AI 能力绕过人工复核
-- API key 仅本地存储，API 返回 `key_preview` 不返回完整 key
-- 所有 Memory/Workspace/Run/Trace 写入走 redaction + policy 门控
-- `config/LLM_setting.json` 权限 600，不进 Git
-- Module / Skill 不得私接 LLM
-- 跨工作区访问默认拒绝
-- **No real SSH / Telnet / SNMP / nmap execution**
-- **`config.push` 永久禁止**
-- **topology / inspection / cmdb 仍为 planned，不允许伪造数据**
-
-## 下一步
-
-1. Knowledge Index Runtime 完整化（chunk policy、增量索引、引用血缘）
-2. 工具调用归因与可观测性增强（tool_call 事件链）
-3. 跨工作区协作与多租户隔离强化
-4. Business Modules: `topology`, `inspection`, `knowledge`, `cmdb`（按规划逐步启用）

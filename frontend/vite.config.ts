@@ -10,7 +10,7 @@ import react from "@vitejs/plugin-react";
  *  - `/api` → `VITE_DEV_API_TARGET` (default `http://127.0.0.1:8010`)
  *
  * Production build (npm run build):
- *  - Static files in `dist/` can be served by the FastAPI backend
+ *  - Static files in `dist/` can be served by the Flask backend
  *    or by a separate static server. The frontend's API base URL
  *    is read from `VITE_API_BASE` at build time, defaulting to
  *    `/api` (same-origin). Override per-environment via

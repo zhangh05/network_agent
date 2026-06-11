@@ -659,51 +659,47 @@ class TestAudit:
 
 class TestDocExists:
     def test_tool_runtime_doc_exists(self):
-        assert os.path.exists(os.path.join(PROJECT_ROOT, "docs", "TOOL_RUNTIME.md"))
+        assert os.path.exists(os.path.join(PROJECT_ROOT, "docs", "CAPABILITIES_AND_TOOLS.md"))
+        assert os.path.exists(os.path.join(PROJECT_ROOT, "docs", "SECURITY.md"))
 
     def test_arch_mentions_tool_runtime(self):
         with open(os.path.join(PROJECT_ROOT, "docs", "ARCHITECTURE.md")) as f:
             c = f.read()
-        assert "TOOL_RUNTIME.md" in c, "ARCHITECTURE.md must link to TOOL_RUNTIME.md"
+        assert "Capabilities and Tools" in c or "CAPABILITIES_AND_TOOLS.md" in c
 
     def test_module_skill_tool_mentions_v01(self):
-        with open(os.path.join(PROJECT_ROOT, "docs", "MODULE_SKILL_TOOL_MODEL.md")) as f:
+        with open(os.path.join(PROJECT_ROOT, "docs", "CAPABILITIES_AND_TOOLS.md")) as f:
             c = f.read()
-        assert "v0.1" in c.lower() or "foundation" in c.lower(), (
-            "MODULE_SKILL_TOOL_MODEL.md should mention Tool Runtime v0.1"
-        )
+        assert "runtime capability" in c.lower() and "toolruntime" in c.lower()
 
 
 class TestDocContent:
     def test_no_real_device_execution_claim(self):
-        with open(os.path.join(PROJECT_ROOT, "docs", "TOOL_RUNTIME.md")) as f:
+        with open(os.path.join(PROJECT_ROOT, "docs", "SECURITY.md")) as f:
             c = f.read().lower()
         # Must mention that real device execution is out of scope
         assert any(phrase in c for phrase in [
             "real device", "no real", "out of scope",
             "does not", "not include",
-        ]), "TOOL_RUNTIME.md must state real device execution is out of scope"
+        ]), "SECURITY.md must state real device execution is out of scope"
 
     def test_forbidden_ssh_telnet_snmp_nmap(self):
-        with open(os.path.join(PROJECT_ROOT, "docs", "TOOL_RUNTIME.md")) as f:
+        with open(os.path.join(PROJECT_ROOT, "docs", "SECURITY.md")) as f:
             c = f.read().lower()
         for forbidden in ["ssh", "telnet", "snmp", "nmap"]:
-            assert forbidden in c, f"TOOL_RUNTIME.md must mention {forbidden}"
+            assert forbidden in c, f"SECURITY.md must mention {forbidden}"
 
     def test_not_arbitrary_shell(self):
-        with open(os.path.join(PROJECT_ROOT, "docs", "TOOL_RUNTIME.md")) as f:
+        with open(os.path.join(PROJECT_ROOT, "docs", "SECURITY.md")) as f:
             c = f.read().lower()
         assert "shell" in c and ("not" in c or "arbitrary" in c or "forbidden" in c or "block" in c), (
-            "TOOL_RUNTIME.md must state Tool Runtime is not an arbitrary shell"
+            "SECURITY.md must state Tool Runtime is not an arbitrary shell"
         )
 
     def test_no_claim_v02_is_done(self):
-        with open(os.path.join(PROJECT_ROOT, "docs", "TOOL_RUNTIME.md")) as f:
+        with open(os.path.join(PROJECT_ROOT, "docs", "CAPABILITIES_AND_TOOLS.md")) as f:
             c = f.read()
-        # v0.2 is current dev phase — allowed in Version History
-        # v1.0 should only appear in future phases
-        if "v1.0" in c:
-            assert "Future Phases" in c, "v1.0 should only be in Future Phases"
+        assert "73" in c and "70" in c
 
 
 # ══════════════════════════════════════════════════
