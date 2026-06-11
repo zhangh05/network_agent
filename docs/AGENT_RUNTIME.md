@@ -1,5 +1,7 @@
 # Agent Runtime
 
+> **Status (v1.0.2)**：v0.6+ 起实际生效的 runtime 是 **Codex-style agentic loop**（`agent/runtime/loop.py` + `agent/core/{session,thread,turn,turn_context,op}.py`），**不**是 LangGraph。本文档**主体**（Graph Architecture / Nodes / Tool Planner / Trace / SSE / Rate Limiting）描述的是**早期 v0.4-v0.5 的 LangGraph runtime**，仅作为历史参考。新 runtime 的关键路径见末尾 **§ 14 新 runtime (Codex-style loop)**。
+
 ## Graph Architecture
 
 Agent runtime uses **LangGraph** as primary execution engine, with a deterministic fallback runtime preserved for cases where LLM is blocked or unavailable.
@@ -153,3 +155,97 @@ IP-based rate limiting via `backend/core/rate_limit.py`:
 - `write_audit(workspace_root, records)` — audit trail logging
 
 Eliminates ~80 lines of duplicated code between archive and retention modules.
+
+## 14. 新 runtime (Codex-style loop, v0.6+, 实际生效)
+
+v0.6+ 起, 实际响应 `/api/agent/message` 请求的是 `agent/runtime/loop.py::run_turn`（Codex-style 多步 LLM 工具调用循环）, 不是上文描述的 LangGraph。
+
+### 14.1 关键类
+
+| 类 | 文件 | 字段 |
+|---|---|---|
+| `AgentSession` | `agent/core/session.py` | `session_id`, `workspace_id`, `services` |
+| `AgentThread` | `agent/core/thread.py` | `thread_id`, `turns[]`, `messages[]` |
+| `AgentTurn` | `agent/core/turn.py` | `turn_id`, `op`, `final_response`, `tool_calls[]`, `warnings[]`, `errors[]`, `context: TurnContext` |
+| `AgentOp` | `agent/protocol/op.py` | `user_input`, `session_id`, `workspace_id`, `intent` |
+| `TurnContext` | `agent/core/turn_context.py` | `turn_id`, `session_id`, `workspace_id`, `user_input`, `module_snapshot`, `skill_snapshot`, `capability_manifest`, `tools_available`, `system_prompt`, `memory_summary`, `metadata` |
+| `AgentResult` | `agent/runtime/result.py` | `ok`, `final_response`, `events[]`, `trace_id`, `session_id`, `turn_id`, `tool_calls[]`, `warnings[]`, `errors[]`, `metadata` |
+| `RuntimeContextMessage` | `agent/protocol/message.py` | 注入到 LLM 的 system message |
+
+### 14.2 run_turn 主循环
+
+```python
+def run_turn(session, turn, services=None) -> AgentResult:
+    context = services.context_builder.build(turn)
+    messages = _build_initial_messages(context, services)
+
+    for step in range(MAX_STEPS):         # MAX_STEPS = 8
+        resp = invoke_llm(messages, services)
+        if resp.has_tool_calls:
+            for tc in resp.tool_calls:
+                tool_result = services.tool_runtime.invoke(tc)
+                messages.append(tool_result)
+            continue
+        else:
+            return _build_success_result(...)
+
+    return _build_max_steps_result(...)
+```
+
+**4 个 return 出口**：
+1. `success` — LLM 没 tool_call, 直接出 final_response
+2. `provider_error` — `invoke_llm` 抛错 (LLM 服务不可用)
+3. `timeout` — `invoke_llm` 抛 `TimeoutError`
+4. `max_steps` — 跑满 8 步仍没收敛
+
+### 14.3 run 落盘（v1.0.2 fix）
+
+**Bug**：v0.6+ 的新 runtime 用 dataclass-based `Turn/Session/TurnContext`, 跟 legacy `NetworkAgentState` 字段对不上. legacy `agent/legacy/memory_writer.py` 调 `write_run_record()` 落盘 + 触发 `add_run_to_session()`. 新 runtime 4 个 return 出口都没调, `session.run_ids` 永远 `[]`, `/api/sessions/<id>/messages` 永远 `[]`, 前端 plan-C background fetch 永远空.
+
+**Fix**（`agent/runtime/loop.py::run_turn`）:
+- 加 `_persist_run_record(session, turn, result, context)` adapter, 把 dataclass 字段投影成 `SimpleNamespace`, 让 `write_run_record()` 能识别.
+- 4 个 return 出口前各调一次.
+- `try/except Exception: pass` 包裹 — 持久化失败**不**会炸 turn.
+- 失败也是历史（failed turn 也落盘）.
+
+Adapter 投影映射:
+
+| legacy NetworkAgentState | 新 runtime (dataclass) |
+|---|---|
+| `state.request_id` | `turn.turn_id` |
+| `state.session_id` | `session.session_id` |
+| `state.user_input` | `turn.op.user_input` |
+| `state.intent` | `context.metadata["intent"]` |
+| `state.context["llm"]` | `context.metadata["llm"]` |
+| `state.active_module` | `context.module_snapshot["module_id"]` |
+| `state.selected_skill` | `context.skill_snapshot["skill_id"]` |
+| `state.runtime_mode` | `"codex_v1"` (常量) |
+| `state.final_response` | `result.final_response` |
+| `state.warnings` | `result.warnings` |
+| `state.trace_id` | `result.trace_id` |
+| `state.error` | `result.errors[0]` if any |
+| `state.skill_results` | `result.tool_calls[*].metadata` 里 `deployable_config` / `manual_review` / `unsupported` / `semantic_near` / `audit` key |
+
+### 14.4 Live 验证（v1.0.2）
+
+```bash
+$ SID=$(curl -s -X POST /api/sessions -d '{"workspace_id":"default","title":"t"}' | jq -r .session.session_id)
+$ curl -X POST /api/agent/message -d "{\"message\":\"hi\",\"workspace_id\":\"default\",\"session_id\":\"$SID\"}" -m 90
+{"ok":true,"turn_id":"01c13c6b-...","session_id":"c621dbdbde06400c", ...}
+
+$ curl /api/sessions/$SID?workspace_id=default
+{ "session": { "run_ids": ["01c13c6b-..."] } }  # v1.0.2 之前永远 []
+
+$ curl /api/sessions/$SID/messages
+{ "ok":true,"count":2,"messages":[
+  {"role":"user",      "content":"hi",                  "run_id":"01c13c6b-..."},
+  {"role":"assistant", "content":"Hi! 👋 ...",         "run_id":"01c13c6b-..."}
+]}
+```
+
+### 14.5 测试
+
+- `harness/test_loop_persistence.py` (3 case)
+  - `test_persist_creates_run_record_and_links_to_session` — success 路径, `get_run` + `get_session` 都拿得到
+  - `test_persist_handles_failed_turn` — `ok=False` 也落盘
+  - `test_persist_isolates_two_turns` — 同 session 多 turn 累积, `get_session_messages` 拿得到

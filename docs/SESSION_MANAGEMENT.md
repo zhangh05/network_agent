@@ -185,3 +185,98 @@ venv/bin/python harness/test_session_api_contract.py
 ```
 
 Total coverage: 23 store tests + 12 API contract tests = 35 tests.
+
+## 7. Chat history persistence (plan-C, v1.0.2+)
+
+v1.0.2 起，workbench chat 历史走 **plan-C 方案**：localStorage 兜底 + 后端 background fetch merge。
+
+### 7.1 双层存储
+
+| 层 | 位置 | 作用 | 失效 |
+|---|---|---|---|
+| **L1 本地** | `localStorage["na_workbench"]` (zustand persist) | 切会话 / F5 刷新即时恢复 (0ms) | 清浏览器数据 / 切设备 |
+| **L2 服务端** | `GET /api/sessions/<id>/messages` → `workspace.run_store` + `session_store.run_ids` | 跨设备 / 跨 tab 同步 | 后端 run 记录丢失 |
+
+### 7.2 run 落盘的关键路径（v1.0.2 fix）
+
+**Bug**：v0.6+ 新 runtime `agent/runtime/loop.py` 用 dataclass-based `Turn/Session/TurnContext`，跟 legacy `NetworkAgentState` 字段对不上，所以 `write_run_record()` 一次都没被调用。4 个 return 出口（success / provider_error / timeout / max_steps）都没落盘 → `session.run_ids` 永远 `[]` → `/api/sessions/<id>/messages` 永远 `[]` → 前端 background fetch 永远空。
+
+**Fix**（`agent/runtime/loop.py::run_turn`）：
+- 加 `_persist_run_record(session, turn, result, context)` adapter，把 dataclass 字段投影成 `SimpleNamespace`，让 `write_run_record()` 能识别。
+- 4 个 return 出口（`AgentResult(ok=False/True, ...)`）前各调一次。
+- try/except 包裹 — 持久化失败**不**会炸 turn。
+- 失败也是历史（failed turn 也落盘）。
+
+### 7.3 `get_session_messages` 端点
+
+```
+GET /api/sessions/<session_id>/messages?workspace_id=default
+→ {
+  "ok": true,
+  "count": <int>,
+  "messages": [
+    { "role": "user" | "assistant" | "system",
+      "content": "...",
+      "created_at": "<iso>",
+      "run_id": "...",
+      "intent": "...", "status": "...", "capability": "...",
+      "trace_id": "...", "quality_summary": {...}, "llm_metadata": {...} },
+    ...
+  ]
+}
+```
+
+实现：遍历 `session.run_ids`，每个 run 拆 2 条 (user_input_summary → user, final_response_summary → assistant)。前端 `useWorkbenchStore.mergeFromBackend(sid, msgs)` 按 `created_at` 升序 dedup 合并不删本地。
+
+### 7.4 前端 localStorage 数据结构
+
+```ts
+// frontend/src/stores/workbench.ts
+interface WorkbenchState {
+  bySession: Record<string, ChatMsg[]>;  // 持久化: key=session_id, value=消息列表
+  currentSessionId: string | null;       // 不持久化 (走 useSessionStore["na_session"])
+  history: ChatMsg[];                    // 派生: bySession[currentSessionId]
+  latestResult: AgentResult | null;      // Inspector 用
+  sending: boolean;                      // 派生
+  // ...
+}
+```
+
+容量限制：
+- 每 session 最多 **30 条** (LRU 切片, 留最新 30)
+- 全局最多 **5 个 session** (按 session_id 字典序 LRU 淘汰)
+- 无 session 时的消息走 `_scratch` 池，等后端返回 `session_id` 后由 AgentWorkbench 迁移
+
+### 7.5 时序
+
+```
+切会话 / F5 刷新
+   ↓
+1) switchSession → 即时从 bySession 渲染 (0ms, 不等网络)
+   ↓
+2) 后台 sessionsApi.messages(sid, ws_id) → 拉到 msgs
+   ↓
+3) mergeFromBackend(sid, msgs) → 按 created_at 升序, dedup, 不删本地
+   ↓
+4) 渲染最终结果
+
+发送一条消息
+   ↓
+1) appendUser(text, sid) → _scratch 池 (若 sid=null)
+   ↓
+2) POST /api/agent/message (后端可能自动建 session)
+   ↓
+3) 收到 res.session_id → 把 _scratch 池迁过去
+   ↓
+4) appendAssistant → 落 bySession[sid] + 持久化
+   ↓
+5) 再 background fetch /messages 一次 (触发跨设备同步)
+```
+
+### 7.6 测试
+
+- `harness/test_loop_persistence.py` (3 case) — 后端 _persist_run_record 行为
+- `frontend/src/test/workbenchPersist.test.tsx` (8 case) — 前端 store 行为
+- `e2e/11-workbench-persistence.spec.ts` (1 case) — F5 刷新后历史仍在
+
+Gates: 348 harness passed / 21 vitest / 11 e2e（详见 `RELEASE_HISTORY.md`）。

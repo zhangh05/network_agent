@@ -76,6 +76,16 @@
 - **Capability**：全从 `/api/capabilities` 动态读取；planned 仅显示状态 + `(not callable)`
 - **Audit**：`GET /api/runs/recent` → turn timeline；选中 → `GET /api/runs/<id>` → events
 
+### 4.7 Workbench chat persistence（plan-C，v1.0.2）
+
+- **L1 本地**：`useWorkbenchStore.bySession` 持久化到 `localStorage["na_workbench"]`（每会话 30 条 / 全局 5 session LRU）
+- **L2 服务端**：切会话 / F5 刷新时后台 `GET /api/sessions/<id>/messages` → `useWorkbenchStore.mergeFromBackend()` 按 `created_at` 升序 dedup 合并不删本地
+- **实时指示**：顶部右侧「本地缓存 N」badge
+- **失败也是历史**（failed turn 也会落盘 + 持久化）
+- **Scratch 池**：无 session 时的消息走 `_scratch`，等后端返回 `session_id` 后由 AgentWorkbench 迁移
+- **E2E**：`e2e/11-workbench-persistence.spec.ts` 验证 F5 刷新后用户消息 + 助手回应 + 持久化指示都仍在
+- **Tests**：`src/test/workbenchPersist.test.tsx`（8 case：append / 切会话隔离 / null→_scratch / merge / dedup / clear / localStorage 落盘 / cap）
+
 ## 5. 部署
 
 ### 5.1 Vite dev（`npm run dev`）
@@ -102,7 +112,7 @@
 
 | HTTP | `code` | 触发条件 |
 |---|---|---|
-| 0 / ECONNABORTED | `timeout` | 12s 未收到响应 |
+| 0 / ECONNABORTED | `timeout` | 30s 未收到响应（默认；agent turn 例外 180s） |
 | 0 / ERR_CANCELED | `aborted` | AbortSignal 触发 |
 | 0 / no response | `network` | 后端不可达 / CORS / DNS |
 | 4xx (401/403/404/422) | `http_4xx` | 客户端错误 |
@@ -128,17 +138,18 @@
 - `e2e/06-artifact-view.spec.ts` — artifact 查看
 - `e2e/07-review-status.spec.ts` — review 状态更新
 - `e2e/08-planned-no-button.spec.ts` — planned capability 无调用入口
-- `e2e/09-timeout-error.spec.ts` — provider timeout 正确展示
+- `e2e/09-timeout-error.spec.ts` — provider timeout 正确展示（v1.0.2 改用 HTTP 408 触发，e2e 总耗时从 50s+ → 25.3s）
 - `e2e/10-refresh-restore.spec.ts` — 页面刷新状态恢复
+- `e2e/11-workbench-persistence.spec.ts` — workbench chat 持久化 (v1.0.2 plan-C)：F5 刷新后用户消息 + 助手回应 + 持久化指示都在
 
 ### 7.3 运行
 
 ```bash
 cd frontend
 npm run typecheck    # 0 errors
-npm run build        # 264 kB JS / 10 kB CSS
-npm test             # 13 / 13 passed
-npm run e2e          # 10 / 10 passed (36s)
+npm run build        # 285 kB JS / 31 kB CSS (v1.0.2)
+npm test             # 21 / 21 passed (v1.0.2: +8 workbenchPersist case)
+npm run e2e          # 11 / 11 passed (v1.0.2: +1 workbench-persistence, ~30s)
 ```
 
 ### 7.4 后端 focused regression（12 文件 spec-required 集合）

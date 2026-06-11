@@ -2,6 +2,7 @@
 
 > **Frontend v1.0**（前一基线）：废弃旧单文件前端 `frontend/index.html`，重写为 **Capability-driven Agent Workbench**。
 > **Frontend v1.0.1**（当前基线）：将 v1.0 接入**真实后端** + 10 个 Playwright E2E。详见 [FRONTEND_API_E2E_V101.md](FRONTEND_API_E2E_V101.md)。
+> **Frontend v1.0.2**（当前基线 + 增量）：fix 12s timeout misfire on long agent turns + workbench chat 持久化 (plan-C localStorage + 后端 merge)。详见 [RELEASE_HISTORY.md](RELEASE_HISTORY.md) § `ee60bf5` / `7794faf`。
 > 旧前端保留为 `frontend/legacy/index.html.legacy`（legacy 备份，不继续扩展）。
 > 配套：[README.md](../README.md) · [ARCHITECTURE.md](ARCHITECTURE.md) · [RELEASE_HISTORY.md](RELEASE_HISTORY.md)
 
@@ -169,7 +170,7 @@ ApiError        // ok:false, code, status, message, request_id
 |---|---|---|
 | `useSessionStore` | currentWorkspaceId, currentSessionId, workspaces, sessions | 部分（id only） |
 | `useUIStore` | inspectorOpen, sidebarOpen, theme | 是 |
-| `useWorkbenchStore` | history[], latestResult, sending | 否（in-memory） |
+| `useWorkbenchStore` | bySession: `Record<session_id, ChatMsg[]>`, currentSessionId, history, latestResult, sending | **是**（v1.0.2 plan-C）— `bySession` → `localStorage["na_workbench"]`，每会话 30 条 / 全局 5 session LRU；无 session 走 `_scratch` 池 |
 | `useToastStore` | messages[] | 否（in-memory） |
 
 ## 10. 样式
@@ -226,3 +227,28 @@ ApiError        // ok:false, code, status, message, request_id
 | v1.1 | 多 workspace 并排（split view）|
 | v1.1 | i18n（zh-CN / en-US）|
 | v2 | 与 FastAPI backend SSE 集成；tool call 流式输出 |
+
+## 9. Timeout policy (v1.0.2)
+
+v1.0.1 用一个写死的 `REQUEST_TIMEOUT_MS = 12000` 对所有端点一刀切。Agent turn（含 LLM + 工具调用 + 可选 web search）实测 30-120s，12s 必然 ECONNABORTED。
+
+v1.0.2 改为 `TIMEOUTS` 策略表 + per-call override：
+
+| 端点 | TIMEOUTS key | 默认值 | 适用 |
+|---|---|---|---|
+| 列表 / 获取 / 健康检查 | `default` | **30s** | 通用 GET |
+| `POST /api/agent/message` | `agentTurn` | **180s (3m)** | Agent turn（LLM + 工具 + 可选 web search） |
+| `POST /api/agent/llm/test` | `llmTest` | 60s | LLM 连通性测试 |
+| `POST /api/knowledge/sources/from-artifact` | `knowledgeImport` | 60s | Knowledge 导入（embed + 写库） |
+| `GET /api/.../artifacts/.../summarize` | `summarize` | 60s | Artifact 摘要 |
+| 其他 | `default` | 30s | 默认值 |
+
+实现：每个 API module 的方法都接受 `signal?: AbortSignal` 和（内部）`timeoutMs?` 参数；`apiRequest<T>(config, signal, timeoutMs)` 在合并 axios config 时把 `timeout` 设为 `timeoutMs ?? TIMEOUTS.default`。
+
+错误信息：当 axios 因 timeout 抛 `ECONNABORTED` 时，`toApiError` 转成 `code: "timeout"`，错误信息包含具体秒数：
+
+```
+请求超时 (>30s) · Agent turn / LLM 调用可能耗时较长, 建议稍后重试或简化问题
+```
+
+UI 反馈：AgentWorkbench 顶部右侧实时显示「**耗时 / 最长耗时**」指示器（每秒更新），30s 后追加「Agent turn 较慢（含 LLM 推理 / 工具调用 / 可选 web search），最长可等 3m00s」提示，让用户知道没卡死 + 最长等多久。
