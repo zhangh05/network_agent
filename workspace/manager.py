@@ -256,9 +256,9 @@ def _count_artifacts(ws_id: str) -> int:
 
 
 def _count_knowledge_sources(ws_id: str) -> int:
-    """Count knowledge sources from the canonical knowledge store."""
+    """Count knowledge sources from the knowledge store."""
     ws_id = validate_workspace_id(ws_id)
-    sources = WS_ROOT / ws_id / "knowledge" / "sources.jsonl"
+    sources = WS_ROOT / ws_id / "indexes" / "knowledge" / "sources.jsonl"
     if not sources.is_file():
         return 0
     count = 0

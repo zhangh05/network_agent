@@ -189,7 +189,7 @@ def _save_translation_artifact(
             artifact_type="translated_config",
             title=f"Translated config: {source_vendor} to {target_vendor}",
             scope="workspace",
-            sensitivity="sensitive",
+            sensitivity="internal",
             module="config_translation",
             skill="config_translation",
             source="module_output",
@@ -212,7 +212,7 @@ def _save_translation_artifact(
                 "artifact_type": "translated_config",
                 "title": f"Translated config: {source_vendor} to {target_vendor}",
                 "scope": "workspace",
-                "sensitivity": "sensitive",
+                "sensitivity": "internal",
                 "source": "module_output",
                 "metadata": {
                     "authoritative": False,
