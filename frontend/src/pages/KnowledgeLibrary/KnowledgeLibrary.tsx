@@ -1,20 +1,18 @@
 import { useState } from "react";
-import { useAsync, AsyncView, Badge, CodeBlock, EmptyState, InlineCode } from "../../components/common";
+import {
+  useAsync,
+  AsyncView,
+  Badge,
+  CodeBlock,
+  InlineCode,
+} from "../../components/common";
 import { knowledgeApi, artifactsApi } from "../../api";
 import { useSessionStore } from "../../stores/session";
 import { useToastStore } from "../../stores/toast";
 import { isApiError } from "../../types";
 import type { KnowledgeSource } from "../../types";
+import { IconBook, IconRefresh, IconSearch, IconSparkle } from "../../components/Icon";
 
-/**
- * Knowledge Library — list/read/search/reindex + import-from-artifact.
- * Real backend endpoints (v1.0.1 fix):
- *   GET   /api/knowledge/sources?workspace_id=
- *   POST  /api/knowledge/sources/from-artifact  (JSON, not multipart)
- *   POST  /api/knowledge/sources/<id>/reindex
- *   GET   /api/knowledge/search?q=&workspace_id=
- *   GET   /api/knowledge/chunks/<id>?workspace_id=
- */
 export function KnowledgeLibrary() {
   const { currentWorkspaceId } = useSessionStore();
   const toast = useToastStore((s) => s.show);
@@ -93,49 +91,54 @@ export function KnowledgeLibrary() {
   }
 
   return (
-    <div
-      style={{ display: "flex", flexDirection: "column", height: "100%" }}
-      data-testid="page-knowledge"
-    >
+    <div className="page" data-testid="page-knowledge">
       <div className="page-header">
         <div>
-          <h1>Knowledge Library</h1>
+          <h1>
+            知识库{" "}
+            <span style={{ color: "var(--ink-mute)", fontWeight: 400, fontSize: 14 }}>
+              · Knowledge Library
+            </span>
+          </h1>
           <div className="subtitle">
-            source list / search / reindex / import-from-artifact · scope: {scope}
+            source 列表 / 检索 / 重新索引 / 从 artifact 导入 · 当前 scope: {scope}
           </div>
         </div>
         <div className="row-flex">
-          <select
-            className="input"
-            value={scope}
-            onChange={(e) => setScope(e.target.value as "workspace" | "global" | "session")}
-            style={{ width: 140 }}
-            data-testid="knowledge-scope"
-            disabled
-            title="scope 由当前 workspace 决定；UI 暂未提供 multi-scope 切换"
-          >
-            <option value="workspace">workspace</option>
-            <option value="global">global</option>
-            <option value="session">session</option>
-          </select>
+          <div className="segmented">
+            {(["workspace", "global", "session"] as const).map((s) => (
+              <button
+                key={s}
+                type="button"
+                className={scope === s ? "active" : ""}
+                onClick={() => setScope(s)}
+              >
+                {s === "workspace" ? "工作区" : s === "global" ? "全局" : "会话"}
+              </button>
+            ))}
+          </div>
         </div>
       </div>
 
-      <div style={{ padding: 16, overflowY: "auto", flex: 1 }}>
+      <div className="page-body">
         <div className="card" data-testid="knowledge-import-card">
-          <div className="card-title">Import from artifact</div>
-          <div className="text-xs muted mb-2">
+          <div className="card-title">
+            <IconBook size={12} />
+            从 artifact 导入
+            <span className="count">{artifacts.state.kind === "success" ? (artifacts.state.data.artifacts ?? []).length : "—"}</span>
+          </div>
+          <div className="text-xs muted mb-3">
             后端从 <InlineCode>/api/workspaces/&lt;ws&gt;/artifacts/&lt;art&gt;</InlineCode> 读取内容并建立 knowledge source。
             真实上传走 <InlineCode>POST /api/workspaces/&lt;ws&gt;/artifacts</InlineCode>（后端 artifact pipeline）。
           </div>
-          <div className="row-flex">
+          <div className="row-flex" style={{ gap: 8 }}>
             <select
               className="input"
               value={importArtifactId}
               onChange={(e) => setImportArtifactId(e.target.value)}
               data-testid="knowledge-import-select"
-              style={{ flex: 1 }}
               disabled={artifacts.state.kind === "loading"}
+              style={{ flex: 1 }}
             >
               <option value="">选择 artifact…</option>
               {(artifacts.state.kind === "success" ? artifacts.state.data.artifacts : []).map(
@@ -153,51 +156,81 @@ export function KnowledgeLibrary() {
               data-testid="btn-knowledge-import"
               type="button"
             >
-              {importing ? "导入中…" : "导入"}
+              <IconSparkle size={12} /> {importing ? "导入中…" : "导入"}
             </button>
           </div>
           {artifacts.state.kind === "empty" && (
             <div className="text-xs muted mt-2">
-              当前 workspace 无 artifact。先到 Artifacts 页创建/上传。
+              当前工作区无 artifact。请先到「制品中心」页创建/上传。
             </div>
           )}
         </div>
 
         <div className="card">
-          <div className="card-title">Sources</div>
+          <div className="card-title">
+            <IconBook size={12} />
+            知识源列表
+            <span className="count">
+              {sources.state.kind === "success"
+                ? (sources.state.data.sources ?? []).length
+                : sources.state.kind === "loading"
+                  ? "—"
+                  : "0"}
+            </span>
+            <button
+              className="card-actions btn ghost sm"
+              onClick={sources.reload}
+              type="button"
+              aria-label="刷新"
+            >
+              <IconRefresh size={11} />
+            </button>
+          </div>
           <AsyncView
             state={sources.state}
             onRetry={sources.reload}
-            emptyText="暂无 source"
-            emptyHint="调用 import-from-artifact 导入"
+            emptyText="暂无知识源"
+            emptyHint="点击「导入」从 artifact 创建"
           >
             {(d) => (
               <table className="tbl" data-testid="knowledge-source-tbl">
                 <thead>
                   <tr>
-                    <th>title</th>
-                    <th>type</th>
-                    <th>artifact</th>
-                    <th>tags</th>
-                    <th>chunks</th>
-                    <th>status</th>
-                    <th>actions</th>
+                    <th>标题</th>
+                    <th>类型</th>
+                    <th>来源 artifact</th>
+                    <th>标签</th>
+                    <th style={{ width: 70, textAlign: "right" }}>chunks</th>
+                    <th>状态</th>
+                    <th style={{ width: 80 }}>操作</th>
                   </tr>
                 </thead>
                 <tbody>
                   {(d.sources ?? []).map((s) => (
                     <tr key={s.source_id} data-testid={`src-${s.source_id}`}>
                       <td><InlineCode>{s.title || s.source_id}</InlineCode></td>
-                      <td><Badge kind="muted">{s.source_type || "—"}</Badge></td>
-                      <td className="text-xs">
-                        {s.artifact_id ? <InlineCode>{s.artifact_id}</InlineCode> : "—"}
-                      </td>
-                      <td className="text-xs">
-                        {(s.tags ?? []).map((t) => <Badge key={t} kind="muted">{t}</Badge>)}
-                      </td>
-                      <td className="mono">{s.chunk_count}</td>
                       <td>
-                        {s.status ? <Badge kind="info">{s.status}</Badge> : <Badge kind="muted">—</Badge>}
+                        <Badge kind="muted">{s.source_type || "—"}</Badge>
+                      </td>
+                      <td className="text-xs">
+                        {s.artifact_id ? <InlineCode>{s.artifact_id}</InlineCode> : <span className="muted">—</span>}
+                      </td>
+                      <td>
+                        <div className="row-flex" style={{ flexWrap: "wrap", gap: 2 }}>
+                          {(s.tags ?? []).length === 0 ? (
+                            <span className="muted text-xs">—</span>
+                          ) : (
+                            (s.tags ?? []).map((t) => <span className="tag" key={t}>{t}</span>)
+                          )}
+                        </div>
+                      </td>
+                      <td className="mono" style={{ textAlign: "right" }}>{s.chunk_count}</td>
+                      <td>
+                        {s.status ? (
+                          <Badge kind="info">{s.status}</Badge>
+                        ) : (
+                          <Badge kind="muted">—</Badge>
+                        )}
                       </td>
                       <td>
                         <button
@@ -206,7 +239,7 @@ export function KnowledgeLibrary() {
                           data-testid={`btn-reindex-${s.source_id}`}
                           type="button"
                         >
-                          reindex
+                          <IconRefresh size={11} /> reindex
                         </button>
                       </td>
                     </tr>
@@ -218,13 +251,19 @@ export function KnowledgeLibrary() {
         </div>
 
         <div className="card">
-          <div className="card-title">Search</div>
-          <div className="row-flex mb-2">
+          <div className="card-title">
+            <IconSearch size={12} />
+            检索
+          </div>
+          <div className="row-flex mb-3" style={{ gap: 8 }}>
             <input
               className="input"
-              placeholder="输入查询 (CJK / English)"
+              placeholder="输入关键词（CJK / 英文）"
               value={query}
               onChange={(e) => setQuery(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === "Enter") search.reload();
+              }}
               data-testid="knowledge-search-input"
             />
             <button
@@ -234,11 +273,14 @@ export function KnowledgeLibrary() {
               data-testid="btn-knowledge-search"
               type="button"
             >
-              检索
+              <IconSearch size={12} /> 检索
             </button>
           </div>
+
           {search.state.kind === "loading" && (
-            <div className="text-sm muted">搜索中…</div>
+            <div className="text-sm muted row-flex" style={{ gap: 8 }}>
+              <span className="spinner" /> 搜索中…
+            </div>
           )}
           {search.state.kind === "error" && (
             <div className="text-sm" style={{ color: "var(--danger)" }} data-testid="knowledge-search-error">
@@ -266,21 +308,33 @@ function SearchResults({
 }) {
   const results = data.results ?? [];
   if (results.length === 0) {
-    return <EmptyState text="无命中" hint="尝试调整 scope 或关键词" />;
+    return (
+      <div className="empty">
+        <div className="empty-icon"><span style={{ fontSize: 18, color: "var(--ink-faint)" }}>○</span></div>
+        <div className="empty-text">无命中</div>
+        <div className="empty-hint">尝试调整 scope 或关键词</div>
+      </div>
+    );
   }
   return (
     <div data-testid="knowledge-search-results">
-      <div className="text-sm muted mb-2">
-        count: {results.length} · {data.note ?? "搜索结果为安全摘录"}
+      <div className="text-sm muted mb-2 row-flex" style={{ gap: 8 }}>
+        <span>命中 {results.length} 个</span>
+        {data.note && <span>· {data.note}</span>}
       </div>
       {results.slice(0, 10).map((r, i) => (
-        <div className="card" key={r.chunk_id} style={{ padding: 10, marginBottom: 8 }} data-testid={`search-result-${i}`}>
+        <div
+          className="card"
+          key={r.chunk_id}
+          style={{ padding: 12, marginBottom: 8, boxShadow: "none" }}
+          data-testid={`search-result-${i}`}
+        >
           <div className="row-flex" style={{ justifyContent: "space-between" }}>
             <InlineCode>{r.title || r.source_id}</InlineCode>
-            <Badge kind="pri">score {r.score.toFixed(2)}</Badge>
+            <Badge kind="accent">score {r.score.toFixed(2)}</Badge>
           </div>
-          <div className="text-sm mt-2">
-            {r.safe_excerpt || r.summary || "(no excerpt)"}
+          <div className="text-sm mt-2" style={{ color: "var(--ink-soft)" }}>
+            {r.safe_excerpt || r.summary || <span className="muted">(无摘录)</span>}
           </div>
           {r.artifact_id && (
             <div className="text-xs muted mt-2">
@@ -289,8 +343,8 @@ function SearchResults({
           )}
         </div>
       ))}
-      <details>
-        <summary className="text-xs muted">raw results</summary>
+      <details className="collapse">
+        <summary>查看原始 JSON</summary>
         <CodeBlock language="json">
           {JSON.stringify(results.slice(0, 5), null, 2)}
         </CodeBlock>

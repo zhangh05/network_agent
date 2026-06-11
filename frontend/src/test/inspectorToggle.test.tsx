@@ -3,7 +3,7 @@
  */
 
 import { describe, it, expect, beforeEach } from "vitest";
-import { render, screen, fireEvent } from "@testing-library/react";
+import { render, screen } from "@testing-library/react";
 import { AppLayout } from "../layouts/AppLayout";
 import { useUIStore } from "../stores/session";
 import { useSessionStore } from "../stores/session";
@@ -27,10 +27,12 @@ describe("Inspector collapse / expand", () => {
       </AppLayout>,
     );
     expect(screen.getByTestId("layout-right")).toBeInTheDocument();
-    fireEvent.click(screen.getByTestId("btn-toggle-inspector"));
+    // v1.0.1 UI 重设计：toggle 按钮已移至 App 顶栏（不再位于 AppLayout 内部），
+    // 通过 store 直接验证 toggle 行为，行为契约保持一致。
+    useUIStore.getState().toggleInspector();
     expect(useUIStore.getState().inspectorOpen).toBe(false);
     // reopen
-    fireEvent.click(screen.getByTestId("btn-open-inspector"));
+    useUIStore.getState().toggleInspector();
     expect(useUIStore.getState().inspectorOpen).toBe(true);
   });
 });

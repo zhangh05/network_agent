@@ -23,11 +23,11 @@ export function AsyncView<T>({
 }: AsyncViewProps<T>) {
   if (isLoading(state)) {
     return (
-      <div className="state">
-        <div className="icon">
-          <span className="status-dot loading" />
+      <div className="empty" data-testid="loading-state">
+        <div className="empty-icon">
+          <span className="spinner" />
         </div>
-        <div className="text">{loadingText}</div>
+        <div className="empty-text">{loadingText}</div>
       </div>
     );
   }
@@ -35,14 +35,12 @@ export function AsyncView<T>({
     return <ErrorState error={state.error} onRetry={onRetry} />;
   }
   if (state.kind === "empty") {
-    return (
-      <EmptyState text={emptyText} hint={emptyHint} />
-    );
+    return <EmptyState text={emptyText} hint={emptyHint} />;
   }
   if (state.kind === "success") {
     return <>{children(state.data)}</>;
   }
-  return <div className="state"><div className="text">未初始化</div></div>;
+  return <div className="empty"><div className="empty-text">未初始化</div></div>;
 }
 
 /* ── Error state ── */
@@ -55,15 +53,17 @@ export function ErrorState({
   onRetry?: () => void;
 }) {
   return (
-    <div className="state error" data-testid="error-state">
-      <div className="icon">⚠</div>
-      <div className="text">{error.message}</div>
-      <div className="hint">
-        {error.code} · {error.status > 0 ? `HTTP ${error.status}` : "no response"}
+    <div className="empty" data-testid="error-state">
+      <div className="empty-icon">
+        <span style={{ fontSize: 20, color: "var(--danger)" }}>⚠</span>
+      </div>
+      <div className="empty-text" style={{ color: "var(--danger)" }}>{error.message}</div>
+      <div className="empty-hint">
+        {error.code} · {error.status > 0 ? `HTTP ${error.status}` : "无响应"}
         {error.request_id ? ` · ${error.request_id}` : ""}
       </div>
       {onRetry && (
-        <button className="btn sm mt-2" onClick={onRetry}>
+        <button className="btn sm mt-2" onClick={onRetry} type="button">
           重试
         </button>
       )}
@@ -83,10 +83,12 @@ export function EmptyState({
   action?: ReactNode;
 }) {
   return (
-    <div className="state" data-testid="empty-state">
-      <div className="icon">∅</div>
-      <div className="text">{text}</div>
-      {hint && <div className="hint">{hint}</div>}
+    <div className="empty" data-testid="empty-state">
+      <div className="empty-icon">
+        <span style={{ fontSize: 18, color: "var(--ink-faint)" }}>∅</span>
+      </div>
+      <div className="empty-text">{text}</div>
+      {hint && <div className="empty-hint">{hint}</div>}
       {action && <div className="mt-2">{action}</div>}
     </div>
   );
@@ -96,11 +98,11 @@ export function EmptyState({
 
 export function LoadingState({ text = "加载中…" }: { text?: string }) {
   return (
-    <div className="state" data-testid="loading-state">
-      <div className="icon">
-        <span className="status-dot loading" />
+    <div className="empty" data-testid="loading-state">
+      <div className="empty-icon">
+        <span className="spinner" />
       </div>
-      <div className="text">{text}</div>
+      <div className="empty-text">{text}</div>
     </div>
   );
 }
@@ -114,7 +116,12 @@ export type BadgeKind =
   | "info"
   | "pri"
   | "muted"
-  | "planned";
+  | "planned"
+  | "accent"
+  | "s-pending"
+  | "s-accepted"
+  | "s-ignored"
+  | "s-modified";
 
 export function Badge({
   kind = "muted",
@@ -137,7 +144,7 @@ export function StatusDot({
   status,
   label,
 }: {
-  status: "ok" | "warn" | "err" | "idle" | "loading";
+  status: "ok" | "warn" | "err" | "idle" | "loading" | "busy";
   label?: string;
 }) {
   return (
@@ -165,41 +172,97 @@ export function CodeBlock({
 }
 
 export function InlineCode({ children }: { children: ReactNode }) {
-  return <code className="inline">{children}</code>;
+  return <code>{children}</code>;
 }
 
-/* ── Collapsible section ── */
+/* ── Field (form row) ── */
+
+export function Field({
+  label,
+  hint,
+  children,
+  htmlFor,
+}: {
+  label: string;
+  hint?: string;
+  children: ReactNode;
+  htmlFor?: string;
+}) {
+  return (
+    <div className="col-flex" style={{ gap: 6 }}>
+      <label
+        htmlFor={htmlFor}
+        style={{
+          fontSize: 11,
+          color: "var(--ink-mute)",
+          textTransform: "uppercase",
+          letterSpacing: "0.08em",
+          fontWeight: 500,
+        }}
+      >
+        {label}
+      </label>
+      {children}
+      {hint && (
+        <span style={{ fontSize: 11, color: "var(--ink-faint)" }}>{hint}</span>
+      )}
+    </div>
+  );
+}
+
+/* ── Collapsible section (used by Inspector) ── */
 
 export function Collapsible({
   title,
   defaultOpen = true,
   count,
   children,
+  testid,
 }: {
   title: ReactNode;
   defaultOpen?: boolean;
   count?: number;
   children: ReactNode;
+  testid?: string;
 }) {
   const [open, setOpen] = useState(defaultOpen);
   return (
-    <div className="inspector-section">
+    <div className="inspector-section" data-testid={testid}>
       <button
-        className="row-flex"
-        style={{ width: "100%", justifyContent: "space-between" }}
+        className={"inspector-section-title" + (open ? "" : " collapsed")}
+        style={{
+          width: "100%",
+          background: "none",
+          border: "none",
+          padding: 0,
+        }}
         onClick={() => setOpen((o) => !o)}
         data-testid="collapsible-toggle"
+        type="button"
       >
-        <h4 style={{ margin: 0 }}>
-          {open ? "▾" : "▸"} {title}
-          {typeof count === "number" && (
-            <span className="muted text-xs" style={{ marginLeft: 6 }}>
-              ({count})
+        <span style={{ display: "inline-flex", alignItems: "center", gap: 6 }}>
+          <span className="chev">▾</span>
+          {title}
+          {typeof count === "number" && count > 0 && (
+            <span
+              style={{
+                fontFamily: "var(--font-mono)",
+                fontSize: 10,
+                color: "var(--ink-mute)",
+                background: "var(--bg-soft)",
+                padding: "1px 6px",
+                borderRadius: 8,
+                fontWeight: 400,
+                letterSpacing: 0,
+                textTransform: "none",
+              }}
+            >
+              {count}
             </span>
           )}
-        </h4>
+        </span>
       </button>
-      {open && <div className="mt-2">{children}</div>}
+      {open && <div style={{ marginTop: 4 }}>{children}</div>}
     </div>
   );
 }

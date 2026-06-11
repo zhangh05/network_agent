@@ -36,7 +36,8 @@ describe("ReviewCenter — review item status", () => {
     render(<ReviewCenter />);
     const row = await screen.findByTestId("review-rev-1");
     expect(row).toBeInTheDocument();
-    expect(row.textContent).toContain("pending");
+    // UI 在 v1.0.1 UI 重设计后中文化：pending → 待处理
+    expect(row.textContent).toContain("待处理");
     expect(row.textContent).toContain("trans_residue");
   });
 
@@ -45,6 +46,7 @@ describe("ReviewCenter — review item status", () => {
     enqueue("/review-items/rev-1", { status: 200, data: { item: { ...sampleItem, status: "accepted" } } });
     render(<ReviewCenter />);
     const row = await screen.findByTestId("review-rev-1");
-    expect(row.textContent).toContain("accepted");
+    // accepted → 已接受
+    expect(row.textContent).toContain("已接受");
   });
 });

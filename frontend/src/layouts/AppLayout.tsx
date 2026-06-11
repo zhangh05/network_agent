@@ -9,94 +9,38 @@ interface AppLayoutProps {
 }
 
 /**
- * Three-column app layout. Column 1 is always the sidebar.
- * Column 3 is the inspector (used by AgentWorkbench). Other pages
- * skip column 3 by passing `cols={2}` or `cols={1}`.
+ * Multi-column app layout. Column 1 is the left sidebar
+ * (Workspace / Sessions / Recent Runs). Column 3 is the Turn
+ * Inspector (used by AgentWorkbench). Other pages opt out of column 3
+ * by passing `cols={2}`; AgentWorkbench is the only one using `cols=3`.
  */
 export function AppLayout({ cols, children }: AppLayoutProps) {
-  const { sidebarOpen, inspectorOpen, toggleSidebar, toggleInspector } =
-    useUIStore();
-
-  const className =
-    "app-body" +
-    (cols === 1 ? " cols-1" : cols === 2 ? " cols-2" : "");
+  const sidebarOpen = useUIStore((s) => s.sidebarOpen);
+  const inspectorOpen = useUIStore((s) => s.inspectorOpen);
 
   return (
-    <main className={className} data-testid="app-layout" data-cols={cols}>
-      {cols >= 1 && sidebarOpen && (
-        <aside className="col left" data-testid="layout-left">
-          <div className="col-header">
-            <span>Workspace · Sessions · Runs</span>
-            <button
-              onClick={toggleSidebar}
-              className="btn ghost sm"
-              data-testid="btn-toggle-sidebar"
-              type="button"
-            >
-              «
-            </button>
-          </div>
-          <div className="col-body">
-            <Sidebar />
-          </div>
-        </aside>
-      )}
+    <>
+      <aside
+        className={"app-sidebar" + (sidebarOpen ? "" : " collapsed")}
+        data-testid="layout-left"
+        aria-label="侧栏"
+      >
+        {sidebarOpen && <Sidebar />}
+      </aside>
 
-      <section className="col" data-testid="layout-center">
-        {!sidebarOpen && (
-          <button
-            onClick={toggleSidebar}
-            className="btn ghost sm"
-            style={{
-              position: "absolute",
-              top: 56,
-              left: 8,
-              zIndex: 10,
-            }}
-            data-testid="btn-open-sidebar"
-            type="button"
-          >
-            »
-          </button>
-        )}
+      <section className="app-content" data-testid="layout-center">
         {children}
       </section>
 
-      {cols === 3 && inspectorOpen && (
-        <aside className="col right" data-testid="layout-right">
-          <div className="col-header">
-            <span>Turn Inspector</span>
-            <button
-              onClick={toggleInspector}
-              className="btn ghost sm"
-              data-testid="btn-toggle-inspector"
-              type="button"
-            >
-              »
-            </button>
-          </div>
-          <div className="col-body">
-            <Inspector />
-          </div>
+      {cols === 3 && (
+        <aside
+          className={"app-inspector" + (inspectorOpen ? "" : " collapsed")}
+          data-testid="layout-right"
+          aria-label="检查器"
+        >
+          {inspectorOpen && <Inspector />}
         </aside>
       )}
-
-      {cols === 3 && !inspectorOpen && (
-        <button
-          onClick={toggleInspector}
-          className="btn ghost sm"
-          style={{
-            position: "absolute",
-            top: 56,
-            right: 8,
-            zIndex: 10,
-          }}
-          data-testid="btn-open-inspector"
-          type="button"
-        >
-          «
-        </button>
-      )}
-    </main>
+    </>
   );
 }

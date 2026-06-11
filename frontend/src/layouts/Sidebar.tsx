@@ -5,17 +5,11 @@ import { useSessionStore } from "../stores/session";
 import { useToastStore } from "../stores/toast";
 import { isApiError } from "../types";
 import type { Session, Workspace } from "../types";
+import { IconArchive, IconBolt, IconChat, IconPlus, IconWorkspace } from "../components/Icon";
 
 /**
- * Sidebar — Workspace / Sessions / Recent Runs.
- * Real backend endpoints (v1.0.1):
- *   GET   /api/workspaces
- *   GET   /api/sessions?workspace_id=&status=active
- *   POST  /api/sessions  (create)
- *   POST  /api/sessions/<id>/archive
- *   PUT   /api/sessions/<id>?workspace_id= (rename)
- *   DELETE /api/sessions/<id>?workspace_id=&confirm=true
- *   GET   /api/runs/recent?workspace_id=
+ * Sidebar — Workspace / Sessions / Recent Runs. All data is fetched
+ * from the real backend; no mocks, no fallback.
  */
 export function Sidebar() {
   const {
@@ -74,12 +68,12 @@ export function Sidebar() {
       if (res?.session) {
         setCurrentSession(res.session.session_id);
         sessList.reload();
-        toast({ kind: "success", title: "新 session 已创建", body: res.session.session_id });
+        toast({ kind: "success", title: "新会话已创建", body: res.session.session_id });
       }
     } catch (e: unknown) {
       toast({
         kind: "error",
-        title: "创建 session 失败",
+        title: "创建会话失败",
         body: isApiError(e) ? e.message : String(e),
         request_id: isApiError(e) ? e.request_id : undefined,
       });
@@ -106,17 +100,21 @@ export function Sidebar() {
   }
 
   return (
-    <div data-testid="sidebar">
-      <div className="card">
-        <div className="card-title">Workspaces</div>
+    <div data-testid="sidebar" className="col-flex" style={{ gap: 16 }}>
+      {/* 工作区 */}
+      <div className="sidebar-panel">
+        <div className="sidebar-panel-title">
+          <IconWorkspace size={12} />
+          <span>工作区</span>
+        </div>
         <AsyncView
           state={wsList.state}
           onRetry={wsList.reload}
-          emptyText="暂无 workspace"
-          emptyHint="后端返回 workspaces 为空"
+          emptyText="暂无工作区"
+          emptyHint="请检查后端 8010"
         >
           {(d) => (
-            <div data-testid="ws-list">
+            <div className="list" data-testid="ws-list">
               {(d.workspaces ?? []).map((w) => (
                 <button
                   key={w.workspace_id}
@@ -130,7 +128,7 @@ export function Sidebar() {
                 >
                   <span className="status-dot ok" />
                   <span className="title">{w.name || w.workspace_id}</span>
-                  {w.is_default && <span className="badge muted">default</span>}
+                  {w.is_default && <span className="meta">默认</span>}
                 </button>
               ))}
             </div>
@@ -138,29 +136,30 @@ export function Sidebar() {
         </AsyncView>
       </div>
 
-      <div className="card">
-        <div className="row-flex" style={{ marginBottom: 4 }}>
-          <div className="card-title" style={{ margin: 0 }}>Sessions</div>
-          <span className="spacer" />
+      {/* 会话 */}
+      <div className="sidebar-panel">
+        <div className="sidebar-panel-title">
+          <IconChat size={12} />
+          <span>会话</span>
           <button
-            className="btn ghost sm"
+            className="panel-action"
             onClick={onNewSession}
             disabled={!currentWorkspaceId}
             data-testid="btn-new-session"
             type="button"
-            title="新 session"
+            aria-label="新建会话"
           >
-            +
+            <IconPlus size={11} />
           </button>
         </div>
         <AsyncView
           state={sessList.state}
           onRetry={sessList.reload}
-          emptyText="暂无活跃 session"
+          emptyText="暂无活跃会话"
           emptyHint="点击 + 新建"
         >
           {(d) => (
-            <div data-testid="sess-list">
+            <div className="list" data-testid="sess-list">
               {(d.sessions ?? []).map((sess) => (
                 <div
                   key={sess.session_id}
@@ -169,6 +168,7 @@ export function Sidebar() {
                     (currentSessionId === sess.session_id ? " active" : "")
                   }
                   data-testid={`sess-${sess.session_id}`}
+                  style={{ paddingRight: 4 }}
                 >
                   <button
                     onClick={() => setCurrentSession(sess.session_id)}
@@ -181,22 +181,34 @@ export function Sidebar() {
                       gap: 6,
                       textAlign: "left",
                       padding: 0,
+                      background: "none",
+                      border: "none",
+                      color: "inherit",
+                      fontFamily: "inherit",
+                      cursor: "pointer",
+                      minWidth: 0,
                     }}
                   >
-                    <span className="title">{sess.title || sess.session_id}</span>
-                    <span className="meta">{sess.message_count}</span>
+                    <span className="title" style={{ minWidth: 0 }}>
+                      {sess.title || sess.session_id}
+                    </span>
+                    {sess.message_count > 0 && (
+                      <span className="meta">{sess.message_count}</span>
+                    )}
                   </button>
                   <button
-                    className="btn ghost sm"
                     onClick={(e) => {
                       e.stopPropagation();
                       void onArchive(sess);
                     }}
+                    className="btn ghost sm"
+                    style={{ padding: "0 4px", height: 22 }}
                     data-testid={`btn-archive-${sess.session_id}`}
                     type="button"
+                    aria-label="归档"
                     title="归档"
                   >
-                    ×
+                    <IconArchive size={12} />
                   </button>
                 </div>
               ))}
@@ -205,23 +217,31 @@ export function Sidebar() {
         </AsyncView>
       </div>
 
-      <div className="card">
-        <div className="card-title">Recent Runs</div>
+      {/* 最近运行 */}
+      <div className="sidebar-panel">
+        <div className="sidebar-panel-title">
+          <IconBolt size={12} />
+          <span>最近运行</span>
+        </div>
         <AsyncView
           state={recentRuns.state}
           onRetry={recentRuns.reload}
           emptyText="暂无运行记录"
         >
           {(d) => (
-            <div data-testid="runs-list">
-              {(d.runs ?? []).slice(0, 10).map((r, i) => {
+            <div className="list" data-testid="runs-list">
+              {(d.runs ?? []).slice(0, 8).map((r, i) => {
                 const runId = r.run_id ?? `run-${i}`;
                 return (
-                  <div className="list-item" key={runId}>
+                  <div className="list-item" key={runId} style={{ cursor: "default" }}>
                     <span
                       className={
                         "status-dot " +
-                        (r.status === "ok" ? "ok" : r.status === "failed" ? "err" : "idle")
+                        (r.status === "ok"
+                          ? "ok"
+                          : r.status === "failed"
+                            ? "err"
+                            : "idle")
                       }
                     />
                     <span className="title mono text-sm">{runId}</span>

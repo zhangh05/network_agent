@@ -1,15 +1,23 @@
 import { useState } from "react";
 import { artifactsApi } from "../../api";
-import { useAsync, AsyncView, Badge, CodeBlock, EmptyState, InlineCode } from "../../components/common";
+import {
+  useAsync,
+  AsyncView,
+  Badge,
+  CodeBlock,
+  InlineCode,
+} from "../../components/common";
 import { useSessionStore } from "../../stores/session";
 import type { Artifact } from "../../types";
+import { IconBox, IconDocument, IconExternal } from "../../components/Icon";
 
-/**
- * Artifact Center — list / read / diff / export. Surfaces
- * `authoritative`, `deployable_config`, `sensitivity`, and `metadata`.
- * Frontend does NOT compute diffs; the backend provides a diff payload
- * (or null). If diff is missing, we render the raw content.
- */
+const SENSITIVITY_LABEL: Record<string, string> = {
+  public: "公开",
+  internal: "内部",
+  sensitive: "敏感",
+  secret: "机密",
+};
+
 export function ArtifactCenter() {
   const { currentWorkspaceId } = useSessionStore();
   const [selected, setSelected] = useState<Artifact | null>(null);
@@ -25,19 +33,39 @@ export function ArtifactCenter() {
   );
 
   return (
-    <div
-      style={{ display: "flex", flexDirection: "column", height: "100%" }}
-      data-testid="page-artifacts"
-    >
+    <div className="page" data-testid="page-artifacts">
       <div className="page-header">
         <div>
-          <h1>Artifact Center</h1>
-          <div className="subtitle">list / read / diff / export — 不修改原 artifact</div>
+          <h1>
+            制品中心{" "}
+            <span style={{ color: "var(--ink-mute)", fontWeight: 400, fontSize: 14 }}>
+              · Artifact Center
+            </span>
+          </h1>
+          <div className="subtitle">
+            列出 / 预览 / 对比 / 导出 · <strong>不</strong>修改原 artifact
+          </div>
         </div>
       </div>
-      <div style={{ display: "grid", gridTemplateColumns: "320px 1fr", flex: 1, minHeight: 0 }}>
-        <aside style={{ borderRight: "1px solid var(--border)", overflowY: "auto" }}>
+      <div
+        style={{
+          display: "grid",
+          gridTemplateColumns: "320px 1fr",
+          flex: 1,
+          minHeight: 0,
+        }}
+      >
+        <aside
+          style={{
+            borderRight: "1px solid var(--line)",
+            overflowY: "auto",
+            background: "var(--bg-elev)",
+          }}
+        >
           <div style={{ padding: 12 }}>
+            <div className="section-head" style={{ paddingLeft: 4, marginBottom: 8 }}>
+              <IconBox size={11} /> 制品列表
+            </div>
             <AsyncView
               state={list.state}
               onRetry={list.reload}
@@ -45,28 +73,36 @@ export function ArtifactCenter() {
               emptyHint="后端返回为空"
             >
               {(d) => (
-                <div data-testid="artifact-list">
+                <div className="list" data-testid="artifact-list">
                   {(d.artifacts ?? []).map((a) => (
                     <button
                       key={a.artifact_id}
                       type="button"
                       className={
-                        "list-item" + (selected?.artifact_id === a.artifact_id ? " active" : "")
+                        "list-item" +
+                        (selected?.artifact_id === a.artifact_id ? " active" : "")
                       }
                       onClick={() => setSelected(a)}
                       data-testid={`artifact-${a.artifact_id}`}
+                      style={{
+                        flexDirection: "column",
+                        alignItems: "flex-start",
+                        height: "auto",
+                        padding: "8px 10px",
+                        gap: 4,
+                      }}
                     >
-                      <span className="title">
+                      <span className="title" style={{ minWidth: 0 }}>
                         {a.title || a.artifact_id}
                       </span>
-                      <div className="row-flex" style={{ gap: 4, marginTop: 2 }}>
+                      <div className="row-flex" style={{ gap: 4, flexWrap: "wrap" }}>
                         <Badge kind="muted">{a.artifact_type}</Badge>
-                        {a.authoritative && <Badge kind="pri">auth</Badge>}
-                        {a.deployable_config && <Badge kind="warn">deployable</Badge>}
+                        {a.authoritative && <Badge kind="pri">权威</Badge>}
+                        {a.deployable_config && <Badge kind="warn">可下发</Badge>}
                         {a.sensitivity === "sensitive" && (
-                          <Badge kind="warn">sensitive</Badge>
+                          <Badge kind="warn">敏感</Badge>
                         )}
-                        {a.sensitivity === "secret" && <Badge kind="err">secret</Badge>}
+                        {a.sensitivity === "secret" && <Badge kind="err">机密</Badge>}
                       </div>
                     </button>
                   ))}
@@ -75,7 +111,10 @@ export function ArtifactCenter() {
             </AsyncView>
           </div>
         </aside>
-        <section style={{ overflowY: "auto", padding: 16 }} data-testid="artifact-detail">
+        <section
+          style={{ overflowY: "auto", padding: 20, minHeight: 0 }}
+          data-testid="artifact-detail"
+        >
           {selected ? (
             <ArtifactDetail
               artifact={selected}
@@ -83,7 +122,11 @@ export function ArtifactCenter() {
               onTabChange={setTab}
             />
           ) : (
-            <EmptyState text="未选择 artifact" hint="在左侧选择一项" />
+            <div className="hero" style={{ minHeight: "auto", padding: 60 }}>
+              <div className="hero-mark">制</div>
+              <h1 className="hero-title">未选择 artifact</h1>
+              <p className="hero-sub">在左侧列表中选择一项查看详情</p>
+            </div>
           )}
         </section>
       </div>
@@ -102,49 +145,73 @@ function ArtifactDetail({
 }) {
   return (
     <div>
-      <div className="row-flex" style={{ marginBottom: 8 }}>
-        <InlineCode>{artifact.artifact_id}</InlineCode>
-        <span className="muted text-sm">{artifact.title}</span>
+      <div
+        className="row-flex"
+        style={{ marginBottom: 12, paddingBottom: 12, borderBottom: "1px solid var(--line-soft)" }}
+      >
+        <span className="row-flex" style={{ minWidth: 0 }}>
+          <IconDocument size={14} style={{ color: "var(--accent)" }} />
+          <InlineCode>{artifact.artifact_id}</InlineCode>
+          {artifact.title && <span className="muted text-sm">{artifact.title}</span>}
+        </span>
         <span className="spacer" />
-        {artifact.authoritative && <Badge kind="pri">authoritative</Badge>}
-        {artifact.deployable_config && <Badge kind="warn">deployable</Badge>}
-        <Badge kind="muted">{artifact.sensitivity}</Badge>
+        {artifact.authoritative && <Badge kind="pri">权威</Badge>}
+        {artifact.deployable_config && <Badge kind="warn">可下发</Badge>}
+        <Badge kind="muted">
+          {SENSITIVITY_LABEL[artifact.sensitivity ?? "internal"] ?? "内部"}
+        </Badge>
+        <button
+          className="btn sm"
+          type="button"
+          onClick={() => {
+            const text = artifact.content_preview ?? "";
+            void navigator.clipboard?.writeText(text);
+          }}
+        >
+          <IconExternal size={11} /> 复制
+        </button>
       </div>
+
       <div className="tabs">
         <button
           type="button"
-          className={tab === "preview" ? "active" : ""}
+          className={"tab" + (tab === "preview" ? " active" : "")}
           onClick={() => onTabChange("preview")}
           data-testid="tab-preview"
         >
-          Preview
+          预览
         </button>
         <button
           type="button"
-          className={tab === "diff" ? "active" : ""}
+          className={"tab" + (tab === "diff" ? " active" : "")}
           onClick={() => onTabChange("diff")}
           data-testid="tab-diff"
         >
-          Diff
+          对比
         </button>
         <button
           type="button"
-          className={tab === "metadata" ? "active" : ""}
+          className={"tab" + (tab === "metadata" ? " active" : "")}
           onClick={() => onTabChange("metadata")}
           data-testid="tab-metadata"
         >
-          Metadata
+          元数据
         </button>
       </div>
-      <div className="mt-2">
+
+      <div className="mt-3">
         {tab === "preview" && (
           <CodeBlock language="text">
-            {artifact.content_preview ?? "(no preview available)"}
+            {artifact.content_preview ?? "(无可用预览)"}
           </CodeBlock>
         )}
         {tab === "diff" && (
-          <div className="muted text-sm">
-            后端尚未返回 diff payload；如需 diff，请调用后端专门的 diff endpoint
+          <div className="empty">
+            <div className="empty-icon">⇌</div>
+            <div className="empty-text">diff payload 由后端提供</div>
+            <div className="empty-hint">
+              如需 diff，请调用后端专门 endpoint（前端不实现 diff 业务）
+            </div>
           </div>
         )}
         {tab === "metadata" && (

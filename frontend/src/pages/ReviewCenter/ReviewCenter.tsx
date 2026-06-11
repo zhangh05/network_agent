@@ -8,17 +8,24 @@ import type { ReviewItem, ReviewStatus } from "../../types";
 
 const STATUS_OPTIONS: { value: ReviewStatus | "all"; label: string }[] = [
   { value: "all", label: "全部" },
-  { value: "pending", label: "pending" },
-  { value: "accepted", label: "accepted" },
-  { value: "ignored", label: "ignored" },
-  { value: "modified", label: "modified" },
+  { value: "pending", label: "待处理" },
+  { value: "accepted", label: "已接受" },
+  { value: "ignored", label: "已忽略" },
+  { value: "modified", label: "已修改" },
 ];
 
-const STATUS_KIND: Record<ReviewStatus, "warn" | "ok" | "muted" | "info"> = {
-  pending: "warn",
-  accepted: "ok",
-  ignored: "muted",
-  modified: "info",
+const STATUS_KIND: Record<ReviewStatus, "s-pending" | "s-accepted" | "s-ignored" | "s-modified"> = {
+  pending: "s-pending",
+  accepted: "s-accepted",
+  ignored: "s-ignored",
+  modified: "s-modified",
+};
+
+const STATUS_LABEL: Record<ReviewStatus, string> = {
+  pending: "待处理",
+  accepted: "已接受",
+  ignored: "已忽略",
+  modified: "已修改",
 };
 
 /**
@@ -78,15 +85,17 @@ export function ReviewCenter() {
   }
 
   return (
-    <div
-      style={{ display: "flex", flexDirection: "column", height: "100%" }}
-      data-testid="page-reviews"
-    >
+    <div className="page" data-testid="page-reviews">
       <div className="page-header">
         <div>
-          <h1>Review Center</h1>
+          <h1>
+            评审中心{" "}
+            <span style={{ color: "var(--ink-mute)", fontWeight: 400, fontSize: 14 }}>
+              · Review Center
+            </span>
+          </h1>
           <div className="subtitle">
-            pending / accepted / ignored / modified — <strong>不修改原 artifact</strong>
+            待处理 / 已接受 / 已忽略 / 已修改 — <strong>不</strong>修改原 artifact
           </div>
         </div>
         <div className="row-flex">
@@ -103,7 +112,7 @@ export function ReviewCenter() {
           ))}
         </div>
       </div>
-      <div style={{ padding: 16, overflowY: "auto", flex: 1 }}>
+      <div className="page-body">
         <AsyncView
           state={list.state}
           onRetry={list.reload}
@@ -116,11 +125,11 @@ export function ReviewCenter() {
                 <tr>
                   <th>item_id</th>
                   <th>artifact</th>
-                  <th>severity</th>
-                  <th>category</th>
-                  <th>status</th>
-                  <th>note</th>
-                  <th>actions</th>
+                  <th>严重度</th>
+                  <th>分类</th>
+                  <th>状态</th>
+                  <th>备注</th>
+                  <th style={{ width: 90 }}>操作</th>
                 </tr>
               </thead>
               <tbody>
@@ -130,7 +139,7 @@ export function ReviewCenter() {
                     <tr key={it.item_id} data-testid={`review-${it.item_id}`}>
                       <td className="mono text-xs">{it.item_id}</td>
                       <td>
-                        {artifactId ? <InlineCode>{artifactId}</InlineCode> : "—"}
+                        {artifactId ? <InlineCode>{artifactId}</InlineCode> : <span className="muted">—</span>}
                       </td>
                       <td>
                         <Badge
@@ -142,13 +151,13 @@ export function ReviewCenter() {
                                 : "info"
                           }
                         >
-                          {it.severity}
+                          {it.severity === "error" ? "错误" : it.severity === "warning" ? "警告" : "提示"}
                         </Badge>
                       </td>
-                      <td>{(it as ReviewItem & { category?: string }).category || "—"}</td>
+                      <td>{(it as ReviewItem & { category?: string }).category || <span className="muted">—</span>}</td>
                       <td>
                         <Badge kind={STATUS_KIND[it.status]} withDot>
-                          {it.status}
+                          {STATUS_LABEL[it.status]}
                         </Badge>
                       </td>
                       <td className="text-sm muted">
@@ -178,43 +187,35 @@ export function ReviewCenter() {
 
       {editing && (
         <div
-          style={{
-            position: "fixed",
-            inset: 0,
-            background: "rgba(0,0,0,0.4)",
-            display: "flex",
-            alignItems: "center",
-            justifyContent: "center",
-            zIndex: 200,
-          }}
+          className="modal-backdrop"
           onClick={() => setEditing(null)}
           data-testid="review-modal"
         >
           <div
-            className="card"
-            style={{ width: 480, padding: 16, background: "var(--bg-elev)" }}
+            className="modal"
             onClick={(e) => e.stopPropagation()}
+            style={{ minWidth: 460 }}
           >
-            <div className="row-flex" style={{ marginBottom: 8 }}>
-              <span className="row-flex">
-                <InlineCode>{editing.item_id}</InlineCode>
-                <Badge kind={STATUS_KIND[editing.status]} withDot>
-                  {editing.status}
-                </Badge>
-              </span>
+            <div className="modal-title">
+              <InlineCode>{editing.item_id}</InlineCode>
+              <Badge kind={STATUS_KIND[editing.status]} withDot>
+                {STATUS_LABEL[editing.status]}
+              </Badge>
             </div>
-            <div className="text-sm muted mb-2">
-              {editing.reason || (editing as ReviewItem & { category?: string }).category || "(no reason)"}
+            <div className="text-sm muted mb-3" style={{ padding: 10, background: "var(--bg-soft)", borderRadius: "var(--r-sm)" }}>
+              {editing.reason ||
+                (editing as ReviewItem & { category?: string }).category ||
+                "(无说明)"}
             </div>
             <textarea
               className="input"
               rows={4}
               value={note}
               onChange={(e) => setNote(e.target.value)}
-              placeholder="user_note (可选)"
+              placeholder="user_note（可选）"
               data-testid="review-note-input"
             />
-            <div className="row-flex mt-2">
+            <div className="row-flex mt-3" style={{ gap: 8 }}>
               <select
                 className="input"
                 value={editing.status}
@@ -222,32 +223,34 @@ export function ReviewCenter() {
                   setEditing({ ...editing, status: e.target.value as ReviewStatus })
                 }
                 data-testid="review-status-select"
-                style={{ width: 160 }}
+                style={{ width: 180 }}
               >
                 {(["pending", "accepted", "ignored", "modified"] as ReviewStatus[]).map(
                   (s) => (
                     <option key={s} value={s}>
-                      {s}
+                      {STATUS_LABEL[s]}
                     </option>
                   ),
                 )}
               </select>
               <span className="spacer" />
-              <button
-                type="button"
-                className="btn"
-                onClick={() => setEditing(null)}
-              >
-                取消
-              </button>
-              <button
-                type="button"
-                className="btn primary"
-                onClick={onSave}
-                data-testid="btn-save-review"
-              >
-                保存
-              </button>
+              <div className="modal-actions" style={{ marginTop: 0 }}>
+                <button
+                  type="button"
+                  className="btn"
+                  onClick={() => setEditing(null)}
+                >
+                  取消
+                </button>
+                <button
+                  type="button"
+                  className="btn primary"
+                  onClick={onSave}
+                  data-testid="btn-save-review"
+                >
+                  保存
+                </button>
+              </div>
             </div>
           </div>
         </div>

@@ -48,7 +48,8 @@ describe("Agent Workbench — source_summary rendering", () => {
     fireEvent.click(screen.getByTestId("btn-send"));
     const summary = await screen.findByTestId("inline-source-summary");
     expect(summary).toBeInTheDocument();
+    // UI 在 v1.0.1 UI 重设计后中文化；inline source chip 显示 title + score
     expect(summary.textContent).toContain("OSPF 完全手册");
-    expect(summary.textContent).toContain("OSPF（开放式最短路径优先）");
+    expect(summary.textContent).toContain("4.50");
   });
 });

@@ -37,10 +37,11 @@ describe("ArtifactCenter — artifact card", () => {
     const item = await screen.findByTestId("artifact-art-1");
     fireEvent.click(item);
     expect(item.textContent).toContain("translated_config");
-    expect(item.textContent).toContain("auth");
+    // 权威 (authoritative) + 敏感 (sensitive) — UI 在 v1.0.1 UI 重设计后中文化
+    expect(item.textContent).toContain("权威");
     // Detail panel renders the sensitivity badge.
     const detail = await screen.findByTestId("artifact-detail");
-    expect(detail.textContent).toContain("sensitive");
-    expect(detail.textContent).toContain("authoritative");
+    expect(detail.textContent).toContain("敏感");
+    expect(detail.textContent).toContain("权威");
   });
 });
