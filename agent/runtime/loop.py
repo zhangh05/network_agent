@@ -191,8 +191,6 @@ def run_turn(session, turn, services=None) -> AgentResult:
         if store.exists():
             window = store.get_history_window(k=8)
             if window:
-                # Map SessionMessage → agent.protocol.message (UserMessage/AssistantMessage)
-                from agent.protocol.message import UserMessage, AssistantMessage
                 msgs = []
                 for m in window:
                     if m.get("role") == "user":
