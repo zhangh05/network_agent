@@ -90,24 +90,31 @@ def _scan_block(lines: List[str], start: int, kind: str) -> int:
     return start + 1
 
 
-def _split_into_sections(md: str) -> List[Tuple[str, str, str, Optional[int]]]:
-    """Split markdown into (chapter, section, body, page_start) tuples.
+def _split_into_sections(md: str) -> List[Tuple[str, str, str, str, Optional[int]]]:
+    """Split markdown into (chapter, section, subsection, body, page_start) tuples.
 
-    `chapter` is the H1, `section` is the most recent H2 (or "" if
-    none). `body` is the markdown between the current H2 (or H1) and
-    the next H1 / H2.
+    v1.0.2: added H3 (subsection) tracking. The v1.0.1 chunker treated
+    H3 as body, which made "section 1.1 OSPF 简介" invisible to
+    metadata-based queries. Now:
+      - H1 -> chapter
+      - H2 -> section
+      - H3 -> subsection
+    The chunker emits (chapter, section, subsection, body, page_start)
+    so the chunk metadata exposes all three levels.
     """
     lines = md.splitlines()
-    sections: List[Tuple[str, str, str, Optional[int]]] = []
+    sections: List[Tuple[str, str, str, str, Optional[int]]] = []
     current_chapter = ""
     current_section = ""
+    current_subsection = ""
     current_body: List[str] = []
     current_page: Optional[int] = None
     page_in_section: Optional[int] = None
 
     def flush():
         body = "\n".join(current_body).rstrip()
-        sections.append((current_chapter, current_section, body, page_in_section))
+        sections.append((current_chapter, current_section,
+                          current_subsection, body, page_in_section))
 
     i = 0
     while i < len(lines):
@@ -125,20 +132,30 @@ def _split_into_sections(md: str) -> List[Tuple[str, str, str, Optional[int]]]:
             title = m_h.group(2).strip()
             if level == 1:
                 # New chapter
-                if current_body or current_chapter or current_section:
+                if current_body or current_chapter or current_section or current_subsection:
                     flush()
                 current_chapter = title
                 current_section = ""
+                current_subsection = ""
                 current_body = []
                 page_in_section = current_page
             elif level == 2:
-                if current_body or current_section:
+                # New section
+                if current_body or current_section or current_subsection:
                     flush()
                 current_section = title
+                current_subsection = ""
+                current_body = []
+                page_in_section = current_page
+            elif level == 3:
+                # New subsection (v1.0.2)
+                if current_body:
+                    flush()
+                current_subsection = title
                 current_body = []
                 page_in_section = current_page
             else:
-                # h3+ is part of body
+                # h4+ is part of body
                 current_body.append(line)
             i += 1
             continue
@@ -151,10 +168,10 @@ def _split_into_sections(md: str) -> List[Tuple[str, str, str, Optional[int]]]:
             continue
         current_body.append(line)
         i += 1
-    if current_body or current_chapter or current_section:
+    if current_body or current_chapter or current_section or current_subsection:
         flush()
     # Drop empty sections
-    return [s for s in sections if s[2]]
+    return [s for s in sections if s[3]]
 
 
 def _split_body_by_paragraphs(body: str) -> List[str]:
@@ -210,13 +227,13 @@ def _split_long_paragraph(p: str, max_len: int) -> List[str]:
     return out
 
 
-def _make_parents(sections: List[Tuple[str, str, str, Optional[int]]],
+def _make_parents(sections: List[Tuple[str, str, str, str, Optional[int]]],
                    source_id: str, source_title: str, scope: str) -> List[KnowledgeChunk]:
     """Create one parent per section, keeping it under PARENT_MAX by
     further splitting at paragraph boundaries if necessary.
     """
     parents: List[KnowledgeChunk] = []
-    for ch_idx, (chapter, section, body, page_start) in enumerate(sections):
+    for ch_idx, (chapter, section, subsection, body, page_start) in enumerate(sections):
         # If body is small, one parent = the whole section.
         if len(body) <= PARENT_MAX:
             pc = KnowledgeChunk(
@@ -226,18 +243,19 @@ def _make_parents(sections: List[Tuple[str, str, str, Optional[int]]],
                 chunk_type="parent",
                 chapter=chapter,
                 section=section,
-                subsection="",
+                subsection=subsection,
                 page_start=page_start,
                 page_end=None,
                 chunk_index=ch_idx,
                 content=body,
-                index_text=_build_index_text(source_title, chapter, section, "", body),
+                index_text=_build_index_text(source_title, chapter, section, subsection, body),
                 token_count=_approx_token_count(body),
                 metadata={
                     "scope": scope,
                     "source_title": source_title,
                     "chapter": chapter,
                     "section": section,
+                    "subsection": subsection,
                 },
             )
             parents.append(pc)
@@ -256,18 +274,19 @@ def _make_parents(sections: List[Tuple[str, str, str, Optional[int]]],
                     chunk_type="parent",
                     chapter=chapter,
                     section=section,
-                    subsection="",
+                    subsection=subsection,
                     page_start=page_start,
                     page_end=None,
                     chunk_index=ch_idx * 100 + sub_idx,
                     content="\n\n".join(cur),
-                    index_text=_build_index_text(source_title, chapter, section, "", "\n\n".join(cur)),
+                    index_text=_build_index_text(source_title, chapter, section, subsection, "\n\n".join(cur)),
                     token_count=_approx_token_count("\n\n".join(cur)),
                     metadata={
                         "scope": scope,
                         "source_title": source_title,
                         "chapter": chapter,
                         "section": section,
+                        "subsection": subsection,
                     },
                 )
                 parents.append(pc)
@@ -284,18 +303,19 @@ def _make_parents(sections: List[Tuple[str, str, str, Optional[int]]],
                 chunk_type="parent",
                 chapter=chapter,
                 section=section,
-                subsection="",
+                subsection=subsection,
                 page_start=page_start,
                 page_end=None,
                 chunk_index=ch_idx * 100 + sub_idx,
                 content="\n\n".join(cur),
-                index_text=_build_index_text(source_title, chapter, section, "", "\n\n".join(cur)),
+                index_text=_build_index_text(source_title, chapter, section, subsection, "\n\n".join(cur)),
                 token_count=_approx_token_count("\n\n".join(cur)),
                 metadata={
                     "scope": scope,
                     "source_title": source_title,
                     "chapter": chapter,
                     "section": section,
+                    "subsection": subsection,
                 },
             )
             parents.append(pc)
@@ -329,13 +349,14 @@ def _make_children(parents: List[KnowledgeChunk], source_id: str,
                 page_end=None,
                 chunk_index=parent.chunk_index * 1000,
                 content=body,
-                index_text=_build_index_text(source_title, parent.chapter, parent.section, "", body),
+                index_text=_build_index_text(source_title, parent.chapter, parent.section, parent.subsection, body),
                 token_count=_approx_token_count(body),
                 metadata={
                     "scope": scope,
                     "source_title": source_title,
                     "chapter": parent.chapter,
                     "section": parent.section,
+                    "subsection": parent.subsection,
                     "parent_chunk_id": parent.chunk_id,
                 },
             )
@@ -372,13 +393,14 @@ def _make_children(parents: List[KnowledgeChunk], source_id: str,
                 page_end=None,
                 chunk_index=parent.chunk_index * 1000 + child_idx,
                 content=slice_text,
-                index_text=_build_index_text(source_title, parent.chapter, parent.section, "", slice_text),
+                index_text=_build_index_text(source_title, parent.chapter, parent.section, parent.subsection, slice_text),
                 token_count=_approx_token_count(slice_text),
                 metadata={
                     "scope": scope,
                     "source_title": source_title,
                     "chapter": parent.chapter,
                     "section": parent.section,
+                    "subsection": parent.subsection,
                     "parent_chunk_id": parent.chunk_id,
                 },
             )

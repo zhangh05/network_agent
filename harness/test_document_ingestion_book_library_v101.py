@@ -455,9 +455,11 @@ class TestBM25:
         assert h["lexical_score"] > 0
         assert h["semantic_score"] is None
         assert h["score"] > 0
-        # Backend metadata
+        # Backend metadata. v1.0.2 renamed the scoring key from
+        # "bm25_v1" to "bm25_v1_field_weighted" (the field-weighted
+        # variant is the only variant shipped from v1.0.2 onward).
         assert r["metadata"]["retrieval_backend"] == "local_bm25"
-        assert r["metadata"]["scoring"] == "bm25_v1"
+        assert r["metadata"]["scoring"] == "bm25_v1_field_weighted"
 
     def test_no_hits_does_not_fabricate(self, fresh_ws):
         from agent.modules.knowledge.ingestion import import_file as _ingest

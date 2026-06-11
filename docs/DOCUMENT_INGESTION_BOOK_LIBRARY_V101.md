@@ -1,8 +1,9 @@
-# Document Ingestion & Book Library v1.0.1
+# Document Ingestion & Book Library v1.0.1 / v1.0.1.1
 
-> 把 `knowledge` capability 升级为**完整后端知识库能力**：原始文件 → 标准化 Markdown → Source → Parent/Child Chunks → 混合检索 → 父级上下文扩展 → 真实来源返回。
-> 本轮只做后端，不做前端。
-> 配套：[README.md](../README.md) · [ARCHITECTURE.md](ARCHITECTURE.md) · [CAPABILITY_MANIFEST_V08.md](CAPABILITY_MANIFEST_V08.md) · [KNOWLEDGE_STORE_V10.md](KNOWLEDGE_STORE_V10.md) · [RELEASE_HISTORY.md](RELEASE_HISTORY.md) · [ARTIFACT_REVIEW_FLOW_V09.md](ARTIFACT_REVIEW_FLOW_V09.md)
+> 本文档是 Network Agent `knowledge` capability 的**完整后端知识库**规范（v1.0.1 + v1.0.1.1 安全硬化）。
+> Runtime 主链 0 改动；Tool count = 73（v1.0: 67 → v1.0.1: 73，+6；v1.0.1.1 = 73，**+0**）。
+> v1.0.2 在 v1.0.1.1 之上做**中文检索质量**与**可复现评测**的硬升级，详见 [RETRIEVAL_QUALITY_V102.md](RETRIEVAL_QUALITY_V102.md)。
+> 配套：[README.md](../README.md) · [ARCHITECTURE.md](ARCHITECTURE.md) · [RELEASE_HISTORY.md](RELEASE_HISTORY.md)
 
 > **v1.0.1.1 — Knowledge Ingestion Security & Gate Fix**（硬补丁）：
 > - `import_file` 仅接受 `workspace/{ws_id}/{uploads,inbox}/` 内的路径
@@ -252,6 +253,8 @@ query_knowledge(query, workspace_id, top_k, filters)
 | **v0.7.1 capability tests 零回归** | 41/41 passed |
 | **v0.7.1 capability tests 零回归** | 41/41 passed |
 | **Runtime 主链** | 0 改动 |
+| **v1.0.2 不变量（继承 + 新增）** | 见 [RETRIEVAL_QUALITY_V102.md](RETRIEVAL_QUALITY_V102.md) § 2 |
+| **v1.0.2 chunker H3 → subsection** | `_split_into_sections` 把 H3 作为 subsection 写入 chunk metadata；hit dict 增加 `subsection` 字段 |
 
 ## 13. 模块接入现状
 
