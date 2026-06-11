@@ -30,14 +30,16 @@ class TestConfigTranslationVisibility:
 
     def test_config_translation_skill_enabled(self):
         from agent.skills.registry import SkillRegistry
-        reg = SkillRegistry()
+        from agent.capabilities import get_default_capability_registry
+        reg = SkillRegistry(get_default_capability_registry())
         skill = reg.get_skill("config_translation")
         assert skill is not None, "config_translation skill not found"
         assert skill.status == "enabled", f"Expected enabled, got {skill.status}"
 
     def test_config_translation_module_enabled(self):
         from agent.modules.registry import ModuleRegistry
-        reg = ModuleRegistry()
+        from agent.capabilities import get_default_capability_registry
+        reg = ModuleRegistry(get_default_capability_registry())
         mod = reg.get_module("config_translation")
         assert mod is not None, "config_translation module not found"
         assert mod.status == "enabled", f"Expected enabled, got {mod.status}"
@@ -129,13 +131,15 @@ class TestConfigTranslationCapabilityQuestion:
 
     def test_skill_spec_has_config_translation(self):
         from agent.skills.registry import SkillRegistry
-        reg = SkillRegistry()
+        from agent.capabilities import get_default_capability_registry
+        reg = SkillRegistry(get_default_capability_registry())
         enabled = [s.skill_id for s in reg.list_enabled_skills()]
         assert "config_translation" in enabled, f"config_translation not enabled: {enabled}"
 
     def test_module_snapshot_includes_config_translation(self):
         from agent.modules.registry import ModuleRegistry
-        reg = ModuleRegistry()
+        from agent.capabilities import get_default_capability_registry
+        reg = ModuleRegistry(get_default_capability_registry())
         snap = reg.snapshot()
         enabled_ids = [m["module_id"] for m in snap["enabled"]]
         assert "config_translation" in enabled_ids

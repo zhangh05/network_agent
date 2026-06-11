@@ -1,7 +1,7 @@
 /**
  * E2E 1 — Backend health check via the UI.
  *
- * Verifies the frontend can hit the FastAPI backend through the Vite
+ * Verifies the frontend can hit the Flask backend through the Vite
  * dev proxy and that the topbar navigation is reachable.
  */
 import { test, expect } from "./fixtures";

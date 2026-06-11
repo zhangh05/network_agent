@@ -248,7 +248,7 @@ def _count_artifacts(ws_id: str) -> int:
     if not artifacts_dir.is_dir():
         return 0
     count = 0
-    for sub in ["inputs", "outputs", "reports", "temp"]:
+    for sub in ["inputs", "outputs", "reports", "topology", "knowledge", "temp", "quarantine"]:
         sd = artifacts_dir / sub
         if sd.is_dir():
             count += len(list(sd.glob("*")))
@@ -256,9 +256,9 @@ def _count_artifacts(ws_id: str) -> int:
 
 
 def _count_knowledge_sources(ws_id: str) -> int:
-    """Count knowledge sources from the v1.0.1 index, if present."""
+    """Count knowledge sources from the canonical knowledge store."""
     ws_id = validate_workspace_id(ws_id)
-    sources = WS_ROOT / ws_id / "indexes" / "knowledge" / "sources.jsonl"
+    sources = WS_ROOT / ws_id / "knowledge" / "sources.jsonl"
     if not sources.is_file():
         return 0
     count = 0

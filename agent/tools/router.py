@@ -1,5 +1,12 @@
 # agent/tools/router.py
-"""ToolRouter — centralized tool name mapping and dispatch."""
+"""ToolRouter — centralized tool name mapping and dispatch.
+
+v1.0.4 cleanup: the per-turn tool whitelist is now a per-instance
+property, not a mutable shared global. Callers should construct a
+fresh `ToolRouter.for_turn(registry, allowed_tool_ids)` for every
+turn; mutating the shared instance (via apply_dynamic_visibility) was
+unsafe under concurrent turns and caused cross-talk between turns.
+"""
 
 from agent.tools.schemas import LLMToolSpec
 from agent.tools.registry import ToolRegistry
@@ -14,15 +21,38 @@ class UnknownToolCallError(Exception):
 
 
 class ToolRouter:
-    def __init__(self, registry: ToolRegistry = None):
+    def __init__(self, registry: ToolRegistry = None, *, allowed_tool_ids=None):
+        """Construct a ToolRouter.
+
+        Use `ToolRouter.for_turn(registry, allowed_tool_ids)` for the
+        per-turn pattern. Direct construction is kept for backward
+        compat with tests / legacy call sites; pass `allowed_tool_ids`
+        to bake the per-turn whitelist in at construction time.
+        """
         self.registry = registry or ToolRegistry()
         self.model_visible_specs: list = []
         self.llm_name_map: dict = {}  # llm_safe_name → real_tool_id
-        # v0.8.1 dynamic visibility: when set, model_visible_specs is
-        # the intersection of (registry visible) ∩ (allowed_tool_ids).
-        self._allowed_tool_ids: set[str] | None = None
-        self._dynamic_visibility: bool = False
+        # v1.0.4: per-instance immutable whitelist
+        if allowed_tool_ids:
+            eligible = {s.tool_id for s in self.registry.list_model_visible()}
+            self._allowed_tool_ids: set[str] | None = {
+                t for t in allowed_tool_ids if t in eligible
+            }
+            self._dynamic_visibility: bool = True
+        else:
+            self._allowed_tool_ids = None
+            self._dynamic_visibility = False
         self._build()
+
+    @classmethod
+    def for_turn(cls, tool_registry: ToolRegistry, allowed_tool_ids=None) -> "ToolRouter":
+        """Build a fresh ToolRouter for a single turn.
+
+        This is the v1.0.4-recommended construction path. It produces
+        an independent router (no shared mutable state), so two turns
+        running concurrently cannot cross-talk on `allowed_tool_ids`.
+        """
+        return cls(tool_registry, allowed_tool_ids=allowed_tool_ids)
 
     def _build(self):
         visible = self.registry.list_model_visible()

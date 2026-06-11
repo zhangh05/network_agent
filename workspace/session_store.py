@@ -197,63 +197,21 @@ def add_run_to_session(
 def get_session_messages(session_id: str, ws_id: str = "default") -> List[Dict[str, Any]]:
     """Convert a session's runs into a message list for chat UI restoration.
 
+    v1.0.4: delegates to workspace.message_store.SessionMessageStore
+    so the message_id (and every other field) is identical across
+    every read. The implementation is the single source of truth;
+    this function remains as a thin re-export.
+
     Each run produces two messages:
-      - role: 'user', content: user_input_summary
-      - role: 'assistant', content: final_response_summary + metadata
+      - role: 'user', message_id: '<run_id>:user', content: user_input_summary
+      - role: 'assistant', message_id: '<run_id>:assistant',
+              content: final_response_summary + metadata
 
     Messages are ordered by run creation time.
     """
-    ws_id = validate_workspace_id(ws_id)
-    session = get_session(session_id, ws_id)
-    if not session:
-        return []
-
-    from workspace.run_store import get_run
-
-    messages = []
-    for run_id in session.get("run_ids", []):
-        run = get_run(run_id, ws_id)
-        if not run:
-            continue
-
-        created = run.get("created_at", "")
-        user_text = run.get("user_input_summary", "")
-        assistant_text = run.get("final_response_summary", "")
-        intent = run.get("intent", "")
-        status = run.get("status", "")
-        run_meta = {
-            "run_id": run.get("run_id", ""),
-            "intent": intent,
-            "status": status,
-            "capability": run.get("capability", ""),
-            "quality_summary": run.get("quality_summary", {}),
-            "manual_review_count": run.get("manual_review_count", 0),
-            "trace_id": run.get("trace_id", ""),
-            "llm_metadata": run.get("llm_metadata", {}),
-        }
-
-        # User message
-        if user_text:
-            messages.append({
-                "role": "user",
-                "content": user_text,
-                "created_at": created,
-                "run_id": run.get("run_id", ""),
-            })
-
-        # Assistant message
-        if assistant_text or intent:
-            messages.append({
-                "role": "assistant",
-                "content": assistant_text or "处理完成",
-                "created_at": created,
-                "run_id": run.get("run_id", ""),
-                "metadata": run_meta,
-            })
-
-    # Sort by created_at to ensure chronological order
-    messages.sort(key=lambda m: m.get("created_at", ""))
-    return messages
+    from workspace.message_store import SessionMessageStore
+    store = SessionMessageStore(session_id=session_id, ws_id=ws_id)
+    return store.get_messages()
 
 
 def get_or_create_default_session(ws_id: str = "default") -> Dict[str, Any]:

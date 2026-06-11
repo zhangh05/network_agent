@@ -37,14 +37,19 @@ def default_runtime_services() -> RuntimeServices:
     # CapabilityRegistry is the single source of truth (v0.8).
     cap_reg = get_default_capability_registry()
 
-    # Build tool router from real ToolRuntime catalog
+    # Build the shared ToolRegistry from real ToolRuntime catalog + capability
+    # tools. The ToolRegistry is immutable-once-built and safe to share.
+    # Per-turn ToolRouter instances are built in context_builder.py; this
+    # shared instance MUST NOT be used directly by any turn.
     tool_registry = _build_default_registry(cap_reg)
-    tool_router = ToolRouter(registry=tool_registry)
+    # Use for_turn() to signify this is NOT a turn-capable router.
+    # The context_builder must build a fresh ToolRouter per turn.
+    tool_router = ToolRouter.for_turn(tool_registry)
 
     # Module/Skill registries derived from CapabilityRegistry (legacy API
     # preserved; consumers can keep calling .snapshot(), .list_enabled_*() etc.)
     module_reg = ModuleRegistry.from_capabilities(cap_reg)
-    skill_reg = SkillRegistry.from_capabilities(cap_reg, base_skill_registry=SkillRegistry())
+    skill_reg = SkillRegistry.from_capabilities(cap_reg)
 
     # v0.8.1: SkillSelector driven by CapabilityRegistry.
     skill_sel = SkillSelector(capability_registry=cap_reg)

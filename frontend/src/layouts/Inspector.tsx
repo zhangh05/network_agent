@@ -240,16 +240,13 @@ function ToolCallCard({ tc }: { tc: ToolCallResult }) {
             </Badge>
           )}
         </span>
-        {typeof tc.duration_ms === "number" && (
-          <span className="muted text-xs mono">{tc.duration_ms}ms</span>
-        )}
       </div>
-      {tc.error && (
+      {tc.errors && tc.errors.length > 0 && (
         <div
           className="text-sm"
           style={{ color: "var(--danger)", marginTop: 6 }}
         >
-          {tc.error}
+          {tc.errors.join("; ")}
         </div>
       )}
       {tc.warnings && tc.warnings.length > 0 && (
@@ -262,21 +259,31 @@ function ToolCallCard({ tc }: { tc: ToolCallResult }) {
 }
 
 function countArtifacts(result: AgentResult): number {
-  const fromMeta = (result.metadata as { artifacts?: unknown[] })?.artifacts?.length;
-  if (typeof fromMeta === "number") return fromMeta;
-  return 0;
+  // v1.0.3: artifacts come from tool_calls[].artifacts, not metadata.artifacts.
+  let total = 0;
+  for (const tc of result.tool_calls ?? []) {
+    total += (tc.artifacts?.length ?? 0);
+  }
+  return total;
 }
 
 function ArtifactsList({ result }: { result: AgentResult }) {
-  const arr = (result.metadata as {
-    artifacts?: Array<{ artifact_id: string; type: string }>;
-  })?.artifacts;
-  if (!arr || arr.length === 0) {
+  // v1.0.3: collect artifacts from all tool calls.
+  const allArts: Array<{ artifact_id: string; type: string }> = [];
+  for (const tc of result.tool_calls ?? []) {
+    for (const a of tc.artifacts ?? []) {
+      allArts.push({
+        artifact_id: a.artifact_id ?? "",
+        type: a.artifact_type ?? a.title ?? "",
+      });
+    }
+  }
+  if (allArts.length === 0) {
     return <div className="text-sm muted">本 turn 无 artifact</div>;
   }
   return (
     <ul className="col-flex" data-testid="inspector-artifacts" style={{ gap: 4 }}>
-      {arr.map((a) => (
+      {allArts.map((a) => (
         <li key={a.artifact_id} className="row-flex text-sm">
           <InlineCode>{a.artifact_id}</InlineCode>
           <Badge kind="info">{a.type}</Badge>

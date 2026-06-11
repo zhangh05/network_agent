@@ -37,3 +37,4 @@ API_key.txt
 reports/*.json
 node_modules/.vite/
 node_modules/**/*.results.json
+.superpowers/

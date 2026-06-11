@@ -30,14 +30,16 @@ class TestKnowledgeVisibility:
 
     def test_knowledge_skill_enabled(self):
         from agent.skills.registry import SkillRegistry
-        reg = SkillRegistry()
+        from agent.capabilities import get_default_capability_registry
+        reg = SkillRegistry(get_default_capability_registry())
         skill = reg.get_skill("knowledge_query")
         assert skill is not None
         assert skill.status == "enabled"
 
     def test_knowledge_module_enabled(self):
         from agent.modules.registry import ModuleRegistry
-        reg = ModuleRegistry()
+        from agent.capabilities import get_default_capability_registry
+        reg = ModuleRegistry(get_default_capability_registry())
         mod = reg.get_module("knowledge")
         assert mod is not None
         assert mod.status == "enabled"
@@ -116,21 +118,24 @@ class TestPlannedIsolation:
 
     def test_topology_still_planned(self):
         from agent.skills.registry import SkillRegistry
-        reg = SkillRegistry()
+        from agent.capabilities import get_default_capability_registry
+        reg = SkillRegistry(get_default_capability_registry())
         skill = reg.get_skill("topology")
         assert skill is not None
         assert skill.status == "planned", f"topology should be planned, got {skill.status}"
 
     def test_inspection_still_planned(self):
         from agent.skills.registry import SkillRegistry
-        reg = SkillRegistry()
+        from agent.capabilities import get_default_capability_registry
+        reg = SkillRegistry(get_default_capability_registry())
         skill = reg.get_skill("inspection")
         assert skill is not None
         assert skill.status == "planned"
 
     def test_cmdb_still_planned(self):
         from agent.skills.registry import SkillRegistry
-        reg = SkillRegistry()
+        from agent.capabilities import get_default_capability_registry
+        reg = SkillRegistry(get_default_capability_registry())
         skill = reg.get_skill("cmdb")
         assert skill is not None
         assert skill.status == "planned"

@@ -13,7 +13,7 @@ describe("Inspector — tool_calls card", () => {
     useWorkbenchStore.getState().clear();
   });
 
-  it("renders a card per tool call with status + duration", () => {
+  it("renders a card per tool call with status", () => {
     const result: AgentResult = {
       ok: true,
       final_response: "",
@@ -26,14 +26,25 @@ describe("Inspector — tool_calls card", () => {
           call_id: "c1",
           tool_id: "config_translation.translate_config",
           ok: true,
-          duration_ms: 230,
+          summary: "translation complete",
+          artifacts: [],
+          source_count: 3,
+          manual_review_count: 0,
+          errors: [],
+          warnings: [],
+          metadata: {},
         },
         {
           call_id: "c2",
           tool_id: "knowledge.query",
           ok: false,
-          duration_ms: 12,
-          error: "timeout",
+          summary: "query failed",
+          artifacts: [],
+          source_count: null,
+          manual_review_count: null,
+          errors: ["timeout"],
+          warnings: [],
+          metadata: {},
         },
       ],
       warnings: [],
@@ -46,8 +57,6 @@ describe("Inspector — tool_calls card", () => {
     expect(calls).toBeInTheDocument();
     expect(calls.textContent).toContain("config_translation.translate_config");
     expect(calls.textContent).toContain("knowledge.query");
-    expect(calls.textContent).toContain("230ms");
-    expect(calls.textContent).toContain("12ms");
     expect(calls.textContent).toContain("failed");
     expect(calls.textContent).toContain("timeout");
   });

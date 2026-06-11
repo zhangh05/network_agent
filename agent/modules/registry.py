@@ -1,116 +1,90 @@
 # agent/modules/registry.py
-"""ModuleRegistry — manages enabled/planned modules."""
+"""ModuleRegistry — thin view over CapabilityRegistry.
 
-from dataclasses import dataclass, field
+v1.0.4 cleanup: ModuleRegistry is no longer a parallel source of truth.
+It MUST be constructed with a CapabilityRegistry and reads everything
+through it. There is no default-construct path that loads hardcoded
+modules, eliminating the previous risk of "legacy modules override
+capability modules" or vice versa.
+"""
+
+from __future__ import annotations
+
+from typing import List, Optional
+
+from agent.capabilities.schemas import CapabilityManifest
 
 
-@dataclass
 class ModuleSpec:
-    module_id: str = ""
-    name: str = ""
-    status: str = "disabled"  # enabled | disabled | planned
-    service_path: str = ""
-    skill_id: str = ""
-    related_tools: list = field(default_factory=list)
-    description: str = ""
+    __slots__ = ("module_id", "name", "status", "service_path",
+                 "skill_id", "related_tools", "description")
 
-
-# Default module definitions
-MODULE_CONFIG_TRANSLATION = ModuleSpec(
-    module_id="config_translation",
-    name="Config Translation",
-    status="enabled",
-    service_path="agent.modules.config_translation.service",
-    skill_id="config_translation",
-    related_tools=["config_translation.translate_config", "parser.parse_config_text", "parser.extract_interfaces"],
-    description="Translate network configuration between vendors",
-)
-
-MODULE_KNOWLEDGE = ModuleSpec(
-    module_id="knowledge",
-    name="Knowledge / RAG",
-    status="enabled",
-    service_path="agent.modules.knowledge.service",
-    skill_id="knowledge_query",
-    related_tools=["knowledge.query", "knowledge.search"],
-    description="Query network documentation",
-)
-
-MODULE_TOPOLOGY = ModuleSpec(
-    module_id="topology",
-    name="Topology",
-    status="planned",
-    related_tools=[],
-    description="Network topology analysis",
-)
-
-MODULE_INSPECTION = ModuleSpec(
-    module_id="inspection",
-    name="Inspection",
-    status="planned",
-    related_tools=[],
-    description="Network device inspection",
-)
-
-MODULE_CMDB = ModuleSpec(
-    module_id="cmdb",
-    name="CMDB",
-    status="planned",
-    related_tools=[],
-    description="Configuration management database",
-)
+    def __init__(self, *, module_id, name, status, service_path,
+                 skill_id, related_tools, description):
+        self.module_id = module_id
+        self.name = name
+        self.status = status
+        self.service_path = service_path
+        self.skill_id = skill_id
+        self.related_tools = related_tools
+        self.description = description
 
 
 class ModuleRegistry:
-    def __init__(self):
-        self._modules: dict = {}
-        self._register_defaults()
+    """Read-only view of capability modules, projected from CapabilityRegistry."""
 
-    def _register_defaults(self):
-        defaults = [MODULE_CONFIG_TRANSLATION, MODULE_KNOWLEDGE, MODULE_TOPOLOGY, MODULE_INSPECTION, MODULE_CMDB]
-        for m in defaults:
-            self._modules[m.module_id] = m
+    def __init__(self, capability_registry):
+        if capability_registry is None:
+            raise ValueError(
+                "ModuleRegistry requires a CapabilityRegistry; "
+                "there is no default. Construct via "
+                "ModuleRegistry(get_default_capability_registry()) or "
+                "ModuleRegistry.from_capabilities(cap_reg)."
+            )
+        self._cap_reg = capability_registry
 
     def list_enabled_modules(self) -> list:
-        return [m for m in self._modules.values() if m.status == "enabled"]
+        return [_module_spec_from_capability(c) for c in self._cap_reg.list_enabled()]
 
     def list_planned_modules(self) -> list:
-        return [m for m in self._modules.values() if m.status == "planned"]
+        return [_module_spec_from_capability(c) for c in self._cap_reg.list_planned()]
 
-    def get_module(self, module_id: str) -> ModuleSpec:
-        return self._modules.get(module_id)
+    def get_module(self, module_id: str):
+        for cap in self._cap_reg.list_all():
+            if cap.module.module_id == module_id:
+                return _module_spec_from_capability(cap)
+        return None
 
     def snapshot(self) -> dict:
         return {
-            "enabled": [{"module_id": m.module_id, "name": m.name, "description": m.description, "related_tools": m.related_tools}
-                        for m in self.list_enabled_modules()],
-            "planned": [{"module_id": m.module_id, "name": m.name, "description": m.description}
-                        for m in self.list_planned_modules()],
+            "enabled": [
+                {"module_id": m.module_id, "name": m.name, "description": m.description,
+                 "related_tools": m.related_tools}
+                for m in self.list_enabled_modules()
+            ],
+            "planned": [
+                {"module_id": m.module_id, "name": m.name, "description": m.description}
+                for m in self.list_planned_modules()
+            ],
         }
 
     @classmethod
     def from_capabilities(cls, capability_registry) -> "ModuleRegistry":
-        """Build a ModuleRegistry from a CapabilityRegistry.
+        return cls(capability_registry)
 
-        The CapabilityRegistry is the truth-source. This method projects
-        each enabled / planned capability's module spec into a
-        ModuleSpec, so the legacy ModuleRegistry API keeps working.
+    @property
+    def capability_registry(self):
+        return self._cap_reg
 
-        Falls back to defaults if capability_registry is None.
-        """
-        reg = cls()
-        if capability_registry is None:
-            return reg
-        # Override defaults with capability-derived specs.
-        for cap in capability_registry.list_all():
-            m = cap.module
-            reg._modules[m.module_id] = ModuleSpec(
-                module_id=m.module_id,
-                name=cap.name,
-                status=m.status,
-                service_path=m.service_path,
-                skill_id=(cap.skills[0].skill_id if cap.skills else ""),
-                related_tools=[t.tool_id for t in cap.tools],
-                description=m.description or cap.description,
-            )
-        return reg
+
+def _module_spec_from_capability(cap: CapabilityManifest) -> ModuleSpec:
+    sk = cap.skills[0] if cap.skills else None
+    return ModuleSpec(
+        module_id=cap.module.module_id,
+        name=cap.name,
+        status=cap.module.status,
+        service_path=cap.module.service_path,
+        skill_id=sk.skill_id if sk else cap.capability_id,
+        related_tools=[t.tool_id for t in cap.tools],
+        description=cap.module.description or cap.description,
+    )

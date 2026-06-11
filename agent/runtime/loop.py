@@ -73,6 +73,16 @@ def _persist_run_record(session, turn, result, context) -> None:
 
 # v0.8.2 — Standard tool_call projection
 
+def _enrich_metadata(metadata: dict, context) -> dict:
+    """v1.0.3: inject selected_skills / visible_tools from TurnContext
+    into every AgentResult.metadata (including error/timeout paths).
+    """
+    if context and getattr(context, "metadata", None):
+        for k in ("selected_skills", "visible_tools"):
+            if k in context.metadata and k not in metadata:
+                metadata[k] = context.metadata[k]
+    return metadata
+
 def _to_standard_tool_call(call_id: str, tool_id: str, result) -> dict:
     """Build a v0.8.2 standard tool_call dict from any handler result.
 
@@ -147,6 +157,30 @@ def run_turn(session, turn, services=None) -> AgentResult:
 
     # 2. build context
     context = build_turn_context(session, turn, services)
+
+    # v1.0.4: hydrate history_window from the SessionMessageStore (canonical
+    # disk source) instead of AgentSession.history (in-memory cache that
+    # can drift). If the store has more recent runs than the in-memory
+    # list, prefer the store. Falls back to the in-memory list if the
+    # store is unavailable.
+    try:
+        from workspace.message_store import SessionMessageStore
+        store = SessionMessageStore(session_id=session.session_id, ws_id=session.workspace_id or "default")
+        if store.exists():
+            window = store.get_history_window(k=8)
+            if window:
+                # Map SessionMessage → agent.protocol.message (UserMessage/AssistantMessage)
+                from agent.protocol.message import UserMessage, AssistantMessage
+                msgs = []
+                for m in window:
+                    if m.get("role") == "user":
+                        msgs.append(UserMessage(content=m.get("content", "")))
+                    elif m.get("role") == "assistant":
+                        msgs.append(AssistantMessage(content=m.get("content", "")))
+                context.history_window = msgs
+    except Exception:
+        # Store unavailable → fall back to the in-memory list (v0.6+ path).
+        pass
     if audit_events:
         audit_events.emit("context_built", session_id=session.session_id, turn_id=turn.turn_id)
 
@@ -199,8 +233,8 @@ def run_turn(session, turn, services=None) -> AgentResult:
                 session_id=session.session_id, turn_id=turn.turn_id, trace_id=context.trace_id,
                 errors=[error_str],
                 events=_collect_events(audit_events, turn.turn_id),
-                metadata={"provider_error_type": "provider_timeout" if is_timeout else "provider_error",
-                          "retryable": is_timeout},
+                metadata=_enrich_metadata({"provider_error_type": "provider_timeout" if is_timeout else "provider_error",
+                          "retryable": is_timeout}, context),
             )
             _persist_run_record(session, turn, _err_result, context)
             return _err_result
@@ -242,11 +276,11 @@ def run_turn(session, turn, services=None) -> AgentResult:
                 errors=[resp.error],
                 warnings=["provider_timeout"] if is_timeout else [],
                 events=_collect_events(audit_events, turn.turn_id),
-                metadata={
+                metadata=_enrich_metadata({
                     "provider_error_type": error_type,
                     "retryable": retryable,
                     "provider_error_detail": provider_meta.get("error_detail", ""),
-                },
+                }, context),
             )
             _persist_run_record(session, turn, _err_result, context)
             return _err_result
@@ -370,7 +404,7 @@ def run_turn(session, turn, services=None) -> AgentResult:
             tool_calls=all_tool_results,
             warnings=turn.warnings,
             events=_collect_events(audit_events, turn.turn_id),
-            metadata={"model": context.model_config.get("model", ""), "steps": step},
+            metadata=_enrich_metadata({"model": context.model_config.get("model", ""), "steps": step}, context),
         )
 
         # Persist rollout
@@ -400,11 +434,11 @@ def run_turn(session, turn, services=None) -> AgentResult:
         trace_id=context.trace_id,
         warnings=[f"max_steps ({MAX_STEPS}) reached — partial result"],
         events=_collect_events(audit_events, turn.turn_id),
-        metadata={
+        metadata=_enrich_metadata({
             "terminal_reason": "max_steps_exceeded",
             "partial": True,
             "steps": MAX_STEPS,
-        },
+        }, context),
     )
     _persist_run_record(session, turn, _partial, context)
     return _partial

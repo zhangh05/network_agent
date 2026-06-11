@@ -15,6 +15,7 @@ class TestAgentAppSubmit:
         from agent.tools.registry import ToolRegistry
         from agent.tools.router import ToolRouter
         from agent.skills.registry import SkillRegistry
+        from agent.capabilities import get_default_capability_registry
         from agent.modules.registry import ModuleRegistry
         from agent.audit.events import EventRecorder
         from agent.audit.trace import TraceRecorder
@@ -24,8 +25,8 @@ class TestAgentAppSubmit:
         reg = ToolRegistry()
         services = RuntimeServices(
             tool_service=ToolRouter(registry=reg),
-            skill_service=SkillRegistry(),
-            module_service=ModuleRegistry(),
+            skill_service=SkillRegistry(get_default_capability_registry()),
+            module_service=ModuleRegistry(get_default_capability_registry()),
             audit_service={
                 "events": EventRecorder(),
                 "trace": TraceRecorder(),
@@ -124,8 +125,8 @@ class TestRuntimeLoop:
         reg = ToolRegistry()
         services = RuntimeServices(
             tool_service=ToolRouter(registry=reg),
-            skill_service=SkillRegistry(),
-            module_service=ModuleRegistry(),
+            skill_service=SkillRegistry(get_default_capability_registry()),
+            module_service=ModuleRegistry(get_default_capability_registry()),
             audit_service={
                 "events": EventRecorder(),
                 "trace": TraceRecorder(),
@@ -171,8 +172,8 @@ class TestRuntimeLoop:
         reg = ToolRegistry()
         services = RuntimeServices(
             tool_service=ToolRouter(registry=reg),
-            skill_service=SkillRegistry(),
-            module_service=ModuleRegistry(),
+            skill_service=SkillRegistry(get_default_capability_registry()),
+            module_service=ModuleRegistry(get_default_capability_registry()),
             audit_service={
                 "events": EventRecorder(),
                 "trace": TraceRecorder(),
@@ -258,7 +259,7 @@ class TestSkillRegistry:
 
     def test_skill_registry_distinguishes_enabled_and_planned(self):
         from agent.skills.registry import SkillRegistry
-        reg = SkillRegistry()
+        reg = SkillRegistry(get_default_capability_registry())
         enabled = reg.list_enabled_skills()
         planned = reg.list_planned_skills()
 
@@ -276,7 +277,7 @@ class TestModuleRegistry:
 
     def test_module_registry_distinguishes_enabled_and_planned(self):
         from agent.modules.registry import ModuleRegistry
-        reg = ModuleRegistry()
+        reg = ModuleRegistry(get_default_capability_registry())
         enabled = reg.list_enabled_modules()
         planned = reg.list_planned_modules()
 

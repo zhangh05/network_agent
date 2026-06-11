@@ -381,7 +381,8 @@ class TestRegistries:
 
     def test_skill_registry_has_enabled(self):
         from agent.skills.registry import SkillRegistry
-        reg = SkillRegistry()
+        from agent.capabilities import get_default_capability_registry
+        reg = SkillRegistry(get_default_capability_registry())
         enabled = reg.list_enabled_skills()
         planned = reg.list_planned_skills()
         assert len(enabled) >= 1, "Should have at least 1 enabled skill"
@@ -391,7 +392,8 @@ class TestRegistries:
 
     def test_module_registry_has_enabled(self):
         from agent.modules.registry import ModuleRegistry
-        reg = ModuleRegistry()
+        from agent.capabilities import get_default_capability_registry
+        reg = ModuleRegistry(get_default_capability_registry())
         enabled = reg.list_enabled_modules()
         planned = reg.list_planned_modules()
         assert len(enabled) >= 1, "Should have at least 1 enabled module"

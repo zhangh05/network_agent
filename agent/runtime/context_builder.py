@@ -42,9 +42,20 @@ def build_turn_context(session, turn, services) -> TurnContext:
     if hasattr(session, 'history') and session.history:
         ctx.history_window = list(session.history[-8:])
 
-    # 3. Build ToolRouter
+    # 3. Build ToolRouter — v1.0.4 per-turn fresh instance.
+    # The shared services.tool_service holds a ToolRouter whose registry
+    # is safe to share. We build a fresh router per turn from the
+    # immutable ToolRegistry. This eliminates cross-talk between
+    # concurrent turns. The per-turn whitelist is baked in later in
+    # step 6 (SkillSelector), creating exactly one ToolRouter per turn.
     if services and services.tool_service:
-        ctx.tool_router = services.tool_service
+        from agent.tools.router import ToolRouter
+        router = services.tool_service
+        if isinstance(router, ToolRouter):
+            # Build a fresh router — no whitelist yet; that is applied in step 6
+            ctx.tool_router = ToolRouter.for_turn(router.registry)
+        else:
+            ctx.tool_router = router
 
     # 4. Build SkillRegistry snapshot
     skill_snap = {}
@@ -101,31 +112,35 @@ def build_turn_context(session, turn, services) -> TurnContext:
                         if s.skill_id == sk_id:
                             candidates.update(s.related_tools)
                             break
-            # Apply dynamic visibility on the router
+            # v1.0.4: rebuild a fresh ToolRouter with the per-turn whitelist
+            # baked in. The shared router instance is NOT mutated.
+            from agent.tools.router import ToolRouter
             if ctx.tool_router is not None and candidates:
-                ctx.tool_router.apply_dynamic_visibility(candidates)
-                dynamic_visibility = True
-                # Reflect the actual visible set (after safety filter).
-                selected_visible_tools = sorted({
-                    t["function"]["name"].replace("__", ".", 1)
-                    for t in ctx.tool_router.model_visible_tools()
-                })
+                base_reg = getattr(ctx.tool_router, "registry", None) or (
+                    ctx.tool_router if hasattr(ctx.tool_router, "list_model_visible") else None
+                )
+                if base_reg is not None:
+                    ctx.tool_router = ToolRouter.for_turn(base_reg, allowed_tool_ids=candidates)
+                    dynamic_visibility = True
+                    # Reflect the actual visible set (after safety filter).
+                    selected_visible_tools = sorted({
+                        t["function"]["name"].replace("__", ".", 1)
+                        for t in ctx.tool_router.model_visible_tools()
+                    })
             elif ctx.tool_router is not None and not candidates:
                 # Pure chat / discovery → keep the registry's default
-                # visible set, but record "no business tools" so the
-                # snapshot can describe the situation.
-                ctx.tool_router.apply_dynamic_visibility([])  # disable
+                # visible set (no whitelist).
+                base_reg = getattr(ctx.tool_router, "registry", None) or (
+                    ctx.tool_router if hasattr(ctx.tool_router, "list_model_visible") else None
+                )
+                if base_reg is not None:
+                    ctx.tool_router = ToolRouter.for_turn(base_reg)
                 selected_visible_tools = []
                 dynamic_visibility = False
         except Exception as e:
-            # v0.8.1: never crash. Fall back to v0.8 behavior.
+            # v1.0.4: never crash. Fall back to v0.8 behavior.
             selector_warnings.append(f"skill_selector_error: {e!r}")
             dynamic_visibility = False
-            if ctx.tool_router is not None:
-                try:
-                    ctx.tool_router.apply_dynamic_visibility([])  # disable
-                except Exception:
-                    pass
 
     # 7. Build RuntimeSnapshot
     visible_tools = []
@@ -170,5 +185,10 @@ def build_turn_context(session, turn, services) -> TurnContext:
 
     # 8. Build safe_context
     ctx.safe_context = {"workspace_id": ctx.workspace_id, "session_id": ctx.session_id}
+
+    # v1.0.3: store selected_skills and visible_tools in ctx.metadata
+    # so loop.py can include them in AgentResult.metadata.
+    ctx.metadata["selected_skills"] = selected_skills
+    ctx.metadata["visible_tools"] = selected_visible_tools
 
     return ctx

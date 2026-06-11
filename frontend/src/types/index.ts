@@ -51,13 +51,13 @@ export interface ToolCallResult {
   call_id: string;
   tool_id: string;
   ok: boolean;
-  result?: unknown;
-  error?: string;
-  warnings?: string[];
-  started_at?: string;
-  finished_at?: string;
-  duration_ms?: number;
-  metadata?: Record<string, unknown>;
+  summary: string;
+  artifacts: Array<{ artifact_id: string; artifact_type: string; title: string }>;
+  source_count: number | null;
+  manual_review_count: number | null;
+  errors: string[];
+  warnings: string[];
+  metadata: Record<string, unknown>;
 }
 
 export interface AgentResult {
@@ -244,10 +244,8 @@ export interface Session {
  * reconstructs chat messages from run records (one user + one assistant
  * per run). Frontend maps these to ChatMsg in the workbench store.
  *
- * NOTE: backend currently has a bug — agent.run never appends run_id
- * to session.run_ids, so this endpoint always returns []. Plan-C fix
- * keeps the hook in place; once backend is fixed, the background fetch
- * populates messages for cross-device refresh.
+ * message_id is deterministic: <run_id>:user / <run_id>:assistant.
+ * Frontend MUST NOT fabricate random IDs for dedup.
  */
 export interface SessionMessage {
   message_id?: string;

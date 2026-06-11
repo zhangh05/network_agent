@@ -235,7 +235,7 @@ export function AgentWorkbench() {
                 欢迎使用 <span>网工智枢</span>
               </div>
               <div className="sub">
-                本地运行的 CodeX-style 网络工程 Agent。
+                本地运行的 Codex-style 网络工程 Agent。
                 <br />
                 在下方输入框中发送一条消息，或选择一个建议开始你的第一次 turn。
               </div>
@@ -420,9 +420,6 @@ function ToolCallInline({ tc }: { tc: ToolCallResult }) {
     <div className="chat-tool-call" data-testid="inline-toolcall">
       <IconBolt size={11} style={{ color: "var(--accent)", flexShrink: 0 }} />
       <span className="tc-name">{tc.tool_id}</span>
-      {tc.duration_ms != null && (
-        <span className="tc-arg">· {tc.duration_ms}ms</span>
-      )}
       <span className={"tc-status " + (tc.ok ? "ok" : "err")}>
         {tc.ok ? "ok" : "failed"}
       </span>

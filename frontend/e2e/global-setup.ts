@@ -26,7 +26,7 @@ export default async function globalSetup() {
   await ctx.dispose();
   if (!ok) {
     throw new Error(
-      `Backend not reachable at ${BACKEND_URL}. Start the FastAPI server (e.g. ./scripts/run-server.sh or PYTHONPATH=. python3 -m backend.main) and re-run.`,
+      `Backend not reachable at ${BACKEND_URL}. Start the Flask server (e.g. ./scripts/run-server.sh or PYTHONPATH=. python3 -m backend.main) and re-run.`,
     );
   }
 }
