@@ -1,7 +1,7 @@
 # agent/tools/router.py
 """ToolRouter — centralized tool name mapping and dispatch.
 
-v1.0.4 cleanup: the per-turn tool whitelist is now a per-instance
+v1.0.3.1: the per-turn tool whitelist is now a per-instance
 property, not a mutable shared global. Callers should construct a
 fresh `ToolRouter.for_turn(registry, allowed_tool_ids)` for every
 turn; mutating the shared instance (via apply_dynamic_visibility) was
@@ -32,7 +32,7 @@ class ToolRouter:
         self.registry = registry or ToolRegistry()
         self.model_visible_specs: list = []
         self.llm_name_map: dict = {}  # llm_safe_name → real_tool_id
-        # v1.0.4: per-instance immutable whitelist
+        # v1.0.3.1: per-instance immutable whitelist
         if allowed_tool_ids:
             eligible = {s.tool_id for s in self.registry.list_model_visible()}
             self._allowed_tool_ids: set[str] | None = {
@@ -48,7 +48,7 @@ class ToolRouter:
     def for_turn(cls, tool_registry: ToolRegistry, allowed_tool_ids=None) -> "ToolRouter":
         """Build a fresh ToolRouter for a single turn.
 
-        This is the v1.0.4-recommended construction path. It produces
+        This is the v1.0.3.1-recommended construction path. It produces
         an independent router (no shared mutable state), so two turns
         running concurrently cannot cross-talk on `allowed_tool_ids`.
         """

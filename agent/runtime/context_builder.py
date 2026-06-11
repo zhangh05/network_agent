@@ -42,7 +42,7 @@ def build_turn_context(session, turn, services) -> TurnContext:
     if hasattr(session, 'history') and session.history:
         ctx.history_window = list(session.history[-8:])
 
-    # 3. Build ToolRouter — v1.0.4 per-turn fresh instance.
+    # 3. Build ToolRouter — v1.0.3.1 per-turn fresh instance.
     # The shared services.tool_service holds a ToolRouter whose registry
     # is safe to share. We build a fresh router per turn from the
     # immutable ToolRegistry. This eliminates cross-talk between
@@ -112,7 +112,7 @@ def build_turn_context(session, turn, services) -> TurnContext:
                         if s.skill_id == sk_id:
                             candidates.update(s.related_tools)
                             break
-            # v1.0.4: rebuild a fresh ToolRouter with the per-turn whitelist
+            # v1.0.3.1: rebuild a fresh ToolRouter with the per-turn whitelist
             # baked in. The shared router instance is NOT mutated.
             from agent.tools.router import ToolRouter
             if ctx.tool_router is not None and candidates:
@@ -138,7 +138,7 @@ def build_turn_context(session, turn, services) -> TurnContext:
                 selected_visible_tools = []
                 dynamic_visibility = False
         except Exception as e:
-            # v1.0.4: never crash. Fall back to v0.8 behavior.
+            # v1.0.3.1: never crash. Fall back to v0.8 behavior.
             selector_warnings.append(f"skill_selector_error: {e!r}")
             dynamic_visibility = False
 

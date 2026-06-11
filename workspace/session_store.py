@@ -197,7 +197,7 @@ def add_run_to_session(
 def get_session_messages(session_id: str, ws_id: str = "default") -> List[Dict[str, Any]]:
     """Convert a session's runs into a message list for chat UI restoration.
 
-    v1.0.4: delegates to workspace.message_store.SessionMessageStore
+    v1.0.3.1: delegates to workspace.message_store.SessionMessageStore
     so the message_id (and every other field) is identical across
     every read. The implementation is the single source of truth;
     this function remains as a thin re-export.

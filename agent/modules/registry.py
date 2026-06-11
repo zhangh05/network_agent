@@ -1,7 +1,7 @@
 # agent/modules/registry.py
 """ModuleRegistry — thin view over CapabilityRegistry.
 
-v1.0.4 cleanup: ModuleRegistry is no longer a parallel source of truth.
+v1.0.3.1: ModuleRegistry is no longer a parallel source of truth.
 It MUST be constructed with a CapabilityRegistry and reads everything
 through it. There is no default-construct path that loads hardcoded
 modules, eliminating the previous risk of "legacy modules override

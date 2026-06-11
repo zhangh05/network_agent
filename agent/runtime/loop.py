@@ -22,22 +22,30 @@ MAX_STEPS = 8
 # state-like 对象, 然后调用既有的落盘逻辑 (自动触发 add_run_to_session).
 # 在 4 个 return 出口 (success / provider_error / timeout / max_steps)
 # 统一调一次, 确保任何路径都会写盘.
+#
+# v1.0.3.1: 同时写入独立完整消息到 SessionMessageStore，不再依赖
+# run record 的 120/300 字符摘要。
 def _persist_run_record(session, turn, result, context) -> None:
     """Best-effort: persist this turn to workspace/run_store so that
     it shows up in /api/sessions/<id>/messages for plan-C sync.
+
+    v1.0.3.1: also writes full user/assistant messages to the
+    SessionMessageStore, so chat history does NOT rely on the
+    120/300-character summaries in run records.
 
     Never raises — persistence failure must not break the turn.
     """
     try:
         from workspace.run_store import write_run_record
+        from workspace.message_store import SessionMessageStore
         user_input = (turn.op.user_input if turn.op else "") or ""
+        final_response = (result.final_response if result else "") or ""
+        ws_id = session.workspace_id or "default"
+        run_id = turn.turn_id
         # Project to legacy-style state object. write_run_record reads
         # these exact attributes (see workspace/run_store.py:14-103).
         skill_results = {}
         if result and getattr(result, "tool_calls", None):
-            # 把 tool_calls 转成 skill_results 形状 (deployable_config /
-            # manual_review / unsupported) — 多数情况下为空, 仅当
-            # 工具真的返回这些 key 时才落数.
             for tc in result.tool_calls or []:
                 md = tc.get("metadata", {}) if isinstance(tc, dict) else {}
                 for k in ("deployable_config", "manual_review", "unsupported", "semantic_near", "audit"):
@@ -58,14 +66,28 @@ def _persist_run_record(session, turn, result, context) -> None:
             active_module=(context.module_snapshot.get("module_id", "") if context and context.module_snapshot else ""),
             selected_skill=(context.skill_snapshot.get("skill_id", "") if context and context.skill_snapshot else ""),
             runtime_mode="codex_v1",
-            final_response=(result.final_response if result else ""),
+            final_response=final_response,
             warnings=(result.warnings if result and result.warnings else []),
             trace_id=(result.trace_id if result else ""),
             error=((result.errors[0] if result and result.errors else None)),
             skill_results=skill_results,
             tool_results=skill_results,  # write_run_record 两者都接受
         )
-        write_run_record(state, session.workspace_id or "default")
+        write_run_record(state, ws_id)
+        # v1.0.3.1: also persist full messages independently
+        if session.session_id:
+            store = SessionMessageStore(session_id=session.session_id, ws_id=ws_id)
+            if user_input:
+                store.write_message(run_id, "user", user_input, metadata={
+                    "created_at": state.created_at,
+                    "intent": state.intent,
+                })
+            if final_response:
+                store.write_message(run_id, "assistant", final_response, metadata={
+                    "created_at": state.created_at,
+                    "intent": state.intent,
+                    "trace_id": result.trace_id if result else "",
+                })
     except Exception:
         # Persistence is best-effort; never let it break the turn.
         pass
@@ -158,7 +180,7 @@ def run_turn(session, turn, services=None) -> AgentResult:
     # 2. build context
     context = build_turn_context(session, turn, services)
 
-    # v1.0.4: hydrate history_window from the SessionMessageStore (canonical
+    # v1.0.3.1: hydrate history_window from the SessionMessageStore (canonical
     # disk source) instead of AgentSession.history (in-memory cache that
     # can drift). If the store has more recent runs than the in-memory
     # list, prefer the store. Falls back to the in-memory list if the

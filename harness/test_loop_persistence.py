@@ -71,12 +71,12 @@ def _fake_state(session_id="", request_id="run_001", user_input="hello"):
 
 def test_write_run_record_persists():
     """write_run_record creates a JSON file in the workspace runs/ dir."""
+    from workspace.run_store import WS_ROOT
     run_id = write_run_record(_fake_state(), WS_ID)
     assert run_id
 
-    ws = Path(__file__).resolve().parent.parent / "workspaces" / WS_ID
-    path = ws / "runs" / f"{run_id}.json"
-    assert path.is_file()
+    path = WS_ROOT / WS_ID / "runs" / f"{run_id}.json"
+    assert path.is_file(), f"Expected file at {path}, dir contents: {list(path.parent.glob('*')) if path.parent.is_dir() else 'no dir'}"
 
     data = json.loads(path.read_text())
     assert data["run_id"] == run_id

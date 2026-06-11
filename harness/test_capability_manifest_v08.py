@@ -197,7 +197,7 @@ class TestSkillRegistryFromCapabilities:
     def test_skill_registry_from_capabilities(self):
         from agent.skills.registry import SkillRegistry
         reg = get_default_capability_registry()
-        # v1.0.4: SkillRegistry no longer takes a base_skill_registry; the
+        # v1.0.3.1: SkillRegistry no longer takes a base_skill_registry; the
         # base skill is now derived from the CapabilityRegistry itself.
         sr = SkillRegistry.from_capabilities(reg)
         enabled = sorted(s.skill_id for s in sr.list_enabled_skills())

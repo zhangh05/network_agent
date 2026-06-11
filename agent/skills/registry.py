@@ -1,7 +1,7 @@
 # agent/skills/registry.py
 """SkillRegistry — thin view over CapabilityRegistry.
 
-v1.0.4 cleanup: SkillRegistry is no longer a parallel source of truth.
+v1.0.3.1: SkillRegistry is no longer a parallel source of truth.
 It MUST be constructed with a CapabilityRegistry and reads everything
 through it. There is no default-construct path that loads hardcoded
 skills, eliminating the previous risk of "legacy skills override
