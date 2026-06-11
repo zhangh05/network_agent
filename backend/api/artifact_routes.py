@@ -132,12 +132,12 @@ def register_artifact_routes(app):
         ws_id, err = _validated_ws_id(ws_id)
         if err:
             return err
-        # Public HTTP callers can preview only non-sensitive artifact content.
-        # Internal server-side flows that need sensitive artifacts call the store directly.
-        content = read_artifact_content(ws_id, artifact_id, allow_sensitive=False)
+        # Allow sensitive but non-secret artifacts (e.g. translated_config
+        # is user-requested output, not a secret). Only "secret" is
+        # strictly blocked at the public API level.
+        content = read_artifact_content(ws_id, artifact_id, allow_sensitive=True)
         if content is None:
             return jsonify({"ok": False, "error": "content not accessible"}), 403
-        # Include title for frontend display
         from artifacts.store import get_artifact
         art = get_artifact(ws_id, artifact_id)
         title = art.title if art else ""
