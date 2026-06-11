@@ -1,19 +1,31 @@
 /**
  * Test 4 — knowledge source_summary
+ *
+ * v1.0.1 plan-C: AgentWorkbench 现在要求 currentSessionId 有值才能把消息
+ * 落到 bySession map (否则 appendUser 静默 no-op). 测试里显式设 session.
  */
 
-import { describe, it, expect } from "vitest";
+import { describe, it, expect, beforeEach } from "vitest";
 import { render, screen, fireEvent } from "@testing-library/react";
 import { AgentWorkbench } from "../pages/AgentWorkbench/AgentWorkbench";
 import { enqueue, installMockApi, resetMocks } from "./mockServer";
 import { useSessionStore } from "../stores/session";
+import { useWorkbenchStore } from "../stores/workbench";
 import type { AgentResult } from "../types";
 
 describe("Agent Workbench — source_summary rendering", () => {
-  it("renders inline source summary from tool call metadata", async () => {
+  beforeEach(() => {
     resetMocks();
     installMockApi();
-    useSessionStore.setState({ currentWorkspaceId: "ws-1" });
+    useWorkbenchStore.getState().clear();
+    useWorkbenchStore.setState({ bySession: {}, history: [] });
+    useSessionStore.setState({
+      currentWorkspaceId: "ws-1",
+      currentSessionId: "s-1",
+    });
+  });
+
+  it("renders inline source summary from tool call metadata", async () => {
     const resp: AgentResult = {
       ok: true,
       final_response: "OSPF 是一种链路状态协议。",
@@ -42,6 +54,8 @@ describe("Agent Workbench — source_summary rendering", () => {
     enqueue("/workspaces", { status: 200, data: { workspaces: [{ workspace_id: "ws-1", name: "WS1", created_at: "", is_default: true, stats: { session_count: 0, artifact_count: 0, knowledge_source_count: 0 } }] } });
     enqueue("/sessions", { status: 200, data: { sessions: [] } });
     enqueue("/runs/recent", { status: 200, data: { runs: [] } });
+    // plan-C: background fetch on session switch + on turn complete
+    enqueue("/sessions/s-1/messages", { status: 200, data: { ok: true, messages: [], count: 0 } });
     render(<AgentWorkbench />);
     const input = await screen.findByTestId("chat-input");
     fireEvent.change(input, { target: { value: "什么是 OSPF?" } });

@@ -1,25 +1,40 @@
+/**
+ * Workbench store — chat history keyed by session_id, persisted to
+ * localStorage so F5 不会丢历史 (plan-C 方案).
+ *
+ * 状态:
+ *  - bySession: Record<session_id, ChatMsg[]> 持久化到 localStorage
+ *  - history: 当前会话的历史视图 (derived from bySession[currentSessionId])
+ *  - currentSessionId: 镜像 useSessionStore.currentSessionId
+ *  - latestResult: 右侧检查器 (Inspector) 用
+ *  - sending: 是否在等后端
+ *
+ * 持久化策略:
+ *  - 每个会话最多 30 条消息
+ *  - 最多保留 5 个最近会话
+ *  - 超出 LRU 淘汰 (按会话 ID 字典序简化)
+ *  - localStorage key: "na_workbench"
+ *
+ * 后台同步:
+ *  - 切会话时, 先从 local 立即渲染, 再背景拉 /api/sessions/<id>/messages
+ *  - merge 模式: 不覆盖本地, 只追加新消息 (避免丢失用户刚发的 turn)
+ *  - 后端修复了 run_ids bug 后, 跨设备/跨 tab 刷新会自动同步
+ */
 import { create } from "zustand";
-import type { AgentResult } from "../types";
+import { persist } from "zustand/middleware";
+import type { AgentResult, SessionMessage } from "../types";
 
-interface ChatMsg {
+export interface ChatMsg {
   id: string;
   role: "user" | "assistant" | "system";
   text: string;
   created_at: string;
-  result?: AgentResult; // attached on assistant msgs
+  /** attached to assistant msgs only */
+  result?: AgentResult;
 }
 
-interface WorkbenchState {
-  history: ChatMsg[];
-  latestResult: AgentResult | null;
-  sending: boolean;
-
-  appendUser: (text: string) => void;
-  appendAssistant: (text: string, result?: AgentResult) => void;
-  setSending: (v: boolean) => void;
-  setLatestResult: (r: AgentResult) => void;
-  clear: () => void;
-}
+const MAX_MSGS_PER_SESSION = 30;
+const MAX_SESSIONS = 5;
 
 let msgSeq = 0;
 function nextId(): string {
@@ -27,32 +42,175 @@ function nextId(): string {
   return `msg-${Date.now()}-${msgSeq}`;
 }
 
-export const useWorkbenchStore = create<WorkbenchState>((set, get) => ({
-  history: [],
-  latestResult: null,
-  sending: false,
-  appendUser: (text) =>
-    set({
-      history: [
-        ...get().history,
-        { id: nextId(), role: "user", text, created_at: new Date().toISOString() },
-      ],
-    }),
-  appendAssistant: (text, result) =>
-    set({
-      history: [
-        ...get().history,
-        {
+/**
+ * Cap a session's history to MAX_MSGS_PER_SESSION (drop oldest, keep newest).
+ * Also cap the entire map to MAX_SESSIONS entries by simple LRU on
+ * session_id (good enough — chat sessions are not high-cardinality).
+ */
+function capHistory(map: Record<string, ChatMsg[]>): Record<string, ChatMsg[]> {
+  // Per-session cap
+  const capped: Record<string, ChatMsg[]> = {};
+  for (const [k, v] of Object.entries(map)) {
+    if (v.length > MAX_MSGS_PER_SESSION) {
+      capped[k] = v.slice(v.length - MAX_MSGS_PER_SESSION);
+    } else {
+      capped[k] = v;
+    }
+  }
+  // Global cap (LRU: drop keys with lexicographically smallest id)
+  const keys = Object.keys(capped);
+  if (keys.length > MAX_SESSIONS) {
+    const sorted = [...keys].sort();
+    const toDelete = sorted.slice(0, sorted.length - MAX_SESSIONS);
+    for (const k of toDelete) delete capped[k];
+  }
+  return capped;
+}
+
+interface WorkbenchState {
+  bySession: Record<string, ChatMsg[]>;
+  currentSessionId: string | null;
+  history: ChatMsg[];
+  latestResult: AgentResult | null;
+  sending: boolean;
+
+  switchSession: (session_id: string | null) => void;
+  appendUser: (text: string, session_id: string | null) => void;
+  appendAssistant: (
+    text: string,
+    result: AgentResult | undefined,
+    session_id: string | null,
+  ) => void;
+  setSending: (v: boolean) => void;
+  setLatestResult: (r: AgentResult) => void;
+  /** Drop local history for current (or specified) session. */
+  clear: (session_id?: string) => void;
+  /**
+   * Merge backend messages into the bySession map. Never deletes local
+   * entries; only adds new ones. Dedup by message id.
+   */
+  mergeFromBackend: (session_id: string, serverMsgs: SessionMessage[]) => void;
+}
+
+export const useWorkbenchStore = create<WorkbenchState>()(
+  persist(
+    (set, get) => ({
+      bySession: {},
+      currentSessionId: null,
+      history: [],
+      latestResult: null,
+      sending: false,
+
+      switchSession: (session_id) => {
+        if (session_id === get().currentSessionId) return;
+        const history = session_id ? get().bySession[session_id] ?? [] : [];
+        set({ currentSessionId: session_id, history });
+      },
+
+      appendUser: (text, session_id) => {
+        // null/undefined → _scratch 池 (等后端返回 session_id 后由页面层迁过去)
+        const sid = session_id ?? get().currentSessionId ?? "_scratch";
+        const msg: ChatMsg = {
+          id: nextId(),
+          role: "user",
+          text,
+          created_at: new Date().toISOString(),
+        };
+        set((s) => {
+          const cur = s.bySession[sid] ?? [];
+          const next = capHistory({ ...s.bySession, [sid]: [...cur, msg] });
+          return {
+            bySession: next,
+            history: s.currentSessionId === sid ? next[sid] : s.history,
+          };
+        });
+      },
+
+      appendAssistant: (text, result, session_id) => {
+        const sid = session_id ?? get().currentSessionId ?? "_scratch";
+        const msg: ChatMsg = {
           id: nextId(),
           role: "assistant",
           text,
           created_at: new Date().toISOString(),
           result,
-        },
-      ],
-      latestResult: result ?? get().latestResult,
+        };
+        set((s) => {
+          const cur = s.bySession[sid] ?? [];
+          const next = capHistory({ ...s.bySession, [sid]: [...cur, msg] });
+          return {
+            bySession: next,
+            history: s.currentSessionId === sid ? next[sid] : s.history,
+            latestResult: result ?? s.latestResult,
+          };
+        });
+      },
+
+      setSending: (v) => set({ sending: v }),
+      setLatestResult: (r) => set({ latestResult: r }),
+
+      clear: (session_id) => {
+        const sid = session_id ?? get().currentSessionId;
+        if (!sid) {
+          set({ history: [], latestResult: null });
+          return;
+        }
+        set((s) => {
+          const next = { ...s.bySession };
+          delete next[sid];
+          return {
+            bySession: next,
+            history: s.currentSessionId === sid ? [] : s.history,
+            latestResult: s.currentSessionId === sid ? null : s.latestResult,
+          };
+        });
+      },
+
+      mergeFromBackend: (session_id, serverMsgs) => {
+        if (!session_id) return;
+        const converted: ChatMsg[] = serverMsgs.map((m) => ({
+          id:
+            m.message_id ??
+            `srv-${m.run_id ?? m.created_at}-${Math.random().toString(36).slice(2, 8)}`,
+          role: m.role,
+          text: m.content,
+          created_at: m.created_at,
+          // `result` 不可从后端还原, 渲染为纯文本气泡 (无 inline 工具调用)
+        }));
+        set((s) => {
+          const cur = s.bySession[session_id] ?? [];
+          // Dedup: 同时去重 "本地已有" 和 "服务端自身重复"
+          const seen = new Set(cur.map((m) => m.id));
+          const merged = [...cur];
+          for (const m of converted) {
+            if (!seen.has(m.id)) {
+              seen.add(m.id);
+              merged.push(m);
+            }
+          }
+          // 按 created_at 升序, 用户/助手交替应自然有序
+          merged.sort((a, b) => a.created_at.localeCompare(b.created_at));
+          const next = capHistory({
+            ...s.bySession,
+            [session_id]: merged,
+          });
+          return {
+            bySession: next,
+            history: s.currentSessionId === session_id ? next[session_id] : s.history,
+          };
+        });
+      },
     }),
-  setSending: (v) => set({ sending: v }),
-  setLatestResult: (r) => set({ latestResult: r }),
-  clear: () => set({ history: [], latestResult: null }),
-}));
+    {
+      name: "na_workbench",
+      partialize: (s) => ({
+        // 只持久化 bySession — currentSessionId 走 useSessionStore,
+        // history/result 是 derived, 启动后由 switchSession 重建
+        bySession: s.bySession,
+      }),
+      // 处理 zustand persist 默认用 JSON.stringify 失败的情况
+      // (e.g. circular ref, undefined). 这里 bySession 里没有循环引用,
+      // 不需要自定义 serializer.
+    },
+  ),
+);

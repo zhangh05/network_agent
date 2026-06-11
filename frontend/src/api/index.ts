@@ -21,6 +21,7 @@ import type {
   ReviewItem,
   RuntimeAuditTurn,
   Session,
+  SessionMessage,
   Workspace,
 } from "../types";
 
@@ -71,6 +72,25 @@ export const sessionsApi = {
         method: "GET",
         url: `/sessions/${session_id}`,
         params: { workspace_id, include_messages: 1 },
+      },
+      signal,
+    ),
+  /**
+   * GET /api/sessions/<id>/messages — chat history reconstructed from
+   * run records. Used by the workbench for cross-device refresh
+   * (plan-C). Returns [] when no runs are linked to the session
+   * (current backend behaviour; see types.SessionMessage).
+   */
+  messages: (
+    session_id: string,
+    workspace_id: string = "default",
+    signal?: AbortSignal,
+  ): Promise<{ ok: boolean; messages: SessionMessage[]; count: number }> =>
+    apiRequest<{ ok: boolean; messages: SessionMessage[]; count: number }>(
+      {
+        method: "GET",
+        url: `/sessions/${session_id}/messages`,
+        params: { workspace_id },
       },
       signal,
     ),

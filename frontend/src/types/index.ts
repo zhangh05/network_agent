@@ -237,6 +237,33 @@ export interface Session {
   message_count: number;
 }
 
+/* ────────────────────────── SessionMessage ──────────────────────────
+ *
+ * Wire shape from GET /api/sessions/<id>/messages (see
+ * workspace/session_store.py::get_session_messages). The backend
+ * reconstructs chat messages from run records (one user + one assistant
+ * per run). Frontend maps these to ChatMsg in the workbench store.
+ *
+ * NOTE: backend currently has a bug — agent.run never appends run_id
+ * to session.run_ids, so this endpoint always returns []. Plan-C fix
+ * keeps the hook in place; once backend is fixed, the background fetch
+ * populates messages for cross-device refresh.
+ */
+export interface SessionMessage {
+  message_id?: string;
+  session_id?: string;
+  role: "user" | "assistant" | "system";
+  content: string;
+  created_at: string;
+  run_id?: string;
+  intent?: string;
+  status?: string;
+  capability?: string;
+  trace_id?: string;
+  quality_summary?: Record<string, unknown>;
+  llm_metadata?: Record<string, unknown>;
+}
+
 export interface Workspace {
   workspace_id: string;
   name: string;

@@ -1,5 +1,5 @@
 import { useState, useRef, useEffect } from "react";
-import { agentApi } from "../../api";
+import { agentApi, sessionsApi } from "../../api";
 import { useSessionStore } from "../../stores/session";
 import { useWorkbenchStore } from "../../stores/workbench";
 import { useToastStore } from "../../stores/toast";
@@ -25,8 +25,16 @@ const SUGGESTIONS = [
 
 export function AgentWorkbench() {
   const { currentWorkspaceId, currentSessionId } = useSessionStore();
-  const { history, sending, appendUser, appendAssistant, setSending, clear } =
-    useWorkbenchStore();
+  const {
+    history,
+    sending,
+    appendUser,
+    appendAssistant,
+    setSending,
+    clear,
+    switchSession,
+    mergeFromBackend,
+  } = useWorkbenchStore();
   const [input, setInput] = useState("");
   const [elapsed, setElapsed] = useState(0);
   const streamRef = useRef<HTMLDivElement>(null);
@@ -60,6 +68,27 @@ export function AgentWorkbench() {
     el.style.height = Math.min(el.scrollHeight, 160) + "px";
   }, [input]);
 
+  // Session switch + background fetch (plan-C)
+  // 1) 切到新会话时, 立刻从 localStorage 恢复历史 (instant render)
+  // 2) 后台拉 /api/sessions/<id>/messages, merge 到 local (跨设备/跨 tab)
+  useEffect(() => {
+    switchSession(currentSessionId);
+    if (!currentSessionId || !currentWorkspaceId) return;
+    const ctrl = new AbortController();
+    sessionsApi
+      .messages(currentSessionId, currentWorkspaceId, ctrl.signal)
+      .then((res) => {
+        const list = res.messages ?? [];
+        if (list.length > 0) {
+          mergeFromBackend(currentSessionId, list);
+        }
+      })
+      .catch(() => {
+        /* 静默 — local 足够好 */
+      });
+    return () => ctrl.abort();
+  }, [currentSessionId, currentWorkspaceId, switchSession, mergeFromBackend]);
+
   async function onSend() {
     const text = input.trim();
     if (!text || sending) return;
@@ -68,7 +97,10 @@ export function AgentWorkbench() {
       return;
     }
     setInput("");
-    appendUser(text);
+    // plan-C: 用 scratch 池存放「无 session 时的瞬时消息」, 等后端返回
+    // session_id 后再迁移到正式 bySession. 避免 UI 看起来消息「消失」.
+    const scratch = currentSessionId;
+    appendUser(text, scratch);
     setSending(true);
     try {
       const res = await agentApi.run({
@@ -76,8 +108,36 @@ export function AgentWorkbench() {
         workspace_id: currentWorkspaceId,
         session_id: currentSessionId,
       });
-      appendAssistant(res.final_response ?? "", res);
+      // 后端可能在 session_id=null 时自动新建会话 (agent.run 的 fallback)
+      // 此时把 scratch 池迁到真正的 session_id 下
+      const resolvedSid =
+        res.session_id && res.session_id !== "—"
+          ? res.session_id
+          : currentSessionId;
+      if (!currentSessionId && resolvedSid) {
+        useSessionStore.getState().setCurrentSession(resolvedSid);
+        // 把 _scratch 池里这次 onSend 累积的两条消息迁过去
+        const cur = useWorkbenchStore.getState().bySession;
+        const scratchMsgs = cur["_scratch"] ?? [];
+        const existing = cur[resolvedSid] ?? [];
+        useWorkbenchStore.setState({
+          bySession: { ...cur, [resolvedSid]: [...existing, ...scratchMsgs], _scratch: [] },
+        });
+        useWorkbenchStore.getState().switchSession(resolvedSid);
+      }
+      appendAssistant(res.final_response ?? "", res, resolvedSid);
       toast({ kind: "success", title: "turn 完成", body: res.trace_id });
+      // 拉一次 backend 让云端历史落地 (后端修了 run_ids bug 才有效)
+      if (resolvedSid && currentWorkspaceId) {
+        sessionsApi
+          .messages(resolvedSid, currentWorkspaceId)
+          .then((r) => {
+            if (r.messages && r.messages.length > 0) {
+              mergeFromBackend(resolvedSid, r.messages);
+            }
+          })
+          .catch(() => {});
+      }
     } catch (err: unknown) {
       const msg = isApiError(err) ? err.message : String(err);
       const stubResult: AgentResult = {
@@ -92,7 +152,7 @@ export function AgentWorkbench() {
         errors: [msg],
         metadata: { source_count: 0, source_summary: [] },
       };
-      appendAssistant(stubResult.final_response, stubResult);
+      appendAssistant(stubResult.final_response, stubResult, scratch);
       toast({
         kind: "error",
         title: "agent.run 失败",
@@ -124,9 +184,20 @@ export function AgentWorkbench() {
               running
             </Badge>
           )}
+          {/* 持久化指示: 当前会话有本地历史 → 显示 "本地缓存" */}
+          {history.length > 0 && (
+            <span
+              className="status-pill"
+              data-testid="wb-persisted-indicator"
+              data-tip="本会话历史已写入 localStorage, F5 刷新不丢"
+            >
+              <span className="dot" />
+              <span>本地缓存 {history.length}</span>
+            </span>
+          )}
           <button
             className="btn ghost sm"
-            onClick={clear}
+            onClick={() => clear()}
             disabled={history.length === 0}
             data-testid="btn-clear-history"
             type="button"
