@@ -34,8 +34,20 @@ def get_artifact(ws_id, artifact_id):
         if not data_path.is_file():
             data_path = art_dir / f"{artifact_id}.txt"
         if meta_path.is_file():
-            return {"meta": json.loads(meta_path.read_text()),
-                    "data": json.loads(data_path.read_text()) if data_path.suffix==".json" and data_path.is_file() else (data_path.read_text() if data_path.is_file() else "")}
+            try:
+                meta = json.loads(meta_path.read_text())
+                data_content = ""
+                if data_path.is_file():
+                    if data_path.suffix == ".json":
+                        try:
+                            data_content = json.loads(data_path.read_text())
+                        except (json.JSONDecodeError, ValueError):
+                            data_content = ""
+                    else:
+                        data_content = data_path.read_text()
+                return {"meta": meta, "data": data_content}
+            except (json.JSONDecodeError, ValueError):
+                return None
     return None
 
 def list_artifacts(ws_id, run_id=None, artifact_type=None):
@@ -51,7 +63,8 @@ def list_artifacts(ws_id, run_id=None, artifact_type=None):
                 meta = json.loads(f.read_text())
                 if run_id and meta.get("run_id") != run_id: continue
                 results.append(meta)
-            except: pass
+            except (json.JSONDecodeError, ValueError):
+                pass
     return results
 
 def ensure():

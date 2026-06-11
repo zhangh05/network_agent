@@ -2,7 +2,6 @@
 """ToolRegistry — wraps ToolRuntimeClient, filters disabled/forbidden."""
 
 from agent.tools.schemas import ToolSpec
-from agent.llm.tool_adapter import to_llm_tool_name
 
 
 class ToolRegistry:
@@ -96,8 +95,7 @@ class ToolRegistry:
         if self._tool_client is None:
             return {"ok": False, "status": "failed", "summary": "No tool client", "errors": ["no tool client"]}
         try:
-            from agent.tool_runtime.invoke import invoke_tool
-            result = invoke_tool(tool_id, args, context)
+            result = self._tool_client.execute(tool_id, args, context)
             return result
         except Exception as e:
             return {"ok": False, "status": "failed", "summary": str(e)[:200], "errors": [str(e)[:200]]}

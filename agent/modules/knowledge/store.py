@@ -411,6 +411,8 @@ def _score(query_tokens: list, source: dict) -> float:
             total += 1.0
         if t and t in source_label:
             total += 0.5
+    if not query_tokens:
+        return 0.0
     return total / len(query_tokens)
 
 

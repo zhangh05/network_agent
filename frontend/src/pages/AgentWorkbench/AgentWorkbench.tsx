@@ -137,11 +137,13 @@ export function AgentWorkbench() {
       if (!currentSessionId && resolvedSid) {
         useSessionStore.getState().setCurrentSession(resolvedSid);
         // 把 _scratch 池里这次 onSend 累积的两条消息迁过去
-        const cur = useWorkbenchStore.getState().bySession;
-        const scratchMsgs = cur["_scratch"] ?? [];
-        const existing = cur[resolvedSid] ?? [];
-        useWorkbenchStore.setState({
-          bySession: { ...cur, [resolvedSid]: [...existing, ...scratchMsgs], _scratch: [] },
+        // 用 functional updater 避免与 mergeFromBackend 产生竞态
+        useWorkbenchStore.setState((prev) => {
+          const scratchMsgs = (prev.bySession["_scratch"] ?? []);
+          const existing = prev.bySession[resolvedSid] ?? [];
+          return {
+            bySession: { ...prev.bySession, [resolvedSid]: [...existing, ...scratchMsgs], _scratch: [] },
+          };
         });
         useWorkbenchStore.getState().switchSession(resolvedSid);
       }
@@ -156,7 +158,9 @@ export function AgentWorkbench() {
               mergeFromBackend(resolvedSid, r.messages);
             }
           })
-          .catch(() => {});
+          .catch((e) => {
+            console.warn("背景同步未命中:", e?.message ?? "未知错误");
+          });
       }
     } catch (err: unknown) {
       const msg = isApiError(err) ? err.message : String(err);

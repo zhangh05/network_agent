@@ -5,7 +5,7 @@ This module has been superseded by agent/nodes/llm_orchestrator.py::_handle_llm_
 It is no longer called from any active LangGraph node and will be removed in a future release.
 
 Original purpose: assistant_chat tool execution via ToolRuntimeClient.
-""""""
+"""
 
 import re
 from typing import Optional

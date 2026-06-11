@@ -454,7 +454,7 @@ def handle_session_get_summary(inv: ToolInvocation) -> dict:
     try:
         validate_workspace_id(ws)
         from workspace.session_store import get_session
-        s = get_session(ws, sid)
+        s = get_session(sid, ws)
         if not s:
             return _error("session not found")
         messages = s.get("messages", [])

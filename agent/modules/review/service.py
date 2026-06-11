@@ -50,7 +50,17 @@ def _ws_root() -> Path:
 
 
 def _sidecar_path(workspace_id: str, artifact_id: str) -> Path:
-    return _ws_root() / workspace_id / "reviews" / f"{artifact_id}.json"
+    # Validate artifact_id to prevent path traversal
+    safe_id = _validate_artifact_id(artifact_id)
+    return _ws_root() / workspace_id / "reviews" / f"{safe_id}.json"
+
+
+def _validate_artifact_id(artifact_id: str) -> str:
+    """Ensure artifact_id is safe for use in file paths."""
+    clean = str(artifact_id).strip()
+    if not clean or len(clean) > 128 or ".." in clean or "/" in clean or "\\" in clean:
+        raise ValueError(f"invalid artifact_id: {artifact_id!r}")
+    return clean
 
 
 def _load_sidecar(workspace_id: str, artifact_id: str) -> dict:

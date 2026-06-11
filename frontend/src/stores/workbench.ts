@@ -203,6 +203,7 @@ export const useWorkbenchStore = create<WorkbenchState>()(
     }),
     {
       name: "na_workbench",
+      version: 1,
       partialize: (s) => ({
         // 只持久化 bySession — currentSessionId 走 useSessionStore,
         // history/result 是 derived, 启动后由 switchSession 重建
