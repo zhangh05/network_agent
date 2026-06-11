@@ -1,15 +1,16 @@
 # Network Agent Architecture
 
-## Agent Backend v1.0.2 — Retrieval Quality & Evaluation (CURRENT)
+## Frontend v1.0 — Capability-driven Agent Workbench Rewrite (CURRENT)
 
-> **HEAD**: `see git log — v1.0.2 feat(knowledge): improve retrieval quality and evaluation` · **Runtime**: Codex-style (v0.6 底座 + v0.7/v0.7.1 能力层) · **Tool count**: 73
+> **HEAD**: `see git log — v1.0 refactor(frontend): rewrite capability-driven agent workbench` · **Runtime**: Codex-style (v0.6 底座 + v0.7/v0.7.1 能力层) · **Tool count**: 73 · **Frontend stack**: React 18 + TypeScript 5 + Vite 5 + Zustand 4
 >
-> v1.0.2 在 v1.0.1.1 之上做**中文检索质量**与**可复现评测体系**的硬升级（**不**新增业务能力）。Runtime 主链 0 改动；Tool count 仍为 **73**。
+> 本版本**仅**重写前端；后端 Runtime 主链 0 改动、Tool count 仍为 **73**、planned (topology / inspection / cmdb) 仍 0 启用。
 >
-> 本文档是 Network Agent 的总体架构图谱，按"Runtime 主链（v0.6）→ 能力层（v0.7 / v0.7.1）"分层描述。
+> 本文档是 Network Agent 的总体架构图谱，按"Runtime 主链（v0.6）→ 能力层（v0.7 / v0.7.1）→ 前端层（v1.0）"分层描述。
 > - Runtime 底座单一权威：[AGENT_BACKEND_RUNTIME_V06.md](AGENT_BACKEND_RUNTIME_V06.md)
 > - 能力层单一权威：[CAPABILITY_LAYER_V071.md](CAPABILITY_LAYER_V071.md)
-> - v1.0.2 检索质量详细：[RETRIEVAL_QUALITY_V102.md](RETRIEVAL_QUALITY_V102.md)
+> - 前端 v1.0 详细：[FRONTEND_V1.md](FRONTEND_V1.md)
+> - v1.0.2 检索质量：[RETRIEVAL_QUALITY_V102.md](RETRIEVAL_QUALITY_V102.md)
 > - v1.0.1 ingestion 详细：[DOCUMENT_INGESTION_BOOK_LIBRARY_V101.md](DOCUMENT_INGESTION_BOOK_LIBRARY_V101.md)
 > - 版本演化：[RELEASE_HISTORY.md](RELEASE_HISTORY.md)
 > - 用户入口：[README.md](../README.md)
@@ -112,11 +113,13 @@ Capability Layer 在 v0.7 起形成**显式三层**结构，业务能力接入 T
 
 详细契约见 [MODULE_SKILL_TOOL_MODEL.md](MODULE_SKILL_TOOL_MODEL.md) 与 [CAPABILITY_LAYER_V071.md](CAPABILITY_LAYER_V071.md)。
 
-## Current Closure State (v1.0.2)
+## Current Closure State (Frontend v1.0)
 
-- **HEAD**: v1.0.2 commit（feat(knowledge): improve retrieval quality and evaluation）
+- **HEAD**: v1.0 commit（refactor(frontend): rewrite capability-driven agent workbench）
 - **Test baseline (focused regression)**:
-  - v1.0.2 retrieval quality tests: **19 / 19 passed**（`harness/test_retrieval_quality_v102.py`）
+  - v1.0 frontend tests: **13 / 13 passed**（10 个 Vitest 文件覆盖 10 类断言；`npm run typecheck && npm run build && npm test` 三门禁全过）
+  - v1.0 alignment tests: **37 / 37 passed**（`harness/test_frontend_backend_alignment.py`：TestViteWorkbench 6 + TestFrontendBackendAlignment 5 + TestAgentChat 12 + TestUIAgentExperience 5 + TestRunHistory 4 + TestNoRegression 5 = 37）
+  - v1.0.2 retrieval quality tests: **19 / 19 passed**（**未回归**）
   - v1.0.1.1 ingestion security tests: **16 / 16 passed**（**未回归**）
   - v1.0.1 document ingestion tests: **22 / 22 passed**（**未回归**）
   - v1.0 knowledge store tests: **29 / 29 passed**（**未回归**）
@@ -125,41 +128,50 @@ Capability Layer 在 v0.7 起形成**显式三层**结构，业务能力接入 T
   - v0.8.1 skill selector tests: **23 / 23 passed**（**未回归**）
   - v0.8 capability manifest tests: **20 / 20 passed**（**未回归**）
   - v0.7/v0.7.1 capability tests: **41 passed, 0 failed**（**未回归**）
-  - **Focused 套件累计**：**227 passed, 0 failed**（v1.0.2 retrieval 19 + v1.0.1.1 16 + v1.0.1 22 + v1.0 29 + v0.9 29 + v0.8.2 28 + v0.8.1 23 + v0.8 20 + v0.7/v0.7.1 41 = 227. **0 failed, 0 skipped**）
+  - **Focused 套件累计（v1.0 + 历史）**：**277 passed, 0 failed**（v1.0 frontend 13 + v1.0 alignment 37 + v1.0.2 retrieval 19 + v1.0.1.1 16 + v1.0.1 22 + v1.0 29 + v0.9 29 + v0.8.2 28 + v0.8.1 23 + v0.8 20 + v0.7/v0.7.1 41 = 277. **0 failed, 0 skipped**）
   - **Eval gate**：`scripts/evaluate_retrieval_v102.py --quiet` exit 0；Recall@3=0.8667（≥0.85）/ MRR=0.8167（≥0.75）/ no_hit_precision=1.0（=1.0）/ duplicate_rate=0.0（≤0.20）
-- **Runtime architecture**: Codex-style Agent Runtime（Thread / Session / Turn / RuntimeLoop）— v0.6 引入，**v0.6.1 ~ v1.0.2 主链未变**
-- **CapabilityRegistry (v1.0.2)**: 7 个 capability（4 enabled + 3 planned），**单一真相源**
+- **Runtime architecture**: Codex-style Agent Runtime（Thread / Session / Turn / RuntimeLoop）— v0.6 引入，**v0.6.1 ~ v1.0 主链未变**
+- **CapabilityRegistry (v1.0)**: 7 个 capability（4 enabled + 3 planned），**单一真相源**
+- **v1.0 NEW — Frontend Capability-driven Workbench**:
+  - **仅**改 `frontend/`，后端 0 改动
+  - 旧单文件 `frontend/index.html` → `frontend/legacy/index.html.legacy`（legacy 备份，not served by Vite）
+  - 新 `frontend/index.html` = Vite root（`<div id="root">` + `/src/main.tsx`）
+  - 目录：`frontend/src/{app,api,types,stores,layouts,components,pages,styles,test}/`
+  - 三栏布局：左 Workspace/Sessions/Runs · 中 7 个 page · 右 Turn Inspector
+  - 7 page：`/workbench` `/knowledge` `/artifacts` `/reviews` `/capabilities` `/audit` `/settings`
+  - 9 TS 类型（`AgentResult` / `ToolCallResult` / `RuntimeEvent` / `Artifact` / `ReviewItem` / `KnowledgeSource` / `KnowledgeChunk` / `CapabilityManifest` / `ApiError`）严格映射后端 `as_dict()`
+  - 10 axios API 模块（agent / sessions / workspaces / capabilities / tools / knowledge / artifacts / reviews / runtime_audit / settings）；错误统一转 `ApiError`
+  - 4 个 Zustand store（session / UI / workbench / toast）
+  - planned capability **不**渲染调用按钮；Tool Catalog 移到 `/audit` 下
+  - 10 个 Vitest 测试文件（`frontend/src/test/*.test.tsx`）覆盖 10 类断言
+  - 详见 [FRONTEND_V1.md](FRONTEND_V1.md)
 - **v1.0 NEW — Knowledge Store Management** (carried forward)
-- **v1.0.1 NEW — Document Ingestion & Book Library**:
+- **v1.0.1 NEW — Document Ingestion & Book Library** (carried forward):
   - 新增 `agent.modules.knowledge.parsers/` (md / txt / html / docx / text-pdf；扫描型 PDF → `unsupported_ocr`)
-  - 新增 `agent.modules.knowledge.chunking.py`：结构优先 + 保护块 + 父子分块（child 180-1200 chars / overlap 80；parent 1200-3000 chars）
-  - 新增 `agent.modules.knowledge.index.py`：纯 Python BM25 + scope boost + scope 优先级
+  - 新增 `agent.modules.knowledge.chunking.py`：结构优先 + 保护块 + 父子分块（child 180-1200 chars / overlap 80；parent 1200-3000 chars；H3 → `subsection`）
+  - 新增 `agent.modules.knowledge.index.py`：CJK 2/3-gram + 字段加权 BM25 + scope boost + scope 优先级
   - 新增 `agent.modules.knowledge.ingestion.py`：file → NormalizedDocument → Source + chunks
   - 新增 `agent.modules.knowledge.schemas.py`：NormalizedDocument / KnowledgeSource / KnowledgeChunk
   - 新增 6 个 knowledge tool：import_file / list_chunks / search_chunks / read_chunk / read_parent / reindex_source
   - `knowledge.query` 改为 3 段 fallback：chunk→v1.0 store→legacy loader
   - Tool count: 67 → **73**（+6）
-- **v1.0.1.1 NEW — Knowledge Ingestion Security & Gate Fix**:
+- **v1.0.1.1 NEW — Knowledge Ingestion Security & Gate Fix** (carried forward):
   - `import_file` 路径白名单：`workspace/{ws_id}/{uploads,inbox}/`；拒绝 `..` / 符号链接逃逸 / 文件不存在 / > 50MB / DOCX archive bomb
   - `knowledge.read_source` `callable_by_llm=False`（LLM 只能 `list_sources` / `search_chunks` / `read_chunk` / `read_parent`）
   - `tags` schema 统一为 `array[string]`（import_file / search_chunks）
   - 文档术语统一：**BM25 lexical retrieval + scope boost + parent expansion**（**不**再称 hybrid retrieval）
   - 2 个 live-LLM 测试改为 `RUN_LIVE_TESTS=1` 才执行
   - Tool count 仍为 **73**（**无**新增工具）
-- **v1.0.2 NEW — Retrieval Quality & Evaluation**:
-  - **CJK 2-gram + 3-gram 混合分词**（`agent.modules.knowledge.index._cjk_ngrams` / `_tokenize_mixed`）：无字典，1-字 CJK token 跳过（避免高频单字噪声）
-  - **字段加权 BM25**（`DEFAULT_FIELD_WEIGHTS = {title: 2.0, chapter: 1.5, section: 1.2, tags: 1.2, body: 1.0}`；`BM25Index._chunk_fields` + `_tokenize_weighted`）
-  - **BM25 参数可配置**：`KNOWLEDGE_BM25_K1`（默认 1.2）/ `KNOWLEDGE_BM25_B`（默认 0.75）环境变量
-  - **确定性查询扩展**（`agent.modules.knowledge.index.QUERY_EXPANSIONS`）：~60 项网络缩写 ↔ 中英别名（OSPF↔开放式最短路径优先 / BGP↔边界网关协议 / DR / BDR / 邻居 / 邻接 / community / 路由策略 / LSA / LSA / 链路状态通告 / SPF / Dijkstra 等）；**不**调 LLM；**不**改写原 query；**全部**记入 `metadata.query_expansions`
-  - **兄弟 chunk 去重**（`BM25Index._dedupe_sibling_chunks`）：同 `source_id` + Jaccard(content) ≥ 0.85 → 视为兄弟，只保留最高分；`metadata.deduplicated_count` 记录被丢弃数；跨源 / 跨章节 / 跨 `parent_chunk_id` 永远**不**去重
-  - **H3 子章节入 metadata**（`agent.modules.knowledge.chunking._split_into_sections`）：H3 → `subsection`；`KnowledgeChunk.subsection`；hit dict 增加 `subsection` 字段
-  - **Body filter**：原始 query token（**不**是扩展 token）必须至少 1 个在 body，避免 title-only 噪声
-  - **Min final score**：`MIN_FINAL_SCORE=0.5`（env `KNOWLEDGE_MIN_FINAL_SCORE` 可调）
-  - **Metadata 暴露**：`tokenizer_version=v1_cjk_ngram` / `scoring_version=v1_bm25_field_weighted` / `query_expansions=[]` / `deduplicated_count` / `pre_dedup_count` / `min_score_threshold` / `min_filtered` / `body_filtered` / `lexical_score` / `final_score`
-  - **新增评测体系**：
-    - `harness/fixtures/retrieval_eval_v102.json`（5 文档 / 15 查询 / 4 项阈值）
-    - `scripts/evaluate_retrieval_v102.py`（`--quiet` 时 stdout 输出 JSON 报告；exit 0 iff all_pass）
-    - `harness/test_retrieval_quality_v102.py`（19 测试，含 1 个子进程门禁测试）
+- **v1.0.2 NEW — Retrieval Quality & Evaluation** (carried forward):
+  - **CJK 2-gram + 3-gram 混合分词**（`agent.modules.knowledge.index._cjk_ngrams` / `_tokenize_mixed`）
+  - **字段加权 BM25**（`DEFAULT_FIELD_WEIGHTS = {title: 2.0, chapter: 1.5, section: 1.2, tags: 1.2, body: 1.0}`）
+  - **BM25 参数可配置**：`KNOWLEDGE_BM25_K1=1.2` / `KNOWLEDGE_BM25_B=0.75`
+  - **确定性查询扩展**（`QUERY_EXPANSIONS` ~60 项；**不**调 LLM；记入 `metadata.query_expansions`）
+  - **兄弟 chunk 去重**（`BM25Index._dedupe_sibling_chunks`；Jaccard≥0.85；跨源**不**去重）
+  - **H3 子章节入 metadata**（`KnowledgeChunk.subsection`）
+  - **Body filter** + **Min final score**（0.5）
+  - **Metadata 暴露**：`tokenizer_version` / `scoring_version` / `query_expansions` / `deduplicated_count` / `pre_dedup_count` / `lexical_score` / `final_score` / ...
+  - **新增评测体系**：`harness/fixtures/retrieval_eval_v102.json` + `scripts/evaluate_retrieval_v102.py` + `harness/test_retrieval_quality_v102.py`（19 测试含 1 个子进程门禁）
   - Tool count 仍为 **73**（**无**新增工具）
   - 详见 [RETRIEVAL_QUALITY_V102.md](RETRIEVAL_QUALITY_V102.md)
 - **Enabled business tools** (v0.7+):

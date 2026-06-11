@@ -1,0 +1,50 @@
+/**
+ * Test 5 — review item 状态
+ */
+
+import { describe, it, expect, beforeEach } from "vitest";
+import { render, screen } from "@testing-library/react";
+import { ReviewCenter } from "../pages/ReviewCenter/ReviewCenter";
+import { enqueue, installMockApi, resetMocks } from "./mockServer";
+import { useSessionStore } from "../stores/session";
+import type { ReviewItem } from "../types";
+
+const sampleItem: ReviewItem = {
+  item_id: "rev-1",
+  workspace_id: "ws-1",
+  artifact_id: "art-1",
+  severity: "warning",
+  category: "trans_residue",
+  line_no: 12,
+  reason: "translation residue detected",
+  requires_human_review: true,
+  status: "pending",
+  user_note: "",
+  created_at: "2026-06-11T10:00:00Z",
+  updated_at: "2026-06-11T10:00:00Z",
+};
+
+describe("ReviewCenter — review item status", () => {
+  beforeEach(() => {
+    resetMocks();
+    installMockApi();
+    useSessionStore.setState({ currentWorkspaceId: "ws-1" });
+  });
+
+  it("renders a review item with pending badge", async () => {
+    enqueue("/workspaces/ws-1/review-items", { status: 200, data: { items: [sampleItem] } });
+    render(<ReviewCenter />);
+    const row = await screen.findByTestId("review-rev-1");
+    expect(row).toBeInTheDocument();
+    expect(row.textContent).toContain("pending");
+    expect(row.textContent).toContain("trans_residue");
+  });
+
+  it("switches to accepted when user saves", async () => {
+    enqueue("/workspaces/ws-1/review-items", { status: 200, data: { items: [{ ...sampleItem, status: "accepted", user_note: "ok" }] } });
+    enqueue("/review-items/rev-1", { status: 200, data: { item: { ...sampleItem, status: "accepted" } } });
+    render(<ReviewCenter />);
+    const row = await screen.findByTestId("review-rev-1");
+    expect(row.textContent).toContain("accepted");
+  });
+});

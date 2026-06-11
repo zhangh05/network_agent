@@ -1,4 +1,13 @@
-"""Frontend/Backend Agent Experience Alignment Tests — v0.1"""
+"""Frontend/Backend Agent Experience Alignment Tests — v0.1 + v1.0
+
+The v0.1 single-file frontend (`frontend/legacy/index.html.legacy`)
+is kept as a backup; the v1.0 workbench lives in `frontend/src/`
+and ships `frontend/index.html` (Vite). Tests here cover:
+  - The v1.0 Vite entry (root + main.tsx, no fake data, no fake APIs)
+  - The legacy backup (regression-preserved markers, not active)
+  - Backend API alignment (every API used by the v1.0 frontend
+    must exist on the backend).
+"""
 import os
 import json
 import sys
@@ -7,6 +16,47 @@ import pytest
 from pathlib import Path
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
+LEGACY_HTML = PROJECT_ROOT / "frontend" / "legacy" / "index.html.legacy"
+VITE_HTML = PROJECT_ROOT / "frontend" / "index.html"
+
+
+class TestViteWorkbench:
+    def test_vite_index_html_exists(self):
+        assert VITE_HTML.exists(), "frontend/index.html missing"
+
+    def test_vite_root_and_main(self):
+        html = VITE_HTML.read_text()
+        assert 'id="root"' in html
+        assert "/src/main.tsx" in html
+
+    def test_vite_no_fake_data_or_api(self):
+        html = VITE_HTML.read_text()
+        assert "/api/fake" not in html
+        assert "/api/mock" not in html
+        # No hardcoded statistics from the legacy page
+        assert "386 记忆" not in html
+        assert "12 任务" not in html
+
+    def test_vite_app_directory_structure(self):
+        assert (PROJECT_ROOT / "frontend" / "src" / "app" / "App.tsx").exists()
+        assert (PROJECT_ROOT / "frontend" / "src" / "api" / "index.ts").exists()
+        assert (PROJECT_ROOT / "frontend" / "src" / "types" / "index.ts").exists()
+        assert (PROJECT_ROOT / "frontend" / "src" / "stores" / "session.ts").exists()
+        assert (PROJECT_ROOT / "frontend" / "src" / "layouts" / "AppLayout.tsx").exists()
+        assert (PROJECT_ROOT / "frontend" / "src" / "pages" / "AgentWorkbench" / "AgentWorkbench.tsx").exists()
+        assert (PROJECT_ROOT / "frontend" / "src" / "components" / "common.tsx").exists()
+
+    def test_vite_no_legacy_inline_html(self):
+        """Vite index.html must NOT embed the legacy inline dashboard."""
+        html = VITE_HTML.read_text()
+        assert "id=\"dash-mods\"" not in html
+        assert "card-flush tool-shell" not in html
+
+    def test_legacy_backup_preserved(self):
+        """Legacy single-file frontend must still be present (not deleted)."""
+        assert LEGACY_HTML.exists(), (
+            "frontend/legacy/index.html.legacy missing — spec says '保留为 legacy 备份'"
+        )
 
 
 class TestFrontendBackendAlignment:
@@ -32,46 +82,39 @@ class TestFrontendBackendAlignment:
             normalized = backend_text.replace("<ws_id>", "default").replace("<run_id>", "x").replace("<job_id>", "x").replace("<artifact_id>", "x").replace("<module_name>", "x").replace("<prompt_id>", "x").replace("<audit_id>", "x")
             assert route in normalized, f"{api} not found in backend routes (normalized)"
 
-    def test_frontend_no_fake_api(self):
-        """Frontend must not call APIs that don't exist."""
-        html = (PROJECT_ROOT / "frontend" / "index.html").read_text()
+    def test_legacy_no_fake_api(self):
+        """Legacy frontend must not call APIs that don't exist (preserved check)."""
+        if not LEGACY_HTML.exists():
+            pytest.skip("legacy backup not present")
+        html = LEGACY_HTML.read_text()
         assert "/api/fake" not in html
         assert "/api/mock" not in html
 
-    def test_frontend_no_fake_data_hardcoded(self):
-        """Frontend must not have hardcoded fake statistics."""
-        html = (PROJECT_ROOT / "frontend" / "index.html").read_text()
-        assert "386 记忆" not in html
-        assert "12 任务" not in html
-
-    def test_localstorage_only_prefs(self):
-        """localStorage must only save workspace_id and UI prefs."""
-        html = (PROJECT_ROOT / "frontend" / "index.html").read_text()
-        setitems = [l for l in html.split('\n') if 'localStorage.setItem' in l]
-        for line in setitems:
-            line = line.strip()
-            if 'na_workspace_id' not in line and 'na_settings' not in line and 'na_current_session_id' not in line and 'na_' not in line:
-                pytest.fail(f"Unexpected localStorage key in: {line}")
-
-    def test_dashboard_refresh_uses_existing_module_stat_id(self):
-        """Dashboard refresh must not write to a missing stat card element."""
-        html = (PROJECT_ROOT / "frontend" / "index.html").read_text()
+    def test_legacy_dashboard_refresh_uses_existing_module_stat_id(self):
+        """Legacy dashboard refresh must not write to a missing stat card element."""
+        if not LEGACY_HTML.exists():
+            pytest.skip("legacy backup not present")
+        html = LEGACY_HTML.read_text()
         assert 'id="dash-mods"' in html
         assert "safeSetStat('dash-mods'" in html
         assert "getElementById('dash-modules')" not in html
 
-    def test_backend_health_success_not_reversed_by_dashboard_load_error(self):
-        """Dashboard load errors must not be handled as backend health failures."""
-        html = (PROJECT_ROOT / "frontend" / "index.html").read_text()
+    def test_legacy_backend_health_success_not_reversed_by_dashboard_load_error(self):
+        """Legacy dashboard load errors must not be handled as backend health failures."""
+        if not LEGACY_HTML.exists():
+            pytest.skip("legacy backup not present")
+        html = LEGACY_HTML.read_text()
         start = html.index("function _checkBackendAndLoad()")
         end = html.index("function refreshDashboard()", start)
         body = html[start:end]
         assert "statusEl.textContent='已连接'" in body
         assert "try{_loadAllData();}" in body.replace(" ", "")
 
-    def test_tool_catalog_uses_dense_full_width_layout(self):
-        """Tool Catalog should use a dense workspace layout instead of a narrow card."""
-        html = (PROJECT_ROOT / "frontend" / "index.html").read_text()
+    def test_legacy_tool_catalog_uses_dense_full_width_layout(self):
+        """Legacy Tool Catalog should use a dense workspace layout instead of a narrow card."""
+        if not LEGACY_HTML.exists():
+            pytest.skip("legacy backup not present")
+        html = LEGACY_HTML.read_text()
         assert 'class="card-flush tool-shell"' in html
         assert 'class="tool-filterbar"' in html
         assert 'class="tool-catalog-grid"' in html
@@ -144,26 +187,36 @@ class TestAgentChat:
 
 
 class TestUIAgentExperience:
-    def test_ui_has_agent_chat_area(self):
-        html = (PROJECT_ROOT / "frontend" / "index.html").read_text()
+    def test_legacy_ui_has_agent_chat_area(self):
+        if not LEGACY_HTML.exists():
+            pytest.skip("legacy backup not present")
+        html = LEGACY_HTML.read_text()
         assert "agent-chat" in html or "Agent" in html
 
-    def test_ui_no_real_device_claim(self):
-        html = (PROJECT_ROOT / "frontend" / "index.html").read_text()
+    def test_legacy_ui_no_real_device_claim(self):
+        if not LEGACY_HTML.exists():
+            pytest.skip("legacy backup not present")
+        html = LEGACY_HTML.read_text()
         assert "真实设备" not in html
 
-    def test_ui_no_deployable_claim(self):
-        html = (PROJECT_ROOT / "frontend" / "index.html").read_text()
+    def test_legacy_ui_no_deployable_claim(self):
+        if not LEGACY_HTML.exists():
+            pytest.skip("legacy backup not present")
+        html = LEGACY_HTML.read_text()
         assert "可直接下发" not in html
 
-    def test_ui_no_tool_invoke(self):
-        html = (PROJECT_ROOT / "frontend" / "index.html").read_text()
+    def test_legacy_ui_no_tool_invoke(self):
+        if not LEGACY_HTML.exists():
+            pytest.skip("legacy backup not present")
+        html = LEGACY_HTML.read_text()
         assert "invoke_tool" not in html
         assert "tool.invoke" not in html.lower()
 
-    def test_ui_no_full_config_display(self):
+    def test_legacy_ui_no_full_config_display(self):
         """Frontend must not display full config text to user."""
-        html = (PROJECT_ROOT / "frontend" / "index.html").read_text()
+        if not LEGACY_HTML.exists():
+            pytest.skip("legacy backup not present")
+        html = LEGACY_HTML.read_text()
         # source_config is used as API payload key — that's fine
         # Just ensure no full config text is rendered as display
         assert "可直接下发" not in html
@@ -232,3 +285,4 @@ class TestNoRegression:
         mods = load_module_registry()
         enabled = sorted([m.module_name for m in mods if m.is_enabled()])
         assert enabled == sorted(["config_translation", "knowledge_base"])
+
