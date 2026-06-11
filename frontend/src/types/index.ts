@@ -300,6 +300,79 @@ export interface RuntimeSummary {
   };
 }
 
+/* ──────────────────────────── LLM Settings ──────────────────────────── */
+
+export interface LlmConfig {
+  enabled: boolean;
+  provider: string;
+  safe_mode: boolean;
+  base_url: string;
+  model: string;
+  temperature: number;
+  max_tokens: number;
+  key_configured: boolean;
+  key_preview?: string | null;
+  updated_at?: string | null;
+  source?: string;
+  config_source?: string;
+  config_path?: string;
+  global?: boolean;
+  note?: string;
+}
+
+export interface LlmHealth {
+  base_url_reachable: boolean;
+  chat_completion_endpoint_reachable: boolean;
+  chat_completion_ok: boolean;
+  configured: boolean;
+  connected: boolean;
+  http_status: number | null;
+  key_loaded: boolean;
+  last_error?: string | null;
+  last_error_type?: string | null;
+  model: string;
+  models_endpoint_ok: boolean;
+  provider: string;
+}
+
+export interface LlmStatus {
+  enabled: boolean;
+  enabled_by_ui: boolean | null;
+  provider: string;
+  model: string;
+  provider_type: string;
+  safe_mode: boolean;
+  key_loaded: boolean;
+  key_source: string;
+  config_source: string;
+  connected: boolean;
+  settings_file_exists: boolean;
+  health: LlmHealth;
+  red_lines?: string[];
+  allowed_tasks?: string[];
+  blocked_tasks?: string[];
+}
+
+export interface LlmTestResult {
+  ok: boolean;
+  provider?: string;
+  model?: string;
+  llm_used: boolean;
+  config_source: string;
+  policy_pass: boolean;
+  response: string;
+  safe_to_show: boolean;
+  fallback_reason?: string;
+  warnings: string[];
+  metadata: Record<string, unknown>;
+}
+
+export interface LlmTestRequest {
+  task?: "result_summarize" | "context_qa" | "response_compose";
+  message?: string;
+  signal?: AbortSignal;
+}
+
 /* ──────────────────────────── Runtime Audit ──────────────────────────── */
 
 export interface RuntimeAuditTurn {

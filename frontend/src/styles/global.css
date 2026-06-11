@@ -1872,3 +1872,152 @@ details.collapse[open] summary::before {
   .app-main { display: block; }
   .app-content { overflow: visible; }
 }
+
+/* ─────────────── Settings page (LLM Provider control center, v1.0.3) ─────────────── */
+
+.settings-grid {
+  display: grid;
+  grid-template-columns: 200px 1fr;
+  gap: 16px;
+  align-items: start;
+}
+@media (max-width: 800px) {
+  .settings-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
+.provider-sidebar {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.provider-sidebar-label {
+  font-size: 11px;
+  color: var(--ink-mute, #888);
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  font-weight: 600;
+  margin-bottom: 4px;
+}
+.provider-card {
+  text-align: left;
+  background: var(--bg-1, #fff);
+  border: 1px solid var(--line, #ddd);
+  border-radius: 6px;
+  padding: 10px 12px;
+  cursor: pointer;
+  transition: border-color 0.1s, background 0.1s;
+  font: inherit;
+  color: inherit;
+}
+.provider-card:hover {
+  border-color: var(--accent, #b94e3a);
+  background: var(--bg-2, #faf8f3);
+}
+.provider-card.active {
+  border-color: var(--accent, #b94e3a);
+  background: var(--bg-2, #faf8f3);
+  box-shadow: 0 0 0 1px var(--accent, #b94e3a) inset;
+}
+.provider-card-label {
+  font-weight: 600;
+  font-size: 14px;
+}
+.provider-card-hint {
+  font-size: 11px;
+  color: var(--ink-mute, #888);
+  margin-top: 2px;
+  font-family: ui-monospace, Menlo, monospace;
+}
+
+.settings-form-card {
+  background: var(--bg-1, #fff);
+  border: 1px solid var(--line, #ddd);
+  border-radius: 8px;
+  padding: 18px 20px;
+}
+.settings-row {
+  margin-bottom: 14px;
+}
+.settings-row-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 16px;
+}
+@media (max-width: 600px) {
+  .settings-row-grid { grid-template-columns: 1fr; }
+}
+.settings-field-label {
+  display: block;
+  margin-bottom: 4px;
+  font-size: 11px;
+  color: var(--ink-mute, #888);
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  font-weight: 500;
+}
+.settings-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 18px;
+  padding-top: 12px;
+  border-top: 1px solid var(--line, #ddd);
+  flex-wrap: wrap;
+}
+
+.btn.danger-ghost {
+  background: transparent;
+  color: var(--danger, #c33);
+  border: 1px solid transparent;
+}
+.btn.danger-ghost:hover:not(:disabled) {
+  border-color: var(--danger, #c33);
+}
+
+/* toggle */
+.toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  background: transparent;
+  border: none;
+  padding: 0;
+  cursor: pointer;
+  font: inherit;
+  color: inherit;
+}
+.toggle::before {
+  content: "";
+  display: inline-block;
+  width: 32px;
+  height: 18px;
+  background: var(--ink-mute, #888);
+  border-radius: 9px;
+  position: relative;
+  transition: background 0.15s;
+  flex-shrink: 0;
+}
+.toggle::after {
+  content: "";
+  position: absolute;
+  margin-left: 14px;
+  width: 14px;
+  height: 14px;
+  background: #fff;
+  border-radius: 50%;
+  top: 8px;
+  transition: transform 0.15s;
+}
+.toggle.on::before {
+  background: var(--ok, #2e7d32);
+}
+.toggle.on::after {
+  transform: translateX(14px);
+  margin-left: 4px;
+}
+.toggle .toggle-label {
+  display: inline-block;
+  vertical-align: middle;
+}

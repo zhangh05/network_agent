@@ -498,18 +498,42 @@ export const runtimeAuditApi = {
 
 /* ──────────────────────── 10. settings ──────────────────────── */
 
+import type { LlmConfig, LlmStatus, LlmTestResult, LlmTestRequest } from "../types";
+
 export const settingsApi = {
-  llmConfig: (signal?: AbortSignal): Promise<{ provider?: string; model?: string; base_url?: string; [k: string]: unknown }> =>
-    apiRequest<{ provider?: string; model?: string; base_url?: string; [k: string]: unknown }>(
-      { method: "GET", url: "/agent/llm/config" },
-      signal,
-    ),
+  llmConfig: (signal?: AbortSignal): Promise<LlmConfig> =>
+    apiRequest<LlmConfig>({ method: "GET", url: "/agent/llm/config" }, signal),
+
   updateLlmConfig: (
-    update: { provider?: string; model?: string; base_url?: string; [k: string]: unknown },
+    update: Partial<LlmConfig> & { clear_api_key?: boolean; api_key?: string },
     signal?: AbortSignal,
-  ): Promise<{ ok: boolean }> =>
-    apiRequest<{ ok: boolean }>(
+  ): Promise<{ ok: boolean; config: LlmConfig }> =>
+    apiRequest<{ ok: boolean; config: LlmConfig }>(
       { method: "POST", url: "/agent/llm/config", data: update },
       signal,
     ),
+
+  deleteLlmConfig: (signal?: AbortSignal): Promise<{ ok: boolean; deleted: boolean }> =>
+    apiRequest<{ ok: boolean; deleted: boolean }>(
+      { method: "DELETE", url: "/agent/llm/config" },
+      signal,
+    ),
+
+  llmStatus: (signal?: AbortSignal): Promise<LlmStatus> =>
+    apiRequest<LlmStatus>({ method: "GET", url: "/agent/llm/status" }, signal),
+
+  llmTest: (req: LlmTestRequest): Promise<LlmTestResult> => {
+    const { signal, ...body } = req;
+    return apiRequest<LlmTestResult>(
+      {
+        method: "POST",
+        url: "/agent/llm/test",
+        data: {
+          task: body.task ?? "result_summarize",
+          message: body.message ?? "ping",
+        },
+      },
+      signal,
+    );
+  },
 };
