@@ -2,12 +2,73 @@
 """RuntimeLoop — the core turn execution engine (Codex-style agentic loop)."""
 
 import json
+from types import SimpleNamespace
 from agent.protocol.message import UserMessage, SystemMessage, AssistantMessage, ToolResultMessage, RuntimeContextMessage
 from agent.protocol.tool_result import ToolResult
 from agent.runtime.result import AgentResult
 from agent.llm.runtime import invoke_llm
 
 MAX_STEPS = 8
+
+
+# ─── Run persistence adapter ─────────────────────────────────────────
+# v0.6+ 新的 runtime (Codex-style) 用了 dataclass-based Turn / Session /
+# TurnContext, 跟 legacy NetworkAgentState 字段不一样. 老 runtime 的
+# legacy/memory_writer.py 会调 write_run_record() 落 run record 并把
+# run_id 追加到 session.run_ids. 新 runtime 缺这一环, 所以
+# /api/sessions/<id>/messages 永远返回 [].
+#
+# 这个 adapter 把 Turn/Session/Result 投影成 write_run_record 期望的
+# state-like 对象, 然后调用既有的落盘逻辑 (自动触发 add_run_to_session).
+# 在 4 个 return 出口 (success / provider_error / timeout / max_steps)
+# 统一调一次, 确保任何路径都会写盘.
+def _persist_run_record(session, turn, result, context) -> None:
+    """Best-effort: persist this turn to workspace/run_store so that
+    it shows up in /api/sessions/<id>/messages for plan-C sync.
+
+    Never raises — persistence failure must not break the turn.
+    """
+    try:
+        from workspace.run_store import write_run_record
+        user_input = (turn.op.user_input if turn.op else "") or ""
+        # Project to legacy-style state object. write_run_record reads
+        # these exact attributes (see workspace/run_store.py:14-103).
+        skill_results = {}
+        if result and getattr(result, "tool_calls", None):
+            # 把 tool_calls 转成 skill_results 形状 (deployable_config /
+            # manual_review / unsupported) — 多数情况下为空, 仅当
+            # 工具真的返回这些 key 时才落数.
+            for tc in result.tool_calls or []:
+                md = tc.get("metadata", {}) if isinstance(tc, dict) else {}
+                for k in ("deployable_config", "manual_review", "unsupported", "semantic_near", "audit"):
+                    if k in md:
+                        skill_results[k] = md[k]
+        state = SimpleNamespace(
+            request_id=turn.turn_id,
+            session_id=session.session_id,
+            created_at=context.metadata.get("created_at", "") if context and context.metadata else "",
+            user_input=user_input,
+            intent=(context.metadata.get("intent", "") if context and context.metadata else ""),
+            context={
+                "llm": (context.metadata.get("llm", {}) if context and context.metadata else {}),
+                "capability_id": (context.metadata.get("capability_id", "") if context and context.metadata else ""),
+                "memory_written": False,
+                "workspace_updated": False,
+            },
+            active_module=(context.module_snapshot.get("module_id", "") if context and context.module_snapshot else ""),
+            selected_skill=(context.skill_snapshot.get("skill_id", "") if context and context.skill_snapshot else ""),
+            runtime_mode="codex_v1",
+            final_response=(result.final_response if result else ""),
+            warnings=(result.warnings if result and result.warnings else []),
+            trace_id=(result.trace_id if result else ""),
+            error=((result.errors[0] if result and result.errors else None)),
+            skill_results=skill_results,
+            tool_results=skill_results,  # write_run_record 两者都接受
+        )
+        write_run_record(state, session.workspace_id or "default")
+    except Exception:
+        # Persistence is best-effort; never let it break the turn.
+        pass
 
 
 # v0.8.2 — Standard tool_call projection
@@ -132,7 +193,7 @@ def run_turn(session, turn, services=None) -> AgentResult:
             turn.status = "failed"
             turn.errors.append(error_str)
             user_msg = "LLM 服务请求超时，请稍后重试。" if is_timeout else f"LLM 调用异常：{error_str}"
-            return AgentResult(
+            _err_result = AgentResult(
                 ok=False,
                 final_response=user_msg,
                 session_id=session.session_id, turn_id=turn.turn_id, trace_id=context.trace_id,
@@ -141,6 +202,8 @@ def run_turn(session, turn, services=None) -> AgentResult:
                 metadata={"provider_error_type": "provider_timeout" if is_timeout else "provider_error",
                           "retryable": is_timeout},
             )
+            _persist_run_record(session, turn, _err_result, context)
+            return _err_result
 
         if audit_events:
             audit_events.emit("model_response_received", session_id=session.session_id, turn_id=turn.turn_id, step=step)
@@ -170,7 +233,7 @@ def run_turn(session, turn, services=None) -> AgentResult:
             else:
                 user_msg = f"LLM 服务暂不可用：{resp.error[:200]}"
 
-            return AgentResult(
+            _err_result = AgentResult(
                 ok=False,
                 final_response=user_msg,
                 session_id=session.session_id,
@@ -185,6 +248,8 @@ def run_turn(session, turn, services=None) -> AgentResult:
                     "provider_error_detail": provider_meta.get("error_detail", ""),
                 },
             )
+            _persist_run_record(session, turn, _err_result, context)
+            return _err_result
 
         # Handle tool calls
         if resp.has_tool_calls():
@@ -317,6 +382,8 @@ def run_turn(session, turn, services=None) -> AgentResult:
         except Exception:
             pass
 
+        # Persist run record so /api/sessions/<id>/messages 拿得到
+        _persist_run_record(session, turn, result, context)
         return result
 
     # Max steps exceeded
@@ -325,7 +392,7 @@ def run_turn(session, turn, services=None) -> AgentResult:
     if audit_events:
         audit_events.emit("turn_finished", session_id=session.session_id, turn_id=turn.turn_id,
                           warning="max_steps exceeded")
-    return AgentResult(
+    _partial = AgentResult(
         ok=True,
         final_response=f"[partial] {_build_partial_answer(all_tool_results)}",
         session_id=session.session_id,
@@ -339,6 +406,8 @@ def run_turn(session, turn, services=None) -> AgentResult:
             "steps": MAX_STEPS,
         },
     )
+    _persist_run_record(session, turn, _partial, context)
+    return _partial
 
 
 def _build_initial_messages(context, services) -> list:
