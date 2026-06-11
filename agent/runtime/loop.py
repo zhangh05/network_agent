@@ -88,9 +88,36 @@ def _persist_run_record(session, turn, result, context) -> None:
                     "intent": state.intent,
                     "trace_id": result.trace_id if result else "",
                 })
+        # v1.0.3.2: persist trace events to disk so Runtime Audit works
+        if result and result.events:
+            try:
+                _persist_trace(run_id, ws_id, result.events)
+            except Exception:
+                pass
     except Exception:
         # Persistence is best-effort; never let it break the turn.
         pass
+
+
+def _persist_trace(run_id: str, ws_id: str, events: list) -> None:
+    """Write trace events to workspaces/<ws>/runs/<run_id>.trace.json."""
+    import json, time
+    from pathlib import Path
+    from workspace.run_store import WS_ROOT
+    runs_dir = WS_ROOT / ws_id / "runs"
+    runs_dir.mkdir(parents=True, exist_ok=True)
+    trace_path = runs_dir / f"{run_id}.trace.json"
+    record = {
+        "run_id": run_id,
+        "workspace_id": ws_id,
+        "events": events,
+        "event_count": len(events),
+        "persisted_at": time.strftime("%Y-%m-%dT%H:%M:%S"),
+    }
+    # Atomic write: tmp → rename
+    tmp = trace_path.with_suffix(".trace.tmp")
+    tmp.write_text(json.dumps(record, indent=2, ensure_ascii=False), encoding="utf-8")
+    tmp.rename(trace_path)
 
 
 # v0.8.2 — Standard tool_call projection

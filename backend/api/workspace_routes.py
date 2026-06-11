@@ -150,7 +150,7 @@ def register_workspace_routes(app):
         trace = get_trace(run_id, ws_id)
         if not trace:
             return jsonify({"ok": False, "error": "trace not found"}), 404
-        return jsonify({"ok": True, "trace": trace})
+        return jsonify({"ok": True, "events": trace.get("events", []), "run_id": trace.get("run_id", run_id)})
 
     @app.route("/api/workspaces/<ws_id>/traces")
     def api_workspace_traces(ws_id):
@@ -166,7 +166,7 @@ def register_workspace_routes(app):
         trace = get_trace(run_id, "default")
         if not trace:
             return jsonify({"ok": False, "error": "trace not found"}), 404
-        return jsonify({"ok": True, "trace": trace})
+        return jsonify({"ok": True, "events": trace.get("events", []), "run_id": trace.get("run_id", run_id)})
 
     # ── Reports / Export ──
     @app.route("/api/reports/create", methods=["POST"])
