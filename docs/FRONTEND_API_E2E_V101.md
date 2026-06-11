@@ -141,8 +141,25 @@ npm test             # 13 / 13 passed
 npm run e2e          # 10 / 10 passed (36s)
 ```
 
-### 7.4 后端 focused regression
-`harness/test_*` — **152 / 152 passed**（v1.0.2 retrieval 19 + v1.0.1.1 16 + v1.0.1 22 + v1.0 29 + v0.9 29 + v0.8.2 28 + v0.8.1 23 + v0.8 20 + v0.7-v0.7.1 41 = 152 + alignment 37 = 189）
+### 7.4 后端 focused regression（12 文件 spec-required 集合）
+
+```bash
+pytest -q \
+  test_retrieval_quality_v102.py \
+  test_knowledge_ingestion_security_v1011.py \
+  test_document_ingestion_book_library_v101.py \
+  test_knowledge_store_v10.py \
+  test_artifact_review_flow_v09.py \
+  test_result_contract_v082.py \
+  test_skill_selector_v081.py \
+  test_capability_manifest_v08.py \
+  test_capability_config_translation_v07.py \
+  test_capability_knowledge_v07.py \
+  test_capability_artifacts_v071.py \
+  test_capability_knowledge_sources_v071.py
+```
+
+→ **227 passed, 0 failed, 0 skipped**
 
 ## 8. 不变量再确认
 
@@ -157,7 +174,9 @@ npm run e2e          # 10 / 10 passed (36s)
 | 不复制业务规则 | review / artifact / knowledge 走真实 API | ✓ |
 | 不硬编码 73 / capability 状态 | 全从 `/api/capabilities` 读 | ✓ |
 | v1.0 frontend 13/13 不回归 | Vitest 13/13 passed | ✓ |
-| v0-v1.0.2 backend 152/152 不回归 | pytest 152 passed | ✓ |
+| 后端 focused regression（12 文件 spec-required 集合）不回归 | `pytest -q <12 files>` → **227 passed, 0 failed, 0 skipped** | ✓ |
+| 后端 alignment tests 不回归 | `pytest -q harness/test_frontend_backend_alignment.py` → **37 passed, 0 failed, 0 skipped** | ✓ |
+| Playwright E2E 10/10 不回归 | `npm run e2e` → **10 passed (36.3s)** | ✓ |
 
 ## 9. 后续 (v1.0.x / v2)
 

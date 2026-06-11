@@ -130,7 +130,24 @@ Capability Layer 在 v0.7 起形成**显式三层**结构，业务能力接入 T
   - v0.8.1 skill selector tests: **23 / 23 passed**（**未回归**）
   - v0.8 capability manifest tests: **20 / 20 passed**（**未回归**）
   - v0.7/v0.7.1 capability tests: **41 passed, 0 failed**（**未回归**）
-  - **Focused 套件累计（v1.0.1 + 历史）**：**287 passed, 0 failed**（v1.0.1 E2E 10 + v1.0 Vitest 13 + v1.0 alignment 37 + v1.0.2 retrieval 19 + v1.0.1.1 16 + v1.0.1 22 + v1.0 29 + v0.9 29 + v0.8.2 28 + v0.8.1 23 + v0.8 20 + v0.7/v0.7.1 41 = 287. **0 failed, 0 skipped**）
+  - **Backend focused pytest（spec-required 12 文件集合）**：
+    ```bash
+    pytest -q test_retrieval_quality_v102.py test_knowledge_ingestion_security_v1011.py \
+            test_document_ingestion_book_library_v101.py test_knowledge_store_v10.py \
+            test_artifact_review_flow_v09.py test_result_contract_v082.py \
+            test_skill_selector_v081.py test_capability_manifest_v08.py \
+            test_capability_config_translation_v07.py test_capability_knowledge_v07.py \
+            test_capability_artifacts_v071.py test_capability_knowledge_sources_v071.py
+    ```
+    → **227 passed, 0 failed, 0 skipped**
+  - **Backend alignment pytest**：
+    ```bash
+    pytest -q harness/test_frontend_backend_alignment.py
+    ```
+    → **37 passed, 0 failed, 0 skipped**
+  - **Frontend Vitest**：`npm test` → **Tests: 13 passed, 0 failed, 0 skipped**
+  - **Frontend Playwright E2E**：`npm run e2e` → **10 passed (36.3s)**
+  - 注：spec-required 12 文件集合 = 19(v1.0.2) + 16(v1.0.1.1) + 22(v1.0.1) + 29(v1.0) + 29(v0.9) + 28(v0.8.2) + 23(v0.8.1) + 20(v0.8) + 41(v0.7) = **227**
   - **Eval gate**：`scripts/evaluate_retrieval_v102.py --quiet` exit 0；Recall@3=0.8667（≥0.85）/ MRR=0.8167（≥0.75）/ no_hit_precision=1.0（=1.0）/ duplicate_rate=0.0（≤0.20）
 - **Runtime architecture**: Codex-style Agent Runtime（Thread / Session / Turn / RuntimeLoop）— v0.6 引入，**v0.6.1 ~ v1.0.1 主链未变**
 - **CapabilityRegistry (v1.0.1)**: 7 个 capability（4 enabled + 3 planned），**单一真相源**
