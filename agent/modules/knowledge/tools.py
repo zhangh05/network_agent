@@ -111,13 +111,16 @@ TOOL_KNOWLEDGE_READ = ToolSpec(
     name="read_source",
     category="knowledge",
     description=(
-        "Read full content + metadata of a single source. v1.0; for "
-        "chunks use knowledge.read_chunk."
+        "Read full content + metadata of a single source. v1.0.1.1: "
+        "NOT LLM-callable. LLM uses list_sources / search_chunks / "
+        "read_chunk / read_parent instead. The backend service is "
+        "still callable for internal use (reindex_source, admin "
+        "tools)."
     ),
     risk_level="low",
     enabled=True,
     requires_approval=False,
-    callable_by_llm=True,
+    callable_by_llm=False,
     forbidden=False,
     input_schema={
         "type": "object",
@@ -212,7 +215,11 @@ TOOL_KNOWLEDGE_IMPORT_FILE = ToolSpec(
                 "enum": ["global", "workspace", "session"],
             },
             "language": {"type": "string"},
-            "tags": {"type": "object", "description": "List of tag strings."},
+            "tags": {
+                "type": "array",
+                "items": {"type": "string"},
+                "description": "List of tag strings.",
+            },
             "metadata": {"type": "object"},
         },
         "required": ["workspace_id", "file_path"],
@@ -279,7 +286,11 @@ TOOL_KNOWLEDGE_SEARCH_CHUNKS = ToolSpec(
             },
             "source_id": {"type": "string"},
             "source_type": {"type": "string"},
-            "tags": {"type": "object", "description": "List of tag strings."},
+            "tags": {
+                "type": "array",
+                "items": {"type": "string"},
+                "description": "List of tag strings to filter on.",
+            },
             "chapter": {"type": "string"},
         },
         "required": ["workspace_id", "query"],

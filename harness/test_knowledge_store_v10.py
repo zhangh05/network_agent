@@ -328,30 +328,38 @@ class TestToolHandlers:
 
 # ── 15. CapabilityRegistry exposes new knowledge tools ──
 class TestCapabilityRegistry:
-    def test_visibility_includes_all_6_knowledge_tools(self, reg):
+    def test_visibility_includes_5_knowledge_tools(self, reg):
+        # v1.0.1.1: knowledge.read_source is NOT LLM-visible
+        # (callable_by_llm=False). The 5 LLM-visible v1.0 knowledge
+        # tools are still there.
         expected = {
             "knowledge.query",
             "knowledge.import_document",
             "knowledge.list_sources",
-            "knowledge.read_source",
             "knowledge.disable_source",
             "knowledge.delete_source",
         }
         visible = set(reg.visible_tool_ids())
         assert expected.issubset(visible), \
             f"missing: {expected - visible}"
+        # read_source is intentionally NOT LLM-visible
+        assert "knowledge.read_source" not in visible
 
     def test_knowledge_capability_tool_count_is_12(self, reg):
         # v1.0.1 added 6 more knowledge tools: import_file /
         # list_chunks / search_chunks / read_chunk / read_parent /
         # reindex_source. 6 (v1.0) + 6 (v1.0.1) = 12.
+        # v1.0.1.1: read_source flipped to callable_by_llm=False,
+        # so the LLM-visible subset is 11 (12 - 1). The capability
+        # tool manifest is still 12.
         m = reg.get("knowledge")
         assert m is not None
         assert m.status == "enabled"
         assert len(m.tools) == 12
-        for t in m.tools:
-            assert t.callable_by_llm is True
-            assert t.forbidden is False
+        # 11 are LLM-visible (read_source is not).
+        llm_visible = [t for t in m.tools if t.callable_by_llm]
+        assert len(llm_visible) == 11
+        assert all(t.forbidden is False for t in m.tools)
 
 
 # ── 16. planned topology/inspection/cmdb still not visible ──

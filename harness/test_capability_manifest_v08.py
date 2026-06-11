@@ -275,11 +275,14 @@ class TestRuntimeSnapshotUsesRegistry:
         assert snap.capability_baseline
         assert "config_translation" in [c["capability_id"]
                                          for c in snap.capability_baseline["enabled_capabilities"]]
-        # Visible business tools are exactly the 19 enabled ones (v1.0.1)
+        # Visible business tools are exactly the 18 LLM-visible
+        # enabled ones (v1.0.1.1: read_source flipped to
+        # callable_by_llm=False; the manifest still has 19 tools
+        # but only 18 are LLM-visible).
         assert sorted(snap.visible_business_tools) == sorted([
             "config_translation.translate_config",
             "knowledge.query", "knowledge.import_document",
-            "knowledge.list_sources", "knowledge.read_source",
+            "knowledge.list_sources",
             "knowledge.disable_source", "knowledge.delete_source",
             "knowledge.import_file", "knowledge.list_chunks",
             "knowledge.search_chunks", "knowledge.read_chunk",
@@ -315,7 +318,9 @@ class TestToolCount:
         assert total == 73
 
     def test_visible_tools_include_capability_tools(self):
-        """All 19 capability tools must be in the LLM-visible whitelist."""
+        """All 18 LLM-visible capability tools must be in the visible
+        whitelist. v1.0.1.1: knowledge.read_source is NOT LLM-visible
+        (callable_by_llm=False)."""
         from agent.runtime.services import default_runtime_services
         svc = default_runtime_services()
         tr = svc.tool_service
@@ -323,7 +328,7 @@ class TestToolCount:
         for n in (
             "config_translation__translate_config",
             "knowledge__query", "knowledge__import_document",
-            "knowledge__list_sources", "knowledge__read_source",
+            "knowledge__list_sources",
             "knowledge__disable_source", "knowledge__delete_source",
             "knowledge__import_file", "knowledge__list_chunks",
             "knowledge__search_chunks", "knowledge__read_chunk",
@@ -333,6 +338,8 @@ class TestToolCount:
             "review__list_items", "review__update_item",
         ):
             assert n in names
+        # v1.0.1.1: knowledge.read_source is NOT in the visible whitelist
+        assert "knowledge__read_source" not in names
 
     def test_visible_tools_exclude_disabled_general_tools(self):
         """High-risk tools (e.g. command.approved_exec) are kept in the

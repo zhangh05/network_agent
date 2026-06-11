@@ -4,6 +4,15 @@
 > 本轮只做后端，不做前端。
 > 配套：[README.md](../README.md) · [ARCHITECTURE.md](ARCHITECTURE.md) · [CAPABILITY_MANIFEST_V08.md](CAPABILITY_MANIFEST_V08.md) · [KNOWLEDGE_STORE_V10.md](KNOWLEDGE_STORE_V10.md) · [RELEASE_HISTORY.md](RELEASE_HISTORY.md) · [ARTIFACT_REVIEW_FLOW_V09.md](ARTIFACT_REVIEW_FLOW_V09.md)
 
+> **v1.0.1.1 — Knowledge Ingestion Security & Gate Fix**（硬补丁）：
+> - `import_file` 仅接受 `workspace/{ws_id}/{uploads,inbox}/` 内的路径
+> - `..` / 符号链接逃逸 / 文件不存在 / > 50MB / DOCX archive bomb 全部拒绝
+> - `knowledge.read_source` 设为 `callable_by_llm=False`（LLM 只能 `list_sources` / `search_chunks` / `read_chunk` / `read_parent`）
+> - `tags` schema 统一为 `array[string]`
+> - 文档术语统一：BM25 lexical retrieval + scope boost + parent expansion
+> - 2 个 live-LLM 测试改为 `RUN_LIVE_TESTS=1` 才执行
+> - Tool count 仍为 **73**（无新增工具）
+
 ## 1. 设计原则
 
 | 原则 | 实现 |
@@ -166,20 +175,23 @@ final_score = lexical_score * scope_boost
 ```python
 {
   "lexical_score": float,    # 原始 BM25
-  "semantic_score": None,    # 预留位
+  "semantic_score": None,    # 预留位（v1.0.1.1 明确：当前未启用 semantic retrieval）
   "final_score": float,      # lexical * scope_boost
   "scope": str
 }
 ```
 
-**禁止 LLM 修改或补造 score**。`semantic_score=None` 显式标记当前未启用语义检索（v1.0.1 预留位）。
+**禁止 LLM 修改或补造 score**。`semantic_score=None` 显式标记当前未启用语义检索。
 
-### 8.3 检索顺序
+### 8.3 检索流水线（v1.0.1.1 标准术语）
+
+> **不是 hybrid retrieval**——当前只用 BM25 lexical retrieval + scope boost + parent expansion。
+> 当未来引入 embedding-based semantic retrieval 时，semantic_score 字段才会从 null 变为 float。
 
 1. **scope/filter**（`scope` / `source_id` / `source_type` / `tags` / `chapter`）
 2. **enabled-only**（disabled / deleted source 的 chunks 全部排除）
 3. **lexical search**（BM25 over `index_text`）
-4. **rerank**（scope boost）
+4. **scope boost**（session > workspace > global）
 5. **parent expansion**（`read_parent`）
 
 ## 9. 新增 Tools (v1.0.1)

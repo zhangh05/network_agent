@@ -24,11 +24,34 @@ Strict contract:
   - Scanned PDFs return ok=False with error="unsupported_ocr".
   - The full normalized_markdown is stored verbatim in the source
     record; children do NOT mix in any "retrieval prefix".
+
+v1.0.1.1 — Knowledge Ingestion Security:
+
+  import_file only accepts paths inside an allowlist:
+      {ws_root}/{workspace_id}/uploads/
+      {ws_root}/{workspace_id}/inbox/
+  All other paths are rejected with `path_not_allowed`.
+
+  Hardening enforced in `_validate_import_path`:
+    - Path must resolve inside one of the allowlisted roots
+      (resolve() catches `..` and symlink escapes).
+    - Reject symlinks that escape the allowlisted roots
+      (resolve() then check is_relative_to).
+    - File must exist and be a regular file.
+    - Default max file size = 50 MB.
+    - PDF max page count = 2000 (configurable).
+    - DOCX / ZIP / EPUB-style archives are inspected for
+      archive-bomb patterns: total uncompressed size <= 200 MB,
+      per-entry ratio <= 100x, total entries <= 1000.
 """
 
 from __future__ import annotations
 
+import os
+import re
+import zipfile
 from datetime import datetime, timezone
+from pathlib import Path
 from typing import List, Optional, Union
 
 from agent.modules.knowledge import parsers as _parsers
@@ -40,9 +63,153 @@ from agent.modules.knowledge.schemas import (
 )
 
 
+# ── v1.0.1.1 Security Config ──
+
+# Hard caps; can be overridden by env vars (so tests can lower them).
+DEFAULT_MAX_FILE_BYTES = int(
+    os.environ.get("KNOWLEDGE_MAX_FILE_BYTES", str(50 * 1024 * 1024))  # 50 MB
+)
+DEFAULT_MAX_PDF_PAGES = int(
+    os.environ.get("KNOWLEDGE_MAX_PDF_PAGES", "2000")
+)
+DEFAULT_MAX_ZIP_UNCOMPRESSED_BYTES = int(
+    os.environ.get("KNOWLEDGE_MAX_ZIP_UNCOMPRESSED_BYTES",
+                   str(200 * 1024 * 1024))  # 200 MB
+)
+DEFAULT_MAX_ZIP_RATIO = int(
+    os.environ.get("KNOWLEDGE_MAX_ZIP_RATIO", "100")
+)
+DEFAULT_MAX_ZIP_ENTRIES = int(
+    os.environ.get("KNOWLEDGE_MAX_ZIP_ENTRIES", "1000")
+)
+
+
 def _now_iso() -> str:
     return datetime.now(timezone.utc).isoformat()
 
+
+# ── Path security ──
+
+def _ws_root() -> Path:
+    """Workspace root. Mirrors other knowledge modules."""
+    try:
+        import workspace.manager as wm
+        return wm.WS_ROOT
+    except Exception:
+        from artifacts.store import _get_ws_root
+        return _get_ws_root()
+
+
+def _allowed_import_roots(workspace_id: str) -> List[Path]:
+    """Allowlist of directories import_file will accept from.
+
+    Only these may be ingested:
+      - workspace/{ws_id}/uploads/  (explicit user upload)
+      - workspace/{ws_id}/inbox/    (staging area)
+    """
+    base = _ws_root() / workspace_id
+    return [base / "uploads", base / "inbox"]
+
+
+def _validate_import_path(workspace_id: str, path: Union[str, Path]) -> dict:
+    """Validate a file path for import_file.
+
+    Returns ok=True with `resolved_path` + `size_bytes` on success.
+    Returns ok=False with a standard `errors=[...]` list otherwise.
+    """
+    if not workspace_id:
+        return {"ok": False, "errors": ["path_not_allowed"]}
+    p = Path(str(path or ""))
+    if not p.is_absolute():
+        return {"ok": False, "errors": ["path_not_allowed"]}
+    # Pre-check: any ".." components? (defensive; resolve() also
+    # catches this, but giving a clean error here is nicer.)
+    raw = str(path)
+    if ".." in Path(raw).parts:
+        return {"ok": False, "errors": ["path_not_allowed"]}
+    # Reject obvious symlink BEFORE resolve(): we want to know
+    # whether the caller-specified path itself is a symlink that
+    # points outside the allowlist.
+    try:
+        # Resolve the path (follows symlinks).
+        resolved = p.resolve(strict=False)
+    except (OSError, RuntimeError):
+        return {"ok": False, "errors": ["file_not_found"]}
+    # Check the resolved path is inside an allowlisted root.
+    allow = _allowed_import_roots(workspace_id)
+    inside = False
+    for root in allow:
+        try:
+            root_resolved = root.resolve(strict=False)
+        except (OSError, RuntimeError):
+            continue
+        try:
+            resolved.relative_to(root_resolved)
+            inside = True
+            break
+        except ValueError:
+            continue
+    if not inside:
+        return {"ok": False, "errors": ["path_not_allowed"]}
+    # Existence + regular file.
+    if not resolved.exists() or not resolved.is_file():
+        return {"ok": False, "errors": ["file_not_found"]}
+    # File size cap.
+    try:
+        size = resolved.stat().st_size
+    except OSError:
+        return {"ok": False, "errors": ["file_not_found"]}
+    if size > DEFAULT_MAX_FILE_BYTES:
+        return {"ok": False, "errors": ["file_too_large"]}
+    return {
+        "ok": True,
+        "resolved_path": resolved,
+        "size_bytes": size,
+    }
+
+
+def _check_archive_bomb(path: Path) -> dict:
+    """Inspect a ZIP-style archive (DOCX, EPUB, ...) for archive-bomb
+    patterns.
+
+    Returns ok=True if safe; ok=False with a standard error otherwise.
+    """
+    try:
+        with zipfile.ZipFile(str(path), "r") as zf:
+            infos = zf.infolist()
+            if len(infos) > DEFAULT_MAX_ZIP_ENTRIES:
+                return {"ok": False, "errors": ["archive_too_large"]}
+            total_uncompressed = 0
+            for info in infos:
+                total_uncompressed += info.file_size
+                if total_uncompressed > DEFAULT_MAX_ZIP_UNCOMPRESSED_BYTES:
+                    return {"ok": False, "errors": ["archive_too_large"]}
+                if info.compress_size > 0:
+                    ratio = info.file_size / info.compress_size
+                    if ratio > DEFAULT_MAX_ZIP_RATIO:
+                        return {"ok": False, "errors": ["archive_too_large"]}
+    except (zipfile.BadZipFile, OSError):
+        return {"ok": False, "errors": ["invalid_file"]}
+    return {"ok": True}
+
+
+def _check_pdf_page_count(path: Path) -> dict:
+    """Reject pathological PDFs by page count."""
+    try:
+        import pdfplumber  # type: ignore
+        import io
+        with pdfplumber.open(io.BytesIO(path.read_bytes())) as pdf:
+            n = len(pdf.pages)
+            if n > DEFAULT_MAX_PDF_PAGES:
+                return {"ok": False, "errors": ["file_too_large"]}
+    except ImportError:
+        return {"ok": True}  # parser will return its own error
+    except Exception:
+        return {"ok": True}  # parser will detect invalid file
+    return {"ok": True}
+
+
+# ── Ingestion ──
 
 def import_file(
     workspace_id: str,
@@ -58,6 +225,10 @@ def import_file(
     metadata: Optional[dict] = None,
 ) -> dict:
     """Top-level ingestion: file -> source + chunks.
+
+    v1.0.1.1: when `source` is a path, it MUST be inside the
+    workspace allowlist (uploads / inbox). Bytes sources are still
+    accepted (they are pre-validated by the caller / API layer).
 
     Returns:
       {
@@ -78,6 +249,65 @@ def import_file(
         return {"ok": False,
                 "summary": f"invalid scope: {scope}",
                 "errors": ["invalid_scope"]}
+
+    # v1.0.1.1 — Path security check (only when source is a path).
+    is_path_like = isinstance(source, (str, Path)) and not (
+        isinstance(source, str) and (
+            source.startswith("ksrc_") or len(source) < 4096
+        ) and (
+            # Heuristic: treat a str source as a path only if it
+            # looks like one (has a path separator OR ends in a
+            # known extension). Otherwise, treat as raw content.
+            "/" in str(source) or "\\" in str(source)
+            or str(source).lower().endswith((
+                ".md", ".markdown", ".txt", ".html", ".htm",
+                ".docx", ".pdf",
+            ))
+        )
+    )
+    raw_path = None
+    if isinstance(source, (str, Path)) and not isinstance(source, bytes):
+        raw_path = str(source)
+        # Skip validation only for content-typed str (we want to
+        # reject paths that look like content). The above heuristic
+        # is too coarse; we will validate ANY str/Path that came
+        # through the LLM-callable tool path. Test code that passes
+        # raw bytes is unaffected.
+    if raw_path is not None:
+        check = _validate_import_path(workspace_id, raw_path)
+        if not check.get("ok"):
+            return {
+                "ok": False,
+                "summary": (
+                    "import_file 拒绝: 路径不在白名单 (uploads/ 或 "
+                    "inbox/)，或文件不可访问。"
+                ),
+                "errors": check.get("errors", ["path_not_allowed"]),
+            }
+        # Archive bomb / page count checks per format.
+        fp = check["resolved_path"]
+        if str(fp).lower().endswith(".docx"):
+            ac = _check_archive_bomb(fp)
+            if not ac.get("ok"):
+                return {
+                    "ok": False,
+                    "summary": (
+                        "DOCX / ZIP 文件超过安全限制 (解压大小 / "
+                        "压缩比 / 入口数)。可能是 archive bomb。"
+                    ),
+                    "errors": ac.get("errors", ["archive_too_large"]),
+                }
+        if str(fp).lower().endswith(".pdf"):
+            pc = _check_pdf_page_count(fp)
+            if not pc.get("ok"):
+                return {
+                    "ok": False,
+                    "summary": (
+                        f"PDF 页数过多 (>{DEFAULT_MAX_PDF_PAGES} 页)，"
+                        "已拒绝。请拆分后重试。"
+                    ),
+                    "errors": pc.get("errors", ["file_too_large"]),
+                }
 
     # 1. Parse
     try:
@@ -201,6 +431,9 @@ def reindex_source(workspace_id: str, source_id: str) -> dict:
 
     Used after the source is updated in the v1.0 store, or when the
     chunker parameters have changed.
+
+    v1.0.1.1: still callable by backend (not LLM-facing). Reads
+    the stored normalized_markdown from the v1.0 source store.
     """
     if not workspace_id or not source_id:
         return {"ok": False, "summary": "workspace_id and source_id are required",

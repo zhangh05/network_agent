@@ -183,7 +183,13 @@ class TestCapabilityQuestions:
     """Test that capability questions use RuntimeSnapshot, not static text."""
 
     def test_tools_question_uses_snapshot(self):
-        """'工具呢？' must reference enabled/planned from snapshot."""
+        """'工具呢？' must reference enabled/planned from snapshot.
+
+        v1.0.1.1: gated behind RUN_LIVE_TESTS=1 (live LLM call).
+        Default env: skip.
+        """
+        if not os.environ.get("RUN_LIVE_TESTS"):
+            pytest.skip("live LLM test — set RUN_LIVE_TESTS=1 to enable")
         data = _call_agent_api("工具呢？")
         resp = data["final_response"].lower()
         # Must NOT claim tools exist that are non-existent
@@ -329,7 +335,13 @@ class TestKnowledgeQuery:
     """Knowledge queries must not fake retrieval."""
 
     def test_knowledge_query_handles_no_data(self):
-        """When no knowledge data, must honestly say so."""
+        """When no knowledge data, must honestly say so.
+
+        v1.0.1.1: gated behind RUN_LIVE_TESTS=1 (live LLM call).
+        Default env: skip.
+        """
+        if not os.environ.get("RUN_LIVE_TESTS"):
+            pytest.skip("live LLM test — set RUN_LIVE_TESTS=1 to enable")
         data = _call_agent_api("查一下知识库里有没有 SD-WAN 资料")
         resp = data["final_response"].lower()
         # Should NOT claim to have retrieved data if it hasn't

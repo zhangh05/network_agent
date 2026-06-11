@@ -219,7 +219,11 @@ CAPABILITY_KNOWLEDGE = CapabilityManifest(
         CapabilityToolRef(
             tool_id="knowledge.read_source",
             status="enabled",
-            callable_by_llm=True,
+            # v1.0.1.1: LLM must NOT read the full source content.
+            # LLM uses list_sources / search_chunks / read_chunk /
+            # read_parent instead. The backend service is still
+            # callable for internal use (reindex_source, admin tools).
+            callable_by_llm=False,
             risk_level="low",
             requires_approval=False,
             forbidden=False,
@@ -234,8 +238,10 @@ CAPABILITY_KNOWLEDGE = CapabilityManifest(
             },
             description=(
                 "Read full content + metadata of a single source. "
-                "Returns ok=false when the source is missing or "
-                "soft-deleted."
+                "v1.0.1.1: NOT LLM-callable. LLM uses list_sources / "
+                "search_chunks / read_chunk / read_parent instead. "
+                "The backend service remains for internal callers "
+                "(e.g. reindex_source, admin tools)."
             ),
         ),
         CapabilityToolRef(
@@ -309,7 +315,11 @@ CAPABILITY_KNOWLEDGE = CapabilityManifest(
                         "enum": ["global", "workspace", "session"],
                     },
                     "language": {"type": "string"},
-                    "tags": {"type": "object", "description": "List of tag strings."},
+                    "tags": {
+                        "type": "array",
+                        "items": {"type": "string"},
+                        "description": "List of tag strings.",
+                    },
                     "metadata": {"type": "object"},
                 },
                 "required": ["workspace_id", "file_path"],
@@ -318,7 +328,10 @@ CAPABILITY_KNOWLEDGE = CapabilityManifest(
                 "Import a file (md / txt / html / docx / text-pdf) into "
                 "the workspace knowledge store, parse it, chunk it "
                 "(parent / child), and build the BM25 index. Scanned "
-                "PDFs return ok=false with error=unsupported_ocr."
+                "PDFs return ok=false with error=unsupported_ocr. "
+                "v1.0.1.1: file_path must be inside "
+                "workspace/{ws_id}/{uploads,inbox}/; absolute paths "
+                "outside are rejected with path_not_allowed."
             ),
         ),
         CapabilityToolRef(
@@ -368,17 +381,21 @@ CAPABILITY_KNOWLEDGE = CapabilityManifest(
                     },
                     "source_id": {"type": "string"},
                     "source_type": {"type": "string"},
-                    "tags": {"type": "object", "description": "List of tag strings."},
+                    "tags": {
+                        "type": "array",
+                        "items": {"type": "string"},
+                        "description": "List of tag strings to filter on.",
+                    },
                     "chapter": {"type": "string"},
                 },
                 "required": ["workspace_id", "query"],
             },
             description=(
                 "BM25 lexical search over child chunks. Returns hits "
-                "with score / lexical_score / semantic_score / "
-                "final_score / scope. Does NOT return full content; "
-                "use knowledge.read_chunk or knowledge.read_parent for "
-                "that."
+                "with score / lexical_score / semantic_score (null, "
+                "reserved) / final_score / scope. Does NOT return full "
+                "content; use knowledge.read_chunk or "
+                "knowledge.read_parent for that."
             ),
         ),
         CapabilityToolRef(

@@ -30,6 +30,7 @@
 | TBD (v0.9) | v0.9 | add artifact consumption and review flow | 新增 `agent/modules/artifact/`（`service` + `tools` + `capability`）— 4 tools: list/read/diff/export；新增 `agent/modules/review/`（`service` + `tools` + `capability`）— 2 tools: list_items/update_item；2 个 enabled skills: `artifact_management` / `review_flow`；`review.update_item` 写 sidecar JSON 存 status/user_note，**不**修改 translated_config 原文，**不**生成 deployable_config；`agent/capabilities/builtin.py` 加入 artifact + review；Tool count 57 → 62（+5：`artifact.list` 与已有 ToolRuntime catalog 去重）；`artifacts.schemas.ArtifactRecord.as_dict()` 修复 metadata 持久化（v0.9 配套小修复）；v0.7.1 capability tests 41/41 零回归；新增 29 tests | **不变** |
 | TBD (v1.0) | v1.0 | add knowledge store management | 新增 `agent/modules/knowledge/store.py`（KnowledgeStore：JSONL + thread-lock + atomic write；workspace 隔离；不依赖外部 DB）；新增 5 个 knowledge tool：import_document / list_sources / read_source / disable_source / delete_source；保留 `knowledge.query`（现由 KnowledgeStore 驱动，store 无内容时 fallback 到 v0.7.1 legacy loader）；token-overlap scoring（不要求向量库）；`source_summary` snippet ≤ 200 字符，无 hits → `[]`（**不**伪造）；caller 传本地路径 → redact 为 `redacted-local-path`；v0.7.1 capability tests 41/41 零回归；Tool count 62 → 67（+5）；新增 29 tests | **不变** |
 | TBD (v1.0.1) | v1.0.1 | add document ingestion and book library | 新增 `agent/modules/knowledge/parsers/` (md / txt / html / docx / text-pdf；扫描型 PDF → `unsupported_ocr`)；`chunking.py`（结构优先 + 保护块 + 父子分块；child 180-1200 chars / overlap 80；parent 1200-3000 chars）；`index.py`（纯 Python BM25 + scope boost + scope 优先级）；`ingestion.py`（file → NormalizedDocument → Source + chunks）；`schemas.py`（NormalizedDocument / KnowledgeSource / KnowledgeChunk）；新增 6 个 knowledge tool：import_file / list_chunks / search_chunks / read_chunk / read_parent / reindex_source；`knowledge.query` 改为 3 段 fallback：chunk→v1.0 store→legacy loader；Tool count 67 → 73（+6）；v0.7.1 capability tests 41/41 零回归；新增 22 tests | **不变** |
+| TBD (v1.0.1.1) | v1.0.1.1 | fix knowledge ingestion boundaries and test gate | `import_file` 路径白名单 `workspace/{ws_id}/{uploads,inbox}/`；拒绝 `..` / 符号链接逃逸 / 文件不存在 / > 50MB / DOCX archive bomb（archive_too_large 错误码）；`knowledge.read_source` `callable_by_llm=False`（LLM 只能 `list_sources` / `search_chunks` / `read_chunk` / `read_parent`；backend 仍可调用，给 `reindex_source` / admin 工具用）；`tags` schema 统一为 `array[string]`（import_file / search_chunks）；文档术语统一为 **BM25 lexical retrieval + scope boost + parent expansion**（**不**再称 hybrid retrieval）；2 个 live-LLM 测试 (`test_tools_question_uses_snapshot`, `test_knowledge_query_handles_no_data`) 改为 `RUN_LIVE_TESTS=1` 才执行，默认 skip；Tool count 仍 73（**无**新增工具）；focused regression **failed=0**；新增 16 tests | **不变** |
 
 ## 各版本能力对照
 
@@ -74,6 +75,7 @@ v0.6 → v0.7.1 **始终保持**：
 
 | Suite | Passed | Skipped | Failed |
 |-------|--------|---------|--------|
+| v1.0.1.1 ingestion security (focused) | **16** | 0 | 0 |
 | v1.0.1 document ingestion (focused) | **22** | 0 | 0 |
 | v1.0 knowledge store (focused) | **29** | 0 | 0 |
 | v0.9 artifact / review flow (focused) | **29** | 0 | 0 |
@@ -81,10 +83,10 @@ v0.6 → v0.7.1 **始终保持**：
 | v0.8.1 skill selector (focused) | **23** | 0 | 0 |
 | v0.8 capability manifest (focused) | **20** | 0 | 0 |
 | v0.7/v0.7.1 capability (focused) | **41** | 0 | 0 |
-| v0.6.x ~ v1.0.1 broader focused regression | **764** | 7 | 2 |
+| v0.6.x ~ v1.0.1.1 broader focused regression | **266** | 2 | 0 |
 | Full harness `pytest harness -q` | — | — | Not re-run (docs + refactor) |
 
-注：2 failed = pre-existing live-LLM timeout tests (provider_timeout) 与 v1.0.1 无关。
+注：2 skipped = pre-existing live-LLM tests (`test_tools_question_uses_snapshot`, `test_knowledge_query_handles_no_data`) 在 v1.0.1.1 中加了 `RUN_LIVE_TESTS=1` gate。**默认环境 skipped = 0 failed**。
 
 > 2026-06-10 update：曾记录的 v0.5 `test_llm_provider_diagnostics_v05.py::test_timeout_returns_provider_timeout` 失败已在同日的 legacy diagnostics alignment 中修复（断言改为兼容 "timeout" / "timed out" 两种文案，并主断言 `metadata.provider_error_type == "provider_timeout"`）。broader focused regression 由 613 passed / 1 failed 提升至 **615 passed / 0 failed**（+1 = 新增的 wording-agnostic regression test）。
 

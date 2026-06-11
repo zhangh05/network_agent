@@ -1,6 +1,6 @@
 # Network Agent Architecture
 
-## Agent Backend v1.0.1 — Document Ingestion & Book Library (CURRENT)
+## Agent Backend v1.0.1.1 — Knowledge Ingestion Security & Gate Fix (CURRENT)
 
 > **HEAD**: `15565d1` (2026-06-10) · **Runtime**: Codex-style (v0.6 底座 + v0.7/v0.7.1 能力层) · **Tool count**: 57
 >
@@ -108,9 +108,9 @@ Capability Layer 在 v0.7 起形成**显式三层**结构，业务能力接入 T
 
 详细契约见 [MODULE_SKILL_TOOL_MODEL.md](MODULE_SKILL_TOOL_MODEL.md) 与 [CAPABILITY_LAYER_V071.md](CAPABILITY_LAYER_V071.md)。
 
-## Current Closure State (v1.0.1)
+## Current Closure State (v1.0.1.1)
 
-- **HEAD**: v1.0.1 commit（feat(agent): add document ingestion and book library）
+- **HEAD**: v1.0.1.1 commit（fix(knowledge): harden ingestion boundaries and test gate）
 - **Test baseline (focused regression, 2026-06-10)**:
   - v1.0.1 document ingestion tests: **22 / 22 passed**（`harness/test_document_ingestion_book_library_v101.py`）
   - v1.0 knowledge store tests: **29 / 29 passed**（**未回归**）
@@ -133,6 +133,13 @@ Capability Layer 在 v0.7 起形成**显式三层**结构，业务能力接入 T
   - 新增 6 个 knowledge tool：import_file / list_chunks / search_chunks / read_chunk / read_parent / reindex_source
   - `knowledge.query` 改为 3 段 fallback：chunk→v1.0 store→legacy loader
   - Tool count: 67 → **73**（+6）
+- **v1.0.1.1 NEW — Knowledge Ingestion Security & Gate Fix**:
+  - `import_file` 路径白名单：`workspace/{ws_id}/{uploads,inbox}/`；拒绝 `..` / 符号链接逃逸 / 文件不存在 / > 50MB / DOCX archive bomb
+  - `knowledge.read_source` `callable_by_llm=False`（LLM 只能 `list_sources` / `search_chunks` / `read_chunk` / `read_parent`）
+  - `tags` schema 统一为 `array[string]`（import_file / search_chunks）
+  - 文档术语统一：**BM25 lexical retrieval + scope boost + parent expansion**（**不**再称 hybrid retrieval）
+  - 2 个 live-LLM 测试改为 `RUN_LIVE_TESTS=1` 才执行
+  - Tool count 仍为 **73**（**无**新增工具）
 - **Enabled business tools** (v0.7+):
   - `config_translation.translate_config`（capability service: `agent.modules.config_translation.service.translate_config`）
   - `knowledge.query`（capability service: `agent.modules.knowledge.service.query_knowledge`）

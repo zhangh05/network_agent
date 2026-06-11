@@ -337,12 +337,13 @@ class TestCapabilityRegistryV09:
         assert len(m.tools) == 2
 
     def test_visible_tools_includes_all_19(self, reg):
-        # v1.0.1 added 6 more knowledge tools.
+        # v1.0.1.1: read_source is no longer LLM-visible.
+        # The LLM-visible set is now 18 (was 19; v1.0.1 set it to 19).
         v = sorted(reg.visible_tool_ids())
         assert v == sorted([
             "config_translation.translate_config",
             "knowledge.query", "knowledge.import_document",
-            "knowledge.list_sources", "knowledge.read_source",
+            "knowledge.list_sources",
             "knowledge.disable_source", "knowledge.delete_source",
             "knowledge.import_file", "knowledge.list_chunks",
             "knowledge.search_chunks", "knowledge.read_chunk",
