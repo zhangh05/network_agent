@@ -40,6 +40,7 @@ from backend.api.runtime_routes import register_runtime_routes
 from backend.api.context_routes import register_context_routes
 from backend.api.workspace_routes import register_workspace_routes
 from backend.api.knowledge_routes import register_knowledge_routes
+from backend.api.review_routes import register_review_routes
 from backend.core.settings import UNIFIED_PORT, API_MODE, BUILD_COMMIT, TRANSLATOR_ENTRY
 from backend.core.paths import FRONTEND_DIR
 from backend.core.rate_limit import rate_limit_middleware
@@ -224,6 +225,7 @@ def create_app():
     register_job_routes(app)          # /api/jobs/*
     register_context_routes(app)      # /api/context/*, /api/prompts/*, /api/harness/*
     register_knowledge_routes(app)    # /api/knowledge/* (sources, search, chunks)
+    register_review_routes(app)       # /api/review-items/*, /api/workspaces/<ws>/review-items
 
     # ── Frontend ──
     @app.route("/")

@@ -127,60 +127,66 @@ export interface KnowledgeSource {
   source_id: string;
   workspace_id: string;
   title: string;
-  source_type: string;
-  scope: string;
-  language: string;
+  source_type?: string;
+  artifact_id?: string;
+  status?: string;
+  sensitivity?: Sensitivity;
+  language?: string;
   tags: string[];
-  enabled: boolean;
+  enabled?: boolean;
   chunk_count: number;
   created_at: string;
-  updated_at: string;
-  metadata: Record<string, unknown>;
+  updated_at?: string;
+  metadata?: Record<string, unknown>;
 }
 
 export interface KnowledgeChunk {
   chunk_id: string;
   source_id: string;
-  parent_chunk_id: string;
-  chapter: string;
-  section: string;
-  subsection: string;
-  content: string;
-  char_start: number;
-  char_end: number;
-  page_start: number;
-  page_end: number;
-  metadata: Record<string, unknown>;
-}
-
-export interface SourceSummary {
-  source_id: string;
-  title: string;
-  chapter: string;
-  section: string;
-  snippet: string;
-  score: number;
+  artifact_id?: string;
+  title?: string;
+  /** Backend returns a safe excerpt (never the full content). */
+  safe_excerpt?: string;
+  summary?: string;
+  sensitivity?: Sensitivity;
+  artifact_type?: string;
+  tags?: string[];
+  chunk_index?: number;
+  llm_safe?: boolean;
+  created_at?: string;
+  metadata?: Record<string, unknown>;
 }
 
 export interface KnowledgeSearchResult {
   ok: boolean;
   query: string;
-  source_count: number;
-  hits: Array<{
+  /** Backend returns `results` (not `hits` / `source_summary`). */
+  results: Array<{
     chunk_id: string;
     source_id: string;
-    chapter: string;
-    section: string;
-    subsection: string;
-    title: string;
-    snippet: string;
+    title?: string;
+    summary?: string;
+    safe_excerpt?: string;
     score: number;
-    lexical_score: number;
-    final_score: number;
+    sensitivity?: Sensitivity;
+    artifact_id?: string;
   }>;
+  count: number;
+  source_count: number;
+  /** Best-effort derivation of `source_summary` for the UI. */
   source_summary: SourceSummary[];
   metadata: Record<string, unknown>;
   warnings: string[];
+  note?: string;
+}
+
+export interface SourceSummary {
+  source_id: string;
+  title: string;
+  chapter?: string;
+  section?: string;
+  snippet: string;
+  score: number;
 }
 
 /* ──────────────────────────── Artifacts ──────────────────────────── */

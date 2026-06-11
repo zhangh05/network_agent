@@ -5,12 +5,23 @@ import type { ApiError, ApiErrorCode } from "../types";
  * HTTP client wrapper. All API calls go through `apiClient`.
  * Network errors are uniformly converted to `ApiError` so callers
  * can handle them without inspecting axios internals.
+ *
+ * Base URL precedence:
+ *  1. `VITE_API_BASE` environment variable (production / staging)
+ *  2. Vite dev-server proxy at `/api` (default for `npm run dev`)
+ *  3. Fallback to `/api` (same-origin)
  */
 
-const REQUEST_TIMEOUT_MS = 8000;
+const REQUEST_TIMEOUT_MS = 12000;
+
+const envBase =
+  (import.meta as unknown as { env?: Record<string, string> }).env?.VITE_API_BASE ?? "";
+const baseURL = envBase
+  ? envBase.replace(/\/+$/, "") + "/api"
+  : "/api";
 
 export const apiClient: AxiosInstance = axios.create({
-  baseURL: "/api",
+  baseURL,
   timeout: REQUEST_TIMEOUT_MS,
   headers: {
     "Content-Type": "application/json",
@@ -32,7 +43,7 @@ apiClient.interceptors.request.use((config) => {
 
 function toApiError(err: unknown, url?: string): ApiError {
   if (axios.isAxiosError(err)) {
-    const ax = err as AxiosError<{ message?: string; error?: string }>;
+    const ax = err as AxiosError<{ message?: string; error?: string; summary?: string }>;
     if (ax.code === "ECONNABORTED") {
       return mkError("timeout", 0, "请求超时", url, ax.response);
     }
@@ -43,9 +54,18 @@ function toApiError(err: unknown, url?: string): ApiError {
       return mkError("network", 0, "后端不可达", url, undefined);
     }
     const status = ax.response.status;
-    const body = ax.response.data as { message?: string; error?: string } | undefined;
-    const msg = body?.message || body?.error || ax.message || "请求失败";
-    const code: ApiErrorCode = status >= 500 ? "http_5xx" : "http_4xx";
+    const body = ax.response.data as
+      | { message?: string; error?: string; summary?: string }
+      | undefined;
+    const msg =
+      body?.message || body?.error || body?.summary || ax.message || "请求失败";
+    let code: ApiErrorCode = status >= 500 ? "http_5xx" : "http_4xx";
+    if (status === 401) code = "http_4xx";
+    if (status === 403) code = "http_4xx";
+    if (status === 404) code = "http_4xx";
+    if (status === 408) code = "timeout";
+    if (status === 413 || status === 422) code = "http_4xx";
+    if (status === 429) code = "http_4xx";
     return mkError(code, status, msg, url, ax.response);
   }
   if (err instanceof SyntaxError) {
@@ -94,3 +114,5 @@ export async function apiRequest<T = unknown>(
     throw toApiError(err, url);
   }
 }
+
+export const apiBaseURL = baseURL;

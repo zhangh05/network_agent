@@ -5,9 +5,10 @@ import { useToastStore } from "../../stores/toast";
 import { isApiError } from "../../types";
 
 interface LlmConfig {
-  provider: string;
-  model: string;
-  base_url: string;
+  provider?: string;
+  model?: string;
+  base_url?: string;
+  [k: string]: unknown;
 }
 
 /**

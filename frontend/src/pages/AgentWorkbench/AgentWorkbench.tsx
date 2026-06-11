@@ -53,7 +53,24 @@ export function AgentWorkbench() {
       toast({ kind: "success", title: "turn 完成", body: res.trace_id });
     } catch (err: unknown) {
       const msg = isApiError(err) ? err.message : String(err);
-      appendAssistant(`(error) ${msg}`);
+      // Even on error, surface a minimal AgentResult to the Inspector so
+      // the operator can see the trace_id / turn_id and warnings/errors.
+      const stubResult: AgentResult = {
+        ok: false,
+        final_response: `(error) ${msg}`,
+        events: [],
+        trace_id: isApiError(err) ? err.request_id ?? "—trace-failed" : "—trace-failed",
+        session_id: currentSessionId ?? "—",
+        turn_id: `turn-${Date.now()}`,
+        tool_calls: [],
+        warnings: [],
+        errors: [msg],
+        metadata: {
+          source_count: 0,
+          source_summary: [],
+        },
+      };
+      appendAssistant(stubResult.final_response, stubResult);
       toast({
         kind: "error",
         title: "agent.run 失败",

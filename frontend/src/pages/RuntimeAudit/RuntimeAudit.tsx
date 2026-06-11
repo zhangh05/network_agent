@@ -13,13 +13,13 @@ export function RuntimeAudit() {
   const { currentWorkspaceId } = useSessionStore();
   const [selectedTurnId, setSelectedTurnId] = useState<string | null>(null);
 
-  const turns = useAsync<{ turns: RuntimeAuditTurn[] }>(
+  const turns = useAsync<{ runs: RuntimeAuditTurn[] }>(
     (s) =>
       currentWorkspaceId
         ? runtimeAuditApi.recent(currentWorkspaceId, s)
-        : Promise.resolve({ turns: [] }),
+        : Promise.resolve({ runs: [] }),
     [currentWorkspaceId],
-    (d) => (d.turns ?? []).length === 0,
+    (d) => (d.runs ?? []).length === 0,
   );
 
   const trace = useAsync<{ events: RuntimeAuditTurn["events"] }>(
@@ -52,7 +52,7 @@ export function RuntimeAudit() {
             >
               {(d) => (
                 <div data-testid="audit-turn-list">
-                  {(d.turns ?? []).map((t) => (
+                  {(d.runs ?? []).map((t) => (
                     <button
                       key={t.turn_id}
                       type="button"

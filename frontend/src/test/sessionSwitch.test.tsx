@@ -28,7 +28,7 @@ describe("Session switch", () => {
     });
     enqueue("/runs/recent", { status: 200, data: { runs: [] } });
     render(<Sidebar />);
-    const sessB = await screen.findByTestId("sess-sess-B");
+    const sessB = await screen.findByTestId("sess-btn-sess-B");
     fireEvent.click(sessB);
     expect(useSessionStore.getState().currentSessionId).toBe("sess-B");
   });

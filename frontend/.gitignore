@@ -3,6 +3,8 @@ dist/
 dist-ssr/
 *.local
 *.tsbuildinfo
+test-results/
+playwright-report/
 
 # Editor
 .vscode/

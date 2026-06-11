@@ -1,6 +1,7 @@
 # Frontend v1.0 — Capability-driven Agent Workbench
 
-> **Frontend v1.0**（当前基线）：废弃旧单文件前端 `frontend/index.html`，重写为 **Capability-driven Agent Workbench**。
+> **Frontend v1.0**（前一基线）：废弃旧单文件前端 `frontend/index.html`，重写为 **Capability-driven Agent Workbench**。
+> **Frontend v1.0.1**（当前基线）：将 v1.0 接入**真实后端** + 10 个 Playwright E2E。详见 [FRONTEND_API_E2E_V101.md](FRONTEND_API_E2E_V101.md)。
 > 旧前端保留为 `frontend/legacy/index.html.legacy`（legacy 备份，不继续扩展）。
 > 配套：[README.md](../README.md) · [ARCHITECTURE.md](ARCHITECTURE.md) · [RELEASE_HISTORY.md](RELEASE_HISTORY.md)
 

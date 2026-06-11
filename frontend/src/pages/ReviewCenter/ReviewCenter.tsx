@@ -24,6 +24,10 @@ const STATUS_KIND: Record<ReviewStatus, "warn" | "ok" | "muted" | "info"> = {
 /**
  * Review Center — list / update review items. Never mutates the
  * original artifact; only writes `user_note` and `status`.
+ *
+ * Real backend endpoints (v1.0.1):
+ *   GET /api/workspaces/<ws_id>/review-items?status=
+ *   PUT /api/review-items/<item_id>?workspace_id=&artifact_id=
  */
 export function ReviewCenter() {
   const { currentWorkspaceId } = useSessionStore();
@@ -32,21 +36,32 @@ export function ReviewCenter() {
   const [editing, setEditing] = useState<ReviewItem | null>(null);
   const [note, setNote] = useState("");
 
-  const list = useAsync<{ items: ReviewItem[] }>(
+  const list = useAsync<{ items: ReviewItem[]; count: number }>(
     (s) =>
       currentWorkspaceId
         ? reviewsApi.list(currentWorkspaceId, filter === "all" ? undefined : filter, s)
-        : Promise.resolve({ items: [] }),
+        : Promise.resolve({ items: [], count: 0 }),
     [currentWorkspaceId, filter],
     (d) => (d.items ?? []).length === 0,
   );
 
   async function onSave() {
-    if (!editing) return;
+    if (!editing || !currentWorkspaceId) return;
+    const artifact_id = (editing as ReviewItem & { artifact_id?: string }).artifact_id;
+    if (!artifact_id) {
+      toast({
+        kind: "error",
+        title: "无法更新",
+        body: "review item 缺少 artifact_id（后端不提供 list 返回值的 artifact 范围时无法定位）",
+      });
+      return;
+    }
     try {
       await reviewsApi.update(editing.item_id, {
         status: editing.status,
         user_note: note,
+        workspace_id: currentWorkspaceId,
+        artifact_id,
       });
       toast({ kind: "success", title: "review item 已更新", body: editing.item_id });
       setEditing(null);
@@ -57,6 +72,7 @@ export function ReviewCenter() {
         kind: "error",
         title: "更新失败",
         body: isApiError(e) ? e.message : String(e),
+        request_id: isApiError(e) ? e.request_id : undefined,
       });
     }
   }
@@ -108,47 +124,52 @@ export function ReviewCenter() {
                 </tr>
               </thead>
               <tbody>
-                {(d.items ?? []).map((it) => (
-                  <tr key={it.item_id} data-testid={`review-${it.item_id}`}>
-                    <td className="mono text-xs">{it.item_id}</td>
-                    <td><InlineCode>{it.artifact_id}</InlineCode></td>
-                    <td>
-                      <Badge
-                        kind={
-                          it.severity === "error"
-                            ? "err"
-                            : it.severity === "warning"
-                              ? "warn"
-                              : "info"
-                        }
-                      >
-                        {it.severity}
-                      </Badge>
-                    </td>
-                    <td>{it.category}</td>
-                    <td>
-                      <Badge kind={STATUS_KIND[it.status]} withDot>
-                        {it.status}
-                      </Badge>
-                    </td>
-                    <td className="text-sm muted">
-                      {it.user_note || <span className="muted">—</span>}
-                    </td>
-                    <td>
-                      <button
-                        className="btn sm"
-                        type="button"
-                        onClick={() => {
-                          setEditing(it);
-                          setNote(it.user_note ?? "");
-                        }}
-                        data-testid={`btn-edit-${it.item_id}`}
-                      >
-                        编辑
-                      </button>
-                    </td>
-                  </tr>
-                ))}
+                {(d.items ?? []).map((it) => {
+                  const artifactId = (it as ReviewItem & { artifact_id?: string }).artifact_id;
+                  return (
+                    <tr key={it.item_id} data-testid={`review-${it.item_id}`}>
+                      <td className="mono text-xs">{it.item_id}</td>
+                      <td>
+                        {artifactId ? <InlineCode>{artifactId}</InlineCode> : "—"}
+                      </td>
+                      <td>
+                        <Badge
+                          kind={
+                            it.severity === "error"
+                              ? "err"
+                              : it.severity === "warning"
+                                ? "warn"
+                                : "info"
+                          }
+                        >
+                          {it.severity}
+                        </Badge>
+                      </td>
+                      <td>{(it as ReviewItem & { category?: string }).category || "—"}</td>
+                      <td>
+                        <Badge kind={STATUS_KIND[it.status]} withDot>
+                          {it.status}
+                        </Badge>
+                      </td>
+                      <td className="text-sm muted">
+                        {it.user_note || <span className="muted">—</span>}
+                      </td>
+                      <td>
+                        <button
+                          className="btn sm"
+                          type="button"
+                          onClick={() => {
+                            setEditing(it);
+                            setNote(it.user_note ?? "");
+                          }}
+                          data-testid={`btn-edit-${it.item_id}`}
+                        >
+                          编辑
+                        </button>
+                      </td>
+                    </tr>
+                  );
+                })}
               </tbody>
             </table>
           )}
@@ -182,7 +203,9 @@ export function ReviewCenter() {
                 </Badge>
               </span>
             </div>
-            <div className="text-sm muted mb-2">{editing.reason}</div>
+            <div className="text-sm muted mb-2">
+              {editing.reason || (editing as ReviewItem & { category?: string }).category || "(no reason)"}
+            </div>
             <textarea
               className="input"
               rows={4}

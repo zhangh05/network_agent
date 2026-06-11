@@ -1,15 +1,16 @@
 # Network Agent Architecture
 
-## Frontend v1.0 — Capability-driven Agent Workbench Rewrite (CURRENT)
+## Frontend v1.0.1 — Real API Integration & E2E Stabilization (CURRENT)
 
-> **HEAD**: `see git log — v1.0 refactor(frontend): rewrite capability-driven agent workbench` · **Runtime**: Codex-style (v0.6 底座 + v0.7/v0.7.1 能力层) · **Tool count**: 73 · **Frontend stack**: React 18 + TypeScript 5 + Vite 5 + Zustand 4
+> **HEAD**: `see git log — v1.0.1 fix(frontend): integrate real backend api and e2e` · **Runtime**: Codex-style (v0.6 底座 + v0.7/v0.7.1 能力层) · **Tool count**: 73 · **Frontend stack**: React 18 + TypeScript 5 + Vite 5 + Zustand 4 + Playwright 1.60
 >
-> 本版本**仅**重写前端；后端 Runtime 主链 0 改动、Tool count 仍为 **73**、planned (topology / inspection / cmdb) 仍 0 启用。
+> 本版本将 v1.0 React 前端从 mock/demo 接入**真实后端**；后端 Runtime 主链 0 改动、Tool count 仍为 **73**、planned (topology / inspection / cmdb) 仍 0 启用。后端**仅**薄包装 `backend/api/review_routes.py`（不新增 Tool）。
 >
-> 本文档是 Network Agent 的总体架构图谱，按"Runtime 主链（v0.6）→ 能力层（v0.7 / v0.7.1）→ 前端层（v1.0）"分层描述。
+> 本文档是 Network Agent 的总体架构图谱，按"Runtime 主链（v0.6）→ 能力层（v0.7 / v0.7.1）→ 前端层（v1.0.1）"分层描述。
 > - Runtime 底座单一权威：[AGENT_BACKEND_RUNTIME_V06.md](AGENT_BACKEND_RUNTIME_V06.md)
 > - 能力层单一权威：[CAPABILITY_LAYER_V071.md](CAPABILITY_LAYER_V071.md)
-> - 前端 v1.0 详细：[FRONTEND_V1.md](FRONTEND_V1.md)
+> - 前端 v1.0.1 详细：[FRONTEND_API_E2E_V101.md](FRONTEND_API_E2E_V101.md)
+> - 前端 v1.0 概览：[FRONTEND_V1.md](FRONTEND_V1.md)
 > - v1.0.2 检索质量：[RETRIEVAL_QUALITY_V102.md](RETRIEVAL_QUALITY_V102.md)
 > - v1.0.1 ingestion 详细：[DOCUMENT_INGESTION_BOOK_LIBRARY_V101.md](DOCUMENT_INGESTION_BOOK_LIBRARY_V101.md)
 > - 版本演化：[RELEASE_HISTORY.md](RELEASE_HISTORY.md)
@@ -113,12 +114,13 @@ Capability Layer 在 v0.7 起形成**显式三层**结构，业务能力接入 T
 
 详细契约见 [MODULE_SKILL_TOOL_MODEL.md](MODULE_SKILL_TOOL_MODEL.md) 与 [CAPABILITY_LAYER_V071.md](CAPABILITY_LAYER_V071.md)。
 
-## Current Closure State (Frontend v1.0)
+## Current Closure State (Frontend v1.0.1)
 
-- **HEAD**: v1.0 commit（refactor(frontend): rewrite capability-driven agent workbench）
+- **HEAD**: v1.0.1 commit（fix(frontend): integrate real backend api and e2e）
 - **Test baseline (focused regression)**:
-  - v1.0 frontend tests: **13 / 13 passed**（10 个 Vitest 文件覆盖 10 类断言；`npm run typecheck && npm run build && npm test` 三门禁全过）
-  - v1.0 alignment tests: **37 / 37 passed**（`harness/test_frontend_backend_alignment.py`：TestViteWorkbench 6 + TestFrontendBackendAlignment 5 + TestAgentChat 12 + TestUIAgentExperience 5 + TestRunHistory 4 + TestNoRegression 5 = 37）
+  - v1.0.1 frontend E2E: **10 / 10 passed**（`frontend/e2e/0[1-9]-*.spec.ts` + `10-refresh-restore.spec.ts`：10 个 Playwright 浏览器测试覆盖 10 类断言；`npm run e2e` 全过）
+  - v1.0 frontend Vitest: **13 / 13 passed**（**未回归**）
+  - v1.0 alignment tests: **37 / 37 passed**（**未回归**）
   - v1.0.2 retrieval quality tests: **19 / 19 passed**（**未回归**）
   - v1.0.1.1 ingestion security tests: **16 / 16 passed**（**未回归**）
   - v1.0.1 document ingestion tests: **22 / 22 passed**（**未回归**）
@@ -128,22 +130,31 @@ Capability Layer 在 v0.7 起形成**显式三层**结构，业务能力接入 T
   - v0.8.1 skill selector tests: **23 / 23 passed**（**未回归**）
   - v0.8 capability manifest tests: **20 / 20 passed**（**未回归**）
   - v0.7/v0.7.1 capability tests: **41 passed, 0 failed**（**未回归**）
-  - **Focused 套件累计（v1.0 + 历史）**：**277 passed, 0 failed**（v1.0 frontend 13 + v1.0 alignment 37 + v1.0.2 retrieval 19 + v1.0.1.1 16 + v1.0.1 22 + v1.0 29 + v0.9 29 + v0.8.2 28 + v0.8.1 23 + v0.8 20 + v0.7/v0.7.1 41 = 277. **0 failed, 0 skipped**）
+  - **Focused 套件累计（v1.0.1 + 历史）**：**287 passed, 0 failed**（v1.0.1 E2E 10 + v1.0 Vitest 13 + v1.0 alignment 37 + v1.0.2 retrieval 19 + v1.0.1.1 16 + v1.0.1 22 + v1.0 29 + v0.9 29 + v0.8.2 28 + v0.8.1 23 + v0.8 20 + v0.7/v0.7.1 41 = 287. **0 failed, 0 skipped**）
   - **Eval gate**：`scripts/evaluate_retrieval_v102.py --quiet` exit 0；Recall@3=0.8667（≥0.85）/ MRR=0.8167（≥0.75）/ no_hit_precision=1.0（=1.0）/ duplicate_rate=0.0（≤0.20）
-- **Runtime architecture**: Codex-style Agent Runtime（Thread / Session / Turn / RuntimeLoop）— v0.6 引入，**v0.6.1 ~ v1.0 主链未变**
-- **CapabilityRegistry (v1.0)**: 7 个 capability（4 enabled + 3 planned），**单一真相源**
-- **v1.0 NEW — Frontend Capability-driven Workbench**:
-  - **仅**改 `frontend/`，后端 0 改动
+- **Runtime architecture**: Codex-style Agent Runtime（Thread / Session / Turn / RuntimeLoop）— v0.6 引入，**v0.6.1 ~ v1.0.1 主链未变**
+- **CapabilityRegistry (v1.0.1)**: 7 个 capability（4 enabled + 3 planned），**单一真相源**
+- **v1.0.1 NEW — Frontend Real API Integration & E2E**:
+  - 10 个 axios API 模块（agent / sessions / workspaces / capabilities / tools / knowledge / artifacts / reviews / runtime_audit / settings）按**真实后端合同**对齐
+  - 错误统一转 `ApiError`（覆盖 401/403/404/408/413/422/429/5xx/timeout/network/parse 6 类）
+  - Agent failure 路径**新增 stub AgentResult**（turn_id / trace_id / errors），保证 Inspector 在 LLM 离线时仍可见
+  - **部署**：`VITE_API_BASE` / `VITE_DEV_API_TARGET` 环境变量；Vite dev proxy → 127.0.0.1:8010；生产 build 输出 `dist/`
+  - 知识库 import-from-artifact：select artifact → `POST /api/knowledge/sources/from-artifact`（JSON，**不**是 multipart）
+  - Review modal：`PUT /api/review-items/<id>?workspace_id=&artifact_id=`（**不**改原 artifact）
+  - Session sidebar：创建 / 切换 / 归档 全部接通
+  - 后端**仅**薄包装 `backend/api/review_routes.py`（**不**新增 Tool，Tool count 仍 73）
+  - 10 个 Playwright E2E 覆盖：health / agent message / session lifecycle / knowledge import / search / artifact / review / planned 无按钮 / provider timeout / 页面刷新恢复
+  - 详见 [FRONTEND_API_E2E_V101.md](FRONTEND_API_E2E_V101.md)
+- **v1.0 NEW — Frontend Capability-driven Workbench** (carried forward):
   - 旧单文件 `frontend/index.html` → `frontend/legacy/index.html.legacy`（legacy 备份，not served by Vite）
   - 新 `frontend/index.html` = Vite root（`<div id="root">` + `/src/main.tsx`）
-  - 目录：`frontend/src/{app,api,types,stores,layouts,components,pages,styles,test}/`
+  - 目录：`frontend/src/{app,api,types,stores,layouts,components,pages,styles,test}/` + `frontend/e2e/`
   - 三栏布局：左 Workspace/Sessions/Runs · 中 7 个 page · 右 Turn Inspector
   - 7 page：`/workbench` `/knowledge` `/artifacts` `/reviews` `/capabilities` `/audit` `/settings`
   - 9 TS 类型（`AgentResult` / `ToolCallResult` / `RuntimeEvent` / `Artifact` / `ReviewItem` / `KnowledgeSource` / `KnowledgeChunk` / `CapabilityManifest` / `ApiError`）严格映射后端 `as_dict()`
-  - 10 axios API 模块（agent / sessions / workspaces / capabilities / tools / knowledge / artifacts / reviews / runtime_audit / settings）；错误统一转 `ApiError`
   - 4 个 Zustand store（session / UI / workbench / toast）
   - planned capability **不**渲染调用按钮；Tool Catalog 移到 `/audit` 下
-  - 10 个 Vitest 测试文件（`frontend/src/test/*.test.tsx`）覆盖 10 类断言
+  - 13 个 Vitest 测试文件（`frontend/src/test/*.test.tsx`）覆盖 10 类断言
   - 详见 [FRONTEND_V1.md](FRONTEND_V1.md)
 - **v1.0 NEW — Knowledge Store Management** (carried forward)
 - **v1.0.1 NEW — Document Ingestion & Book Library** (carried forward):
