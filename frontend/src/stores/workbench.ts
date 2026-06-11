@@ -31,6 +31,8 @@ export interface ChatMsg {
   created_at: string;
   /** attached to assistant msgs only */
   result?: AgentResult;
+  /** v1.0.3.2: run_id from the backend, used for dedup in mergeFromBackend */
+  run_id?: string;
 }
 
 const MAX_MSGS_PER_SESSION = 30;
@@ -175,20 +177,26 @@ export const useWorkbenchStore = create<WorkbenchState>()(
           role: m.role,
           text: m.content,
           created_at: m.created_at,
+          run_id: m.run_id,
           // `result` 不可从后端还原, 渲染为纯文本气泡 (无 inline 工具调用)
         }));
         set((s) => {
           const cur = s.bySession[session_id] ?? [];
-          // Dedup: 同时去重 "本地已有" 和 "服务端自身重复"
-          const seen = new Set(cur.map((m) => m.id));
+          // v1.0.3.2: dual dedup strategy
+          // (a) by content+role — catches local vs backend duplicates
+          // (b) by message_id — catches server-side self-duplicates
+          const contentSeen = new Set(cur.map((m) => `${m.role}:${m.text.slice(0, 200)}`));
+          const idSeen = new Set(cur.map((m) => m.id));
           const merged = [...cur];
           for (const m of converted) {
-            if (!seen.has(m.id)) {
-              seen.add(m.id);
-              merged.push(m);
-            }
+            if (idSeen.has(m.id)) continue;
+            const ck = `${m.role}:${m.text.slice(0, 200)}`;
+            if (contentSeen.has(ck)) continue;
+            idSeen.add(m.id);
+            contentSeen.add(ck);
+            merged.push(m);
           }
-          // 按 created_at 升序, 用户/助手交替应自然有序
+          // 按 created_at 升序
           merged.sort((a, b) => a.created_at.localeCompare(b.created_at));
           const next = capHistory({
             ...s.bySession,
