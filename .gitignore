@@ -35,3 +35,5 @@ config/llm.local.json
 API_key.txt
 # Runtime-generated audit reports (avoid diff noise)
 reports/*.json
+node_modules/.vite/
+node_modules/**/*.results.json

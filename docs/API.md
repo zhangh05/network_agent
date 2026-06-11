@@ -8,6 +8,7 @@ Current API routes are Flask routes registered by `backend/main.py` and `backend
 |---|---|---|
 | GET | `/api/health` | Basic process health |
 | GET | `/api/version` | Version metadata |
+| GET | `/api/runtime/summary` | Safe runtime counts for UI status: capability totals and tool visibility |
 | GET | `/api/agent/status` | Agent status |
 | POST | `/api/agent/message` | Main Codex-style runtime turn |
 | POST | `/api/agent/run` | Legacy-compatible agent run, supports `stream=true` |
@@ -38,6 +39,17 @@ Current API routes are Flask routes registered by `backend/main.py` and `backend
 | GET | `/api/workspaces/<ws_id>/history` |
 | GET | `/api/workspaces/<ws_id>/runs/<run_id>` |
 | GET | `/api/workspaces/<ws_id>/runs/<run_id>/trace` |
+
+`GET /api/workspaces` returns `default` first when present and includes frontend-friendly metadata:
+
+- `workspace_id`, `name`, `created_at`, `is_default`
+- compatibility counts: `runs_count`, `artifacts_count`, `memory_count`
+- `stats.session_count` counts active sessions; `stats.artifact_count` and `stats.knowledge_source_count` are workspace counts.
+
+`GET /api/runtime/summary` is read-only and does not expose tool invocation. Current fields:
+
+- `capabilities.total`, `capabilities.enabled`, `capabilities.planned`, `capabilities.disabled`
+- `tools.registered`, `tools.model_visible`, `tools.hidden_or_non_llm`
 
 ## Tools
 

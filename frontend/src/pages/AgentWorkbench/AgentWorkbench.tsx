@@ -1,5 +1,5 @@
 import { useState, useRef, useEffect } from "react";
-import { agentApi, sessionsApi } from "../../api";
+import { agentApi, runtimeApi, sessionsApi } from "../../api";
 import { useSessionStore } from "../../stores/session";
 import { useWorkbenchStore } from "../../stores/workbench";
 import { useToastStore } from "../../stores/toast";
@@ -37,9 +37,29 @@ export function AgentWorkbench() {
   } = useWorkbenchStore();
   const [input, setInput] = useState("");
   const [elapsed, setElapsed] = useState(0);
+  const [runtimeSummary, setRuntimeSummary] = useState<string>(
+    "工具状态加载中 · 能力状态加载中",
+  );
   const streamRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
   const toast = useToastStore((s) => s.show);
+
+  useEffect(() => {
+    const ctrl = new AbortController();
+    runtimeApi
+      .summary(ctrl.signal)
+      .then((res) => {
+        setRuntimeSummary(
+          `工具 ${res.tools.model_visible}/${res.tools.registered} 可见 · ` +
+          `能力 ${res.capabilities.enabled}/${res.capabilities.total} 已启用 · ` +
+          `规划中 ${res.capabilities.planned}`,
+        );
+      })
+      .catch(() => {
+        setRuntimeSummary("工具状态不可用 · 能力状态不可用");
+      });
+    return () => ctrl.abort();
+  }, []);
 
   // Elapsed-time ticker — gives the user a sense of "still working"
   // for long agent turns (web search, multi-tool, LLM slow).
@@ -314,8 +334,8 @@ export function AgentWorkbench() {
               {sending ? <span className="spinner" /> : <IconSend size={14} />}
             </button>
           </div>
-          <div className="chat-hint">
-            本地 agent · Tool count 73 · planned (topology / inspection / cmdb) 仍 0 可见
+          <div className="chat-hint" data-testid="runtime-summary-hint">
+            本地 agent · {runtimeSummary}
           </div>
         </div>
       </div>

@@ -1,5 +1,5 @@
 import { BrowserRouter, Navigate, NavLink, Route, Routes } from "react-router-dom";
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
 import { AppLayout } from "../layouts/AppLayout";
 import { AgentWorkbench } from "../pages/AgentWorkbench/AgentWorkbench";
 import { KnowledgeLibrary } from "../pages/KnowledgeLibrary/KnowledgeLibrary";
@@ -10,7 +10,8 @@ import { RuntimeAudit } from "../pages/RuntimeAudit/RuntimeAudit";
 import { Settings } from "../pages/Settings/Settings";
 import { ToastHost } from "../components/ToastHost";
 import { useUIStore, useSessionStore } from "../stores/session";
-import { workspacesApi } from "../api";
+import { systemApi, workspacesApi } from "../api";
+import { pickInitialWorkspaceId, shouldReplacePersistedWorkspace } from "../utils/workspace";
 import {
   IconBook,
   IconBox,
@@ -36,6 +37,7 @@ const NAV_ITEMS: Array<{ to: string; label: string; testid: string; Icon: typeof
 ];
 
 export function App() {
+  const [version, setVersion] = useState<string | null>(null);
   const theme = useUIStore((s) => s.theme);
   const setTheme = useUIStore((s) => s.setTheme);
   const inspectorOpen = useUIStore((s) => s.inspectorOpen);
@@ -56,8 +58,8 @@ export function App() {
         const list = res.workspaces ?? [];
         useSessionStore.getState().setWorkspaces(list);
         const cur = useSessionStore.getState().currentWorkspaceId;
-        if (!cur && list.length > 0) {
-          useSessionStore.getState().setCurrentWorkspace(list[0].workspace_id);
+        if (list.length > 0 && shouldReplacePersistedWorkspace(cur, list)) {
+          useSessionStore.getState().setCurrentWorkspace(pickInitialWorkspaceId(list));
         }
       })
       .catch(() => {
@@ -65,8 +67,17 @@ export function App() {
       });
   }, []);
 
+  useEffect(() => {
+    const ctrl = new AbortController();
+    systemApi
+      .version(ctrl.signal)
+      .then((res) => setVersion(res.version || "unknown"))
+      .catch(() => setVersion(null));
+    return () => ctrl.abort();
+  }, []);
+
   return (
-    <BrowserRouter>
+    <BrowserRouter future={{ v7_relativeSplatPath: true, v7_startTransition: true }}>
       <div className="app-shell">
         <header className="app-header">
           <a className="brand" href="/" aria-label="网工智枢 · Network Agent">
@@ -75,7 +86,7 @@ export function App() {
             </span>
             <span className="brand-text">
               <span>网工智枢</span>
-              <small>Network Agent · v1.0.1</small>
+              <small>Network Agent{version ? ` · ${formatVersion(version)}` : ""}</small>
             </span>
           </a>
 
@@ -212,4 +223,8 @@ export function App() {
       <ToastHost />
     </BrowserRouter>
   );
+}
+
+function formatVersion(version: string): string {
+  return version.startsWith("v") ? version : `v${version}`;
 }

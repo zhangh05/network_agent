@@ -65,7 +65,8 @@ class TestFrontendBackendAlignment:
         frontend_apis = [
             "/api/health", "/api/version", "/api/modules", "/api/skills",
             "/api/jobs", "/api/memory/status", "/api/memory/list",
-            "/api/runs/recent", "/api/runtime/health", "/api/workspaces",
+            "/api/runs/recent", "/api/runtime/health", "/api/runtime/summary",
+            "/api/workspaces",
         ]
         backend_text = (PROJECT_ROOT / "backend" / "main.py").read_text()
         # Also include route files since routes are registered via register_*_routes
@@ -285,4 +286,3 @@ class TestNoRegression:
         mods = load_module_registry()
         enabled = sorted([m.module_name for m in mods if m.is_enabled()])
         assert enabled == sorted(["config_translation", "knowledge_base"])
-

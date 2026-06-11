@@ -269,10 +269,34 @@ export interface Workspace {
   name: string;
   created_at: string;
   is_default: boolean;
+  runs_count?: number;
+  artifacts_count?: number;
+  memory_count?: number;
   stats: {
     session_count: number;
     artifact_count: number;
     knowledge_source_count: number;
+  };
+}
+
+export interface AppVersion {
+  app?: string;
+  version: string;
+  build_commit?: string;
+  product_ready?: boolean;
+}
+
+export interface RuntimeSummary {
+  capabilities: {
+    total: number;
+    enabled: number;
+    planned: number;
+    disabled: number;
+  };
+  tools: {
+    registered: number;
+    model_visible: number;
+    hidden_or_non_llm: string[];
   };
 }
 

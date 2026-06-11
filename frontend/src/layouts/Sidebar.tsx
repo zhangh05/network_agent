@@ -6,6 +6,9 @@ import { useToastStore } from "../stores/toast";
 import { isApiError } from "../types";
 import type { Session, Workspace } from "../types";
 import { IconArchive, IconBolt, IconChat, IconPlus, IconWorkspace } from "../components/Icon";
+import { pickInitialWorkspaceId, shouldReplacePersistedWorkspace } from "../utils/workspace";
+
+const SESSION_PREVIEW_LIMIT = 12;
 
 /**
  * Sidebar — Workspace / Sessions / Recent Runs. All data is fetched
@@ -53,8 +56,8 @@ export function Sidebar() {
   function setWorkspacesIntoStore(list: Workspace[]) {
     setWorkspaces(list);
     const cur = useSessionStore.getState().currentWorkspaceId;
-    if (!cur && list.length > 0) {
-      setCurrentWorkspace(list[0].workspace_id);
+    if (list.length > 0 && shouldReplacePersistedWorkspace(cur, list)) {
+      setCurrentWorkspace(pickInitialWorkspaceId(list));
     }
   }
 
@@ -160,7 +163,7 @@ export function Sidebar() {
         >
           {(d) => (
             <div className="list" data-testid="sess-list">
-              {(d.sessions ?? []).map((sess) => (
+              {previewSessions(d.sessions ?? [], currentSessionId).map((sess) => (
                 <div
                   key={sess.session_id}
                   className={
@@ -212,6 +215,13 @@ export function Sidebar() {
                   </button>
                 </div>
               ))}
+              {hiddenSessionCount(d.sessions ?? [], currentSessionId) > 0 && (
+                <div className="list-item" style={{ cursor: "default" }}>
+                  <span className="meta">
+                    另有 {hiddenSessionCount(d.sessions ?? [], currentSessionId)} 个活跃会话
+                  </span>
+                </div>
+              )}
             </div>
           )}
         </AsyncView>
@@ -254,4 +264,17 @@ export function Sidebar() {
       </div>
     </div>
   );
+}
+
+function previewSessions(sessions: Session[], currentSessionId: string | null): Session[] {
+  const preview = sessions.slice(0, SESSION_PREVIEW_LIMIT);
+  if (!currentSessionId || preview.some((s) => s.session_id === currentSessionId)) {
+    return preview;
+  }
+  const selected = sessions.find((s) => s.session_id === currentSessionId);
+  return selected ? [...preview, selected] : preview;
+}
+
+function hiddenSessionCount(sessions: Session[], currentSessionId: string | null): number {
+  return Math.max(0, sessions.length - previewSessions(sessions, currentSessionId).length);
 }

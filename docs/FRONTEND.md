@@ -42,10 +42,12 @@ The frontend is a React/Vite app under `frontend/`.
 - Agent turns use `TIMEOUTS.agentTurn = 180_000`.
 - Workbench chat history persists in `localStorage["na_workbench"]`.
 - Session message sync uses `GET /api/sessions/<id>/messages`.
+- Initial workspace selection prefers `is_default`, then `workspace_id == "default"`, then the first backend item.
+- Header version uses `GET /api/version`; Workbench runtime status uses `GET /api/runtime/summary`.
 
 ## Tests
 
 Current source contains:
 
-- 11 Vitest files under `frontend/src/test/*.test.tsx`
+- 12 Vitest files under `frontend/src/test/*.test.tsx`
 - 11 Playwright specs under `frontend/e2e/*.spec.ts`

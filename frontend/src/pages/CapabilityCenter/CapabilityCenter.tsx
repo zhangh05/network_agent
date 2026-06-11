@@ -60,7 +60,7 @@ export function CapabilityCenter() {
             </span>
           </h1>
           <div className="subtitle">
-            从后端 CapabilityRegistry 动态读取 · 规划中 capability 仅展示状态，<strong>不</strong>提供调用入口
+            从后端 capability manifest 读取 · 规划中 capability 仅展示状态，<strong>不</strong>提供调用入口
           </div>
         </div>
         <div className="row-flex" style={{ gap: 6, flexWrap: "wrap" }}>

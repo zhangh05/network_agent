@@ -104,16 +104,30 @@ def update_workspace_state(ws_id: str, patch: dict) -> dict:
 
 
 def list_workspaces() -> list:
-    """List all workspaces with real counts."""
+    """List all workspaces with frontend-friendly metadata and real counts."""
+    ensure_workspace("default")
     workspaces = []
     if WS_ROOT.is_dir():
-        for d in sorted(WS_ROOT.iterdir()):
+        dirs = [d for d in WS_ROOT.iterdir() if d.is_dir() and not d.name.startswith(".")]
+        dirs.sort(key=lambda d: (0 if d.name == "default" else 1, _is_test_workspace(d.name), d.name))
+        for d in dirs:
             if d.is_dir() and not d.name.startswith("."):
+                runs_count = _count_runs(d.name)
+                artifacts_count = _count_artifacts(d.name)
+                knowledge_source_count = _count_knowledge_sources(d.name)
                 workspaces.append({
                     "workspace_id": d.name,
-                    "runs_count": _count_runs(d.name),
-                    "artifacts_count": _count_artifacts(d.name),
+                    "name": _workspace_display_name(d.name),
+                    "created_at": _workspace_created_at(d.name),
+                    "is_default": d.name == "default",
+                    "runs_count": runs_count,
+                    "artifacts_count": artifacts_count,
                     "memory_count": _count_memory(d.name),
+                    "stats": {
+                        "session_count": _count_sessions(d.name),
+                        "artifact_count": artifacts_count,
+                        "knowledge_source_count": knowledge_source_count,
+                    },
                 })
     return workspaces
 
@@ -210,6 +224,23 @@ def _count_runs(ws_id: str) -> int:
     return 0
 
 
+def _count_sessions(ws_id: str) -> int:
+    """Count active session records when session storage exists."""
+    ws_id = validate_workspace_id(ws_id)
+    sessions_dir = WS_ROOT / ws_id / "sessions"
+    if not sessions_dir.is_dir():
+        return 0
+    count = 0
+    for path in sessions_dir.glob("*.json"):
+        try:
+            data = json.loads(path.read_text(encoding="utf-8"))
+        except Exception:
+            continue
+        if data.get("status", "active") == "active":
+            count += 1
+    return count
+
+
 def _count_artifacts(ws_id: str) -> int:
     """Count artifact files across all artifact subdirs."""
     ws_id = validate_workspace_id(ws_id)
@@ -224,6 +255,22 @@ def _count_artifacts(ws_id: str) -> int:
     return count
 
 
+def _count_knowledge_sources(ws_id: str) -> int:
+    """Count knowledge sources from the v1.0.1 index, if present."""
+    ws_id = validate_workspace_id(ws_id)
+    sources = WS_ROOT / ws_id / "indexes" / "knowledge" / "sources.jsonl"
+    if not sources.is_file():
+        return 0
+    count = 0
+    try:
+        for line in sources.read_text(encoding="utf-8").splitlines():
+            if line.strip():
+                count += 1
+    except Exception:
+        return 0
+    return count
+
+
 def _count_memory(ws_id: str) -> int:
     """Count memory records for a project."""
     ws_id = validate_workspace_id(ws_id)
@@ -233,3 +280,33 @@ def _count_memory(ws_id: str) -> int:
         return store.count(project_id=ws_id)
     except Exception:
         return 0
+
+
+def _workspace_display_name(ws_id: str) -> str:
+    yaml_path = WS_ROOT / ws_id / "workspace.yaml"
+    if yaml_path.is_file():
+        try:
+            for line in yaml_path.read_text(encoding="utf-8").splitlines():
+                if line.startswith("name:"):
+                    name = line.split(":", 1)[1].strip().strip("'\"")
+                    return name or ws_id
+        except Exception:
+            pass
+    return ws_id
+
+
+def _workspace_created_at(ws_id: str) -> str:
+    yaml_path = WS_ROOT / ws_id / "workspace.yaml"
+    if yaml_path.is_file():
+        try:
+            for line in yaml_path.read_text(encoding="utf-8").splitlines():
+                if line.startswith("created:"):
+                    return line.split(":", 1)[1].strip()
+        except Exception:
+            pass
+    return ""
+
+
+def _is_test_workspace(ws_id: str) -> int:
+    test_markers = ("test", "e2e", "api_contract", "closure_", "ws_")
+    return 1 if any(marker in ws_id for marker in test_markers) else 0

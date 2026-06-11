@@ -173,6 +173,38 @@ def _safe_output(output: dict) -> dict:
 def register_runtime_routes(app):
     """Register all runtime API routes on the Flask app."""
 
+    @app.route("/api/runtime/summary")
+    def api_runtime_summary():
+        """Return safe runtime counts used by the workbench status UI."""
+        from agent.runtime.services import default_runtime_services
+
+        services = default_runtime_services()
+        caps = services.capability_registry.list_all()
+        cap_counts = {
+            "total": len(caps),
+            "enabled": len([c for c in caps if c.status == "enabled"]),
+            "planned": len([c for c in caps if c.status == "planned"]),
+            "disabled": len([c for c in caps if c.status == "disabled"]),
+        }
+
+        registry = services.tool_service.registry
+        all_tools = registry.list_all()
+        visible_tools = registry.list_model_visible()
+        hidden_or_non_llm = [
+            t.tool_id
+            for t in all_tools
+            if (not t.enabled) or t.forbidden or (not t.callable_by_llm)
+        ]
+
+        return jsonify({
+            "capabilities": cap_counts,
+            "tools": {
+                "registered": len(all_tools),
+                "model_visible": len(visible_tools),
+                "hidden_or_non_llm": hidden_or_non_llm,
+            },
+        })
+
     @app.route("/api/runtime/health")
     def api_runtime_health():
         from runtime.diagnostics import get_diagnostics

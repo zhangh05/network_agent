@@ -16,7 +16,7 @@ This file records facts checked from current source and local runtime constructi
 - Stack: React 18, TypeScript, Vite 5, React Router, Zustand, Axios
 - Dev server: `5173`
 - Dev proxy: `/api` to `VITE_DEV_API_TARGET`, default `http://127.0.0.1:8010`
-- Current test inventory: 11 Vitest files and 11 Playwright specs
+- Current test inventory: 12 Vitest files and 11 Playwright specs
 
 ## Runtime Registry
 
@@ -24,6 +24,7 @@ This file records facts checked from current source and local runtime constructi
 - Current runtime capability count: 7 total, 4 enabled, 3 planned.
 - Current runtime tool registry count: 73 registered tools.
 - Current model-visible tool count: 70.
+- `GET /api/runtime/summary` exposes these counts for frontend status display.
 
 Registered but not model-visible:
 
@@ -39,3 +40,7 @@ Current public capability projection:
 
 - enabled: `config.translate`, `config.review`, `knowledge.search`
 - planned: `topology.draw`, `inspection.analyze`
+
+## Workspace API
+
+`GET /api/workspaces` ensures `default` exists, returns it first when present, and includes frontend-facing `name`, `created_at`, `is_default`, compatibility counts, and a `stats` object.

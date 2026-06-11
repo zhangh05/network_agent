@@ -1,5 +1,5 @@
 /**
- * API layer — 10 modules. Each module is a thin function layer; the page
+ * API layer — typed endpoint groups. Each module is a thin function layer; the page
  * components only call these functions and never call axios directly.
  * No business logic, no caching, no transformation. If a field is missing
  * from the backend response, the function returns `null`/empty list and
@@ -20,10 +20,19 @@ import type {
   KnowledgeSource,
   ReviewItem,
   RuntimeAuditTurn,
+  RuntimeSummary,
   Session,
   SessionMessage,
   Workspace,
+  AppVersion,
 } from "../types";
+
+/* ──────────────────────── 0. system ──────────────────────── */
+
+export const systemApi = {
+  version: (signal?: AbortSignal): Promise<AppVersion> =>
+    apiRequest<AppVersion>({ method: "GET", url: "/version" }, signal),
+};
 
 /* ──────────────────────── 1. agent ──────────────────────── */
 
@@ -210,10 +219,17 @@ export const workspacesApi = {
     ),
 };
 
+/* ──────────────────────── 3b. runtime summary ──────────────────────── */
+
+export const runtimeApi = {
+  summary: (signal?: AbortSignal): Promise<RuntimeSummary> =>
+    apiRequest<RuntimeSummary>({ method: "GET", url: "/runtime/summary" }, signal),
+};
+
 /* ──────────────────────── 4. capabilities ──────────────────────── */
 
 export const capabilitiesApi = {
-  /** GET /api/capabilities — CapabilityRegistry projection. */
+  /** GET /api/capabilities — public YAML capability projection. */
   manifest: (
     signal?: AbortSignal,
   ): Promise<{ capabilities: CapabilityManifest[]; enabled: string[] }> =>

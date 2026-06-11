@@ -82,9 +82,9 @@ export function RuntimeAudit() {
             >
               {(d) => (
                 <div className="list" data-testid="audit-turn-list">
-                  {(d.runs ?? []).map((t) => (
+                  {(d.runs ?? []).map((t, i) => (
                     <button
-                      key={t.turn_id}
+                      key={`${t.turn_id || "turn"}-${t.trace_id || i}`}
                       type="button"
                       className={
                         "list-item" +

@@ -30,7 +30,7 @@ npm run build
 npm run e2e
 ```
 
-Current source contains 11 Vitest files and 11 Playwright E2E specs.
+Current source contains 12 Vitest files and 11 Playwright E2E specs.
 
 ## Source Fact Checks
 
