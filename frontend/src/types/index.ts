@@ -157,8 +157,14 @@ export interface SourceSummary {
   score: number;
 }
 
-/* ──────────────────────────── Artifacts ──────────────────────────── */
-
+/* ──────────────────────────── Artifacts ────────────────────────────
+ *
+ * Wire shape returned by
+ *   GET /api/workspaces/<ws>/artifacts
+ *   GET /api/workspaces/<ws>/artifacts/<art>
+ * There is no `content_preview` field — full content is served by a
+ * separate /content endpoint (see artifactsApi.content).
+ */
 export interface Artifact {
   artifact_id: string;
   workspace_id: string;
@@ -166,12 +172,38 @@ export interface Artifact {
   title: string;
   created_at: string;
   updated_at: string;
+  /** File size in bytes (server-reported). */
   size_bytes: number;
-  authoritative: boolean;
-  deployable_config: boolean;
+  /** File MIME type, e.g. "text/plain". May be empty. */
+  mime_type: string;
+  /** File extension, e.g. ".txt". May be empty. */
+  file_ext: string;
+  /** Truncated SHA-256, e.g. "abc12345". May be empty. */
+  sha256_short: string;
+  /** Path relative to the artifact store root. */
+  relative_path: string;
+  /** Lifecycle, e.g. "active" | "archived" | "deleted". */
+  lifecycle: string;
+  /** Where this artifact lives, e.g. "workspace" | "global". */
+  scope: string;
+  /** Origin, e.g. "user_upload" | "module_output" | "agent_run". */
+  source: string;
+  /** Sensitivity tier. */
   sensitivity: Sensitivity;
+  /** Free-form tags. */
+  tags: string[];
+  /** Optional LLM-generated or module-supplied summary. */
+  summary: string;
+  /** Provenance: capability / module / skill that produced this artifact. */
+  capability_id: string;
+  module: string;
+  skill: string;
+  /** Run that produced this artifact (empty for user uploads). */
+  run_id: string;
+  /** True if the content was redacted before persistence. */
+  redaction_applied: boolean;
+  /** Server-side metadata bag (varies by artifact_type). */
   metadata: Record<string, unknown>;
-  content_preview?: string;
 }
 
 /* ──────────────────────────── Reviews ──────────────────────────── */

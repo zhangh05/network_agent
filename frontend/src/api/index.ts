@@ -339,6 +339,47 @@ export const artifactsApi = {
       },
       signal,
     ),
+  /**
+   * GET /api/workspaces/<ws>/artifacts/<art>/summarize — backend summary.
+   * Returns the artifact metadata plus a `summary` field if the
+   * backend has computed one. Surface this in the "摘要" tab.
+   */
+  summarize: (
+    workspace_id: string,
+    artifact_id: string,
+    signal?: AbortSignal,
+  ): Promise<{
+    ok: boolean;
+    summary: {
+      artifact_id: string;
+      artifact_type: string;
+      title: string;
+      summary: string;
+      sensitivity?: string;
+      sha256_short?: string;
+      size_bytes?: number;
+      created_at?: string;
+    };
+  }> =>
+    apiRequest<{
+      ok: boolean;
+      summary: {
+        artifact_id: string;
+        artifact_type: string;
+        title: string;
+        summary: string;
+        sensitivity?: string;
+        sha256_short?: string;
+        size_bytes?: number;
+        created_at?: string;
+      };
+    }>(
+      {
+        method: "GET",
+        url: `/workspaces/${workspace_id}/artifacts/${artifact_id}/summarize`,
+      },
+      signal,
+    ),
 };
 
 /* ──────────────────────── 8. reviews ──────────────────────── */
