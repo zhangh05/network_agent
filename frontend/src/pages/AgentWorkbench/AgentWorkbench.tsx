@@ -185,7 +185,7 @@ export function AgentWorkbench() {
       appendAssistant(sanitizeAssistantText(res.final_response ?? ""), res, resolvedSid);
       notifyRunCompleted();
       if (res.ok) {
-        toast({ kind: "success", title: "回答完成", body: res.trace_id });
+        toast({ kind: "success", title: "回答完成", body: "可在右侧检查器查看详情" });
       } else {
         const friendly = _humanFailure(res.errors?.[0] ?? res.final_response ?? "");
         toast({ kind: "error", title: "请求失败", body: friendly, request_id: res.trace_id });

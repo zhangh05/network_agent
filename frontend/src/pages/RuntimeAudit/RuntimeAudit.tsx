@@ -180,10 +180,14 @@ export function RuntimeAudit() {
               {trace.state.kind === "success" && (
                 <>
                   <div className="row-flex mb-3">
-                    <InlineCode>{selectedRunId}</InlineCode>
+                    <span className="text-sm" style={{ fontWeight: 600 }}>运行详情</span>
                     <span className="muted text-sm">
                       {trace.state.data.events.length} 个事件
                     </span>
+                    <details className="collapse" style={{ marginLeft: "auto" }}>
+                      <summary className="text-xs muted">技术详情</summary>
+                      <InlineCode>{selectedRunId}</InlineCode>
+                    </details>
                   </div>
                   {trace.state.data.events.length === 0 ? (
                     <div className="empty">

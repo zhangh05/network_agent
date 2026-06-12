@@ -498,6 +498,12 @@ def run_turn(session, turn, services=None) -> AgentResult:
 
         # Persist run record so /api/sessions/<id>/messages 拿得到
         _persist_run_record(session, turn, result, context)
+        # Record successful turn for Settings health display
+        try:
+            from agent.llm.config import record_recent_success
+            record_recent_success()
+        except Exception:
+            pass
         return result
 
     # Max steps exceeded

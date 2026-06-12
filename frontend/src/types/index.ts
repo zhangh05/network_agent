@@ -354,6 +354,7 @@ export interface LlmStatus {
     error_summary: string;
     error_type: string;
   } | null;
+  last_success?: { at: string } | null;
   red_lines?: string[];
   allowed_tasks?: string[];
   blocked_tasks?: string[];

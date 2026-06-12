@@ -314,35 +314,54 @@ export function Settings() {
     <div className="page" data-testid="page-settings">
       <PageHeader />
       <div className="page-body">
-        {/* v1.0.3.4: show recent failure alert prominently */}
-        {status?.recent_failure && (
-          <div
-            className="card mb-3"
-            style={{
-              borderColor: "var(--warn)",
-              background: "var(--warn-soft, #fff8e1)",
-              padding: 12,
-            }}
-            data-testid="llm-recent-failure-alert"
-          >
-            <div className="row-flex" style={{ gap: 8 }}>
-              <IconAlert size={14} style={{ color: "var(--warn)" }} />
-              <div>
-                <strong style={{ color: "var(--warn)" }}>最近对话失败</strong>
-                <div className="text-sm mt-1" style={{ color: "var(--ink)" }}>
-                  {status.recent_failure.error_summary}
-                </div>
-                <div className="text-xs mt-1" style={{ color: "var(--ink-mute)" }}>
-                  {status.recent_failure.at ? `发生时间：${new Date(status.recent_failure.at).toLocaleString()}` : ""}
-                  {status.recent_failure.error_type ? ` · 类型：${status.recent_failure.error_type}` : ""}
-                </div>
-                <div className="text-xs mt-2" style={{ color: "var(--ink-mute)" }}>
-                  建议：检查网络连接、缩短问题长度或更换 LLM 供应商。
+        {/* v1.0.3.4: show recent failure + last success context */}
+        {(() => {
+          const failureTime = status?.recent_failure?.at ? new Date(status.recent_failure.at).getTime() : 0;
+          const successTime = status?.last_success?.at ? new Date(status.last_success.at).getTime() : 0;
+          const failureIsStale = successTime > failureTime;
+          const showFailure = status?.recent_failure && !failureIsStale;
+          if (!showFailure && !status?.last_success) return null;
+          return showFailure ? (
+            <div
+              className="card mb-3"
+              style={{ borderColor: "var(--warn)", background: "var(--warn-soft, #fff8e1)", padding: 12 }}
+              data-testid="llm-recent-failure-alert"
+            >
+              <div className="row-flex" style={{ gap: 8 }}>
+                <IconAlert size={14} style={{ color: "var(--warn)" }} />
+                <div>
+                  <strong style={{ color: "var(--warn)" }}>最近对话失败</strong>
+                  <div className="text-sm mt-1" style={{ color: "var(--ink)" }}>{status!.recent_failure!.error_summary}</div>
+                  <div className="text-xs mt-1" style={{ color: "var(--ink-mute)" }}>
+                    {status!.recent_failure!.at ? `发生时间：${new Date(status!.recent_failure!.at).toLocaleString()}` : ""}
+                    {status!.recent_failure!.error_type ? ` · 类型：${status!.recent_failure!.error_type}` : ""}
+                  </div>
+                  {status!.last_success && (
+                    <div className="text-xs mt-1" style={{ color: "var(--ok)" }}>
+                      后续对话已成功 · 最后一次成功：{new Date(status!.last_success!.at).toLocaleTimeString()}
+                    </div>
+                  )}
+                  <div className="text-xs mt-2" style={{ color: "var(--ink-mute)" }}>建议：检查网络连接、缩短问题长度或更换 LLM 供应商。</div>
                 </div>
               </div>
             </div>
-          </div>
-        )}
+          ) : (
+            <div
+              className="card mb-3"
+              style={{ borderColor: "var(--ok)", background: "#e8f5e9", padding: 12 }}
+              data-testid="llm-last-success"
+            >
+              <span className="text-sm" style={{ color: "var(--ok)" }}>
+                最近一次对话：成功 · {status?.last_success?.at ? new Date(status.last_success.at).toLocaleTimeString() : ""}
+              </span>
+              {failureIsStale && (
+                <span className="text-xs" style={{ color: "var(--ink-mute)", marginLeft: 8 }}>
+                  （历史失败已恢复）
+                </span>
+              )}
+            </div>
+          );
+        })()}
         <HealthBar status={status} config={draft} refreshing={healthRefreshing} />
 
         <div className="settings-grid" data-testid="settings-grid">
@@ -667,8 +686,14 @@ function HealthBar({
       />
       <strong style={{ color }}>{label}</strong>
       <span className="muted text-xs">
-        · enabled={String(status.enabled)} · key_loaded={String(status.key_loaded)}
+        · {status.provider} · {status.model}
       </span>
+      <details className="collapse" style={{ marginLeft: "auto" }}>
+        <summary className="text-xs muted">开发诊断</summary>
+        <div className="text-xs muted mt-1">
+          enabled={String(status.enabled)} · key_loaded={String(status.key_loaded)} · config_source={status.config_source}
+        </div>
+      </details>
     </div>
     {recentFailureActive && (
       <div
