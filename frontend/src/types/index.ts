@@ -87,6 +87,7 @@ export interface AgentResult {
 export interface RuntimeEvent {
   event_id: string;
   event_type: string;
+  type?: string;
   occurred_at: string;
   payload: Record<string, unknown>;
 }

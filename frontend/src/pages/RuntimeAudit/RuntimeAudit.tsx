@@ -226,8 +226,9 @@ export function RuntimeAudit() {
                         ) : null;
                       })()}
                       {trace.state.data.events.map((ev) => {
-                        const label = _eventLabel(ev.event_type || ev.type, ev.payload);
-                        const isOk = ev.event_type !== "turn_failed" && ev.type !== "turn_failed";
+                        const eventType = ev.event_type || ev.type || "unknown";
+                        const label = _eventLabel(eventType, ev.payload);
+                        const isOk = eventType !== "turn_failed";
                         return (
                         <div
                           key={ev.event_id}
@@ -242,7 +243,7 @@ export function RuntimeAudit() {
                             <span className="muted text-xs mono">{ev.occurred_at}</span>
                           </div>
                           <details className="collapse mt-2">
-                            <summary style={{ fontSize: 11, color: "var(--ink-mute)" }}>开发诊断 · {ev.event_type || ev.type}</summary>
+                            <summary style={{ fontSize: 11, color: "var(--ink-mute)" }}>开发诊断 · {eventType}</summary>
                             <CodeBlock language="json">
                               {JSON.stringify(ev.payload ?? {}, null, 2)}
                             </CodeBlock>

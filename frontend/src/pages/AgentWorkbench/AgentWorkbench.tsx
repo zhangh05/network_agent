@@ -401,7 +401,7 @@ export function AgentWorkbench() {
             )}
             <button
               className="chat-send-btn"
-              onClick={onSend}
+              onClick={() => void onSend()}
               disabled={sending || !input.trim()}
               data-testid="btn-send"
               type="button"

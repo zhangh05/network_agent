@@ -11,6 +11,14 @@ import { APP_EVENTS } from "../utils/appEvents";
 
 const SESSION_PREVIEW_LIMIT = 12;
 
+interface RecentRunSummary {
+  run_id?: string;
+  status?: string;
+  user_input_summary?: string;
+  intent?: string;
+  created_at?: string;
+}
+
 /**
  * Sidebar — Workspace / Sessions / Recent Runs. All data is fetched
  * from the real backend; no mocks, no fallback.
@@ -38,7 +46,7 @@ export function Sidebar() {
     [currentWorkspaceId],
     (d) => (d.sessions ?? []).length === 0,
   );
-  const recentRuns = useAsync<{ runs: Array<{ run_id?: string; status?: string; user_input_summary?: string; intent?: string }> }>(
+  const recentRuns = useAsync<{ runs: RecentRunSummary[] }>(
     (s) =>
       currentWorkspaceId
         ? workspacesApi.recentRuns(currentWorkspaceId, s)
