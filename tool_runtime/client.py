@@ -55,7 +55,7 @@ class ToolRuntimeClient:
 
         # ── Resolve dry_run ──
         if dry_run is None and context is not None:
-            dry_run = context.dry_run_default
+            dry_run = getattr(context, "dry_run_default", False)
         dry_run = dry_run or False
 
         # ── Build invocation ──
