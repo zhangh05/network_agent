@@ -38,7 +38,7 @@ export function Sidebar() {
     [currentWorkspaceId],
     (d) => (d.sessions ?? []).length === 0,
   );
-  const recentRuns = useAsync<{ runs: Array<{ run_id?: string; status?: string }> }>(
+  const recentRuns = useAsync<{ runs: Array<{ run_id?: string; status?: string; user_input_summary?: string; intent?: string }> }>(
     (s) =>
       currentWorkspaceId
         ? workspacesApi.recentRuns(currentWorkspaceId, s)
@@ -252,8 +252,10 @@ export function Sidebar() {
             <div className="list" data-testid="runs-list">
               {(d.runs ?? []).slice(0, 8).map((r, i) => {
                 const runId = r.run_id ?? `run-${i}`;
+                const summary = r.user_input_summary || r.intent || "";
+                const label = summary ? (summary.length > 20 ? summary.slice(0, 20) + "…" : summary) : "";
                 return (
-                  <div className="list-item" key={runId} style={{ cursor: "default" }}>
+                  <div className="list-item" key={runId} style={{ cursor: "default" }} title={summary || runId}>
                     <span
                       className={
                         "status-dot " +
@@ -264,7 +266,7 @@ export function Sidebar() {
                             : "idle")
                       }
                     />
-                    <span className="title mono text-sm">{runId}</span>
+                    <span className="title mono text-sm">{label || runId}</span>
                   </div>
                 );
               })}

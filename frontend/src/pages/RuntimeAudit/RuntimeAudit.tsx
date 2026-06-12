@@ -182,6 +182,29 @@ export function RuntimeAudit() {
                     </div>
                   ) : (
                     <div data-testid="audit-events">
+                      {(() => {
+                        // Extract failure summary for failed turns
+                        const failedEv = trace.state.data.events.find(
+                          (ev: any) => ev.event_type === "turn_failed" || ev.type === "turn_failed",
+                        );
+                        const error = failedEv?.payload?.error || failedEv?.payload || "";
+                        return failedEv ? (
+                          <div
+                            className="card mb-3"
+                            style={{
+                              borderColor: "var(--danger)",
+                              padding: 10,
+                              color: "var(--danger)",
+                            }}
+                            data-testid="audit-failure-summary"
+                          >
+                            <strong>失败原因</strong>
+                            <span className="text-sm" style={{ marginLeft: 8 }}>
+                              {String(error).slice(0, 200)}
+                            </span>
+                          </div>
+                        ) : null;
+                      })()}
                       {trace.state.data.events.map((ev) => (
                         <div
                           key={ev.event_id}

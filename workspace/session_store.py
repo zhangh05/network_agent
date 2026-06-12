@@ -190,8 +190,27 @@ def add_run_to_session(
         run_ids.append(run_id)
         session["run_ids"] = run_ids
         session["updated_at"] = _now_iso()
+        # Auto-title: use first user input as session name
+        if not session.get("title"):
+            title = _auto_title_from_run(run_id, ws_id)
+            if title:
+                session["title"] = title
         _write_session(session, ws_id)
     return session
+
+
+def _auto_title_from_run(run_id: str, ws_id: str) -> str:
+    """Generate a human-friendly title from the run's user input."""
+    try:
+        from workspace.run_store import get_run
+        run = get_run(run_id, ws_id)
+        if run:
+            text = (run.get("user_input_summary") or "").strip()
+            if text and len(text) > 3:
+                return text[:40] + ("..." if len(text) > 40 else "")
+    except Exception:
+        pass
+    return ""
 
 
 def get_session_messages(session_id: str, ws_id: str = "default") -> List[Dict[str, Any]]:
