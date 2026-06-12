@@ -119,14 +119,31 @@ export function ArtifactCenter() {
               <IconBox size={11} /> 制品列表
               <button
                 className={`btn sm ${batchMode ? "" : "ghost"}`}
-                style={{ marginLeft: 8, fontSize: 11 }}
+                style={{ 
+                  marginLeft: 8, 
+                  fontSize: 11,
+                  borderRadius: 12,
+                  padding: "2px 10px",
+                  background: batchMode ? "var(--accent-soft)" : "var(--bg-soft)",
+                  color: batchMode ? "var(--accent-deep)" : "var(--ink-soft)",
+                  border: `1px solid ${batchMode ? "var(--accent)" : "var(--line-soft)"}`,
+                }}
                 onClick={() => { setBatchMode(!batchMode); if (batchMode) setCheckedIds(new Set()); }}
                 type="button"
               >
                 {batchMode ? "退出批量" : "批量删除"}
               </button>
               {batchMode && checkedIds.size > 0 && (
-                <button className="btn sm danger" style={{ marginLeft: 4 }} onClick={batchDelete} type="button">
+                <button 
+                  className="btn sm danger" 
+                  style={{ 
+                    marginLeft: 4,
+                    borderRadius: 12,
+                    padding: "2px 10px",
+                  }} 
+                  onClick={batchDelete} 
+                  type="button"
+                >
                   确认删除 ({checkedIds.size})
                 </button>
               )}
@@ -136,6 +153,10 @@ export function ArtifactCenter() {
                 color: "var(--ink-mute)",
                 textTransform: "none",
                 letterSpacing: 0,
+                background: "var(--bg-soft)",
+                padding: "2px 8px",
+                borderRadius: 10,
+                border: "1px solid var(--line-soft)",
               }}>
                 {list.state.kind === "success" ? (list.state.data.artifacts ?? []).length : "—"}
               </span>
