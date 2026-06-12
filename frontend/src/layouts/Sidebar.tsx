@@ -121,7 +121,7 @@ export function Sidebar() {
   }
 
   return (
-    <div data-testid="sidebar" className="col-flex" style={{ gap: 16 }}>
+    <div data-testid="sidebar" className="sidebar-content">
       {/* 工作区 */}
       <div className="sidebar-panel">
         <div className="sidebar-panel-title">
@@ -185,33 +185,19 @@ export function Sidebar() {
                 <div
                   key={sess.session_id}
                   className={
-                    "list-item" +
+                    "list-item session-item" +
                     (currentSessionId === sess.session_id ? " active" : "")
                   }
                   data-testid={`sess-${sess.session_id}`}
-                  style={{ paddingRight: 4 }}
                 >
                   <button
                     onClick={() => setCurrentSession(sess.session_id)}
                     data-testid={`sess-btn-${sess.session_id}`}
                     aria-label={`会话：${sess.title || sess.session_id}`}
                     type="button"
-                    style={{
-                      flex: 1,
-                      display: "flex",
-                      alignItems: "center",
-                      gap: 6,
-                      textAlign: "left",
-                      padding: 0,
-                      background: "none",
-                      border: "none",
-                      color: "inherit",
-                      fontFamily: "inherit",
-                      cursor: "pointer",
-                      minWidth: 0,
-                    }}
+                    className="session-item-main"
                   >
-                    <span className="title" style={{ minWidth: 0 }}>
+                    <span className="title">
                       {sess.title || sess.session_id}
                     </span>
                     {sess.message_count > 0 && (
@@ -224,7 +210,7 @@ export function Sidebar() {
                       void onArchive(sess);
                     }}
                     className="btn ghost sm"
-                    style={{ padding: "0 4px", height: 22 }}
+                    data-compact="true"
                     data-testid={`btn-archive-${sess.session_id}`}
                     type="button"
                     aria-label="归档"
@@ -235,7 +221,7 @@ export function Sidebar() {
                 </div>
               ))}
               {hiddenSessionCount(d.sessions ?? [], currentSessionId) > 0 && (
-                <div className="list-item" style={{ cursor: "default" }}>
+                <div className="list-item muted-row">
                   <span className="meta">
                     另有 {hiddenSessionCount(d.sessions ?? [], currentSessionId)} 个活跃会话
                   </span>
@@ -264,33 +250,29 @@ export function Sidebar() {
                 const summary = r.user_input_summary || r.intent || "";
                 const label = summary ? (summary.length > 24 ? summary.slice(0, 24) + "…" : summary) : runId;
                 const intentBadge = r.intent ? (
-                  <span className="text-xs mono" style={{
-                    color: "var(--ink-faint)", background: "var(--bg-elev)",
-                    padding: "0 4px", borderRadius: 3, fontSize: 10
-                  }}>
+                  <span className="run-intent">
                     {r.intent}
                   </span>
                 ) : null;
                 return (
                   <div
-                    className="list-item"
+                    className="list-item run-item"
                     key={runId}
-                    style={{ cursor: "default", flexDirection: "column", alignItems: "flex-start", gap: 2, padding: "6px 12px" }}
                     title={`${summary || runId}\nstatus: ${r.status || "?"}\ntime: ${r.created_at || "?"}`}
                   >
-                    <div className="row-flex" style={{ gap: 6, width: "100%" }}>
+                    <div className="run-title-row">
                       <span
                         className={
                           "status-dot " +
                           (r.status === "ok" ? "ok" : r.status === "failed" ? "err" : "idle")
                         }
                       />
-                      <span className="title text-sm" style={{ lineHeight: 1.3 }}>{label}</span>
+                      <span className="title text-sm">{label}</span>
                     </div>
-                    <div className="row-flex" style={{ gap: 4, marginLeft: 16 }}>
+                    <div className="run-meta-row">
                       {intentBadge}
                       {r.created_at && (
-                        <span className="text-xs" style={{ color: "var(--ink-faint)" }}>
+                        <span className="text-xs faint">
                           {new Date(r.created_at).toLocaleTimeString(undefined, { hour: "2-digit", minute: "2-digit" })}
                         </span>
                       )}

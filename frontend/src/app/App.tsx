@@ -81,9 +81,6 @@ export function App() {
       <div className="app-shell">
         <header className="app-header">
           <a className="brand" href="/" aria-label="Network Agent · Operations Console">
-            <span className="brand-mark" aria-hidden>
-              网
-            </span>
             <span className="brand-text">
               <span>Network Agent</span>
               <small>Operations Console{version ? ` · ${formatVersion(version)}` : ""}</small>

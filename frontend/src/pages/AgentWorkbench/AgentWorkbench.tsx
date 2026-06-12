@@ -150,19 +150,12 @@ export function AgentWorkbench() {
     : "LLM 离线";
 
   return (
-    <div className="wb-shell" style={{ display: "flex", flexDirection: "column", height: "100%" }}>
+    <div className="wb-shell">
       {/* ── Header bar ── */}
       <div className="wb-header">
         <div className="wb-header-status">
           <span className={"dot " + (llmHealth.connected ? (llmHealth.recentFailure ? "warn" : "ok") : "err")} />
           <span>{llmStatusLabel}</span>
-        </div>
-        <div className="wb-quick-chips">
-          {QUICK_CHIPS.map((c) => (
-            <button key={c} className="wb-quick-chip" type="button" onClick={() => pickChip(c)}>
-              {c}
-            </button>
-          ))}
         </div>
       </div>
 
@@ -207,10 +200,10 @@ export function AgentWorkbench() {
           <div className="message-row assistant" data-testid="chat-sending">
             <div className="message-avatar agent">网</div>
             <div className="message-stack">
-              <div className="chat-bubble assistant" style={{ display: "flex", alignItems: "center", gap: 8 }}>
+              <div className="chat-bubble assistant sending-line">
                 <span className="spinner" />
-                <span className="text-sm" style={{ color: "var(--ink-mute)" }}>请求处理中…</span>
-                <span className="text-xs" style={{ color: "var(--ink-faint)", marginLeft: "auto" }}>
+                <span className="text-sm muted">请求处理中…</span>
+                <span className="text-xs faint sending-time">
                   {formatElapsed(elapsed)} / {formatElapsed(TIMEOUTS.agentTurn / 1000)}
                 </span>
               </div>
@@ -330,7 +323,7 @@ function ResultInline({ result }: { result: AgentResult }) {
     <div className="chat-result-inline">
       {(result.tool_calls ?? []).length > 0 && (
         <div className="chat-tool-summary" data-testid="inline-tool-summary">
-          <IconBolt size={10} style={{ color: "var(--accent)" }} />
+          <IconBolt size={10} className="inline-icon-accent" />
           <span>{toolCallSummary(result.tool_calls ?? [])}</span>
           <details className="inline-technical-details">
             <summary>技术详情</summary>
@@ -351,7 +344,7 @@ function ResultInline({ result }: { result: AgentResult }) {
       {Array.isArray(summaries) && summaries.length > 0 && (
         <div className="chat-source-summary" data-testid="inline-source-summary">
           <b>参考来源 · {summaries.length} 个</b>
-          <div style={{ marginTop: 4 }}>
+          <div className="chat-source-list">
             {summaries.slice(0, 6).map((s: any, i: number) => (
               <span className="chat-source-chip" key={i}>
                 {s.citation_id ? `${s.citation_id} · ` : ""}
@@ -364,7 +357,7 @@ function ResultInline({ result }: { result: AgentResult }) {
       )}
 
       {!isFailed && (
-        <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginTop: 6 }}>
+        <div className="result-actions">
           <button type="button" className="run-detail-button" onClick={toggleInspector}>
             查看运行详情
           </button>
@@ -383,7 +376,7 @@ function ResultInline({ result }: { result: AgentResult }) {
       {isFailed && result.errors?.length > 0 && (
         <details className="mt-2">
           <summary className="wb-run-detail">技术详情</summary>
-          <div className="text-xs mono mt-1" style={{ color: "var(--ink-mute)", whiteSpace: "pre-wrap" }}>
+          <div className="text-xs mono mt-1 technical-error">
             {result.errors.join("\n")}
           </div>
         </details>
