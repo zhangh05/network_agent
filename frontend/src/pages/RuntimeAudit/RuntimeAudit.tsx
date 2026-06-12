@@ -188,6 +188,21 @@ export function RuntimeAudit() {
                           (ev: any) => ev.event_type === "turn_failed" || ev.type === "turn_failed",
                         );
                         const error = failedEv?.payload?.error || failedEv?.payload || "";
+                        // Extract timeout duration if available
+                        const timeoutSecs = (() => {
+                          const modelReq = trace.state.data.events.find(
+                            (ev: any) => ev.type === "model_request" || ev.event_type === "model_request",
+                          );
+                          const modelResp = trace.state.data.events.find(
+                            (ev: any) => ev.type === "model_response" || ev.event_type === "model_response",
+                          );
+                          if (modelReq?.occurred_at && modelResp?.occurred_at) {
+                            const t0 = new Date(modelReq.occurred_at).getTime();
+                            const t1 = new Date(modelResp.occurred_at).getTime();
+                            if (t0 && t1) return Math.round((t1 - t0) / 1000);
+                          }
+                          return null;
+                        })();
                         return failedEv ? (
                           <div
                             className="card mb-3"
@@ -202,6 +217,11 @@ export function RuntimeAudit() {
                             <span className="text-sm" style={{ marginLeft: 8 }}>
                               {String(error).slice(0, 200)}
                             </span>
+                            {timeoutSecs != null && (
+                              <span className="text-sm" style={{ marginLeft: 8 }}>
+                                · 耗时 {timeoutSecs}s
+                              </span>
+                            )}
                           </div>
                         ) : null;
                       })()}

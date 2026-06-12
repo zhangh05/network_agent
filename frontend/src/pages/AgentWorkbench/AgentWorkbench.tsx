@@ -40,6 +40,25 @@ export function AgentWorkbench() {
     mergeFromBackend,
   } = useWorkbenchStore();
   const [input, setInput] = useState("");
+  const [llmHealth, setLlmHealth] = useState<{ connected: boolean; recentFailure?: string }>({ connected: false });
+  // LLM health indicator — poll every 30s so users see recent_failure without
+  // navigating to Settings. Only visual, never blocks interaction.
+  useEffect(() => {
+    const poll = () => {
+      import("../../api").then(({ settingsApi }) => {
+        settingsApi.llmStatus().then((s) => {
+          if (!s) return;
+          setLlmHealth({
+            connected: s.connected,
+            recentFailure: s.recent_failure?.error_type ? `近期失败: ${s.recent_failure.error_summary}` : undefined,
+          });
+        }).catch(() => {});
+      });
+    };
+    poll();
+    const id = window.setInterval(poll, 30_000);
+    return () => window.clearInterval(id);
+  }, []);
   const [elapsed, setElapsed] = useState(0);
   const [runtimeSummary, setRuntimeSummary] = useState<string>(
     "工具状态加载中 · 能力状态加载中",
@@ -236,6 +255,23 @@ export function AgentWorkbench() {
           >
             <IconRefresh size={12} /> 清空
           </button>
+          <span
+            className="status-pill"
+            data-testid="wb-llm-indicator"
+            data-tip={llmHealth.recentFailure || (llmHealth.connected ? "LLM 已连接" : "LLM 未连接")}
+          >
+            <span
+              className="dot"
+              style={{
+                background: llmHealth.recentFailure
+                  ? "var(--warn)"
+                  : llmHealth.connected
+                    ? "var(--ok)"
+                    : "var(--danger)",
+              }}
+            />
+            <span>{llmHealth.recentFailure ? "LLM 近期超时" : llmHealth.connected ? "LLM 在线" : "LLM 离线"}</span>
+          </span>
         </div>
       </div>
 
