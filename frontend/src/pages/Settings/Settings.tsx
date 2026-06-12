@@ -95,6 +95,7 @@ export function Settings() {
   const [activePreset, setActivePreset] = useState<string>("custom");
   const aliveRef = useRef(true);
   const statusRequestSeq = useRef(0);
+  const statusInFlight = useRef(0);
 
   // 初始加载只阻塞 config。健康检查可能触发供应商探测，放到后台刷新，
   // 避免设置页打开时卡在空白 loading。
@@ -126,12 +127,16 @@ export function Settings() {
   useEffect(() => {
     if (!config) return;
     const id = window.setInterval(() => {
-      refreshHealth({ showPending: false });
+      refreshHealth({ showPending: false, skipIfBusy: true });
     }, 10_000);
     return () => window.clearInterval(id);
   }, [config]);
 
-  async function refreshHealth(options: { showPending?: boolean } = {}) {
+  async function refreshHealth(options: { showPending?: boolean; skipIfBusy?: boolean } = {}) {
+    if (options.skipIfBusy && statusInFlight.current > 0) {
+      return;
+    }
+    statusInFlight.current += 1;
     const requestId = ++statusRequestSeq.current;
     if (options.showPending) setHealthRefreshing(true);
     try {
@@ -142,6 +147,7 @@ export function Settings() {
     } catch {
       // Keep the last known status visible; diagnostics are in the next good response.
     } finally {
+      statusInFlight.current = Math.max(0, statusInFlight.current - 1);
       if (aliveRef.current && requestId === statusRequestSeq.current) {
         setHealthRefreshing(false);
       }
@@ -235,20 +241,17 @@ export function Settings() {
     setSaving(true);
     try {
       await settingsApi.deleteLlmConfig();
-      // 重新拉 config (auto_default)
-      const [cfg, st] = await Promise.all([
-        settingsApi.llmConfig(),
-        settingsApi.llmStatus(),
-      ]);
+      // 重新拉 config (auto_default)，健康检查放到后台，避免重置操作被供应商探测拖慢。
+      const cfg = await settingsApi.llmConfig();
       setConfig(cfg);
       setDraft(cfg);
-      setStatus(st);
       setActivePreset(pickPresetId(cfg.provider, cfg.base_url, cfg.model));
       setApiKeyDirty(false);
       setApiKeyDraft("");
       setClearKeyOnSave(false);
       setTestResult(null);
       toast({ kind: "success", title: "已重置为默认配置" });
+      void refreshHealth({ showPending: true });
     } catch (e: unknown) {
       toast({
         kind: "error",

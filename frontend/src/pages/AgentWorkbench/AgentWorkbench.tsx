@@ -463,15 +463,23 @@ function WorkbenchOverview({
                   : "LLM 可用"
                 : "LLM 离线"}
             </strong>
-            <span>{sending ? "当前请求处理中" : "MiniMax-M3 · 服务在线"}</span>
+            <span>
+              {sending
+                ? "当前请求处理中"
+                : llmConnected
+                  ? "MiniMax-M3 · 服务在线"
+                  : llmFailure
+                    ? "最近请求失败 · 可重试"
+                    : "等待健康检查"}
+            </span>
           </div>
         </div>
       </div>
 
       <div className="ops-strip">
-        <OverviewStat label="工具可见" value={stats.tools || "70 / 73"} />
-        <OverviewStat label="能力已启用" value={stats.capabilities || "4 / 7"} />
-        <OverviewStat label="规划中" value={stats.planned || "3"} />
+        <OverviewStat label="工具可见" value={stats.tools ?? "—"} />
+        <OverviewStat label="能力已启用" value={stats.capabilities ?? "—"} />
+        <OverviewStat label="规划中" value={stats.planned ?? "—"} />
         <OverviewStat label="本会话消息" value={String(historyCount)} />
       </div>
 
