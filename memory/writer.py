@@ -66,7 +66,16 @@ def write_memory(
 
     # ═══ Step 4: Persist ═══
     store = get_store()
-    return store.put(record)
+    memory_id = store.put(record)
+
+    # ═══ Step 5: RAG projection (best effort) ═══
+    try:
+        from memory.indexer import index_memory_record
+        index_memory_record(record)
+    except Exception:
+        pass
+
+    return memory_id
 
 
 # ─── Convenience writers ───

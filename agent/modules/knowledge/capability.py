@@ -308,7 +308,7 @@ CAPABILITY_KNOWLEDGE = CapabilityManifest(
                     "edition": {"type": "string"},
                     "source_type": {
                         "type": "string",
-                        "enum": ["book", "manual", "rfc", "project_doc", "attachment"],
+                        "enum": ["book", "manual", "rfc", "project_doc", "attachment", "memory"],
                     },
                     "scope": {
                         "type": "string",

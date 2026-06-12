@@ -7,7 +7,7 @@ def _client():
     return app.test_client()
 
 
-def test_knowledge_upload_markdown_indexes_source(tmp_path, monkeypatch):
+def _patch_ws_roots(tmp_path, monkeypatch):
     from artifacts import store as artifact_store
     from agent.modules.knowledge import ingestion
     import workspace.manager as workspace_manager
@@ -16,6 +16,11 @@ def test_knowledge_upload_markdown_indexes_source(tmp_path, monkeypatch):
     monkeypatch.setattr(artifact_store, "WS_ROOT", ws_root)
     monkeypatch.setattr(workspace_manager, "WS_ROOT", ws_root)
     monkeypatch.setattr(ingestion, "_ws_root", lambda: ws_root)
+    return ws_root
+
+
+def test_knowledge_upload_markdown_indexes_source(tmp_path, monkeypatch):
+    _patch_ws_roots(tmp_path, monkeypatch)
 
     client = _client()
     data = {
@@ -37,14 +42,7 @@ def test_knowledge_upload_markdown_indexes_source(tmp_path, monkeypatch):
 
 
 def test_knowledge_upload_requires_file(tmp_path, monkeypatch):
-    from artifacts import store as artifact_store
-    from agent.modules.knowledge import ingestion
-    import workspace.manager as workspace_manager
-
-    ws_root = tmp_path / "workspaces"
-    monkeypatch.setattr(artifact_store, "WS_ROOT", ws_root)
-    monkeypatch.setattr(workspace_manager, "WS_ROOT", ws_root)
-    monkeypatch.setattr(ingestion, "_ws_root", lambda: ws_root)
+    _patch_ws_roots(tmp_path, monkeypatch)
 
     client = _client()
     resp = client.post("/api/knowledge/upload", data={"workspace_id": "rag_ws"})
@@ -54,14 +52,7 @@ def test_knowledge_upload_requires_file(tmp_path, monkeypatch):
 
 
 def test_knowledge_upload_is_visible_to_sources_and_search(tmp_path, monkeypatch):
-    from artifacts import store as artifact_store
-    from agent.modules.knowledge import ingestion
-    import workspace.manager as workspace_manager
-
-    ws_root = tmp_path / "workspaces"
-    monkeypatch.setattr(artifact_store, "WS_ROOT", ws_root)
-    monkeypatch.setattr(workspace_manager, "WS_ROOT", ws_root)
-    monkeypatch.setattr(ingestion, "_ws_root", lambda: ws_root)
+    _patch_ws_roots(tmp_path, monkeypatch)
 
     client = _client()
     upload = client.post(
@@ -85,15 +76,9 @@ def test_knowledge_upload_is_visible_to_sources_and_search(tmp_path, monkeypatch
 
 
 def _seed_knowledge(tmp_path, monkeypatch):
-    from artifacts import store as artifact_store
-    from agent.modules.knowledge import ingestion
     from agent.modules.knowledge.service import import_file
-    import workspace.manager as workspace_manager
 
-    ws_root = tmp_path / "workspaces"
-    monkeypatch.setattr(artifact_store, "WS_ROOT", ws_root)
-    monkeypatch.setattr(workspace_manager, "WS_ROOT", ws_root)
-    monkeypatch.setattr(ingestion, "_ws_root", lambda: ws_root)
+    _patch_ws_roots(tmp_path, monkeypatch)
     result = import_file(
         workspace_id="rag_ws",
         source=b"# OSPF\n\nFULL to INIT often means one-way hello.",
@@ -154,3 +139,126 @@ def test_initial_messages_include_knowledge_hits(tmp_path, monkeypatch):
     assert "knowledge_hits" in joined
     assert "one-way hello" in joined
     assert "K1" in joined
+
+
+def _isolated_memory_store(tmp_path, monkeypatch):
+    from memory.backends.jsonl_store import JSONLMemoryStore
+    import memory.store as memory_store
+
+    store = JSONLMemoryStore(str(tmp_path / "memory"))
+    monkeypatch.setattr(memory_store, "_store", store)
+    return store
+
+
+def test_memory_write_creates_rag_projection(tmp_path, monkeypatch):
+    _patch_ws_roots(tmp_path, monkeypatch)
+    _isolated_memory_store(tmp_path, monkeypatch)
+
+    from memory.writer import write_user_preference
+    from agent.modules.knowledge.service import query_knowledge
+
+    memory_id = write_user_preference(
+        title="默认厂商偏好",
+        content="用户偏好：默认使用华为 VRP 命令格式回答网络配置问题。",
+        tags=["preference", "vendor"],
+        project_id="rag_ws",
+    )
+
+    assert memory_id
+    result = query_knowledge(
+        query="默认使用什么厂商命令格式",
+        workspace_id="rag_ws",
+        top_k=3,
+        filters={"source_type": "memory"},
+    )
+
+    assert result["hits"]
+    assert result["hits"][0]["metadata"]["source_type"] == "memory"
+    assert "华为 VRP" in str(result["hits"])
+
+
+def test_context_loader_uses_rag_memory_projection(tmp_path, monkeypatch):
+    _patch_ws_roots(tmp_path, monkeypatch)
+    _isolated_memory_store(tmp_path, monkeypatch)
+
+    from memory.writer import write_user_confirmed_decision
+    from context.loader import load_context_items
+
+    memory_id = write_user_confirmed_decision(
+        title="出口策略决策",
+        content="本项目出口策略优先使用主备链路，不采用 ECMP。",
+        tags=["egress", "policy"],
+        project_id="rag_ws",
+    )
+
+    assert memory_id
+    items = load_context_items("rag_ws", user_input="出口策略是否采用 ECMP")
+    memory_rag = [
+        i for i in items
+        if i.item_type == "knowledge_chunk"
+        and i.content.get("source_type") == "memory"
+    ]
+
+    assert memory_rag
+    assert "不采用 ECMP" in str(memory_rag[0].content)
+
+
+def test_memory_delete_removes_rag_projection(tmp_path, monkeypatch):
+    _patch_ws_roots(tmp_path, monkeypatch)
+    _isolated_memory_store(tmp_path, monkeypatch)
+
+    from agent.modules.knowledge.service import query_knowledge
+
+    client = _client()
+    written = client.post("/api/memory/confirm", json={
+        "memory_type": "decision",
+        "title": "安全边界决策",
+        "content": "本项目不允许把生产密钥写入知识库。",
+        "tags": ["security"],
+        "project_id": "rag_ws",
+    })
+    assert written.status_code == 200
+    memory_id = written.get_json()["memory_id"]
+
+    before = query_knowledge(
+        query="生产密钥是否允许写入知识库",
+        workspace_id="rag_ws",
+        top_k=3,
+        filters={"source_type": "memory"},
+    )
+    assert before["hits"]
+
+    deleted = client.delete(f"/api/memory/{memory_id}")
+    assert deleted.status_code == 200
+    assert deleted.get_json()["ok"] is True
+
+    after = query_knowledge(
+        query="生产密钥是否允许写入知识库",
+        workspace_id="rag_ws",
+        top_k=3,
+        filters={"source_type": "memory"},
+    )
+    assert after["hits"] == []
+
+
+def test_memory_projection_is_hidden_from_public_knowledge_api(tmp_path, monkeypatch):
+    _patch_ws_roots(tmp_path, monkeypatch)
+    _isolated_memory_store(tmp_path, monkeypatch)
+
+    from memory.writer import write_user_preference
+
+    memory_id = write_user_preference(
+        title="显示偏好",
+        content="用户偏好：回答默认保持简洁。",
+        tags=["style"],
+        project_id="rag_ws",
+    )
+    assert memory_id
+
+    client = _client()
+    sources = client.get("/api/knowledge/sources?workspace_id=rag_ws").get_json()
+    assert sources["sources"] == []
+    assert sources["counts"]["indexed"] == 0
+
+    search = client.get("/api/knowledge/search?workspace_id=rag_ws&q=默认保持简洁").get_json()
+    assert search["results"] == []

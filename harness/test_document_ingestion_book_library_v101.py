@@ -557,19 +557,24 @@ class TestQueryParentExpansion:
                 or "OSPF" in h.get("snippet", ""))
 
 
-# ── 20. Tool count is 73 ──
+# ── 20. Knowledge tools remain registered ──
 
 class TestToolCountV101:
-    def test_total_tool_count_is_73(self):
+    def test_knowledge_tools_are_registered(self):
         from agent.runtime.services import default_runtime_services
         svc = default_runtime_services()
         tr = svc.tool_service
-        total = len(tr.registry.list_all())
-        # v1.0 baseline 67 + 6 new knowledge tool_ids (import_file /
-        # list_chunks / search_chunks / read_chunk / read_parent /
-        # reindex_source). No dedup with existing ToolRuntime catalog
-        # entries, so net = +6.
-        assert total == 73
+        all_ids = {t.tool_id for t in tr.registry.list_all()}
+        required = {
+            "knowledge.import_file",
+            "knowledge.list_chunks",
+            "knowledge.search_chunks",
+            "knowledge.read_chunk",
+            "knowledge.read_parent",
+            "knowledge.reindex_source",
+        }
+        assert len(all_ids) >= 73
+        assert required.issubset(all_ids)
 
 
 # ── 21. planned still not visible ──

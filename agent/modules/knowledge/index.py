@@ -756,6 +756,9 @@ def search_chunks(
             "metadata": {
                 "chunk_type": c.chunk_type,
                 "source_type": (c.metadata or {}).get("source_type", ""),
+                "hidden": bool((c.metadata or {}).get("hidden", False)),
+                "origin": (c.metadata or {}).get("origin", ""),
+                "memory_id": (c.metadata or {}).get("memory_id", ""),
             },
             "_raw_content": c.content,  # used by dedup; not exported
         })

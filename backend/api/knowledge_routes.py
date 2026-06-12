@@ -280,10 +280,12 @@ def _module_sources(workspace_id: str, status: str = None) -> list:
 
     out = []
     for s in src_result.get("sources", []):
+        meta = s.get("metadata", {}) or {}
+        if meta.get("hidden"):
+            continue
         source_status = "indexed" if s.get("enabled", True) and not s.get("deleted", False) else "disabled"
         if status and source_status != status:
             continue
-        meta = s.get("metadata", {}) or {}
         out.append({
             "source_id": s.get("source_id", ""),
             "workspace_id": workspace_id,
@@ -320,6 +322,8 @@ def _module_search_results(workspace_id: str, query: str, source_id: str = "", l
         hits = _module_title_search(workspace_id, query, source_id=source_id, limit=limit)
     out = []
     for h in hits:
+        if (h.get("metadata") or {}).get("hidden"):
+            continue
         snippet = h.get("snippet", "")
         out.append({
             "chunk_id": h.get("chunk_id", ""),

@@ -387,6 +387,10 @@ def import_file(
         "format": doc.format,
         "tags": list(tags or []),
     }
+    for key in ("hidden", "origin", "memory_id", "memory_type",
+                "memory_scope", "memory_confidence", "memory_source"):
+        if key in source_meta:
+            base_meta[key] = source_meta.get(key)
     for c in parents:
         c.metadata.update(base_meta)
     for c in children:

@@ -3,10 +3,8 @@
 
 from flask import request, jsonify
 from backend.api.params import parse_limit
-from memory.schemas import MemoryRecord
-from memory.backends.jsonl_store import JSONLMemoryStore
-from memory.policy import can_write_memory
-from memory.redaction import redact_text, contains_secret
+from memory.store import get_store
+from memory.redaction import contains_secret
 from memory.writer import (
     write_user_confirmed_decision,
     write_translation_rule,
@@ -72,9 +70,18 @@ def handle_memory_confirm():
 
 def handle_memory_delete(memory_id):
     """Tombstone-delete a memory record."""
-    store = JSONLMemoryStore()
+    store = get_store()
+    record = store.get(str(memory_id))
     ok = store.delete(str(memory_id))
-    return jsonify({"ok": ok})
+    projection = {"ok": True, "deleted_count": 0}
+    if ok:
+        try:
+            from memory.indexer import delete_memory_projection
+            workspace_id = record.project_id if record else ""
+            projection = delete_memory_projection(str(memory_id), workspace_id=workspace_id or "")
+        except Exception as exc:
+            projection = {"ok": False, "error": str(exc)[:160], "deleted_count": 0}
+    return jsonify({"ok": ok, "rag_projection": projection})
 
 
 def handle_memory_list():
@@ -87,7 +94,7 @@ def handle_memory_list():
     except ValueError:
         return jsonify({"ok": False, "error": "invalid_limit"}), 400
 
-    store = JSONLMemoryStore()
+    store = get_store()
     records = store.list(
         scope=scope, memory_type=memory_type,
         project_id=project_id, limit=limit,

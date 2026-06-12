@@ -35,7 +35,7 @@ from typing import Optional
 SUPPORTED_FORMATS = ("md", "markdown", "txt", "html", "htm",
                      "docx", "pdf")
 
-SOURCE_TYPES = ("book", "manual", "rfc", "project_doc", "attachment")
+SOURCE_TYPES = ("book", "manual", "rfc", "project_doc", "attachment", "memory")
 
 SCOPES = ("global", "workspace", "session")
 
