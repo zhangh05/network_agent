@@ -6,7 +6,7 @@ import time
 from typing import Optional
 from pathlib import Path
 
-from workspace.ids import validate_workspace_id
+from workspace.ids import validate_workspace_id, is_valid_workspace_id
 
 ROOT = Path(__file__).resolve().parent.parent
 WS_ROOT = ROOT / "workspaces"
@@ -112,6 +112,9 @@ def list_workspaces() -> list:
         dirs.sort(key=lambda d: (0 if d.name == "default" else 1, _is_test_workspace(d.name), d.name))
         for d in dirs:
             if d.is_dir() and not d.name.startswith("."):
+                # Skip non-workspace directories (e.g. _runtime/)
+                if not is_valid_workspace_id(d.name):
+                    continue
                 runs_count = _count_runs(d.name)
                 artifacts_count = _count_artifacts(d.name)
                 knowledge_source_count = _count_knowledge_sources(d.name)

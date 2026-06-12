@@ -114,7 +114,10 @@ export function AgentWorkbench() {
   }, [currentSessionId, currentWorkspaceId, switchSession, mergeFromBackend]);
 
   async function onSend(textOverride?: string) {
-    const text = (textOverride ?? input).trim();
+    // textOverride is a string when called from retry; a MouseEvent when
+    // called from onClick={onSend}. Normalize to text.
+    const raw = typeof textOverride === "string" ? textOverride : input;
+    const text = raw.trim();
     if (!text || sending) return;
     if (!currentWorkspaceId) {
       toast({ kind: "warning", title: "未选择工作区", body: "请在左侧选择一个工作区" });
