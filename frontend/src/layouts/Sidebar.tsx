@@ -186,6 +186,7 @@ export function Sidebar() {
                   <button
                     onClick={() => setCurrentSession(sess.session_id)}
                     data-testid={`sess-btn-${sess.session_id}`}
+                    aria-label={`会话：${sess.title || sess.session_id}`}
                     type="button"
                     style={{
                       flex: 1,

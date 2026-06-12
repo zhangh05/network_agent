@@ -257,6 +257,7 @@ export function AgentWorkbench() {
                     key={s}
                     className="chat-suggestion"
                     type="button"
+                    aria-label={`建议问题：${s}`}
                     onClick={() => {
                       setInput(s);
                       inputRef.current?.focus();
