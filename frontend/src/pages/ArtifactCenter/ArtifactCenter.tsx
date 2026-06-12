@@ -115,8 +115,10 @@ export function ArtifactCenter() {
           }}
         >
           <div style={{ padding: 12 }}>
-            <div className="section-head" style={{ paddingLeft: 4, marginBottom: 8 }}>
+            <div className="section-head" style={{ paddingLeft: 4, marginBottom: 0 }}>
               <IconBox size={11} /> 制品列表
+            </div>
+            <div className="row-flex mb-2" style={{ gap: 6, alignItems: "center" }}>
               <button
                 style={{ 
                   fontSize: 11,
@@ -149,6 +151,9 @@ export function ArtifactCenter() {
                   确认删除 ({checkedIds.size})
                 </button>
               )}
+              <span style={{
+                flex: 1,
+              }} />
               <span style={{
                 fontSize: 11,
                 color: "var(--ink-soft)",
