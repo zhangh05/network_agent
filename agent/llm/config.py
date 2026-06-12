@@ -132,6 +132,7 @@ def get_llm_status() -> dict:
         "enabled_by_ui": provider.get("enabled_by_ui"),
         "settings_file_exists": provider.get("config_source") == "ui_settings",
         "health": health,
+        "recent_failure": _read_recent_failure(),
         "red_lines": [
             "no_generate_deployable_config", "no_modify_deployable_config",
             "no_approve_manual_review", "no_bypass_translate_bundle",
@@ -164,6 +165,51 @@ def _is_connected(provider: dict, key_loaded: bool, health: dict) -> bool:
     if not key_loaded:
         return False
     return bool(health.get("chat_completion_ok"))
+
+
+# ── Recent failure tracking for LLM health UX ──
+
+_FAILURE_FILE = "workspaces/_runtime/llm_recent_failure.json"
+
+
+def record_recent_failure(error_summary: str, error_type: str = "") -> None:
+    """Called by the runtime when an LLM turn fails, so the health
+    bar can show a diagnostic even when normal probing passes."""
+    import json, os, time
+    from pathlib import Path
+    from workspace.run_store import WS_ROOT
+    path = WS_ROOT / "_runtime" / "llm_recent_failure.json"
+    path.parent.mkdir(parents=True, exist_ok=True)
+    record = {
+        "at": time.strftime("%Y-%m-%dT%H:%M:%S"),
+        "error_summary": error_summary[:200],
+        "error_type": error_type[:100],
+    }
+    try:
+        _atomic_write_json(path, record)
+    except Exception:
+        pass
+
+
+def _read_recent_failure() -> dict | None:
+    """Return the most recent LLM failure record, or None."""
+    import json
+    from pathlib import Path
+    from workspace.run_store import WS_ROOT
+    path = WS_ROOT / "_runtime" / "llm_recent_failure.json"
+    if not path.is_file():
+        return None
+    try:
+        return json.loads(path.read_text())
+    except Exception:
+        return None
+
+
+def _atomic_write_json(path, data: dict) -> None:
+    import json
+    tmp = path.with_suffix(".tmp")
+    tmp.write_text(json.dumps(data, indent=2, ensure_ascii=False), encoding="utf-8")
+    tmp.rename(path)
 
 
 def _default_config() -> dict:

@@ -293,6 +293,12 @@ def run_turn(session, turn, services=None) -> AgentResult:
             turn.status = "failed"
             turn.errors.append(error_str)
             user_msg = "LLM 服务请求超时，请稍后重试。" if is_timeout else f"LLM 调用异常：{error_str}"
+            # Record failure for LLM health UX
+            try:
+                from agent.llm.config import record_recent_failure
+                record_recent_failure(user_msg, "provider_timeout" if is_timeout else "provider_error")
+            except Exception:
+                pass
             _err_result = AgentResult(
                 ok=False,
                 final_response=user_msg,
@@ -332,6 +338,13 @@ def run_turn(session, turn, services=None) -> AgentResult:
                 user_msg = "LLM 服务请求超时，请稍后重试。系统已保留本轮事件记录。"
             else:
                 user_msg = f"LLM 服务暂不可用：{resp.error[:200]}"
+
+            # Record failure for LLM health UX
+            try:
+                from agent.llm.config import record_recent_failure
+                record_recent_failure(user_msg, "provider_timeout" if is_timeout else "provider_error")
+            except Exception:
+                pass
 
             _err_result = AgentResult(
                 ok=False,

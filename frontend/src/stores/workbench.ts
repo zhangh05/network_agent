@@ -76,6 +76,8 @@ interface WorkbenchState {
   history: ChatMsg[];
   latestResult: AgentResult | null;
   sending: boolean;
+  /** v1.0.3.3: last user input for retry */
+  lastUserInput: string;
 
   switchSession: (session_id: string | null) => void;
   appendUser: (text: string, session_id: string | null) => void;
@@ -103,6 +105,7 @@ export const useWorkbenchStore = create<WorkbenchState>()(
       history: [],
       latestResult: null,
       sending: false,
+      lastUserInput: "",
 
       switchSession: (session_id) => {
         if (session_id === get().currentSessionId) return;
@@ -125,6 +128,7 @@ export const useWorkbenchStore = create<WorkbenchState>()(
           return {
             bySession: next,
             history: s.currentSessionId === sid ? next[sid] : s.history,
+            lastUserInput: text,
           };
         });
       },

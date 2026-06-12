@@ -543,10 +543,13 @@ function HealthBar({
   refreshing?: boolean;
 }) {
   if (!status || !config) return null;
-  // 优先级: 未配置 key (warn) > 连接失败 (err) > 已连接 (ok)
-  // key 缺失是 soft warning, 不是 hard error, 即使 last_error="no_api_key" 也按 warn 显示
+  // 优先级: 未配置 key (warn) > 连接失败 (err) > 已连接但近期有失败 (warn) > 已连接 (ok)
   const warn = !status.key_loaded;
   const err = !warn && status.health.last_error && !status.connected;
+  // Recent failure: health check passes but a real turn failed recently
+  const recentFailure = !err && !warn && status.recent_failure;
+  const recentFailureActive = recentFailure &&
+    Date.now() - new Date(recentFailure.at).getTime() < 5 * 60_000; // 5 min window
   let color = "var(--ok)";
   let bg = "#e8f5e9";
   let border = "#66bb6a";
@@ -564,6 +567,12 @@ function HealthBar({
     border = "#c62828";
     dot = "#c62828";
     label = "连接失败";
+  } else if (recentFailureActive) {
+    color = "var(--warn)";
+    bg = "#fff8e1";
+    border = "#f9a825";
+    dot = "#f9a825";
+    label = "已连接 · 近期超时";
   } else if (warn) {
     color = "var(--warn)";
     bg = "#fff8e1";
@@ -599,6 +608,24 @@ function HealthBar({
         key_loaded={String(status.key_loaded)} · config_source={status.config_source}
       </span>
     </div>
+    {recentFailureActive && (
+      <div
+        className="card mb-3"
+        style={{
+          borderColor: "var(--warn)",
+          color: "var(--warn)",
+          boxShadow: "none",
+          padding: 10,
+        }}
+        data-testid="llm-recent-failure"
+      >
+        <strong>最近请求失败</strong>
+        <span className="text-xs" style={{ marginLeft: 8 }}>
+          {recentFailure.error_summary}
+          {recentFailure.at ? ` · ${new Date(recentFailure.at).toLocaleTimeString()}` : ""}
+        </span>
+      </div>
+    )}
     {diagnostic && (
       <div
         className="card mb-3"

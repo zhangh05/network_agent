@@ -348,6 +348,11 @@ export interface LlmStatus {
   connected: boolean;
   settings_file_exists: boolean;
   health: LlmHealth;
+  recent_failure?: {
+    at: string;
+    error_summary: string;
+    error_type: string;
+  } | null;
   red_lines?: string[];
   allowed_tasks?: string[];
   blocked_tasks?: string[];

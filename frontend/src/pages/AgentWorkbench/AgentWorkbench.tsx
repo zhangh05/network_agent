@@ -30,6 +30,8 @@ export function AgentWorkbench() {
   const {
     history,
     sending,
+    lastUserInput,
+    latestResult,
     appendUser,
     appendAssistant,
     setSending,
@@ -296,6 +298,18 @@ export function AgentWorkbench() {
                   </div>
                 )}
               </div>
+            </div>
+          )}
+          {!sending && latestResult && !latestResult.ok && lastUserInput && (
+            <div className="card" style={{ padding: "8px 14px", display: "flex", alignItems: "center", gap: 10, marginBottom: 4 }}>
+              <span className="text-sm" style={{ color: "var(--danger)" }}>上次回复失败</span>
+              <button
+                className="btn btn-sm btn-outline"
+                onClick={() => { setInput(lastUserInput); }}
+                data-testid="retry-btn"
+              >
+                一键重试
+              </button>
             </div>
           )}
         </div>
