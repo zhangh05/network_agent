@@ -139,7 +139,7 @@ def register_knowledge_routes(app):
             if not allowed:
                 return jsonify({"ok": False, "error": reason}), 422
             return jsonify({"ok": False, "error": "indexing_failed"}), 500
-        return jsonify({"ok": True, "source": source.safe_dict()})
+        return jsonify({"ok": True, "source": source.as_dict()})
 
     @app.route("/api/knowledge/sources/<source_id>/reindex", methods=["POST"])
     def api_knowledge_reindex(source_id):
@@ -153,7 +153,7 @@ def register_knowledge_routes(app):
         source = reindex_source(ws_id, source_id)
         if not source:
             return jsonify({"ok": False, "error": "source_not_found_or_indexing_failed"}), 404
-        return jsonify({"ok": True, "source": source.safe_dict()})
+        return jsonify({"ok": True, "source": source.as_dict()})
 
     # ── Search ──
     @app.route("/api/knowledge/search")
