@@ -72,7 +72,7 @@ Open:
 - `POST /api/agent/run`
 - `GET /api/sessions`
 - `GET /api/sessions/<session_id>/messages`
-- `GET /api/runs/recent`
+- `GET /api/runs/recent` — only active-session runs, includes `session_title` per run
 - `GET /api/workspaces/<ws_id>/runs/<run_id>/trace`
 - `POST /api/knowledge/upload`
 - `GET /api/knowledge/sources`

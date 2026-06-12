@@ -48,6 +48,8 @@ Current API routes are Flask routes registered by `backend/main.py` and `backend
 
 `GET /api/workspaces` ensures `default` exists, returns it first when present, and includes frontend-friendly `name`, `created_at`, `is_default`, compatibility counts, and `stats`.
 
+`GET /api/runs/recent` returns up to `limit` (default 10, max 100) recent agent runs for `?workspace_id=`. Only runs from **active** sessions are included—archived and deleted sessions are excluded—so the sidebar's session list and recent runs stay in sync. Each run carries a `session_title` field for frontend association display.
+
 ## Tools And Runtime Maintenance
 
 | Method | Path |

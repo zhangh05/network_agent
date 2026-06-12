@@ -78,9 +78,30 @@ def register_workspace_routes(app):
         if err:
             return err
         from workspace.run_store import list_runs, run_sort_key
-        runs = list_runs(ws_id, limit=limit)
-        runs_sorted = sorted(runs, key=run_sort_key, reverse=True) if runs else []
-        recent = runs_sorted[:limit]
+        from workspace.session_store import list_sessions
+
+        # Fetch more runs than needed to account for filtering (deleted sessions)
+        raw_runs = list_runs(ws_id, limit=limit * 5)
+        runs_sorted = sorted(raw_runs, key=run_sort_key, reverse=True) if raw_runs else []
+
+        # Filter: only show runs from active sessions (or runs without a session_id).
+        # Sidebar fetches sessions with status="active", so recent runs must match the
+        # same scope — otherwise runs from archived sessions appear without visible parents.
+        active_sessions = list_sessions(ws_id, status="active")
+        active_session_ids = {s["session_id"] for s in active_sessions if s.get("session_id")}
+
+        recent = []
+        for r in runs_sorted:
+            sid = r.get("session_id", "")
+            # Include run if: it has no session_id (legacy), or belongs to an active session
+            if not sid or sid in active_session_ids:
+                recent.append(r)
+                if len(recent) >= limit:
+                    break
+
+        # Build session_id → title lookup from already-fetched sessions
+        session_titles: dict = {s["session_id"]: s.get("title", "") for s in active_sessions}
+
         safe_recent = []
         # Whitelist of safe fields for public run history (never expose secrets, configs, or prompts)
         _SAFE_RUN_KEYS = frozenset({
@@ -91,6 +112,8 @@ def register_workspace_routes(app):
         })
         for r in recent:
             safe_run = {k: v for k, v in r.items() if k in _SAFE_RUN_KEYS}
+            # Attach session title so the frontend can show run→session association
+            safe_run["session_title"] = session_titles.get(r.get("session_id", ""), "")
             safe_recent.append(safe_run)
         return jsonify({"runs": safe_recent, "count": len(safe_recent)})
 

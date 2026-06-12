@@ -692,6 +692,13 @@ pre code {
   font-family: var(--font-mono);
   font-size: var(--fs-10);
 }
+.run-session-label {
+  max-width: 100px;
+  overflow: hidden;
+  color: var(--text-3);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
 
 .page {
   display: flex;

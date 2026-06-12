@@ -31,7 +31,7 @@ The frontend is a React/Vite app under `frontend/`.
 
 ## Routes
 
-- `/workbench`: chat workbench, recent turns, source/citation actions, inspector
+- `/workbench`: chat workbench, sidebar with active-session recent runs (session-title labels) and source/citation actions, inspector
 - `/knowledge`: local upload, artifact import, source list, search
 - `/artifacts`: artifact list, preview, next actions
 - `/reviews`: human review workflow and review item updates

@@ -17,6 +17,8 @@ interface RecentRunSummary {
   user_input_summary?: string;
   intent?: string;
   created_at?: string;
+  session_id?: string;
+  session_title?: string;
 }
 
 /**
@@ -333,6 +335,11 @@ export function Sidebar() {
                       <span className="title text-sm">{label}</span>
                     </div>
                     <div className="run-meta-row">
+                      {r.session_title && (
+                        <span className="text-xs run-session-label" title={`会话: ${r.session_title}`}>
+                          {r.session_title}
+                        </span>
+                      )}
                       {intentBadge}
                       {r.created_at && (
                         <span className="text-xs faint">
