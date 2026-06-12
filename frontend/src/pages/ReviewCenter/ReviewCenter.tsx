@@ -95,7 +95,7 @@ export function ReviewCenter() {
             </span>
           </h1>
           <div className="subtitle">
-            待处理 / 已接受 / 已忽略 / 已修改 — <strong>不</strong>修改原 artifact
+            只记录人工判断和备注，<strong>不</strong>修改原始制品
           </div>
         </div>
         <div className="row-flex">
@@ -123,10 +123,8 @@ export function ReviewCenter() {
             <table className="tbl" data-testid="review-tbl">
               <thead>
                 <tr>
-                  <th>item_id</th>
-                  <th>artifact</th>
-                  <th>严重度</th>
-                  <th>分类</th>
+                  <th>需要你看的问题</th>
+                  <th>影响</th>
                   <th>状态</th>
                   <th>备注</th>
                   <th style={{ width: 90 }}>操作</th>
@@ -137,24 +135,24 @@ export function ReviewCenter() {
                   const artifactId = (it as ReviewItem & { artifact_id?: string }).artifact_id;
                   return (
                     <tr key={it.item_id} data-testid={`review-${it.item_id}`}>
-                      <td className="mono text-xs">{it.item_id}</td>
                       <td>
-                        {artifactId ? <InlineCode>{artifactId}</InlineCode> : <span className="muted">—</span>}
+                        <div className="text-sm">{reviewReason(it)}</div>
+                        <details className="collapse mt-1">
+                          <summary className="text-xs muted">技术详情</summary>
+                          <div className="text-xs muted mt-1">
+                            item: <InlineCode>{it.item_id}</InlineCode>
+                            {artifactId && <> · artifact: <InlineCode>{artifactId}</InlineCode></>}
+                            {(it as ReviewItem & { category?: string }).category && (
+                              <> · category: {(it as ReviewItem & { category?: string }).category}</>
+                            )}
+                          </div>
+                        </details>
                       </td>
                       <td>
-                        <Badge
-                          kind={
-                            it.severity === "error"
-                              ? "err"
-                              : it.severity === "warning"
-                                ? "warn"
-                                : "info"
-                          }
-                        >
-                          {it.severity === "error" ? "错误" : it.severity === "warning" ? "警告" : "提示"}
+                        <Badge kind={severityKind(it.severity)}>
+                          {severityLabel(it.severity)}
                         </Badge>
                       </td>
-                      <td>{(it as ReviewItem & { category?: string }).category || <span className="muted">—</span>}</td>
                       <td>
                         <Badge kind={STATUS_KIND[it.status]} withDot>
                           {STATUS_LABEL[it.status]}
@@ -194,7 +192,7 @@ export function ReviewCenter() {
           <div
             className="modal"
             onClick={(e) => e.stopPropagation()}
-            style={{ minWidth: 460 }}
+            style={{ minWidth: "min(460px, calc(100vw - 32px))" }}
           >
             <div className="modal-title">
               <InlineCode>{editing.item_id}</InlineCode>
@@ -257,4 +255,22 @@ export function ReviewCenter() {
       )}
     </div>
   );
+}
+
+function severityKind(severity: ReviewItem["severity"]): "err" | "warn" | "info" {
+  if (severity === "error") return "err";
+  if (severity === "warning") return "warn";
+  return "info";
+}
+
+function severityLabel(severity: ReviewItem["severity"]): string {
+  if (severity === "error") return "高影响";
+  if (severity === "warning") return "需确认";
+  return "提示";
+}
+
+function reviewReason(item: ReviewItem): string {
+  return item.reason ||
+    (item as ReviewItem & { category?: string }).category ||
+    "需要人工确认后再继续";
 }

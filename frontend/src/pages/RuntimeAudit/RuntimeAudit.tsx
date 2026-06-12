@@ -73,9 +73,8 @@ export function RuntimeAudit() {
         </div>
       </div>
       <div
+        className="split-shell"
         style={{
-          display: "grid",
-          gridTemplateColumns: "320px 1fr",
           flex: 1,
           minHeight: 0,
         }}
@@ -153,7 +152,8 @@ export function RuntimeAudit() {
           </div>
         </aside>
         <section
-          style={{ overflowY: "auto", padding: 20, minHeight: 0 }}
+          className="split-detail"
+          style={{ overflowY: "auto", minHeight: 0 }}
           data-testid="audit-detail"
         >
           {!selectedRunId ? (

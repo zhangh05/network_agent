@@ -74,8 +74,10 @@ ol {
 
   --success: #4a7c4d;
   --success-soft: #d8e4d4;
+  --ok: var(--success);
   --warning: #c7891a;
   --warning-soft: #f0e0c0;
+  --warn: var(--warning);
   --danger: #b8302c;
   --danger-soft: #f3d5d1;
 
@@ -152,8 +154,10 @@ ol {
 
   --success: #7ab87a;
   --success-soft: #1c2c1c;
+  --ok: var(--success);
   --warning: #e0a040;
   --warning-soft: #2c2418;
+  --warn: var(--warning);
   --danger: #e85d4a;
   --danger-soft: #3a1814;
 
@@ -478,6 +482,16 @@ pre code {
 
 .page-body.no-pad {
   padding: 0;
+}
+
+.split-shell {
+  display: grid;
+  grid-template-columns: minmax(260px, 320px) minmax(0, 1fr);
+  min-width: 0;
+}
+
+.split-detail {
+  padding: 20px;
 }
 
 /* ---------- Card ---------- */
@@ -1704,6 +1718,155 @@ select.input {
 
 .status-pill .dot.warn { background: var(--warning); }
 .status-pill .dot.err { background: var(--danger); }
+
+@media (max-width: 1100px) {
+  .app-header {
+    gap: 10px;
+    padding: 0 12px;
+  }
+
+  .brand-text small {
+    display: none;
+  }
+
+  .app-nav {
+    flex: 1 1 auto;
+    min-width: 0;
+    overflow-x: auto;
+    overscroll-behavior-x: contain;
+    scrollbar-width: none;
+    margin-left: 4px;
+    padding: 0 2px;
+  }
+
+  .app-nav::-webkit-scrollbar {
+    display: none;
+  }
+
+  .app-nav-item {
+    flex: 0 0 auto;
+    padding: 0 10px;
+    font-size: var(--fs-sm);
+  }
+
+  .app-header > .status-pill {
+    display: none;
+  }
+}
+
+@media (max-width: 900px) {
+  .app-main {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .app-sidebar {
+    display: none;
+  }
+
+  .app-inspector {
+    display: none;
+  }
+
+  .page-header {
+    padding: 18px 18px 12px;
+    flex-wrap: wrap;
+  }
+
+  .page-header > .row-flex {
+    width: 100%;
+    justify-content: flex-start;
+    flex-wrap: wrap;
+  }
+
+  .page-body {
+    padding: 16px 18px 24px;
+  }
+
+  .split-shell {
+    grid-template-columns: minmax(0, 1fr);
+    overflow-y: auto;
+  }
+
+  .split-shell > aside {
+    border-right: none !important;
+    border-bottom: 1px solid var(--line);
+    max-height: 320px;
+  }
+
+  .split-detail {
+    padding: 16px 18px 24px;
+    overflow: visible !important;
+  }
+
+  .tbl {
+    min-width: 640px;
+  }
+
+  .page-body:has(.tbl) {
+    overflow-x: auto;
+  }
+}
+
+@media (max-width: 560px) {
+  :root {
+    --h-header: 52px;
+  }
+
+  .brand-mark {
+    width: 28px;
+    height: 28px;
+    font-size: 14px;
+  }
+
+  .brand-text {
+    display: none;
+  }
+
+  .app-nav-item {
+    gap: 4px;
+    padding: 0 8px;
+  }
+
+  .app-nav-item span {
+    max-width: 4.8em;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+
+  .page-header h1 {
+    font-size: 20px;
+  }
+
+  .page-header .subtitle {
+    line-height: 1.55;
+  }
+
+  .card {
+    padding: 14px;
+  }
+
+  .modal {
+    width: calc(100% - 24px);
+    min-width: 0;
+    padding: 18px;
+  }
+
+  .modal-actions {
+    width: 100%;
+    justify-content: stretch;
+  }
+
+  .modal-actions .btn {
+    flex: 1;
+  }
+
+  .toast-host {
+    left: 12px;
+    right: 12px;
+    bottom: 12px;
+    max-width: none;
+  }
+}
 
 /* ---------- Theme toggle ---------- */
 .theme-toggle {

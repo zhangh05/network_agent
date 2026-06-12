@@ -2,7 +2,7 @@ import { useMemo } from "react";
 import { capabilitiesApi } from "../../api";
 import { useAsync, AsyncView, Badge, InlineCode } from "../../components/common";
 import type { CapabilityManifest, CapabilityStatus, RiskLevel } from "../../types";
-import { IconBolt, IconLayers, IconShield, IconSparkle } from "../../components/Icon";
+import { IconBolt, IconShield, IconSparkle } from "../../components/Icon";
 
 const STATUS_KIND: Record<CapabilityStatus, "ok" | "muted" | "warn"> = {
   enabled: "ok",
@@ -60,7 +60,7 @@ export function CapabilityCenter() {
             </span>
           </h1>
           <div className="subtitle">
-            从后端 capability manifest 读取 · 规划中 capability 仅展示状态，<strong>不</strong>提供调用入口
+            查看当前可用能力、风险边界和人工复核要求；规划中能力仅展示状态，<strong>不</strong>提供调用入口
           </div>
         </div>
         <div className="row-flex" style={{ gap: 6, flexWrap: "wrap" }}>
@@ -77,7 +77,7 @@ export function CapabilityCenter() {
             规划中 {counts.planned}
           </span>
           <span className="status-pill" data-testid="cap-count-deployable">
-            <IconBolt size={10} /> 可下发 {counts.deployable}
+            <IconBolt size={10} /> 涉及配置产物 {counts.deployable}
           </span>
         </div>
       </div>
@@ -92,7 +92,7 @@ export function CapabilityCenter() {
             <div
               style={{
                 display: "grid",
-                gridTemplateColumns: "repeat(auto-fill, minmax(360px, 1fr))",
+                gridTemplateColumns: "repeat(auto-fill, minmax(min(100%, 320px), 1fr))",
                 gap: 14,
               }}
               data-testid="capability-list"
@@ -131,11 +131,9 @@ function CapabilityCard({ cap }: { cap: CapabilityManifest }) {
               marginBottom: 2,
             }}
           >
-            {cap.capability_id}
+            {capabilityTitle(cap)}
           </h3>
-          {cap.intent && (
-            <div className="mono text-xs muted">intent: {cap.intent}</div>
-          )}
+          <div className="text-xs muted">{capabilityOutcome(cap)}</div>
         </div>
         <div
           className="row-flex"
@@ -165,24 +163,9 @@ function CapabilityCard({ cap }: { cap: CapabilityManifest }) {
         </div>
       )}
 
-      {/* Module + Skill */}
-      <div className="card-title" style={{ marginTop: 14 }}>
-        <IconLayers size={11} /> Module &amp; Skill
-      </div>
-      <div className="row-flex" style={{ gap: 6, flexWrap: "wrap" }}>
-        <InlineCode>{cap.module}</InlineCode>
-        <span className="muted text-xs">·</span>
-        <InlineCode>{cap.skill}</InlineCode>
-      </div>
-      {cap.category && (
-        <div className="text-xs muted mt-2">
-          分类: <Badge kind="muted">{cap.category}</Badge>
-        </div>
-      )}
-
       {/* Safety / risk */}
       <div className="card-title" style={{ marginTop: 14 }}>
-        <IconShield size={11} /> Safety
+        <IconShield size={11} /> 使用边界
       </div>
       <div
         data-testid={`cap-safety-${cap.capability_id}`}
@@ -197,16 +180,16 @@ function CapabilityCard({ cap }: { cap: CapabilityManifest }) {
             {RISK_LABEL[cap.risk_level]}
           </Badge>
         </SafetyRow>
-        <SafetyRow label="可下发配置">
+        <SafetyRow label="配置产物">
           {cap.can_generate_deployable ? (
-            <Badge kind="warn">true</Badge>
+            <Badge kind="warn">需复核</Badge>
           ) : (
-            <Badge kind="ok" withDot>无</Badge>
+            <Badge kind="ok" withDot>不产生命令</Badge>
           )}
         </SafetyRow>
         <SafetyRow label="需要评审">
           {cap.requires_verification ? (
-            <Badge kind="warn">true</Badge>
+            <Badge kind="warn">需要</Badge>
           ) : (
             <Badge kind="ok" withDot>无需</Badge>
           )}
@@ -219,6 +202,17 @@ function CapabilityCard({ cap }: { cap: CapabilityManifest }) {
           )}
         </SafetyRow>
       </div>
+
+      <details className="collapse mt-3">
+        <summary className="text-xs muted">技术详情</summary>
+        <div className="row-flex mt-2" style={{ gap: 6, flexWrap: "wrap" }}>
+          <InlineCode>{cap.capability_id}</InlineCode>
+          <InlineCode>{cap.intent}</InlineCode>
+          <InlineCode>{cap.module}</InlineCode>
+          <InlineCode>{cap.skill}</InlineCode>
+          {cap.category && <Badge kind="muted">{cap.category}</Badge>}
+        </div>
+      </details>
 
       {/* 装饰：规划中 capability 的禁止调用视觉提示 */}
       {isPlanned && (
@@ -251,4 +245,24 @@ function SafetyRow({ label, children }: { label: string; children: React.ReactNo
       {children}
     </div>
   );
+}
+
+function capabilityTitle(cap: CapabilityManifest): string {
+  const labels: Record<string, string> = {
+    config_translation: "配置翻译",
+    "config.translate": "配置翻译",
+    knowledge: "知识问答",
+    review: "人工评审",
+    topology: "拓扑分析",
+    inspection: "配置巡检",
+    cmdb: "配置台账",
+  };
+  return labels[cap.capability_id] ?? cap.description?.split(/[.。]/)[0] ?? cap.capability_id;
+}
+
+function capabilityOutcome(cap: CapabilityManifest): string {
+  if (cap.status === "planned") return "规划中，当前不可调用";
+  if (cap.can_generate_deployable) return "会产出配置材料，必须人工复核";
+  if (cap.requires_verification) return "结果需要人工确认后使用";
+  return "可用于当前工作区的辅助分析";
 }
