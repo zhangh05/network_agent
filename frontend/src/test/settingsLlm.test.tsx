@@ -110,6 +110,16 @@ function mockApi(overrides: Partial<{
   return spy;
 }
 
+function deferred<T>() {
+  let resolve!: (value: T) => void;
+  let reject!: (reason?: unknown) => void;
+  const promise = new Promise<T>((res, rej) => {
+    resolve = res;
+    reject = rej;
+  });
+  return { promise, resolve, reject };
+}
+
 beforeEach(() => {
   vi.restoreAllMocks();
   // auto_default window.confirm 默认 true
@@ -170,6 +180,60 @@ describe("Settings — LLM provider control center", () => {
     expect(await screen.findByTestId("llm-health-diagnostic")).toHaveTextContent(
       "HTTP Error 404",
     );
+  });
+
+  it("保存后刷新健康状态时显示检查中, 且忽略过期 status 响应", async () => {
+    const stale = deferred<LlmStatus>();
+    const fresh = deferred<LlmStatus>();
+    const testResult: LlmTestResult = {
+      ok: true,
+      provider: "minimax",
+      model: "MiniMax-M3",
+      llm_used: true,
+      config_source: "ui_settings",
+      policy_pass: true,
+      response: "pong",
+      safe_to_show: true,
+      warnings: [],
+      metadata: {},
+    };
+    const spy = mockApi({
+      config: liveConfig,
+      status: okStatus,
+      update: vi.fn().mockResolvedValue({ ok: true, config: liveConfig }),
+      test: vi.fn().mockResolvedValue(testResult),
+    });
+    spy.llmStatus
+      .mockResolvedValueOnce(okStatus)
+      .mockReturnValueOnce(stale.promise)
+      .mockReturnValueOnce(fresh.promise);
+
+    render(<Settings />);
+    await screen.findByTestId("btn-save-llm");
+
+    await act(async () => {
+      fireEvent.click(screen.getByTestId("btn-save-llm"));
+    });
+    expect(screen.getByTestId("llm-health-bar").textContent).toMatch(/检查中/);
+
+    await waitFor(() => {
+      expect(screen.getByTestId("btn-test-llm")).not.toBeDisabled();
+    });
+    await act(async () => {
+      fireEvent.click(screen.getByTestId("btn-test-llm"));
+    });
+
+    fresh.resolve(staleErrorStatus);
+    await waitFor(() => {
+      expect(screen.getByTestId("llm-health-bar").textContent).toMatch(/连接失败/);
+    });
+
+    stale.resolve(okStatus);
+    await act(async () => {
+      await Promise.resolve();
+    });
+
+    expect(screen.getByTestId("llm-health-bar").textContent).toMatch(/连接失败/);
   });
 
   it("点 provider 卡片会预填 base_url + model (空表单时)", async () => {

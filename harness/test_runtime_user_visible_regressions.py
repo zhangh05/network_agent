@@ -104,6 +104,36 @@ def test_session_message_store_sanitizes_assistant_reasoning(tmp_path, monkeypat
     assert "private chain" not in messages[0]["content"]
 
 
+def test_session_message_store_orders_user_before_assistant_for_same_run(tmp_path, monkeypatch):
+    import workspace.manager as manager
+    import workspace.message_store as message_store
+
+    monkeypatch.setattr(manager, "WS_ROOT", tmp_path)
+    monkeypatch.setattr(message_store, "WS_ROOT", tmp_path)
+
+    store = message_store.SessionMessageStore("session_order", ws_id="default")
+    msg_dir = store._messages_dir()
+    msg_dir.mkdir(parents=True, exist_ok=True)
+    (msg_dir / "run_1:assistant.json").write_text(json.dumps({
+        "role": "assistant",
+        "run_id": "run_1",
+        "session_id": "session_order",
+        "content": "answer",
+        "metadata": {"created_at": ""},
+    }))
+    (msg_dir / "run_1:user.json").write_text(json.dumps({
+        "role": "user",
+        "run_id": "run_1",
+        "session_id": "session_order",
+        "content": "question",
+        "metadata": {"created_at": ""},
+    }))
+
+    messages = store.get_messages()
+
+    assert [m["role"] for m in messages] == ["user", "assistant"]
+
+
 def test_runtime_persisted_run_has_created_at_when_context_metadata_empty(tmp_path, monkeypatch):
     import workspace.manager as manager
     import workspace.message_store as message_store

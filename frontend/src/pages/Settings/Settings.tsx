@@ -86,6 +86,7 @@ export function Settings() {
   const [error, setError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
   const [testing, setTesting] = useState(false);
+  const [healthRefreshing, setHealthRefreshing] = useState(false);
   const [testResult, setTestResult] = useState<LlmTestResult | null>(null);
   const [apiKeyRevealed, setApiKeyRevealed] = useState(false);
   const [apiKeyDraft, setApiKeyDraft] = useState("");
@@ -93,6 +94,7 @@ export function Settings() {
   const [clearKeyOnSave, setClearKeyOnSave] = useState(false);
   const [activePreset, setActivePreset] = useState<string>("custom");
   const aliveRef = useRef(true);
+  const statusRequestSeq = useRef(0);
 
   // 初始加载 config + status
   useEffect(() => {
@@ -122,13 +124,27 @@ export function Settings() {
   useEffect(() => {
     if (!config) return;
     const id = window.setInterval(() => {
-      settingsApi
-        .llmStatus()
-        .then((s) => aliveRef.current && setStatus(s))
-        .catch(() => {});
+      refreshHealth({ showPending: false });
     }, 10_000);
     return () => window.clearInterval(id);
   }, [config]);
+
+  async function refreshHealth(options: { showPending?: boolean } = {}) {
+    const requestId = ++statusRequestSeq.current;
+    if (options.showPending) setHealthRefreshing(true);
+    try {
+      const st = await settingsApi.llmStatus();
+      if (aliveRef.current && requestId === statusRequestSeq.current) {
+        setStatus(st);
+      }
+    } catch {
+      // Keep the last known status visible; diagnostics are in the next good response.
+    } finally {
+      if (aliveRef.current && requestId === statusRequestSeq.current) {
+        setHealthRefreshing(false);
+      }
+    }
+  }
 
   function applyPreset(preset: ProviderPreset) {
     if (!draft) return;
@@ -169,9 +185,8 @@ export function Settings() {
       setClearKeyOnSave(false);
       setApiKeyRevealed(false);
       toast({ kind: "success", title: "LLM 配置已保存" });
-      // 立刻刷一次 health
-      const st = await settingsApi.llmStatus();
-      if (aliveRef.current) setStatus(st);
+      // 立刻刷一次 health；不阻塞表单恢复，避免旧状态闪烁。
+      void refreshHealth({ showPending: true });
     } catch (e: unknown) {
       toast({
         kind: "error",
@@ -199,8 +214,7 @@ export function Settings() {
           ? `fallback_reason=${res.fallback_reason}`
           : `model=${res.model ?? "?"}`,
       });
-      const st = await settingsApi.llmStatus();
-      if (aliveRef.current) setStatus(st);
+      void refreshHealth({ showPending: true });
     } catch (e: unknown) {
       toast({
         kind: "error",
@@ -295,7 +309,7 @@ export function Settings() {
     <div className="page" data-testid="page-settings">
       <PageHeader />
       <div className="page-body">
-        <HealthBar status={status} config={draft} />
+        <HealthBar status={status} config={draft} refreshing={healthRefreshing} />
 
         <div className="settings-grid" data-testid="settings-grid">
           <aside className="provider-sidebar" data-testid="provider-sidebar">
@@ -519,7 +533,15 @@ function PageHeader() {
   );
 }
 
-function HealthBar({ status, config }: { status: LlmStatus | null; config: LlmConfig | null }) {
+function HealthBar({
+  status,
+  config,
+  refreshing = false,
+}: {
+  status: LlmStatus | null;
+  config: LlmConfig | null;
+  refreshing?: boolean;
+}) {
   if (!status || !config) return null;
   // 优先级: 未配置 key (warn) > 连接失败 (err) > 已连接 (ok)
   // key 缺失是 soft warning, 不是 hard error, 即使 last_error="no_api_key" 也按 warn 显示
@@ -530,7 +552,13 @@ function HealthBar({ status, config }: { status: LlmStatus | null; config: LlmCo
   let border = "#66bb6a";
   let dot = "#2e7d32";
   let label = "已连接";
-  if (err) {
+  if (refreshing) {
+    color = "var(--ink)";
+    bg = "#eef5ff";
+    border = "#5b8def";
+    dot = "#2f6fd6";
+    label = "检查中";
+  } else if (err) {
     color = "var(--danger)";
     bg = "#ffebee";
     border = "#c62828";

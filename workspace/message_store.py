@@ -237,7 +237,7 @@ class SessionMessageStore:
             except Exception:
                 continue
 
-        msgs.sort(key=lambda m: m.get("created_at", "") or "")
+        msgs.sort(key=_message_sort_key)
         return msgs
 
     # ── Artifact storage for large content ──
@@ -317,8 +317,19 @@ def _project_runs_to_messages(run_ids: List[str], ws_id: str) -> List[Dict[str, 
                 "metadata": run_meta,
             })
 
-    out.sort(key=lambda m: m.get("created_at", "") or "")
+    out.sort(key=_message_sort_key)
     return out
+
+
+def _message_sort_key(message: Dict[str, Any]) -> tuple:
+    """Stable chronological chat ordering with user before assistant per run."""
+    role_rank = 0 if message.get("role") == "user" else 1
+    return (
+        message.get("created_at") or "",
+        message.get("run_id") or "",
+        role_rank,
+        message.get("message_id") or "",
+    )
 
 
 def _message_content(role: str, content: str) -> str:
