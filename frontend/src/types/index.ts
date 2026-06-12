@@ -383,6 +383,9 @@ export interface LlmTestRequest {
 
 export interface RuntimeAuditTurn {
   run_id?: string;
+  created_at?: string;
+  user_input_summary?: string;
+  intent?: string;
   turn_id: string;
   session_id: string;
   trace_id: string;

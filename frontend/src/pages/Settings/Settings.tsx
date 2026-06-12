@@ -527,18 +527,25 @@ export function Settings() {
         </div>
 
         <details className="collapse mt-3">
-          <summary>开发诊断端点</summary>
+          <summary>开发诊断</summary>
           <div className="text-xs muted row-flex" style={{ gap: 6, flexWrap: "wrap" }}>
-          <IconSettings size={11} />
-          <InlineCode>GET /api/agent/llm/config</InlineCode>
-          <span>·</span>
-          <InlineCode>POST /api/agent/llm/config</InlineCode>
-          <span>·</span>
-          <InlineCode>DELETE /api/agent/llm/config</InlineCode>
-          <span>·</span>
-          <InlineCode>GET /api/agent/llm/status</InlineCode>
-          <span>·</span>
-          <InlineCode>POST /api/agent/llm/test</InlineCode>
+            <IconSettings size={11} />
+            <span>provider={status?.provider ?? "?"}</span>
+            <span>·</span>
+            <span>model={status?.model ?? draft.model}</span>
+            <span>·</span>
+            <span>config_source={status?.config_source ?? draft.source ?? "?"}</span>
+          </div>
+          <div className="text-xs muted row-flex mt-2" style={{ gap: 6, flexWrap: "wrap" }}>
+            <InlineCode>GET /api/agent/llm/config</InlineCode>
+            <span>·</span>
+            <InlineCode>POST /api/agent/llm/config</InlineCode>
+            <span>·</span>
+            <InlineCode>DELETE /api/agent/llm/config</InlineCode>
+            <span>·</span>
+            <InlineCode>GET /api/agent/llm/status</InlineCode>
+            <span>·</span>
+            <InlineCode>POST /api/agent/llm/test</InlineCode>
           </div>
         </details>
       </div>
@@ -556,7 +563,7 @@ function PageHeader() {
             · Settings
           </span>
         </h1>
-        <div className="subtitle">LLM provider 控制中心（6 个端点全用）</div>
+        <div className="subtitle">LLM provider 控制中心</div>
       </div>
     </div>
   );
@@ -633,8 +640,7 @@ function HealthBar({
       />
       <strong style={{ color }}>{label}</strong>
       <span className="muted text-xs">
-        · provider={status.provider} · model={status.model} · enabled={String(status.enabled)} ·
-        key_loaded={String(status.key_loaded)} · config_source={status.config_source}
+        · enabled={String(status.enabled)} · key_loaded={String(status.key_loaded)}
       </span>
     </div>
     {recentFailureActive && (

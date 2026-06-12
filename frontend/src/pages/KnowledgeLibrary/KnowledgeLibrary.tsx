@@ -102,7 +102,7 @@ export function KnowledgeLibrary() {
             </span>
           </h1>
           <div className="subtitle">
-            source 列表 / 检索 / 重新索引 / 从 artifact 导入 · 当前 scope: {scope}
+            文档检索 / 安全摘录 / 重新整理 · 当前范围: {scope === "workspace" ? "工作区" : scope === "global" ? "全局" : "会话"}
           </div>
         </div>
         <div className="row-flex">
@@ -215,41 +215,37 @@ export function KnowledgeLibrary() {
               <table className="tbl" data-testid="knowledge-source-tbl">
                 <thead>
                   <tr>
-                    <th>标题</th>
-                    <th>类型</th>
-                    <th>来源 artifact</th>
-                    <th>标签</th>
-                    <th style={{ width: 70, textAlign: "right" }}>chunks</th>
-                    <th>状态</th>
-                    <th style={{ width: 80 }}>操作</th>
+                    <th>文档名</th>
+                    <th>内容类型</th>
+                    <th>是否可检索</th>
+                    <th>最后更新</th>
+                    <th style={{ width: 120 }}>操作</th>
                   </tr>
                 </thead>
                 <tbody>
                   {(d.sources ?? []).map((s) => (
                     <tr key={s.source_id} data-testid={`src-${s.source_id}`}>
-                      <td><InlineCode>{s.title || s.source_id}</InlineCode></td>
                       <td>
-                        <Badge kind="muted">{s.source_type || "—"}</Badge>
-                      </td>
-                      <td className="text-xs">
-                        {s.artifact_id ? <InlineCode>{s.artifact_id}</InlineCode> : <span className="muted">—</span>}
+                        <div className="text-sm">{s.title || "未命名文档"}</div>
+                        <details className="collapse mt-1">
+                          <summary className="text-xs muted">技术详情</summary>
+                          <div className="text-xs muted mt-1">
+                            source: <InlineCode>{s.source_id}</InlineCode>
+                            {s.artifact_id && <> · artifact: <InlineCode>{s.artifact_id}</InlineCode></>}
+                            {typeof s.chunk_count === "number" && <> · chunks: {s.chunk_count}</>}
+                          </div>
+                        </details>
                       </td>
                       <td>
-                        <div className="row-flex" style={{ flexWrap: "wrap", gap: 2 }}>
-                          {(s.tags ?? []).length === 0 ? (
-                            <span className="muted text-xs">—</span>
-                          ) : (
-                            (s.tags ?? []).map((t) => <span className="tag" key={t}>{t}</span>)
-                          )}
-                        </div>
+                        <Badge kind="muted">{sourceTypeLabel(s.source_type)}</Badge>
                       </td>
-                      <td className="mono" style={{ textAlign: "right" }}>{s.chunk_count}</td>
                       <td>
-                        {s.status ? (
-                          <Badge kind="info">{s.status}</Badge>
-                        ) : (
-                          <Badge kind="muted">—</Badge>
-                        )}
+                        <Badge kind={isSearchableSource(s) ? "ok" : "warn"}>
+                          {isSearchableSource(s) ? "可检索" : "待整理"}
+                        </Badge>
+                      </td>
+                      <td className="text-xs muted">
+                        {formatKnowledgeDate(s.updated_at || s.created_at)}
                       </td>
                       <td>
                         <button
@@ -258,7 +254,7 @@ export function KnowledgeLibrary() {
                           data-testid={`btn-reindex-${s.source_id}`}
                           type="button"
                         >
-                          <IconRefresh size={11} /> reindex
+                          <IconRefresh size={11} /> 重新整理
                         </button>
                       </td>
                     </tr>
@@ -370,4 +366,33 @@ function SearchResults({
       </details>
     </div>
   );
+}
+
+function sourceTypeLabel(type?: string): string {
+  const labels: Record<string, string> = {
+    artifact: "制品文档",
+    markdown: "Markdown",
+    text: "文本",
+    config: "配置",
+    knowledge_doc: "知识文档",
+  };
+  return type ? labels[type] ?? type : "文档";
+}
+
+function isSearchableSource(source: KnowledgeSource): boolean {
+  return source.status === "indexed" || source.enabled === true || (source.chunk_count ?? 0) > 0;
+}
+
+function formatKnowledgeDate(value?: string): string {
+  if (!value) return "—";
+  try {
+    return new Date(value).toLocaleString(undefined, {
+      month: "2-digit",
+      day: "2-digit",
+      hour: "2-digit",
+      minute: "2-digit",
+    });
+  } catch {
+    return value;
+  }
 }

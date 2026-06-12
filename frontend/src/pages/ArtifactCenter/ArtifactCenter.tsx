@@ -14,7 +14,7 @@ import { useToastStore } from "../../stores/toast";
 import { isApiError } from "../../types";
 import type { Artifact } from "../../types";
 import { IconBox, IconDocument, IconShield } from "../../components/Icon";
-import { formatCompactDate, shortId } from "../../utils/displayText";
+import { formatCompactDate } from "../../utils/displayText";
 
 const SENSITIVITY_LABEL: Record<string, string> = {
   public: "公开",
@@ -127,12 +127,12 @@ export function ArtifactCenter() {
                       <span className="title" style={{ minWidth: 0 }}>
                         {a.title || a.artifact_id}
                       </span>
-                      <span className="meta mono" style={{ maxWidth: "100%" }}>
-                        {shortId(a.artifact_id)}
+                      <span className="meta" style={{ maxWidth: "100%" }}>
+                        {artifactTypeLabel(a)}
                         {a.created_at ? ` · ${formatCompactDate(a.created_at)}` : ""}
                       </span>
                       <div className="row-flex" style={{ gap: 4, flexWrap: "wrap" }}>
-                        <Badge kind="muted">{a.artifact_type}</Badge>
+                        <Badge kind="muted">{artifactTypeLabel(a)}</Badge>
                         {/* 权威 = 由某个 capability / module / skill 产出 */}
                         {(a.capability_id || a.module || a.skill) && (
                           <Badge kind="pri">权威</Badge>
@@ -194,9 +194,8 @@ function ArtifactDetail({
       >
         <span className="row-flex" style={{ minWidth: 0 }}>
           <IconDocument size={14} style={{ color: "var(--accent)" }} />
-          <InlineCode>{artifact.artifact_id}</InlineCode>
           {artifact.title && (
-            <span className="muted text-sm">{artifact.title}</span>
+            <span className="text-sm" style={{ fontWeight: 600 }}>{artifact.title}</span>
           )}
         </span>
         <span className="spacer" />
@@ -213,6 +212,22 @@ function ArtifactDetail({
         <span className="text-xs muted">
           {SOURCE_LABEL[artifact.source] ?? artifact.source}
         </span>
+      </div>
+
+      <div className="card mb-3" style={{ boxShadow: "none", padding: 14 }}>
+        <div className="row-flex" style={{ gap: 10, flexWrap: "wrap", alignItems: "stretch" }}>
+          <ArtifactFact label="这是什么" value={artifactWhat(artifact)} />
+          <ArtifactFact label="是否可直接下发" value="否，需要人工复核" tone="warn" />
+          <ArtifactFact label="建议下一步" value="加入评审 / 生成说明 / 复制安全摘录" />
+        </div>
+        <details className="collapse mt-2">
+          <summary className="text-xs muted">技术详情</summary>
+          <div className="text-xs muted mt-1">
+            artifact: <InlineCode>{artifact.artifact_id}</InlineCode>
+            {artifact.artifact_type && <> · type: <InlineCode>{artifact.artifact_type}</InlineCode></>}
+            {artifact.run_id && <> · run: <InlineCode>{artifact.run_id}</InlineCode></>}
+          </div>
+        </details>
       </div>
 
       {/* File metadata strip */}
@@ -245,11 +260,6 @@ function ArtifactDetail({
         {artifact.capability_id && (
           <span>
             来源能力: <strong>{artifact.capability_id}</strong>
-          </span>
-        )}
-        {artifact.run_id && (
-          <span>
-            run: <strong>{artifact.run_id}</strong>
           </span>
         )}
         {artifact.relative_path && (
@@ -468,6 +478,54 @@ function SummaryTab({ artifact }: { artifact: Artifact }) {
       )}
     </div>
   );
+}
+
+function ArtifactFact({
+  label,
+  value,
+  tone = "default",
+}: {
+  label: string;
+  value: string;
+  tone?: "default" | "warn";
+}) {
+  return (
+    <div style={{ minWidth: 180, flex: "1 1 180px" }}>
+      <div className="text-xs muted">{label}</div>
+      <div
+        className="text-sm"
+        style={{
+          color: tone === "warn" ? "var(--warn)" : "var(--ink)",
+          fontWeight: 600,
+          marginTop: 2,
+        }}
+      >
+        {value}
+      </div>
+    </div>
+  );
+}
+
+function artifactTypeLabel(artifact: Artifact): string {
+  const type = artifact.artifact_type || "";
+  const labels: Record<string, string> = {
+    output_config: "配置产物",
+    translated_config: "翻译配置",
+    knowledge_doc: "知识文档",
+    report: "报告",
+    manual_review: "评审材料",
+    topology: "拓扑材料",
+  };
+  return labels[type] ?? (type.replace(/_/g, " ") || "制品");
+}
+
+function artifactWhat(artifact: Artifact): string {
+  const title = `${artifact.title || ""} ${artifact.summary || ""} ${artifact.artifact_type || ""}`.toLowerCase();
+  if (title.includes("huawei") || title.includes("华为")) return "华为格式接口配置";
+  if (title.includes("cisco")) return "Cisco 配置材料";
+  if (title.includes("knowledge")) return "可检索知识文档";
+  if (title.includes("review")) return "人工评审材料";
+  return artifactTypeLabel(artifact);
 }
 
 function formatBytes(n: number): string {

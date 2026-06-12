@@ -74,18 +74,21 @@ describe("ArtifactCenter — artifact card", () => {
     render(<ArtifactCenter />);
     const item = await screen.findByTestId("artifact-art-1");
     fireEvent.click(item);
-    expect(item.textContent).toContain("translated_config");
+    expect(item.textContent).toContain("翻译配置");
+    expect(item.textContent).not.toContain("translated_config");
     // 权威 = 由某个 capability / module / skill 产出 (在 mock 中设了 capability_id)
     expect(item.textContent).toContain("权威");
     // Detail panel renders the sensitivity badge.
     const detail = await screen.findByTestId("artifact-detail");
     expect(detail.textContent).toContain("敏感");
     expect(detail.textContent).toContain("权威");
+    expect(detail.textContent).toContain("是否可直接下发");
+    expect(detail.textContent).toContain("否，需要人工复核");
     // Preview tab lazy-fetches /content and renders the actual content.
     expect(detail.textContent).toContain("router ospf 1");
   });
 
-  it("distinguishes duplicate artifact titles with id and created time", async () => {
+  it("keeps duplicate artifact titles readable while hiding ids by default", async () => {
     const duplicateA = { ...sampleArtifact, artifact_id: "art-a", title: "Translation output", created_at: "2026-06-11T10:00:00Z" };
     const duplicateB = { ...sampleArtifact, artifact_id: "art-b", title: "Translation output", created_at: "2026-06-11T11:00:00Z" };
     enqueue("/workspaces/ws-1/artifacts", {
@@ -95,8 +98,9 @@ describe("ArtifactCenter — artifact card", () => {
 
     render(<ArtifactCenter />);
 
-    expect(await screen.findByTestId("artifact-art-a")).toHaveTextContent("art-a");
-    expect(screen.getByTestId("artifact-art-b")).toHaveTextContent("art-b");
+    expect(await screen.findByTestId("artifact-art-a")).toHaveTextContent("翻译配置");
+    expect(screen.getByTestId("artifact-art-a")).not.toHaveTextContent("art-a");
+    expect(screen.getByTestId("artifact-art-b")).not.toHaveTextContent("art-b");
     expect(screen.getByTestId("artifact-art-a")).toHaveTextContent("2026");
   });
 });

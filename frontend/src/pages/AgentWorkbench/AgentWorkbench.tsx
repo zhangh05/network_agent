@@ -285,7 +285,13 @@ export function AgentWorkbench() {
                     : "var(--danger)",
               }}
             />
-            <span>{llmHealth.recentFailure ? "LLM 近期超时" : llmHealth.connected ? "LLM 在线" : "LLM 离线"}</span>
+            <span>
+              {llmHealth.connected
+                ? llmHealth.recentFailure
+                  ? "LLM 可用 · 最近一次请求超时，可重试"
+                  : "LLM 可用"
+                : "LLM 离线"}
+            </span>
           </span>
         </div>
       </div>

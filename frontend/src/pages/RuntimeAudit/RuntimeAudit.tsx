@@ -25,7 +25,9 @@ function auditRunId(turn: RuntimeAuditTurn, index: number): string {
 }
 
 function auditRunLabel(turn: RuntimeAuditTurn, index: number): string {
-  return turn.turn_id || turn.run_id || turn.trace_id || `run-${index + 1}`;
+  const summary = turn.user_input_summary || turn.intent || "";
+  if (summary) return summary.length > 34 ? `${summary.slice(0, 34)}…` : summary;
+  return `运行 ${index + 1}`;
 }
 
 export function RuntimeAudit() {
@@ -111,29 +113,37 @@ export function RuntimeAudit() {
                         }
                         onClick={() => setSelectedRunId(runId)}
                         data-testid={`turn-${runId}`}
+                        style={{
+                          flexDirection: "column",
+                          alignItems: "flex-start",
+                          gap: 4,
+                          height: "auto",
+                          padding: "8px 10px",
+                        }}
                       >
-                        <span
-                          className={
-                            "status-dot " +
-                            (t.status === "ok"
-                              ? "ok"
-                              : t.status === "failed"
-                                ? "err"
-                                : "warn")
-                          }
-                        />
-                        <span className="title mono text-sm">{label}</span>
-                        <Badge
-                          kind={
-                            t.status === "ok"
-                              ? "ok"
-                              : t.status === "failed"
-                                ? "err"
-                                : "warn"
-                          }
-                        >
-                          {STATUS_LABEL[t.status] || t.status}
-                        </Badge>
+                        <span className="title text-sm" style={{ lineHeight: 1.3 }}>
+                          问题摘要：{label}
+                        </span>
+                        <span className="row-flex" style={{ gap: 6, flexWrap: "wrap" }}>
+                          <Badge
+                            kind={
+                              t.status === "ok"
+                                ? "ok"
+                                : t.status === "failed"
+                                  ? "err"
+                                  : "warn"
+                            }
+                          >
+                            结果：{STATUS_LABEL[t.status] || t.status}
+                          </Badge>
+                          <span className="text-xs muted">时间：{auditTime(t)}</span>
+                        </span>
+                        <details className="collapse" style={{ width: "100%" }}>
+                          <summary className="text-xs muted">技术详情</summary>
+                          <div className="text-xs muted mono" style={{ marginTop: 2 }}>
+                            {runId}
+                          </div>
+                        </details>
                       </button>
                     );
                   })}
@@ -261,6 +271,19 @@ export function RuntimeAudit() {
       </div>
     </div>
   );
+}
+
+function auditTime(turn: RuntimeAuditTurn): string {
+  const value = turn.created_at || turn.started_at || turn.finished_at;
+  if (!value) return "—";
+  try {
+    return new Date(value).toLocaleTimeString(undefined, {
+      hour: "2-digit",
+      minute: "2-digit",
+    });
+  } catch {
+    return value;
+  }
 }
 
 function _eventLabel(type: string, payload: Record<string, unknown>): string {
