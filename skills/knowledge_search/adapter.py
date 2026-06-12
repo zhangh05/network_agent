@@ -2,9 +2,9 @@
 Knowledge Search Skill Adapter
 
 Routes knowledge queries to the Safe RAG knowledge retrieval pipeline.
-The actual orchestration is done by the Agent composer node
-(_compose_knowledge_query in agent/nodes/composer.py), which calls
-load_knowledge_context from context/knowledge_loader.py.
+Runtime turns now use the unified retrieval layer in context/retrieval.py.
+This adapter remains a direct registry/test entrypoint for the safe
+knowledge context loader.
 
 This adapter serves as the registry contract entrypoint and provides
 a direct interface for testing and external callers.

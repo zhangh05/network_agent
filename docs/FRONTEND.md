@@ -13,27 +13,31 @@ The frontend is a React/Vite app under `frontend/`.
 - Vitest
 - Playwright
 
-## App Structure
+## Source Layout
 
-- Entry: `frontend/src/main.tsx`
-- Routes: `frontend/src/app/App.tsx`
-- API client: `frontend/src/api/client.ts`
-- API modules: `frontend/src/api/index.ts`
-- Shared types: `frontend/src/types/index.ts`
-- Layouts: `frontend/src/layouts/`
-- Pages: `frontend/src/pages/`
-- Stores: `frontend/src/stores/`
-- Styles: `frontend/src/styles/global.css`
+| Path | Purpose |
+|---|---|
+| `frontend/src/main.tsx` | React entry |
+| `frontend/src/app/App.tsx` | routes and app shell |
+| `frontend/src/api/client.ts` | Axios wrapper and timeout policy |
+| `frontend/src/api/index.ts` | typed API modules |
+| `frontend/src/types/index.ts` | shared API-facing types |
+| `frontend/src/layouts/` | sidebar, inspector, shell |
+| `frontend/src/pages/` | route pages |
+| `frontend/src/stores/` | session, workbench, toast state |
+| `frontend/src/styles/global.css` | design system and interaction polish |
+| `frontend/src/test/` | Vitest tests |
+| `frontend/e2e/` | Playwright specs |
 
-## Pages
+## Routes
 
-- `/workbench`: chat workbench and turn result display
-- `/knowledge`: knowledge sources and search
-- `/artifacts`: artifact list and preview
-- `/reviews`: review item workflow
-- `/capabilities`: public capability projection
-- `/audit`: runs, traces, tool catalog
-- `/settings`: LLM settings
+- `/workbench`: chat workbench, recent turns, source/citation actions, inspector
+- `/knowledge`: local upload, artifact import, source list, search
+- `/artifacts`: artifact list, preview, next actions
+- `/reviews`: human review workflow and review item updates
+- `/capabilities`: capability matrix
+- `/audit`: runs, traces, tool catalog, runtime events
+- `/settings`: LLM provider configuration and diagnostics
 
 ## Runtime Behavior
 
@@ -43,11 +47,28 @@ The frontend is a React/Vite app under `frontend/`.
 - Workbench chat history persists in `localStorage["na_workbench"]`.
 - Session message sync uses `GET /api/sessions/<id>/messages`.
 - Initial workspace selection prefers `is_default`, then `workspace_id == "default"`, then the first backend item.
-- Header version uses `GET /api/version`; Workbench runtime status uses `GET /api/runtime/summary`.
+- Header version uses `GET /api/version`.
+- Workbench runtime status uses `GET /api/runtime/summary`.
+
+## Current UI Notes
+
+- The UI is API-backed, not mock-backed.
+- The Knowledge Library uses a custom file picker rather than the browser-native visible file input.
+- The Review Center has a user-facing empty state explaining when items appear.
+- Global interaction polish lives in `frontend/src/styles/global.css`: page entry, card/table row animation, button press, hover, and modal/toast motion.
 
 ## Tests
 
 Current source contains:
 
-- 12 Vitest files under `frontend/src/test/*.test.tsx`
-- 11 Playwright specs under `frontend/e2e/*.spec.ts`
+- 15 Vitest files under `frontend/src/test/*.test.*`
+- 12 Playwright specs under `frontend/e2e/*.spec.ts`
+
+Run:
+
+```bash
+cd /Users/zhangh01/Desktop/network_agent/frontend
+npm run typecheck
+npm test -- --run
+npm run build
+```

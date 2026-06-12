@@ -1,7 +1,13 @@
-# topology_draw
+# Topology Draw Skill
 
 ## Status
-planned / coming soon
 
-## Description
-This skill is planned for future implementation.
+Planned.
+
+## Planned Scope
+
+- extract topology from configuration
+- draw network topology artifacts
+- support reviewable topology output
+
+This skill is not callable until the topology capability is enabled.

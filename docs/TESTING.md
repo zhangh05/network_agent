@@ -8,7 +8,14 @@ Run focused checks from the repo root:
 ./venv/bin/python -m pytest harness/test_loop_persistence.py harness/test_session_api_contract.py -q
 ```
 
-Run the full harness when you need broad regression coverage:
+Run RAG/context checks:
+
+```bash
+./venv/bin/python -m pytest harness/test_rag_context_foundation.py harness/test_rag_context_eval_script.py harness/test_retrieval_quality_v102.py -q
+./venv/bin/python scripts/evaluate_rag_context.py
+```
+
+Run the full harness when broad regression coverage is needed:
 
 ```bash
 ./venv/bin/python -m pytest harness -q
@@ -25,16 +32,19 @@ RUN_LIVE_TESTS=1 ./venv/bin/python -m pytest harness -q
 ```bash
 cd /Users/zhangh01/Desktop/network_agent/frontend
 npm run typecheck
-npm run test
+npm test -- --run
 npm run build
 npm run e2e
 ```
 
-Current source contains 12 Vitest files and 11 Playwright E2E specs.
+Current source contains:
+
+- 15 Vitest files
+- 12 Playwright E2E specs
 
 ## Source Fact Checks
 
-Useful quick checks:
+Tool registry count:
 
 ```bash
 ./venv/bin/python - <<'PY'
@@ -45,4 +55,16 @@ print(len(reg.list_all()), len(reg.list_model_visible()))
 PY
 ```
 
-Expected current output: `73 70`.
+Expected current output: `76 70`.
+
+Runtime capability count:
+
+```bash
+./venv/bin/python - <<'PY'
+from agent.runtime.services import default_runtime_services
+reg = default_runtime_services().capability_registry
+print(len(reg.list_all()), len(reg.list_enabled()), len(reg.list_planned()))
+PY
+```
+
+Expected current output: `7 4 3`.

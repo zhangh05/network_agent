@@ -6,7 +6,7 @@ This file records facts checked from current source and local runtime constructi
 
 - Entry point: `backend/main.py`
 - Framework: Flask
-- Default port: `8010`
+- Default backend bind: `0.0.0.0:8010`
 - Main runtime endpoint: `POST /api/agent/message`
 - Legacy-compatible endpoint: `POST /api/agent/run`
 
@@ -16,18 +16,21 @@ This file records facts checked from current source and local runtime constructi
 - Stack: React 18, TypeScript, Vite 5, React Router, Zustand, Axios
 - Dev server: `5173`
 - Dev proxy: `/api` to `VITE_DEV_API_TARGET`, default `http://127.0.0.1:8010`
-- Current test inventory: 12 Vitest files and 11 Playwright specs
+- Current test inventory: 15 Vitest files and 12 Playwright specs
 
 ## Runtime Registry
 
 - Runtime capabilities are defined in `agent/capabilities/builtin.py`.
 - Current runtime capability count: 7 total, 4 enabled, 3 planned.
-- Current runtime tool registry count: 73 registered tools.
+- Current runtime tool registry count: 76 registered tools.
 - Current model-visible tool count: 70.
 - `GET /api/runtime/summary` exposes these counts for frontend status display.
 
 Registered but not model-visible:
 
+- `weather.current`
+- `weather.forecast`
+- `news.search`
 - `command.approved_exec`
 - `powershell.approved_script`
 - `knowledge.read_source`
@@ -40,6 +43,13 @@ Current public capability projection:
 
 - enabled: `config.translate`, `config.review`, `knowledge.search`
 - planned: `topology.draw`, `inspection.analyze`
+
+## Knowledge And Memory
+
+- Local file upload is exposed through `POST /api/knowledge/upload`.
+- Safe knowledge search is exposed through `GET /api/knowledge/search`.
+- Unified RAG retrieval lives in `context/retrieval.py`.
+- Memory write/confirm can return conflict metadata and projects memory into RAG best-effort.
 
 ## Workspace API
 

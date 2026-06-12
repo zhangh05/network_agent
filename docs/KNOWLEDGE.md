@@ -1,46 +1,83 @@
-# Knowledge
+# Knowledge And Memory
 
-Knowledge functionality is implemented in two places:
+Current knowledge and memory behavior is RAG-backed.
 
-- Runtime capability module: `agent/modules/knowledge/`
-- API routes: `backend/api/knowledge_routes.py`
+## Knowledge Surfaces
 
-## Runtime Module
+| Area | Current source |
+|---|---|
+| API routes | `backend/api/knowledge_routes.py` |
+| Artifact-backed index | `knowledge/` |
+| Module ingestion/search service | `agent/modules/knowledge/` |
+| Unified RAG retrieval | `context/retrieval.py` |
+| Frontend page | `frontend/src/pages/KnowledgeLibrary/KnowledgeLibrary.tsx` |
 
-Important files:
+## Upload And Ingestion
 
-- `agent/modules/knowledge/service.py`
-- `agent/modules/knowledge/store.py`
-- `agent/modules/knowledge/ingestion.py`
-- `agent/modules/knowledge/chunking.py`
-- `agent/modules/knowledge/index.py`
-- `agent/modules/knowledge/tools.py`
-- `agent/modules/knowledge/parsers/`
+`POST /api/knowledge/upload` accepts local files from the frontend Knowledge Library:
 
-## Ingestion
+- Markdown
+- text
+- HTML
+- DOCX
+- PDF text
 
-Supported parser modules include Markdown, text, HTML, DOCX, and text PDF. Scanned PDFs return an unsupported OCR status rather than fabricating content.
+Uploaded files are saved to the workspace upload area, imported, and then removed from the temporary upload path. The UI lets users set title, tags, and scope.
 
-`knowledge.import_file` is restricted to workspace-controlled upload and inbox areas. Path traversal, symlink escape, missing files, oversized files, and DOCX archive bombs are rejected.
+## Artifact Import
 
-## Retrieval
+`POST /api/knowledge/sources/from-artifact` indexes safe artifact excerpts. It does not expose full sensitive artifact content to search results.
 
-The current retrieval path is lexical BM25 with:
+## Search API
 
-- mixed word and CJK n-gram tokenization
-- field weighting
-- deterministic query expansions
-- scope boost
-- parent expansion
-- sibling chunk deduplication
-- no fabricated hits
+`GET /api/knowledge/search` returns safe excerpts only. Results merge the current `knowledge/` index with module-backed knowledge hits and return:
 
-Current scoring metadata includes tokenizer/scoring version, query expansions, lexical score, final score, and filtering counts.
+- `chunk_id`
+- `source_id`
+- `artifact_id`
+- `title`
+- `summary`
+- `safe_excerpt`
+- sensitivity/type metadata
+- score metadata
 
-## API
+## Unified RAG Retrieval
 
-- `GET /api/knowledge/sources`
-- `POST /api/knowledge/sources/from-artifact`
-- `POST /api/knowledge/sources/<source_id>/reindex`
-- `GET /api/knowledge/search`
-- `GET /api/knowledge/chunks/<chunk_id>`
+`context/retrieval.py` is the turn-context retrieval layer. It:
+
+- queries document source buckets separately from memory
+- queries memory through its RAG projection
+- creates query variants
+- deduplicates chunks
+- applies local token-similarity semantic reranking
+- emits source cards with citation ids such as `[K1]` for knowledge and `[M1]` for memory
+- returns diagnostics with retriever and rerank metadata
+
+## Memory System
+
+Memory code lives in `memory/`.
+
+Current behavior:
+
+- memory writes are redacted before persistence
+- policy blocks unsafe or low-confidence writes
+- user-confirmed decisions and preferences can become long-term memory
+- memory records are projected into RAG best-effort through `memory/indexer.py`
+- deleting memory deletes its projection
+- `memory/conflicts.py` detects likely contradictions for the same project/type
+- API responses from memory write/confirm include conflict metadata when detected
+
+## Context Use
+
+The runtime context builder can include both knowledge and memory evidence. The prompt requires factual claims based on retrieved context to cite source ids when citations exist.
+
+## Frontend
+
+The Knowledge Library page supports:
+
+- suggested searches
+- local file upload
+- artifact import
+- source list and reindex
+- keyword search over safe excerpts
+- technical details under collapsible sections

@@ -1,9 +1,14 @@
 # Topology Module
 
-## 状态
-planned / coming soon
+## Status
 
-## 计划功能
-- 从设备配置中提取网络拓扑信息
-- 绘制网络拓扑图
-- 支持多种可视化格式
+- Module registry status: `planned`
+- Runtime capability status: `planned`
+
+## Planned Scope
+
+- extract topology from device configuration
+- render topology views
+- provide topology artifacts for review
+
+Planned capabilities are visible for roadmap/status purposes but are not callable.

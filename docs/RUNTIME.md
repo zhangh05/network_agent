@@ -9,7 +9,7 @@ The active runtime is the Codex-style loop under `agent/runtime/`.
 3. `AgentThread.submit()` submits an `AgentOp`.
 4. `AgentSession` creates an `AgentTurn`.
 5. `agent/runtime/loop.py::run_turn()` builds context, calls the LLM, handles tool calls, and returns `AgentResult`.
-6. `_persist_run_record()` best-effort writes a run record so sessions can reconstruct messages.
+6. `_persist_run_record()` writes run/session/message state for UI history and audit pages.
 
 ## Runtime Services
 
@@ -23,23 +23,32 @@ The active runtime is the Codex-style loop under `agent/runtime/`.
 - audit event, trace, and rollout recorders
 - runtime `CapabilityRegistry`
 
+## Context Build
+
+Runtime context includes:
+
+- user request and recent session history
+- compacted conversation state
+- workspace metadata
+- available capabilities, skills, and model-visible tools
+- unified RAG evidence from `context/retrieval.py`
+- knowledge citations (`[K...]`) and memory citations (`[M...]`)
+
+The system prompt requires citation ids when context sources are present and tells the model to say when evidence is insufficient.
+
 ## Tool Loop
 
-- `ToolRouter.model_visible_tools()` returns OpenAI-format tool definitions.
+- `ToolRouter.model_visible_tools()` returns OpenAI-compatible tool definitions.
 - LLM-safe tool names use `__` instead of `.`.
 - `ToolRouter.build_tool_call()` rejects unknown or non-visible tool calls.
 - `ToolRouter.dispatch()` executes through registered capability handlers or ToolRuntime.
-- The Agent does not directly call arbitrary tools; it goes through `ToolRouter`.
-- Capability modules orchestrate tools and business services; a skill does not bypass its module boundary.
-- `ToolResult` data must be summarized or redacted before it is placed back into LLM context.
-- The public Tool HTTP API (`/api/tools/invoke`) is policy and approval gated.
-- Tool invocation objects are represented by ToolRuntime `ToolInvocation`, not legacy `agent/state.py` `tool_calls`.
-- SSH, Telnet, SNMP, and nmap are not exposed to the model.
+- `ToolResult` data must be summarized or redacted before it returns to LLM context.
+- SSH, Telnet, SNMP, nmap, ping sweep, and config push are not exposed to the model.
 
 ## Persistence
 
-New runtime turns are projected into legacy-compatible run records by `_persist_run_record()` in `agent/runtime/loop.py`. This is why `GET /api/sessions/<id>/messages` can reconstruct chat history.
+Runs are stored under `workspaces/<workspace_id>/runs/`. Session messages are stored under `workspaces/<workspace_id>/sessions/`. Runtime status files under `workspaces/_runtime/` are operational state and should not be committed as documentation.
 
 ## Legacy Runtime
 
-`agent/legacy/` remains for compatibility with `/api/agent/run`. It is not the primary runtime path.
+`agent/legacy/` remains for compatibility around `/api/agent/run`. It is not the primary Workbench path.

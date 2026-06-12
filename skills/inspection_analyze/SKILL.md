@@ -1,7 +1,13 @@
-# inspection_analyze
+# Inspection Analyze Skill
 
 ## Status
-planned / coming soon
 
-## Description
-This skill is planned for future implementation.
+Planned.
+
+## Planned Scope
+
+- compliance checks
+- best-practice audit
+- configuration diff analysis
+
+This skill is not callable until the inspection capability is enabled.

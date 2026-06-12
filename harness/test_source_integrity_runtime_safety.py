@@ -47,11 +47,11 @@ class TestSourceFormat:
 
 
 class TestReadmeBaseline:
-    def test_readme_has_1224_passed(self):
+    def test_readme_has_current_tool_count(self):
         with open("README.md") as f:
             c = f.read()
         assert "Testing" in c or "pytest" in c
-        assert "73 registered / 70 model-visible" in c
+        assert "76 registered / 70 model-visible" in c
 
     def test_readme_no_old_baseline_493(self):
         with open("README.md") as f:

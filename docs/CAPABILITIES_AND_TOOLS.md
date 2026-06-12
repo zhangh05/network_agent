@@ -1,26 +1,26 @@
-# Capabilities and Tools
+# Capabilities And Tools
 
-This document reflects current source.
+This document reflects current source and runtime construction.
 
 ## Runtime Capability Registry
 
-Defined in `agent/capabilities/builtin.py`.
+Runtime capabilities are defined in `agent/capabilities/builtin.py`.
 
-| Capability | Status | Module | Tools |
-|---|---|---|---:|
-| `config_translation` | enabled | `config_translation` | 1 |
-| `knowledge` | enabled | `knowledge` | 12 |
-| `artifact` | enabled | `artifact` | 4 |
-| `review` | enabled | `review` | 2 |
-| `topology` | planned | `topology` | 2 |
-| `inspection` | planned | `inspection` | 2 |
-| `cmdb` | planned | `cmdb` | 3 |
+| Capability | Status |
+|---|---|
+| `config_translation` | enabled |
+| `knowledge` | enabled |
+| `artifact` | enabled |
+| `review` | enabled |
+| `topology` | planned |
+| `inspection` | planned |
+| `cmdb` | planned |
 
-Planned capabilities are not callable.
+Planned capabilities are registered for roadmap visibility but are not callable.
 
 ## Public YAML Registry API
 
-`GET /api/capabilities` uses `registry.loader.load_capabilities()`, not the runtime registry above.
+`GET /api/capabilities` uses `registry.loader.load_capabilities()`, not the runtime capability registry above.
 
 Current public projection:
 
@@ -34,22 +34,25 @@ Current public projection:
 
 ## Tool Counts
 
-Current runtime counts:
+Current runtime construction:
 
-- Registered tools: 73
+- Registered tools: 76
 - Model-visible tools: 70
-- ToolRuntime tools: 55
-- Runtime capability tools: 18
+- Runtime capabilities: 7 total, 4 enabled, 3 planned
 
 Registered but not model-visible:
 
+- `weather.current`: disabled
+- `weather.forecast`: disabled
+- `news.search`: disabled
 - `command.approved_exec`: disabled high-risk runtime tool
 - `powershell.approved_script`: disabled high-risk runtime tool
-- `knowledge.read_source`: backend/admin callable, but `callable_by_llm=False`
+- `knowledge.read_source`: backend/admin callable, `callable_by_llm=False`
 
 ## Safety Rules
 
 - Tool visibility is fail-closed.
 - Unknown LLM tool calls are rejected by `ToolRouter`.
-- High-risk runtime tools require the approval path.
+- Disabled tools are not exposed to the model.
+- High-risk runtime tools require approval state.
 - Real device access and config push are not exposed to the model.

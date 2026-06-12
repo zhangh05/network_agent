@@ -1,20 +1,30 @@
-# knowledge_search — 知识库搜索
+# Knowledge Search Skill
 
 ## Status
-enabled ✓
 
-## Description
-Search the network engineering knowledge base for relevant cases and templates. Uses Safe RAG to filter sensitive content before injecting into LLM context.
+- Public capability projection: `knowledge.search`
+- Runtime knowledge capability: enabled
+- Skill registry entry: currently marked planned in `skills/registry.yaml`
 
-## Entrypoint
-- **Adapter**: `skills/knowledge_search/adapter.py::search()`
-- **Agent routing**: `agent/nodes/composer.py::_compose_knowledge_query()`
-- **Safe RAG**: `context/knowledge_loader.py::load_knowledge_context()`
+## Current Implementation
 
-## API
-- `/api/knowledge/search` — Search indexed knowledge artifacts
+Knowledge search is available through:
+
+- API: `GET /api/knowledge/search`
+- Upload API: `POST /api/knowledge/upload`
+- Unified retrieval: `context/retrieval.py`
+- Module service: `agent/modules/knowledge/service.py`
+- Safe store/search: `knowledge/`
+
+## Behavior
+
+- Searches safe excerpts only.
+- Does not return full sensitive source content.
+- Can be combined with memory evidence in runtime RAG context.
+- Emits citation-ready source cards through unified retrieval.
 
 ## Red Lines
-- No LLM calls from within skill
-- No absolute paths in output
-- No secret/sensitive content in context
+
+- No LLM calls from inside the search skill.
+- No absolute local paths in user-visible output.
+- No secrets, keys, or raw sensitive config in context.

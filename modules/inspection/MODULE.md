@@ -1,9 +1,14 @@
 # Inspection Module
 
-## 状态
-planned / coming soon
+## Status
 
-## 计划功能
-- 配置合规检查
-- 最佳实践审计
-- 配置差异分析
+- Module registry status: `planned`
+- Runtime capability status: `planned`
+
+## Planned Scope
+
+- configuration compliance checks
+- best-practice audit
+- configuration diff analysis
+
+Planned capabilities are visible for roadmap/status purposes but are not callable.
