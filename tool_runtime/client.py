@@ -62,11 +62,11 @@ class ToolRuntimeClient:
         invocation = ToolInvocation(
             tool_id=tool_id,
             arguments=arguments,
-            workspace_id=context.workspace_id if context else None,
-            run_id=context.run_id if context else None,
-            job_id=context.job_id if context else None,
+            workspace_id=getattr(context, "workspace_id", None) if context else None,
+            run_id=getattr(context, "run_id", None) if context else None,
+            job_id=getattr(context, "job_id", None) if context else None,
             dry_run=dry_run,
-            requested_by=context.requested_by if context else "",
+            requested_by=getattr(context, "requested_by", "") if context else "",
         )
 
         # ── Execute through full pipeline ──
@@ -97,18 +97,18 @@ class ToolRuntimeClient:
 
             meta = build_trace_metadata_from_tool_result(result)
             meta.update({
-                "workspace_id": context.workspace_id or "",
-                "run_id": context.run_id or "",
-                "job_id": context.job_id or "",
-                "capability": context.capability or "",
-                "skill": context.skill or "",
-                "module": context.module or "",
+                "workspace_id": getattr(context, "workspace_id", "") or "",
+                "run_id": getattr(context, "run_id", "") or "",
+                "job_id": getattr(context, "job_id", "") or "",
+                "capability": getattr(context, "capability", "") or "",
+                "skill": getattr(context, "skill", "") or "",
+                "module": getattr(context, "module", "") or "",
             })
             status = "success" if result.status in ("succeeded", "dry_run") else "failed"
-            append_event(context.trace_id, {
-                "trace_id": context.trace_id,
-                "run_id": context.run_id or "",
-                "workspace_id": context.workspace_id or "default",
+            append_event(getattr(context, "trace_id", ""), {
+                "trace_id": getattr(context, "trace_id", ""),
+                "run_id": getattr(context, "run_id", ""),
+                "workspace_id": getattr(context, "workspace_id", "default"),
                 "event_type": "tool_runtime",
                 "name": f"tool:{result.tool_id}",
                 "status": status,
