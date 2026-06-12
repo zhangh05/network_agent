@@ -2258,7 +2258,7 @@ details.collapse[open] summary::before {
 
 [data-tip]:hover::after {
   position: absolute;
-  bottom: calc(100% + 7px);
+  top: calc(100% + 7px);
   left: 50%;
   z-index: 100;
   padding: 5px 8px;
