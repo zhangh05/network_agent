@@ -115,18 +115,17 @@ export function ArtifactCenter() {
           }}
         >
           <div style={{ padding: 12 }}>
-            <div className="section-head" style={{ paddingLeft: 4, marginBottom: 8 }}>
+            <div className="section-head" style={{ paddingLeft: 4, marginBottom: 8, gap: 6 }}>
               <IconBox size={11} /> 制品列表
               <button
-                className={`btn sm ${batchMode ? "" : "ghost"}`}
                 style={{ 
-                  marginLeft: 8, 
                   fontSize: 11,
-                  borderRadius: 12,
+                  borderRadius: 10,
                   padding: "2px 10px",
+                  cursor: "pointer",
+                  border: `1px solid ${batchMode ? "var(--accent)" : "var(--line-soft)"}`,
                   background: batchMode ? "var(--accent-soft)" : "var(--bg-soft)",
                   color: batchMode ? "var(--accent-deep)" : "var(--ink-soft)",
-                  border: `1px solid ${batchMode ? "var(--accent)" : "var(--line-soft)"}`,
                 }}
                 onClick={() => { setBatchMode(!batchMode); if (batchMode) setCheckedIds(new Set()); }}
                 type="button"
@@ -135,11 +134,14 @@ export function ArtifactCenter() {
               </button>
               {batchMode && checkedIds.size > 0 && (
                 <button 
-                  className="btn sm danger" 
                   style={{ 
-                    marginLeft: 4,
-                    borderRadius: 12,
+                    fontSize: 11,
+                    borderRadius: 10,
                     padding: "2px 10px",
+                    cursor: "pointer",
+                    border: "1px solid var(--danger)",
+                    background: "var(--danger-soft)",
+                    color: "var(--danger)",
                   }} 
                   onClick={batchDelete} 
                   type="button"
@@ -147,8 +149,9 @@ export function ArtifactCenter() {
                   确认删除 ({checkedIds.size})
                 </button>
               )}
-              <span className="text-xs" style={{
+              <span style={{
                 marginLeft: "auto",
+                fontSize: 11,
                 color: "var(--ink-soft)",
                 background: "var(--bg-soft)",
                 padding: "2px 10px",
