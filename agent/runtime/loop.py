@@ -429,10 +429,11 @@ def run_turn(session, turn, services=None) -> AgentResult:
             continue
 
         # LLM returned content (final answer)
-        final_response = resp.content
+        from agent.llm.runtime import sanitize_provider_output
+        final_response, reasoning_stripped = sanitize_provider_output(resp.content)
         if audit_events:
             audit_events.emit("assistant_message", session_id=session.session_id, turn_id=turn.turn_id,
-                              content_len=len(final_response))
+                              content_len=len(final_response), reasoning_stripped=reasoning_stripped)
 
         session.history.append(UserMessage(content=context.user_input))
         session.history.append(AssistantMessage(content=final_response))

@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { runtimeAuditApi } from "../../api";
 import {
   useAsync,
@@ -10,6 +10,7 @@ import {
 import { useSessionStore } from "../../stores/session";
 import type { RuntimeAuditTurn } from "../../types";
 import { IconAlert, IconClock } from "../../components/Icon";
+import { APP_EVENTS } from "../../utils/appEvents";
 
 const STATUS_LABEL: Record<string, string> = {
   ok: "成功",
@@ -47,6 +48,12 @@ export function RuntimeAudit() {
         : Promise.resolve({ events: [] }),
     [currentWorkspaceId, selectedRunId],
   );
+
+  useEffect(() => {
+    const onRunCompleted = () => turns.reload();
+    window.addEventListener(APP_EVENTS.RUN_COMPLETED, onRunCompleted);
+    return () => window.removeEventListener(APP_EVENTS.RUN_COMPLETED, onRunCompleted);
+  }, [turns]);
 
   return (
     <div className="page" data-testid="page-audit">

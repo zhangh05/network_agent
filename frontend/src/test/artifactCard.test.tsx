@@ -84,4 +84,19 @@ describe("ArtifactCenter — artifact card", () => {
     // Preview tab lazy-fetches /content and renders the actual content.
     expect(detail.textContent).toContain("router ospf 1");
   });
+
+  it("distinguishes duplicate artifact titles with id and created time", async () => {
+    const duplicateA = { ...sampleArtifact, artifact_id: "art-a", title: "Translation output", created_at: "2026-06-11T10:00:00Z" };
+    const duplicateB = { ...sampleArtifact, artifact_id: "art-b", title: "Translation output", created_at: "2026-06-11T11:00:00Z" };
+    enqueue("/workspaces/ws-1/artifacts", {
+      status: 200,
+      data: { artifacts: [duplicateA, duplicateB] },
+    });
+
+    render(<ArtifactCenter />);
+
+    expect(await screen.findByTestId("artifact-art-a")).toHaveTextContent("art-a");
+    expect(screen.getByTestId("artifact-art-b")).toHaveTextContent("art-b");
+    expect(screen.getByTestId("artifact-art-a")).toHaveTextContent("2026");
+  });
 });

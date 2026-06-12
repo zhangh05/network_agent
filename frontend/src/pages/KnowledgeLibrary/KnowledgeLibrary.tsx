@@ -12,6 +12,7 @@ import { useToastStore } from "../../stores/toast";
 import { isApiError } from "../../types";
 import type { KnowledgeSource } from "../../types";
 import { IconBook, IconRefresh, IconSearch, IconSparkle } from "../../components/Icon";
+import { shortId } from "../../utils/displayText";
 
 export function KnowledgeLibrary() {
   const { currentWorkspaceId } = useSessionStore();
@@ -128,8 +129,7 @@ export function KnowledgeLibrary() {
             <span className="count">{artifacts.state.kind === "success" ? (artifacts.state.data.artifacts ?? []).length : "—"}</span>
           </div>
           <div className="text-xs muted mb-3">
-            后端从 <InlineCode>/api/workspaces/&lt;ws&gt;/artifacts/&lt;art&gt;</InlineCode> 读取内容并建立 knowledge source。
-            真实上传走 <InlineCode>POST /api/workspaces/&lt;ws&gt;/artifacts</InlineCode>（后端 artifact pipeline）。
+            选择一个制品建立可检索知识源。只索引安全摘录，机密内容不会进入搜索结果。
           </div>
           <div className="row-flex" style={{ gap: 8 }}>
             <select
@@ -144,7 +144,7 @@ export function KnowledgeLibrary() {
               {(artifacts.state.kind === "success" ? artifacts.state.data.artifacts : []).map(
                 (a) => (
                   <option key={a.artifact_id} value={a.artifact_id}>
-                    {a.title || a.artifact_id}
+                    {a.title || a.artifact_id} · {shortId(a.artifact_id)}
                   </option>
                 ),
               )}
@@ -344,7 +344,7 @@ function SearchResults({
         </div>
       ))}
       <details className="collapse">
-        <summary>查看原始 JSON</summary>
+        <summary>开发诊断 JSON</summary>
         <CodeBlock language="json">
           {JSON.stringify(results.slice(0, 5), null, 2)}
         </CodeBlock>

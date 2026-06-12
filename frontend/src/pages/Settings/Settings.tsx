@@ -19,6 +19,7 @@ import { useToastStore } from "../../stores/toast";
 import { isApiError } from "../../types";
 import type { LlmConfig, LlmStatus, LlmTestResult } from "../../types";
 import { IconKey, IconSettings } from "../../components/Icon";
+import { sanitizeAssistantText } from "../../utils/displayText";
 
 interface ProviderPreset {
   id: string;
@@ -432,7 +433,7 @@ export function Settings() {
                       whiteSpace: "pre-wrap",
                     }}
                   >
-                    {testResult.response}
+                  {sanitizeAssistantText(testResult.response)}
                   </pre>
                 )}
                 {testResult.warnings.length > 0 && (
@@ -482,7 +483,9 @@ export function Settings() {
           </div>
         </div>
 
-        <div className="text-xs muted mt-3 row-flex" style={{ gap: 6 }}>
+        <details className="collapse mt-3">
+          <summary>开发诊断端点</summary>
+          <div className="text-xs muted row-flex" style={{ gap: 6, flexWrap: "wrap" }}>
           <IconSettings size={11} />
           <InlineCode>GET /api/agent/llm/config</InlineCode>
           <span>·</span>
@@ -493,7 +496,8 @@ export function Settings() {
           <InlineCode>GET /api/agent/llm/status</InlineCode>
           <span>·</span>
           <InlineCode>POST /api/agent/llm/test</InlineCode>
-        </div>
+          </div>
+        </details>
       </div>
     </div>
   );
@@ -539,7 +543,9 @@ function HealthBar({ status, config }: { status: LlmStatus | null; config: LlmCo
     dot = "#f9a825";
     label = "未配置 key";
   }
+  const diagnostic = status.health.last_error;
   return (
+    <>
     <div
       className="card mb-3 row-flex"
       style={{
@@ -564,12 +570,26 @@ function HealthBar({ status, config }: { status: LlmStatus | null; config: LlmCo
         · provider={status.provider} · model={status.model} · enabled={String(status.enabled)} ·
         key_loaded={String(status.key_loaded)} · config_source={status.config_source}
       </span>
-      {status.health.last_error && (
-        <span className="text-xs" style={{ color, marginLeft: 8 }}>
-          · {status.health.last_error}
-        </span>
-      )}
     </div>
+    {diagnostic && (
+      <div
+        className="card mb-3"
+        style={{
+          borderColor: status.connected ? "var(--warn)" : "var(--danger)",
+          color: status.connected ? "var(--warn)" : "var(--danger)",
+          boxShadow: "none",
+          padding: 10,
+        }}
+        data-testid="llm-health-diagnostic"
+      >
+        <strong>{status.connected ? "最近诊断提示" : "连接诊断"}</strong>
+        <span className="text-xs" style={{ marginLeft: 8 }}>
+          {diagnostic}
+          {status.health.last_error_type ? ` · ${status.health.last_error_type}` : ""}
+        </span>
+      </div>
+    )}
+    </>
   );
 }
 

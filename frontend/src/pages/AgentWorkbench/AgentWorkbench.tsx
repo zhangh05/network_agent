@@ -6,6 +6,8 @@ import { useToastStore } from "../../stores/toast";
 import { Badge } from "../../components/common";
 import { isApiError } from "../../types";
 import type { AgentResult, SourceSummary, ToolCallResult } from "../../types";
+import { sanitizeAssistantText } from "../../utils/displayText";
+import { notifyRunCompleted } from "../../utils/appEvents";
 import { TIMEOUTS } from "../../api/client";
 import {
   IconAlert,
@@ -147,7 +149,8 @@ export function AgentWorkbench() {
         });
         useWorkbenchStore.getState().switchSession(resolvedSid);
       }
-      appendAssistant(res.final_response ?? "", res, resolvedSid);
+      appendAssistant(sanitizeAssistantText(res.final_response ?? ""), res, resolvedSid);
+      notifyRunCompleted();
       toast({ kind: "success", title: "turn 完成", body: res.trace_id });
       // 拉一次 backend 让云端历史落地 (后端修了 run_ids bug 才有效)
       if (resolvedSid && currentWorkspaceId) {
@@ -166,7 +169,7 @@ export function AgentWorkbench() {
       const msg = isApiError(err) ? err.message : String(err);
       const stubResult: AgentResult = {
         ok: false,
-        final_response: `(error) ${msg}`,
+        final_response: sanitizeAssistantText(`(error) ${msg}`),
         events: [],
         trace_id: isApiError(err) ? err.request_id ?? "—trace-failed" : "—trace-failed",
         session_id: currentSessionId ?? "—",
@@ -362,7 +365,7 @@ function ChatBubble({
         {role === "user" ? "U" : "智"}
       </div>
       <div style={{ flex: 1, minWidth: 0, maxWidth: "calc(100% - 44px)" }}>
-        <div className="chat-bubble">{text || <span className="muted">(空消息)</span>}</div>
+        <div className="chat-bubble">{sanitizeAssistantText(text) || <span className="muted">(空消息)</span>}</div>
         {result && <ResultInline result={result} />}
       </div>
     </div>

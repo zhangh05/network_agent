@@ -7,6 +7,7 @@ import { isApiError } from "../types";
 import type { Session, Workspace } from "../types";
 import { IconArchive, IconBolt, IconChat, IconPlus, IconWorkspace } from "../components/Icon";
 import { pickInitialWorkspaceId, shouldReplacePersistedWorkspace } from "../utils/workspace";
+import { APP_EVENTS } from "../utils/appEvents";
 
 const SESSION_PREVIEW_LIMIT = 12;
 
@@ -45,6 +46,15 @@ export function Sidebar() {
     [currentWorkspaceId],
     (d) => (d.runs ?? []).length === 0,
   );
+
+  useEffect(() => {
+    const onRunCompleted = () => {
+      recentRuns.reload();
+      sessList.reload();
+    };
+    window.addEventListener(APP_EVENTS.RUN_COMPLETED, onRunCompleted);
+    return () => window.removeEventListener(APP_EVENTS.RUN_COMPLETED, onRunCompleted);
+  }, [recentRuns, sessList]);
 
   useEffect(() => {
     if (wsList.state.kind === "success") {

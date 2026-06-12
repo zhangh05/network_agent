@@ -66,4 +66,35 @@ describe("Agent Workbench — source_summary rendering", () => {
     expect(summary.textContent).toContain("OSPF 完全手册");
     expect(summary.textContent).toContain("4.50");
   });
+
+  it("hides model reasoning tags from assistant chat bubbles", async () => {
+    const runCompleted = vi.fn();
+    window.addEventListener("network-agent:run-completed", runCompleted);
+    const resp: AgentResult = {
+      ok: true,
+      final_response:
+        "<think>I should not be shown to the user.</think>\n当前 Network Agent 可以帮助你完成配置翻译、知识检索和制品评审。",
+      events: [],
+      trace_id: "trace-reasoning",
+      session_id: "s-1",
+      turn_id: "t-reasoning",
+      tool_calls: [],
+      warnings: [],
+      errors: [],
+      metadata: {},
+    };
+    enqueue("/agent/message", { status: 200, data: resp });
+    enqueue("/sessions/s-1/messages", { status: 200, data: { ok: true, messages: [], count: 0 } });
+
+    render(<AgentWorkbench />);
+    const input = await screen.findByTestId("chat-input");
+    fireEvent.change(input, { target: { value: "一句话说明能力" } });
+    fireEvent.click(screen.getByTestId("btn-send"));
+
+    const assistant = await screen.findByText(/当前 Network Agent 可以帮助/);
+    expect(assistant.textContent).not.toContain("<think>");
+    expect(assistant.textContent).not.toContain("I should not be shown");
+    expect(runCompleted).toHaveBeenCalledTimes(1);
+    window.removeEventListener("network-agent:run-completed", runCompleted);
+  });
 });

@@ -14,6 +14,7 @@ import { useToastStore } from "../../stores/toast";
 import { isApiError } from "../../types";
 import type { Artifact } from "../../types";
 import { IconBox, IconDocument, IconShield } from "../../components/Icon";
+import { formatCompactDate, shortId } from "../../utils/displayText";
 
 const SENSITIVITY_LABEL: Record<string, string> = {
   public: "公开",
@@ -126,6 +127,10 @@ export function ArtifactCenter() {
                       <span className="title" style={{ minWidth: 0 }}>
                         {a.title || a.artifact_id}
                       </span>
+                      <span className="meta mono" style={{ maxWidth: "100%" }}>
+                        {shortId(a.artifact_id)}
+                        {a.created_at ? ` · ${formatCompactDate(a.created_at)}` : ""}
+                      </span>
                       <div className="row-flex" style={{ gap: 4, flexWrap: "wrap" }}>
                         <Badge kind="muted">{a.artifact_type}</Badge>
                         {/* 权威 = 由某个 capability / module / skill 产出 */}
@@ -236,11 +241,6 @@ function ArtifactDetail({
             SHA-256: <strong>{artifact.sha256_short}…</strong>
           </span>
         )}
-        {artifact.relative_path && (
-          <span title={artifact.relative_path}>
-            路径: <strong>{artifact.relative_path}</strong>
-          </span>
-        )}
         <span className="spacer" />
         {artifact.capability_id && (
           <span>
@@ -251,6 +251,14 @@ function ArtifactDetail({
           <span>
             run: <strong>{artifact.run_id}</strong>
           </span>
+        )}
+        {artifact.relative_path && (
+          <details style={{ width: "100%" }}>
+            <summary>存储诊断</summary>
+            <span title={artifact.relative_path}>
+              路径: <strong>{artifact.relative_path}</strong>
+            </span>
+          </details>
         )}
       </div>
 
@@ -371,7 +379,7 @@ function ContentTab({ artifact }: { artifact: Artifact }) {
         </div>
         <div className="text-xs muted mt-3 mono">
           size: {formatBytes(artifact.size_bytes)} ·{" "}
-          {artifact.relative_path || "(无路径)"}
+          {artifact.relative_path ? "详情见存储诊断" : "(无路径)"}
         </div>
       </div>
     );

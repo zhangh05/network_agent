@@ -23,6 +23,7 @@
 import { create } from "zustand";
 import { persist } from "zustand/middleware";
 import type { AgentResult, SessionMessage } from "../types";
+import { sanitizeAssistantText } from "../utils/displayText";
 
 export interface ChatMsg {
   id: string;
@@ -130,12 +131,16 @@ export const useWorkbenchStore = create<WorkbenchState>()(
 
       appendAssistant: (text, result, session_id) => {
         const sid = session_id ?? get().currentSessionId ?? "_scratch";
+        const cleanText = sanitizeAssistantText(text);
+        const cleanResult = result
+          ? { ...result, final_response: sanitizeAssistantText(result.final_response ?? "") }
+          : undefined;
         const msg: ChatMsg = {
           id: nextId(),
           role: "assistant",
-          text,
+          text: cleanText,
           created_at: new Date().toISOString(),
-          result,
+          result: cleanResult,
         };
         set((s) => {
           const cur = s.bySession[sid] ?? [];
@@ -143,7 +148,7 @@ export const useWorkbenchStore = create<WorkbenchState>()(
           return {
             bySession: next,
             history: s.currentSessionId === sid ? next[sid] : s.history,
-            latestResult: result ?? s.latestResult,
+            latestResult: cleanResult ?? s.latestResult,
           };
         });
       },
@@ -175,7 +180,7 @@ export const useWorkbenchStore = create<WorkbenchState>()(
             m.message_id ??
             `srv-${m.run_id ?? m.created_at}-${Math.random().toString(36).slice(2, 8)}`,
           role: m.role,
-          text: m.content,
+          text: m.role === "assistant" ? sanitizeAssistantText(m.content) : m.content,
           created_at: m.created_at,
           run_id: m.run_id,
           // `result` 不可从后端还原, 渲染为纯文本气泡 (无 inline 工具调用)

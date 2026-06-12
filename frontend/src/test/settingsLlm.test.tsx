@@ -72,6 +72,19 @@ const noKeyStatus: LlmStatus = {
   health: { ...okStatus.health, key_loaded: false, connected: false, last_error: "no_api_key", last_error_type: "missing_api_key" },
 };
 
+const staleErrorStatus: LlmStatus = {
+  ...okStatus,
+  connected: true,
+  health: {
+    ...okStatus.health,
+    connected: true,
+    chat_completion_ok: true,
+    http_status: 404,
+    last_error: "HTTP Error 404: 404 Page not found",
+    last_error_type: "provider_http_404",
+  },
+};
+
 function mockApi(overrides: Partial<{
   config: LlmConfig;
   status: LlmStatus;
@@ -145,6 +158,17 @@ describe("Settings — LLM provider control center", () => {
     });
     expect(screen.getByTestId("api-key-preview").textContent).toContain("eyJ0****8a3f");
     expect(screen.getByText("✓ 已配置")).toBeInTheDocument();
+  });
+
+  it("provider 近期错误单独作为诊断提示, 不混在绿色已连接摘要里", async () => {
+    mockApi({ config: liveConfig, status: staleErrorStatus });
+    render(<Settings />);
+    const health = await screen.findByTestId("llm-health-bar");
+    expect(health.textContent).toMatch(/已连接/);
+    expect(health.textContent).not.toContain("HTTP Error 404");
+    expect(await screen.findByTestId("llm-health-diagnostic")).toHaveTextContent(
+      "HTTP Error 404",
+    );
   });
 
   it("点 provider 卡片会预填 base_url + model (空表单时)", async () => {

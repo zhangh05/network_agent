@@ -27,6 +27,12 @@ def agent_message():
             workspace_id=workspace_id,
             metadata=metadata,
         )
-        return jsonify(result.to_dict())
+        payload = result.to_dict()
+        if payload.get("final_response"):
+            from agent.llm.runtime import sanitize_provider_output
+            payload["final_response"], stripped = sanitize_provider_output(payload["final_response"])
+            if stripped:
+                payload.setdefault("metadata", {})["reasoning_stripped"] = True
+        return jsonify(payload)
     except Exception as e:
         return jsonify({"ok": False, "error": str(e)[:500]}), 500
