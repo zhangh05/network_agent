@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useAsync, AsyncView } from "../components/common";
 import { sessionsApi, workspacesApi } from "../api";
 import { useSessionStore } from "../stores/session";
@@ -59,14 +59,20 @@ export function Sidebar() {
     (d) => (d.runs ?? []).length === 0,
   );
 
+  // Re-register event listener once — use refs to avoid dependency churn
+  const recentRunsRef = useRef(recentRuns.reload);
+  recentRunsRef.current = recentRuns.reload;
+  const sessListRef = useRef(sessList.reload);
+  sessListRef.current = sessList.reload;
+
   useEffect(() => {
     const onRunCompleted = () => {
-      recentRuns.reload();
-      sessList.reload();
+      recentRunsRef.current();
+      sessListRef.current();
     };
     window.addEventListener(APP_EVENTS.RUN_COMPLETED, onRunCompleted);
     return () => window.removeEventListener(APP_EVENTS.RUN_COMPLETED, onRunCompleted);
-  }, [recentRuns, sessList]);
+  }, []);
 
   useEffect(() => {
     if (wsList.state.kind === "success") {

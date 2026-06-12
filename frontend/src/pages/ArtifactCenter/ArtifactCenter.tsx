@@ -406,17 +406,20 @@ function ContentTab({ artifact }: { artifact: Artifact }) {
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    // 每次切换 artifact 重新拉取
+    const ctrl = new AbortController();
     setData(null);
     setError(null);
     if (!currentWorkspaceId) return;
     setLoading(true);
     artifactsApi
-      .content(currentWorkspaceId, artifact.artifact_id)
+      .content(currentWorkspaceId, artifact.artifact_id, ctrl.signal)
       .then((res) => {
-        setData({ content: res.content, title: res.metadata?.title as string | undefined });
+        if (!ctrl.signal.aborted) {
+          setData({ content: res.content, title: res.metadata?.title as string | undefined });
+        }
       })
       .catch((e: unknown) => {
+        if (ctrl.signal.aborted) return;
         const msg = isApiError(e) ? e.message : String(e);
         setError(msg);
         toast({
@@ -426,7 +429,10 @@ function ContentTab({ artifact }: { artifact: Artifact }) {
           request_id: isApiError(e) ? e.request_id : undefined,
         });
       })
-      .finally(() => setLoading(false));
+      .finally(() => {
+        if (!ctrl.signal.aborted) setLoading(false);
+      });
+    return () => ctrl.abort();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [artifact.artifact_id, currentWorkspaceId]);
 
@@ -501,16 +507,23 @@ function SummaryTab({ artifact }: { artifact: Artifact }) {
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
+    const ctrl = new AbortController();
     if (!currentWorkspaceId) return;
     setLoading(true);
     setError(null);
     artifactsApi
-      .summarize(currentWorkspaceId, artifact.artifact_id)
-      .then((res) => setData(res))
+      .summarize(currentWorkspaceId, artifact.artifact_id, ctrl.signal)
+      .then((res) => {
+        if (!ctrl.signal.aborted) setData(res);
+      })
       .catch((e: unknown) => {
+        if (ctrl.signal.aborted) return;
         setError(isApiError(e) ? e.message : String(e));
       })
-      .finally(() => setLoading(false));
+      .finally(() => {
+        if (!ctrl.signal.aborted) setLoading(false);
+      });
+    return () => ctrl.abort();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [artifact.artifact_id, currentWorkspaceId]);
 

@@ -566,14 +566,14 @@ export const reviewsApi = {
 /* ──────────────────────── 9. runtime_audit ──────────────────────── */
 
 export const runtimeAuditApi = {
-  recent: (
-    workspace_id: string,
-    signal?: AbortSignal,
-  ): Promise<{ runs: RuntimeAuditTurn[] }> =>
-    apiRequest<{ runs: RuntimeAuditTurn[] }>(
-      { method: "GET", url: "/runs/recent", params: { workspace_id } },
-      signal,
-    ),
+    recent: (
+      workspace_id: string,
+      signal?: AbortSignal,
+    ): Promise<{ runs: RuntimeAuditTurn[] }> =>
+      apiRequest<{ runs: RuntimeAuditTurn[] }>(
+        { method: "GET", url: "/runs/recent", params: { workspace_id, session_status: "" } },
+        signal,
+      ),
   run: (
     run_id: string,
     signal?: AbortSignal,

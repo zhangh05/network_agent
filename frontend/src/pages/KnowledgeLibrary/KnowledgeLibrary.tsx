@@ -45,7 +45,7 @@ export function KnowledgeLibrary() {
       currentWorkspaceId && query.trim()
         ? knowledgeApi.search(query, currentWorkspaceId, undefined, s)
         : Promise.resolve(null),
-    [query, currentWorkspaceId],
+    [currentWorkspaceId],  // only auto-search on workspace change; manual trigger via Enter/button
   );
 
   const artifacts = useAsync<{ artifacts: { artifact_id: string; title?: string }[] }>(

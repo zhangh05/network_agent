@@ -49,6 +49,10 @@ The frontend is a React/Vite app under `frontend/`.
 - Initial workspace selection prefers `is_default`, then `workspace_id == "default"`, then the first backend item.
 - Header version uses `GET /api/version`.
 - Workbench runtime status uses `GET /api/runtime/summary`.
+- Sidebar: workspace rename/delete guards; recent runs filtered by active session only; session-title labels.
+- Content downloads (ArtifactCenter) use AbortController to prevent stale-response races.
+- Toast store uses functional setState for concurrent-toast safety.
+- Knowledge search fires on manual trigger only (Enter/button), not on keystroke.
 
 ## Current UI Notes
 

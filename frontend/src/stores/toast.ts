@@ -25,11 +25,12 @@ export const useToastStore = create<ToastState>((set, get) => ({
   show: (msg) => {
     toastSeq += 1;
     const id = `toast-${Date.now()}-${toastSeq}`;
-    set({ messages: [...get().messages, { ...msg, id }] });
+    // Use functional set to avoid races when multiple toasts fire in same batch
+    set((prev) => ({ messages: [...prev.messages, { ...msg, id }] }));
     setTimeout(() => {
-      set({ messages: get().messages.filter((m) => m.id !== id) });
+      set((prev) => ({ messages: prev.messages.filter((m) => m.id !== id) }));
     }, 6000);
   },
   dismiss: (id) =>
-    set({ messages: get().messages.filter((m) => m.id !== id) }),
+    set((prev) => ({ messages: prev.messages.filter((m) => m.id !== id) })),
 }));

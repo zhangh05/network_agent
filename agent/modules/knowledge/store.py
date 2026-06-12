@@ -158,10 +158,18 @@ def _sanitize_source_label(source: str) -> str:
 
 
 def _normalize_content(content: str) -> str:
-    """Cap content length; keep newlines."""
+    """Cap content length; keep newlines. Warns when truncation occurs."""
     if not isinstance(content, str):
         content = str(content or "")
-    return content[:MAX_CONTENT_LEN]
+    original_len = len(content)
+    if original_len > MAX_CONTENT_LEN:
+        import logging
+        logging.getLogger("knowledge.v2").warning(
+            "Content truncated from %d to %d chars (MAX_CONTENT_LEN=%d)",
+            original_len, MAX_CONTENT_LEN, MAX_CONTENT_LEN,
+        )
+        content = content[:MAX_CONTENT_LEN]
+    return content
 
 
 def _read_sources_raw(workspace_id: str) -> list:

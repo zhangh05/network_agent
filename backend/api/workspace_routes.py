@@ -64,12 +64,21 @@ def register_workspace_routes(app):
         if not new_id:
             return jsonify({"ok": False, "error": "new_workspace_id required"}), 400
         from workspace.manager import rename_workspace
-        return jsonify(rename_workspace(ws_id, new_id))
+        new_id_validated, err2 = _validated_ws_id(new_id)
+        if err2:
+            return err2
+        return jsonify(rename_workspace(ws_id, new_id_validated))
 
     # ── Runs ──
     @app.route("/api/runs/recent")
     def api_runs_recent():
-        """Recent runs for the default workspace — safe summaries, no full config."""
+        """Recent runs — safe summaries, no full config.
+
+        Query params:
+          workspace_id  (default: "default")
+          limit         (default: 10, max: 100)
+          session_status (default: "active", set to "" for all sessions)
+        """
         ws_id = request.args.get("workspace_id", "default")
         ws_id, err = _validated_ws_id(ws_id)
         if err:
@@ -80,27 +89,33 @@ def register_workspace_routes(app):
         from workspace.run_store import list_runs, run_sort_key
         from workspace.session_store import list_sessions
 
-        # Fetch more runs than needed to account for filtering (deleted sessions)
+        # Fetch more runs than needed to account for filtering
         raw_runs = list_runs(ws_id, limit=limit * 5)
         runs_sorted = sorted(raw_runs, key=run_sort_key, reverse=True) if raw_runs else []
 
-        # Filter: only show runs from active sessions (or runs without a session_id).
-        # Sidebar fetches sessions with status="active", so recent runs must match the
-        # same scope — otherwise runs from archived sessions appear without visible parents.
-        active_sessions = list_sessions(ws_id, status="active")
-        active_session_ids = {s["session_id"] for s in active_sessions if s.get("session_id")}
+        # session_status="" means no filter (all sessions for RuntimeAudit)
+        session_status = request.args.get("session_status", "active")
+        if session_status == "":
+            # No filtering — return runs from all sessions
+            recent = runs_sorted[:limit]
+            session_titles: dict = {}
+        else:
+            # Filter: only show runs from sessions with the given status
+            # (default "active" — matches sidebar which only shows active sessions)
+            active_sessions = list_sessions(ws_id, status=session_status)
+            active_session_ids = {s["session_id"] for s in active_sessions if s.get("session_id")}
 
-        recent = []
-        for r in runs_sorted:
-            sid = r.get("session_id", "")
-            # Include run if: it has no session_id (legacy), or belongs to an active session
-            if not sid or sid in active_session_ids:
-                recent.append(r)
-                if len(recent) >= limit:
-                    break
+            recent = []
+            for r in runs_sorted:
+                sid = r.get("session_id", "")
+                # Include run if: no session_id (legacy), or session matches filter
+                if not sid or sid in active_session_ids:
+                    recent.append(r)
+                    if len(recent) >= limit:
+                        break
 
-        # Build session_id → title lookup from already-fetched sessions
-        session_titles: dict = {s["session_id"]: s.get("title", "") for s in active_sessions}
+            # Build session_id → title lookup
+            session_titles = {s["session_id"]: s.get("title", "") for s in active_sessions}
 
         safe_recent = []
         # Whitelist of safe fields for public run history (never expose secrets, configs, or prompts)

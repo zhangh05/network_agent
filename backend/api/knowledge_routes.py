@@ -212,25 +212,26 @@ def register_knowledge_routes(app):
         title = (data.get("title") or "").strip()
         if not title:
             return jsonify({"ok": False, "error": "title required"}), 400
-        # Try v2 store first — directly update the JSONL source file
-        import json as _json, pathlib as _pl
-        from agent.modules.knowledge.store import _sources_path, _read_sources_raw, _write_sources_raw
+        # Try v2 store first — directly update the JSONL source file (with lock)
+        from agent.modules.knowledge.store import _read_sources_raw, _write_sources_raw, _get_lock
+        import time
         try:
-            sources = _read_sources_raw(ws_id)
-            found = False
-            for i, s in enumerate(sources):
-                sid = s.get("source_id", "")
-                if sid == source_id:
-                    sources[i]["title"] = title
-                    sources[i]["updated_at"] = __import__("time").strftime("%Y-%m-%dT%H:%M:%S")
-                    found = True
-                    break
-            if found:
-                _write_sources_raw(ws_id, sources)
-                # Build a response dict from the updated record
-                result_src = {k: v for k, v in sources[i].items() if k != "content"}
-                result_src["ok"] = True
-                return jsonify({"ok": True, "source": result_src})
+            with _get_lock(ws_id):
+                sources = _read_sources_raw(ws_id)
+                found = False
+                for i, s in enumerate(sources):
+                    sid = s.get("source_id", "")
+                    if sid == source_id:
+                        sources[i]["title"] = title
+                        sources[i]["updated_at"] = time.strftime("%Y-%m-%dT%H:%M:%S")
+                        found = True
+                        break
+                if found:
+                    _write_sources_raw(ws_id, sources)
+                    # Build a response dict from the updated record
+                    result_src = {k: v for k, v in sources[i].items() if k != "content"}
+                    result_src["ok"] = True
+                    return jsonify({"ok": True, "source": result_src})
         except Exception:
             pass
         # If not found in v2, try legacy store
@@ -261,12 +262,15 @@ def register_knowledge_routes(app):
             sid = s.source_id if hasattr(s, "source_id") else s.get("source_id", "")
             if sid == source_id:
                 sd = s.as_dict() if hasattr(s, "as_dict") else s
-                # Attach full text content if available
-                if hasattr(s, "chunk_ids") and s.chunk_ids:
-                    from agent.modules.knowledge.store import list_chunks
-                    chunks = list_chunks(ws_id, source_id=source_id, limit=50)
-                    if isinstance(chunks, list):
-                        sd["chunks"] = [_chunk_dict(c) for c in chunks]
+                # Attach chunks from V2 index (service.list_chunks wraps index.list_chunks)
+                try:
+                    from agent.modules.knowledge.service import list_chunks as v2_list_chunks
+                    result = v2_list_chunks(ws_id, source_id=source_id, limit=50)
+                    if result.get("ok") and result.get("chunks"):
+                        sd["chunks"] = [_chunk_dict(c) for c in result["chunks"]]
+                        sd["chunk_count"] = len(result["chunks"])
+                except Exception:
+                    pass
                 return jsonify({"ok": True, "source": sd})
         # Try legacy store
         try:
