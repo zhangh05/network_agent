@@ -51,8 +51,18 @@ def build_context_bundle(workspace_id: str, user_input: str = "",
         context_ref=ref,
         artifact_refs=[i.content for i in compressed if i.item_type == "artifact_summary"][:10],
         memory_hits=[i.content for i in compressed if i.item_type == "memory_hit"][:5],
+        knowledge_hits=[i.content for i in compressed if i.item_type == "knowledge_chunk"][:5],
         warnings=list(warnings),
     )
+    safe.citations = [
+        {
+            "citation_id": hit.get("citation_id", f"K{idx}"),
+            "source_id": hit.get("source_id", ""),
+            "chunk_id": hit.get("chunk_id", ""),
+            "title": hit.get("title", ""),
+        }
+        for idx, hit in enumerate(safe.knowledge_hits, start=1)
+    ]
 
     # Load workspace state for safe context
     try:

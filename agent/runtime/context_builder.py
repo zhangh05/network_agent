@@ -241,12 +241,16 @@ def _safe_context_from_bundle(bundle, ctx) -> dict:
             safe["artifact_refs"] = list(sc.artifact_refs)
         if hasattr(sc, "memory_hits") and sc.memory_hits:
             safe["memory_hits"] = list(sc.memory_hits)
+        if hasattr(sc, "knowledge_hits") and sc.knowledge_hits:
+            safe["knowledge_hits"] = list(sc.knowledge_hits)
+        if hasattr(sc, "citations") and sc.citations:
+            safe["citations"] = list(sc.citations)
         if hasattr(sc, "warnings") and sc.warnings:
             safe["context_warnings"] = list(sc.warnings)
     if hasattr(bundle, "workspace_state") and bundle.workspace_state:
         safe["workspace_state"] = dict(bundle.workspace_state)
-    if hasattr(bundle, "exec_context") and bundle.exec_context:
-        ec = bundle.exec_context
+    ec = getattr(bundle, "execution_context", None) or getattr(bundle, "exec_context", None)
+    if ec:
         safe["capability_id"] = getattr(ec, "capability_id", "") or ""
         safe["source_config_artifact_id"] = getattr(ec, "source_config_artifact_id", "") or ""
     return safe

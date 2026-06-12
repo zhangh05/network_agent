@@ -9,7 +9,8 @@ def load_context_items(workspace_id: str, context_ref=None, intent: str = "",
                        user_input: str = "",
                        include_memory=True, include_workspace=True,
                        include_artifacts=True, include_jobs=True,
-                       include_reports=True, include_trace=True) -> list:
+                       include_reports=True, include_trace=True,
+                       include_knowledge=True) -> list:
     items = []
     w = []  # warnings
 
@@ -64,7 +65,42 @@ def load_context_items(workspace_id: str, context_ref=None, intent: str = "",
         except Exception:
             pass
 
-    # 5. Artifact refs (P4 or P2 if explicit)
+    # 5. Knowledge chunks (P2): retrieved document excerpts for RAG.
+    if include_knowledge and (user_input or "").strip():
+        try:
+            from agent.modules.knowledge.service import query_knowledge
+            rag = query_knowledge(
+                query=user_input,
+                workspace_id=workspace_id,
+                top_k=5,
+            )
+            hits = rag.get("hits") or rag.get("source_summary") or []
+            for idx, h in enumerate(hits[:5], start=1):
+                excerpt = h.get("snippet") or h.get("safe_excerpt") or h.get("summary") or ""
+                content = {
+                    "citation_id": f"K{idx}",
+                    "chunk_id": h.get("chunk_id", ""),
+                    "source_id": h.get("source_id", ""),
+                    "title": h.get("title", ""),
+                    "safe_excerpt": str(excerpt)[:900],
+                    "summary": h.get("summary", ""),
+                    "score": h.get("score", 0),
+                    "chapter": h.get("chapter", ""),
+                    "section": h.get("section", ""),
+                    "source_type": (h.get("metadata") or {}).get("source_type", ""),
+                }
+                items.append(ContextItem(
+                    item_type="knowledge_chunk", source="knowledge", priority=15,
+                    title=content["title"], summary=content["safe_excerpt"][:200],
+                    content=content, sensitivity="internal", scope="workspace",
+                    source_id=content["chunk_id"] or content["source_id"],
+                    citation_id=content["citation_id"],
+                    token_estimate=len(str(content)) // 4,
+                ))
+        except Exception:
+            pass
+
+    # 6. Artifact refs (P4 or P2 if explicit)
     if include_artifacts:
         try:
             from artifacts.store import list_artifacts
@@ -83,7 +119,7 @@ def load_context_items(workspace_id: str, context_ref=None, intent: str = "",
         except Exception:
             pass
 
-    # 6. Job summary (P4 or P2)
+    # 7. Job summary (P4 or P2)
     if include_jobs:
         try:
             from jobs.store import list_jobs
@@ -102,7 +138,7 @@ def load_context_items(workspace_id: str, context_ref=None, intent: str = "",
         except Exception:
             pass
 
-    # 7. Report summary (P4)
+    # 8. Report summary (P4)
     if include_reports:
         try:
             from artifacts.store import list_artifacts

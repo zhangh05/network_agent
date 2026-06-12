@@ -11,7 +11,7 @@ import { useSessionStore } from "../../stores/session";
 import { useToastStore } from "../../stores/toast";
 import { isApiError } from "../../types";
 import type { KnowledgeSource } from "../../types";
-import { IconBook, IconRefresh, IconSearch } from "../../components/Icon";
+import { IconBook, IconPlus, IconRefresh, IconSearch } from "../../components/Icon";
 import { shortId } from "../../utils/displayText";
 
 export function KnowledgeLibrary() {
@@ -21,6 +21,10 @@ export function KnowledgeLibrary() {
   const [scope, setScope] = useState<"workspace" | "global" | "session">("workspace");
   const [importArtifactId, setImportArtifactId] = useState("");
   const [importing, setImporting] = useState(false);
+  const [uploadFile, setUploadFile] = useState<File | null>(null);
+  const [uploadTitle, setUploadTitle] = useState("");
+  const [uploadTags, setUploadTags] = useState("");
+  const [uploading, setUploading] = useState(false);
 
   const sources = useAsync<{ sources: KnowledgeSource[]; counts?: Record<string, number> }>(
     (s) =>
@@ -91,6 +95,38 @@ export function KnowledgeLibrary() {
     }
   }
 
+  async function onUpload() {
+    if (!currentWorkspaceId || !uploadFile) return;
+    setUploading(true);
+    try {
+      const res = await knowledgeApi.upload(currentWorkspaceId, uploadFile, {
+        title: uploadTitle.trim() || uploadFile.name,
+        tags: uploadTags.trim(),
+        scope,
+        source_type: "project_doc",
+        language: "zh",
+      });
+      toast({
+        kind: "success",
+        title: "已上传并整理",
+        body: `${res.source?.title || uploadFile.name} · ${res.source?.chunk_count ?? 0} 个片段`,
+      });
+      setUploadFile(null);
+      setUploadTitle("");
+      setUploadTags("");
+      sources.reload();
+    } catch (e: unknown) {
+      toast({
+        kind: "error",
+        title: "上传失败",
+        body: isApiError(e) ? e.message : String(e),
+        request_id: isApiError(e) ? e.request_id : undefined,
+      });
+    } finally {
+      setUploading(false);
+    }
+  }
+
   return (
     <div className="page" data-testid="page-knowledge">
       <div className="page-header">
@@ -139,6 +175,60 @@ export function KnowledgeLibrary() {
               </span>
             ))}
           </div>
+        </div>
+
+        <div className="card" data-testid="knowledge-upload-card">
+          <div className="card-title">
+            <IconPlus size={12} />
+            上传文档
+          </div>
+          <div className="text-xs muted mb-3">
+            支持 Markdown、文本、HTML、DOCX、PDF。上传后会自动整理为可检索知识源。
+          </div>
+          <div className="row-flex mb-2" style={{ gap: 8, alignItems: "stretch" }}>
+            <input
+              className="input"
+              type="file"
+              accept=".md,.markdown,.txt,.html,.htm,.docx,.pdf"
+              data-testid="knowledge-upload-file"
+              onChange={(e) => {
+                const file = e.currentTarget.files?.[0] ?? null;
+                setUploadFile(file);
+                if (file && !uploadTitle.trim()) setUploadTitle(file.name.replace(/\.[^.]+$/, ""));
+              }}
+              style={{ flex: 1 }}
+            />
+            <button
+              className="btn primary"
+              type="button"
+              data-testid="btn-knowledge-upload"
+              disabled={!uploadFile || uploading}
+              onClick={() => void onUpload()}
+            >
+              <IconPlus size={12} /> {uploading ? "上传中…" : "上传"}
+            </button>
+          </div>
+          <div className="row-flex" style={{ gap: 8 }}>
+            <input
+              className="input"
+              placeholder="文档名（可选）"
+              value={uploadTitle}
+              onChange={(e) => setUploadTitle(e.target.value)}
+              style={{ flex: 1 }}
+            />
+            <input
+              className="input"
+              placeholder="标签，用逗号分隔（可选）"
+              value={uploadTags}
+              onChange={(e) => setUploadTags(e.target.value)}
+              style={{ flex: 1 }}
+            />
+          </div>
+          {uploadFile && (
+            <div className="text-xs muted mt-2">
+              已选择: <strong>{uploadFile.name}</strong>
+            </div>
+          )}
         </div>
 
         <div className="card" data-testid="knowledge-import-card">

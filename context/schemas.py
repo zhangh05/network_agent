@@ -131,6 +131,7 @@ class SafeLLMContext:
     artifact_refs: list = field(default_factory=list)
     report_refs: list = field(default_factory=list)
     memory_hits: list = field(default_factory=list)
+    knowledge_hits: list = field(default_factory=list)
     verification_summary: dict = field(default_factory=dict)
     manual_review_summary: list = field(default_factory=list)
     audit_summary: dict = field(default_factory=dict)

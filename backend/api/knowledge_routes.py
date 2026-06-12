@@ -19,6 +19,79 @@ def _validated_ws_id(raw="default"):
 def register_knowledge_routes(app):
     """Register all knowledge API routes on the Flask app."""
 
+    @app.route("/api/knowledge/upload", methods=["POST"])
+    def api_knowledge_upload():
+        ws_id = request.form.get("workspace_id", "default")
+        ws_id, err = _validated_ws_id(ws_id)
+        if err:
+            return err
+        if "file" not in request.files:
+            return jsonify({"ok": False, "error": "no file provided"}), 400
+        uploaded = request.files["file"]
+        if not uploaded.filename:
+            return jsonify({"ok": False, "error": "empty filename"}), 400
+
+        import re
+        from agent.modules.knowledge.ingestion import _ws_root
+        safe_name = re.sub(r"[^a-zA-Z0-9_.-]", "_", uploaded.filename)[:120] or "upload.txt"
+        upload_dir = _ws_root() / ws_id / "uploads"
+        upload_dir.mkdir(parents=True, exist_ok=True)
+        target = upload_dir / safe_name
+        uploaded.save(str(target))
+
+        try:
+            tags = [
+                t.strip()
+                for t in (request.form.get("tags", "") or "").split(",")
+                if t.strip()
+            ]
+            from agent.modules.knowledge.service import import_file
+            result = import_file(
+                workspace_id=ws_id,
+                source=str(target),
+                title=request.form.get("title", "") or uploaded.filename,
+                source_type=request.form.get("source_type", "project_doc") or "project_doc",
+                scope=request.form.get("scope", "workspace") or "workspace",
+                language=request.form.get("language", "zh") or "zh",
+                tags=tags,
+                metadata={"uploaded_filename": uploaded.filename},
+            )
+        finally:
+            try:
+                target.unlink()
+            except Exception:
+                pass
+
+        if not result.get("ok"):
+            return jsonify({
+                "ok": False,
+                "error": (result.get("errors") or ["import_failed"])[0],
+                "summary": result.get("summary", "知识库导入失败"),
+                "errors": result.get("errors", []),
+                "warnings": result.get("warnings", []),
+            }), 400
+
+        source = {
+            "source_id": result.get("source_id", ""),
+            "workspace_id": ws_id,
+            "title": result.get("title", "") or request.form.get("title", "") or uploaded.filename,
+            "source_type": result.get("source_type", request.form.get("source_type", "project_doc")),
+            "scope": result.get("scope", request.form.get("scope", "workspace")),
+            "language": result.get("language", request.form.get("language", "zh")),
+            "format": result.get("format", ""),
+            "chunk_count": result.get("chunk_count", 0),
+            "parent_count": result.get("parent_count", 0),
+            "status": "indexed",
+            "enabled": True,
+            "tags": tags,
+            "warnings": result.get("warnings", []),
+        }
+        return jsonify({
+            "ok": True,
+            "summary": result.get("summary", ""),
+            "source": source,
+        })
+
     # ── Source Management ──
     @app.route("/api/knowledge/sources")
     def api_knowledge_sources():
@@ -29,6 +102,7 @@ def register_knowledge_routes(app):
         from knowledge.store import list_sources
         status = request.args.get("status")
         sources = list_sources(ws_id, status=status)
+        sources.extend(_module_sources(ws_id, status=status))
         # Filter out sources whose artifacts have been deleted
         sources = _filter_deleted_artifact_sources(ws_id, sources)
         # Recalculate counts after filtering
@@ -108,10 +182,23 @@ def register_knowledge_routes(app):
             artifact_id=artifact_id,
             limit=limit,
         )
+        module_results = _module_search_results(
+            workspace_id=ws_id,
+            query=query,
+            source_id=source_id,
+            limit=limit,
+        )
+        merged = [r.as_dict() for r in results]
+        seen = {r.get("chunk_id") for r in merged}
+        for r in module_results:
+            if r.get("chunk_id") not in seen:
+                merged.append(r)
+                seen.add(r.get("chunk_id"))
+        merged = merged[:limit]
         return jsonify({
             "ok": True,
-            "results": [r.as_dict() for r in results],
-            "count": len(results),
+            "results": merged,
+            "count": len(merged),
             "query": query,
             "note": "搜索结果为安全摘录，不是完整文件内容。不包含配置详情、密钥或绝对路径。",
         })
@@ -125,6 +212,13 @@ def register_knowledge_routes(app):
             return err
         from knowledge.store import get_chunk
         chunk = get_chunk(ws_id, chunk_id)
+        if not chunk:
+            try:
+                from agent.modules.knowledge.index import get_chunk as get_module_chunk
+                module_chunk = get_module_chunk(ws_id, chunk_id)
+                chunk = _module_chunk_to_safe_dict(module_chunk.to_dict()) if module_chunk else None
+            except Exception:
+                chunk = None
         if not chunk:
             return jsonify({"ok": False, "error": "chunk_not_found"}), 404
         # Only return safe fields
@@ -162,3 +256,153 @@ def _filter_deleted_artifact_sources(workspace_id: str, sources: list) -> list:
             continue
         filtered.append(s)
     return filtered
+
+
+def _module_sources(workspace_id: str, status: str = None) -> list:
+    """Return sources from the v1.0.1 document knowledge store.
+
+    This keeps the public API compatible while direct file uploads use the
+    richer parser/chunker pipeline under agent.modules.knowledge.
+    """
+    try:
+        from agent.modules.knowledge.service import list_sources, list_chunks
+        src_result = list_sources(workspace_id)
+        chunks_result = list_chunks(workspace_id, limit=500)
+    except Exception:
+        return []
+    chunks = chunks_result.get("chunks", []) if isinstance(chunks_result, dict) else []
+    child_counts = {}
+    for c in chunks:
+        if c.get("chunk_type") == "parent":
+            continue
+        sid = c.get("source_id", "")
+        child_counts[sid] = child_counts.get(sid, 0) + 1
+
+    out = []
+    for s in src_result.get("sources", []):
+        source_status = "indexed" if s.get("enabled", True) and not s.get("deleted", False) else "disabled"
+        if status and source_status != status:
+            continue
+        meta = s.get("metadata", {}) or {}
+        out.append({
+            "source_id": s.get("source_id", ""),
+            "workspace_id": workspace_id,
+            "title": s.get("title", ""),
+            "source_type": meta.get("source_type", s.get("source", "")),
+            "status": source_status,
+            "enabled": bool(s.get("enabled", True)),
+            "chunk_count": child_counts.get(s.get("source_id", ""), 0),
+            "language": meta.get("language", ""),
+            "tags": list(meta.get("tags") or []),
+            "created_at": s.get("created_at", ""),
+            "updated_at": s.get("updated_at", ""),
+            "metadata": {
+                "format": meta.get("format", ""),
+                "scope": meta.get("scope", "workspace"),
+            },
+        })
+    return out
+
+
+def _module_search_results(workspace_id: str, query: str, source_id: str = "", limit: int = 20) -> list:
+    try:
+        from agent.modules.knowledge.service import search_chunks
+        result = search_chunks(
+            workspace_id=workspace_id,
+            query=query,
+            top_k=limit,
+            source_id=source_id or "",
+        )
+    except Exception:
+        return []
+    hits = result.get("hits", []) if isinstance(result, dict) else []
+    if not hits and query:
+        hits = _module_title_search(workspace_id, query, source_id=source_id, limit=limit)
+    out = []
+    for h in hits:
+        snippet = h.get("snippet", "")
+        out.append({
+            "chunk_id": h.get("chunk_id", ""),
+            "source_id": h.get("source_id", ""),
+            "artifact_id": "",
+            "title": h.get("title", ""),
+            "artifact_name": h.get("title", ""),
+            "summary": h.get("chapter", "") or h.get("section", ""),
+            "safe_excerpt": snippet,
+            "artifact_type": "",
+            "sensitivity": "internal",
+            "tags": list((h.get("metadata") or {}).get("tags") or []),
+            "score": round(float(h.get("score", 0) or 0), 3),
+            "source_ref": f"knowledge:{h.get('source_id', '')}",
+            "llm_safe": True,
+        })
+    return out
+
+
+def _module_title_search(workspace_id: str, query: str, source_id: str = "", limit: int = 20) -> list:
+    """Fallback for document-title/chapter searches.
+
+    The module retriever intentionally filters title-only hits when the body
+    has no supporting match. Public library search should still find a
+    document by title, so this fallback returns safe excerpts from matching
+    chunks without exposing full file paths or raw metadata.
+    """
+    try:
+        from agent.modules.knowledge.index import load_all_chunks
+        chunks = load_all_chunks(workspace_id)
+    except Exception:
+        return []
+    q = str(query or "").lower().strip()
+    if not q:
+        return []
+    out = []
+    for c in chunks:
+        if source_id and c.source_id != source_id:
+            continue
+        if c.chunk_type == "parent":
+            continue
+        meta = c.metadata or {}
+        haystack = " ".join([
+            str(meta.get("source_title", "")),
+            str(c.chapter or ""),
+            str(c.section or ""),
+            str(c.subsection or ""),
+            str(c.index_text or ""),
+        ]).lower()
+        if q not in haystack:
+            continue
+        out.append({
+            "chunk_id": c.chunk_id,
+            "source_id": c.source_id,
+            "parent_chunk_id": c.parent_chunk_id,
+            "title": meta.get("source_title", "") or c.chapter,
+            "chapter": c.chapter,
+            "section": c.section,
+            "snippet": (c.content or c.chapter or meta.get("source_title", ""))[:200],
+            "score": 0.5,
+            "metadata": {
+                "source_type": meta.get("source_type", ""),
+                "tags": list(meta.get("tags") or []),
+            },
+        })
+        if len(out) >= limit:
+            break
+    return out
+
+
+def _module_chunk_to_safe_dict(chunk: dict) -> dict:
+    meta = chunk.get("metadata", {}) or {}
+    return {
+        "chunk_id": chunk.get("chunk_id"),
+        "source_id": chunk.get("source_id"),
+        "artifact_id": "",
+        "title": meta.get("source_title", ""),
+        "summary": chunk.get("chapter", "") or chunk.get("section", ""),
+        "safe_excerpt": chunk.get("content", "")[:900],
+        "sensitivity": "internal",
+        "artifact_type": "",
+        "tags": list(meta.get("tags") or []),
+        "chunk_index": chunk.get("chunk_index"),
+        "llm_safe": True,
+        "created_at": chunk.get("created_at"),
+    }

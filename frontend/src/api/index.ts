@@ -278,6 +278,30 @@ export const knowledgeApi = {
       signal,
       TIMEOUTS.knowledgeImport,
     ),
+  upload: (
+    workspace_id: string,
+    file: File,
+    opts?: { title?: string; tags?: string; source_type?: string; scope?: string; language?: string },
+    signal?: AbortSignal,
+  ): Promise<{ ok: boolean; source: KnowledgeSource; summary?: string }> => {
+    const form = new FormData();
+    form.append("workspace_id", workspace_id);
+    form.append("file", file);
+    if (opts?.title) form.append("title", opts.title);
+    if (opts?.tags) form.append("tags", opts.tags);
+    if (opts?.source_type) form.append("source_type", opts.source_type);
+    if (opts?.scope) form.append("scope", opts.scope);
+    if (opts?.language) form.append("language", opts.language);
+    return apiRequest<{ ok: boolean; source: KnowledgeSource; summary?: string }>(
+      {
+        method: "POST",
+        url: "/knowledge/upload",
+        data: form,
+      },
+      signal,
+      TIMEOUTS.knowledgeImport,
+    );
+  },
   reindex: (
     source_id: string,
     workspace_id: string,

@@ -405,11 +405,21 @@ class TestToolCountV10:
         from agent.runtime.services import default_runtime_services
         svc = default_runtime_services()
         tr = svc.tool_service
-        total = len(tr.registry.list_all())
+        tools = {t.tool_id for t in tr.registry.list_all()}
         # v1.0.1 adds 6 new knowledge tool_ids (import_file / list_chunks
         # / search_chunks / read_chunk / read_parent / reindex_source).
-        # v1.0 was 67; v1.0.1 = 73.
-        assert total == 73
+        # Later capabilities may add more tools, so assert the minimum
+        # catalog size and the required knowledge tool set instead of an
+        # exact total.
+        assert len(tools) >= 73
+        assert {
+            "knowledge.import_file",
+            "knowledge.list_chunks",
+            "knowledge.search_chunks",
+            "knowledge.read_chunk",
+            "knowledge.read_parent",
+            "knowledge.reindex_source",
+        }.issubset(tools)
 
 
 # ── Extra: query scoring is deterministic + 0.0 for non-matches ──

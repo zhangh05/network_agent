@@ -372,34 +372,33 @@ class TestKnowledgeAPI:
 
 class TestKnowledgeUI:
     def test_frontend_has_knowledge_search(self):
-        html = (PROJECT_ROOT / "frontend" / "index.html").read_text()
-        assert 'kn-search' in html
+        page = (PROJECT_ROOT / "frontend" / "src" / "pages" / "KnowledgeLibrary" / "KnowledgeLibrary.tsx").read_text()
+        assert 'data-testid="knowledge-search-input"' in page
 
     def test_frontend_has_add_to_knowledge(self):
-        html = (PROJECT_ROOT / "frontend" / "index.html").read_text()
-        assert 'addToKnowledge' in html
+        page = (PROJECT_ROOT / "frontend" / "src" / "pages" / "KnowledgeLibrary" / "KnowledgeLibrary.tsx").read_text()
+        api = (PROJECT_ROOT / "frontend" / "src" / "api" / "index.ts").read_text()
+        assert 'data-testid="knowledge-upload-card"' in page
+        assert "importFromArtifact" in api
 
     def test_frontend_has_reindex(self):
-        html = (PROJECT_ROOT / "frontend" / "index.html").read_text()
-        assert 'reindexArtifact' in html
+        page = (PROJECT_ROOT / "frontend" / "src" / "pages" / "KnowledgeLibrary" / "KnowledgeLibrary.tsx").read_text()
+        assert "onReindex" in page
 
     def test_frontend_has_index_status(self):
-        html = (PROJECT_ROOT / "frontend" / "index.html").read_text()
-        assert '_ksIdx' in html
+        page = (PROJECT_ROOT / "frontend" / "src" / "pages" / "KnowledgeLibrary" / "KnowledgeLibrary.tsx").read_text()
+        assert "isSearchableSource" in page
+        assert "可检索" in page
 
     def test_frontend_knowledge_search_shows_safety_note(self):
-        html = (PROJECT_ROOT / "frontend" / "index.html").read_text()
-        assert '安全摘录' in html
+        page = (PROJECT_ROOT / "frontend" / "src" / "pages" / "KnowledgeLibrary" / "KnowledgeLibrary.tsx").read_text()
+        assert '安全摘录' in page
 
     def test_frontend_no_full_config_in_search(self):
-        html = (PROJECT_ROOT / "frontend" / "index.html").read_text()
-        # searchKnowledge() should not embed full config
-        fn = re.search(r'function searchKnowledge.*?(?=function \w)', html, re.DOTALL)
-        if fn:
-            fn_text = fn.group()
-            assert 'source_config' not in fn_text
-            assert 'deployable_config' not in fn_text
-            assert 'full_content' not in fn_text
+        page = (PROJECT_ROOT / "frontend" / "src" / "pages" / "KnowledgeLibrary" / "KnowledgeLibrary.tsx").read_text()
+        assert 'source_config' not in page
+        assert 'deployable_config' not in page
+        assert 'full_content' not in page
 
 
 # ═══════════════════ Safety / Prohibited Checks ═══════════════════

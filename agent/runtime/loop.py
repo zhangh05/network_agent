@@ -658,7 +658,7 @@ def _safe_context_prompt_text(safe_context: dict | None) -> str:
         if key in safe_context and safe_context[key] not in (None, "", [], {}):
             projected[key] = _safe_prompt_value(safe_context[key])
 
-    for key in ("artifact_refs", "memory_hits", "context_warnings", "citations"):
+    for key in ("artifact_refs", "memory_hits", "knowledge_hits", "context_warnings", "citations"):
         value = safe_context.get(key)
         if value:
             projected[key] = _safe_prompt_value(value, max_items=5)
@@ -693,7 +693,7 @@ def _safe_prompt_value(value, max_items: int = 8, max_text: int = 600):
                 break
         return result
     if isinstance(value, (list, tuple)):
-        return [_safe_prompt_value(item, max_items=3, max_text=240) for item in list(value)[:max_items]]
+        return [_safe_prompt_value(item, max_items=8, max_text=240) for item in list(value)[:max_items]]
     if isinstance(value, (str, int, float, bool)):
         text = str(value)
         return text[:max_text] + ("...[truncated]" if len(text) > max_text else "")
