@@ -113,8 +113,8 @@ export function AgentWorkbench() {
     return () => ctrl.abort();
   }, [currentSessionId, currentWorkspaceId, switchSession, mergeFromBackend]);
 
-  async function onSend() {
-    const text = input.trim();
+  async function onSend(textOverride?: string) {
+    const text = (textOverride ?? input).trim();
     if (!text || sending) return;
     if (!currentWorkspaceId) {
       toast({ kind: "warning", title: "未选择工作区", body: "请在左侧选择一个工作区" });
@@ -305,10 +305,10 @@ export function AgentWorkbench() {
               <span className="text-sm" style={{ color: "var(--danger)" }}>上次回复失败</span>
               <button
                 className="btn btn-sm btn-outline"
-                onClick={() => { setInput(lastUserInput); }}
+                onClick={() => { setInput(lastUserInput); void onSend(lastUserInput); }}
                 data-testid="retry-btn"
               >
-                一键重试
+                自动重试
               </button>
             </div>
           )}

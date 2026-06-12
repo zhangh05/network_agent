@@ -202,7 +202,7 @@ def resolve_effective_llm_config() -> dict:
         "key_loaded": bool(env_key) or is_key_loaded(),
         "key_source": get_key_source() or "none",
         "default_provider": cfg.get("default_provider", "disabled"),
-        "timeout": cfg.get("timeout_seconds", 30),
+        "timeout": cfg.get("timeout_seconds", 90),
     }
 
     # Merge provider-specific config
@@ -302,7 +302,7 @@ def _build_ui_config(ui: dict, source: str) -> dict:
         "key_source": key_source,
         "key_fallback_used": key_fallback_used,
         "default_provider": provider,
-        "timeout": 30,
+        "timeout": 90,
         "source": source,
     }
     return result

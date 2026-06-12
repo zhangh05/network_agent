@@ -215,7 +215,7 @@ def _atomic_write_json(path, data: dict) -> None:
 def _default_config() -> dict:
     return {
         "enabled": False, "default_provider": "disabled", "safe_mode": True,
-        "timeout_seconds": 30, "providers": {},
+        "timeout_seconds": 90, "providers": {},
     }
 
 
