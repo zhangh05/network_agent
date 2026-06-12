@@ -350,6 +350,29 @@ export const knowledgeApi = {
     ),
 };
 
+/* ──────────────────────── 6b. memory ──────────────────────── */
+
+export const memoryApi = {
+  confirm: (
+    data: {
+      title: string;
+      content: string;
+      memory_type?: "decision" | "translation_rule" | "user_preference" | string;
+      tags?: string[];
+      project_id?: string;
+    },
+    signal?: AbortSignal,
+  ): Promise<{ ok: boolean; memory_id: string; redaction_applied?: boolean }> =>
+    apiRequest<{ ok: boolean; memory_id: string; redaction_applied?: boolean }>(
+      {
+        method: "POST",
+        url: "/memory/confirm",
+        data,
+      },
+      signal,
+    ),
+};
+
 /* ──────────────────────── 7. artifacts ──────────────────────── */
 
 export const artifactsApi = {

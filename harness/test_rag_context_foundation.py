@@ -203,6 +203,55 @@ def test_context_loader_uses_rag_memory_projection(tmp_path, monkeypatch):
     assert "不采用 ECMP" in str(memory_rag[0].content)
 
 
+def test_unified_retrieval_returns_document_and_memory_sources(tmp_path, monkeypatch):
+    _seed_knowledge(tmp_path, monkeypatch)
+    _isolated_memory_store(tmp_path, monkeypatch)
+
+    from memory.writer import write_user_preference
+    from context.retrieval import retrieve_context_evidence
+
+    memory_id = write_user_preference(
+        title="回答风格偏好",
+        content="用户偏好：回答 OSPF 排查问题时先给最短命令顺序。",
+        tags=["ospf", "style"],
+        project_id="rag_ws",
+    )
+    assert memory_id
+
+    result = retrieve_context_evidence("rag_ws", "OSPF FULL 变 INIT 怎么排查")
+    evidence_types = {s["evidence_type"] for s in result["sources"]}
+
+    assert result["ok"] is True
+    assert "knowledge" in evidence_types
+    assert "memory" in evidence_types
+    assert result["diagnostics"]["query_variants"]
+
+
+def test_context_bundle_exposes_context_sources_for_ui(tmp_path, monkeypatch):
+    _seed_knowledge(tmp_path, monkeypatch)
+    _isolated_memory_store(tmp_path, monkeypatch)
+
+    from memory.writer import write_user_preference
+    from context.builder import build_context_bundle
+    from agent.runtime.loop import _enrich_metadata
+
+    write_user_preference(
+        title="OSPF 输出偏好",
+        content="用户偏好：OSPF 故障回答要先列检查命令。",
+        tags=["ospf"],
+        project_id="rag_ws",
+    )
+
+    bundle = build_context_bundle("rag_ws", user_input="OSPF FULL 变 INIT")
+    safe = bundle.safe_llm_context
+    metadata = _enrich_metadata({}, type("Ctx", (), {"metadata": {}, "safe_context": safe.as_dict()})())
+
+    assert safe.context_sources
+    assert metadata["context_sources"]
+    assert metadata["source_summary"]
+    assert metadata["source_count"] == len(metadata["context_sources"])
+
+
 def test_memory_delete_removes_rag_projection(tmp_path, monkeypatch):
     _patch_ws_roots(tmp_path, monkeypatch)
     _isolated_memory_store(tmp_path, monkeypatch)

@@ -80,6 +80,9 @@ export interface AgentResult {
     retrieval_backend?: string;
     scope?: string;
     workspace_id?: string;
+    context_sources?: SourceSummary[];
+    citations?: Array<Record<string, unknown>>;
+    retrieval_diagnostics?: Record<string, unknown>;
     [k: string]: unknown;
   };
 }
@@ -153,6 +156,10 @@ export interface KnowledgeSearchResult {
 
 export interface SourceSummary {
   source_id: string;
+  chunk_id?: string;
+  citation_id?: string;
+  source_type?: string;
+  evidence_type?: "knowledge" | "memory" | string;
   title: string;
   chapter?: string;
   section?: string;

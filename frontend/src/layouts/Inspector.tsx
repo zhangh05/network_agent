@@ -170,6 +170,19 @@ function InspectorBody({ result }: { result: AgentResult }) {
               <span className="label">scope</span>
               <span className="value">{String(result.metadata?.scope ?? "—")}</span>
             </div>
+            <div className="col-flex mt-2" style={{ gap: 6 }}>
+              {((result.metadata?.context_sources as any[]) ?? []).slice(0, 8).map((s, idx) => (
+                <div className="card" key={`${s.chunk_id || s.source_id || idx}`} style={{ padding: 8, marginBottom: 0 }}>
+                  <div className="row-flex" style={{ justifyContent: "space-between", gap: 8 }}>
+                    <strong className="text-sm">{s.citation_id || `S${idx + 1}`} · {s.title || s.source_id}</strong>
+                    <Badge kind={s.evidence_type === "memory" ? "accent" : "muted"}>
+                      {s.evidence_type === "memory" ? "记忆" : "知识"}
+                    </Badge>
+                  </div>
+                  {s.snippet && <div className="text-xs muted mt-1">{s.snippet}</div>}
+                </div>
+              ))}
+            </div>
           </div>
         ) : (
           <div className="text-sm muted">本 turn 未命中 knowledge</div>

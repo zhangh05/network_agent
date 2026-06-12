@@ -245,6 +245,10 @@ def _safe_context_from_bundle(bundle, ctx) -> dict:
             safe["knowledge_hits"] = list(sc.knowledge_hits)
         if hasattr(sc, "citations") and sc.citations:
             safe["citations"] = list(sc.citations)
+        if hasattr(sc, "context_sources") and sc.context_sources:
+            safe["context_sources"] = list(sc.context_sources)
+        if hasattr(sc, "retrieval_diagnostics") and sc.retrieval_diagnostics:
+            safe["retrieval_diagnostics"] = dict(sc.retrieval_diagnostics)
         if hasattr(sc, "warnings") and sc.warnings:
             safe["context_warnings"] = list(sc.warnings)
     if hasattr(bundle, "workspace_state") and bundle.workspace_state:

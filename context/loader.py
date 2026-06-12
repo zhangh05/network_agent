@@ -65,20 +65,27 @@ def load_context_items(workspace_id: str, context_ref=None, intent: str = "",
         except Exception:
             pass
 
-    # 5. Knowledge chunks (P2): retrieved document excerpts for RAG.
+    # 5. Knowledge chunks (P2): retrieved document and memory excerpts for RAG.
     if include_knowledge and (user_input or "").strip():
         try:
-            from agent.modules.knowledge.service import query_knowledge
-            rag = query_knowledge(
-                query=user_input,
+            from context.retrieval import retrieve_context_evidence
+            rag = retrieve_context_evidence(
                 workspace_id=workspace_id,
-                top_k=5,
+                query=user_input,
+                doc_top_k=5,
+                memory_top_k=3,
             )
-            hits = rag.get("hits") or rag.get("source_summary") or []
-            for idx, h in enumerate(hits[:5], start=1):
-                excerpt = h.get("snippet") or h.get("safe_excerpt") or h.get("summary") or ""
+            sources = rag.get("sources") or []
+            citation_by_chunk = {
+                s.get("chunk_id", ""): s.get("citation_id", "")
+                for s in sources
+                if s.get("chunk_id")
+            }
+            for idx, h in enumerate((rag.get("hits") or [])[:8], start=1):
+                excerpt = h.get("safe_excerpt") or h.get("snippet") or h.get("summary") or ""
+                evidence_type = h.get("evidence_type", "knowledge")
                 content = {
-                    "citation_id": f"K{idx}",
+                    "citation_id": citation_by_chunk.get(h.get("chunk_id", ""), f"K{idx}"),
                     "chunk_id": h.get("chunk_id", ""),
                     "source_id": h.get("source_id", ""),
                     "title": h.get("title", ""),
@@ -87,15 +94,29 @@ def load_context_items(workspace_id: str, context_ref=None, intent: str = "",
                     "score": h.get("score", 0),
                     "chapter": h.get("chapter", ""),
                     "section": h.get("section", ""),
-                    "source_type": (h.get("metadata") or {}).get("source_type", ""),
+                    "source_type": h.get("source_type", ""),
+                    "evidence_type": evidence_type,
+                    "memory_id": h.get("memory_id", ""),
                 }
                 items.append(ContextItem(
                     item_type="knowledge_chunk", source="knowledge", priority=15,
                     title=content["title"], summary=content["safe_excerpt"][:200],
-                    content=content, sensitivity="internal", scope="workspace",
+                    content=content, sensitivity="internal", scope=evidence_type,
                     source_id=content["chunk_id"] or content["source_id"],
                     citation_id=content["citation_id"],
                     token_estimate=len(str(content)) // 4,
+                ))
+            if sources:
+                items.append(ContextItem(
+                    item_type="retrieval_diagnostics", source="knowledge", priority=18,
+                    title="Context retrieval diagnostics",
+                    summary=f"{len(sources)} source reference(s)",
+                    content={
+                        "context_sources": sources,
+                        "retrieval_diagnostics": rag.get("diagnostics", {}),
+                    },
+                    sensitivity="internal", scope="workspace",
+                    token_estimate=len(str(sources)) // 4,
                 ))
         except Exception:
             pass

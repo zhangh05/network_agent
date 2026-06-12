@@ -188,6 +188,29 @@ def _enrich_metadata(metadata: dict, context) -> dict:
         for k in ("selected_skills", "visible_tools"):
             if k in context.metadata and k not in metadata:
                 metadata[k] = context.metadata[k]
+    safe_context = getattr(context, "safe_context", None) or {}
+    if isinstance(safe_context, dict):
+        sources = safe_context.get("context_sources") or []
+        citations = safe_context.get("citations") or []
+        if sources and "context_sources" not in metadata:
+            metadata["context_sources"] = list(sources)[:8]
+            metadata["source_summary"] = [
+                {
+                    "source_id": s.get("source_id", ""),
+                    "title": s.get("title", ""),
+                    "snippet": s.get("snippet", ""),
+                    "score": s.get("score", 0),
+                    "citation_id": s.get("citation_id", ""),
+                    "evidence_type": s.get("evidence_type", "knowledge"),
+                }
+                for s in list(sources)[:8]
+            ]
+            metadata["source_count"] = len(sources)
+        if citations and "citations" not in metadata:
+            metadata["citations"] = list(citations)[:8]
+        diagnostics = safe_context.get("retrieval_diagnostics") or {}
+        if diagnostics and "retrieval_diagnostics" not in metadata:
+            metadata["retrieval_diagnostics"] = diagnostics
     return metadata
 
 def _to_standard_tool_call(call_id: str, tool_id: str, result) -> dict:
@@ -658,7 +681,7 @@ def _safe_context_prompt_text(safe_context: dict | None) -> str:
         if key in safe_context and safe_context[key] not in (None, "", [], {}):
             projected[key] = _safe_prompt_value(safe_context[key])
 
-    for key in ("artifact_refs", "memory_hits", "knowledge_hits", "context_warnings", "citations"):
+    for key in ("artifact_refs", "memory_hits", "knowledge_hits", "context_sources", "context_warnings", "citations"):
         value = safe_context.get(key)
         if value:
             projected[key] = _safe_prompt_value(value, max_items=5)

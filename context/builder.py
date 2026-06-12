@@ -54,12 +54,18 @@ def build_context_bundle(workspace_id: str, user_input: str = "",
         knowledge_hits=[i.content for i in compressed if i.item_type == "knowledge_chunk"][:5],
         warnings=list(warnings),
     )
+    diagnostics = [i.content for i in compressed if i.item_type == "retrieval_diagnostics"]
+    if diagnostics:
+        safe.context_sources = list(diagnostics[0].get("context_sources") or [])
+        safe.retrieval_diagnostics = dict(diagnostics[0].get("retrieval_diagnostics") or {})
     safe.citations = [
         {
             "citation_id": hit.get("citation_id", f"K{idx}"),
             "source_id": hit.get("source_id", ""),
             "chunk_id": hit.get("chunk_id", ""),
             "title": hit.get("title", ""),
+            "source_type": hit.get("source_type", ""),
+            "evidence_type": hit.get("evidence_type", "knowledge"),
         }
         for idx, hit in enumerate(safe.knowledge_hits, start=1)
     ]

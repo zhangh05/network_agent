@@ -7,6 +7,7 @@
 
 import { describe, it, expect, beforeEach } from "vitest";
 import { render, screen, fireEvent } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
 import { AgentWorkbench } from "../pages/AgentWorkbench/AgentWorkbench";
 import { enqueue, installMockApi, resetMocks } from "./mockServer";
 import { useSessionStore } from "../stores/session";
@@ -67,6 +68,61 @@ describe("Agent Workbench — source_summary rendering", () => {
     // UI 在 v1.0.1 UI 重设计后中文化；inline source chip 显示 title + score
     expect(summary.textContent).toContain("OSPF 完全手册");
     expect(summary.textContent).toContain("4.50");
+  });
+
+  it("renders unified context sources and lets users save the answer", async () => {
+    const resp: AgentResult = {
+      ok: true,
+      final_response: "优先检查 Hello 单向和认证参数。",
+      events: [],
+      trace_id: "trace-context",
+      session_id: "s-1",
+      turn_id: "t-context",
+      tool_calls: [],
+      warnings: [],
+      errors: [],
+      metadata: {
+        source_count: 2,
+        context_sources: [
+          {
+            source_id: "ksrc-1",
+            chunk_id: "kch-1",
+            citation_id: "K1",
+            evidence_type: "knowledge",
+            title: "OSPF Runbook",
+            snippet: "FULL to INIT often means one-way hello.",
+            score: 3.2,
+          },
+          {
+            source_id: "ksrc-mem",
+            chunk_id: "kch-mem",
+            citation_id: "M2",
+            evidence_type: "memory",
+            title: "记忆: OSPF 输出偏好",
+            snippet: "先列检查命令。",
+            score: 2.1,
+          },
+        ],
+      },
+    };
+    enqueue("/agent/message", { status: 200, data: resp });
+    enqueue("/sessions/s-1/messages", { status: 200, data: { ok: true, messages: [], count: 0 } });
+    enqueue("/memory/confirm", { status: 200, data: { ok: true, memory_id: "mem-1" } });
+    enqueue("/knowledge/upload", { status: 200, data: { ok: true, source: { source_id: "ksrc-new", workspace_id: "ws-1", title: "对话结论", tags: [], enabled: true, chunk_count: 1, created_at: "" } } });
+
+    render(<AgentWorkbench />);
+    const input = await screen.findByTestId("chat-input");
+    fireEvent.change(input, { target: { value: "OSPF FULL 变 INIT" } });
+    fireEvent.click(screen.getByTestId("btn-send"));
+
+    const summary = await screen.findByTestId("inline-source-summary");
+    expect(summary).toHaveTextContent("参考来源 · 2 个");
+    expect(summary).toHaveTextContent("知识 · OSPF Runbook");
+    expect(summary).toHaveTextContent("记忆 · 记忆: OSPF 输出偏好");
+
+    await userEvent.click(await screen.findByText("记住结论"));
+    await userEvent.click(await screen.findByText("存为知识"));
+    expect(screen.getByText("查看运行详情")).toBeInTheDocument();
   });
 
   it("hides model reasoning tags from assistant chat bubbles", async () => {

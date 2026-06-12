@@ -1,5 +1,5 @@
 import { useState, useRef, useEffect } from "react";
-import { agentApi, sessionsApi } from "../../api";
+import { agentApi, knowledgeApi, memoryApi, sessionsApi } from "../../api";
 import { useSessionStore } from "../../stores/session";
 import { useWorkbenchStore } from "../../stores/workbench";
 import { useToastStore } from "../../stores/toast";
@@ -275,8 +275,52 @@ export function AgentWorkbench() {
 
 function ResultInline({ result }: { result: AgentResult }) {
   const toggleInspector = useUIStore((s) => s.toggleInspector);
-  const summaries = (result.metadata as any)?.source_summary || [];
+  const { currentWorkspaceId } = useSessionStore();
+  const toast = useToastStore((s) => s.show);
+  const [saving, setSaving] = useState<"" | "memory" | "knowledge">("");
+  const summaries = ((result.metadata as any)?.context_sources || (result.metadata as any)?.source_summary || []) as any[];
   const isFailed = !result.ok;
+
+  async function rememberAnswer() {
+    if (!currentWorkspaceId || !result.final_response?.trim() || saving) return;
+    setSaving("memory");
+    try {
+      await memoryApi.confirm({
+        title: result.final_response.slice(0, 42) || "本次结论",
+        content: result.final_response,
+        memory_type: "decision",
+        tags: ["agent_answer", "confirmed"],
+        project_id: currentWorkspaceId,
+      });
+      toast({ kind: "success", title: "已记住", body: "后续对话会通过 RAG 召回这条结论" });
+    } catch (e: unknown) {
+      toast({ kind: "error", title: "记忆失败", body: isApiError(e) ? e.message : String(e) });
+    } finally {
+      setSaving("");
+    }
+  }
+
+  async function saveAsKnowledge() {
+    if (!currentWorkspaceId || !result.final_response?.trim() || saving) return;
+    setSaving("knowledge");
+    try {
+      const title = `对话结论-${new Date().toISOString().slice(0, 10)}`;
+      const body = `# ${title}\n\n${result.final_response}\n`;
+      const file = new File([body], `${title}.md`, { type: "text/markdown" });
+      await knowledgeApi.upload(currentWorkspaceId, file, {
+        title,
+        tags: "agent_answer,chat",
+        source_type: "project_doc",
+        scope: "workspace",
+        language: "zh",
+      });
+      toast({ kind: "success", title: "已保存到知识库", body: "这条回答已整理为可检索文档" });
+    } catch (e: unknown) {
+      toast({ kind: "error", title: "保存失败", body: isApiError(e) ? e.message : String(e) });
+    } finally {
+      setSaving("");
+    }
+  }
 
   return (
     <div className="chat-result-inline">
@@ -302,11 +346,12 @@ function ResultInline({ result }: { result: AgentResult }) {
 
       {Array.isArray(summaries) && summaries.length > 0 && (
         <div className="chat-source-summary" data-testid="inline-source-summary">
-          <b>知识源 · {summaries.length} 个</b>
+          <b>参考来源 · {summaries.length} 个</b>
           <div style={{ marginTop: 4 }}>
             {summaries.slice(0, 6).map((s: any, i: number) => (
               <span className="chat-source-chip" key={i}>
-                {s.title || s.source_id}
+                {s.citation_id ? `${s.citation_id} · ` : ""}
+                {s.evidence_type === "memory" ? "记忆" : "知识"} · {s.title || s.source_id}
                 <span className="score">{s.score != null ? ` ${s.score.toFixed(2)}` : ""}</span>
               </span>
             ))}
@@ -319,8 +364,14 @@ function ResultInline({ result }: { result: AgentResult }) {
           <button type="button" className="run-detail-button" onClick={toggleInspector}>
             查看运行详情
           </button>
+          <button type="button" className="run-detail-button" onClick={() => void rememberAnswer()} disabled={!!saving}>
+            {saving === "memory" ? "记录中…" : "记住结论"}
+          </button>
+          <button type="button" className="run-detail-button" onClick={() => void saveAsKnowledge()} disabled={!!saving}>
+            {saving === "knowledge" ? "保存中…" : "存为知识"}
+          </button>
           {Array.isArray(summaries) && summaries.length > 0 && (
-            <button type="button" className="run-detail-button">知识源 ({summaries.length})</button>
+            <button type="button" className="run-detail-button" onClick={toggleInspector}>来源 ({summaries.length})</button>
           )}
         </div>
       )}

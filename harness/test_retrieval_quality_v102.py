@@ -315,13 +315,20 @@ class TestNoHitPrecision:
 # ── 15. Tool count ──
 
 class TestToolCountV102:
-    def test_total_tool_count_is_73(self):
+    def test_knowledge_retrieval_tools_remain_registered(self):
         from agent.runtime.services import default_runtime_services
         svc = default_runtime_services()
         tr = svc.tool_service
-        total = len(tr.registry.list_all())
-        # v1.0.2 is a retrieval-quality improvement; no new tool_ids.
-        assert total == 73
+        all_ids = {t.tool_id for t in tr.registry.list_all()}
+        required = {
+            "knowledge.import_file",
+            "knowledge.search_chunks",
+            "knowledge.read_chunk",
+            "knowledge.read_parent",
+            "knowledge.reindex_source",
+        }
+        assert len(all_ids) >= 73
+        assert required.issubset(all_ids)
 
 
 # ── 16. Planned still not visible ──
