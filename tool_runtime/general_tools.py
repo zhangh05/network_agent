@@ -320,25 +320,120 @@ def handle_web_search(inv: ToolInvocation) -> dict:
     if not query:
         return _error("query is required")
     try:
-        import requests
-        # Use DuckDuckGo API (no key required, public web only)
-        resp = requests.get(
+        import requests, re
+        results = []
+
+        # ── Try DuckDuckGo HTML search (most reliable free path) ──
+        html_resp = requests.get(
+            "https://html.duckduckgo.com/html/",
+            params={"q": query},
+            timeout=12,
+            headers={"User-Agent": "NetworkAgent/1.0"}
+        )
+        if html_resp.status_code == 200:
+            results = _parse_duckduckgo_html(html_resp.text, limit)
+            if results:
+                return _ok({
+                    "ok": True,
+                    "status": "succeeded",
+                    "query": query,
+                    "results": results,
+                    "count": len(results),
+                    "summary": f"Found {len(results)} result(s) for '{query}'",
+                    "provider": "duckduckgo_html",
+                })
+
+        # ── Fallback 1: DuckDuckGo Instant Answer (unreliable, often empty) ──
+        ia_resp = requests.get(
             "https://api.duckduckgo.com/",
             params={"q": query, "format": "json", "no_html": 1},
-            timeout=10
+            timeout=10,
         )
-        data = resp.json()
-        results = []
-        for item in data.get("RelatedTopics", [])[:limit]:
-            results.append({
-                "title": item.get("Text", "")[:120],
+        ia_data = ia_resp.json()
+        ia_results = []
+        for item in ia_data.get("RelatedTopics", [])[:limit]:
+            ia_results.append({
+                "title": item.get("Text", "")[:150],
                 "url": item.get("FirstURL", ""),
-                "source_type": "web_search",
+                "snippet": item.get("Text", "")[:200],
+                "source": "duckduckgo_instant_answer",
             })
-        return _ok({"results": results, "count": len(results), "query": query})
+        if ia_results:
+            return _ok({
+                "ok": True,
+                "status": "succeeded",
+                "query": query,
+                "results": ia_results,
+                "count": len(ia_results),
+                "summary": f"Found {len(ia_results)} result(s) for '{query}'",
+                "provider": "duckduckgo_instant_answer",
+            })
+
+        # ── No results from any provider ──
+        return _ok({
+            "ok": False,
+            "status": "no_results",
+            "query": query,
+            "results": [],
+            "count": 0,
+            "summary": "搜索服务未返回结果",
+            "errors": [],
+            "warnings": ["web_search_no_results"],
+            "provider": "none",
+            "hint": _web_no_results_hint(query),
+        })
     except Exception as e:
-        return _ok({"results": [], "count": 0, "query": query,
-                     "note": f"web search unavailable: {str(e)[:100]}"})
+        return _ok({
+            "ok": False,
+            "status": "provider_error",
+            "query": query,
+            "results": [],
+            "count": 0,
+            "summary": f"Search unavailable: {str(e)[:100]}",
+            "errors": [f"web_search_provider_error: {str(e)[:200]}"],
+            "warnings": ["web_search_provider_error"],
+            "provider": "error",
+        })
+
+
+def _parse_duckduckgo_html(html: str, limit: int) -> list:
+    """Parse DuckDuckGo HTML search results page."""
+    import re
+    results = []
+    # Each result is in <a rel="nofollow" class="result__a" href="URL">Title</a>
+    # followed by <a class="result__snippet">Snippet</a>
+    links = re.findall(
+        r'<a[^>]*class="result__a"[^>]*href="([^"]+)"[^>]*>(.*?)</a>',
+        html, re.DOTALL
+    )
+    snippets = re.findall(
+        r'<a[^>]*class="result__snippet"[^>]*>(.*?)</a>',
+        html, re.DOTALL
+    )
+    for i, (url, title) in enumerate(links):
+        if i >= limit:
+            break
+        snippet = re.sub(r'<[^>]+>', '', snippets[i]) if i < len(snippets) else ""
+        results.append({
+            "title": re.sub(r'<[^>]+>', '', title).strip()[:150],
+            "url": url,
+            "snippet": snippet.strip()[:300],
+            "source": "duckduckgo_html",
+        })
+    return results
+
+
+def _web_no_results_hint(query: str) -> str:
+    """Return a user-friendly hint when no web results are found."""
+    q = query.lower()
+    if any(w in q for w in ("天气", "weather", "气温", "温度")):
+        return "天气类查询建议使用 weather.current 工具（规划中），或直接询问知识库。"
+    if any(w in q for w in ("新闻", "news", "最新", "今日")):
+        return "实时新闻建议使用 news.search 工具（规划中）。"
+    return "搜索服务没有返回可用结果。我可以基于通用知识回答；如需实时内容，请更换搜索源或尝试更具体的关键词。"
+
+
+def handle_web_scrape(inv: ToolInvocation) -> dict:
 
 
 def handle_web_fetch_summary(inv: ToolInvocation) -> dict:
@@ -895,6 +990,19 @@ def handle_powershell_approved_script(inv: ToolInvocation) -> dict:
 
 ALL_GENERAL_TOOLS = []
 
+def _planned_handler(name: str):
+    """Return a handler for planned (not yet implemented) tools."""
+    def handler(inv: ToolInvocation) -> dict:
+        return _ok({
+            "ok": True,
+            "status": "planned",
+            "summary": f"The {name} tool is planned but not yet implemented.",
+            "errors": [],
+            "warnings": [f"{name}_tool_planned"],
+        })
+    return handler
+
+
 def _reg(tool_id, name, category, risk_level, description, handler,
          requires_approval=False, writes_artifact=False, input_schema=None,
          enabled=True, dry_run_supported=True):
@@ -947,7 +1055,7 @@ _reg("knowledge.explain_not_found", "Explain Not Found", "knowledge", "low",
 
 # ── C. Web Tools ──
 _reg("web.search", "Web Search", "web", "medium",
-     "Search public web (DuckDuckGo)", handle_web_search)
+     "Search public web (DuckDuckGo HTML)", handle_web_search)
 _reg("web.fetch_summary", "Fetch Summary", "web", "medium",
      "Fetch and summarize a public webpage", handle_web_fetch_summary)
 _reg("web.official_doc_search", "Official Doc Search", "web", "low",
@@ -970,6 +1078,15 @@ _reg("run.list_recent", "Recent Runs", "session", "low",
      "List recent runs (summary only)", handle_run_list_recent)
 _reg("run.get_summary", "Run Summary", "session", "low",
      "Get run summary (no config)", handle_run_get_summary)
+
+# ── Planned: real-time data tools (not yet implemented) ──
+# These are registered as planned so the agent knows not to use them yet.
+_reg("weather.current", "Current Weather", "web", "planned",
+     "Get current weather for a location (planned)", _planned_handler("weather"))
+_reg("weather.forecast", "Weather Forecast", "web", "planned",
+     "Get weather forecast for a location (planned)", _planned_handler("weather forecast"))
+_reg("news.search", "News Search", "web", "planned",
+     "Search recent news articles (planned)", _planned_handler("news search"))
 _reg("memory.search", "Memory Search", "session", "low",
      "Search memory store", handle_memory_search)
 
