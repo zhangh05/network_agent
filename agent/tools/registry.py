@@ -76,6 +76,14 @@ class ToolRegistry:
                 source=f"capability:{tool_ref.tool_id}",
             )
             self._specs[spec.tool_id] = spec
+            # v1.0.3.5: resolve and register capability handler so
+            # dispatch() can find it. handler_ref is a dotted-path
+            # string like "agent.modules.knowledge.tools:tool_handler_query".
+            handler = _resolve_capability_handler(tool_ref.handler_ref)
+            if handler is not None:
+                if not hasattr(self, '_handlers'):
+                    self._handlers = {}
+                self._handlers[spec.tool_id] = handler
             registered += 1
         return registered
 
@@ -104,7 +112,21 @@ class ToolRegistry:
             return {"ok": False, "status": "failed", "summary": str(e)[:200], "errors": [str(e)[:200]]}
 
 
-def _adapt_context_for_tool_runtime(ctx) -> "ToolRuntimeContext":
+def _resolve_capability_handler(handler_ref: str):
+    """Import a capability handler by its dotted-path ref.
+
+    Format: "module.path:variable_name"
+    Returns the callable or None if resolution fails.
+    """
+    if not handler_ref or ":" not in handler_ref:
+        return None
+    mod_path, var_name = handler_ref.rsplit(":", 1)
+    try:
+        import importlib
+        mod = importlib.import_module(mod_path)
+        return getattr(mod, var_name, None)
+    except Exception:
+        return None
     """Project an Agent Runtime TurnContext (or similar) into a
     ToolRuntimeContext so the tool execution layer never receives
     an object it doesn't understand."""
