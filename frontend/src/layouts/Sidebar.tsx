@@ -254,20 +254,39 @@ export function Sidebar() {
               {(d.runs ?? []).slice(0, 8).map((r, i) => {
                 const runId = r.run_id ?? `run-${i}`;
                 const summary = r.user_input_summary || r.intent || "";
-                const label = summary ? (summary.length > 20 ? summary.slice(0, 20) + "…" : summary) : "";
+                const label = summary ? (summary.length > 24 ? summary.slice(0, 24) + "…" : summary) : runId;
+                const intentBadge = r.intent ? (
+                  <span className="text-xs mono" style={{
+                    color: "var(--ink-faint)", background: "var(--bg-elev)",
+                    padding: "0 4px", borderRadius: 3, fontSize: 10
+                  }}>
+                    {r.intent}
+                  </span>
+                ) : null;
                 return (
-                  <div className="list-item" key={runId} style={{ cursor: "default" }} title={summary || runId}>
-                    <span
-                      className={
-                        "status-dot " +
-                        (r.status === "ok"
-                          ? "ok"
-                          : r.status === "failed"
-                            ? "err"
-                            : "idle")
-                      }
-                    />
-                    <span className="title mono text-sm">{label || runId}</span>
+                  <div
+                    className="list-item"
+                    key={runId}
+                    style={{ cursor: "default", flexDirection: "column", alignItems: "flex-start", gap: 2, padding: "6px 12px" }}
+                    title={`${summary || runId}\nstatus: ${r.status || "?"}\ntime: ${r.created_at || "?"}`}
+                  >
+                    <div className="row-flex" style={{ gap: 6, width: "100%" }}>
+                      <span
+                        className={
+                          "status-dot " +
+                          (r.status === "ok" ? "ok" : r.status === "failed" ? "err" : "idle")
+                        }
+                      />
+                      <span className="title text-sm" style={{ lineHeight: 1.3 }}>{label}</span>
+                    </div>
+                    <div className="row-flex" style={{ gap: 4, marginLeft: 16 }}>
+                      {intentBadge}
+                      {r.created_at && (
+                        <span className="text-xs" style={{ color: "var(--ink-faint)" }}>
+                          {new Date(r.created_at).toLocaleTimeString(undefined, { hour: "2-digit", minute: "2-digit" })}
+                        </span>
+                      )}
+                    </div>
                   </div>
                 );
               })}

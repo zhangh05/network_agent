@@ -25,6 +25,16 @@ const SUGGESTIONS = [
   "把这条配置做翻译 + 静态风险扫描",
 ];
 
+function _humanFailure(text: string): string {
+  if (text.includes("provider_timeout") || text.includes("timed out") || text.includes("超时"))
+    return "模型请求超过 30 秒未返回，可能是供应商响应慢或网络抖动。可以稍后重试，或缩短问题再试。";
+  if (text.includes("disabled") || text.includes("LLM is disabled"))
+    return "LLM 功能未启用，请前往系统设置开启并配置 API Key。";
+  if (text.includes("api_key") || text.includes("authentication"))
+    return "API 密钥未配置或已失效，请前往系统设置重新设置。";
+  return text;
+}
+
 export function AgentWorkbench() {
   const { currentWorkspaceId, currentSessionId } = useSessionStore();
   const {
@@ -175,7 +185,12 @@ export function AgentWorkbench() {
       }
       appendAssistant(sanitizeAssistantText(res.final_response ?? ""), res, resolvedSid);
       notifyRunCompleted();
-      toast({ kind: "success", title: "turn 完成", body: res.trace_id });
+      if (res.ok) {
+        toast({ kind: "success", title: "回答完成", body: res.trace_id });
+      } else {
+        const friendly = _humanFailure(res.errors?.[0] ?? res.final_response ?? "");
+        toast({ kind: "error", title: "请求失败", body: friendly, request_id: res.trace_id });
+      }
       // 拉一次 backend 让云端历史落地 (后端修了 run_ids bug 才有效)
       if (resolvedSid && currentWorkspaceId) {
         sessionsApi
@@ -434,8 +449,22 @@ function ResultInline({ result }: { result: AgentResult }) {
     ? ((result.metadata as { source_summary: SourceSummary[] }).source_summary ?? [])
     : [];
 
+  const isFailed = !result.ok;
+  const friendlyError = isFailed ? _humanFailure(result.errors?.[0] ?? "") : "";
+
   return (
     <div className="chat-result-inline" data-testid="result-inline" style={{ marginTop: 8 }}>
+      {/* Failure explanation — human readable */}
+      {isFailed && (
+        <div
+          className="chat-warnings"
+          data-testid="inline-failure"
+          style={{ background: "var(--danger-soft)", color: "var(--danger)", marginBottom: 6 }}
+        >
+          <IconAlert size={11} /> {friendlyError || "请求失败，请重试"}
+        </div>
+      )}
+
       {/* Tool calls */}
       {(result.tool_calls ?? []).length > 0 && (
         <div className="chat-tool-calls">
@@ -462,19 +491,50 @@ function ResultInline({ result }: { result: AgentResult }) {
         </div>
       )}
 
-      {/* Errors */}
-      {result.errors && result.errors.length > 0 && (
-        <div
-          className="chat-warnings"
-          data-testid="inline-errors"
-          style={{ background: "var(--danger-soft)", color: "var(--danger)" }}
-        >
-          <IconAlert size={11} /> {result.errors.length} 个错误：{result.errors.join("；")}
+      {/* Next actions */}
+      {result.ok && (
+        <details className="collapse mt-2" open>
+          <summary style={{ color: "var(--accent)", fontWeight: 500 }}>
+            💡 接下来可以做什么？
+          </summary>
+          <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginTop: 6 }}>
+            <span className="status-pill" style={{ cursor: "pointer", opacity: 0.85 }}>
+              继续追问
+            </span>
+            {summaries.length > 0 && (
+              <span className="status-pill" style={{ cursor: "pointer", opacity: 0.85 }}>
+                查看知识源 ({summaries.length})
+              </span>
+            )}
+            <span className="status-pill" style={{ cursor: "pointer", opacity: 0.85 }}>
+              查看本次运行审计
+            </span>
+          </div>
+        </details>
+      )}
+
+      {isFailed && (
+        <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginTop: 6 }}>
+          <span className="status-pill" style={{ cursor: "pointer", opacity: 0.85 }}>
+            缩短问题重试
+          </span>
+          <span className="status-pill" style={{ cursor: "pointer", opacity: 0.85 }}>
+            检查 LLM 设置
+          </span>
         </div>
       )}
-    </div>
-  );
-}
+
+      {/* Errors — diagnostics, collapsed by default */}
+      {result.errors && result.errors.length > 0 && (
+        <details className="collapse mt-2">
+          <summary style={{ fontSize: 11, color: "var(--ink-mute)" }}>
+            开发诊断 · {result.errors.length} 条 ({result.trace_id})
+          </summary>
+          <div className="text-xs mono" style={{ color: "var(--ink-mute)", whiteSpace: "pre-wrap", marginTop: 4 }}>
+            {result.errors.join("\n")}
+          </div>
+        </details>
+      )}
 
 function ToolCallInline({ tc }: { tc: ToolCallResult }) {
   return (
