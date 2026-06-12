@@ -26,6 +26,10 @@ export function KnowledgeLibrary() {
   const [uploadTags, setUploadTags] = useState("");
   const [uploading, setUploading] = useState(false);
   const [uploadInputKey, setUploadInputKey] = useState(0);
+  const [editingId, setEditingId] = useState<string | null>(null);
+  const [editingTitle, setEditingTitle] = useState("");
+  const [detailSource, setDetailSource] = useState<KnowledgeSource | null>(null);
+  const [detailLoading, setDetailLoading] = useState(false);
 
   const sources = useAsync<{ sources: KnowledgeSource[]; counts?: Record<string, number> }>(
     (s) =>
@@ -83,6 +87,49 @@ export function KnowledgeLibrary() {
         body: isApiError(e) ? e.message : String(e),
         request_id: isApiError(e) ? e.request_id : undefined,
       });
+    }
+  }
+
+  function startRename(source_id: string, title: string) {
+    setEditingId(source_id);
+    setEditingTitle(title);
+  }
+
+  function cancelRename() {
+    setEditingId(null);
+    setEditingTitle("");
+  }
+
+  async function saveRename(source_id: string) {
+    if (!currentWorkspaceId || !editingTitle.trim()) return;
+    try {
+      await knowledgeApi.rename(source_id, currentWorkspaceId, editingTitle.trim());
+      setEditingId(null);
+      sources.reload();
+      toast({ kind: "success", title: "已重命名" });
+    } catch (e: unknown) {
+      toast({
+        kind: "error",
+        title: "重命名失败",
+        body: isApiError(e) ? e.message : String(e),
+      });
+    }
+  }
+
+  async function onViewDetail(source_id: string) {
+    if (!currentWorkspaceId) return;
+    setDetailLoading(true);
+    try {
+      const res = await knowledgeApi.getSource(source_id, currentWorkspaceId);
+      setDetailSource(res.source);
+    } catch (e: unknown) {
+      toast({
+        kind: "error",
+        title: "获取详情失败",
+        body: isApiError(e) ? e.message : String(e),
+      });
+    } finally {
+      setDetailLoading(false);
     }
   }
 
@@ -336,14 +383,34 @@ export function KnowledgeLibrary() {
                     <th>内容类型</th>
                     <th>是否可检索</th>
                     <th>最后更新</th>
-                    <th style={{ width: 160 }}>操作</th>
+                    <th style={{ width: 210 }}>操作</th>
                   </tr>
                 </thead>
                 <tbody>
                   {(d.sources ?? []).map((s) => (
                     <tr key={s.source_id} data-testid={`src-${s.source_id}`}>
                       <td>
-                        <div className="text-sm">{s.title || "未命名文档"}</div>
+                        {editingId === s.source_id ? (
+                          <div className="row-flex" style={{ gap: 4 }}>
+                            <input
+                              className="input"
+                              style={{ width: 180, height: 26, fontSize: 13 }}
+                              value={editingTitle}
+                              onChange={(e) => setEditingTitle(e.target.value)}
+                              onKeyDown={(e) => {
+                                if (e.key === "Enter") void saveRename(s.source_id);
+                                if (e.key === "Escape") cancelRename();
+                              }}
+                              autoFocus
+                            />
+                            <button className="btn sm" style={{ height: 26, padding: "0 8px" }} onClick={() => void saveRename(s.source_id)} type="button">保存</button>
+                            <button className="btn sm ghost" style={{ height: 26, padding: "0 6px" }} onClick={cancelRename} type="button">×</button>
+                          </div>
+                        ) : (
+                          <div className="text-sm" style={{ cursor: "pointer" }} onClick={() => startRename(s.source_id, s.title || "")} title="点击编辑名称">
+                            {s.title || "未命名文档"}
+                          </div>
+                        )}
                         <details className="collapse mt-1">
                           <summary className="text-xs muted">技术详情</summary>
                           <div className="text-xs muted mt-1">
@@ -375,6 +442,15 @@ export function KnowledgeLibrary() {
                           type="button"
                         >
                           <IconRefresh size={11} /> 整理
+                        </button>
+                        <button
+                          className="btn sm"
+                          style={{ marginLeft: 4 }}
+                          onClick={() => void onViewDetail(s.source_id)}
+                          disabled={detailLoading}
+                          type="button"
+                        >
+                          详情
                         </button>
                         <button
                           className="btn sm danger"
@@ -441,6 +517,48 @@ export function KnowledgeLibrary() {
           )}
         </div>
       </div>
+
+      {detailSource && (
+        <div className="modal-backdrop" onClick={() => setDetailSource(null)}>
+          <div className="modal" onClick={(e) => e.stopPropagation()} style={{ maxWidth: 640, maxHeight: "80vh", overflow: "auto" }}>
+            <div className="modal-title">
+              知识源详情
+              <button className="btn sm ghost" style={{ marginLeft: "auto" }} onClick={() => setDetailSource(null)} type="button">关闭</button>
+            </div>
+            <div style={{ marginTop: 14 }}>
+              <div className="text-sm"><strong>文档名：</strong>{detailSource.title || "—"}</div>
+              <div className="text-xs muted mt-2"><strong>ID：</strong><InlineCode>{detailSource.source_id}</InlineCode></div>
+              {detailSource.artifact_id && <div className="text-xs muted mt-1"><strong>Artifact：</strong><InlineCode>{detailSource.artifact_id}</InlineCode></div>}
+              <div className="text-xs muted mt-1"><strong>类型：</strong>{sourceTypeLabel(detailSource.source_type)}</div>
+              <div className="text-xs muted mt-1"><strong>状态：</strong>{detailSource.status || "—"}</div>
+              <div className="text-xs muted mt-1"><strong>片段数：</strong>{detailSource.chunk_count ?? "—"}</div>
+              <div className="text-xs muted mt-1"><strong>大小：</strong>{detailSource.total_size_bytes ? `${detailSource.total_size_bytes} B` : "—"}</div>
+              {detailSource.summary && (
+                <div className="mt-3">
+                  <div className="text-sm" style={{ fontWeight: 500, marginBottom: 4 }}>摘要</div>
+                  <div className="text-sm" style={{ whiteSpace: "pre-wrap", color: "var(--ink-soft)", background: "var(--bg-soft)", padding: 10, borderRadius: "var(--r)" }}>{detailSource.summary}</div>
+                </div>
+              )}
+              {(detailSource as any).chunks && (detailSource as any).chunks.length > 0 && (
+                <div className="mt-3">
+                  <div className="text-sm" style={{ fontWeight: 500, marginBottom: 8 }}>知识片段 ({(detailSource as any).chunks.length})</div>
+                  {(detailSource as any).chunks.map((c: any, i: number) => (
+                    <div key={c.chunk_id || i} className="card" style={{ padding: 10, marginBottom: 6, boxShadow: "none" }}>
+                      <div className="row-flex" style={{ justifyContent: "space-between", marginBottom: 4 }}>
+                        <InlineCode>{c.chunk_id || `#${i + 1}`}</InlineCode>
+                        <span className="text-xs muted">{c.token_count ?? c.size ?? ""}</span>
+                      </div>
+                      <div className="text-xs" style={{ whiteSpace: "pre-wrap", color: "var(--ink-soft)" }}>
+                        {c.safe_text || c.text || c.content || c.safe_excerpt || "(空)"}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

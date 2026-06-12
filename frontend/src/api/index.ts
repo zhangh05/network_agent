@@ -328,6 +328,33 @@ export const knowledgeApi = {
       },
       signal,
     ),
+  rename: (
+    source_id: string,
+    workspace_id: string,
+    title: string,
+    signal?: AbortSignal,
+  ): Promise<{ ok: boolean; source: KnowledgeSource }> =>
+    apiRequest<{ ok: boolean; source: KnowledgeSource }>(
+      {
+        method: "PATCH",
+        url: `/knowledge/sources/${source_id}`,
+        data: { workspace_id, title },
+      },
+      signal,
+    ),
+  getSource: (
+    source_id: string,
+    workspace_id: string,
+    signal?: AbortSignal,
+  ): Promise<{ ok: boolean; source: KnowledgeSource & { chunks?: any[] } }> =>
+    apiRequest<{ ok: boolean; source: KnowledgeSource & { chunks?: any[] } }>(
+      {
+        method: "GET",
+        url: `/knowledge/sources/${source_id}`,
+        params: { workspace_id },
+      },
+      signal,
+    ),
   search: (
     q: string,
     workspace_id: string,

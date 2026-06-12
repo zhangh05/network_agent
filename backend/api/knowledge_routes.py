@@ -201,6 +201,86 @@ def register_knowledge_routes(app):
             pass
         return jsonify(result), 404
 
+    # ── Rename ──
+    @app.route("/api/knowledge/sources/<source_id>", methods=["PATCH"])
+    def api_knowledge_rename_source(source_id):
+        data = request.get_json(silent=True) or {}
+        ws_id = data.get("workspace_id", "default")
+        ws_id, err = _validated_ws_id(ws_id)
+        if err:
+            return err
+        title = (data.get("title") or "").strip()
+        if not title:
+            return jsonify({"ok": False, "error": "title required"}), 400
+        # Try v2 store first — directly update the JSONL source file
+        import json as _json, pathlib as _pl
+        from agent.modules.knowledge.store import _sources_path, _read_sources_raw, _write_sources_raw
+        try:
+            sources = _read_sources_raw(ws_id)
+            found = False
+            for i, s in enumerate(sources):
+                sid = s.get("source_id", "")
+                if sid == source_id:
+                    sources[i]["title"] = title
+                    sources[i]["updated_at"] = __import__("time").strftime("%Y-%m-%dT%H:%M:%S")
+                    found = True
+                    break
+            if found:
+                _write_sources_raw(ws_id, sources)
+                # Build a response dict from the updated record
+                result_src = {k: v for k, v in sources[i].items() if k != "content"}
+                result_src["ok"] = True
+                return jsonify({"ok": True, "source": result_src})
+        except Exception:
+            pass
+        # If not found in v2, try legacy store
+        try:
+            from knowledge.store import get_source, save_source
+            from knowledge.schemas import KnowledgeSource
+            rec = get_source(ws_id, source_id)
+            if not rec:
+                return jsonify({"ok": False, "error": "source_not_found"}), 404
+            rec["title"] = title
+            ks = KnowledgeSource(**rec)
+            save_source(ks)
+            return jsonify({"ok": True, "source": ks.as_dict()})
+        except Exception as e:
+            return jsonify({"ok": False, "error": f"rename failed: {str(e)[:200]}"}), 500
+
+    # ── Detail ──
+    @app.route("/api/knowledge/sources/<source_id>", methods=["GET"])
+    def api_knowledge_get_source(source_id):
+        ws_id = request.args.get("workspace_id", "default")
+        ws_id, err = _validated_ws_id(ws_id)
+        if err:
+            return err
+        # Try v2 store first
+        from agent.modules.knowledge.store import list_sources as v2_list
+        v2 = v2_list(ws_id, include_deleted=True)
+        for s in v2:
+            sid = s.source_id if hasattr(s, "source_id") else s.get("source_id", "")
+            if sid == source_id:
+                sd = s.as_dict() if hasattr(s, "as_dict") else s
+                # Attach full text content if available
+                if hasattr(s, "chunk_ids") and s.chunk_ids:
+                    from agent.modules.knowledge.store import list_chunks
+                    chunks = list_chunks(ws_id, source_id=source_id, limit=50)
+                    if isinstance(chunks, list):
+                        sd["chunks"] = [_chunk_dict(c) for c in chunks]
+                return jsonify({"ok": True, "source": sd})
+        # Try legacy store
+        try:
+            from knowledge.store import get_source
+            rec = get_source(ws_id, source_id)
+            if not rec:
+                return jsonify({"ok": False, "error": "source_not_found"}), 404
+            from knowledge.store import list_chunks
+            chunks = list_chunks(ws_id, source_id=source_id)
+            rec["chunks"] = chunks or []
+            return jsonify({"ok": True, "source": rec})
+        except Exception as e:
+            return jsonify({"ok": False, "error": str(e)[:200]}), 500
+
     # ── Search ──
     @app.route("/api/knowledge/search")
     def api_knowledge_search():
@@ -438,6 +518,15 @@ def _module_title_search(workspace_id: str, query: str, source_id: str = "", lim
         if len(out) >= limit:
             break
     return out
+
+
+def _chunk_dict(obj) -> dict:
+    """Convert a chunk object to a safe dict, handling both dataclass and dict."""
+    if hasattr(obj, "as_dict"):
+        return obj.as_dict()
+    if isinstance(obj, dict):
+        return obj
+    return {}
 
 
 def _module_chunk_to_safe_dict(chunk: dict) -> dict:
