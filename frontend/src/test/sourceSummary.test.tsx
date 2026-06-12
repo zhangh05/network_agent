@@ -59,7 +59,9 @@ describe("Agent Workbench — source_summary rendering", () => {
     render(<AgentWorkbench />);
     const input = await screen.findByTestId("chat-input");
     fireEvent.change(input, { target: { value: "什么是 OSPF?" } });
-    fireEvent.click(screen.getByTestId("btn-send"));
+    const sendButton = screen.getByTestId("btn-send");
+    expect(sendButton).toHaveAttribute("title", "发送");
+    fireEvent.click(sendButton);
     const summary = await screen.findByTestId("inline-source-summary");
     expect(summary).toBeInTheDocument();
     // UI 在 v1.0.1 UI 重设计后中文化；inline source chip 显示 title + score
@@ -96,5 +98,49 @@ describe("Agent Workbench — source_summary rendering", () => {
     expect(assistant.textContent).not.toContain("I should not be shown");
     expect(runCompleted).toHaveBeenCalledTimes(1);
     window.removeEventListener("network-agent:run-completed", runCompleted);
+  });
+
+  it("summarizes inline tool calls without raw tool ids", async () => {
+    const resp: AgentResult = {
+      ok: true,
+      final_response: "翻译完成，不能直接下发。",
+      events: [],
+      trace_id: "trace-tools",
+      session_id: "s-1",
+      turn_id: "t-tools",
+      tool_calls: [
+        {
+          call_id: "call-fail",
+          tool_id: "config_translation.translate_config",
+          ok: false,
+          errors: ["missing_source_config"],
+          warnings: [],
+          artifacts: [],
+        },
+        {
+          call_id: "call-ok",
+          tool_id: "config_translation.translate_config",
+          ok: true,
+          errors: [],
+          warnings: [],
+          artifacts: [],
+        },
+      ],
+      warnings: [],
+      errors: [],
+      metadata: {},
+    };
+    enqueue("/agent/message", { status: 200, data: resp });
+    enqueue("/sessions/s-1/messages", { status: 200, data: { ok: true, messages: [], count: 0 } });
+
+    render(<AgentWorkbench />);
+    const input = await screen.findByTestId("chat-input");
+    fireEvent.change(input, { target: { value: "翻译这段配置" } });
+    fireEvent.click(screen.getByTestId("btn-send"));
+
+    const inline = await screen.findByTestId("inline-tool-summary");
+    expect(inline).toHaveTextContent("配置翻译已完成，1 次内部重试已自动恢复");
+    expect(inline.textContent).not.toContain("config_translation.translate_config");
+    expect(inline.textContent).not.toContain("fail");
   });
 });

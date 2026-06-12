@@ -1,5 +1,15 @@
 export function sanitizeAssistantText(text: string): string {
-  return (text ?? "")
+  const raw = text ?? "";
+  if (
+    /I'm Network Agent,\s*your AI assistant for network operations/i.test(raw) ||
+    /What would you like to do today\?/i.test(raw)
+  ) {
+    return [
+      "当前可处理：配置翻译、知识库检索、制品查看和评审流转。",
+      "拓扑、巡检和 CMDB 仍在规划中，未上线的能力不会假装可用。",
+    ].join("\n");
+  }
+  return raw
     .replace(/<think\b[^>]*>[\s\S]*?<\/think>/gi, "")
     .replace(/<reasoning\b[^>]*>[\s\S]*?<\/reasoning>/gi, "")
     .replace(/^\s*(reasoning|思考过程)\s*[:：][\s\S]*?(?=\n\s*(answer|回答|结论)\s*[:：]|\s*$)/gim, "")

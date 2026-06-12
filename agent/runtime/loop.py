@@ -53,6 +53,8 @@ def _persist_run_record(session, turn, result, context) -> None:
                 for k in ("deployable_config", "manual_review", "unsupported", "semantic_near", "audit"):
                     if k in md:
                         skill_results[k] = md[k]
+        selected_skill = _selected_skill_for_record(context)
+        active_module = _active_module_for_record(context, selected_skill)
         state = SimpleNamespace(
             request_id=turn.turn_id,
             session_id=session.session_id,
@@ -65,8 +67,8 @@ def _persist_run_record(session, turn, result, context) -> None:
                 "memory_written": False,
                 "workspace_updated": False,
             },
-            active_module=(context.module_snapshot.get("module_id", "") if context and context.module_snapshot else ""),
-            selected_skill=(context.skill_snapshot.get("skill_id", "") if context and context.skill_snapshot else ""),
+            active_module=active_module,
+            selected_skill=selected_skill,
             runtime_mode="codex_v1",
             final_response=final_response,
             warnings=(result.warnings if result and result.warnings else []),
@@ -99,6 +101,43 @@ def _persist_run_record(session, turn, result, context) -> None:
     except Exception:
         # Persistence is best-effort; never let it break the turn.
         pass
+
+
+def _selected_skill_for_record(context) -> str:
+    """Pick the user-meaningful skill for run records.
+
+    Runtime context can select multiple skills. The run list should show the
+    business skill when present, not the generic assistant wrapper.
+    """
+    if not context:
+        return ""
+    if getattr(context, "skill_snapshot", None):
+        value = context.skill_snapshot.get("skill_id", "")
+        if value:
+            return str(value)
+    metadata = getattr(context, "metadata", None) or {}
+    selected = metadata.get("selected_skills") or []
+    if isinstance(selected, str):
+        selected = [selected]
+    for skill in selected:
+        if skill and skill != "assistant_chat":
+            return str(skill)
+    return str(selected[0]) if selected else ""
+
+
+def _active_module_for_record(context, selected_skill: str) -> str:
+    if context and getattr(context, "module_snapshot", None):
+        value = context.module_snapshot.get("module_id", "")
+        if value:
+            return str(value)
+    if selected_skill and selected_skill != "assistant_chat":
+        return selected_skill
+    metadata = getattr(context, "metadata", None) or {}
+    visible_tools = metadata.get("visible_tools") or []
+    if isinstance(visible_tools, str):
+        visible_tools = [visible_tools]
+    first_tool = str(visible_tools[0]) if visible_tools else ""
+    return first_tool.split(".", 1)[0] if "." in first_tool else ""
 
 
 def _created_at_for_turn(turn, context) -> str:

@@ -163,6 +163,41 @@ def test_runtime_persisted_run_has_created_at_when_context_metadata_empty(tmp_pa
     assert record["started_at"] == record["created_at"]
 
 
+def test_runtime_persisted_run_projects_selected_skill_from_metadata(tmp_path, monkeypatch):
+    import workspace.manager as manager
+    import workspace.message_store as message_store
+    import workspace.run_store as run_store
+    import workspace.session_store as session_store
+    from agent.core.session import AgentSession
+    from agent.core.turn import AgentTurn
+    from agent.protocol.op import AgentOp
+    from agent.runtime.loop import _persist_run_record
+    from agent.runtime.result import AgentResult
+
+    for module in (manager, message_store, run_store, session_store):
+        monkeypatch.setattr(module, "WS_ROOT", tmp_path)
+
+    op = AgentOp.user_message("translate this config", session_id="session_skill", workspace_id="default")
+    turn = AgentTurn.from_op(op)
+    turn.turn_id = "run_selected_skill"
+    session = AgentSession(session_id="session_skill", workspace_id="default")
+    result = AgentResult(ok=True, final_response="done")
+    context = SimpleNamespace(
+        metadata={
+            "selected_skills": ["assistant_chat", "config_translation"],
+            "visible_tools": ["config_translation.translate_config"],
+        },
+        module_snapshot={},
+        skill_snapshot={},
+    )
+
+    _persist_run_record(session, turn, result, context)
+
+    record = run_store.get_run("run_selected_skill", "default")
+    assert record["selected_skill"] == "config_translation"
+    assert record["active_module"] == "config_translation"
+
+
 def test_list_runs_sorts_by_created_at_before_limiting(tmp_path, monkeypatch):
     import workspace.manager as manager
     import workspace.run_store as run_store

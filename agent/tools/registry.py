@@ -127,6 +127,9 @@ def _resolve_capability_handler(handler_ref: str):
         return getattr(mod, var_name, None)
     except Exception:
         return None
+
+
+def _adapt_context_for_tool_runtime(ctx):
     """Project an Agent Runtime TurnContext (or similar) into a
     ToolRuntimeContext so the tool execution layer never receives
     an object it doesn't understand."""
@@ -135,6 +138,8 @@ def _resolve_capability_handler(handler_ref: str):
         return ctx
     if ctx is None:
         return ToolRuntimeContext()
+    if isinstance(ctx, (str, bytes, int, float, bool, dict)):
+        return ctx
     return ToolRuntimeContext(
         workspace_id=getattr(ctx, "workspace_id", ""),
         run_id=getattr(ctx, "turn_id", getattr(ctx, "run_id", "")),

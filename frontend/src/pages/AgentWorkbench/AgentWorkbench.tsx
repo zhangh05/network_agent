@@ -1,11 +1,11 @@
 import { useState, useRef, useEffect } from "react";
-import { agentApi, runtimeApi, sessionsApi } from "../../api";
+import { agentApi, sessionsApi } from "../../api";
 import { useSessionStore } from "../../stores/session";
 import { useWorkbenchStore } from "../../stores/workbench";
 import { useToastStore } from "../../stores/toast";
 import { useUIStore } from "../../stores/session";
 import { isApiError } from "../../types";
-import type { AgentResult, SourceSummary, ToolCallResult } from "../../types";
+import type { AgentResult, ToolCallResult } from "../../types";
 import { sanitizeAssistantText } from "../../utils/displayText";
 import { notifyRunCompleted } from "../../utils/appEvents";
 import { TIMEOUTS } from "../../api/client";
@@ -27,10 +27,8 @@ export function AgentWorkbench() {
   const { currentWorkspaceId, currentSessionId } = useSessionStore();
   const {
     history, sending, lastUserInput, latestResult,
-    appendUser, appendAssistant, setSending, clear, switchSession, mergeFromBackend,
+    appendUser, appendAssistant, setSending, switchSession, mergeFromBackend,
   } = useWorkbenchStore();
-  const inspectorOpen = useUIStore((s) => s.inspectorOpen);
-  const toggleInspector = useUIStore((s) => s.toggleInspector);
 
   const [input, setInput] = useState("");
   const [elapsed, setElapsed] = useState(0);
@@ -211,7 +209,7 @@ export function AgentWorkbench() {
             <div className="message-stack">
               <div className="chat-bubble assistant" style={{ display: "flex", alignItems: "center", gap: 8 }}>
                 <span className="spinner" />
-                <span className="text-sm" style={{ color: "var(--ink-mute)" }}>agent 正在分析…</span>
+                <span className="text-sm" style={{ color: "var(--ink-mute)" }}>请求处理中…</span>
                 <span className="text-xs" style={{ color: "var(--ink-faint)", marginLeft: "auto" }}>
                   {formatElapsed(elapsed)} / {formatElapsed(TIMEOUTS.agentTurn / 1000)}
                 </span>
@@ -261,6 +259,7 @@ export function AgentWorkbench() {
             data-testid="btn-send"
             type="button"
             aria-label="发送"
+            title="发送"
           >
             <IconSend size={16} />
           </button>
@@ -282,14 +281,22 @@ function ResultInline({ result }: { result: AgentResult }) {
   return (
     <div className="chat-result-inline">
       {(result.tool_calls ?? []).length > 0 && (
-        <div className="chat-tool-calls">
-          {result.tool_calls.map((tc: ToolCallResult) => (
-            <span key={tc.call_id} className="chat-tool-call">
-              <IconBolt size={10} style={{ color: "var(--accent)" }} />
-              <span className="tc-name">{tc.tool_id}</span>
-              <span className={"tc-status " + (tc.ok ? "ok" : "err")}>{tc.ok ? "ok" : "fail"}</span>
-            </span>
-          ))}
+        <div className="chat-tool-summary" data-testid="inline-tool-summary">
+          <IconBolt size={10} style={{ color: "var(--accent)" }} />
+          <span>{toolCallSummary(result.tool_calls ?? [])}</span>
+          <details className="inline-technical-details">
+            <summary>技术详情</summary>
+            <div className="chat-tool-calls">
+              {result.tool_calls.map((tc: ToolCallResult) => (
+                <span key={tc.call_id} className="chat-tool-call">
+                  <span className="tc-name">{toolLabel(tc.tool_id)}</span>
+                  <span className={"tc-status " + (tc.ok ? "ok" : "err")}>
+                    {tc.ok ? "已完成" : "需关注"}
+                  </span>
+                </span>
+              ))}
+            </div>
+          </details>
         </div>
       )}
 
@@ -328,6 +335,25 @@ function ResultInline({ result }: { result: AgentResult }) {
       )}
     </div>
   );
+}
+
+function toolLabel(toolId: string): string {
+  if (toolId.startsWith("config_translation.")) return "配置翻译";
+  if (toolId.startsWith("knowledge.")) return "知识检索";
+  if (toolId.startsWith("artifact.")) return "制品操作";
+  if (toolId.startsWith("review.")) return "评审流转";
+  if (toolId.startsWith("runtime.")) return "运行诊断";
+  return "工具调用";
+}
+
+function toolCallSummary(calls: ToolCallResult[]): string {
+  const failed = calls.filter((tc) => !tc.ok).length;
+  const recovered = calls.some((tc) => !tc.ok && calls.some((other) => other.ok && other.tool_id === tc.tool_id));
+  const primary = calls.find((tc) => tc.ok) ?? calls[0];
+  const label = primary ? toolLabel(primary.tool_id) : "工具调用";
+  if (failed > 0 && recovered) return `${label}已完成，${failed} 次内部重试已自动恢复`;
+  if (failed > 0) return `${label}需要关注，${failed} 次调用未完成`;
+  return `${label}已完成`;
 }
 
 function formatElapsed(seconds: number): string {

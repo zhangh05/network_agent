@@ -2962,6 +2962,31 @@ select.input,
 }
 
 /* ── Tool call inline chips ── */
+.chat-tool-summary {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+  font-size: var(--fs-xs);
+  color: var(--ink);
+  background: var(--bg-soft);
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  padding: 5px 8px;
+  margin-bottom: 6px;
+}
+.inline-technical-details {
+  color: var(--ink-mute);
+}
+.inline-technical-details summary {
+  cursor: pointer;
+}
+.inline-technical-details[open] {
+  width: 100%;
+}
+.inline-technical-details .chat-tool-calls {
+  margin-top: 5px;
+}
 .chat-tool-calls {
   display: flex;
   flex-wrap: wrap;

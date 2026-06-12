@@ -124,10 +124,27 @@ function InspectorBody({ result }: { result: AgentResult }) {
         {(result.tool_calls ?? []).length === 0 ? (
           <div className="text-sm muted">无 tool call</div>
         ) : (
-          <div className="col-flex" data-testid="inspector-tool-calls" style={{ gap: 6 }}>
-            {(result.tool_calls ?? []).map((tc) => (
-              <ToolCallCard key={tc.call_id} tc={tc} />
-            ))}
+          <div className="col-flex" style={{ gap: 8 }}>
+            <div
+              className="card"
+              data-testid="inspector-tool-summary"
+              style={{ padding: 10, marginBottom: 0, background: "var(--bg-soft)" }}
+            >
+              <strong>{toolCallSummary(result.tool_calls ?? [])}</strong>
+              <div className="text-xs muted mt-2">
+                原始工具记录已收起，供排查时核对。
+              </div>
+            </div>
+            <details>
+              <summary className="text-sm muted" style={{ cursor: "pointer" }}>
+                技术详情
+              </summary>
+              <div className="col-flex mt-2" data-testid="inspector-tool-calls" style={{ gap: 6 }}>
+                {(result.tool_calls ?? []).map((tc) => (
+                  <ToolCallCard key={tc.call_id} tc={tc} />
+                ))}
+              </div>
+            </details>
           </div>
         )}
       </Collapsible>
@@ -229,14 +246,15 @@ function ToolCallCard({ tc }: { tc: ToolCallResult }) {
     >
       <div className="row-flex" style={{ justifyContent: "space-between" }}>
         <span className="row-flex" style={{ minWidth: 0 }}>
+          <strong className="text-sm">{toolLabel(tc.tool_id)}</strong>
           <InlineCode>{tc.tool_id}</InlineCode>
           {tc.ok ? (
             <Badge kind="ok" withDot>
-              ok
+              已完成
             </Badge>
           ) : (
             <Badge kind="err" withDot>
-              failed
+              需要关注
             </Badge>
           )}
         </span>
@@ -251,11 +269,39 @@ function ToolCallCard({ tc }: { tc: ToolCallResult }) {
       )}
       {tc.warnings && tc.warnings.length > 0 && (
         <div className="text-xs muted mt-2">
-          warnings: {tc.warnings.length}
+          提醒: {tc.warnings.length}
         </div>
       )}
     </div>
   );
+}
+
+function toolLabel(toolId: string): string {
+  if (toolId.startsWith("config_translation.")) return "配置翻译";
+  if (toolId.startsWith("knowledge.")) return "知识检索";
+  if (toolId.startsWith("artifact.")) return "制品操作";
+  if (toolId.startsWith("review.")) return "评审流转";
+  if (toolId.startsWith("runtime.")) return "运行诊断";
+  return "工具调用";
+}
+
+function toolCallSummary(calls: ToolCallResult[]): string {
+  const total = calls.length;
+  const failed = calls.filter((tc) => !tc.ok).length;
+  const recoveredByTool = new Set(
+    calls
+      .filter((tc) => !tc.ok && calls.some((other) => other.ok && other.tool_id === tc.tool_id))
+      .map((tc) => tc.tool_id),
+  );
+  const primary = calls.find((tc) => tc.ok) ?? calls[0];
+  const label = primary ? toolLabel(primary.tool_id) : "工具调用";
+  if (failed > 0 && recoveredByTool.size > 0) {
+    return `${label}已完成，${failed} 次内部重试已自动恢复`;
+  }
+  if (failed > 0) {
+    return `${label}需要关注，${failed} 次调用未完成`;
+  }
+  return `${label}已完成，共 ${total} 次调用`;
 }
 
 function countArtifacts(result: AgentResult): number {
