@@ -61,8 +61,12 @@ def retrieve_context_evidence(
     diagnostics["retrievers"].append(memory_bucket["diagnostic"])
     hits.extend(memory_bucket["hits"])
 
-    ranked, deduped = _rank_and_dedupe(hits)
+    ranked, deduped = _rank_and_dedupe(hits, query)
     diagnostics["deduplicated_count"] = deduped
+    diagnostics["rerank"] = {
+        "semantic_status": "local_token_similarity",
+        "semantic_weight": 2.0,
+    }
     sources = _source_cards(ranked)
     return {
         "ok": True,
@@ -168,11 +172,12 @@ def _keyword_query(query: str) -> str:
     return " ".join(kept[:12])
 
 
-def _rank_and_dedupe(hits: Iterable[dict]) -> tuple[list[dict], int]:
+def _rank_and_dedupe(hits: Iterable[dict], query: str) -> tuple[list[dict], int]:
     seen = set()
     out = []
     deduped = 0
-    for hit in sorted(hits, key=_rank_key):
+    scored = [_with_semantic_score(hit, query) for hit in hits]
+    for hit in sorted(scored, key=_rank_key):
         key = hit.get("chunk_id") or (hit.get("source_id"), hit.get("safe_excerpt", "")[:80])
         if key in seen:
             deduped += 1
@@ -184,7 +189,42 @@ def _rank_and_dedupe(hits: Iterable[dict]) -> tuple[list[dict], int]:
 
 def _rank_key(hit: dict) -> tuple:
     evidence_bias = 0 if hit.get("evidence_type") == "memory" else 1
-    return (-float(hit.get("score", 0) or 0), evidence_bias, hit.get("title", ""))
+    return (-float(hit.get("final_score", hit.get("score", 0)) or 0), evidence_bias, hit.get("title", ""))
+
+
+def _with_semantic_score(hit: dict, query: str) -> dict:
+    out = dict(hit)
+    text = " ".join([
+        str(hit.get("title", "")),
+        str(hit.get("chapter", "")),
+        str(hit.get("section", "")),
+        str(hit.get("safe_excerpt", "")),
+    ])
+    semantic = _token_similarity(query, text)
+    lexical = float(hit.get("score", 0) or 0)
+    out["semantic_score"] = round(semantic, 4)
+    out["final_score"] = round(lexical + semantic * 2.0, 4)
+    return out
+
+
+def _token_similarity(a: str, b: str) -> float:
+    ta = set(_semantic_tokens(a))
+    tb = set(_semantic_tokens(b))
+    if not ta or not tb:
+        return 0.0
+    return len(ta & tb) / ((len(ta) * len(tb)) ** 0.5)
+
+
+def _semantic_tokens(text: str) -> list[str]:
+    text = str(text or "").lower()
+    words = re.findall(r"[a-z0-9_./-]+", text)
+    cjk = []
+    for run in re.findall(r"[\u4e00-\u9fff]+", text):
+        if len(run) == 1:
+            cjk.append(run)
+        else:
+            cjk.extend(run[i:i + 2] for i in range(len(run) - 1))
+    return words + cjk
 
 
 def _source_cards(hits: list[dict]) -> list[dict]:
@@ -200,5 +240,7 @@ def _source_cards(hits: list[dict]) -> list[dict]:
             "evidence_type": hit.get("evidence_type", "knowledge"),
             "snippet": hit.get("safe_excerpt", "")[:240],
             "score": round(float(hit.get("score", 0) or 0), 3),
+            "semantic_score": round(float(hit.get("semantic_score", 0) or 0), 3),
+            "final_score": round(float(hit.get("final_score", hit.get("score", 0)) or 0), 3),
         })
     return cards

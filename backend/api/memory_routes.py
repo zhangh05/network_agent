@@ -61,10 +61,15 @@ def handle_memory_confirm():
     if not mid:
         return jsonify({"ok": False, "error": "Blocked by policy"}), 400
 
+    from memory.store import get_store
+    record = get_store().get(mid)
+    meta = record.metadata if record else {}
     return jsonify({
         "ok": True,
         "memory_id": mid,
         "redaction_applied": False,
+        "conflict_detected": bool((meta or {}).get("conflict_detected")),
+        "conflicts": list((meta or {}).get("conflicts") or []),
     })
 
 

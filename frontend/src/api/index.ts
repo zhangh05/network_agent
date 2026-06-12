@@ -362,8 +362,8 @@ export const memoryApi = {
       project_id?: string;
     },
     signal?: AbortSignal,
-  ): Promise<{ ok: boolean; memory_id: string; redaction_applied?: boolean }> =>
-    apiRequest<{ ok: boolean; memory_id: string; redaction_applied?: boolean }>(
+  ): Promise<{ ok: boolean; memory_id: string; redaction_applied?: boolean; conflict_detected?: boolean; conflicts?: unknown[] }> =>
+    apiRequest<{ ok: boolean; memory_id: string; redaction_applied?: boolean; conflict_detected?: boolean; conflicts?: unknown[] }>(
       {
         method: "POST",
         url: "/memory/confirm",

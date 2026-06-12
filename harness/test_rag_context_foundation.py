@@ -225,6 +225,8 @@ def test_unified_retrieval_returns_document_and_memory_sources(tmp_path, monkeyp
     assert "knowledge" in evidence_types
     assert "memory" in evidence_types
     assert result["diagnostics"]["query_variants"]
+    assert result["diagnostics"]["rerank"]["semantic_status"] == "local_token_similarity"
+    assert any("final_score" in s and "semantic_score" in s for s in result["sources"])
 
 
 def test_context_bundle_exposes_context_sources_for_ui(tmp_path, monkeypatch):
@@ -311,3 +313,31 @@ def test_memory_projection_is_hidden_from_public_knowledge_api(tmp_path, monkeyp
 
     search = client.get("/api/knowledge/search?workspace_id=rag_ws&q=默认保持简洁").get_json()
     assert search["results"] == []
+
+
+def test_memory_confirm_reports_conflicts(tmp_path, monkeypatch):
+    _patch_ws_roots(tmp_path, monkeypatch)
+    _isolated_memory_store(tmp_path, monkeypatch)
+
+    client = _client()
+    first = client.post("/api/memory/confirm", json={
+        "memory_type": "decision",
+        "title": "出口策略",
+        "content": "本项目出口策略采用 ECMP。",
+        "tags": ["egress", "ecmp"],
+        "project_id": "rag_ws",
+    })
+    assert first.status_code == 200
+
+    second = client.post("/api/memory/confirm", json={
+        "memory_type": "decision",
+        "title": "出口策略",
+        "content": "本项目出口策略不采用 ECMP。",
+        "tags": ["egress", "ecmp"],
+        "project_id": "rag_ws",
+    })
+    body = second.get_json()
+
+    assert second.status_code == 200
+    assert body["conflict_detected"] is True
+    assert body["conflicts"]

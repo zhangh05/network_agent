@@ -199,6 +199,13 @@ class TestPromptRenderer:
         # Citations should be rendered — check citation_ids metadata
         assert "cite_1" in str(r.citation_ids)
 
+    def test_response_prompt_requires_inline_citation_ids(self):
+        from prompts.loader import render_prompt
+        cites = [{"citation_id": "K1", "source_type": "knowledge", "source_id": "ksrc_1"}]
+        r = render_prompt("response_compose", safe_context={}, user_input="t", citations=cites)
+        assert "[K1]" in r.text
+        assert "cite factual claims inline" in r.text
+
     def test_renderer_uses_safe_context_only(self):
         """Rendered prompt must NOT include full config if we pass it."""
         from prompts.loader import render_prompt

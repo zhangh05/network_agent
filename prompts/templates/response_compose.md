@@ -21,4 +21,4 @@ Job stats: {{ job_summary }}
 
 User question: {{ user_input }}
 
-Provide a concise, accurate response based ONLY on the above context. Cite artifact/job/run IDs where relevant.
+Provide a concise, accurate response based ONLY on the above context. When citations are present, cite factual claims inline with the exact citation ids, for example [K1] or [M2]. Cite artifact/job/run IDs where relevant.

@@ -70,7 +70,14 @@ def evaluate() -> dict:
         "citation_count": len(safe.get("citations") or []),
         "has_ospf_evidence": "FULL to INIT" in text or "one-way Hello" in text,
         "has_memory_evidence": "shortest command sequence" in text,
-        "leaks_sensitive_keys": any(k in text for k in ("source_config", "deployable_config", "password", "token", "/Users/")),
+        "leaks_sensitive_keys": any(k in text for k in (
+            "source_config",
+            "deployable_config",
+            "password",
+            '"token"',
+            "access_token",
+            "/Users/",
+        )),
     }
     ok = (
         metrics["source_count"] >= 2

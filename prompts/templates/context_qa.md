@@ -21,4 +21,4 @@ Citations:
 
 User: {{ user_input }}
 
-Answer based ONLY on the above context. Be concise and factual.
+Answer based ONLY on the above context. Be concise and factual. When citations are present, cite factual claims inline with the exact citation ids, for example [K1] or [M2].

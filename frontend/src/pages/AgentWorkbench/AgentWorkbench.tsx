@@ -285,14 +285,18 @@ function ResultInline({ result }: { result: AgentResult }) {
     if (!currentWorkspaceId || !result.final_response?.trim() || saving) return;
     setSaving("memory");
     try {
-      await memoryApi.confirm({
+      const res = await memoryApi.confirm({
         title: result.final_response.slice(0, 42) || "本次结论",
         content: result.final_response,
         memory_type: "decision",
         tags: ["agent_answer", "confirmed"],
         project_id: currentWorkspaceId,
       });
-      toast({ kind: "success", title: "已记住", body: "后续对话会通过 RAG 召回这条结论" });
+      if (res.conflict_detected) {
+        toast({ kind: "warning", title: "已记录，但发现冲突", body: "这条记忆和已有记忆可能不一致，请稍后在记忆列表核对。" });
+      } else {
+        toast({ kind: "success", title: "已记住", body: "后续对话会通过 RAG 召回这条结论" });
+      }
     } catch (e: unknown) {
       toast({ kind: "error", title: "记忆失败", body: isApiError(e) ? e.message : String(e) });
     } finally {

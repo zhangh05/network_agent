@@ -46,7 +46,14 @@ def handle_memory_write():
     if not memory_id:
         return jsonify({"ok": False, "error": "Blocked by memory policy"}), 400
 
-    return jsonify({"ok": True, "memory_id": memory_id})
+    record = get_store().get(memory_id)
+    meta = record.metadata if record else {}
+    return jsonify({
+        "ok": True,
+        "memory_id": memory_id,
+        "conflict_detected": bool((meta or {}).get("conflict_detected")),
+        "conflicts": list((meta or {}).get("conflicts") or []),
+    })
 
 
 def handle_memory_search():

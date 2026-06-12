@@ -48,6 +48,23 @@ def write_memory(
         # Blocked by policy — don't write
         return ""
 
+    # ═══ Step 3: Conflict scan ═══
+    meta = dict(metadata or {})
+    try:
+        from memory.conflicts import detect_memory_conflicts
+        conflicts = detect_memory_conflicts(
+            title=title,
+            content=content,
+            memory_type=memory_type,
+            project_id=project_id,
+            tags=tags or [],
+        )
+        if conflicts:
+            meta["conflict_detected"] = True
+            meta["conflicts"] = conflicts
+    except Exception:
+        pass
+
     # ═══ Step 3: Build record ═══
     record = MemoryRecord(
         scope=scope,
@@ -60,7 +77,7 @@ def write_memory(
         source=source,
         confidence=effective_confidence,
         sensitivity=sensitivity,
-        metadata=metadata or {},
+        metadata=meta,
         redaction_applied=redaction_applied or policy.redaction_needed,
     )
 

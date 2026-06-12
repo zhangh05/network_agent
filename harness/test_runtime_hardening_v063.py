@@ -338,6 +338,12 @@ class TestSystemPromptContract:
         prompt = build_system_prompt()
         assert "knowledge" in prompt.lower()
 
+    def test_system_prompt_requires_context_citations(self):
+        from agent.runtime.prompts import build_system_prompt
+        prompt = build_system_prompt()
+        assert "context_sources" in prompt
+        assert "[K1]" in prompt and "[M2]" in prompt
+
     def test_initial_messages_preserve_runtime_snapshot_per_turn_visibility(self):
         """RuntimeLoop must inject the rich RuntimeSnapshot, not a lossy rebuild."""
         from types import SimpleNamespace
