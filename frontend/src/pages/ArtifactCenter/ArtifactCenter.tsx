@@ -115,9 +115,8 @@ export function ArtifactCenter() {
           }}
         >
           <div style={{ padding: 12 }}>
-            <div className="section-head" style={{ paddingLeft: 4, marginBottom: 8, gap: 6 }}>
+            <div className="section-head" style={{ paddingLeft: 4, marginBottom: 8 }}>
               <IconBox size={11} /> 制品列表
-              <span style={{ flex: 1 }} />
               <button
                 style={{ 
                   fontSize: 11,
