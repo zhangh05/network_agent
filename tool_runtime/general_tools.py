@@ -53,6 +53,11 @@ def _error(msg: str) -> dict:
     return {"ok": False, "error": msg}
 
 
+def _result(ok: bool, output: dict = None) -> dict:
+    """Build a tool result dict, preserving caller's ok flag."""
+    return {"ok": ok, **(output or {})}
+
+
 # ═══════════════ A. Artifact Tools ═══════════════
 
 def handle_artifact_search(inv: ToolInvocation) -> dict:
@@ -370,8 +375,7 @@ def handle_web_search(inv: ToolInvocation) -> dict:
             })
 
         # ── No results from any provider ──
-        return _ok({
-            "ok": False,
+        return _result(False, {
             "status": "no_results",
             "query": query,
             "results": [],
@@ -383,8 +387,7 @@ def handle_web_search(inv: ToolInvocation) -> dict:
             "hint": _web_no_results_hint(query),
         })
     except Exception as e:
-        return _ok({
-            "ok": False,
+        return _result(False, {
             "status": "provider_error",
             "query": query,
             "results": [],
@@ -431,9 +434,6 @@ def _web_no_results_hint(query: str) -> str:
     if any(w in q for w in ("新闻", "news", "最新", "今日")):
         return "实时新闻建议使用 news.search 工具（规划中）。"
     return "搜索服务没有返回可用结果。我可以基于通用知识回答；如需实时内容，请更换搜索源或尝试更具体的关键词。"
-
-
-def handle_web_scrape(inv: ToolInvocation) -> dict:
 
 
 def handle_web_fetch_summary(inv: ToolInvocation) -> dict:
@@ -993,13 +993,7 @@ ALL_GENERAL_TOOLS = []
 def _planned_handler(name: str):
     """Return a handler for planned (not yet implemented) tools."""
     def handler(inv: ToolInvocation) -> dict:
-        return _ok({
-            "ok": True,
-            "status": "planned",
-            "summary": f"The {name} tool is planned but not yet implemented.",
-            "errors": [],
-            "warnings": [f"{name}_tool_planned"],
-        })
+        return _error(f"工具 {name} 尚未实现")
     return handler
 
 
@@ -1081,12 +1075,13 @@ _reg("run.get_summary", "Run Summary", "session", "low",
 
 # ── Planned: real-time data tools (not yet implemented) ──
 # These are registered as planned so the agent knows not to use them yet.
-_reg("weather.current", "Current Weather", "web", "planned",
-     "Get current weather for a location (planned)", _planned_handler("weather"))
-_reg("weather.forecast", "Weather Forecast", "web", "planned",
-     "Get weather forecast for a location (planned)", _planned_handler("weather forecast"))
-_reg("news.search", "News Search", "web", "planned",
-     "Search recent news articles (planned)", _planned_handler("news search"))
+# ── Planned: real-time data tools (registered disabled so agent can't call them) ──
+_reg("weather.current", "Current Weather", "web", "medium",
+     "Get current weather (planned — not yet available)", _planned_handler("weather"), enabled=False)
+_reg("weather.forecast", "Weather Forecast", "web", "medium",
+     "Get weather forecast (planned — not yet available)", _planned_handler("weather forecast"), enabled=False)
+_reg("news.search", "News Search", "web", "medium",
+     "Search news (planned — not yet available)", _planned_handler("news search"), enabled=False)
 _reg("memory.search", "Memory Search", "session", "low",
      "Search memory store", handle_memory_search)
 
