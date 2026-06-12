@@ -115,13 +115,14 @@ export function ArtifactCenter() {
           }}
         >
           <div style={{ padding: "12px 14px" }}>
-            <div className="section-head" style={{ paddingLeft: 4, marginBottom: 6 }}>
+            <div style={{ marginTop: 4 }} />
+            <div className="section-head" style={{ paddingLeft: 0, marginBottom: 8 }}>
               <IconBox size={11} /> 制品列表
-              <span style={{ marginLeft: "auto", fontSize: 11, color: "var(--ink-soft)", fontWeight: 500 }}>
+              <span style={{ marginLeft: "auto", fontSize: 11, color: "var(--ink-soft)" }}>
                 共 <strong style={{ color: "var(--accent)" }}>{list.state.kind === "success" ? (list.state.data.artifacts ?? []).length : "—"}</strong> 个
               </span>
             </div>
-            <div className="row-flex" style={{ gap: 6, marginBottom: 8 }}>
+            <div style={{ marginLeft: 0, marginBottom: 10 }}>
               <button
                 style={{ 
                   fontSize: 11,
