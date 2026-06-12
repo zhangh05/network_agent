@@ -192,6 +192,40 @@ def test_list_runs_sorts_by_created_at_before_limiting(tmp_path, monkeypatch):
     assert runs[0]["created_at"] == "2026-06-13T00:00:00"
 
 
+def test_list_runs_sorts_mixed_timezone_timestamps_by_instant(tmp_path, monkeypatch):
+    import workspace.manager as manager
+    import workspace.run_store as run_store
+
+    monkeypatch.setattr(manager, "WS_ROOT", tmp_path)
+    monkeypatch.setattr(run_store, "WS_ROOT", tmp_path)
+
+    runs_dir = tmp_path / "default" / "runs"
+    runs_dir.mkdir(parents=True)
+    (runs_dir / "old_failure.json").write_text(json.dumps({
+        "run_id": "old_failure",
+        "created_at": "2026-06-12T10:16:40+08:00",
+        "status": "error",
+    }))
+    (runs_dir / "new_success.json").write_text(json.dumps({
+        "run_id": "new_success",
+        "created_at": "2026-06-12T02:31:13+00:00",
+        "status": "ok",
+    }))
+
+    runs = run_store.list_runs("default", limit=2)
+
+    assert [r["run_id"] for r in runs] == ["new_success", "old_failure"]
+
+
+def test_runtime_prompt_defaults_to_quick_answer_shape():
+    from agent.runtime.prompts import build_system_prompt
+
+    prompt = build_system_prompt()
+
+    assert "3-5" in prompt
+    assert "展开排查步骤" in prompt
+
+
 def test_tool_registry_dispatch_uses_tool_runtime_invoke():
     from agent.tools.registry import ToolRegistry
 

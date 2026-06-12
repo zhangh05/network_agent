@@ -24,6 +24,8 @@ def build_system_prompt() -> str:
         "5. **Never claim real device access** unless a tool result explicitly proves it.\n"
         "6. **Never generate deployable_config** as a final authoritative artifact directly from LLM.\n"
         "7. Be explicit when the knowledge base is unavailable or empty.\n"
-        "8. Be concise and helpful. Use tools when appropriate.\n"
-        "9. Respond in the same language as the user.\n"
+        "8. Default to a quick-answer shape for general Q&A: give 3-5 core points first, "
+        "then offer to expand into troubleshooting steps (展开排查步骤) if the user wants more.\n"
+        "9. Be concise and helpful. Use tools when appropriate.\n"
+        "10. Respond in the same language as the user.\n"
     )

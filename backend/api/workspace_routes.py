@@ -77,9 +77,9 @@ def register_workspace_routes(app):
         limit, err = _validated_limit(default=10, max_value=100)
         if err:
             return err
-        from workspace.run_store import list_runs
+        from workspace.run_store import list_runs, run_sort_key
         runs = list_runs(ws_id, limit=limit)
-        runs_sorted = sorted(runs, key=lambda r: r.get("created_at", ""), reverse=True) if runs else []
+        runs_sorted = sorted(runs, key=run_sort_key, reverse=True) if runs else []
         recent = runs_sorted[:limit]
         safe_recent = []
         # Whitelist of safe fields for public run history (never expose secrets, configs, or prompts)
@@ -125,8 +125,8 @@ def register_workspace_routes(app):
         limit, err = _validated_limit(default=100, max_value=500)
         if err:
             return err
-        from workspace.run_store import list_runs
-        runs = sorted(list_runs(ws_id, limit=limit), key=lambda r: r.get("created_at", ""), reverse=True)
+        from workspace.run_store import list_runs, run_sort_key
+        runs = sorted(list_runs(ws_id, limit=limit), key=run_sort_key, reverse=True)
         return jsonify({"workspace_id": ws_id, "runs": runs, "count": len(runs)})
 
     @app.route("/api/workspaces/<ws_id>/runs/<run_id>")

@@ -2,6 +2,7 @@
 
 import json
 import time
+from datetime import datetime
 from pathlib import Path
 from typing import Optional
 
@@ -198,8 +199,32 @@ def list_runs(ws_id: str = "default", limit: int = 50) -> list:
             runs.append(_normalize_run_record(json.loads(f.read_text())))
         except Exception:
             pass
-    runs.sort(key=lambda r: r.get("created_at") or r.get("finished_at") or "", reverse=True)
+    runs.sort(key=run_sort_key, reverse=True)
     return runs[:limit]
+
+
+def run_sort_key(record: dict) -> tuple:
+    """Sort newest first across mixed ISO formats and timezone styles."""
+    stamp = record.get("created_at") or record.get("started_at") or record.get("finished_at") or ""
+    parsed = _timestamp_seconds(stamp)
+    if parsed is not None:
+        return (1, parsed, str(record.get("run_id", "")))
+    return (0, str(stamp), str(record.get("run_id", "")))
+
+
+def _timestamp_seconds(value: str) -> float | None:
+    if not value:
+        return None
+    text = str(value).strip()
+    if not text:
+        return None
+    try:
+        dt = datetime.fromisoformat(text.replace("Z", "+00:00"))
+    except ValueError:
+        return None
+    if dt.tzinfo is None:
+        dt = dt.replace(tzinfo=datetime.now().astimezone().tzinfo)
+    return dt.timestamp()
 
 
 def _normalize_run_record(record: dict) -> dict:
