@@ -190,14 +190,14 @@ export const workspacesApi = {
     ),
   rename: (
     workspace_id: string,
-    name: string,
+    new_name: string,
     signal?: AbortSignal,
   ): Promise<{ ok: boolean; workspace: Workspace }> =>
     apiRequest<{ ok: boolean; workspace: Workspace }>(
       {
         method: "POST",
         url: `/workspaces/${workspace_id}/rename`,
-        data: { name },
+        data: { new_workspace_id: new_name },
       },
       signal,
     ),
