@@ -114,31 +114,32 @@ export function ArtifactCenter() {
             background: "var(--bg-elev)",
           }}
         >
-          <div style={{ padding: "12px 14px" }}>
-            <div style={{ marginTop: 4 }} />
+          <div style={{ padding: "16px 14px 12px" }}>
             <div className="section-head" style={{ paddingLeft: 0, marginBottom: 8 }}>
               <IconBox size={11} /> 制品列表
-              <span style={{ marginLeft: "auto", fontSize: 11, color: "var(--ink-soft)" }}>
-                共 <strong style={{ color: "var(--accent)" }}>{list.state.kind === "success" ? (list.state.data.artifacts ?? []).length : "—"}</strong> 个
+              <span style={{ marginLeft: "auto", display: "flex", gap: 6, alignItems: "center" }}>
+                <button
+                  style={{ 
+                    fontSize: 11,
+                    border: `1px solid ${batchMode ? "var(--accent)" : "var(--line)"}`,
+                    borderRadius: 6,
+                    padding: "3px 10px",
+                    cursor: "pointer",
+                    background: batchMode ? "var(--accent)" : "var(--bg-elev)",
+                    color: batchMode ? "var(--accent-on)" : "var(--ink-soft)",
+                  }}
+                  onClick={() => { setBatchMode(!batchMode); if (batchMode) setCheckedIds(new Set()); }}
+                  type="button"
+                >
+                  {batchMode ? "取消" : "批量删除"}
+                </button>
+                <span style={{ fontSize: 11, color: "var(--ink-soft)" }}>
+                  共 <strong style={{ color: "var(--accent)" }}>{list.state.kind === "success" ? (list.state.data.artifacts ?? []).length : "—"}</strong> 个
+                </span>
               </span>
             </div>
-            <div style={{ marginLeft: 0, marginBottom: 10 }}>
-              <button
-                style={{ 
-                  fontSize: 11,
-                  border: `1px solid ${batchMode ? "var(--accent)" : "var(--line)"}`,
-                  borderRadius: 6,
-                  padding: "3px 10px",
-                  cursor: "pointer",
-                  background: batchMode ? "var(--accent)" : "var(--bg-elev)",
-                  color: batchMode ? "var(--accent-on)" : "var(--ink-soft)",
-                }}
-                onClick={() => { setBatchMode(!batchMode); if (batchMode) setCheckedIds(new Set()); }}
-                type="button"
-              >
-                {batchMode ? "取消" : "批量删除"}
-              </button>
-              {batchMode && checkedIds.size > 0 && (
+            {batchMode && checkedIds.size > 0 && (
+              <div style={{ marginBottom: 8 }}>
                 <button 
                   style={{ 
                     fontSize: 11,
@@ -154,8 +155,8 @@ export function ArtifactCenter() {
                 >
                   删除 {checkedIds.size} 项
                 </button>
-              )}
-            </div>
+              </div>
+            )}
             <AsyncView
               state={list.state}
               onRetry={list.reload}
