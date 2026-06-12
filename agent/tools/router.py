@@ -32,6 +32,7 @@ class ToolRouter:
         self.registry = registry or ToolRegistry()
         self.model_visible_specs: list = []
         self.llm_name_map: dict = {}  # llm_safe_name → real_tool_id
+        self.dispatch_delegate = None
         # v1.0.3.1: per-instance immutable whitelist
         if allowed_tool_ids:
             eligible = {s.tool_id for s in self.registry.list_model_visible()}
@@ -149,16 +150,47 @@ class ToolRouter:
     def dispatch(self, tool_call: ToolCall, context=None) -> ToolResult:
         """Execute tool call and return ToolResult."""
         try:
-            raw = self.registry.dispatch(tool_call.real_tool_id, tool_call.arguments, context)
+            delegate = self.dispatch_delegate
+            if delegate:
+                raw = delegate(tool_call, context)
+                if isinstance(raw, ToolResult):
+                    return raw
+            else:
+                raw = self.registry.dispatch(tool_call.real_tool_id, tool_call.arguments, context)
+            if isinstance(raw, dict):
+                return ToolResult.from_legacy_dict(
+                    tool_id=tool_call.real_tool_id,
+                    call_id=tool_call.call_id,
+                    d=raw,
+                )
+            raw_get = lambda key, default=None: getattr(raw, key, default)
+            raw_dict = {
+                key: raw_get(key)
+                for key in (
+                    "ok",
+                    "summary",
+                    "artifacts",
+                    "source_count",
+                    "manual_review_count",
+                    "errors",
+                    "warnings",
+                    "metadata",
+                )
+                if raw_get(key, None) is not None
+            }
             return ToolResult(
                 call_id=tool_call.call_id,
                 tool_id=tool_call.real_tool_id,
-                ok=raw.get("ok", False),
-                summary=raw.get("summary", ""),
+                ok=raw_get("ok", False),
+                summary=raw_get("summary", ""),
                 content=str(raw)[:2000],
-                errors=raw.get("errors", []),
-                warnings=raw.get("warnings", []),
-                raw=raw,
+                artifacts=list(raw_get("artifacts", []) or []),
+                source_count=raw_get("source_count", None),
+                manual_review_count=raw_get("manual_review_count", None),
+                errors=raw_get("errors", []),
+                warnings=raw_get("warnings", []),
+                metadata=dict(raw_get("metadata", {}) or {}),
+                raw=raw_dict,
             )
         except Exception as e:
             return ToolResult(

@@ -48,12 +48,18 @@ def build_turn_context(session, turn, services) -> TurnContext:
     # immutable ToolRegistry. This eliminates cross-talk between
     # concurrent turns. The per-turn whitelist is baked in later in
     # step 6 (SkillSelector), creating exactly one ToolRouter per turn.
+    #
+    # Keep the service-level dispatch boundary attached to the per-turn
+    # router. Tests, tracing wrappers, and future policy adapters patch
+    # services.tool_service.dispatch; visibility remains per-turn because
+    # build_tool_call() still runs on the fresh router.
     if services and services.tool_service:
         from agent.tools.router import ToolRouter
         router = services.tool_service
         if isinstance(router, ToolRouter):
             # Build a fresh router — no whitelist yet; that is applied in step 6
             ctx.tool_router = ToolRouter.for_turn(router.registry)
+            ctx.tool_router.dispatch_delegate = router.dispatch
         else:
             ctx.tool_router = router
 
@@ -121,6 +127,8 @@ def build_turn_context(session, turn, services) -> TurnContext:
                 )
                 if base_reg is not None:
                     ctx.tool_router = ToolRouter.for_turn(base_reg, allowed_tool_ids=candidates)
+                    if services and services.tool_service and hasattr(services.tool_service, "dispatch"):
+                        ctx.tool_router.dispatch_delegate = services.tool_service.dispatch
                     dynamic_visibility = True
                     # Reflect the actual visible set (after safety filter).
                     selected_visible_tools = sorted({
@@ -135,6 +143,8 @@ def build_turn_context(session, turn, services) -> TurnContext:
                 )
                 if base_reg is not None:
                     ctx.tool_router = ToolRouter.for_turn(base_reg)
+                    if services and services.tool_service and hasattr(services.tool_service, "dispatch"):
+                        ctx.tool_router.dispatch_delegate = services.tool_service.dispatch
                 selected_visible_tools = []
                 dynamic_visibility = False
         except Exception as e:

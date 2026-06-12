@@ -368,6 +368,7 @@ class TestSystemPromptContract:
             history_window=[],
             user_input="translate config",
             skill_snapshot={},
+            safe_context={},
         )
 
         messages = _build_initial_messages(ctx, services=None)
@@ -376,6 +377,42 @@ class TestSystemPromptContract:
         assert "Selected skills for this turn:" in joined
         assert "config_translation.translate_config" in joined
         assert "Planned capabilities are NOT callable." in joined
+
+    def test_initial_messages_include_safe_context_summary(self):
+        """RuntimeLoop must put safe_context into messages when using prebuilt messages."""
+        from types import SimpleNamespace
+        from agent.context.snapshot import RuntimeSnapshot
+        from agent.runtime.loop import _build_initial_messages
+
+        ctx = SimpleNamespace(
+            runtime_snapshot=RuntimeSnapshot().to_dict(),
+            workspace_id="default",
+            session_id="session_0",
+            model_config={"model": "MiniMax-M3"},
+            history_window=[],
+            user_input="answer from context",
+            skill_snapshot={},
+            safe_context={
+                "intent": "context_qa",
+                "capability_id": "knowledge_query",
+                "artifact_refs": [{"artifact_id": "art_123", "title": "OSPF note"}],
+                "memory_hits": [{"source_id": "kb_ospf", "excerpt": "FULL to INIT often means one-way hello."}],
+                "context_warnings": ["stale_index"],
+                "workspace_state": {
+                    "safe_flag": "visible",
+                    "source_config": "interface Gi0/1\n password should not be copied wholesale",
+                },
+            },
+        )
+
+        messages = _build_initial_messages(ctx, services=None)
+        joined = "\n".join(str(getattr(m, "content", m)) for m in messages)
+
+        assert "[Safe Context]" in joined
+        assert "kb_ospf" in joined
+        assert "art_123" in joined
+        assert "stale_index" in joined
+        assert "source_config" not in joined
 
 
 # ═══════════════════════════════════════════════════════════════════════

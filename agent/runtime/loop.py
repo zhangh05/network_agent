@@ -609,6 +609,10 @@ def _build_initial_messages(context, services) -> list:
     snap.model = context.model_config.get("model", "")
     messages.append(RuntimeContextMessage(content=snap.to_prompt_text()).to_llm_message())
 
+    safe_context_text = _safe_context_prompt_text(getattr(context, "safe_context", None))
+    if safe_context_text:
+        messages.append(RuntimeContextMessage(content=safe_context_text).to_llm_message())
+
     # Skill injections
     if services and services.skill_service:
         try:
@@ -628,6 +632,91 @@ def _build_initial_messages(context, services) -> list:
     messages.append(UserMessage(content=context.user_input).to_llm_message())
 
     return messages
+
+
+def _safe_context_prompt_text(safe_context: dict | None) -> str:
+    """Project safe_context into a compact prompt block.
+
+    The provider only receives messages, so RuntimeLoop must explicitly include
+    the safe, summarized context it wants the model to use. Keep this projection
+    narrow: no raw source/deployable config and no arbitrary workspace payloads.
+    """
+    if not isinstance(safe_context, dict) or not safe_context:
+        return ""
+
+    projected = {}
+    scalar_keys = (
+        "workspace_id",
+        "session_id",
+        "intent",
+        "capability_id",
+        "source_config_artifact_id",
+        "last_result_summary",
+        "job_summary",
+    )
+    for key in scalar_keys:
+        if key in safe_context and safe_context[key] not in (None, "", [], {}):
+            projected[key] = _safe_prompt_value(safe_context[key])
+
+    for key in ("artifact_refs", "memory_hits", "context_warnings", "citations"):
+        value = safe_context.get(key)
+        if value:
+            projected[key] = _safe_prompt_value(value, max_items=5)
+
+    workspace_state = safe_context.get("workspace_state")
+    if isinstance(workspace_state, dict):
+        state = {}
+        for key, value in workspace_state.items():
+            if _is_prompt_safe_workspace_state_key(key) and value not in (None, "", [], {}):
+                state[key] = _safe_prompt_value(value, max_items=3)
+            if len(state) >= 8:
+                break
+        if state:
+            projected["workspace_state"] = state
+
+    if not projected:
+        return ""
+    text = json.dumps(projected, ensure_ascii=False, sort_keys=True, default=str)
+    if len(text) > 5000:
+        text = text[:5000] + "...[truncated]"
+    return "[Safe Context]\nUse this summarized context when answering. If it is insufficient, say what is missing.\n" + text
+
+
+def _safe_prompt_value(value, max_items: int = 8, max_text: int = 600):
+    if isinstance(value, dict):
+        result = {}
+        for key, item in value.items():
+            if _is_forbidden_prompt_key(str(key)):
+                continue
+            result[str(key)] = _safe_prompt_value(item, max_items=3, max_text=240)
+            if len(result) >= max_items:
+                break
+        return result
+    if isinstance(value, (list, tuple)):
+        return [_safe_prompt_value(item, max_items=3, max_text=240) for item in list(value)[:max_items]]
+    if isinstance(value, (str, int, float, bool)):
+        text = str(value)
+        return text[:max_text] + ("...[truncated]" if len(text) > max_text else "")
+    return str(value)[:max_text]
+
+
+def _is_prompt_safe_workspace_state_key(key: str) -> bool:
+    return not _is_forbidden_prompt_key(key)
+
+
+def _is_forbidden_prompt_key(key: str) -> bool:
+    lower = key.lower()
+    forbidden = (
+        "source_config",
+        "deployable_config",
+        "raw_config",
+        "secret",
+        "password",
+        "token",
+        "api_key",
+        "authorization",
+    )
+    return any(part in lower for part in forbidden)
 
 
 def _collect_events(audit_events, turn_id: str) -> list:

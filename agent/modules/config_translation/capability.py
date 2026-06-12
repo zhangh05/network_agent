@@ -123,7 +123,7 @@ CAPABILITY_CONFIG_TRANSLATION = CapabilityManifest(
             description="Translated configuration text (NOT deployable).",
             artifact_type="translated_config",
             visible_to_user=True,
-            sensitivity="internal",
+            sensitivity="sensitive",
             authoritative=False,
             metadata={
                 "deployable_config": False,
@@ -149,7 +149,7 @@ CAPABILITY_CONFIG_TRANSLATION = CapabilityManifest(
             description="The translated_config persisted as an artifact.",
             artifact_type="translated_config",
             visible_to_user=True,
-            sensitivity="internal",
+            sensitivity="sensitive",
             authoritative=False,
         ),
     ],
