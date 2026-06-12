@@ -147,16 +147,22 @@ export function ArtifactCenter() {
                   确认删除 ({checkedIds.size})
                 </button>
               )}
-              <span className="mono" style={{
+              <span className="text-xs" style={{
                 marginLeft: "auto",
-                fontSize: 10,
                 color: "var(--ink-mute)",
+              }}>
+                当前制品
+              </span>
+              <span className="mono" style={{
+                fontSize: 10,
+                color: "var(--ink)",
                 textTransform: "none",
                 letterSpacing: 0,
                 background: "var(--bg-soft)",
                 padding: "2px 8px",
                 borderRadius: 10,
                 border: "1px solid var(--line-soft)",
+                marginLeft: 4,
               }}>
                 {list.state.kind === "success" ? (list.state.data.artifacts ?? []).length : "—"}
               </span>
