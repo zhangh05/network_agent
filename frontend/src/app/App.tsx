@@ -80,12 +80,12 @@ export function App() {
     <BrowserRouter future={{ v7_relativeSplatPath: true, v7_startTransition: true }}>
       <div className="app-shell">
         <header className="app-header">
-          <a className="brand" href="/" aria-label="网工智枢 · Operations Console">
+          <a className="brand" href="/" aria-label="Network Agent · Operations Console">
             <span className="brand-mark" aria-hidden>
               网
             </span>
             <span className="brand-text">
-              <span>网工智枢</span>
+              <span>Network Agent</span>
               <small>Operations Console{version ? ` · ${formatVersion(version)}` : ""}</small>
             </span>
           </a>

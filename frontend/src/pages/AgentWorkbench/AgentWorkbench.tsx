@@ -170,8 +170,8 @@ export function AgentWorkbench() {
       <div className="wb-chat" ref={chatRef} data-testid="chat-stream">
         {history.length === 0 && !sending ? (
           <div className="wb-empty" data-testid="workbench-empty">
-            <h2>网络工程 AI 工作台</h2>
-            <p>描述网络问题、粘贴配置或输入排查目标，即可开始。</p>
+            <h2>网络任务工作区</h2>
+            <p>输入故障现象、配置片段或排查目标，系统会按会话记录、知识证据和工具结果组织输出。</p>
             <div className="wb-empty-chips">
               {QUICK_CHIPS.map((c) => (
                 <button key={c} className="wb-input-chip" type="button" onClick={() => pickChip(c)}>
