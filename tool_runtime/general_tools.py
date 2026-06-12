@@ -676,14 +676,20 @@ def handle_web_fetch_summary(inv: ToolInvocation) -> dict:
         return _error("blocked: private/local network URLs not allowed")
     try:
         import requests
-        resp = requests.get(url, timeout=10, headers={"User-Agent": "NetworkAgent/0.2"})
+        headers = {
+            "User-Agent": "NetworkAgent/0.2",
+            "Accept-Language": "zh-CN,zh;q=0.9,en;q=0.8",
+        }
+        resp = requests.get(url, timeout=10, headers=headers)
         if resp.status_code != 200:
             return _error(f"HTTP {resp.status_code}")
-        text = resp.text[:2000]
+        _fix_encoding(resp)
+        html = resp.text
         return _ok({
             "url": url,
-            "title": _extract_title(text),
-            "summary": _safe_preview(_strip_tags(text), 500),
+            "title": _extract_title(html),
+            "summary": _safe_preview(_html_to_text(html), 800),
+            "text_length": len(html),
             "status_code": resp.status_code,
             "source_type": "web_fetch",
         })
@@ -724,10 +730,15 @@ def handle_web_extract_links(inv: ToolInvocation) -> dict:
         return _error("blocked: private/local network URLs not allowed")
     try:
         import requests
-        resp = requests.get(url, timeout=10, headers={"User-Agent": "NetworkAgent/0.2"})
+        headers = {
+            "User-Agent": "NetworkAgent/0.2",
+            "Accept-Language": "zh-CN,zh;q=0.9,en;q=0.8",
+        }
+        resp = requests.get(url, timeout=10, headers=headers)
         if resp.status_code != 200:
             return _error(f"HTTP {resp.status_code}")
-        links = re.findall(r'href=["\'](https?://[^"\'\s]+)', resp.text[:10000])
+        _fix_encoding(resp)
+        links = re.findall(r'href=["\'](https?://[^"\'\s]+)', resp.text)
         unique = list(dict.fromkeys(links))[:20]
         return _ok({"url": url, "links": unique, "count": len(unique)})
     except Exception as e:
@@ -743,10 +754,15 @@ def handle_web_save_to_artifact(inv: ToolInvocation) -> dict:
         return _error("blocked: private/local network URLs not allowed")
     try:
         import requests
-        resp = requests.get(url, timeout=10, headers={"User-Agent": "NetworkAgent/0.2"})
+        headers = {
+            "User-Agent": "NetworkAgent/0.2",
+            "Accept-Language": "zh-CN,zh;q=0.9,en;q=0.8",
+        }
+        resp = requests.get(url, timeout=10, headers=headers)
         if resp.status_code != 200:
             return _error(f"HTTP {resp.status_code}")
-        content = f"# {title}\n\nSource: {url}\n\n{_strip_tags(resp.text[:5000])}"
+        _fix_encoding(resp)
+        content = f"# {title}\n\nSource: {url}\n\n{_html_to_text(resp.text)}"
         from artifacts.store import save_artifact
         import uuid
         art_id = f"art_{uuid.uuid4().hex[:12]}"
@@ -757,13 +773,77 @@ def handle_web_save_to_artifact(inv: ToolInvocation) -> dict:
         return _error(str(e)[:200])
 
 
+def _fix_encoding(resp):
+    """Fix response encoding for Chinese page support.
+
+    1. Look for <meta charset> in raw bytes (works even without chardet)
+    2. Fall back to resp.apparent_encoding (chardet)
+    3. Last resort: try common CJK encodings
+    """
+    # Already explicitly set
+    if resp.encoding and resp.encoding.lower() not in ("iso-8859-1", "latin-1", ""):
+        return
+    # Try to detect from meta tag in raw bytes (first 2048 bytes)
+    try:
+        raw_head = resp.content[:2048]
+        m = re.search(rb'charset[="\s]+([a-zA-Z0-9_-]+)', raw_head, re.I)
+        if m:
+            candidate = m.group(1).decode("ascii", errors="replace").lower()
+            # Map common CJK aliases
+            aliases = {"gb2312": "gbk", "gbk": "gbk", "gb18030": "gb18030",
+                       "big5": "big5", "utf-8": "utf-8", "utf8": "utf-8"}
+            if candidate in aliases:
+                resp.encoding = aliases[candidate]
+                return
+            resp.encoding = candidate
+            return
+    except Exception:
+        pass
+    # Fall back to auto-detection (chardet)
+    resp.encoding = resp.apparent_encoding
+
+
+def _html_to_text(html: str) -> str:
+    """Extract readable text from HTML, CJK-friendly.
+
+    1. Strip <script>, <style>, <noscript>, <head> blocks
+    2. Remove remaining HTML tags
+    3. Decode common HTML entities
+    4. Collapse whitespace
+    """
+    if not html:
+        return ""
+    # Remove invisible blocks
+    text = re.sub(r'<(script|style|noscript|head)[^>]*>.*?</\1>', ' ', html, flags=re.I | re.S)
+    text = re.sub(r'<!--.*?-->', ' ', text, flags=re.S)
+    # Replace block-level tags with line breaks (preserve paragraph structure)
+    text = re.sub(r'</?(br|p|div|li|h[1-6]|tr|section|article|header|footer|nav)[^>]*>', '\n', text, flags=re.I)
+    # Remove all remaining tags
+    text = re.sub(r'<[^>]+>', ' ', text)
+    # Decode common HTML entities
+    import html as _html
+    text = _html.unescape(text)
+    # Collapse whitespace
+    text = re.sub(r'&nbsp;', ' ', text, flags=re.I)
+    text = re.sub(r' {2,}', ' ', text)
+    text = re.sub(r'\n{3,}', '\n\n', text)
+    return text.strip()
+
+
 def _strip_tags(html: str) -> str:
-    return re.sub(r'<[^>]+>', ' ', html)
+    """Remove script/style blocks then HTML tags."""
+    if not html:
+        return ""
+    text = re.sub(r'<(script|style)[^>]*>.*?</\1>', ' ', html, flags=re.I | re.S)
+    return re.sub(r'<[^>]+>', ' ', text)
 
 
 def _extract_title(html: str) -> str:
     m = re.search(r'<title[^>]*>(.*?)</title>', html, re.I | re.S)
-    return m.group(1).strip()[:200] if m else ""
+    if not m:
+        return ""
+    import html as _html
+    return _html.unescape(m.group(1).strip())[:200]
 
 
 # ═══════════════ D. Session / Run / Memory Tools ═══════════════
