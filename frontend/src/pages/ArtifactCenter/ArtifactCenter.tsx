@@ -118,6 +118,9 @@ export function ArtifactCenter() {
             <div className="section-head" style={{ paddingLeft: 0, marginBottom: 8 }}>
               <IconBox size={11} /> 制品列表
               <span style={{ marginLeft: "auto", display: "flex", gap: 6, alignItems: "center" }}>
+                <span style={{ fontSize: 11, color: "var(--ink-soft)" }}>
+                  共 <strong style={{ color: "var(--accent)" }}>{list.state.kind === "success" ? (list.state.data.artifacts ?? []).length : "—"}</strong> 个
+                </span>
                 <button
                   style={{ 
                     fontSize: 11,
@@ -133,9 +136,6 @@ export function ArtifactCenter() {
                 >
                   {batchMode ? "取消" : "批量删除"}
                 </button>
-                <span style={{ fontSize: 11, color: "var(--ink-soft)" }}>
-                  共 <strong style={{ color: "var(--accent)" }}>{list.state.kind === "success" ? (list.state.data.artifacts ?? []).length : "—"}</strong> 个
-                </span>
               </span>
             </div>
             {batchMode && checkedIds.size > 0 && (
