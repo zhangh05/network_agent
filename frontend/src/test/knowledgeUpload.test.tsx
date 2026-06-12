@@ -29,6 +29,7 @@ describe("KnowledgeLibrary upload", () => {
 
     expect(await screen.findByTestId("knowledge-upload-card")).toBeInTheDocument();
     expect(screen.getByTestId("knowledge-upload-file")).toBeInTheDocument();
+    expect(screen.getByText("选择本地文档")).toBeInTheDocument();
     expect(screen.getByTestId("btn-knowledge-upload")).toBeDisabled();
   });
 

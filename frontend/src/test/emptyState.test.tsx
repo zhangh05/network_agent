@@ -18,7 +18,8 @@ describe("Empty state", () => {
   it("renders empty state when backend returns []", async () => {
     enqueue("/workspaces/ws-1/review-items", { status: 200, data: { items: [] } });
     render(<ReviewCenter />);
-    const empty = await screen.findByTestId("empty-state");
-    expect(empty.textContent).toMatch(/无 review item/i);
+    const empty = await screen.findByTestId("review-empty-state");
+    expect(empty.textContent).toContain("当前没有待处理评审");
+    expect(empty.textContent).toContain("评审中心只收集需要人工确认的结果");
   });
 });

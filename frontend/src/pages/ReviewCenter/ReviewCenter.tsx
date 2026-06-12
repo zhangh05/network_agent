@@ -5,6 +5,7 @@ import { useSessionStore } from "../../stores/session";
 import { useToastStore } from "../../stores/toast";
 import { isApiError } from "../../types";
 import type { ReviewItem, ReviewStatus } from "../../types";
+import { IconAlert, IconCheck, IconRefresh } from "../../components/Icon";
 
 const STATUS_OPTIONS: { value: ReviewStatus | "all"; label: string }[] = [
   { value: "all", label: "全部" },
@@ -113,74 +114,82 @@ export function ReviewCenter() {
         </div>
       </div>
       <div className="page-body">
-        <AsyncView
-          state={list.state}
-          onRetry={list.reload}
-          emptyText="无 review item"
-          emptyHint="切换过滤条件或等待 agent run 触发 review"
-        >
-          {(d) => (
-            <table className="tbl" data-testid="review-tbl">
-              <thead>
-                <tr>
-                  <th>需要你看的问题</th>
-                  <th>影响</th>
-                  <th>状态</th>
-                  <th>备注</th>
-                  <th style={{ width: 90 }}>操作</th>
-                </tr>
-              </thead>
-              <tbody>
-                {(d.items ?? []).map((it) => {
-                  const artifactId = (it as ReviewItem & { artifact_id?: string }).artifact_id;
-                  return (
-                    <tr key={it.item_id} data-testid={`review-${it.item_id}`}>
-                      <td>
-                        <div className="text-sm">{reviewReason(it)}</div>
-                        <details className="collapse mt-1">
-                          <summary className="text-xs muted">技术详情</summary>
-                          <div className="text-xs muted mt-1">
-                            item: <InlineCode>{it.item_id}</InlineCode>
-                            {artifactId && <> · artifact: <InlineCode>{artifactId}</InlineCode></>}
-                            {(it as ReviewItem & { category?: string }).category && (
-                              <> · category: {(it as ReviewItem & { category?: string }).category}</>
-                            )}
-                          </div>
-                        </details>
-                      </td>
-                      <td>
-                        <Badge kind={severityKind(it.severity)}>
-                          {severityLabel(it.severity)}
-                        </Badge>
-                      </td>
-                      <td>
-                        <Badge kind={STATUS_KIND[it.status]} withDot>
-                          {STATUS_LABEL[it.status]}
-                        </Badge>
-                      </td>
-                      <td className="text-sm muted">
-                        {it.user_note || <span className="muted">—</span>}
-                      </td>
-                      <td>
-                        <button
-                          className="btn sm"
-                          type="button"
-                          onClick={() => {
-                            setEditing(it);
-                            setNote(it.user_note ?? "");
-                          }}
-                          data-testid={`btn-edit-${it.item_id}`}
-                        >
-                          编辑
-                        </button>
-                      </td>
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
-          )}
-        </AsyncView>
+        {list.state.kind === "empty" ? (
+          <ReviewEmptyState
+            filter={filter}
+            onReload={list.reload}
+            onShowAll={() => setFilter("all")}
+          />
+        ) : (
+          <AsyncView
+            state={list.state}
+            onRetry={list.reload}
+            emptyText="无 review item"
+            emptyHint="切换过滤条件或等待 agent run 触发 review"
+          >
+            {(d) => (
+              <table className="tbl" data-testid="review-tbl">
+                <thead>
+                  <tr>
+                    <th>需要你看的问题</th>
+                    <th>影响</th>
+                    <th>状态</th>
+                    <th>备注</th>
+                    <th style={{ width: 90 }}>操作</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {(d.items ?? []).map((it) => {
+                    const artifactId = (it as ReviewItem & { artifact_id?: string }).artifact_id;
+                    return (
+                      <tr key={it.item_id} data-testid={`review-${it.item_id}`}>
+                        <td>
+                          <div className="text-sm">{reviewReason(it)}</div>
+                          <details className="collapse mt-1">
+                            <summary className="text-xs muted">技术详情</summary>
+                            <div className="text-xs muted mt-1">
+                              item: <InlineCode>{it.item_id}</InlineCode>
+                              {artifactId && <> · artifact: <InlineCode>{artifactId}</InlineCode></>}
+                              {(it as ReviewItem & { category?: string }).category && (
+                                <> · category: {(it as ReviewItem & { category?: string }).category}</>
+                              )}
+                            </div>
+                          </details>
+                        </td>
+                        <td>
+                          <Badge kind={severityKind(it.severity)}>
+                            {severityLabel(it.severity)}
+                          </Badge>
+                        </td>
+                        <td>
+                          <Badge kind={STATUS_KIND[it.status]} withDot>
+                            {STATUS_LABEL[it.status]}
+                          </Badge>
+                        </td>
+                        <td className="text-sm muted">
+                          {it.user_note || <span className="muted">—</span>}
+                        </td>
+                        <td>
+                          <button
+                            className="btn sm"
+                            type="button"
+                            onClick={() => {
+                              setEditing(it);
+                              setNote(it.user_note ?? "");
+                            }}
+                            data-testid={`btn-edit-${it.item_id}`}
+                          >
+                            编辑
+                          </button>
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            )}
+          </AsyncView>
+        )}
       </div>
 
       {editing && (
@@ -253,6 +262,46 @@ export function ReviewCenter() {
           </div>
         </div>
       )}
+    </div>
+  );
+}
+
+function ReviewEmptyState({
+  filter,
+  onReload,
+  onShowAll,
+}: {
+  filter: ReviewStatus | "all";
+  onReload: () => void;
+  onShowAll: () => void;
+}) {
+  const isPending = filter === "pending";
+  return (
+    <div className="review-empty" data-testid="review-empty-state">
+      <div className="review-empty-icon">
+        {isPending ? <IconCheck size={22} /> : <IconAlert size={22} />}
+      </div>
+      <div>
+        <h2>{isPending ? "当前没有待处理评审" : "这个筛选下没有评审项"}</h2>
+        <p>
+          评审中心只收集需要人工确认的结果，例如高风险配置、翻译残留、敏感摘录或需要复核的制品。
+        </p>
+      </div>
+      <div className="review-empty-steps">
+        <span>1. 在工作台发起一次网络任务</span>
+        <span>2. 有风险的制品会自动进入这里</span>
+        <span>3. 人工接受、忽略或备注后再继续</span>
+      </div>
+      <div className="row-flex" style={{ justifyContent: "center", flexWrap: "wrap" }}>
+        <button className="btn primary" type="button" onClick={onReload}>
+          <IconRefresh size={12} /> 刷新
+        </button>
+        {!isPending && (
+          <button className="btn" type="button" onClick={onShowAll}>
+            查看全部
+          </button>
+        )}
+      </div>
     </div>
   );
 }

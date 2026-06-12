@@ -49,4 +49,12 @@ describe("ReviewCenter — review item status", () => {
     // accepted → 已接受
     expect(row.textContent).toContain("已接受");
   });
+
+  it("explains the review workflow when pending items are empty", async () => {
+    enqueue("/workspaces/ws-1/review-items", { status: 200, data: { items: [] } });
+    render(<ReviewCenter />);
+
+    expect(await screen.findByTestId("review-empty-state")).toHaveTextContent("当前没有待处理评审");
+    expect(screen.getByText("2. 有风险的制品会自动进入这里")).toBeInTheDocument();
+  });
 });

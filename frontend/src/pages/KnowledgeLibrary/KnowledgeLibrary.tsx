@@ -11,7 +11,7 @@ import { useSessionStore } from "../../stores/session";
 import { useToastStore } from "../../stores/toast";
 import { isApiError } from "../../types";
 import type { KnowledgeSource } from "../../types";
-import { IconBook, IconPlus, IconRefresh, IconSearch } from "../../components/Icon";
+import { IconBook, IconDocument, IconPlus, IconRefresh, IconSearch } from "../../components/Icon";
 import { shortId } from "../../utils/displayText";
 
 export function KnowledgeLibrary() {
@@ -25,6 +25,7 @@ export function KnowledgeLibrary() {
   const [uploadTitle, setUploadTitle] = useState("");
   const [uploadTags, setUploadTags] = useState("");
   const [uploading, setUploading] = useState(false);
+  const [uploadInputKey, setUploadInputKey] = useState(0);
 
   const sources = useAsync<{ sources: KnowledgeSource[]; counts?: Record<string, number> }>(
     (s) =>
@@ -112,6 +113,7 @@ export function KnowledgeLibrary() {
         body: `${res.source?.title || uploadFile.name} · ${res.source?.chunk_count ?? 0} 个片段`,
       });
       setUploadFile(null);
+      setUploadInputKey((v) => v + 1);
       setUploadTitle("");
       setUploadTags("");
       sources.reload();
@@ -158,21 +160,21 @@ export function KnowledgeLibrary() {
       </div>
 
       <div className="page-body">
-        <div className="card mb-3" data-testid="knowledge-suggestions" style={{ background: "var(--bg-elev)", borderColor: "var(--accent)" }}>
-          <div className="text-xs" style={{ color: "var(--ink-mute)", marginBottom: 8 }}>
+        <div className="knowledge-suggestions" data-testid="knowledge-suggestions">
+          <div className="text-xs muted">
             可以试试这些问题：
           </div>
-          <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+          <div className="knowledge-suggestion-list">
             {["OSPF 邻居异常排查", "配置翻译规范", "出口策略相关文档"].map((q) => (
-              <span
+              <button
                 key={q}
-                className="status-pill"
-                style={{ cursor: "pointer" }}
+                type="button"
+                className="status-pill knowledge-suggestion"
                 onClick={() => { setQuery(q); }}
               >
                 <IconSearch size={10} style={{ marginRight: 4 }} />
                 {q}
-              </span>
+              </button>
             ))}
           </div>
         </div>
@@ -185,10 +187,12 @@ export function KnowledgeLibrary() {
           <div className="text-xs muted mb-3">
             支持 Markdown、文本、HTML、DOCX、PDF。上传后会自动整理为可检索知识源。
           </div>
-          <div className="row-flex mb-2" style={{ gap: 8, alignItems: "stretch" }}>
+          <div className="knowledge-upload-row mb-2">
             <input
-              className="input"
+              key={uploadInputKey}
+              className="sr-only"
               type="file"
+              id="knowledge-upload-file"
               accept=".md,.markdown,.txt,.html,.htm,.docx,.pdf"
               data-testid="knowledge-upload-file"
               onChange={(e) => {
@@ -196,8 +200,20 @@ export function KnowledgeLibrary() {
                 setUploadFile(file);
                 if (file && !uploadTitle.trim()) setUploadTitle(file.name.replace(/\.[^.]+$/, ""));
               }}
-              style={{ flex: 1 }}
             />
+            <label className={"file-picker" + (uploadFile ? " selected" : "")} htmlFor="knowledge-upload-file">
+              <span className="file-picker-icon">
+                <IconDocument size={14} />
+              </span>
+              <span className="file-picker-main">
+                <span className="file-picker-title">
+                  {uploadFile ? uploadFile.name : "选择本地文档"}
+                </span>
+                <span className="file-picker-hint">
+                  {uploadFile ? "已准备整理为知识源" : "Markdown / 文本 / HTML / DOCX / PDF"}
+                </span>
+              </span>
+            </label>
             <button
               className="btn primary"
               type="button"
@@ -208,27 +224,20 @@ export function KnowledgeLibrary() {
               <IconPlus size={12} /> {uploading ? "上传中…" : "上传"}
             </button>
           </div>
-          <div className="row-flex" style={{ gap: 8 }}>
+          <div className="knowledge-meta-grid">
             <input
               className="input"
               placeholder="文档名（可选）"
               value={uploadTitle}
               onChange={(e) => setUploadTitle(e.target.value)}
-              style={{ flex: 1 }}
             />
             <input
               className="input"
               placeholder="标签，用逗号分隔（可选）"
               value={uploadTags}
               onChange={(e) => setUploadTags(e.target.value)}
-              style={{ flex: 1 }}
             />
           </div>
-          {uploadFile && (
-            <div className="text-xs muted mt-2">
-              已选择: <strong>{uploadFile.name}</strong>
-            </div>
-          )}
         </div>
 
         <div className="card" data-testid="knowledge-import-card">
