@@ -95,10 +95,39 @@ class ToolRegistry:
         if self._tool_client is None:
             return {"ok": False, "status": "failed", "summary": "No tool client", "errors": ["no tool client"]}
         try:
-            result = self._tool_client.invoke(tool_id, args, context=context)
+            # v1.0.3.5: Adapt Agent Runtime's TurnContext (or any context-like
+            # object) into the ToolRuntimeContext that ToolRuntimeClient expects.
+            tc = _adapt_context_for_tool_runtime(context)
+            result = self._tool_client.invoke(tool_id, args, context=tc)
             return _tool_runtime_result_to_dict(result)
         except Exception as e:
             return {"ok": False, "status": "failed", "summary": str(e)[:200], "errors": [str(e)[:200]]}
+
+
+def _adapt_context_for_tool_runtime(ctx) -> "ToolRuntimeContext":
+    """Project an Agent Runtime TurnContext (or similar) into a
+    ToolRuntimeContext so the tool execution layer never receives
+    an object it doesn't understand."""
+    from tool_runtime.context import ToolRuntimeContext
+    if isinstance(ctx, ToolRuntimeContext):
+        return ctx
+    if ctx is None:
+        return ToolRuntimeContext()
+    return ToolRuntimeContext(
+        workspace_id=getattr(ctx, "workspace_id", ""),
+        run_id=getattr(ctx, "turn_id", getattr(ctx, "run_id", "")),
+        trace_id=getattr(ctx, "trace_id", ""),
+        job_id=getattr(ctx, "job_id", ""),
+        capability=getattr(ctx, "metadata", {}).get("capability_id", "") if hasattr(ctx, "metadata") else "",
+        skill=_first(getattr(ctx, "metadata", {}).get("selected_skills", [])) if hasattr(ctx, "metadata") else "",
+        module=getattr(ctx, "metadata", {}).get("active_module", "") if hasattr(ctx, "metadata") else "",
+        requested_by="agent:runtime_loop",
+        dry_run_default=False,
+    )
+
+
+def _first(lst):
+    return lst[0] if lst else ""
 
 
 def _tool_runtime_result_to_dict(result) -> dict:
