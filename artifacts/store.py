@@ -21,7 +21,7 @@ WS_ROOT = ROOT / "workspaces"
 ALLOWED_SOURCE_DIRS = ["runtime/uploads", "runtime/temp",
                         "artifacts/quarantine", "artifacts/temp", "shared"]
 
-MAX_FILE_SIZE = 10 * 1024 * 1024  # 10MB
+MAX_FILE_SIZE = 200 * 1024 * 1024  # 200MB
 
 
 def _get_max_size() -> int:
