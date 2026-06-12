@@ -149,11 +149,33 @@ def register_knowledge_routes(app):
         ws_id, err = _validated_ws_id(ws_id)
         if err:
             return err
-        from knowledge.indexer import reindex_source
-        source = reindex_source(ws_id, source_id)
-        if not source:
-            return jsonify({"ok": False, "error": "source_not_found_or_indexing_failed"}), 404
-        return jsonify({"ok": True, "source": source.as_dict()})
+        # Try legacy store first
+        from knowledge.indexer import reindex_source as legacy_reindex
+        source = legacy_reindex(ws_id, source_id)
+        if source is not None:
+            return jsonify({"ok": True, "source": source.as_dict()})
+        # Try v2 store (ksrc_* prefix)
+        from agent.modules.knowledge.service import reindex_source as v2_reindex
+        try:
+            result = v2_reindex(ws_id, source_id)
+            if result and isinstance(result, dict):
+                ok = result.get("ok", False)
+                if not ok:
+                    return jsonify(result), 500
+                # v2 reindex returns dict with source_id; re-fetch full source
+                from agent.modules.knowledge.service import list_sources as v2_list
+                all_src = v2_list(ws_id)
+                v2_sources = all_src.get("sources", []) if isinstance(all_src, dict) else []
+                for s in v2_sources:
+                    sid = s.source_id if hasattr(s, "source_id") else s.get("source_id", "")
+                    if sid == source_id:
+                        sd = s.as_dict() if hasattr(s, "as_dict") else s
+                        return jsonify({"ok": True, "source": sd})
+                # Not found in refreshed list, return raw result
+                return jsonify({"ok": True, "source": result})
+        except Exception:
+            pass
+        return jsonify({"ok": False, "error": "source_not_found_or_indexing_failed"}), 404
 
     # ── Delete ──
     @app.route("/api/knowledge/sources/<source_id>", methods=["DELETE"])
