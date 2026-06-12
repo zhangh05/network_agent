@@ -224,25 +224,6 @@ export function KnowledgeLibrary() {
       </div>
 
       <div className="page-body">
-        <div className="knowledge-suggestions" data-testid="knowledge-suggestions">
-          <div className="text-xs muted">
-            可以试试这些问题：
-          </div>
-          <div className="knowledge-suggestion-list">
-            {["OSPF 邻居异常排查", "配置翻译规范", "出口策略相关文档"].map((q) => (
-              <button
-                key={q}
-                type="button"
-                className="status-pill knowledge-suggestion"
-                onClick={() => { setQuery(q); }}
-              >
-                <IconSearch size={10} style={{ marginRight: 4 }} />
-                {q}
-              </button>
-            ))}
-          </div>
-        </div>
-
         <div className="card" data-testid="knowledge-upload-card">
           <div className="card-title">
             <IconPlus size={12} />
