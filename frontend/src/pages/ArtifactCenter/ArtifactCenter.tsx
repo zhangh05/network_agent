@@ -149,22 +149,14 @@ export function ArtifactCenter() {
               )}
               <span className="text-xs" style={{
                 marginLeft: "auto",
-                color: "var(--ink-mute)",
-              }}>
-                当前制品
-              </span>
-              <span className="mono" style={{
-                fontSize: 10,
-                color: "var(--ink)",
-                textTransform: "none",
-                letterSpacing: 0,
+                color: "var(--ink-soft)",
                 background: "var(--bg-soft)",
-                padding: "2px 8px",
+                padding: "2px 10px",
                 borderRadius: 10,
                 border: "1px solid var(--line-soft)",
-                marginLeft: 4,
+                whiteSpace: "nowrap",
               }}>
-                {list.state.kind === "success" ? (list.state.data.artifacts ?? []).length : "—"}
+                当前制品 <strong style={{ color: "var(--ink)" }}>{list.state.kind === "success" ? (list.state.data.artifacts ?? []).length : "—"}</strong>
               </span>
             </div>
             <AsyncView
