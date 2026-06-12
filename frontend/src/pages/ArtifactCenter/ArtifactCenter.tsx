@@ -48,6 +48,20 @@ export function ArtifactCenter() {
   const [checkedIds, setCheckedIds] = useState<Set<string>>(new Set());
   const toast = useToastStore((s) => s.show);
 
+  async function deleteSingle(artifact_id: string, title: string) {
+    if (!currentWorkspaceId) return;
+    if (!confirm(`确认删除「${title || artifact_id}」？`)) return;
+    try {
+      const res = await artifactsApi.batchDelete(currentWorkspaceId, [artifact_id]);
+      toast({ kind: "success", title: `已删除 ${res.deleted} 个` });
+      setSelected(null);
+      setCheckedIds((prev) => { const n = new Set(prev); n.delete(artifact_id); return n; });
+      list.reload();
+    } catch (e: unknown) {
+      toast({ kind: "error", title: "删除失败", body: isApiError(e) ? e.message : String(e) });
+    }
+  }
+
   const list = useAsync<{ artifacts: Artifact[] }>(
     (s) =>
       currentWorkspaceId
@@ -195,6 +209,7 @@ export function ArtifactCenter() {
               artifact={selected}
               tab={tab}
               onTabChange={setTab}
+              onDelete={() => deleteSingle(selected.artifact_id, selected.title || "")}
             />
           ) : (
             <div className="hero" style={{ minHeight: "auto", padding: 60 }}>
@@ -213,10 +228,12 @@ function ArtifactDetail({
   artifact,
   tab,
   onTabChange,
+  onDelete,
 }: {
   artifact: Artifact;
   tab: "preview" | "summary" | "metadata";
   onTabChange: (t: "preview" | "summary" | "metadata") => void;
+  onDelete?: () => void;
 }) {
   return (
     <div>
@@ -249,6 +266,11 @@ function ArtifactDetail({
         <span className="text-xs muted">
           {SOURCE_LABEL[artifact.source] ?? artifact.source}
         </span>
+        {onDelete && (
+          <button className="btn sm danger" style={{ marginLeft: 8 }} onClick={onDelete} type="button">
+            删除此制品
+          </button>
+        )}
       </div>
 
       <div className="card mb-3" style={{ boxShadow: "none", padding: 14 }}>
