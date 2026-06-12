@@ -114,10 +114,12 @@ def get_llm_status() -> dict:
     from agent.llm.schemas import ALLOWED_TASKS, BLOCKED_TASKS
 
     key_loaded = provider.get("key_loaded", False) or is_key_loaded()
+    health = _provider_health(provider)
+    connected = _is_connected(provider, key_loaded, health)
 
     return {
         "enabled": provider.get("enabled", False),
-        "connected": key_loaded and provider.get("provider_type", "disabled") != "disabled",
+        "connected": connected,
         "provider": provider.get("provider", provider.get("default_provider", "disabled")),
         "provider_type": provider.get("provider_type", "disabled"),
         "model": provider.get("model", ""),
@@ -129,7 +131,7 @@ def get_llm_status() -> dict:
         "key_loaded": key_loaded,
         "enabled_by_ui": provider.get("enabled_by_ui"),
         "settings_file_exists": provider.get("config_source") == "ui_settings",
-        "health": _provider_health(provider),
+        "health": health,
         "red_lines": [
             "no_generate_deployable_config", "no_modify_deployable_config",
             "no_approve_manual_review", "no_bypass_translate_bundle",
@@ -147,6 +149,21 @@ def _provider_health(provider: dict) -> dict:
     except Exception as e:
         return {"configured": bool(provider.get("api_key")),
                 "connected": False, "last_error": _redact(str(e))}
+
+
+def _is_connected(provider: dict, key_loaded: bool, health: dict) -> bool:
+    """Return the user-facing connection state.
+
+    A configured key alone is not enough: users can only treat the LLM as
+    connected when the chat completions path is actually usable.
+    """
+    if not provider.get("enabled", False):
+        return False
+    if provider.get("provider_type", "disabled") == "disabled":
+        return False
+    if not key_loaded:
+        return False
+    return bool(health.get("chat_completion_ok"))
 
 
 def _default_config() -> dict:

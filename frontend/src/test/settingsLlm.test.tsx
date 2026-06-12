@@ -74,11 +74,12 @@ const noKeyStatus: LlmStatus = {
 
 const staleErrorStatus: LlmStatus = {
   ...okStatus,
-  connected: true,
+  connected: false,
   health: {
     ...okStatus.health,
-    connected: true,
-    chat_completion_ok: true,
+    connected: false,
+    chat_completion_ok: false,
+    chat_completion_endpoint_reachable: false,
     http_status: 404,
     last_error: "HTTP Error 404: 404 Page not found",
     last_error_type: "provider_http_404",
@@ -160,11 +161,11 @@ describe("Settings — LLM provider control center", () => {
     expect(screen.getByText("✓ 已配置")).toBeInTheDocument();
   });
 
-  it("provider 近期错误单独作为诊断提示, 不混在绿色已连接摘要里", async () => {
+  it("provider chat completion 异常时显示连接失败, 404 只进诊断提示", async () => {
     mockApi({ config: liveConfig, status: staleErrorStatus });
     render(<Settings />);
     const health = await screen.findByTestId("llm-health-bar");
-    expect(health.textContent).toMatch(/已连接/);
+    expect(health.textContent).toMatch(/连接失败/);
     expect(health.textContent).not.toContain("HTTP Error 404");
     expect(await screen.findByTestId("llm-health-diagnostic")).toHaveTextContent(
       "HTTP Error 404",

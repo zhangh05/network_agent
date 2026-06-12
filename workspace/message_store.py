@@ -100,6 +100,10 @@ class SessionMessageStore:
         """
         if not content or not content.strip():
             return None
+        if role == "assistant":
+            content = _sanitize_assistant_content(content)
+            if not content or not content.strip():
+                return None
 
         rid = _safe_rid(run_id)
         safe_content = redact_text(content) if len(content.encode("utf-8")) < ARTIFACT_THRESHOLD else content
@@ -204,7 +208,7 @@ class SessionMessageStore:
                     "message_id": msg_id,
                     "session_id": record.get("session_id", self.session_id),
                     "role": role,
-                    "content": record.get("content", ""),
+                    "content": _message_content(role, record.get("content", "")),
                     "created_at": record.get("metadata", {}).get("created_at", ""),
                     "run_id": record.get("run_id", ""),
                 }
@@ -278,7 +282,7 @@ def _project_runs_to_messages(run_ids: List[str], ws_id: str) -> List[Dict[str, 
 
         created = run.get("created_at", "")
         user_text = run.get("user_input_summary", "") or ""
-        assistant_text = run.get("final_response_summary", "") or ""
+        assistant_text = _sanitize_assistant_content(run.get("final_response_summary", "") or "")
         intent = run.get("intent", "") or ""
         status = run.get("status", "") or ""
         rid = run.get("run_id", "") or run_id
@@ -315,6 +319,24 @@ def _project_runs_to_messages(run_ids: List[str], ws_id: str) -> List[Dict[str, 
 
     out.sort(key=lambda m: m.get("created_at", "") or "")
     return out
+
+
+def _message_content(role: str, content: str) -> str:
+    if role == "assistant":
+        return _sanitize_assistant_content(content)
+    return content
+
+
+def _sanitize_assistant_content(content: str) -> str:
+    """Strip provider reasoning from assistant text before display/context use."""
+    if not content:
+        return ""
+    try:
+        from agent.llm.runtime import sanitize_provider_output
+        cleaned, _ = sanitize_provider_output(str(content))
+        return cleaned
+    except Exception:
+        return str(content)
 
 
 def _atomic_write(path: Path, data: dict) -> None:

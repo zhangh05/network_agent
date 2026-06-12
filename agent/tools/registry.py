@@ -95,7 +95,30 @@ class ToolRegistry:
         if self._tool_client is None:
             return {"ok": False, "status": "failed", "summary": "No tool client", "errors": ["no tool client"]}
         try:
-            result = self._tool_client.execute(tool_id, args, context)
-            return result
+            result = self._tool_client.invoke(tool_id, args, context=context)
+            return _tool_runtime_result_to_dict(result)
         except Exception as e:
             return {"ok": False, "status": "failed", "summary": str(e)[:200], "errors": [str(e)[:200]]}
+
+
+def _tool_runtime_result_to_dict(result) -> dict:
+    """Project ToolRuntimeResult into the agent ToolResult adapter shape."""
+    if isinstance(result, dict):
+        raw = dict(result)
+    elif hasattr(result, "as_dict"):
+        raw = result.as_dict()
+    else:
+        raw = {
+            "status": getattr(result, "status", "failed"),
+            "summary": getattr(result, "summary", ""),
+            "errors": getattr(result, "errors", []) or [],
+            "warnings": getattr(result, "warnings", []) or [],
+        }
+    status = raw.get("status", getattr(result, "status", "failed"))
+    raw["ok"] = status in ("succeeded", "dry_run")
+    raw.setdefault("summary", getattr(result, "summary", "") if not isinstance(result, dict) else "")
+    raw.setdefault("errors", getattr(result, "errors", []) if not isinstance(result, dict) else [])
+    raw.setdefault("warnings", getattr(result, "warnings", []) if not isinstance(result, dict) else [])
+    if not isinstance(result, dict) and hasattr(result, "output"):
+        raw.setdefault("output", result.output)
+    return raw

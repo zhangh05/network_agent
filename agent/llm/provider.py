@@ -140,7 +140,12 @@ def health(cfg: dict = None) -> dict:
         r = urllib.request.Request(url, data=body, headers=headers, method="POST")
         with urllib.request.urlopen(r, timeout=15) as resp:
             result["chat_completion_ok"] = 200 <= resp.status < 400
+            result["chat_completion_endpoint_reachable"] = True
             result["connected"] = result["chat_completion_ok"]
+            if result["chat_completion_ok"]:
+                result["http_status"] = resp.status
+                result["last_error"] = None
+                result["last_error_type"] = None
     except urllib.error.HTTPError as e:
         # HTTP error means endpoint responded but with error
         result["chat_completion_endpoint_reachable"] = True

@@ -24,6 +24,7 @@ def write_run_record(state, ws_id: str = "default") -> str:
 
     run_dir = WS_ROOT / ws_id / "runs"
     run_id = state.request_id or f"run_{int(time.time())}"
+    created_at = getattr(state, "created_at", "") or time.strftime("%Y-%m-%dT%H:%M:%S")
 
     result = state.skill_results or state.tool_results or {}
     llm_ctx = state.context.get("llm", {})
@@ -43,14 +44,14 @@ def write_run_record(state, ws_id: str = "default") -> str:
         "workspace_id": ws_id,
         "session_id": state.session_id or "",
         "request_id": state.request_id,
-        "created_at": state.created_at,
+        "created_at": created_at,
         "user_input_summary": redact_text(state.user_input or "")[:120],
         "intent": state.intent,
         "capability": state.context.get("capability_id", ""),
         "active_module": state.active_module,
         "selected_skill": state.selected_skill,
         "runtime_mode": state.runtime_mode,
-        "started_at": state.created_at,
+        "started_at": created_at,
         "finished_at": time.strftime("%Y-%m-%dT%H:%M:%S"),
         "status": _safe_status(state, result),
         "result_counts": {
@@ -174,7 +175,7 @@ def get_run(run_id: str, ws_id: str = "default") -> dict:
     path = WS_ROOT / ws_id / "runs" / f"{run_id}.json"
     if path.is_file():
         try:
-            return json.loads(path.read_text())
+            return _normalize_run_record(json.loads(path.read_text()))
         except Exception:
             pass
     return {}
@@ -194,12 +195,24 @@ def list_runs(ws_id: str = "default", limit: int = 50) -> list:
         if f.name.endswith(".trace.json"):
             continue
         try:
-            runs.append(json.loads(f.read_text()))
-            if len(runs) >= limit:
-                break
+            runs.append(_normalize_run_record(json.loads(f.read_text())))
         except Exception:
             pass
-    return runs
+    runs.sort(key=lambda r: r.get("created_at") or r.get("finished_at") or "", reverse=True)
+    return runs[:limit]
+
+
+def _normalize_run_record(record: dict) -> dict:
+    """Backfill display-critical timestamps for older run records."""
+    if not isinstance(record, dict):
+        return {}
+    if not record.get("created_at"):
+        fallback = record.get("started_at") or record.get("finished_at") or ""
+        if fallback:
+            record["created_at"] = fallback
+    if not record.get("started_at") and record.get("created_at"):
+        record["started_at"] = record["created_at"]
+    return record
 
 
 def get_last_run(ws_id: str = "default") -> Optional[dict]:

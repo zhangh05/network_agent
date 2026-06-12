@@ -2,6 +2,7 @@
 """RuntimeLoop — the core turn execution engine (Codex-style agentic loop)."""
 
 import json
+from datetime import datetime, timezone
 from types import SimpleNamespace
 from agent.protocol.message import UserMessage, SystemMessage, AssistantMessage, ToolResultMessage, RuntimeContextMessage
 from agent.protocol.tool_result import ToolResult
@@ -42,6 +43,7 @@ def _persist_run_record(session, turn, result, context) -> None:
         final_response = (result.final_response if result else "") or ""
         ws_id = session.workspace_id or "default"
         run_id = turn.turn_id
+        created_at = _created_at_for_turn(turn, context)
         # Project to legacy-style state object. write_run_record reads
         # these exact attributes (see workspace/run_store.py:14-103).
         skill_results = {}
@@ -54,7 +56,7 @@ def _persist_run_record(session, turn, result, context) -> None:
         state = SimpleNamespace(
             request_id=turn.turn_id,
             session_id=session.session_id,
-            created_at=context.metadata.get("created_at", "") if context and context.metadata else "",
+            created_at=created_at,
             user_input=user_input,
             intent=(context.metadata.get("intent", "") if context and context.metadata else ""),
             context={
@@ -97,6 +99,23 @@ def _persist_run_record(session, turn, result, context) -> None:
     except Exception:
         # Persistence is best-effort; never let it break the turn.
         pass
+
+
+def _created_at_for_turn(turn, context) -> str:
+    """Return a non-empty timestamp for run/session projections."""
+    if context and getattr(context, "metadata", None):
+        value = context.metadata.get("created_at")
+        if value:
+            return str(value)
+    if turn and getattr(turn, "context", None):
+        value = turn.context.get("created_at")
+        if value:
+            return str(value)
+    if turn and getattr(turn, "op", None):
+        value = getattr(turn.op, "created_at", None)
+        if value:
+            return str(value)
+    return datetime.now(timezone.utc).isoformat()
 
 
 def _persist_trace(run_id: str, ws_id: str, events: list) -> None:
