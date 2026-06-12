@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, vi } from "vitest";
-import { render, screen, waitFor } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { App } from "../app/App";
 import { Sidebar } from "../layouts/Sidebar";
 import { AgentWorkbench } from "../pages/AgentWorkbench/AgentWorkbench";
@@ -102,22 +102,37 @@ describe("Experience polish", () => {
     expect(screen.queryByText("Network Agent · vv0.4")).not.toBeInTheDocument();
   });
 
-  it("uses stable keys for duplicate audit turn ids", async () => {
+  it("uses run ids to select audit runs with blank turn ids", async () => {
     const consoleError = vi.spyOn(console, "error").mockImplementation(() => {});
     useSessionStore.getState().setCurrentWorkspace("default");
     enqueue("/runs/recent", {
       status: 200,
       data: {
         runs: [
-          { turn_id: "dup-turn", trace_id: "trace-a", session_id: "s1", status: "ok", started_at: "", finished_at: "", selected_skills: [], visible_tools: [], tool_call_count: 0, error_count: 0, warning_count: 0, events: [] },
-          { turn_id: "dup-turn", trace_id: "trace-b", session_id: "s2", status: "ok", started_at: "", finished_at: "", selected_skills: [], visible_tools: [], tool_call_count: 0, error_count: 0, warning_count: 0, events: [] },
+          { run_id: "run-a", turn_id: "", trace_id: "trace-a", session_id: "s1", status: "ok", started_at: "", finished_at: "", selected_skills: [], visible_tools: [], tool_call_count: 0, error_count: 0, warning_count: 0, events: [] },
+          { run_id: "run-b", turn_id: "", trace_id: "trace-b", session_id: "s2", status: "ok", started_at: "", finished_at: "", selected_skills: [], visible_tools: [], tool_call_count: 0, error_count: 0, warning_count: 0, events: [] },
         ],
       },
+    });
+    enqueue("/workspaces/default/runs/run-a/trace", {
+      status: 200,
+      data: { events: [] },
     });
 
     render(<RuntimeAudit />);
 
-    expect(await screen.findByTestId("audit-turn-list")).toBeInTheDocument();
+    const list = await screen.findByTestId("audit-turn-list");
+    const firstRun = await screen.findByTestId("turn-run-a");
+    expect(firstRun).toHaveTextContent("run-a");
+    expect(screen.getByTestId("turn-run-b")).toHaveTextContent("run-b");
+
+    fireEvent.click(firstRun);
+
+    await waitFor(() => {
+      expect(list.querySelectorAll(".list-item.active")).toHaveLength(1);
+    });
+    expect(firstRun).toHaveClass("active");
+    expect(await screen.findByText("该 turn 无 event")).toBeInTheDocument();
     expect(consoleError).not.toHaveBeenCalledWith(
       expect.stringContaining("Each child in a list should have a unique"),
       expect.anything(),

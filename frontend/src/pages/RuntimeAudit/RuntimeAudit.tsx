@@ -19,9 +19,17 @@ const STATUS_LABEL: Record<string, string> = {
   cancelled: "取消",
 };
 
+function auditRunId(turn: RuntimeAuditTurn, index: number): string {
+  return turn.run_id || turn.turn_id || turn.trace_id || `run-${index + 1}`;
+}
+
+function auditRunLabel(turn: RuntimeAuditTurn, index: number): string {
+  return turn.turn_id || turn.run_id || turn.trace_id || `run-${index + 1}`;
+}
+
 export function RuntimeAudit() {
   const { currentWorkspaceId } = useSessionStore();
-  const [selectedTurnId, setSelectedTurnId] = useState<string | null>(null);
+  const [selectedRunId, setSelectedRunId] = useState<string | null>(null);
 
   const turns = useAsync<{ runs: RuntimeAuditTurn[] }>(
     (s) =>
@@ -34,10 +42,10 @@ export function RuntimeAudit() {
 
   const trace = useAsync<{ events: RuntimeAuditTurn["events"] }>(
     (s) =>
-      currentWorkspaceId && selectedTurnId
-        ? runtimeAuditApi.trace(currentWorkspaceId, selectedTurnId, s)
+      currentWorkspaceId && selectedRunId
+        ? runtimeAuditApi.trace(currentWorkspaceId, selectedRunId, s)
         : Promise.resolve({ events: [] }),
-    [currentWorkspaceId, selectedTurnId],
+    [currentWorkspaceId, selectedRunId],
   );
 
   return (
@@ -82,41 +90,46 @@ export function RuntimeAudit() {
             >
               {(d) => (
                 <div className="list" data-testid="audit-turn-list">
-                  {(d.runs ?? []).map((t, i) => (
-                    <button
-                      key={`${t.turn_id || "turn"}-${t.trace_id || i}`}
-                      type="button"
-                      className={
-                        "list-item" +
-                        (selectedTurnId === t.turn_id ? " active" : "")
-                      }
-                      onClick={() => setSelectedTurnId(t.turn_id)}
-                      data-testid={`turn-${t.turn_id}`}
-                    >
-                      <span
+                  {(d.runs ?? []).map((t, i) => {
+                    const runId = auditRunId(t, i);
+                    const label = auditRunLabel(t, i);
+
+                    return (
+                      <button
+                        key={runId}
+                        type="button"
                         className={
-                          "status-dot " +
-                          (t.status === "ok"
-                            ? "ok"
-                            : t.status === "failed"
-                              ? "err"
-                              : "warn")
+                          "list-item" +
+                          (selectedRunId === runId ? " active" : "")
                         }
-                      />
-                      <span className="title mono text-sm">{t.turn_id}</span>
-                      <Badge
-                        kind={
-                          t.status === "ok"
-                            ? "ok"
-                            : t.status === "failed"
-                              ? "err"
-                              : "warn"
-                        }
+                        onClick={() => setSelectedRunId(runId)}
+                        data-testid={`turn-${runId}`}
                       >
-                        {STATUS_LABEL[t.status] || t.status}
-                      </Badge>
-                    </button>
-                  ))}
+                        <span
+                          className={
+                            "status-dot " +
+                            (t.status === "ok"
+                              ? "ok"
+                              : t.status === "failed"
+                                ? "err"
+                                : "warn")
+                          }
+                        />
+                        <span className="title mono text-sm">{label}</span>
+                        <Badge
+                          kind={
+                            t.status === "ok"
+                              ? "ok"
+                              : t.status === "failed"
+                                ? "err"
+                                : "warn"
+                          }
+                        >
+                          {STATUS_LABEL[t.status] || t.status}
+                        </Badge>
+                      </button>
+                    );
+                  })}
                 </div>
               )}
             </AsyncView>
@@ -126,7 +139,7 @@ export function RuntimeAudit() {
           style={{ overflowY: "auto", padding: 20, minHeight: 0 }}
           data-testid="audit-detail"
         >
-          {!selectedTurnId ? (
+          {!selectedRunId ? (
             <div className="hero" style={{ minHeight: "auto", padding: 60 }}>
               <div className="hero-mark">审</div>
               <h1 className="hero-title">未选择 turn</h1>
@@ -150,7 +163,7 @@ export function RuntimeAudit() {
               {trace.state.kind === "success" && (
                 <>
                   <div className="row-flex mb-3">
-                    <InlineCode>{selectedTurnId}</InlineCode>
+                    <InlineCode>{selectedRunId}</InlineCode>
                     <span className="muted text-sm">
                       {trace.state.data.events.length} 个事件
                     </span>

@@ -51,13 +51,15 @@ export interface ToolCallResult {
   call_id: string;
   tool_id: string;
   ok: boolean;
-  summary: string;
-  artifacts: Array<{ artifact_id: string; artifact_type: string; title: string }>;
-  source_count: number | null;
-  manual_review_count: number | null;
-  errors: string[];
-  warnings: string[];
-  metadata: Record<string, unknown>;
+  duration_ms?: number;
+  result?: unknown;
+  summary?: string;
+  artifacts?: Array<{ artifact_id: string; artifact_type: string; title: string }>;
+  source_count?: number | null;
+  manual_review_count?: number | null;
+  errors?: string[];
+  warnings?: string[];
+  metadata?: Record<string, unknown>;
 }
 
 export interface AgentResult {
@@ -374,6 +376,7 @@ export interface LlmTestRequest {
 /* ──────────────────────────── Runtime Audit ──────────────────────────── */
 
 export interface RuntimeAuditTurn {
+  run_id?: string;
   turn_id: string;
   session_id: string;
   trace_id: string;
