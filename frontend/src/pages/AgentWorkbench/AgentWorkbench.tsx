@@ -183,26 +183,39 @@ export function AgentWorkbench() {
             </div>
           </div>
         ) : (
-          history.map((m) => (
-            <div key={m.id} className={`chat-msg ${m.role}`} data-testid={`chat-${m.role}`}>
-              <div className="msg-inner">
-                <div className="chat-bubble">
-                  {sanitizeAssistantText(m.text) || <span className="muted">(空消息)</span>}
+          history.map((m) =>
+            m.role === "user" ? (
+              <div key={m.id} className="message-row user" data-testid="chat-user">
+                <div className="message-stack">
+                  <div className="chat-bubble user">{m.text}</div>
                 </div>
-                {m.result && m.role === "assistant" && <ResultInline result={m.result} />}
+                <div className="message-avatar user">我</div>
               </div>
-            </div>
-          ))
+            ) : (
+              <div key={m.id} className="message-row assistant" data-testid="chat-assistant">
+                <div className="message-avatar agent">网</div>
+                <div className="message-stack">
+                  <div className="chat-bubble assistant">
+                    {sanitizeAssistantText(m.text) || <span className="muted">(空消息)</span>}
+                  </div>
+                  {m.result && <ResultInline result={m.result} />}
+                </div>
+              </div>
+            )
+          )
         )}
 
         {sending && (
-          <div className="wb-sending" data-testid="chat-sending">
-            <div className="bubble">
-              <span className="spinner" />
-              <span>agent 正在分析…</span>
-              <span className="text-xs" style={{ color: "var(--ink-faint)", marginLeft: "auto" }}>
-                {formatElapsed(elapsed)} / {formatElapsed(TIMEOUTS.agentTurn / 1000)}
-              </span>
+          <div className="message-row assistant" data-testid="chat-sending">
+            <div className="message-avatar agent">网</div>
+            <div className="message-stack">
+              <div className="chat-bubble assistant" style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                <span className="spinner" />
+                <span className="text-sm" style={{ color: "var(--ink-mute)" }}>agent 正在分析…</span>
+                <span className="text-xs" style={{ color: "var(--ink-faint)", marginLeft: "auto" }}>
+                  {formatElapsed(elapsed)} / {formatElapsed(TIMEOUTS.agentTurn / 1000)}
+                </span>
+              </div>
             </div>
           </div>
         )}
@@ -281,10 +294,12 @@ function ResultInline({ result }: { result: AgentResult }) {
       )}
 
       {!isFailed && (
-        <div className="next-actions">
-          <span className="next-action" onClick={toggleInspector}>查看运行详情</span>
+        <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginTop: 6 }}>
+          <button type="button" className="run-detail-button" onClick={toggleInspector}>
+            查看运行详情
+          </button>
           {Array.isArray(summaries) && summaries.length > 0 && (
-            <span className="next-action">知识源 ({summaries.length})</span>
+            <button type="button" className="run-detail-button">知识源 ({summaries.length})</button>
           )}
         </div>
       )}
