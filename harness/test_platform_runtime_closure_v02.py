@@ -148,7 +148,7 @@ def test_llm_config_save_api_persists_for_backend_runtime(monkeypatch, tmp_path)
     payload = {
         "enabled": True,
         "provider": "minimax",
-        "base_url": "https://api.minimax.chat/v1",
+        "base_url": "https://api.minimaxi.com/v1",
         "api_key": "sk-ui-saved-12345678",
         "model": "MiniMax-M3",
         "temperature": 0.2,

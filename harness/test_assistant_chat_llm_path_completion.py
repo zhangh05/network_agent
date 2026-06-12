@@ -47,7 +47,7 @@ def _mock_resolve_ui_config(enabled=True, provider_type="minimax"):
         "provider_type": provider_type,
         "model": "MiniMax-M3",
         "config_source": "ui_settings",
-        "base_url": "https://api.minimax.chat/v1",
+        "base_url": "https://api.minimaxi.com/v1",
         "key_loaded": True,
         "api_key": "sk-test",
         "enabled_by_ui": True,

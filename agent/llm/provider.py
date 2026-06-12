@@ -189,7 +189,7 @@ def _api_generate(req: LLMRequest, cfg: dict) -> LLMResponse:
             metadata={"error_type": ERROR_TYPE_MISSING_API_KEY},
         )
     try:
-        url = cfg.get("base_url", "https://api.minimax.chat/v1").rstrip("/") + "/chat/completions"
+        url = cfg.get("base_url", "https://api.minimaxi.com/v1").rstrip("/") + "/chat/completions"
         body_dict = {
             "model": cfg.get("model", req.model),
             "messages": [_format_message(m) for m in req.messages],

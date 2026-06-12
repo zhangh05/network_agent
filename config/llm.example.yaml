@@ -22,7 +22,7 @@ llm:
 
     minimax:
       type: openai_compatible
-      base_url: https://api.minimax.chat/v1
+      base_url: https://api.minimaxi.com/v1
       api_key_env: MINIMAX_API_KEY
       model: MiniMax-M3
 

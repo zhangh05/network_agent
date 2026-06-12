@@ -33,7 +33,7 @@ const PROVIDER_PRESETS: ProviderPreset[] = [
   {
     id: "minimax",
     label: "MiniMax",
-    base_url: "https://api.minimax.chat/v1",
+    base_url: "https://api.minimaxi.com/v1",
     model: "MiniMax-M3",
     hint: "默认 MiniMax-M3",
   },

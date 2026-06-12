@@ -39,7 +39,7 @@ class TestSafeGenerateProviderMetadataPassthrough:
                 "provider": "minimax",
                 "model": "MiniMax-M3",
                 "api_key": "sk-fake",
-                "base_url": "https://api.minimax.chat/v1",
+                "base_url": "https://api.minimaxi.com/v1",
             }
             with patch("agent.llm.runtime._build_prompt_messages") as mock_msgs:
                 mock_msgs.return_value = [LLMMessage(role="user", content="test")]
@@ -128,7 +128,7 @@ class TestRequestPolicyReceivesSafeContext:
                 "provider": "minimax",
                 "model": "MiniMax-M3",
                 "api_key": "sk-fake",
-                "base_url": "https://api.minimax.chat/v1",
+                "base_url": "https://api.minimaxi.com/v1",
             }
             with patch("agent.llm.runtime.invoke_llm", return_value=mock_resp):
                 with patch("agent.llm.policy.check_request", side_effect=capture_check_request):

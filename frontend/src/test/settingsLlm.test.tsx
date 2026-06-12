@@ -32,7 +32,7 @@ const liveConfig: LlmConfig = {
   ...baseConfig,
   enabled: true,
   provider: "minimax",
-  base_url: "https://api.minimax.chat/v1",
+  base_url: "https://api.minimaxi.com/v1",
   model: "MiniMax-M3",
   key_configured: true,
   key_preview: "eyJ0****8a3f",

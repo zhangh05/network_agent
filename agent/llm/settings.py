@@ -94,7 +94,7 @@ def save_llm_settings(data: dict) -> dict:
         if not data.get("model"):
             data["model"] = "MiniMax-M3"
         if not data.get("base_url"):
-            data["base_url"] = "https://api.minimax.chat/v1"
+            data["base_url"] = "https://api.minimaxi.com/v1"
     # Migrate any M1 references
     if data.get("model") == "MiniMax-M1":
         data["model"] = "MiniMax-M3"

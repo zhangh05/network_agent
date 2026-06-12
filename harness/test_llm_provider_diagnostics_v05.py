@@ -107,7 +107,7 @@ class TestProviderHealthChecks:
                 "enabled": True,
                 "provider_type": "openai_compatible",
                 "api_key": "fake-key",
-                "base_url": "https://api.minimax.chat/v1",
+                "base_url": "https://api.minimaxi.com/v1",
                 "model": "MiniMax-M3",
             }
             result = health()
@@ -126,7 +126,7 @@ class TestProviderHealthChecks:
                 "enabled": True,
                 "provider_type": "openai_compatible",
                 "api_key": "fake-key",
-                "base_url": "https://api.minimax.chat/v1",
+                "base_url": "https://api.minimaxi.com/v1",
                 "model": "MiniMax-M3",
             }
             result = health()
