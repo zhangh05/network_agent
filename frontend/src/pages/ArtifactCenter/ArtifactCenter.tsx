@@ -45,6 +45,8 @@ export function ArtifactCenter() {
   const { currentWorkspaceId } = useSessionStore();
   const [selected, setSelected] = useState<Artifact | null>(null);
   const [tab, setTab] = useState<"preview" | "summary" | "metadata">("preview");
+  const [checkedIds, setCheckedIds] = useState<Set<string>>(new Set());
+  const toast = useToastStore((s) => s.show);
 
   const list = useAsync<{ artifacts: Artifact[] }>(
     (s) =>
@@ -54,6 +56,19 @@ export function ArtifactCenter() {
     [currentWorkspaceId],
     (d) => (d.artifacts ?? []).length === 0,
   );
+
+  async function batchDelete() {
+    if (!currentWorkspaceId || checkedIds.size === 0) return;
+    if (!confirm(`确认删除 ${checkedIds.size} 个制品？`)) return;
+    try {
+      const res = await artifactsApi.batchDelete(currentWorkspaceId, [...checkedIds]);
+      toast({ kind: "success", title: `已删除 ${res.deleted} 个` });
+      setCheckedIds(new Set());
+      list.reload();
+    } catch (e: unknown) {
+      toast({ kind: "error", title: "批量删除失败", body: isApiError(e) ? e.message : String(e) });
+    }
+  }
 
   return (
     <div className="page" data-testid="page-artifacts">
@@ -97,6 +112,13 @@ export function ArtifactCenter() {
                 {list.state.kind === "success" ? (list.state.data.artifacts ?? []).length : "—"}
               </span>
             </div>
+            {checkedIds.size > 0 && (
+              <div style={{ marginBottom: 8 }}>
+                <button className="btn sm danger" onClick={batchDelete} type="button" style={{ width: "100%" }}>
+                  删除选中 ({checkedIds.size})
+                </button>
+              </div>
+            )}
             <AsyncView
               state={list.state}
               onRetry={list.reload}
@@ -106,7 +128,20 @@ export function ArtifactCenter() {
               {(d) => (
                 <div className="list" data-testid="artifact-list">
                   {(d.artifacts ?? []).map((a) => (
-                    <button
+                    <div key={a.artifact_id} className="row-flex" style={{ gap: 0, alignItems: "stretch" }}>
+                      <label style={{ display: "flex", alignItems: "center", padding: "0 6px 0 4px", cursor: "pointer" }}>
+                        <input
+                          type="checkbox"
+                          checked={checkedIds.has(a.artifact_id)}
+                          onChange={(e) => {
+                            const next = new Set(checkedIds);
+                            e.target.checked ? next.add(a.artifact_id) : next.delete(a.artifact_id);
+                            setCheckedIds(next);
+                          }}
+                          style={{ width: 14, height: 14, cursor: "pointer" }}
+                        />
+                      </label>
+                      <button
                       key={a.artifact_id}
                       type="button"
                       className={
@@ -116,6 +151,7 @@ export function ArtifactCenter() {
                       onClick={() => setSelected(a)}
                       data-testid={`artifact-${a.artifact_id}`}
                       style={{
+                        flex: 1,
                         flexDirection: "column",
                         alignItems: "flex-start",
                         height: "auto",
@@ -141,7 +177,8 @@ export function ArtifactCenter() {
                         {a.sensitivity === "sensitive" && <Badge kind="warn">敏感</Badge>}
                         {a.sensitivity === "secret" && <Badge kind="err">机密</Badge>}
                       </div>
-                    </button>
+                      </button>
+                    </div>
                   ))}
                 </div>
               )}

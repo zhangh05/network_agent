@@ -117,6 +117,22 @@ def register_artifact_routes(app):
             return jsonify({"ok": False, "error": "artifact creation blocked"}), 400
         return jsonify({"ok": True, "artifact": sanitize_record(rec)})
 
+    @app.route("/api/workspaces/<ws_id>/artifacts/batch-delete", methods=["POST"])
+    def api_artifact_batch_delete(ws_id):
+        ws_id, err = _validated_ws_id(ws_id)
+        if err:
+            return err
+        data = request.get_json(silent=True) or {}
+        ids = data.get("artifact_ids", [])
+        if not ids or not isinstance(ids, list):
+            return jsonify({"ok": False, "error": "artifact_ids (list) required"}), 400
+        deleted = []
+        for aid in ids:
+            ok = delete_artifact(ws_id, aid)
+            if ok:
+                deleted.append(aid)
+        return jsonify({"ok": True, "deleted": len(deleted), "total": len(ids)})
+
     @app.route("/api/workspaces/<ws_id>/artifacts/<artifact_id>")
     def api_workspace_artifact(ws_id, artifact_id):
         ws_id, err = _validated_ws_id(ws_id)

@@ -508,6 +508,19 @@ export const artifactsApi = {
       signal,
       TIMEOUTS.summarize,
     ),
+  batchDelete: (
+    workspace_id: string,
+    artifact_ids: string[],
+    signal?: AbortSignal,
+  ): Promise<{ ok: boolean; deleted: number; total: number }> =>
+    apiRequest<{ ok: boolean; deleted: number; total: number }>(
+      {
+        method: "POST",
+        url: `/workspaces/${workspace_id}/artifacts/batch-delete`,
+        data: { artifact_ids },
+      },
+      signal,
+    ),
 };
 
 /* ──────────────────────── 8. reviews ──────────────────────── */
