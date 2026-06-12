@@ -599,9 +599,11 @@ def _build_initial_messages(context, services) -> list:
 
     # Runtime snapshot
     from agent.context.snapshot import RuntimeSnapshot
-    snap = RuntimeSnapshot(**{k: v for k, v in (context.runtime_snapshot or {}).items()
-                               if k in ['tool_count', 'visible_tool_count', 'enabled_skills', 'planned_skills',
-                                        'enabled_modules', 'planned_modules', 'workspace_id', 'session_id', 'model']})
+    snapshot_fields = set(RuntimeSnapshot.__dataclass_fields__.keys())
+    snap = RuntimeSnapshot(**{
+        k: v for k, v in (context.runtime_snapshot or {}).items()
+        if k in snapshot_fields
+    })
     snap.workspace_id = context.workspace_id
     snap.session_id = context.session_id
     snap.model = context.model_config.get("model", "")

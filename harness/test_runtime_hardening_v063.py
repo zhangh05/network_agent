@@ -338,6 +338,45 @@ class TestSystemPromptContract:
         prompt = build_system_prompt()
         assert "knowledge" in prompt.lower()
 
+    def test_initial_messages_preserve_runtime_snapshot_per_turn_visibility(self):
+        """RuntimeLoop must inject the rich RuntimeSnapshot, not a lossy rebuild."""
+        from types import SimpleNamespace
+        from agent.context.snapshot import RuntimeSnapshot
+        from agent.runtime.loop import _build_initial_messages
+
+        snap = RuntimeSnapshot(
+            tool_count=73,
+            visible_tool_count=1,
+            enabled_skills=["assistant_chat", "config_translation", "knowledge_query"],
+            planned_skills=["topology"],
+            enabled_modules=["config_translation"],
+            planned_modules=["inspection"],
+            workspace_id="default",
+            session_id="session_0",
+            model="MiniMax-M3",
+            capability_baseline={"enabled_capabilities": [{"capability_id": "config_translation"}]},
+            visible_business_tools=["config_translation.translate_config", "knowledge.query"],
+            selected_skills=["assistant_chat", "config_translation"],
+            selected_visible_tools=["config_translation.translate_config"],
+            dynamic_tool_visibility=True,
+        )
+        ctx = SimpleNamespace(
+            runtime_snapshot=snap.to_dict(),
+            workspace_id="default",
+            session_id="session_0",
+            model_config={"model": "MiniMax-M3"},
+            history_window=[],
+            user_input="translate config",
+            skill_snapshot={},
+        )
+
+        messages = _build_initial_messages(ctx, services=None)
+        joined = "\n".join(str(getattr(m, "content", m)) for m in messages)
+
+        assert "Selected skills for this turn:" in joined
+        assert "config_translation.translate_config" in joined
+        assert "Planned capabilities are NOT callable." in joined
+
 
 # ═══════════════════════════════════════════════════════════════════════
 # P1-3: max_steps AgentResult metadata
