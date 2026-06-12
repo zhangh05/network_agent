@@ -535,6 +535,9 @@ function ResultInline({ result }: { result: AgentResult }) {
           </div>
         </details>
       )}
+    </div>
+  );
+}
 
 function ToolCallInline({ tc }: { tc: ToolCallResult }) {
   return (
