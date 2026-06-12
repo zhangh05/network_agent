@@ -18,7 +18,7 @@ import { EmptyState, InlineCode, LoadingState } from "../../components/common";
 import { useToastStore } from "../../stores/toast";
 import { isApiError } from "../../types";
 import type { LlmConfig, LlmStatus, LlmTestResult } from "../../types";
-import { IconKey, IconSettings } from "../../components/Icon";
+import { IconAlert, IconKey, IconSettings } from "../../components/Icon";
 import { sanitizeAssistantText } from "../../utils/displayText";
 
 interface ProviderPreset {
@@ -309,6 +309,35 @@ export function Settings() {
     <div className="page" data-testid="page-settings">
       <PageHeader />
       <div className="page-body">
+        {/* v1.0.3.4: show recent failure alert prominently */}
+        {status?.recent_failure && (
+          <div
+            className="card mb-3"
+            style={{
+              borderColor: "var(--warn)",
+              background: "var(--warn-soft, #fff8e1)",
+              padding: 12,
+            }}
+            data-testid="llm-recent-failure-alert"
+          >
+            <div className="row-flex" style={{ gap: 8 }}>
+              <IconAlert size={14} style={{ color: "var(--warn)" }} />
+              <div>
+                <strong style={{ color: "var(--warn)" }}>最近对话失败</strong>
+                <div className="text-sm mt-1" style={{ color: "var(--ink)" }}>
+                  {status.recent_failure.error_summary}
+                </div>
+                <div className="text-xs mt-1" style={{ color: "var(--ink-mute)" }}>
+                  {status.recent_failure.at ? `发生时间：${new Date(status.recent_failure.at).toLocaleString()}` : ""}
+                  {status.recent_failure.error_type ? ` · 类型：${status.recent_failure.error_type}` : ""}
+                </div>
+                <div className="text-xs mt-2" style={{ color: "var(--ink-mute)" }}>
+                  建议：检查网络连接、缩短问题长度或更换 LLM 供应商。
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
         <HealthBar status={status} config={draft} refreshing={healthRefreshing} />
 
         <div className="settings-grid" data-testid="settings-grid">

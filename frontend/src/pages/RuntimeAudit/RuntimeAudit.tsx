@@ -225,26 +225,31 @@ export function RuntimeAudit() {
                           </div>
                         ) : null;
                       })()}
-                      {trace.state.data.events.map((ev) => (
+                      {trace.state.data.events.map((ev) => {
+                        const label = _eventLabel(ev.event_type || ev.type, ev.payload);
+                        const isOk = ev.event_type !== "turn_failed" && ev.type !== "turn_failed";
+                        return (
                         <div
                           key={ev.event_id}
                           className="card"
                           style={{ padding: 12, marginBottom: 8 }}
                         >
                           <div className="row-flex" style={{ justifyContent: "space-between" }}>
-                            <span className="row-flex" style={{ minWidth: 0 }}>
-                              <Badge kind="info">{ev.event_type}</Badge>
+                            <span className="row-flex" style={{ minWidth: 0, gap: 8 }}>
+                              <span className={"status-dot " + (isOk ? "ok" : "err")} style={{ width: 8, height: 8 }} />
+                              <span className="text-sm">{label}</span>
                             </span>
                             <span className="muted text-xs mono">{ev.occurred_at}</span>
                           </div>
                           <details className="collapse mt-2">
-                            <summary>查看 payload</summary>
+                            <summary style={{ fontSize: 11, color: "var(--ink-mute)" }}>开发诊断 · {ev.event_type || ev.type}</summary>
                             <CodeBlock language="json">
                               {JSON.stringify(ev.payload ?? {}, null, 2)}
                             </CodeBlock>
                           </details>
                         </div>
-                      ))}
+                        );
+                      })}
                     </div>
                   )}
                 </>
@@ -255,4 +260,20 @@ export function RuntimeAudit() {
       </div>
     </div>
   );
+}
+
+function _eventLabel(type: string, payload: Record<string, unknown>): string {
+  const map: Record<string, string> = {
+    turn_started: "开始处理请求",
+    context_built: "构建上下文",
+    model_request_started: "发起模型请求",
+    model_response_received: "模型返回响应",
+    tool_call_started: `调用工具：${payload?.tool_id || "?"}`,
+    tool_call_finished: `工具完成：${payload?.tool_id || "?"}`,
+    tool_call_failed: `工具失败：${payload?.tool_id || "?"}`,
+    assistant_message: "生成回复",
+    turn_finished: "处理完成",
+    turn_failed: `处理失败：${String(payload?.error || payload || "").slice(0, 60)}`,
+  };
+  return map[type] || type;
 }
