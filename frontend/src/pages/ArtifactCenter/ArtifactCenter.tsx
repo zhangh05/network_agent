@@ -46,6 +46,7 @@ export function ArtifactCenter() {
   const [selected, setSelected] = useState<Artifact | null>(null);
   const [tab, setTab] = useState<"preview" | "summary" | "metadata">("preview");
   const [checkedIds, setCheckedIds] = useState<Set<string>>(new Set());
+  const [batchMode, setBatchMode] = useState(false);
   const toast = useToastStore((s) => s.show);
 
   async function deleteSingle(artifact_id: string, title: string) {
@@ -126,13 +127,16 @@ export function ArtifactCenter() {
                 {list.state.kind === "success" ? (list.state.data.artifacts ?? []).length : "—"}
               </span>
             </div>
-            {checkedIds.size > 0 && (
-              <div style={{ marginBottom: 8 }}>
-                <button className="btn sm danger" onClick={batchDelete} type="button" style={{ width: "100%" }}>
-                  删除选中 ({checkedIds.size})
+            <div className="row-flex mb-2" style={{ gap: 4 }}>
+              <button className={`btn sm ${batchMode ? "primary" : ""}`} onClick={() => { setBatchMode(!batchMode); if (batchMode) setCheckedIds(new Set()); }} type="button" style={{ fontSize: 11 }}>
+                {batchMode ? "退出批量" : "批量选择"}
+              </button>
+              {batchMode && checkedIds.size > 0 && (
+                <button className="btn sm danger" onClick={batchDelete} type="button">
+                  删除 ({checkedIds.size})
                 </button>
-              </div>
-            )}
+              )}
+            </div>
             <AsyncView
               state={list.state}
               onRetry={list.reload}
@@ -143,18 +147,20 @@ export function ArtifactCenter() {
                 <div className="list" data-testid="artifact-list">
                   {(d.artifacts ?? []).map((a) => (
                     <div key={a.artifact_id} className="row-flex" style={{ gap: 0, alignItems: "stretch" }}>
-                      <label style={{ display: "flex", alignItems: "center", padding: "0 6px 0 4px", cursor: "pointer" }}>
-                        <input
-                          type="checkbox"
-                          checked={checkedIds.has(a.artifact_id)}
-                          onChange={(e) => {
-                            const next = new Set(checkedIds);
-                            e.target.checked ? next.add(a.artifact_id) : next.delete(a.artifact_id);
-                            setCheckedIds(next);
-                          }}
-                          style={{ width: 14, height: 14, cursor: "pointer" }}
-                        />
-                      </label>
+                      {batchMode && (
+                        <label style={{ display: "flex", alignItems: "center", padding: "0 6px 0 4px", cursor: "pointer" }}>
+                          <input
+                            type="checkbox"
+                            checked={checkedIds.has(a.artifact_id)}
+                            onChange={(e) => {
+                              const next = new Set(checkedIds);
+                              e.target.checked ? next.add(a.artifact_id) : next.delete(a.artifact_id);
+                              setCheckedIds(next);
+                            }}
+                            style={{ width: 14, height: 14, cursor: "pointer" }}
+                          />
+                        </label>
+                      )}
                       <button
                       key={a.artifact_id}
                       type="button"
