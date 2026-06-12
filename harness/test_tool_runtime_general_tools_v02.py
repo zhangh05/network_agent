@@ -376,5 +376,5 @@ class TestNoRegression:
     def test_tool_count_not_expanded_arbitrarily(self):
         client = _get_client()
         tools = client.list_tools()
-        # 55 = 7 original + 48 new tools across 9 categories
-        assert len(tools) == 55, f"Expected exactly 55 tools, got {len(tools)}"
+        # 58 = 7 original + 48 general tools + 3 disabled planned web tools.
+        assert len(tools) == 58, f"Expected exactly 58 tools, got {len(tools)}"

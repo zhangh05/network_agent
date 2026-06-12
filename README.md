@@ -79,6 +79,7 @@ Open:
 - `GET /api/knowledge/search`
 - `POST /api/memory/confirm`
 - `GET /api/tools/catalog`
+- `POST /api/tools/invoke`
 - `POST /api/tools/dry-run`
 
 ## Safety Boundaries
@@ -88,6 +89,7 @@ Open:
 - `config.push` remains forbidden.
 - Planned capabilities are not callable.
 - High-risk runtime tools are disabled and require explicit approval paths.
+- `POST /api/tools/invoke` is policy gated; high-risk tools require approved status before execution.
 - Knowledge and memory snippets are redacted before being injected into context.
 - Artifacts that may be deployable still require human review; the UI must not claim direct production readiness.
 

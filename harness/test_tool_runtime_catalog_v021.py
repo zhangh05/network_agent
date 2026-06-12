@@ -2,7 +2,7 @@
 """Tool Runtime Catalog v0.2.1 — API verification tests.
 
 Verifies:
-  - /api/tools/catalog returns 55 tools
+  - /api/tools/catalog returns the current 58-tool catalog
   - Category counts correct
   - Metadata fields complete (no handlers/secrets/paths)
   - No invoke endpoint
@@ -22,13 +22,15 @@ EXPECTED_CATEGORY_COUNTS = {
     "report": 6,
     "command": 2,
     "knowledge": 6,
-    "web": 5,
+    "web": 8,
     "session": 7,
     "runtime": 5,
     "text": 8,
     "workspace": 5,
     "powershell": 1,
 }
+
+EXPECTED_TOOL_COUNT = sum(EXPECTED_CATEGORY_COUNTS.values())
 
 
 def _get_client():
@@ -45,17 +47,17 @@ class TestCatalogEndpoint:
         resp = client.get("/api/tools/catalog")
         assert resp.status_code == 200
 
-    def test_total_tools_55(self):
+    def test_total_tools_current(self):
         client = _get_client()
         resp = client.get("/api/tools/catalog")
         data = resp.get_json()
-        assert data["count"] == 55, f"Expected 55, got {data['count']}"
+        assert data["count"] == EXPECTED_TOOL_COUNT, f"Expected {EXPECTED_TOOL_COUNT}, got {data['count']}"
 
-    def test_tools_array_length_55(self):
+    def test_tools_array_length_current(self):
         client = _get_client()
         resp = client.get("/api/tools/catalog")
         data = resp.get_json()
-        assert len(data["tools"]) == 55
+        assert len(data["tools"]) == EXPECTED_TOOL_COUNT
 
     def test_category_counts(self):
         client = _get_client()

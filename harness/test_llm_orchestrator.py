@@ -25,12 +25,18 @@ class TestToolAdapter:
         ws = [t for t in tools if t["function"]["name"] == "web__search"][0]
         assert "Search public web" in ws["function"]["description"]
         assert "parameters" in ws["function"]
+        params = ws["function"]["parameters"]
+        assert params["required"] == ["query"]
+        assert "domains" in params["properties"]
+        assert "top_k" in params["properties"]
 
     def test_build_system_prompt_includes_tool_names(self):
         from agent.llm.tool_adapter import build_system_prompt_with_tools
         prompt = build_system_prompt_with_tools()
         assert "Network Agent" in prompt
         assert "web__search" in prompt or "web" in prompt
+        assert "site/domains" in prompt
+        assert "citations/URLs" in prompt
         assert len(prompt) > 500
 
     def test_high_risk_tool_excluded(self):

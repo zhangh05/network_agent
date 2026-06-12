@@ -191,10 +191,14 @@ def _validate_arguments(arguments: dict, schema: dict) -> list:
             errors.append(f"Field '{field}' expected string, got {type(value).__name__}")
         elif expected_type == "number" and not isinstance(value, (int, float)):
             errors.append(f"Field '{field}' expected number, got {type(value).__name__}")
+        elif expected_type == "integer" and not isinstance(value, int):
+            errors.append(f"Field '{field}' expected integer, got {type(value).__name__}")
         elif expected_type == "boolean" and not isinstance(value, bool):
             errors.append(f"Field '{field}' expected boolean, got {type(value).__name__}")
         elif expected_type == "object" and not isinstance(value, dict):
             errors.append(f"Field '{field}' expected object, got {type(value).__name__}")
+        elif expected_type == "array" and not isinstance(value, list):
+            errors.append(f"Field '{field}' expected array, got {type(value).__name__}")
 
     return errors
 

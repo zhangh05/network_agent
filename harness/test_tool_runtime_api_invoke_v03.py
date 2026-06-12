@@ -11,7 +11,7 @@ import uuid
 
 PROJECT_ROOT = __file__.rsplit("/harness", 1)[0]
 
-EXPECTED_TOOLS = 55
+EXPECTED_TOOLS = 58
 
 
 def _unique_ws(prefix="toolapi"):
@@ -370,7 +370,7 @@ class TestToolRuntimeDocsAlignment:
 class TestCatalogStillWorks:
     """Verify existing catalog endpoint is unaffected."""
 
-    def test_catalog_still_55(self):
+    def test_catalog_still_current_count(self):
         client = _get_client()
         resp = client.get("/api/tools/catalog")
         data = resp.get_json()

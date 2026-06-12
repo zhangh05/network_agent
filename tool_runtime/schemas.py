@@ -67,6 +67,8 @@ class ToolSpec:
             "version": self.version,
             "enabled": self.enabled,
             "risk_level": self.risk_level,
+            "input_schema": self.input_schema,
+            "output_schema": self.output_schema,
             "timeout_seconds": self.timeout_seconds,
             "dry_run_supported": self.dry_run_supported,
             "writes_artifact": self.writes_artifact,

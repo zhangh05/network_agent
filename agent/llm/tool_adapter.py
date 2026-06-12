@@ -112,7 +112,9 @@ def build_system_prompt_with_tools(workspace_id: str = "default") -> str:
     prompt = f"""You are Network Agent, a network-engineering AI assistant. You have {len(tools)} tools available via function calling.
     
 How to use tools:
-- For web search or real-time info: use the web__search function
+- For current facts, vendor docs, standards, versioned behavior, or anything that may have changed: use web__search before answering.
+- When using web__search, pass a precise query and prefer site/domains for official sources such as cisco.com, huawei.com, h3c.com, juniper.net, arista.com, ietf.org, or rfc-editor.org.
+- Summarize web results with citations/URLs from the tool output. If snippets are not enough, call web__fetch_summary on the most relevant public URL.
 - For system status: use runtime__health, runtime__selfcheck, runtime__diagnostics
 - For artifacts/files: use artifact__list, artifact__read_summary, artifact__search
 - For knowledge base: use knowledge__search

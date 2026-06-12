@@ -321,63 +321,99 @@ def _is_private_url(url: str) -> bool:
 def handle_web_search(inv: ToolInvocation) -> dict:
     args = inv.arguments
     query = (args.get("query") or "").strip()
-    limit = min(int(args.get("limit", 5)), 10)
+    limit = _coerce_int(args.get("top_k", args.get("limit", 5)), default=5, min_value=1, max_value=10)
+    domains = _normalize_search_domains(args)
+    recency = (args.get("recency") or "").strip().lower()
+    language = (args.get("language") or "").strip() or "zh-CN"
+    safe_search = (args.get("safe_search") or "moderate").strip().lower()
     if not query:
         return _error("query is required")
+    search_query = _build_web_search_query(query, domains)
     try:
-        import requests, re
+        import requests
         results = []
 
         # ── Try DuckDuckGo HTML search (most reliable free path) ──
         html_resp = requests.get(
             "https://html.duckduckgo.com/html/",
-            params={"q": query},
+            params=_duckduckgo_search_params(search_query, recency, language, safe_search),
             timeout=12,
-            headers={"User-Agent": "NetworkAgent/1.0"}
+            headers={
+                "User-Agent": "NetworkAgent/1.0 (+https://github.com/zhangh05/network_agent)",
+                "Accept-Language": language,
+            },
         )
         if html_resp.status_code == 200:
-            results = _parse_duckduckgo_html(html_resp.text, limit)
+            results = _filter_web_results(_parse_duckduckgo_html(html_resp.text, limit * 2), domains, limit)
             if results:
+                guidance = _web_search_guidance(query, results, domains)
                 return _ok({
                     "ok": True,
                     "status": "succeeded",
                     "query": query,
+                    "search_query": search_query,
                     "results": results,
                     "count": len(results),
-                    "summary": f"Found {len(results)} result(s) for '{query}'",
+                    "answer_hint": guidance["answer_hint"],
+                    "results_markdown": _web_results_markdown(results),
+                    "next_actions": guidance["next_actions"],
+                    "summary": f"Found {len(results)} public web result(s) for '{query}'",
                     "provider": "duckduckgo_html",
+                    "filters": {
+                        "domains": domains,
+                        "recency": recency or "any",
+                        "language": language,
+                        "safe_search": safe_search,
+                    },
                 })
 
         # ── Fallback 1: DuckDuckGo Instant Answer (unreliable, often empty) ──
         ia_resp = requests.get(
             "https://api.duckduckgo.com/",
-            params={"q": query, "format": "json", "no_html": 1},
+            params={"q": search_query, "format": "json", "no_html": 1, "skip_disambig": 1},
             timeout=10,
         )
         ia_data = ia_resp.json()
         ia_results = []
-        for item in ia_data.get("RelatedTopics", [])[:limit]:
-            ia_results.append({
-                "title": item.get("Text", "")[:150],
-                "url": item.get("FirstURL", ""),
-                "snippet": item.get("Text", "")[:200],
-                "source": "duckduckgo_instant_answer",
-            })
+        for item in _flatten_duckduckgo_topics(ia_data.get("RelatedTopics", [])):
+            url = _clean_url(item.get("FirstURL", ""))
+            if not url:
+                continue
+            ia_results.append(_build_web_result(
+                title=item.get("Text", ""),
+                url=url,
+                snippet=item.get("Text", ""),
+                source="duckduckgo_instant_answer",
+                rank=len(ia_results) + 1,
+            ))
+        ia_results = _filter_web_results(ia_results, domains, limit)
         if ia_results:
+            guidance = _web_search_guidance(query, ia_results, domains)
             return _ok({
                 "ok": True,
                 "status": "succeeded",
                 "query": query,
+                "search_query": search_query,
                 "results": ia_results,
                 "count": len(ia_results),
-                "summary": f"Found {len(ia_results)} result(s) for '{query}'",
+                "answer_hint": guidance["answer_hint"],
+                "results_markdown": _web_results_markdown(ia_results),
+                "next_actions": guidance["next_actions"],
+                "summary": f"Found {len(ia_results)} public web result(s) for '{query}'",
                 "provider": "duckduckgo_instant_answer",
+                "filters": {
+                    "domains": domains,
+                    "recency": recency or "any",
+                    "language": language,
+                    "safe_search": safe_search,
+                },
             })
 
         # ── No results from any provider ──
         return _result(False, {
             "status": "no_results",
             "query": query,
+            "search_query": search_query,
             "results": [],
             "count": 0,
             "summary": "搜索服务未返回结果",
@@ -385,23 +421,27 @@ def handle_web_search(inv: ToolInvocation) -> dict:
             "warnings": ["web_search_no_results"],
             "provider": "none",
             "hint": _web_no_results_hint(query),
+            "next_actions": _web_no_results_actions(query, domains),
+            "filters": {"domains": domains, "recency": recency or "any"},
         })
     except Exception as e:
         return _result(False, {
             "status": "provider_error",
             "query": query,
+            "search_query": search_query,
             "results": [],
             "count": 0,
             "summary": f"Search unavailable: {str(e)[:100]}",
             "errors": [f"web_search_provider_error: {str(e)[:200]}"],
             "warnings": ["web_search_provider_error"],
             "provider": "error",
+            "next_actions": _web_no_results_actions(query, domains),
         })
 
 
 def _parse_duckduckgo_html(html: str, limit: int) -> list:
     """Parse DuckDuckGo HTML search results page."""
-    import re
+    import html as html_lib
     results = []
     # Each result is in <a rel="nofollow" class="result__a" href="URL">Title</a>
     # followed by <a class="result__snippet">Snippet</a>
@@ -417,13 +457,204 @@ def _parse_duckduckgo_html(html: str, limit: int) -> list:
         if i >= limit:
             break
         snippet = re.sub(r'<[^>]+>', '', snippets[i]) if i < len(snippets) else ""
-        results.append({
-            "title": re.sub(r'<[^>]+>', '', title).strip()[:150],
-            "url": url,
-            "snippet": snippet.strip()[:300],
-            "source": "duckduckgo_html",
-        })
+        clean_url = _clean_url(html_lib.unescape(url))
+        if not clean_url or _is_private_url(clean_url):
+            continue
+        clean_title = _clean_text(title, 180)
+        clean_snippet = _clean_text(snippet, 360)
+        if not clean_title and not clean_snippet:
+            continue
+        results.append(_build_web_result(
+            title=clean_title,
+            url=clean_url,
+            snippet=clean_snippet,
+            source="duckduckgo_html",
+            rank=len(results) + 1,
+        ))
     return results
+
+
+def _coerce_int(value: Any, *, default: int, min_value: int, max_value: int) -> int:
+    try:
+        n = int(value)
+    except Exception:
+        n = default
+    return max(min_value, min(max_value, n))
+
+
+def _normalize_search_domains(args: dict) -> list[str]:
+    raw = args.get("domains", None)
+    if raw is None:
+        raw = args.get("site", "")
+    if isinstance(raw, str):
+        values = [v.strip() for v in raw.split(",") if v.strip()]
+    elif isinstance(raw, list):
+        values = [str(v).strip() for v in raw if str(v).strip()]
+    else:
+        values = []
+    domains = []
+    for item in values:
+        dom = _domain_from_url_or_host(item)
+        if dom and dom not in domains:
+            domains.append(dom)
+    return domains[:5]
+
+
+def _domain_from_url_or_host(value: str) -> str:
+    from urllib.parse import urlparse
+    value = value.strip().lower()
+    if not value:
+        return ""
+    if "://" not in value:
+        value = "https://" + value
+    host = urlparse(value).hostname or ""
+    if host.startswith("www."):
+        host = host[4:]
+    return host
+
+
+def _build_web_search_query(query: str, domains: list[str]) -> str:
+    if not domains:
+        return query
+    domain_expr = " OR ".join(f"site:{d}" for d in domains)
+    return f"({domain_expr}) {query}"
+
+
+def _duckduckgo_search_params(query: str, recency: str, language: str, safe_search: str) -> dict:
+    params = {"q": query}
+    if language:
+        params["kl"] = _duckduckgo_region(language)
+    if safe_search in ("strict", "moderate", "off"):
+        params["kp"] = {"strict": "1", "moderate": "-1", "off": "-2"}[safe_search]
+    if recency in ("day", "d", "week", "w", "month", "m", "year", "y"):
+        params["df"] = {"day": "d", "d": "d", "week": "w", "w": "w",
+                        "month": "m", "m": "m", "year": "y", "y": "y"}[recency]
+    return params
+
+
+def _duckduckgo_region(language: str) -> str:
+    lang = language.lower().replace("_", "-")
+    if lang.startswith("zh"):
+        return "cn-zh"
+    if lang.startswith("en"):
+        return "us-en"
+    return lang
+
+
+def _clean_url(url: str) -> str:
+    from urllib.parse import parse_qs, unquote, urlparse
+    url = (url or "").strip()
+    if not url:
+        return ""
+    parsed = urlparse(url)
+    if "duckduckgo.com" in (parsed.netloc or "") and parsed.path.startswith("/l/"):
+        uddg = parse_qs(parsed.query).get("uddg", [""])[0]
+        if uddg:
+            url = unquote(uddg)
+            parsed = urlparse(url)
+    if parsed.scheme not in ("http", "https"):
+        return ""
+    return url
+
+
+def _clean_text(text: str, max_chars: int) -> str:
+    import html as html_lib
+    text = re.sub(r'<[^>]+>', ' ', text or "")
+    text = html_lib.unescape(text)
+    text = re.sub(r'\s+', ' ', text).strip()
+    return text[:max_chars]
+
+
+def _build_web_result(title: str, url: str, snippet: str, source: str, rank: int) -> dict:
+    domain = _domain_from_url_or_host(url)
+    return {
+        "rank": rank,
+        "title": _clean_text(title, 180) or domain or url,
+        "url": url,
+        "domain": domain,
+        "snippet": _clean_text(snippet, 360),
+        "source": source,
+        "source_quality": _source_quality(domain),
+        "citation": f"[{rank}] {domain}",
+    }
+
+
+def _source_quality(domain: str) -> str:
+    if not domain:
+        return "unknown"
+    official_hints = (
+        "cisco.com", "huawei.com", "h3c.com", "ruijienetworks.com",
+        "juniper.net", "arista.com", "ietf.org", "rfc-editor.org",
+        "microsoft.com", "github.com", "python.org",
+    )
+    if any(domain == d or domain.endswith("." + d) for d in official_hints):
+        return "official_or_primary"
+    if domain.endswith((".edu", ".gov")):
+        return "institutional"
+    return "public_web"
+
+
+def _filter_web_results(results: list[dict], domains: list[str], limit: int) -> list[dict]:
+    seen = set()
+    filtered = []
+    for result in results:
+        url = result.get("url", "")
+        domain = result.get("domain") or _domain_from_url_or_host(url)
+        if domains and not any(domain == d or domain.endswith("." + d) for d in domains):
+            continue
+        if not url or url in seen:
+            continue
+        seen.add(url)
+        item = dict(result)
+        item["rank"] = len(filtered) + 1
+        item["citation"] = f"[{item['rank']}] {item.get('domain') or domain}"
+        filtered.append(item)
+        if len(filtered) >= limit:
+            break
+    return filtered
+
+
+def _flatten_duckduckgo_topics(topics: list) -> list:
+    flat = []
+    for item in topics or []:
+        if "Topics" in item:
+            flat.extend(_flatten_duckduckgo_topics(item.get("Topics", [])))
+        else:
+            flat.append(item)
+    return flat
+
+
+def _web_results_markdown(results: list[dict]) -> str:
+    lines = []
+    for item in results:
+        snippet = item.get("snippet", "")
+        suffix = f" — {snippet}" if snippet else ""
+        lines.append(f"{item.get('citation', '')} {item.get('title', '')}: {item.get('url', '')}{suffix}")
+    return "\n".join(lines)
+
+
+def _web_search_guidance(query: str, results: list[dict], domains: list[str]) -> dict:
+    official = [r for r in results if r.get("source_quality") == "official_or_primary"]
+    answer_hint = (
+        "优先引用 official_or_primary 结果；回答中保留 citation 编号和 URL。"
+        if official else
+        "结果来自公开网页；回答前说明来源可信度，并优先交叉验证前 2-3 条。"
+    )
+    next_actions = [
+        "用结果的 title/snippet 先回答用户问题，不要编造网页未给出的细节。",
+        "如果需要精确引用或正文细节，再调用 web.fetch_summary 读取具体 URL。",
+    ]
+    if not domains:
+        next_actions.append("如用户要求厂商文档，下一次搜索加 domains/site 限定官方站点。")
+    return {"answer_hint": answer_hint, "next_actions": next_actions}
+
+
+def _web_no_results_actions(query: str, domains: list[str]) -> list[str]:
+    actions = ["换 2-4 个更具体关键词重试。"]
+    if domains:
+        actions.append("放宽 domains/site 限制后重试。")
+    actions.append("如果问题适合本地知识库，先用 knowledge.search 查询。")
+    return actions
 
 
 def _web_no_results_hint(query: str) -> str:
@@ -990,6 +1221,109 @@ def handle_powershell_approved_script(inv: ToolInvocation) -> dict:
 
 ALL_GENERAL_TOOLS = []
 
+def _schema(properties: dict = None, required: list[str] = None) -> dict:
+    return {
+        "type": "object",
+        "properties": properties or {},
+        "required": required or [],
+    }
+
+
+S = {
+    "workspace_id": {"type": "string", "description": "Workspace id. Defaults to current/default workspace when omitted."},
+    "query": {"type": "string", "description": "Search or filter text. Use concise, specific keywords."},
+    "limit": {"type": "integer", "description": "Maximum items to return. Keep small unless user asks for broad inventory.", "default": 10},
+    "artifact_id": {"type": "string", "description": "Artifact id returned by artifact search/list tools."},
+    "source_id": {"type": "string", "description": "Knowledge source id."},
+    "chunk_id": {"type": "string", "description": "Knowledge chunk id."},
+    "url": {"type": "string", "description": "Public http(s) URL. Private/local network URLs are blocked."},
+    "title": {"type": "string", "description": "Human-readable title."},
+    "content": {"type": "string", "description": "Text content. Do not include sensitive material."},
+    "text": {"type": "string", "description": "Text to inspect, transform, validate, or summarize."},
+}
+
+
+GENERAL_TOOL_INPUT_SCHEMAS = {
+    # Artifact
+    "artifact.search": _schema({"workspace_id": S["workspace_id"], "query": S["query"], "limit": S["limit"]}),
+    "artifact.read_content_safe": _schema({"workspace_id": S["workspace_id"], "artifact_id": S["artifact_id"]}, ["artifact_id"]),
+    "artifact.save_result": _schema({
+        "workspace_id": S["workspace_id"],
+        "title": S["title"],
+        "content": S["content"],
+        "artifact_type": {"type": "string", "description": "Artifact type, e.g. report, knowledge_doc, translated_config."},
+        "sensitivity": {"type": "string", "enum": ["public", "internal", "confidential", "restricted"], "default": "internal"},
+    }, ["content"]),
+    "artifact.tag": _schema({
+        "workspace_id": S["workspace_id"],
+        "artifact_id": S["artifact_id"],
+        "tags": {"type": "array", "description": "Tags to add."},
+    }, ["artifact_id", "tags"]),
+    "artifact.delete_soft": _schema({"workspace_id": S["workspace_id"], "artifact_id": S["artifact_id"]}, ["artifact_id"]),
+
+    # Knowledge
+    "knowledge.index_artifact": _schema({"workspace_id": S["workspace_id"], "artifact_id": S["artifact_id"]}, ["artifact_id"]),
+    "knowledge.reindex": _schema({"workspace_id": S["workspace_id"], "source_id": S["source_id"]}),
+    "knowledge.search": _schema({"workspace_id": S["workspace_id"], "query": S["query"], "limit": S["limit"]}, ["query"]),
+    "knowledge.get_source": _schema({"workspace_id": S["workspace_id"], "source_id": S["source_id"]}, ["source_id"]),
+    "knowledge.get_chunk_summary": _schema({"workspace_id": S["workspace_id"], "chunk_id": S["chunk_id"]}, ["chunk_id"]),
+    "knowledge.explain_not_found": _schema({"query": S["query"], "workspace_id": S["workspace_id"]}, ["query"]),
+
+    # Web
+    "web.fetch_summary": _schema({"url": S["url"]}, ["url"]),
+    "web.official_doc_search": _schema({
+        "query": S["query"],
+        "vendor": {"type": "string", "description": "Vendor slug, e.g. cisco, huawei, h3c, ruijie, arista."},
+    }, ["query"]),
+    "web.extract_links": _schema({"url": S["url"]}, ["url"]),
+    "web.save_to_artifact": _schema({"workspace_id": S["workspace_id"], "url": S["url"], "title": S["title"]}, ["url"]),
+
+    # Session / run / memory
+    "session.list": _schema({"workspace_id": S["workspace_id"], "status": {"type": "string", "enum": ["active", "archived", "all"]}}),
+    "session.get_summary": _schema({"workspace_id": S["workspace_id"], "session_id": {"type": "string"}}, ["session_id"]),
+    "session.create": _schema({"workspace_id": S["workspace_id"], "title": S["title"]}),
+    "session.archive": _schema({"workspace_id": S["workspace_id"], "session_id": {"type": "string"}}, ["session_id"]),
+    "run.list_recent": _schema({"workspace_id": S["workspace_id"], "limit": S["limit"]}),
+    "run.get_summary": _schema({"workspace_id": S["workspace_id"], "run_id": {"type": "string"}}, ["run_id"]),
+    "memory.search": _schema({"query": S["query"], "limit": S["limit"]}, ["query"]),
+
+    # Runtime
+    "runtime.health": _schema({"workspace_id": S["workspace_id"]}),
+    "runtime.selfcheck": _schema({"workspace_id": S["workspace_id"]}),
+    "runtime.diagnostics": _schema({"workspace_id": S["workspace_id"]}),
+    "runtime.retention_preview": _schema({"workspace_id": S["workspace_id"]}),
+    "runtime.archive_preview": _schema({"workspace_id": S["workspace_id"]}),
+
+    # Report / document
+    "report.render_markdown": _schema({"content": S["content"], "title": S["title"]}, ["content"]),
+    "report.save_artifact": _schema({"workspace_id": S["workspace_id"], "title": S["title"], "content": S["content"]}, ["content"]),
+    "doc.render_from_safe_summary": _schema({"title": S["title"], "summary": {"type": "string", "description": "Safe summary only; raw configs are not accepted."}}, ["summary"]),
+    "table.render_markdown": _schema({"rows": {"type": "array", "description": "Rows to render, usually array of arrays or objects."}, "headers": {"type": "array"}}),
+    "diagram.render_mermaid": _schema({"mermaid": {"type": "string", "description": "Mermaid source text to return safely."}}, ["mermaid"]),
+
+    # Text / data
+    "text.redact": _schema({"text": S["text"]}, ["text"]),
+    "text.diff": _schema({"text_a": {"type": "string"}, "text_b": {"type": "string"}}, ["text_a", "text_b"]),
+    "text.extract_keywords": _schema({"text": S["text"], "limit": S["limit"]}, ["text"]),
+    "text.classify": _schema({"text": S["text"]}, ["text"]),
+    "json.validate": _schema({"text": S["text"]}, ["text"]),
+    "yaml.validate": _schema({"text": S["text"]}, ["text"]),
+    "csv.summarize": _schema({"text": S["text"]}, ["text"]),
+    "table.extract": _schema({"text": S["text"]}, ["text"]),
+
+    # Workspace
+    "workspace.list_files": _schema({"workspace_id": S["workspace_id"], "subdir": {"type": "string", "description": "Workspace-relative subdirectory."}}),
+    "workspace.read_text_preview": _schema({"workspace_id": S["workspace_id"], "filepath": {"type": "string", "description": "Workspace-relative text file path."}}, ["filepath"]),
+    "workspace.write_artifact_file": _schema({"workspace_id": S["workspace_id"], "filename": {"type": "string"}, "content": S["content"]}, ["filename", "content"]),
+    "workspace.path_exists": _schema({"workspace_id": S["workspace_id"], "filepath": {"type": "string"}}, ["filepath"]),
+    "workspace.get_metadata": _schema({"workspace_id": S["workspace_id"]}),
+
+    # Approved high-risk surfaces
+    "command.approved_exec": _schema({"command_id": {"type": "string", "description": "Allowlisted command id only. Requires approval."}}, ["command_id"]),
+    "powershell.approved_script": _schema({"script_id": {"type": "string", "description": "Allowlisted PowerShell script id only. Requires approval."}}, ["script_id"]),
+}
+
+
 def _planned_handler(name: str):
     """Return a handler for planned (not yet implemented) tools."""
     def handler(inv: ToolInvocation) -> dict:
@@ -1009,7 +1343,7 @@ def _reg(tool_id, name, category, risk_level, description, handler,
         version="0.2",
         enabled=enabled,
         risk_level=risk_level,
-        input_schema=input_schema or {"type": "object", "properties": {}},
+        input_schema=input_schema or GENERAL_TOOL_INPUT_SCHEMAS.get(tool_id) or {"type": "object", "properties": {}, "required": []},
         timeout_seconds=60 if risk_level != "high" else 120,
         dry_run_supported=dry_run_supported,
         writes_artifact=writes_artifact,
@@ -1048,8 +1382,49 @@ _reg("knowledge.explain_not_found", "Explain Not Found", "knowledge", "low",
      "Explain why search returned no results", handle_knowledge_explain_not_found)
 
 # ── C. Web Tools ──
+WEB_SEARCH_INPUT_SCHEMA = {
+    "type": "object",
+    "required": ["query"],
+    "properties": {
+        "query": {
+            "type": "string",
+            "description": "Search query. Use specific keywords; include vendor/protocol/version when known.",
+        },
+        "top_k": {
+            "type": "integer",
+            "description": "Number of results to return, 1-10. Default 5.",
+            "default": 5,
+        },
+        "site": {
+            "type": "string",
+            "description": "Optional comma-separated domains to restrict search, e.g. cisco.com,ietf.org.",
+        },
+        "domains": {
+            "type": "array",
+            "description": "Optional domain allowlist, e.g. ['cisco.com', 'ietf.org'].",
+        },
+        "recency": {
+            "type": "string",
+            "description": "Optional freshness filter: day, week, month, year.",
+            "enum": ["day", "week", "month", "year"],
+        },
+        "language": {
+            "type": "string",
+            "description": "Preferred result language/region, e.g. zh-CN or en-US.",
+            "default": "zh-CN",
+        },
+        "safe_search": {
+            "type": "string",
+            "description": "Safe search mode.",
+            "enum": ["strict", "moderate", "off"],
+            "default": "moderate",
+        },
+    },
+}
+
 _reg("web.search", "Web Search", "web", "medium",
-     "Search public web (DuckDuckGo HTML)", handle_web_search)
+     "Search public web and return citation-ready results with title, URL, domain, snippet, source quality, and next-step guidance. Use for current facts, official docs, standards, vendor references, or anything that may have changed.",
+     handle_web_search, input_schema=WEB_SEARCH_INPUT_SCHEMA)
 _reg("web.fetch_summary", "Fetch Summary", "web", "medium",
      "Fetch and summarize a public webpage", handle_web_fetch_summary)
 _reg("web.official_doc_search", "Official Doc Search", "web", "low",
