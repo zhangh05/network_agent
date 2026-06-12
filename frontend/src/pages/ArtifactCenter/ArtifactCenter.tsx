@@ -117,6 +117,19 @@ export function ArtifactCenter() {
           <div style={{ padding: 12 }}>
             <div className="section-head" style={{ paddingLeft: 4, marginBottom: 8 }}>
               <IconBox size={11} /> 制品列表
+              <button
+                className={`btn sm ${batchMode ? "" : "ghost"}`}
+                style={{ marginLeft: 8, fontSize: 11 }}
+                onClick={() => { setBatchMode(!batchMode); if (batchMode) setCheckedIds(new Set()); }}
+                type="button"
+              >
+                {batchMode ? "退出批量" : "批量删除"}
+              </button>
+              {batchMode && checkedIds.size > 0 && (
+                <button className="btn sm danger" style={{ marginLeft: 4 }} onClick={batchDelete} type="button">
+                  确认删除 ({checkedIds.size})
+                </button>
+              )}
               <span className="mono" style={{
                 marginLeft: "auto",
                 fontSize: 10,
@@ -126,16 +139,6 @@ export function ArtifactCenter() {
               }}>
                 {list.state.kind === "success" ? (list.state.data.artifacts ?? []).length : "—"}
               </span>
-            </div>
-            <div className="row-flex mb-2" style={{ gap: 4 }}>
-              <button className={`btn sm ${batchMode ? "primary" : ""}`} onClick={() => { setBatchMode(!batchMode); if (batchMode) setCheckedIds(new Set()); }} type="button" style={{ fontSize: 11 }}>
-                {batchMode ? "退出批量" : "批量选择"}
-              </button>
-              {batchMode && checkedIds.size > 0 && (
-                <button className="btn sm danger" onClick={batchDelete} type="button">
-                  删除 ({checkedIds.size})
-                </button>
-              )}
             </div>
             <AsyncView
               state={list.state}
