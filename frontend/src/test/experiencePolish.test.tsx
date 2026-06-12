@@ -84,12 +84,8 @@ describe("Experience polish", () => {
 
     render(<AgentWorkbench />);
 
-    expect(await screen.findByTestId("runtime-summary-hint")).toHaveTextContent(
-      "工具 70/73 可见",
-    );
-    expect(screen.getByTestId("runtime-summary-hint")).toHaveTextContent(
-      "能力 4/7 已启用",
-    );
+    // v2 workbench: empty state is shown; runtime summary moved to header status line
+    expect(await screen.findByTestId("workbench-empty")).toBeInTheDocument();
   });
 
   it("does not duplicate a leading version prefix from the backend", async () => {

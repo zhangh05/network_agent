@@ -293,6 +293,20 @@ function ResultInline({ result }: { result: AgentResult }) {
         </div>
       )}
 
+      {Array.isArray(summaries) && summaries.length > 0 && (
+        <div className="chat-source-summary" data-testid="inline-source-summary">
+          <b>知识源 · {summaries.length} 个</b>
+          <div style={{ marginTop: 4 }}>
+            {summaries.slice(0, 6).map((s: any, i: number) => (
+              <span className="chat-source-chip" key={i}>
+                {s.title || s.source_id}
+                <span className="score">{s.score != null ? ` ${s.score.toFixed(2)}` : ""}</span>
+              </span>
+            ))}
+          </div>
+        </div>
+      )}
+
       {!isFailed && (
         <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginTop: 6 }}>
           <button type="button" className="run-detail-button" onClick={toggleInspector}>
