@@ -114,57 +114,46 @@ export function ArtifactCenter() {
             background: "var(--bg-elev)",
           }}
         >
-          <div style={{ padding: 12 }}>
-            <div className="section-head" style={{ paddingLeft: 4, marginBottom: 0 }}>
+          <div style={{ padding: "12px 14px" }}>
+            <div className="section-head" style={{ paddingLeft: 4, marginBottom: 6 }}>
               <IconBox size={11} /> 制品列表
+              <span style={{ marginLeft: "auto", fontSize: 11, color: "var(--ink-soft)", fontWeight: 500 }}>
+                共 <strong style={{ color: "var(--accent)" }}>{list.state.kind === "success" ? (list.state.data.artifacts ?? []).length : "—"}</strong> 个
+              </span>
             </div>
-            <div className="row-flex mb-2" style={{ gap: 6, alignItems: "center" }}>
+            <div className="row-flex" style={{ gap: 6, marginBottom: 8 }}>
               <button
                 style={{ 
                   fontSize: 11,
-                  borderRadius: 10,
-                  padding: "2px 10px",
+                  border: `1px solid ${batchMode ? "var(--accent)" : "var(--line)"}`,
+                  borderRadius: 6,
+                  padding: "3px 10px",
                   cursor: "pointer",
-                  border: `1px solid ${batchMode ? "var(--accent)" : "var(--line-soft)"}`,
-                  background: batchMode ? "var(--accent-soft)" : "var(--bg-soft)",
-                  color: batchMode ? "var(--accent-deep)" : "var(--ink-soft)",
+                  background: batchMode ? "var(--accent)" : "var(--bg-elev)",
+                  color: batchMode ? "var(--accent-on)" : "var(--ink-soft)",
                 }}
                 onClick={() => { setBatchMode(!batchMode); if (batchMode) setCheckedIds(new Set()); }}
                 type="button"
               >
-                {batchMode ? "退出批量" : "批量删除"}
+                {batchMode ? "取消" : "批量删除"}
               </button>
               {batchMode && checkedIds.size > 0 && (
                 <button 
                   style={{ 
                     fontSize: 11,
-                    borderRadius: 10,
-                    padding: "2px 10px",
-                    cursor: "pointer",
                     border: "1px solid var(--danger)",
-                    background: "var(--danger-soft)",
-                    color: "var(--danger)",
+                    borderRadius: 6,
+                    padding: "3px 10px",
+                    cursor: "pointer",
+                    background: "var(--danger)",
+                    color: "#fff",
                   }} 
                   onClick={batchDelete} 
                   type="button"
                 >
-                  确认删除 ({checkedIds.size})
+                  删除 {checkedIds.size} 项
                 </button>
               )}
-              <span style={{
-                flex: 1,
-              }} />
-              <span style={{
-                fontSize: 11,
-                color: "var(--ink-soft)",
-                background: "var(--bg-soft)",
-                padding: "2px 10px",
-                borderRadius: 10,
-                border: "1px solid var(--line-soft)",
-                whiteSpace: "nowrap",
-              }}>
-                当前制品 <strong style={{ color: "var(--ink)" }}>{list.state.kind === "success" ? (list.state.data.artifacts ?? []).length : "—"}</strong>
-              </span>
             </div>
             <AsyncView
               state={list.state}
@@ -175,7 +164,7 @@ export function ArtifactCenter() {
               {(d) => (
                 <div className="list" data-testid="artifact-list">
                   {(d.artifacts ?? []).map((a) => (
-                    <div key={a.artifact_id} className="row-flex" style={{ gap: 0, alignItems: "stretch" }}>
+                    <div key={a.artifact_id} className="row-flex" style={{ gap: 0, alignItems: "stretch", borderBottom: "1px solid var(--line-soft)" }}>
                       {batchMode && (
                         <label style={{ display: "flex", alignItems: "center", padding: "0 6px 0 4px", cursor: "pointer" }}>
                           <input
