@@ -120,15 +120,12 @@ def handle_artifact_save_result(inv: ToolInvocation) -> dict:
     a_type = args.get("artifact_type", "knowledge_doc")
     try:
         validate_workspace_id(ws)
-        from artifacts.store import save_artifact, ArtifactRecord
+        from artifacts.store import save_artifact
         import uuid
         art_id = f"art_{uuid.uuid4().hex[:12]}"
-        rec = ArtifactRecord(
-            artifact_id=art_id, title=title, artifact_type=a_type,
-            workspace_id=ws, lifecycle="active", sensitivity="internal",
-            created_at=time.strftime("%Y-%m-%dT%H:%M:%S"),
-        )
-        save_artifact(ws, rec, content)
+        # v1.0.3.5: use keyword args — save_artifact creates ArtifactRecord internally
+        save_artifact(workspace_id=ws, content=content, title=title,
+                      artifact_type=a_type, sensitivity="internal")
         return _ok({"artifact_id": art_id, "title": title})
     except Exception as e:
         return _error(str(e)[:200])
@@ -149,9 +146,28 @@ def handle_artifact_tag(inv: ToolInvocation) -> dict:
         for t in tags:
             if t not in existing:
                 existing.append(t)
+        # v1.0.3.5: persist tags to artifact meta
+        _persist_artifact_tags(ws, art_id, existing)
         return _ok({"artifact_id": art_id, "tags": existing})
     except Exception as e:
         return _error(str(e)[:200])
+
+
+def _persist_artifact_tags(ws: str, art_id: str, tags: list) -> None:
+    """Best-effort: write updated tags to the artifact's meta.json file."""
+    import json
+    from pathlib import Path
+    from workspace.run_store import WS_ROOT
+    for art_type in ["inputs", "outputs", "reports", "temp"]:
+        meta_path = WS_ROOT / ws / "artifacts" / art_type / f"{art_id}.meta.json"
+        if meta_path.is_file():
+            try:
+                data = json.loads(meta_path.read_text())
+                data["tags"] = tags
+                meta_path.write_text(json.dumps(data, indent=2, ensure_ascii=False))
+            except Exception:
+                pass
+            return
 
 
 def handle_artifact_delete_soft(inv: ToolInvocation) -> dict:
@@ -405,14 +421,11 @@ def handle_web_save_to_artifact(inv: ToolInvocation) -> dict:
         if resp.status_code != 200:
             return _error(f"HTTP {resp.status_code}")
         content = f"# {title}\n\nSource: {url}\n\n{_strip_tags(resp.text[:5000])}"
-        from artifacts.store import save_artifact, ArtifactRecord
+        from artifacts.store import save_artifact
         import uuid
         art_id = f"art_{uuid.uuid4().hex[:12]}"
-        rec = ArtifactRecord(
-            artifact_id=art_id, title=title, artifact_type="knowledge_doc",
-            workspace_id=ws, lifecycle="active", sensitivity="internal",
-        )
-        save_artifact(ws, rec, content)
+        save_artifact(workspace_id=ws, content=content, title=title,
+                      artifact_type="knowledge_doc", sensitivity="internal")
         return _ok({"artifact_id": art_id, "title": title, "source_url": url})
     except Exception as e:
         return _error(str(e)[:200])
@@ -623,14 +636,11 @@ def handle_report_save_artifact(inv: ToolInvocation) -> dict:
     content = str(inv.arguments.get("content", ""))
     try:
         validate_workspace_id(ws)
-        from artifacts.store import save_artifact, ArtifactRecord
+        from artifacts.store import save_artifact
         import uuid
         art_id = f"art_{uuid.uuid4().hex[:12]}"
-        rec = ArtifactRecord(
-            artifact_id=art_id, title=title, artifact_type="report",
-            workspace_id=ws, lifecycle="active", sensitivity="internal",
-        )
-        save_artifact(ws, rec, content)
+        save_artifact(workspace_id=ws, content=content, title=title,
+                      artifact_type="report", sensitivity="internal")
         return _ok({"artifact_id": art_id, "title": title})
     except Exception as e:
         return _error(str(e)[:200])

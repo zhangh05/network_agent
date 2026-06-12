@@ -137,18 +137,23 @@ class ToolExecutor:
         duration = int((time.time() - start_time) * 1000)
 
         # ── 8. Build result ──
-        summary = output.get("summary", f"Tool {invocation.tool_id} completed")
+        ok = output.get("ok", True)  # v1.0.3.5: check ok to propagate errors
+        summary = output.get("summary", f"Tool {invocation.tool_id} {'completed' if ok else 'failed'}")
         if len(summary) > 500:
             summary = summary[:497] + "..."
+
+        errors = output.get("errors", [])
+        if not ok and not errors:
+            errors = [output.get("error", summary)]
 
         result = ToolResult(
             invocation_id=invocation.invocation_id,
             tool_id=invocation.tool_id,
-            status="succeeded",
+            status="succeeded" if ok else "failed",
             output=output,
             summary=summary,
             warnings=output.get("warnings", []),
-            errors=output.get("errors", []),
+            errors=errors,
             artifact_ids=output.get("artifact_ids", []),
             duration_ms=duration,
             redacted=True,
