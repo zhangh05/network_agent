@@ -67,7 +67,7 @@ from agent.modules.knowledge.schemas import (
 
 # Hard caps; can be overridden by env vars (so tests can lower them).
 DEFAULT_MAX_FILE_BYTES = int(
-    os.environ.get("KNOWLEDGE_MAX_FILE_BYTES", str(50 * 1024 * 1024))  # 50 MB
+    os.environ.get("KNOWLEDGE_MAX_FILE_BYTES", str(200 * 1024 * 1024))  # 200 MB
 )
 DEFAULT_MAX_PDF_PAGES = int(
     os.environ.get("KNOWLEDGE_MAX_PDF_PAGES", "2000")
@@ -160,7 +160,8 @@ def _validate_import_path(workspace_id: str, path: Union[str, Path]) -> dict:
     except OSError:
         return {"ok": False, "errors": ["file_not_found"]}
     if size > DEFAULT_MAX_FILE_BYTES:
-        return {"ok": False, "errors": ["file_too_large"]}
+        limit_mb = DEFAULT_MAX_FILE_BYTES // (1024 * 1024)
+        return {"ok": False, "errors": [f"file_too_large: {size // (1024*1024)}MB exceeds {limit_mb}MB limit"]}
     return {
         "ok": True,
         "resolved_path": resolved,
