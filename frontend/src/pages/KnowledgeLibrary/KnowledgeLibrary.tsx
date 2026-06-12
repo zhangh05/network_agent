@@ -69,6 +69,23 @@ export function KnowledgeLibrary() {
     }
   }
 
+  async function onDelete(source_id: string, title: string) {
+    if (!currentWorkspaceId) return;
+    if (!confirm(`确认删除「${title || source_id}」？删除后需重新导入。`)) return;
+    try {
+      await knowledgeApi.delete(source_id, currentWorkspaceId);
+      toast({ kind: "success", title: "已删除", body: title || source_id });
+      sources.reload();
+    } catch (e: unknown) {
+      toast({
+        kind: "error",
+        title: "删除失败",
+        body: isApiError(e) ? e.message : String(e),
+        request_id: isApiError(e) ? e.request_id : undefined,
+      });
+    }
+  }
+
   async function onImport() {
     if (!currentWorkspaceId || !importArtifactId.trim()) return;
     setImporting(true);
@@ -315,10 +332,11 @@ export function KnowledgeLibrary() {
                 <thead>
                   <tr>
                     <th>文档名</th>
+                    <th>简要</th>
                     <th>内容类型</th>
                     <th>是否可检索</th>
                     <th>最后更新</th>
-                    <th style={{ width: 120 }}>操作</th>
+                    <th style={{ width: 160 }}>操作</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -334,6 +352,9 @@ export function KnowledgeLibrary() {
                             {typeof s.chunk_count === "number" && <> · chunks: {s.chunk_count}</>}
                           </div>
                         </details>
+                      </td>
+                      <td className="text-xs" style={{ maxWidth: 260, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                        {s.summary || <span className="muted">—</span>}
                       </td>
                       <td>
                         <Badge kind="muted">{sourceTypeLabel(s.source_type)}</Badge>
@@ -353,7 +374,16 @@ export function KnowledgeLibrary() {
                           data-testid={`btn-reindex-${s.source_id}`}
                           type="button"
                         >
-                          <IconRefresh size={11} /> 重新整理
+                          <IconRefresh size={11} /> 整理
+                        </button>
+                        <button
+                          className="btn sm danger"
+                          style={{ marginLeft: 4 }}
+                          onClick={() => void onDelete(s.source_id, s.title || s.source_id)}
+                          data-testid={`btn-delete-${s.source_id}`}
+                          type="button"
+                        >
+                          删除
                         </button>
                       </td>
                     </tr>

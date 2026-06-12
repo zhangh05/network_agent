@@ -315,6 +315,19 @@ export const knowledgeApi = {
       },
       signal,
     ),
+  delete: (
+    source_id: string,
+    workspace_id: string,
+    signal?: AbortSignal,
+  ): Promise<{ ok: boolean; summary: string }> =>
+    apiRequest<{ ok: boolean; summary: string }>(
+      {
+        method: "DELETE",
+        url: `/knowledge/sources/${source_id}`,
+        params: { workspace_id },
+      },
+      signal,
+    ),
   search: (
     q: string,
     workspace_id: string,

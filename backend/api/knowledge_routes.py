@@ -155,6 +155,30 @@ def register_knowledge_routes(app):
             return jsonify({"ok": False, "error": "source_not_found_or_indexing_failed"}), 404
         return jsonify({"ok": True, "source": source.as_dict()})
 
+    # ── Delete ──
+    @app.route("/api/knowledge/sources/<source_id>", methods=["DELETE"])
+    def api_knowledge_delete_source(source_id):
+        ws_id = request.args.get("workspace_id", "default")
+        if request.is_json:
+            ws_id = request.get_json(silent=True).get("workspace_id", ws_id)
+        ws_id, err = _validated_ws_id(ws_id)
+        if err:
+            return err
+        # Try v2 store first
+        from agent.modules.knowledge.service import delete_source
+        result = delete_source(ws_id, source_id)
+        if result.get("ok"):
+            return jsonify(result)
+        # Fall back to legacy knowledge store
+        try:
+            from knowledge.store import delete_source as legacy_delete
+            ok = legacy_delete(ws_id, source_id)
+            if ok:
+                return jsonify({"ok": True, "source_id": source_id, "summary": f"deleted {source_id}"})
+        except Exception:
+            pass
+        return jsonify(result), 404
+
     # ── Search ──
     @app.route("/api/knowledge/search")
     def api_knowledge_search():

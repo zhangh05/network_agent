@@ -101,6 +101,7 @@ export interface KnowledgeSource {
   source_id: string;
   workspace_id: string;
   title: string;
+  summary?: string;
   source_type?: string;
   artifact_id?: string;
   status?: string;
