@@ -41,7 +41,7 @@ describe("Experience polish", () => {
     await waitFor(() => {
       expect(useSessionStore.getState().currentWorkspaceId).toBe("default");
     });
-    expect(await screen.findByText("Network Agent · v1.0.2")).toBeInTheDocument();
+    expect(await screen.findByText("Operations Console · v1.0.2")).toBeInTheDocument();
   });
 
   it("migrates a persisted test workspace back to default on startup", async () => {
@@ -98,8 +98,8 @@ describe("Experience polish", () => {
 
     render(<App />);
 
-    expect(await screen.findByText("Network Agent · v0.4")).toBeInTheDocument();
-    expect(screen.queryByText("Network Agent · vv0.4")).not.toBeInTheDocument();
+    expect(await screen.findByText("Operations Console · v0.4")).toBeInTheDocument();
+    expect(screen.queryByText("Operations Console · vv0.4")).not.toBeInTheDocument();
   });
 
   it("uses run ids to select audit runs with blank turn ids", async () => {

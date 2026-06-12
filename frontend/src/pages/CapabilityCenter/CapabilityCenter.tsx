@@ -2,7 +2,7 @@ import { useMemo } from "react";
 import { capabilitiesApi } from "../../api";
 import { useAsync, AsyncView, Badge, InlineCode } from "../../components/common";
 import type { CapabilityManifest, CapabilityStatus, RiskLevel } from "../../types";
-import { IconBolt, IconShield, IconSparkle } from "../../components/Icon";
+import { IconBolt, IconShield } from "../../components/Icon";
 
 const STATUS_KIND: Record<CapabilityStatus, "ok" | "muted" | "warn"> = {
   enabled: "ok",
@@ -214,23 +214,6 @@ function CapabilityCard({ cap }: { cap: CapabilityManifest }) {
         </div>
       </details>
 
-      {/* 装饰：规划中 capability 的禁止调用视觉提示 */}
-      {isPlanned && (
-        <div
-          style={{
-            position: "absolute",
-            top: 8,
-            right: 8,
-            fontSize: 10,
-            color: "var(--warning)",
-            opacity: 0.4,
-            pointerEvents: "none",
-          }}
-          aria-hidden
-        >
-          <IconSparkle size={32} />
-        </div>
-      )}
     </div>
   );
 }

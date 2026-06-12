@@ -27,7 +27,7 @@ import {
 } from "../components/Icon";
 
 const NAV_ITEMS: Array<{ to: string; label: string; testid: string; Icon: typeof IconChat }> = [
-  { to: "/workbench", label: "智能对话", testid: "nav-workbench", Icon: IconChat },
+  { to: "/workbench", label: "工作台", testid: "nav-workbench", Icon: IconChat },
   { to: "/knowledge", label: "知识库", testid: "nav-knowledge", Icon: IconBook },
   { to: "/artifacts", label: "制品中心", testid: "nav-artifacts", Icon: IconBox },
   { to: "/reviews", label: "评审中心", testid: "nav-reviews", Icon: IconCheck },
@@ -80,13 +80,13 @@ export function App() {
     <BrowserRouter future={{ v7_relativeSplatPath: true, v7_startTransition: true }}>
       <div className="app-shell">
         <header className="app-header">
-          <a className="brand" href="/" aria-label="网工智枢 · Network Agent">
+          <a className="brand" href="/" aria-label="网工智枢 · Operations Console">
             <span className="brand-mark" aria-hidden>
-              智
+              网
             </span>
             <span className="brand-text">
               <span>网工智枢</span>
-              <small>Network Agent{version ? ` · ${formatVersion(version)}` : ""}</small>
+              <small>Operations Console{version ? ` · ${formatVersion(version)}` : ""}</small>
             </span>
           </a>
 

@@ -11,7 +11,7 @@ import { useSessionStore } from "../../stores/session";
 import { useToastStore } from "../../stores/toast";
 import { isApiError } from "../../types";
 import type { KnowledgeSource } from "../../types";
-import { IconBook, IconRefresh, IconSearch, IconSparkle } from "../../components/Icon";
+import { IconBook, IconRefresh, IconSearch } from "../../components/Icon";
 import { shortId } from "../../utils/displayText";
 
 export function KnowledgeLibrary() {
@@ -175,7 +175,7 @@ export function KnowledgeLibrary() {
               data-testid="btn-knowledge-import"
               type="button"
             >
-              <IconSparkle size={12} /> {importing ? "导入中…" : "导入"}
+              <IconRefresh size={12} /> {importing ? "导入中…" : "导入"}
             </button>
           </div>
           {artifacts.state.kind === "empty" && (

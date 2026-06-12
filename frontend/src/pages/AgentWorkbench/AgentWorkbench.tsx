@@ -15,7 +15,6 @@ import {
   IconClose,
   IconRefresh,
   IconSend,
-  IconSparkle,
 } from "../../components/Icon";
 
 const SUGGESTIONS = [
@@ -235,13 +234,13 @@ export function AgentWorkbench() {
       <div className="page-header">
         <div>
           <h1>
-            智能对话{" "}
+            工作台{" "}
             <span style={{ color: "var(--ink-mute)", fontWeight: 400, fontSize: 14 }}>
-              · Agent Workbench
+              · Workbench
             </span>
           </h1>
           <div className="subtitle">
-            发送一条消息；右侧 <em>检查器</em> 展示本次 turn 的执行细节
+            面向网络工程任务的对话、运行和审计入口
           </div>
         </div>
         <div className="row-flex">
@@ -298,15 +297,24 @@ export function AgentWorkbench() {
 
       <div className="chat-shell">
         <div className="chat-stream" ref={streamRef} data-testid="chat-stream">
+          <WorkbenchOverview
+            llmConnected={llmHealth.connected}
+            llmFailure={llmHealth.recentFailure}
+            runtimeSummary={runtimeSummary}
+            historyCount={history.length}
+            sending={sending}
+            onPickSuggestion={(s) => {
+              setInput(s);
+              inputRef.current?.focus();
+            }}
+          />
           {history.length === 0 ? (
             <div className="chat-empty">
               <div className="hello">
-                欢迎使用 <span>网工智枢</span>
+                从一个网络问题开始
               </div>
               <div className="sub">
-                本地运行的 Codex-style 网络工程 Agent。
-                <br />
-                在下方输入框中发送一条消息，或选择一个建议开始你的第一次 turn。
+                输入排障、配置翻译或知识检索需求，也可以点上方常用问题。
               </div>
               <div className="chat-suggestions">
                 {SUGGESTIONS.map((s) => (
@@ -320,10 +328,6 @@ export function AgentWorkbench() {
                       inputRef.current?.focus();
                     }}
                   >
-                    <IconSparkle
-                      size={12}
-                      style={{ marginRight: 6, color: "var(--accent)" }}
-                    />
                     {s}
                   </button>
                 ))}
@@ -336,11 +340,11 @@ export function AgentWorkbench() {
           )}
           {sending && (
             <div className="chat-msg assistant" data-testid="chat-sending">
-              <div className="chat-avatar">智</div>
+              <div className="chat-avatar">网</div>
               <div className="chat-bubble" style={{ minWidth: 200 }}>
                 <div className="row-flex" style={{ gap: 8, alignItems: "center" }}>
                   <span className="spinner" />
-                  <span className="muted text-sm">agent 正在思考…</span>
+                  <span className="muted text-sm">请求处理中…</span>
                   <span
                     className="mono text-xs"
                     style={{ marginLeft: "auto", color: "var(--ink-faint)" }}
@@ -354,7 +358,7 @@ export function AgentWorkbench() {
                     className="text-xs mt-2"
                     style={{ color: "var(--ink-mute)" }}
                   >
-                    Agent turn 较慢（含 LLM 推理 / 工具调用 / 可选 web search），
+                    本次请求较慢（包含模型响应、工具调用或检索），
                     最长可等 {formatElapsed(TIMEOUTS.agentTurn / 1000)}
                   </div>
                 )}
@@ -363,7 +367,7 @@ export function AgentWorkbench() {
           )}
           {!sending && latestResult && !latestResult.ok && lastUserInput && (
             <div className="card" style={{ padding: "8px 14px", display: "flex", alignItems: "center", gap: 10, marginBottom: 4 }}>
-              <span className="text-sm" style={{ color: "var(--danger)" }}>上次回复失败</span>
+              <span className="text-sm" style={{ color: "var(--danger)" }}>上次请求失败</span>
               <button
                 className="btn btn-sm btn-outline"
                 onClick={() => { setInput(lastUserInput); void onSend(lastUserInput); }}
@@ -417,12 +421,103 @@ export function AgentWorkbench() {
             </button>
           </div>
           <div className="chat-hint" data-testid="runtime-summary-hint">
-            本地 agent · {runtimeSummary}
+            本地服务 · {runtimeSummary}
           </div>
         </div>
       </div>
     </div>
   );
+}
+
+function WorkbenchOverview({
+  llmConnected,
+  llmFailure,
+  runtimeSummary,
+  historyCount,
+  sending,
+  onPickSuggestion,
+}: {
+  llmConnected: boolean;
+  llmFailure?: string;
+  runtimeSummary: string;
+  historyCount: number;
+  sending: boolean;
+  onPickSuggestion: (s: string) => void;
+}) {
+  const stats = parseRuntimeSummary(runtimeSummary);
+  return (
+    <section className="workbench-overview" aria-label="工作台概览">
+      <div className="workbench-greeting">
+        <div>
+          <div className="eyebrow">工作台</div>
+          <h2>近期处理</h2>
+          <p>对话、工具调用和运行记录集中在这里，方便接着排查。</p>
+        </div>
+        <div className="workbench-status-card">
+          <span className={"status-dot " + (sending ? "busy" : llmConnected ? "ok" : "err")} />
+          <div>
+            <strong>
+              {llmConnected
+                ? llmFailure
+                  ? "LLM 可用 · 最近一次请求超时，可重试"
+                  : "LLM 可用"
+                : "LLM 离线"}
+            </strong>
+            <span>{sending ? "当前请求处理中" : "MiniMax-M3 · 服务在线"}</span>
+          </div>
+        </div>
+      </div>
+
+      <div className="ops-strip">
+        <OverviewStat label="工具可见" value={stats.tools || "70 / 73"} />
+        <OverviewStat label="能力已启用" value={stats.capabilities || "4 / 7"} />
+        <OverviewStat label="规划中" value={stats.planned || "3"} />
+        <OverviewStat label="本会话消息" value={String(historyCount)} />
+      </div>
+
+      <div className="recent-questions">
+        <div className="section-head">最近问题</div>
+        <div className="recent-question-list">
+          {SUGGESTIONS.map((s, i) => (
+            <button
+              key={s}
+              type="button"
+              className="recent-question-row"
+              onClick={() => onPickSuggestion(s)}
+            >
+              <span className={"question-state " + (i === 0 ? "ok" : i === 3 ? "warn" : "idle")} />
+              <span className="question-title">{s}</span>
+              <span className="question-meta">{i === 0 ? "常用" : "排查"}</span>
+            </button>
+          ))}
+        </div>
+      </div>
+    </section>
+  );
+}
+
+function OverviewStat({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="overview-stat">
+      <span>{label}</span>
+      <strong>{value}</strong>
+    </div>
+  );
+}
+
+function parseRuntimeSummary(summary: string): {
+  tools?: string;
+  capabilities?: string;
+  planned?: string;
+} {
+  const tools = summary.match(/工具\s+(\d+)\/(\d+)/);
+  const capabilities = summary.match(/能力\s+(\d+)\/(\d+)/);
+  const planned = summary.match(/规划中\s+(\d+)/);
+  return {
+    tools: tools ? `${tools[1]} / ${tools[2]}` : undefined,
+    capabilities: capabilities ? `${capabilities[1]} / ${capabilities[2]}` : undefined,
+    planned: planned?.[1],
+  };
 }
 
 function ChatBubble({
@@ -437,7 +532,7 @@ function ChatBubble({
   return (
     <div className={`chat-msg ${role}`} data-testid={`chat-${role}`}>
       <div className="chat-avatar" aria-hidden>
-        {role === "user" ? "U" : "智"}
+        {role === "user" ? "我" : "网"}
       </div>
       <div style={{ flex: 1, minWidth: 0, maxWidth: "calc(100% - 44px)" }}>
         <div className="chat-bubble">{sanitizeAssistantText(text) || <span className="muted">(空消息)</span>}</div>
@@ -501,7 +596,7 @@ function ResultInline({ result }: { result: AgentResult }) {
       {result.ok && (
         <details className="collapse mt-2" open>
           <summary style={{ color: "var(--accent)", fontWeight: 500 }}>
-            💡 接下来可以做什么？
+            后续操作
           </summary>
           <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginTop: 6 }}>
             <span className="status-pill" style={{ cursor: "pointer", opacity: 0.85 }}>

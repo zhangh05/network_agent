@@ -96,17 +96,19 @@ export function Settings() {
   const aliveRef = useRef(true);
   const statusRequestSeq = useRef(0);
 
-  // 初始加载 config + status
+  // 初始加载只阻塞 config。健康检查可能触发供应商探测，放到后台刷新，
+  // 避免设置页打开时卡在空白 loading。
   useEffect(() => {
     aliveRef.current = true;
     setLoading(true);
-    Promise.all([settingsApi.llmConfig(), settingsApi.llmStatus()])
-      .then(([cfg, st]) => {
+    settingsApi.llmConfig()
+      .then((cfg) => {
         if (!aliveRef.current) return;
         setConfig(cfg);
         setDraft(cfg);
-        setStatus(st);
         setActivePreset(pickPresetId(cfg.provider, cfg.base_url, cfg.model));
+        setHealthRefreshing(true);
+        void refreshHealth({ showPending: true });
       })
       .catch((e: unknown) => {
         if (!aliveRef.current) return;
@@ -578,7 +580,29 @@ function HealthBar({
   config: LlmConfig | null;
   refreshing?: boolean;
 }) {
-  if (!status || !config) return null;
+  if (!config) return null;
+  if (!status) {
+    return (
+      <div
+        className="card mb-3 row-flex"
+        style={{
+          background: "var(--secondary-soft)",
+          borderColor: "var(--secondary)",
+          alignItems: "center",
+          gap: 12,
+        }}
+        data-testid="llm-health-bar"
+      >
+        <span className="spinner" style={{ width: 12, height: 12 }} />
+        <strong style={{ color: "var(--secondary)" }}>
+          {refreshing ? "正在检查服务状态" : "服务状态待刷新"}
+        </strong>
+        <span className="muted text-xs">
+          · provider={config.provider} · model={config.model}
+        </span>
+      </div>
+    );
+  }
   // 优先级: 未配置 key (warn) > 连接失败 (err) > 已连接但近期有失败 (warn) > 已连接 (ok)
   const warn = !status.key_loaded;
   const err = !warn && status.health.last_error && !status.connected;
