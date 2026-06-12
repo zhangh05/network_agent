@@ -467,6 +467,20 @@ def run_turn(session, turn, services=None) -> AgentResult:
             audit_events.emit("assistant_message", session_id=session.session_id, turn_id=turn.turn_id,
                               content_len=len(final_response), reasoning_stripped=reasoning_stripped)
 
+        # v1.0.3.5: output policy check — block/rewrite dangerous content
+        output_policy_ok = True
+        try:
+            from prompts.policy import check_prompt_output
+            out_result = check_prompt_output(final_response)
+            if not out_result.is_ok:
+                output_policy_ok = False
+                final_response += (
+                    "\n\n⚠️ [输出策略告警] 当前回答可能包含不应展示的内容，已标注。"
+                )
+                turn.warnings.append(f"output_policy_failed: {out_result.issues}")
+        except Exception:
+            pass
+
         session.history.append(UserMessage(content=context.user_input))
         session.history.append(AssistantMessage(content=final_response))
 
@@ -484,7 +498,11 @@ def run_turn(session, turn, services=None) -> AgentResult:
             tool_calls=all_tool_results,
             warnings=turn.warnings,
             events=_collect_events(audit_events, turn.turn_id),
-            metadata=_enrich_metadata({"model": context.model_config.get("model", ""), "steps": step}, context),
+            metadata=_enrich_metadata({
+                "model": context.model_config.get("model", ""),
+                "steps": step,
+                "output_policy_ok": output_policy_ok,
+            }, context),
         )
 
         # Persist rollout

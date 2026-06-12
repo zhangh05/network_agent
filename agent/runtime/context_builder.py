@@ -183,8 +183,26 @@ def build_turn_context(session, turn, services) -> TurnContext:
         snapshot.metadata.setdefault("warnings", []).extend(selector_warnings)
     ctx.runtime_snapshot = snapshot.to_dict()
 
-    # 8. Build safe_context
-    ctx.safe_context = {"workspace_id": ctx.workspace_id, "session_id": ctx.session_id}
+    # 8. Build safe_context — enrich with full context bundle
+    #    v1.0.3.5: integrate context.builder.build_context_bundle() so
+    #    RAG hits, memory, artifact refs, and workspace state enter the
+    #    LLM context, not just {workspace_id, session_id}.
+    from context.builder import build_context_bundle
+    from context.schemas import ContextBudget
+    try:
+        bundle = build_context_bundle(
+            workspace_id=ctx.workspace_id,
+            user_input=user_input,
+            intent=ctx.metadata.get("intent", ""),
+            capability_id=ctx.metadata.get("capability_id", ""),
+            budget=ContextBudget(),
+            run_id=turn.turn_id if turn else "",
+            trace_id=ctx.trace_id,
+        )
+        ctx.safe_context = _safe_context_from_bundle(bundle, ctx)
+    except Exception:
+        # Fallback to minimal context if full bundle build fails
+        ctx.safe_context = {"workspace_id": ctx.workspace_id, "session_id": ctx.session_id}
 
     # v1.0.3: store selected_skills and visible_tools in ctx.metadata
     # so loop.py can include them in AgentResult.metadata.
@@ -192,3 +210,33 @@ def build_turn_context(session, turn, services) -> TurnContext:
     ctx.metadata["visible_tools"] = selected_visible_tools
 
     return ctx
+
+
+def _safe_context_from_bundle(bundle, ctx) -> dict:
+    """Extract the LLM-safe key-value context from a ContextBundle.
+
+    Returns a flat dict suitable for safe_context injection.
+    Falls back to minimal data if the bundle is empty."""
+    safe = {
+        "workspace_id": ctx.workspace_id,
+        "session_id": ctx.session_id,
+    }
+    if not bundle:
+        return safe
+    # Inject context bundle data
+    if hasattr(bundle, "safe_context") and bundle.safe_context:
+        sc = bundle.safe_context
+        safe["intent"] = getattr(sc, "intent", "") or ""
+        if hasattr(sc, "artifact_refs") and sc.artifact_refs:
+            safe["artifact_refs"] = list(sc.artifact_refs)
+        if hasattr(sc, "memory_hits") and sc.memory_hits:
+            safe["memory_hits"] = list(sc.memory_hits)
+        if hasattr(sc, "warnings") and sc.warnings:
+            safe["context_warnings"] = list(sc.warnings)
+    if hasattr(bundle, "workspace_state") and bundle.workspace_state:
+        safe["workspace_state"] = dict(bundle.workspace_state)
+    if hasattr(bundle, "exec_context") and bundle.exec_context:
+        ec = bundle.exec_context
+        safe["capability_id"] = getattr(ec, "capability_id", "") or ""
+        safe["source_config_artifact_id"] = getattr(ec, "source_config_artifact_id", "") or ""
+    return safe
