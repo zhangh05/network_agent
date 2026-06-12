@@ -9,17 +9,25 @@ interface AppLayoutProps {
 }
 
 /**
- * Multi-column app layout. Column 1 is the left sidebar
- * (Workspace / Sessions / Recent Runs). Column 3 is the Turn
- * Inspector (used by AgentWorkbench). Other pages opt out of column 3
- * by passing `cols={2}`; AgentWorkbench is the only one using `cols=3`.
+ * Multi-column app layout using CSS grid.
+ * - Sidebar: 280px, collapsible
+ * - Main: flex-1, scrollable
+ * - Inspector: 380px slide-in drawer (hidden by default)
+ *
+ * The workbench page uses cols=3 for inspector support.
  */
 export function AppLayout({ cols, children }: AppLayoutProps) {
   const sidebarOpen = useUIStore((s) => s.sidebarOpen);
   const inspectorOpen = useUIStore((s) => s.inspectorOpen);
 
+  const rootClasses = [
+    "app-root",
+    !sidebarOpen ? "no-sidebar" : "",
+    cols === 3 && inspectorOpen ? "with-inspector" : "",
+  ].filter(Boolean).join(" ");
+
   return (
-    <>
+    <div className={rootClasses}>
       <aside
         className={"app-sidebar" + (sidebarOpen ? "" : " collapsed")}
         data-testid="layout-left"
@@ -28,19 +36,19 @@ export function AppLayout({ cols, children }: AppLayoutProps) {
         {sidebarOpen && <Sidebar />}
       </aside>
 
-      <section className="app-content" data-testid="layout-center">
+      <section className="app-main" data-testid="layout-center">
         {children}
       </section>
 
       {cols === 3 && (
         <aside
-          className={"app-inspector" + (inspectorOpen ? "" : " collapsed")}
+          className={"app-inspector" + (inspectorOpen ? " open" : "")}
           data-testid="layout-right"
           aria-label="检查器"
         >
           {inspectorOpen && <Inspector />}
         </aside>
       )}
-    </>
+    </div>
   );
 }
