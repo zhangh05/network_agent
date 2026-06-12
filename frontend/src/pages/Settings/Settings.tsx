@@ -549,7 +549,7 @@ function HealthBar({
   // Recent failure: health check passes but a real turn failed recently
   const recentFailure = !err && !warn && status.recent_failure;
   const recentFailureActive = recentFailure &&
-    Date.now() - new Date(recentFailure.at).getTime() < 5 * 60_000; // 5 min window
+    Date.now() - new Date(recentFailure.at).getTime() < 15 * 60_000; // 15 min window
   let color = "var(--ok)";
   let bg = "#e8f5e9";
   let border = "#66bb6a";
