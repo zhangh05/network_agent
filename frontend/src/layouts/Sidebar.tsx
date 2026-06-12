@@ -1,4 +1,4 @@
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
 import { useAsync, AsyncView } from "../components/common";
 import { sessionsApi, workspacesApi } from "../api";
 import { useSessionStore } from "../stores/session";
@@ -32,6 +32,8 @@ export function Sidebar() {
     setWorkspaces,
   } = useSessionStore();
   const toast = useToastStore((s) => s.show);
+  const [editingWsId, setEditingWsId] = useState<string | null>(null);
+  const [editingWsName, setEditingWsName] = useState("");
 
   const wsList = useAsync<{ workspaces: Workspace[] }>(
     (s) => workspacesApi.list(s),
@@ -77,6 +79,39 @@ export function Sidebar() {
     if (list.length > 0 && shouldReplacePersistedWorkspace(cur, list)) {
       setCurrentWorkspace(pickInitialWorkspaceId(list));
     }
+  }
+
+  async function onRenameWs(ws_id: string) {
+    if (!editingWsName.trim()) { cancelEditWs(); return; }
+    try {
+      await workspacesApi.rename(ws_id, editingWsName.trim());
+      wsList.reload();
+      toast({ kind: "success", title: "已重命名" });
+      cancelEditWs();
+    } catch (e: unknown) {
+      toast({ kind: "error", title: "重命名失败", body: isApiError(e) ? e.message : String(e) });
+    }
+  }
+
+  async function onDeleteWs(ws_id: string, name: string) {
+    if (!confirm(`确认删除工作区「${name}」？此操作不可撤销。`)) return;
+    try {
+      await workspacesApi.delete(ws_id);
+      wsList.reload();
+      toast({ kind: "success", title: "已删除", body: name });
+    } catch (e: unknown) {
+      toast({ kind: "error", title: "删除失败", body: isApiError(e) ? e.message : String(e) });
+    }
+  }
+
+  function startEditWs(ws: Workspace) {
+    setEditingWsId(ws.workspace_id);
+    setEditingWsName(ws.name || ws.workspace_id);
+  }
+
+  function cancelEditWs() {
+    setEditingWsId(null);
+    setEditingWsName("");
   }
 
   async function onNewSession() {
@@ -137,20 +172,48 @@ export function Sidebar() {
           {(d) => (
             <div className="list" data-testid="ws-list">
               {(d.workspaces ?? []).map((w) => (
-                <button
-                  key={w.workspace_id}
-                  className={
-                    "list-item" +
-                    (currentWorkspaceId === w.workspace_id ? " active" : "")
-                  }
-                  onClick={() => setCurrentWorkspace(w.workspace_id)}
-                  data-testid={`ws-${w.workspace_id}`}
-                  type="button"
-                >
-                  <span className="status-dot ok" />
-                  <span className="title">{w.name || w.workspace_id}</span>
-                  {w.is_default && <span className="meta">默认</span>}
-                </button>
+                <div key={w.workspace_id} className="row-flex" style={{ gap: 0, alignItems: "stretch" }}>
+                  <button
+                    className={
+                      "list-item" +
+                      (currentWorkspaceId === w.workspace_id ? " active" : "")
+                    }
+                    onClick={() => { cancelEditWs(); setCurrentWorkspace(w.workspace_id); }}
+                    data-testid={`ws-${w.workspace_id}`}
+                    type="button"
+                    style={{ flex: 1 }}
+                  >
+                    <span className="status-dot ok" />
+                    {editingWsId === w.workspace_id ? (
+                      <input
+                        className="input"
+                        style={{ height: 22, fontSize: 12, marginLeft: 4 }}
+                        value={editingWsName}
+                        onChange={(e) => setEditingWsName(e.target.value)}
+                        onKeyDown={(e) => {
+                          if (e.key === "Enter") { e.stopPropagation(); void onRenameWs(w.workspace_id); }
+                          if (e.key === "Escape") { e.stopPropagation(); cancelEditWs(); }
+                        }}
+                        onClick={(e) => e.stopPropagation()}
+                        autoFocus
+                      />
+                    ) : (
+                      <span className="title">{w.name || w.workspace_id}</span>
+                    )}
+                    {w.is_default && <span className="meta">默认</span>}
+                  </button>
+                  {!w.is_default && editingWsId === w.workspace_id ? (
+                    <div style={{ display: "flex", gap: 2, padding: "4px 2px" }}>
+                      <button className="btn sm" style={{ height: 22, padding: "0 6px", fontSize: 10 }} onClick={(e) => { e.stopPropagation(); void onRenameWs(w.workspace_id); }} type="button">保存</button>
+                      <button className="btn sm ghost" style={{ height: 22, padding: "0 4px", fontSize: 10 }} onClick={(e) => { e.stopPropagation(); cancelEditWs(); }} type="button">×</button>
+                    </div>
+                  ) : !w.is_default ? (
+                    <div style={{ display: "flex", gap: 2, padding: "4px 2px", opacity: editingWsId ? 0.3 : 1 }}>
+                      <button className="btn sm ghost" style={{ height: 22, padding: "0 4px", fontSize: 10 }} onClick={(e) => { e.stopPropagation(); startEditWs(w); }} type="button" title="重命名">✎</button>
+                      <button className="btn sm ghost" style={{ height: 22, padding: "0 4px", fontSize: 10, color: "var(--danger)" }} onClick={(e) => { e.stopPropagation(); void onDeleteWs(w.workspace_id, w.name || w.workspace_id); }} type="button" title="删除">×</button>
+                    </div>
+                  ) : null}
+                </div>
               ))}
             </div>
           )}
