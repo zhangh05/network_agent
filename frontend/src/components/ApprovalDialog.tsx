@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { useSessionStore } from "../stores/session";
-import { IconAlert, IconCheck, IconX } from "./Icon";
+import { IconAlert, IconCheck, IconClose } from "./Icon";
 
 interface PendingApproval {
   approval_id: string;
@@ -92,7 +92,7 @@ export function ApprovalDialog({ onResolved }: { onResolved?: () => void }) {
             disabled={resolving}
             type="button"
           >
-            <IconX size={14} /> 拒绝
+            <IconClose size={14} /> 拒绝
           </button>
           <button
             className="btn primary"
