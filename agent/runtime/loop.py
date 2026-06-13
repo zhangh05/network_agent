@@ -802,16 +802,21 @@ def _build_tool_message_payload(result) -> dict:
 
 
 def _merge_llm_safe_tool_fields(payload: dict, source: dict) -> None:
-    for key in (
-        "status", "query", "search_query", "url", "title", "provider",
-        "source_type", "count", "answer_hint", "results_markdown",
-        "next_actions", "results", "filters", "source_summary", "preview",
-        "text_length", "status_code", "artifact_id", "source_url", "hint",
-        "content", "artifact_type", "sensitivity", "authoritative",
-        "deployable_config", "manual_review_items",
-    ):
-        value = source.get(key)
+    """Merge fields from source (data/raw) into payload, skipping forbidden keys.
+
+    v0.9.1: Replaced hardcoded whitelist with blacklist-based merging.
+    All non-forbidden fields are passed through — _safe_tool_value handles
+    recursive sanitization (length caps, dict/list limits, key filtering).
+    Previously ~20 fields were silently dropped because the whitelist was
+    too narrow (e.g. diff, items, chunks, sources, rendered, translated_config).
+    """
+    for key, value in source.items():
+        if _is_forbidden_prompt_key(str(key)):
+            continue
         if value in (None, "", [], {}):
+            continue
+        # Don't overwrite already-present top-level fields
+        if key in payload:
             continue
         payload[key] = _safe_tool_value(value)
 
