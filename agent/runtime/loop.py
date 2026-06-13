@@ -547,134 +547,137 @@ def run_turn(session, turn, services=None, restricted_tool_router=None) -> Agent
                 if audit_trace:
                     audit_trace.record_tool_call(turn.turn_id, step, tool_call.real_tool_id, str(tool_call.arguments)[:100])
 
+                # ── v2.1: Runtime Chain Integrity — strict order ──
+                #   3. pre_tool → 4. approval → 5. dispatch → 6. audit
+                #   → 7. post_tool → 8. append result → 9. continue/break
+                tool_executed = False
                 try:
-                    # ── v2.0: Pre-tool hook ──
+                    # ── 3. Pre-tool hook ──
                     hook_allowed, hook_input, hook_reason = _run_pre_tool_hook(
                         session, tool_call.real_tool_id, tool_call.arguments)
                     if not hook_allowed:
                         result = ToolResult(
                             ok=False,
-                            summary=f"Tool {tool_call.real_tool_id} blocked by hook: {hook_reason}",
+                            summary=f"Tool {tool_call.real_tool_id} blocked by pre-tool hook: {hook_reason}",
                             errors=[f"hook_denied: {hook_reason}"],
                         )
-                        _record_denied_tool(tool_call, tc, result, all_tool_results,
-                                            messages, audit_events, audit_trace,
-                                            session, turn, step)
-                        continue
-                    if hook_input and isinstance(hook_input, dict):
-                        tool_call.arguments.update(hook_input)
-
-                    # ── Approval gate for high-risk tools ──
-                    spec = context.tool_router.registry.get(tool_call.real_tool_id) if hasattr(context.tool_router, 'registry') else None
-                    is_high_risk = spec and getattr(spec, 'risk_level', 'low') == 'high'
-                    if is_high_risk:
-                        from agent.approval import get_approval_store
-                        store = get_approval_store()
-                        apr = store.create(
-                            session_id=session.session_id,
-                            tool_id=tool_call.real_tool_id,
-                            arguments=tool_call.arguments,
-                            description=getattr(spec, 'description', '')[:200],
-                            risk_level="high",
-                        )
                         if audit_events:
-                            audit_events.emit("approval_required", session_id=session.session_id,
-                                              turn_id=turn.turn_id, approval_id=apr.approval_id,
-                                              tool_id=apr.tool_id)
-                        # ── v2.1: ON_APPROVAL hook (required) ──
-                        _run_approval_hook(session, "required", apr.approval_id, apr.tool_id, context)
-                        allowed = store.wait(apr.approval_id, timeout=120.0)
-                        store.cleanup(apr.approval_id)
-                        if not allowed:
-                            # ── v2.1: ON_APPROVAL hook (denied) ──
-                            _run_approval_hook(session, "denied", apr.approval_id, apr.tool_id, context)
-                            result = ToolResult(
-                                ok=False,
-                                summary=f"Tool {tool_call.real_tool_id} was rejected by user",
-                                errors=["user_rejected"],
+                            audit_events.emit("tool_call_failed", session_id=session.session_id,
+                                              turn_id=turn.turn_id,
+                                              tool_id=tool_call.real_tool_id, errors=result.errors)
+                        if audit_trace:
+                            audit_trace.record_tool_result(turn.turn_id, step,
+                                                           tool_call.real_tool_id, False, result.summary)
+                        # Skip dispatch, skip post_tool, go directly to append
+                        tool_executed = False
+                    else:
+                        if hook_input and isinstance(hook_input, dict):
+                            tool_call.arguments.update(hook_input)
+
+                        # ── 4. Approval gate for high-risk tools ──
+                        spec = context.tool_router.registry.get(tool_call.real_tool_id) if hasattr(context.tool_router, 'registry') else None
+                        is_high_risk = spec and getattr(spec, 'risk_level', 'low') == 'high'
+                        approval_denied = False
+                        if is_high_risk:
+                            from agent.approval import get_approval_store
+                            store = get_approval_store()
+                            apr = store.create(
+                                session_id=session.session_id,
+                                tool_id=tool_call.real_tool_id,
+                                arguments=tool_call.arguments,
+                                description=getattr(spec, 'description', '')[:200],
+                                risk_level="high",
                             )
-                            # Fall through to normal result recording below
                             if audit_events:
-                                audit_events.emit("approval_denied", session_id=session.session_id,
-                                                  turn_id=turn.turn_id, tool_id=apr.tool_id)
+                                audit_events.emit("approval_required", session_id=session.session_id,
+                                                  turn_id=turn.turn_id, approval_id=apr.approval_id,
+                                                  tool_id=apr.tool_id)
+                            _run_approval_hook(session, "required", apr.approval_id, apr.tool_id, context)
+                            allowed = store.wait(apr.approval_id, timeout=120.0)
+                            store.cleanup(apr.approval_id)
+                            if not allowed:
+                                _run_approval_hook(session, "denied", apr.approval_id, apr.tool_id, context)
+                                result = ToolResult(
+                                    ok=False,
+                                    summary=f"Tool {tool_call.real_tool_id} was rejected by user",
+                                    errors=["user_rejected"],
+                                )
+                                if audit_events:
+                                    audit_events.emit("approval_denied", session_id=session.session_id,
+                                                      turn_id=turn.turn_id, tool_id=apr.tool_id)
+                                if audit_trace:
+                                    audit_trace.record_tool_result(turn.turn_id, step,
+                                        tool_call.real_tool_id, False, "user_rejected")
+                                approval_denied = True
+                            else:
+                                _run_approval_hook(session, "allowed", apr.approval_id, apr.tool_id, context)
+
+                        if approval_denied:
+                            # Skip dispatch, skip post_tool, go directly to append
+                            tool_executed = False
+                        else:
+                            # ── 5. Dispatch tool exactly once ──
+                            result = context.tool_router.dispatch(tool_call, context)
+
+                            # ── 6. Audit tool result ──
+                            if audit_events:
+                                if result.ok:
+                                    audit_events.emit("tool_call_finished", session_id=session.session_id,
+                                                      turn_id=turn.turn_id,
+                                                      tool_id=tool_call.real_tool_id, summary=result.summary)
+                                else:
+                                    audit_events.emit("tool_call_failed", session_id=session.session_id,
+                                                      turn_id=turn.turn_id,
+                                                      tool_id=tool_call.real_tool_id, errors=result.errors)
                             if audit_trace:
                                 audit_trace.record_tool_result(turn.turn_id, step,
-                                    tool_call.real_tool_id, False, "user_rejected")
-                            # ── v2.0: Post-tool hook (Phase 3: stop if needed) ──
-                        else:
-                            # ── v2.1: ON_APPROVAL hook (allowed) ──
-                            _run_approval_hook(session, "allowed", apr.approval_id, apr.tool_id, context)
-                    tool_stop = _run_post_tool_hook(session, tool_call.real_tool_id, result, turn)
-                    if tool_stop:
-                        final_response = "Tool execution stopped by post-tool hook."
-                        turn.warnings.append("post_tool_stop: tool loop interrupted by hook")
-                        all_tool_results.append(_to_standard_tool_call(
-                            tool_call.call_id, tool_call.real_tool_id, result
-                        ))
-                        tool_msg = ToolResultMessage(
-                            content=json.dumps({"ok": False, "error": "Tool execution stopped by post-tool hook"},
-                                              ensure_ascii=False)[:500],
-                            tool_call_id=tc.id,
-                        )
-                        messages.append(tool_msg.to_llm_message())
-                        turn.status = "finished"
-                        break  # exit for loop, continue to result building below
+                                                               tool_call.real_tool_id, result.ok, result.summary)
+                            tool_executed = True
 
-                    result = context.tool_router.dispatch(tool_call, context)
-                    if audit_events:
-                        if result.ok:
-                            audit_events.emit("tool_call_finished", session_id=session.session_id, turn_id=turn.turn_id,
-                                              tool_id=tool_call.real_tool_id, summary=result.summary)
-                        else:
-                            audit_events.emit("tool_call_failed", session_id=session.session_id, turn_id=turn.turn_id,
-                                              tool_id=tool_call.real_tool_id, errors=result.errors)
-                    if audit_trace:
-                        audit_trace.record_tool_result(turn.turn_id, step, tool_call.real_tool_id, result.ok, result.summary)
+                            # ── 7. Post-tool hook exactly once ──
+                            post_stop = _run_post_tool_hook(session, tool_call.real_tool_id, result, turn)
+                            if post_stop:
+                                turn.warnings.append(
+                                    f"post_tool_stop: {tool_call.real_tool_id} stopped by hook"
+                                )
+                                # Append this tool's result, then break
+                                all_tool_results.append(_to_standard_tool_call(
+                                    tool_call.call_id, tool_call.real_tool_id, result
+                                ))
+                                tool_msg = ToolResultMessage(
+                                    content=json.dumps({
+                                        "ok": result.ok if hasattr(result, 'ok') else False,
+                                        "summary": getattr(result, 'summary', '') if hasattr(result, 'summary') else "Tool stopped by post-tool hook",
+                                    }, ensure_ascii=False)[:500],
+                                    tool_call_id=tc.id,
+                                )
+                                messages.append(tool_msg.to_llm_message())
+                                _tool_stop_requested = True
+                                continue  # skip normal append below
 
-                    # ── v2.0: Post-tool hook (Phase 3: stop if needed) ──
-                    if _run_post_tool_hook(session, tool_call.real_tool_id, result, turn):
-                        # Hook requests stop — break tool loop
-                        final_response = "Tool execution stopped by post-tool hook."
-                        turn.warnings.append("post_tool_stop: tool loop interrupted")
-                        turn.status = "finished"
-                        break
-                    # ── v2.0: Post-tool hook (Phase 3: stop if needed) ──
-                    post_tool_stop = _run_post_tool_hook(session, tool_call.real_tool_id, result, turn)
-                    if post_tool_stop:
-                        _tool_stop_requested = True
-                        all_tool_results.append(_to_standard_tool_call(
-                            tool_call.call_id, tool_call.real_tool_id, result
-                        ))
-                        tool_msg = ToolResultMessage(
-                            content=json.dumps({
-                                "ok": True,
-                                "summary": result.summary if hasattr(result, 'summary') else "Tool completed but hook requested stop",
-                            }, ensure_ascii=False)[:500],
-                            tool_call_id=tc.id,
-                        )
-                        messages.append(tool_msg.to_llm_message())
-                        break  # exit for loop
                 except Exception as e:
-                    if audit_events:
-                        audit_events.emit("tool_call_failed", session_id=session.session_id, turn_id=turn.turn_id,
-                                          tool_id=tool_call.real_tool_id, errors=[str(e)[:200]])
-                    if audit_trace:
-                        audit_trace.record_tool_result(turn.turn_id, step, tool_call.real_tool_id, False, str(e)[:100])
                     result = ToolResult(
                         ok=False,
                         summary=str(e)[:200],
                         errors=[str(e)[:200]],
                     )
+                    if audit_events:
+                        audit_events.emit("tool_call_failed", session_id=session.session_id,
+                                          turn_id=turn.turn_id,
+                                          tool_id=tool_call.real_tool_id, errors=[str(e)[:200]])
+                    if audit_trace:
+                        audit_trace.record_tool_result(turn.turn_id, step,
+                                                       tool_call.real_tool_id, False, str(e)[:100])
+                    tool_executed = True  # we have a result
+
+                # ── 8. Append result + tool message for LLM (skip if post_tool stop already appended) ──
+                if _tool_stop_requested and tool_executed:
+                    continue
 
                 all_tool_results.append(_to_standard_tool_call(
                     tool_call.call_id, tool_call.real_tool_id, result
                 ))
-
-                # Build a compact, safe ToolResultMessage for the next LLM step.
                 tool_msg_payload = _build_tool_message_payload(result)
-                # If the tool returned a large text field, allow a bigger
-                # payload so long-form results (translated_config, diffs,
-                # rendered docs, knowledge chunks) aren't truncated.
                 _has_large = any(k in tool_msg_payload for k in (
                     "content", "preview", "diff", "rendered", "document",
                     "table", "markdown", "mermaid", "translated_config",
@@ -687,8 +690,8 @@ def run_turn(session, turn, services=None, restricted_tool_router=None) -> Agent
                 messages.append(tool_msg.to_llm_message())
 
             if _tool_stop_requested:
-                final_response = "Tool execution was stopped by a post-tool hook. The last tool completed but further tools in this turn were not executed."
-                break  # exit while loop → fall through to result building
+                final_response = "Tool execution was stopped by a post-tool hook."
+                break
 
             continue
 
