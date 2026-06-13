@@ -475,6 +475,50 @@ def run_turn(session, turn, services=None) -> AgentResult:
                     audit_trace.record_tool_call(turn.turn_id, step, tool_call.real_tool_id, str(tool_call.arguments)[:100])
 
                 try:
+                    # ── Approval gate for high-risk tools ──
+                    spec = context.tool_router.registry.get(tool_call.real_tool_id) if hasattr(context.tool_router, 'registry') else None
+                    is_high_risk = spec and getattr(spec, 'risk_level', 'low') == 'high'
+                    if is_high_risk:
+                        from agent.approval import get_approval_store
+                        store = get_approval_store()
+                        apr = store.create(
+                            session_id=session.session_id,
+                            tool_id=tool_call.real_tool_id,
+                            arguments=tool_call.arguments,
+                            description=getattr(spec, 'description', '')[:200],
+                            risk_level="high",
+                        )
+                        if audit_events:
+                            audit_events.emit("approval_required", session_id=session.session_id,
+                                              turn_id=turn.turn_id, approval_id=apr.approval_id,
+                                              tool_id=apr.tool_id)
+                        allowed = store.wait(apr.approval_id, timeout=120.0)
+                        store.cleanup(apr.approval_id)
+                        if not allowed:
+                            result = ToolResult(
+                                ok=False,
+                                summary=f"Tool {tool_call.real_tool_id} was rejected by user",
+                                errors=["user_rejected"],
+                            )
+                            # Fall through to normal result recording below
+                            if audit_events:
+                                audit_events.emit("approval_denied", session_id=session.session_id,
+                                                  turn_id=turn.turn_id, tool_id=apr.tool_id)
+                            if audit_trace:
+                                audit_trace.record_tool_result(turn.turn_id, step,
+                                    tool_call.real_tool_id, False, "user_rejected")
+                            all_tool_results.append(_to_standard_tool_call(
+                                tool_call.call_id, tool_call.real_tool_id, result
+                            ))
+                            tool_msg = ToolResultMessage(
+                                content=json.dumps({"ok": False, "error": "Tool rejected by user. Do not retry.",
+                                    "hint": "Explain to the user why the tool was needed and ask them to approve it."},
+                                    ensure_ascii=False)[:500],
+                                tool_call_id=getattr(tc, 'id', '') if isinstance(tc, object) else tc.get("id", ""),
+                            )
+                            messages.append(tool_msg.to_llm_message())
+                            continue
+
                     result = context.tool_router.dispatch(tool_call, context)
                     if audit_events:
                         if result.ok:

@@ -10,6 +10,7 @@ import { sanitizeAssistantText } from "../../utils/displayText";
 import { notifyRunCompleted } from "../../utils/appEvents";
 import { TIMEOUTS } from "../../api/client";
 import { IconAlert, IconBolt, IconSend } from "../../components/Icon";
+import { ApprovalDialog } from "../../components/ApprovalDialog";
 
 const QUICK_CHIPS = [
   {
@@ -271,6 +272,9 @@ export function AgentWorkbench() {
           </button>
         </div>
       </div>
+
+      {/* ── Approval dialog for high-risk tools ── */}
+      <ApprovalDialog />
     </div>
   );
 }

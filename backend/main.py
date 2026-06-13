@@ -227,6 +227,10 @@ def create_app():
     register_knowledge_routes(app)    # /api/knowledge/* (sources, search, chunks)
     register_review_routes(app)       # /api/review-items/*, /api/workspaces/<ws>/review-items
 
+    # ── Tool approval routes ──
+    from backend.api.approval_routes import register_approval_routes
+    register_approval_routes(app)
+
     # ── Frontend ──
     @app.route("/")
     @app.route("/<path:filename>")
