@@ -1994,8 +1994,8 @@ GENERAL_TOOL_INPUT_SCHEMAS = {
     "workspace.get_metadata": _schema({"workspace_id": S["workspace_id"]}),
 
     # Approved high-risk surfaces
-    "shell.exec": _schema({"command": {"type": "string", "description": "Shell command to execute on Linux/macOS. Requires approval."}}, ["command"]),
-    "powershell.exec": _schema({"command": {"type": "string", "description": "PowerShell command to execute on Windows. Requires approval."}}, ["command"]),
+    "shell.exec": _schema({"command": {"type": "string", "description": "Bash command. For Linux/macOS. On Windows, use powershell.exec."}}, ["command"]),
+    "powershell.exec": _schema({"command": {"type": "string", "description": "PowerShell command. For Windows. On Linux/macOS, use shell.exec."}}, ["command"]),
 }
 
 
@@ -2306,10 +2306,10 @@ _reg("workspace.get_metadata", "Workspace Metadata", "workspace", "low",
 
 # ── I. Shell / PowerShell Tools (HIGH RISK, approval gated) ──
 _reg("shell.exec", "Shell Exec", "shell", "high",
-     "Execute shell commands on Linux/macOS. 30s timeout, 10000 chars output, workspace-root cwd. Requires approval_id.",
+     "Execute shell commands (bash). Use this on Linux/macOS. On Windows use powershell.exec instead. 30s timeout, 10000 chars output. Requires user approval.",
      handle_command_approved_exec, requires_approval=True)
 _reg("powershell.exec", "PowerShell Exec", "powershell", "high",
-     "Execute PowerShell commands on Windows. 15s timeout, 10000 chars output. Requires approval_id.",
+     "Execute PowerShell commands. Use this on Windows. On Linux/macOS use shell.exec instead. 15s timeout, 10000 chars output. Requires user approval.",
      handle_powershell_approved_script, requires_approval=True)
 
 
