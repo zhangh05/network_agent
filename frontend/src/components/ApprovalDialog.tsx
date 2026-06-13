@@ -61,50 +61,90 @@ export function ApprovalDialog({ onResolved }: { onResolved?: () => void }) {
   if (!pending) return null;
 
   return (
-    <div className="approval-overlay">
-      <div className="approval-dialog">
-        <div className="approval-header">
-          <IconAlert size={18} />
-          <span>高风险工具调用需要确认</span>
-        </div>
+    <div className="approval-bubble">
+      <div className="approval-bubble-header">
+        <IconAlert size={14} />
+        <span>需要确认</span>
+      </div>
 
-        <div className="approval-body">
-          <div className="approval-row">
-            <span className="label">工具</span>
-            <code className="value">{pending.tool_id}</code>
-          </div>
-          <div className="approval-row">
-            <span className="label">描述</span>
-            <span className="value">{pending.description || "(无描述)"}</span>
-          </div>
-          {pending.arguments_summary && (
-            <div className="approval-row">
-              <span className="label">参数</span>
-              <span className="value text-sm">{pending.arguments_summary}</span>
-            </div>
-          )}
-        </div>
+      <div className="approval-bubble-body">
+        <code>{pending.tool_id}</code>
+        {pending.arguments_summary && (
+          <span className="approval-bubble-args">
+            {pending.arguments_summary}
+          </span>
+        )}
+      </div>
 
-        <div className="approval-actions">
-          <button
-            className="btn danger"
-            onClick={() => handleResolve(false)}
-            disabled={resolving}
-            type="button"
-          >
-            <IconClose size={14} /> 拒绝
-          </button>
-          <button
-            className="btn primary"
-            onClick={() => handleResolve(true)}
-            disabled={resolving}
-            type="button"
-            autoFocus
-          >
-            <IconCheck size={14} /> 允许
-          </button>
-        </div>
+      <div className="approval-bubble-actions">
+        <button
+          className="btn sm ghost"
+          onClick={() => handleResolve(false)}
+          disabled={resolving}
+          type="button"
+        >
+          <IconClose size={12} /> 拒绝
+        </button>
+        <button
+          className="btn sm primary"
+          onClick={() => handleResolve(true)}
+          disabled={resolving}
+          type="button"
+          autoFocus
+        >
+          <IconCheck size={12} /> 允许
+        </button>
       </div>
     </div>
   );
+}
+
+/* ── Bubble styles (co-located) ── */
+const STYLE = `
+.approval-bubble {
+  position: fixed; bottom: 120px; left: 50%; transform: translateX(-50%);
+  z-index: 100;
+  background: var(--bg-card, #fff);
+  border: 1px solid var(--border, #e0d6c2);
+  border-radius: 10px;
+  padding: 12px 16px;
+  min-width: 320px; max-width: 480px;
+  box-shadow: 0 4px 16px rgba(0,0,0,0.12);
+  animation: approvalSlideUp 0.25s ease-out;
+  display: flex; flex-direction: column; gap: 8px;
+}
+@keyframes approvalSlideUp {
+  from { opacity: 0; transform: translateX(-50%) translateY(16px); }
+  to { opacity: 1; transform: translateX(-50%) translateY(0); }
+}
+.approval-bubble-header {
+  display: flex; align-items: center; gap: 6px;
+  font-size: 13px; font-weight: 600; color: var(--danger, #c0392b);
+}
+.approval-bubble-body {
+  display: flex; flex-wrap: wrap; gap: 6px; align-items: baseline;
+  font-size: 12px;
+}
+.approval-bubble-body code {
+  background: var(--bg-soft, #f5f0e8); padding: 2px 6px;
+  border-radius: 4px; font-size: 11px;
+}
+.approval-bubble-args {
+  color: var(--fg-muted, #999); font-size: 11px;
+  max-width: 300px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.approval-bubble-actions {
+  display: flex; gap: 8px; justify-content: flex-end;
+}
+.approval-bubble-actions .btn.primary {
+  background: var(--primary, #2563eb); color: #fff; border: none;
+  padding: 4px 14px; border-radius: 6px; font-size: 12px; cursor: pointer;
+}
+.approval-bubble-actions .btn.primary:hover { opacity: 0.9; }
+`;
+if (typeof document !== 'undefined' && !document.getElementById('approval-bubble-style')) {
+  const el = document.createElement('style');
+  el.id = 'approval-bubble-style';
+  el.textContent = STYLE;
+  document.head.appendChild(el);
 }
