@@ -33,16 +33,14 @@ def _validated_ws_id(raw="default"):
 
 
 def _list_artifacts_for_workspace(workspace_id: str) -> list:
-    """Enumerate artifact_ids for a workspace by scanning the store.
-
-    We use the artifacts.store API so the front-end can render a
-    workspace-level review list without having to know each
-    artifact_id in advance.
-    """
+    """Enumerate artifact_ids for a workspace by scanning the store."""
     try:
         from artifacts.store import list_artifacts
         arts = list_artifacts(workspace_id) or []
-        return [a.artifact_id for a in arts if getattr(a, "artifact_id", None)]
+        return [a.get("artifact_id", "") if isinstance(a, dict) else
+                getattr(a, "artifact_id", "")
+                for a in arts if (isinstance(a, dict) and a.get("artifact_id")) or
+                                 (not isinstance(a, dict) and getattr(a, "artifact_id", None))]
     except Exception:
         return []
 
