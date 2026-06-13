@@ -724,13 +724,15 @@ def _is_forbidden_prompt_key(key: str) -> bool:
     lower = key.lower()
     forbidden = (
         "source_config",
-        "deployable_config",
         "raw_config",
         "secret",
         "password",
         "token",
         "api_key",
         "authorization",
+        "credentials",
+        "ssh_key",
+        "private_key",
     )
     return any(part in lower for part in forbidden)
 
