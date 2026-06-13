@@ -612,55 +612,65 @@ def run_turn(session, turn, services=None, restricted_tool_router=None) -> Agent
                         if hook_input and isinstance(hook_input, dict):
                             tool_call.arguments.update(hook_input)
 
-                        # ── 3.5 Permission Matrix check ──
+                        # ── 3.5 Permission Matrix check (ALL tools) ──
+                        from agent.runtime.permission_matrix import PermissionMatrix, PermissionAction, PermissionDecision
                         spec = context.tool_router.registry.get(tool_call.real_tool_id) if hasattr(context.tool_router, 'registry') else None
+                        pm = PermissionMatrix()
+                        
+                        # Classify action
                         risk_level = getattr(spec, 'risk_level', 'low') if spec else 'low'
-                        pm_denied = False
+                        tid = tool_call.real_tool_id
                         if risk_level == 'high':
-                            APPROVED_HIGH_RISK = {"shell.exec", "powershell.exec", "python.exec"}
-                            if tool_call.real_tool_id not in APPROVED_HIGH_RISK:
-                                from agent.runtime.permission_matrix import PermissionMatrix, PermissionAction, PermissionDecision
-                                pm = PermissionMatrix()
-                                action = pm.action_for_tool(tool_call.real_tool_id)
-                                spec_check = spec
-                                if spec_check and getattr(spec_check, 'risk_level', 'low') in ('medium',):
-                                    action = PermissionAction.WRITE
-                                decision = pm.check(tool_call.real_tool_id, action, context, spec=spec)
-                                if decision == PermissionDecision.DENY:
-                                    result = ToolResult(
-                                        ok=False,
-                                        summary=f"Permission denied for {tool_call.real_tool_id}",
-                                        errors=["permission_denied"],
-                                    )
-                                    if audit_events:
-                                        audit_events.emit("tool_call_failed", session_id=session.session_id,
-                                                          turn_id=turn.turn_id,
-                                                          tool_id=tool_call.real_tool_id, errors=result.errors)
-                                    if audit_trace:
-                                        audit_trace.record_tool_result(turn.turn_id, step,
-                                                                       tool_call.real_tool_id, False, result.summary)
-                                    pm_denied = True
-
-                        if pm_denied:
-                            # Skip dispatch entirely — append denied result and continue
+                            action = PermissionAction.EXEC
+                        elif tid.startswith('file.') and tid.split('.')[1] in ('write','edit','patch'):
+                            action = PermissionAction.WRITE
+                        elif tid.startswith('web.') or tid in ('web.search','web.fetch_summary','web.fetch','web.extract_links'):
+                            action = PermissionAction.NETWORK
+                        elif risk_level == 'medium' and any(w in tid for w in ('write','save','create','edit','patch','update','delete','archive','export')):
+                            action = PermissionAction.WRITE
+                        else:
+                            action = PermissionAction.READ
+                        
+                        decision = pm.check(tid, action, context, spec=spec)
+                        
+                        if decision == PermissionDecision.DENY:
+                            result = ToolResult(
+                                ok=False,
+                                summary=f"Permission denied for {tid}",
+                                errors=["permission_denied"],
+                            )
+                            if audit_events:
+                                audit_events.emit("tool_call_failed", session_id=session.session_id,
+                                                  turn_id=turn.turn_id, tool_id=tid, errors=result.errors)
+                            if audit_trace:
+                                audit_trace.record_tool_result(turn.turn_id, step, tid, False, result.summary)
                             all_tool_results.append(_to_standard_tool_call(
-                                tool_call.call_id, tool_call.real_tool_id, result
+                                tool_call.call_id, tid, result
                             ))
                             tool_msg = ToolResultMessage(
                                 content=json.dumps({
-                                    "ok": False,
-                                    "error": result.errors[0] if result.errors else "Permission denied",
-                                    "hint": "Do not retry this tool call."
+                                    "ok": False, "error": "Permission denied", "hint": "Do not retry."
                                 }, ensure_ascii=False)[:500],
                                 tool_call_id=tc.id if hasattr(tc, 'id') else tc.get("id", ""),
                             )
                             messages.append(tool_msg.to_llm_message())
                             continue
+                        
+                        # Track if this tool requires approval
+                        requires_approval = decision == PermissionDecision.REQUIRE_APPROVAL
 
-                        # ── 4. Approval gate for high-risk tools ──
+                        # ── 4. Approval gate for high-risk or require_approval tools ──
                         is_high_risk = risk_level == 'high'
+                        needs_approval = is_high_risk or requires_approval or getattr(spec, 'requires_approval', False)
                         approval_denied = False
-                        if is_high_risk:
+                        if needs_approval:
+                            if tid in ('shell.exec', 'powershell.exec'):
+                                from tool_runtime.policy import is_safe_command_first_word
+                                cmd = str(tool_call.arguments.get('command', ''))
+                                first_word = cmd.strip().split()[0] if cmd.strip() else ''
+                                if first_word and not is_safe_command_first_word(first_word):
+                                    # Command not in safe allowlist — log but still go to approval
+                                    turn.warnings.append(f"unsafe_command_first_word: {first_word}")
                             from agent.approval import get_approval_store
                             store = get_approval_store()
                             apr = store.create(

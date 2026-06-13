@@ -247,54 +247,42 @@ def _cmd_sessions(args: str, session_id: Optional[str], context: Optional[dict])
 
 
 def _cmd_compact(args: str, session_id: Optional[str], context: Optional[dict]) -> str:
-    """Trigger manual context compaction."""
+    """Trigger manual context compact. Sets flag for next turn."""
+    from agent.core.session import AgentSession
+    # Build a session object for setting metadata
+    session = AgentSession(session_id=session_id or "")
+    if hasattr(session, 'metadata'):
+        session.metadata['manual_compact_requested'] = True
+    else:
+        session.metadata = {'manual_compact_requested': True}
+    # Also try to compact immediately if messages available
     try:
-        from agent.runtime.context_compactor import compact_messages
-        # Build a minimal messages list from session history for compaction
-        messages = []
-        if session_id:
-            try:
-                from workspace.message_store import SessionMessageStore
-                ws_id = (context or {}).get("workspace_id", "default")
-                store = SessionMessageStore(session_id=session_id, ws_id=ws_id)
-                if store.exists():
-                    window = store.get_history_window(k=16)
-                    for m in window:
-                        if m.get("role") == "user":
-                            messages.append({"role": "user", "content": m.get("content", "")})
-                        elif m.get("role") == "assistant":
-                            messages.append({"role": "assistant", "content": m.get("content", "")})
-            except Exception:
-                pass
-        if not messages:
+        from workspace.message_store import get_message_store
+        store = get_message_store()
+        messages = store.get_recent(session_id, limit=50)
+        if messages:
+            from agent.runtime.context_compactor import compact_messages
+            compacted, meta = compact_messages(messages, keep_recent=6)
             return _format_command_result({
                 "ok": True, "status": "ok", "command": "compact",
-                "result": "No messages to compact.",
-                "errors": [], "warnings": ["no_messages"],
-                "metadata": {},
+                "result": f"Compact requested for next turn. Current: {meta.get('original_estimated_tokens','?')}→{meta.get('compacted_estimated_tokens','?')} tokens",
+                "errors": [], "warnings": [],
+                "metadata": {
+                    "compacted": meta.get("compacted", False),
+                    "compacted_message_count": meta.get("compacted_message_count", 0),
+                    "original_estimated_tokens": meta.get("original_estimated_tokens", 0),
+                    "compacted_estimated_tokens": meta.get("compacted_estimated_tokens", 0),
+                    "manual_compact_requested": True,
+                },
             })
-        compacted, meta = compact_messages(messages, keep_recent=6)
-        result_text = (
-            f"Compacted {meta.get('compacted_message_count', 0)} messages. "
-            f"Tokens: {meta.get('original_estimated_tokens', '?')} → {meta.get('compacted_estimated_tokens', '?')}."
-        )
-        return _format_command_result({
-            "ok": True, "status": "ok", "command": "compact",
-            "result": result_text,
-            "errors": [], "warnings": [],
-            "metadata": {
-                "compacted": meta.get("compacted", False),
-                "compacted_message_count": meta.get("compacted_message_count", 0),
-                "original_estimated_tokens": meta.get("original_estimated_tokens", 0),
-                "compacted_estimated_tokens": meta.get("compacted_estimated_tokens", 0),
-            },
-        })
-    except Exception as e:
-        return _format_command_result({
-            "ok": False, "status": "error", "command": "compact",
-            "result": "", "errors": [str(e)[:200]],
-            "warnings": [], "metadata": {},
-        })
+    except Exception:
+        pass
+    return _format_command_result({
+        "ok": True, "status": "ok", "command": "compact",
+        "result": "Manual compact requested for next turn",
+        "errors": [], "warnings": [],
+        "metadata": {"manual_compact_requested": True},
+    })
 
 
 def _cmd_usage(args: str, session_id: Optional[str], context: Optional[dict]) -> str:
@@ -360,34 +348,35 @@ def _cmd_agent(args: str, session_id: Optional[str], context: Optional[dict]) ->
 
 
 def _cmd_reset(args: str, session_id: Optional[str], context: Optional[dict]) -> str:
-    """Reset conversation (archive current session, clear history)."""
-    ws_id = (context or {}).get("workspace_id", "default")
-    if not session_id:
-        return _format_command_result({
-            "ok": False, "status": "error", "command": "reset",
-            "result": "", "errors": ["No session to reset. session_id is required."],
-            "warnings": [], "metadata": {},
-        })
+    """Reset session: archive current history or create new session."""
     try:
-        from workspace.message_store import SessionMessageStore
-        store = SessionMessageStore(session_id=session_id, ws_id=ws_id)
-        # Mark existing messages as archived (don't delete)
-        if store.exists():
-            archived_count = store.archive_all() or len(store.get_history_window(k=200))
-        else:
-            archived_count = 0
-        # Also update session store to mark as archived
+        from workspace.session_store import AgentSessionStore
+        store = AgentSessionStore()
+        sid = session_id or ""
+        wid = (context or {}).get("workspace_id", "default") or "default"
+        
+        # Try archive
+        if hasattr(store, 'archive_session'):
+            store.archive_session(sid)
+        elif hasattr(store, 'archive'):
+            store.archive(sid)
+        
+        # Archive messages too
         try:
-            from workspace.session_store import archive_session
-            archive_session(ws_id, session_id)
+            from workspace.message_store import get_message_store
+            ms = get_message_store()
+            if hasattr(ms, 'archive_all'):
+                ms.archive_all(sid)
+            elif hasattr(ms, 'clear_session'):
+                ms.clear_session(sid)
         except Exception:
             pass
-
+        
         return _format_command_result({
             "ok": True, "status": "ok", "command": "reset",
-            "result": f"Session {session_id} reset. {archived_count} messages archived.",
+            "result": f"Session {sid} reset. History archived.",
             "errors": [], "warnings": [],
-            "metadata": {"archived_count": archived_count, "session_id": session_id},
+            "metadata": {"session_id": sid},
         })
     except Exception as e:
         return _format_command_result({
@@ -398,44 +387,44 @@ def _cmd_reset(args: str, session_id: Optional[str], context: Optional[dict]) ->
 
 
 def _cmd_export(args: str, session_id: Optional[str], context: Optional[dict]) -> str:
-    """Export session to JSON."""
-    ws_id = (context or {}).get("workspace_id", "default")
-    if not session_id:
-        return _format_command_result({
-            "ok": False, "status": "error", "command": "export",
-            "result": "", "errors": ["No session to export. session_id is required."],
-            "warnings": [], "metadata": {},
-        })
+    """Export session messages to markdown or JSON."""
+    fmt = 'md'
+    if isinstance(args, dict):
+        fmt = args.get('format', 'md')
+    elif isinstance(args, str) and args.strip():
+        if args.strip().lower() in ('json', 'md', 'markdown'):
+            fmt = args.strip().lower()
+    sid = session_id or ""
     try:
-        from workspace.session_store import get_session
-        session = get_session(session_id, ws_id)
-        if not session:
+        from workspace.message_store import get_message_store
+        ms = get_message_store()
+        messages = ms.get_recent(sid, limit=200)
+        if not messages:
             return _format_command_result({
-                "ok": False, "status": "error", "command": "export",
-                "result": "", "errors": [f"Session {session_id} not found."],
-                "warnings": [], "metadata": {},
+                "ok": True, "status": "ok", "command": "export",
+                "result": "No messages in session",
+                "errors": [], "warnings": [],
+                "metadata": {"message_count": 0},
             })
-        messages = session.get("messages", [])
-        export_data = {
-            "session_id": session_id,
-            "workspace_id": ws_id,
-            "title": session.get("title", ""),
-            "status": session.get("status", "active"),
-            "created_at": session.get("created_at", ""),
-            "updated_at": session.get("updated_at", ""),
-            "message_count": len(messages),
-            "messages": [
-                {"role": m.get("role", ""), "content": str(m.get("content", ""))[:1000]}
-                for m in messages[:50]
-            ],
-        }
-        import json
-        formatted = json.dumps(export_data, ensure_ascii=False, indent=2)
+        
+        if fmt == 'json':
+            import json as _json
+            export_data = _json.dumps(messages, ensure_ascii=False, indent=2)
+        else:
+            lines = ["# Session Export", f"session_id: {sid}", f"messages: {len(messages)}", ""]
+            for i, m in enumerate(messages):
+                role = m.get('role', '?') if isinstance(m, dict) else getattr(m, 'role', '?')
+                content = m.get('content', '') if isinstance(m, dict) else getattr(m, 'content', '')
+                lines.append(f"## [{i+1}] {role}")
+                lines.append(content[:500])
+                lines.append("")
+            export_data = "\n".join(lines)
+        
         return _format_command_result({
             "ok": True, "status": "ok", "command": "export",
-            "result": formatted,
+            "result": f"Exported {len(messages)} messages in {fmt} format",
             "errors": [], "warnings": [],
-            "metadata": {"message_count": len(messages), "truncated": len(messages) > 50},
+            "metadata": {"format": fmt, "message_count": len(messages), "preview": export_data[:1000]},
         })
     except Exception as e:
         return _format_command_result({

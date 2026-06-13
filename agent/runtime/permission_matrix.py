@@ -80,14 +80,20 @@ class PermissionMatrix:
 
         # 2. Check action-specific rules
         if action == PermissionAction.EXEC:
-            # Exec actions always need approval unless from approved list
-            if tool_id in ("shell.exec", "powershell.exec"):
+            # Shell/PowerShell/Python always need approval
+            if tool_id in ("shell.exec", "powershell.exec", "python.exec"):
                 return PermissionDecision.REQUIRE_APPROVAL
+            # Unknown exec tools are denied
             return PermissionDecision.DENY
 
         if action == PermissionAction.NETWORK:
             # Network actions: check if tool is in web category
             if spec and getattr(spec, 'category', '') in ('web', 'news', 'weather'):
+                # Also check URL safety if arguments contain a URL
+                if context:
+                    url = (context.get("url") or context.get("arguments", {}).get("url", ""))
+                    if url and not check_network_url(str(url)):
+                        return PermissionDecision.DENY
                 return PermissionDecision.ALLOW
             # Unknown network tools require approval
             return PermissionDecision.REQUIRE_APPROVAL
@@ -98,13 +104,15 @@ class PermissionMatrix:
                 return PermissionDecision.REQUIRE_APPROVAL
             if spec and getattr(spec, 'risk_level', '') == 'medium':
                 return PermissionDecision.ALLOW  # medium is allowed but audited
+            # Low-risk WRITE with known tool → ALLOW
+            return PermissionDecision.ALLOW
 
         if action == PermissionAction.READ:
             # Read actions are generally allowed
             return PermissionDecision.ALLOW
 
-        # Default: allow
-        return PermissionDecision.ALLOW
+        # Default: deny unknown tools
+        return PermissionDecision.DENY
 
     def check_tool(self, spec, invocation) -> PolicyDecision:
         """Run full policy check using the existing ToolPolicy.

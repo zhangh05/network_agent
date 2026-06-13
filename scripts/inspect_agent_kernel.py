@@ -223,6 +223,11 @@ def main():
     mem_ok = 'include_deleted' in gt_src
     print(f"  memory_semantics_ok: {'✅' if mem_ok else '❌'}")
     
+    # agent_team_preview
+    gt_src2 = open('tool_runtime/general_tools.py').read()
+    team_preview = 'PREVIEW' in gt_src2 or 'demo' in open('agent/runtime/sub_agent.py').read().lower()
+    print(f"  agent_team_preview_status: {'PREVIEW (correctly marked)' if team_preview else '⚠️ check agent.team status'}")
+    
     # workspace_isolation_ok
     from agent.tools.registry import ToolRegistry
     disp_src = open('agent/tools/registry.py').read()
@@ -242,7 +247,7 @@ def main():
     done = [
         "skill.create (enabled, no longer in REMOVED list)",
         "skill.load (runtime-controlled, returns skill_prompt)",
-        "agent.team (planner/worker/reviewer, medium risk)",
+        "agent.team (PREVIEW: demo only, not production-ready)",
         "pdf.extract_text (pypdf2 + text fallback)",
         "cache layer (TTLCache + WebCache)",
         "stream events (StreamEvent + StreamEmitter)",

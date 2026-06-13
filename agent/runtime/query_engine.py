@@ -264,3 +264,65 @@ class StreamEmitter:
     def clear(self) -> None:
         """Clear all collected events."""
         self._events.clear()
+
+
+# ═══════════════════════════
+# AgentQueryEngine
+# ═══════════════════════════
+
+class AgentQueryEngine:
+    """Wraps agent runtime loop with production tracing, retry, and streaming."""
+    
+    def __init__(self, services=None):
+        self.services = services
+        self.emitter = StreamEmitter()
+    
+    def run(self, session, turn, services=None, restricted_tool_router=None) -> dict:
+        """Execute a turn with full production pipeline."""
+        from agent.runtime.loop import run_turn
+        svc = services or self.services
+        
+        # Build trace
+        trace_id = build_trace_id()
+        if hasattr(turn, 'metadata'):
+            turn.metadata['trace_id'] = trace_id
+        
+        # Emit RUN_STARTED
+        self.emitter.emit(StreamEvent.RUN_STARTED, {
+            "session_id": getattr(session, 'session_id', ''),
+            "trace_id": trace_id,
+        })
+        
+        try:
+            result = run_turn(session, turn, svc, restricted_tool_router=restricted_tool_router)
+            
+            # Classify error if failed
+            if not result.ok:
+                result.error_type = classify_error(
+                    result.errors[0] if result.errors else "unknown"
+                )
+            
+            # Emit FINAL or ERROR
+            if result.ok:
+                self.emitter.emit(StreamEvent.FINAL, {"response": result.final_response[:200]})
+            else:
+                self.emitter.emit(StreamEvent.ERROR, {
+                    "error_type": getattr(result, 'error_type', ''),
+                    "message": result.final_response[:200],
+                })
+            
+            # Attach events
+            result.events = self.emitter.to_events()
+            result.trace_id = trace_id
+            return result
+            
+        except Exception as e:
+            error_type = classify_error(e)
+            self.emitter.emit(StreamEvent.ERROR, {"error_type": error_type, "message": str(e)[:200]})
+            from agent.runtime.result import AgentResult
+            return AgentResult(
+                ok=False, final_response=str(e)[:500],
+                error_type=error_type,
+                trace_id=trace_id,
+                events=self.emitter.to_events(),
+            )
