@@ -25,8 +25,22 @@ workspaces/*/indexes/
 workspaces/*/runtime_audits/
 workspaces/*/workspace.yaml
 workspaces/_runtime/
+# workspaces runtime state files
+workspaces/*/memory/profile.json
+workspaces/*/skill_requests.jsonl
+workspaces/*/temp/
 # Exclude test workspaces entirely
+workspaces/test/
+workspaces/test_p2/
+workspaces/test_p3/
+workspaces/test_p4/
+workspaces/test_p5/
+workspaces/test_p6/
 workspaces/api_contract_test/
+workspaces/test_ws/
+workspaces/ws_a/
+workspaces/ws_b/
+workspaces/default_get_or_create/
 workspaces/test_ws/
 workspaces/ws_a/
 workspaces/ws_b/
