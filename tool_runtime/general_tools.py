@@ -19,6 +19,7 @@ from typing import Any, Optional
 
 from tool_runtime.schemas import ToolSpec, ToolInvocation, ToolResult
 from tool_runtime.redaction import redact_tool_output
+from tool_runtime.path_security import safe_workspace_path, _validate_workspace_path
 from workspace.ids import validate_workspace_id
 
 ROOT = Path(__file__).resolve().parent.parent

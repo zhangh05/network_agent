@@ -14,8 +14,78 @@ import sys
 import uuid
 from pathlib import Path
 
+from tool_runtime.path_security import safe_workspace_path, PathSecurityError
+
 ROOT = Path(__file__).resolve().parent.parent
 WS_ROOT = ROOT / "workspaces"
+
+# ── Safe environment allowlist ──
+# Only these environment variables are passed to the subprocess.
+# Per P0-3: no API_KEY, TOKEN, SECRET, PASSWORD, proxy config.
+_SAFE_ENV_ALLOWLIST = frozenset([
+    "PATH",
+    "LANG",
+    "LC_ALL",
+    "LC_CTYPE",
+    "TZ",
+    "HOME",          # Needed for ~ expansion in some libraries
+    "USER",
+    "TMPDIR",
+    "TEMP",
+    "TMP",
+])
+
+# Blocklist patterns — match against UPPERCASE var names
+_SENSITIVE_ENV_PATTERNS = [
+    "API_KEY", "APIKEY", "TOKEN", "SECRET", "PASSWORD", "PASSWD",
+    "OPENAI_API_KEY", "ANTHROPIC_API_KEY", "MINIMAX_API_KEY",
+    "HTTP_PROXY", "HTTPS_PROXY", "ALL_PROXY", "NO_PROXY",
+    "AWS_ACCESS_KEY", "AWS_SECRET", "AZURE_", "GCLOUD_",
+    "CREDENTIAL", "PRIVATE_KEY", "SIGNING_KEY",
+]
+
+
+def _build_safe_env() -> dict[str, str]:
+    """Build a minimal environment for python_exec subprocess.
+
+    Only passes allowlisted vars. Blocks all sensitive patterns.
+    """
+    safe_env: dict[str, str] = {}
+    for key, value in os.environ.items():
+        upper_key = key.upper()
+        # Check against sensitive patterns
+        blocked = False
+        for pattern in _SENSITIVE_ENV_PATTERNS:
+            if pattern in upper_key:
+                blocked = True
+                break
+        if blocked:
+            continue
+        # Check allowlist (case-insensitive for path-like vars)
+        if upper_key in _SAFE_ENV_ALLOWLIST or key in _SAFE_ENV_ALLOWLIST:
+            safe_env[key] = value
+    return safe_env
+
+
+def _redact_stdout_stderr(stdout: str, stderr: str) -> tuple[str, str]:
+    """Best-effort redaction of secrets that may appear in output."""
+    import re as _re
+    for pattern in _SENSITIVE_ENV_PATTERNS:
+        # Redact common secret patterns like: KEY=value, "key": "value"
+        stdout = _re.sub(
+            rf'({pattern}\s*[=:]\s*)(\S+)',
+            r'\1[REDACTED]',
+            stdout,
+            flags=_re.IGNORECASE,
+        )
+        stderr = _re.sub(
+            rf'({pattern}\s*[=:]\s*)(\S+)',
+            r'\1[REDACTED]',
+            stderr,
+            flags=_re.IGNORECASE,
+        )
+    return stdout, stderr
+
 
 # ── Forbidden imports ──
 FORBIDDEN_IMPORTS = {
@@ -155,20 +225,26 @@ def execute_python_code(code: str, workspace_id: str, run_id: str,
     )
     script_path.write_text(safe_preamble + "\n" + code, encoding="utf-8")
 
-    # ── 4. Execute in subprocess ──
+    # ── 4. Execute in subprocess with minimal environment ──
     try:
+        safe_env = _build_safe_env()
         result = subprocess.run(
             [sys.executable, str(script_path)],
             timeout=timeout,
             cwd=str(temp_dir),
             capture_output=True,
             text=True,
+            env=safe_env,  # P0-3: isolated env — no API keys, tokens, or proxy config
+        )
+        stdout, stderr_out = _redact_stdout_stderr(
+            (result.stdout or ""),
+            (result.stderr or ""),
         )
         return {
             "ok": True,
             "exit_code": result.returncode,
-            "stdout": (result.stdout or ""),
-            "stderr": (result.stderr or ""),
+            "stdout": stdout,
+            "stderr": stderr_out,
             "timeout_seconds": timeout,
             "error": "",
         }

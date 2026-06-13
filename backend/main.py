@@ -240,6 +240,10 @@ def create_app():
         sid = request.args.get("session_id", "")
         return jsonify(get_usage(ws_id, sid))
 
+    # ── Auth middleware (after all routes registered) ──
+    from backend.core.auth import register_auth_middleware
+    register_auth_middleware(app)
+
     # ── Frontend ──
     @app.route("/")
     @app.route("/<path:filename>")
