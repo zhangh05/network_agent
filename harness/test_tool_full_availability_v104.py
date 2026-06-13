@@ -14,7 +14,7 @@ def test_runtime_catalog_enables_all_general_tools():
     tools = client.list_tools()
     by_id = {t["tool_id"]: t for t in tools}
 
-    assert len(tools) == 58
+    assert len(tools) == 40
     for tool_id in (
         "weather.current",
         "weather.forecast",
@@ -42,9 +42,12 @@ def test_agent_exposes_all_llm_callable_tools_with_risk_metadata():
         for t in tools
     }
 
-    assert len(router.registry.list_all()) == 76
-    assert len(tools) == 75
+    assert len(router.registry.list_all()) == 58
+    assert len(tools) == 57
     assert "knowledge__read_source" not in names
+    assert "knowledge__search" not in names
+    assert "artifact__search" not in names
+    assert "command__dry_run_echo" not in names
 
     for llm_name in (
         "weather__current",
@@ -83,11 +86,7 @@ def test_llm_tool_parameters_are_normalized_for_function_calling():
     tools = default_runtime_services().tool_service.model_visible_tools()
     by_name = {t["function"]["name"]: t["function"]["parameters"] for t in tools}
 
-    assert by_name["command__dry_run_echo"] == {
-        "type": "object",
-        "properties": {},
-        "required": [],
-    }
+    assert "command__dry_run_echo" not in by_name
 
     for name, params in by_name.items():
         assert params["type"] == "object", name
@@ -95,12 +94,94 @@ def test_llm_tool_parameters_are_normalized_for_function_calling():
         assert isinstance(params["required"], list), name
 
 
-def test_weather_and_news_tools_return_useful_web_backed_results(monkeypatch):
+def test_weather_tools_return_structured_weather_results(monkeypatch):
     from tool_runtime.general_tools import (
-        handle_news_search,
         handle_weather_current,
         handle_weather_forecast,
     )
+
+    calls = []
+
+    class FakeResponse:
+        status_code = 200
+
+        def __init__(self, payload):
+            self._payload = payload
+
+        def json(self):
+            return self._payload
+
+    def fake_get(url, **kwargs):
+        calls.append((url, dict(kwargs.get("params") or {})))
+        if "geocoding-api.open-meteo.com" in url:
+            return FakeResponse({
+                "results": [{
+                    "name": "上海",
+                    "admin1": "上海市",
+                    "country": "中国",
+                    "latitude": 31.23,
+                    "longitude": 121.47,
+                }]
+            })
+        return FakeResponse({
+            "timezone": "Asia/Shanghai",
+            "current": {
+                "time": "2026-06-13T18:00",
+                "temperature_2m": 28.5,
+                "relative_humidity_2m": 74,
+                "precipitation": 0,
+                "weather_code": 2,
+                "wind_speed_10m": 12.3,
+                "wind_direction_10m": 120,
+            },
+            "current_units": {
+                "temperature_2m": "°C",
+                "relative_humidity_2m": "%",
+                "precipitation": "mm",
+                "wind_speed_10m": "km/h",
+                "wind_direction_10m": "°",
+            },
+            "daily": {
+                "time": ["2026-06-13", "2026-06-14", "2026-06-15"],
+                "weather_code": [2, 61, 3],
+                "temperature_2m_max": [31, 29, 30],
+                "temperature_2m_min": [24, 23, 24],
+                "precipitation_probability_max": [20, 70, 30],
+                "precipitation_sum": [0, 5.2, 0.4],
+                "wind_speed_10m_max": [18, 22, 15],
+            },
+            "daily_units": {
+                "temperature_2m_max": "°C",
+                "temperature_2m_min": "°C",
+                "precipitation_probability_max": "%",
+                "precipitation_sum": "mm",
+                "wind_speed_10m_max": "km/h",
+            },
+        })
+
+    monkeypatch.setattr("requests.get", fake_get)
+
+    weather = handle_weather_current(ToolInvocation(
+        tool_id="weather.current",
+        arguments={"location": "Shanghai", "language": "zh-CN"},
+    ))
+    forecast = handle_weather_forecast(ToolInvocation(
+        tool_id="weather.forecast",
+        arguments={"location": "Shanghai", "days": 3},
+    ))
+
+    assert weather["ok"] is True
+    assert forecast["ok"] is True
+    assert weather["provider"] == "open_meteo"
+    assert weather["source_type"] == "structured_weather"
+    assert weather["current"]["temperature"] == 28.5
+    assert forecast["forecast_daily"][1]["precipitation_probability_max"] == 70
+    assert "open-meteo.com" in weather["results_markdown"]
+    assert any("api.open-meteo.com" in call[0] for call in calls)
+
+
+def test_news_tool_returns_useful_web_backed_results(monkeypatch):
+    from tool_runtime.general_tools import handle_news_search
 
     calls = []
 
@@ -118,28 +199,14 @@ def test_weather_and_news_tools_return_useful_web_backed_results(monkeypatch):
 
     monkeypatch.setattr("tool_runtime.general_tools.handle_web_search", fake_web_search)
 
-    weather = handle_weather_current(ToolInvocation(
-        tool_id="weather.current",
-        arguments={"location": "Shanghai", "language": "zh-CN"},
-    ))
-    forecast = handle_weather_forecast(ToolInvocation(
-        tool_id="weather.forecast",
-        arguments={"location": "Shanghai", "days": 3},
-    ))
     news = handle_news_search(ToolInvocation(
         tool_id="news.search",
         arguments={"query": "AI news", "top_k": 2, "recency": "day"},
     ))
 
-    assert weather["ok"] is True
-    assert forecast["ok"] is True
     assert news["ok"] is True
-    assert weather["tool_fallback"] == "web.search"
-    assert forecast["tool_fallback"] == "web.search"
     assert news["tool_fallback"] == "web.search"
-    assert calls[0][1]["query"].startswith("Shanghai current weather")
-    assert calls[1][1]["query"].startswith("Shanghai 3 day weather forecast")
-    assert calls[2][1]["query"] == "AI news"
+    assert calls[0][1]["query"] == "AI news"
 
 
 def test_high_risk_tools_are_visible_but_block_without_approval():

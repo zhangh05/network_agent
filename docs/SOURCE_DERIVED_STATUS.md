@@ -22,8 +22,8 @@ This file records facts checked from current source and local runtime constructi
 
 - Runtime capabilities are defined in `agent/capabilities/builtin.py`.
 - Current runtime capability count: 7 total, 4 enabled, 3 planned.
-- Current runtime tool registry count: 76 registered tools.
-- Current model-visible tool count: 75.
+- Current runtime tool registry count: 58 registered tools.
+- Current model-visible tool count: 57.
 - `GET /api/runtime/summary` exposes these counts for frontend status display.
 
 Registered but not model-visible:

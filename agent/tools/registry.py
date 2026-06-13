@@ -18,8 +18,9 @@ class ToolRegistry:
         try:
             raw_tools = client.list_tools()
             for t in raw_tools:
+                tool_id = t.get("tool_id", "")
                 spec = ToolSpec(
-                    tool_id=t.get("tool_id", ""),
+                    tool_id=tool_id,
                     name=t.get("tool_id", ""),
                     category=t.get("category", ""),
                     description=t.get("description", ""),

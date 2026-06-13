@@ -11,7 +11,7 @@ import uuid
 
 PROJECT_ROOT = __file__.rsplit("/harness", 1)[0]
 
-EXPECTED_TOOLS = 58
+EXPECTED_TOOLS = 40
 
 
 def _unique_ws(prefix="toolapi"):

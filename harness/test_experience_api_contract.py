@@ -64,6 +64,6 @@ def test_runtime_summary_reports_capabilities_and_tool_visibility(client):
         "planned": 3,
         "disabled": 0,
     }
-    assert data["tools"]["registered"] == 76
-    assert data["tools"]["model_visible"] == 75
+    assert data["tools"]["registered"] == 58
+    assert data["tools"]["model_visible"] == 57
     assert "knowledge.read_source" in data["tools"]["hidden_or_non_llm"]

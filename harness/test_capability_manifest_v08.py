@@ -302,22 +302,22 @@ class TestRuntimeSnapshotUsesRegistry:
         assert "planned capabilities are NOT callable." in text
 
 
-# ── 18. Tool count is now 76 (57 general + 19 capability) ──
+# ── 18. Tool count is now 58 ──
 class TestToolCount:
     def test_total_tool_count_is_73(self):
-        """Current catalog total = 76.
+        """Current catalog total = 58.
 
         Was 67 at v1.0 (62 v0.9 + 5 v1.0). v1.0.1 adds 6 new
         knowledge tool_ids (import_file / list_chunks / search_chunks /
         read_chunk / read_parent / reindex_source). The capability
         layer registry is 19 (2 + 4 + 2 + 11); only the catalog
-        total is 76 after capability/runtime collision resolution.
+        total is 58 after duplicate runtime tools were removed and capability/runtime collision resolution.
         """
         from agent.runtime.services import default_runtime_services
         svc = default_runtime_services()
         tr = svc.tool_service
         total = len(tr.registry.list_all())
-        assert total == 76
+        assert total == 58
 
     def test_visible_tools_include_capability_tools(self):
         """All 18 LLM-visible capability tools must be in the visible

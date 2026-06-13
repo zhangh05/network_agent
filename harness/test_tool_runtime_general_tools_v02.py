@@ -26,32 +26,43 @@ def _get_client():
 
 
 class TestToolCount:
-    """Verify tool count increased from 7 baseline."""
+    """Verify the refactored primary ToolRuntime catalog."""
 
     def test_total_tools_increased_from_7(self):
         client = _get_client()
         tools = client.list_tools()
-        assert len(tools) >= 55, f"Expected >=55 tools, got {len(tools)}"
+        assert len(tools) == 40, f"Expected 40 tools, got {len(tools)}"
 
     def test_all_categories_present(self):
         client = _get_client()
         tools = client.list_tools()
         cats = {t["category"] for t in tools}
-        expected = {"artifact", "parser", "report", "command",
-                     "knowledge", "web", "session", "runtime", "text", "workspace"}
+        expected = {
+            "artifact", "parser", "report", "command", "powershell",
+            "web", "session", "runtime", "text", "workspace",
+        }
         for c in expected:
             assert c in cats, f"Missing category: {c}"
 
-    def test_original_7_tools_still_present(self):
+    def test_baseline_tools_still_present_and_legacy_tools_removed(self):
         client = _get_client()
         tools = client.list_tools()
         tool_ids = {t["tool_id"] for t in tools}
-        original = {"artifact.list", "artifact.read_summary",
-                    "parser.parse_config_text", "parser.extract_interfaces",
-                    "parser.extract_routes", "report.render_from_safe_summary",
-                    "command.dry_run_echo"}
-        for tid in original:
+        baseline = {
+            "artifact.list",
+            "parser.parse_config_text",
+            "parser.extract_interfaces",
+            "parser.extract_routes",
+        }
+        removed = {
+            "artifact.read_summary",
+            "report.render_from_safe_summary",
+            "command.dry_run_echo",
+        }
+        for tid in baseline:
             assert tid in tool_ids, f"Missing original tool: {tid}"
+        for tid in removed:
+            assert tid not in tool_ids, f"Removed legacy tool still registered: {tid}"
 
 
 class TestRiskLevels:
@@ -79,7 +90,7 @@ class TestRiskLevels:
         client = _get_client()
         tools = client.list_tools()
         low = [t for t in tools if t["risk_level"] == "low"]
-        assert len(low) > 30, f"Low risk tools should be majority, got {len(low)}"
+        assert len(low) >= 28, f"Low risk tools should be majority, got {len(low)}"
 
 
 class TestHighRiskApproval:
@@ -377,6 +388,6 @@ class TestNoRegression:
     def test_tool_count_not_expanded_arbitrarily(self):
         client = _get_client()
         tools = client.list_tools()
-        # 58 = 7 original + 51 general tools; real-time web and approved
-        # execution tools are enabled and policy-gated rather than hidden.
-        assert len(tools) == 58, f"Expected exactly 58 tools, got {len(tools)}"
+        # 40 = 4 baseline + 36 primary general tools after duplicate/auxiliary
+        # tools were removed from the runtime catalog.
+        assert len(tools) == 40, f"Expected exactly 40 tools, got {len(tools)}"

@@ -73,49 +73,49 @@ class TestToolRuntimeClient:
 
     def test_client_create(self, client):
         assert client is not None
-        assert client.tool_count >= 7  # v0.2 has 55, baseline was 7
+        assert client.tool_count >= 40
 
     def test_default_client_has_builtins(self, client):
         tools = client.list_tools()
         tool_ids = {t["tool_id"] for t in tools}
-        assert len(tools) >= 55, f"Expected >= 55 tools, got {len(tools)}"
-        assert "command.dry_run_echo" in tool_ids
+        assert len(tools) >= 40, f"Expected >= 40 tools, got {len(tools)}"
+        assert "command.dry_run_echo" not in tool_ids
         assert "parser.parse_config_text" in tool_ids
 
     def test_invoke_constructs_invocation(self, client):
         from tool_runtime.context import ToolRuntimeContext
         ctx = ToolRuntimeContext(workspace_id="ws_x")
-        result = client.invoke("command.dry_run_echo", {"msg": "hi"},
+        result = client.invoke("parser.parse_config_text", {"config_text": "hostname R1"},
                                dry_run=True, context=ctx)
         assert result.status == "dry_run"
-        assert result.tool_id == "command.dry_run_echo"
+        assert result.tool_id == "parser.parse_config_text"
         assert result.invocation_id  # auto-generated
 
     def test_invoke_propagates_workspace_id(self, client):
         from tool_runtime.context import ToolRuntimeContext
         ctx = ToolRuntimeContext(workspace_id="my_ws")
-        result = client.invoke("command.dry_run_echo", {},
+        result = client.invoke("parser.parse_config_text", {"config_text": "hostname R1"},
                                dry_run=True, context=ctx)
         assert result.status == "dry_run"
 
     def test_invoke_propagates_run_id(self, client):
         from tool_runtime.context import ToolRuntimeContext
         ctx = ToolRuntimeContext(run_id="run_abc123")
-        result = client.invoke("command.dry_run_echo", {},
+        result = client.invoke("parser.parse_config_text", {"config_text": "hostname R1"},
                                dry_run=True, context=ctx)
         assert result.status == "dry_run"
 
     def test_invoke_propagates_job_id(self, client):
         from tool_runtime.context import ToolRuntimeContext
         ctx = ToolRuntimeContext(job_id="job_xyz789")
-        result = client.invoke("command.dry_run_echo", {},
+        result = client.invoke("parser.parse_config_text", {"config_text": "hostname R1"},
                                dry_run=True, context=ctx)
         assert result.status == "dry_run"
 
     def test_invoke_propagates_requested_by(self, client):
         from tool_runtime.context import ToolRuntimeContext
         ctx = ToolRuntimeContext(requested_by="module:test")
-        result = client.invoke("command.dry_run_echo", {},
+        result = client.invoke("parser.parse_config_text", {"config_text": "hostname R1"},
                                dry_run=True, context=ctx)
         assert result.status == "dry_run"
 
@@ -134,23 +134,15 @@ class TestToolRuntimeClient:
         # Should not succeed
         assert result.status != "succeeded"
 
-    def test_invoke_dry_run_echo_works(self, client):
-        from tool_runtime.context import ToolRuntimeContext
-        ctx = ToolRuntimeContext()
-        result = client.invoke("command.dry_run_echo", {"msg": "test"}, dry_run=True)
+    def test_invoke_parser_dry_run_works(self, client):
+        result = client.invoke("parser.parse_config_text", {"config_text": "hostname R1"}, dry_run=True)
         assert result.status == "dry_run"
-        assert result.output.get("dry_run") is True
+        assert result.output.get("vendor_hint") in ("unknown", "cisco")
 
     def test_invoke_output_is_redacted(self, client):
-        from tool_runtime.context import ToolRuntimeContext
-        ctx = ToolRuntimeContext()
-        result = client.invoke("command.dry_run_echo",
-                               {"msg": "ok", "password": "secret123"},
-                               dry_run=True)
+        result = client.invoke("text.redact", {"text": "password secret123"})
         assert result.redacted is True
-        echo = result.output.get("echo", {})
-        assert echo.get("password") != "secret123"
-        assert "[REDACTED]" in str(echo.get("password", ""))
+        assert "secret123" not in str(result.output)
 
     def test_list_tools_no_handler(self, client):
         tools = client.list_tools()
@@ -159,10 +151,10 @@ class TestToolRuntimeClient:
             assert "tool_id" in t
 
     def test_get_tool_no_handler(self, client):
-        info = client.get_tool("command.dry_run_echo")
+        info = client.get_tool("parser.parse_config_text")
         assert info is not None
         assert "handler" not in info
-        assert info["tool_id"] == "command.dry_run_echo"
+        assert info["tool_id"] == "parser.parse_config_text"
 
     def test_client_does_not_import_llm(self):
         import tool_runtime.client

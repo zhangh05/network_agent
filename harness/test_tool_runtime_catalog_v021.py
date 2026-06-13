@@ -2,7 +2,7 @@
 """Tool Runtime Catalog v0.2.1 — API verification tests.
 
 Verifies:
-  - /api/tools/catalog returns the current 58-tool catalog
+  - /api/tools/catalog returns the current 40-tool primary runtime catalog
   - Category counts correct
   - Metadata fields complete (no handlers/secrets/paths)
   - No invoke endpoint
@@ -17,14 +17,13 @@ sys.path.insert(0, str(PROJECT_ROOT))
 
 
 EXPECTED_CATEGORY_COUNTS = {
-    "artifact": 7,
+    "artifact": 2,
     "parser": 3,
-    "report": 6,
-    "command": 2,
-    "knowledge": 6,
+    "report": 5,
+    "command": 1,
     "web": 8,
-    "session": 7,
-    "runtime": 5,
+    "session": 5,
+    "runtime": 2,
     "text": 8,
     "workspace": 5,
     "powershell": 1,

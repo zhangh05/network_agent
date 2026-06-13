@@ -40,17 +40,24 @@ Current public projection:
 
 Current runtime construction:
 
-- Registered tools: 76
-- Model-visible tools: 75
+- Registered tools: 58
+- Model-visible tools: 57
 - Runtime capabilities: 7 total, 4 enabled, 3 planned
 
 Registered but not model-visible:
 
 - `knowledge.read_source`: backend/admin callable, `callable_by_llm=False`
 
+Removed duplicate/auxiliary runtime tools:
+
+- Runtime `knowledge.*` helpers were removed from ToolRuntime registration in favor of capability-level `knowledge.query` / import / chunk tools.
+- Runtime `artifact.search`, `artifact.read_content_safe`, `artifact.tag`, and `artifact.delete_soft` were removed in favor of capability-level `artifact.list` / `artifact.read` / `artifact.diff` / `artifact.export` plus `artifact.save_result`.
+- Smoke-test and preview-only tools such as `command.dry_run_echo`, `runtime.selfcheck`, retention/archive previews, and session create/archive were removed from the default ToolRuntime catalog.
+
 Enabled model-visible runtime tools with extra execution gates:
 
-- `weather.current`, `weather.forecast`, and `news.search`: medium-risk real-time information tools backed by public Web search.
+- `weather.current` and `weather.forecast`: medium-risk real-time tools backed first by structured Open-Meteo public weather data, with public Web search as fallback.
+- `news.search`: medium-risk real-time information tool backed by public Web search.
 - `command.approved_exec` and `powershell.approved_script`: high-risk approved execution surfaces. They are visible to the LLM, but policy requires `approval_id` and allowlisted `command_id` / `script_id`; arbitrary shell or PowerShell text is not accepted.
 
 ## Safety Rules
@@ -58,7 +65,7 @@ Enabled model-visible runtime tools with extra execution gates:
 - Tool visibility is fail-closed.
 - Unknown LLM tool calls are rejected by `ToolRouter`.
 - Disabled tools are not exposed to the model.
-- Pure chat, capability-discovery, and business turns expose the full model-visible tool catalog after the registry safety filter.
+- Pure chat, capability-discovery, and business turns expose the curated model-visible primary tool catalog after the registry safety filter. Registered auxiliary compatibility tools remain callable by backend/API paths but are not default LLM choices.
 - LLM-visible tool descriptions include `tool_id`, `risk`, `source`, and `approval` metadata so the model sees the safety context before choosing a tool.
 - LLM-visible tool descriptions preserve the full runtime guidance text; OpenAI-compatible parameters are normalized to `type=object`, `properties`, and `required` for every tool.
 - Capability tool handlers fail fast if their `handler_ref` cannot be resolved.

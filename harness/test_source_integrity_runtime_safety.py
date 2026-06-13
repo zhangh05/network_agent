@@ -51,7 +51,7 @@ class TestReadmeBaseline:
         with open("README.md") as f:
             c = f.read()
         assert "Testing" in c or "pytest" in c
-        assert "76 registered / 75 model-visible" in c
+        assert "58 registered / 57 model-visible" in c
 
     def test_readme_no_old_baseline_493(self):
         with open("README.md") as f:

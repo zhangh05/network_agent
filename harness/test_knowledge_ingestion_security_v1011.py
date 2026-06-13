@@ -284,7 +284,7 @@ class TestToolCountV1011:
         svc = default_runtime_services()
         tr = svc.tool_service
         total = len(tr.registry.list_all())
-        assert total == 76
+        assert total == 58
 
     def test_capability_layer_tool_count_is_19(self, reg):
         m = reg.get("knowledge")

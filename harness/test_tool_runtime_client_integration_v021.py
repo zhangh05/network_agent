@@ -45,21 +45,16 @@ class TestLowRiskToolExecution:
         result = _invoke_low("artifact.list")
         assert result.status in ("succeeded", "dry_run"), f"Got {result.status}: {result.summary}"
 
-    def test_artifact_read_summary(self):
-        result = _invoke_low("artifact.read_summary", {"artifact_id": "art_nonexistent"})
-        # Should return gracefully even if artifact doesn't exist
-        assert result.status in ("succeeded", "failed"), f"Got {result.status}"
+    def test_artifact_save_result(self):
+        result = _invoke_low("artifact.save_result", {"content": "useful content", "title": "Useful"})
+        assert result.status in ("succeeded", "dry_run"), f"Got {result.status}"
 
-    def test_knowledge_search(self):
-        result = _invoke_low("knowledge.search", {"query": "test", "limit": 3})
+    def test_memory_search(self):
+        result = _invoke_low("memory.search", {"query": "test", "limit": 3})
         assert result.status in ("succeeded", "dry_run"), f"Got {result.status}"
 
     def test_runtime_health(self):
         result = _invoke_low("runtime.health")
-        assert result.status in ("succeeded", "dry_run"), f"Got {result.status}"
-
-    def test_runtime_selfcheck(self):
-        result = _invoke_low("runtime.selfcheck")
         assert result.status in ("succeeded", "dry_run"), f"Got {result.status}"
 
     def test_text_redact(self):
@@ -105,8 +100,9 @@ class TestPolicyEnforcement:
     def test_result_returns_toolresult_not_exception(self):
         """ToolExecutor never raises — always returns ToolResult."""
         try:
-            result = _invoke_low("artifact.read_summary", {"artifact_id": "nonexistent"})
+            result = _invoke_low("missing.removed_tool", {"artifact_id": "nonexistent"})
             assert hasattr(result, "status")
+            assert result.status == "failed"
         except Exception as e:
             assert False, f"Should not raise: {e}"
 

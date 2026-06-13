@@ -86,8 +86,8 @@ def test_tool_runtime_client_appends_safe_trace_metadata():
         module="config_translation",
     )
     result = get_default_tool_runtime_client().invoke(
-        "command.dry_run_echo",
-        {"msg": "hello", "password": "secret123"},
+        "parser.parse_config_text",
+        {"config_text": "hostname R1"},
         dry_run=True,
         context=ctx,
     )
@@ -109,7 +109,7 @@ def test_tool_runtime_client_appends_safe_trace_metadata():
     assert "secret123" not in serialized
     assert "arguments" not in serialized
     assert "output" not in serialized
-    assert meta["tool_id"] == "command.dry_run_echo"
+    assert meta["tool_id"] == "parser.parse_config_text"
     assert meta["workspace_id"] == ws_id
 
 

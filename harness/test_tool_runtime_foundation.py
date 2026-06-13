@@ -6,7 +6,7 @@ Covers:
   - ToolPolicy (enable, disable, forbidden, risk, category, dry-run, args)
   - ToolExecutor (execute, blocked, failed, redacted output)
   - Redaction (password, token, community, bearer, sk-key, paths)
-  - Built-in tools (all 7 low-risk tools)
+  - Built-in tools (4 low-risk baseline tools)
   - Forbidden tool blocks
   - Audit metadata
   - Doc existence and content
@@ -163,15 +163,14 @@ class TestToolRegistry:
     def test_builtins_registered(self):
         from tool_runtime.builtins import create_registry_with_builtins
         reg = create_registry_with_builtins()
-        assert reg.count() == 7
-        assert reg.count_enabled() == 7
+        assert reg.count() == 4
+        assert reg.count_enabled() == 4
         all_tools = reg.list_tools()
         tool_ids = {t["tool_id"] for t in all_tools}
         expected = {
-            "artifact.list", "artifact.read_summary",
+            "artifact.list",
             "parser.parse_config_text", "parser.extract_interfaces",
-            "parser.extract_routes", "report.render_from_safe_summary",
-            "command.dry_run_echo",
+            "parser.extract_routes",
         }
         assert tool_ids == expected
 
@@ -341,32 +340,22 @@ class TestToolExecutor:
         assert "[REDACTED]" in str(result.output["config"]["password"])
         assert result.output["config"]["normal"] == "value"  # not redacted
 
-    def test_dry_run_echo(self):
+    def test_parser_dry_run(self):
         from tool_runtime.builtins import create_registry_with_builtins
         from tool_runtime.schemas import ToolInvocation
         from tool_runtime.executor import ToolExecutor
         reg = create_registry_with_builtins()
         executor = ToolExecutor(reg)
-        inv = ToolInvocation(tool_id="command.dry_run_echo", arguments={"msg": "hello"},
+        inv = ToolInvocation(tool_id="parser.parse_config_text", arguments={"config_text": "hostname R1"},
                              dry_run=True)
         result = executor.execute(inv)
         assert result.status == "dry_run"
-        assert result.output.get("dry_run") is True
+        assert result.output.get("line_count") == 1
 
-    def test_dry_run_echo_never_executes_shell(self):
+    def test_removed_echo_tool_not_registered(self):
         from tool_runtime.builtins import create_registry_with_builtins
-        from tool_runtime.schemas import ToolInvocation
-        from tool_runtime.executor import ToolExecutor
         reg = create_registry_with_builtins()
-        executor = ToolExecutor(reg)
-        # even with sensitive-like args, it just echoes (and redacts)
-        inv = ToolInvocation(tool_id="command.dry_run_echo",
-                             arguments={"msg": "test", "password": "secret"},
-                             dry_run=True)
-        result = executor.execute(inv)
-        assert result.status == "dry_run"
-        echo = result.output.get("echo", {})
-        assert echo.get("password") == "[REDACTED]" or "[REDACTED]" in str(echo.get("password", ""))
+        assert reg.get_tool("command.dry_run_echo") is None
 
     def test_executor_never_raises(self):
         from tool_runtime.schemas import ToolSpec, ToolInvocation
@@ -497,28 +486,9 @@ class TestBuiltinTools:
                 assert "/Users/" not in output[k], f"Path found in {k}"
                 assert "/home/" not in output[k]
 
-    def test_artifact_read_summary_no_path(self, reg):
+    def test_removed_artifact_read_summary_not_registered(self, reg):
         registry, executor = reg
-        from tool_runtime.schemas import ToolInvocation
-        inv = ToolInvocation(tool_id="artifact.read_summary",
-                             arguments={"artifact_id": "art_nonexistent"})
-        result = executor.execute(inv)
-        output = result.output
-        for k in output:
-            if isinstance(output[k], str):
-                assert "/Users/" not in output[k]
-
-    def test_artifact_read_summary_no_full_config(self, reg):
-        registry, executor = reg
-        from tool_runtime.schemas import ToolInvocation
-        inv = ToolInvocation(tool_id="artifact.read_summary",
-                             arguments={"artifact_id": "art_nonexistent"})
-        result = executor.execute(inv)
-        output = result.output
-        assert "deployable_config" not in output
-        assert "source_config" not in output
-        # summary only, no full content
-        assert "summary" in output
+        assert registry.get_tool("artifact.read_summary") is None
 
     def test_parser_parse_no_deployable(self, reg):
         registry, executor = reg
@@ -562,50 +532,48 @@ class TestBuiltinTools:
         combined = " ".join(summaries)
         assert "255.0.0.0" not in combined or "x.x" in combined  # at least some masking
 
-    def test_report_render_no_full_config(self, reg):
-        registry, executor = reg
+    def test_report_render_markdown_no_full_config(self, reg):
+        from tool_runtime.builtins import create_registry_with_builtins
+        from tool_runtime.general_tools import register_all_general_tools
+        from tool_runtime.executor import ToolExecutor
+        registry = register_all_general_tools(create_registry_with_builtins())
+        executor = ToolExecutor(registry)
         from tool_runtime.schemas import ToolInvocation
-        # Try to pass a full config as "summary"
-        inv = ToolInvocation(tool_id="report.render_from_safe_summary",
+        inv = ToolInvocation(tool_id="report.render_markdown",
                              arguments={
                                  "title": "Test",
-                                 "summary": "interface Gi0/0\n ip address 10.1.1.1 255.255.255.0\n" + "x" * 2000,
+                                 "content": "interface Gi0/0\n ip address 10.1.1.1 255.255.255.0\n",
                              })
         result = executor.execute(inv)
         output = result.output
-        # Should reject
         assert output.get("ok") is False or result.status == "failed" or "rejected" in str(output).lower()
 
-    def test_report_render_accepts_safe_summary(self, reg):
-        registry, executor = reg
+    def test_report_render_markdown_accepts_safe_content(self, reg):
+        from tool_runtime.builtins import create_registry_with_builtins
+        from tool_runtime.general_tools import register_all_general_tools
+        from tool_runtime.executor import ToolExecutor
+        registry = register_all_general_tools(create_registry_with_builtins())
+        executor = ToolExecutor(registry)
         from tool_runtime.schemas import ToolInvocation
-        inv = ToolInvocation(tool_id="report.render_from_safe_summary",
-                             arguments={"title": "Safe Report", "summary": "All checks passed."})
+        inv = ToolInvocation(tool_id="report.render_markdown",
+                             arguments={"title": "Safe Report", "content": "All checks passed."})
         result = executor.execute(inv)
         assert result.status == "succeeded"
         assert "markdown" in result.output
 
-    def test_dry_run_echo_no_shell(self, reg):
+    def test_removed_dry_run_echo_no_shell_tool(self, reg):
         registry, executor = reg
-        from tool_runtime.schemas import ToolInvocation
-        inv = ToolInvocation(tool_id="command.dry_run_echo",
-                             arguments={"msg": "hello world"},
-                             dry_run=True)
-        result = executor.execute(inv)
-        assert result.status == "dry_run"
-        # Never actually executed anything
-        assert result.output.get("dry_run") is True
+        assert registry.get_tool("command.dry_run_echo") is None
 
-    def test_dry_run_echo_returns_dry_run_flag(self, reg):
+    def test_parser_dry_run_returns_real_payload(self, reg):
         registry, executor = reg
         from tool_runtime.schemas import ToolInvocation
-        inv = ToolInvocation(tool_id="command.dry_run_echo",
-                             arguments={},
+        inv = ToolInvocation(tool_id="parser.parse_config_text",
+                             arguments={"config_text": "hostname R1"},
                              dry_run=True)
         result = executor.execute(inv)
         assert result.status == "dry_run"
-        assert result.output.get("dry_run") is True
-        assert "NEVER executes" in result.output.get("message", "")
+        assert result.output.get("line_count") == 1
 
 
 # ══════════════════════════════════════════════════
@@ -699,7 +667,7 @@ class TestDocContent:
     def test_no_claim_v02_is_done(self):
         with open(os.path.join(PROJECT_ROOT, "docs", "CAPABILITIES_AND_TOOLS.md")) as f:
             c = f.read()
-        assert "76" in c and "75" in c
+        assert "58" in c and "57" in c
 
 
 # ══════════════════════════════════════════════════

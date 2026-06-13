@@ -265,6 +265,6 @@ class TestPerTurnReApplication:
         assert tr.dynamic_visibility is False
         assert tr.allowed_tool_ids is None
         v3 = {t["function"]["name"] for t in tr.model_visible_tools()}
-        # Full model-visible catalog: all enabled runtime/capability tools
-        # except backend-only knowledge.read_source.
-        assert len(v3) == 75
+        # Full model-visible catalog: primary LLM-facing tools only. Backend
+        # compatibility/auxiliary tools stay registered but are hidden.
+        assert len(v3) == 57

@@ -167,6 +167,48 @@ def test_web_save_to_artifact_returns_persisted_artifact_id(monkeypatch, temp_di
     assert get_artifact("default", out["artifact_id"]) is not None
 
 
+def test_web_fetch_summary_rejects_empty_readable_body(monkeypatch):
+    from tool_runtime.general_tools import handle_web_fetch_summary
+
+    class FakeResponse:
+        status_code = 200
+        text = "<html><head><title>Empty</title></head><script>var x = 1</script></html>"
+        content = text.encode()
+        encoding = "utf-8"
+        apparent_encoding = "utf-8"
+
+    monkeypatch.setattr("requests.get", lambda *args, **kwargs: FakeResponse())
+
+    out = handle_web_fetch_summary(ToolInvocation(
+        tool_id="web.fetch_summary",
+        arguments={"url": "https://example.com/empty"},
+    ))
+
+    assert out["ok"] is False
+    assert out["status"] == "empty_readable_text"
+    assert out["warnings"] == ["web_fetch_empty_readable_text"]
+    assert out["next_actions"]
+
+
+def test_save_result_and_report_return_real_artifact_ids(temp_dirs):
+    from artifacts.store import get_artifact
+    from tool_runtime.general_tools import handle_artifact_save_result, handle_report_save_artifact
+
+    saved = handle_artifact_save_result(ToolInvocation(
+        tool_id="artifact.save_result",
+        arguments={"workspace_id": "default", "content": "useful content", "title": "Useful"},
+    ))
+    report = handle_report_save_artifact(ToolInvocation(
+        tool_id="report.save_artifact",
+        arguments={"workspace_id": "default", "content": "report content", "title": "Report"},
+    ))
+
+    assert saved["ok"] is True
+    assert report["ok"] is True
+    assert get_artifact("default", saved["artifact_id"]) is not None
+    assert get_artifact("default", report["artifact_id"]) is not None
+
+
 def test_tool_message_payload_includes_citation_ready_web_fields():
     from agent.protocol.tool_result import ToolResult
     from agent.runtime.loop import _build_tool_message_payload
