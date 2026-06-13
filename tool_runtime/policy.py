@@ -63,12 +63,11 @@ COMMAND_EXEC_ALLOWLIST = {
     "git.log_readonly",
 }
 
-# powershell.approved_script allowlist
+# powershell.approved_script allowlist — must match handler allowlist in general_tools.py
 POWERSHELL_SCRIPT_ALLOWLIST = {
-    "win.platform_info",
-    "win.disk_usage_workspace",
-    "win.service_status_readonly",
-    "win.process_list_safe",
+    "system_info",
+    "disk_info",
+    "process_list",
 }
 
 # PowerShell forbidden patterns
