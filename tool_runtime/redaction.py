@@ -31,7 +31,7 @@ _SECRET_PATTERNS = [
 # Sensitive key names to mask in dicts
 _SENSITIVE_DICT_KEYS = {
     'password', 'passwd', 'secret', 'token', 'api_key', 'apikey',
-    'key', 'community', 'authorization', 'bearer', 'private_key',
+    'community', 'authorization', 'bearer', 'private_key',
     'ssh_key', 'psk', 'pre_shared_key', 'access_key', 'secret_key',
 }
 
