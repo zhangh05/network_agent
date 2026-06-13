@@ -188,7 +188,7 @@ BUILTIN_TOOLS = [
                 "type": "object",
                 "required": ["config_text"],
                 "properties": {
-                    "config_text": {"type": "string"},
+                    "config_text": {"type": "string", "description": "Network device configuration text to parse."},
                 },
             },
         ),
@@ -205,7 +205,7 @@ BUILTIN_TOOLS = [
                 "type": "object",
                 "required": ["config_text"],
                 "properties": {
-                    "config_text": {"type": "string"},
+                    "config_text": {"type": "string", "description": "Network device configuration text to parse."},
                 },
             },
         ),
@@ -222,7 +222,7 @@ BUILTIN_TOOLS = [
                 "type": "object",
                 "required": ["config_text"],
                 "properties": {
-                    "config_text": {"type": "string"},
+                    "config_text": {"type": "string", "description": "Network device configuration text to parse."},
                 },
             },
         ),

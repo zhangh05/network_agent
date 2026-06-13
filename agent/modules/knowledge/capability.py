@@ -178,7 +178,7 @@ CAPABILITY_KNOWLEDGE = CapabilityManifest(
             input_schema={
                 "type": "object",
                 "properties": {
-                    "workspace_id": {"type": "string"},
+                    "workspace_id": {"type": "string", "description": "Workspace id."},
                     "title": {"type": "string", "description": "Document title."},
                     "content": {"type": "string", "description": "Document content."},
                     "source": {"type": "string", "description": "Origin label."},
@@ -203,7 +203,7 @@ CAPABILITY_KNOWLEDGE = CapabilityManifest(
             input_schema={
                 "type": "object",
                 "properties": {
-                    "workspace_id": {"type": "string"},
+                    "workspace_id": {"type": "string", "description": "Workspace id."},
                     "include_disabled": {"type": "boolean"},
                     "include_deleted": {"type": "boolean"},
                 },
@@ -227,8 +227,8 @@ CAPABILITY_KNOWLEDGE = CapabilityManifest(
             input_schema={
                 "type": "object",
                 "properties": {
-                    "workspace_id": {"type": "string"},
-                    "source_id": {"type": "string"},
+                    "workspace_id": {"type": "string", "description": "Workspace id."},
+                    "source_id": {"type": "string", "description": "Knowledge source id."},
                 },
                 "required": ["workspace_id", "source_id"],
             },
@@ -251,8 +251,8 @@ CAPABILITY_KNOWLEDGE = CapabilityManifest(
             input_schema={
                 "type": "object",
                 "properties": {
-                    "workspace_id": {"type": "string"},
-                    "source_id": {"type": "string"},
+                    "workspace_id": {"type": "string", "description": "Workspace id."},
+                    "source_id": {"type": "string", "description": "Knowledge source id."},
                     "disabled": {"type": "boolean", "description": "True to disable, False to re-enable."},
                 },
                 "required": ["workspace_id", "source_id"],
@@ -273,8 +273,8 @@ CAPABILITY_KNOWLEDGE = CapabilityManifest(
             input_schema={
                 "type": "object",
                 "properties": {
-                    "workspace_id": {"type": "string"},
-                    "source_id": {"type": "string"},
+                    "workspace_id": {"type": "string", "description": "Workspace id."},
+                    "source_id": {"type": "string", "description": "Knowledge source id."},
                 },
                 "required": ["workspace_id", "source_id"],
             },
@@ -296,10 +296,10 @@ CAPABILITY_KNOWLEDGE = CapabilityManifest(
             input_schema={
                 "type": "object",
                 "properties": {
-                    "workspace_id": {"type": "string"},
+                    "workspace_id": {"type": "string", "description": "Workspace id."},
                     "file_path": {"type": "string",
                                    "description": "Path to a local file (md / txt / html / docx / text-pdf)."},
-                    "title": {"type": "string"},
+                    "title": {"type": "string", "description": "Document title."},
                     "author": {"type": "string"},
                     "edition": {"type": "string"},
                     "source_type": {
@@ -341,13 +341,13 @@ CAPABILITY_KNOWLEDGE = CapabilityManifest(
             input_schema={
                 "type": "object",
                 "properties": {
-                    "workspace_id": {"type": "string"},
-                    "source_id": {"type": "string"},
+                    "workspace_id": {"type": "string", "description": "Workspace id."},
+                    "source_id": {"type": "string", "description": "Knowledge source id."},
                     "chunk_type": {
                         "type": "string",
                         "enum": ["parent", "child"],
                     },
-                    "limit": {"type": "integer"},
+                    "limit": {"type": "integer", "description": "Max items to return.", "default": 10},
                 },
                 "required": ["workspace_id"],
             },
@@ -368,14 +368,14 @@ CAPABILITY_KNOWLEDGE = CapabilityManifest(
             input_schema={
                 "type": "object",
                 "properties": {
-                    "workspace_id": {"type": "string"},
-                    "query": {"type": "string"},
-                    "top_k": {"type": "integer"},
+                    "workspace_id": {"type": "string", "description": "Workspace id."},
+                    "query": {"type": "string", "description": "Search query text."},
+                    "top_k": {"type": "integer", "description": "Max results.", "default": 5},
                     "scope": {
                         "type": "string",
                         "enum": ["global", "workspace", "session"],
                     },
-                    "source_id": {"type": "string"},
+                    "source_id": {"type": "string", "description": "Knowledge source id."},
                     "source_type": {"type": "string"},
                     "tags": {
                         "type": "array",
@@ -405,8 +405,8 @@ CAPABILITY_KNOWLEDGE = CapabilityManifest(
             input_schema={
                 "type": "object",
                 "properties": {
-                    "workspace_id": {"type": "string"},
-                    "chunk_id": {"type": "string"},
+                    "workspace_id": {"type": "string", "description": "Workspace id."},
+                    "chunk_id": {"type": "string", "description": "Knowledge chunk id."},
                 },
                 "required": ["workspace_id", "chunk_id"],
             },
@@ -426,7 +426,7 @@ CAPABILITY_KNOWLEDGE = CapabilityManifest(
             input_schema={
                 "type": "object",
                 "properties": {
-                    "workspace_id": {"type": "string"},
+                    "workspace_id": {"type": "string", "description": "Workspace id."},
                     "child_chunk_id": {"type": "string"},
                 },
                 "required": ["workspace_id", "child_chunk_id"],
@@ -447,8 +447,8 @@ CAPABILITY_KNOWLEDGE = CapabilityManifest(
             input_schema={
                 "type": "object",
                 "properties": {
-                    "workspace_id": {"type": "string"},
-                    "source_id": {"type": "string"},
+                    "workspace_id": {"type": "string", "description": "Workspace id."},
+                    "source_id": {"type": "string", "description": "Knowledge source id."},
                 },
                 "required": ["workspace_id", "source_id"],
             },

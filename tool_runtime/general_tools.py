@@ -1884,6 +1884,17 @@ S = {
     "title": {"type": "string", "description": "Human-readable title."},
     "content": {"type": "string", "description": "Text content. Do not include sensitive material."},
     "text": {"type": "string", "description": "Text to inspect, transform, validate, or summarize."},
+    "session_id": {"type": "string", "description": "Session id from session.list or URL."},
+    "run_id": {"type": "string", "description": "Run id from run.list_recent or trace."},
+    "filepath": {"type": "string", "description": "Workspace-relative file path, e.g. state.json or outputs/report.md."},
+    "days": {"type": "integer", "description": "Forecast horizon in days, 1-10.", "default": 3},
+    "recency": {"type": "string", "description": "Time filter: day, week, month, or year.", "default": "week"},
+    "format": {"type": "string", "description": "Output format: txt, md, json, etc.", "enum": ["txt", "md"]},
+    "language": {"type": "string", "description": "Preferred language code, e.g. zh-CN or en-US.", "default": "zh-CN"},
+    "command": {"type": "string", "description": "Shell command string to execute. Use absolute paths when possible."},
+    "status": {"type": "string", "description": "Filter by status: active, archived, all, or review status.", "enum": ["active", "archived", "all"]},
+    "location": {"type": "string", "description": "City, region or location name, e.g. Beijing, Shanghai, San Jose."},
+    "units": {"type": "string", "description": "Temperature units: metric (Celsius) or imperial (Fahrenheit).", "enum": ["metric", "imperial"], "default": "metric"},
 }
 
 
@@ -1895,8 +1906,8 @@ GENERAL_TOOL_INPUT_SCHEMAS = {
         "workspace_id": S["workspace_id"],
         "title": S["title"],
         "content": S["content"],
-        "artifact_type": {"type": "string", "description": "Artifact type, e.g. report, knowledge_doc, translated_config."},
-        "sensitivity": {"type": "string", "enum": ["public", "internal", "confidential", "restricted"], "default": "internal"},
+        "artifact_type": {"type": "string", "description": "Artifact type: report, knowledge_doc, translated_config, etc."},
+        "sensitivity": {"type": "string", "description": "Sensitivity level: internal (default) or sensitive.", "enum": ["internal", "sensitive"], "default": "internal"},
     }, ["content"]),
     "artifact.tag": _schema({
         "workspace_id": S["workspace_id"],
@@ -1922,34 +1933,33 @@ GENERAL_TOOL_INPUT_SCHEMAS = {
     "web.extract_links": _schema({"url": S["url"]}, ["url"]),
     "web.save_to_artifact": _schema({"workspace_id": S["workspace_id"], "url": S["url"], "title": S["title"]}, ["url"]),
     "weather.current": _schema({
-        "location": {"type": "string", "description": "City, region, or site name, e.g. Shanghai or San Jose, CA."},
-        "units": {"type": "string", "enum": ["metric", "imperial"], "default": "metric"},
-        "language": {"type": "string", "description": "Preferred result language/region, e.g. zh-CN or en-US.", "default": "zh-CN"},
+        "location": S["location"],
+        "units": S["units"],
+        "language": S["language"],
         "top_k": S["limit"],
     }, ["location"]),
     "weather.forecast": _schema({
-        "location": {"type": "string", "description": "City, region, or site name, e.g. Shanghai or San Jose, CA."},
-        "days": {"type": "integer", "description": "Forecast horizon, 1-10 days.", "default": 3},
-        "units": {"type": "string", "enum": ["metric", "imperial"], "default": "metric"},
-        "language": {"type": "string", "description": "Preferred result language/region, e.g. zh-CN or en-US.", "default": "zh-CN"},
+        "location": S["location"],
+        "days": S["days"],
+        "units": S["units"],
+        "language": S["language"],
         "top_k": S["limit"],
     }, ["location"]),
     "news.search": _schema({
         "query": S["query"],
         "top_k": S["limit"],
-        "site": {"type": "string", "description": "Optional comma-separated domains to restrict search."},
-        "domains": {"type": "array", "description": "Optional domain allowlist."},
-        "recency": {"type": "string", "enum": ["day", "week", "month", "year"], "default": "day"},
-        "language": {"type": "string", "description": "Preferred result language/region, e.g. zh-CN or en-US.", "default": "zh-CN"},
+        "site": {"type": "string", "description": "Optional domain filter for search, e.g. cisco.com."},
+        "domains": {"type": "array", "description": "Optional domain allowlist array."},
+        "recency": {"type": "string", "description": "Time range: day, week, month, or year.", "enum": ["day", "week", "month", "year"], "default": "day"},
+        "language": S["language"],
     }, ["query"]),
 
     # Session / run / memory
-    "session.list": _schema({"workspace_id": S["workspace_id"], "status": {"type": "string", "enum": ["active", "archived", "all"]}}),
-    "session.get_summary": _schema({"workspace_id": S["workspace_id"], "session_id": {"type": "string"}}, ["session_id"]),
+    "session.get_summary": _schema({"workspace_id": S["workspace_id"], "session_id": S["session_id"]}, ["session_id"]),
     "session.create": _schema({"workspace_id": S["workspace_id"], "title": S["title"]}),
-    "session.archive": _schema({"workspace_id": S["workspace_id"], "session_id": {"type": "string"}}, ["session_id"]),
+    "session.archive": _schema({"workspace_id": S["workspace_id"], "session_id": S["session_id"]}, ["session_id"]),
     "run.list_recent": _schema({"workspace_id": S["workspace_id"], "limit": S["limit"]}),
-    "run.get_summary": _schema({"workspace_id": S["workspace_id"], "run_id": {"type": "string"}}, ["run_id"]),
+    "run.get_summary": _schema({"workspace_id": S["workspace_id"], "run_id": S["run_id"]}, ["run_id"]),
     "memory.search": _schema({"query": S["query"], "limit": S["limit"]}, ["query"]),
 
     # Runtime
@@ -1963,12 +1973,12 @@ GENERAL_TOOL_INPUT_SCHEMAS = {
     "report.render_markdown": _schema({"content": S["content"], "title": S["title"]}, ["content"]),
     "report.save_artifact": _schema({"workspace_id": S["workspace_id"], "title": S["title"], "content": S["content"]}, ["content"]),
     "doc.render_from_safe_summary": _schema({"title": S["title"], "summary": {"type": "string", "description": "Safe summary only; raw configs are not accepted."}}, ["summary"]),
-    "table.render_markdown": _schema({"rows": {"type": "array", "description": "Rows to render, usually array of arrays or objects."}, "headers": {"type": "array"}}),
+    "table.render_markdown": _schema({"rows": {"type": "array", "description": "Array of rows, each row is an array or object."}, "headers": {"type": "array", "description": "Optional column header names."}}),
     "diagram.render_mermaid": _schema({"mermaid": {"type": "string", "description": "Mermaid source text to return safely."}}, ["mermaid"]),
 
     # Text / data
     "text.redact": _schema({"text": S["text"]}, ["text"]),
-    "text.diff": _schema({"text_a": {"type": "string"}, "text_b": {"type": "string"}}, ["text_a", "text_b"]),
+    "text.diff": _schema({"text_a": {"type": "string", "description": "First text (original/before)."}, "text_b": {"type": "string", "description": "Second text (changed/after)."}}, ["text_a", "text_b"]),
     "text.extract_keywords": _schema({"text": S["text"], "limit": S["limit"]}, ["text"]),
     "text.classify": _schema({"text": S["text"]}, ["text"]),
     "json.validate": _schema({"text": S["text"]}, ["text"]),
@@ -1979,8 +1989,8 @@ GENERAL_TOOL_INPUT_SCHEMAS = {
     # Workspace
     "workspace.list_files": _schema({"workspace_id": S["workspace_id"], "subdir": {"type": "string", "description": "Workspace-relative subdirectory."}}),
     "workspace.read_text_preview": _schema({"workspace_id": S["workspace_id"], "filepath": {"type": "string", "description": "Workspace-relative text file path."}}, ["filepath"]),
-    "workspace.write_artifact_file": _schema({"workspace_id": S["workspace_id"], "filename": {"type": "string"}, "content": S["content"]}, ["filename", "content"]),
-    "workspace.path_exists": _schema({"workspace_id": S["workspace_id"], "filepath": {"type": "string"}}, ["filepath"]),
+    "workspace.write_artifact_file": _schema({"workspace_id": S["workspace_id"], "filename": {"type": "string", "description": "Output filename, e.g. report.md or output.json."}, "content": S["content"]}, ["filename", "content"]),
+    "workspace.path_exists": _schema({"workspace_id": S["workspace_id"], "filepath": S["filepath"]}, ["filepath"]),
     "workspace.get_metadata": _schema({"workspace_id": S["workspace_id"]}),
 
     # Approved high-risk surfaces

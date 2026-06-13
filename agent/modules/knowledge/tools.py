@@ -68,11 +68,11 @@ TOOL_KNOWLEDGE_IMPORT = ToolSpec(
     input_schema={
         "type": "object",
         "properties": {
-            "workspace_id": {"type": "string"},
-            "title": {"type": "string"},
-            "content": {"type": "string"},
-            "source": {"type": "string"},
-            "metadata": {"type": "object"},
+            "workspace_id": {"type": "string", "description": "Workspace id."},
+            "title": {"type": "string", "description": "Document title."},
+            "content": {"type": "string", "description": "Document text content."},
+            "source": {"type": "string", "description": "Source origin label, e.g. web, manual."},
+            "metadata": {"type": "object", "description": "Optional key-value metadata."},
         },
         "required": ["workspace_id", "title", "content"],
     },
@@ -96,9 +96,9 @@ TOOL_KNOWLEDGE_LIST = ToolSpec(
     input_schema={
         "type": "object",
         "properties": {
-            "workspace_id": {"type": "string"},
-            "include_disabled": {"type": "boolean"},
-            "include_deleted": {"type": "boolean"},
+            "workspace_id": {"type": "string", "description": "Workspace id."},
+            "include_disabled": {"type": "boolean", "description": "Include disabled sources."},
+            "include_deleted": {"type": "boolean", "description": "Include soft-deleted sources."},
         },
         "required": ["workspace_id"],
     },
@@ -123,8 +123,8 @@ TOOL_KNOWLEDGE_READ = ToolSpec(
     input_schema={
         "type": "object",
         "properties": {
-            "workspace_id": {"type": "string"},
-            "source_id": {"type": "string"},
+            "workspace_id": {"type": "string", "description": "Workspace id."},
+            "source_id": {"type": "string", "description": "Knowledge source id."},
         },
         "required": ["workspace_id", "source_id"],
     },
@@ -145,9 +145,9 @@ TOOL_KNOWLEDGE_DISABLE = ToolSpec(
     input_schema={
         "type": "object",
         "properties": {
-            "workspace_id": {"type": "string"},
-            "source_id": {"type": "string"},
-            "disabled": {"type": "boolean"},
+            "workspace_id": {"type": "string", "description": "Workspace id."},
+            "source_id": {"type": "string", "description": "Knowledge source id."},
+            "disabled": {"type": "boolean", "description": "Set true to disable, false to re-enable."},
         },
         "required": ["workspace_id", "source_id"],
     },
@@ -170,8 +170,8 @@ TOOL_KNOWLEDGE_DELETE = ToolSpec(
     input_schema={
         "type": "object",
         "properties": {
-            "workspace_id": {"type": "string"},
-            "source_id": {"type": "string"},
+            "workspace_id": {"type": "string", "description": "Workspace id."},
+            "source_id": {"type": "string", "description": "Knowledge source id."},
         },
         "required": ["workspace_id", "source_id"],
     },
@@ -198,12 +198,12 @@ TOOL_KNOWLEDGE_IMPORT_FILE = ToolSpec(
     input_schema={
         "type": "object",
         "properties": {
-            "workspace_id": {"type": "string"},
+            "workspace_id": {"type": "string", "description": "Workspace id."},
             "file_path": {"type": "string",
                            "description": "Path to a local file."},
             "title": {"type": "string"},
-            "author": {"type": "string"},
-            "edition": {"type": "string"},
+            "author": {"type": "string", "description": "Document author name."},
+            "edition": {"type": "string", "description": "Document edition/version."},
             "source_type": {
                 "type": "string",
                 "enum": ["book", "manual", "rfc", "project_doc", "attachment", "memory"],
@@ -212,7 +212,7 @@ TOOL_KNOWLEDGE_IMPORT_FILE = ToolSpec(
                 "type": "string",
                 "enum": ["global", "workspace", "session"],
             },
-            "language": {"type": "string"},
+            "language": {"type": "string", "description": "Document language code, e.g. zh-CN."},
             "tags": {
                 "type": "array",
                 "items": {"type": "string"},
@@ -243,13 +243,13 @@ TOOL_KNOWLEDGE_LIST_CHUNKS = ToolSpec(
     input_schema={
         "type": "object",
         "properties": {
-            "workspace_id": {"type": "string"},
-            "source_id": {"type": "string"},
+            "workspace_id": {"type": "string", "description": "Workspace id."},
+            "source_id": {"type": "string", "description": "Knowledge source id."},
             "chunk_type": {
                 "type": "string",
                 "enum": ["parent", "child"],
             },
-            "limit": {"type": "integer"},
+            "limit": {"type": "integer", "description": "Max items to return.", "default": 10},
         },
         "required": ["workspace_id"],
     },
@@ -275,21 +275,21 @@ TOOL_KNOWLEDGE_SEARCH_CHUNKS = ToolSpec(
     input_schema={
         "type": "object",
         "properties": {
-            "workspace_id": {"type": "string"},
-            "query": {"type": "string"},
-            "top_k": {"type": "integer"},
+            "workspace_id": {"type": "string", "description": "Workspace id."},
+            "query": {"type": "string", "description": "Search query text."},
+            "top_k": {"type": "integer", "description": "Max results.", "default": 5},
             "scope": {
                 "type": "string",
                 "enum": ["global", "workspace", "session"],
             },
-            "source_id": {"type": "string"},
-            "source_type": {"type": "string"},
+            "source_id": {"type": "string", "description": "Knowledge source id."},
+            "source_type": {"type": "string", "description": "Filter by source type, e.g. documentation."},
             "tags": {
                 "type": "array",
                 "items": {"type": "string"},
                 "description": "List of tag strings to filter on.",
             },
-            "chapter": {"type": "string"},
+            "chapter": {"type": "string", "description": "Filter by chapter/section name."},
         },
         "required": ["workspace_id", "query"],
     },
@@ -313,8 +313,8 @@ TOOL_KNOWLEDGE_READ_CHUNK = ToolSpec(
     input_schema={
         "type": "object",
         "properties": {
-            "workspace_id": {"type": "string"},
-            "chunk_id": {"type": "string"},
+            "workspace_id": {"type": "string", "description": "Workspace id."},
+            "chunk_id": {"type": "string", "description": "Knowledge chunk id."},
         },
         "required": ["workspace_id", "chunk_id"],
     },
@@ -338,8 +338,8 @@ TOOL_KNOWLEDGE_READ_PARENT = ToolSpec(
     input_schema={
         "type": "object",
         "properties": {
-            "workspace_id": {"type": "string"},
-            "child_chunk_id": {"type": "string"},
+            "workspace_id": {"type": "string", "description": "Workspace id."},
+            "child_chunk_id": {"type": "string", "description": "Child chunk id to read parent of."},
         },
         "required": ["workspace_id", "child_chunk_id"],
     },
@@ -363,8 +363,8 @@ TOOL_KNOWLEDGE_REINDEX = ToolSpec(
     input_schema={
         "type": "object",
         "properties": {
-            "workspace_id": {"type": "string"},
-            "source_id": {"type": "string"},
+            "workspace_id": {"type": "string", "description": "Workspace id."},
+            "source_id": {"type": "string", "description": "Knowledge source id."},
         },
         "required": ["workspace_id", "source_id"],
     },

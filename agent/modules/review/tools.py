@@ -29,8 +29,8 @@ TOOL_REVIEW_LIST = ToolSpec(
     input_schema={
         "type": "object",
         "properties": {
-            "workspace_id": {"type": "string"},
-            "artifact_id": {"type": "string"},
+            "workspace_id": {"type": "string", "description": "Workspace id."},
+            "artifact_id": {"type": "string", "description": "Artifact id to review."},
         },
         "required": ["workspace_id", "artifact_id"],
     },
@@ -55,14 +55,15 @@ TOOL_REVIEW_UPDATE = ToolSpec(
     input_schema={
         "type": "object",
         "properties": {
-            "workspace_id": {"type": "string"},
-            "artifact_id": {"type": "string"},
-            "item_id": {"type": "string"},
+            "workspace_id": {"type": "string", "description": "Workspace id."},
+            "artifact_id": {"type": "string", "description": "Artifact id to review."},
+            "item_id": {"type": "string", "description": "Review item id from list_items."},
             "status": {
                 "type": "string",
+                "description": "New review status: pending, accepted, ignored, or modified.",
                 "enum": ["pending", "accepted", "ignored", "modified"],
             },
-            "user_note": {"type": "string"},
+            "user_note": {"type": "string", "description": "Optional note explaining the decision."},
         },
         "required": ["workspace_id", "artifact_id", "item_id", "status"],
     },
