@@ -762,7 +762,7 @@ def _build_tool_message_payload(result) -> dict:
     """
     payload = {
         "ok": bool(_safe_get(result, "ok", False)),
-        "summary": _safe_prompt_text(_safe_get(result, "summary", ""), 500),
+        "summary": _safe_prompt_text(_safe_get(result, "summary", ""), 800),
     }
     for key in ("source_count", "manual_review_count"):
         value = _safe_get(result, key, None)
@@ -796,10 +796,11 @@ def _build_tool_message_payload(result) -> dict:
 
     raw = _safe_get(result, "raw", {}) or {}
     data = _safe_get(result, "data", {}) or {}
-    if isinstance(raw, dict):
-        _merge_llm_safe_tool_fields(payload, raw)
+    # Merge data first (service output, primary), then raw (ModuleResult dict, secondary)
     if isinstance(data, dict):
         _merge_llm_safe_tool_fields(payload, data)
+    if isinstance(raw, dict):
+        _merge_llm_safe_tool_fields(payload, raw)
     return payload
 
 
@@ -838,7 +839,7 @@ def _safe_tool_value(value, *, max_text: int = 4000):
             if not _is_forbidden_prompt_key(str(k))
         }
     if isinstance(value, (list, tuple)):
-        return [_safe_tool_value(v, max_text=1200) for v in list(value)[:5]]
+        return [_safe_tool_value(v, max_text=1200) for v in list(value)[:10]]
     return _safe_prompt_text(value, max_text)
 
 
