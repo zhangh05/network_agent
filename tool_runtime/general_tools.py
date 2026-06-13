@@ -1803,14 +1803,41 @@ def handle_command_approved_exec(inv: ToolInvocation) -> dict:
 
 def handle_powershell_approved_script(inv: ToolInvocation) -> dict:
     """Controlled PowerShell execution — only allowlisted script_ids."""
+    import platform
     script_id = inv.arguments.get("script_id", "")
-    # allowlist enforcement happens in policy
-    return _ok({
-        "script_id": script_id,
-        "note": "PowerShell execution is platform-specific. "
-                "Approved scripts only report read-only system info.",
-        "status": "dry_run" if inv.dry_run else "blocked_platform",
-    })
+    # Only allow on Windows; on macOS/Linux return platform info
+    if platform.system() != "Windows":
+        return _ok({
+            "script_id": script_id,
+            "status": "blocked_platform",
+            "platform": platform.system(),
+            "note": "PowerShell scripts only run on Windows. "
+                    "Use command.approved_exec for Unix systems.",
+        })
+    # Allowlisted read-only script IDs
+    ALLOWED = {
+        "system_info": "Get-ComputerInfo | Select-Object CsName,OsName,TotalPhysicalMemory | ConvertTo-Json",
+        "disk_info": "Get-PSDrive -PSProvider FileSystem | Select-Object Name,Used,Free | ConvertTo-Json",
+        "process_list": "Get-Process | Select-Object Name,Id,CPU -First 20 | ConvertTo-Json",
+    }
+    if script_id not in ALLOWED:
+        return _error(f"unknown script_id: {script_id}")
+    if inv.dry_run:
+        return _ok({"script_id": script_id, "status": "dry_run", "command": ALLOWED[script_id]})
+    try:
+        import subprocess
+        result = subprocess.run(
+            ["powershell", "-Command", ALLOWED[script_id]],
+            capture_output=True, text=True, timeout=15,
+        )
+        return _ok({
+            "script_id": script_id,
+            "status": "completed",
+            "output": result.stdout.strip()[:2000],
+            "exit_code": result.returncode,
+        })
+    except Exception as e:
+        return _error(str(e)[:200])
 
 
 # ═══════════════ Registry ═══════════════

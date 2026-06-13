@@ -111,16 +111,14 @@ TOOL_KNOWLEDGE_READ = ToolSpec(
     name="read_source",
     category="knowledge",
     description=(
-        "Read full content + metadata of a single source. v1.0.1.1: "
-        "NOT LLM-callable. LLM uses list_sources / search_chunks / "
-        "read_chunk / read_parent instead. The backend service is "
-        "still callable for internal use (reindex_source, admin "
-        "tools)."
+        "Read full content + metadata of a single source. "
+        "Returns title, source_type, status, sensitivity, "
+        "and full content body."
     ),
     risk_level="low",
     enabled=True,
     requires_approval=False,
-    callable_by_llm=False,
+    callable_by_llm=True,
     forbidden=False,
     input_schema={
         "type": "object",

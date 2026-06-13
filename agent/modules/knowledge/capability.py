@@ -219,11 +219,7 @@ CAPABILITY_KNOWLEDGE = CapabilityManifest(
         CapabilityToolRef(
             tool_id="knowledge.read_source",
             status="enabled",
-            # v1.0.1.1: LLM must NOT read the full source content.
-            # LLM uses list_sources / search_chunks / read_chunk /
-            # read_parent instead. The backend service is still
-            # callable for internal use (reindex_source, admin tools).
-            callable_by_llm=False,
+            callable_by_llm=True,
             risk_level="low",
             requires_approval=False,
             forbidden=False,
