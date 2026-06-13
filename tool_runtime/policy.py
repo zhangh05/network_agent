@@ -49,8 +49,8 @@ V02_FORBIDDEN_PATTERNS = [
 
 # v0.3 high-risk approved_exec tools — need approval_id but accept arbitrary commands
 V02_APPROVED_EXEC_TOOLS = {
-    "command.approved_exec",
-    "powershell.approved_script",
+    "shell.exec",
+    "powershell.exec",
 }
 
 # v0.3: handlers accept arbitrary commands, allowlists removed.
@@ -190,7 +190,7 @@ def _check_argument_safety(arguments: dict, tool_id: str = "") -> str:
     ]
 
     # Shell/PowerShell specific checks
-    if tool_id in ("command.approved_exec", "powershell.approved_script"):
+    if tool_id in ("shell.exec", "powershell.exec"):
         extra_checks = [
             ("&&", "Command chaining detected"),
             ("||", "Command chaining detected"),
@@ -208,7 +208,7 @@ def _check_argument_safety(arguments: dict, tool_id: str = "") -> str:
         "Invoke-Expression", "Start-Process", "DownloadString",
         "Invoke-WebRequest", "Set-ExecutionPolicy", "Invoke-RestMethod",
     ]
-    if tool_id == "powershell.approved_script":
+    if tool_id == "powershell.exec":
         for pat in POWERSHELL_FORBIDDEN_PATTERNS:
             if pat.lower() in args_str:
                 return f"PowerShell forbidden pattern: {pat}"

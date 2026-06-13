@@ -128,10 +128,8 @@ def _build_arguments(tool_id: str, text: str, workspace_id: str) -> dict:
         args["limit"] = 5
     elif tool_id == "run.list_recent":
         args["limit"] = 5
-    elif tool_id == "command.approved_exec":
-        cmd = re.search(r"\b(system\.[a-z0-9_]+|python\.version)\b", text.lower())
-        if cmd:
-            args["command_id"] = cmd.group(1)
+    elif tool_id == "shell.exec":
+        pass  # LLM provides the full command
     return args
 
 

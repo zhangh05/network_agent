@@ -1798,7 +1798,7 @@ def handle_command_approved_exec(inv: ToolInvocation) -> dict:
     """
     import platform
     if platform.system() == "Windows":
-        return _error("Shell execution only available on Linux/macOS. Use powershell.approved_script on Windows.")
+        return _error("Shell execution only available on Linux/macOS. Use powershell.exec on Windows.")
     command = (inv.arguments.get("command") or inv.arguments.get("command_id") or "").strip()
     if not command:
         return _error("command is required")
@@ -1815,7 +1815,7 @@ def handle_powershell_approved_script(inv: ToolInvocation) -> dict:
     """
     import platform
     if platform.system() != "Windows":
-        return _error("PowerShell execution only available on Windows. Use command.approved_exec on Linux/macOS.")
+        return _error("PowerShell execution only available on Windows. Use shell.exec on Linux/macOS.")
     command = (inv.arguments.get("command") or inv.arguments.get("script_id") or "").strip()
     if not command:
         return _error("command is required")
@@ -1984,8 +1984,8 @@ GENERAL_TOOL_INPUT_SCHEMAS = {
     "workspace.get_metadata": _schema({"workspace_id": S["workspace_id"]}),
 
     # Approved high-risk surfaces
-    "command.approved_exec": _schema({"command": {"type": "string", "description": "Shell command to execute on Linux/macOS. Requires approval."}}, ["command"]),
-    "powershell.approved_script": _schema({"command": {"type": "string", "description": "PowerShell command to execute on Windows. Requires approval."}}, ["command"]),
+    "shell.exec": _schema({"command": {"type": "string", "description": "Shell command to execute on Linux/macOS. Requires approval."}}, ["command"]),
+    "powershell.exec": _schema({"command": {"type": "string", "description": "PowerShell command to execute on Windows. Requires approval."}}, ["command"]),
 }
 
 
@@ -2295,10 +2295,10 @@ _reg("workspace.get_metadata", "Workspace Metadata", "workspace", "low",
      "Get workspace metadata", handle_ws_get_metadata)
 
 # ── I. Shell / PowerShell Tools (HIGH RISK, approval gated) ──
-_reg("command.approved_exec", "Shell Exec", "shell", "high",
+_reg("shell.exec", "Shell Exec", "shell", "high",
      "Execute shell commands on Linux/macOS. 30s timeout, 10000 chars output, workspace-root cwd. Requires approval_id.",
      handle_command_approved_exec, requires_approval=True)
-_reg("powershell.approved_script", "PowerShell Exec", "powershell", "high",
+_reg("powershell.exec", "PowerShell Exec", "powershell", "high",
      "Execute PowerShell commands on Windows. 15s timeout, 10000 chars output. Requires approval_id.",
      handle_powershell_approved_script, requires_approval=True)
 
