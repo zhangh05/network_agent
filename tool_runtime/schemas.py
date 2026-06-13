@@ -54,6 +54,7 @@ class ToolSpec:
     requires_approval: bool = False
     callable_by_llm: bool = True
     tags: list = field(default_factory=list)
+    permission_action: str = ""  # read | write | exec | network — set by _reg
 
     def __post_init__(self):
         if self.risk_level not in VALID_RISK_LEVELS:
@@ -79,6 +80,7 @@ class ToolSpec:
             "requires_approval": self.requires_approval,
             "callable_by_llm": self.callable_by_llm,
             "tags": self.tags,
+            "permission_action": self.permission_action,
         }
 
 

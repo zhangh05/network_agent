@@ -168,6 +168,7 @@ BUILTIN_TOOLS = [
             category="artifact",
             risk_level="low",
             reads_artifact=True,
+            permission_action="read",
             input_schema={
                 "type": "object",
                 "properties": {
@@ -184,6 +185,7 @@ BUILTIN_TOOLS = [
             description="Shallow safe parse of config text. Returns statistics and structure hints only.",
             category="parser",
             risk_level="low",
+            permission_action="read",
             input_schema={
                 "type": "object",
                 "required": ["config_text"],
@@ -201,6 +203,7 @@ BUILTIN_TOOLS = [
             description="Extract interface names from config text. No full interface blocks returned.",
             category="parser",
             risk_level="low",
+            permission_action="read",
             input_schema={
                 "type": "object",
                 "required": ["config_text"],
@@ -218,6 +221,7 @@ BUILTIN_TOOLS = [
             description="Extract route-like line summaries from config text. IPs partially masked.",
             category="parser",
             risk_level="low",
+            permission_action="read",
             input_schema={
                 "type": "object",
                 "required": ["config_text"],

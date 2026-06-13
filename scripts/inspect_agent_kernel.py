@@ -242,6 +242,11 @@ def main():
     has_runtime = len(tracked_runtime) > 0
     print(f"  no_runtime_state_tracked: {'✅' if not has_runtime else '❌ ' + str(tracked_runtime[:5])}")
 
+    # permission_action_coverage_ok
+    no_pa = [t.tool_id for t in visible if not getattr(t, 'permission_action', '')]
+    pa_ok = len(no_pa) == 0
+    print(f"  permission_action_coverage_ok: {'✅' if pa_ok else '❌' + str(no_pa[:5])} ({len(visible)-len(no_pa)}/{len(visible)} have permission_action)")
+
     print()
     print("--- all modules at 100% ---")
     done = [

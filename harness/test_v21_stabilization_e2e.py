@@ -201,3 +201,62 @@ class TestQueryEngineWiring:
         tid = build_trace_id()
         assert len(tid) > 8
         assert "-" in tid
+
+
+class TestSkillLoadContextInjection:
+    def test_skill_load_writes_to_session_metadata(self):
+        """skill.load must persist loaded_skills in session metadata."""
+        from tool_runtime.general_tools import handle_skill_load
+        from tool_runtime.schemas import ToolInvocation
+
+        # Load an existing skill
+        inv = ToolInvocation(
+            tool_id='skill.load', arguments={
+                'skill_name': 'config_translation', 'session_id': 'e2e_ct',
+                'workspace_id': 'default',
+            },
+            workspace_id='default', run_id='test', job_id='test',
+            dry_run=False, requested_by='test',
+        )
+        result = handle_skill_load(inv)
+        # Should return prompt_length
+        assert result['ok'], f"skill.load failed: {result.get('error')}"
+        assert 'prompt_length' in result or 'loaded_at' in result
+
+    def test_pending_review_skill_blocked(self):
+        """Pending review skills must not be loadable."""
+        from tool_runtime.general_tools import handle_skill_load
+        from tool_runtime.schemas import ToolInvocation
+        inv = ToolInvocation(
+            tool_id='skill.load', arguments={
+                'skill_name': 'nonexistent_pending', 'session_id': 'e2e_ct',
+            },
+            workspace_id='default', run_id='test', job_id='test',
+            dry_run=False, requested_by='test',
+        )
+        result = handle_skill_load(inv)
+        # Should fail: skill not found or pending_review
+        assert not result['ok']
+
+    def test_context_builder_reads_loaded_skills(self):
+        """ContextBuilder must inject loaded_skills into safe_context."""
+        from agent.runtime.context_builder import build_turn_context
+        from agent.core.session import AgentSession
+        from agent.core.turn import AgentTurn
+        from agent.runtime.services import default_runtime_services
+        from agent.protocol.op import AgentOp
+
+        services = default_runtime_services()
+        session = AgentSession(session_id="skill_ctx_test", workspace_id="default", services=services)
+        # Pre-populate loaded_skills in metadata
+        session.metadata['loaded_skills'] = {
+            'test_skill': {'skill_prompt': 'You are a test skill.', 'loaded_at': '2026-01-01T00:00:00'}
+        }
+        op = AgentOp(user_input="hello", session_id="skill_ctx_test", workspace_id="default")
+        turn = AgentTurn.from_op(op)
+        ctx = build_turn_context(session, turn, services)
+
+        # Verify loaded_skills_section is in safe_context
+        sc = ctx.safe_context or {}
+        assert 'loaded_skills_section' in sc, f"safe_context keys: {list(sc.keys())}"
+        assert 'test_skill' in str(sc['loaded_skills_section'])

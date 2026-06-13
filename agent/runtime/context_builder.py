@@ -173,23 +173,27 @@ def build_turn_context(session, turn, services) -> TurnContext:
             trace_id=ctx.trace_id,
         )
         ctx.safe_context = _safe_context_from_bundle(bundle, ctx)
-        
-        # ── v2.1: Inject loaded skills into context ──
-        loaded_skills = ctx.metadata.get("loaded_skills") or {}
-        if loaded_skills:
-            skill_lines = ["## Loaded Skills", ""]
-            for skill_name, skill_info in loaded_skills.items():
-                prompt = skill_info.get("skill_prompt", "")[:3000] if isinstance(skill_info, dict) else ""
-                if prompt:
-                    skill_lines.append(f"### {skill_name}")
-                    skill_lines.append(prompt)
-                    skill_lines.append("")
-            if len(skill_lines) > 2:
-                ctx.safe_context["loaded_skills_section"] = "\n".join(skill_lines)
     except Exception as e:
         # Fallback to minimal context if full bundle build fails
         ctx.safe_context = {"workspace_id": ctx.workspace_id, "session_id": ctx.session_id}
         ctx.metadata.setdefault("context_errors", []).append(str(e)[:200])
+
+    # ── v2.1: Inject loaded skills into context ──
+    # Read from session metadata first (skill.load writes there),
+    # then fall back to ctx.metadata for sub-agent/inject cases.
+    session_loaded = getattr(session, 'metadata', {}) or {}
+    loaded_skills = (session_loaded.get("loaded_skills") or
+                     ctx.metadata.get("loaded_skills") or {})
+    if loaded_skills:
+        skill_lines = ["## Loaded Skills", ""]
+        for skill_name, skill_info in loaded_skills.items():
+            prompt = skill_info.get("skill_prompt", "")[:3000] if isinstance(skill_info, dict) else ""
+            if prompt:
+                skill_lines.append(f"### {skill_name}")
+                skill_lines.append(prompt)
+                skill_lines.append("")
+        if len(skill_lines) > 2:
+            ctx.safe_context["loaded_skills_section"] = "\n".join(skill_lines)
 
     # v1.0.3: store selected_skills and visible_tools in ctx.metadata
     # so loop.py can include them in AgentResult.metadata.

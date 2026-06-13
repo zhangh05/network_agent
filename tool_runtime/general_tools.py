@@ -3711,7 +3711,7 @@ def _default_tool_next_actions(tool_id: str, *, ok: bool) -> list[str]:
 
 def _reg(tool_id, name, category, risk_level, description, handler,
          requires_approval=False, writes_artifact=False, input_schema=None,
-         enabled=True, dry_run_supported=True):
+         enabled=True, dry_run_supported=True, permission_action=""):
     """Helper to define and register a tool."""
     spec = ToolSpec(
         tool_id=tool_id,
@@ -3728,6 +3728,7 @@ def _reg(tool_id, name, category, risk_level, description, handler,
         reads_artifact=category in ("artifact", "knowledge"),
         requires_approval=requires_approval,
         tags=[risk_level, category],
+        permission_action=permission_action,
     )
     ALL_GENERAL_TOOLS.append((spec, _wrap_general_handler(tool_id, handler)))
     return spec
@@ -3735,29 +3736,29 @@ def _reg(tool_id, name, category, risk_level, description, handler,
 
 # ── A. Artifact Tools ──
 _reg("artifact.search", "Artifact Search", "artifact", "low",
-     "Search workspace artifacts by title/type. Use before reading an artifact when the user references prior outputs, reports, translated configs, or saved web pages.", handle_artifact_search)
+     "Search workspace artifacts by title/type. Use before reading an artifact when the user references prior outputs, reports, translated configs, or saved web pages.", handle_artifact_search, permission_action="read")
 _reg("artifact.read_content_safe", "Read Content Safe", "artifact", "low",
-     "Read a size-limited safe preview of artifact content. Use only after artifact.search/list identifies an artifact_id; sensitive artifacts return metadata instead of full content.", handle_artifact_read_content_safe)
+     "Read a size-limited safe preview of artifact content. Use only after artifact.search/list identifies an artifact_id; sensitive artifacts return metadata instead of full content.", handle_artifact_read_content_safe, permission_action="read")
 _reg("artifact.save_result", "Save Result", "artifact", "medium",
-     "Save useful generated text as an artifact for later reference. Medium risk because it writes workspace state; avoid credential values or raw device configs unless explicitly intended.", handle_artifact_save_result, writes_artifact=True)
+     "Save useful generated text as an artifact for later reference. Medium risk because it writes workspace state; avoid credential values or raw device configs unless explicitly intended.", handle_artifact_save_result, writes_artifact=True, permission_action="write")
 _reg("artifact.tag", "Tag Artifact", "artifact", "low",
-     "Add tags to an artifact", handle_artifact_tag)
+     "Add tags to an artifact", handle_artifact_tag, permission_action="write")
 _reg("artifact.delete_soft", "Soft Delete", "artifact", "medium",
-     "Soft-delete an artifact", handle_artifact_delete_soft, writes_artifact=True)
+     "Soft-delete an artifact", handle_artifact_delete_soft, writes_artifact=True, permission_action="write")
 
 # ── B. Knowledge Tools ──
 _reg("knowledge.index_artifact", "Index Artifact", "knowledge", "medium",
-     "Index a safe artifact into the workspace knowledge base so future answers can retrieve it. Medium risk because it changes retrieval state.", handle_knowledge_index_artifact, writes_artifact=True)
+     "Index a safe artifact into the workspace knowledge base so future answers can retrieve it. Medium risk because it changes retrieval state.", handle_knowledge_index_artifact, writes_artifact=True, permission_action="write")
 _reg("knowledge.reindex", "Reindex", "knowledge", "medium",
-     "Rebuild chunks for a knowledge source when search results look stale or incomplete. Medium risk because it updates the knowledge index.", handle_knowledge_reindex, writes_artifact=True)
+     "Rebuild chunks for a knowledge source when search results look stale or incomplete. Medium risk because it updates the knowledge index.", handle_knowledge_reindex, writes_artifact=True, permission_action="write")
 _reg("knowledge.search", "Knowledge Search", "knowledge", "low",
-     "Search the local workspace knowledge base for safe chunks and citations. Use before answering questions about imported docs, prior project knowledge, vendor notes, or user-specific network material.", handle_knowledge_search)
+     "Search the local workspace knowledge base for safe chunks and citations. Use before answering questions about imported docs, prior project knowledge, vendor notes, or user-specific network material.", handle_knowledge_search, permission_action="read")
 _reg("knowledge.get_source", "Get Source", "knowledge", "low",
-     "Get metadata for a knowledge source id returned by knowledge.search. Does not expose raw source content.", handle_knowledge_get_source)
+     "Get metadata for a knowledge source id returned by knowledge.search. Does not expose raw source content.", handle_knowledge_get_source, permission_action="read")
 _reg("knowledge.get_chunk_summary", "Get Chunk Summary", "knowledge", "low",
-     "Get a safe summary for a specific knowledge chunk id when search results need more local context.", handle_knowledge_get_chunk_summary)
+     "Get a safe summary for a specific knowledge chunk id when search results need more local context.", handle_knowledge_get_chunk_summary, permission_action="read")
 _reg("knowledge.explain_not_found", "Explain Not Found", "knowledge", "low",
-     "Explain why search returned no results", handle_knowledge_explain_not_found)
+     "Explain why search returned no results", handle_knowledge_explain_not_found, permission_action="read")
 
 # ── C. Web Tools ──
 WEB_SEARCH_INPUT_SCHEMA = {
@@ -3802,213 +3803,213 @@ WEB_SEARCH_INPUT_SCHEMA = {
 
 _reg("web.search", "Web Search", "web", "medium",
      "Search public web and return citation-ready results with title, URL, domain, snippet, source quality, and next-step guidance. Use for current facts, official docs, standards, vendor references, or anything that may have changed.",
-     handle_web_search, input_schema=WEB_SEARCH_INPUT_SCHEMA)
+     handle_web_search, input_schema=WEB_SEARCH_INPUT_SCHEMA, permission_action="network")
 _reg("web.fetch_summary", "Fetch Summary", "web", "medium",
-     "Fetch and summarize a public http(s) webpage after web.search or when the user provides a URL. Blocks private/local URLs; use returned URL/title/summary for cited answers.", handle_web_fetch_summary)
+     "Fetch and summarize a public http(s) webpage after web.search or when the user provides a URL. Blocks private/local URLs; use returned URL/title/summary for cited answers.", handle_web_fetch_summary, permission_action="network")
 _reg("web.official_doc_search", "Official Doc Search", "web", "low",
-     "Search official vendor documentation by restricting web search to known vendor domains when possible. Use for Cisco/Huawei/H3C/Ruijie/Arista commands, protocols, release behavior, and standards-facing references.", handle_web_official_doc_search)
+     "Search official vendor documentation by restricting web search to known vendor domains when possible. Use for Cisco/Huawei/H3C/Ruijie/Arista commands, protocols, release behavior, and standards-facing references.", handle_web_official_doc_search, permission_action="network")
 _reg("web.extract_links", "Extract Links", "web", "medium",
-     "Extract public http(s) links from a webpage when the user asks for references, downloads, related docs, or navigation targets. Blocks private/local URLs.", handle_web_extract_links)
+     "Extract public http(s) links from a webpage when the user asks for references, downloads, related docs, or navigation targets. Blocks private/local URLs.", handle_web_extract_links, permission_action="network")
 _reg("web.save_to_artifact", "Save to Artifact", "web", "medium",
-     "Fetch a public webpage and save its readable text as a knowledge_doc artifact for later indexing or citation. Medium risk because it writes workspace state; blocks private/local URLs.", handle_web_save_to_artifact, writes_artifact=True)
+     "Fetch a public webpage and save its readable text as a knowledge_doc artifact for later indexing or citation. Medium risk because it writes workspace state; blocks private/local URLs.", handle_web_save_to_artifact, writes_artifact=True, permission_action="network")
 
 # ── D. Session / Run / Memory Tools ──
 _reg("session.list", "List Sessions", "session", "low",
-     "List workspace sessions", handle_session_list)
+     "List workspace sessions", handle_session_list, permission_action="read")
 _reg("session.get_summary", "Session Summary", "session", "low",
-     "Get session summary (no full content)", handle_session_get_summary)
+     "Get session summary (no full content)", handle_session_get_summary, permission_action="read")
 _reg("session.create", "Create Session", "session", "medium",
-     "Create a new session", handle_session_create)
+     "Create a new session", handle_session_create, permission_action="write")
 _reg("session.archive", "Archive Session", "session", "medium",
-     "Soft-archive a session", handle_session_archive)
+     "Soft-archive a session", handle_session_archive, permission_action="write")
 _reg("run.list_recent", "Recent Runs", "session", "low",
-     "List recent runs (summary only)", handle_run_list_recent)
+     "List recent runs (summary only)", handle_run_list_recent, permission_action="read")
 _reg("run.get_summary", "Run Summary", "session", "low",
-     "Get run summary (no config)", handle_run_get_summary)
+     "Get run summary (no config)", handle_run_get_summary, permission_action="read")
 
 # ── Real-time data tools backed by public web search ──
 _reg("weather.current", "Current Weather", "web", "medium",
      "Get current weather for a location using public web results. Medium risk because weather changes quickly; cite returned sources and avoid claiming sensor-grade precision.",
-     handle_weather_current)
+     handle_weather_current, permission_action="network")
 _reg("weather.forecast", "Weather Forecast", "web", "medium",
      "Get a short weather forecast for a location using public web results. Medium risk because forecasts change; cite returned sources and mention uncertainty.",
-     handle_weather_forecast)
+     handle_weather_forecast, permission_action="network")
 _reg("news.search", "News Search", "web", "medium",
      "Search recent public news using web search with optional recency/domain filters. Medium risk because news can be incomplete or stale; compare sources before firm claims.",
-     handle_news_search)
+     handle_news_search, permission_action="network")
 _reg("memory.search", "Memory Search", "session", "low",
-     "Search memory store", handle_memory_search)
+     "Search memory store", handle_memory_search, permission_action="read")
 _reg("skill.list", "List Skills", "skill", "low",
      "List registered agent skills with names and capabilities.",
-     handle_skill_list)
+     handle_skill_list, permission_action="read")
 _reg("memory.create", "Create Memory", "memory", "low",
      "Create a long-term memory entry. Do not store secrets, tokens, or passwords.",
-     handle_memory_create)
+     handle_memory_create, permission_action="write")
 _reg("memory.list", "List Memories", "memory", "low",
      "List memory entries in the workspace. Returns id + summary only.",
-     handle_memory_list)
+     handle_memory_list, permission_action="read")
 _reg("memory.get_profile", "Get Profile", "memory", "low",
      "Get the current workspace user profile.",
-     handle_memory_get_profile)
+     handle_memory_get_profile, permission_action="read")
 _reg("memory.set_profile", "Set Profile", "memory", "low",
      "Set a user profile preference. Use for long-term preferences, not secrets.",
-     handle_memory_set_profile)
+     handle_memory_set_profile, permission_action="write")
 _reg("skill.request_load", "Request Skill Load", "skill", "low",
      "Request loading a skill. Does NOT directly inject skill into system prompt. "
      "Only records the request for future runtime-controlled loading.",
-     handle_skill_request_load)
+     handle_skill_request_load, permission_action="write")
 _reg("skill.find_skills", "Find Skills", "skill", "low",
      "Search for skills by keyword in their descriptions. Returns matching skill names and metadata.",
-     handle_skill_find)
+     handle_skill_find, permission_action="read")
 _reg("skill.load", "Load Skill", "skill", "medium",
      "Load a skill into the current session runtime. Checks skill exists, records as loaded, "
      "and returns SKILL.md content. Does NOT directly inject into system prompt — the context "
      "builder reads loaded skills from session metadata.",
-     handle_skill_load)
+     handle_skill_load, permission_action="write")
 _reg("skill.create", "Create Skill", "skill", "medium",
      "Create a new skill skeleton with SKILL.md and skill.yaml. Status is pending_review — does NOT auto-enable.",
-     handle_skill_create, writes_artifact=True)
+     handle_skill_create, writes_artifact=True, permission_action="write")
 _reg("skill.inspect", "Inspect Skill", "skill", "low",
      "Read and return a skill's SKILL.md content without loading it into the system prompt.",
-     handle_skill_inspect)
+     handle_skill_inspect, permission_action="read")
 _reg("pdf.extract_text", "Extract PDF Text", "file", "medium",
      "Extract text from a workspace PDF file. Uses PyPDF2 if available.",
-     handle_pdf_extract_text)
+     handle_pdf_extract_text, permission_action="read")
 _reg("memory.confirm", "Confirm Memory", "memory", "low",
      "Confirm a pending_confirmation memory entry. Changes status from pending to confirmed.",
-     handle_memory_confirm)
+     handle_memory_confirm, permission_action="write")
 
 # ── E. Runtime Tools ──
 _reg("runtime.health", "Runtime Health", "runtime", "low",
-     "Check runtime health", handle_runtime_health)
+     "Check runtime health", handle_runtime_health, permission_action="read")
 _reg("runtime.selfcheck", "Self Check", "runtime", "low",
-     "Run self-check diagnostics", handle_runtime_selfcheck)
+     "Run self-check diagnostics", handle_runtime_selfcheck, permission_action="read")
 _reg("runtime.diagnostics", "Diagnostics", "runtime", "low",
-     "Get runtime diagnostic report", handle_runtime_diagnostics)
+     "Get runtime diagnostic report", handle_runtime_diagnostics, permission_action="read")
 _reg("runtime.retention_preview", "Retention Preview", "runtime", "low",
-     "Preview retention candidates (read-only)", handle_runtime_retention_preview)
+     "Preview retention candidates (read-only)", handle_runtime_retention_preview, permission_action="read")
 _reg("runtime.archive_preview", "Archive Preview", "runtime", "low",
-     "Preview archive state (read-only)", handle_runtime_archive_preview)
+     "Preview archive state (read-only)", handle_runtime_archive_preview, permission_action="read")
 
 # ── F. Report / Document Tools ──
 _reg("report.render_markdown", "Render Markdown", "report", "low",
-     "Render markdown from safe summary", handle_report_render_markdown)
+     "Render markdown from safe summary", handle_report_render_markdown, permission_action="read")
 _reg("report.save_artifact", "Save Report", "report", "medium",
-     "Save report as artifact", handle_report_save_artifact, writes_artifact=True)
+     "Save report as artifact", handle_report_save_artifact, writes_artifact=True, permission_action="write")
 _reg("doc.render_from_safe_summary", "Render Document", "report", "low",
-     "Render document from safe summary", handle_doc_render_from_safe_summary)
+     "Render document from safe summary", handle_doc_render_from_safe_summary, permission_action="read")
 _reg("table.render_markdown", "Render Table", "report", "low",
-     "Render table as markdown", handle_table_render_markdown)
+     "Render table as markdown", handle_table_render_markdown, permission_action="read")
 _reg("diagram.render_mermaid", "Render Mermaid", "report", "low",
-     "Output Mermaid diagram text", handle_diagram_render_mermaid)
+     "Output Mermaid diagram text", handle_diagram_render_mermaid, permission_action="read")
 
 # ── G. Text / Data Tools ──
 _reg("text.redact", "Redact Text", "text", "low",
-     "Redact sensitive info from text", handle_text_redact)
+     "Redact sensitive info from text", handle_text_redact, permission_action="read")
 _reg("text.diff", "Text Diff", "text", "low",
-     "Compute safe text diff", handle_text_diff)
+     "Compute safe text diff", handle_text_diff, permission_action="read")
 _reg("text.extract_keywords", "Extract Keywords", "text", "low",
-     "Extract keywords from text", handle_text_extract_keywords)
+     "Extract keywords from text", handle_text_extract_keywords, permission_action="read")
 _reg("text.classify", "Classify Text", "text", "low",
-     "Classify text type (config, general)", handle_text_classify)
+     "Classify text type (config, general)", handle_text_classify, permission_action="read")
 _reg("json.validate", "Validate JSON", "text", "low",
-     "Validate JSON syntax (no eval)", handle_json_validate)
+     "Validate JSON syntax (no eval)", handle_json_validate, permission_action="read")
 _reg("yaml.validate", "Validate YAML", "text", "low",
-     "Validate YAML syntax (safe_load only)", handle_yaml_validate)
+     "Validate YAML syntax (safe_load only)", handle_yaml_validate, permission_action="read")
 _reg("csv.summarize", "CSV Summarize", "text", "low",
-     "Summarize CSV data", handle_csv_summarize)
+     "Summarize CSV data", handle_csv_summarize, permission_action="read")
 _reg("table.extract", "Extract Table", "text", "low",
-     "Extract table from markdown", handle_table_extract)
+     "Extract table from markdown", handle_table_extract, permission_action="read")
 
 # ── H. Workspace Safe File Tools ──
 _reg("workspace.list_files", "List Files", "workspace", "low",
-     "List files in workspace (no path traversal)", handle_ws_list_files)
+     "List files in workspace (no path traversal)", handle_ws_list_files, permission_action="read")
 _reg("workspace.read_text_preview", "Read Text Preview", "workspace", "low",
-     "Read text file preview (size-limited)", handle_ws_read_text_preview)
+     "Read text file preview (size-limited)", handle_ws_read_text_preview, permission_action="read")
 _reg("workspace.write_artifact_file", "Write File", "workspace", "medium",
-     "Write file to workspace output dir", handle_ws_write_artifact_file, writes_artifact=True)
+     "Write file to workspace output dir", handle_ws_write_artifact_file, writes_artifact=True, permission_action="write")
 _reg("workspace.path_exists", "Path Exists", "workspace", "low",
-     "Check if workspace path exists", handle_ws_path_exists)
+     "Check if workspace path exists", handle_ws_path_exists, permission_action="read")
 _reg("workspace.get_metadata", "Workspace Metadata", "workspace", "low",
-     "Get workspace metadata", handle_ws_get_metadata)
+     "Get workspace metadata", handle_ws_get_metadata, permission_action="read")
 
 # ── I. Shell / PowerShell Tools (HIGH RISK, approval gated) ──
 _reg("shell.exec", "Shell Exec", "shell", "high",
      "Execute shell commands (bash). Use this on Linux/macOS. On Windows use powershell.exec instead. 30s timeout, 10000 chars output. Requires user approval.",
-     handle_command_approved_exec, requires_approval=True)
+     handle_command_approved_exec, requires_approval=True, permission_action="exec")
 _reg("powershell.exec", "PowerShell Exec", "powershell", "high",
      "Execute PowerShell commands. Use this on Windows. On Linux/macOS use shell.exec instead. 15s timeout, 10000 chars output. Requires user approval.",
-     handle_powershell_approved_script, requires_approval=True)
+     handle_powershell_approved_script, requires_approval=True, permission_action="exec")
 
 # ── J. Python Exec Tool (HIGH RISK, AST-sandboxed, approval gated) ──
 _reg("python.exec", "Python Exec", "python", "high",
      "Execute Python code in an AST-sandboxed subprocess. Code is checked for forbidden imports (os, subprocess, socket, etc.), forbidden builtins (eval, exec, open, etc.), and dunder access before execution. 10s timeout. Requires user approval.",
-     handle_python_exec, requires_approval=True)
+     handle_python_exec, requires_approval=True, permission_action="exec")
 
 # ── K. Session Snapshot / Rewind Tools ──
 _reg("session.snapshot", "Session Snapshot", "session", "low",
      "Create a snapshot of the current session messages for later recovery or rewind.",
-     handle_session_snapshot)
+     handle_session_snapshot, permission_action="read")
 _reg("session.list_snapshots", "List Snapshots", "session", "low",
      "List all snapshots for a session without full message content.",
-     handle_session_list_snapshots)
+     handle_session_list_snapshots, permission_action="read")
 _reg("session.rewind", "Session Rewind", "session", "medium",
      "Rewind a session to a previous snapshot. Set dry_run=True to preview without applying. Set dry_run=False to restore messages from the snapshot.",
-     handle_session_rewind)
+     handle_session_rewind, permission_action="write")
 
 # ── L. Agent Spawn (Sub-Agent) Tool ──
 _reg("agent.spawn", "Spawn Sub-Agent", "session", "medium",
      "Spawn a sub-agent with restricted read-only tool access to research, summarize, or validate data. Returns compressed results. Max 3 turns with only low-risk tools.",
-     handle_agent_spawn, requires_approval=False)
+     handle_agent_spawn, requires_approval=False, permission_action="read")
 _reg("agent.list_roles", "List Agent Roles", "session", "low",
      "List available agent roles (planner/worker/reviewer) with descriptions and default tools.",
-     handle_agent_list_roles)
+     handle_agent_list_roles, permission_action="read")
 _reg("agent.get_result", "Get Sub-Agent Result", "session", "low",
      "Get the result of a previously spawned sub-agent by its child_session_id.",
-     handle_agent_get_result)
+     handle_agent_get_result, permission_action="read")
 _reg("agent.team", "Multi-Agent Team", "session", "medium",
      "PREVIEW: demo implementation only. Multi-agent team with planner/worker/reviewer roles. "
      "Planner breaks tasks down, worker executes them, reviewer (optional) reviews worker output. "
      "Max 3 agents, max 2 turns each. High-risk tools forbidden.",
-     handle_agent_team)
+     handle_agent_team, permission_action="read")
 
 # ── Slash Command Tool ──
 _reg("slash.run", "Run Slash Command", "runtime", "low",
      "Execute a slash command (e.g. /help, /skills, /context). See /help for available commands.",
-     handle_slash_run)
+     handle_slash_run, permission_action="read")
 
 # ── File Tools ──
 _reg("file.list", "List Files", "file", "low",
      "List files in a workspace subdirectory. Max 50 files. Returns filename, size, suffix.",
-     handle_file_list)
+     handle_file_list, permission_action="read")
 _reg("file.exists", "File Exists", "file", "low",
      "Check whether a workspace file or directory exists. Returns exists, is_file, is_dir, size.",
-     handle_file_exists)
+     handle_file_exists, permission_action="read")
 _reg("file.read", "Read File", "file", "low",
      "Read a workspace text file with a generous 50000 char limit. Rejects binary files and paths outside workspace.",
-     handle_file_read)
+     handle_file_read, permission_action="read")
 _reg("file.edit", "Edit File", "file", "medium",
      "Edit a workspace file by string replacement. Only writes to workspaces/<ws>/output/ directory. Returns lines_changed.",
-     handle_file_edit, writes_artifact=True)
+     handle_file_edit, writes_artifact=True, permission_action="write")
 _reg("file.patch", "Apply Patch", "file", "medium",
      "Apply a unified diff patch to a workspace file. Returns lines_added and lines_removed.",
-     handle_file_patch, writes_artifact=True)
+     handle_file_patch, writes_artifact=True, permission_action="write")
 
 # ── Memory Update / Delete Tools ──
 _reg("memory.update", "Update Memory", "memory", "medium",
      "Update an existing memory entry's content. Checks for secrets before writing.",
-     handle_memory_update)
+     handle_memory_update, permission_action="write")
 _reg("memory.delete_soft", "Soft Delete Memory", "memory", "medium",
      "Soft-delete a memory entry. Marks as deleted, does not remove from store.",
-     handle_memory_delete_soft)
+     handle_memory_delete_soft, permission_action="write")
 
 # ── Session Checkpoint / Export Tools ──
 _reg("session.checkpoint", "Session Checkpoint", "session", "low",
      "Create a checkpoint of the current session state with message_count, run_refs, and artifact_refs.",
-     handle_session_checkpoint)
+     handle_session_checkpoint, permission_action="write")
 _reg("session.export", "Export Session", "session", "low",
      "Export session messages as JSON dict or markdown string.",
-     handle_session_export)
+     handle_session_export, permission_action="write")
 
 
 def register_all_general_tools(registry):

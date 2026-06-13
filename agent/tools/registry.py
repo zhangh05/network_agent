@@ -31,6 +31,7 @@ class ToolRegistry:
                     callable_by_llm=t.get("callable_by_llm", True),
                     forbidden=t.get("forbidden", False),
                     source=t.get("source", "runtime"),
+                    permission_action=t.get("permission_action", ""),
                 )
                 reg._specs[spec.tool_id] = spec
         except Exception:
@@ -82,6 +83,7 @@ class ToolRegistry:
                 callable_by_llm=tool_ref.callable_by_llm,
                 forbidden=tool_ref.forbidden,
                 source=f"capability:{tool_ref.tool_id}",
+                permission_action=getattr(tool_ref, 'permission_action', '') or "read",
             )
             self._specs[spec.tool_id] = spec
             # v1.0.3.5: resolve and register capability handler so

@@ -19,6 +19,7 @@ class ToolSpec:
     forbidden: bool = False
     source: str = "runtime"
     timeout_seconds: int = 30
+    permission_action: str = ""  # read | write | exec | network
 
 
 @dataclass

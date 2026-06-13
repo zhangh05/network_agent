@@ -358,6 +358,46 @@ def run_turn(session, turn, services=None, restricted_tool_router=None) -> Agent
         _persist_run_record(session, turn, result, context)
         return result
 
+    # ── v2.1: Manual compact from previous /compact command ──
+    manual_compact_requested = getattr(session, 'metadata', {}).get('manual_compact_requested') if hasattr(session, 'metadata') else False
+    # Fallback to disk metadata
+    if not manual_compact_requested:
+        try:
+            import json as _json
+            from pathlib import Path
+            from workspace.run_store import WS_ROOT as _wsr
+            meta_path = _wsr / (session.workspace_id or 'default') / "sessions" / session.session_id / "meta.json"
+            if meta_path.is_file():
+                disk_meta = _json.loads(meta_path.read_text(encoding='utf-8'))
+                manual_compact_requested = disk_meta.get('manual_compact_requested', False)
+        except Exception:
+            pass
+    if manual_compact_requested:
+        try:
+            from agent.runtime.context_compactor import compact_messages
+            compacted, meta = compact_messages(messages, keep_recent=6)
+            if meta.get('compacted'):
+                messages[:] = compacted
+                if hasattr(session, 'metadata'):
+                    session.metadata['manual_compact_requested'] = False
+                    session.metadata['manual_compact_applied'] = True
+                # Clear disk flag too
+                try:
+                    import json as _json
+                    from pathlib import Path
+                    from workspace.run_store import WS_ROOT as _wsr2
+                    meta_path2 = _wsr2 / (session.workspace_id or 'default') / "sessions" / session.session_id / "meta.json"
+                    if meta_path2.is_file():
+                        disk_meta2 = _json.loads(meta_path2.read_text(encoding='utf-8'))
+                        disk_meta2.pop('manual_compact_requested', None)
+                        disk_meta2['manual_compact_applied'] = True
+                        meta_path2.write_text(_json.dumps(disk_meta2, ensure_ascii=False, indent=2), encoding='utf-8')
+                except Exception:
+                    pass
+                turn.warnings.append(f"manual_compact_applied: {meta.get('compacted_message_count')} msgs")
+        except Exception as e:
+            turn.warnings.append(f"manual_compact_failed: {e}")
+
     # 3. build messages
     messages = _build_initial_messages(context, services)
 
@@ -617,19 +657,27 @@ def run_turn(session, turn, services=None, restricted_tool_router=None) -> Agent
                         spec = context.tool_router.registry.get(tool_call.real_tool_id) if hasattr(context.tool_router, 'registry') else None
                         pm = PermissionMatrix()
                         
-                        # Classify action
-                        risk_level = getattr(spec, 'risk_level', 'low') if spec else 'low'
-                        tid = tool_call.real_tool_id
-                        if risk_level == 'high':
-                            action = PermissionAction.EXEC
-                        elif tid.startswith('file.') and tid.split('.')[1] in ('write','edit','patch'):
-                            action = PermissionAction.WRITE
-                        elif tid.startswith('web.') or tid in ('web.search','web.fetch_summary','web.fetch','web.extract_links'):
-                            action = PermissionAction.NETWORK
-                        elif risk_level == 'medium' and any(w in tid for w in ('write','save','create','edit','patch','update','delete','archive','export')):
-                            action = PermissionAction.WRITE
+                        # Classify action — prefer spec.permission_action
+                        if spec and getattr(spec, 'permission_action', ''):
+                            pa = getattr(spec, 'permission_action', '')
+                            if pa == 'exec': action = PermissionAction.EXEC
+                            elif pa == 'write': action = PermissionAction.WRITE
+                            elif pa == 'network': action = PermissionAction.NETWORK
+                            else: action = PermissionAction.READ
                         else:
-                            action = PermissionAction.READ
+                            # Fallback to string-based inference with audit
+                            turn.warnings.append(f"permission_action_inferred: {tid}")
+                            risk_level = getattr(spec, 'risk_level', 'low') if spec else 'low'
+                            if risk_level == 'high':
+                                action = PermissionAction.EXEC
+                            elif tid.startswith('file.') and tid.split('.')[1] in ('write','edit','patch'):
+                                action = PermissionAction.WRITE
+                            elif tid.startswith('web.') or tid in ('web.search','web.fetch_summary','web.fetch','web.extract_links'):
+                                action = PermissionAction.NETWORK
+                            elif risk_level == 'medium' and any(w in tid for w in ('write','save','create','edit','patch','update','delete','archive','export')):
+                                action = PermissionAction.WRITE
+                            else:
+                                action = PermissionAction.READ
                         
                         decision = pm.check(tid, action, context, spec=spec)
                         
@@ -669,8 +717,29 @@ def run_turn(session, turn, services=None, restricted_tool_router=None) -> Agent
                                 cmd = str(tool_call.arguments.get('command', ''))
                                 first_word = cmd.strip().split()[0] if cmd.strip() else ''
                                 if first_word and not is_safe_command_first_word(first_word):
-                                    # Command not in safe allowlist — log but still go to approval
-                                    turn.warnings.append(f"unsafe_command_first_word: {first_word}")
+                                    # DENY: command not in safe allowlist
+                                    result = ToolResult(
+                                        ok=False,
+                                        summary=f"Unsafe command denied: {first_word}",
+                                        errors=["unsafe_command_denied"],
+                                    )
+                                    if audit_events:
+                                        audit_events.emit("tool_call_failed", session_id=session.session_id,
+                                                          turn_id=turn.turn_id, tool_id=tid, errors=["unsafe_command_denied"])
+                                    if audit_trace:
+                                        audit_trace.record_tool_result(turn.turn_id, step, tid, False, "unsafe_command_denied")
+                                    all_tool_results.append(_to_standard_tool_call(
+                                        tool_call.call_id, tid, result
+                                    ))
+                                    tool_msg = ToolResultMessage(
+                                        content=json.dumps({
+                                            "ok": False, "error": f"Unsafe command denied: first word '{first_word}' not in allowlist",
+                                            "hint": "Only allowlisted commands can be executed via shell/powershell."
+                                        }, ensure_ascii=False)[:500],
+                                        tool_call_id=tc.id if hasattr(tc, 'id') else tc.get("id", ""),
+                                    )
+                                    messages.append(tool_msg.to_llm_message())
+                                    continue
                             from agent.approval import get_approval_store
                             store = get_approval_store()
                             apr = store.create(

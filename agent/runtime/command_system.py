@@ -249,17 +249,49 @@ def _cmd_sessions(args: str, session_id: Optional[str], context: Optional[dict])
 def _cmd_compact(args: str, session_id: Optional[str], context: Optional[dict]) -> str:
     """Trigger manual context compact. Sets flag for next turn."""
     from agent.core.session import AgentSession
-    # Build a session object for setting metadata
-    session = AgentSession(session_id=session_id or "")
-    if hasattr(session, 'metadata'):
-        session.metadata['manual_compact_requested'] = True
-    else:
-        session.metadata = {'manual_compact_requested': True}
+    # Handle both string session_id and object session_id
+    sid = ""
+    ws = "default"
+    if isinstance(session_id, str):
+        sid = session_id or ""
+    elif hasattr(session_id, 'session_id'):
+        sid = getattr(session_id, 'session_id', '') or ""
+        ws = getattr(session_id, 'workspace_id', 'default') or 'default'
+    
+    if context:
+        ws = context.get("workspace_id", ws) or "default"
+    
+    # Set flag on session object if mutable
+    if hasattr(session_id, 'metadata'):
+        try:
+            session_id.metadata['manual_compact_requested'] = True
+        except Exception:
+            pass
+    
+    # Also persist to disk metadata so the runtime's session can pick it up on next turn
+    if sid:
+        try:
+            import json as _json
+            from pathlib import Path
+            from workspace.run_store import WS_ROOT
+            meta_path = WS_ROOT / ws / "sessions" / sid / "meta.json"
+            meta_path.parent.mkdir(parents=True, exist_ok=True)
+            meta = {}
+            if meta_path.is_file():
+                try:
+                    meta = _json.loads(meta_path.read_text(encoding='utf-8'))
+                except Exception:
+                    pass
+            meta['manual_compact_requested'] = True
+            meta_path.write_text(_json.dumps(meta, ensure_ascii=False, indent=2), encoding='utf-8')
+        except Exception:
+            pass
+
     # Also try to compact immediately if messages available
     try:
         from workspace.message_store import get_message_store
         store = get_message_store()
-        messages = store.get_recent(session_id, limit=50)
+        messages = store.get_recent(sid, limit=50)
         if messages:
             from agent.runtime.context_compactor import compact_messages
             compacted, meta = compact_messages(messages, keep_recent=6)
@@ -386,52 +418,82 @@ def _cmd_reset(args: str, session_id: Optional[str], context: Optional[dict]) ->
         })
 
 
-def _cmd_export(args: str, session_id: Optional[str], context: Optional[dict]) -> str:
-    """Export session messages to markdown or JSON."""
-    fmt = 'md'
-    if isinstance(args, dict):
-        fmt = args.get('format', 'md')
-    elif isinstance(args, str) and args.strip():
+def _cmd_export(args, session_id: Optional[str], context: Optional[dict]) -> str:
+    """Export session from REAL message store with fallback."""
+    fmt = args.get('format', 'md') if isinstance(args, dict) else 'md'
+    if isinstance(args, str) and args.strip():
         if args.strip().lower() in ('json', 'md', 'markdown'):
             fmt = args.strip().lower()
-    sid = session_id or ""
+    limit = int(args.get('limit', 200)) if isinstance(args, dict) else 200
+    sid = ""
+    wid = "default"
+    if isinstance(session_id, str):
+        sid = session_id or ""
+    elif hasattr(session_id, 'session_id'):
+        sid = getattr(session_id, 'session_id', '') or ""
+        wid = getattr(session_id, 'workspace_id', 'default') or 'default'
+    if context:
+        wid = context.get("workspace_id", wid) or "default"
+
+    source = "empty"
+    messages = []
+    truncated = False
+
+    # Try message_store first
     try:
         from workspace.message_store import get_message_store
         ms = get_message_store()
-        messages = ms.get_recent(sid, limit=200)
-        if not messages:
-            return _format_command_result({
-                "ok": True, "status": "ok", "command": "export",
-                "result": "No messages in session",
-                "errors": [], "warnings": [],
-                "metadata": {"message_count": 0},
-            })
-        
-        if fmt == 'json':
-            import json as _json
-            export_data = _json.dumps(messages, ensure_ascii=False, indent=2)
-        else:
-            lines = ["# Session Export", f"session_id: {sid}", f"messages: {len(messages)}", ""]
-            for i, m in enumerate(messages):
-                role = m.get('role', '?') if isinstance(m, dict) else getattr(m, 'role', '?')
-                content = m.get('content', '') if isinstance(m, dict) else getattr(m, 'content', '')
-                lines.append(f"## [{i+1}] {role}")
-                lines.append(content[:500])
-                lines.append("")
-            export_data = "\n".join(lines)
-        
+        raw = ms.get_recent(sid, limit=limit)
+        if raw:
+            messages = raw
+            source = "message_store"
+            if len(raw) >= limit:
+                truncated = True
+    except Exception:
+        pass
+
+    # Fallback to session_store
+    if not messages:
+        try:
+            from workspace.session_store import AgentSessionStore
+            store = AgentSessionStore()
+            sess = store.get_session(sid)
+            if sess and hasattr(sess, 'messages') and sess.messages:
+                messages = sess.messages[:limit]
+                source = "session_store"
+                if len(sess.messages) > limit:
+                    truncated = True
+        except Exception:
+            pass
+
+    if not messages:
         return _format_command_result({
             "ok": True, "status": "ok", "command": "export",
-            "result": f"Exported {len(messages)} messages in {fmt} format",
-            "errors": [], "warnings": [],
-            "metadata": {"format": fmt, "message_count": len(messages), "preview": export_data[:1000]},
+            "result": "No messages in session",
+            "errors": [], "warnings": ["no_messages"],
+            "metadata": {"source": "empty", "message_count": 0, "format": fmt},
         })
-    except Exception as e:
-        return _format_command_result({
-            "ok": False, "status": "error", "command": "export",
-            "result": "", "errors": [str(e)[:200]],
-            "warnings": [], "metadata": {},
-        })
+
+    # Format
+    if fmt == 'json':
+        import json as _json
+        export_data = _json.dumps(messages, ensure_ascii=False, indent=2)
+    else:
+        lines = ["# Session Export", f"session_id: {sid}", f"messages: {len(messages)}", ""]
+        for i, m in enumerate(messages):
+            role = m.get('role', '?') if isinstance(m, dict) else getattr(m, 'role', '?')
+            content = m.get('content', '') if isinstance(m, dict) else getattr(m, 'content', '')
+            lines.append(f"## [{i+1}] {role}")
+            lines.append(content[:500])
+            lines.append("")
+        export_data = "\n".join(lines)
+
+    return _format_command_result({
+        "ok": True, "status": "ok", "command": "export",
+        "result": f"Exported {len(messages)} messages in {fmt} format",
+        "errors": [], "warnings": [],
+        "metadata": {"source": source, "message_count": len(messages), "format": fmt, "truncated": truncated, "preview": export_data[:1000]},
+    })
 
 
 def _format_command_result(structured: dict) -> str:
