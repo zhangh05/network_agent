@@ -508,7 +508,7 @@ def run_turn(session, turn, services=None) -> AgentResult:
                 # rendered docs, knowledge chunks) aren't truncated.
                 _has_large = any(k in tool_msg_payload for k in (
                     "content", "preview", "diff", "rendered", "document",
-                    "table", "markdown", "mermaid",
+                    "table", "markdown", "mermaid", "translated_config",
                 ))
                 trunc_limit = 12000 if _has_large else 2000
                 tool_msg = ToolResultMessage(
