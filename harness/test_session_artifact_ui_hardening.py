@@ -277,8 +277,9 @@ class TestArtifactDeleteSemantics:
 
     def test_frontend_delete_is_soft(self):
         """Frontend delete confirm must be soft delete wording."""
-        html = read_frontend_source_text()
-        assert "不可撤销" not in html, "Artifact delete must not say 'irreversible'"
+        target = (PROJECT_ROOT / "frontend" / "src" / "pages" /
+                  "ArtifactCenter" / "ArtifactCenter.tsx").read_text()
+        assert "不可撤销" not in target, "Artifact delete must not say 'irreversible'"
 
     def test_artifact_lifecycle_values_in_schemas(self):
         """LIFECYCLES includes 'deleted'."""

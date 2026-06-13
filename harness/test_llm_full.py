@@ -232,12 +232,9 @@ class TestBoundary:
         assert "safe_generate" not in content
         assert "llm_client" not in content.lower()
     def test_no_old_translate(self):
-        d=json.dumps({"x":"y"}).encode()
-        try:
-            urllib.request.urlopen(urllib.request.Request(f"{BASE}/api/translate",data=d,headers={"Content-Type":"application/json"},method="POST"),timeout=3)
-            pytest.fail("/api/translate exists")
-        except urllib.error.HTTPError as e:
-            assert e.code in (404,405)
+        from backend.main import app
+        resp = app.test_client().post("/api/translate", json={"x": "y"})
+        assert resp.status_code in (404, 405)
     def test_no_backend_services(self):
         assert not os.path.exists(os.path.join(ROOT,"backend","services","config_translation"))
     def test_no_external_path(self):

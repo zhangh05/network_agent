@@ -15,6 +15,7 @@ import os
 import json
 import pytest
 from pathlib import Path
+from unittest.mock import patch
 
 PROJECT_ROOT = Path(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
@@ -35,12 +36,15 @@ def _read_file(path):
 def _call_agent_api(message, session_id=None, workspace_id="default"):
     """Call /api/agent/message and return response JSON."""
     from backend.main import app
+    from agent.llm.schemas import LLMResponse
     app.testing = True
-    resp = app.test_client().post("/api/agent/message", json={
-        "session_id": session_id or f"v061-test-{hash(message) & 0xffff}",
-        "workspace_id": workspace_id,
-        "message": message,
-    })
+    mocked = LLMResponse(content=f"mock response: {message}")
+    with patch("agent.runtime.loop.invoke_llm", return_value=mocked):
+        resp = app.test_client().post("/api/agent/message", json={
+            "session_id": session_id or f"v061-test-{hash(message) & 0xffff}",
+            "workspace_id": workspace_id,
+            "message": message,
+        })
     return resp.get_json()
 
 
