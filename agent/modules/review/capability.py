@@ -117,6 +117,7 @@ CAPABILITY_REVIEW = CapabilityManifest(
                     "item_id": {"type": "string", "description": "Review item id from list_items."},
                     "status": {
                         "type": "string",
+                        "description": "Review status: pending, accepted, ignored, or modified.",
                         "enum": ["pending", "accepted", "ignored", "modified"],
                     },
                     "user_note": {"type": "string", "description": "Optional note explaining the decision."},
