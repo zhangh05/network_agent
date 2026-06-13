@@ -406,12 +406,9 @@ class TestToolCountV10:
         svc = default_runtime_services()
         tr = svc.tool_service
         tools = {t.tool_id for t in tr.registry.list_all()}
-        # v1.0.1 adds 6 new knowledge tool_ids (import_file / list_chunks
-        # / search_chunks / read_chunk / read_parent / reindex_source).
-        # Later capabilities may add more tools, so assert the minimum
-        # catalog size and the required knowledge tool set instead of an
-        # exact total.
-        assert len(tools) >= 73
+        # The refactored tool catalog keeps capability-level knowledge tools
+        # and removes duplicate runtime helpers.
+        assert len(tools) >= 58
         assert {
             "knowledge.import_file",
             "knowledge.list_chunks",

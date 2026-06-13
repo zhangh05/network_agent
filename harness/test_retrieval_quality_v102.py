@@ -327,7 +327,7 @@ class TestToolCountV102:
             "knowledge.read_parent",
             "knowledge.reindex_source",
         }
-        assert len(all_ids) >= 73
+        assert len(all_ids) >= 58
         assert required.issubset(all_ids)
 
 
