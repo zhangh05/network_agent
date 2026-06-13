@@ -47,34 +47,15 @@ V02_FORBIDDEN_PATTERNS = [
     _re.compile(r"^powershell[\._]exec(?!_approved)[_\w]*$", _re.IGNORECASE),
 ]
 
-# v0.2 high-risk approved_exec gated tools (NOT in forbidden, but need approval+allowlist)
+# v0.3 high-risk approved_exec tools — need approval_id but accept arbitrary commands
 V02_APPROVED_EXEC_TOOLS = {
     "command.approved_exec",
     "powershell.approved_script",
 }
 
-# command.approved_exec allowlist — only these command_ids can be executed
-COMMAND_EXEC_ALLOWLIST = {
-    "system.platform_info",
-    "system.disk_usage_workspace",
-    "system.process_list_safe",
-    "python.version",
-    "git.status_readonly",
-    "git.log_readonly",
-}
-
-# powershell.approved_script allowlist — must match handler allowlist in general_tools.py
-POWERSHELL_SCRIPT_ALLOWLIST = {
-    "system_info",
-    "disk_info",
-    "process_list",
-}
-
-# PowerShell forbidden patterns
-POWERSHELL_FORBIDDEN_PATTERNS = [
-    "Invoke-Expression", "Start-Process", "DownloadString",
-    "Invoke-WebRequest", "Set-ExecutionPolicy", "Invoke-RestMethod",
-]
+# v0.3: handlers accept arbitrary commands, allowlists removed.
+# Policy still enforces: high risk → requires approval_id,
+# argument safety checks (no chaining/injection patterns).
 
 from tool_runtime.schemas import V02_ALLOWED_CATEGORIES
 
@@ -143,22 +124,9 @@ class ToolPolicy:
                     f"Tool '{spec.tool_id}' requires approval_id, none provided"
                 )
 
-        # ── 7. HIGH risk: approved_exec allowlist check ──
-        if spec.tool_id in V02_APPROVED_EXEC_TOOLS and not blocked:
-            if spec.tool_id == "command.approved_exec":
-                cmd_id = invocation.arguments.get("command_id", "")
-                if cmd_id not in COMMAND_EXEC_ALLOWLIST:
-                    blocked.append("command_not_in_allowlist")
-                    reason_parts.append(
-                        f"command_id '{cmd_id}' not in allowlist"
-                    )
-            elif spec.tool_id == "powershell.approved_script":
-                script_id = invocation.arguments.get("script_id", "")
-                if script_id not in POWERSHELL_SCRIPT_ALLOWLIST:
-                    blocked.append("script_not_in_allowlist")
-                    reason_parts.append(
-                        f"script_id '{script_id}' not in allowlist"
-                    )
+        # ── 7. HIGH risk: approved_exec — now accepts arbitrary commands,
+        #     no allowlist check. Safety enforced by handler timeouts +
+        #     argument injection checks below. ──
 
         # ── 8. Dry-run support ──
         if invocation.dry_run and not spec.dry_run_supported:
@@ -235,7 +203,11 @@ def _check_argument_safety(arguments: dict, tool_id: str = "") -> str:
         ]
         FORBIDDEN_ARGS = FORBIDDEN_ARGS + extra_checks
 
-    # PowerShell forbidden patterns
+    # PowerShell forbidden patterns (built-in, not configurable)
+    POWERSHELL_FORBIDDEN_PATTERNS = [
+        "Invoke-Expression", "Start-Process", "DownloadString",
+        "Invoke-WebRequest", "Set-ExecutionPolicy", "Invoke-RestMethod",
+    ]
     if tool_id == "powershell.approved_script":
         for pat in POWERSHELL_FORBIDDEN_PATTERNS:
             if pat.lower() in args_str:

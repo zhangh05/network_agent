@@ -1755,87 +1755,87 @@ def handle_ws_get_metadata(inv: ToolInvocation) -> dict:
 
 # ═══════════════ I. Shell / PowerShell Tools ═══════════════
 
+_SHELL_TIMEOUT = 30
+_SHELL_MAX_OUTPUT = 10000
+
+def _run_shell(command: str, cwd: str = None, shell: str = "/bin/bash",
+               env: dict = None) -> dict:
+    """Execute a shell command with safety limits. Returns result dict."""
+    import subprocess, shlex
+    if not command or not command.strip():
+        return {"ok": False, "error": "empty command"}
+    try:
+        result = subprocess.run(
+            command if isinstance(command, list) else [shell, "-c", command],
+            capture_output=True, text=True,
+            timeout=_SHELL_TIMEOUT,
+            cwd=cwd or str(ROOT),
+            env=env,
+        )
+        stdout = (result.stdout or "")[:_SHELL_MAX_OUTPUT]
+        stderr = (result.stderr or "")[:_SHELL_MAX_OUTPUT]
+        return {
+            "ok": True,
+            "exit_code": result.returncode,
+            "stdout": stdout,
+            "stderr": stderr,
+            "timeout_seconds": _SHELL_TIMEOUT,
+        }
+    except subprocess.TimeoutExpired:
+        return {"ok": False, "error": f"command timed out after {_SHELL_TIMEOUT}s"}
+    except FileNotFoundError as e:
+        return {"ok": False, "error": f"command not found: {e}"}
+    except Exception as e:
+        return {"ok": False, "error": str(e)[:200]}
+
+
 def handle_command_approved_exec(inv: ToolInvocation) -> dict:
-    """Controlled shell command execution — only allowlisted command_ids."""
-    cmd_id = inv.arguments.get("command_id", "")
-    # allowlist enforcement happens in policy; this is the handler for approved commands
-    if cmd_id == "system.platform_info":
-        import platform
-        return _ok({"platform": platform.platform(), "python": platform.python_version()})
-    elif cmd_id == "system.disk_usage_workspace":
-        try:
-            stat = os.statvfs(str(WS_ROOT))
-            free = stat.f_frsize * stat.f_bavail
-            total = stat.f_frsize * stat.f_blocks
-            return _ok({"free_bytes": free, "total_bytes": total, "free_gb": round(free / (1024**3), 2)})
-        except Exception as e:
-            return _error(str(e)[:200])
-    elif cmd_id == "system.process_list_safe":
-        try:
-            import subprocess
-            result = subprocess.run(["ps", "-eo", "pid,comm", "--no-headers"],
-                                    capture_output=True, text=True, timeout=5)
-            lines = result.stdout.strip().split("\n")[:30]
-            return _ok({"processes": lines, "count": len(lines)})
-        except Exception as e:
-            return _error(str(e)[:200])
-    elif cmd_id == "python.version":
-        import sys
-        return _ok({"python_version": sys.version})
-    elif cmd_id == "git.status_readonly":
-        try:
-            import subprocess
-            result = subprocess.run(["git", "-C", str(ROOT), "status", "--short"],
-                                    capture_output=True, text=True, timeout=5)
-            return _ok({"git_status": result.stdout.strip()[:500]})
-        except Exception as e:
-            return _error(str(e)[:200])
-    elif cmd_id == "git.log_readonly":
-        try:
-            import subprocess
-            result = subprocess.run(["git", "-C", str(ROOT), "log", "--oneline", "-10"],
-                                    capture_output=True, text=True, timeout=5)
-            return _ok({"git_log": result.stdout.strip()[:1000]})
-        except Exception as e:
-            return _error(str(e)[:200])
-    return _error(f"unknown command_id: {cmd_id}")
+    """Shell command execution on Linux/macOS.
+
+    Accepts a shell command string, executes via /bin/bash -c.
+    Safety limits: 30s timeout, 10000 chars output, workspace-root cwd.
+    Requires approval_id (high risk). Policy blocks destructive patterns.
+    """
+    import platform
+    if platform.system() == "Windows":
+        return _error("Shell execution only available on Linux/macOS. Use powershell.approved_script on Windows.")
+    command = (inv.arguments.get("command") or inv.arguments.get("command_id") or "").strip()
+    if not command:
+        return _error("command is required")
+    result = _run_shell(command)
+    return _result(result.pop("ok", False), result)
 
 
 def handle_powershell_approved_script(inv: ToolInvocation) -> dict:
-    """Controlled PowerShell execution — only allowlisted script_ids."""
+    """PowerShell script execution on Windows.
+
+    Accepts a PowerShell command string, executes via powershell -Command.
+    Safety limits: 15s timeout, 10000 chars output.
+    Requires approval_id (high risk). Policy blocks destructive patterns.
+    """
     import platform
-    script_id = inv.arguments.get("script_id", "")
-    # Only allow on Windows; on macOS/Linux return platform info
     if platform.system() != "Windows":
-        return _ok({
-            "script_id": script_id,
-            "status": "blocked_platform",
-            "platform": platform.system(),
-            "note": "PowerShell scripts only run on Windows. "
-                    "Use command.approved_exec for Unix systems.",
-        })
-    # Allowlisted read-only script IDs
-    ALLOWED = {
-        "system_info": "Get-ComputerInfo | Select-Object CsName,OsName,TotalPhysicalMemory | ConvertTo-Json",
-        "disk_info": "Get-PSDrive -PSProvider FileSystem | Select-Object Name,Used,Free | ConvertTo-Json",
-        "process_list": "Get-Process | Select-Object Name,Id,CPU -First 20 | ConvertTo-Json",
-    }
-    if script_id not in ALLOWED:
-        return _error(f"unknown script_id: {script_id}")
-    if inv.dry_run:
-        return _ok({"script_id": script_id, "status": "dry_run", "command": ALLOWED[script_id]})
+        return _error("PowerShell execution only available on Windows. Use command.approved_exec on Linux/macOS.")
+    command = (inv.arguments.get("command") or inv.arguments.get("script_id") or "").strip()
+    if not command:
+        return _error("command is required")
+    import subprocess
     try:
-        import subprocess
         result = subprocess.run(
-            ["powershell", "-Command", ALLOWED[script_id]],
+            ["powershell", "-NoProfile", "-NonInteractive", "-Command", command],
             capture_output=True, text=True, timeout=15,
         )
+        stdout = (result.stdout or "")[:_SHELL_MAX_OUTPUT]
+        stderr = (result.stderr or "")[:_SHELL_MAX_OUTPUT]
         return _ok({
-            "script_id": script_id,
-            "status": "completed",
-            "output": result.stdout.strip()[:2000],
             "exit_code": result.returncode,
+            "stdout": stdout,
+            "stderr": stderr,
         })
+    except subprocess.TimeoutExpired:
+        return _error("command timed out after 15s")
+    except FileNotFoundError:
+        return _error("powershell not found")
     except Exception as e:
         return _error(str(e)[:200])
 
@@ -1984,8 +1984,8 @@ GENERAL_TOOL_INPUT_SCHEMAS = {
     "workspace.get_metadata": _schema({"workspace_id": S["workspace_id"]}),
 
     # Approved high-risk surfaces
-    "command.approved_exec": _schema({"command_id": {"type": "string", "description": "Allowlisted command id only. Requires approval."}}, ["command_id"]),
-    "powershell.approved_script": _schema({"script_id": {"type": "string", "description": "Allowlisted PowerShell script id only. Requires approval."}}, ["script_id"]),
+    "command.approved_exec": _schema({"command": {"type": "string", "description": "Shell command to execute on Linux/macOS. Requires approval."}}, ["command"]),
+    "powershell.approved_script": _schema({"command": {"type": "string", "description": "PowerShell command to execute on Windows. Requires approval."}}, ["command"]),
 }
 
 
@@ -2295,11 +2295,11 @@ _reg("workspace.get_metadata", "Workspace Metadata", "workspace", "low",
      "Get workspace metadata", handle_ws_get_metadata)
 
 # ── I. Shell / PowerShell Tools (HIGH RISK, approval gated) ──
-_reg("command.approved_exec", "Approved Command", "command", "high",
-     "Execute only allowlisted read-only command_id values after explicit approval. Does not accept arbitrary shell strings; policy blocks missing approval_id, unknown ids, chaining, pipes, redirects, downloads, destructive operations, and sensitive paths.",
+_reg("command.approved_exec", "Shell Exec", "shell", "high",
+     "Execute shell commands on Linux/macOS. 30s timeout, 10000 chars output, workspace-root cwd. Requires approval_id.",
      handle_command_approved_exec, requires_approval=True)
-_reg("powershell.approved_script", "Approved PowerShell", "powershell", "high",
-     "Run only allowlisted read-only PowerShell script_id values after explicit approval. Does not accept arbitrary scripts; policy blocks missing approval_id, unknown ids, Invoke-Expression, downloads, execution-policy changes, chaining, pipes, redirects, and destructive operations.",
+_reg("powershell.approved_script", "PowerShell Exec", "powershell", "high",
+     "Execute PowerShell commands on Windows. 15s timeout, 10000 chars output. Requires approval_id.",
      handle_powershell_approved_script, requires_approval=True)
 
 
