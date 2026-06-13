@@ -820,7 +820,12 @@ def _merge_llm_safe_tool_fields(payload: dict, source: dict) -> None:
         if value in (None, "", [], {}):
             continue
         target_key = key
-        if key in payload:
+        # Top-level ToolResult contract fields are already in payload.
+        # Rename source's version so domain-specific data isn't lost
+        # (e.g. web.fetch_summary returns {"summary": "page text"},
+        #  but ToolResult also has summary; the handler's version
+        #  becomes result_summary and gets the full 4000-char budget).
+        if key in payload and key not in ("ok",):
             target_key = f"result_{key}"
         payload[target_key] = _safe_tool_value(value)
 
