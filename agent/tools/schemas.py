@@ -18,6 +18,7 @@ class ToolSpec:
     callable_by_llm: bool = True
     forbidden: bool = False
     source: str = "runtime"
+    timeout_seconds: int = 30
 
 
 @dataclass

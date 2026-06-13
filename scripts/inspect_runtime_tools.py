@@ -1,5 +1,9 @@
 #!/usr/bin/env python3
-"""inspect_runtime_tools — audit tool registry and check docs consistency."""
+"""inspect_runtime_tools — audit tool registry and check docs consistency.
+
+v2.0 Upgrade: added medium-risk tool list, sub-agent visible tools count,
+and Production Foundation readiness checks.
+"""
 
 import json
 import sys
@@ -19,6 +23,7 @@ def main():
     hidden = [t for t in all_tools if t not in visible]
 
     high_risk = [t for t in all_tools if getattr(t, 'risk_level', '') == 'high']
+    medium_risk = [t for t in all_tools if getattr(t, 'risk_level', '') == 'medium']
     needs_approval = [t for t in all_tools if getattr(t, 'requires_approval', False)]
 
     print(f"registered tools:       {len(all_tools)}")
@@ -29,11 +34,24 @@ def main():
     print("=== high-risk tools ===")
     for t in high_risk:
         print(f"  {t.tool_id:40s} risk={t.risk_level} approval={t.requires_approval}")
+    if not high_risk:
+        print("  (none)")
+    print()
+
+    # ── v2.0: medium-risk write/state tools list ──
+    print("=== medium-risk tools (write/state/network) ===")
+    if medium_risk:
+        for t in medium_risk:
+            print(f"  {t.tool_id:40s} source={getattr(t, 'source', 'N/A')}")
+    else:
+        print("  (none)")
     print()
 
     print("=== requires_approval tools ===")
     for t in needs_approval:
         print(f"  {t.tool_id:40s}")
+    if not needs_approval:
+        print("  (none)")
     print()
 
     # shell/powershell detail
@@ -96,6 +114,26 @@ def main():
         print("  token_hard_limit: present false")
     print()
 
+    # ── v2.0: Sub-agent visible tools count ──
+    print("=== sub-agent default visible tools ===")
+    try:
+        from agent.runtime.sub_agent import DEFAULT_ALLOWED_TOOLS, FORBIDDEN_FOR_SUB_AGENT
+        print(f"  DEFAULT_ALLOWED_TOOLS count: {len(DEFAULT_ALLOWED_TOOLS)}")
+        print(f"  FORBIDDEN_FOR_SUB_AGENT count: {len(FORBIDDEN_FOR_SUB_AGENT)}")
+        # Check that high-risk tools are forbidden for sub-agents
+        forbidden_set = set(FORBIDDEN_FOR_SUB_AGENT)
+        high_risk_ids = {t.tool_id for t in high_risk}
+        high_risk_forbidden = high_risk_ids & forbidden_set
+        print(f"  high-risk tools forbidden for sub-agent: {sorted(high_risk_forbidden)}")
+        high_risk_not_forbidden = high_risk_ids - forbidden_set
+        if high_risk_not_forbidden:
+            print(f"  ⚠️  WARNING: high-risk tools NOT forbidden for sub-agent: {sorted(high_risk_not_forbidden)}")
+        else:
+            print(f"  ✅ all high-risk tools are forbidden for sub-agent")
+    except ImportError as e:
+        print(f"  sub_agent module: error — {e}")
+    print()
+
     # Check docs consistency
     docs_path = os.path.join(os.path.dirname(__file__), "..", "docs", "CAPABILITIES_AND_TOOLS.md")
     if os.path.exists(docs_path):
@@ -109,8 +147,137 @@ def main():
             print(f"✅ docs consistent with actual {len(all_tools)}/{len(visible)}")
     else:
         print("⚠️  docs/CAPABILITIES_AND_TOOLS.md not found")
+    print()
 
-    return 0
+    # ── v2.0: Production Foundation Readiness ──
+    print("=" * 60)
+    print("=== PRODUCTION FOUNDATION READINESS ===")
+    print()
+    readiness_ok = True
+
+    # 1. tool_contract_ok: all tools have required fields
+    print("--- tool_contract_ok ---")
+    missing_fields = []
+    for t in all_tools:
+        tid = t.tool_id
+        missing = []
+        if not getattr(t, 'tool_id', ''):
+            missing.append("tool_id")
+        if not getattr(t, 'name', ''):
+            missing.append("name")
+        if not getattr(t, 'description', ''):
+            missing.append("description")
+        if not getattr(t, 'category', ''):
+            missing.append("category")
+        if not getattr(t, 'risk_level', ''):
+            missing.append("risk_level")
+        if not getattr(t, 'input_schema', None):
+            missing.append("input_schema")
+        if not getattr(t, 'timeout_seconds', None):
+            missing.append("timeout_seconds")
+        if missing:
+            missing_fields.append(f"{tid}: missing {', '.join(missing)}")
+    tool_contract_ok = len(missing_fields) == 0
+    if tool_contract_ok:
+        print(f"  ✅ All {len(all_tools)} tools have required fields")
+    else:
+        print(f"  ❌ {len(missing_fields)} tools missing fields:")
+        for mf in missing_fields[:10]:
+            print(f"     {mf}")
+    readiness_ok = readiness_ok and tool_contract_ok
+    print()
+
+    # 2. approval_contract_ok: all high-risk have requires_approval=True
+    print("--- approval_contract_ok ---")
+    approval_failures = []
+    for t in high_risk:
+        if not getattr(t, 'requires_approval', False):
+            approval_failures.append(t.tool_id)
+    approval_contract_ok = len(approval_failures) == 0
+    if approval_contract_ok:
+        print(f"  ✅ All {len(high_risk)} high-risk tools have requires_approval=True")
+    else:
+        print(f"  ❌ High-risk tools missing requires_approval: {approval_failures}")
+    readiness_ok = readiness_ok and approval_contract_ok
+    print()
+
+    # 3. docs_consistency_ok: tool counts match between runtime and docs
+    print("--- docs_consistency_ok ---")
+    docs_consistency_ok = True
+    readme_path = os.path.join(os.path.dirname(__file__), "..", "README.md")
+    if os.path.exists(readme_path):
+        with open(readme_path) as f:
+            readme_content = f.read()
+        import re
+        m = re.search(r'(\d+)\s+registered\s*/\s*(\d+)\s+model-visible', readme_content)
+        if m:
+            readme_all = int(m.group(1))
+            readme_visible = int(m.group(2))
+            if readme_all == len(all_tools) and readme_visible == len(visible):
+                print(f"  ✅ README.md counts match runtime: {readme_all}/{readme_visible}")
+            else:
+                print(f"  ❌ README.md mismatch: doc={readme_all}/{readme_visible} runtime={len(all_tools)}/{len(visible)}")
+                docs_consistency_ok = False
+        else:
+            print(f"  ❌ README.md does not contain tool count pattern")
+            docs_consistency_ok = False
+    else:
+        print(f"  ❌ README.md not found")
+        docs_consistency_ok = False
+    readiness_ok = readiness_ok and docs_consistency_ok
+    print()
+
+    # 4. e2e_tests_present
+    print("--- e2e_tests_present ---")
+    e2e_test_path = os.path.join(
+        os.path.dirname(__file__), "..", "harness",
+        "test_v2_production_foundation_e2e.py"
+    )
+    e2e_tests_present = os.path.exists(e2e_test_path)
+    if e2e_tests_present:
+        print(f"  ✅ harness/test_v2_production_foundation_e2e.py present")
+    else:
+        print(f"  ⚠️  harness/test_v2_production_foundation_e2e.py not found (not yet created)")
+        # Not a hard failure — E2E tests may be added incrementally
+    print()
+
+    # 5. extension_templates_present
+    print("--- extension_templates_present ---")
+    templates_path = os.path.join(os.path.dirname(__file__), "..", "templates")
+    extension_templates_present = os.path.isdir(templates_path)
+    if extension_templates_present:
+        # Check for sub-directories
+        template_dirs = ["capability_template", "tool_template", "skill_template", "module_template"]
+        found_dirs = []
+        for td in template_dirs:
+            td_path = os.path.join(templates_path, td)
+            if os.path.isdir(td_path) and os.path.exists(os.path.join(td_path, "README.md")):
+                found_dirs.append(td)
+        if len(found_dirs) == len(template_dirs):
+            print(f"  ✅ All {len(template_dirs)} extension templates present")
+        else:
+            missing_dirs = [td for td in template_dirs if td not in found_dirs]
+            print(f"  ⚠️  Missing template directories: {missing_dirs}")
+    else:
+        print(f"  ❌ templates/ directory not found")
+        readiness_ok = readiness_ok and False
+    print()
+
+    # ── Final readiness verdict ──
+    print("=" * 60)
+    print("PRODUCTION FOUNDATION READINESS SUMMARY:")
+    print(f"  tool_contract_ok:          {'✅' if tool_contract_ok else '❌'}")
+    print(f"  approval_contract_ok:      {'✅' if approval_contract_ok else '❌'}")
+    print(f"  docs_consistency_ok:       {'✅' if docs_consistency_ok else '❌'}")
+    print(f"  e2e_tests_present:         {'✅' if e2e_tests_present else '⚠️  (not required yet)'}")
+    print(f"  extension_templates_present: {'✅' if extension_templates_present else '❌'}")
+    if readiness_ok:
+        print("\n✅ Production Foundation checks PASSED")
+    else:
+        print("\n❌ Production Foundation checks FAILED")
+    print()
+
+    return 0 if readiness_ok else 1
 
 
 if __name__ == "__main__":
