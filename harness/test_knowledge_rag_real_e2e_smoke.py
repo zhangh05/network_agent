@@ -164,7 +164,7 @@ class TestAgentKnowledgeQuery:
     def test_agent_knowledge_query_intent(self):
         """Agent routes knowledge question to knowledge_query."""
         client = _get_client()
-        resp = client.post("/api/agent/run", json={
+        resp = client.post("/api/agent/message", json={
             "message": "查一下知识库里辣椒炒肉是什么",
             "workspace_id": "default",
         })
@@ -174,7 +174,7 @@ class TestAgentKnowledgeQuery:
     def test_agent_has_results(self):
         """Agent finds knowledge results."""
         client = _get_client()
-        resp = client.post("/api/agent/run", json={
+        resp = client.post("/api/agent/message", json={
             "message": "查一下知识库里辣椒炒肉是什么",
             "workspace_id": "default",
         })
@@ -185,7 +185,7 @@ class TestAgentKnowledgeQuery:
     def test_agent_response_mentions_pepper(self):
         """Agent response contains 辣椒."""
         client = _get_client()
-        resp = client.post("/api/agent/run", json={
+        resp = client.post("/api/agent/message", json={
             "message": "查一下知识库里辣椒炒肉是什么",
             "workspace_id": "default",
         })
@@ -195,7 +195,7 @@ class TestAgentKnowledgeQuery:
     def test_agent_has_source_refs(self):
         """Agent response includes source references."""
         client = _get_client()
-        resp = client.post("/api/agent/run", json={
+        resp = client.post("/api/agent/message", json={
             "message": "查一下知识库里辣椒炒肉是什么",
             "workspace_id": "default",
         })
@@ -205,7 +205,7 @@ class TestAgentKnowledgeQuery:
     def test_agent_second_query(self):
         """Second query variant also works."""
         client = _get_client()
-        resp = client.post("/api/agent/run", json={
+        resp = client.post("/api/agent/message", json={
             "message": "根据知识库回答，辣椒加肉是什么",
             "workspace_id": "default",
         })
@@ -216,7 +216,7 @@ class TestAgentKnowledgeQuery:
     def test_agent_not_assistant_chat(self):
         """Knowledge queries don't route to assistant_chat."""
         client = _get_client()
-        resp = client.post("/api/agent/run", json={
+        resp = client.post("/api/agent/message", json={
             "message": "查一下知识库里辣椒炒肉是什么",
             "workspace_id": "default",
         })
@@ -225,7 +225,7 @@ class TestAgentKnowledgeQuery:
     def test_agent_no_secrets(self):
         """Agent response has no secrets."""
         client = _get_client()
-        resp = client.post("/api/agent/run", json={
+        resp = client.post("/api/agent/message", json={
             "message": "查一下知识库里辣椒炒肉是什么",
             "workspace_id": "default",
         })
@@ -236,7 +236,7 @@ class TestAgentKnowledgeQuery:
     def test_agent_no_absolute_path(self):
         """Agent response has no absolute paths."""
         client = _get_client()
-        resp = client.post("/api/agent/run", json={
+        resp = client.post("/api/agent/message", json={
             "message": "查一下知识库里辣椒炒肉是什么",
             "workspace_id": "default",
         })
@@ -247,7 +247,7 @@ class TestAgentKnowledgeQuery:
     def test_agent_no_config_leak(self):
         """Agent response must not contain config commands."""
         client = _get_client()
-        resp = client.post("/api/agent/run", json={
+        resp = client.post("/api/agent/message", json={
             "message": "查一下知识库里辣椒炒肉是什么",
             "workspace_id": "default",
         })
@@ -262,7 +262,7 @@ class TestNoRegression:
     def test_translate_config_still_works(self):
         """Config-like input should not route to knowledge_query."""
         client = _get_client()
-        resp = client.post("/api/agent/run", json={
+        resp = client.post("/api/agent/message", json={
             "message": "interface Gi0/0/1\n ip address 10.1.1.1 255.255.255.0",
             "workspace_id": "default",
         })
@@ -271,7 +271,7 @@ class TestNoRegression:
     def test_assistant_chat_unchanged(self):
         """Simple greeting still routes to assistant_chat."""
         client = _get_client()
-        resp = client.post("/api/agent/run", json={
+        resp = client.post("/api/agent/message", json={
             "message": "你好",
             "workspace_id": "default",
         })

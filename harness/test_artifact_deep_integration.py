@@ -20,7 +20,7 @@ def client(temp_dirs):
 
 class TestArtifactMemory:
     def test_run_summary_has_artifact_refs(self, client):
-        resp = client.post("/api/agent/run", json={
+        resp = client.post("/api/agent/message", json={
             "message": "translate cisco to huawei",
             "workspace_id": "am_test",
             "payload": {"source_vendor": "cisco", "target_vendor": "huawei",
@@ -36,7 +36,7 @@ class TestArtifactMemory:
             assert resp2.status_code == 200
 
     def test_agent_response_has_artifact_refs(self, client):
-        resp = client.post("/api/agent/run", json={
+        resp = client.post("/api/agent/message", json={
             "message": "translate cisco to huawei",
             "workspace_id": "am_refs",
             "payload": {"source_vendor": "cisco", "target_vendor": "huawei",
@@ -47,7 +47,7 @@ class TestArtifactMemory:
 
     def test_memory_no_full_config(self, client):
         """Memory search should not return full source_config."""
-        resp = client.post("/api/agent/run", json={
+        resp = client.post("/api/agent/message", json={
             "message": "translate cisco to huawei",
             "workspace_id": "am_nocfg",
             "payload": {"source_vendor": "cisco", "target_vendor": "huawei",
@@ -66,7 +66,7 @@ class TestArtifactMemory:
 
 class TestWorkspaceArtifact:
     def test_state_has_artifact_counts(self, client):
-        resp = client.post("/api/agent/run", json={
+        resp = client.post("/api/agent/message", json={
             "message": "translate cisco to huawei",
             "workspace_id": "aw_test",
             "payload": {"source_vendor": "cisco", "target_vendor": "huawei",
@@ -77,7 +77,7 @@ class TestWorkspaceArtifact:
         assert "artifact_counts" in state or "last_input_artifacts" in state
 
     def test_run_record_has_artifacts(self, client):
-        resp = client.post("/api/agent/run", json={
+        resp = client.post("/api/agent/message", json={
             "message": "translate cisco to huawei",
             "workspace_id": "aw_runs",
             "payload": {"source_vendor": "cisco", "target_vendor": "huawei",
@@ -188,7 +188,7 @@ class TestLLMSafeContext:
 
 class TestTraceMetadata:
     def test_trace_artifact_counts(self, client):
-        resp = client.post("/api/agent/run", json={
+        resp = client.post("/api/agent/message", json={
             "message": "translate cisco to huawei",
             "workspace_id": "at_trace",
             "payload": {"source_vendor": "cisco", "target_vendor": "huawei",
@@ -199,7 +199,7 @@ class TestTraceMetadata:
         assert "artifact_saved_count" in tl
 
     def test_trace_no_full_config(self, client):
-        resp = client.post("/api/agent/run", json={
+        resp = client.post("/api/agent/message", json={
             "message": "translate config",
             "workspace_id": "at_nocfg",
             "payload": {"source_vendor": "cisco", "target_vendor": "huawei",
@@ -232,7 +232,7 @@ class TestPathSecurity:
 
 class TestRegression:
     def test_translate_source_config(self, client):
-        resp = client.post("/api/agent/run", json={
+        resp = client.post("/api/agent/message", json={
             "message": "translate cisco to huawei",
             "workspace_id": "reg1",
             "payload": {"source_vendor": "cisco", "target_vendor": "huawei",

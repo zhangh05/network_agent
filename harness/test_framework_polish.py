@@ -56,7 +56,7 @@ class TestAPILayerCleanliness:
         # Should route normally — not fail on missing context_qa
 
     def test_agent_run_returns_trace_id(self, client):
-        resp = client.post("/api/agent/run", json={
+        resp = client.post("/api/agent/message", json={
             "message": "translate cisco to huawei",
             "workspace_id": "test_ws",
             "payload": {
@@ -141,7 +141,7 @@ class TestContextQA:
 
     def test_context_qa_no_last_result(self, client):
         """When no last_result, context_qa should return clear message."""
-        resp = client.post("/api/agent/run", json={
+        resp = client.post("/api/agent/message", json={
             "message": "刚才的翻译结果有什么需要人工复核？",
             "workspace_id": "test_ws_empty",
             "context_ref": "last_result",

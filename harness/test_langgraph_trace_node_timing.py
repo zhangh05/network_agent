@@ -23,7 +23,7 @@ def client(temp_dirs):
 
 
 def _run_agent(client, msg="translate cisco to huawei", ws_id="lg_trace_ws"):
-    resp = client.post("/api/agent/run", json={
+    resp = client.post("/api/agent/message", json={
         "message": msg,
         "workspace_id": ws_id,
         "payload": {

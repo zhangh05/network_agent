@@ -1177,13 +1177,19 @@ def handle_web_fetch_summary(inv: ToolInvocation) -> dict:
     except Exception:
         pass  # DNS resolution failure doesn't block; proceed
 
-    # ── Simple cache: same URL within 60s returns cached result ──
-    cache_key = url.lower().strip()
+    # ── Workspace-aware cache: same URL within 60s, workspace-scoped ──
+    ws_id = inv.workspace_id or "default"
+    cache_key = f"{ws_id}::{url.lower().strip()}"
     _now = time.time()
     if not hasattr(handle_web_fetch_summary, '_cache'):
         handle_web_fetch_summary._cache = {}
-    if cache_key in handle_web_fetch_summary._cache:
-        cached_at, cached_result = handle_web_fetch_summary._cache[cache_key]
+    _cache = handle_web_fetch_summary._cache
+    # Clean stale entries (thread-safe best-effort)
+    for k in list(_cache.keys()):
+        if _now - _cache[k][0] >= 60:
+            del _cache[k]
+    if cache_key in _cache:
+        cached_at, cached_result = _cache[cache_key]
         if _now - cached_at < 60:
             cached_result["cached"] = True
             cached_result["cached_at"] = cached_at

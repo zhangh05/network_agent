@@ -68,7 +68,7 @@ class TestAuthMiddleware:
     def test_protected_path_api(self):
         """API paths are protected."""
         from backend.core.auth import is_public_path
-        assert is_public_path("/api/agent/run") is False
+        assert is_public_path("/api/agent/message") is False
         assert is_public_path("/api/sessions") is False
         assert is_public_path("/api/memory/write") is False
         assert is_public_path("/api/tools/catalog") is False

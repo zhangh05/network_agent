@@ -97,7 +97,7 @@ class TestSessionAPIContract:
             "title": "Run Assoc API",
         })
         sid = r.get_json()["session"]["session_id"]
-        resp = self.client.post("/api/agent/run", json={
+        resp = self.client.post("/api/agent/message", json={
             "message": "translate this config",
             "workspace_id": self.ws,
             "session_id": sid,
@@ -132,7 +132,7 @@ class TestSessionAPIContract:
         })
         sid = r.get_json()["session"]["session_id"]
         # Run something in the session
-        self.client.post("/api/agent/run", json={
+        self.client.post("/api/agent/message", json={
             "message": "hello",
             "workspace_id": self.ws,
             "session_id": sid,

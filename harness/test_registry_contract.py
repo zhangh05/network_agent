@@ -238,7 +238,7 @@ class TestCapability:
 
 class TestAgentRegistryExecution:
     def test_agent_router_maps_intent_to_capability(self, client):
-        resp = client.post("/api/agent/run", json={
+        resp = client.post("/api/agent/message", json={
             "message": "translate cisco to huawei",
             "workspace_id": "reg_test",
             "payload": {
@@ -250,7 +250,7 @@ class TestAgentRegistryExecution:
         assert data["intent"] == "translate_config"
 
     def test_agent_executor_uses_skill(self, client):
-        resp = client.post("/api/agent/run", json={
+        resp = client.post("/api/agent/message", json={
             "message": "translate cisco to huawei",
             "workspace_id": "reg_skill",
             "payload": {
@@ -263,7 +263,7 @@ class TestAgentRegistryExecution:
         assert data["active_module"] == "config_translation"
 
     def test_agent_trace_has_capability_id(self, client):
-        resp = client.post("/api/agent/run", json={
+        resp = client.post("/api/agent/message", json={
             "message": "translate cisco to huawei",
             "workspace_id": "reg_trace",
             "payload": {
@@ -280,7 +280,7 @@ class TestAgentRegistryExecution:
             assert len(skill_events) > 0
 
     def test_planned_intent_returns_coming_soon(self, client):
-        resp = client.post("/api/agent/run", json={
+        resp = client.post("/api/agent/message", json={
             "message": "帮我画拓扑",
             "workspace_id": "reg_planned",
         })

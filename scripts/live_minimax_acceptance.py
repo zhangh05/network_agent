@@ -59,7 +59,7 @@ def main():
     # 3. Agent translate
     SAMPLE = "interface Gi0/1\n ip address 10.1.1.1 255.255.255.0\n no shutdown\n"
     try:
-        a = _post("/api/agent/run", {"message": "翻译这份Cisco配置","payload": {"source_config": SAMPLE, "source_vendor": "cisco", "target_vendor": "huawei"}, "workspace_id": "default"})
+        a = _post("/api/agent/message", {"message": "翻译这份Cisco配置","payload": {"source_config": SAMPLE, "source_vendor": "cisco", "target_vendor": "huawei"}, "workspace_id": "default"})
         results["agent_translate_ok"] = a.get("ok", False)
         llm = a.get("llm", {})
         results["llm_used_in_translate"] = llm.get("used", False)
@@ -72,7 +72,7 @@ def main():
 
     # 4. Context QA
     try:
-        cq = _post("/api/agent/run", {"message": "刚才的结果有什么需要人工复核？", "workspace_id": "default", "context_ref": "last_result"})
+        cq = _post("/api/agent/message", {"message": "刚才的结果有什么需要人工复核？", "workspace_id": "default", "context_ref": "last_result"})
         results["context_qa_ok"] = cq.get("ok", False)
         print(f"[QA] ok={cq.get('ok')} intent={cq.get('intent')} response={cq.get('final_response','')[:80]}")
     except Exception as e:

@@ -153,7 +153,7 @@ class TestEnvOverride:
 
 class TestRegression:
     def test_upload_endpoint_still_works(self, client):
-        resp = client.post("/api/agent/run", json={
+        resp = client.post("/api/agent/message", json={
             "message": "translate cisco to huawei",
             "workspace_id": "sz_reg",
             "payload": {"source_vendor": "cisco", "target_vendor": "huawei",
@@ -169,7 +169,7 @@ class TestRegression:
         })
         if resp1.status_code == 200:
             aid = resp1.get_json()["artifact"]["artifact_id"]
-            resp2 = client.post("/api/agent/run", json={
+            resp2 = client.post("/api/agent/message", json={
                 "message": "translate",
                 "workspace_id": "sz_aid",
                 "payload": {"source_vendor": "cisco", "target_vendor": "huawei",

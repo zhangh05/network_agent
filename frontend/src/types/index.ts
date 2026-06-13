@@ -72,6 +72,7 @@ export interface AgentResult {
   tool_calls: ToolCallResult[];
   warnings: string[];
   errors: string[];
+  error_type?: string;
   metadata: {
     selected_skills?: string[];
     visible_tools?: string[];

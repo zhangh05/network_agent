@@ -37,7 +37,7 @@ class TestRouter:
         assert _infer("翻译 cisco 到 huawei") == "translate_config"
 
     def test_router_maps_via_registry(self, client):
-        resp = client.post("/api/agent/run", json={
+        resp = client.post("/api/agent/message", json={
             "message": "translate cisco to huawei",
             "workspace_id": "rw_test",
             "payload": {
@@ -91,7 +91,7 @@ class TestExecutor:
         assert isinstance(result, dict)
 
     def test_translate_config_executes_via_registry(self, client):
-        resp = client.post("/api/agent/run", json={
+        resp = client.post("/api/agent/message", json={
             "message": "translate cisco to huawei",
             "workspace_id": "rw_exec",
             "payload": {
@@ -104,7 +104,7 @@ class TestExecutor:
         assert data["active_module"] == "config_translation"
 
     def test_trace_has_capability_info(self, client):
-        resp = client.post("/api/agent/run", json={
+        resp = client.post("/api/agent/message", json={
             "message": "translate cisco to huawei",
             "workspace_id": "rw_trace",
             "payload": {
@@ -142,7 +142,7 @@ class TestContextQA:
         assert isinstance(result, dict)
 
     def test_context_qa_no_context_message(self, client):
-        resp = client.post("/api/agent/run", json={
+        resp = client.post("/api/agent/message", json={
             "message": "刚才的结果有什么需要复核？",
             "workspace_id": "rw_cqa",
             "context_ref": "last_result",
@@ -152,7 +152,7 @@ class TestContextQA:
         assert "final_response" in data
 
     def test_context_qa_does_not_generate_deployable(self, client):
-        resp = client.post("/api/agent/run", json={
+        resp = client.post("/api/agent/message", json={
             "message": "刚才的结果有什么风险？",
             "workspace_id": "rw_cqa_deploy",
             "context_ref": "last_result",
@@ -163,7 +163,7 @@ class TestContextQA:
             assert "deployable_config" not in result or result.get("deployable_config", "") == ""
 
     def test_context_qa_trace_has_review(self, client):
-        resp = client.post("/api/agent/run", json={
+        resp = client.post("/api/agent/message", json={
             "message": "复核一下结果",
             "workspace_id": "rw_cqa_tr",
             "context_ref": "last_result",
@@ -186,7 +186,7 @@ class TestContextQA:
 
 class TestPlanned:
     def test_planned_topology_returns_coming_soon(self, client):
-        resp = client.post("/api/agent/run", json={
+        resp = client.post("/api/agent/message", json={
             "message": "帮我画拓扑",
             "workspace_id": "rw_planned",
         })
@@ -194,7 +194,7 @@ class TestPlanned:
         assert "coming_soon" in str(data.get("warnings", [])).lower() or "planned" in str(data.get("final_response", "")).lower()
 
     def test_planned_does_not_call_adapter(self, client):
-        resp = client.post("/api/agent/run", json={
+        resp = client.post("/api/agent/message", json={
             "message": "画拓扑",
             "workspace_id": "rw_noadapter",
         })

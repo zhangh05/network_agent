@@ -170,7 +170,7 @@ class TestTraceStore:
 
 class TestAgentTrace:
     def test_agent_run_returns_trace_id(self, client):
-        resp = client.post("/api/agent/run", json={
+        resp = client.post("/api/agent/message", json={
             "message": "translate cisco to huawei",
             "workspace_id": "test_trace_ag",
             "payload": {
@@ -184,7 +184,7 @@ class TestAgentTrace:
         assert data["trace_available"] is True
 
     def test_agent_run_returns_timeline_summary(self, client):
-        resp = client.post("/api/agent/run", json={
+        resp = client.post("/api/agent/message", json={
             "message": "translate config",
             "workspace_id": "test_tl_ag",
             "payload": {
@@ -201,7 +201,7 @@ class TestAgentTrace:
         assert tl["node_count"] > 0
 
     def test_trace_has_node_events(self, client):
-        resp = client.post("/api/agent/run", json={
+        resp = client.post("/api/agent/message", json={
             "message": "translate config",
             "workspace_id": "test_nodes_ag",
             "payload": {
@@ -226,7 +226,7 @@ class TestAgentTrace:
 class TestTraceAPI:
     def test_get_trace_works(self, client):
         # First run agent to create trace
-        resp = client.post("/api/agent/run", json={
+        resp = client.post("/api/agent/message", json={
             "message": "translate config",
             "workspace_id": "trace_api_ws",
             "payload": {
@@ -253,7 +253,7 @@ class TestTraceAPI:
         assert resp.status_code == 200
 
     def test_trace_api_no_key(self, client):
-        resp = client.post("/api/agent/run", json={
+        resp = client.post("/api/agent/message", json={
             "message": "translate config",
             "workspace_id": "trace_api_nk",
             "payload": {
@@ -269,7 +269,7 @@ class TestTraceAPI:
             assert "sk-" not in content or "redacted" in content.lower()
 
     def test_run_record_contains_trace_id(self, client):
-        resp = client.post("/api/agent/run", json={
+        resp = client.post("/api/agent/message", json={
             "message": "translate config",
             "workspace_id": "trace_runrec",
             "payload": {

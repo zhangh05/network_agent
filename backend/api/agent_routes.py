@@ -1,10 +1,9 @@
 # backend/api/agent_routes.py
-"""Agent API routes — v0.6 Codex-style runtime endpoint."""
+"""Agent API routes — v2.1.1 unified entry point."""
 
-from flask import Blueprint, request, jsonify
 import logging
+from flask import request, jsonify
 
-agent_bp = Blueprint("agent", __name__, url_prefix="/api/agent")
 _log = logging.getLogger("agent_routes")
 
 
@@ -26,7 +25,6 @@ def _validated_session_id(sid: str):
     return s, None
 
 
-@agent_bp.route("/message", methods=["POST"])
 def agent_message():
     """POST /api/agent/message — submit user message via AgentApp."""
     data = request.get_json(silent=True) or {}

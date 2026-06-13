@@ -209,7 +209,7 @@ class TestRegression:
         assert resp.get_json().get("ok") is True
 
     def test_agent_translate_works(self, client):
-        resp = client.post("/api/agent/run", json={
+        resp = client.post("/api/agent/message", json={
             "message": "translate cisco to huawei",
             "workspace_id": "art_ag",
             "payload": {
@@ -224,7 +224,7 @@ class TestRegression:
         assert resp.status_code in (404, 405)
 
     def test_trace_still_works(self, client):
-        resp = client.post("/api/agent/run", json={
+        resp = client.post("/api/agent/message", json={
             "message": "translate config",
             "workspace_id": "art_tr",
             "payload": {"source_vendor": "cisco", "target_vendor": "huawei", "source_config": "hostname R1"},

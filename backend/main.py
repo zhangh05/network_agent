@@ -20,8 +20,6 @@ from flask import Flask, send_from_directory, jsonify, request
 
 from backend.api.version import get_version
 from backend.api.modules_translate import handle_module_translate
-from backend.api.agent import handle_agent_run, handle_agent_status
-from backend.api.sse import handle_agent_run_sse
 from backend.api.llm_api import handle_llm_status, handle_llm_test, handle_llm_config_get, handle_llm_config_post, handle_llm_config_delete
 from backend.api.skills import handle_skills, get_skill_count
 from backend.api.modules import handle_modules, handle_module_status, handle_registry_status, handle_capabilities
@@ -84,22 +82,16 @@ def create_app():
     def api_skills():
         return handle_skills()
 
-    # ── Agent Run ──
-    @app.route("/api/agent/run", methods=["POST"])
-    def api_agent_run():
-        data = request.get_json(silent=True) or {}
-        if data.get("stream"):
-            return handle_agent_run_sse()
-        return handle_agent_run()
-
+    # ── Agent —唯一主入口 ──
     @app.route("/api/agent/message", methods=["POST"])
     def api_agent_message():
-        """POST /api/agent/message — v0.6 Codex-style runtime endpoint."""
+        """POST /api/agent/message — v2.1.1 unified entry point."""
         from backend.api.agent_routes import agent_message
         return agent_message()
 
     @app.route("/api/agent/status")
     def api_agent_status():
+        from backend.api.agent import handle_agent_status
         return handle_agent_status()
 
     # ── Sessions ──

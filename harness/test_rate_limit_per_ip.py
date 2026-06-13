@@ -36,7 +36,7 @@ def app_with_rate_limit():
     app.config["TESTING"] = False  # Enable rate limiting
     rate_limit_middleware(app)
 
-    @app.route("/api/agent/run", methods=["POST"])
+    @app.route("/api/agent/message", methods=["POST"])
     def api_agent_run():
         return {"ok": True}
 
@@ -67,13 +67,13 @@ class TestSameIPSameEndpointLimit:
         _limiters.clear()
     
     def test_exceed_agent_run_limit(self, client, app_with_rate_limit):
-        """/api/agent/run allows 10 req/min, 11th should 429."""
+        """/api/agent/message allows 10 req/min, 11th should 429."""
         app_with_rate_limit.config["TESTING"] = False
 
         # Send 10 requests first (should succeed)
         for i in range(10):
             resp = client.post(
-                "/api/agent/run",
+                "/api/agent/message",
                 json={"message": f"test {i}"},
                 environ_base={"REMOTE_ADDR": "192.168.1.100"},
             )
@@ -81,7 +81,7 @@ class TestSameIPSameEndpointLimit:
 
         # 11th request should be rate limited
         resp = client.post(
-            "/api/agent/run",
+            "/api/agent/message",
             json={"message": "test 11"},
             environ_base={"REMOTE_ADDR": "192.168.1.100"},
         )
@@ -122,7 +122,7 @@ class TestDifferentIPsIndependent:
         # IP A: send 10 requests (should succeed)
         for i in range(10):
             resp = client.post(
-                "/api/agent/run",
+                "/api/agent/message",
                 json={"message": f"test {i}"},
                 environ_base={"REMOTE_ADDR": "192.168.1.100"},
             )
@@ -130,7 +130,7 @@ class TestDifferentIPsIndependent:
 
         # IP A: 11th request should 429
         resp = client.post(
-            "/api/agent/run",
+            "/api/agent/message",
             json={"message": "test 11"},
             environ_base={"REMOTE_ADDR": "192.168.1.100"},
         )
@@ -138,7 +138,7 @@ class TestDifferentIPsIndependent:
 
         # IP B: should still succeed (independent bucket)
         resp = client.post(
-            "/api/agent/run",
+            "/api/agent/message",
             json={"message": "test B"},
             environ_base={"REMOTE_ADDR": "192.168.1.200"},
         )
@@ -153,7 +153,7 @@ class TestDifferentIPsIndependent:
         for ip in ["10.0.0.1", "10.0.0.2", "10.0.0.3"]:
             for i in range(5):
                 client.post(
-                    "/api/agent/run",
+                    "/api/agent/message",
                     json={"message": f"test {i}"},
                     environ_base={"REMOTE_ADDR": ip},
                 )
@@ -179,7 +179,7 @@ class TestTrustedProxyFalse:
         # Should use REMOTE_ADDR (127.0.0.1), not X-Forwarded-For
         for i in range(10):
             resp = client.post(
-                "/api/agent/run",
+                "/api/agent/message",
                 json={"message": f"test {i}"},
                 headers={"X-Forwarded-For": "8.8.8.8"},
                 environ_base={"REMOTE_ADDR": "127.0.0.1"},
@@ -188,7 +188,7 @@ class TestTrustedProxyFalse:
 
         # 11th request from 127.0.0.1 should 429
         resp = client.post(
-            "/api/agent/run",
+            "/api/agent/message",
             json={"message": "test 11"},
             headers={"X-Forwarded-For": "8.8.8.8"},
             environ_base={"REMOTE_ADDR": "127.0.0.1"},
@@ -198,7 +198,7 @@ class TestTrustedProxyFalse:
         # But a request from 8.8.8.8 (spoofed) should succeed
         # because we don't trust X-Forwarded-For
         resp = client.post(
-            "/api/agent/run",
+            "/api/agent/message",
             json={"message": "test spoofed"},
             environ_base={"REMOTE_ADDR": "8.8.8.8"},
         )
@@ -220,7 +220,7 @@ class TestTrustedProxyTrue:
         # Should use 8.8.8.8 (from X-Forwarded-For), not 127.0.0.1
         for i in range(10):
             resp = client.post(
-                "/api/agent/run",
+                "/api/agent/message",
                 json={"message": f"test {i}"},
                 headers={"X-Forwarded-For": "8.8.8.8"},
                 environ_base={"REMOTE_ADDR": "127.0.0.1"},
@@ -229,7 +229,7 @@ class TestTrustedProxyTrue:
 
         # 11th request with same X-Forwarded-For should 429
         resp = client.post(
-            "/api/agent/run",
+            "/api/agent/message",
             json={"message": "test 11"},
             headers={"X-Forwarded-For": "8.8.8.8"},
             environ_base={"REMOTE_ADDR": "127.0.0.1"},
@@ -238,7 +238,7 @@ class TestTrustedProxyTrue:
 
         # But a request from a different IP (even with different X-Forwarded-For) should succeed
         resp = client.post(
-            "/api/agent/run",
+            "/api/agent/message",
             json={"message": "test other"},
             headers={"X-Forwarded-For": "1.1.1.1"},
             environ_base={"REMOTE_ADDR": "127.0.0.2"},

@@ -185,7 +185,7 @@ class TestAPI:
         d=_g("/api/agent/status")
         assert "llm_enabled" in d or "llm" in str(d).lower()
     def test_agent_run_llm_metadata(self):
-        d=_p("/api/agent/run",{"intent":"translate_config","payload":{"source_config":SAMPLE,"source_vendor":"auto","target_vendor":"huawei"}})
+        d=_p("/api/agent/message",{"intent":"translate_config","payload":{"source_config":SAMPLE,"source_vendor":"auto","target_vendor":"huawei"}})
         assert "llm" in d
         assert d["ok"] is True
     def test_key_not_returned(self):
@@ -199,12 +199,12 @@ class TestAPI:
 # ═══ Agent ═══
 class TestAgent:
     def test_translate_via_langgraph(self):
-        d=_p("/api/agent/run",{"intent":"translate_config","payload":{"source_config":SAMPLE,"source_vendor":"auto","target_vendor":"huawei"}})
+        d=_p("/api/agent/message",{"intent":"translate_config","payload":{"source_config":SAMPLE,"source_vendor":"auto","target_vendor":"huawei"}})
         assert d["ok"] is True
         assert d["runtime_mode"]=="langgraph"
     def test_planned_intents(self):
         for i in ["topology_draw","inspection_analyze","knowledge_search"]:
-            d=_p("/api/agent/run",{"intent":i,"payload":{}})
+            d=_p("/api/agent/message",{"intent":i,"payload":{}})
             assert "deployable_config" not in d.get("result",{})
 
 # ═══ Boundary ═══
@@ -250,7 +250,7 @@ class TestBoundary:
                                 if s.startswith("#") or s.startswith('"""'): continue
                                 if "os.chdir(" in s: pytest.fail(f"os.chdir in {os.path.join(dirpath,f)}")
     def test_frontend_has_agent_api(self):
-        assert "agent/message" in read_frontend_source_text() or "/api/agent/run" in read_frontend_source_text()
+        assert "agent/message" in read_frontend_source_text() or "/api/agent/message" in read_frontend_source_text()
 
 # ═══ Security Audit ═══
 class TestSecurityAudit:

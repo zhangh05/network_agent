@@ -47,7 +47,7 @@ class TestWorkspaceAPI:
             assert len(text) < 500  # if present, must be brief
 
     def test_agent_rejects_invalid_workspace_id(self, client):
-        resp = client.post("/api/agent/run", json={
+        resp = client.post("/api/agent/message", json={
             "message": "translate config",
             "workspace_id": "../escape",
             "payload": {
@@ -63,7 +63,7 @@ class TestWorkspaceAPI:
 
     def test_agent_rejects_oversized_source_config(self, client, monkeypatch):
         monkeypatch.setenv("NETWORK_AGENT_MAX_SOURCE_CONFIG_BYTES", "20")
-        resp = client.post("/api/agent/run", json={
+        resp = client.post("/api/agent/message", json={
             "message": "translate config",
             "workspace_id": "test_ws",
             "payload": {
@@ -79,7 +79,7 @@ class TestWorkspaceAPI:
 
     def test_agent_rejects_oversized_message_config(self, client, monkeypatch):
         monkeypatch.setenv("NETWORK_AGENT_MAX_SOURCE_CONFIG_BYTES", "20")
-        resp = client.post("/api/agent/run", json={
+        resp = client.post("/api/agent/message", json={
             "intent": "translate_config",
             "workspace_id": "test_ws",
             "message": "hostname R1\ninterface GigabitEthernet0/1",
@@ -194,7 +194,7 @@ class TestAgentAPI:
         assert "agent_runtime" in data
 
     def test_agent_run_returns_metadata(self, client):
-        resp = client.post("/api/agent/run", json={
+        resp = client.post("/api/agent/message", json={
             "message": "帮我把这份 Cisco 配置翻译成华为",
             "workspace_id": "test_ws",
             "payload": {
@@ -212,7 +212,7 @@ class TestAgentAPI:
         assert "memory_hits_count" in data
 
     def test_agent_context_qa(self, client):
-        resp = client.post("/api/agent/run", json={
+        resp = client.post("/api/agent/message", json={
             "message": "刚才的结果有什么需要人工复核？",
             "workspace_id": "test_ws",
             "context_ref": "last_result",
@@ -224,7 +224,7 @@ class TestAgentAPI:
         assert "final_response" in data
 
     def test_agent_run_llm_metadata(self, client):
-        resp = client.post("/api/agent/run", json={
+        resp = client.post("/api/agent/message", json={
             "message": "translate config",
             "workspace_id": "test_ws",
             "payload": {

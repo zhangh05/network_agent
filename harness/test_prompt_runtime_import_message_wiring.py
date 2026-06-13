@@ -184,7 +184,7 @@ class TestRegression:
         assert resp.get_json().get("ok") is True
 
     def test_agent_run_works(self, client):
-        resp = client.post("/api/agent/run", json={
+        resp = client.post("/api/agent/message", json={
             "message": "translate",
             "workspace_id": "pmsg_reg",
             "payload": {"source_vendor": "cisco", "target_vendor": "huawei",

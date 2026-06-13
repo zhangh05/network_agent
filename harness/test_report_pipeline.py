@@ -165,7 +165,7 @@ class TestExportResult:
 
 class TestAgentIntegration:
     def test_export_report_false_no_report(self, client):
-        resp = client.post("/api/agent/run", json={
+        resp = client.post("/api/agent/message", json={
             "message": "translate",
             "workspace_id": "rp_agent",
             "payload": {"source_vendor": "cisco", "target_vendor": "huawei",
@@ -175,7 +175,7 @@ class TestAgentIntegration:
         assert data["report_artifacts"] == []
 
     def test_export_report_true_creates_report(self, client):
-        resp = client.post("/api/agent/run", json={
+        resp = client.post("/api/agent/message", json={
             "message": "translate cisco to huawei",
             "workspace_id": "rp_agent2",
             "payload": {"source_vendor": "cisco", "target_vendor": "huawei",
@@ -188,7 +188,7 @@ class TestAgentIntegration:
         # May be empty if artifact save fails, but API works
 
     def test_report_format_html(self, client):
-        resp = client.post("/api/agent/run", json={
+        resp = client.post("/api/agent/message", json={
             "message": "translate cisco to huawei",
             "workspace_id": "rp_html",
             "payload": {"source_vendor": "cisco", "target_vendor": "huawei",
@@ -213,7 +213,7 @@ class TestReportAPI:
 
 class TestRegression:
     def test_artifact_pipeline_works(self, client):
-        resp = client.post("/api/agent/run", json={
+        resp = client.post("/api/agent/message", json={
             "message": "translate",
             "workspace_id": "rp_reg1",
             "payload": {"source_vendor": "cisco", "target_vendor": "huawei",
