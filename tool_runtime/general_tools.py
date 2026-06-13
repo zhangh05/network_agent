@@ -1573,6 +1573,75 @@ def handle_skill_request_load(inv: ToolInvocation) -> dict:
     })
 
 
+def handle_skill_load(inv: ToolInvocation) -> dict:
+    """Runtime-controlled skill loading. Checks skill exists, records as loaded in
+    session metadata, and returns SKILL.md content as skill_prompt field.
+
+    Does NOT directly inject into system prompt — the context builder reads
+    loaded skills from session metadata via skill_snapshot.
+    """
+    import time as _time
+    args = inv.arguments
+    skill_name = str(args.get("skill_name", "")).strip()
+    ws = args.get("workspace_id", "default")
+    sid = args.get("session_id", "")
+
+    if not skill_name:
+        return _error("skill_name is required")
+
+    # Sanitize skill name
+    safe_name = re.sub(r"[^a-zA-Z0-9_\-]", "", skill_name)
+    if not safe_name:
+        return _error(f"invalid skill_name: {skill_name}")
+
+    # Check skill exists in skills/ directory
+    skills_dir = ROOT / "skills"
+    skill_dir = skills_dir / safe_name
+    md_path = skill_dir / "SKILL.md"
+
+    if not skill_dir.is_dir() or safe_name.startswith("."):
+        return _error(f"skill '{safe_name}' not found in skills directory")
+
+    # Read SKILL.md content
+    try:
+        skill_prompt = md_path.read_text(encoding="utf-8")
+    except Exception as e:
+        return _error(f"failed to read SKILL.md: {str(e)[:200]}")
+
+    # Record loaded skill in session metadata (best-effort)
+    loaded_at = _time.strftime("%Y-%m-%dT%H:%M:%S")
+    try:
+        session_meta_path = WS_ROOT / ws / "sessions" / sid / "meta.json"
+        if sid and session_meta_path.parent.exists():
+            session_meta_path.parent.mkdir(parents=True, exist_ok=True)
+            import json as _json
+            meta = {}
+            if session_meta_path.is_file():
+                try:
+                    meta = _json.loads(session_meta_path.read_text(encoding="utf-8"))
+                except Exception:
+                    pass
+            loaded_skills = meta.setdefault("loaded_skills", [])
+            # Remove previous entry for same skill
+            loaded_skills = [s for s in loaded_skills if s.get("skill_name") != safe_name]
+            loaded_skills.append({
+                "skill_name": safe_name,
+                "loaded_at": loaded_at,
+                "skill_prompt_length": len(skill_prompt),
+            })
+            meta["loaded_skills"] = loaded_skills
+            session_meta_path.write_text(_json.dumps(meta, ensure_ascii=False, indent=2), encoding="utf-8")
+    except Exception:
+        pass
+
+    return _ok({
+        "skill_name": safe_name,
+        "skill_prompt": skill_prompt,
+        "loaded_at": loaded_at,
+        "skill_prompt_length": len(skill_prompt),
+    })
+
+
 def handle_skill_find(inv: ToolInvocation) -> dict:
     """Search for skills by keyword in their descriptions."""
     args = inv.arguments
@@ -1813,18 +1882,45 @@ def handle_pdf_extract_text(inv: ToolInvocation) -> dict:
     # Try to import PyPDF2
     try:
         import PyPDF2  # noqa: F811
+        _method = "pypdf2"
     except ImportError:
         try:
             import pypdf
             PyPDF2 = pypdf
+            _method = "pypdf2"
         except ImportError:
+            # Text fallback: try reading the PDF as raw text
+            try:
+                raw_text = target.read_text(encoding="utf-8", errors="replace")
+                if raw_text.strip():
+                    return _ok({
+                        "text": raw_text[:50000],
+                        "page_count": 1,
+                        "file_size": file_size,
+                        "char_count": len(raw_text),
+                        "method": "text_fallback",
+                    })
+            except Exception:
+                pass
+            try:
+                raw_text = target.read_text(encoding="latin-1", errors="replace")
+                if raw_text.strip():
+                    return _ok({
+                        "text": raw_text[:50000],
+                        "page_count": 1,
+                        "file_size": file_size,
+                        "char_count": len(raw_text),
+                        "method": "text_fallback",
+                    })
+            except Exception:
+                pass
             return _ok({
                 "ok": True,
-                "status": "planned",
                 "text": "",
-                "page_count": 0,
+                "page_count": 1,
                 "file_size": file_size,
-                "message": "PDF text extraction is not available: PyPDF2 not installed. This feature is planned.",
+                "method": "none",
+                "message": "PDF text extraction is not available: PyPDF2 not installed and text fallback produced no readable text.",
             })
 
     try:
@@ -1854,6 +1950,7 @@ def handle_pdf_extract_text(inv: ToolInvocation) -> dict:
             "pages_read": len(text_parts),
             "file_size": file_size,
             "char_count": len(full_text),
+            "method": _method,
         })
     except Exception as e:
         return _error(str(e)[:200])
@@ -2822,6 +2919,122 @@ def handle_agent_list_roles(inv: ToolInvocation) -> dict:
     return _ok({"roles": roles, "count": len(roles)})
 
 
+def handle_agent_team(inv: ToolInvocation) -> dict:
+    """Minimal multi-agent team with planner/worker/reviewer roles.
+
+    Planner: uses agent.spawn with knowledge.read tools to plan.
+    Worker: uses agent.spawn with text/data tools to execute.
+    Reviewer: optional, reviews worker output.
+
+    Max 3 agents, max 2 turns each. High-risk tools forbidden.
+    """
+    import json as _json
+    args = inv.arguments
+    workspace_id = args.get("workspace_id", "default")
+    instruction = str(args.get("instruction", "")).strip()
+    roles = list(args.get("roles") or ["planner", "worker"])
+
+    if not instruction:
+        return _error("instruction is required")
+
+    try:
+        validate_workspace_id(workspace_id)
+        from agent.runtime.sub_agent import run_sub_agent
+
+        # Low-risk read-only tools only for all roles
+        _low_risk_read_tools = [
+            "web.search", "web.fetch_summary", "knowledge.search",
+            "knowledge.get_source", "knowledge.get_chunk_summary",
+            "artifact.search", "artifact.read_content_safe",
+            "skill.list", "skill.inspect", "skill.find_skills",
+            "memory.search", "memory.list", "memory.get_profile",
+            "text.classify", "text.diff", "text.extract_keywords",
+            "json.validate", "yaml.validate", "csv.summarize",
+            "workspace.list_files", "workspace.read_text_preview",
+            "workspace.path_exists", "workspace.get_metadata",
+            "file.list", "file.exists", "file.read",
+            "session.list", "session.get_summary",
+            "run.list_recent", "run.get_summary",
+        ]
+        _text_data_tools = [
+            "web.search", "web.fetch_summary",
+            "text.classify", "text.diff", "text.extract_keywords",
+            "json.validate", "yaml.validate", "csv.summarize",
+            "table.extract", "workspace.read_text_preview",
+            "file.read",
+        ]
+
+        result = {"ok": True, "instruction": instruction, "roles_used": [], "plan": "", "worker_result": None, "reviewer_result": None}
+
+        # ── Planner (if in roles) ──
+        if "planner" in roles:
+            plan_instruction = (
+                f"Plan the execution of this task. Break it into subtasks. "
+                f"Do NOT execute — only produce a structured plan.\n\n"
+                f"Task: {instruction}\n\n"
+                f"Output your plan as a numbered list of subtasks. Each subtask should be specific and actionable."
+            )
+            plan_result = run_sub_agent(
+                instruction=plan_instruction,
+                workspace_id=workspace_id,
+                parent_session_id=str(args.get("session_id", "")),
+                allowed_tools=_low_risk_read_tools,
+                max_turns=2,
+            )
+            if plan_result.get("ok"):
+                result["plan"] = plan_result.get("final_response", "") or plan_result.get("summary", "")
+            else:
+                result["plan"] = f"Planner failed: {plan_result.get('error', 'unknown')}"
+            result["roles_used"].append("planner")
+
+        # ── Worker (always) ──
+        worker_instruction = instruction
+        if result.get("plan"):
+            worker_instruction = f"Plan:\n{result['plan']}\n\nExecute the above plan. Task: {instruction}"
+        worker_result = run_sub_agent(
+            instruction=worker_instruction,
+            workspace_id=workspace_id,
+            parent_session_id=str(args.get("session_id", "")),
+            allowed_tools=_text_data_tools,
+            max_turns=2,
+        )
+        result["worker_result"] = {
+            "ok": worker_result.get("ok", False),
+            "final_response": worker_result.get("final_response", ""),
+            "summary": worker_result.get("summary", ""),
+            "tool_calls_count": len(worker_result.get("tool_calls", [])),
+        }
+        result["roles_used"].append("worker")
+
+        # ── Reviewer (optional) ──
+        if "reviewer" in roles:
+            worker_output = result["worker_result"].get("final_response", "") or result["worker_result"].get("summary", "")
+            review_instruction = (
+                f"Review the following worker output for quality, correctness, and completeness. "
+                f"Identify any issues, missing information, or errors.\n\n"
+                f"Original task: {instruction}\n\n"
+                f"Worker output:\n{worker_output}\n\n"
+                f"Provide your review: is the output acceptable, or does it need revision?"
+            )
+            reviewer_result = run_sub_agent(
+                instruction=review_instruction,
+                workspace_id=workspace_id,
+                parent_session_id=str(args.get("session_id", "")),
+                allowed_tools=_low_risk_read_tools,
+                max_turns=2,
+            )
+            result["reviewer_result"] = {
+                "ok": reviewer_result.get("ok", False),
+                "final_response": reviewer_result.get("final_response", ""),
+                "summary": reviewer_result.get("summary", ""),
+            }
+            result["roles_used"].append("reviewer")
+
+        return _ok(result)
+    except Exception as e:
+        return _error(str(e)[:200])
+
+
 def handle_agent_get_result(inv: ToolInvocation) -> dict:
     """Get sub-agent result by child_session_id.
 
@@ -2926,8 +3139,6 @@ REMOVED_GENERAL_TOOL_IDS = {
     "runtime.selfcheck",
     "runtime.retention_preview",
     "runtime.archive_preview",
-    # Disabled by default: skill creation must be explicitly enabled.
-    "skill.create",
 }
 
 def _schema(properties: dict = None, required: list[str] = None) -> dict:
@@ -3082,6 +3293,11 @@ GENERAL_TOOL_INPUT_SCHEMAS = {
         "query": S["query"],
         "limit": S["limit"],
     }, ["query"]),
+    "skill.load": _schema({
+        "workspace_id": S["workspace_id"],
+        "skill_name": S["skill_name"],
+        "session_id": S["session_id"],
+    }, ["skill_name"]),
     "skill.create": _schema({
         "workspace_id": S["workspace_id"],
         "name": S["skill_name"],
@@ -3180,6 +3396,8 @@ GENERAL_TOOL_INPUT_SCHEMAS = {
     "agent.team": _schema({
         "workspace_id": S["workspace_id"],
         "instruction": {"type": "string", "description": "Task instruction for the team."},
+        "roles": {"type": "array", "description": "Roles to use: planner, worker, reviewer. Default: ['planner', 'worker'].", "items": {"type": "string", "enum": ["planner", "worker", "reviewer"]}},
+        "session_id": S["session_id"],
     }, ["instruction"]),
 
     # File
@@ -3507,6 +3725,11 @@ _reg("skill.request_load", "Request Skill Load", "skill", "low",
 _reg("skill.find_skills", "Find Skills", "skill", "low",
      "Search for skills by keyword in their descriptions. Returns matching skill names and metadata.",
      handle_skill_find)
+_reg("skill.load", "Load Skill", "skill", "medium",
+     "Load a skill into the current session runtime. Checks skill exists, records as loaded, "
+     "and returns SKILL.md content. Does NOT directly inject into system prompt — the context "
+     "builder reads loaded skills from session metadata.",
+     handle_skill_load)
 _reg("skill.create", "Create Skill", "skill", "medium",
      "Create a new skill skeleton with SKILL.md and skill.yaml. Status is pending_review — does NOT auto-enable.",
      handle_skill_create, writes_artifact=True)
@@ -3608,9 +3831,11 @@ _reg("agent.list_roles", "List Agent Roles", "session", "low",
 _reg("agent.get_result", "Get Sub-Agent Result", "session", "low",
      "Get the result of a previously spawned sub-agent by its child_session_id.",
      handle_agent_get_result)
-_reg("agent.team", "Multi-Agent Team", "session", "low",
-     "Planned: multi-agent team with planner/worker/reviewer roles. Currently only single agent.spawn available.",
-     _planned_handler("agent.team"))
+_reg("agent.team", "Multi-Agent Team", "session", "medium",
+     "Multi-agent team with planner/worker/reviewer roles. Planner breaks tasks down, "
+     "worker executes them, reviewer (optional) reviews worker output. "
+     "Max 3 agents, max 2 turns each. High-risk tools forbidden.",
+     handle_agent_team)
 
 # ── Slash Command Tool ──
 _reg("slash.run", "Run Slash Command", "runtime", "low",

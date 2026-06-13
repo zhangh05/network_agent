@@ -215,3 +215,52 @@ def build_trace_id() -> str:
         and tool calls within a single turn.
     """
     return str(uuid.uuid4())
+
+
+# ═══════════════════════════
+# Stream events
+# ═══════════════════════════
+
+class StreamEvent:
+    """Standard stream event type constants for real-time event emission."""
+    RUN_STARTED = "run_started"
+    MODEL_STARTED = "model_started"
+    TOOL_CALL = "tool_call"
+    APPROVAL_REQUIRED = "approval_required"
+    TOOL_RESULT = "tool_result"
+    COMPACT = "compact"
+    FINAL = "final"
+    ERROR = "error"
+
+
+class StreamEmitter:
+    """Collects stream events during a turn and exposes them as a list.
+
+    Usage::
+
+        emitter = StreamEmitter()
+        emitter.emit(StreamEvent.RUN_STARTED, {"session_id": "abc"})
+        emitter.emit(StreamEvent.TOOL_CALL, {"tool_id": "web.search"})
+        events = emitter.to_events()
+    """
+
+    def __init__(self):
+        self._events: list[dict] = []
+
+    def emit(self, event_type: str, data: dict) -> None:
+        """Emit a stream event.
+
+        Args:
+            event_type: One of the StreamEvent constants.
+            data: Event payload dict. A 'timestamp' key is added automatically.
+        """
+        event = {"type": event_type, "timestamp": time.time(), **data}
+        self._events.append(event)
+
+    def to_events(self) -> list[dict]:
+        """Return all collected events as a list of dicts."""
+        return list(self._events)
+
+    def clear(self) -> None:
+        """Clear all collected events."""
+        self._events.clear()

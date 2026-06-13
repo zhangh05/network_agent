@@ -379,6 +379,9 @@ def run_turn(session, turn, services=None, restricted_tool_router=None) -> Agent
             # ── v2.0: Token hard limit ──
             _check_token_limit(messages, context, session, turn, step)
             
+            # ── v2.1: PRE_MODEL hook ──
+            _run_pre_model_hook(session, messages, tools, context, step)
+
             resp = invoke_llm(
                 task="assistant_chat",
                 messages=messages,
@@ -386,7 +389,11 @@ def run_turn(session, turn, services=None, restricted_tool_router=None) -> Agent
                 safe_context=context.safe_context,
                 user_input=context.user_input,
             )
+            # ── v2.1: POST_MODEL hook ──
+            _run_post_model_hook(session, resp, context, step)
         except TokenLimitExceeded as e:
+            # ── v2.1: ON_ERROR hook (token limit) ──
+            _run_error_hook(session, "token_limit", {"error": str(e), "estimated": e.estimated, "max_context": e.max_context}, context)
             turn.status = "failed"
             turn.warnings.append(f"token_limit_exceeded: {e}")
             if audit_events:
@@ -408,6 +415,8 @@ def run_turn(session, turn, services=None, restricted_tool_router=None) -> Agent
             _persist_run_record(session, turn, _err, context)
             return _err
         except Exception as e:
+            # ── v2.1: ON_ERROR hook (general exception) ──
+            _run_error_hook(session, "llm_invoke_error", {"error": str(e)[:200]}, context)
             error_str = str(e)[:200]
             is_timeout = "timeout" in error_str.lower() or "timed out" in error_str.lower()
             if audit_events:
@@ -572,9 +581,13 @@ def run_turn(session, turn, services=None, restricted_tool_router=None) -> Agent
                             audit_events.emit("approval_required", session_id=session.session_id,
                                               turn_id=turn.turn_id, approval_id=apr.approval_id,
                                               tool_id=apr.tool_id)
+                        # ── v2.1: ON_APPROVAL hook (required) ──
+                        _run_approval_hook(session, "required", apr.approval_id, apr.tool_id, context)
                         allowed = store.wait(apr.approval_id, timeout=120.0)
                         store.cleanup(apr.approval_id)
                         if not allowed:
+                            # ── v2.1: ON_APPROVAL hook (denied) ──
+                            _run_approval_hook(session, "denied", apr.approval_id, apr.tool_id, context)
                             result = ToolResult(
                                 ok=False,
                                 summary=f"Tool {tool_call.real_tool_id} was rejected by user",
@@ -588,6 +601,9 @@ def run_turn(session, turn, services=None, restricted_tool_router=None) -> Agent
                                 audit_trace.record_tool_result(turn.turn_id, step,
                                     tool_call.real_tool_id, False, "user_rejected")
                             # ── v2.0: Post-tool hook (Phase 3: stop if needed) ──
+                        else:
+                            # ── v2.1: ON_APPROVAL hook (allowed) ──
+                            _run_approval_hook(session, "allowed", apr.approval_id, apr.tool_id, context)
                     tool_stop = _run_post_tool_hook(session, tool_call.real_tool_id, result, turn)
                     if tool_stop:
                         final_response = "Tool execution stopped by post-tool hook."
@@ -1184,6 +1200,93 @@ def _run_stop_hooks(session):
         pass
 
 
+# ─── v2.1 Additional hook helpers ──────────────────────────────────
+
+def _run_pre_model_hook(session, messages, tools, context, step):
+    """Run PRE_MODEL hook before each LLM call."""
+    try:
+        from agent.hooks_integration import get_hook_registry
+        registry = get_hook_registry()
+        if not registry._hooks:
+            return
+        state = _build_hook_state(session, context)
+        from agent.hooks import HookEvent
+        registry.run_hooks(
+            HookEvent.PRE_MODEL,
+            state,
+            {"message_count": len(messages), "tool_count": len(tools), "step": step},
+            target="assistant_chat",
+        )
+    except Exception:
+        pass
+
+
+def _run_post_model_hook(session, resp, context, step):
+    """Run POST_MODEL hook after each LLM response."""
+    try:
+        from agent.hooks_integration import get_hook_registry
+        registry = get_hook_registry()
+        if not registry._hooks:
+            return
+        state = _build_hook_state(session, context)
+        from agent.hooks import HookEvent
+        registry.run_hooks(
+            HookEvent.POST_MODEL,
+            state,
+            {
+                "step": step,
+                "has_content": bool(getattr(resp, 'content', '')),
+                "has_tool_calls": resp.has_tool_calls() if hasattr(resp, 'has_tool_calls') else False,
+                "finish_reason": getattr(resp, 'finish_reason', ''),
+            },
+            target="assistant_chat",
+        )
+    except Exception:
+        pass
+
+
+def _run_error_hook(session, error_type: str, error_data: dict, context=None):
+    """Run ON_ERROR hook when an error occurs."""
+    try:
+        from agent.hooks_integration import get_hook_registry
+        registry = get_hook_registry()
+        if not registry._hooks:
+            return
+        state = _build_hook_state(session, context)
+        from agent.hooks import HookEvent
+        registry.run_hooks(
+            HookEvent.ON_ERROR,
+            state,
+            {"error_type": error_type, **error_data},
+            target=error_type,
+        )
+    except Exception:
+        pass
+
+
+def _run_approval_hook(session, stage: str, approval_id: str, tool_id: str, context=None):
+    """Run ON_APPROVAL hook at approval stage transitions.
+
+    Args:
+        stage: One of "required", "allowed", "denied".
+    """
+    try:
+        from agent.hooks_integration import get_hook_registry
+        registry = get_hook_registry()
+        if not registry._hooks:
+            return
+        state = _build_hook_state(session, context)
+        from agent.hooks import HookEvent
+        registry.run_hooks(
+            HookEvent.ON_APPROVAL,
+            state,
+            {"stage": stage, "approval_id": approval_id, "tool_id": tool_id},
+            target=tool_id,
+        )
+    except Exception:
+        pass
+
+
 # ─── v2.0 Token & recording helpers ──────────────────────────────────
 
 def _check_token_limit(messages, context, session, turn, step):
@@ -1208,6 +1311,23 @@ def _check_token_limit(messages, context, session, turn, step):
                               'original_estimated_tokens', 'compacted_estimated_tokens'):
                         if k in meta:
                             turn.metadata[k] = meta[k]
+                # ── v2.1: ON_COMPACT hook ──
+                try:
+                    from agent.hooks_integration import get_hook_registry
+                    registry = get_hook_registry()
+                    if registry._hooks:
+                        from agent.hooks import HookEvent
+                        state = _build_hook_state(session, context)
+                        registry.run_hooks(
+                            HookEvent.ON_COMPACT,
+                            state,
+                            {"compacted_message_count": meta.get("compacted_message_count", 0),
+                             "original_estimated_tokens": meta.get("original_estimated_tokens", 0),
+                             "compacted_estimated_tokens": meta.get("compacted_estimated_tokens", 0)},
+                            target="context",
+                        )
+                except Exception:
+                    pass
 
         # ── Hard limit after compact ──
         estimated = estimate_messages(messages)
