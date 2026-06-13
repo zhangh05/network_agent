@@ -16,6 +16,7 @@ class AgentResult:
     warnings: list = field(default_factory=list)
     errors: list = field(default_factory=list)
     metadata: dict = field(default_factory=dict)
+    error_type: str = ""
 
     def to_dict(self) -> dict:
         return {
@@ -29,4 +30,5 @@ class AgentResult:
             "warnings": self.warnings,
             "errors": self.errors,
             "metadata": self.metadata,
+            "error_type": self.error_type,
         }

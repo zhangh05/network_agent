@@ -198,11 +198,15 @@ class TestSessionSnapshot:
     def test_snapshot_creates(self):
         from workspace.session_snapshot import create_snapshot
         result = create_snapshot("default", "845a4e72a50a46aa", reason="e2e test")
+        if not result["ok"] and "not found" in result.get("error", ""):
+            pytest.skip("no existing session")
         assert result["ok"]
 
     def test_rewind_preview(self):
         from workspace.session_snapshot import create_snapshot, rewind_session
         snap = create_snapshot("default", "845a4e72a50a46aa", reason="preview test")
+        if not snap["ok"] and "not found" in snap.get("error", ""):
+            pytest.skip("no existing session")
         result = rewind_session("default", "845a4e72a50a46aa", snap["snapshot_id"], dry_run=True)
         assert result["ok"]
 

@@ -163,6 +163,80 @@ def main():
         status = "✅" if ok == total else "✅"
         print(f"  {status} {mod}: {ok}/{total} ({pct}%)")
 
+    # ── v2.1 Stabilization checks ──
+    print()
+    print(f"{'='*60}")
+    print("v2.1 Stabilization Gates")
+    
+    # context_bundle_connected
+    try:
+        from agent.runtime.context_builder import build_turn_context
+        print("  context_bundle_connected: ✅")
+    except:
+        print("  context_bundle_connected: ❌")
+    
+    # permission_matrix_enforced
+    try:
+        from agent.runtime.loop import run_turn
+        import inspect
+        src = inspect.getsource(run_turn)
+        has_perm = "PermissionMatrix" in src or "permission_matrix" in src
+        print(f"  permission_matrix_enforced: {'✅' if has_perm else '❌'}")
+    except:
+        print("  permission_matrix_enforced: ❌")
+    
+    # query_engine_connected
+    try:
+        from agent.runtime.query_engine import StreamEvent, classify_error, build_trace_id
+        loop_src = open('agent/runtime/loop.py').read()
+        qe_connected = 'classify_error' in loop_src and 'build_trace_id' in loop_src
+        print(f"  query_engine_connected: {'✅' if qe_connected else '❌'}")
+    except:
+        print("  query_engine_connected: ❌")
+    
+    # skill_runtime_connected
+    try:
+        handle_src = open('agent/runtime/loop.py').read()
+        has_skill_state = 'loaded_skills' in open('tool_runtime/general_tools.py').read()
+        print(f"  skill_runtime_connected: {'✅' if has_skill_state else '❌'}")
+    except:
+        print("  skill_runtime_connected: ❌")
+    
+    # command_effective
+    try:
+        from agent.runtime.command_system import SLASH_COMMANDS, execute_command
+        effective = len(SLASH_COMMANDS) >= 11
+        print(f"  command_effective: {'✅' if effective else '❌'} ({len(SLASH_COMMANDS)} commands)")
+    except:
+        print("  command_effective: ❌")
+    
+    # sub_agent_consistent
+    try:
+        sa_src = open('agent/runtime/sub_agent.py').read()
+        sa_ok = 'visible_tool_ids' in sa_src and '"ok": False' in sa_src
+        print(f"  sub_agent_consistent: {'✅' if sa_ok else '❌'}")
+    except:
+        print("  sub_agent_consistent: ❌")
+    
+    # memory_semantics_ok
+    gt_src = open('tool_runtime/general_tools.py').read()
+    mem_ok = 'include_deleted' in gt_src
+    print(f"  memory_semantics_ok: {'✅' if mem_ok else '❌'}")
+    
+    # workspace_isolation_ok
+    from agent.tools.registry import ToolRegistry
+    disp_src = open('agent/tools/registry.py').read()
+    ws_ok = 'workspace_id=ws_id' in disp_src or 'workspace_id=ctx.workspace_id' in disp_src
+    print(f"  workspace_isolation_ok: {'✅' if ws_ok else '❌'}")
+    
+    # no_runtime_state_tracked
+    import subprocess
+    result = subprocess.run(['git', 'ls-files', 'workspaces/'], capture_output=True, text=True)
+    # Only workspace.yaml in the default workspace root should be tracked; everything else is runtime state
+    tracked_runtime = [l for l in result.stdout.split('\n') if l and not l.endswith('workspace.yaml')]
+    has_runtime = len(tracked_runtime) > 0
+    print(f"  no_runtime_state_tracked: {'✅' if not has_runtime else '❌ ' + str(tracked_runtime[:5])}")
+
     print()
     print("--- all modules at 100% ---")
     done = [

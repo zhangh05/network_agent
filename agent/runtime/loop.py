@@ -286,12 +286,19 @@ def run_turn(session, turn, services=None, restricted_tool_router=None) -> Agent
     audit_trace = services.audit_service["trace"] if services and hasattr(services, 'audit_service') and services.audit_service else None
 
     # Generate fallback trace_id at start of turn (context_builder also generates one)
-    _fallback_trace_id = str(uuid.uuid4())
+    from agent.runtime.query_engine import build_trace_id, StreamEmitter, StreamEvent, classify_error
+    emitter = StreamEmitter()
+    _fallback_trace_id = build_trace_id()
 
     # 1. audit: turn_started
     if audit_events:
         audit_events.emit("turn_started", session_id=session.session_id, turn_id=turn.turn_id,
                           user_input=turn.op.user_input if turn.op else "")
+    emitter.emit(StreamEvent.RUN_STARTED, {
+        "session_id": session.session_id,
+        "turn_id": turn.turn_id,
+        "trace_id": _fallback_trace_id,
+    })
 
     turn.status = "running"
 
@@ -301,6 +308,9 @@ def run_turn(session, turn, services=None, restricted_tool_router=None) -> Agent
     # Ensure trace_id is always available (context_builder sets it, but ensure fallback)
     if not getattr(context, 'trace_id', None):
         context.trace_id = _fallback_trace_id
+
+    # Store emitter on context so helper functions can emit events
+    context._stream_emitter = emitter
 
     # ── Phase 3: Restricted tool router for sub-agents ──
     if restricted_tool_router is not None:
@@ -380,7 +390,27 @@ def run_turn(session, turn, services=None, restricted_tool_router=None) -> Agent
             _check_token_limit(messages, context, session, turn, step)
             
             # ── v2.1: PRE_MODEL hook ──
-            _run_pre_model_hook(session, messages, tools, context, step)
+            if _run_pre_model_hook(session, messages, tools, context, step):
+                # Hook blocked the LLM call — return error
+                emitter.emit(StreamEvent.ERROR, {"error_type": "pre_model_blocked", "error": "PRE_MODEL hook denied LLM call"})
+                turn.status = "failed"
+                turn.warnings.append("pre_model_blocked: LLM call blocked by hook")
+                _blocked = AgentResult(
+                    ok=False,
+                    final_response="请求被系统策略拒绝，请联系管理员检查 hook 配置。",
+                    session_id=session.session_id,
+                    turn_id=turn.turn_id,
+                    trace_id=context.trace_id,
+                    error_type="permission_denied",
+                    events=emitter.to_events(),
+                    metadata=_enrich_metadata({
+                        "hook_event": "pre_model_blocked",
+                    }, context),
+                )
+                _persist_run_record(session, turn, _blocked, context)
+                return _blocked
+
+            emitter.emit(StreamEvent.MODEL_STARTED, {"step": step, "message_count": len(messages), "tool_count": len(tools)})
 
             resp = invoke_llm(
                 task="assistant_chat",
@@ -389,11 +419,14 @@ def run_turn(session, turn, services=None, restricted_tool_router=None) -> Agent
                 safe_context=context.safe_context,
                 user_input=context.user_input,
             )
-            # ── v2.1: POST_MODEL hook ──
-            _run_post_model_hook(session, resp, context, step)
+            # ── v2.1: POST_MODEL hook (may modify response content) ──
+            modified = _run_post_model_hook(session, resp, context, step)
+            if modified:
+                resp.content = modified
         except TokenLimitExceeded as e:
             # ── v2.1: ON_ERROR hook (token limit) ──
             _run_error_hook(session, "token_limit", {"error": str(e), "estimated": e.estimated, "max_context": e.max_context}, context)
+            emitter.emit(StreamEvent.ERROR, {"error_type": ErrorType.TOKEN_LIMIT, "error": str(e)})
             turn.status = "failed"
             turn.warnings.append(f"token_limit_exceeded: {e}")
             if audit_events:
@@ -406,6 +439,8 @@ def run_turn(session, turn, services=None, restricted_tool_router=None) -> Agent
                 turn_id=turn.turn_id,
                 tool_calls=all_tool_results,
                 warnings=turn.warnings,
+                error_type=classify_error(e),
+                events=emitter.to_events(),
                 metadata=_enrich_metadata({
                     "estimated_tokens": e.estimated,
                     "max_context_tokens": e.max_context,
@@ -417,6 +452,7 @@ def run_turn(session, turn, services=None, restricted_tool_router=None) -> Agent
         except Exception as e:
             # ── v2.1: ON_ERROR hook (general exception) ──
             _run_error_hook(session, "llm_invoke_error", {"error": str(e)[:200]}, context)
+            emitter.emit(StreamEvent.ERROR, {"error_type": classify_error(e), "error": str(e)[:200]})
             error_str = str(e)[:200]
             is_timeout = "timeout" in error_str.lower() or "timed out" in error_str.lower()
             if audit_events:
@@ -436,7 +472,8 @@ def run_turn(session, turn, services=None, restricted_tool_router=None) -> Agent
                 final_response=user_msg,
                 session_id=session.session_id, turn_id=turn.turn_id, trace_id=context.trace_id,
                 errors=[error_str],
-                events=_collect_events(audit_events, turn.turn_id),
+                error_type=classify_error(e),
+                events=emitter.to_events(),
                 metadata=_enrich_metadata({"provider_error_type": "provider_timeout" if is_timeout else "provider_error",
                           "retryable": is_timeout}, context),
             )
@@ -544,6 +581,7 @@ def run_turn(session, turn, services=None, restricted_tool_router=None) -> Agent
                 if audit_events:
                     audit_events.emit("tool_call_started", session_id=session.session_id, turn_id=turn.turn_id,
                                       tool_id=tool_call.real_tool_id)
+                emitter.emit(StreamEvent.TOOL_CALL, {"tool_id": tool_call.real_tool_id, "step": step})
                 if audit_trace:
                     audit_trace.record_tool_call(turn.turn_id, step, tool_call.real_tool_id, str(tool_call.arguments)[:100])
 
@@ -574,9 +612,53 @@ def run_turn(session, turn, services=None, restricted_tool_router=None) -> Agent
                         if hook_input and isinstance(hook_input, dict):
                             tool_call.arguments.update(hook_input)
 
-                        # ── 4. Approval gate for high-risk tools ──
+                        # ── 3.5 Permission Matrix check ──
                         spec = context.tool_router.registry.get(tool_call.real_tool_id) if hasattr(context.tool_router, 'registry') else None
-                        is_high_risk = spec and getattr(spec, 'risk_level', 'low') == 'high'
+                        risk_level = getattr(spec, 'risk_level', 'low') if spec else 'low'
+                        pm_denied = False
+                        if risk_level == 'high':
+                            APPROVED_HIGH_RISK = {"shell.exec", "powershell.exec", "python.exec"}
+                            if tool_call.real_tool_id not in APPROVED_HIGH_RISK:
+                                from agent.runtime.permission_matrix import PermissionMatrix, PermissionAction, PermissionDecision
+                                pm = PermissionMatrix()
+                                action = pm.action_for_tool(tool_call.real_tool_id)
+                                spec_check = spec
+                                if spec_check and getattr(spec_check, 'risk_level', 'low') in ('medium',):
+                                    action = PermissionAction.WRITE
+                                decision = pm.check(tool_call.real_tool_id, action, context, spec=spec)
+                                if decision == PermissionDecision.DENY:
+                                    result = ToolResult(
+                                        ok=False,
+                                        summary=f"Permission denied for {tool_call.real_tool_id}",
+                                        errors=["permission_denied"],
+                                    )
+                                    if audit_events:
+                                        audit_events.emit("tool_call_failed", session_id=session.session_id,
+                                                          turn_id=turn.turn_id,
+                                                          tool_id=tool_call.real_tool_id, errors=result.errors)
+                                    if audit_trace:
+                                        audit_trace.record_tool_result(turn.turn_id, step,
+                                                                       tool_call.real_tool_id, False, result.summary)
+                                    pm_denied = True
+
+                        if pm_denied:
+                            # Skip dispatch entirely — append denied result and continue
+                            all_tool_results.append(_to_standard_tool_call(
+                                tool_call.call_id, tool_call.real_tool_id, result
+                            ))
+                            tool_msg = ToolResultMessage(
+                                content=json.dumps({
+                                    "ok": False,
+                                    "error": result.errors[0] if result.errors else "Permission denied",
+                                    "hint": "Do not retry this tool call."
+                                }, ensure_ascii=False)[:500],
+                                tool_call_id=tc.id if hasattr(tc, 'id') else tc.get("id", ""),
+                            )
+                            messages.append(tool_msg.to_llm_message())
+                            continue
+
+                        # ── 4. Approval gate for high-risk tools ──
+                        is_high_risk = risk_level == 'high'
                         approval_denied = False
                         if is_high_risk:
                             from agent.approval import get_approval_store
@@ -592,6 +674,7 @@ def run_turn(session, turn, services=None, restricted_tool_router=None) -> Agent
                                 audit_events.emit("approval_required", session_id=session.session_id,
                                                   turn_id=turn.turn_id, approval_id=apr.approval_id,
                                                   tool_id=apr.tool_id)
+                            emitter.emit(StreamEvent.APPROVAL_REQUIRED, {"approval_id": apr.approval_id, "tool_id": apr.tool_id})
                             _run_approval_hook(session, "required", apr.approval_id, apr.tool_id, context)
                             allowed = store.wait(apr.approval_id, timeout=120.0)
                             store.cleanup(apr.approval_id)
@@ -632,6 +715,11 @@ def run_turn(session, turn, services=None, restricted_tool_router=None) -> Agent
                             if audit_trace:
                                 audit_trace.record_tool_result(turn.turn_id, step,
                                                                tool_call.real_tool_id, result.ok, result.summary)
+                            emitter.emit(StreamEvent.TOOL_RESULT, {
+                                "tool_id": tool_call.real_tool_id,
+                                "ok": result.ok if hasattr(result, 'ok') else False,
+                                "summary": (result.summary if hasattr(result, 'summary') else str(result))[:200],
+                            })
                             tool_executed = True
 
                             # ── 7. Post-tool hook exactly once ──
@@ -746,6 +834,9 @@ def run_turn(session, turn, services=None, restricted_tool_router=None) -> Agent
         turn.status = "finished"
         turn.final_response = final_response
 
+        emitter.emit(StreamEvent.FINAL, {"final_response": final_response[:200]})
+        stream_events = emitter.to_events()
+
         result = AgentResult(
             ok=True,
             final_response=final_response,
@@ -754,7 +845,7 @@ def run_turn(session, turn, services=None, restricted_tool_router=None) -> Agent
             trace_id=context.trace_id,
             tool_calls=all_tool_results,
             warnings=turn.warnings,
-            events=_collect_events(audit_events, turn.turn_id),
+            events=stream_events,
             metadata=_enrich_metadata({
                 "model": context.model_config.get("model", ""),
                 "steps": step,
@@ -794,6 +885,8 @@ def run_turn(session, turn, services=None, restricted_tool_router=None) -> Agent
     if audit_events:
         audit_events.emit("turn_finished", session_id=session.session_id, turn_id=turn.turn_id,
                           warning="max_steps exceeded")
+    emitter.emit(StreamEvent.ERROR, {"error_type": "max_steps", "steps": MAX_STEPS})
+    stream_events = emitter.to_events()
     _partial = AgentResult(
         ok=True,
         final_response=f"[partial] {_build_partial_answer(all_tool_results)}",
@@ -801,7 +894,7 @@ def run_turn(session, turn, services=None, restricted_tool_router=None) -> Agent
         turn_id=turn.turn_id,
         trace_id=context.trace_id,
         warnings=[f"max_steps ({MAX_STEPS}) reached — partial result"],
-        events=_collect_events(audit_events, turn.turn_id),
+        events=stream_events,
         metadata=_enrich_metadata({
             "terminal_reason": "max_steps_exceeded",
             "partial": True,
@@ -1227,34 +1320,44 @@ def _run_stop_hooks(session):
 # ─── v2.1 Additional hook helpers ──────────────────────────────────
 
 def _run_pre_model_hook(session, messages, tools, context, step):
-    """Run PRE_MODEL hook before each LLM call."""
+    """Run PRE_MODEL hook before each LLM call.
+
+    Returns True if the LLM call should be blocked (hook denied).
+    """
     try:
         from agent.hooks_integration import get_hook_registry
         registry = get_hook_registry()
         if not registry._hooks:
-            return
+            return False
         state = _build_hook_state(session, context)
         from agent.hooks import HookEvent
-        registry.run_hooks(
+        outcome = registry.run_hooks(
             HookEvent.PRE_MODEL,
             state,
             {"message_count": len(messages), "tool_count": len(tools), "step": step},
             target="assistant_chat",
         )
+        # If hook blocks (is_denied), return True to skip LLM call
+        if outcome.is_denied:
+            return True
+        return False
     except Exception:
-        pass
+        return False
 
 
 def _run_post_model_hook(session, resp, context, step):
-    """Run POST_MODEL hook after each LLM response."""
+    """Run POST_MODEL hook after each LLM response.
+
+    Returns modified content string if hook modified the response, else None.
+    """
     try:
         from agent.hooks_integration import get_hook_registry
         registry = get_hook_registry()
         if not registry._hooks:
-            return
+            return None
         state = _build_hook_state(session, context)
         from agent.hooks import HookEvent
-        registry.run_hooks(
+        outcome = registry.run_hooks(
             HookEvent.POST_MODEL,
             state,
             {
@@ -1262,11 +1365,16 @@ def _run_post_model_hook(session, resp, context, step):
                 "has_content": bool(getattr(resp, 'content', '')),
                 "has_tool_calls": resp.has_tool_calls() if hasattr(resp, 'has_tool_calls') else False,
                 "finish_reason": getattr(resp, 'finish_reason', ''),
+                "response": getattr(resp, 'content', ''),
             },
             target="assistant_chat",
         )
+        # If hook modified content, return it
+        if outcome.updated_input and isinstance(outcome.updated_input, str):
+            return outcome.updated_input
+        return None
     except Exception:
-        pass
+        return None
 
 
 def _run_error_hook(session, error_type: str, error_data: dict, context=None):
@@ -1352,6 +1460,14 @@ def _check_token_limit(messages, context, session, turn, step):
                         )
                 except Exception:
                     pass
+                # Emit COMPACT stream event
+                emitter = getattr(context, '_stream_emitter', None)
+                if emitter:
+                    emitter.emit(StreamEvent.COMPACT, {
+                        "compacted_message_count": meta.get("compacted_message_count", 0),
+                        "original_estimated_tokens": meta.get("original_estimated_tokens", 0),
+                        "compacted_estimated_tokens": meta.get("compacted_estimated_tokens", 0),
+                    })
 
         # ── Hard limit after compact ──
         estimated = estimate_messages(messages)

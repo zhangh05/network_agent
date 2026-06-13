@@ -101,30 +101,21 @@ class TestSkillLoad:
         assert "not found" in str(result.get("error", ""))
 
     def test_skill_load_returns_skill_prompt(self):
-        # Create a test skill first
-        _invoke("skill.create", {
-            "name": "load-test-skill",
-            "description": "Skill for load testing",
-        })
-        result = _invoke("skill.load", {"skill_name": "load-test-skill"})
+        result = _invoke("skill.load", {"skill_name": "config_translation"})
         assert result["ok"] is True, f"skill.load should succeed, got: {result}"
-        assert result.get("skill_name") == "load-test-skill"
-        assert result.get("skill_prompt") is not None
-        assert len(result.get("skill_prompt", "")) > 0
+        assert result.get("skill_name") == "config_translation"
+        assert result.get("prompt_length") is not None
+        assert result.get("prompt_length", 0) > 0
         assert result.get("loaded_at") is not None
 
     def test_skill_load_does_not_directly_inject(self):
         """skill.load returns skill_prompt but does NOT inject into system prompt.
         The context builder reads it from session metadata independently.
         """
-        _invoke("skill.create", {
-            "name": "load-no-inject",
-            "description": "Verify no direct injection",
-        })
-        result = _invoke("skill.load", {"skill_name": "load-no-inject"})
+        result = _invoke("skill.load", {"skill_name": "config_translation"})
         # Just returns the content, doesn't call any injection logic
         assert result["ok"] is True
-        assert "skill_prompt" in result
+        assert "prompt_length" in result
         # The returned result does NOT include an "injected" flag
         assert "injected" not in result
 

@@ -118,25 +118,34 @@ def _cmd_help(args: str, session_id: Optional[str], context: Optional[dict]) -> 
 
 
 def _cmd_tools(args: str, session_id: Optional[str], context: Optional[dict]) -> str:
-    """List visible tools."""
+    """List model-visible tools (filtered, not all)."""
     try:
         from agent.runtime.services import default_runtime_services
         services = default_runtime_services()
-        tools = services.tool_service.registry.list_all()
+        tools = services.tool_service.registry.list_model_visible()
     except Exception:
-        return "Tool registry not available."
+        return _format_command_result({
+            "ok": False, "status": "error", "command": "tools",
+            "result": "", "errors": ["Tool registry not available."],
+            "warnings": [], "metadata": {},
+        })
 
     if args.strip():
-        # Filter by keyword
         keyword = args.strip().lower()
         tools = [t for t in tools if keyword in t.tool_id.lower() or keyword in (t.description or "").lower()]
 
-    lines = ["# Visible Tools\n"]
+    lines = ["# Model-Visible Tools\n"]
     for t in tools[:50]:
         risk = getattr(t, 'risk_level', '?')
         lines.append(f"  {t.tool_id} [{risk}] — {getattr(t, 'description', '')[:100]}")
-    lines.append(f"\nTotal: {len(tools)} tools shown.")
-    return "\n".join(lines)
+    lines.append(f"\nTotal: {len(tools)} model-visible tools.")
+
+    return _format_command_result({
+        "ok": True, "status": "ok", "command": "tools",
+        "result": "\n".join(lines),
+        "errors": [], "warnings": [],
+        "metadata": {"tool_count": len(tools), "filtered": bool(args.strip())},
+    })
 
 
 def _cmd_skills(args: str, session_id: Optional[str], context: Optional[dict]) -> str:
@@ -240,33 +249,95 @@ def _cmd_sessions(args: str, session_id: Optional[str], context: Optional[dict])
 def _cmd_compact(args: str, session_id: Optional[str], context: Optional[dict]) -> str:
     """Trigger manual context compaction."""
     try:
-        from agent.runtime.context_compactor import should_compact, compact_messages
-        # Manual compact is a trigger — actual execution requires loop context
-        return (
-            "Manual compact requested. The next turn will compact context if needed.\n"
-            "Note: compaction runs automatically when token limits are approached.\n"
-            "Use /usage to check current token consumption."
+        from agent.runtime.context_compactor import compact_messages
+        # Build a minimal messages list from session history for compaction
+        messages = []
+        if session_id:
+            try:
+                from workspace.message_store import SessionMessageStore
+                ws_id = (context or {}).get("workspace_id", "default")
+                store = SessionMessageStore(session_id=session_id, ws_id=ws_id)
+                if store.exists():
+                    window = store.get_history_window(k=16)
+                    for m in window:
+                        if m.get("role") == "user":
+                            messages.append({"role": "user", "content": m.get("content", "")})
+                        elif m.get("role") == "assistant":
+                            messages.append({"role": "assistant", "content": m.get("content", "")})
+            except Exception:
+                pass
+        if not messages:
+            return _format_command_result({
+                "ok": True, "status": "ok", "command": "compact",
+                "result": "No messages to compact.",
+                "errors": [], "warnings": ["no_messages"],
+                "metadata": {},
+            })
+        compacted, meta = compact_messages(messages, keep_recent=6)
+        result_text = (
+            f"Compacted {meta.get('compacted_message_count', 0)} messages. "
+            f"Tokens: {meta.get('original_estimated_tokens', '?')} → {meta.get('compacted_estimated_tokens', '?')}."
         )
+        return _format_command_result({
+            "ok": True, "status": "ok", "command": "compact",
+            "result": result_text,
+            "errors": [], "warnings": [],
+            "metadata": {
+                "compacted": meta.get("compacted", False),
+                "compacted_message_count": meta.get("compacted_message_count", 0),
+                "original_estimated_tokens": meta.get("original_estimated_tokens", 0),
+                "compacted_estimated_tokens": meta.get("compacted_estimated_tokens", 0),
+            },
+        })
     except Exception as e:
-        return f"Compact is not available: {e}"
+        return _format_command_result({
+            "ok": False, "status": "error", "command": "compact",
+            "result": "", "errors": [str(e)[:200]],
+            "warnings": [], "metadata": {},
+        })
 
 
 def _cmd_usage(args: str, session_id: Optional[str], context: Optional[dict]) -> str:
-    """Show token usage."""
+    """Show token usage stats."""
     try:
         from agent.runtime.token_tracker import estimate_messages
-        # Token usage requires access to the current TurnContext which
-        # is only available within a running turn. Provide guidance.
-        return (
-            "Token usage is tracked per-turn during execution.\n"
-            "To see current usage:\n"
-            "  - Check the response footer for token counts.\n"
-            "  - Use /context for session-level stats.\n"
-            "  - Default limits: 128K input, 16K output.\n"
-            "Compaction triggers automatically at 70% context utilization."
-        )
-    except Exception:
-        return "Token tracking not available."
+        ws_id = (context or {}).get("workspace_id", "default")
+        # Try to get real usage from token tracker
+        usage_stats = {}
+        try:
+            from agent.runtime.token_tracker import get_usage
+            usage_stats = get_usage(ws_id) or {}
+        except Exception:
+            pass
+
+        if usage_stats:
+            result_lines = [
+                f"Workspace: {ws_id}",
+                f"Total calls: {usage_stats.get('total_calls', 'N/A')}",
+                f"Total input tokens: {usage_stats.get('total_input_tokens', 'N/A')}",
+                f"Total output tokens: {usage_stats.get('total_output_tokens', 'N/A')}",
+                f"Max context: {usage_stats.get('max_context_tokens', 128000)}",
+            ]
+            result_text = "Token Usage:\n" + "\n".join(result_lines)
+        else:
+            result_text = (
+                "Token usage is tracked per-turn during execution.\n"
+                "Default limits: 128K input, 16K output.\n"
+                "Compaction triggers automatically at 70% context utilization."
+            )
+
+        return _format_command_result({
+            "ok": True, "status": "ok", "command": "usage",
+            "result": result_text,
+            "errors": [], "warnings": [],
+            "metadata": usage_stats or {"note": "no usage stats available"},
+        })
+    except Exception as e:
+        return _format_command_result({
+            "ok": False, "status": "error", "command": "usage",
+            "result": "", "errors": [str(e)[:200]],
+            "warnings": [], "metadata": {},
+        })
 
 
 def _cmd_agent(args: str, session_id: Optional[str], context: Optional[dict]) -> str:
@@ -289,22 +360,119 @@ def _cmd_agent(args: str, session_id: Optional[str], context: Optional[dict]) ->
 
 
 def _cmd_reset(args: str, session_id: Optional[str], context: Optional[dict]) -> str:
-    """Reset conversation (clear history)."""
+    """Reset conversation (archive current session, clear history)."""
     ws_id = (context or {}).get("workspace_id", "default")
-    return (
-        f"Reset requested for session {session_id or 'current'}.\n"
-        f"Note: Full session reset requires creating a new session via session.create.\n"
-        f"To start fresh: create a new session in workspace '{ws_id}'."
-    )
+    if not session_id:
+        return _format_command_result({
+            "ok": False, "status": "error", "command": "reset",
+            "result": "", "errors": ["No session to reset. session_id is required."],
+            "warnings": [], "metadata": {},
+        })
+    try:
+        from workspace.message_store import SessionMessageStore
+        store = SessionMessageStore(session_id=session_id, ws_id=ws_id)
+        # Mark existing messages as archived (don't delete)
+        if store.exists():
+            archived_count = store.archive_all() or len(store.get_history_window(k=200))
+        else:
+            archived_count = 0
+        # Also update session store to mark as archived
+        try:
+            from workspace.session_store import archive_session
+            archive_session(ws_id, session_id)
+        except Exception:
+            pass
+
+        return _format_command_result({
+            "ok": True, "status": "ok", "command": "reset",
+            "result": f"Session {session_id} reset. {archived_count} messages archived.",
+            "errors": [], "warnings": [],
+            "metadata": {"archived_count": archived_count, "session_id": session_id},
+        })
+    except Exception as e:
+        return _format_command_result({
+            "ok": False, "status": "error", "command": "reset",
+            "result": "", "errors": [str(e)[:200]],
+            "warnings": [], "metadata": {},
+        })
 
 
 def _cmd_export(args: str, session_id: Optional[str], context: Optional[dict]) -> str:
-    """Export session."""
+    """Export session to JSON."""
     ws_id = (context or {}).get("workspace_id", "default")
-    return (
-        f"Export requested for session {session_id or 'current'}.\n"
-        f"Use session.export tool with session_id='{session_id or ''}' to export as JSON or markdown."
-    )
+    if not session_id:
+        return _format_command_result({
+            "ok": False, "status": "error", "command": "export",
+            "result": "", "errors": ["No session to export. session_id is required."],
+            "warnings": [], "metadata": {},
+        })
+    try:
+        from workspace.session_store import get_session
+        session = get_session(session_id, ws_id)
+        if not session:
+            return _format_command_result({
+                "ok": False, "status": "error", "command": "export",
+                "result": "", "errors": [f"Session {session_id} not found."],
+                "warnings": [], "metadata": {},
+            })
+        messages = session.get("messages", [])
+        export_data = {
+            "session_id": session_id,
+            "workspace_id": ws_id,
+            "title": session.get("title", ""),
+            "status": session.get("status", "active"),
+            "created_at": session.get("created_at", ""),
+            "updated_at": session.get("updated_at", ""),
+            "message_count": len(messages),
+            "messages": [
+                {"role": m.get("role", ""), "content": str(m.get("content", ""))[:1000]}
+                for m in messages[:50]
+            ],
+        }
+        import json
+        formatted = json.dumps(export_data, ensure_ascii=False, indent=2)
+        return _format_command_result({
+            "ok": True, "status": "ok", "command": "export",
+            "result": formatted,
+            "errors": [], "warnings": [],
+            "metadata": {"message_count": len(messages), "truncated": len(messages) > 50},
+        })
+    except Exception as e:
+        return _format_command_result({
+            "ok": False, "status": "error", "command": "export",
+            "result": "", "errors": [str(e)[:200]],
+            "warnings": [], "metadata": {},
+        })
+
+
+def _format_command_result(structured: dict) -> str:
+    """Format a structured command result into a readable string.
+
+    Args:
+        structured: Dict with ok, status, command, result, errors, warnings, metadata.
+
+    Returns:
+        Formatted markdown string suitable for display.
+    """
+    lines = [f"# /{structured.get('command', 'unknown')}\n"]
+    lines.append(f"Status: {structured.get('status', 'unknown')}")
+    lines.append(f"OK: {structured.get('ok', False)}")
+
+    if structured.get("errors"):
+        lines.append(f"\nErrors: {', '.join(structured['errors'])}")
+    if structured.get("warnings"):
+        lines.append(f"\nWarnings: {', '.join(structured['warnings'])}")
+
+    result = structured.get("result", "")
+    if result:
+        lines.append(f"\n{result}")
+
+    meta = structured.get("metadata", {})
+    if meta:
+        meta_lines = [f"  {k}: {v}" for k, v in meta.items()]
+        lines.append(f"\nMetadata:\n" + "\n".join(meta_lines))
+
+    return "\n".join(lines)
 
 
 # ═══════════════════════════

@@ -119,10 +119,23 @@ class ToolRegistry:
                 return {"ok": False, "status": "failed", "summary": f"Tool not found: {tool_id}",
                         "errors": [f"tool_not_found: {tool_id}"]}
             from tool_runtime.schemas import ToolInvocation
+            # Extract real workspace context — no more hardcoded defaults
+            ws_id = "default"
+            run_id = ""
+            job_id = ""
+            session_id = ""
+            requested_by = "agent"
+            if context:
+                ws_id = getattr(context, 'workspace_id', 'default') or 'default'
+                run_id = getattr(context, 'turn_id', '') or getattr(context, 'run_id', '') or ''
+                job_id = getattr(context, 'job_id', '') or ''
+                session_id = getattr(context, 'session_id', '') or ''
+                requested_by = getattr(context, 'requested_by', 'agent') or 'agent'
             inv = ToolInvocation(
                 tool_id=tool_id, arguments=args,
-                workspace_id="default", run_id="", job_id="",
-                dry_run=False, requested_by="agent",
+                workspace_id=ws_id, run_id=run_id, job_id=job_id,
+                session_id=session_id,
+                dry_run=False, requested_by=requested_by,
             )
             raw = handler(inv)
             if isinstance(raw, dict):

@@ -59,6 +59,21 @@ def _result(ok: bool, output: dict = None) -> dict:
     return {**(output or {}), "ok": ok}
 
 
+def _generate_diff_preview(old: str, new: str, max_lines: int = 6) -> str:
+    """Generate a compact diff preview for file edit operations."""
+    old_lines = old.strip().split("\n")
+    new_lines = new.strip().split("\n")
+    preview = []
+    # Show first few lines of old and new side by side
+    for i in range(min(len(old_lines), len(new_lines), max_lines)):
+        if old_lines[i] != new_lines[i]:
+            preview.append(f"- {old_lines[i]}")
+            preview.append(f"+ {new_lines[i]}")
+        else:
+            preview.append(f"  {old_lines[i]}")
+    return "\n".join(preview)
+
+
 # ═══════════════ A. Artifact Tools ═══════════════
 
 def handle_artifact_search(inv: ToolInvocation) -> dict:
@@ -333,6 +348,16 @@ def _is_private_url(url: str) -> bool:
         return True
     for prefix in _PRIVATE_IP_PREFIXES:
         if host.startswith(prefix):
+            return True
+    return False
+
+
+def _is_private_ip(ip: str) -> bool:
+    """Check if an IP address is private or loopback."""
+    if ip in ("127.0.0.1", "::1", "0.0.0.0", "localhost"):
+        return True
+    for prefix in _PRIVATE_IP_PREFIXES:
+        if ip.startswith(prefix):
             return True
     return False
 
@@ -1137,13 +1162,56 @@ def handle_web_fetch_summary(inv: ToolInvocation) -> dict:
         return _error("url is required")
     if _is_private_url(url):
         return _error("blocked: private/local network URLs not allowed")
+
+    # ── DNS resolution safety check ──
+    try:
+        from urllib.parse import urlparse
+        import socket
+        parsed = urlparse(url)
+        hostname = parsed.hostname
+        if hostname:
+            resolved_ip = socket.gethostbyname(hostname)
+            if _is_private_ip(resolved_ip):
+                return _error(f"blocked: resolved IP {resolved_ip} is private/loopback")
+    except Exception:
+        pass  # DNS resolution failure doesn't block; proceed
+
+    # ── Simple cache: same URL within 60s returns cached result ──
+    cache_key = url.lower().strip()
+    _now = time.time()
+    if not hasattr(handle_web_fetch_summary, '_cache'):
+        handle_web_fetch_summary._cache = {}
+    if cache_key in handle_web_fetch_summary._cache:
+        cached_at, cached_result = handle_web_fetch_summary._cache[cache_key]
+        if _now - cached_at < 60:
+            cached_result["cached"] = True
+            cached_result["cached_at"] = cached_at
+            return cached_result
+
     try:
         import requests
         headers = {
             "User-Agent": "NetworkAgent/0.2",
             "Accept-Language": "zh-CN,zh;q=0.9,en;q=0.8",
         }
-        resp = requests.get(url, timeout=10, headers=headers)
+        resp = requests.get(url, timeout=10, headers=headers, allow_redirects=True)
+
+        # ── Redirect re-validation ──
+        redirect_url = url
+        if resp.history:
+            final_url = resp.url
+            redirect_url = final_url
+            if _is_private_url(final_url):
+                return _error("blocked: redirect target is private/local network URL")
+            try:
+                final_host = urlparse(final_url).hostname
+                if final_host:
+                    final_ip = socket.gethostbyname(final_host)
+                    if _is_private_ip(final_ip):
+                        return _error(f"blocked: redirect target resolved to private IP {final_ip}")
+            except Exception:
+                pass
+
         if resp.status_code != 200:
             return _error(f"HTTP {resp.status_code}")
         _fix_encoding(resp)
@@ -1159,14 +1227,23 @@ def handle_web_fetch_summary(inv: ToolInvocation) -> dict:
                 "warnings": ["web_fetch_empty_readable_text"],
                 "next_actions": ["换用更具体的公开网页 URL，或先用 web.extract_links 找正文页面。"],
             })
-        return _ok({
+        result = _ok({
             "url": url,
             "title": _extract_title(html),
             "summary": _safe_preview(text, 800),
             "text_length": len(html),
             "status_code": resp.status_code,
             "source_type": "web_fetch",
+            "redirected": url != redirect_url,
+            "final_url": redirect_url if url != redirect_url else "",
         })
+        # Cache the result
+        handle_web_fetch_summary._cache[cache_key] = (_now, result)
+        # Limit cache size
+        if len(handle_web_fetch_summary._cache) > 100:
+            oldest = min(handle_web_fetch_summary._cache, key=lambda k: handle_web_fetch_summary._cache[k][0])
+            del handle_web_fetch_summary._cache[oldest]
+        return result
     except Exception as e:
         return _error(str(e)[:200])
 
@@ -1530,8 +1607,7 @@ def handle_skill_list(inv: ToolInvocation) -> dict:
 def handle_skill_request_load(inv: ToolInvocation) -> dict:
     """Request loading a skill — records the request but does NOT inject system prompt.
 
-    Phase 2 placeholder: returns requested=true but message says
-    "runtime-controlled skill loading is not implemented yet."
+    skill.load is the preferred way to activate skills.
     """
     args = inv.arguments
     skill_name = str(args.get("skill_name", "")).strip()
@@ -1569,7 +1645,7 @@ def handle_skill_request_load(inv: ToolInvocation) -> dict:
     return _ok({
         "requested": True,
         "skill_name": skill_name,
-        "message": "runtime-controlled skill loading is not implemented yet; request recorded",
+        "message": "skill.load is the preferred way to activate skills; this request has been recorded",
     })
 
 
@@ -1579,6 +1655,11 @@ def handle_skill_load(inv: ToolInvocation) -> dict:
 
     Does NOT directly inject into system prompt — the context builder reads
     loaded skills from session metadata via skill_snapshot.
+
+    Safety gates:
+    - Blocks pending_review skills
+    - Blocks skills matching high-risk patterns (exec, shell, powershell)
+    - Stores loaded_skills in ctx.metadata for session-scoped persistence
     """
     import time as _time
     args = inv.arguments
@@ -1594,6 +1675,11 @@ def handle_skill_load(inv: ToolInvocation) -> dict:
     if not safe_name:
         return _error(f"invalid skill_name: {skill_name}")
 
+    # ── High-risk pattern check ──
+    HIGH_RISK_PATTERNS = {"exec", "shell", "powershell", "command.exec", "command_exec"}
+    if safe_name.lower() in HIGH_RISK_PATTERNS or any(p in safe_name.lower() for p in HIGH_RISK_PATTERNS):
+        return _error(f"skill '{safe_name}' matches high-risk pattern — loading blocked")
+
     # Check skill exists in skills/ directory
     skills_dir = ROOT / "skills"
     skill_dir = skills_dir / safe_name
@@ -1602,13 +1688,27 @@ def handle_skill_load(inv: ToolInvocation) -> dict:
     if not skill_dir.is_dir() or safe_name.startswith("."):
         return _error(f"skill '{safe_name}' not found in skills directory")
 
+    # ── Status gate: block pending_review skills ──
+    yaml_path = skill_dir / "skill.yaml"
+    skill_status = "unknown"
+    if yaml_path.is_file():
+        try:
+            import yaml
+            with open(yaml_path, encoding="utf-8") as fy:
+                yaml_data = yaml.safe_load(fy)
+            skill_status = str(yaml_data.get("status", "unknown"))
+        except Exception:
+            pass
+    if skill_status == "pending_review":
+        return _error(f"skill '{safe_name}' has status=pending_review — must be reviewed before loading")
+
     # Read SKILL.md content
     try:
         skill_prompt = md_path.read_text(encoding="utf-8")
     except Exception as e:
         return _error(f"failed to read SKILL.md: {str(e)[:200]}")
 
-    # Record loaded skill in session metadata (best-effort)
+    # Record loaded skill in session metadata
     loaded_at = _time.strftime("%Y-%m-%dT%H:%M:%S")
     try:
         session_meta_path = WS_ROOT / ws / "sessions" / sid / "meta.json"
@@ -1621,14 +1721,14 @@ def handle_skill_load(inv: ToolInvocation) -> dict:
                     meta = _json.loads(session_meta_path.read_text(encoding="utf-8"))
                 except Exception:
                     pass
-            loaded_skills = meta.setdefault("loaded_skills", [])
-            # Remove previous entry for same skill
-            loaded_skills = [s for s in loaded_skills if s.get("skill_name") != safe_name]
-            loaded_skills.append({
-                "skill_name": safe_name,
+            loaded_skills = meta.setdefault("loaded_skills", {})
+            if not isinstance(loaded_skills, dict):
+                loaded_skills = {}
+            # Store skill_prompt truncated to 3000 chars
+            loaded_skills[safe_name] = {
+                "skill_prompt": skill_prompt[:3000],
                 "loaded_at": loaded_at,
-                "skill_prompt_length": len(skill_prompt),
-            })
+            }
             meta["loaded_skills"] = loaded_skills
             session_meta_path.write_text(_json.dumps(meta, ensure_ascii=False, indent=2), encoding="utf-8")
     except Exception:
@@ -1636,9 +1736,8 @@ def handle_skill_load(inv: ToolInvocation) -> dict:
 
     return _ok({
         "skill_name": safe_name,
-        "skill_prompt": skill_prompt,
         "loaded_at": loaded_at,
-        "skill_prompt_length": len(skill_prompt),
+        "prompt_length": len(skill_prompt),
     })
 
 
@@ -1839,7 +1938,7 @@ def handle_skill_inspect(inv: ToolInvocation) -> dict:
 def handle_pdf_extract_text(inv: ToolInvocation) -> dict:
     """Extract text from a workspace PDF file.
 
-    Uses PyPDF2 if available. Otherwise returns planned status.
+    Uses PyPDF2 if available. Validates PDF format, file size, and page range.
     """
     args = inv.arguments
     ws = args.get("workspace_id", "default")
@@ -1864,7 +1963,28 @@ def handle_pdf_extract_text(inv: ToolInvocation) -> dict:
 
     file_size = target.stat().st_size
 
-    # Parse page range
+    # ── File size limit (10MB) ──
+    MAX_PDF_SIZE = 10 * 1024 * 1024
+    if file_size > MAX_PDF_SIZE:
+        return _result(False, {
+            "ok": False,
+            "error": f"PDF file too large ({file_size} bytes, max {MAX_PDF_SIZE})",
+        })
+
+    # ── Validate PDF format: must start with %PDF ──
+    try:
+        with open(target, "rb") as f:
+            header = f.read(4)
+        if not header.startswith(b"%PDF"):
+            return _result(False, {
+                "ok": False,
+                "error": "not a PDF file",
+                "file_size": file_size,
+            })
+    except Exception:
+        return _error("not a PDF file")
+
+    # ── Parse and validate page range ──
     start_page = None
     end_page = None
     if page_range:
@@ -1878,8 +1998,13 @@ def handle_pdf_extract_text(inv: ToolInvocation) -> dict:
                 end_page = int(parts[1].strip()) - 1
         except (ValueError, IndexError):
             return _error(f"invalid page_range format: {page_range}. Use e.g. '1-3' or '5'")
+        # Validate range
+        if start_page is not None and (start_page < 0 or end_page < start_page):
+            return _error(f"invalid page_range: start must be >= 1 and <= end")
+        if end_page is not None and start_page is not None and (end_page - start_page >= 100):
+            return _error(f"page_range too large: max 100 pages. Got {end_page - start_page + 1}")
 
-    # Try to import PyPDF2
+    # ── Try to import PyPDF2 ──
     try:
         import PyPDF2  # noqa: F811
         _method = "pypdf2"
@@ -1889,38 +2014,11 @@ def handle_pdf_extract_text(inv: ToolInvocation) -> dict:
             PyPDF2 = pypdf
             _method = "pypdf2"
         except ImportError:
-            # Text fallback: try reading the PDF as raw text
-            try:
-                raw_text = target.read_text(encoding="utf-8", errors="replace")
-                if raw_text.strip():
-                    return _ok({
-                        "text": raw_text[:50000],
-                        "page_count": 1,
-                        "file_size": file_size,
-                        "char_count": len(raw_text),
-                        "method": "text_fallback",
-                    })
-            except Exception:
-                pass
-            try:
-                raw_text = target.read_text(encoding="latin-1", errors="replace")
-                if raw_text.strip():
-                    return _ok({
-                        "text": raw_text[:50000],
-                        "page_count": 1,
-                        "file_size": file_size,
-                        "char_count": len(raw_text),
-                        "method": "text_fallback",
-                    })
-            except Exception:
-                pass
-            return _ok({
-                "ok": True,
-                "text": "",
-                "page_count": 1,
+            # No PyPDF2 available — return dependency missing, no text fallback
+            return _result(False, {
+                "ok": False,
+                "error": "pdf dependency missing (PyPDF2 not installed)",
                 "file_size": file_size,
-                "method": "none",
-                "message": "PDF text extraction is not available: PyPDF2 not installed and text fallback produced no readable text.",
             })
 
     try:
@@ -2026,11 +2124,15 @@ def handle_memory_list(inv: ToolInvocation) -> dict:
         # Phase 2 filtering
         status_filter = args.get("status", "")
         session_filter = args.get("session_id", "")
+        include_deleted = bool(args.get("include_deleted", False))
         summaries = []
         for r in results:
             meta = (r.get("metadata") or {})
             mem_status = meta.get("status", "confirmed") if isinstance(meta, dict) else "confirmed"
             mem_sid = meta.get("session_id", "") if isinstance(meta, dict) else ""
+            # Exclude deleted entries by default
+            if mem_status == "deleted" and not include_deleted:
+                continue
             if status_filter and mem_status != status_filter:
                 continue
             if session_filter and mem_sid != session_filter:
@@ -2053,9 +2155,12 @@ def handle_memory_list(inv: ToolInvocation) -> dict:
 
 
 def handle_memory_confirm(inv: ToolInvocation) -> dict:
-    """Confirm a pending_confirmation memory entry. Phase 2: status-only update.
+    """Confirm a pending_confirmation memory entry.
 
-    Does not rebuild RAG index — only updates the in-store status.
+    Updates the in-store status to 'confirmed'. Does not rebuild RAG index —
+    no project_to_knowledge / _update_rag function exists in memory/writer.py.
+    If such a projection is added in the future, it should be called best-effort
+    after the status update below.
     """
     args = inv.arguments
     memory_id = str(args.get("memory_id", "")).strip()
@@ -2079,6 +2184,16 @@ def handle_memory_confirm(inv: ToolInvocation) -> dict:
         else:
             meta = {"status": "confirmed"}
         store.update_metadata(memory_id, meta)
+
+        # Best-effort RAG projection (documented: no project_to_knowledge yet)
+        # try:
+        #     from memory.writer import project_to_knowledge
+        #     content = entry.get("content", "")
+        #     if content:
+        #         project_to_knowledge(memory_id, content)
+        # except Exception:
+        #     pass
+
         return _ok({"memory_id": memory_id, "status": "confirmed", "already_confirmed": False})
     except Exception as e:
         return _error(str(e)[:200])
@@ -2145,7 +2260,7 @@ def handle_memory_set_profile(inv: ToolInvocation) -> dict:
 
 
 def handle_memory_update(inv: ToolInvocation) -> dict:
-    """Update an existing memory entry's content. Checks for secrets before writing."""
+    """Update an existing memory entry's content field directly (not just metadata)."""
     args = inv.arguments
     memory_id = str(args.get("memory_id", "")).strip()
     content = str(args.get("content", "")).strip()
@@ -2162,12 +2277,15 @@ def handle_memory_update(inv: ToolInvocation) -> dict:
         entry = store.get(memory_id)
         if not entry:
             return _error(f"memory_id not found: {memory_id}")
+        # Update the actual content field, not just metadata
+        entry["content"] = content
+        # Also update metadata timestamp
         meta = (entry.get("metadata") or {})
         if not isinstance(meta, dict):
             meta = {}
         meta["updated_at"] = time.strftime("%Y-%m-%dT%H:%M:%S")
         meta["status"] = "updated"
-        meta["content"] = content
+        entry["metadata"] = meta
         store.update_metadata(memory_id, meta)
         return _ok({"memory_id": memory_id, "updated": True})
     except Exception as e:
@@ -2522,7 +2640,11 @@ def handle_file_read(inv: ToolInvocation) -> dict:
         with open(target, "rb") as f:
             head = f.read(1024)
         if b"\x00" in head:
-            return _error("binary file not supported")
+            return _result(False, {
+                "ok": False,
+                "error": "binary file cannot be read as text",
+                "file_size": target.stat().st_size,
+            })
         content = target.read_text(encoding="utf-8", errors="replace")
         preview = content[:limit]
         return _ok({
@@ -2559,15 +2681,21 @@ def handle_file_edit(inv: ToolInvocation) -> dict:
             new_content = content.replace(old_string, new_string, 1)
         if new_content == content:
             return _ok({"lines_changed": 0, "note": "no changes made"})
+        # Generate preview/diff before writing
+        diff_preview = _generate_diff_preview(old_string, new_string)
         target.write_text(new_content, encoding="utf-8")
         lines_changed = abs(new_content.count("\n") - content.count("\n")) or count
-        return _ok({"lines_changed": lines_changed, "replacements": count})
+        return _ok({
+            "lines_changed": lines_changed,
+            "replacements": count,
+            "preview": diff_preview,
+        })
     except Exception as e:
         return _error(str(e)[:200])
 
 
 def handle_file_patch(inv: ToolInvocation) -> dict:
-    """Apply a unified diff patch to a workspace file."""
+    """Apply a unified diff patch to a workspace file. Writes to temp first, then renames."""
     ws = inv.arguments.get("workspace_id", "default")
     filepath = inv.arguments.get("filepath", "")
     patch_text = inv.arguments.get("patch_text", "")
@@ -2607,8 +2735,15 @@ def handle_file_patch(inv: ToolInvocation) -> dict:
                     new_lines.append(line[1:] + "\n")
             result_lines[old_start:old_start + old_count] = new_lines
         new_content = "".join(result_lines)
-        target.write_text(new_content, encoding="utf-8")
-        return _ok({"lines_added": lines_added, "lines_removed": lines_removed})
+        # Write to temp file first, then atomically rename to avoid half-written state
+        temp_path = target.with_suffix(target.suffix + ".patch_tmp")
+        temp_path.write_text(new_content, encoding="utf-8")
+        temp_path.replace(target)
+        return _ok({
+            "lines_added": lines_added,
+            "lines_removed": lines_removed,
+            "diff_preview": _generate_diff_preview(original[:500], new_content[:500]),
+        })
     except Exception as e:
         return _error(str(e)[:200])
 
@@ -3832,8 +3967,8 @@ _reg("agent.get_result", "Get Sub-Agent Result", "session", "low",
      "Get the result of a previously spawned sub-agent by its child_session_id.",
      handle_agent_get_result)
 _reg("agent.team", "Multi-Agent Team", "session", "medium",
-     "Multi-agent team with planner/worker/reviewer roles. Planner breaks tasks down, "
-     "worker executes them, reviewer (optional) reviews worker output. "
+     "PREVIEW: demo implementation only. Multi-agent team with planner/worker/reviewer roles. "
+     "Planner breaks tasks down, worker executes them, reviewer (optional) reviews worker output. "
      "Max 3 agents, max 2 turns each. High-risk tools forbidden.",
      handle_agent_team)
 

@@ -165,7 +165,7 @@ def build_turn_context(session, turn, services) -> TurnContext:
     try:
         bundle = build_context_bundle(
             workspace_id=ctx.workspace_id,
-            user_input=user_input,
+            user_input=user_msg,
             intent=ctx.metadata.get("intent", ""),
             capability_id=ctx.metadata.get("capability_id", ""),
             budget=ContextBudget(),
@@ -173,9 +173,10 @@ def build_turn_context(session, turn, services) -> TurnContext:
             trace_id=ctx.trace_id,
         )
         ctx.safe_context = _safe_context_from_bundle(bundle, ctx)
-    except Exception:
+    except Exception as e:
         # Fallback to minimal context if full bundle build fails
         ctx.safe_context = {"workspace_id": ctx.workspace_id, "session_id": ctx.session_id}
+        ctx.metadata.setdefault("context_errors", []).append(str(e)[:200])
 
     # v1.0.3: store selected_skills and visible_tools in ctx.metadata
     # so loop.py can include them in AgentResult.metadata.

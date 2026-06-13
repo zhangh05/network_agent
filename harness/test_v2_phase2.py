@@ -24,7 +24,7 @@ class TestSkillRequestLoad:
         result = handle_skill_request_load(inv)
         assert result["ok"]
         assert result.get("requested") is True
-        assert "not implemented yet" in result.get("message", "")
+        assert "skill.load is the preferred way to activate skills" in result.get("message", "")
 
     def test_nonexistent_skill_returns_error(self):
         from tool_runtime.general_tools import handle_skill_request_load

@@ -29,6 +29,10 @@ workspaces/_runtime/
 workspaces/*/memory/profile.json
 workspaces/*/skill_requests.jsonl
 workspaces/*/temp/
+workspaces/*/knowledge/
+workspaces/*/output/
+workspaces/*/test.txt
+workspaces/default/workspace.yaml
 # Exclude test workspaces entirely
 workspaces/test/
 workspaces/test_p2/

@@ -60,6 +60,30 @@ V02_APPROVED_EXEC_TOOLS = {
 from tool_runtime.schemas import V02_ALLOWED_CATEGORIES
 
 
+# ── Safe Command Allowlist ──
+# Commands whose first word is in this set are marked as safe-cmd
+# (still subject to high-risk approval gates for exec tools).
+SAFE_COMMAND_ALLOWLIST = {
+    "ls", "pwd", "cat", "head", "tail", "grep",
+    "python", "git",
+}
+
+
+def is_safe_command_first_word(command: str) -> bool:
+    """Check if the first word of a command is in the safe allowlist.
+
+    Args:
+        command: Full shell command string.
+
+    Returns:
+        True if the first word is in SAFE_COMMAND_ALLOWLIST.
+    """
+    if not command or not command.strip():
+        return False
+    first_word = command.strip().split(maxsplit=1)[0]
+    return first_word in SAFE_COMMAND_ALLOWLIST
+
+
 class ToolPolicy:
     """Stateless policy checker for Tool Runtime v0.2.
 

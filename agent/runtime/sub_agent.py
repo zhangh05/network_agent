@@ -124,15 +124,30 @@ def run_sub_agent(instruction: str, workspace_id: str,
         if t not in FORBIDDEN_FOR_SUB_AGENT
     ]
 
+    # ── PermissionMatrix filter: remove any tool that would be denied ──
+    try:
+        from agent.runtime.permission_matrix import PermissionMatrix, PermissionAction, PermissionDecision
+        pm = PermissionMatrix()
+        filtered_allowlist = []
+        for tid in tool_allowlist:
+            action = pm.action_for_tool(tid)
+            decision = pm.check(tid, action, context=None, spec=None)
+            if decision != PermissionDecision.DENY:
+                filtered_allowlist.append(tid)
+        tool_allowlist = filtered_allowlist
+    except Exception:
+        pass  # If PermissionMatrix import fails, keep original allowlist
+
     # ── Create child session ──
     try:
         from workspace.session_store import create_session
         child_session_id = uuid.uuid4().hex[:16]
-        create_session(ws_id=workspace_id, title=f"sub_agent_{child_run_id}")
+        create_session(ws_id=workspace_id, session_id=child_session_id, title=f"sub_agent_{child_run_id}")
     except Exception:
         child_session_id = None
 
-    child_session_id = child_session_id or f"sub_{child_run_id}"
+    if not child_session_id:
+        child_session_id = f"sub_{child_run_id}"
 
     # ── Build restricted ToolRouter using the full agent registry ──
     tool_router = None
@@ -172,6 +187,7 @@ def run_sub_agent(instruction: str, workspace_id: str,
     tool_calls_count = 0
     steps = 0
     final_response = ""
+    sub_ok = True
 
     try:
         from agent.core.session import AgentSession
@@ -204,26 +220,30 @@ def run_sub_agent(instruction: str, workspace_id: str,
         if result and hasattr(result, "final_response"):
             final_response = result.final_response or ""
             tool_calls_count = len(result.tool_calls) if hasattr(result, 'tool_calls') and result.tool_calls else 0
+            sub_ok = getattr(result, 'ok', True)
+            # Use actual turn count if available from result metadata
+            steps = getattr(result, 'metadata', {}).get('steps', 1) if hasattr(result, 'metadata') else 1
         elif isinstance(result, dict):
             final_response = result.get("final_response", "")
             tool_calls_count = len(result.get("tool_calls", []))
+            sub_ok = result.get("ok", True)
+            steps = result.get("metadata", {}).get("steps", 1)
         else:
             final_response = str(result)
 
-        steps = 1  # Single turn count
-
     except Exception as e:
+        sub_ok = False
         final_response = f"Sub-agent execution failed: {str(e)[:500]}"
 
     return {
-        "ok": True,
+        "ok": sub_ok,
         "final_response": final_response,
         "tool_calls_count": tool_calls_count,
         "steps": steps,
         "parent_run_id": parent_run_id,
         "child_run_id": child_run_id,
         "child_session_id": child_session_id,
-        "visible_tools_count": len(visible_tool_ids),
+        "visible_tool_ids": visible_tool_ids,
     }
 
 
