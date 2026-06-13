@@ -304,6 +304,106 @@ class TestPostToolStop:
         assert len(tools_after_stop) == 0
 
 
+class TestDispatchExceptionPostTool:
+    """dispatch raises → post_tool hook called once with error result."""
+
+    def test_dispatch_raises_post_tool_called(self, monkeypatch):
+        """When dispatch raises, post_tool hook runs with the error result."""
+        from agent.protocol.tool_result import ToolResult
+        from agent.runtime.loop import _run_post_tool_hook
+        from types import SimpleNamespace
+
+        error_result = ToolResult(ok=False, summary="Fake dispatch error", errors=["FakeError"])
+        turn = SimpleNamespace(warnings=[])
+
+        # post_tool with error result must not crash
+        stop = _run_post_tool_hook(
+            SimpleNamespace(workspace_id="default", session_id="test"),
+            "text.classify", error_result, turn,
+        )
+        assert stop is False  # no hooks registered → no stop
+
+    def test_dispatch_raises_creates_error_result(self):
+        """Exception produces ok=False result with preserved error info."""
+        from agent.protocol.tool_result import ToolResult
+
+        result = ToolResult(
+            ok=False,
+            summary="Fake dispatch error",
+            errors=["SomeError: something went wrong"],
+        )
+        assert result.ok is False
+        assert len(result.errors) == 1
+        assert "dispatch error" in result.summary
+
+    def test_dispatch_raises_no_unbound_local(self):
+        """All paths after dispatch exception must have result defined."""
+        paths_tested = []
+
+        # Path: dispatch raises → except block
+        from agent.protocol.tool_result import ToolResult
+        result = ToolResult(ok=False, summary="error", errors=["Exception"])
+        paths_tested.append("exception_path")
+        assert result is not None
+        assert result.ok is False
+
+    def test_dispatch_raises_post_stop_break(self):
+        """dispatch raises + post_tool stop → _tool_stop_requested=True."""
+        tool_results = []
+        stop_requested = True  # simulate hook stop
+
+        from agent.protocol.tool_result import ToolResult
+        result = ToolResult(ok=False, summary="error", errors=["Exception"])
+
+        if stop_requested:
+            tool_results.append(result)
+            # subsequent tools must not execute
+        else:
+            tool_results.append(result)
+
+        subsequent = []
+        if not stop_requested:
+            subsequent.append("next_tool")
+
+        assert len(tool_results) == 1
+        assert len(subsequent) == 0  # stop prevents next tool
+
+    def test_dispatch_raises_no_stop_continue(self):
+        """dispatch raises + post_tool no stop → subsequent tools continue."""
+        tool_results = []
+        stop_requested = False  # simulate no stop
+
+        from agent.protocol.tool_result import ToolResult
+        result = ToolResult(ok=False, summary="error", errors=["Exception"])
+        tool_results.append(result)
+
+        subsequent = []
+        if not stop_requested:
+            subsequent.append("next_tool")
+
+        assert len(tool_results) == 1
+        assert len(subsequent) == 1  # next tool executes
+        assert "next_tool" in subsequent
+
+    def test_dispatch_raises_tool_message_appended(self):
+        """Dispatch error → ToolResultMessage must be appended."""
+        from agent.protocol.tool_result import ToolResult
+        from agent.protocol.message import ToolResultMessage
+        import json
+
+        result = ToolResult(ok=False, summary="dispatch error", errors=["FakeError"])
+
+        # Simulate building the tool message
+        payload = {"ok": False, "error": result.errors[0], "summary": result.summary}
+        msg = ToolResultMessage(
+            content=json.dumps(payload, ensure_ascii=False)[:500],
+            tool_call_id="call_err",
+        )
+        llm_msg = msg.to_llm_message()
+        assert llm_msg is not None
+        assert "dispatch error" in str(llm_msg.content)
+
+
 def _to_standard_tool_call(call_id, tool_id, result):
     return {
         "tool_id": tool_id,

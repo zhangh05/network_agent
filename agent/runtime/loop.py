@@ -670,6 +670,27 @@ def run_turn(session, turn, services=None, restricted_tool_router=None) -> Agent
                                                        tool_call.real_tool_id, False, str(e)[:100])
                     tool_executed = True  # we have a result
 
+                    # ── 7. Post-tool hook even for dispatch errors ──
+                    post_stop = _run_post_tool_hook(session, tool_call.real_tool_id, result, turn)
+                    if post_stop:
+                        turn.warnings.append(
+                            f"post_tool_stop: {tool_call.real_tool_id} stopped by hook after error"
+                        )
+                        all_tool_results.append(_to_standard_tool_call(
+                            tool_call.call_id, tool_call.real_tool_id, result
+                        ))
+                        tool_msg = ToolResultMessage(
+                            content=json.dumps({
+                                "ok": False,
+                                "error": result.errors[0] if result.errors else "Tool execution failed",
+                                "summary": result.summary if hasattr(result, 'summary') else str(e)[:200],
+                            }, ensure_ascii=False)[:500],
+                            tool_call_id=tc.id,
+                        )
+                        messages.append(tool_msg.to_llm_message())
+                        _tool_stop_requested = True
+                        continue  # skip normal append below
+
                 # ── 8. Append result + tool message for LLM (skip if post_tool stop already appended) ──
                 if _tool_stop_requested and tool_executed:
                     continue
