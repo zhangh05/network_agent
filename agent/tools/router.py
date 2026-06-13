@@ -166,6 +166,19 @@ class ToolRouter:
                 raw = delegate(tool_call, context)
                 if isinstance(raw, ToolResult):
                     return raw
+                # v0.9.1: delegate returns tool_runtime.schemas.ToolResult
+                # which has status (not ok) + output (not top-level fields).
+                if hasattr(raw, "status") and hasattr(raw, "output"):
+                    output = getattr(raw, "output", {}) or {}
+                    if isinstance(output, dict):
+                        return ToolResult.from_legacy_dict(
+                            tool_id=tool_call.real_tool_id,
+                            call_id=tool_call.call_id,
+                            d={**output, "summary": getattr(raw, "summary", output.get("summary", "")),
+                               "errors": list(getattr(raw, "errors", []) or []),
+                               "warnings": list(getattr(raw, "warnings", []) or []),
+                               "artifacts": list(getattr(raw, "artifact_ids", []) or [])},
+                        )
             else:
                 raw = self.registry.dispatch(tool_call.real_tool_id, tool_call.arguments, context)
             if isinstance(raw, dict):
