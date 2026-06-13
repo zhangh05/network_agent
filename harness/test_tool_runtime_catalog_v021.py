@@ -134,7 +134,7 @@ class TestCatalogEndpoint:
         high = [t for t in data["tools"] if t["risk_level"] == "high"]
         assert len(high) == 2
         for t in high:
-            assert not t["enabled"], f"{t['tool_id']} should be disabled"
+            assert t["enabled"], f"{t['tool_id']} should be enabled"
             assert t["requires_approval"], f"{t['tool_id']} should require approval"
 
     def test_high_risk_tools_in_catalog(self):

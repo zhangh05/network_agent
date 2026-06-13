@@ -661,10 +661,132 @@ def _web_no_results_hint(query: str) -> str:
     """Return a user-friendly hint when no web results are found."""
     q = query.lower()
     if any(w in q for w in ("天气", "weather", "气温", "温度")):
-        return "天气类查询建议使用 weather.current 工具（规划中），或直接询问知识库。"
+        return "天气类查询可改用 weather.current / weather.forecast，或换更具体的城市和日期重试。"
     if any(w in q for w in ("新闻", "news", "最新", "今日")):
-        return "实时新闻建议使用 news.search 工具（规划中）。"
+        return "实时新闻可改用 news.search，或加入来源/时间/领域关键词重试。"
     return "搜索服务没有返回可用结果。我可以基于通用知识回答；如需实时内容，请更换搜索源或尝试更具体的关键词。"
+
+
+def handle_weather_current(inv: ToolInvocation) -> dict:
+    """Current-weather lookup backed by the public web search provider."""
+    args = inv.arguments
+    location = (args.get("location") or "").strip()
+    if not location:
+        return _error("location is required")
+    language = (args.get("language") or "zh-CN").strip() or "zh-CN"
+    units = (args.get("units") or "metric").strip().lower()
+    query = f"{location} current weather temperature humidity wind"
+    out = handle_web_search(ToolInvocation(
+        tool_id="web.search",
+        arguments={
+            "query": query,
+            "top_k": _coerce_int(args.get("top_k", 5), default=5, min_value=1, max_value=10),
+            "recency": args.get("recency", "day"),
+            "language": language,
+            "safe_search": args.get("safe_search", "moderate"),
+        },
+        workspace_id=inv.workspace_id,
+        run_id=inv.run_id,
+        job_id=inv.job_id,
+        dry_run=inv.dry_run,
+        requested_by=inv.requested_by,
+        approval_id=inv.approval_id,
+    ))
+    return _decorate_realtime_search_result(
+        out,
+        tool_id="weather.current",
+        query=query,
+        tool_fallback="web.search",
+        extra={"location": location, "units": units, "language": language},
+    )
+
+
+def handle_weather_forecast(inv: ToolInvocation) -> dict:
+    """Weather forecast lookup backed by the public web search provider."""
+    args = inv.arguments
+    location = (args.get("location") or "").strip()
+    if not location:
+        return _error("location is required")
+    days = _coerce_int(args.get("days", 3), default=3, min_value=1, max_value=10)
+    language = (args.get("language") or "zh-CN").strip() or "zh-CN"
+    units = (args.get("units") or "metric").strip().lower()
+    query = f"{location} {days} day weather forecast"
+    out = handle_web_search(ToolInvocation(
+        tool_id="web.search",
+        arguments={
+            "query": query,
+            "top_k": _coerce_int(args.get("top_k", 5), default=5, min_value=1, max_value=10),
+            "recency": args.get("recency", "day"),
+            "language": language,
+            "safe_search": args.get("safe_search", "moderate"),
+        },
+        workspace_id=inv.workspace_id,
+        run_id=inv.run_id,
+        job_id=inv.job_id,
+        dry_run=inv.dry_run,
+        requested_by=inv.requested_by,
+        approval_id=inv.approval_id,
+    ))
+    return _decorate_realtime_search_result(
+        out,
+        tool_id="weather.forecast",
+        query=query,
+        tool_fallback="web.search",
+        extra={"location": location, "days": days, "units": units, "language": language},
+    )
+
+
+def handle_news_search(inv: ToolInvocation) -> dict:
+    """News lookup backed by the public web search provider."""
+    args = inv.arguments
+    query = (args.get("query") or "").strip()
+    if not query:
+        return _error("query is required")
+    recency = (args.get("recency") or "day").strip().lower()
+    language = (args.get("language") or "zh-CN").strip() or "zh-CN"
+    out = handle_web_search(ToolInvocation(
+        tool_id="web.search",
+        arguments={
+            "query": query,
+            "top_k": _coerce_int(args.get("top_k", args.get("limit", 5)), default=5, min_value=1, max_value=10),
+            "site": args.get("site", ""),
+            "domains": args.get("domains", []),
+            "recency": recency,
+            "language": language,
+            "safe_search": args.get("safe_search", "moderate"),
+        },
+        workspace_id=inv.workspace_id,
+        run_id=inv.run_id,
+        job_id=inv.job_id,
+        dry_run=inv.dry_run,
+        requested_by=inv.requested_by,
+        approval_id=inv.approval_id,
+    ))
+    return _decorate_realtime_search_result(
+        out,
+        tool_id="news.search",
+        query=query,
+        tool_fallback="web.search",
+        extra={"recency": recency, "language": language},
+    )
+
+
+def _decorate_realtime_search_result(out: dict, *, tool_id: str, query: str,
+                                     tool_fallback: str, extra: dict) -> dict:
+    result = dict(out or {})
+    result.setdefault("ok", False)
+    result["tool_id"] = tool_id
+    result["tool_fallback"] = tool_fallback
+    result["query"] = result.get("query") or query
+    result["source_type"] = "public_web_realtime"
+    result["metadata"] = {**extra, "backing_tool": tool_fallback}
+    if result.get("ok"):
+        result.setdefault("summary", f"{tool_id} returned public web results")
+        result.setdefault("warnings", [])
+    else:
+        result.setdefault("warnings", [])
+        result["warnings"] = list(result["warnings"]) + ["backed_by_public_web_search"]
+    return result
 
 
 def handle_web_fetch_summary(inv: ToolInvocation) -> dict:
@@ -1357,6 +1479,27 @@ GENERAL_TOOL_INPUT_SCHEMAS = {
     }, ["query"]),
     "web.extract_links": _schema({"url": S["url"]}, ["url"]),
     "web.save_to_artifact": _schema({"workspace_id": S["workspace_id"], "url": S["url"], "title": S["title"]}, ["url"]),
+    "weather.current": _schema({
+        "location": {"type": "string", "description": "City, region, or site name, e.g. Shanghai or San Jose, CA."},
+        "units": {"type": "string", "enum": ["metric", "imperial"], "default": "metric"},
+        "language": {"type": "string", "description": "Preferred result language/region, e.g. zh-CN or en-US.", "default": "zh-CN"},
+        "top_k": S["limit"],
+    }, ["location"]),
+    "weather.forecast": _schema({
+        "location": {"type": "string", "description": "City, region, or site name, e.g. Shanghai or San Jose, CA."},
+        "days": {"type": "integer", "description": "Forecast horizon, 1-10 days.", "default": 3},
+        "units": {"type": "string", "enum": ["metric", "imperial"], "default": "metric"},
+        "language": {"type": "string", "description": "Preferred result language/region, e.g. zh-CN or en-US.", "default": "zh-CN"},
+        "top_k": S["limit"],
+    }, ["location"]),
+    "news.search": _schema({
+        "query": S["query"],
+        "top_k": S["limit"],
+        "site": {"type": "string", "description": "Optional comma-separated domains to restrict search."},
+        "domains": {"type": "array", "description": "Optional domain allowlist."},
+        "recency": {"type": "string", "enum": ["day", "week", "month", "year"], "default": "day"},
+        "language": {"type": "string", "description": "Preferred result language/region, e.g. zh-CN or en-US.", "default": "zh-CN"},
+    }, ["query"]),
 
     # Session / run / memory
     "session.list": _schema({"workspace_id": S["workspace_id"], "status": {"type": "string", "enum": ["active", "archived", "all"]}}),
@@ -1528,15 +1671,16 @@ _reg("run.list_recent", "Recent Runs", "session", "low",
 _reg("run.get_summary", "Run Summary", "session", "low",
      "Get run summary (no config)", handle_run_get_summary)
 
-# ── Planned: real-time data tools (not yet implemented) ──
-# These are registered as planned so the agent knows not to use them yet.
-# ── Planned: real-time data tools (registered disabled so agent can't call them) ──
+# ── Real-time data tools backed by public web search ──
 _reg("weather.current", "Current Weather", "web", "medium",
-     "Get current weather (planned — not yet available)", _planned_handler("weather"), enabled=False)
+     "Get current weather for a location using public web results. Medium risk because weather changes quickly; cite returned sources and avoid claiming sensor-grade precision.",
+     handle_weather_current)
 _reg("weather.forecast", "Weather Forecast", "web", "medium",
-     "Get weather forecast (planned — not yet available)", _planned_handler("weather forecast"), enabled=False)
+     "Get a short weather forecast for a location using public web results. Medium risk because forecasts change; cite returned sources and mention uncertainty.",
+     handle_weather_forecast)
 _reg("news.search", "News Search", "web", "medium",
-     "Search news (planned — not yet available)", _planned_handler("news search"), enabled=False)
+     "Search recent public news using web search with optional recency/domain filters. Medium risk because news can be incomplete or stale; compare sources before firm claims.",
+     handle_news_search)
 _reg("memory.search", "Memory Search", "session", "low",
      "Search memory store", handle_memory_search)
 
@@ -1594,13 +1738,13 @@ _reg("workspace.path_exists", "Path Exists", "workspace", "low",
 _reg("workspace.get_metadata", "Workspace Metadata", "workspace", "low",
      "Get workspace metadata", handle_ws_get_metadata)
 
-# ── I. Shell / PowerShell Tools (HIGH RISK, default disabled) ──
+# ── I. Shell / PowerShell Tools (HIGH RISK, approval gated) ──
 _reg("command.approved_exec", "Approved Command", "command", "high",
-     "Execute allowlisted command only (requires approval)",
-     handle_command_approved_exec, requires_approval=True, enabled=False)
+     "Execute only allowlisted read-only command_id values after explicit approval. Does not accept arbitrary shell strings; policy blocks missing approval_id, unknown ids, chaining, pipes, redirects, downloads, destructive operations, and sensitive paths.",
+     handle_command_approved_exec, requires_approval=True)
 _reg("powershell.approved_script", "Approved PowerShell", "powershell", "high",
-     "Execute allowlisted PowerShell script only (requires approval)",
-     handle_powershell_approved_script, requires_approval=True, enabled=False)
+     "Run only allowlisted read-only PowerShell script_id values after explicit approval. Does not accept arbitrary scripts; policy blocks missing approval_id, unknown ids, Invoke-Expression, downloads, execution-policy changes, chaining, pipes, redirects, and destructive operations.",
+     handle_powershell_approved_script, requires_approval=True)
 
 
 def register_all_general_tools(registry):

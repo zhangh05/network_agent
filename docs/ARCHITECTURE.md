@@ -84,6 +84,8 @@ There is one runtime capability truth source with multiple projections:
 - Legacy capability ids such as `config.translate` are accepted as lookup aliases, but runtime ids are canonical
 
 The runtime registry currently has 7 capabilities: 4 enabled and 3 planned.
+Detailed capability, ToolRuntime, and LLM-visible tool counts are tracked in
+`CAPABILITIES_AND_TOOLS.md`.
 
 ## Frontend
 

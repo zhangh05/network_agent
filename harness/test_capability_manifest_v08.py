@@ -343,15 +343,21 @@ class TestToolCount:
         # v1.0.1.1: knowledge.read_source is NOT in the visible whitelist
         assert "knowledge__read_source" not in names
 
-    def test_visible_tools_exclude_disabled_general_tools(self):
-        """High-risk tools (e.g. command.approved_exec) are kept in the
-        catalog but hidden from LLM (enabled=False). This is unchanged
-        from v0.7.1."""
+    def test_visible_tools_include_approval_gated_general_tools(self):
+        """High-risk approved tools are visible to the LLM.
+
+        They remain execution-gated by approval_id and allowlists instead of
+        being hidden from the model.
+        """
         from agent.runtime.services import default_runtime_services
         svc = default_runtime_services()
         tr = svc.tool_service
-        names = {t["function"]["name"] for t in tr.model_visible_tools()}
-        # The LLM-safe names for these are command__approved_exec and
-        # powershell__approved_script — they must NOT appear.
-        assert "command__approved_exec" not in names
-        assert "powershell__approved_script" not in names
+        tools = tr.model_visible_tools()
+        descriptions = {
+            t["function"]["name"]: t["function"]["description"]
+            for t in tools
+        }
+        assert "command__approved_exec" in descriptions
+        assert "powershell__approved_script" in descriptions
+        assert "risk=high" in descriptions["command__approved_exec"]
+        assert "approval=required" in descriptions["command__approved_exec"]

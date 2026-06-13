@@ -1,6 +1,8 @@
 # Capabilities And Tools
 
-This document reflects current source and runtime construction.
+This document reflects current source and runtime construction. It connects the
+runtime capability registry, ToolRuntime catalog, and LLM-visible ToolRouter
+surface.
 
 ## Runtime Capability Registry
 
@@ -39,17 +41,17 @@ Current public projection:
 Current runtime construction:
 
 - Registered tools: 76
-- Model-visible tools: 70
+- Model-visible tools: 75
 - Runtime capabilities: 7 total, 4 enabled, 3 planned
 
 Registered but not model-visible:
 
-- `weather.current`: disabled
-- `weather.forecast`: disabled
-- `news.search`: disabled
-- `command.approved_exec`: disabled high-risk runtime tool
-- `powershell.approved_script`: disabled high-risk runtime tool
 - `knowledge.read_source`: backend/admin callable, `callable_by_llm=False`
+
+Enabled model-visible runtime tools with extra execution gates:
+
+- `weather.current`, `weather.forecast`, and `news.search`: medium-risk real-time information tools backed by public Web search.
+- `command.approved_exec` and `powershell.approved_script`: high-risk approved execution surfaces. They are visible to the LLM, but policy requires `approval_id` and allowlisted `command_id` / `script_id`; arbitrary shell or PowerShell text is not accepted.
 
 ## Safety Rules
 
@@ -60,5 +62,5 @@ Registered but not model-visible:
 - LLM-visible tool descriptions include `tool_id`, `risk`, `source`, and `approval` metadata so the model sees the safety context before choosing a tool.
 - Capability tool handlers fail fast if their `handler_ref` cannot be resolved.
 - Capability tools override same-id general runtime tools when they define the active business contract.
-- High-risk runtime tools require approval state.
+- High-risk runtime tools are visible but require approval state and allowlisted ids before execution.
 - Real device access and config push are not exposed to the model.

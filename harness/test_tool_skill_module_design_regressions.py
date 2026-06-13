@@ -43,8 +43,8 @@ def _assert_full_visible_catalog_with_risk_metadata(ctx):
     assert "config_translation__translate_config" in names
     assert "artifact__list" in names
     assert "knowledge__query" in names
-    assert "command__approved_exec" not in names
-    assert "powershell__approved_script" not in names
+    assert "command__approved_exec" in names
+    assert "powershell__approved_script" in names
     assert "knowledge__read_source" not in names
 
     descriptions = _tool_descriptions(ctx)
@@ -52,6 +52,8 @@ def _assert_full_visible_catalog_with_risk_metadata(ctx):
     assert "risk=medium" in descriptions["web__search"]
     assert "source=runtime" in descriptions["web__search"]
     assert "approval=not_required" in descriptions["web__search"]
+    assert "risk=high" in descriptions["command__approved_exec"]
+    assert "approval=required" in descriptions["command__approved_exec"]
 
 
 def test_assistant_chat_turn_exposes_all_model_visible_tools_with_risk_metadata():

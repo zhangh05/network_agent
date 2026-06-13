@@ -57,7 +57,7 @@ class TestToolCount:
 class TestRiskLevels:
     """Verify risk level distribution and policy enforcement."""
 
-    def test_high_risk_default_disabled(self):
+    def test_high_risk_enabled_but_approval_gated(self):
         from backend.main import app
         app.testing = True
         client = app.test_client()
@@ -65,7 +65,8 @@ class TestRiskLevels:
         data = resp.get_json()
         for t in data["tools"]:
             if t["risk_level"] == "high":
-                assert not t["enabled"], f"{t['tool_id']} should be disabled by default"
+                assert t["enabled"], f"{t['tool_id']} should be callable by default"
+                assert t["requires_approval"], f"{t['tool_id']} should require approval"
 
     def test_high_risk_requires_approval(self):
         client = _get_client()
@@ -376,5 +377,6 @@ class TestNoRegression:
     def test_tool_count_not_expanded_arbitrarily(self):
         client = _get_client()
         tools = client.list_tools()
-        # 58 = 7 original + 48 general tools + 3 disabled planned web tools.
+        # 58 = 7 original + 51 general tools; real-time web and approved
+        # execution tools are enabled and policy-gated rather than hidden.
         assert len(tools) == 58, f"Expected exactly 58 tools, got {len(tools)}"

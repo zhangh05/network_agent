@@ -265,9 +265,6 @@ class TestPerTurnReApplication:
         assert tr.dynamic_visibility is False
         assert tr.allowed_tool_ids is None
         v3 = {t["function"]["name"] for t in tr.model_visible_tools()}
-        # v1.0.1.1 fallback: 70 visible (53 enabled general + 10 knowledge
-        # + 4 artifact + 2 review + 1 config_translation = 70; the
-        # pre-existing ToolRuntime tools with shared prefixes are
-        # counted only once; v1.0.1.1 set knowledge.read_source
-        # callable_by_llm=False).
-        assert len(v3) == 70
+        # Full model-visible catalog: all enabled runtime/capability tools
+        # except backend-only knowledge.read_source.
+        assert len(v3) == 75

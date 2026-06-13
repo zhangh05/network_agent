@@ -61,7 +61,7 @@ print(len(reg.list_all()), len(reg.list_model_visible()))
 PY
 ```
 
-Expected current output: `76 70`.
+Expected current output: `76 75`.
 
 Runtime capability count:
 

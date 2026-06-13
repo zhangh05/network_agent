@@ -50,6 +50,7 @@ class ToolSpec:
     writes_artifact: bool = False
     reads_artifact: bool = False
     requires_approval: bool = False
+    callable_by_llm: bool = True
     tags: list = field(default_factory=list)
 
     def __post_init__(self):
@@ -74,6 +75,7 @@ class ToolSpec:
             "writes_artifact": self.writes_artifact,
             "reads_artifact": self.reads_artifact,
             "requires_approval": self.requires_approval,
+            "callable_by_llm": self.callable_by_llm,
             "tags": self.tags,
         }
 

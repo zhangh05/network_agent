@@ -699,7 +699,7 @@ class TestDocContent:
     def test_no_claim_v02_is_done(self):
         with open(os.path.join(PROJECT_ROOT, "docs", "CAPABILITIES_AND_TOOLS.md")) as f:
             c = f.read()
-        assert "76" in c and "70" in c
+        assert "76" in c and "75" in c
 
 
 # ══════════════════════════════════════════════════
