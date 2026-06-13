@@ -1,5 +1,5 @@
 import { useMemo } from "react";
-import { capabilitiesApi } from "../../api";
+import { capabilitiesApi, registryApi } from "../../api";
 import { useAsync, AsyncView, Badge, InlineCode } from "../../components/common";
 import type { CapabilityManifest, CapabilityStatus, RiskLevel } from "../../types";
 import { IconBolt, IconShield } from "../../components/Icon";
@@ -30,10 +30,26 @@ const RISK_LABEL: Record<RiskLevel, string> = {
   forbidden: "禁止",
 };
 
+interface RegistrySummary {
+  moduleCount: number;
+  skillCount: number;
+}
+
 export function CapabilityCenter() {
   const list = useAsync<{ capabilities: CapabilityManifest[]; enabled: string[] }>((s) =>
     capabilitiesApi.manifest(s),
   );
+  const registry = useAsync<RegistrySummary>(async (s) => {
+    const [modules, skills] = await Promise.all([
+      registryApi.modules(s),
+      registryApi.skills(s),
+      registryApi.status(s),
+    ]);
+    return {
+      moduleCount: Array.isArray(modules.modules) ? modules.modules.length : 0,
+      skillCount: Array.isArray(skills.skills) ? skills.skills.length : 0,
+    };
+  });
 
   const counts = useMemo(() => {
     if (list.state.kind !== "success") {
@@ -79,6 +95,11 @@ export function CapabilityCenter() {
           <span className="status-pill" data-testid="cap-count-deployable">
             <IconBolt size={10} /> 涉及配置产物 {counts.deployable}
           </span>
+          {registry.state.kind === "success" && (
+            <span className="status-pill" data-testid="registry-counts">
+              Registry {registry.state.data.moduleCount} / {registry.state.data.skillCount}
+            </span>
+          )}
         </div>
       </div>
       <div className="page-body">

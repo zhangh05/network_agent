@@ -91,8 +91,13 @@ export interface RuntimeEvent {
   event_id: string;
   event_type: string;
   type?: string;
-  occurred_at: string;
-  payload: Record<string, unknown>;
+  name?: string;
+  status?: string;
+  summary?: string;
+  occurred_at?: string;
+  timestamp?: string;
+  payload?: Record<string, unknown>;
+  metadata?: Record<string, unknown>;
 }
 
 /* ──────────────────────────── Knowledge ──────────────────────────── */
@@ -110,6 +115,7 @@ export interface KnowledgeSource {
   tags: string[];
   enabled?: boolean;
   chunk_count: number;
+  total_size_bytes?: number;
   created_at: string;
   updated_at?: string;
   metadata?: Record<string, unknown>;

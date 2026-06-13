@@ -302,7 +302,7 @@ function ArtifactDetail({
       <div className="card mb-3" style={{ boxShadow: "none", padding: 14 }}>
         <div className="row-flex" style={{ gap: 10, flexWrap: "wrap", alignItems: "stretch" }}>
           <ArtifactFact label="这是什么" value={artifactWhat(artifact)} />
-          <ArtifactFact label="是否可直接下发" value="否，需要人工复核" tone="warn" />
+          <ArtifactFact label="使用状态" value="否，需要人工复核" tone="warn" />
           <ArtifactFact label="建议下一步" value="加入评审 / 生成说明 / 复制安全摘录" />
         </div>
         <details className="collapse mt-2">

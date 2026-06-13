@@ -82,7 +82,7 @@ describe("ArtifactCenter — artifact card", () => {
     const detail = await screen.findByTestId("artifact-detail");
     expect(detail.textContent).toContain("敏感");
     expect(detail.textContent).toContain("权威");
-    expect(detail.textContent).toContain("是否可直接下发");
+    expect(detail.textContent).toContain("使用状态");
     expect(detail.textContent).toContain("否，需要人工复核");
     // Preview tab lazy-fetches /content and renders the actual content.
     expect(detail.textContent).toContain("router ospf 1");

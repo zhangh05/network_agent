@@ -188,7 +188,12 @@ def register_workspace_routes(app):
         trace = get_trace(run_id, ws_id)
         if not trace:
             return jsonify({"ok": False, "error": "trace not found"}), 404
-        return jsonify({"ok": True, "events": trace.get("events", []), "run_id": trace.get("run_id", run_id)})
+        return jsonify({
+            "ok": True,
+            "trace": trace,
+            "events": trace.get("events", []),
+            "run_id": trace.get("run_id", run_id),
+        })
 
     @app.route("/api/workspaces/<ws_id>/traces")
     def api_workspace_traces(ws_id):
@@ -201,10 +206,25 @@ def register_workspace_routes(app):
     @app.route("/api/agent/runs/<run_id>/trace")
     def api_agent_run_trace(run_id):
         from observability.store import get_trace
-        trace = get_trace(run_id, "default")
+        ws_id = request.args.get("workspace_id", "default")
+        trace = get_trace(run_id, ws_id)
+        if not trace and ws_id == "default":
+            from workspace.manager import list_workspaces
+            for ws in list_workspaces():
+                candidate = ws.get("workspace_id") or ws.get("id") or ws.get("name")
+                if not candidate or candidate == "default":
+                    continue
+                trace = get_trace(run_id, candidate)
+                if trace:
+                    break
         if not trace:
             return jsonify({"ok": False, "error": "trace not found"}), 404
-        return jsonify({"ok": True, "events": trace.get("events", []), "run_id": trace.get("run_id", run_id)})
+        return jsonify({
+            "ok": True,
+            "trace": trace,
+            "events": trace.get("events", []),
+            "run_id": trace.get("run_id", run_id),
+        })
 
     # ── Reports / Export ──
     @app.route("/api/reports/create", methods=["POST"])

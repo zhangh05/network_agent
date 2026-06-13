@@ -20,7 +20,7 @@ interface ToastState {
 }
 
 let toastSeq = 0;
-export const useToastStore = create<ToastState>((set, get) => ({
+export const useToastStore = create<ToastState>((set) => ({
   messages: [],
   show: (msg) => {
     toastSeq += 1;

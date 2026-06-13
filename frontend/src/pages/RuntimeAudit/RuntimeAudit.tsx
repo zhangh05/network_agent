@@ -201,7 +201,8 @@ export function RuntimeAudit() {
                         const failedEv = trace.state.data.events.find(
                           (ev: any) => ev.event_type === "turn_failed" || ev.type === "turn_failed",
                         );
-                        const error = failedEv?.payload?.error || failedEv?.payload || "";
+                        const failedDetails = failedEv ? eventDetails(failedEv) : {};
+                        const error = failedDetails.error || failedEv?.summary || failedDetails || "";
                         // Extract timeout duration if available
                         const timeoutSecs = (() => {
                           const modelReq = trace.state.data.events.find(
@@ -210,9 +211,11 @@ export function RuntimeAudit() {
                           const modelResp = trace.state.data.events.find(
                             (ev: any) => ev.type === "model_response" || ev.event_type === "model_response",
                           );
-                          if (modelReq?.occurred_at && modelResp?.occurred_at) {
-                            const t0 = new Date(modelReq.occurred_at).getTime();
-                            const t1 = new Date(modelResp.occurred_at).getTime();
+                          const reqTime = modelReq ? eventTime(modelReq) : "";
+                          const respTime = modelResp ? eventTime(modelResp) : "";
+                          if (reqTime && respTime) {
+                            const t0 = new Date(reqTime).getTime();
+                            const t1 = new Date(respTime).getTime();
                             if (t0 && t1) return Math.round((t1 - t0) / 1000);
                           }
                           return null;
@@ -241,7 +244,8 @@ export function RuntimeAudit() {
                       })()}
                       {trace.state.data.events.map((ev) => {
                         const eventType = ev.event_type || ev.type || "unknown";
-                        const label = _eventLabel(eventType, ev.payload);
+                        const details = eventDetails(ev);
+                        const label = _eventLabel(eventType, details, ev);
                         const isOk = eventType !== "turn_failed";
                         return (
                         <div
@@ -254,12 +258,12 @@ export function RuntimeAudit() {
                               <span className={"status-dot " + (isOk ? "ok" : "err")} style={{ width: 8, height: 8 }} />
                               <span className="text-sm">{label}</span>
                             </span>
-                            <span className="muted text-xs mono">{ev.occurred_at}</span>
+                            <span className="muted text-xs mono">{eventTime(ev)}</span>
                           </div>
                           <details className="collapse mt-2">
                             <summary style={{ fontSize: 11, color: "var(--ink-mute)" }}>开发诊断 · {eventType}</summary>
                             <CodeBlock language="json">
-                              {JSON.stringify(ev.payload ?? {}, null, 2)}
+                              {JSON.stringify(details, null, 2)}
                             </CodeBlock>
                           </details>
                         </div>
@@ -290,7 +294,19 @@ function auditTime(turn: RuntimeAuditTurn): string {
   }
 }
 
-function _eventLabel(type: string, payload: Record<string, unknown>): string {
+function eventTime(ev: RuntimeAuditTurn["events"][number]): string {
+  return ev.occurred_at || ev.timestamp || "—";
+}
+
+function eventDetails(ev: RuntimeAuditTurn["events"][number]): Record<string, unknown> {
+  return ev.payload || ev.metadata || {};
+}
+
+function _eventLabel(
+  type: string,
+  payload: Record<string, unknown>,
+  ev?: RuntimeAuditTurn["events"][number],
+): string {
   const map: Record<string, string> = {
     turn_started: "开始处理请求",
     context_built: "构建上下文",
@@ -302,6 +318,15 @@ function _eventLabel(type: string, payload: Record<string, unknown>): string {
     assistant_message: "生成回复",
     turn_finished: "处理完成",
     turn_failed: `处理失败：${String(payload?.error || payload || "").slice(0, 60)}`,
+    agent_start: ev?.summary || "开始处理请求",
+    agent_end: ev?.summary || "处理完成",
+    node_start: `开始节点：${ev?.name || "?"}`,
+    node_end: `完成节点：${ev?.name || "?"}`,
+    intent_routed: ev?.summary || "完成意图路由",
+    skill_call_start: `开始技能：${ev?.name || "?"}`,
+    skill_call_end: `完成技能：${ev?.name || "?"}`,
+    module_call_start: `开始模块：${ev?.name || "?"}`,
+    module_call_end: `完成模块：${ev?.name || "?"}`,
   };
-  return map[type] || type;
+  return map[type] || ev?.summary || ev?.name || type;
 }

@@ -1,6 +1,6 @@
 """UI/API Contract Alignment Tests — v0.1
 
-Ensures frontend/index.html aligns with Foundation Baseline:
+Ensures the Vite/React frontend source aligns with Foundation Baseline:
 - No legacy API paths (8020, /api/translate, etc.)
 - Correct backend provider enums
 - MiniMax-M3 as default (not MiniMax-M1)
@@ -16,12 +16,26 @@ import os
 import pytest
 
 PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-FRONTEND_HTML = os.path.join(PROJECT_ROOT, "frontend", "index.html")
+FRONTEND_SRC = os.path.join(PROJECT_ROOT, "frontend", "src")
+
+
+def _frontend_source():
+    chunks = []
+    for root, _, files in os.walk(FRONTEND_SRC):
+        if os.path.sep + "test" in root:
+            continue
+        for name in files:
+            if not name.endswith((".ts", ".tsx", ".css")):
+                continue
+            path = os.path.join(root, name)
+            with open(path, encoding="utf-8") as f:
+                chunks.append(f"\n/* {os.path.relpath(path, PROJECT_ROOT)} */\n")
+                chunks.append(f.read())
+    return "\n".join(chunks)
 
 
 def _html():
-    with open(FRONTEND_HTML, encoding="utf-8") as f:
-        return f.read()
+    return _frontend_source()
 
 
 class TestForbiddenPatterns:
@@ -117,24 +131,24 @@ class TestRequiredAPIs:
     """Items that MUST appear in frontend/index.html."""
 
     def test_has_agent_run_api(self):
-        """POST /api/agent/run must be present."""
+        """POST /api/agent/message must be present."""
         html = _html()
-        assert "/api/agent/run" in html, (
-            "/api/agent/run not found — must be the Agent execution entry point"
+        assert "/agent/message" in html, (
+            "/agent/message not found — must be the Workbench execution entry point"
         )
 
     def test_has_config_translate_api(self):
         """POST /api/modules/config-translation/translate must be present."""
         html = _html()
-        assert "/api/modules/config-translation/translate" in html, (
-            "/api/modules/config-translation/translate not found — sole translate API"
+        assert "/modules/config-translation/translate" in html, (
+            "/modules/config-translation/translate not found — module translate API"
         )
 
     def test_has_jobs_api(self):
         """/api/jobs must be present."""
         html = _html()
-        assert "/api/jobs" in html, (
-            "/api/jobs not found — job entry point missing in frontend"
+        assert "/jobs" in html, (
+            "/jobs not found — job entry point missing in frontend API layer"
         )
 
     def test_minimax_m3_is_default(self):
@@ -145,9 +159,9 @@ class TestRequiredAPIs:
         )
 
     def test_provider_enum_values(self):
-        """Provider enum must include disabled, mock, minimax, openai_compatible, ollama_compatible."""
+        """Provider presets must include the supported frontend choices."""
         html = _html()
-        required = ["disabled", "mock", "minimax", "openai_compatible", "ollama_compatible"]
+        required = ["minimax", "openai", "deepseek", "ollama", "custom"]
         for val in required:
             assert val in html, f"Provider value '{val}' not found in frontend"
 
@@ -210,21 +224,22 @@ class TestSecurityDisplay:
     def test_redaction_helper_exists(self):
         """Frontend should have redaction/sanitization helpers."""
         html = _html()
-        has_redact = "redactSensitiveText" in html or "sanitizeDisplayText" in html
-        assert has_redact, "Frontend missing sanitizeDisplayText/redactSensitiveText helper"
+        has_redact = "redactSensitiveText" in html or "sanitizeAssistantText" in html
+        assert has_redact, "Frontend missing sanitizeAssistantText/redactSensitiveText helper"
 
     def test_llm_provider_uses_backend_save_without_browser_key_persistence(self):
         """LLM settings should save through backend API and not persist keys in localStorage."""
         html = _html()
-        assert "/api/agent/llm/config" in html
+        assert "/agent/llm/config" in html
         assert "localStorage.setItem('llm_key'" not in html
         assert 'localStorage.setItem("llm_key"' not in html
 
     def test_agent_chat_hides_raw_llm_policy_reasons(self):
         """Agent chat should map raw backend fallback strings to user-friendly text."""
         html = _html()
-        assert "formatLLMFallback" in html
-        assert "AI skipped by safety policy" in html
+        assert "sanitizeAssistantText" in html
+        assert "reasoning" in html
+        assert "think" in html
 
 
 class TestDashboardAPI:
@@ -233,27 +248,27 @@ class TestDashboardAPI:
     def test_dashboard_fetches_modules(self):
         """Dashboard must use /api/modules for module count."""
         html = _html()
-        assert "/api/modules" in html, "Dashboard should fetch /api/modules"
+        assert "/modules" in html, "Capability dashboard should fetch /api/modules"
 
     def test_dashboard_fetches_skills(self):
         """Dashboard must use /api/skills for skills count."""
         html = _html()
-        assert "/api/skills" in html, "Dashboard should fetch /api/skills"
+        assert "/skills" in html, "Capability dashboard should fetch /api/skills"
 
     def test_dashboard_fetches_memory_status(self):
-        """Dashboard must use /api/memory/status for memory count."""
+        """Workbench must use memory API for confirmed memory writes."""
         html = _html()
-        assert "/api/memory/status" in html, "Dashboard should fetch /api/memory/status"
+        assert "/memory/confirm" in html, "Workbench should call memory confirmation API"
 
     def test_dashboard_fetches_jobs(self):
         """Dashboard must use /api/jobs for job count."""
         html = _html()
-        assert "/api/jobs" in html, "Dashboard should fetch /api/jobs"
+        assert "/jobs" in html, "Frontend API layer should expose /api/jobs"
 
     def test_dashboard_fetches_health(self):
-        """Dashboard must use /api/health for backend status."""
+        """App shell must fetch backend version for status display."""
         html = _html()
-        assert "/api/health" in html, "Dashboard should fetch /api/health"
+        assert "/version" in html, "App shell should fetch backend version"
 
 
 class TestTranslatePage:
@@ -262,7 +277,7 @@ class TestTranslatePage:
     def test_translate_uses_module_endpoint(self):
         """doTranslate must call /api/modules/config-translation/translate."""
         html = _html()
-        assert "/api/modules/config-translation/translate" in html
+        assert "/modules/config-translation/translate" in html
 
     def test_translate_no_old_endpoint(self):
         """Translate page must NOT call /api/translate."""

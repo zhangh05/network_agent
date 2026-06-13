@@ -343,17 +343,17 @@ class TestAPIRegistry:
 
 class TestFrontendRegistryContract:
     def test_frontend_fetches_modules(self):
-        html = (PROJECT_ROOT / "frontend" / "index.html").read_text()
-        assert "/api/modules" in html
+        api = (PROJECT_ROOT / "frontend" / "src" / "api" / "index.ts").read_text()
+        assert 'url: "/modules"' in api
 
     def test_frontend_fetches_skills(self):
-        html = (PROJECT_ROOT / "frontend" / "index.html").read_text()
-        assert "/api/skills" in html
+        api = (PROJECT_ROOT / "frontend" / "src" / "api" / "index.ts").read_text()
+        assert 'url: "/skills"' in api
 
     def test_frontend_fetches_registry_status(self):
-        html = (PROJECT_ROOT / "frontend" / "index.html").read_text()
+        api = (PROJECT_ROOT / "frontend" / "src" / "api" / "index.ts").read_text()
         # Frontend should use /api/modules or /api/registry/status
-        assert "/api/modules" in html or "/api/registry/status" in html
+        assert 'url: "/modules"' in api or 'url: "/registry/status"' in api
 
 
 class TestRegression:

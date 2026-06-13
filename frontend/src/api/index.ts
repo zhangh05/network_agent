@@ -55,6 +55,23 @@ export const agentApi = {
     ),
 };
 
+export const configTranslationApi = {
+  translate: (
+    data: {
+      source_config: string;
+      target_vendor: string;
+      source_vendor?: string;
+      options?: Record<string, unknown>;
+    },
+    signal?: AbortSignal,
+  ): Promise<Record<string, unknown>> =>
+    apiRequest<Record<string, unknown>>(
+      { method: "POST", url: "/modules/config-translation/translate", data },
+      signal,
+      TIMEOUTS.agentTurn,
+    ),
+};
+
 /* ──────────────────────── 2. sessions ──────────────────────── */
 
 export const sessionsApi = {
@@ -242,6 +259,15 @@ export const capabilitiesApi = {
     apiRequest<{ tools: unknown[] }>({ method: "GET", url: "/tools/catalog" }, signal),
 };
 
+export const registryApi = {
+  modules: (signal?: AbortSignal): Promise<{ modules: unknown[] }> =>
+    apiRequest<{ modules: unknown[] }>({ method: "GET", url: "/modules" }, signal),
+  skills: (signal?: AbortSignal): Promise<{ skills: unknown[] }> =>
+    apiRequest<{ skills: unknown[] }>({ method: "GET", url: "/skills" }, signal),
+  status: (signal?: AbortSignal): Promise<Record<string, unknown>> =>
+    apiRequest<Record<string, unknown>>({ method: "GET", url: "/registry/status" }, signal),
+};
+
 /* ──────────────────────── 5. tools ──────────────────────── */
 
 export const toolsApi = {
@@ -409,6 +435,17 @@ export const memoryApi = {
         url: "/memory/confirm",
         data,
       },
+      signal,
+    ),
+};
+
+export const jobsApi = {
+  list: (
+    workspace_id: string,
+    signal?: AbortSignal,
+  ): Promise<{ jobs: unknown[] }> =>
+    apiRequest<{ jobs: unknown[] }>(
+      { method: "GET", url: "/jobs", params: { workspace_id } },
       signal,
     ),
 };
