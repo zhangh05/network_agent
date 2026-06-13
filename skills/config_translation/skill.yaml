@@ -32,7 +32,7 @@ artifact:
   auto_save_input: true
   auto_save_output: true
   input_type: input_config
-  output_type: output_config
+  output_type: translated_config
   output_field: deployable_config
   sensitivity: internal
   scope: run
