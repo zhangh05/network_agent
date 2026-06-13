@@ -21,7 +21,7 @@ python3 -m pytest harness/test_loop_persistence.py harness/test_session_api_cont
 Run RAG/context checks:
 
 ```bash
-python3 -m pytest harness/test_rag_context_foundation.py harness/test_rag_context_eval_script.py harness/test_retrieval_quality_v102.py -q
+python3 -m pytest harness/test_rag_context_foundation.py harness/test_rag_context_eval_script.py -q
 python3 scripts/evaluate_rag_context.py
 ```
 
@@ -34,7 +34,7 @@ python3 -m pytest harness -q
 Tool/skill/module wiring regressions:
 
 ```bash
-python3 -m pytest harness/test_tool_skill_module_design_regressions.py -q
+python3 -m pytest harness/test_tool_runtime_tool_quality.py -q
 ```
 
 Live LLM tests are gated and should only be enabled intentionally:
@@ -71,7 +71,7 @@ print(len(reg.list_all()), len(reg.list_model_visible()))
 PY
 ```
 
-Expected current output: `70 70`.
+Expected current output: `88 88`.
 
 Runtime capability count:
 

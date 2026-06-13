@@ -85,8 +85,8 @@ python3 scripts/inspect_runtime_tools.py
 ```
 
 **通过标准：**
-- 输出显示注册工具数为 70
-- 输出显示 LLM 可见工具数为 70
+- 输出显示注册工具数为 88
+- 输出显示 LLM 可见工具数为 88
 - High-risk 工具列表正确（`shell.exec`, `powershell.exec`, `python.exec`）
 - 所有 high-risk 工具 `approval=True`
 - Capability 计数正确（7 total, 4 enabled, 3 planned）
@@ -150,9 +150,9 @@ print(f'All {len(high)} high-risk tools have requires_approval=True')
 
 **自动验证：**
 ```bash
-python3 -m pytest harness/test_capability_config_translation_v07.py \
-  harness/test_artifact_baseline.py \
-  harness/test_artifact_review_flow_v09.py -q
+python3 -m pytest harness/test_artifact_baseline.py \
+  harness/test_config_translation_quality_hardening.py \
+  harness/test_knowledge_index_runtime.py -q
 ```
 
 ---
@@ -175,10 +175,9 @@ python3 -m pytest harness/test_artifact_source_path_size_guard.py -q
 ### Capability 测试
 
 ```bash
-python3 -m pytest harness/test_capability_manifest_v08.py -q
-python3 -m pytest harness/test_capability_config_translation_v07.py -q
-python3 -m pytest harness/test_capability_knowledge_v07.py -q
-python3 -m pytest harness/test_capability_artifacts_v071.py -q
+python3 -m pytest harness/test_config_translation_quality_hardening.py -q
+python3 -m pytest harness/test_knowledge_index_runtime.py -q
+python3 -m pytest harness/test_artifact_deep_integration.py -q
 ```
 
 ### 运行时测试

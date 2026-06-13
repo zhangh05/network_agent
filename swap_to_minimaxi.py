@@ -13,11 +13,7 @@ files = [
     "agent/llm/provider.py",
     "frontend/src/pages/Settings/Settings.tsx",
     "frontend/src/test/settingsLlm.test.tsx",
-    "harness/test_llm_runtime_diagnostics_consistency_v051.py",
-    "harness/test_assistant_chat_llm_path_completion.py",
-    "harness/test_platform_runtime_closure_v02.py",
     "harness/test_llm_settings_runtime_wiring.py",
-    "harness/test_llm_provider_diagnostics_v05.py",
 ]
 
 for path in files:

@@ -122,8 +122,8 @@ run_turn()
 
 | 指标 | 数值 |
 |------|------|
-| 注册工具总数 | 70 |
-| LLM 可见工具数 | 70 |
+| 注册工具总数 | 88 |
+| LLM 可见工具数 | 88 |
 | Capability 总数 | 7 |
 | Enabled Capability | 4 (`config_translation`, `knowledge`, `artifact`, `review`) |
 | Planned Capability | 3 (`topology`, `inspection`, `cmdb`) |
