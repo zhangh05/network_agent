@@ -503,10 +503,14 @@ def run_turn(session, turn, services=None) -> AgentResult:
 
                 # Build a compact, safe ToolResultMessage for the next LLM step.
                 tool_msg_payload = _build_tool_message_payload(result)
-                # If the tool returned content (e.g. artifact.read), allow up to
-                # 8000 chars so translated_config / long text isn't silently
-                # truncated before it reaches the LLM.
-                trunc_limit = 12000 if "content" in tool_msg_payload else 2000
+                # If the tool returned a large text field, allow a bigger
+                # payload so long-form results (translated_config, diffs,
+                # rendered docs, knowledge chunks) aren't truncated.
+                _has_large = any(k in tool_msg_payload for k in (
+                    "content", "preview", "diff", "rendered", "document",
+                    "table", "markdown", "mermaid",
+                ))
+                trunc_limit = 12000 if _has_large else 2000
                 tool_msg = ToolResultMessage(
                     content=json.dumps(tool_msg_payload, ensure_ascii=False)[:trunc_limit],
                     tool_call_id=tc.id,
