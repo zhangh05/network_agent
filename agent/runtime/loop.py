@@ -764,9 +764,12 @@ def _build_tool_message_payload(result) -> dict:
     fields such as web results and source summaries, but not arbitrary raw
     config or workspace content. Keep a small allowlist and trim aggressively.
     """
+    summary = _safe_get(result, "summary", "") or ""
+    if not summary:
+        summary = _auto_summary(result)
     payload = {
         "ok": bool(_safe_get(result, "ok", False)),
-        "summary": _safe_prompt_text(_safe_get(result, "summary", ""), 800),
+        "summary": _safe_prompt_text(summary, 800),
     }
     for key in ("source_count", "manual_review_count"):
         value = _safe_get(result, key, None)
@@ -850,6 +853,33 @@ def _safe_tool_value(value, *, max_text: int = 4000):
 def _safe_prompt_text(value, max_text: int) -> str:
     text = str(value)
     return text[:max_text] + ("...[truncated]" if len(text) > max_text else "")
+
+
+def _auto_summary(result) -> str:
+    """Generate a summary when the handler didn't provide one."""
+    # Try data/raw keys that indicate useful work was done
+    data = _safe_get(result, "data", {}) or {}
+    raw = _safe_get(result, "raw", {}) or {}
+    for key in ("count", "rows", "columns", "total", "valid", "exists",
+                "size", "archived", "deleted", "indexed", "reindexed",
+                "status", "classification"):
+        val = _safe_get(result, key, None) or data.get(key) or raw.get(key)
+        if val is not None:
+            return f"{key}={val}"
+    # Tool-specific
+    tool_id = str(_safe_get(result, "tool_id", ""))
+    if "artifact.list" in tool_id:
+        return f"Listed {raw.get('count', '?')} artifacts"
+    if "artifact.read" in tool_id:
+        return f"Read artifact {raw.get('artifact_id', '?')}"
+    if "search" in tool_id or "query" in tool_id:
+        return f"Found {raw.get('count', '?')} results"
+    if "session.list" in tool_id:
+        return f"Listed {raw.get('count', '?')} sessions"
+    if "run.list" in tool_id:
+        return f"Listed {raw.get('count', '?')} runs"
+    ok = bool(_safe_get(result, "ok", False))
+    return "Completed" if ok else "Failed"
 
 
 def _build_partial_answer(tool_results: list) -> str:
