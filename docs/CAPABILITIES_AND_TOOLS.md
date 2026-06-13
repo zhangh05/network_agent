@@ -40,8 +40,8 @@ Current public projection:
 
 Current runtime construction:
 
-- Registered tools: 70
-- Model-visible tools: 70
+- Registered tools: 86
+- Model-visible tools: 86
 - Runtime capabilities: 7 total, 4 enabled, 3 planned
 
 Registered but not model-visible:
