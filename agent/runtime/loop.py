@@ -2,12 +2,14 @@
 """RuntimeLoop — the core turn execution engine (Codex-style agentic loop)."""
 
 import json
+import time
 from datetime import datetime, timezone
 from types import SimpleNamespace
 from agent.protocol.message import UserMessage, SystemMessage, AssistantMessage, ToolResultMessage, RuntimeContextMessage
 from agent.protocol.tool_result import ToolResult
 from agent.runtime.result import AgentResult
 from agent.llm.runtime import invoke_llm
+from agent.runtime.token_tracker import estimate_messages, record_llm_call
 
 MAX_STEPS = 8
 
@@ -312,6 +314,9 @@ def run_turn(session, turn, services=None) -> AgentResult:
     if audit_events:
         audit_events.emit("context_built", session_id=session.session_id, turn_id=turn.turn_id)
 
+    # ── v2.0: Pre-turn hooks ──
+    _run_pre_turn_hooks(session, turn, context)
+
     # 3. build messages
     messages = _build_initial_messages(context, services)
 
@@ -339,6 +344,9 @@ def run_turn(session, turn, services=None) -> AgentResult:
 
         # Call LLM via invoke_llm
         try:
+            # ── v2.0: Token hard limit ──
+            _check_token_limit(messages, context, session, turn, step)
+            
             resp = invoke_llm(
                 task="assistant_chat",
                 messages=messages,
@@ -346,6 +354,27 @@ def run_turn(session, turn, services=None) -> AgentResult:
                 safe_context=context.safe_context,
                 user_input=context.user_input,
             )
+        except TokenLimitExceeded as e:
+            turn.status = "failed"
+            turn.warnings.append(f"token_limit_exceeded: {e}")
+            if audit_events:
+                audit_events.emit("turn_failed", session_id=session.session_id, turn_id=turn.turn_id,
+                                  reason=f"token_limit_exceeded")
+            _err = AgentResult(
+                ok=False,
+                final_response="上下文超过模型限制，请压缩上下文或开启 compact 后重试。",
+                session_id=session.session_id,
+                turn_id=turn.turn_id,
+                tool_calls=all_tool_results,
+                warnings=turn.warnings,
+                metadata=_enrich_metadata({
+                    "estimated_tokens": e.estimated,
+                    "max_context_tokens": e.max_context,
+                    "limit_ratio": e.ratio,
+                }, context),
+            )
+            _persist_run_record(session, turn, _err, context)
+            return _err
         except Exception as e:
             error_str = str(e)[:200]
             is_timeout = "timeout" in error_str.lower() or "timed out" in error_str.lower()
@@ -380,6 +409,9 @@ def run_turn(session, turn, services=None) -> AgentResult:
                                               has_content=bool(resp.content),
                                               has_tool_calls=resp.has_tool_calls(),
                                               finish_reason=getattr(resp, 'finish_reason', ''))
+
+        # ── v2.0: Track token usage ──
+        _track_llm_usage(session, turn, resp, messages, context, step)
 
         # Handle provider error
         if resp.error:
@@ -475,6 +507,22 @@ def run_turn(session, turn, services=None) -> AgentResult:
                     audit_trace.record_tool_call(turn.turn_id, step, tool_call.real_tool_id, str(tool_call.arguments)[:100])
 
                 try:
+                    # ── v2.0: Pre-tool hook ──
+                    hook_allowed, hook_input, hook_reason = _run_pre_tool_hook(
+                        session, tool_call.real_tool_id, tool_call.arguments)
+                    if not hook_allowed:
+                        result = ToolResult(
+                            ok=False,
+                            summary=f"Tool {tool_call.real_tool_id} blocked by hook: {hook_reason}",
+                            errors=[f"hook_denied: {hook_reason}"],
+                        )
+                        _record_denied_tool(tool_call, tc, result, all_tool_results,
+                                            messages, audit_events, audit_trace,
+                                            session, turn, step)
+                        continue
+                    if hook_input and isinstance(hook_input, dict):
+                        tool_call.arguments.update(hook_input)
+
                     # ── Approval gate for high-risk tools ──
                     spec = context.tool_router.registry.get(tool_call.real_tool_id) if hasattr(context.tool_router, 'registry') else None
                     is_high_risk = spec and getattr(spec, 'risk_level', 'low') == 'high'
@@ -529,6 +577,9 @@ def run_turn(session, turn, services=None) -> AgentResult:
                                               tool_id=tool_call.real_tool_id, errors=result.errors)
                     if audit_trace:
                         audit_trace.record_tool_result(turn.turn_id, step, tool_call.real_tool_id, result.ok, result.summary)
+
+                    # ── v2.0: Post-tool hook ──
+                    _run_post_tool_hook(session, tool_call.real_tool_id, result, turn)
                 except Exception as e:
                     if audit_events:
                         audit_events.emit("tool_call_failed", session_id=session.session_id, turn_id=turn.turn_id,
@@ -625,6 +676,13 @@ def run_turn(session, turn, services=None) -> AgentResult:
             record_recent_success()
         except Exception:
             pass
+
+        # ── v2.0: Post-turn hooks ──
+        _run_post_turn_hooks(session, turn, final_response)
+
+        # ── v2.0: Stop hooks ──
+        _run_stop_hooks(session)
+
         return result
 
     # Max steps exceeded
@@ -934,3 +992,195 @@ def _build_partial_answer(tool_results: list) -> str:
     for tr in tool_results[-5:]:
         parts.append(f"- {tr.get('tool_id', 'unknown')}: {tr.get('summary', 'no result')}")
     return "\n".join(parts)
+
+
+# ─── v2.0 Hook helpers ───────────────────────────────────────────────
+
+def _build_hook_state(session, context=None):
+    """Build a minimal state dict for hook integration."""
+    return {
+        "intent": "assistant_chat",
+        "workspace_id": getattr(session, 'workspace_id', 'default') or 'default',
+        "session_id": getattr(session, 'session_id', ''),
+        "active_module": "",
+        "context": {},
+        "skill_results": {},
+    }
+
+
+def _run_pre_turn_hooks(session, turn, context):
+    """Run PRE_TURN hooks. Blocks turn if hook denies."""
+    try:
+        from agent.hooks_integration import run_pre_turn_hooks, get_hook_registry
+        registry = get_hook_registry()
+        if not registry._hooks:
+            return
+        state = _build_hook_state(session, context)
+        from agent.hooks import HookEvent
+        outcome = registry.run_hooks(
+            HookEvent.PRE_TURN,
+            state,
+            {"turn_number": getattr(turn, 'turn_number', 0), "intent": "assistant_chat"},
+            target="assistant_chat",
+        )
+        if not outcome.is_allowed:
+            turn.warnings.append(f"pre_turn_blocked: {outcome.reason}")
+    except Exception as e:
+        turn.warnings.append(f"pre_turn_hook_error: {e}")
+
+
+def _run_pre_tool_hook(session, tool_id: str, arguments: dict) -> tuple:
+    """Run PRE_TOOL_USE hook. Returns (allowed, updated_input, reason)."""
+    try:
+        from agent.hooks_integration import get_hook_registry
+        registry = get_hook_registry()
+        if not registry._hooks:
+            return True, None, ""
+        state = _build_hook_state(session)
+        from agent.hooks import HookEvent
+        outcome = registry.run_hooks(
+            HookEvent.PRE_TOOL_USE,
+            state,
+            {"tool_id": tool_id, "arguments": dict(arguments)},
+            target=tool_id,
+        )
+        if outcome.is_denied:
+            return False, None, outcome.reason
+        return True, outcome.updated_input, ""
+    except Exception:
+        return True, None, ""
+
+
+def _run_post_tool_hook(session, tool_id: str, result, turn):
+    """Run POST_TOOL_USE hook. Adds feedback to result if any."""
+    try:
+        from agent.hooks_integration import get_hook_registry
+        registry = get_hook_registry()
+        if not registry._hooks:
+            return
+        state = _build_hook_state(session)
+        from agent.hooks import HookEvent
+        rd = result.to_dict() if hasattr(result, 'to_dict') else {"ok": result.ok, "summary": result.summary}
+        outcome = registry.run_hooks(
+            HookEvent.POST_TOOL_USE,
+            state,
+            {"tool_id": tool_id, "result": rd},
+            target=tool_id,
+        )
+        if outcome.feedback:
+            if not hasattr(result, 'warnings'):
+                result.warnings = []
+            if isinstance(result.warnings, list):
+                result.warnings.append(f"hook_feedback: {outcome.feedback}")
+    except Exception:
+        pass
+
+
+def _run_post_turn_hooks(session, turn, final_response: str):
+    """Run POST_TURN hook."""
+    try:
+        from agent.hooks_integration import get_hook_registry
+        registry = get_hook_registry()
+        if not registry._hooks:
+            return
+        state = _build_hook_state(session)
+        from agent.hooks import HookEvent
+        registry.run_hooks(
+            HookEvent.POST_TURN,
+            state,
+            {"turn_number": getattr(turn, 'turn_number', 0), "model_response": final_response},
+            target="assistant_chat",
+        )
+    except Exception:
+        pass
+
+
+def _run_stop_hooks(session):
+    """Run STOP hooks at task completion."""
+    try:
+        from agent.hooks_integration import get_hook_registry
+        registry = get_hook_registry()
+        if not registry._hooks:
+            return
+        state = _build_hook_state(session)
+        from agent.hooks import HookEvent
+        registry.run_hooks(
+            HookEvent.STOP,
+            state,
+            {"intent": "assistant_chat"},
+            target="assistant_chat",
+        )
+    except Exception:
+        pass
+
+
+# ─── v2.0 Token & recording helpers ──────────────────────────────────
+
+def _check_token_limit(messages, context, session, turn, step):
+    """Raise TokenLimitExceeded if context exceeds 90% of model limit."""
+    try:
+        max_context = int(getattr(context, 'model_config', {}).get('max_context_tokens', 128000) or 128000)
+        estimated = estimate_messages(messages)
+        if estimated > max_context * 0.9:
+            raise TokenLimitExceeded(
+                estimated=estimated,
+                max_context=max_context,
+                ratio=round(estimated / max_context, 2),
+            )
+    except TokenLimitExceeded:
+        raise
+    except Exception:
+        pass
+
+
+class TokenLimitExceeded(Exception):
+    def __init__(self, estimated: int, max_context: int, ratio: float):
+        self.estimated = estimated
+        self.max_context = max_context
+        self.ratio = ratio
+        super().__init__(f"Context tokens ({estimated}) exceed 90% of model limit ({max_context}) at ratio {ratio}")
+
+
+def _track_llm_usage(session, turn, resp, messages, context, step):
+    """Record token usage after each LLM call."""
+    try:
+        input_est = estimate_messages(messages)
+        output_est = estimate_messages([resp.content]) if resp.content else 0
+        model = getattr(context, 'model_config', {}).get('model', '') or ''
+        provider = getattr(context, 'model_config', {}).get('provider', '') or ''
+        record_llm_call(
+            workspace_id=getattr(session, 'workspace_id', 'default') or 'default',
+            session_id=getattr(session, 'session_id', ''),
+            run_id=getattr(turn, 'turn_id', ''),
+            turn_id=getattr(turn, 'turn_id', ''),
+            provider=provider,
+            model=model,
+            input_tokens=input_est,
+            output_tokens=output_est,
+        )
+    except Exception:
+        pass
+
+
+def _record_denied_tool(tool_call, tc, result, all_tool_results, messages,
+                        audit_events, audit_trace, session, turn, step):
+    """Record a tool call that was denied by hook or approval."""
+    if audit_events:
+        audit_events.emit("tool_call_failed", session_id=session.session_id,
+                          turn_id=turn.turn_id,
+                          tool_id=tool_call.real_tool_id, errors=result.errors)
+    if audit_trace:
+        audit_trace.record_tool_result(turn.turn_id, step,
+                                       tool_call.real_tool_id, False, result.summary)
+    all_tool_results.append(_to_standard_tool_call(
+        tool_call.call_id, tool_call.real_tool_id, result
+    ))
+    tool_msg = ToolResultMessage(
+        content=json.dumps({
+            "ok": False,
+            "error": result.errors[0] if result.errors else "Tool execution denied",
+            "hint": "Do not retry this tool call."
+        }, ensure_ascii=False)[:500],
+        tool_call_id=getattr(tc, 'id', '') if isinstance(tc, object) else tc.get("id", ""),
+    )
+    messages.append(tool_msg.to_llm_message())

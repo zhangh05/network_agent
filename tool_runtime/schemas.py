@@ -19,12 +19,14 @@ VALID_TOOL_CATEGORIES = {
     "knowledge", "web", "session", "runtime", "text", "workspace",
     "shell", "powershell",
     "network", "device", "ssh", "telnet", "snmp", "nmap", "file",
+    "skill", "memory",
 }
 # v0.2 — expanded categories for general agent tools
 V02_ALLOWED_CATEGORIES = {
     "artifact", "parser", "report", "command",
     "knowledge", "web", "session", "runtime", "text", "workspace",
     "shell", "powershell",  # high-risk: only approved_exec allowed
+    "skill", "memory",
 }
 
 

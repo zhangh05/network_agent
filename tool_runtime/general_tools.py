@@ -1483,6 +1483,150 @@ def handle_memory_search(inv: ToolInvocation) -> dict:
         return _error(str(e)[:200])
 
 
+def handle_skill_list(inv: ToolInvocation) -> dict:
+    """List skills available in the skills/ directory. Read skill.yaml first, then SKILL.md."""
+    try:
+        skills_dir = ROOT / "skills"
+        if not skills_dir.is_dir():
+            return _ok({"results": [], "count": 0})
+        results = []
+        for item in sorted(skills_dir.iterdir()):
+            if not item.is_dir() or item.name.startswith(".") or item.name in ("__pycache__",):
+                continue
+            skill_info = {"name": item.name, "path": str(item.relative_to(ROOT)), "description": "", "status": "unknown", "capabilities": []}
+            # Read skill.yaml first
+            yaml_path = item / "skill.yaml"
+            if yaml_path.is_file():
+                try:
+                    import yaml
+                    with open(yaml_path, encoding="utf-8") as fy:
+                        data = yaml.safe_load(fy)
+                    if isinstance(data, dict):
+                        skill_info["description"] = str(data.get("description") or data.get("display_name") or "")
+                        skill_info["status"] = str(data.get("status", "unknown"))
+                        skill_info["capabilities"] = [c.get("capability_id", "") for c in (data.get("capabilities") or []) if isinstance(c, dict)]
+                except Exception:
+                    pass
+            # Fall back to SKILL.md if no description from yaml
+            if not skill_info.get("description"):
+                md_path = item / "SKILL.md"
+                if md_path.is_file():
+                    try:
+                        md_text = md_path.read_text(encoding="utf-8")[:500]
+                        # Extract first meaningful line after headings
+                        for line in md_text.split("\n"):
+                            stripped = line.strip()
+                            if stripped and not stripped.startswith("#"):
+                                skill_info["description"] = stripped[:200]
+                                break
+                    except Exception:
+                        pass
+            results.append(skill_info)
+        return _ok({"results": results, "count": len(results)})
+    except Exception as e:
+        return _error(str(e)[:200])
+
+
+def handle_memory_create(inv: ToolInvocation) -> dict:
+    """Create a long-term memory entry. Writes to JSONL store with policy check."""
+    args = inv.arguments
+    title = str(args.get("title", "")).strip()
+    content = str(args.get("content", "")).strip()
+    if not title or not content:
+        return _error("title and content are required")
+    try:
+        from memory.redaction import contains_secret, redact_text
+        if contains_secret(title) or contains_secret(content):
+            return _error("content contains secrets — memory.create blocked")
+        from memory.writer import write_memory
+        memory_id = write_memory(
+            title=title,
+            content=content,
+            scope=str(args.get("scope", "long_term")),
+            memory_type=str(args.get("memory_type", "knowledge_note")),
+            tags=list(args.get("tags") or []),
+            project_id=str(args.get("workspace_id", "default")),
+            source=str(args.get("source", "agent")),
+            confidence=str(args.get("confidence", "system_generated")),
+            summary=str(args.get("summary", "")),
+            sensitivity=str(args.get("sensitivity", "internal")),
+            metadata=args.get("metadata") or None,
+            user_confirmed=bool(args.get("user_confirmed", False)),
+        )
+        if not memory_id:
+            return _error("memory write blocked by policy")
+        return _ok({"memory_id": memory_id})
+    except Exception as e:
+        return _error(str(e)[:200])
+
+
+def handle_memory_list(inv: ToolInvocation) -> dict:
+    """List memory entries for a workspace. Returns summaries, not full content."""
+    args = inv.arguments
+    try:
+        from memory.backends.jsonl_store import JSONLMemoryStore
+        store = JSONLMemoryStore()
+        results = store.list(
+            scope=args.get("scope"),
+            memory_type=args.get("memory_type"),
+            project_id=args.get("workspace_id"),
+            limit=args.get("limit", 20),
+        )
+        summaries = []
+        for r in results:
+            summaries.append({
+                "memory_id": r.get("memory_id", ""),
+                "title": r.get("title", ""),
+                "summary": (r.get("summary", "") or r.get("content", ""))[:200],
+                "memory_type": r.get("memory_type", ""),
+                "scope": r.get("scope", ""),
+                "created_at": r.get("created_at", ""),
+                "tags": r.get("tags", [])[:5],
+            })
+        return _ok({"results": summaries, "count": len(summaries)})
+    except Exception as e:
+        return _error(str(e)[:200])
+
+
+def handle_memory_get_profile(inv: ToolInvocation) -> dict:
+    """Get user profile for the workspace."""
+    ws = inv.arguments.get("workspace_id", "default")
+    try:
+        validate_workspace_id(ws)
+        profile_path = WS_ROOT / ws / "memory" / "profile.json"
+        if not profile_path.is_file():
+            return _error("profile not found")
+        data = json.loads(profile_path.read_text(encoding="utf-8"))
+        return _ok({"profile": data})
+    except Exception as e:
+        return _error(str(e)[:200])
+
+
+def handle_memory_set_profile(inv: ToolInvocation) -> dict:
+    """Set user profile preferences. Does not store secrets."""
+    ws = inv.arguments.get("workspace_id", "default")
+    field = str(inv.arguments.get("field", "")).strip()
+    value = inv.arguments.get("value")
+    if not field:
+        return _error("field is required")
+    try:
+        validate_workspace_id(ws)
+        from memory.redaction import contains_secret
+        if isinstance(value, str) and contains_secret(value):
+            return _error("value contains secrets — set_profile blocked")
+        memory_dir = WS_ROOT / ws / "memory"
+        memory_dir.mkdir(parents=True, exist_ok=True)
+        profile_path = memory_dir / "profile.json"
+        profile = {}
+        if profile_path.is_file():
+            profile = json.loads(profile_path.read_text(encoding="utf-8"))
+        profile[field] = value
+        profile_path.write_text(json.dumps(profile, ensure_ascii=False, indent=2), encoding="utf-8")
+        return _ok({"field": field, "saved": True})
+    except Exception as e:
+        return _error(str(e)[:200])
+
+
 # ═══════════════ E. Runtime Tools ═══════════════
 
 def handle_runtime_health(inv: ToolInvocation) -> dict:
@@ -1961,6 +2105,33 @@ GENERAL_TOOL_INPUT_SCHEMAS = {
     "run.list_recent": _schema({"workspace_id": S["workspace_id"], "limit": S["limit"]}),
     "run.get_summary": _schema({"workspace_id": S["workspace_id"], "run_id": S["run_id"]}, ["run_id"]),
     "memory.search": _schema({"query": S["query"], "limit": S["limit"]}, ["query"]),
+    "skill.list": _schema({"workspace_id": S["workspace_id"]}),
+    "memory.create": _schema({
+        "workspace_id": S["workspace_id"],
+        "title": S["title"],
+        "content": S["content"],
+        "scope": {"type": "string", "description": "Memory scope: short_term, long_term, project.", "enum": ["short_term", "project", "long_term"], "default": "long_term"},
+        "memory_type": {"type": "string", "description": "Memory type: knowledge_note, decision, etc.", "default": "knowledge_note"},
+        "tags": {"type": "array", "description": "Tags for filtering.", "items": {"type": "string"}},
+        "source": {"type": "string", "description": "Source of the memory entry.", "default": "agent"},
+        "confidence": {"type": "string", "description": "Confidence level: system_generated, user_confirmed, inferred.", "enum": ["system_generated", "user_confirmed", "inferred"], "default": "system_generated"},
+        "summary": {"type": "string", "description": "Optional short summary."},
+        "sensitivity": {"type": "string", "description": "Sensitivity: internal (default) or sensitive.", "enum": ["internal", "sensitive"]},
+        "metadata": {"type": "object", "description": "Optional metadata dict."},
+        "user_confirmed": {"type": "boolean", "description": "Whether user explicitly confirmed this entry.", "default": False},
+    }, ["title", "content"]),
+    "memory.list": _schema({
+        "workspace_id": S["workspace_id"],
+        "scope": {"type": "string", "description": "Filter by scope."},
+        "memory_type": {"type": "string", "description": "Filter by type."},
+        "limit": S["limit"],
+    }),
+    "memory.get_profile": _schema({"workspace_id": S["workspace_id"]}),
+    "memory.set_profile": _schema({
+        "workspace_id": S["workspace_id"],
+        "field": {"type": "string", "description": "Profile field name to set."},
+        "value": {"type": "string", "description": "Value to set. Do NOT store secrets."},
+    }, ["field"]),
 
     # Runtime
     "runtime.health": _schema({"workspace_id": S["workspace_id"]}),
@@ -2104,6 +2275,7 @@ def _default_tool_next_actions(tool_id: str, *, ok: bool) -> list[str]:
         "session": ["如需展开某条记录，继续调用对应 get_summary 工具。"],
         "run": ["如需展开某条运行记录，继续调用 run.get_summary。"],
         "memory": ["如结果不足，换更具体关键词重试。"],
+        "skill": ["根据返回的 skill 名称和描述判断是否匹配用户需求。"],
         "runtime": ["根据 diagnostics/health 的组件状态给出下一步排查建议。"],
         "report": ["将生成内容直接返回用户，或用 report.save_artifact 保存。"],
         "doc": ["将生成文档内容直接返回用户，或保存为 artifact。"],
@@ -2249,6 +2421,21 @@ _reg("news.search", "News Search", "web", "medium",
      handle_news_search)
 _reg("memory.search", "Memory Search", "session", "low",
      "Search memory store", handle_memory_search)
+_reg("skill.list", "List Skills", "skill", "low",
+     "List registered agent skills with names and capabilities.",
+     handle_skill_list)
+_reg("memory.create", "Create Memory", "memory", "low",
+     "Create a long-term memory entry. Do not store secrets, tokens, or passwords.",
+     handle_memory_create)
+_reg("memory.list", "List Memories", "memory", "low",
+     "List memory entries in the workspace. Returns id + summary only.",
+     handle_memory_list)
+_reg("memory.get_profile", "Get Profile", "memory", "low",
+     "Get the current workspace user profile.",
+     handle_memory_get_profile)
+_reg("memory.set_profile", "Set Profile", "memory", "low",
+     "Set a user profile preference. Use for long-term preferences, not secrets.",
+     handle_memory_set_profile)
 
 # ── E. Runtime Tools ──
 _reg("runtime.health", "Runtime Health", "runtime", "low",

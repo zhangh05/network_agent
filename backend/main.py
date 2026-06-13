@@ -231,6 +231,15 @@ def create_app():
     from backend.api.approval_routes import register_approval_routes
     register_approval_routes(app)
 
+    # ── Usage endpoint ──
+    @app.route("/api/agent/usage")
+    def api_agent_usage():
+        from flask import request, jsonify
+        from agent.runtime.token_tracker import get_usage
+        ws_id = request.args.get("workspace_id", "default")
+        sid = request.args.get("session_id", "")
+        return jsonify(get_usage(ws_id, sid))
+
     # ── Frontend ──
     @app.route("/")
     @app.route("/<path:filename>")
