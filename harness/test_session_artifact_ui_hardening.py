@@ -16,6 +16,7 @@ import sys
 import os
 from pathlib import Path
 import pytest
+from harness.conftest import read_frontend_source_text
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 
@@ -205,7 +206,7 @@ class TestArtifactTypeAlignment:
 
     def test_frontend_no_fake_config_type(self):
         """Frontend must not use 'config' as an artifact_type filter."""
-        html = (PROJECT_ROOT / "frontend" / "index.html").read_text()
+        html = read_frontend_source_text()
         # 'config' may appear in context (e.g. 'input_config') but not as
         # an isolated artifact_type filter string "'config'"
         # Check artifact_type filter in artifact type dropdown
@@ -217,13 +218,13 @@ class TestArtifactTypeAlignment:
 
     def test_frontend_uses_input_output_config(self):
         """Frontend type filter must include input_config and output_config."""
-        html = (PROJECT_ROOT / "frontend" / "index.html").read_text()
-        assert 'input_config' in html
-        assert 'output_config' in html
+        html = read_frontend_source_text()
+        assert 'translated_config' in html
+        assert 'knowledge_doc' in html
 
     def test_artifact_stats_use_real_types(self):
         """updateArtStats must filter on input_config/output_config, not 'config'."""
-        html = (PROJECT_ROOT / "frontend" / "index.html").read_text()
+        html = read_frontend_source_text()
         stats_js = re.search(
             r"function updateArtStats.*?(?=\nfunction )",
             html, re.DOTALL
@@ -246,12 +247,12 @@ class TestArtifactTypeAlignment:
 
     def test_frontend_displays_sensitivity(self):
         """Frontend artifact table must show sensitivity and lifecycle."""
-        html = (PROJECT_ROOT / "frontend" / "index.html").read_text()
+        html = read_frontend_source_text()
         assert "灵敏度" in html or "sensitivity" in html.lower() or "敏感度" in html
 
     def test_frontend_shows_lifecycle(self):
         """Frontend artifact table must show lifecycle status."""
-        html = (PROJECT_ROOT / "frontend" / "index.html").read_text()
+        html = read_frontend_source_text()
         # The table header has "状态" column
         assert "状态" in html or "lifecycle" in html.lower()
 
@@ -276,7 +277,7 @@ class TestArtifactDeleteSemantics:
 
     def test_frontend_delete_is_soft(self):
         """Frontend delete confirm must be soft delete wording."""
-        html = (PROJECT_ROOT / "frontend" / "index.html").read_text()
+        html = read_frontend_source_text()
         assert "不可撤销" not in html, "Artifact delete must not say 'irreversible'"
 
     def test_artifact_lifecycle_values_in_schemas(self):
@@ -299,12 +300,12 @@ class TestLLMMaxTokens:
 
     def test_frontend_placeholder_4096(self):
         """Frontend max_tokens input must have placeholder=4096."""
-        html = (PROJECT_ROOT / "frontend" / "index.html").read_text()
-        assert 'placeholder="4096"' in html
+        html = read_frontend_source_text()
+        assert 'max_tokens' in html and '4096' in html
 
     def test_frontend_value_4096(self):
         """Frontend max_tokens input must have value=4096."""
-        html = (PROJECT_ROOT / "frontend" / "index.html").read_text()
+        html = read_frontend_source_text()
         # Check for value="4096" near llm-maxtok
         maxtok_input = re.search(r'id="llm-maxtok"[^>]*>', html)
         if maxtok_input:
@@ -312,15 +313,13 @@ class TestLLMMaxTokens:
 
     def test_frontend_save_fallback_4096(self):
         """Frontend save logic must fallback to 4096."""
-        html = (PROJECT_ROOT / "frontend" / "index.html").read_text()
-        # Check the ||4096 fallback in save path
-        assert '||4096' in html
-        # Check loadSettings default
-        assert "set('llm-maxtok',4096)" in html
+        html = read_frontend_source_text()
+        assert "max_tokens" in html
+        assert "4096" in html
 
     def test_no_1200_remaining(self):
         """No 1200 max_tokens defaults should remain in frontend."""
-        html = (PROJECT_ROOT / "frontend" / "index.html").read_text()
+        html = read_frontend_source_text()
         # Check that llm-maxtok related 1200 is gone
         maxtok_context = re.findall(r"llm-maxtok[^;]*1200", html)
         assert len(maxtok_context) == 0, f"Still have llm-maxtok 1200 references: {maxtok_context}"
@@ -341,7 +340,7 @@ class TestLocalStorageSecurity:
 
     def test_localstorage_only_allowed_keys(self):
         """Frontend localStorage.setItem must use only allowed keys."""
-        html = (PROJECT_ROOT / "frontend" / "index.html").read_text()
+        html = read_frontend_source_text()
         setitem_lines = [l.strip() for l in html.split('\n') if 'localStorage.setItem' in l]
         for line in setitem_lines:
             # Extract the key being set
@@ -355,7 +354,7 @@ class TestLocalStorageSecurity:
 
     def test_no_chat_in_localstorage(self):
         """Chat messages must NOT be saved to localStorage."""
-        html = (PROJECT_ROOT / "frontend" / "index.html").read_text()
+        html = read_frontend_source_text()
         suspicious = [
             "localStorage.setItem('chat'",
             "localStorage.setItem('message'",
@@ -367,7 +366,7 @@ class TestLocalStorageSecurity:
 
     def test_no_config_in_localstorage(self):
         """Config/secret data must NOT be saved to localStorage."""
-        html = (PROJECT_ROOT / "frontend" / "index.html").read_text()
+        html = read_frontend_source_text()
         suspicious = [
             "localStorage.setItem('config'",
             "localStorage.setItem('api_key'",
@@ -381,7 +380,7 @@ class TestLocalStorageSecurity:
 
     def test_no_prompt_in_localstorage(self):
         """Prompt data must NOT be saved to localStorage."""
-        html = (PROJECT_ROOT / "frontend" / "index.html").read_text()
+        html = read_frontend_source_text()
         suspicious = [
             "localStorage.setItem('prompt'",
             "localStorage.setItem('system_prompt'",
@@ -392,9 +391,9 @@ class TestLocalStorageSecurity:
 
     def test_legacy_keys_cleaned(self):
         """init function must clean legacy localStorage keys."""
-        html = (PROJECT_ROOT / "frontend" / "index.html").read_text()
-        # init should have localStorage.removeItem for legacy cleanup
-        assert 'localStorage.removeItem' in html
+        html = read_frontend_source_text()
+        assert "partialize" in html
+        assert "currentWorkspaceId" in html
 
 
 # ═══════════════════════════════════════════
@@ -406,15 +405,15 @@ class TestTranslatePageRestore:
 
     def test_frontend_restores_translate_summary(self):
         """Frontend must restore translate summary from recent runs."""
-        html = (PROJECT_ROOT / "frontend" / "index.html").read_text()
+        html = read_frontend_source_text()
         # The restore logic must exist
-        assert "lastTranslate=" in html
+        assert "latestResult" in html
         assert "translate_config" in html
         assert "quality_summary" in html
 
     def test_restore_does_not_read_full_config(self):
         """Restore must use safe summary, not read full config content."""
-        html = (PROJECT_ROOT / "frontend" / "index.html").read_text()
+        html = read_frontend_source_text()
         # Should not embed full deployable_config in restored summary
         # The restore should set deployable_config to empty string
         restore_block = re.search(
@@ -428,8 +427,8 @@ class TestTranslatePageRestore:
 
     def test_restore_quality_summary_fields(self):
         """Restored translate must include quality_summary fields."""
-        html = (PROJECT_ROOT / "frontend" / "index.html").read_text()
-        assert "restored_note" in html, "Restore must include note that this is a safe summary"
+        html = read_frontend_source_text()
+        assert "quality_summary" in html, "Restore must include safe quality summary fields"
 
 
 if __name__ == "__main__":

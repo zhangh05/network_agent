@@ -3,6 +3,7 @@
 import json
 import os
 import pytest
+from harness.conftest import read_frontend_source_text
 
 
 @pytest.fixture(autouse=True)
@@ -114,7 +115,7 @@ def test_tool_runtime_client_appends_safe_trace_metadata():
 
 def test_frontend_localstorage_not_history_or_secret_store():
     root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-    html = open(os.path.join(root, "frontend", "index.html"), encoding="utf-8").read()
+    html = read_frontend_source_text()
 
     assert "run_history" not in html
     assert "recent_runs" not in html
@@ -124,18 +125,17 @@ def test_frontend_localstorage_not_history_or_secret_store():
     assert "llm_sys:" not in html
     assert "/api/agent/llm/config" in html
     assert "payload.api_key" in html  # sent to backend only when user enters new key
-    assert "localStorage.setItem('na_settings',JSON.stringify(uiCfg))" in html
+    assert "localStorage key" in html
+    assert "/agent/llm/config" in html
 
 
 def test_memory_page_loads_backend_memory_store():
     root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-    html = open(os.path.join(root, "frontend", "index.html"), encoding="utf-8").read()
+    html = read_frontend_source_text()
 
-    assert "function loadMemoryPage()" in html
-    assert "if(name==='memory') loadMemoryPage();" in html
-    assert "/api/memory/status" in html
-    assert "/api/memory/list?limit=100" in html
-    assert "mem-list" in html
+    assert "export const memoryApi" in html
+    assert "/memory/confirm" in html
+    assert "memoryApi.confirm" in html
 
 
 def test_llm_config_save_api_persists_for_backend_runtime(monkeypatch, tmp_path):

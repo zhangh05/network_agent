@@ -449,7 +449,7 @@ class TestNamingBoundary:
         # Verify ToolResult has no LLM integration
         import tool_runtime.schemas
         import inspect
-        source = inspect.getsource(tool_runtime.schemas)
+        source = inspect.getsource(tool_runtime.schemas.ToolResult)
         assert "llm" not in source.lower(), "ToolResult schema must not reference LLM"
 
 

@@ -120,7 +120,7 @@ class TestExecutor:
                 meta = str(e.get("metadata", {}))
                 # Check capability_id or adapter_path in metadata
                 if "capability_id" in meta:
-                    assert "config.translate" in meta
+                    assert "config_translation" in meta
                     return
             # At minimum, check intent_routed metadata
             for e in events:

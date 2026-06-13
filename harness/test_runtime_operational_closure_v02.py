@@ -8,6 +8,7 @@ import os
 import subprocess
 import sys
 import pytest
+from harness.conftest import read_frontend_source_text
 
 PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
@@ -127,26 +128,21 @@ class TestRetentionAudit:
 
 class TestUIHealthDashboard:
     def test_ui_has_selfcheck_display(self):
-        with open("frontend/index.html") as f:
-            html = f.read()
-        assert "runtime-status-extras" in html
+        html = read_frontend_source_text()
+        assert "runtimeApi" in html and "/runtime/summary" in html
 
     def test_ui_no_default_delete_button(self):
-        with open("frontend/index.html") as f:
-            html = f.read()
+        html = read_frontend_source_text()
         assert "删除" not in html or "confirm" in html.lower()
 
     def test_ui_no_deployable_claim(self):
-        with open("frontend/index.html") as f:
-            html = f.read()
+        html = read_frontend_source_text()
         assert "可直接下发" not in html
 
     def test_ui_no_absolute_path_leak(self):
-        with open("frontend/index.html") as f:
-            html = f.read()
+        html = read_frontend_source_text()
         assert "/Users/" not in html
 
     def test_ui_workspace_badge(self):
-        with open("frontend/index.html") as f:
-            html = f.read()
-        assert "ws-badge" in html or "ws-display" in html
+        html = read_frontend_source_text()
+        assert "currentWorkspaceId" in html and "ws-list" in html

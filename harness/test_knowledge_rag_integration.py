@@ -11,6 +11,7 @@ import sys
 import os
 from pathlib import Path
 import pytest
+from harness.conftest import read_frontend_source_text
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
@@ -201,7 +202,7 @@ class TestKnowledgeAPIResponse:
 
     def test_knowledge_context_not_in_localstorage(self):
         """Knowledge results must not go to localStorage directly."""
-        html = (PROJECT_ROOT / "frontend" / "index.html").read_text()
+        html = read_frontend_source_text()
         # Check that localStorage.setItem is NOT used for knowledge data
         setitems = [l.strip() for l in html.split('\n') if 'localStorage.setItem' in l]
         for line in setitems:
@@ -212,25 +213,25 @@ class TestKnowledgeAPIResponse:
 
 class TestKnowledgeUI:
     def test_frontend_has_retrieving_status(self):
-        html = (PROJECT_ROOT / "frontend" / "index.html").read_text()
+        html = read_frontend_source_text()
         assert "检索" in html or "知识索引" in html
 
     def test_frontend_shows_source_refs(self):
-        html = (PROJECT_ROOT / "frontend" / "index.html").read_text()
-        assert "knowledge_sources" in html
+        html = read_frontend_source_text()
+        assert "context_sources" in html or "source_summary" in html
 
     def test_frontend_shows_not_found(self):
-        html = (PROJECT_ROOT / "frontend" / "index.html").read_text()
-        assert "未找到" in html or "not_found" in html
+        html = read_frontend_source_text()
+        assert "无命中" in html or "暂无知识源" in html
 
     def test_frontend_no_full_chunk_display(self):
-        html = (PROJECT_ROOT / "frontend" / "index.html").read_text()
+        html = read_frontend_source_text()
         # search results in chat should not display full chunk content
         assert "full_content" not in html
 
     def test_frontend_has_is_likely_knowledge_query(self):
-        html = (PROJECT_ROOT / "frontend" / "index.html").read_text()
-        assert "_isLikelyKnowledgeQuery" in html
+        html = read_frontend_source_text()
+        assert "knowledgeApi.search" in html
 
 
 # ═══════════════════ Safety Gates ═══════════════════

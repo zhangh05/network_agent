@@ -3,6 +3,7 @@ import os
 import json
 import sys
 import pytest
+from harness.conftest import read_frontend_source_text
 
 PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
@@ -110,22 +111,18 @@ class TestApplyArchive:
 
 class TestUIArchive:
     def test_ui_has_archive_preview(self):
-        with open("frontend/index.html") as f:
-            html = f.read()
-        assert "archive/preview" in html
+        html = read_frontend_source_text()
+        assert "archive" in html and "previewSessions" in html
 
     def test_ui_no_default_archive_button(self):
-        with open("frontend/index.html") as f:
-            html = f.read()
+        html = read_frontend_source_text()
         # Should not have a default delete/archive action
         assert "应用归档" not in html or "confirm" in html.lower()
 
     def test_ui_no_deployable_claim(self):
-        with open("frontend/index.html") as f:
-            html = f.read()
+        html = read_frontend_source_text()
         assert "可直接下发" not in html
 
     def test_ui_no_absolute_path(self):
-        with open("frontend/index.html") as f:
-            html = f.read()
+        html = read_frontend_source_text()
         assert "/Users/" not in html

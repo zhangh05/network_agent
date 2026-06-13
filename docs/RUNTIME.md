@@ -52,6 +52,9 @@ Every LLM-visible tool description includes `tool_id`, `risk`, `source`, and `ap
 - Capability tools are the business contract and override same-id general runtime tools when both exist.
 - `ToolResult` data must be summarized or redacted before it returns to LLM context.
 - SSH, Telnet, SNMP, nmap, ping sweep, and config push are not exposed to the model.
+- The Agent does not directly call arbitrary implementation functions. It routes model-visible requests through `ToolRouter`, then through a capability handler or Tool Runtime `ToolInvocation`.
+- A Module orchestrates Tool use for business behavior; a Skill provides task instructions. Skill does not bypass its Module service.
+- Any public Tool HTTP API must remain policy and approval gated, with high-risk execution requiring an approved `approval_id`.
 
 ## Persistence
 

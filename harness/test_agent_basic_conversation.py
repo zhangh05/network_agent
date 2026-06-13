@@ -56,8 +56,8 @@ class TestIntentRouter:
         state = route(state)
         assert state.intent == "topology_draw"
         assert state.context.get("capability_status") == "planned"
-        assert state.context.get("capability_id") == "topology.draw"
-        assert state.selected_skill == "topology_draw"
+        assert state.context.get("capability_id") == "topology"
+        assert state.selected_skill == "topology"
 
     def test_help_intent(self):
         intent = _infer("help")

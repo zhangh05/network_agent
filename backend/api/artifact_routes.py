@@ -148,14 +148,21 @@ def register_artifact_routes(app):
         ws_id, err = _validated_ws_id(ws_id)
         if err:
             return err
-        # Allow sensitive but non-secret artifacts (e.g. translated_config
-        # is user-requested output, not a secret). Only "secret" is
-        # strictly blocked at the public API level.
-        content = read_artifact_content(ws_id, artifact_id, allow_sensitive=True)
+        art = get_artifact(ws_id, artifact_id)
+        if not art:
+            return jsonify({"ok": False, "error": "artifact not found"}), 404
+        # Public content reads remain conservative. Sensitive knowledge or
+        # design artifacts must be accessed through server-side module tools
+        # that can apply purpose-specific gates. Translated config is a
+        # user-requested output artifact and remains previewable by the UI.
+        allow_sensitive = art.artifact_type in {
+            "translated_config",
+            "output_config",
+            "report",
+        }
+        content = read_artifact_content(ws_id, artifact_id, allow_sensitive=allow_sensitive)
         if content is None:
             return jsonify({"ok": False, "error": "content not accessible"}), 403
-        from artifacts.store import get_artifact
-        art = get_artifact(ws_id, artifact_id)
         title = art.title if art else ""
         return jsonify({"ok": True, "content": content, "title": title})
 

@@ -14,6 +14,16 @@ PROJECT_ROOT = Path(__file__).resolve().parent.parent
 if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
+
+def read_frontend_source_text() -> str:
+    """Return concatenated Vite/React frontend source for static contract tests."""
+    src_root = PROJECT_ROOT / "frontend" / "src"
+    chunks: list[str] = []
+    for path in sorted(src_root.rglob("*")):
+        if path.suffix in {".ts", ".tsx", ".js", ".jsx", ".css"}:
+            chunks.append(path.read_text(encoding="utf-8"))
+    return "\n".join(chunks)
+
 # Ensure all temp dirs exist before monkeypatching
 _temp_base = Path(tempfile.mkdtemp(prefix="na_test_"))
 _temp_mem = _temp_base / "memory_data"

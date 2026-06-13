@@ -264,6 +264,17 @@ def _execute_module_direct(state: NetworkAgentState, task: "Task", ws_id: str) -
     skill = state.selected_skill or ""
     capability_id = state.context.get("capability_id", "")
 
+    if state.intent == "context_qa":
+        state.skill_results = {
+            "ok": True,
+            "summary": "context_qa_ready",
+            "manual_review_count": 0,
+            "unsupported_count": 0,
+        }
+        state.tool_results = state.skill_results
+        task.complete({"mode": "context_qa"})
+        return
+
     # ── Create a Turn for this direct execution ──
     turn = Turn(task.record_turn())
 
@@ -583,5 +594,4 @@ def _safe_dict(d: dict) -> dict:
         else:
             result[k] = v
     return result
-
 

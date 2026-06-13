@@ -172,6 +172,9 @@ def _compose_translate_config(state: NetworkAgentState, result: dict):
       2. Post-translate LLM review: read mapping_log → generate feedback
     """
     llm = state.context.setdefault("llm", {})
+    for warning in result.get("warnings", []) or []:
+        if warning not in state.warnings:
+            state.warnings.append(warning)
 
     # ── Phase 1: Generate UI actions to auto-fill translation panel ──
     source_config = state.payload.get("source_config", "")
@@ -416,10 +419,10 @@ def _assistant_response(state: NetworkAgentState) -> str:
         return ("配置翻译质量摘要包含 source_residue_count（源残留）、silent_drop_count（静默丢弃）、"
                 "review_required_count（需复核）。\n"
                 "如有残留或丢弃项，结果必须经过人工复核；配置翻译不声明结果可用于设备执行。")
-    # Weather / real-time / news — no tools available
+    # Weather / real-time / news
     if any(kw in ui for kw in ["天气", "weather", "新闻", "news", "股票", "stock", "热搜"]):
-        return ("我当前没有接入实时查询工具，无法查询最新天气、新闻或股票数据。\n"
-                "后续接入对应工具后才能处理这类实时问题。")
+        return ("我可以在 LLM 工具列表可用时调用 Web、天气或新闻工具获取实时信息；"
+                "如果工具调用被策略拦截，我会说明原因和需要的审批/输入。")
     # Default friendly response
     return ("你好！有什么我可以帮助你的吗？\n\n"
             "你可以尝试：\n"

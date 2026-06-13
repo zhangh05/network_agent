@@ -3,6 +3,7 @@
 
 import pytest
 from unittest.mock import MagicMock, patch, PropertyMock
+from agent.capabilities import get_default_capability_registry
 
 
 class TestAgentAppSubmit:

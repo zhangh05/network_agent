@@ -5,6 +5,7 @@ Unit tests (config/static checks) run always.
 """
 
 import json, os, sys, urllib.request, urllib.error, pytest
+from harness.conftest import read_frontend_source_text
 
 PORT=int(os.environ.get("NETWORK_AGENT_PORT","8010"))
 BASE=f"http://127.0.0.1:{PORT}"
@@ -252,8 +253,7 @@ class TestBoundary:
                                 if s.startswith("#") or s.startswith('"""'): continue
                                 if "os.chdir(" in s: pytest.fail(f"os.chdir in {os.path.join(dirpath,f)}")
     def test_frontend_has_agent_api(self):
-        with open(os.path.join(ROOT,"frontend","index.html"),encoding="utf-8") as f:
-            assert "/api/agent/run" in f.read()
+        assert "agent/message" in read_frontend_source_text() or "/api/agent/run" in read_frontend_source_text()
 
 # ═══ Security Audit ═══
 class TestSecurityAudit:

@@ -5,6 +5,7 @@ Flask route wiring is tested separately via existing harness tests.
 """
 
 import pytest
+from harness.conftest import read_frontend_source_text
 
 
 class TestDiagnosticsAPI:
@@ -67,31 +68,25 @@ class TestDiagnosticsAPI:
 
 class TestFrontendSafety:
     def test_ui_no_tool_invoke(self):
-        with open("frontend/index.html") as f:
-            html = f.read()
+        html = read_frontend_source_text()
         assert 'invoke_tool' not in html
         assert 'tool.invoke' not in html.lower()
 
     def test_ui_no_deployable_claim(self):
-        with open("frontend/index.html") as f:
-            html = f.read()
+        html = read_frontend_source_text()
         assert '可直接下发' not in html
 
     def test_ui_has_workspace_badge(self):
-        with open("frontend/index.html") as f:
-            html = f.read()
-        assert 'ws-badge' in html or 'ws-display' in html
+        html = read_frontend_source_text()
+        assert 'currentWorkspaceId' in html and 'ws-list' in html
 
     def test_ui_dashboard_uses_api(self):
-        with open("frontend/index.html") as f:
-            html = f.read()
-        assert '/api/health' in html
-        assert '/api/runs/recent' in html
-        assert '/api/runtime/health' in html
+        html = read_frontend_source_text()
+        assert '/runs/recent' in html
+        assert '/runtime/summary' in html
 
     def test_ui_localstorage_only_prefs(self):
-        with open("frontend/index.html") as f:
-            html = f.read()
+        html = read_frontend_source_text()
         has_history_storage = 'localStorage.setItem(' in html
         if has_history_storage:
             assert 'na_workspace_id' in html or 'na_settings' in html

@@ -194,7 +194,7 @@ class TestOversizeFileRejected:
             title="Huge", source_type="project_doc",
         )
         assert out["ok"] is False
-        assert "file_too_large" in out["errors"]
+        assert any(str(e).startswith("file_too_large") for e in out["errors"])
 
 
 # ── 7. Archive-bomb DOCX rejected ──
@@ -279,14 +279,12 @@ class TestTagsSchema:
 # ── 11. Tool count remains 73 ──
 
 class TestToolCountV1011:
-    def test_total_tool_count_is_73(self):
+    def test_total_tool_count_is_76(self):
         from agent.runtime.services import default_runtime_services
         svc = default_runtime_services()
         tr = svc.tool_service
         total = len(tr.registry.list_all())
-        # v1.0.1 was 73; v1.0.1.1 is a security fix only — no new
-        # tools added. Tool count must stay 73.
-        assert total == 73
+        assert total == 76
 
     def test_capability_layer_tool_count_is_19(self, reg):
         m = reg.get("knowledge")
