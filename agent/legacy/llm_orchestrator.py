@@ -379,6 +379,10 @@ def _execute_module_direct(state: NetworkAgentState, task: "Task", ws_id: str) -
     turn.complete(str(state.skill_results.get("summary", ""))[:200])
     task.complete({"mode": "module_direct", "skill": skill})
 
+    # ── Update workspace state.json (last translation results, etc.) ──
+    # v0.9.1: orchestrator didn't call memory_writer, so state.json was stale.
+    _update_workspace_state(state, skill)
+
 
 def _save_module_artifact(state: "NetworkAgentState", skill: str, result: dict) -> None:
     """Save a module output artifact from the skill adapter result.
@@ -427,6 +431,51 @@ def _save_module_artifact(state: "NetworkAgentState", skill: str, result: dict) 
                 init_review_sidecar(ws_id, rec.artifact_id, items)
             except Exception:
                 pass
+    except Exception:
+        pass
+
+
+def _update_workspace_state(state: "NetworkAgentState", skill: str = "") -> None:
+    """Update workspace state.json for review / context_qa.
+
+    v0.9.1: orchestrator path didn't call memory_writer, so
+    state.json stayed stale.  We write the minimal fields the
+    config_translation review adapter needs.
+    """
+    ws_id = state.workspace_id or "default"
+    result = state.skill_results or {}
+    try:
+        from workspace.manager import update_workspace_state
+        from artifacts.store import get_run_artifacts
+        run_arts = get_run_artifacts(ws_id, state.request_id)
+        artifact_refs = list(run_arts.get("artifacts", [])) if run_arts else []
+        mr = result.get("manual_review", [])
+        dc = result.get("deployable_config", "")
+        us = result.get("unsupported", [])
+        patch = {
+            "last_run_id": state.request_id,
+            "last_intent": state.intent,
+            "last_active_module": state.active_module or skill,
+            "last_result_summary": (
+                f"intent={state.intent} module={state.active_module} "
+                f"deployable={len(dc.split(chr(10))) if dc else 0} "
+                f"manual_review={len(mr)} unsupported={len(us)}"
+            )[:200],
+            "last_result_counts": {
+                "deployable_lines": len(dc.split("\n")) if dc else 0,
+                "manual_review_count": len(mr),
+                "unsupported_count": len(us),
+            },
+            "last_output_artifacts": state.context.get("output_artifacts", []),
+            "current_artifacts": list(artifact_refs)[:20],
+            "last_manual_review_samples": [
+                {"reason": str(r.get("reason", ""))[:80]} for r in mr[:5]
+            ] if isinstance(mr, list) else [],
+            "last_unsupported_samples": [
+                {"reason": str(r.get("reason", ""))[:80]} for r in us[:5]
+            ] if isinstance(us, list) else [],
+        }
+        update_workspace_state(ws_id, patch)
     except Exception:
         pass
 
