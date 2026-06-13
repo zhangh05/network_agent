@@ -60,6 +60,7 @@ Enabled model-visible runtime tools with extra execution gates:
 - Disabled tools are not exposed to the model.
 - Pure chat, capability-discovery, and business turns expose the full model-visible tool catalog after the registry safety filter.
 - LLM-visible tool descriptions include `tool_id`, `risk`, `source`, and `approval` metadata so the model sees the safety context before choosing a tool.
+- LLM-visible tool descriptions preserve the full runtime guidance text; OpenAI-compatible parameters are normalized to `type=object`, `properties`, and `required` for every tool.
 - Capability tool handlers fail fast if their `handler_ref` cannot be resolved.
 - Capability tools override same-id general runtime tools when they define the active business contract.
 - High-risk runtime tools are visible but require approval state and allowlisted ids before execution.

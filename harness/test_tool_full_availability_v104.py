@@ -60,6 +60,41 @@ def test_agent_exposes_all_llm_callable_tools_with_risk_metadata():
     assert "allowlisted" in descriptions["command__approved_exec"]
 
 
+def test_llm_tool_descriptions_preserve_full_runtime_guidance():
+    from agent.runtime.services import default_runtime_services
+    from tool_runtime.integration import get_default_tool_runtime_client
+
+    runtime_desc = get_default_tool_runtime_client().get_tool("web.search")["description"]
+    assert "anything that may have changed" in runtime_desc
+    assert not runtime_desc.endswith("or any")
+
+    router = default_runtime_services().tool_service
+    descriptions = {
+        t["function"]["name"]: t["function"]["description"]
+        for t in router.model_visible_tools()
+    }
+    assert "anything that may have changed" in descriptions["web__search"]
+    assert not descriptions["web__search"].endswith("or any")
+
+
+def test_llm_tool_parameters_are_normalized_for_function_calling():
+    from agent.runtime.services import default_runtime_services
+
+    tools = default_runtime_services().tool_service.model_visible_tools()
+    by_name = {t["function"]["name"]: t["function"]["parameters"] for t in tools}
+
+    assert by_name["command__dry_run_echo"] == {
+        "type": "object",
+        "properties": {},
+        "required": [],
+    }
+
+    for name, params in by_name.items():
+        assert params["type"] == "object", name
+        assert isinstance(params["properties"], dict), name
+        assert isinstance(params["required"], list), name
+
+
 def test_weather_and_news_tools_return_useful_web_backed_results(monkeypatch):
     from tool_runtime.general_tools import (
         handle_news_search,
@@ -164,6 +199,19 @@ def test_client_forwards_trusted_context_approval_id_but_not_tool_argument():
 
     assert trusted_context.status == "dry_run"
     assert trusted_context.policy_decision.allowed is True
+
+
+def test_approved_process_list_command_is_cross_platform_read_only():
+    from tool_runtime.general_tools import handle_command_approved_exec
+
+    result = handle_command_approved_exec(ToolInvocation(
+        tool_id="command.approved_exec",
+        arguments={"command_id": "system.process_list_safe"},
+    ))
+
+    assert result["ok"] is True
+    assert "processes" in result
+    assert isinstance(result["processes"], list)
 
 
 def test_agent_dispatch_does_not_treat_llm_argument_as_trusted_approval_id():

@@ -29,11 +29,15 @@ class LLMToolSpec:
 
     def to_openai_function(self) -> dict:
         """Convert to OpenAI function calling format."""
+        parameters = dict(self.parameters or {})
+        parameters.setdefault("type", "object")
+        parameters.setdefault("properties", {})
+        parameters.setdefault("required", [])
         return {
             "type": "function",
             "function": {
                 "name": self.name,
                 "description": self.description,
-                "parameters": self.parameters or {"type": "object", "properties": {}, "required": []},
+                "parameters": parameters,
             },
         }

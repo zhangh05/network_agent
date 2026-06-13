@@ -63,7 +63,7 @@ class ToolSpec:
         return {
             "tool_id": self.tool_id,
             "name": self.name,
-            "description": self.description[:200],
+            "description": self.description,
             "category": self.category,
             "version": self.version,
             "enabled": self.enabled,

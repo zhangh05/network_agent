@@ -45,6 +45,7 @@ Every LLM-visible tool description includes `tool_id`, `risk`, `source`, and `ap
 - `ToolRouter.model_visible_tools()` returns OpenAI-compatible tool definitions.
 - LLM-safe tool names use `__` instead of `.`.
 - LLM-visible tool descriptions include safety metadata: `tool_id`, `risk`, `source`, and `approval`.
+- Tool parameter schemas are normalized before reaching the LLM so every function has an object schema with `properties` and `required`.
 - `ToolRouter.build_tool_call()` rejects unknown or non-visible tool calls.
 - `ToolRouter.dispatch()` executes through registered capability handlers or ToolRuntime.
 - Capability handlers must resolve at registry build time; a broken `handler_ref` fails fast.
