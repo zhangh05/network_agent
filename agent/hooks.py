@@ -32,7 +32,7 @@ logger = logging.getLogger(__name__)
 # ═══════════════════════════
 
 class HookEvent(str, enum.Enum):
-    """Hook event names — mirrors Codex's 7 core events."""
+    """Hook event names — mirrors Codex's 7 core events plus expansion slots."""
     PRE_TOOL_USE = "PreToolUse"          # before tool execution: can block or rewrite input
     POST_TOOL_USE = "PostToolUse"        # after tool execution: can stop or give feedback
     PRE_TURN = "PreTurn"                # before LLM turn: can block or inject context
@@ -41,6 +41,12 @@ class HookEvent(str, enum.Enum):
     STOP = "Stop"                       # task completion: can block (force continue) or allow
     PRE_COMPACT = "PreCompact"          # before compaction: can stop compaction
     POST_COMPACT = "PostCompact"        # after compaction: can stop
+    # ── Phase 2+ integration: slots defined, not yet wired into loop.py ──
+    PRE_MODEL = "PreModel"              # before LLM call: can block or modify prompt
+    POST_MODEL = "PostModel"            # after LLM response: can validate or modify output
+    ON_ERROR = "OnError"                # on any error: can intercept, log, or retry
+    ON_APPROVAL = "OnApproval"          # on approval required/resolved: can auto-approve or escalate
+    ON_COMPACT = "OnCompact"            # on context compact: can trigger pre/post-compact logic
 
 
 # ═══════════════════════════

@@ -280,9 +280,13 @@ def run_turn(session, turn, services=None, restricted_tool_router=None) -> Agent
     Phase 3: restricted_tool_router is used by sub-agents to limit tool access.
     """
     from agent.runtime.context_builder import build_turn_context
+    import uuid
 
     audit_events = services.audit_service["events"] if services and hasattr(services, 'audit_service') and services.audit_service else None
     audit_trace = services.audit_service["trace"] if services and hasattr(services, 'audit_service') and services.audit_service else None
+
+    # Generate fallback trace_id at start of turn (context_builder also generates one)
+    _fallback_trace_id = str(uuid.uuid4())
 
     # 1. audit: turn_started
     if audit_events:
@@ -293,6 +297,10 @@ def run_turn(session, turn, services=None, restricted_tool_router=None) -> Agent
 
     # 2. build context
     context = build_turn_context(session, turn, services)
+
+    # Ensure trace_id is always available (context_builder sets it, but ensure fallback)
+    if not getattr(context, 'trace_id', None):
+        context.trace_id = _fallback_trace_id
 
     # ── Phase 3: Restricted tool router for sub-agents ──
     if restricted_tool_router is not None:
@@ -330,6 +338,7 @@ def run_turn(session, turn, services=None, restricted_tool_router=None) -> Agent
             final_response="Turn blocked by pre-turn hook. Ask the user to review hook configuration.",
             session_id=session.session_id,
             turn_id=turn.turn_id,
+            trace_id=context.trace_id,
             warnings=turn.warnings,
             metadata=_enrich_metadata({
                 "hook_event": "pre_turn",

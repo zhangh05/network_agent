@@ -1573,6 +1573,292 @@ def handle_skill_request_load(inv: ToolInvocation) -> dict:
     })
 
 
+def handle_skill_find(inv: ToolInvocation) -> dict:
+    """Search for skills by keyword in their descriptions."""
+    args = inv.arguments
+    query = str(args.get("query", "")).strip().lower()
+    limit = int(args.get("limit", 10))
+
+    if not query:
+        return _error("query is required")
+
+    try:
+        skills_dir = ROOT / "skills"
+        if not skills_dir.is_dir():
+            return _ok({"results": [], "count": 0, "query": query})
+
+        matches = []
+        for item in sorted(skills_dir.iterdir()):
+            if not item.is_dir() or item.name.startswith(".") or item.name in ("__pycache__",):
+                continue
+
+            # Search in SKILL.md content
+            md_path = item / "SKILL.md"
+            skill_text = ""
+            if md_path.is_file():
+                try:
+                    skill_text = md_path.read_text(encoding="utf-8").lower()
+                except Exception:
+                    pass
+
+            # Search in skill.yaml
+            yaml_path = item / "skill.yaml"
+            yaml_text = ""
+            if yaml_path.is_file():
+                try:
+                    yaml_text = yaml_path.read_text(encoding="utf-8").lower()
+                except Exception:
+                    pass
+
+            combined = skill_text + " " + item.name.lower() + " " + yaml_text
+            if query in combined:
+                skill_info = {
+                    "name": item.name,
+                    "path": str(item.relative_to(ROOT)),
+                    "description": "",
+                    "status": "unknown",
+                    "capabilities": [],
+                }
+                # Read skill.yaml for metadata
+                if yaml_path.is_file():
+                    try:
+                        import yaml
+                        with open(yaml_path, encoding="utf-8") as fy:
+                            data = yaml.safe_load(fy)
+                        if isinstance(data, dict):
+                            skill_info["description"] = str(data.get("description") or data.get("display_name") or "")
+                            skill_info["status"] = str(data.get("status", "unknown"))
+                            skill_info["capabilities"] = [c.get("capability_id", "") for c in (data.get("capabilities") or []) if isinstance(c, dict)]
+                    except Exception:
+                        pass
+                matches.append(skill_info)
+
+            if len(matches) >= limit:
+                break
+
+        return _ok({"results": matches, "count": len(matches), "query": query})
+    except Exception as e:
+        return _error(str(e)[:200])
+
+
+def handle_skill_create(inv: ToolInvocation) -> dict:
+    """Create a new skill skeleton with SKILL.md and skill.yaml.
+    
+    Creates skills/<name>/ directory with template files.
+    Status is set to pending_review — does NOT auto-enable.
+    """
+    args = inv.arguments
+    name = str(args.get("name", "")).strip()
+    description = str(args.get("description", "")).strip()
+    capabilities = list(args.get("capabilities") or [])
+
+    if not name:
+        return _error("name is required")
+
+    # Sanitize skill name: only allow alphanumeric, hyphens, underscores
+    safe_name = re.sub(r"[^a-zA-Z0-9_\-]", "", name)
+    if not safe_name:
+        return _error("skill name must contain at least one valid character (a-z, 0-9, -, _)")
+
+    skills_dir = ROOT / "skills"
+    skill_dir = skills_dir / safe_name
+
+    if skill_dir.exists():
+        return _error(f"skill '{safe_name}' already exists")
+
+    try:
+        skills_dir.mkdir(parents=True, exist_ok=True)
+        skill_dir.mkdir(parents=True, exist_ok=False)
+
+        # Write SKILL.md template
+        md_content = f"""# {safe_name}
+
+{description or "A new agent skill."}
+
+## Description
+
+{description or "TODO: Write a detailed description of what this skill does."}
+
+## Capabilities
+
+"""
+        if capabilities:
+            for cap in capabilities:
+                md_content += f"- {cap}\n"
+        else:
+            md_content += "- TODO: List capabilities\n"
+
+        md_content += f"""
+## Usage
+
+TODO: Add usage examples and instructions.
+
+## Status
+
+pending_review
+"""
+        (skill_dir / "SKILL.md").write_text(md_content, encoding="utf-8")
+
+        # Write skill.yaml
+        import yaml
+        yaml_content = {
+            "name": safe_name,
+            "description": description or f"Skill: {safe_name}",
+            "status": "pending_review",
+            "version": "0.1.0",
+            "capabilities": [{"capability_id": c} for c in capabilities] if capabilities else [],
+        }
+        with open(skill_dir / "skill.yaml", "w", encoding="utf-8") as f:
+            yaml.safe_dump(yaml_content, f, default_flow_style=False, allow_unicode=True)
+
+        return _ok({
+            "skill_name": safe_name,
+            "skill_path": str(skill_dir.relative_to(ROOT)),
+            "status": "pending_review",
+            "message": f"Skill '{safe_name}' created with status=pending_review. Review and enable before use.",
+        })
+    except FileExistsError:
+        return _error(f"skill '{safe_name}' already exists")
+    except Exception as e:
+        return _error(str(e)[:200])
+
+
+def handle_skill_inspect(inv: ToolInvocation) -> dict:
+    """Read and return a skill's SKILL.md content without loading it."""
+    args = inv.arguments
+    skill_name = str(args.get("skill_name", "")).strip()
+
+    if not skill_name:
+        return _error("skill_name is required")
+
+    # Sanitize
+    safe_name = re.sub(r"[^a-zA-Z0-9_\-]", "", skill_name)
+    if not safe_name:
+        return _error(f"invalid skill_name: {skill_name}")
+
+    skills_dir = ROOT / "skills"
+    skill_dir = skills_dir / safe_name
+    md_path = skill_dir / "SKILL.md"
+
+    if not skill_dir.is_dir():
+        return _error(f"skill '{safe_name}' not found")
+
+    try:
+        yaml_path = skill_dir / "skill.yaml"
+        yaml_data = {}
+        if yaml_path.is_file():
+            import yaml
+            with open(yaml_path, encoding="utf-8") as f:
+                yaml_data = yaml.safe_load(f) or {}
+
+        content = ""
+        if md_path.is_file():
+            content = md_path.read_text(encoding="utf-8")
+
+        return _ok({
+            "skill_name": safe_name,
+            "skill_path": str(skill_dir.relative_to(ROOT)),
+            "content": content,
+            "content_length": len(content),
+            "status": yaml_data.get("status", "unknown"),
+            "description": yaml_data.get("description", ""),
+        })
+    except Exception as e:
+        return _error(str(e)[:200])
+
+
+def handle_pdf_extract_text(inv: ToolInvocation) -> dict:
+    """Extract text from a workspace PDF file.
+
+    Uses PyPDF2 if available. Otherwise returns planned status.
+    """
+    args = inv.arguments
+    ws = args.get("workspace_id", "default")
+    filepath = str(args.get("filepath", "")).strip()
+    page_range = str(args.get("page_range", "")).strip()
+
+    if not filepath:
+        return _error("filepath is required")
+
+    # Validate workspace path
+    try:
+        target = _validate_workspace_path(ws, filepath)
+    except ValueError as e:
+        return _error(str(e))
+
+    if not target.is_file():
+        return _error(f"file not found: {filepath}")
+
+    # Check file extension
+    if target.suffix.lower() != ".pdf":
+        return _error("file must be a .pdf file")
+
+    file_size = target.stat().st_size
+
+    # Parse page range
+    start_page = None
+    end_page = None
+    if page_range:
+        try:
+            parts = page_range.split("-")
+            if len(parts) == 1:
+                start_page = int(parts[0].strip()) - 1  # 0-indexed
+                end_page = start_page
+            elif len(parts) == 2:
+                start_page = int(parts[0].strip()) - 1
+                end_page = int(parts[1].strip()) - 1
+        except (ValueError, IndexError):
+            return _error(f"invalid page_range format: {page_range}. Use e.g. '1-3' or '5'")
+
+    # Try to import PyPDF2
+    try:
+        import PyPDF2  # noqa: F811
+    except ImportError:
+        try:
+            import pypdf
+            PyPDF2 = pypdf
+        except ImportError:
+            return _ok({
+                "ok": True,
+                "status": "planned",
+                "text": "",
+                "page_count": 0,
+                "file_size": file_size,
+                "message": "PDF text extraction is not available: PyPDF2 not installed. This feature is planned.",
+            })
+
+    try:
+        reader = PyPDF2.PdfReader(str(target))
+        page_count = len(reader.pages)
+
+        # Determine page range
+        if start_page is not None:
+            pages_to_read = range(max(0, start_page), min(page_count, end_page + 1))
+        else:
+            pages_to_read = range(page_count)
+
+        text_parts = []
+        for i in pages_to_read:
+            try:
+                page_text = reader.pages[i].extract_text()
+                if page_text:
+                    text_parts.append(page_text)
+            except Exception:
+                text_parts.append(f"[page {i + 1} extraction failed]")
+
+        full_text = "\n\n".join(text_parts)
+
+        return _ok({
+            "text": full_text,
+            "page_count": page_count,
+            "pages_read": len(text_parts),
+            "file_size": file_size,
+            "char_count": len(full_text),
+        })
+    except Exception as e:
+        return _error(str(e)[:200])
+
+
 def handle_memory_create(inv: ToolInvocation) -> dict:
     """Create a long-term memory entry. Default status=pending_confirmation.
 
@@ -1757,6 +2043,59 @@ def handle_memory_set_profile(inv: ToolInvocation) -> dict:
         profile["updated_at"] = time.strftime("%Y-%m-%dT%H:%M:%S")
         profile_path.write_text(json.dumps(profile, ensure_ascii=False, indent=2), encoding="utf-8")
         return _ok({"field": field, "saved": True})
+    except Exception as e:
+        return _error(str(e)[:200])
+
+
+def handle_memory_update(inv: ToolInvocation) -> dict:
+    """Update an existing memory entry's content. Checks for secrets before writing."""
+    args = inv.arguments
+    memory_id = str(args.get("memory_id", "")).strip()
+    content = str(args.get("content", "")).strip()
+    if not memory_id:
+        return _error("memory_id is required")
+    if not content:
+        return _error("content is required")
+    try:
+        from memory.redaction import contains_secret
+        if contains_secret(content):
+            return _error("content contains secrets — memory.update blocked")
+        from memory.backends.jsonl_store import JSONLMemoryStore
+        store = JSONLMemoryStore()
+        entry = store.get(memory_id)
+        if not entry:
+            return _error(f"memory_id not found: {memory_id}")
+        meta = (entry.get("metadata") or {})
+        if not isinstance(meta, dict):
+            meta = {}
+        meta["updated_at"] = time.strftime("%Y-%m-%dT%H:%M:%S")
+        meta["status"] = "updated"
+        meta["content"] = content
+        store.update_metadata(memory_id, meta)
+        return _ok({"memory_id": memory_id, "updated": True})
+    except Exception as e:
+        return _error(str(e)[:200])
+
+
+def handle_memory_delete_soft(inv: ToolInvocation) -> dict:
+    """Soft-delete a memory entry. Marks as deleted, does not remove from store."""
+    args = inv.arguments
+    memory_id = str(args.get("memory_id", "")).strip()
+    if not memory_id:
+        return _error("memory_id is required")
+    try:
+        from memory.backends.jsonl_store import JSONLMemoryStore
+        store = JSONLMemoryStore()
+        entry = store.get(memory_id)
+        if not entry:
+            return _error(f"memory_id not found: {memory_id}")
+        meta = (entry.get("metadata") or {})
+        if not isinstance(meta, dict):
+            meta = {}
+        meta["status"] = "deleted"
+        meta["deleted_at"] = time.strftime("%Y-%m-%dT%H:%M:%S")
+        store.update_metadata(memory_id, meta)
+        return _ok({"memory_id": memory_id, "deleted": True})
     except Exception as e:
         return _error(str(e)[:200])
 
@@ -2031,6 +2370,152 @@ def handle_ws_get_metadata(inv: ToolInvocation) -> dict:
         return _error(str(e)[:200])
 
 
+def handle_file_list(inv: ToolInvocation) -> dict:
+    """List files in workspace subdirectory. Max 50 files."""
+    ws = inv.arguments.get("workspace_id", "default")
+    subdir = inv.arguments.get("subdir", "")
+    try:
+        target = _validate_workspace_path(ws, subdir)
+        if not target.exists():
+            return _ok({"files": [], "count": 0})
+        files = []
+        for p in sorted(target.iterdir()):
+            if len(files) >= 50:
+                break
+            if p.is_file():
+                files.append({"name": p.name, "size": p.stat().st_size, "suffix": p.suffix})
+            elif p.is_dir():
+                files.append({"name": p.name, "type": "directory"})
+        return _ok({"files": files, "count": len(files)})
+    except Exception as e:
+        return _error(str(e)[:200])
+
+
+def handle_file_exists(inv: ToolInvocation) -> dict:
+    """Check whether a workspace file exists and return metadata."""
+    ws = inv.arguments.get("workspace_id", "default")
+    filepath = inv.arguments.get("filepath", "")
+    try:
+        target = _validate_workspace_path(ws, filepath)
+        exists = target.exists()
+        result = {
+            "exists": exists,
+            "is_file": target.is_file() if exists else False,
+            "is_dir": target.is_dir() if exists else False,
+        }
+        if exists and target.is_file():
+            result["size"] = target.stat().st_size
+        return _ok(result)
+    except Exception as e:
+        return _error(str(e)[:200])
+
+
+def handle_file_read(inv: ToolInvocation) -> dict:
+    """Read workspace text file up to 50000 chars. Rejects binary files."""
+    ws = inv.arguments.get("workspace_id", "default")
+    filepath = inv.arguments.get("filepath", "")
+    limit = min(int(inv.arguments.get("limit", 50000)), 50000)
+    try:
+        target = _validate_workspace_path(ws, filepath)
+        if not target.is_file():
+            return _error("file not found")
+        if target.stat().st_size > 1024 * 1024:
+            return _error("file too large (>1MB)")
+        # Reject binary files
+        with open(target, "rb") as f:
+            head = f.read(1024)
+        if b"\x00" in head:
+            return _error("binary file not supported")
+        content = target.read_text(encoding="utf-8", errors="replace")
+        preview = content[:limit]
+        return _ok({
+            "preview": preview,
+            "size": len(content),
+            "truncated": len(content) > limit,
+        })
+    except Exception as e:
+        return _error(str(e)[:200])
+
+
+def handle_file_edit(inv: ToolInvocation) -> dict:
+    """Edit a workspace file by string replacement. Only writes to workspaces/<ws>/output/."""
+    ws = inv.arguments.get("workspace_id", "default")
+    filepath = inv.arguments.get("filepath", "")
+    old_string = inv.arguments.get("old_string", "")
+    new_string = inv.arguments.get("new_string", "")
+    replace_all = bool(inv.arguments.get("replace_all", False))
+    try:
+        target = _validate_workspace_path(ws, filepath)
+        output_dir = (WS_ROOT / ws / "output").resolve()
+        if not str(target).startswith(str(output_dir)):
+            return _error("file.edit only writes to workspaces/<ws>/output/ directory")
+        if not target.is_file():
+            return _error("file not found")
+        content = target.read_text(encoding="utf-8")
+        if replace_all:
+            count = content.count(old_string)
+            new_content = content.replace(old_string, new_string)
+        else:
+            if old_string not in content:
+                return _error("old_string not found in file")
+            count = 1
+            new_content = content.replace(old_string, new_string, 1)
+        if new_content == content:
+            return _ok({"lines_changed": 0, "note": "no changes made"})
+        target.write_text(new_content, encoding="utf-8")
+        lines_changed = abs(new_content.count("\n") - content.count("\n")) or count
+        return _ok({"lines_changed": lines_changed, "replacements": count})
+    except Exception as e:
+        return _error(str(e)[:200])
+
+
+def handle_file_patch(inv: ToolInvocation) -> dict:
+    """Apply a unified diff patch to a workspace file."""
+    ws = inv.arguments.get("workspace_id", "default")
+    filepath = inv.arguments.get("filepath", "")
+    patch_text = inv.arguments.get("patch_text", "")
+    try:
+        target = _validate_workspace_path(ws, filepath)
+        if not target.is_file():
+            return _error("file not found")
+        original = target.read_text(encoding="utf-8")
+        original_lines = original.splitlines(keepends=True)
+        # Parse unified diff hunks: @@ -old_start,old_count +new_start,new_count @@ body
+        hunks = re.findall(
+            r"@@ -(\d+),?(\d*) \+(\d+),?(\d*) @@\n?(.*?)(?=@@|\Z)",
+            patch_text, re.DOTALL,
+        )
+        if not hunks:
+            return _error("no valid diff hunks found in patch_text")
+        lines_added = 0
+        lines_removed = 0
+        result_lines = list(original_lines)
+        # Apply in reverse to preserve line offsets
+        for hunk in reversed(hunks):
+            old_start = int(hunk[0]) - 1
+            old_count = int(hunk[1]) if hunk[1] else 1
+            new_start = int(hunk[2]) - 1
+            new_count = int(hunk[3]) if hunk[3] else 1
+            body = hunk[4]
+            new_lines = []
+            for line in body.split("\n"):
+                if not line:
+                    new_lines.append("\n")
+                elif line.startswith("+"):
+                    new_lines.append(line[1:] + "\n")
+                    lines_added += 1
+                elif line.startswith("-"):
+                    lines_removed += 1
+                elif line.startswith(" "):
+                    new_lines.append(line[1:] + "\n")
+            result_lines[old_start:old_start + old_count] = new_lines
+        new_content = "".join(result_lines)
+        target.write_text(new_content, encoding="utf-8")
+        return _ok({"lines_added": lines_added, "lines_removed": lines_removed})
+    except Exception as e:
+        return _error(str(e)[:200])
+
+
 # ═══════════════ I. Shell / PowerShell Tools ═══════════════
 
 _SHELL_TIMEOUT = 30
@@ -2206,6 +2691,83 @@ def handle_session_rewind(inv: ToolInvocation) -> dict:
         return _error(str(e)[:200])
 
 
+def handle_session_checkpoint(inv: ToolInvocation) -> dict:
+    """Create a checkpoint with message/run/artifact references."""
+    ws = inv.arguments.get("workspace_id", "default")
+    sid = inv.arguments.get("session_id", "")
+    reason = str(inv.arguments.get("reason", "")).strip()
+    if not sid:
+        return _error("session_id is required")
+    try:
+        validate_workspace_id(ws)
+        from workspace.session_store import get_session
+        s = get_session(sid, ws)
+        if not s:
+            return _error("session not found")
+        import uuid
+        cid = str(uuid.uuid4())[:8]
+        checkpoints_dir = WS_ROOT / ws / "sessions" / sid / "checkpoints"
+        checkpoints_dir.mkdir(parents=True, exist_ok=True)
+        messages = s.get("messages", [])
+        checkpoint = {
+            "checkpoint_id": cid,
+            "session_id": sid,
+            "workspace_id": ws,
+            "reason": reason,
+            "message_count": len(messages),
+            "run_refs": s.get("run_refs", []),
+            "artifact_refs": s.get("artifact_refs", []),
+            "created_at": time.strftime("%Y-%m-%dT%H:%M:%S"),
+        }
+        checkpoint_path = checkpoints_dir / f"{cid}.json"
+        checkpoint_path.write_text(json.dumps(checkpoint, ensure_ascii=False, indent=2), encoding="utf-8")
+        return _ok({
+            "checkpoint_id": cid,
+            "message_count": len(messages),
+            "reason": reason,
+        })
+    except Exception as e:
+        return _error(str(e)[:200])
+
+
+def handle_session_export(inv: ToolInvocation) -> dict:
+    """Export session messages to JSON or markdown."""
+    ws = inv.arguments.get("workspace_id", "default")
+    sid = inv.arguments.get("session_id", "")
+    fmt = str(inv.arguments.get("format", "md")).strip().lower()
+    if not sid:
+        return _error("session_id is required")
+    try:
+        validate_workspace_id(ws)
+        from workspace.session_store import get_session
+        s = get_session(sid, ws)
+        if not s:
+            return _error("session not found")
+        messages = s.get("messages", [])
+        title = s.get("title", "session")
+        if fmt == "json":
+            export = {
+                "session_id": sid,
+                "title": title,
+                "message_count": len(messages),
+                "messages": messages,
+            }
+            return _ok({"format": "json", "export": export})
+        else:
+            lines = [f"# {title}", f"Session: {sid}", f"Messages: {len(messages)}", ""]
+            for i, msg in enumerate(messages):
+                role = msg.get("role", "unknown")
+                content = msg.get("content", "")
+                lines.append(f"## Message {i + 1} ({role})")
+                lines.append("")
+                lines.append(content[:1000])
+                lines.append("")
+            md = "\n".join(lines)
+            return _ok({"format": "md", "export": md})
+    except Exception as e:
+        return _error(str(e)[:200])
+
+
 # ═══════════════ L. Agent Spawn (Sub-Agent) Tool ═══════════════
 
 def handle_agent_spawn(inv: ToolInvocation) -> dict:
@@ -2238,6 +2800,109 @@ def handle_agent_spawn(inv: ToolInvocation) -> dict:
         return _error(str(e)[:200])
 
 
+def handle_agent_list_roles(inv: ToolInvocation) -> dict:
+    """List available agent roles: planner, worker, reviewer."""
+    roles = [
+        {
+            "name": "planner",
+            "description": "Plans high-level task decomposition. Breaks complex tasks into subtasks and assigns to workers.",
+            "default_tools": ["agent.spawn", "skill.list", "memory.search", "memory.list", "web.search"],
+        },
+        {
+            "name": "worker",
+            "description": "Executes assigned subtasks. Has access to read-only research, validation, and data tools.",
+            "default_tools": ["web.search", "web.fetch_summary", "knowledge.search", "text.classify", "json.validate", "yaml.validate"],
+        },
+        {
+            "name": "reviewer",
+            "description": "Reviews worker outputs for quality, correctness, and completeness. Can request rework.",
+            "default_tools": ["text.diff", "text.classify", "memory.search", "artifact.search", "file.read"],
+        },
+    ]
+    return _ok({"roles": roles, "count": len(roles)})
+
+
+def handle_agent_get_result(inv: ToolInvocation) -> dict:
+    """Get sub-agent result by child_session_id.
+
+    Looks up child session and returns summary from run records or message store.
+    """
+    args = inv.arguments
+    ws = args.get("workspace_id", "default")
+    child_session_id = str(args.get("child_session_id", "")).strip()
+
+    if not child_session_id:
+        return _error("child_session_id is required")
+
+    try:
+        validate_workspace_id(ws)
+
+        # Try to find run records for this child session
+        from workspace.message_store import SessionMessageStore
+        store = SessionMessageStore(session_id=child_session_id, ws_id=ws)
+        if store.exists():
+            messages = store.get_history_window(k=50)
+            summary = {
+                "child_session_id": child_session_id,
+                "workspace_id": ws,
+                "message_count": len(messages),
+                "last_assistant_message": "",
+                "tool_calls_count": 0,
+            }
+            # Extract last assistant message content
+            for m in reversed(messages):
+                if m.get("role") == "assistant":
+                    content = m.get("content", "")
+                    summary["last_assistant_message"] = content[:500]
+                    break
+            # Count tool result messages
+            summary["tool_calls_count"] = sum(1 for m in messages if m.get("role") == "tool")
+            return _ok(summary)
+        else:
+            # Fall back to run records
+            try:
+                from workspace.run_store import list_runs
+                runs = list_runs(ws, session_id=child_session_id, limit=10)
+                if runs:
+                    return _ok({
+                        "child_session_id": child_session_id,
+                        "workspace_id": ws,
+                        "run_count": len(runs),
+                        "runs": [{"run_id": r.get("run_id", ""), "ok": r.get("ok", False), "summary": str(r.get("summary", ""))[:200]} for r in runs],
+                    })
+            except Exception:
+                pass
+            return _ok({
+                "child_session_id": child_session_id,
+                "workspace_id": ws,
+                "message_count": 0,
+                "last_assistant_message": "",
+                "tool_calls_count": 0,
+                "note": "no records found for this child session",
+            })
+    except Exception as e:
+        return _error(str(e)[:200])
+
+
+def handle_slash_run(inv: ToolInvocation) -> dict:
+    """Execute a slash command via the command system."""
+    args = inv.arguments
+    command = str(args.get("command", "")).strip()
+    cmd_args = str(args.get("args", "")).strip()
+
+    if not command:
+        return _error("command is required")
+
+    try:
+        from agent.runtime.command_system import execute_command
+        result = execute_command(command, cmd_args, getattr(inv, 'session_id', None), getattr(inv, 'workspace_id', None))
+        return _ok({"command": command, "result": result})
+    except ImportError:
+        return _error("command system not available")
+    except Exception as e:
+        return _error(str(e)[:200])
+
+
 # ═══════════════ Registry ═══════════════
 
 ALL_GENERAL_TOOLS = []
@@ -2261,6 +2926,8 @@ REMOVED_GENERAL_TOOL_IDS = {
     "runtime.selfcheck",
     "runtime.retention_preview",
     "runtime.archive_preview",
+    # Disabled by default: skill creation must be explicitly enabled.
+    "skill.create",
 }
 
 def _schema(properties: dict = None, required: list[str] = None) -> dict:
@@ -2296,6 +2963,14 @@ S = {
     "code": {"type": "string", "description": "Python source code to execute. Subject to AST safety checks."},
     "reason": {"type": "string", "description": "Human-readable reason or note."},
     "dry_run": {"type": "boolean", "description": "If true, preview without making changes.", "default": True},
+    "memory_id": {"type": "string", "description": "Memory entry id."},
+    "old_string": {"type": "string", "description": "Text to replace."},
+    "new_string": {"type": "string", "description": "Replacement text."},
+    "patch_text": {"type": "string", "description": "Unified diff patch text."},
+    "skill_name": {"type": "string", "description": "Skill directory name, e.g. network-troubleshooting."},
+    "description": {"type": "string", "description": "Short description of the item or resource."},
+    "capabilities": {"type": "array", "description": "List of capability identifiers for this skill.", "items": {"type": "string"}},
+    "page_range": {"type": "string", "description": "Optional page range, e.g. 1-3 or 5. If omitted, all pages are read."},
 }
 
 
@@ -2402,6 +3077,26 @@ GENERAL_TOOL_INPUT_SCHEMAS = {
         "reason": {"type": "string", "description": "Optional reason for requesting this skill."},
         "session_id": {"type": "string", "description": "Optional session id for request recording."},
     }, ["skill_name"]),
+    "skill.find_skills": _schema({
+        "workspace_id": S["workspace_id"],
+        "query": S["query"],
+        "limit": S["limit"],
+    }, ["query"]),
+    "skill.create": _schema({
+        "workspace_id": S["workspace_id"],
+        "name": S["skill_name"],
+        "description": S["description"],
+        "capabilities": S["capabilities"],
+    }, ["name"]),
+    "skill.inspect": _schema({
+        "workspace_id": S["workspace_id"],
+        "skill_name": S["skill_name"],
+    }, ["skill_name"]),
+    "pdf.extract_text": _schema({
+        "workspace_id": S["workspace_id"],
+        "filepath": S["filepath"],
+        "page_range": S["page_range"],
+    }, ["filepath"]),
 
     # Runtime
     "runtime.health": _schema({"workspace_id": S["workspace_id"]}),
@@ -2471,6 +3166,71 @@ GENERAL_TOOL_INPUT_SCHEMAS = {
         "allowed_tools": {"type": "array", "description": "Optional tool allowlist override.", "items": {"type": "string"}},
         "max_turns": {"type": "integer", "description": "Max LLM turns (1-3).", "default": 1},
     }, ["instruction"]),
+    "agent.list_roles": _schema({
+        "workspace_id": S["workspace_id"],
+    }),
+    "agent.get_result": _schema({
+        "workspace_id": S["workspace_id"],
+        "child_session_id": S["session_id"],
+    }, ["child_session_id"]),
+    "slash.run": _schema({
+        "command": {"type": "string", "description": "Slash command name, e.g. /help, /skills, /context."},
+        "args": {"type": "string", "description": "Optional command arguments."},
+    }, ["command"]),
+    "agent.team": _schema({
+        "workspace_id": S["workspace_id"],
+        "instruction": {"type": "string", "description": "Task instruction for the team."},
+    }, ["instruction"]),
+
+    # File
+    "file.list": _schema({
+        "workspace_id": S["workspace_id"],
+        "subdir": {"type": "string", "description": "Workspace-relative subdirectory to list."},
+    }),
+    "file.exists": _schema({
+        "workspace_id": S["workspace_id"],
+        "filepath": S["filepath"],
+    }, ["filepath"]),
+    "file.read": _schema({
+        "workspace_id": S["workspace_id"],
+        "filepath": S["filepath"],
+        "limit": {"type": "integer", "description": "Max chars to read, default 50000.", "default": 50000},
+    }, ["filepath"]),
+    "file.edit": _schema({
+        "workspace_id": S["workspace_id"],
+        "filepath": S["filepath"],
+        "old_string": S["old_string"],
+        "new_string": S["new_string"],
+        "replace_all": {"type": "boolean", "description": "Replace all occurrences. Default false.", "default": False},
+    }, ["filepath", "old_string", "new_string"]),
+    "file.patch": _schema({
+        "workspace_id": S["workspace_id"],
+        "filepath": S["filepath"],
+        "patch_text": S["patch_text"],
+    }, ["filepath", "patch_text"]),
+
+    # Memory
+    "memory.update": _schema({
+        "workspace_id": S["workspace_id"],
+        "memory_id": S["memory_id"],
+        "content": S["content"],
+    }, ["memory_id", "content"]),
+    "memory.delete_soft": _schema({
+        "workspace_id": S["workspace_id"],
+        "memory_id": S["memory_id"],
+    }, ["memory_id"]),
+
+    # Session
+    "session.checkpoint": _schema({
+        "workspace_id": S["workspace_id"],
+        "session_id": S["session_id"],
+        "reason": S["reason"],
+    }, ["session_id"]),
+    "session.export": _schema({
+        "workspace_id": S["workspace_id"],
+        "session_id": S["session_id"],
+        "format": {"type": "string", "description": "Export format: json or md.", "enum": ["json", "md"], "default": "md"},
+    }, ["session_id"]),
 }
 
 
@@ -2744,6 +3504,18 @@ _reg("skill.request_load", "Request Skill Load", "skill", "low",
      "Request loading a skill. Does NOT directly inject skill into system prompt. "
      "Only records the request for future runtime-controlled loading.",
      handle_skill_request_load)
+_reg("skill.find_skills", "Find Skills", "skill", "low",
+     "Search for skills by keyword in their descriptions. Returns matching skill names and metadata.",
+     handle_skill_find)
+_reg("skill.create", "Create Skill", "skill", "medium",
+     "Create a new skill skeleton with SKILL.md and skill.yaml. Status is pending_review — does NOT auto-enable.",
+     handle_skill_create, writes_artifact=True)
+_reg("skill.inspect", "Inspect Skill", "skill", "low",
+     "Read and return a skill's SKILL.md content without loading it into the system prompt.",
+     handle_skill_inspect)
+_reg("pdf.extract_text", "Extract PDF Text", "file", "medium",
+     "Extract text from a workspace PDF file. Uses PyPDF2 if available.",
+     handle_pdf_extract_text)
 _reg("memory.confirm", "Confirm Memory", "memory", "low",
      "Confirm a pending_confirmation memory entry. Changes status from pending to confirmed.",
      handle_memory_confirm)
@@ -2830,6 +3602,53 @@ _reg("session.rewind", "Session Rewind", "session", "medium",
 _reg("agent.spawn", "Spawn Sub-Agent", "session", "medium",
      "Spawn a sub-agent with restricted read-only tool access to research, summarize, or validate data. Returns compressed results. Max 3 turns with only low-risk tools.",
      handle_agent_spawn, requires_approval=False)
+_reg("agent.list_roles", "List Agent Roles", "session", "low",
+     "List available agent roles (planner/worker/reviewer) with descriptions and default tools.",
+     handle_agent_list_roles)
+_reg("agent.get_result", "Get Sub-Agent Result", "session", "low",
+     "Get the result of a previously spawned sub-agent by its child_session_id.",
+     handle_agent_get_result)
+_reg("agent.team", "Multi-Agent Team", "session", "low",
+     "Planned: multi-agent team with planner/worker/reviewer roles. Currently only single agent.spawn available.",
+     _planned_handler("agent.team"))
+
+# ── Slash Command Tool ──
+_reg("slash.run", "Run Slash Command", "runtime", "low",
+     "Execute a slash command (e.g. /help, /skills, /context). See /help for available commands.",
+     handle_slash_run)
+
+# ── File Tools ──
+_reg("file.list", "List Files", "file", "low",
+     "List files in a workspace subdirectory. Max 50 files. Returns filename, size, suffix.",
+     handle_file_list)
+_reg("file.exists", "File Exists", "file", "low",
+     "Check whether a workspace file or directory exists. Returns exists, is_file, is_dir, size.",
+     handle_file_exists)
+_reg("file.read", "Read File", "file", "low",
+     "Read a workspace text file with a generous 50000 char limit. Rejects binary files and paths outside workspace.",
+     handle_file_read)
+_reg("file.edit", "Edit File", "file", "medium",
+     "Edit a workspace file by string replacement. Only writes to workspaces/<ws>/output/ directory. Returns lines_changed.",
+     handle_file_edit, writes_artifact=True)
+_reg("file.patch", "Apply Patch", "file", "medium",
+     "Apply a unified diff patch to a workspace file. Returns lines_added and lines_removed.",
+     handle_file_patch, writes_artifact=True)
+
+# ── Memory Update / Delete Tools ──
+_reg("memory.update", "Update Memory", "memory", "medium",
+     "Update an existing memory entry's content. Checks for secrets before writing.",
+     handle_memory_update)
+_reg("memory.delete_soft", "Soft Delete Memory", "memory", "medium",
+     "Soft-delete a memory entry. Marks as deleted, does not remove from store.",
+     handle_memory_delete_soft)
+
+# ── Session Checkpoint / Export Tools ──
+_reg("session.checkpoint", "Session Checkpoint", "session", "low",
+     "Create a checkpoint of the current session state with message_count, run_refs, and artifact_refs.",
+     handle_session_checkpoint)
+_reg("session.export", "Export Session", "session", "low",
+     "Export session messages as JSON dict or markdown string.",
+     handle_session_export)
 
 
 def register_all_general_tools(registry):

@@ -26,7 +26,7 @@ V02_ALLOWED_CATEGORIES = {
     "artifact", "parser", "report", "command",
     "knowledge", "web", "session", "runtime", "text", "workspace",
     "shell", "powershell",  # high-risk: only approved_exec allowed
-    "skill", "memory",
+    "skill", "memory", "file",
 }
 
 
