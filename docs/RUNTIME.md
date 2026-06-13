@@ -34,7 +34,7 @@ Runtime context includes:
 - unified RAG evidence from `context/retrieval.py`
 - knowledge citations (`[K...]`) and memory citations (`[M...]`)
 
-The system prompt requires citation ids when context sources are present and tells the model to say when evidence is insufficient.
+The system prompt requires citation ids when context sources are present and tells the model to say when evidence is insufficient. It also directs the model to proactively call Web, knowledge, artifact, or runtime tools for current facts, vendor/standards documentation, URL summaries, news/weather, and citation-heavy answers instead of guessing from memory.
 
 Per-turn skill selection controls which skill instructions are injected, not which useful tools are hidden from the LLM. The runtime builds a fresh `ToolRouter` for each turn and exposes the full model-visible catalog after the registry safety filter. This means pure chat, capability discovery, and business turns can call tools such as Web search, webpage summary, knowledge query, artifact tools, review tools, and config translation when needed.
 
@@ -50,7 +50,7 @@ Every LLM-visible tool description includes `tool_id`, `risk`, `source`, and `ap
 - `ToolRouter.dispatch()` executes through registered capability handlers or ToolRuntime.
 - Capability handlers must resolve at registry build time; a broken `handler_ref` fails fast.
 - Capability tools are the business contract and override same-id general runtime tools when both exist.
-- `ToolResult` data must be summarized or redacted before it returns to LLM context.
+- `ToolResult` data is projected through a small allowlist before it returns to LLM context. Citation-ready web fields, source summaries, warnings, next actions, artifact ids, and safe previews are preserved; arbitrary raw content, source configs, deployable configs, secrets, and tokens are not.
 - SSH, Telnet, SNMP, nmap, ping sweep, and config push are not exposed to the model.
 - The Agent does not directly call arbitrary implementation functions. It routes model-visible requests through `ToolRouter`, then through a capability handler or Tool Runtime `ToolInvocation`.
 - A Module orchestrates Tool use for business behavior; a Skill provides task instructions. Skill does not bypass its Module service.

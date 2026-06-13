@@ -501,19 +501,8 @@ def run_turn(session, turn, services=None) -> AgentResult:
                     tool_call.call_id, tool_call.real_tool_id, result
                 ))
 
-                # Build richer ToolResultMessage for LLM
-                tool_msg_payload = {"ok": result.ok, "summary": getattr(result, 'summary', '')}
-                if hasattr(result, 'source_count'):
-                    tool_msg_payload["source_count"] = result.source_count
-                if hasattr(result, 'manual_review_count'):
-                    tool_msg_payload["manual_review_count"] = result.manual_review_count
-                if hasattr(result, 'artifacts') and result.artifacts:
-                    tool_msg_payload["artifact_count"] = len(result.artifacts)
-                    tool_msg_payload["artifacts"] = [{"artifact_id": a.get("artifact_id", ""),
-                                                       "artifact_type": a.get("artifact_type", ""),
-                                                       "title": a.get("title", "")} for a in result.artifacts[:3]]
-                if hasattr(result, 'source_summary'):
-                    tool_msg_payload["source_summary"] = result.source_summary
+                # Build a compact, safe ToolResultMessage for the next LLM step.
+                tool_msg_payload = _build_tool_message_payload(result)
                 tool_msg = ToolResultMessage(
                     content=json.dumps(tool_msg_payload, ensure_ascii=False)[:2000],
                     tool_call_id=tc.id,
@@ -756,6 +745,86 @@ def _safe_get(obj, attr: str, default=None):
     if hasattr(obj, attr):
         return getattr(obj, attr)
     return default
+
+
+def _build_tool_message_payload(result) -> dict:
+    """Project a ToolResult into the safe payload the LLM sees next.
+
+    Tool handlers may return rich raw data. The model needs citation-ready
+    fields such as web results and source summaries, but not arbitrary raw
+    config or workspace content. Keep a small allowlist and trim aggressively.
+    """
+    payload = {
+        "ok": bool(_safe_get(result, "ok", False)),
+        "summary": _safe_prompt_text(_safe_get(result, "summary", ""), 500),
+    }
+    for key in ("source_count", "manual_review_count"):
+        value = _safe_get(result, key, None)
+        if value is not None:
+            payload[key] = value
+
+    errors = _safe_get(result, "errors", []) or []
+    warnings = _safe_get(result, "warnings", []) or []
+    if errors:
+        payload["errors"] = [_safe_prompt_text(e, 240) for e in list(errors)[:3]]
+    if warnings:
+        payload["warnings"] = [_safe_prompt_text(w, 240) for w in list(warnings)[:3]]
+
+    artifacts = _safe_get(result, "artifacts", []) or []
+    if artifacts:
+        payload["artifact_count"] = len(artifacts)
+        payload["artifacts"] = [
+            {
+                "artifact_id": a.get("artifact_id", ""),
+                "artifact_type": a.get("artifact_type", ""),
+                "title": _safe_prompt_text(a.get("title", ""), 160),
+            }
+            for a in list(artifacts)[:3]
+            if isinstance(a, dict)
+        ]
+
+    for source_key in ("source_summary",):
+        value = _safe_get(result, source_key, None)
+        if value:
+            payload[source_key] = _safe_tool_value(value)
+
+    raw = _safe_get(result, "raw", {}) or {}
+    data = _safe_get(result, "data", {}) or {}
+    if isinstance(raw, dict):
+        _merge_llm_safe_tool_fields(payload, raw)
+    if isinstance(data, dict):
+        _merge_llm_safe_tool_fields(payload, data)
+    return payload
+
+
+def _merge_llm_safe_tool_fields(payload: dict, source: dict) -> None:
+    for key in (
+        "status", "query", "search_query", "url", "title", "provider",
+        "source_type", "count", "answer_hint", "results_markdown",
+        "next_actions", "results", "filters", "source_summary", "preview",
+        "text_length", "status_code", "artifact_id", "source_url", "hint",
+    ):
+        value = source.get(key)
+        if value in (None, "", [], {}):
+            continue
+        payload[key] = _safe_tool_value(value)
+
+
+def _safe_tool_value(value, *, max_text: int = 900):
+    if isinstance(value, dict):
+        return {
+            str(k): _safe_tool_value(v, max_text=360)
+            for k, v in list(value.items())[:8]
+            if not _is_forbidden_prompt_key(str(k))
+        }
+    if isinstance(value, (list, tuple)):
+        return [_safe_tool_value(v, max_text=360) for v in list(value)[:5]]
+    return _safe_prompt_text(value, max_text)
+
+
+def _safe_prompt_text(value, max_text: int) -> str:
+    text = str(value)
+    return text[:max_text] + ("...[truncated]" if len(text) > max_text else "")
 
 
 def _build_partial_answer(tool_results: list) -> str:

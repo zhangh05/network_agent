@@ -105,3 +105,149 @@ def test_web_search_no_results_guides_agent(monkeypatch):
     assert out["warnings"] == ["web_search_no_results"]
     assert out["next_actions"]
     assert out["filters"]["domains"] == ["cisco.com"]
+
+
+def test_official_doc_search_uses_domain_limited_web_search(monkeypatch):
+    from tool_runtime.general_tools import handle_web_official_doc_search
+
+    calls = []
+
+    def fake_web_search(inv):
+        calls.append(dict(inv.arguments))
+        return {
+            "ok": True,
+            "summary": "Found 1 public web result(s)",
+            "results": [{
+                "title": "Cisco OSPF Configuration Guide",
+                "url": "https://www.cisco.com/c/en/us/support/docs/ip/open-shortest-path-first-ospf/",
+                "domain": "cisco.com",
+                "citation": "[1] cisco.com",
+                "source_quality": "official_or_primary",
+            }],
+            "count": 1,
+            "results_markdown": "[1] Cisco OSPF Configuration Guide: https://www.cisco.com/",
+            "next_actions": ["Use citations."],
+        }
+
+    monkeypatch.setattr("tool_runtime.general_tools.handle_web_search", fake_web_search)
+
+    out = handle_web_official_doc_search(ToolInvocation(
+        tool_id="web.official_doc_search",
+        arguments={"query": "OSPF neighbor state", "vendor": "cisco"},
+    ))
+
+    assert out["ok"] is True
+    assert calls[0]["domains"] == ["cisco.com"]
+    assert out["tool_id"] == "web.official_doc_search"
+    assert out["source_type"] == "official_doc_search"
+    assert out["official_domains"] == ["cisco.com"]
+    assert "web.fetch_summary" in " ".join(out["next_actions"])
+
+
+def test_web_save_to_artifact_returns_persisted_artifact_id(monkeypatch, temp_dirs):
+    from artifacts.store import get_artifact
+    from tool_runtime.general_tools import handle_web_save_to_artifact
+
+    class FakeResponse:
+        status_code = 200
+        text = "<html><head><title>Doc</title></head><body>Useful vendor text.</body></html>"
+        content = text.encode()
+        encoding = "utf-8"
+        apparent_encoding = "utf-8"
+
+    monkeypatch.setattr("requests.get", lambda *args, **kwargs: FakeResponse())
+
+    out = handle_web_save_to_artifact(ToolInvocation(
+        tool_id="web.save_to_artifact",
+        arguments={"workspace_id": "default", "url": "https://example.com/doc", "title": "Vendor Doc"},
+    ))
+
+    assert out["ok"] is True
+    assert out["artifact_id"].startswith("art_")
+    assert get_artifact("default", out["artifact_id"]) is not None
+
+
+def test_tool_message_payload_includes_citation_ready_web_fields():
+    from agent.protocol.tool_result import ToolResult
+    from agent.runtime.loop import _build_tool_message_payload
+
+    result = ToolResult.from_legacy_dict("web.search", "call_web", {
+        "ok": True,
+        "summary": "Found 1 public web result(s)",
+        "results_markdown": "[1] Cisco: https://www.cisco.com/ — Official docs",
+        "answer_hint": "优先引用 official_or_primary 结果。",
+        "next_actions": ["如果需要正文细节，再调用 web.fetch_summary。"],
+        "results": [{
+            "title": "Cisco docs",
+            "url": "https://www.cisco.com/",
+            "domain": "cisco.com",
+            "snippet": "Official docs",
+            "citation": "[1] cisco.com",
+            "source_quality": "official_or_primary",
+        }],
+    })
+
+    payload = _build_tool_message_payload(result)
+
+    assert payload["results_markdown"].startswith("[1] Cisco")
+    assert "official_or_primary" in payload["answer_hint"]
+    assert payload["next_actions"]
+    assert payload["results"][0]["citation"] == "[1] cisco.com"
+
+
+def test_tool_message_payload_includes_standard_data_source_summary():
+    from agent.protocol.tool_result import ToolResult
+    from agent.runtime.loop import _build_tool_message_payload
+
+    result = ToolResult(
+        call_id="call_k",
+        tool_id="knowledge.search",
+        ok=True,
+        summary="Found 1 chunk",
+        data={
+            "source_summary": [{
+                "title": "OSPF guide",
+                "source": "knowledge",
+                "snippet": "OSPF neighbors use Hello packets.",
+            }],
+        },
+    )
+
+    payload = _build_tool_message_payload(result)
+
+    assert payload["source_summary"][0]["title"] == "OSPF guide"
+    assert "Hello" in payload["source_summary"][0]["snippet"]
+
+
+def test_result_helper_preserves_caller_ok_flag():
+    from tool_runtime.general_tools import _result
+
+    assert _result(True, {"ok": False, "summary": "fallback"})["ok"] is True
+    assert _result(False, {"ok": True, "summary": "blocked"})["ok"] is False
+
+
+def test_official_doc_search_fallback_index_counts_as_success(monkeypatch):
+    from tool_runtime.general_tools import handle_web_official_doc_search
+
+    def fake_web_search(inv):
+        return {
+            "ok": False,
+            "summary": "搜索服务未返回结果",
+            "results": [],
+            "count": 0,
+            "next_actions": [],
+        }
+
+    monkeypatch.setattr("tool_runtime.general_tools.handle_web_search", fake_web_search)
+
+    out = handle_web_official_doc_search(ToolInvocation(
+        tool_id="web.official_doc_search",
+        arguments={"query": "OSPF neighbor", "vendor": "cisco"},
+    ))
+
+    assert out["ok"] is True
+    assert out["status"] == "fallback_doc_index"
+    assert out["count"] == 1
+    assert out["results"][0]["source_quality"] == "official_or_primary"
+    assert out["results"][0]["citation"] == "[1] cisco.com"
+    assert out["results"][0]["url"].startswith("https://www.cisco.com/")

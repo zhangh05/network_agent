@@ -11,7 +11,20 @@ import { notifyRunCompleted } from "../../utils/appEvents";
 import { TIMEOUTS } from "../../api/client";
 import { IconAlert, IconBolt, IconSend } from "../../components/Icon";
 
-const QUICK_CHIPS = ["排查 OSPF 邻居", "翻译配置", "分析出口策略"];
+const QUICK_CHIPS = [
+  {
+    label: "OSPF 邻居不起来",
+    prompt: "帮我排查 OSPF 邻居不起来。请先告诉我需要提供哪些现象、配置和日志，我会补充。",
+  },
+  {
+    label: "Cisco 配置转华为",
+    prompt: "帮我把 Cisco 配置翻译成华为配置。请提示我粘贴源配置，并说明转换后的配置需要人工复核。",
+  },
+  {
+    label: "出口策略放通检查",
+    prompt: "帮我分析出口访问策略是否放通。请告诉我需要提供源地址、目的地址、端口、协议，以及相关 ACL/NAT/路由配置。",
+  },
+];
 
 function _humanFailure(text: string): string {
   if (text.includes("provider_timeout") || text.includes("timed out") || text.includes("超时"))
@@ -140,8 +153,8 @@ export function AgentWorkbench() {
     }
   }
 
-  function pickChip(chip: string) {
-    setInput(chip);
+  function pickChip(prompt: string) {
+    setInput(prompt);
     requestAnimationFrame(() => inputRef.current?.focus());
   }
 
@@ -167,8 +180,8 @@ export function AgentWorkbench() {
             <p>输入故障现象、配置片段或排查目标，系统会按会话记录、知识证据和工具结果组织输出。</p>
             <div className="wb-empty-chips">
               {QUICK_CHIPS.map((c) => (
-                <button key={c} className="wb-input-chip" type="button" onClick={() => pickChip(c)}>
-                  {c}
+                <button key={c.label} className="wb-input-chip" type="button" onClick={() => pickChip(c.prompt)} title={c.prompt}>
+                  {c.label}
                 </button>
               ))}
             </div>
@@ -227,8 +240,8 @@ export function AgentWorkbench() {
       <div className="wb-input-bar">
         <div className="wb-input-chips">
           {QUICK_CHIPS.map((c) => (
-            <button key={c} className="wb-input-chip" type="button" onClick={() => pickChip(c)}>
-              {c}
+            <button key={c.label} className="wb-input-chip" type="button" onClick={() => pickChip(c.prompt)} title={c.prompt}>
+              {c.label}
             </button>
           ))}
         </div>

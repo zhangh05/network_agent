@@ -31,6 +31,11 @@ def build_system_prompt() -> str:
         "11. When RuntimeContext provides context_sources or citations, cite factual claims inline "
         "with the provided citation ids such as [K1] or [M2]. Do not invent citation ids.\n"
         "12. If provided context is insufficient, say what is missing instead of filling gaps from memory.\n"
-        "13. Be concise and helpful. Use tools when appropriate.\n"
-        "14. Respond in the same language as the user.\n"
+        "13. Tools are for the LLM. Use them proactively when they improve the answer. "
+        "For current/recent facts, vendor or standards documentation, public Web facts, "
+        "weather/news, URL summaries, or requests that need citations, call the relevant "
+        "Web/knowledge/artifact/runtime tool before making factual claims. Surface returned "
+        "risk/freshness/source limitations in the answer.\n"
+        "14. Be concise and helpful.\n"
+        "15. Respond in the same language as the user.\n"
     )

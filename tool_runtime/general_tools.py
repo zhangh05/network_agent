@@ -55,7 +55,7 @@ def _error(msg: str) -> dict:
 
 def _result(ok: bool, output: dict = None) -> dict:
     """Build a tool result dict, preserving caller's ok flag."""
-    return {"ok": ok, **(output or {})}
+    return {**(output or {}), "ok": ok}
 
 
 # ═══════════════ A. Artifact Tools ═══════════════
@@ -825,22 +825,59 @@ def handle_web_official_doc_search(inv: ToolInvocation) -> dict:
     vendor = (args.get("vendor") or "").strip().lower()
     if not query:
         return _error("query is required")
-    doc_urls = {
-        "cisco": f"https://www.cisco.com/c/en/us/support/docs/index.html",
-        "huawei": f"https://support.huawei.com/enterprise/en/doc/index.html",
-        "h3c": f"https://www.h3c.com/en/Support/Resource_Center/",
-        "ruijie": f"https://www.ruijienetworks.com/support/documents/",
-        "arista": f"https://www.arista.com/en/support/product-documentation",
+    doc_targets = {
+        "cisco": ("cisco.com", "https://www.cisco.com/c/en/us/support/docs/index.html"),
+        "huawei": ("huawei.com", "https://support.huawei.com/enterprise/en/doc/index.html"),
+        "h3c": ("h3c.com", "https://www.h3c.com/en/Support/Resource_Center/"),
+        "ruijie": ("ruijienetworks.com", "https://www.ruijienetworks.com/support/documents/"),
+        "arista": ("arista.com", "https://www.arista.com/en/support/product-documentation"),
     }
-    base = doc_urls.get(vendor, "")
-    return _ok({
-        "query": query,
-        "vendor": vendor,
-        "doc_base_url": base,
-        "note": "Official doc search — open the doc base URL to find vendor-specific docs",
-        "source_type": "official_doc",
-        "results": [{"title": f"{vendor} documentation", "url": base}] if base else [],
-    })
+    domains = []
+    base = ""
+    if vendor in doc_targets:
+        domain, base = doc_targets[vendor]
+        domains = [domain]
+    out = handle_web_search(ToolInvocation(
+        tool_id="web.search",
+        arguments={
+            "query": query,
+            "domains": domains,
+            "top_k": _coerce_int(args.get("top_k", 5), default=5, min_value=1, max_value=10),
+            "language": args.get("language", "zh-CN"),
+            "safe_search": args.get("safe_search", "moderate"),
+        },
+        workspace_id=inv.workspace_id,
+        run_id=inv.run_id,
+        job_id=inv.job_id,
+        dry_run=inv.dry_run,
+        requested_by=inv.requested_by,
+        approval_id=inv.approval_id,
+    ))
+    result = dict(out or {})
+    result["tool_id"] = "web.official_doc_search"
+    result["source_type"] = "official_doc_search"
+    result["vendor"] = vendor
+    result["official_domains"] = domains
+    result["doc_base_url"] = base
+    result.setdefault("next_actions", [])
+    result["next_actions"] = list(result["next_actions"]) + [
+        "优先引用 official_or_primary 结果；如需要正文细节，再调用 web.fetch_summary。",
+    ]
+    if not result.get("ok") and base:
+        result["status"] = "fallback_doc_index"
+        result["provider"] = "official_doc_index"
+        result["results"] = [{
+            "rank": 1,
+            "title": f"{vendor} documentation index",
+            "url": base,
+            "domain": domains[0] if domains else "",
+            "citation": f"[1] {domains[0] if domains else vendor}",
+            "source_quality": "official_or_primary",
+        }]
+        result["count"] = len(result["results"])
+        result["summary"] = "搜索未命中具体文档，已返回官方文档入口。"
+        result["results_markdown"] = f"[1] {vendor} documentation index: {base}"
+    return _result(bool(result.get("results")), result)
 
 
 def handle_web_extract_links(inv: ToolInvocation) -> dict:
@@ -886,11 +923,11 @@ def handle_web_save_to_artifact(inv: ToolInvocation) -> dict:
         _fix_encoding(resp)
         content = f"# {title}\n\nSource: {url}\n\n{_html_to_text(resp.text)}"
         from artifacts.store import save_artifact
-        import uuid
-        art_id = f"art_{uuid.uuid4().hex[:12]}"
-        save_artifact(workspace_id=ws, content=content, title=title,
-                      artifact_type="knowledge_doc", sensitivity="internal")
-        return _ok({"artifact_id": art_id, "title": title, "source_url": url})
+        rec = save_artifact(workspace_id=ws, content=content, title=title,
+                            artifact_type="knowledge_doc", sensitivity="internal")
+        if not rec:
+            return _error("artifact save blocked or failed")
+        return _ok({"artifact_id": rec.artifact_id, "title": title, "source_url": url})
     except Exception as e:
         return _error(str(e)[:200])
 
@@ -1580,11 +1617,11 @@ def _reg(tool_id, name, category, risk_level, description, handler,
 
 # ── A. Artifact Tools ──
 _reg("artifact.search", "Artifact Search", "artifact", "low",
-     "Search artifacts by query in workspace", handle_artifact_search)
+     "Search workspace artifacts by title/type. Use before reading an artifact when the user references prior outputs, reports, translated configs, or saved web pages.", handle_artifact_search)
 _reg("artifact.read_content_safe", "Read Content Safe", "artifact", "low",
-     "Read safe preview of artifact content", handle_artifact_read_content_safe)
+     "Read a size-limited safe preview of artifact content. Use only after artifact.search/list identifies an artifact_id; sensitive artifacts return metadata instead of full content.", handle_artifact_read_content_safe)
 _reg("artifact.save_result", "Save Result", "artifact", "medium",
-     "Save tool result as artifact", handle_artifact_save_result, writes_artifact=True)
+     "Save useful generated text as an artifact for later reference. Medium risk because it writes workspace state; do not save secrets or raw device configs unless explicitly intended.", handle_artifact_save_result, writes_artifact=True)
 _reg("artifact.tag", "Tag Artifact", "artifact", "low",
      "Add tags to an artifact", handle_artifact_tag)
 _reg("artifact.delete_soft", "Soft Delete", "artifact", "medium",
@@ -1592,15 +1629,15 @@ _reg("artifact.delete_soft", "Soft Delete", "artifact", "medium",
 
 # ── B. Knowledge Tools ──
 _reg("knowledge.index_artifact", "Index Artifact", "knowledge", "medium",
-     "Add artifact to knowledge index", handle_knowledge_index_artifact, writes_artifact=True)
+     "Index a safe artifact into the workspace knowledge base so future answers can retrieve it. Medium risk because it changes retrieval state.", handle_knowledge_index_artifact, writes_artifact=True)
 _reg("knowledge.reindex", "Reindex", "knowledge", "medium",
-     "Reindex a knowledge source", handle_knowledge_reindex, writes_artifact=True)
+     "Rebuild chunks for a knowledge source when search results look stale or incomplete. Medium risk because it updates the knowledge index.", handle_knowledge_reindex, writes_artifact=True)
 _reg("knowledge.search", "Knowledge Search", "knowledge", "low",
-     "Search knowledge base for safe chunks", handle_knowledge_search)
+     "Search the local workspace knowledge base for safe chunks and citations. Use before answering questions about imported docs, prior project knowledge, vendor notes, or user-specific network material.", handle_knowledge_search)
 _reg("knowledge.get_source", "Get Source", "knowledge", "low",
-     "Get knowledge source metadata", handle_knowledge_get_source)
+     "Get metadata for a knowledge source id returned by knowledge.search. Does not expose raw source content.", handle_knowledge_get_source)
 _reg("knowledge.get_chunk_summary", "Get Chunk Summary", "knowledge", "low",
-     "Get safe chunk summary", handle_knowledge_get_chunk_summary)
+     "Get a safe summary for a specific knowledge chunk id when search results need more local context.", handle_knowledge_get_chunk_summary)
 _reg("knowledge.explain_not_found", "Explain Not Found", "knowledge", "low",
      "Explain why search returned no results", handle_knowledge_explain_not_found)
 
@@ -1649,13 +1686,13 @@ _reg("web.search", "Web Search", "web", "medium",
      "Search public web and return citation-ready results with title, URL, domain, snippet, source quality, and next-step guidance. Use for current facts, official docs, standards, vendor references, or anything that may have changed.",
      handle_web_search, input_schema=WEB_SEARCH_INPUT_SCHEMA)
 _reg("web.fetch_summary", "Fetch Summary", "web", "medium",
-     "Fetch and summarize a public webpage", handle_web_fetch_summary)
+     "Fetch and summarize a public http(s) webpage after web.search or when the user provides a URL. Blocks private/local URLs; use returned URL/title/summary for cited answers.", handle_web_fetch_summary)
 _reg("web.official_doc_search", "Official Doc Search", "web", "low",
-     "Get vendor documentation URLs", handle_web_official_doc_search)
+     "Search official vendor documentation by restricting web search to known vendor domains when possible. Use for Cisco/Huawei/H3C/Ruijie/Arista commands, protocols, release behavior, and standards-facing references.", handle_web_official_doc_search)
 _reg("web.extract_links", "Extract Links", "web", "medium",
-     "Extract links from a public webpage", handle_web_extract_links)
+     "Extract public http(s) links from a webpage when the user asks for references, downloads, related docs, or navigation targets. Blocks private/local URLs.", handle_web_extract_links)
 _reg("web.save_to_artifact", "Save to Artifact", "web", "medium",
-     "Save web content as artifact", handle_web_save_to_artifact, writes_artifact=True)
+     "Fetch a public webpage and save its readable text as a knowledge_doc artifact for later indexing or citation. Medium risk because it writes workspace state; blocks private/local URLs.", handle_web_save_to_artifact, writes_artifact=True)
 
 # ── D. Session / Run / Memory Tools ──
 _reg("session.list", "List Sessions", "session", "low",
