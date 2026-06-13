@@ -33,18 +33,22 @@ def _read_file(path):
         return f.read()
 
 
-def _call_agent_api(message, session_id=None, workspace_id="default"):
+def _call_agent_api(message, session_id=None, workspace_id="default", mock_llm=True):
     """Call /api/agent/message and return response JSON."""
     from backend.main import app
-    from agent.llm.schemas import LLMResponse
     app.testing = True
-    mocked = LLMResponse(content=f"mock response: {message}")
-    with patch("agent.runtime.loop.invoke_llm", return_value=mocked):
-        resp = app.test_client().post("/api/agent/message", json={
-            "session_id": session_id or f"v061-test-{hash(message) & 0xffff}",
-            "workspace_id": workspace_id,
-            "message": message,
-        })
+    payload = {
+        "session_id": session_id or f"v061-test-{hash(message) & 0xffff}",
+        "workspace_id": workspace_id,
+        "message": message,
+    }
+    if mock_llm:
+        from agent.llm.schemas import LLMResponse
+        mocked = LLMResponse(content=f"mock response: {message}")
+        with patch("agent.runtime.loop.invoke_llm", return_value=mocked):
+            resp = app.test_client().post("/api/agent/message", json=payload)
+    else:
+        resp = app.test_client().post("/api/agent/message", json=payload)
     return resp.get_json()
 
 
@@ -205,7 +209,7 @@ class TestCapabilityQuestions:
 
     def test_abilities_question_distinguishes_enabled_planned(self):
         """'你能干什么？' must distinguish enabled vs planned."""
-        data = _call_agent_api("你能干什么？")
+        data = _call_agent_api("你能干什么？", mock_llm=False)
         resp = data["final_response"]
         # Should mention config_translation or knowledge as available
         has_config_keywords = any(kw in resp for kw in [
@@ -309,7 +313,7 @@ class TestConfigTranslationSafety:
 
     def test_config_translate_without_source_asks_for_config(self):
         """Without source_config, should prompt for it."""
-        data = _call_agent_api("帮我把这段 Cisco ACL 转成华为")
+        data = _call_agent_api("帮我把这段 Cisco ACL 转成华为", mock_llm=False)
         resp = data["final_response"].lower()
         # Should ask for config, not make up output
         has_prompt = any(kw in resp for kw in [
