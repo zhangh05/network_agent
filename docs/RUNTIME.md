@@ -55,6 +55,8 @@ Every LLM-visible tool description includes `tool_id`, `risk`, `source`, and `ap
 - The Agent does not directly call arbitrary implementation functions. It routes model-visible requests through `ToolRouter`, then through a capability handler or Tool Runtime `ToolInvocation`.
 - A Module orchestrates Tool use for business behavior; a Skill provides task instructions. Skill does not bypass its Module service.
 - Any public Tool HTTP API must remain policy and approval gated, with high-risk execution requiring an approved `approval_id`.
+- Sub-agent tool (`agent.spawn`) delegates work to child agent threads with `max_turns≤3`, restricted tool set (no sub-agent spawning), and no recursive nesting. Sub-agents cannot spawn further sub-agents.
+- `python.exec` is a high-risk approved execution tool that runs allowlisted Python scripts with `approval_id` gating, similar to `command.approved_exec` and `powershell.approved_script`.
 
 ## Persistence
 

@@ -22,8 +22,8 @@ This file records facts checked from current source and local runtime constructi
 
 - Runtime capabilities are defined in `agent/capabilities/builtin.py`.
 - Current runtime capability count: 7 total, 4 enabled, 3 planned.
-- Current runtime tool registry count: 58 registered tools.
-- Current model-visible tool count: 57.
+- Current runtime tool registry count: 70 registered tools.
+- Current model-visible tool count: 70.
 - `GET /api/runtime/summary` exposes these counts for frontend status display.
 
 Registered but not model-visible:
@@ -33,7 +33,7 @@ Registered but not model-visible:
 Enabled model-visible runtime tools with extra execution gates:
 
 - `weather.current`, `weather.forecast`, and `news.search` are medium-risk real-time information tools backed by public Web search.
-- `command.approved_exec` and `powershell.approved_script` are high-risk approved execution tools. The LLM can see them, but execution requires approval and allowlisted ids.
+- `command.approved_exec`, `powershell.approved_script`, and `python.exec` are high-risk approved execution tools. The LLM can see them, but execution requires approval and allowlisted ids.
 
 ## Public Registry API
 

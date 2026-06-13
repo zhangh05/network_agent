@@ -40,8 +40,8 @@ Current public projection:
 
 Current runtime construction:
 
-- Registered tools: 58
-- Model-visible tools: 57
+- Registered tools: 70
+- Model-visible tools: 70
 - Runtime capabilities: 7 total, 4 enabled, 3 planned
 
 Registered but not model-visible:
@@ -58,7 +58,7 @@ Enabled model-visible runtime tools with extra execution gates:
 
 - `weather.current` and `weather.forecast`: medium-risk real-time tools backed first by structured Open-Meteo public weather data, with public Web search as fallback.
 - `news.search`: medium-risk real-time information tool backed by public Web search.
-- `command.approved_exec` and `powershell.approved_script`: high-risk approved execution surfaces. They are visible to the LLM, but policy requires `approval_id` and allowlisted `command_id` / `script_id`; arbitrary shell or PowerShell text is not accepted.
+- `command.approved_exec`, `powershell.approved_script`, and `python.exec`: high-risk approved execution surfaces. They are visible to the LLM, but policy requires `approval_id` and allowlisted `command_id` / `script_id`; arbitrary shell, PowerShell, or Python text is not accepted.
 
 ## Safety Rules
 

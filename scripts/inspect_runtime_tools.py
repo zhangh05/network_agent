@@ -65,6 +65,37 @@ def main():
         print(f"capabilities: error — {e}")
     print()
 
+    # Phase 2: skill tools
+    print("=== skill tools ===")
+    for tid in ("skill.list", "skill.request_load"):
+        t = reg.get(tid)
+        status = "✅" if t else "❌"
+        print(f"  {status} {tid}")
+    print()
+
+    # Phase 2: memory tools
+    print("=== memory tools ===")
+    for tid in ("memory.create", "memory.list", "memory.confirm",
+                "memory.get_profile", "memory.set_profile"):
+        t = reg.get(tid)
+        status = "✅" if t else "❌"
+        print(f"  {status} {tid}")
+    print()
+
+    # Phase 2: compact status
+    print("=== compact status ===")
+    try:
+        from agent.runtime.context_compactor import should_compact, compact_messages
+        print("  context_compactor module: present true")
+    except ImportError:
+        print("  context_compactor module: present false")
+    try:
+        from agent.runtime.loop import TokenLimitExceeded
+        print("  token_hard_limit: present true")
+    except ImportError:
+        print("  token_hard_limit: present false")
+    print()
+
     # Check docs consistency
     docs_path = os.path.join(os.path.dirname(__file__), "..", "docs", "CAPABILITIES_AND_TOOLS.md")
     if os.path.exists(docs_path):

@@ -10,6 +10,7 @@ from agent.protocol.tool_result import ToolResult
 from agent.runtime.result import AgentResult
 from agent.llm.runtime import invoke_llm
 from agent.runtime.token_tracker import estimate_messages, record_llm_call
+from agent.runtime.context_compactor import should_compact, compact_messages
 
 MAX_STEPS = 8
 
@@ -273,8 +274,11 @@ def _to_standard_tool_call(call_id: str, tool_id: str, result) -> dict:
     }
 
 
-def run_turn(session, turn, services=None) -> AgentResult:
-    """Execute a single turn: user message → LLM → tools → LLM → ... → final answer."""
+def run_turn(session, turn, services=None, restricted_tool_router=None) -> AgentResult:
+    """Execute a single turn: user message → LLM → tools → LLM → ... → final answer.
+
+    Phase 3: restricted_tool_router is used by sub-agents to limit tool access.
+    """
     from agent.runtime.context_builder import build_turn_context
 
     audit_events = services.audit_service["events"] if services and hasattr(services, 'audit_service') and services.audit_service else None
@@ -289,6 +293,10 @@ def run_turn(session, turn, services=None) -> AgentResult:
 
     # 2. build context
     context = build_turn_context(session, turn, services)
+
+    # ── Phase 3: Restricted tool router for sub-agents ──
+    if restricted_tool_router is not None:
+        context.tool_router = restricted_tool_router
 
     # v1.0.3.1: hydrate history_window from the SessionMessageStore (canonical
     # disk source) instead of AgentSession.history (in-memory cache that
@@ -314,8 +322,22 @@ def run_turn(session, turn, services=None) -> AgentResult:
     if audit_events:
         audit_events.emit("context_built", session_id=session.session_id, turn_id=turn.turn_id)
 
-    # ── v2.0: Pre-turn hooks ──
-    _run_pre_turn_hooks(session, turn, context)
+    # ── v2.0: Pre-turn hooks (Phase 3: block if denied) ──
+    if _run_pre_turn_hooks(session, turn, context):
+        turn.status = "blocked"
+        result = AgentResult(
+            ok=False,
+            final_response="Turn blocked by pre-turn hook. Ask the user to review hook configuration.",
+            session_id=session.session_id,
+            turn_id=turn.turn_id,
+            warnings=turn.warnings,
+            metadata=_enrich_metadata({
+                "hook_event": "pre_turn",
+                "hook_blocked": True,
+            }, context),
+        )
+        _persist_run_record(session, turn, result, context)
+        return result
 
     # 3. build messages
     messages = _build_initial_messages(context, services)
@@ -332,6 +354,7 @@ def run_turn(session, turn, services=None) -> AgentResult:
     step = 0
     all_tool_results = []
     final_response = ""
+    _tool_stop_requested = False  # Phase 3: post_tool stop flag
 
     while step < MAX_STEPS:
         step += 1
@@ -555,17 +578,22 @@ def run_turn(session, turn, services=None) -> AgentResult:
                             if audit_trace:
                                 audit_trace.record_tool_result(turn.turn_id, step,
                                     tool_call.real_tool_id, False, "user_rejected")
-                            all_tool_results.append(_to_standard_tool_call(
-                                tool_call.call_id, tool_call.real_tool_id, result
-                            ))
-                            tool_msg = ToolResultMessage(
-                                content=json.dumps({"ok": False, "error": "Tool rejected by user. Do not retry.",
-                                    "hint": "Explain to the user why the tool was needed and ask them to approve it."},
-                                    ensure_ascii=False)[:500],
-                                tool_call_id=getattr(tc, 'id', '') if isinstance(tc, object) else tc.get("id", ""),
-                            )
-                            messages.append(tool_msg.to_llm_message())
-                            continue
+                            # ── v2.0: Post-tool hook (Phase 3: stop if needed) ──
+                    tool_stop = _run_post_tool_hook(session, tool_call.real_tool_id, result, turn)
+                    if tool_stop:
+                        final_response = "Tool execution stopped by post-tool hook."
+                        turn.warnings.append("post_tool_stop: tool loop interrupted by hook")
+                        all_tool_results.append(_to_standard_tool_call(
+                            tool_call.call_id, tool_call.real_tool_id, result
+                        ))
+                        tool_msg = ToolResultMessage(
+                            content=json.dumps({"ok": False, "error": "Tool execution stopped by post-tool hook"},
+                                              ensure_ascii=False)[:500],
+                            tool_call_id=tc.id,
+                        )
+                        messages.append(tool_msg.to_llm_message())
+                        turn.status = "finished"
+                        break  # exit for loop, continue to result building below
 
                     result = context.tool_router.dispatch(tool_call, context)
                     if audit_events:
@@ -578,8 +606,29 @@ def run_turn(session, turn, services=None) -> AgentResult:
                     if audit_trace:
                         audit_trace.record_tool_result(turn.turn_id, step, tool_call.real_tool_id, result.ok, result.summary)
 
-                    # ── v2.0: Post-tool hook ──
-                    _run_post_tool_hook(session, tool_call.real_tool_id, result, turn)
+                    # ── v2.0: Post-tool hook (Phase 3: stop if needed) ──
+                    if _run_post_tool_hook(session, tool_call.real_tool_id, result, turn):
+                        # Hook requests stop — break tool loop
+                        final_response = "Tool execution stopped by post-tool hook."
+                        turn.warnings.append("post_tool_stop: tool loop interrupted")
+                        turn.status = "finished"
+                        break
+                    # ── v2.0: Post-tool hook (Phase 3: stop if needed) ──
+                    post_tool_stop = _run_post_tool_hook(session, tool_call.real_tool_id, result, turn)
+                    if post_tool_stop:
+                        _tool_stop_requested = True
+                        all_tool_results.append(_to_standard_tool_call(
+                            tool_call.call_id, tool_call.real_tool_id, result
+                        ))
+                        tool_msg = ToolResultMessage(
+                            content=json.dumps({
+                                "ok": True,
+                                "summary": result.summary if hasattr(result, 'summary') else "Tool completed but hook requested stop",
+                            }, ensure_ascii=False)[:500],
+                            tool_call_id=tc.id,
+                        )
+                        messages.append(tool_msg.to_llm_message())
+                        break  # exit for loop
                 except Exception as e:
                     if audit_events:
                         audit_events.emit("tool_call_failed", session_id=session.session_id, turn_id=turn.turn_id,
@@ -612,14 +661,19 @@ def run_turn(session, turn, services=None) -> AgentResult:
                 )
                 messages.append(tool_msg.to_llm_message())
 
+            if _tool_stop_requested:
+                final_response = "Tool execution was stopped by a post-tool hook. The last tool completed but further tools in this turn were not executed."
+                break  # exit while loop → fall through to result building
+
             continue
 
-        # LLM returned content (final answer)
-        from agent.llm.runtime import sanitize_provider_output
-        final_response, reasoning_stripped = sanitize_provider_output(resp.content)
-        if audit_events:
-            audit_events.emit("assistant_message", session_id=session.session_id, turn_id=turn.turn_id,
-                              content_len=len(final_response), reasoning_stripped=reasoning_stripped)
+        # LLM returned content (final answer) or tool_stop requested
+        if not _tool_stop_requested:
+            from agent.llm.runtime import sanitize_provider_output
+            final_response, reasoning_stripped = sanitize_provider_output(resp.content)
+            if audit_events:
+                audit_events.emit("assistant_message", session_id=session.session_id, turn_id=turn.turn_id,
+                                  content_len=len(final_response), reasoning_stripped=reasoning_stripped)
 
         # v1.0.3.5: output policy check — block/rewrite dangerous content
         output_policy_ok = True
@@ -1009,12 +1063,12 @@ def _build_hook_state(session, context=None):
 
 
 def _run_pre_turn_hooks(session, turn, context):
-    """Run PRE_TURN hooks. Blocks turn if hook denies."""
+    """Run PRE_TURN hooks. Returns True if turn should be blocked (Phase 3 fix)."""
     try:
         from agent.hooks_integration import run_pre_turn_hooks, get_hook_registry
         registry = get_hook_registry()
         if not registry._hooks:
-            return
+            return False
         state = _build_hook_state(session, context)
         from agent.hooks import HookEvent
         outcome = registry.run_hooks(
@@ -1025,8 +1079,11 @@ def _run_pre_turn_hooks(session, turn, context):
         )
         if not outcome.is_allowed:
             turn.warnings.append(f"pre_turn_blocked: {outcome.reason}")
+            return True
+        return False
     except Exception as e:
         turn.warnings.append(f"pre_turn_hook_error: {e}")
+        return False
 
 
 def _run_pre_tool_hook(session, tool_id: str, arguments: dict) -> tuple:
@@ -1052,12 +1109,12 @@ def _run_pre_tool_hook(session, tool_id: str, arguments: dict) -> tuple:
 
 
 def _run_post_tool_hook(session, tool_id: str, result, turn):
-    """Run POST_TOOL_USE hook. Adds feedback to result if any."""
+    """Run POST_TOOL_USE hook. Returns True if tool loop should stop (Phase 3 fix)."""
     try:
         from agent.hooks_integration import get_hook_registry
         registry = get_hook_registry()
         if not registry._hooks:
-            return
+            return False
         state = _build_hook_state(session)
         from agent.hooks import HookEvent
         rd = result.to_dict() if hasattr(result, 'to_dict') else {"ok": result.ok, "summary": result.summary}
@@ -1072,8 +1129,12 @@ def _run_post_tool_hook(session, tool_id: str, result, turn):
                 result.warnings = []
             if isinstance(result.warnings, list):
                 result.warnings.append(f"hook_feedback: {outcome.feedback}")
+        if outcome.should_stop:
+            turn.warnings.append(f"post_tool_stop: {tool_id} stopped by hook: {outcome.reason}")
+            return True
+        return False
     except Exception:
-        pass
+        return False
 
 
 def _run_post_turn_hooks(session, turn, final_response: str):
@@ -1117,9 +1178,29 @@ def _run_stop_hooks(session):
 # ─── v2.0 Token & recording helpers ──────────────────────────────────
 
 def _check_token_limit(messages, context, session, turn, step):
-    """Raise TokenLimitExceeded if context exceeds 90% of model limit."""
+    """Phase 2: try compact first, then raise TokenLimitExceeded if still over 90%."""
+    if not isinstance(messages, list):
+        return
     try:
         max_context = int(getattr(context, 'model_config', {}).get('max_context_tokens', 128000) or 128000)
+
+        # ── Phase 2: try compact before hard reject ──
+        if should_compact(messages, max_context, threshold=0.75):
+            compacted, meta = compact_messages(messages, keep_recent=6)
+            if meta.get("compacted"):
+                messages[:] = compacted
+                turn.warnings.append(
+                    f"context_compacted: {meta.get('compacted_message_count', 0)} messages "
+                    f"compacted, tokens {meta.get('original_estimated_tokens', '?')} → "
+                    f"{meta.get('compacted_estimated_tokens', '?')}"
+                )
+                if hasattr(turn, 'metadata'):
+                    for k in ('compacted', 'compacted_message_count',
+                              'original_estimated_tokens', 'compacted_estimated_tokens'):
+                        if k in meta:
+                            turn.metadata[k] = meta[k]
+
+        # ── Hard limit after compact ──
         estimated = estimate_messages(messages)
         if estimated > max_context * 0.9:
             raise TokenLimitExceeded(

@@ -17,7 +17,7 @@ VALID_TOOL_STATUSES = {"succeeded", "failed", "blocked", "dry_run"}
 VALID_TOOL_CATEGORIES = {
     "artifact", "parser", "report", "command",
     "knowledge", "web", "session", "runtime", "text", "workspace",
-    "shell", "powershell",
+    "shell", "powershell", "python",
     "network", "device", "ssh", "telnet", "snmp", "nmap", "file",
     "skill", "memory",
 }

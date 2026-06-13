@@ -1527,8 +1527,57 @@ def handle_skill_list(inv: ToolInvocation) -> dict:
         return _error(str(e)[:200])
 
 
+def handle_skill_request_load(inv: ToolInvocation) -> dict:
+    """Request loading a skill — records the request but does NOT inject system prompt.
+
+    Phase 2 placeholder: returns requested=true but message says
+    "runtime-controlled skill loading is not implemented yet."
+    """
+    args = inv.arguments
+    skill_name = str(args.get("skill_name", "")).strip()
+    reason = str(args.get("reason", "")).strip()
+    ws = args.get("workspace_id", "default")
+    sid = args.get("session_id", "")
+
+    if not skill_name:
+        return _error("skill_name is required")
+
+    # Verify skill exists in skills/ directory or registry
+    skills_dir = ROOT / "skills"
+    found = False
+    if skills_dir.is_dir():
+        target = skills_dir / skill_name
+        if target.is_dir() and not skill_name.startswith("."):
+            found = True
+
+    if not found:
+        return _error(f"skill '{skill_name}' not found in skills directory")
+
+    # Record request to workspace (optional, best-effort)
+    try:
+        import json
+        req_path = WS_ROOT / ws / "skill_requests.jsonl"
+        with open(req_path, "a") as f:
+            f.write(json.dumps({
+                "skill_name": skill_name, "reason": reason,
+                "session_id": sid, "workspace_id": ws,
+                "requested_at": __import__('time').strftime("%Y-%m-%dT%H:%M:%S"),
+            }, ensure_ascii=False) + "\n")
+    except Exception:
+        pass
+
+    return _ok({
+        "requested": True,
+        "skill_name": skill_name,
+        "message": "runtime-controlled skill loading is not implemented yet; request recorded",
+    })
+
+
 def handle_memory_create(inv: ToolInvocation) -> dict:
-    """Create a long-term memory entry. Writes to JSONL store with policy check."""
+    """Create a long-term memory entry. Default status=pending_confirmation.
+
+    Phase 2 enhancements: key, value_preview, status fields; session-scoped.
+    """
     args = inv.arguments
     title = str(args.get("title", "")).strip()
     content = str(args.get("content", "")).strip()
@@ -1539,29 +1588,48 @@ def handle_memory_create(inv: ToolInvocation) -> dict:
         if contains_secret(title) or contains_secret(content):
             return _error("content contains secrets — memory.create blocked")
         from memory.writer import write_memory
+        import time
+        key = str(args.get("key", title[:60]))
+        value_preview = content[:200]
+        ws = str(args.get("workspace_id", "default"))
+        sid = str(args.get("session_id", ""))
         memory_id = write_memory(
             title=title,
             content=content,
             scope=str(args.get("scope", "long_term")),
             memory_type=str(args.get("memory_type", "knowledge_note")),
             tags=list(args.get("tags") or []),
-            project_id=str(args.get("workspace_id", "default")),
-            source=str(args.get("source", "agent")),
+            project_id=ws,
+            source="llm_tool",
             confidence=str(args.get("confidence", "system_generated")),
-            summary=str(args.get("summary", "")),
+            summary=str(args.get("summary", value_preview)),
             sensitivity=str(args.get("sensitivity", "internal")),
-            metadata=args.get("metadata") or None,
-            user_confirmed=bool(args.get("user_confirmed", False)),
+            metadata={
+                **(args.get("metadata") or {}),
+                "key": key,
+                "value_preview": value_preview,
+                "status": "pending_confirmation",
+                "session_id": sid,
+                "workspace_id": ws,
+                "source": "llm_tool",
+                "created_at": time.strftime("%Y-%m-%dT%H:%M:%S"),
+            },
+            user_confirmed=False,
         )
         if not memory_id:
             return _error("memory write blocked by policy")
-        return _ok({"memory_id": memory_id})
+        return _ok({
+            "memory_id": memory_id,
+            "status": "pending_confirmation",
+            "key": key,
+            "value_preview": value_preview,
+        })
     except Exception as e:
         return _error(str(e)[:200])
 
 
 def handle_memory_list(inv: ToolInvocation) -> dict:
-    """List memory entries for a workspace. Returns summaries, not full content."""
+    """List memory entries. Phase 2: support status/session_id filtering, value_preview only."""
     args = inv.arguments
     try:
         from memory.backends.jsonl_store import JSONLMemoryStore
@@ -1572,12 +1640,25 @@ def handle_memory_list(inv: ToolInvocation) -> dict:
             project_id=args.get("workspace_id"),
             limit=args.get("limit", 20),
         )
+        # Phase 2 filtering
+        status_filter = args.get("status", "")
+        session_filter = args.get("session_id", "")
         summaries = []
         for r in results:
+            meta = (r.get("metadata") or {})
+            mem_status = meta.get("status", "confirmed") if isinstance(meta, dict) else "confirmed"
+            mem_sid = meta.get("session_id", "") if isinstance(meta, dict) else ""
+            if status_filter and mem_status != status_filter:
+                continue
+            if session_filter and mem_sid != session_filter:
+                continue
             summaries.append({
                 "memory_id": r.get("memory_id", ""),
                 "title": r.get("title", ""),
                 "summary": (r.get("summary", "") or r.get("content", ""))[:200],
+                "key": meta.get("key", "") if isinstance(meta, dict) else "",
+                "value_preview": meta.get("value_preview", "") if isinstance(meta, dict) else "",
+                "status": mem_status,
                 "memory_type": r.get("memory_type", ""),
                 "scope": r.get("scope", ""),
                 "created_at": r.get("created_at", ""),
@@ -1588,25 +1669,72 @@ def handle_memory_list(inv: ToolInvocation) -> dict:
         return _error(str(e)[:200])
 
 
+def handle_memory_confirm(inv: ToolInvocation) -> dict:
+    """Confirm a pending_confirmation memory entry. Phase 2: status-only update.
+
+    Does not rebuild RAG index — only updates the in-store status.
+    """
+    args = inv.arguments
+    memory_id = str(args.get("memory_id", "")).strip()
+    if not memory_id:
+        return _error("memory_id is required")
+    try:
+        from memory.backends.jsonl_store import JSONLMemoryStore
+        store = JSONLMemoryStore()
+        entry = store.get(memory_id)
+        if not entry:
+            return _error(f"memory_id not found: {memory_id}")
+
+        meta = entry.get("metadata") or {}
+        status = meta.get("status", "confirmed") if isinstance(meta, dict) else "confirmed"
+        if status == "confirmed":
+            return _ok({"memory_id": memory_id, "already_confirmed": True, "status": "confirmed"})
+
+        # Update status
+        if isinstance(meta, dict):
+            meta["status"] = "confirmed"
+        else:
+            meta = {"status": "confirmed"}
+        store.update_metadata(memory_id, meta)
+        return _ok({"memory_id": memory_id, "status": "confirmed", "already_confirmed": False})
+    except Exception as e:
+        return _error(str(e)[:200])
+
+
 def handle_memory_get_profile(inv: ToolInvocation) -> dict:
-    """Get user profile for the workspace."""
+    """Get user profile. Phase 2: returns explicit/implicit/tool_stats/updated_at."""
     ws = inv.arguments.get("workspace_id", "default")
     try:
         validate_workspace_id(ws)
         profile_path = WS_ROOT / ws / "memory" / "profile.json"
         if not profile_path.is_file():
-            return _error("profile not found")
+            return _ok({
+                "explicit_preferences": {},
+                "inferred_preferences": {},
+                "tool_usage_stats": {},
+                "updated_at": "",
+            })
+        import json
         data = json.loads(profile_path.read_text(encoding="utf-8"))
-        return _ok({"profile": data})
+        return _ok({
+            "explicit_preferences": data.get("explicit_preferences", {}),
+            "inferred_preferences": data.get("inferred_preferences", {}),
+            "tool_usage_stats": data.get("tool_usage_stats", {}),
+            "updated_at": data.get("updated_at", ""),
+        })
     except Exception as e:
         return _error(str(e)[:200])
 
 
 def handle_memory_set_profile(inv: ToolInvocation) -> dict:
-    """Set user profile preferences. Does not store secrets."""
+    """Set user profile. Phase 2: merge=false replaces; merge=true (default) merges into explicit_preferences.
+
+    Only writes to explicit_preferences. Never stores secrets.
+    """
     ws = inv.arguments.get("workspace_id", "default")
     field = str(inv.arguments.get("field", "")).strip()
     value = inv.arguments.get("value")
+    merge = bool(args.get("merge", True)) if (args := inv.arguments) else True
     if not field:
         return _error("field is required")
     try:
@@ -1614,13 +1742,19 @@ def handle_memory_set_profile(inv: ToolInvocation) -> dict:
         from memory.redaction import contains_secret
         if isinstance(value, str) and contains_secret(value):
             return _error("value contains secrets — set_profile blocked")
+        import json, time
         memory_dir = WS_ROOT / ws / "memory"
         memory_dir.mkdir(parents=True, exist_ok=True)
         profile_path = memory_dir / "profile.json"
-        profile = {}
+        profile = {"explicit_preferences": {}, "inferred_preferences": {}, "tool_usage_stats": {}, "updated_at": ""}
         if profile_path.is_file():
-            profile = json.loads(profile_path.read_text(encoding="utf-8"))
-        profile[field] = value
+            existing = json.loads(profile_path.read_text(encoding="utf-8"))
+            profile.update(existing)
+        if merge:
+            profile.setdefault("explicit_preferences", {})[field] = value
+        else:
+            profile["explicit_preferences"] = {field: value} if value is not None else {}
+        profile["updated_at"] = time.strftime("%Y-%m-%dT%H:%M:%S")
         profile_path.write_text(json.dumps(profile, ensure_ascii=False, indent=2), encoding="utf-8")
         return _ok({"field": field, "saved": True})
     except Exception as e:
@@ -1984,6 +2118,126 @@ def handle_powershell_approved_script(inv: ToolInvocation) -> dict:
         return _error(str(e)[:200])
 
 
+# ═══════════════ J. Python Exec Tool (high risk, AST-sandboxed) ═══════════════
+
+def handle_python_exec(inv: ToolInvocation) -> dict:
+    """Execute Python code in an AST-checked sandbox.
+
+    High risk tool. Code is parsed with AST to reject forbidden imports,
+    builtins, and dunder access before execution. Runs in a subprocess with
+    timeout. Requires explicit user approval.
+    """
+    workspace_id = inv.arguments.get("workspace_id", "default")
+    run_id = inv.arguments.get("run_id", "")
+    code = str(inv.arguments.get("code", "")).strip()
+    timeout = min(int(inv.arguments.get("timeout", 10) or 10), 10)
+
+    if not code:
+        return _error("code is required")
+
+    try:
+        validate_workspace_id(workspace_id)
+        from tool_runtime.python_exec import execute_python_code
+        result = execute_python_code(
+            code=code,
+            workspace_id=workspace_id,
+            run_id=run_id,
+            timeout=timeout,
+        )
+        return _result(result.pop("ok", False), result)
+    except Exception as e:
+        return _error(str(e)[:200])
+
+
+# ═══════════════ K. Session Snapshot / Rewind Tools ═══════════════
+
+def handle_session_snapshot(inv: ToolInvocation) -> dict:
+    """Create a snapshot of the current session state."""
+    ws = inv.arguments.get("workspace_id", "default")
+    sid = inv.arguments.get("session_id", "")
+    reason = str(inv.arguments.get("reason", "")).strip()
+    if not sid:
+        return _error("session_id is required")
+    try:
+        validate_workspace_id(ws)
+        from workspace.session_snapshot import create_snapshot
+        result = create_snapshot(workspace_id=ws, session_id=sid, reason=reason)
+        return _result(result.get("ok", False), result)
+    except Exception as e:
+        return _error(str(e)[:200])
+
+
+def handle_session_list_snapshots(inv: ToolInvocation) -> dict:
+    """List snapshots for a session."""
+    ws = inv.arguments.get("workspace_id", "default")
+    sid = inv.arguments.get("session_id", "")
+    if not sid:
+        return _error("session_id is required")
+    try:
+        validate_workspace_id(ws)
+        from workspace.session_snapshot import list_snapshots
+        results = list_snapshots(workspace_id=ws, session_id=sid)
+        return _ok({"snapshots": results, "count": len(results)})
+    except Exception as e:
+        return _error(str(e)[:200])
+
+
+def handle_session_rewind(inv: ToolInvocation) -> dict:
+    """Rewind a session to a previous snapshot."""
+    ws = inv.arguments.get("workspace_id", "default")
+    sid = inv.arguments.get("session_id", "")
+    snap_id = inv.arguments.get("snapshot_id", "")
+    dry_run = bool(inv.arguments.get("dry_run", True))
+    if not sid:
+        return _error("session_id is required")
+    if not snap_id:
+        return _error("snapshot_id is required")
+    try:
+        validate_workspace_id(ws)
+        from workspace.session_snapshot import rewind_session
+        result = rewind_session(
+            workspace_id=ws,
+            session_id=sid,
+            snapshot_id=snap_id,
+            dry_run=dry_run,
+        )
+        return _result(result.get("ok", False), result)
+    except Exception as e:
+        return _error(str(e)[:200])
+
+
+# ═══════════════ L. Agent Spawn (Sub-Agent) Tool ═══════════════
+
+def handle_agent_spawn(inv: ToolInvocation) -> dict:
+    """Spawn a sub-agent with restricted tool access.
+
+    Creates a child session and runs a constrained sub-agent loop
+    with only read-only, low-risk tools. Returns compressed results.
+    """
+    instruction = str(inv.arguments.get("instruction", "")).strip()
+    workspace_id = inv.arguments.get("workspace_id", "default")
+    parent_session_id = str(inv.arguments.get("session_id", ""))
+    allowed_tools = list(inv.arguments.get("allowed_tools") or [])
+    max_turns = int(inv.arguments.get("max_turns", 1))
+
+    if not instruction:
+        return _error("instruction is required")
+
+    try:
+        validate_workspace_id(workspace_id)
+        from agent.runtime.sub_agent import run_sub_agent
+        result = run_sub_agent(
+            instruction=instruction,
+            workspace_id=workspace_id,
+            parent_session_id=parent_session_id,
+            allowed_tools=allowed_tools if allowed_tools else None,
+            max_turns=max_turns,
+        )
+        return _result(result.get("ok", False), result)
+    except Exception as e:
+        return _error(str(e)[:200])
+
+
 # ═══════════════ Registry ═══════════════
 
 ALL_GENERAL_TOOLS = []
@@ -2039,6 +2293,9 @@ S = {
     "status": {"type": "string", "description": "Filter by status: active, archived, all, or review status.", "enum": ["active", "archived", "all"]},
     "location": {"type": "string", "description": "City, region or location name, e.g. Beijing, Shanghai, San Jose."},
     "units": {"type": "string", "description": "Temperature units: metric (Celsius) or imperial (Fahrenheit).", "enum": ["metric", "imperial"], "default": "metric"},
+    "code": {"type": "string", "description": "Python source code to execute. Subject to AST safety checks."},
+    "reason": {"type": "string", "description": "Human-readable reason or note."},
+    "dry_run": {"type": "boolean", "description": "If true, preview without making changes.", "default": True},
 }
 
 
@@ -2124,14 +2381,27 @@ GENERAL_TOOL_INPUT_SCHEMAS = {
         "workspace_id": S["workspace_id"],
         "scope": {"type": "string", "description": "Filter by scope."},
         "memory_type": {"type": "string", "description": "Filter by type."},
+        "status": {"type": "string", "description": "Filter by status: pending_confirmation or confirmed.", "enum": ["pending_confirmation", "confirmed"]},
+        "session_id": {"type": "string", "description": "Filter by session."},
         "limit": S["limit"],
     }),
+    "memory.confirm": _schema({
+        "workspace_id": S["workspace_id"],
+        "memory_id": {"type": "string", "description": "Memory id to confirm."},
+    }, ["memory_id"]),
     "memory.get_profile": _schema({"workspace_id": S["workspace_id"]}),
     "memory.set_profile": _schema({
         "workspace_id": S["workspace_id"],
         "field": {"type": "string", "description": "Profile field name to set."},
         "value": {"type": "string", "description": "Value to set. Do NOT store secrets."},
+        "merge": {"type": "boolean", "description": "Merge into explicit_preferences (default true). Set false to replace.", "default": True},
     }, ["field"]),
+    "skill.request_load": _schema({
+        "workspace_id": S["workspace_id"],
+        "skill_name": {"type": "string", "description": "Skill directory name from skill.list output."},
+        "reason": {"type": "string", "description": "Optional reason for requesting this skill."},
+        "session_id": {"type": "string", "description": "Optional session id for request recording."},
+    }, ["skill_name"]),
 
     # Runtime
     "runtime.health": _schema({"workspace_id": S["workspace_id"]}),
@@ -2167,6 +2437,40 @@ GENERAL_TOOL_INPUT_SCHEMAS = {
     # Approved high-risk surfaces
     "shell.exec": _schema({"command": {"type": "string", "description": "Bash command. For Linux/macOS. On Windows, use powershell.exec."}}, ["command"]),
     "powershell.exec": _schema({"command": {"type": "string", "description": "PowerShell command. For Windows. On Linux/macOS, use shell.exec."}}, ["command"]),
+
+    # Python Exec (high risk, AST-sandboxed)
+    "python.exec": _schema({
+        "workspace_id": S["workspace_id"],
+        "code": S["code"],
+        "run_id": S["run_id"],
+        "timeout": {"type": "integer", "description": "Max execution seconds (1-10).", "default": 10},
+    }, ["code"]),
+
+    # Session snapshot / rewind
+    "session.snapshot": _schema({
+        "workspace_id": S["workspace_id"],
+        "session_id": S["session_id"],
+        "reason": S["reason"],
+    }, ["session_id"]),
+    "session.list_snapshots": _schema({
+        "workspace_id": S["workspace_id"],
+        "session_id": S["session_id"],
+    }, ["session_id"]),
+    "session.rewind": _schema({
+        "workspace_id": S["workspace_id"],
+        "session_id": S["session_id"],
+        "snapshot_id": {"type": "string", "description": "Snapshot ID to restore from."},
+        "dry_run": S["dry_run"],
+    }, ["session_id", "snapshot_id"]),
+
+    # Agent spawn (sub-agent)
+    "agent.spawn": _schema({
+        "workspace_id": S["workspace_id"],
+        "session_id": S["session_id"],
+        "instruction": {"type": "string", "description": "Task instruction for the sub-agent."},
+        "allowed_tools": {"type": "array", "description": "Optional tool allowlist override.", "items": {"type": "string"}},
+        "max_turns": {"type": "integer", "description": "Max LLM turns (1-3).", "default": 1},
+    }, ["instruction"]),
 }
 
 
@@ -2436,6 +2740,13 @@ _reg("memory.get_profile", "Get Profile", "memory", "low",
 _reg("memory.set_profile", "Set Profile", "memory", "low",
      "Set a user profile preference. Use for long-term preferences, not secrets.",
      handle_memory_set_profile)
+_reg("skill.request_load", "Request Skill Load", "skill", "low",
+     "Request loading a skill. Does NOT directly inject skill into system prompt. "
+     "Only records the request for future runtime-controlled loading.",
+     handle_skill_request_load)
+_reg("memory.confirm", "Confirm Memory", "memory", "low",
+     "Confirm a pending_confirmation memory entry. Changes status from pending to confirmed.",
+     handle_memory_confirm)
 
 # ── E. Runtime Tools ──
 _reg("runtime.health", "Runtime Health", "runtime", "low",
@@ -2498,6 +2809,27 @@ _reg("shell.exec", "Shell Exec", "shell", "high",
 _reg("powershell.exec", "PowerShell Exec", "powershell", "high",
      "Execute PowerShell commands. Use this on Windows. On Linux/macOS use shell.exec instead. 15s timeout, 10000 chars output. Requires user approval.",
      handle_powershell_approved_script, requires_approval=True)
+
+# ── J. Python Exec Tool (HIGH RISK, AST-sandboxed, approval gated) ──
+_reg("python.exec", "Python Exec", "python", "high",
+     "Execute Python code in an AST-sandboxed subprocess. Code is checked for forbidden imports (os, subprocess, socket, etc.), forbidden builtins (eval, exec, open, etc.), and dunder access before execution. 10s timeout. Requires user approval.",
+     handle_python_exec, requires_approval=True)
+
+# ── K. Session Snapshot / Rewind Tools ──
+_reg("session.snapshot", "Session Snapshot", "session", "low",
+     "Create a snapshot of the current session messages for later recovery or rewind.",
+     handle_session_snapshot)
+_reg("session.list_snapshots", "List Snapshots", "session", "low",
+     "List all snapshots for a session without full message content.",
+     handle_session_list_snapshots)
+_reg("session.rewind", "Session Rewind", "session", "medium",
+     "Rewind a session to a previous snapshot. Set dry_run=True to preview without applying. Set dry_run=False to restore messages from the snapshot.",
+     handle_session_rewind)
+
+# ── L. Agent Spawn (Sub-Agent) Tool ──
+_reg("agent.spawn", "Spawn Sub-Agent", "session", "medium",
+     "Spawn a sub-agent with restricted read-only tool access to research, summarize, or validate data. Returns compressed results. Max 3 turns with only low-risk tools.",
+     handle_agent_spawn, requires_approval=False)
 
 
 def register_all_general_tools(registry):
