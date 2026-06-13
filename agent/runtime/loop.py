@@ -506,7 +506,7 @@ def run_turn(session, turn, services=None) -> AgentResult:
                 # If the tool returned content (e.g. artifact.read), allow up to
                 # 8000 chars so translated_config / long text isn't silently
                 # truncated before it reaches the LLM.
-                trunc_limit = 8000 if "content" in tool_msg_payload else 2000
+                trunc_limit = 12000 if "content" in tool_msg_payload else 2000
                 tool_msg = ToolResultMessage(
                     content=json.dumps(tool_msg_payload, ensure_ascii=False)[:trunc_limit],
                     tool_call_id=tc.id,
@@ -823,15 +823,15 @@ def _merge_llm_safe_tool_fields(payload: dict, source: dict) -> None:
         payload[key] = _safe_tool_value(value)
 
 
-def _safe_tool_value(value, *, max_text: int = 900):
+def _safe_tool_value(value, *, max_text: int = 4000):
     if isinstance(value, dict):
         return {
-            str(k): _safe_tool_value(v, max_text=360)
+            str(k): _safe_tool_value(v, max_text=1200)
             for k, v in list(value.items())[:8]
             if not _is_forbidden_prompt_key(str(k))
         }
     if isinstance(value, (list, tuple)):
-        return [_safe_tool_value(v, max_text=360) for v in list(value)[:5]]
+        return [_safe_tool_value(v, max_text=1200) for v in list(value)[:5]]
     return _safe_prompt_text(value, max_text)
 
 
