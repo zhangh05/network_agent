@@ -75,3 +75,46 @@ class TestRunHistoryPersistence:
         record = get_run(run_id, "default")
         result_counts = record.get("result_counts", {})
         assert "mypassword" not in str(result_counts)
+
+
+class TestRecentRunsSessionScope:
+    def test_recent_runs_can_be_filtered_to_current_session(self):
+        """Sidebar recent runs must follow workspace -> session -> recent runs."""
+        from backend.main import create_app
+        from workspace.session_store import create_session
+        from workspace.run_store import write_run_record
+
+        ws = "recent_runs_session_scope"
+        session_a = create_session(ws, title="Session A")
+        session_b = create_session(ws, title="Session B")
+
+        run_a = write_run_record(
+            NetworkAgentState(
+                request_id="run_recent_scope_a",
+                user_input="A only",
+                intent="assistant_chat",
+                workspace_id=ws,
+                session_id=session_a["session_id"],
+            ),
+            ws,
+        )
+        write_run_record(
+            NetworkAgentState(
+                request_id="run_recent_scope_b",
+                user_input="B only",
+                intent="assistant_chat",
+                workspace_id=ws,
+                session_id=session_b["session_id"],
+            ),
+            ws,
+        )
+
+        client = create_app().test_client()
+        resp = client.get(
+            f"/api/runs/recent?workspace_id={ws}"
+            f"&session_id={session_a['session_id']}&limit=10"
+        )
+        assert resp.status_code == 200
+        data = resp.get_json()
+        assert [r["run_id"] for r in data["runs"]] == [run_a]
+        assert all(r["session_id"] == session_a["session_id"] for r in data["runs"])

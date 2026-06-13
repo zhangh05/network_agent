@@ -1,10 +1,16 @@
 # Operations
 
+## Local Python Rule
+
+Use the installed local `python3` directly. On this machine it should report
+Python 3.12. Do not create, activate, or rely on `venv` / `.venv` for normal
+operations unless a future task explicitly asks for isolation.
+
 ## Start Backend
 
 ```bash
 cd /Users/zhangh01/Desktop/network_agent
-./venv/bin/python backend/main.py --host 0.0.0.0 --port 8010
+python3 backend/main.py --host 0.0.0.0 --port 8010
 ```
 
 The backend also serves the built/static frontend through Flask.
@@ -68,7 +74,7 @@ Do not include those runtime changes in documentation commits unless the task ex
 Safe generated directories:
 
 ```bash
-find . -type d -name __pycache__ -not -path './venv/*' -not -path './frontend/node_modules/*' -prune -exec rm -rf {} +
+find . -type d -name __pycache__ -not -path './frontend/node_modules/*' -prune -exec rm -rf {} +
 rm -rf .pytest_cache frontend/dist frontend/test-results
 ```
 

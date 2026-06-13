@@ -31,7 +31,7 @@ The frontend is a React/Vite app under `frontend/`.
 
 ## Routes
 
-- `/workbench`: chat workbench, sidebar with active-session recent runs (session-title labels) and source/citation actions, inspector
+- `/workbench`: chat workbench, sidebar with current-session recent runs (session-title labels) and source/citation actions, inspector
 - `/knowledge`: local upload, artifact import, source list, search
 - `/artifacts`: artifact list, preview, next actions
 - `/reviews`: human review workflow and review item updates
@@ -49,7 +49,7 @@ The frontend is a React/Vite app under `frontend/`.
 - Initial workspace selection prefers `is_default`, then `workspace_id == "default"`, then the first backend item.
 - Header version uses `GET /api/version`.
 - Workbench runtime status uses `GET /api/runtime/summary`.
-- Sidebar: workspace rename/delete guards; recent runs filtered by active session only; session-title labels.
+- Sidebar: workspace changes refresh the session list, the active session scopes recent runs, and archived/deleted sessions are excluded from the workbench list.
 - Content downloads (ArtifactCenter) use AbortController to prevent stale-response races.
 - Toast store uses functional setState for concurrent-toast safety.
 - Knowledge search fires on manual trigger only (Enter/button), not on keystroke.

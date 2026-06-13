@@ -32,6 +32,7 @@ export function Sidebar() {
     setCurrentWorkspace,
     setCurrentSession,
     setWorkspaces,
+    setSessions,
   } = useSessionStore();
   const toast = useToastStore((s) => s.show);
   const [editingWsId, setEditingWsId] = useState<string | null>(null);
@@ -52,10 +53,10 @@ export function Sidebar() {
   );
   const recentRuns = useAsync<{ runs: RecentRunSummary[] }>(
     (s) =>
-      currentWorkspaceId
-        ? workspacesApi.recentRuns(currentWorkspaceId, s)
+      currentWorkspaceId && currentSessionId
+        ? workspacesApi.recentRuns(currentWorkspaceId, currentSessionId, s)
         : Promise.resolve({ runs: [] }),
-    [currentWorkspaceId],
+    [currentWorkspaceId, currentSessionId],
     (d) => (d.runs ?? []).length === 0,
   );
 
@@ -79,7 +80,18 @@ export function Sidebar() {
       setWorkspacesIntoStore(wsList.state.data.workspaces);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [wsList.state.kind]);
+  }, [wsList.state]);
+
+  useEffect(() => {
+    if (sessList.state.kind !== "success") return;
+    const sessions = sessList.state.data.sessions ?? [];
+    setSessions(sessions);
+    const cur = useSessionStore.getState().currentSessionId;
+    if (!cur || !sessions.some((s) => s.session_id === cur)) {
+      setCurrentSession(sessions[0]?.session_id ?? null);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [sessList.state, currentWorkspaceId]);
 
   function setWorkspacesIntoStore(list: Workspace[]) {
     setWorkspaces(list);
@@ -106,6 +118,10 @@ export function Sidebar() {
     try {
       await workspacesApi.delete(ws_id);
       wsList.reload();
+      if (currentWorkspaceId === ws_id) {
+        setCurrentWorkspace(null);
+        setCurrentSession(null);
+      }
       toast({ kind: "success", title: "已删除", body: name });
     } catch (e: unknown) {
       toast({ kind: "error", title: "删除失败", body: isApiError(e) ? e.message : String(e) });
@@ -152,6 +168,7 @@ export function Sidebar() {
         setCurrentSession(null);
       }
       sessList.reload();
+      recentRuns.reload();
       toast({ kind: "success", title: "已归档", body: sess.session_id });
     } catch (e: unknown) {
       toast({

@@ -14,6 +14,7 @@ interface MockResp {
 
 const responseQueue = new Map<string, MockResp[]>();
 let defaultResp: MockResp = { status: 200, data: { ok: true } };
+const requests: AxiosRequestConfig[] = [];
 
 export function enqueue(url: string, resp: MockResp): void {
   const key = url.split("?")[0];
@@ -28,12 +29,18 @@ export function setDefault(resp: MockResp): void {
 
 export function resetMocks(): void {
   responseQueue.clear();
+  requests.length = 0;
   defaultResp = { status: 200, data: { ok: true } };
+}
+
+export function getRequests(): AxiosRequestConfig[] {
+  return [...requests];
 }
 
 export function installMockApi(): void {
   vi.spyOn(clientModule, "apiRequest").mockImplementation(
     async (config: AxiosRequestConfig) => {
+      requests.push(config);
       const url = (config.url ?? "").toString().split("?")[0];
       const queue = responseQueue.get(url);
       const next = queue?.shift() ?? defaultResp;

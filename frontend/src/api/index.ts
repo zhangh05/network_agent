@@ -228,10 +228,15 @@ export const workspacesApi = {
     ),
   recentRuns: (
     workspace_id: string,
+    session_id?: string | null,
     signal?: AbortSignal,
   ): Promise<{ runs: RuntimeAuditTurn[] }> =>
     apiRequest<{ runs: RuntimeAuditTurn[] }>(
-      { method: "GET", url: "/runs/recent", params: { workspace_id } },
+      {
+        method: "GET",
+        url: "/runs/recent",
+        params: session_id ? { workspace_id, session_id } : { workspace_id },
+      },
       signal,
     ),
 };

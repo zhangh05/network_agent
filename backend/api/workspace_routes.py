@@ -2,7 +2,7 @@
 """Workspace, Run, Report & Trace routes."""
 
 from flask import jsonify, request
-from workspace.ids import validate_workspace_id
+from workspace.ids import validate_session_id, validate_workspace_id
 from artifacts.store import sanitize_record
 
 
@@ -19,6 +19,13 @@ def _validated_ws_id(raw="default"):
         return validate_workspace_id(raw or "default"), None
     except ValueError:
         return None, _invalid_ws()
+
+
+def _validated_session_id(raw):
+    try:
+        return validate_session_id(raw), None
+    except ValueError:
+        return None, (jsonify({"ok": False, "error": "invalid_session_id"}), 400)
 
 
 def _validated_limit(default=100, max_value=500):
@@ -77,6 +84,7 @@ def register_workspace_routes(app):
         Query params:
           workspace_id  (default: "default")
           limit         (default: 10, max: 100)
+          session_id    (optional: exact session scope for sidebar)
           session_status (default: "active", set to "" for all sessions)
         """
         ws_id = request.args.get("workspace_id", "default")
@@ -86,8 +94,14 @@ def register_workspace_routes(app):
         limit, err = _validated_limit(default=10, max_value=100)
         if err:
             return err
+        session_id = request.args.get("session_id", "").strip()
+        if session_id:
+            session_id, err = _validated_session_id(session_id)
+            if err:
+                return err
+
         from workspace.run_store import list_runs, run_sort_key
-        from workspace.session_store import list_sessions
+        from workspace.session_store import get_session, list_sessions
 
         # Fetch more runs than needed to account for filtering
         raw_runs = list_runs(ws_id, limit=limit * 5)
@@ -95,7 +109,15 @@ def register_workspace_routes(app):
 
         # session_status="" means no filter (all sessions for RuntimeAudit)
         session_status = request.args.get("session_status", "active")
-        if session_status == "":
+        if session_id:
+            session = get_session(session_id, ws_id)
+            if not session or (session_status and session.get("status") != session_status):
+                recent = []
+                session_titles = {}
+            else:
+                recent = [r for r in runs_sorted if r.get("session_id", "") == session_id][:limit]
+                session_titles = {session_id: session.get("title", "")}
+        elif session_status == "":
             # No filtering — return runs from all sessions
             recent = runs_sorted[:limit]
             session_titles: dict = {}
