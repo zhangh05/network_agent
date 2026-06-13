@@ -66,6 +66,8 @@ def temp_dirs(monkeypatch):
     monkeypatch.setattr("workspace.manager.WS_ROOT", ws_dir)
     monkeypatch.setattr("workspace.run_store.WS_ROOT", ws_dir)
     monkeypatch.setattr("workspace.artifact_store.WS_ROOT", ws_dir)
+    # Also patch cached imports to avoid module-load-time reference staleness
+    monkeypatch.setattr("tool_runtime.general_tools.WS_ROOT", ws_dir)
 
     # Set env vars
     monkeypatch.setenv("NETWORK_AGENT_REPORTS_DIR", str(reports_dir))
