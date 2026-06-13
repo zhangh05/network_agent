@@ -503,8 +503,12 @@ def run_turn(session, turn, services=None) -> AgentResult:
 
                 # Build a compact, safe ToolResultMessage for the next LLM step.
                 tool_msg_payload = _build_tool_message_payload(result)
+                # If the tool returned content (e.g. artifact.read), allow up to
+                # 8000 chars so translated_config / long text isn't silently
+                # truncated before it reaches the LLM.
+                trunc_limit = 8000 if "content" in tool_msg_payload else 2000
                 tool_msg = ToolResultMessage(
-                    content=json.dumps(tool_msg_payload, ensure_ascii=False)[:2000],
+                    content=json.dumps(tool_msg_payload, ensure_ascii=False)[:trunc_limit],
                     tool_call_id=tc.id,
                 )
                 messages.append(tool_msg.to_llm_message())
@@ -803,6 +807,8 @@ def _merge_llm_safe_tool_fields(payload: dict, source: dict) -> None:
         "source_type", "count", "answer_hint", "results_markdown",
         "next_actions", "results", "filters", "source_summary", "preview",
         "text_length", "status_code", "artifact_id", "source_url", "hint",
+        "content", "artifact_type", "sensitivity", "authoritative",
+        "deployable_config", "manual_review_items",
     ):
         value = source.get(key)
         if value in (None, "", [], {}):
