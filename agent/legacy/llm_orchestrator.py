@@ -356,6 +356,12 @@ def _execute_module_direct(state: NetworkAgentState, task: "Task", ws_id: str) -
         _record_module_event(state, "module_call_end", skill, capability_id, status="succeeded",
                             summary=str(result.get("summary", ""))[:200])
 
+        # ── Auto-save artifact for module intents that produce output ──
+        # v0.9.1: Path B (skill adapter) previously dropped artifacts.
+        # Now we save them here so the review flow works for both paths.
+        if skill == "config_translation" and result.get("ok"):
+            _save_module_artifact(state, skill, result)
+
     # ── PostTurn hooks ──
     from agent.hooks_integration import run_post_turn_hooks
     force_continue, post_context = run_post_turn_hooks(
@@ -372,6 +378,57 @@ def _execute_module_direct(state: NetworkAgentState, task: "Task", ws_id: str) -
 
     turn.complete(str(state.skill_results.get("summary", ""))[:200])
     task.complete({"mode": "module_direct", "skill": skill})
+
+
+def _save_module_artifact(state: "NetworkAgentState", skill: str, result: dict) -> None:
+    """Save a module output artifact from the skill adapter result.
+
+    v0.9.1: Path B (skill adapter) now gets artifact saving here.
+    Previously only Path A (LLM tool via agent.modules.config_translation.service)
+    saved artifacts; skill adapter results were ephemeral.
+    """
+    ws_id = state.workspace_id or "default"
+    translated = result.get("deployable_config") or result.get("translated_config", "")
+    items = result.get("manual_review_items") or result.get("manual_review", [])
+    mr_count = result.get("manual_review_count", len(items))
+    quality = result.get("quality_summary", {})
+    source_v = result.get("source_vendor", "")
+    target_v = result.get("target_vendor", "")
+    line_count = result.get("line_count", 0)
+    if not translated or not isinstance(translated, str):
+        return
+    try:
+        from artifacts.store import save_artifact
+        rec = save_artifact(
+            workspace_id=ws_id,
+            content=translated,
+            artifact_type="translated_config",
+            title=f"Translated config: {source_v} to {target_v}",
+            scope="workspace",
+            sensitivity="internal",
+            module="config_translation",
+            skill=skill,
+            source="module_output",
+            metadata={
+                "source_vendor": source_v,
+                "target_vendor": target_v,
+                "line_count": line_count,
+                "manual_review_count": mr_count,
+                "manual_review_items": items,
+                "authoritative": False,
+                "deployable_config": False,
+                "quality_gate_passed": True,
+            },
+        )
+        if rec:
+            state.context.setdefault("output_artifacts", []).append(rec.artifact_id)
+            try:
+                from agent.modules.review.service import init_review_sidecar
+                init_review_sidecar(ws_id, rec.artifact_id, items)
+            except Exception:
+                pass
+    except Exception:
+        pass
 
 
 def _execute_tool(tool_id: str, arguments: dict, workspace_id: str, state: NetworkAgentState) -> dict:

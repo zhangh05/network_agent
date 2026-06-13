@@ -32,6 +32,46 @@ from pathlib import Path
 VALID_STATUSES = {"pending", "accepted", "ignored", "modified"}
 
 
+def init_review_sidecar(
+    workspace_id: str,
+    artifact_id: str,
+    manual_review_items: list,
+) -> dict:
+    """Create/overwrite the review sidecar with initial items.
+
+    Called at translation time so review.list_items works immediately.
+    Each item starts as "pending".  Existing sidecar data is preserved
+    for items that already have a status set.
+    """
+    if not workspace_id or not artifact_id:
+        return {"ok": False, "summary": "workspace_id and artifact_id required"}
+    try:
+        # Preserve existing statuses if sidecar already exists
+        existing = _load_sidecar(workspace_id, artifact_id)
+        existing_items = existing.get("items", {}) or {}
+        new_items = {}
+        for idx, it in enumerate(manual_review_items or []):
+            if not isinstance(it, dict):
+                continue
+            item_id = str(it.get("item_id") or it.get("id") or f"item_{idx}")
+            if item_id in existing_items:
+                new_items[item_id] = existing_items[item_id]
+            else:
+                new_items[item_id] = {
+                    "status": "pending",
+                    "user_note": "",
+                    "updated_at": _now_iso(),
+                }
+        _save_sidecar(workspace_id, artifact_id, {
+            "workspace_id": workspace_id,
+            "artifact_id": artifact_id,
+            "items": new_items,
+        })
+        return {"ok": True, "summary": f"Initialized {len(new_items)} review items for {artifact_id}"}
+    except Exception as e:
+        return {"ok": False, "summary": f"init_review_sidecar failed: {e!r}"}
+
+
 def _now_iso() -> str:
     return datetime.now(timezone.utc).isoformat()
 

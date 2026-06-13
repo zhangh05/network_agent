@@ -141,7 +141,13 @@ def _auto_save_input(state: NetworkAgentState, skill_spec: dict):
 
 
 def _auto_save_output(state: NetworkAgentState, skill_spec: dict):
-    """Auto-save output artifact if skill.yaml says so."""
+    """Auto-save output artifact if skill.yaml says so.
+
+    v0.9.1: Carries manual_review_items / audit / quality_summary
+    from the skill result into artifact metadata so the review flow
+    (review.list_items) can find them.  Without this the LLM would
+    see manual_review_count > 0 but review.list_items returns 0.
+    """
     artifact_cfg = skill_spec.get("artifact", {})
     if not artifact_cfg.get("auto_save_output"):
         return
@@ -151,6 +157,15 @@ def _auto_save_output(state: NetworkAgentState, skill_spec: dict):
     content = result.get(output_field, "")
     if not content or not isinstance(content, str):
         return
+
+    # ── Collect metadata from skill result for review / audit ──
+    metadata = {}
+    for key in ("manual_review_items", "manual_review", "audit",
+                "quality_summary", "manual_review_count",
+                "unsupported_count", "semantic_near_count"):
+        val = result.get(key)
+        if val is not None:
+            metadata[key] = val
 
     ws_id = state.workspace_id or "default"
     try:
@@ -163,6 +178,7 @@ def _auto_save_output(state: NetworkAgentState, skill_spec: dict):
             run_id=state.request_id, module=state.active_module,
             skill=state.selected_skill, capability_id=state.context.get("capability_id", ""),
             source="module_output",
+            metadata=metadata,
         )
         if art:
             state.context.setdefault("output_artifacts", []).append(art.artifact_id)

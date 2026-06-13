@@ -226,24 +226,28 @@ function InspectorBody({ result }: { result: AgentResult }) {
           <div className="text-sm muted">无</div>
         ) : (
           <div className="col-flex" data-testid="inspector-events" style={{ gap: 0 }}>
-            {(result.events ?? []).slice(0, 50).map((ev) => (
+            {(result.events ?? []).slice(0, 50).map((ev) => {
+              const evType = (ev as any).type || ev.event_type || "";
+              const ts = (ev as any).timestamp || ev.occurred_at || "";
+              return (
               <div className="inspector-event" key={ev.event_id}>
                 <span
                   className={
                     "ev-dot " +
-                    (ev.event_type?.includes("error")
+                    (evType.includes("error")
                       ? "err"
-                      : ev.event_type?.includes("warn")
+                      : evType.includes("warn")
                         ? "warn"
                         : "info")
                   }
                 />
                 <span className="ev-text text-sm">
-                  <IconBolt size={10} /> {ev.event_type}
+                  <IconBolt size={10} /> {evType}
                 </span>
-                <span className="ev-time">{ev.occurred_at}</span>
+                <span className="ev-time">{ts}</span>
               </div>
-            ))}
+              );
+            })}
           </div>
         )}
       </Collapsible>

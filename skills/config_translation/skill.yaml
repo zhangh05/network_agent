@@ -34,7 +34,7 @@ artifact:
   input_type: input_config
   output_type: output_config
   output_field: deployable_config
-  sensitivity: sensitive
+  sensitivity: internal
   scope: run
 
 # ── Response compose (generic, driven by skill.yaml) ──

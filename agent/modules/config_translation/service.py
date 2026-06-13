@@ -77,7 +77,8 @@ def translate_config(
         if translated_config:
             artifacts = _save_translation_artifact(
                 translated_config, source_vendor, target_vendor,
-                workspace_id, session_id, line_count, mr_count, quality, warnings,
+                workspace_id, session_id, line_count, mr_count,
+                manual_review_items, quality, warnings,
             )
 
         return {
@@ -177,10 +178,16 @@ def _save_translation_artifact(
     session_id: str,
     line_count: int,
     mr_count: int,
+    manual_review_items: list,
     quality: dict,
     warnings: list,
 ) -> list:
-    """Save translated_config as an artifact. Never blocks translation."""
+    """Save translated_config as an artifact. Never blocks translation.
+
+    v0.9.1: Stores manual_review_items in artifact metadata so
+    review.list_items can find them. Without this the LLM would
+    see manual_review_count > 0 but review.list_items returns 0.
+    """
     try:
         from artifacts.store import save_artifact
         rec = save_artifact(
@@ -189,7 +196,7 @@ def _save_translation_artifact(
             artifact_type="translated_config",
             title=f"Translated config: {source_vendor} to {target_vendor}",
             scope="workspace",
-            sensitivity="sensitive",
+            sensitivity="internal",
             module="config_translation",
             skill="config_translation",
             source="module_output",
@@ -198,6 +205,7 @@ def _save_translation_artifact(
                 "target_vendor": target_vendor,
                 "line_count": line_count,
                 "manual_review_count": mr_count,
+                "manual_review_items": manual_review_items,
                 "authoritative": False,
                 "deployable_config": False,
                 "quality_gate_passed": not bool(
@@ -207,12 +215,19 @@ def _save_translation_artifact(
             },
         )
         if rec:
+            # v0.9.1: initialize review sidecar so review.list_items
+            # works immediately — no need to wait for deferred creation.
+            try:
+                from agent.modules.review.service import init_review_sidecar
+                init_review_sidecar(workspace_id, rec.artifact_id, manual_review_items)
+            except Exception:
+                pass
             return [{
                 "artifact_id": rec.artifact_id,
                 "artifact_type": "translated_config",
                 "title": f"Translated config: {source_vendor} to {target_vendor}",
                 "scope": "workspace",
-                "sensitivity": "sensitive",
+                "sensitivity": "internal",
                 "source": "module_output",
                 "metadata": {
                     "authoritative": False,

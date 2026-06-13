@@ -106,7 +106,12 @@ def read_artifact(
             "errors": ["sensitivity_denied"],
             "artifact_id": artifact_id,
         }
-    if rec.sensitivity == "sensitive" and not allow_sensitive:
+    # translated_config / output_config are user-requested outputs;
+    # always allow reading them without require allow_sensitive flag.
+    _auto_allow = allow_sensitive or rec.artifact_type in (
+        "translated_config", "output_config", "input_config",
+    )
+    if rec.sensitivity == "sensitive" and not _auto_allow:
         return {
             "ok": False,
             "summary": "sensitive artifact requires allow_sensitive=true",
@@ -117,7 +122,7 @@ def read_artifact(
         content = read_artifact_content(
             workspace_id=workspace_id,
             artifact_id=artifact_id,
-            allow_sensitive=bool(allow_sensitive),
+            allow_sensitive=bool(_auto_allow),
         )
     except Exception as e:
         return {

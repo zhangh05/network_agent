@@ -98,20 +98,33 @@ def handle_artifact_read_content_safe(inv: ToolInvocation) -> dict:
         if not art:
             return _error("artifact not found")
         sensitivity = getattr(art, "sensitivity", "internal")
-        if sensitivity in ("confidential", "secret"):
+        art_type = getattr(art, "artifact_type", "")
+        # Only truly secret artifacts are blocked from the LLM.
+        # "sensitive" (e.g. translated_config output) must be readable so
+        # the LLM can surface manual_review_items and complete the review loop.
+        if sensitivity in ("secret",):
             return _ok({
                 "preview": f"[{sensitivity} artifact — content not shown]",
                 "title": getattr(art, "title", ""),
-                "artifact_type": getattr(art, "artifact_type", ""),
+                "artifact_type": art_type,
                 "sensitivity": sensitivity,
             })
-        content = read_artifact_content(ws, art_id, allow_sensitive=False)
+        # sensitive + internal are readable; "confidential" gets a short preview
+        allow = sensitivity not in ("confidential",)
+        content = read_artifact_content(ws, art_id, allow_sensitive=allow)
         if content is None:
             return _error("content not accessible")
+        # translated_config is user-requested output — give generous preview
+        if art_type in ("translated_config", "output_config"):
+            preview_len = min(len(str(content)), 8000)
+        elif sensitivity in ("confidential",):
+            preview_len = 200
+        else:
+            preview_len = 2000
         return _ok({
-            "preview": _safe_preview(str(content), 500),
+            "preview": _safe_preview(str(content), preview_len),
             "title": getattr(art, "title", ""),
-            "artifact_type": getattr(art, "artifact_type", ""),
+            "artifact_type": art_type,
             "sensitivity": sensitivity,
         })
     except Exception as e:
