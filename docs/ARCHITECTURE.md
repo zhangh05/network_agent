@@ -77,12 +77,13 @@ Runtime state and workspace data are operational data, not documentation.
 
 ## Registries
 
-There are two capability projections:
+There is one runtime capability truth source with multiple projections:
 
 - Runtime registry: `agent/capabilities/builtin.py`
-- Public YAML registry API: `registry/loader.py` via `GET /api/capabilities`
+- Public registry API: `registry/loader.py` projects the runtime registry for `GET /api/capabilities`
+- Legacy capability ids such as `config.translate` are accepted as lookup aliases, but runtime ids are canonical
 
-The runtime registry currently has 7 capabilities. The public YAML projection currently has 5 capability entries. They are intentionally separate surfaces.
+The runtime registry currently has 7 capabilities: 4 enabled and 3 planned.
 
 ## Frontend
 

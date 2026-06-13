@@ -363,7 +363,7 @@ class TestToolCountV09:
         svc = default_runtime_services()
         tr = svc.tool_service
         total = len(tr.registry.list_all())
-        assert total == 73
+        assert total == 76
         reg = get_default_capability_registry()
         assert len(reg.enabled_tools()) == 19
 

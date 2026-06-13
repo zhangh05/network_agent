@@ -333,12 +333,12 @@ class TestCurrentArchitecture:
             "translate_bundle not found in config_translation service"
         )
 
-    def test_only_config_translation_enabled(self):
-        """Only config_translation and knowledge_base modules should be enabled."""
+    def test_only_runtime_capability_modules_enabled(self):
+        """Only runtime-enabled capability modules should be enabled."""
         from registry.loader import load_module_registry
         mods = load_module_registry()
         enabled = sorted([m.module_name for m in mods if m.is_enabled()])
-        assert enabled == sorted(['config_translation', 'knowledge_base']), (
+        assert enabled == sorted(['artifact', 'config_translation', 'knowledge', 'review']), (
             f"Unexpected enabled modules: {enabled}"
         )
 
@@ -447,13 +447,13 @@ class TestClientSafety:
 
     # ── Knowledge Search Registry & Adapter Safety ──
 
-    def test_knowledge_search_skill_enabled_in_registry(self):
-        """knowledge_search skill must be enabled in registry."""
+    def test_knowledge_query_skill_enabled_in_registry(self):
+        """knowledge_query skill must be enabled in registry."""
         from registry.loader import load_skill_registry
         skills = load_skill_registry()
-        ks = [s for s in skills if s.skill_name == 'knowledge_search']
-        assert len(ks) == 1, f"Expected 1 knowledge_search skill, got {len(ks)}"
-        assert ks[0].is_enabled(), "knowledge_search skill is not enabled"
+        ks = [s for s in skills if s.skill_name == 'knowledge_query']
+        assert len(ks) == 1, f"Expected 1 knowledge_query skill, got {len(ks)}"
+        assert ks[0].is_enabled(), "knowledge_query skill is not enabled"
 
     def test_knowledge_search_adapter_no_llm_import(self):
         """knowledge_search adapter must NOT import any LLM provider."""
@@ -473,12 +473,12 @@ class TestClientSafety:
         source = inspect.getsource(adapter)
         assert 'load_knowledge_context' in source, "adapter must call load_knowledge_context"
 
-    def test_enabled_modules_are_config_translation_and_knowledge_base(self):
-        """Enabled modules must be exactly config_translation and knowledge_base."""
+    def test_enabled_modules_are_runtime_capabilities(self):
+        """Enabled modules must match runtime-enabled capabilities."""
         from registry.loader import load_module_registry
         mods = load_module_registry()
         enabled = sorted([m.module_name for m in mods if m.is_enabled()])
-        assert enabled == sorted(['config_translation', 'knowledge_base']), (
+        assert enabled == sorted(['artifact', 'config_translation', 'knowledge', 'review']), (
             f"Wrong enabled modules: {enabled}"
         )
 

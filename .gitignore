@@ -24,6 +24,7 @@ workspaces/*/artifacts/
 workspaces/*/indexes/
 workspaces/*/runtime_audits/
 workspaces/*/workspace.yaml
+workspaces/_runtime/
 # Exclude test workspaces entirely
 workspaces/api_contract_test/
 workspaces/test_ws/

@@ -18,19 +18,21 @@ Runtime capabilities are defined in `agent/capabilities/builtin.py`.
 
 Planned capabilities are registered for roadmap visibility but are not callable.
 
-## Public YAML Registry API
+## Public Registry API
 
-`GET /api/capabilities` uses `registry.loader.load_capabilities()`, not the runtime capability registry above.
+`GET /api/capabilities` uses `registry.loader.load_capabilities()`, which projects the runtime `CapabilityRegistry` into the public registry shape. Legacy ids such as `config.translate`, `config.review`, and `knowledge.search` are compatibility aliases for lookup, not the canonical public rows.
 
 Current public projection:
 
 | Capability | Status | Module | Skill |
 |---|---|---|---|
-| `config.translate` | enabled | `config_translation` | `config_translation` |
-| `config.review` | enabled | `config_translation` | `config_translation` |
-| `knowledge.search` | enabled | `knowledge_base` | `knowledge_search` |
-| `topology.draw` | planned | `topology` | `topology_draw` |
-| `inspection.analyze` | planned | `inspection` | `inspection_analyze` |
+| `config_translation` | enabled | `config_translation` | `config_translation` |
+| `knowledge` | enabled | `knowledge` | `knowledge_query` |
+| `artifact` | enabled | `artifact` | `artifact_management` |
+| `review` | enabled | `review` | `review_flow` |
+| `topology` | planned | `topology` | `topology` |
+| `inspection` | planned | `inspection` | `inspection` |
+| `cmdb` | planned | `cmdb` | `cmdb` |
 
 ## Tool Counts
 
@@ -54,5 +56,9 @@ Registered but not model-visible:
 - Tool visibility is fail-closed.
 - Unknown LLM tool calls are rejected by `ToolRouter`.
 - Disabled tools are not exposed to the model.
+- Pure chat and capability-discovery turns expose zero business tools.
+- Business turns expose only the selected skill's related tools.
+- Capability tool handlers fail fast if their `handler_ref` cannot be resolved.
+- Capability tools override same-id general runtime tools when they define the active business contract.
 - High-risk runtime tools require approval state.
 - Real device access and config push are not exposed to the model.

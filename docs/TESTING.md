@@ -21,6 +21,12 @@ Run the full harness when broad regression coverage is needed:
 ./venv/bin/python -m pytest harness -q
 ```
 
+Tool/skill/module wiring regressions:
+
+```bash
+./venv/bin/python -m pytest harness/test_tool_skill_module_design_regressions.py -q
+```
+
 Live LLM tests are gated and should only be enabled intentionally:
 
 ```bash

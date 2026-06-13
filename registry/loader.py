@@ -16,6 +16,14 @@ SKILLS_DIR = ROOT / "skills"
 # Cache
 _cache = {"modules": None, "skills": None, "capabilities": None}
 
+_LEGACY_CAPABILITY_ALIASES = {
+    "config.translate": "config_translation",
+    "config.review": "review",
+    "knowledge.search": "knowledge",
+    "topology.draw": "topology",
+    "inspection.analyze": "inspection",
+}
+
 
 def _read_yaml(path: Path) -> dict:
     try:
@@ -39,6 +47,11 @@ def load_module_registry(reload: bool = False) -> list:
     global _cache
     if not reload and _cache["modules"] is not None:
         return _cache["modules"]
+
+    projected = _project_runtime_modules()
+    if projected:
+        _cache["modules"] = projected
+        return projected
 
     modules = {}
 
@@ -173,6 +186,11 @@ def load_skill_registry(reload: bool = False) -> list:
     if not reload and _cache["skills"] is not None:
         return _cache["skills"]
 
+    projected = _project_runtime_skills()
+    if projected:
+        _cache["skills"] = projected
+        return projected
+
     skills = {}
 
     # 1. Read registry.json
@@ -264,6 +282,11 @@ def load_capabilities(reload: bool = False) -> list:
     if not reload and _cache["capabilities"] is not None:
         return _cache["capabilities"]
 
+    projected = _project_runtime_capabilities()
+    if projected:
+        _cache["capabilities"] = projected
+        return projected
+
     modules = load_module_registry()
     skills = load_skill_registry()
     caps = _generate_capabilities(modules, skills)
@@ -322,6 +345,225 @@ def _generate_capabilities(modules: list, skills: list) -> list:
     return result
 
 
+def _runtime_capability_registry():
+    try:
+        from agent.capabilities import get_default_capability_registry
+        return get_default_capability_registry()
+    except Exception:
+        return None
+
+
+def _project_runtime_modules() -> list:
+    reg = _runtime_capability_registry()
+    if reg is None:
+        return []
+    modules = []
+    for cap in reg.list_all():
+        m = cap.module
+        safety = cap.safety
+        modules.append(ModuleSpec(
+            module_name=m.module_id,
+            display_name=cap.name,
+            description=m.description or cap.description,
+            category=cap.capability_id,
+            status=m.status,
+            maturity="beta_ready" if m.status == "enabled" else "planned",
+            module_path=f"agent/modules/{m.module_id}",
+            api_base=_module_api_base(m.module_id),
+            primary_endpoint=_module_primary_endpoint(m.module_id, m.operations),
+            health_endpoint=f"/api/modules/{m.module_id}/health",
+            has_ui=m.status == "enabled",
+            ui_route=_module_ui_route(m.module_id, cap.capability_id),
+            requires_llm=False,
+            llm_allowed=False,
+            deterministic=True,
+            can_generate_deployable=safety.produces_deployable_config,
+            deployable_output_field="deployable_config" if safety.produces_deployable_config else "",
+            risk_level=_highest_tool_risk(cap.tools),
+            can_affect_network=safety.real_device_access or safety.allows_config_push,
+            requires_manual_review=safety.requires_human_review,
+            high_risk_output_possible=safety.produces_deployable_config,
+            outputs=[
+                {"name": o.output_id, "type": o.output_type, "sensitivity": o.sensitivity}
+                for o in cap.outputs
+            ],
+            artifact_output_policy="sensitive_artifact_allowed" if cap.outputs else "none",
+            trace_enabled=True,
+            trace_policy="sanitized_metadata_only",
+        ))
+    return modules
+
+
+def _project_runtime_skills() -> list:
+    reg = _runtime_capability_registry()
+    if reg is None:
+        return []
+    skills = []
+    for cap in reg.list_all():
+        for sk in cap.skills:
+            skills.append(SkillSpec(
+                skill_name=sk.skill_id,
+                display_name=cap.name,
+                description=sk.prompt_summary or cap.description,
+                category=cap.capability_id,
+                status=sk.status,
+                skill_type=_skill_type(sk.skill_id),
+                module=cap.module.module_id,
+                module_api=_module_primary_endpoint(cap.module.module_id, cap.module.operations),
+                adapter_path=_skill_adapter_path(sk.skill_id),
+                entrypoint_type="python" if _skill_adapter_path(sk.skill_id) else "runtime_capability",
+                entrypoint_function=_skill_entrypoint(sk.skill_id),
+                capabilities=[{
+                    "capability_id": cap.capability_id,
+                    "intent": sk.skill_id,
+                    "function": _skill_entrypoint(sk.skill_id),
+                    "description": cap.description,
+                    "risk_level": _highest_tool_risk(cap.tools),
+                }],
+                calls_module=True,
+                calls_llm=False,
+                calls_http_self=False,
+                adapter_required=bool(_skill_adapter_path(sk.skill_id)),
+                requires_adapter=bool(_skill_adapter_path(sk.skill_id)),
+                red_lines=_skill_red_lines(sk.safety_rules),
+                trace_record_skill_call=True,
+                trace_record_module_call=True,
+                trace_full_input=False,
+                trace_full_output=False,
+                memory_write_run_summary=True,
+                memory_full_input=False,
+                memory_full_output=False,
+            ))
+    return skills
+
+
+def _project_runtime_capabilities() -> list:
+    reg = _runtime_capability_registry()
+    if reg is None:
+        return []
+    caps = []
+    for cap in reg.list_all():
+        sk = cap.skills[0] if cap.skills else None
+        risk = _highest_tool_risk(cap.tools)
+        caps.append(CapabilitySpec(
+            capability_id=cap.capability_id,
+            intent=_capability_intent(cap.capability_id, sk.skill_id if sk else cap.capability_id),
+            module=cap.module.module_id,
+            skill=sk.skill_id if sk else "",
+            status=cap.status,
+            description=cap.description,
+            category=cap.capability_id,
+            risk_level=risk,
+            can_generate_deployable=cap.safety.produces_deployable_config,
+            requires_verification=cap.safety.requires_human_review,
+            requires_manual_review_if_any=cap.safety.requires_human_review,
+            llm_allowed=False,
+            memory_full_input=False,
+            memory_full_output=False,
+            trace_full_input=False,
+            trace_full_output=False,
+            artifact_full_input_allowed=False,
+            artifact_sensitivity=_highest_output_sensitivity(cap.outputs),
+            ui_module_route=f"/capabilities/{cap.capability_id}",
+            ui_action_label=cap.name,
+            required_module=cap.module.module_id,
+            required_skill=sk.skill_id if sk else "",
+            input_schema={
+                t.tool_id: t.input_schema
+                for t in cap.tools
+                if t.status == "enabled"
+            },
+            output_schema={
+                o.output_id: {"type": o.output_type, "sensitivity": o.sensitivity}
+                for o in cap.outputs
+            },
+            policies={
+                "llm_allowed": False,
+                "real_device_access": cap.safety.real_device_access,
+                "allows_config_push": cap.safety.allows_config_push,
+                "may_fabricate_sources": cap.safety.may_fabricate_sources,
+            },
+        ))
+    return caps
+
+
+def _highest_tool_risk(tools: list) -> str:
+    rank = {"low": 0, "medium": 1, "high": 2, "forbidden": 3}
+    highest = "low"
+    for tool in tools or []:
+        risk = getattr(tool, "risk_level", "low")
+        if rank.get(risk, 0) > rank.get(highest, 0):
+            highest = risk
+    return highest
+
+
+def _highest_output_sensitivity(outputs: list) -> str:
+    rank = {"public": 0, "internal": 1, "sensitive": 2, "secret": 3}
+    highest = "internal"
+    for output in outputs or []:
+        sensitivity = getattr(output, "sensitivity", "internal")
+        if rank.get(sensitivity, 1) > rank.get(highest, 1):
+            highest = sensitivity
+    return highest
+
+
+def _capability_intent(capability_id: str, fallback: str) -> str:
+    return {
+        "config_translation": "translate_config",
+        "knowledge": "knowledge_query",
+        "artifact": "artifact_management",
+        "review": "context_qa",
+        "topology": "topology_draw",
+        "inspection": "inspection_analyze",
+        "cmdb": "cmdb_query",
+    }.get(capability_id, fallback)
+
+
+def _module_api_base(module_id: str) -> str:
+    return {
+        "config_translation": "/api/modules/config-translation",
+        "knowledge": "/api/modules/knowledge",
+    }.get(module_id, f"/api/modules/{module_id}")
+
+
+def _module_primary_endpoint(module_id: str, operations: list) -> str:
+    return {
+        "config_translation": "/api/modules/config-translation/translate",
+        "knowledge": "/api/modules/knowledge/query",
+    }.get(module_id, operations[0] if operations else "runtime")
+
+
+def _module_ui_route(module_id: str, capability_id: str) -> str:
+    return {
+        "config_translation": "/modules/translate",
+        "knowledge": "/modules/knowledge",
+    }.get(module_id, f"/capabilities/{capability_id}")
+
+
+def _skill_red_lines(safety_rules: list) -> list:
+    out = ["do_not_call_llm", "do_not_hide_manual_review"]
+    for rule in safety_rules or []:
+        if rule not in out:
+            out.append(rule)
+    return out
+
+
+def _skill_adapter_path(skill_id: str) -> str:
+    return {
+        "config_translation": "skills/config_translation/adapter.py",
+    }.get(skill_id, "")
+
+
+def _skill_entrypoint(skill_id: str) -> str:
+    return {
+        "config_translation": "translate",
+    }.get(skill_id, "")
+
+
+def _skill_type(skill_id: str) -> str:
+    return "python_adapter" if _skill_adapter_path(skill_id) else "prompt_skill"
+
+
 # ═══════════════════════════════════
 # CONVENIENCE ACCESSORS
 # ═══════════════════════════════════
@@ -341,6 +583,7 @@ def get_skill(name: str) -> Optional[SkillSpec]:
 
 
 def get_capability(capability_id: str) -> Optional[CapabilitySpec]:
+    capability_id = _LEGACY_CAPABILITY_ALIASES.get(capability_id, capability_id)
     for c in load_capabilities():
         if c.capability_id == capability_id:
             return c

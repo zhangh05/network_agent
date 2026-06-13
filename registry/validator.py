@@ -89,7 +89,7 @@ def validate_skill(spec: SkillSpec) -> ValidationResult:
 
     # Adapter path
     adapter = ROOT / spec.adapter_path if spec.adapter_path else None
-    if spec.is_enabled():
+    if spec.is_enabled() and spec.adapter_required and spec.requires_adapter:
         if not adapter or not adapter.is_file():
             v.add_error(f"adapter not found: {spec.adapter_path}")
         else:

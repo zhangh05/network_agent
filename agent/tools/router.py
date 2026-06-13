@@ -34,7 +34,7 @@ class ToolRouter:
         self.llm_name_map: dict = {}  # llm_safe_name → real_tool_id
         self.dispatch_delegate = None
         # v1.0.3.1: per-instance immutable whitelist
-        if allowed_tool_ids:
+        if allowed_tool_ids is not None:
             eligible = {s.tool_id for s in self.registry.list_model_visible()}
             self._allowed_tool_ids: set[str] | None = {
                 t for t in allowed_tool_ids if t in eligible

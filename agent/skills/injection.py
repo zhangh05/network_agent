@@ -13,9 +13,15 @@ def build_skill_injections(turn_context) -> str:
     lines.append("You are a network agent with these capabilities:")
 
     enabled = snap.get("enabled", [])
+    selected = []
+    if turn_context:
+        selected = list(getattr(turn_context, "metadata", {}).get("selected_skills", []) or [])
+    if selected:
+        selected_set = set(selected)
+        enabled = [s for s in enabled if s.get("skill_id") in selected_set]
     if enabled:
         lines.append("")
-        lines.append("CURRENT Capabilities (available NOW):")
+        lines.append("CURRENT Capabilities (available THIS TURN):")
         for s in enabled:
             prompt = s.get("prompt_summary", s.get("name", ""))
             if prompt:

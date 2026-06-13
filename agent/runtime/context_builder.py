@@ -136,17 +136,18 @@ def build_turn_context(session, turn, services) -> TurnContext:
                         for t in ctx.tool_router.model_visible_tools()
                     })
             elif ctx.tool_router is not None and not candidates:
-                # Pure chat / discovery → keep the registry's default
-                # visible set (no whitelist).
+                # Pure chat / discovery → expose no business tools. The
+                # selector intentionally produced no related_tools, so this
+                # turn should not fall back to the full registry.
                 base_reg = getattr(ctx.tool_router, "registry", None) or (
                     ctx.tool_router if hasattr(ctx.tool_router, "list_model_visible") else None
                 )
                 if base_reg is not None:
-                    ctx.tool_router = ToolRouter.for_turn(base_reg)
+                    ctx.tool_router = ToolRouter.for_turn(base_reg, allowed_tool_ids=set())
                     if services and services.tool_service and hasattr(services.tool_service, "dispatch"):
                         ctx.tool_router.dispatch_delegate = services.tool_service.dispatch
                 selected_visible_tools = []
-                dynamic_visibility = False
+                dynamic_visibility = True
         except Exception as e:
             # v1.0.3.1: never crash. Fall back to v0.8 behavior.
             selector_warnings.append(f"skill_selector_error: {e!r}")

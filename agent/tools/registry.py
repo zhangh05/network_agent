@@ -60,8 +60,15 @@ class ToolRegistry:
         for tool_ref in capability_registry.enabled_tools():
             if tool_ref.status != "enabled":
                 continue
-            if tool_ref.tool_id in self._specs:
-                continue  # already present, do not overwrite
+            handler = _resolve_capability_handler(tool_ref.handler_ref)
+            if handler is None:
+                raise RuntimeError(
+                    f"Failed to resolve handler for capability tool "
+                    f"{tool_ref.tool_id!r}: {tool_ref.handler_ref!r}"
+                )
+            existing = self._specs.get(tool_ref.tool_id)
+            if existing is not None and str(getattr(existing, "source", "")).startswith("capability:"):
+                raise RuntimeError(f"Duplicate capability tool_id: {tool_ref.tool_id!r}")
             spec = ToolSpec(
                 tool_id=tool_ref.tool_id,
                 name=tool_ref.tool_id,
@@ -79,11 +86,9 @@ class ToolRegistry:
             # v1.0.3.5: resolve and register capability handler so
             # dispatch() can find it. handler_ref is a dotted-path
             # string like "agent.modules.knowledge.tools:tool_handler_query".
-            handler = _resolve_capability_handler(tool_ref.handler_ref)
-            if handler is not None:
-                if not hasattr(self, '_handlers'):
-                    self._handlers = {}
-                self._handlers[spec.tool_id] = handler
+            if not hasattr(self, '_handlers'):
+                self._handlers = {}
+            self._handlers[spec.tool_id] = handler
             registered += 1
         return registered
 

@@ -37,12 +37,19 @@ Registered but not model-visible:
 
 ## Public Registry API
 
-`GET /api/capabilities` uses `registry.loader.load_capabilities()` and returns the YAML registry projection, not the runtime capability registry.
+`GET /api/capabilities` uses `registry.loader.load_capabilities()`, which now projects from the runtime `CapabilityRegistry`. Legacy capability ids such as `config.translate` remain accepted by `get_capability()` as compatibility aliases, but public capability rows use runtime ids.
 
 Current public capability projection:
 
-- enabled: `config.translate`, `config.review`, `knowledge.search`
-- planned: `topology.draw`, `inspection.analyze`
+- enabled: `config_translation`, `knowledge`, `artifact`, `review`
+- planned: `topology`, `inspection`, `cmdb`
+
+## Tool Visibility
+
+- `ToolRouter.for_turn(..., allowed_tool_ids=set())` represents an explicit zero-tool turn.
+- Pure `assistant_chat` and `capability_discovery` turns expose no business tools to the model.
+- Business turns expose only the selected skill's related tools after the registry safety filter.
+- Capability tools override same-id runtime catalog tools when the capability manifest declares the active business contract. For example, `artifact.list` resolves to `capability:artifact.list`.
 
 ## Knowledge And Memory
 

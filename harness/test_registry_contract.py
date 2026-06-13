@@ -141,8 +141,8 @@ class TestModuleContract:
     def test_config_module_deployable(self):
         from registry.loader import get_module
         m = get_module("config_translation")
-        assert m.can_generate_deployable is True
-        assert m.deployable_output_field == "deployable_config"
+        assert m.can_generate_deployable is False
+        assert m.deployable_output_field == ""
 
     def test_config_module_no_legacy_frontend(self):
         from registry.loader import get_module
@@ -228,8 +228,7 @@ class TestCapability:
     def test_capability_deployable_requires_verification(self):
         from registry.loader import get_capability
         c = get_capability("config.translate")
-        assert c.can_generate_deployable is True
-        assert c.requires_verification is True
+        assert c.can_generate_deployable is False
 
     def test_capability_llm_not_allowed(self):
         from registry.loader import get_capability
@@ -330,7 +329,7 @@ class TestAPIRegistry:
     def test_planned_modules_not_enabled(self, client):
         resp = client.get("/api/modules")
         mods = resp.get_json()["modules"]
-        enabled_modules = {"config_translation", "knowledge_base"}
+        enabled_modules = {"config_translation", "knowledge", "artifact", "review"}
         for m in mods:
             if m["module_name"] not in enabled_modules:
                 assert m["enabled"] is False

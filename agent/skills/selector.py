@@ -56,12 +56,8 @@ CAPABILITY_DISCOVERY_PATTERNS: list[str] = [
 EXTRA_KEYWORDS: dict[str, list[str]] = {
     "config_translation": [
         "翻译", "翻译配置", "配置翻译", "转配置", "转换成",
-        "convert config", "translate config", "vendor",
-        # Common vendor / artifact keywords that strongly suggest
-        # config-translation intent. Conservative — only added where
-        # there's little ambiguity.
-        "cisco", "huawei", "h3c", "ruijie", "juniper",
-        "acl",
+        "convert config", "translate config", "translate this",
+        "convert this config", "vendor conversion",
     ],
     "knowledge_query": [
         "查知识", "查资料", "知识库", "rfc", "standard",
