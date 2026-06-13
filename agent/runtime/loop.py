@@ -809,18 +809,20 @@ def _merge_llm_safe_tool_fields(payload: dict, source: dict) -> None:
     v0.9.1: Replaced hardcoded whitelist with blacklist-based merging.
     All non-forbidden fields are passed through — _safe_tool_value handles
     recursive sanitization (length caps, dict/list limits, key filtering).
-    Previously ~20 fields were silently dropped because the whitelist was
-    too narrow (e.g. diff, items, chunks, sources, rendered, translated_config).
+
+    Colliding keys: if source has a key that already exists in payload
+    (e.g. summary, errors, warnings), the source value is stored under
+    a renamed key (prefix: "result_") so domain-specific data isn't lost.
     """
     for key, value in source.items():
         if _is_forbidden_prompt_key(str(key)):
             continue
         if value in (None, "", [], {}):
             continue
-        # Don't overwrite already-present top-level fields
+        target_key = key
         if key in payload:
-            continue
-        payload[key] = _safe_tool_value(value)
+            target_key = f"result_{key}"
+        payload[target_key] = _safe_tool_value(value)
 
 
 def _safe_tool_value(value, *, max_text: int = 4000):
