@@ -7,6 +7,7 @@
 - `weather.current`, `weather.forecast`, and `news.search` are enabled medium-risk public Web-backed tools; answers must cite sources and account for freshness.
 - `command.approved_exec` and `powershell.approved_script` are enabled and model-visible, but execution requires approval state matching tool and workspace.
 - Approved execution tools accept only allowlisted `command_id` / `script_id` values, never arbitrary shell or PowerShell text.
+- `approval_id` is trusted only when supplied by `/api/tools/invoke` after approval validation or by a trusted `ToolRuntimeContext`; an LLM-supplied `approval_id` inside tool arguments does not bypass approval.
 - Tool history and approvals are persisted in `data/tool_history.json` and `data/tool_approvals.json`.
 
 ## Forbidden Runtime Claims

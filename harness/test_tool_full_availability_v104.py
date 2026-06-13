@@ -133,3 +133,62 @@ def test_high_risk_tools_are_visible_but_block_without_approval():
     assert ps.status == "blocked"
     assert ps.policy_decision.requires_approval is True
     assert "approval_id" in ps.summary
+
+
+def test_client_forwards_trusted_context_approval_id_but_not_tool_argument():
+    from tool_runtime.integration import get_default_tool_runtime_client
+    from tool_runtime.context import ToolRuntimeContext
+
+    client = get_default_tool_runtime_client()
+    spec = client.get_tool("command.approved_exec")
+
+    assert "approval_id" not in spec["input_schema"]["properties"]
+
+    untrusted_arg = client.invoke(
+        "command.approved_exec",
+        {
+            "command_id": "system.platform_info",
+            "approval_id": "APR-UNTRUSTED-ARG",
+        },
+        dry_run=True,
+    )
+    assert untrusted_arg.status == "blocked"
+    assert "approval_id" in untrusted_arg.summary
+
+    trusted_context = client.invoke(
+        "command.approved_exec",
+        {"command_id": "system.platform_info"},
+        dry_run=True,
+        context=ToolRuntimeContext(approval_id="APR-UNIT-TEST"),
+    )
+
+    assert trusted_context.status == "dry_run"
+    assert trusted_context.policy_decision.allowed is True
+
+
+def test_agent_dispatch_does_not_treat_llm_argument_as_trusted_approval_id():
+    from agent.core.session import AgentSession
+    from agent.core.turn import AgentTurn
+    from agent.protocol.op import AgentOp
+    from agent.protocol.tool_call import ToolCall
+    from agent.runtime.context_builder import build_turn_context
+    from agent.runtime.services import default_runtime_services
+
+    ctx = build_turn_context(
+        AgentSession(session_id="approval_forwarding", workspace_id="default"),
+        AgentTurn(turn_id="approval_forwarding_turn", op=AgentOp(user_input="run approved platform info")),
+        default_runtime_services(),
+    )
+    result = ctx.tool_router.dispatch(ToolCall(
+        call_id="approval-forwarding-check",
+        llm_tool_name="command__approved_exec",
+        real_tool_id="command.approved_exec",
+        arguments={
+            "command_id": "system.platform_info",
+            "approval_id": "APR-UNIT-TEST",
+        },
+    ), ctx)
+
+    assert result.ok is False
+    assert result.raw["status"] == "blocked"
+    assert "approval_id" in result.summary

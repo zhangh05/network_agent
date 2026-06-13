@@ -67,6 +67,7 @@ class ToolRuntimeClient:
             job_id=getattr(context, "job_id", None) if context else None,
             dry_run=dry_run,
             requested_by=getattr(context, "requested_by", "") if context else "",
+            approval_id=getattr(context, "approval_id", None) if context else None,
         )
 
         # ── Execute through full pipeline ──

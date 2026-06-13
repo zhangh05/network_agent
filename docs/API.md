@@ -75,6 +75,7 @@ Current API routes are Flask routes registered by `backend/main.py` and `backend
 | GET | `/api/workspaces/<ws_id>/archive/audits/<audit_id>` |
 
 `/api/tools/invoke` is policy and approval gated. `/api/tools/dry-run` is the safe planning/check path.
+High-risk tools use `approval_id` as a top-level invoke field after `/api/tools/approvals/<approval_id>/approve`; the approval must match tool and workspace. `approval_id` inside ordinary tool arguments is not trusted by the Agent/LLM path.
 
 ## Knowledge
 

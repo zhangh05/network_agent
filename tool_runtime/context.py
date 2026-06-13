@@ -2,7 +2,7 @@
 """ToolRuntimeContext — carries invocation context from caller through to ToolInvocation.
 
 Provides a standard way for Module / Service layers to pass workspace, run, job,
-and caller identity information when invoking tools.
+caller identity, and already-validated approval information when invoking tools.
 
 Example usage in a Module service:
     ctx = ToolRuntimeContext(
@@ -11,6 +11,7 @@ Example usage in a Module service:
         module="config_translation",
         skill="config_translation",
         requested_by="module:config_translation",
+        approval_id=approved_id,  # only after the caller has validated it
     )
     client = get_default_tool_runtime_client()
     result = client.invoke("parser.parse_config_text", {"config_text": cfg}, context=ctx)
@@ -37,6 +38,7 @@ class ToolRuntimeContext:
     module: Optional[str] = None
     requested_by: str = ""
     dry_run_default: bool = False
+    approval_id: Optional[str] = None
 
     def as_dict(self) -> dict:
         return {
@@ -49,4 +51,5 @@ class ToolRuntimeContext:
             "module": self.module,
             "requested_by": self.requested_by,
             "dry_run_default": self.dry_run_default,
+            "approval_id": self.approval_id,
         }
