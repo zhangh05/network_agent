@@ -1621,7 +1621,7 @@ _reg("artifact.search", "Artifact Search", "artifact", "low",
 _reg("artifact.read_content_safe", "Read Content Safe", "artifact", "low",
      "Read a size-limited safe preview of artifact content. Use only after artifact.search/list identifies an artifact_id; sensitive artifacts return metadata instead of full content.", handle_artifact_read_content_safe)
 _reg("artifact.save_result", "Save Result", "artifact", "medium",
-     "Save useful generated text as an artifact for later reference. Medium risk because it writes workspace state; do not save secrets or raw device configs unless explicitly intended.", handle_artifact_save_result, writes_artifact=True)
+     "Save useful generated text as an artifact for later reference. Medium risk because it writes workspace state; avoid credential values or raw device configs unless explicitly intended.", handle_artifact_save_result, writes_artifact=True)
 _reg("artifact.tag", "Tag Artifact", "artifact", "low",
      "Add tags to an artifact", handle_artifact_tag)
 _reg("artifact.delete_soft", "Soft Delete", "artifact", "medium",
