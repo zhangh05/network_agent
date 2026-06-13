@@ -148,19 +148,9 @@ def execute_python_code(code: str, workspace_id: str, run_id: str,
 
     # Add a preamble that sanitizes the environment
     safe_preamble = (
-        "# Auto-generated sandbox preamble\n"
-        "import sys\n"
-        "import builtins\n"
-        "# Restrict dangerous builtins\n"
-        "for _name in ('eval', 'exec', 'compile', '__import__', 'open', 'input'):\n"
-        "    try: setattr(builtins, _name, None)\n"
-        "    except: pass\n"
-        "# Remove dangerous modules from cached imports\n"
-        "for _mod in list(sys.modules.keys()):\n"
-        "    _top = _mod.split('.')[0]\n"
-        "    if _top in ('os', 'subprocess', 'socket', 'requests', 'urllib',\n"
-        "                'shutil', 'pathlib', 'ctypes', 'multiprocessing', 'threading'):\n"
-        "        sys.modules.pop(_mod, None)\n"
+        "# Auto-generated sandbox preamble — best-effort local sandbox, not container isolation\n"
+        "# Safety enforced at AST level (see _validate_ast). No runtime builtin disabling\n"
+        "# needed — stdlib modules such as json, collections, enum use eval() internally.\n"
         "_ = None\n"
     )
     script_path.write_text(safe_preamble + "\n" + code, encoding="utf-8")

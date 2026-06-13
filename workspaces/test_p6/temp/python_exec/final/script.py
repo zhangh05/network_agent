@@ -3,4 +3,4 @@
 # needed — stdlib modules such as json, collections, enum use eval() internally.
 _ = None
 
-print('hello world')
+import json; print(json.dumps({"a":1}))

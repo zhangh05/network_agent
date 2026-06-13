@@ -134,50 +134,39 @@ def run_sub_agent(instruction: str, workspace_id: str,
 
     child_session_id = child_session_id or f"sub_{child_run_id}"
 
-    # ── Build restricted ToolRouter ──
+    # ── Build restricted ToolRouter using the full agent registry ──
+    tool_router = None
     try:
         from agent.tools.router import ToolRouter
         from agent.tools.registry import ToolRegistry as AgentToolRegistry
-        from tool_runtime.registry import ToolRegistry as RuntimeToolRegistry
+        from agent.runtime.services import default_runtime_services
 
-        # Build the runtime-level registry with general tools
-        runtime_registry = RuntimeToolRegistry()
-        from tool_runtime.general_tools import ALL_GENERAL_TOOLS, REMOVED_GENERAL_TOOL_IDS
-        from copy import deepcopy
-        for spec, handler in ALL_GENERAL_TOOLS:
-            if spec.tool_id in REMOVED_GENERAL_TOOL_IDS:
-                continue
-            if spec.tool_id not in tool_allowlist:
-                continue
-            runtime_registry.register_tool(deepcopy(spec), handler)
-
-        # Build agent-level registry and router
+        # Reuse the full registry and copy specs + handlers for allowed tools only
+        full_reg = default_runtime_services().tool_service.registry
         agent_registry = AgentToolRegistry()
-        for spec, handler in ALL_GENERAL_TOOLS:
-            if spec.tool_id in REMOVED_GENERAL_TOOL_IDS:
-                continue
-            if spec.tool_id not in tool_allowlist:
-                continue
-            spec_copy = deepcopy(spec)
-            agent_registry._specs[spec_copy.tool_id] = agent_registry._specs.__class__.__new__(
-                agent_registry._specs.__class__
-            )
-            # We need to adapt — the agent.ToolRegistry uses agent.tools.schemas.ToolSpec
-            # while the runtime uses tool_runtime.schemas.ToolSpec. Let's check.
-            agent_spec = _adapt_to_agent_spec(spec_copy.as_dict())
-            agent_registry._specs[spec_copy.tool_id] = agent_spec
 
-        tool_router = ToolRouter.for_turn(agent_registry, allowed_tool_ids=tool_allowlist)
+        for t in full_reg.list_all():
+            tid = t.tool_id
+            if tid in tool_allowlist:
+                agent_registry._specs[tid] = t
+                # Copy capability handler if present
+                if hasattr(full_reg, '_handlers') and tid in full_reg._handlers:
+                    if not hasattr(agent_registry, '_handlers'):
+                        agent_registry._handlers = {}
+                    agent_registry._handlers[tid] = full_reg._handlers[tid]
+
+        tool_router = ToolRouter.for_turn(agent_registry, allowed_tool_ids=list(tool_allowlist))
 
     except Exception as e:
         return {
             "ok": False,
             "final_response": f"Sub-agent initialization failed: {str(e)[:200]}",
-            "tool_calls_count": 0,
-            "steps": 0,
-            "parent_run_id": parent_run_id,
-            "child_run_id": child_run_id,
+            "tool_calls_count": 0, "steps": 0,
+            "parent_run_id": parent_run_id, "child_run_id": child_run_id,
         }
+
+    visible_tools = list(tool_router.model_visible_tools()) if tool_router else []
+    visible_tool_ids = [t.tool_id if hasattr(t, 'tool_id') else t.get('tool_id', '') for t in visible_tools]
 
     # ── Run sub-agent loop ──
     tool_calls_count = 0
@@ -214,8 +203,10 @@ def run_sub_agent(instruction: str, workspace_id: str,
 
         if result and hasattr(result, "final_response"):
             final_response = result.final_response or ""
+            tool_calls_count = len(result.tool_calls) if hasattr(result, 'tool_calls') and result.tool_calls else 0
         elif isinstance(result, dict):
             final_response = result.get("final_response", "")
+            tool_calls_count = len(result.get("tool_calls", []))
         else:
             final_response = str(result)
 
@@ -231,6 +222,8 @@ def run_sub_agent(instruction: str, workspace_id: str,
         "steps": steps,
         "parent_run_id": parent_run_id,
         "child_run_id": child_run_id,
+        "child_session_id": child_session_id,
+        "visible_tools_count": len(visible_tool_ids),
     }
 
 

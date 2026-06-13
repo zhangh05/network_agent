@@ -58,7 +58,7 @@ Enabled model-visible runtime tools with extra execution gates:
 
 - `weather.current` and `weather.forecast`: medium-risk real-time tools backed first by structured Open-Meteo public weather data, with public Web search as fallback.
 - `news.search`: medium-risk real-time information tool backed by public Web search.
-- `command.approved_exec`, `powershell.approved_script`, and `python.exec`: high-risk approved execution surfaces. They are visible to the LLM, but policy requires `approval_id` and allowlisted `command_id` / `script_id`; arbitrary shell, PowerShell, or Python text is not accepted.
+- `shell.exec`, `powershell.exec`, and `python.exec`: high-risk approved execution surfaces. They are visible to the LLM, but policy requires `approval_id` and allowlisted `command_id` / `script_id`; arbitrary shell, PowerShell, or Python text is not accepted.
 
 ## Safety Rules
 
@@ -70,5 +70,5 @@ Enabled model-visible runtime tools with extra execution gates:
 - LLM-visible tool descriptions preserve the full runtime guidance text; OpenAI-compatible parameters are normalized to `type=object`, `properties`, and `required` for every tool.
 - Capability tool handlers fail fast if their `handler_ref` cannot be resolved.
 - Capability tools override same-id general runtime tools when they define the active business contract.
-- High-risk runtime tools are visible but require approval state and allowlisted ids before execution.
+- High-risk runtime tools are visible and require user approval via the frontend approval dialog before execution.
 - Real device access and config push are not exposed to the model.

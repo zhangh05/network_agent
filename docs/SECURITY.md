@@ -5,8 +5,8 @@
 - `ToolRouter` only accepts model-visible tool names.
 - Disabled, forbidden, and non-LLM-callable tools are not exposed to the model.
 - `weather.current` and `weather.forecast` are enabled medium-risk structured public weather tools with Web fallback; `news.search` is public Web-backed. Answers must cite sources and account for freshness.
-- `command.approved_exec`, `powershell.approved_script`, and `python.exec` are enabled and model-visible, but execution requires approval state matching tool and workspace.
-- Approved execution tools accept only allowlisted `command_id` / `script_id` values, never arbitrary shell, PowerShell, or Python text.
+- `shell.exec`, `powershell.exec`, and `python.exec` are enabled and model-visible, but execution requires approval state matching tool and workspace.
+- Approved execution tools accept shell, PowerShell, or Python commands but require user approval via the frontend approval dialog. All three are risk=high and requires_approval=True.
 - `approval_id` is trusted only when supplied by `/api/tools/invoke` after approval validation or by a trusted `ToolRuntimeContext`; an LLM-supplied `approval_id` inside tool arguments does not bypass approval.
 - Tool history and approvals are persisted in `data/tool_history.json` and `data/tool_approvals.json`.
 

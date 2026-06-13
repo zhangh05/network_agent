@@ -33,7 +33,7 @@ Registered but not model-visible:
 Enabled model-visible runtime tools with extra execution gates:
 
 - `weather.current`, `weather.forecast`, and `news.search` are medium-risk real-time information tools backed by public Web search.
-- `command.approved_exec`, `powershell.approved_script`, and `python.exec` are high-risk approved execution tools. The LLM can see them, but execution requires approval and allowlisted ids.
+- `shell.exec`, `powershell.exec`, and `python.exec` are high-risk approved execution tools. The LLM can see them, but execution requires approval and allowlisted ids.
 
 ## Public Registry API
 
@@ -56,7 +56,7 @@ Current public capability projection:
 - Local file upload is exposed through `POST /api/knowledge/upload`.
 - Safe knowledge search is exposed through `GET /api/knowledge/search`.
 - Unified RAG retrieval lives in `context/retrieval.py`.
-- Memory write/confirm can return conflict metadata and projects memory into RAG best-effort.
+- Memory write/confirm can return conflict metadata and updates memory status only — does NOT automatically project into RAG index. RAG projection is a separate, manual operation.
 
 ## Workspace API
 
