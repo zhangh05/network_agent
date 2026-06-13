@@ -56,8 +56,8 @@ Registered but not model-visible:
 - Tool visibility is fail-closed.
 - Unknown LLM tool calls are rejected by `ToolRouter`.
 - Disabled tools are not exposed to the model.
-- Pure chat and capability-discovery turns expose zero business tools.
-- Business turns expose only the selected skill's related tools.
+- Pure chat, capability-discovery, and business turns expose the full model-visible tool catalog after the registry safety filter.
+- LLM-visible tool descriptions include `tool_id`, `risk`, `source`, and `approval` metadata so the model sees the safety context before choosing a tool.
 - Capability tool handlers fail fast if their `handler_ref` cannot be resolved.
 - Capability tools override same-id general runtime tools when they define the active business contract.
 - High-risk runtime tools require approval state.

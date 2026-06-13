@@ -66,12 +66,23 @@ class ToolRouter:
             llm_name = to_llm_tool_name(spec.tool_id)
             llm_spec = LLMToolSpec(
                 name=llm_name,
-                description=spec.description,
+                description=self._describe_for_llm(spec),
                 parameters=spec.input_schema,
                 real_tool_id=spec.tool_id,
             )
             self.model_visible_specs.append(llm_spec)
             self.llm_name_map[llm_name] = spec.tool_id
+
+    @staticmethod
+    def _describe_for_llm(spec) -> str:
+        """Include safety metadata in every LLM-visible tool description."""
+        approval = "required" if getattr(spec, "requires_approval", False) else "not_required"
+        prefix = (
+            f"[tool_id={spec.tool_id}; risk={spec.risk_level}; "
+            f"source={spec.source}; approval={approval}]"
+        )
+        description = (spec.description or "").strip()
+        return f"{prefix} {description}".strip()
 
     def apply_dynamic_visibility(self, allowed_tool_ids):
         """Restrict the LLM-visible whitelist to the given tool_ids.

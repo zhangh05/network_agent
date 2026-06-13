@@ -25,20 +25,53 @@ def _tool_names(ctx):
     return {t["function"]["name"] for t in ctx.tool_router.model_visible_tools()}
 
 
-def test_assistant_chat_turn_exposes_no_business_tools():
-    ctx = _ctx_for("今天天气如何？")
+def _tool_descriptions(ctx):
+    return {
+        t["function"]["name"]: t["function"]["description"]
+        for t in ctx.tool_router.model_visible_tools()
+    }
+
+
+def _assert_full_visible_catalog_with_risk_metadata(ctx):
+    visible_tools = ctx.tool_router.model_visible_tools()
+    names = _tool_names(ctx)
+    registry_visible = ctx.tool_router.registry.list_model_visible()
+
+    assert len(visible_tools) == len(registry_visible)
+    assert "web__search" in names
+    assert "web__fetch_summary" in names
+    assert "config_translation__translate_config" in names
+    assert "artifact__list" in names
+    assert "knowledge__query" in names
+    assert "command__approved_exec" not in names
+    assert "powershell__approved_script" not in names
+    assert "knowledge__read_source" not in names
+
+    descriptions = _tool_descriptions(ctx)
+    assert "tool_id=web.search" in descriptions["web__search"]
+    assert "risk=medium" in descriptions["web__search"]
+    assert "source=runtime" in descriptions["web__search"]
+    assert "approval=not_required" in descriptions["web__search"]
+
+
+def test_assistant_chat_turn_exposes_all_model_visible_tools_with_risk_metadata():
+    ctx = _ctx_for("今天有什么 AI 新闻？")
 
     assert ctx.metadata["selected_skills"] == ["assistant_chat"]
-    assert ctx.metadata["visible_tools"] == []
-    assert _tool_names(ctx) == set()
+    assert "web.search" in ctx.metadata["visible_tools"]
+    assert "config_translation.translate_config" in ctx.metadata["visible_tools"]
+    assert "artifact.list" in ctx.metadata["visible_tools"]
+    assert "knowledge.query" in ctx.metadata["visible_tools"]
+    _assert_full_visible_catalog_with_risk_metadata(ctx)
 
 
-def test_capability_discovery_turn_exposes_no_business_tools():
+def test_capability_discovery_turn_exposes_all_model_visible_tools_with_risk_metadata():
     ctx = _ctx_for("你能做什么？")
 
     assert ctx.metadata["selected_skills"] == ["assistant_chat", "capability_discovery"]
-    assert ctx.metadata["visible_tools"] == []
-    assert _tool_names(ctx) == set()
+    assert "web.search" in ctx.metadata["visible_tools"]
+    assert "knowledge.query" in ctx.metadata["visible_tools"]
+    _assert_full_visible_catalog_with_risk_metadata(ctx)
 
 
 def test_artifact_list_uses_capability_handler_in_default_runtime():

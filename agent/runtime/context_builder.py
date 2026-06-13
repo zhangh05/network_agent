@@ -15,13 +15,15 @@ def build_turn_context(session, turn, services) -> TurnContext:
     back to the legacy skill/module snapshots and tags the snapshot with
     a fallback warning.
 
-    v0.8.1: per-turn SkillSelector + Dynamic Tool Visibility.
+    v0.8.1: per-turn SkillSelector + dynamic tool metadata.
     - SkillSelector.select() decides which skills to inject this turn
-    - Selected skills' related_tools → candidate tool_ids
-    - ToolRouter.apply_dynamic_visibility() intersects with the registry's
-      safety filter (forbidden / planned / disabled are still excluded)
+    - The LLM still receives the full model-visible tool catalog; tool
+      descriptions carry risk/source/approval metadata so the model can
+      choose deliberately.
+    - ToolRegistry remains the safety filter: forbidden / planned / disabled
+      or non-LLM-callable tools are never exposed.
     - On any error from the selector, fall back to v0.8 behavior
-      (all enabled skills, no dynamic visibility) and record a warning
+      (all enabled tools, no dynamic metadata) and record a warning
     """
     ctx = TurnContext(
         turn_id=turn.turn_id,
@@ -81,7 +83,7 @@ def build_turn_context(session, turn, services) -> TurnContext:
             module_snap = {}
     ctx.module_snapshot = module_snap
 
-    # 6. v0.8.1 SkillSelector: per-turn skills + per-turn tool visibility
+    # 6. v0.8.1 SkillSelector: per-turn skills + full LLM-visible tool catalog.
     cap_reg = getattr(services, "capability_registry", None) if services else None
     selector = getattr(services, "skill_selector", None) if services else None
     user_msg = ctx.user_input or ""
@@ -94,60 +96,20 @@ def build_turn_context(session, turn, services) -> TurnContext:
     if selector is not None and cap_reg is not None:
         try:
             selected_skills = list(selector.select(user_msg, capability_registry=cap_reg))
-            # Collect candidate tools from selected skills' related_tools.
-            # assistant_chat has empty related_tools — that's fine, it
-            # contributes no business tools.
-            candidates: set[str] = set()
-            for sk_id in selected_skills:
-                if sk_id == "assistant_chat":
-                    continue
-                if sk_id == "capability_discovery":
-                    continue
-                cap = cap_reg.get(sk_id)
-                if cap is None:
-                    # skill_id may match a skill (not capability_id);
-                    # walk skills list to find related_tools.
-                    for c in cap_reg.list_all():
-                        for s in c.skills:
-                            if s.skill_id == sk_id:
-                                candidates.update(s.related_tools)
-                                break
-                else:
-                    # Direct capability match
-                    for s in cap.skills:
-                        if s.skill_id == sk_id:
-                            candidates.update(s.related_tools)
-                            break
-            # v1.0.3.1: rebuild a fresh ToolRouter with the per-turn whitelist
-            # baked in. The shared router instance is NOT mutated.
             from agent.tools.router import ToolRouter
-            if ctx.tool_router is not None and candidates:
+            if ctx.tool_router is not None:
                 base_reg = getattr(ctx.tool_router, "registry", None) or (
                     ctx.tool_router if hasattr(ctx.tool_router, "list_model_visible") else None
                 )
                 if base_reg is not None:
-                    ctx.tool_router = ToolRouter.for_turn(base_reg, allowed_tool_ids=candidates)
+                    ctx.tool_router = ToolRouter.for_turn(base_reg)
                     if services and services.tool_service and hasattr(services.tool_service, "dispatch"):
                         ctx.tool_router.dispatch_delegate = services.tool_service.dispatch
-                    dynamic_visibility = True
-                    # Reflect the actual visible set (after safety filter).
                     selected_visible_tools = sorted({
                         t["function"]["name"].replace("__", ".", 1)
                         for t in ctx.tool_router.model_visible_tools()
                     })
-            elif ctx.tool_router is not None and not candidates:
-                # Pure chat / discovery → expose no business tools. The
-                # selector intentionally produced no related_tools, so this
-                # turn should not fall back to the full registry.
-                base_reg = getattr(ctx.tool_router, "registry", None) or (
-                    ctx.tool_router if hasattr(ctx.tool_router, "list_model_visible") else None
-                )
-                if base_reg is not None:
-                    ctx.tool_router = ToolRouter.for_turn(base_reg, allowed_tool_ids=set())
-                    if services and services.tool_service and hasattr(services.tool_service, "dispatch"):
-                        ctx.tool_router.dispatch_delegate = services.tool_service.dispatch
-                selected_visible_tools = []
-                dynamic_visibility = True
+                    dynamic_visibility = True
         except Exception as e:
             # v1.0.3.1: never crash. Fall back to v0.8 behavior.
             selector_warnings.append(f"skill_selector_error: {e!r}")

@@ -47,8 +47,8 @@ Current public capability projection:
 ## Tool Visibility
 
 - `ToolRouter.for_turn(..., allowed_tool_ids=set())` represents an explicit zero-tool turn.
-- Pure `assistant_chat` and `capability_discovery` turns expose no business tools to the model.
-- Business turns expose only the selected skill's related tools after the registry safety filter.
+- Default turns expose the full model-visible tool catalog after the registry safety filter. Pure `assistant_chat`, `capability_discovery`, and business turns can all use `web.search`, `web.fetch_summary`, knowledge, artifact, review, and config-translation tools when needed.
+- Each OpenAI-compatible tool description includes `tool_id`, `risk`, `source`, and `approval` metadata so the LLM sees the relevant safety context before choosing a tool.
 - Capability tools override same-id runtime catalog tools when the capability manifest declares the active business contract. For example, `artifact.list` resolves to `capability:artifact.list`.
 
 ## Knowledge And Memory

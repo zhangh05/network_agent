@@ -36,12 +36,15 @@ Runtime context includes:
 
 The system prompt requires citation ids when context sources are present and tells the model to say when evidence is insufficient.
 
-Per-turn skill selection is intentionally narrow. `assistant_chat` and capability-discovery turns expose zero business tools. When a business skill is selected, the runtime builds a fresh `ToolRouter` with only that skill's related tool ids after the registry safety filter.
+Per-turn skill selection controls which skill instructions are injected, not which useful tools are hidden from the LLM. The runtime builds a fresh `ToolRouter` for each turn and exposes the full model-visible catalog after the registry safety filter. This means pure chat, capability discovery, and business turns can call tools such as Web search, webpage summary, knowledge query, artifact tools, review tools, and config translation when needed.
+
+Every LLM-visible tool description includes `tool_id`, `risk`, `source`, and `approval` metadata. The model sees the risk context before deciding to call a tool, while disabled, forbidden, planned, or non-LLM-callable tools remain absent from the tool list.
 
 ## Tool Loop
 
 - `ToolRouter.model_visible_tools()` returns OpenAI-compatible tool definitions.
 - LLM-safe tool names use `__` instead of `.`.
+- LLM-visible tool descriptions include safety metadata: `tool_id`, `risk`, `source`, and `approval`.
 - `ToolRouter.build_tool_call()` rejects unknown or non-visible tool calls.
 - `ToolRouter.dispatch()` executes through registered capability handlers or ToolRuntime.
 - Capability handlers must resolve at registry build time; a broken `handler_ref` fails fast.
