@@ -176,6 +176,7 @@ def list_review_items(workspace_id: str, artifact_id: str) -> dict:
         rev = side_items.get(item_id, {})
         merged.append({
             "item_id": item_id,
+            "artifact_id": artifact_id,
             "severity": it.get("severity", ""),
             "category": it.get("category", ""),
             "line_no": it.get("line_no"),

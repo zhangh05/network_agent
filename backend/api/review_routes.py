@@ -66,6 +66,7 @@ def register_review_routes(app):
             for it in res.get("items", []):
                 if status and it.get("status") != status:
                     continue
+                it["artifact_id"] = art_id  # attach artifact context for frontend
                 aggregated.append(it)
         return jsonify({
             "ok": True,
