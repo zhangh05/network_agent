@@ -358,6 +358,9 @@ def run_turn(session, turn, services=None, restricted_tool_router=None) -> Agent
         _persist_run_record(session, turn, result, context)
         return result
 
+    # 3. build messages
+    messages = _build_initial_messages(context, services)
+
     # ── v2.1: Manual compact from previous /compact command ──
     manual_compact_requested = getattr(session, 'metadata', {}).get('manual_compact_requested') if hasattr(session, 'metadata') else False
     # Fallback to disk metadata
@@ -397,9 +400,6 @@ def run_turn(session, turn, services=None, restricted_tool_router=None) -> Agent
                 turn.warnings.append(f"manual_compact_applied: {meta.get('compacted_message_count')} msgs")
         except Exception as e:
             turn.warnings.append(f"manual_compact_failed: {e}")
-
-    # 3. build messages
-    messages = _build_initial_messages(context, services)
 
     # 4. get tools
     tools = []
@@ -656,6 +656,8 @@ def run_turn(session, turn, services=None, restricted_tool_router=None) -> Agent
                         from agent.runtime.permission_matrix import PermissionMatrix, PermissionAction, PermissionDecision
                         spec = context.tool_router.registry.get(tool_call.real_tool_id) if hasattr(context.tool_router, 'registry') else None
                         pm = PermissionMatrix()
+                        tid = tool_call.real_tool_id
+                        risk_level = getattr(spec, 'risk_level', 'low') if spec else 'low'
                         
                         # Classify action — prefer spec.permission_action
                         if spec and getattr(spec, 'permission_action', ''):
@@ -667,7 +669,6 @@ def run_turn(session, turn, services=None, restricted_tool_router=None) -> Agent
                         else:
                             # Fallback to string-based inference with audit
                             turn.warnings.append(f"permission_action_inferred: {tid}")
-                            risk_level = getattr(spec, 'risk_level', 'low') if spec else 'low'
                             if risk_level == 'high':
                                 action = PermissionAction.EXEC
                             elif tid.startswith('file.') and tid.split('.')[1] in ('write','edit','patch'):
