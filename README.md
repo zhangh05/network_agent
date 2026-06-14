@@ -183,6 +183,18 @@ python3 scripts/inspect_tool_architecture.py
 Expected current output includes `execution_count: 88`, `canonical_count: 88`,
 `governance_conflicts: 0`, `planner_uses_deprecated: 0`, and `PASS`.
 
+Full v2.3 tool catalog: [docs/TOOL_CATALOG_V2.3.md](docs/TOOL_CATALOG_V2.3.md)
+Machine-readable catalog: [reports/tool_catalog_v23.json](reports/tool_catalog_v23.json)
+
+Catalog verification:
+
+```bash
+python3 scripts/build_tool_catalog_v23.py
+python3 scripts/verify_tool_catalog_doc.py
+```
+
+Expected current output for the verifier: `verify_tool_catalog_doc PASS`.
+
 Latest local full harness evidence for this development head: `1317 passed, 12 skipped, 1 warning`.
 
 ## Documentation
@@ -193,6 +205,8 @@ Latest local full harness evidence for this development head: `1317 passed, 12 s
 - [Capabilities and Tools](docs/CAPABILITIES_AND_TOOLS.md)
 - [Tool Architecture](docs/TOOL_ARCHITECTURE.md)
 - [Tool Governance](docs/TOOL_GOVERNANCE.md)
+- [Tool Catalog v2.3](docs/TOOL_CATALOG_V2.3.md) — full v2.3 tool catalog.
+  Machine-readable mirror: [tool_catalog_v23.json](reports/tool_catalog_v23.json).
 - [Knowledge and Memory](docs/KNOWLEDGE.md)
 - [Frontend](docs/FRONTEND.md)
 - [Operations](docs/OPERATIONS.md)
