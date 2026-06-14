@@ -116,6 +116,26 @@ export function RunsPage() {
               </div>
             )}
 
+            {/* v2.1.2: tool_decision */}
+            {selectedRun.tool_decision && (
+              <div style={{ marginTop: 12 }}>
+                <h4>tool_decision</h4>
+                <pre style={{ fontSize: 11, maxHeight: 200, overflow: "auto", background: "var(--bg-secondary)", padding: 8, borderRadius: 4 }}>
+                  {JSON.stringify(selectedRun.tool_decision, null, 2)}
+                </pre>
+              </div>
+            )}
+
+            {/* v2.1.2: no_tool_reason */}
+            {selectedRun.no_tool_reason && (
+              <div style={{ marginTop: 12 }}>
+                <div style={{ fontSize: 12, color: "var(--text-muted)" }}>
+                  <Badge kind="muted">未调用工具</Badge>
+                  <span style={{ marginLeft: 8 }}>{selectedRun.no_tool_reason}</span>
+                </div>
+              </div>
+            )}
+
             {warnings.length > 0 && (
               <div style={{ marginTop: 12 }}>
                 <h4>warnings ({warnings.length})</h4>

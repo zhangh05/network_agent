@@ -122,7 +122,26 @@ function InspectorBody({ result }: { result: AgentResult }) {
         testid="inspector-toolcalls-section"
       >
         {(result.tool_calls ?? []).length === 0 ? (
-          <div className="text-sm muted">无 tool call</div>
+          <div className="text-sm muted">
+            无 tool call
+            {result.no_tool_reason ? (
+              <div className="text-xs muted mt-1" style={{ color: "var(--ink-muted)" }}>
+                {(() => {
+                  const reason = result.no_tool_reason || '';
+                  const labelMap: Record<string, string> = {
+                    'no_model_visible_tools': '当前 turn 没有可见工具',
+                    'tools_not_called': 'LLM 未选择工具调用（可能需要调整 prompt）',
+                    'tools_not_needed': '当前问题可直接回答，无需工具',
+                    'blocked_by_hook': 'Turn 被 hook 阻止',
+                    'token_limit_exceeded': '上下文超限',
+                    'provider_error': 'LLM 服务不可用',
+                  };
+                  const label = Object.entries(labelMap).find(([key]) => reason.includes(key))?.[1] || reason;
+                  return label;
+                })()}
+              </div>
+            ) : null}
+          </div>
         ) : (
           <div className="col-flex" style={{ gap: 8 }}>
             <div
@@ -148,6 +167,46 @@ function InspectorBody({ result }: { result: AgentResult }) {
           </div>
         )}
       </Collapsible>
+
+      {/* v2.1.2: Tool decision transparency */}
+      {result.tool_decision && Object.keys(result.tool_decision).length > 0 && (
+        <Collapsible
+          title="工具决策"
+          count={result.tool_decision?.needed ? (result.tool_decision?.selected_tools?.length ?? 0) : 0}
+          testid="inspector-tool-decision"
+        >
+          <div className="col-flex" style={{ gap: 8 }}>
+            <div className="text-sm">
+              {result.tool_decision.needed ? (
+                <Badge kind="accent">需要工具</Badge>
+              ) : (
+                <Badge kind="muted">无需工具</Badge>
+              )}
+            </div>
+            {result.tool_decision.reason && (
+              <div className="text-xs muted">{result.tool_decision.reason}</div>
+            )}
+            {result.tool_decision.selected_tools && result.tool_decision.selected_tools.length > 0 && (
+              <div className="row-flex" style={{ flexWrap: "wrap", gap: 4 }}>
+                <span className="text-xs muted">已选工具：</span>
+                {result.tool_decision.selected_tools.map((t: string) => (
+                  <Badge key={t} kind="accent">{t}</Badge>
+                ))}
+              </div>
+            )}
+            {result.tool_decision.blocked_by && result.tool_decision.blocked_by.length > 0 && (
+              <div className="text-xs" style={{ color: "var(--ink-warning)" }}>
+                被阻止：{result.tool_decision.blocked_by.join(', ')}
+              </div>
+            )}
+            {result.tool_decision.approval_required && (
+              <div className="text-xs" style={{ color: "var(--ink-warning)" }}>
+                ⚠ 需要审批才能执行
+              </div>
+            )}
+          </div>
+        </Collapsible>
+      )}
 
       <Collapsible title="制品" count={countArtifacts(result)}>
         <ArtifactsList result={result} />

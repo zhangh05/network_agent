@@ -73,6 +73,17 @@ export interface AgentResult {
   warnings: string[];
   errors: string[];
   error_type?: string;
+  /** v2.1.2: Tool decision transparency */
+  tool_decision?: {
+    needed: boolean;
+    selected_tools?: string[];
+    failed_tools?: string[];
+    blocked_by?: string[];
+    approval_required?: boolean;
+    reason?: string;
+  };
+  /** v2.1.2: Human-readable reason when no tools called */
+  no_tool_reason?: string;
   metadata: {
     selected_skills?: string[];
     visible_tools?: string[];
@@ -417,6 +428,17 @@ export interface RuntimeAuditTurn {
   error_count: number;
   warning_count: number;
   events: RuntimeEvent[];
+  /** v2.1.2: Tool decision transparency */
+  tool_decision?: {
+    needed: boolean;
+    selected_tools?: string[];
+    failed_tools?: string[];
+    blocked_by?: string[];
+    approval_required?: boolean;
+    reason?: string;
+  };
+  /** v2.1.2: Human-readable reason when no tools called */
+  no_tool_reason?: string;
 }
 
 /* ──────────────────────────── ApiError ──────────────────────────── */

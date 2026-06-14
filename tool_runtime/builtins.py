@@ -164,7 +164,7 @@ BUILTIN_TOOLS = [
         ToolSpec(
             tool_id="artifact.list",
             name="List Artifacts",
-            description="List artifact metadata summaries for a workspace. No full content returned.",
+            description="List artifact metadata summaries for a workspace. Use when: user wants to browse available artifacts before reading one. Read-only. No full content returned — use artifact.read_content_safe for previews. Returns artifact_id, title, type for each entry.",
             category="artifact",
             risk_level="low",
             reads_artifact=True,
@@ -182,7 +182,7 @@ BUILTIN_TOOLS = [
         ToolSpec(
             tool_id="parser.parse_config_text",
             name="Parse Config Text",
-            description="Shallow safe parse of config text. Returns statistics and structure hints only.",
+            description="Shallow safe parse of network device configuration text. Use when: user provides config text and you need vendor detection, block analysis, and structure hints. Returns vendor_hint, line counts, and block type detection (interfaces/ACL/routes). Read-only. Safe — no device access. Use BEFORE parser.extract_interfaces or parser.extract_routes for context.",
             category="parser",
             risk_level="low",
             permission_action="read",
@@ -190,7 +190,7 @@ BUILTIN_TOOLS = [
                 "type": "object",
                 "required": ["config_text"],
                 "properties": {
-                    "config_text": {"type": "string", "description": "Network device configuration text to parse."},
+                    "config_text": {"type": "string", "description": "Network device configuration text to parse (offline — no device access needed)."},
                 },
             },
         ),
@@ -200,7 +200,7 @@ BUILTIN_TOOLS = [
         ToolSpec(
             tool_id="parser.extract_interfaces",
             name="Extract Interfaces",
-            description="Extract interface names from config text. No full interface blocks returned.",
+            description="Extract interface names from network device configuration text. Use when: user provides config and asks about interfaces, port mapping, or topology. No full interface blocks returned — only names. Read-only. Use artifact.save_result to preserve results. For full interface config blocks, use file.read on the uploaded config.",
             category="parser",
             risk_level="low",
             permission_action="read",
@@ -208,7 +208,7 @@ BUILTIN_TOOLS = [
                 "type": "object",
                 "required": ["config_text"],
                 "properties": {
-                    "config_text": {"type": "string", "description": "Network device configuration text to parse."},
+                    "config_text": {"type": "string", "description": "Network device configuration text to parse (offline — no device access needed)."},
                 },
             },
         ),
@@ -218,7 +218,7 @@ BUILTIN_TOOLS = [
         ToolSpec(
             tool_id="parser.extract_routes",
             name="Extract Routes",
-            description="Extract route-like line summaries from config text. IPs partially masked.",
+            description="Extract route-like line summaries from network device configuration text. Use when: user provides config and asks about routing table, static routes, or path analysis. IPs are partially masked for safety. Read-only. Returns sanitized route summaries. Use with text.redact for additional safety before sharing.",
             category="parser",
             risk_level="low",
             permission_action="read",
@@ -226,7 +226,7 @@ BUILTIN_TOOLS = [
                 "type": "object",
                 "required": ["config_text"],
                 "properties": {
-                    "config_text": {"type": "string", "description": "Network device configuration text to parse."},
+                    "config_text": {"type": "string", "description": "Network device configuration text to parse (offline — no device access needed)."},
                 },
             },
         ),

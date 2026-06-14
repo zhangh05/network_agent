@@ -2,6 +2,11 @@
 
 The active runtime is the Codex-style loop under `agent/runtime/`.
 
+> **v2.1.2**: Added comprehensive tool-use intelligence — scene-based routing,
+> host/device boundary distinction, unified approval phrasing, tool failure
+> fallback strategies, and `tool_decision` transparency in AgentResult.
+> See [TOOL_USE_POLICY.md](TOOL_USE_POLICY.md) for the full policy.
+
 ## Main Flow
 
 1. `backend/api/agent_routes.py` receives `POST /api/agent/message`.
@@ -34,11 +39,15 @@ Runtime context includes:
 - unified RAG evidence from `context/retrieval.py`
 - knowledge citations (`[K...]`) and memory citations (`[M...]`)
 
-The system prompt requires citation ids when context sources are present and tells the model to say when evidence is insufficient. It also directs the model to proactively call Web, knowledge, artifact, or runtime tools for current facts, vendor/standards documentation, URL summaries, news/weather, and citation-heavy answers instead of guessing from memory.
-
-Per-turn skill selection controls which skill instructions are injected, not which primary tools are hidden from the LLM. The runtime builds a fresh `ToolRouter` for each turn and exposes the curated model-visible primary catalog after the registry safety filter. Duplicate runtime helpers and smoke-test tools are removed from registration or kept backend-only, so pure chat, capability discovery, and business turns can call strong tools such as Web search, webpage summary, structured weather, knowledge query/import/chunk tools, artifact tools, review tools, and config translation when needed.
-
-Every LLM-visible tool description includes `tool_id`, `risk`, `source`, and `approval` metadata. The model sees the risk context before deciding to call a tool, while disabled, forbidden, planned, or non-LLM-callable tools remain absent from the tool list.
+The v2.1.2 system prompt (`agent/runtime/prompts.py`) now includes:
+- **6 Tool-Use Principles** (P1-P6): host/device boundary, tool-first mindset,
+  approval strategy, failure→fallback, output structure, scene-based selection.
+- **Prohibited Phrases**: "没有真实设备访问能力" is ONLY allowed for remote device
+  connection requests — NEVER for local host queries, uploaded files, or
+  knowledge base searches.
+- **Scene-based routing**: The tool adapter prompt
+  (`agent/llm/tool_adapter.py::build_system_prompt_with_tools`) provides A-J
+  scene categories with recommended tools for each.
 
 ## Tool Loop
 
@@ -50,13 +59,44 @@ Every LLM-visible tool description includes `tool_id`, `risk`, `source`, and `ap
 - `ToolRouter.dispatch()` executes through registered capability handlers or ToolRuntime.
 - Capability handlers must resolve at registry build time; a broken `handler_ref` fails fast.
 - Capability tools are the business contract and override same-id general runtime tools when both exist.
-- `ToolResult` data is projected through a small allowlist before it returns to LLM context. Citation-ready web fields, source summaries, warnings, next actions, artifact ids, and safe previews are preserved; arbitrary raw content, source configs, deployable configs, secrets, and tokens are not.
+- `ToolResult` data is projected through a small allowlist before it returns to LLM context.
 - SSH, Telnet, SNMP, nmap, ping sweep, and config push are not exposed to the model.
-- The Agent does not directly call arbitrary implementation functions. It routes model-visible requests through `ToolRouter`, then through a capability handler or Tool Runtime `ToolInvocation`.
-- A Module orchestrates Tool use for business behavior; a Skill provides task instructions. Skill does not bypass its Module service.
+- The Agent does not directly call arbitrary implementation functions.
 - Any public Tool HTTP API must remain policy and approval gated, with high-risk execution requiring an approved `approval_id`.
-- Sub-agent tool (`agent.spawn`) delegates work to child agent threads with `max_turns≤3`, restricted tool set (no sub-agent spawning), and no recursive nesting. Sub-agents cannot spawn further sub-agents.
-- `python.exec` is a high-risk approved execution tool that runs allowlisted Python scripts with `approval_id` gating, similar to `shell.exec` and `powershell.exec`.
+- Sub-agent tool (`agent.spawn`) delegates work to child agent threads with `max_turns≤3`, restricted tool set, and no recursive nesting.
+- `shell.exec` / `powershell.exec` are high-risk tools that run ON THE LOCAL HOST — NOT on remote network devices.
+  They require approval via the approval dialog.
+
+### v2.1.2 Tool Decision Transparency
+
+Each `AgentResult` now includes:
+
+- **`tool_decision`**: structured dict with `needed`, `selected_tools`, `failed_tools`,
+  `blocked_by`, `approval_required`, and `reason` fields.
+- **`no_tool_reason`**: human-readable string explaining why no tools were called
+  (e.g., `tools_not_needed`, `blocked_by_hook`, `token_limit_exceeded`).
+
+The frontend Inspector and RunsPage display `tool_decision` in a new "工具决策"
+collapsible section.
+
+### Execution Model
+
+- A Module orchestrates Tool use for business behavior; a Skill provides task instructions.
+  Skill does not bypass its Module service.
+- The Agent routes model-visible requests through `ToolRouter`, then through a
+  capability handler or Tool Runtime `ToolInvocation`.
+
+### v2.1.2 Approval Strategy
+
+Unified approval phrasing:
+- Read-only: "可以执行。该命令只读不修改系统，按策略需要批准。将执行 {command}。请回复'批准执行'。"
+- Write: "可以使用 {tool_id} 写入 workspace artifact。请回复'批准执行'。"
+- Delete: "需明确批准。将删除/软删除 {target}，范围 {scope}。请回复'批准删除'。"
+
+### v2.1.2 Failure → Fallback
+
+Each tool category has explicit fallback paths (see `_default_tool_next_actions`
+in `tool_runtime/general_tools/registry.py` and [TOOL_USE_POLICY.md](TOOL_USE_POLICY.md)).
 
 ## Persistence
 

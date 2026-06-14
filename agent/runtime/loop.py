@@ -350,6 +350,8 @@ def run_turn(session, turn, services=None, restricted_tool_router=None) -> Agent
             turn_id=turn.turn_id,
             trace_id=context.trace_id,
             warnings=turn.warnings,
+            tool_decision={"needed": False, "reason": "Turn blocked by pre-turn hook."},
+            no_tool_reason="blocked_by_hook: Turn 被 pre-turn hook 阻止",
             metadata=_enrich_metadata({
                 "hook_event": "pre_turn",
                 "hook_blocked": True,
@@ -443,6 +445,8 @@ def run_turn(session, turn, services=None, restricted_tool_router=None) -> Agent
                     trace_id=context.trace_id,
                     error_type="permission_denied",
                     events=emitter.to_events(),
+                    tool_decision={"needed": False, "reason": "LLM call blocked by pre-model hook."},
+                    no_tool_reason="blocked_by_hook: LLM 调用被 pre-model hook 阻止",
                     metadata=_enrich_metadata({
                         "hook_event": "pre_model_blocked",
                     }, context),
@@ -481,6 +485,8 @@ def run_turn(session, turn, services=None, restricted_tool_router=None) -> Agent
                 warnings=turn.warnings,
                 error_type=classify_error(e),
                 events=emitter.to_events(),
+                tool_decision={"needed": False, "reason": "Token limit exceeded before LLM could process."},
+                no_tool_reason="token_limit_exceeded: 上下文超过模型限制",
                 metadata=_enrich_metadata({
                     "estimated_tokens": e.estimated,
                     "max_context_tokens": e.max_context,
@@ -514,6 +520,8 @@ def run_turn(session, turn, services=None, restricted_tool_router=None) -> Agent
                 errors=[error_str],
                 error_type=classify_error(e),
                 events=emitter.to_events(),
+                tool_decision={"needed": False, "reason": "LLM provider error prevented tool selection."},
+                no_tool_reason="provider_error: LLM 服务不可用",
                 metadata=_enrich_metadata({"provider_error_type": "provider_timeout" if is_timeout else "provider_error",
                           "retryable": is_timeout}, context),
             )
@@ -917,6 +925,10 @@ def run_turn(session, turn, services=None, restricted_tool_router=None) -> Agent
         emitter.emit(StreamEvent.FINAL, {"final_response": final_response[:200]})
         stream_events = emitter.to_events()
 
+        # ── v2.1.2: Build tool_decision transparency block ──
+        tool_decision = _build_tool_decision(all_tool_results, context)
+        no_tool_reason = _build_no_tool_reason(all_tool_results, context)
+
         result = AgentResult(
             ok=True,
             final_response=final_response,
@@ -926,6 +938,8 @@ def run_turn(session, turn, services=None, restricted_tool_router=None) -> Agent
             tool_calls=all_tool_results,
             warnings=turn.warnings,
             events=stream_events,
+            tool_decision=tool_decision,
+            no_tool_reason=no_tool_reason,
             metadata=_enrich_metadata({
                 "model": context.model_config.get("model", ""),
                 "steps": step,
@@ -983,6 +997,67 @@ def run_turn(session, turn, services=None, restricted_tool_router=None) -> Agent
     )
     _persist_run_record(session, turn, _partial, context)
     return _partial
+
+
+# ── v2.1.2: Tool decision transparency ──
+
+def _build_tool_decision(all_tool_results: list, context) -> dict:
+    """Build the tool_decision block for AgentResult transparency.
+    
+    Shows what tools were considered, selected, and why.
+    """
+    if all_tool_results:
+        # Tools were called — report which ones and why
+        selected_tools = [tc.get("tool_id", "") for tc in all_tool_results if tc.get("ok")]
+        failed_tools = [tc.get("tool_id", "") for tc in all_tool_results if not tc.get("ok")]
+        blocked = [tc for tc in all_tool_results if "rejected" in str(tc.get("errors", "")) or
+                   "approval" in str(tc.get("errors", ""))]
+        
+        blocked_by = []
+        if blocked:
+            blocked_by = ["approval_required" if "approval" in str(b.get("errors", "")) or 
+                         "rejected" in str(b.get("errors", "")) else "unknown" for b in blocked]
+        
+        return {
+            "needed": True,
+            "selected_tools": selected_tools,
+            "failed_tools": failed_tools,
+            "blocked_by": blocked_by if blocked_by else [],
+            "approval_required": any(
+                tc.get("tool_id") in ("shell.exec", "powershell.exec", "python.exec")
+                for tc in all_tool_results
+            ),
+            "reason": "Tools were called to fulfill the user request.",
+        }
+    
+    # No tools called
+    return {
+        "needed": False,
+        "reason": "Question could be answered from provided context without tool calls.",
+    }
+
+
+def _build_no_tool_reason(all_tool_results: list, context) -> str:
+    """Build a human-readable explanation for why no tools were called.
+    
+    Returns empty string if tools were called.
+    """
+    if all_tool_results:
+        return ""
+    
+    # Check if tools were available
+    visible_tools = getattr(context, 'visible_tool_ids', []) or []
+    if not visible_tools:
+        return "no_model_visible_tools: 当前 turn 没有可用工具"
+    
+    # Check if the question required tools
+    user_input = getattr(context, 'user_input', '') or ''
+    tool_keywords = ("本机", "IP", "端口", "配置", "查询", "搜索", "翻译",
+                     "读取", "保存", "生成", "解析", "验证", "记住", "知识")
+    if any(kw in user_input for kw in tool_keywords):
+        return "tools_not_called: 用户问题可能需要工具调用，但 LLM 未选择任何工具"
+    
+    return "tools_not_needed: 当前问题可直接回答，无需工具调用"
 
 
 def _build_initial_messages(context, services) -> list:

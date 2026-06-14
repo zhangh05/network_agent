@@ -1,5 +1,8 @@
 # agent/runtime/result.py
-"""AgentResult — final output of a turn execution."""
+"""AgentResult — final output of a turn execution.
+
+v2.1.2: Added tool_decision field for tool-use transparency.
+"""
 
 from dataclasses import dataclass, field
 
@@ -17,6 +20,9 @@ class AgentResult:
     errors: list = field(default_factory=list)
     metadata: dict = field(default_factory=dict)
     error_type: str = ""
+    # v2.1.2: Tool decision transparency
+    tool_decision: dict = field(default_factory=dict)
+    no_tool_reason: str = ""
 
     def to_dict(self) -> dict:
         return {
@@ -31,4 +37,6 @@ class AgentResult:
             "errors": self.errors,
             "metadata": self.metadata,
             "error_type": self.error_type,
+            "tool_decision": self.tool_decision,
+            "no_tool_reason": self.no_tool_reason,
         }
