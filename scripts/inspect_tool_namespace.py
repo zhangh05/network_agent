@@ -95,12 +95,19 @@ def main() -> int:
     except Exception as exc:
         errors.append(f"tool_chain_routing_inspection_failed: {exc!r}")
 
+    try:
+        from agent.runtime.tool_planner import plan_tools, validate_tool_plan
+        _inspect_tool_planner(plan_tools, validate_tool_plan, set(canonical_ids), errors)
+    except Exception as exc:
+        errors.append(f"tool_planner_inspection_failed: {exc!r}")
+
     by_category = Counter(entry.category for entry in TOOL_NAMESPACE.values())
     print(f"canonical_count {len(canonical_ids)}")
     print(f"execution_count {len(execution_ids)}")
     print(f"legacy_alias_count {len(alias_ids)}")
     print(f"runtime_count {len(runtime_ids)}")
     print(f"model_visible_count {len(visible_ids)}")
+    print("planner_mode deterministic/hybrid")
     print("categories")
     for category, count in sorted(by_category.items()):
         print(f"  {category}: {count}")
@@ -143,6 +150,46 @@ def _inspect_tool_chain_routing(route_tool_scene, canonical_ids: set[str], error
     network_candidates = set(samples["web_network"].get("candidate_tools") or [])
     if "host.shell.exec" in network_candidates:
         errors.append("web_network: unexpectedly includes host.shell.exec")
+
+
+def _inspect_tool_planner(plan_tools, validate_tool_plan, canonical_ids: set[str], errors: list[str]) -> None:
+    from agent.runtime.tool_category_router import route_tool_scene
+
+    def planned(text: str, safe_context: dict | None = None) -> dict:
+        rule_scene = route_tool_scene(text)
+        return plan_tools(
+            user_input=text,
+            safe_context=safe_context or {},
+            rule_scene=rule_scene,
+            available_catalog={"tools": sorted(canonical_ids)},
+            model_config={"enabled": False},
+        )
+
+    samples = {
+        "network_report": planned("帮我分析上传的华三配置，并整理成报告保存", {"uploaded_files": ["h3c.cfg"]}),
+        "host": planned("本机 OS 的 IP 是多少"),
+        "web_network": planned("根据官方文档看看这个 Cisco OSPF 配置有没有问题"),
+    }
+    for name, plan in samples.items():
+        valid, messages = validate_tool_plan(plan, canonical_ids, user_input=name)
+        if not valid:
+            errors.append(f"{name}: planner invalid {messages}")
+        candidates = set(plan.get("candidate_tools") or [])
+        if not candidates <= canonical_ids:
+            errors.append(f"{name}: planner non-canonical {sorted(candidates - canonical_ids)}")
+
+    nr = samples["network_report"]
+    if not {"workspace", "network", "report_data"} <= set(nr.get("categories") or []):
+        errors.append("planner network_report missing workspace/network/report_data")
+    if len(nr.get("tool_plan") or []) < 4:
+        errors.append("planner network_report has too few steps")
+
+    legacy = {"candidate_tools": ["file.read"], "tool_plan": [{"step": 1, "tool_candidates": ["file.read"]}]}
+    if validate_tool_plan(legacy, canonical_ids, user_input="读文件")[0]:
+        errors.append("planner validator accepted legacy tool id")
+    invented = {"candidate_tools": ["network.device.login"], "tool_plan": [{"step": 1, "tool_candidates": ["network.device.login"]}]}
+    if validate_tool_plan(invented, canonical_ids, user_input="登录设备")[0]:
+        errors.append("planner validator accepted invented tool id")
 
 
 if __name__ == "__main__":

@@ -93,6 +93,7 @@ def build_turn_context(session, turn, services) -> TurnContext:
     dynamic_visibility = False
     selector_warnings: list[str] = []
     tool_scene = {}
+    rule_tool_scene = {}
 
     if selector is not None and cap_reg is not None:
         try:
@@ -106,13 +107,22 @@ def build_turn_context(session, turn, services) -> TurnContext:
                 )
                 if base_reg is not None:
                     session_meta = getattr(session, "metadata", None) or {}
-                    tool_scene = route_tool_scene(
+                    rule_tool_scene = route_tool_scene(
                         user_input=user_msg,
                         session_context={
                             **session_meta,
                             "workspace_id": ctx.workspace_id,
                             "selected_skills": selected_skills,
                         },
+                    )
+                    from agent.runtime.tool_planner import plan_tools
+                    from tool_runtime.tool_namespace import TOOL_NAMESPACE
+                    tool_scene = plan_tools(
+                        user_input=user_msg,
+                        safe_context={},
+                        rule_scene=rule_tool_scene,
+                        available_catalog={"tools": list(TOOL_NAMESPACE)},
+                        model_config=ctx.model_config,
                     )
                     allowed_tools = list(tool_scene.get("candidate_tools") or [])
                     ctx.tool_router = ToolRouter.for_turn(base_reg, allowed_tool_ids=allowed_tools)
@@ -170,6 +180,7 @@ def build_turn_context(session, turn, services) -> TurnContext:
     if tool_scene:
         snapshot.metadata = dict(snapshot.metadata or {})
         snapshot.metadata["tool_scene"] = tool_scene
+        snapshot.metadata["rule_tool_scene"] = rule_tool_scene
     ctx.runtime_snapshot = snapshot.to_dict()
 
     # 8. Build safe_context — enrich with full context bundle
@@ -196,7 +207,8 @@ def build_turn_context(session, turn, services) -> TurnContext:
 
     if tool_scene:
         ctx.safe_context["tool_scene"] = tool_scene
-        ctx.safe_context["tool_chain"] = tool_scene.get("tool_chain", [])
+        ctx.safe_context["tool_plan"] = tool_scene.get("tool_plan", [])
+        ctx.safe_context["rule_tool_scene"] = rule_tool_scene
 
     # ── v2.1: Inject loaded skills into context ──
     # Read from session metadata first (skill.load writes there),
@@ -221,6 +233,8 @@ def build_turn_context(session, turn, services) -> TurnContext:
     ctx.metadata["visible_tools"] = selected_visible_tools
     if tool_scene:
         ctx.metadata["tool_scene"] = tool_scene
+        ctx.metadata["rule_tool_scene"] = rule_tool_scene
+        ctx.metadata["tool_planner"] = tool_scene.get("tool_planner", {})
 
     return ctx
 

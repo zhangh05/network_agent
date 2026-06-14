@@ -20,6 +20,7 @@ v2.2 adds a namespace metadata layer. The execution `tool_id` remains the
 stable runtime id; the canonical id is used by LLM and frontend catalog views.
 v2.2.1 adds multi-category scene routing and `tool_chain` planning on top of
 that namespace; it does not add handlers or change the execution id count.
+v2.2.2 adds `tool_plan` validation and deterministic planner fallback.
 
 | Metadata 字段 | 类型 | 说明 |
 |------|------|------|
@@ -35,6 +36,11 @@ that namespace; it does not add handlers or change the execution id count.
 `route_tool_scene()` returns canonical `candidate_tools` and a `tool_chain`.
 Each `tool_chain[].preferred_tools` entry must be a canonical id and must be
 present in `candidate_tools`.
+
+`plan_tools()` returns canonical `candidate_tools` and a `tool_plan`. Every
+`tool_plan[].tool_candidates` entry must be present in `candidate_tools`.
+`validate_tool_plan()` must reject legacy ids, invented ids, invalid
+dependencies, and unsafe host/network mixes.
 
 ### 1.2 分发字段
 

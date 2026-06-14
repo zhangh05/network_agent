@@ -137,6 +137,37 @@ candidate_tools:
 Host tools are included only for explicit local-machine requests. Network
 configuration analysis uses `network.*` offline text tools, not `host.shell.*`.
 
+## v2.2.2 Intelligent Tool Planner
+
+v2.2.2 keeps the v2.2.1 rule router as a safety seed and fallback, then builds
+a validated structured tool plan:
+
+```text
+user request
+→ rule_scene
+→ deterministic/hybrid planner
+→ validate_tool_plan
+→ ToolRouter exposes only plan candidate_tools
+→ LLM follows tool_plan steps
+```
+
+The default planner is deterministic-safe. `TOOL_PLANNER_MODE` may be set to
+`deterministic`, `llm`, or `hybrid`; invalid or unavailable LLM planning falls
+back to the deterministic rule-seeded plan.
+
+Plan validation rejects:
+
+- legacy execution ids such as `file.read` in `candidate_tools`
+- invented tools such as `network.device.login`
+- `host.shell.exec` for network device configuration analysis unless the user
+  explicitly asks for local host commands
+- report-save plans that omit `report.markdown.render` or
+  `workspace.artifact.save`
+
+`AgentResult.metadata` records both `rule_tool_scene` and the final
+`tool_scene`, plus `tool_planner` status (`mode`, `valid`, `fallback_used`,
+and warnings).
+
 Registered but not model-visible:
 
 - `knowledge.read_source`: backend/admin callable, `callable_by_llm=False`

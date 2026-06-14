@@ -208,6 +208,46 @@ function InspectorBody({ result }: { result: AgentResult }) {
         </Collapsible>
       )}
 
+      {Boolean(result.metadata?.tool_scene) && (
+        <Collapsible
+          title="Tool Plan"
+          count={toolPlanSteps(result.metadata.tool_scene).length}
+          testid="inspector-tool-plan"
+        >
+          <div className="col-flex" style={{ gap: 8 }}>
+            <div className="row-flex" style={{ gap: 6, flexWrap: "wrap" }}>
+              <Badge kind="accent">
+                {metaPath(result.metadata.tool_scene, "primary_category") || "planned"}
+              </Badge>
+              <Badge kind="muted">
+                {metaPath(result.metadata.tool_scene, "mode") || "deterministic"}
+              </Badge>
+              {metaPath(result.metadata.tool_planner, "fallback_used") === "true" && (
+                <Badge kind="warn">fallback</Badge>
+              )}
+            </div>
+            {toolPlanSteps(result.metadata.tool_scene).map((step, idx) => (
+              <div key={idx} className="card" style={{ padding: 8, marginBottom: 0 }}>
+                <div className="text-sm"><strong>{String(step.step ?? idx + 1)}.</strong> {String(step.goal ?? step.purpose ?? "")}</div>
+                <div className="row-flex mt-2" style={{ gap: 4, flexWrap: "wrap" }}>
+                  {((step.tool_candidates ?? step.preferred_tools ?? []) as unknown[]).map((tool) => (
+                    <InlineCode key={String(tool)}>{String(tool)}</InlineCode>
+                  ))}
+                </div>
+              </div>
+            ))}
+            <details className="collapse">
+              <summary>JSON</summary>
+              <pre className="text-xs">{JSON.stringify({
+                tool_planner: result.metadata.tool_planner,
+                tool_scene: result.metadata.tool_scene,
+                rule_tool_scene: result.metadata.rule_tool_scene,
+              }, null, 2)}</pre>
+            </details>
+          </div>
+        </Collapsible>
+      )}
+
       <Collapsible title="制品" count={countArtifacts(result)}>
         <ArtifactsList result={result} />
       </Collapsible>
@@ -375,6 +415,21 @@ function toolLabel(toolId: string): string {
 function metaString(metadata: Record<string, unknown> | undefined, key: string): string {
   const value = metadata?.[key];
   return typeof value === "string" ? value : "";
+}
+
+function metaPath(value: unknown, key: string): string {
+  if (!value || typeof value !== "object") return "";
+  const item = (value as Record<string, unknown>)[key];
+  return typeof item === "string" || typeof item === "boolean" ? String(item) : "";
+}
+
+function toolPlanSteps(scene: unknown): Array<Record<string, unknown>> {
+  if (!scene || typeof scene !== "object") return [];
+  const plan = (scene as Record<string, unknown>).tool_plan;
+  const chain = (scene as Record<string, unknown>).tool_chain;
+  if (Array.isArray(plan)) return plan as Array<Record<string, unknown>>;
+  if (Array.isArray(chain)) return chain as Array<Record<string, unknown>>;
+  return [];
 }
 
 function toolCallSummary(calls: ToolCallResult[]): string {

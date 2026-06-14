@@ -109,13 +109,13 @@ export function TraceDetailPanel({ traceEvents, selectedRun }: Props) {
 
       {/* ── Summary fields ── */}
       <div style={{ display: "flex", flexWrap: "wrap", gap: "4px 12px", fontSize: 12, color: "var(--text-muted)", marginBottom: 8 }}>
-        <span>run: <code>{selectedRun.run_id || selectedRun.turn_id || "-"}</code></span>
-        <span>trace: <code>{selectedRun.trace_id || "-"}</code></span>
-        <span>session: <code>{selectedRun.session_id?.substring(0, 12) || "-"}</code></span>
-        <span>tools: <Badge kind="info">{selectedRun.tool_call_count ?? 0}</Badge></span>
-        <span>warns: <Badge kind="warn">{selectedRun.warning_count ?? 0}</Badge></span>
-        <span>errs: <Badge kind="err">{selectedRun.error_count ?? 0}</Badge></span>
-        {selectedRun.started_at && <span>{selectedRun.started_at}</span>}
+        <span>run: <code>{String(selectedRun.run_id || selectedRun.turn_id || "-")}</code></span>
+        <span>trace: <code>{String(selectedRun.trace_id || "-")}</code></span>
+        <span>session: <code>{String(selectedRun.session_id || "-").substring(0, 12)}</code></span>
+        <span>tools: <Badge kind="info">{Number(selectedRun.tool_call_count ?? 0)}</Badge></span>
+        <span>warns: <Badge kind="warn">{Number(selectedRun.warning_count ?? 0)}</Badge></span>
+        <span>errs: <Badge kind="err">{Number(selectedRun.error_count ?? 0)}</Badge></span>
+        {selectedRun.started_at && <span>{String(selectedRun.started_at)}</span>}
       </div>
 
       {/* ── Tool_decision (v2.1.2) ── */}
@@ -129,6 +129,24 @@ export function TraceDetailPanel({ traceEvents, selectedRun }: Props) {
             background: "var(--bg-secondary)", padding: 8, borderRadius: 4,
           }}>
             {JSON.stringify(selectedRun.tool_decision, null, 2)}
+          </pre>
+        </details>
+      )}
+
+      {Boolean((selectedRun as { metadata?: Record<string, unknown> }).metadata?.tool_scene) && (
+        <details style={{ marginBottom: 8, fontSize: 12 }}>
+          <summary style={{ cursor: "pointer", color: "var(--text-muted)" }}>
+            tool_plan
+          </summary>
+          <pre style={{
+            fontSize: 11, maxHeight: 180, overflow: "auto",
+            background: "var(--bg-secondary)", padding: 8, borderRadius: 4,
+          }}>
+            {JSON.stringify({
+              tool_planner: (selectedRun as { metadata?: Record<string, unknown> }).metadata?.tool_planner,
+              tool_scene: (selectedRun as { metadata?: Record<string, unknown> }).metadata?.tool_scene,
+              rule_tool_scene: (selectedRun as { metadata?: Record<string, unknown> }).metadata?.rule_tool_scene,
+            }, null, 2)}
           </pre>
         </details>
       )}
@@ -299,6 +317,9 @@ export function TraceDetailPanel({ traceEvents, selectedRun }: Props) {
                 selected_skills: selectedRun.selected_skills,
                 visible_tools: selectedRun.visible_tools,
                 tool_decision: selectedRun.tool_decision,
+                tool_planner: (selectedRun as { metadata?: Record<string, unknown> }).metadata?.tool_planner,
+                tool_scene: (selectedRun as { metadata?: Record<string, unknown> }).metadata?.tool_scene,
+                rule_tool_scene: (selectedRun as { metadata?: Record<string, unknown> }).metadata?.rule_tool_scene,
                 no_tool_reason: selectedRun.no_tool_reason,
                 events_count: traceEvents?.length ?? 0,
               }, null, 2)}

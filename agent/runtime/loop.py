@@ -1156,7 +1156,11 @@ def _safe_context_prompt_text(safe_context: dict | None) -> str:
             "categories": tool_scene.get("categories"),
             "groups": tool_scene.get("groups"),
             "candidate_tools": tool_scene.get("candidate_tools"),
+            "tool_plan": tool_scene.get("tool_plan"),
             "tool_chain": tool_scene.get("tool_chain"),
+            "needs_clarification": tool_scene.get("needs_clarification"),
+            "clarifying_question": tool_scene.get("clarifying_question"),
+            "tool_planner": tool_scene.get("tool_planner"),
             "reason": tool_scene.get("reason"),
         }, max_items=8)
 

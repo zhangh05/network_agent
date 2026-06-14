@@ -500,6 +500,7 @@ export interface RuntimeAuditTurn {
   timeline_summary?: string;
   report_artifacts?: Array<{ artifact_id: string; title: string }>;
   artifact_refs?: Array<{ artifact_id: string; title: string }>;
+  metadata?: Record<string, unknown>;
 }
 
 /* ──────────────────────────── ApiError ──────────────────────────── */
