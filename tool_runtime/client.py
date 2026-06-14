@@ -51,6 +51,11 @@ class ToolRuntimeClient:
             ToolResult with status, redacted output, audit metadata.
             Never raises — all errors are captured in ToolResult.
         """
+        try:
+            from tool_runtime.tool_namespace import resolve_tool_id
+            tool_id = resolve_tool_id(tool_id)
+        except Exception:
+            pass
         arguments = arguments or {}
 
         # ── Resolve dry_run ──

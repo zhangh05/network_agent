@@ -92,21 +92,26 @@ def build_turn_context(session, turn, services) -> TurnContext:
     selected_visible_tools: list[str] = []
     dynamic_visibility = False
     selector_warnings: list[str] = []
+    tool_scene = {}
 
     if selector is not None and cap_reg is not None:
         try:
             selected_skills = list(selector.select(user_msg, capability_registry=cap_reg))
             from agent.tools.router import ToolRouter
+            from agent.llm.tool_adapter import from_llm_tool_name
+            from agent.runtime.tool_category_router import route_tool_scene
             if ctx.tool_router is not None:
                 base_reg = getattr(ctx.tool_router, "registry", None) or (
                     ctx.tool_router if hasattr(ctx.tool_router, "list_model_visible") else None
                 )
                 if base_reg is not None:
-                    ctx.tool_router = ToolRouter.for_turn(base_reg)
+                    tool_scene = route_tool_scene(user_msg)
+                    allowed_tools = list(tool_scene.get("candidate_tools") or [])
+                    ctx.tool_router = ToolRouter.for_turn(base_reg, allowed_tool_ids=allowed_tools)
                     if services and services.tool_service and hasattr(services.tool_service, "dispatch"):
                         ctx.tool_router.dispatch_delegate = services.tool_service.dispatch
                     selected_visible_tools = sorted({
-                        t["function"]["name"].replace("__", ".", 1)
+                        from_llm_tool_name(t["function"]["name"])
                         for t in ctx.tool_router.model_visible_tools()
                     })
                     dynamic_visibility = True
@@ -154,6 +159,9 @@ def build_turn_context(session, turn, services) -> TurnContext:
     if selector_warnings:
         snapshot.metadata = dict(snapshot.metadata or {})
         snapshot.metadata.setdefault("warnings", []).extend(selector_warnings)
+    if tool_scene:
+        snapshot.metadata = dict(snapshot.metadata or {})
+        snapshot.metadata["tool_scene"] = tool_scene
     ctx.runtime_snapshot = snapshot.to_dict()
 
     # 8. Build safe_context — enrich with full context bundle
@@ -199,6 +207,8 @@ def build_turn_context(session, turn, services) -> TurnContext:
     # so loop.py can include them in AgentResult.metadata.
     ctx.metadata["selected_skills"] = selected_skills
     ctx.metadata["visible_tools"] = selected_visible_tools
+    if tool_scene:
+        ctx.metadata["tool_scene"] = tool_scene
 
     return ctx
 

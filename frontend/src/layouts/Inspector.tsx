@@ -315,6 +315,8 @@ function InspectorBody({ result }: { result: AgentResult }) {
 }
 
 function ToolCallCard({ tc }: { tc: ToolCallResult }) {
+  const canonicalId = metaString(tc.metadata, "canonical_tool_id") || tc.tool_id;
+  const executionId = metaString(tc.metadata, "execution_tool_id") || tc.tool_id;
   return (
     <div
       className="card"
@@ -322,8 +324,9 @@ function ToolCallCard({ tc }: { tc: ToolCallResult }) {
     >
       <div className="row-flex" style={{ justifyContent: "space-between" }}>
         <span className="row-flex" style={{ minWidth: 0 }}>
-          <strong className="text-sm">{toolLabel(tc.tool_id)}</strong>
-          <InlineCode>{tc.tool_id}</InlineCode>
+          <strong className="text-sm">{toolLabel(canonicalId)}</strong>
+          <InlineCode>{canonicalId}</InlineCode>
+          {executionId !== canonicalId && <InlineCode>{executionId}</InlineCode>}
           {tc.ok ? (
             <Badge kind="ok" withDot>
               已完成
@@ -353,12 +356,25 @@ function ToolCallCard({ tc }: { tc: ToolCallResult }) {
 }
 
 function toolLabel(toolId: string): string {
+  if (toolId.startsWith("host.")) return "本机工具";
+  if (toolId.startsWith("workspace.file.")) return "工作区文件";
+  if (toolId.startsWith("workspace.artifact.")) return "工作区制品";
+  if (toolId.startsWith("network.")) return "网络分析";
+  if (toolId.startsWith("web.")) return "外部资料";
+  if (toolId.startsWith("memory.")) return "记忆";
+  if (toolId.startsWith("report.") || toolId.startsWith("data.") || toolId.startsWith("text.")) return "输出处理";
+  if (toolId.startsWith("agent.")) return "多 Agent";
   if (toolId.startsWith("config_translation.")) return "配置翻译";
   if (toolId.startsWith("knowledge.")) return "知识检索";
   if (toolId.startsWith("artifact.")) return "制品操作";
   if (toolId.startsWith("review.")) return "评审流转";
   if (toolId.startsWith("runtime.")) return "运行诊断";
   return "工具调用";
+}
+
+function metaString(metadata: Record<string, unknown> | undefined, key: string): string {
+  const value = metadata?.[key];
+  return typeof value === "string" ? value : "";
 }
 
 function toolCallSummary(calls: ToolCallResult[]): string {

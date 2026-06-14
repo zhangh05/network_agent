@@ -20,6 +20,7 @@ class ToolSpec:
     source: str = "runtime"
     timeout_seconds: int = 30
     permission_action: str = ""  # read | write | exec | network
+    metadata: dict = field(default_factory=dict)
 
 
 @dataclass

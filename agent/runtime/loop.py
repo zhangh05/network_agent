@@ -230,6 +230,8 @@ def _to_standard_tool_call(call_id: str, tool_id: str, result) -> dict:
             tr.call_id = call_id
         if not tr.tool_id:
             tr.tool_id = tool_id
+        metadata = dict(tr.metadata or {})
+        metadata.update(_tool_namespace_metadata(tr.tool_id))
         return {
             "call_id": tr.call_id,
             "tool_id": tr.tool_id,
@@ -240,7 +242,7 @@ def _to_standard_tool_call(call_id: str, tool_id: str, result) -> dict:
             "manual_review_count": tr.manual_review_count,
             "errors": list(tr.errors or []),
             "warnings": list(tr.warnings or []),
-            "metadata": dict(tr.metadata or {}),
+            "metadata": metadata,
         }
     # Dict-like result (v0.7.x or v0.8.2 dict-shaped)
     if isinstance(result, dict):
@@ -260,6 +262,8 @@ def _to_standard_tool_call(call_id: str, tool_id: str, result) -> dict:
             metadata=dict(getattr(result, 'metadata', {}) or {}),
             data=dict(getattr(result, 'data', {}) or {}),
         )
+    metadata = dict(tr.metadata or {})
+    metadata.update(_tool_namespace_metadata(tr.tool_id))
     return {
         "call_id": tr.call_id,
         "tool_id": tr.tool_id,
@@ -270,8 +274,17 @@ def _to_standard_tool_call(call_id: str, tool_id: str, result) -> dict:
         "manual_review_count": tr.manual_review_count,
         "errors": list(tr.errors or []),
         "warnings": list(tr.warnings or []),
-        "metadata": dict(tr.metadata or {}),
+        "metadata": metadata,
     }
+
+
+def _tool_namespace_metadata(tool_id: str) -> dict:
+    try:
+        from tool_runtime.tool_namespace import get_namespace_entry
+        entry = get_namespace_entry(tool_id)
+        return entry.metadata()
+    except Exception:
+        return {}
 
 
 def run_turn(session, turn, services=None, restricted_tool_router=None) -> AgentResult:

@@ -230,11 +230,49 @@ def register_runtime_routes(app):
     @app.route("/api/tools/catalog")
     def api_tools_catalog():
         """Return read-only tool catalog — metadata only, no invoke capability."""
-        from tool_runtime.integration import get_default_tool_runtime_client
-        client = get_default_tool_runtime_client()
-        tools = client.list_tools()
-        return jsonify({"tools": tools, "count": len(tools),
-                        "note": "Read-only catalog. High-risk tools require approval."})
+        from agent.runtime.services import default_runtime_services
+        from tool_runtime.tool_namespace import category_tree_from_specs, metadata_for_tool
+        services = default_runtime_services()
+        specs = services.tool_service.registry.list_all()
+        tools = []
+        for spec in specs:
+            item = {
+                "tool_id": spec.tool_id,
+                "name": getattr(spec, "name", spec.tool_id),
+                "category": getattr(spec, "category", ""),
+                "description": getattr(spec, "description", ""),
+                "risk_level": getattr(spec, "risk_level", "low"),
+                "enabled": bool(getattr(spec, "enabled", True)),
+                "requires_approval": bool(getattr(spec, "requires_approval", False)),
+                "input_schema": getattr(spec, "input_schema", {}) or {},
+                "callable_by_llm": bool(getattr(spec, "callable_by_llm", True)),
+                "forbidden": bool(getattr(spec, "forbidden", False)),
+                "source": getattr(spec, "source", "runtime"),
+                "permission_action": getattr(spec, "permission_action", ""),
+            }
+            meta = metadata_for_tool(spec.tool_id)
+            item["metadata"] = {**item.get("metadata", {}), **meta}
+            item.update({
+                "canonical_tool_id": meta["canonical_tool_id"],
+                "execution_tool_id": meta["execution_tool_id"],
+                "legacy_tool_ids": meta["legacy_tool_ids"],
+                "category": meta["category"],
+                "group": meta["group"],
+                "action": meta["action"],
+                "display_name": meta["display_name"],
+                "short_label": meta["short_label"],
+                "usage_hint": meta["usage_hint"],
+                "not_for": meta["not_for"],
+            })
+            tools.append(item)
+        tools.sort(key=lambda t: t["canonical_tool_id"])
+        categories = category_tree_from_specs(specs)
+        return jsonify({
+            "tools": tools,
+            "categories": categories,
+            "count": len(tools),
+            "note": "Read-only catalog. High-risk tools require approval.",
+        })
 
     # ── Tool Invocation ──
     @app.route("/api/tools/invoke", methods=["POST"])
@@ -246,18 +284,20 @@ def register_runtime_routes(app):
             return err
 
         body = request.get_json(silent=True) or {}
-        tool_id = body.get("tool_id", "")
+        requested_tool_id = body.get("tool_id", "")
         arguments = body.get("arguments", {})
         dry_run = body.get("dry_run", False)
         approval_id = body.get("approval_id", None)
 
-        if not tool_id:
+        if not requested_tool_id:
             return jsonify({"ok": False, "error": "tool_id is required"}), 400
 
         from tool_runtime.integration import get_default_tool_runtime_client
         from tool_runtime.schemas import ToolInvocation
+        from tool_runtime.tool_namespace import get_canonical_tool_id, resolve_tool_id
 
         client = get_default_tool_runtime_client()
+        tool_id = resolve_tool_id(requested_tool_id)
         spec = client._registry.get_tool(tool_id)
 
         # Build invocation with approval_id
@@ -284,6 +324,9 @@ def register_runtime_routes(app):
         hist_entry["workspace_id"] = ws_id
         hist_entry["dry_run"] = dry_run
         hist_entry["risk_level"] = _get_tool_risk_level(client, tool_id)
+        hist_entry["requested_tool_id"] = requested_tool_id
+        hist_entry["canonical_tool_id"] = get_canonical_tool_id(requested_tool_id)
+        hist_entry["execution_tool_id"] = tool_id
 
         with _lock:
             _tool_exec_history[result.invocation_id] = hist_entry
@@ -295,6 +338,9 @@ def register_runtime_routes(app):
             "ok": result.status in ("succeeded", "dry_run"),
             "invocation_id": result.invocation_id,
             "tool_id": result.tool_id,
+            "requested_tool_id": requested_tool_id,
+            "canonical_tool_id": get_canonical_tool_id(requested_tool_id),
+            "execution_tool_id": tool_id,
             "status": result.status,
             "summary": (result.summary or "")[:500],
             "output": _safe_output(result.output),
@@ -309,14 +355,16 @@ def register_runtime_routes(app):
     def api_tools_dry_run():
         """Preview a tool invocation without executing it."""
         body = request.get_json(silent=True) or {}
-        tool_id = body.get("tool_id", "")
+        requested_tool_id = body.get("tool_id", "")
         arguments = body.get("arguments", {})
 
-        if not tool_id:
+        if not requested_tool_id:
             return jsonify({"ok": False, "error": "tool_id is required"}), 400
 
         from tool_runtime.integration import get_default_tool_runtime_client
+        from tool_runtime.tool_namespace import get_canonical_tool_id, resolve_tool_id
         client = get_default_tool_runtime_client()
+        tool_id = resolve_tool_id(requested_tool_id)
         spec = client._registry.get_tool(tool_id)
         if not spec:
             return jsonify({"ok": False, "error": "tool not found"}), 404
@@ -328,6 +376,9 @@ def register_runtime_routes(app):
             "ok": True,
             "dry_run": True,
             "tool_id": tool_id,
+            "requested_tool_id": requested_tool_id,
+            "canonical_tool_id": get_canonical_tool_id(requested_tool_id),
+            "execution_tool_id": tool_id,
             "risk_level": spec.risk_level,
             "requires_approval": spec.requires_approval,
             "params": list(arguments.keys()),

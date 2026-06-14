@@ -307,14 +307,17 @@ function _eventLabel(
   payload: Record<string, unknown>,
   ev?: RuntimeAuditTurn["events"][number],
 ): string {
+  const toolId = typeof payload?.canonical_tool_id === "string"
+    ? payload.canonical_tool_id
+    : (typeof payload?.tool_id === "string" ? payload.tool_id : "?");
   const map: Record<string, string> = {
     turn_started: "开始处理请求",
     context_built: "构建上下文",
     model_request_started: "发起模型请求",
     model_response_received: "模型返回响应",
-    tool_call_started: `调用工具：${payload?.tool_id || "?"}`,
-    tool_call_finished: `工具完成：${payload?.tool_id || "?"}`,
-    tool_call_failed: `工具失败：${payload?.tool_id || "?"}`,
+    tool_call_started: `调用工具：${toolId}`,
+    tool_call_finished: `工具完成：${toolId}`,
+    tool_call_failed: `工具失败：${toolId}`,
     assistant_message: "生成回复",
     turn_finished: "处理完成",
     turn_failed: `处理失败：${String(payload?.error || payload || "").slice(0, 60)}`,

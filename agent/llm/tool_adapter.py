@@ -6,7 +6,7 @@ Tool name mapping for LLM function calling:
 - Convert `.` → `__` for LLM-safe names
 - Convert `__` → `.` when mapping back to real tool_id
 
-v2.1.2: Added comprehensive scene-based tool routing guidance.
+v2.2: LLM-visible function names use canonical namespace ids.
 """
 
 from typing import List
@@ -36,6 +36,17 @@ def from_llm_tool_name(llm_name: str) -> str:
 
 def tool_spec_to_openai_function(tool: dict) -> dict:
     """Convert a single ToolSpec dict to OpenAI function definition."""
+    metadata = tool.get("metadata") or {}
+    canonical_tool_id = (
+        tool.get("canonical_tool_id")
+        or metadata.get("canonical_tool_id")
+        or tool["tool_id"]
+    )
+    execution_tool_id = (
+        tool.get("execution_tool_id")
+        or metadata.get("execution_tool_id")
+        or tool["tool_id"]
+    )
     schema = tool.get("input_schema") or {}
     properties = schema.get("properties", {})
     required = schema.get("required", [])
@@ -62,13 +73,18 @@ def tool_spec_to_openai_function(tool: dict) -> dict:
         params_def.pop("required")
 
     # Use LLM-safe name (dots -> double underscore)
-    llm_name = to_llm_tool_name(tool["tool_id"])
+    llm_name = to_llm_tool_name(canonical_tool_id)
+    description = (tool.get("description") or tool.get("name") or canonical_tool_id)[:420]
+    description = (
+        f"[tool_id={canonical_tool_id}; execution_tool_id={execution_tool_id}] "
+        f"{description}"
+    )[:512]
 
     return {
         "type": "function",
         "function": {
             "name": llm_name,
-            "description": (tool.get("description") or tool.get("name") or tool["tool_id"])[:512],
+            "description": description,
             "parameters": params_def,
         },
     }
@@ -95,9 +111,20 @@ def list_tools_for_orchestrator() -> List[dict]:
 
     Returns the full list suitable for the LLM orchestrator's system context.
     """
-    from tool_runtime.integration import get_default_tool_runtime_client
-    client = get_default_tool_runtime_client()
-    raw = client.list_tools()
+    from agent.runtime.services import default_runtime_services
+    services = default_runtime_services()
+    raw = []
+    for spec in services.tool_service.registry.list_model_visible():
+        raw.append({
+            "tool_id": spec.tool_id,
+            "name": spec.name,
+            "description": spec.description,
+            "risk_level": spec.risk_level,
+            "enabled": spec.enabled,
+            "input_schema": spec.input_schema,
+            "metadata": getattr(spec, "metadata", {}) or {},
+            **(getattr(spec, "metadata", {}) or {}),
+        })
     return build_tool_registry_for_llm(raw)
 
 
@@ -105,63 +132,63 @@ def build_system_prompt_with_tools(workspace_id: str = "default") -> str:
     """Build the system prompt that tells the LLM about available tools.
 
     Uses LLM-safe tool names (with __ instead of .).
-    v2.1.2: Includes scene-based routing and tool selection guidance.
+    v2.2: Includes category/group routing and canonical tool ids.
     """
     tools = list_tools_for_orchestrator()
 
-    prompt = f"""You are Network Agent, a network-engineering AI assistant. You have {len(tools)} tools available via function calling.
+    prompt = f"""You are Network Agent, a network-engineering AI assistant. You have {len(tools)} canonical tools available via function calling.
 
-## v2.1.2 Tool Selection by Scene
+## v2.2 Scene-Based Tool Selection by Category
 
-Match the user's intent to the correct tool category BEFORE calling:
+Route every user request through: Category → Group → Tool Action → canonical tool id.
+Function names use canonical ids with dots converted to double underscores.
 
-### A. Local Host / OS Introspection (本机/当前机器/localhost/IP/端口/进程)
-Use: runtime__health, runtime__diagnostics, shell__exec, powershell__exec.
-These run commands ON THE LOCAL HOST — not on remote devices.
-If the user asks for local IP, OS info, listening ports, or running processes,
-call the tool directly. Do NOT say "no real device access".
+### host 本机环境
+Use for local OS, localhost, IP, port, process, shell, PowerShell, and Python questions.
+Examples: host__shell__exec, host__powershell__exec, host__python__exec.
+Host tools run on the local machine only. They are NOT network device SSH/Telnet/SNMP.
 
-### B. Uploaded Files / Configs / Logs / PCAP
-Use: file__read, file__list, parser__extract_interfaces, parser__parse_config_text,
-artifact__search, pdf__extract_text.
-The material is already provided — analyze it. Do NOT claim device access is needed.
+### workspace 工作区 / Uploaded File
+Use for workspace files, previews, metadata, and artifacts.
+Examples: workspace__file__read, workspace__file__preview, workspace__artifact__search.
 
-### C. Network Device Config Analysis (交换机/路由器/防火墙配置)
-Use: parser__extract_interfaces, parser__extract_routes, text__classify,
-text__extract_keywords, knowledge__search.
-Without SSH/Telnet/SNMP, you cannot log into devices — but you CAN analyze
-provided configurations. State this clearly.
+### network 网络分析
+Use for offline network configuration, interface, route, and translation analysis.
+Examples: network__config__parse, network__interface__extract, network__route__extract.
+This is offline text analysis only; do not claim remote device access.
 
-### D. Web Search / Official Docs (查官方文档/厂商手册/最新信息)
-Use: web__official_doc_search for vendor docs (Cisco/Huawei/H3C/Arista).
-Use: web__search for general web queries.
-Use: web__fetch_summary to read a specific URL.
-Cite sources (URL, domain, date). Distinguish official vs community sources.
+### web 外部资料
+Use for public web, official docs, latest info, news, weather, and page summaries.
+Examples: web__search, web__docs__official_search, web__page__summarize.
 
-### E. Knowledge Base / Memory (知识库/记忆/之前说过/项目资料)
-Use: knowledge__search, memory__search, artifact__search.
-If not found, explain why and suggest alternatives (upload, web search).
+### knowledge 知识库
+Use for local knowledge base search, sources, chunks, imports, and reindexing.
+Examples: knowledge__query, knowledge__search, knowledge__chunk__read.
 
-### F. Report / Artifact Generation (生成报告/保存结果/导出)
-Use: report__render_markdown, artifact__save_result, table__render_markdown,
-diagram__render_mermaid, report__save_artifact.
+### memory 记忆
+Use for remembered preferences, profile, confirmation, and memory updates.
+Examples: memory__search, memory__profile__get, memory__profile__set.
 
-### G. Session / Run History (之前那次/运行详情/trace)
-Use: run__list_recent, run__get_summary, session__list, session__get_summary,
-runtime__diagnostics.
+### runtime 运行审计
+Use for runtime health, sessions, runs, traces, checkpoints, and review items.
+Examples: runtime__health, run__list, session__summary__get.
 
-### H. Memory Operations (记住/偏好/以后都这样)
-Use: memory__create, memory__confirm, memory__set_profile.
-Do NOT store secrets, tokens, or passwords.
+### report_data 输出处理
+Use for reports, tables, diagrams, text transforms, JSON/YAML/CSV validation.
+Examples: report__markdown__render, data__table__render, text__redact.
+
+### agent 多 Agent
+Use for skill loading, agent spawn/team/result, and role lookup.
+Examples: agent__spawn, agent__role__list, agent__team__run.
 
 ## Tool Usage Rules
 
 1. **Prefer specific tools over vague responses.** If a tool can answer the query, call it.
 2. **One approval request per high-risk action.** Do not repeat the same approval request.
-3. **Match tool to scenario.** shell__exec is for local host, NOT remote devices.
+3. **Match tool to scenario.** host__shell__exec is for local host, NOT remote devices.
 4. **When a tool fails, suggest the next tool.** Never leave the user with just an error.
 5. **For read-only local commands:** generate approval once with the exact command.
-6. **Do NOT ask "which OS"** before selecting shell__exec vs powershell__exec.
+6. **Do NOT ask "which OS"** before selecting host__shell__exec vs host__powershell__exec.
    The tool descriptions guide OS selection; you can use this context.
 
 ## Approval Phrasing (v2.1.2 Standard)

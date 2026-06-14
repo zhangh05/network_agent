@@ -43,6 +43,51 @@ Current runtime construction:
 - Registered tools: 88
 - Model-visible tools: 88
 - Runtime capabilities: 7 total, 4 enabled, 3 planned
+- Canonical namespace ids: 88
+- Execution tool ids: 88
+- Legacy aliases: compatibility only; aliases are not registered as tools
+
+## v2.2 Tool Namespace
+
+The v2.2 tool namespace separates display/routing ids from execution ids:
+
+```text
+User request
+→ Category
+→ Group
+→ Tool Action
+→ canonical_tool_id
+→ legacy alias mapping
+→ policy / approval
+→ executor
+```
+
+Execution remains on the stable 88 ids. LLM and frontend catalog surfaces use
+canonical ids such as:
+
+| Category | Example canonical id | Execution id |
+|---|---|---|
+| host | `host.shell.exec` | `shell.exec` |
+| workspace | `workspace.file.read` | `file.read` |
+| workspace | `workspace.artifact.save` | `artifact.save_result` |
+| network | `network.config.parse` | `parser.parse_config_text` |
+| web | `web.docs.official_search` | `web.official_doc_search` |
+| runtime | `run.list` | `run.list_recent` |
+| memory | `memory.profile.get` | `memory.get_profile` |
+| report_data | `report.markdown.render` | `report.render_markdown` |
+| agent | `agent.role.list` | `agent.list_roles` |
+
+Namespace source and checks:
+
+- `tool_runtime/tool_namespace.py`
+- `tool_runtime/tool_namespace_data.py`
+- `baselines/canonical_tool_ids_v2.2.txt`
+- `baselines/execution_tool_ids_v2.2.txt`
+- `baselines/tool_aliases_v2.2.json`
+- `scripts/inspect_tool_namespace.py`
+
+`GET /api/tools/catalog` returns both a flat compatibility list and a
+`categories[]` tree for frontend directory display.
 
 Registered but not model-visible:
 

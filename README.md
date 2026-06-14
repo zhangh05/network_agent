@@ -4,8 +4,9 @@ Network Agent 是一个本地运行的网络工程 Agent 平台。当前版本�
 
 ## Current Baseline
 
-- Release tag: `v2.1.2-tool-use-intelligence` (current)
-- Previous baseline: `v2.1.1-full-closure` (`b61a493`)
+- Development head: v2.2 tool namespace refactor
+- Latest release tag: `v2.1.3-hardening`
+- Previous closure baseline: `v2.1.1-full-closure` (`b61a493`)
 - Backend: Flask app in `backend/main.py`
 - Backend bind default: `0.0.0.0:8010`
 - Frontend: React 18 + TypeScript + Vite 5 in `frontend/`
@@ -15,18 +16,17 @@ Network Agent 是一个本地运行的网络工程 Agent 平台。当前版本�
 - Runtime capabilities: 7 total, 4 enabled, 3 planned
 - Public `/api/capabilities`: runtime `CapabilityRegistry` projection, 7 total, 4 enabled, 3 planned
 
-> **v2.1.2**: Comprehensive tool-use intelligence upgrade. See
-> [docs/TOOL_USE_POLICY.md](docs/TOOL_USE_POLICY.md) for full details.
-> Key changes: scene-based tool routing, host/device boundary clarification,
-> unified approval phrasing, tool failure fallback strategies,
-> `tool_decision` transparency in AgentResult, and updated frontend display.
+> **v2.2 development head**: tool ids now have a canonical namespace catalog
+> layered over the stable 88 execution ids. LLM and frontend surfaces display
+> category/group/action canonical ids, while legacy ids remain compatible
+> aliases. See [docs/CAPABILITIES_AND_TOOLS.md](docs/CAPABILITIES_AND_TOOLS.md).
 
 ## What It Does
 
 - Runs multi-turn network engineering conversations in the Workbench.
 - Builds turn context from session history, workspace state, RAG knowledge, memory, artifacts, and registry metadata.
 - Calls the configured LLM provider through a guarded runtime loop.
-- Routes model tool calls only through per-turn model-visible `ToolRouter` definitions with risk/source/approval metadata in every LLM tool description.
+- Routes model tool calls through per-turn `ToolRouter` definitions using canonical category/group/action names with execution id, risk, source, and approval metadata in every LLM tool description.
 - Stores sessions, messages, runs, traces, artifacts, review items, knowledge sources, and reports under workspace-scoped storage.
 - Provides a frontend for Workbench, Knowledge Library, Artifact Center, Review Center, Capability Matrix, Runtime Audit, and Settings.
 
@@ -108,8 +108,8 @@ Open:
 - No SSH, Telnet, SNMP, nmap, ping sweep, or config push exposed to the model.
 - `config.push` remains forbidden.
 - Planned capabilities are not callable.
-- Pure chat, capability discovery, and business turns expose the curated primary model-visible tool catalog to the LLM, including Web search, webpage summary, structured weather, knowledge, artifact, review, and config-translation tools.
-- Every LLM-visible tool description includes `tool_id`, `risk`, `source`, and `approval` metadata so the model can choose tools with the safety context in view.
+- Pure chat, capability discovery, and business turns expose the curated primary model-visible tool catalog to the LLM as canonical names such as `workspace.file.read` and `host.shell.exec`.
+- Every LLM-visible tool description includes canonical `tool_id`, `execution_tool_id`, `risk`, `source`, and `approval` metadata so the model can choose tools with the safety context in view.
 - High-risk runtime tools are model-visible but require explicit approval paths and allowlisted ids before execution.
 - `POST /api/tools/invoke` is policy gated; high-risk tools require approved status before execution.
 - Knowledge and memory snippets are redacted before being injected into context.
@@ -159,7 +159,15 @@ PY
 
 Expected current output: `88 88`.
 
-Full release verification for `v2.1.1-full-closure`: `1271 passed, 12 skipped, 1 warning`.
+Namespace fact check:
+
+```bash
+python3 scripts/inspect_tool_namespace.py
+```
+
+Expected current output includes `canonical_count 88`, `execution_count 88`, and `PASS`.
+
+Latest local full harness evidence for this development head: `1317 passed, 12 skipped, 1 warning`.
 
 ## Documentation
 

@@ -45,6 +45,51 @@ export interface CapabilityManifest {
   requires_human_review: boolean;
 }
 
+/* ───────────────────────── Tool Namespace Catalog ───────────────────────── */
+
+export interface ToolCatalogItem {
+  tool_id: string;
+  canonical_tool_id: string;
+  execution_tool_id: string;
+  legacy_tool_ids: string[];
+  category: string;
+  group: string;
+  action: string;
+  display_name: string;
+  short_label: string;
+  usage_hint: string;
+  not_for: string;
+  risk_level: RiskLevel;
+  requires_approval: boolean;
+  permission_action: string;
+  enabled: boolean;
+  callable_by_llm: boolean;
+  description?: string;
+  metadata?: Record<string, unknown>;
+}
+
+export interface ToolCatalogGroup {
+  id: string;
+  name: string;
+  count: number;
+  tools: ToolCatalogItem[];
+}
+
+export interface ToolCatalogCategory {
+  id: string;
+  name: string;
+  description: string;
+  count: number;
+  groups: ToolCatalogGroup[];
+}
+
+export interface ToolCatalogResponse {
+  tools: ToolCatalogItem[];
+  categories: ToolCatalogCategory[];
+  count: number;
+  note?: string;
+}
+
 /* ──────────────────────── AgentResult & Tool Calls ──────────────────────── */
 
 export interface ToolCallResult {

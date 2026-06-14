@@ -1,7 +1,13 @@
-import { useMemo } from "react";
-import { capabilitiesApi, registryApi } from "../../api";
+import { useMemo, useState } from "react";
+import { capabilitiesApi, registryApi, toolsApi } from "../../api";
 import { useAsync, AsyncView, Badge, InlineCode } from "../../components/common";
-import type { CapabilityManifest, CapabilityStatus, RiskLevel } from "../../types";
+import type {
+  CapabilityManifest,
+  CapabilityStatus,
+  RiskLevel,
+  ToolCatalogCategory,
+  ToolCatalogItem,
+} from "../../types";
 import { IconBolt, IconShield } from "../../components/Icon";
 
 const STATUS_KIND: Record<CapabilityStatus, "ok" | "muted" | "warn"> = {
@@ -36,9 +42,11 @@ interface RegistrySummary {
 }
 
 export function CapabilityCenter() {
+  const [toolQuery, setToolQuery] = useState("");
   const list = useAsync<{ capabilities: CapabilityManifest[]; enabled: string[] }>((s) =>
     capabilitiesApi.manifest(s),
   );
+  const catalog = useAsync((s) => toolsApi.catalog(s));
   const registry = useAsync<RegistrySummary>(async (s) => {
     const [modules, skills] = await Promise.all([
       registryApi.modules(s),
@@ -103,6 +111,42 @@ export function CapabilityCenter() {
         </div>
       </div>
       <div className="page-body">
+        <div className="card" data-testid="tool-catalog-tree">
+          <div className="card-title">
+            工具目录
+            {catalog.state.kind === "success" && (
+              <span className="count">{catalog.state.data.count ?? 0}</span>
+            )}
+          </div>
+          <div className="row-flex" style={{ justifyContent: "space-between", gap: 10 }}>
+            <div className="text-sm muted">
+              Canonical 工具按大类和小类展示，execution id 继续保持兼容。
+            </div>
+            <input
+              className="input"
+              value={toolQuery}
+              onChange={(e) => setToolQuery(e.target.value)}
+              placeholder="搜索 canonical / alias / hint"
+              aria-label="搜索工具目录"
+              style={{ maxWidth: 280 }}
+            />
+          </div>
+          <AsyncView
+            state={catalog.state}
+            onRetry={catalog.reload}
+            emptyText="后端无工具目录"
+            emptyHint="/api/tools/catalog 未返回 categories"
+          >
+            {(d) => (
+              <ToolCatalogTree
+                categories={d.categories ?? []}
+                tools={d.tools ?? []}
+                query={toolQuery}
+              />
+            )}
+          </AsyncView>
+        </div>
+
         <AsyncView
           state={list.state}
           onRetry={list.reload}
@@ -127,6 +171,129 @@ export function CapabilityCenter() {
       </div>
     </div>
   );
+}
+
+function ToolCatalogTree({
+  categories,
+  tools,
+  query,
+}: {
+  categories: ToolCatalogCategory[];
+  tools: ToolCatalogItem[];
+  query: string;
+}) {
+  const filtered = useMemo(() => {
+    const q = query.trim().toLowerCase();
+    if (!q) return categories;
+    return categories
+      .map((category) => ({
+        ...category,
+        groups: category.groups
+          .map((group) => ({
+            ...group,
+            tools: group.tools.filter((tool) => matchesTool(tool, q)),
+            count: group.tools.filter((tool) => matchesTool(tool, q)).length,
+          }))
+          .filter((group) => group.tools.length > 0),
+      }))
+      .filter((category) => category.groups.length > 0);
+  }, [categories, query]);
+
+  if (!categories.length) {
+    return <div className="empty compact">暂无目录数据</div>;
+  }
+
+  return (
+    <div className="tool-tree">
+      {filtered.map((category) => (
+        <details key={category.id} className="tool-category" open={!query}>
+          <summary>
+            <span>{category.name}</span>
+            <span className="tool-count">{category.count}</span>
+          </summary>
+          {category.description && <div className="text-xs muted">{category.description}</div>}
+          <div className="tool-groups">
+            {category.groups.map((group) => (
+              <details key={group.id} className="tool-group" open={Boolean(query)}>
+                <summary>
+                  <span>{group.name}</span>
+                  <span className="tool-count">{group.count}</span>
+                </summary>
+                <div className="tool-list">
+                  {group.tools.map((tool) => (
+                    <ToolCatalogRow key={tool.canonical_tool_id} tool={tool} />
+                  ))}
+                </div>
+              </details>
+            ))}
+          </div>
+        </details>
+      ))}
+      <details className="collapse">
+        <summary>Flat debug view</summary>
+        <div className="row-flex mt-2" style={{ gap: 6, flexWrap: "wrap" }}>
+          {tools.slice(0, 88).map((tool) => (
+            <InlineCode key={tool.canonical_tool_id}>{tool.canonical_tool_id}</InlineCode>
+          ))}
+        </div>
+      </details>
+    </div>
+  );
+}
+
+function ToolCatalogRow({ tool }: { tool: ToolCatalogItem }) {
+  return (
+    <details className="tool-row">
+      <summary>
+        <span className="tool-label">{tool.short_label || tool.display_name}</span>
+        <InlineCode>{tool.canonical_tool_id}</InlineCode>
+        <Badge kind={RISK_KIND[tool.risk_level] ?? "muted"}>{RISK_LABEL[tool.risk_level] ?? tool.risk_level}</Badge>
+      </summary>
+      <div className="tool-detail-grid">
+        <Detail label="execution">
+          <InlineCode>{tool.execution_tool_id}</InlineCode>
+        </Detail>
+        <Detail label="aliases">
+          {(tool.legacy_tool_ids ?? []).map((id) => (
+            <InlineCode key={id}>{id}</InlineCode>
+          ))}
+        </Detail>
+        <Detail label="namespace">
+          <InlineCode>{tool.category}/{tool.group}/{tool.action}</InlineCode>
+        </Detail>
+        <Detail label="approval">
+          {tool.requires_approval ? <Badge kind="warn">需要</Badge> : <Badge kind="ok">无需</Badge>}
+          {tool.permission_action && <InlineCode>{tool.permission_action}</InlineCode>}
+        </Detail>
+        <Detail label="usage">
+          <span>{tool.usage_hint}</span>
+        </Detail>
+        <Detail label="not for">
+          <span>{tool.not_for}</span>
+        </Detail>
+      </div>
+    </details>
+  );
+}
+
+function Detail({ label, children }: { label: string; children: React.ReactNode }) {
+  return (
+    <div className="tool-detail">
+      <span className="muted">{label}</span>
+      <div className="row-flex" style={{ gap: 6, flexWrap: "wrap" }}>{children}</div>
+    </div>
+  );
+}
+
+function matchesTool(tool: ToolCatalogItem, q: string): boolean {
+  return [
+    tool.display_name,
+    tool.short_label,
+    tool.canonical_tool_id,
+    tool.execution_tool_id,
+    ...(tool.legacy_tool_ids ?? []),
+    tool.usage_hint,
+  ].some((value) => String(value ?? "").toLowerCase().includes(q));
 }
 
 function CapabilityCard({ cap }: { cap: CapabilityManifest }) {

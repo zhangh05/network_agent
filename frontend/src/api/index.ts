@@ -23,6 +23,7 @@ import type {
   RuntimeSummary,
   Session,
   SessionMessage,
+  ToolCatalogResponse,
   Workspace,
   AppVersion,
 } from "../types";
@@ -260,8 +261,8 @@ export const capabilitiesApi = {
       signal,
     ),
   /** GET /api/tools/catalog — full tool catalog. */
-  toolCatalog: (signal?: AbortSignal): Promise<{ tools: unknown[] }> =>
-    apiRequest<{ tools: unknown[] }>({ method: "GET", url: "/tools/catalog" }, signal),
+  toolCatalog: (signal?: AbortSignal): Promise<ToolCatalogResponse> =>
+    apiRequest<ToolCatalogResponse>({ method: "GET", url: "/tools/catalog" }, signal),
 };
 
 export const registryApi = {
@@ -276,8 +277,8 @@ export const registryApi = {
 /* ──────────────────────── 5. tools ──────────────────────── */
 
 export const toolsApi = {
-  catalog: (signal?: AbortSignal): Promise<{ tools: unknown[] }> =>
-    apiRequest<{ tools: unknown[] }>({ method: "GET", url: "/tools/catalog" }, signal),
+  catalog: (signal?: AbortSignal): Promise<ToolCatalogResponse> =>
+    apiRequest<ToolCatalogResponse>({ method: "GET", url: "/tools/catalog" }, signal),
 };
 
 /* ──────────────────────── 6. knowledge ──────────────────────── */

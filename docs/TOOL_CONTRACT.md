@@ -1,4 +1,4 @@
-# Tool Contract — Network Agent v2.0
+# Tool Contract — Network Agent v2.2
 
 本文档定义每个 Tool 的**必需字段**、**标准化返回值**、和**风险等级规则**。
 
@@ -15,6 +15,20 @@
 | `tool_id` | str | 分类.名称 格式 | `"web.search"`, `"artifact.list"` |
 | `name` | str | 人类可读名称 | `"Web Search"`, `"List Artifacts"` |
 | `description` | str | 功能描述（LLM 可见） | `"Search the web for current information"` |
+
+v2.2 adds a namespace metadata layer. The execution `tool_id` remains the
+stable runtime id; the canonical id is used by LLM and frontend catalog views.
+
+| Metadata 字段 | 类型 | 说明 |
+|------|------|------|
+| `canonical_tool_id` | str | 目录化展示/LLM 调用 id，例如 `workspace.file.read` |
+| `execution_tool_id` | str | 实际执行 id，例如 `file.read` |
+| `legacy_tool_ids` | list[str] | 兼容旧 id 和别名；不注册成额外工具 |
+| `category` | str | 顶层目录：`host`, `workspace`, `knowledge`, `network`, `web`, `runtime`, `memory`, `report_data`, `agent` |
+| `group` | str | 小类目录，例如 `file`, `artifact`, `config`, `docs` |
+| `action` | str | 动作，例如 `read`, `search`, `exec`, `render` |
+| `display_name` / `short_label` | str | 前端展示名称 |
+| `usage_hint` / `not_for` | str | 选择提示和边界说明 |
 
 ### 1.2 分发字段
 
@@ -168,7 +182,9 @@ class ToolResult:
 
 ### 4.1 运行时工具注册
 
-在 `tool_runtime/general_tools.py` 中：
+在 `tool_runtime/general_tools/registry.py` 中注册，handler body 位于
+`tool_runtime/general_tools/*.py` 子模块中。`tool_runtime/general_tools_base.py`
+仅是兼容 shim，不保存 handler 实现。
 
 ```python
 # 注册
@@ -189,6 +205,14 @@ def handle_function(inv: ToolInvocation) -> dict:
     # ... implementation ...
     return _ok({"result": "data"})
 ```
+
+v2.2 namespace 映射维护在 `tool_runtime/tool_namespace.py` 和
+`tool_runtime/tool_namespace_data.py`。新增工具必须同时更新：
+
+- `baselines/execution_tool_ids_v2.2.txt`
+- `baselines/canonical_tool_ids_v2.2.txt`
+- `baselines/tool_aliases_v2.2.json`
+- `scripts/inspect_tool_namespace.py`
 
 ### 4.2 Capability 工具注册
 

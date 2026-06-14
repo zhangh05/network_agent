@@ -36,15 +36,31 @@ class ToolRegistry:
         if not callable(handler):
             raise ValueError(f"Handler for '{spec.tool_id}' is not callable")
 
+        try:
+            from tool_runtime.tool_namespace import enrich_spec
+            spec = enrich_spec(spec)
+        except Exception:
+            pass
+
         self._specs[spec.tool_id] = spec
         self._handlers[spec.tool_id] = handler
 
     def get_tool(self, tool_id: str) -> Optional[ToolSpec]:
         """Get ToolSpec by tool_id. Returns None if not found."""
+        try:
+            from tool_runtime.tool_namespace import resolve_tool_id
+            tool_id = resolve_tool_id(tool_id)
+        except Exception:
+            pass
         return self._specs.get(tool_id)
 
     def get_handler(self, tool_id: str) -> Optional[Callable]:
         """Get handler function by tool_id. Returns None if not found."""
+        try:
+            from tool_runtime.tool_namespace import resolve_tool_id
+            tool_id = resolve_tool_id(tool_id)
+        except Exception:
+            pass
         return self._handlers.get(tool_id)
 
     def list_tools(self) -> list:

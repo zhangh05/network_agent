@@ -55,6 +55,7 @@ class ToolSpec:
     callable_by_llm: bool = True
     tags: list = field(default_factory=list)
     permission_action: str = ""  # read | write | exec | network — set by _reg
+    metadata: dict = field(default_factory=dict)
 
     def __post_init__(self):
         if self.risk_level not in VALID_RISK_LEVELS:
@@ -81,6 +82,7 @@ class ToolSpec:
             "callable_by_llm": self.callable_by_llm,
             "tags": self.tags,
             "permission_action": self.permission_action,
+            "metadata": self.metadata,
         }
 
 

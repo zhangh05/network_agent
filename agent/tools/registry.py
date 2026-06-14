@@ -32,7 +32,13 @@ class ToolRegistry:
                     forbidden=t.get("forbidden", False),
                     source=t.get("source", "runtime"),
                     permission_action=t.get("permission_action", ""),
+                    metadata=t.get("metadata", {}) or {},
                 )
+                try:
+                    from tool_runtime.tool_namespace import enrich_spec
+                    spec = enrich_spec(spec)
+                except Exception:
+                    pass
                 reg._specs[spec.tool_id] = spec
         except Exception:
             pass
@@ -85,6 +91,11 @@ class ToolRegistry:
                 source=f"capability:{tool_ref.tool_id}",
                 permission_action=getattr(tool_ref, 'permission_action', '') or "read",
             )
+            try:
+                from tool_runtime.tool_namespace import enrich_spec
+                spec = enrich_spec(spec)
+            except Exception:
+                pass
             self._specs[spec.tool_id] = spec
             # v1.0.3.5: resolve and register capability handler so
             # dispatch() can find it. handler_ref is a dotted-path
@@ -96,10 +107,20 @@ class ToolRegistry:
         return registered
 
     def get(self, tool_id: str) -> ToolSpec:
+        try:
+            from tool_runtime.tool_namespace import resolve_tool_id
+            tool_id = resolve_tool_id(tool_id)
+        except Exception:
+            pass
         return self._specs.get(tool_id)
 
     def dispatch(self, tool_id: str, args: dict, context=None) -> dict:
         """Execute tool via handler (direct call, no policy for agent-internal use)."""
+        try:
+            from tool_runtime.tool_namespace import resolve_tool_id
+            tool_id = resolve_tool_id(tool_id)
+        except Exception:
+            pass
         # Check capability-layer handlers first
         if not hasattr(self, '_handlers'):
             self._handlers = {}

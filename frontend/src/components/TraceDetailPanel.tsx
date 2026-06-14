@@ -53,6 +53,7 @@ export function TraceDetailPanel({ traceEvents, selectedRun }: Props) {
       result = result.filter(e =>
         (e.event_type || "").toLowerCase().includes(q) ||
         (e.tool_id || "").toLowerCase().includes(q) ||
+        eventToolId(e).toLowerCase().includes(q) ||
         (e.summary || "").toLowerCase().includes(q) ||
         (e.name || "").toLowerCase().includes(q) ||
         (e.message || "").toLowerCase().includes(q)
@@ -203,8 +204,8 @@ export function TraceDetailPanel({ traceEvents, selectedRun }: Props) {
                     {e.occurred_at?.substring(11, 19) || e.timestamp?.substring(11, 19) || ""}
                   </span>
                   <Badge kind={evTypeBadge(e)}>{evType}</Badge>
-                  {e.tool_id && (
-                    <code style={{ fontSize: 10, color: "var(--accent)" }}>{e.tool_id}</code>
+                  {(e.tool_id || eventToolId(e)) && (
+                    <code style={{ fontSize: 10, color: "var(--accent)" }}>{eventToolId(e) || e.tool_id}</code>
                   )}
                   {e.name && !e.tool_id && (
                     <span style={{ fontSize: 10, color: "var(--text-muted)" }}>{e.name}</span>
@@ -318,6 +319,13 @@ export function TraceDetailPanel({ traceEvents, selectedRun }: Props) {
       </div>
     </div>
   );
+}
+
+function eventToolId(ev: RuntimeAuditTurn["events"][number]): string {
+  const meta = ev.metadata || ev.payload || {};
+  const canonical = meta.canonical_tool_id;
+  if (typeof canonical === "string") return canonical;
+  return ev.tool_id || "";
 }
 
 /** Determine badge kind for an event based on its type/level. */
