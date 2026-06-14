@@ -8,7 +8,7 @@ This file records facts checked from current source and local runtime constructi
 - Framework: Flask
 - Default backend bind: `0.0.0.0:8010`
 - Main runtime endpoint: `POST /api/agent/message`
-- Legacy-compatible endpoint: `POST /api/agent/run`
+- REMOVED (v2.1.1): `POST /api/agent/run` migrated to `/api/agent/message`
 
 ## Frontend
 

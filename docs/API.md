@@ -12,7 +12,7 @@ Current API routes are Flask routes registered by `backend/main.py` and `backend
 | GET | `/api/agent/status` | Agent status |
 | GET | `/api/agent/usage` | Agent usage statistics (tokens, turns, costs) |
 | POST | `/api/agent/message` | Main Codex-style runtime turn |
-| POST | `/api/agent/run` | Legacy-compatible agent run; supports `stream=true` |
+| POST | `/api/agent/run` | ❌ REMOVED (v2.1.1) — migrated to `POST /api/agent/message` |
 
 ## Sessions
 

@@ -36,7 +36,7 @@ The main runtime path is:
 6. `agent/core/turn.py`
 7. `agent/runtime/loop.py`
 
-The legacy-compatible `/api/agent/run` endpoint remains available, but it is not the primary Workbench path.
+`/api/agent/run` was REMOVED in v2.1.1, but it is not the primary Workbench path.
 
 ## Context And RAG
 

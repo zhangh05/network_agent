@@ -13,7 +13,7 @@ This document is a current anti-regression boundary. It exists to keep removed l
 ## Current Replacement
 
 - Main agent runtime: `POST /api/agent/message`
-- Legacy-compatible agent run: `POST /api/agent/run`
+- REMOVED (v2.1.1): `POST /api/agent/run`
 - Config translation module: `POST /api/modules/config-translation/translate`
 - Unified frontend: React/Vite app under `frontend/src/`
 - Runtime architecture: `agent/runtime/` with `ToolRouter`, capability registry, context builder, and workspace stores

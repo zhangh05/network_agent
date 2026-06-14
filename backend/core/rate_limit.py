@@ -5,7 +5,7 @@ Uses a sliding window counter per client IP + endpoint.
 Thread-safe via threading.Lock.
 
 Default limits:
-  - /api/agent/run: 10 req/min
+  - /api/agent/message: 10 req/min
   - /api/agent/llm/test: 5 req/min
   - /api/tools/invoke: 30 req/min
   - All other /api/*: 60 req/min
@@ -22,7 +22,7 @@ from flask import request, jsonify
 
 # endpoint_prefix → (max_requests, window_seconds)
 RATE_LIMITS = {
-    "/api/agent/run": (10, 60),
+    "/api/agent/message": (10, 60),
     "/api/agent/llm/test": (5, 60),
     "/api/tools/invoke": (30, 60),
 }

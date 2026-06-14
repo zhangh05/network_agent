@@ -64,4 +64,4 @@ Runs are stored under `workspaces/<workspace_id>/runs/`. Session messages are st
 
 ## Legacy Runtime
 
-`agent/legacy/` remains for compatibility around `/api/agent/run`. It is not the primary Workbench path.
+`agent/legacy/` (historical only, `/api/agent/run` REMOVED in v2.1.1). It is not the primary Workbench path.
