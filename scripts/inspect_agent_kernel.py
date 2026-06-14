@@ -197,7 +197,7 @@ def main():
     # skill_runtime_connected
     try:
         handle_src = open('agent/runtime/loop.py').read()
-        has_skill_state = 'loaded_skills' in open('tool_runtime/general_tools.py').read()
+        has_skill_state = 'loaded_skills' in open('tool_runtime/general_tools_base.py').read()
         print(f"  skill_runtime_connected: {'✅' if has_skill_state else '❌'}")
     except:
         print("  skill_runtime_connected: ❌")
@@ -219,12 +219,12 @@ def main():
         print("  sub_agent_consistent: ❌")
     
     # memory_semantics_ok
-    gt_src = open('tool_runtime/general_tools.py').read()
+    gt_src = open('tool_runtime/general_tools_base.py').read()
     mem_ok = 'include_deleted' in gt_src
     print(f"  memory_semantics_ok: {'✅' if mem_ok else '❌'}")
     
     # agent_team_preview
-    gt_src2 = open('tool_runtime/general_tools.py').read()
+    gt_src2 = open('tool_runtime/general_tools_base.py').read()
     team_preview = 'PREVIEW' in gt_src2 or 'demo' in open('agent/runtime/sub_agent.py').read().lower()
     print(f"  agent_team_preview_status: {'PREVIEW (correctly marked)' if team_preview else '⚠️ check agent.team status'}")
     
