@@ -109,8 +109,19 @@ export interface RuntimeEvent {
   message?: string;
   tool_id?: string;
   level?: string;
+  error?: string;
+  /** v2.1.3: Event timing and metadata */
   occurred_at?: string;
   timestamp?: string;
+  started_at?: string;
+  duration_ms?: number;
+  /** v2.1.3: Approval and tool details */
+  approval_id?: string;
+  approval_status?: string;
+  blocked_by?: string;
+  input_preview?: string | Record<string, unknown>;
+  output_preview?: string | Record<string, unknown>;
+  /** Payload and metadata bags */
   payload?: Record<string, unknown>;
   metadata?: Record<string, unknown>;
 }
@@ -439,6 +450,11 @@ export interface RuntimeAuditTurn {
   };
   /** v2.1.2: Human-readable reason when no tools called */
   no_tool_reason?: string;
+  /** v2.1.3: Additional trace detail fields */
+  active_module?: string;
+  timeline_summary?: string;
+  report_artifacts?: Array<{ artifact_id: string; title: string }>;
+  artifact_refs?: Array<{ artifact_id: string; title: string }>;
 }
 
 /* ──────────────────────────── ApiError ──────────────────────────── */

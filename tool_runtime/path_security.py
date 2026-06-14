@@ -8,6 +8,7 @@ All workspace file paths MUST go through this resolver. It guarantees:
 4. No symlink escape to outside workspace
 5. No Windows drive-path injection (C:\\, D:\\)
 6. No URL-encoded traversal (%2e%2e/)
+7. No prefix-spoofing containment bypass (v2.1.3: uses Path.relative_to)
 
 Usage:
     from tool_runtime.path_security import safe_workspace_path
@@ -50,6 +51,20 @@ _TRAVERSAL_PATTERNS = [
 _WIN_DRIVE = re.compile(r"^[A-Za-z]:[/\\]")
 
 
+def _is_contained(path: Path, base: Path) -> bool:
+    """Check if path is contained within base using Path.relative_to.
+
+    v2.1.3: Replaces string startswith with Path.relative_to to prevent
+    prefix-spoofing attacks (e.g., /workspaces/default_evil bypassing
+    a check against /workspaces/default).
+    """
+    try:
+        path.resolve().relative_to(base.resolve())
+        return True
+    except (ValueError, OSError):
+        return False
+
+
 def _contains_traversal(subpath: str) -> bool:
     """Check if subpath contains path traversal attempts."""
     # Decode URL encoding first
@@ -84,6 +99,7 @@ def safe_workspace_path(workspace_id: str, subpath: str = "") -> Path:
     - Windows drive paths (C:\\Windows)
     - Symlink escapes to outside workspace root
     - URL-encoded traversal (%2e%2e%2f)
+    - Prefix-spoofing containment bypass (e.g., default_evil)
 
     Args:
         workspace_id: Validated workspace identifier.
@@ -121,35 +137,33 @@ def safe_workspace_path(workspace_id: str, subpath: str = "") -> Path:
     # ── 5. Resolve and check boundaries ──
     target = (base / clean).resolve()
 
-    # Check prefix containment (string-based)
-    base_str = str(base)
-    target_str = str(target)
-
-    if not target_str.startswith(base_str):
+    # v2.1.3: Use Path.relative_to for containment (not string startswith)
+    if not _is_contained(target, base):
         raise PathSecurityError(
-            f"path_escape_denied: '{subpath}' resolves outside workspace '{base_str}'"
+            f"path_escape_denied: '{subpath}' resolves outside workspace '{base}'"
         )
 
     # ── 6. Symlink check: verify real path is also contained ──
     try:
         if target.exists() or target.is_symlink():
             real_target = target.resolve()
-            if not str(real_target).startswith(base_str):
+            # v2.1.3: Use Path.relative_to for symlink containment
+            if not _is_contained(real_target, base):
                 raise PathSecurityError(
                     f"path_escape_denied: symlink '{subpath}' points outside workspace"
                 )
         # For non-existent paths: verify parent's real path
         else:
             parent = target.parent
-            while parent != base:
-                if parent.exists() or parent.is_symlink():
-                    real_parent = parent.resolve()
-                    if not str(real_parent).startswith(base_str):
-                        raise PathSecurityError(
-                            f"path_escape_denied: parent symlink '{subpath}' points outside workspace"
-                        )
-                    break
+            while not _is_contained(parent.parent, base) and parent != base:
                 parent = parent.parent
+            if parent != base and (parent.exists() or parent.is_symlink()):
+                real_parent = parent.resolve()
+                # v2.1.3: Use Path.relative_to for parent symlink containment
+                if not _is_contained(real_parent, base):
+                    raise PathSecurityError(
+                        f"path_escape_denied: parent symlink '{subpath}' points outside workspace"
+                    )
     except (OSError, RuntimeError) as e:
         raise PathSecurityError(f"invalid_workspace_path: {e}") from e
 

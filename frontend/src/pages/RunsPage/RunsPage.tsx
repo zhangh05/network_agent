@@ -1,11 +1,15 @@
 /**
- * RunsPage — v2.1.1: Run history list and detail view.
+ * RunsPage — v2.1.3: Run history list and full trace detail.
+ *
+ * Uses TraceDetailPanel for complete event timeline with filters, search,
+ * and expandable JSON (not just first 5 events).
  */
 import { useEffect, useState, useCallback } from "react";
 import { workspacesApi, runtimeAuditApi } from "../../api";
 import { useSessionStore } from "../../stores/session";
 import { Badge, EmptyState, LoadingState, StatusDot } from "../../components/common";
 import { IconRefresh } from "../../components/Icon";
+import { TraceDetailPanel } from "../../components/TraceDetailPanel";
 import type { RuntimeAuditTurn, RuntimeEvent } from "../../types";
 
 export function RunsPage() {
@@ -51,14 +55,11 @@ export function RunsPage() {
     if (selectedRun?.run_id === run.run_id) {
       setSelectedRun(null); setTraceEvents(null);
     } else {
-      setSelectedRun(run); loadTrace(run);
+      setSelectedRun(run);
+      setTraceEvents(null); // Reset while loading
+      loadTrace(run);
     }
   };
-
-  // Extract tool_call events from trace
-  const toolCalls = traceEvents?.filter(e => e.event_type === "tool_end" || e.event_type === "tool_error") || [];
-  const warnings = traceEvents?.filter(e => e.event_type === "warning" || e.level === "warn") || [];
-  const errors = traceEvents?.filter(e => e.event_type === "error" || e.level === "err") || [];
 
   return (
     <div className="page-runs" style={{ padding: 16 }}>
@@ -103,62 +104,8 @@ export function RunsPage() {
               </tbody>
             </table>
 
-            {/* Tool calls detail from trace */}
-            {toolCalls.length > 0 && (
-              <div style={{ marginTop: 12 }}>
-                <h4>tool_calls ({toolCalls.length})</h4>
-                {toolCalls.map((e, i) => (
-                  <div key={i} style={{ padding: 6, marginBottom: 4, background: "var(--bg-secondary)", borderRadius: 4, fontSize: 12 }}>
-                    <Badge kind={e.event_type === "tool_error" ? "err" : "ok"}>{String(e.tool_id || e.name || e.event_type)}</Badge>
-                    {e.summary && <span style={{ marginLeft: 8 }}>{e.summary}</span>}
-                  </div>
-                ))}
-              </div>
-            )}
-
-            {/* v2.1.2: tool_decision */}
-            {selectedRun.tool_decision && (
-              <div style={{ marginTop: 12 }}>
-                <h4>tool_decision</h4>
-                <pre style={{ fontSize: 11, maxHeight: 200, overflow: "auto", background: "var(--bg-secondary)", padding: 8, borderRadius: 4 }}>
-                  {JSON.stringify(selectedRun.tool_decision, null, 2)}
-                </pre>
-              </div>
-            )}
-
-            {/* v2.1.2: no_tool_reason */}
-            {selectedRun.no_tool_reason && (
-              <div style={{ marginTop: 12 }}>
-                <div style={{ fontSize: 12, color: "var(--text-muted)" }}>
-                  <Badge kind="muted">未调用工具</Badge>
-                  <span style={{ marginLeft: 8 }}>{selectedRun.no_tool_reason}</span>
-                </div>
-              </div>
-            )}
-
-            {warnings.length > 0 && (
-              <div style={{ marginTop: 12 }}>
-                <h4>warnings ({warnings.length})</h4>
-                {warnings.map((w, i) => <div key={i} style={{ color: "var(--warn)", fontSize: 12 }}>⚠ {String(w.summary || w.message || w.event_type)}</div>)}
-              </div>
-            )}
-
-            {errors.length > 0 && (
-              <div style={{ marginTop: 12 }}>
-                <h4>errors ({errors.length})</h4>
-                {errors.map((e, i) => <div key={i} style={{ color: "var(--err)", fontSize: 12 }}>✖ {String(e.summary || e.message || e.event_type)}</div>)}
-              </div>
-            )}
-
-            {/* metadata from events */}
-            {traceEvents && traceEvents.length > 0 && (
-              <div style={{ marginTop: 12 }}>
-                <h4>metadata (events: {traceEvents.length})</h4>
-                <pre style={{ fontSize: 11, maxHeight: 200, overflow: "auto", background: "var(--bg-secondary)", padding: 8, borderRadius: 4 }}>
-                  {JSON.stringify(traceEvents.slice(0, 5).map(e => ({ type: e.event_type, name: e.name, summary: e.summary })), null, 2)}
-                </pre>
-              </div>
-            )}
+            {/* v2.1.3: Full TraceDetailPanel replaces inline trace preview */}
+            <TraceDetailPanel traceEvents={traceEvents} selectedRun={selectedRun} />
 
             {selectedRun.selected_skills?.length > 0 && (
               <div style={{ marginTop: 12 }}>
