@@ -7,6 +7,7 @@ import type {
   RiskLevel,
   ToolCatalogCategory,
   ToolCatalogItem,
+  ToolGovernanceStatus,
 } from "../../types";
 import { IconBolt, IconShield } from "../../components/Icon";
 
@@ -36,6 +37,28 @@ const RISK_LABEL: Record<RiskLevel, string> = {
   forbidden: "禁止",
 };
 
+type ToolFilter = "all" | "planner" | "deprecated" | "alias" | "high" | "host" | "workspace" | "network" | "knowledge";
+
+const TOOL_FILTERS: Array<{ id: ToolFilter; label: string }> = [
+  { id: "all", label: "All" },
+  { id: "planner", label: "Planner-visible" },
+  { id: "deprecated", label: "Deprecated" },
+  { id: "alias", label: "Alias/Merged" },
+  { id: "high", label: "High risk" },
+  { id: "host", label: "Host" },
+  { id: "workspace", label: "Workspace" },
+  { id: "network", label: "Network" },
+  { id: "knowledge", label: "Knowledge" },
+];
+
+const GOVERNANCE_KIND: Record<ToolGovernanceStatus, "ok" | "info" | "warn" | "muted"> = {
+  keep: "ok",
+  alias: "info",
+  merged: "info",
+  deprecated: "warn",
+  removed_candidate: "muted",
+};
+
 interface RegistrySummary {
   moduleCount: number;
   skillCount: number;
@@ -43,6 +66,7 @@ interface RegistrySummary {
 
 export function CapabilityCenter() {
   const [toolQuery, setToolQuery] = useState("");
+  const [toolFilter, setToolFilter] = useState<ToolFilter>("all");
   const list = useAsync<{ capabilities: CapabilityManifest[]; enabled: string[] }>((s) =>
     capabilitiesApi.manifest(s),
   );
@@ -121,6 +145,9 @@ export function CapabilityCenter() {
           <div className="row-flex" style={{ justifyContent: "space-between", gap: 10 }}>
             <div className="text-sm muted">
               Canonical 工具按大类和小类展示，execution id 继续保持兼容。
+              {catalog.state.kind === "success" && (
+                <> Planner-visible {catalog.state.data.planner_visible_count ?? 0}</>
+              )}
             </div>
             <input
               className="input"
@@ -130,6 +157,21 @@ export function CapabilityCenter() {
               aria-label="搜索工具目录"
               style={{ maxWidth: 280 }}
             />
+          </div>
+          <div className="row-flex mt-2" style={{ gap: 6, flexWrap: "wrap" }}>
+            {TOOL_FILTERS.map((filter) => (
+              <button
+                key={filter.id}
+                className="btn-sm"
+                onClick={() => setToolFilter(filter.id)}
+                style={{
+                  background: toolFilter === filter.id ? "var(--accent)" : "var(--bg-secondary)",
+                  color: toolFilter === filter.id ? "#fff" : "var(--text-primary)",
+                }}
+              >
+                {filter.label}
+              </button>
+            ))}
           </div>
           <AsyncView
             state={catalog.state}
@@ -142,6 +184,7 @@ export function CapabilityCenter() {
                 categories={d.categories ?? []}
                 tools={d.tools ?? []}
                 query={toolQuery}
+                filter={toolFilter}
               />
             )}
           </AsyncView>
@@ -177,27 +220,28 @@ function ToolCatalogTree({
   categories,
   tools,
   query,
+  filter,
 }: {
   categories: ToolCatalogCategory[];
   tools: ToolCatalogItem[];
   query: string;
+  filter: ToolFilter;
 }) {
   const filtered = useMemo(() => {
     const q = query.trim().toLowerCase();
-    if (!q) return categories;
     return categories
       .map((category) => ({
         ...category,
         groups: category.groups
           .map((group) => ({
             ...group,
-            tools: group.tools.filter((tool) => matchesTool(tool, q)),
-            count: group.tools.filter((tool) => matchesTool(tool, q)).length,
+            tools: group.tools.filter((tool) => matchesTool(tool, q) && matchesFilter(tool, filter)),
+            count: group.tools.filter((tool) => matchesTool(tool, q) && matchesFilter(tool, filter)).length,
           }))
           .filter((group) => group.tools.length > 0),
       }))
       .filter((category) => category.groups.length > 0);
-  }, [categories, query]);
+  }, [categories, query, filter]);
 
   if (!categories.length) {
     return <div className="empty compact">暂无目录数据</div>;
@@ -247,6 +291,11 @@ function ToolCatalogRow({ tool }: { tool: ToolCatalogItem }) {
       <summary>
         <span className="tool-label">{tool.short_label || tool.display_name}</span>
         <InlineCode>{tool.canonical_tool_id}</InlineCode>
+        {tool.governance_status && (
+          <Badge kind={GOVERNANCE_KIND[tool.governance_status] ?? "muted"}>
+            {tool.governance_status}
+          </Badge>
+        )}
         <Badge kind={RISK_KIND[tool.risk_level] ?? "muted"}>{RISK_LABEL[tool.risk_level] ?? tool.risk_level}</Badge>
       </summary>
       <div className="tool-detail-grid">
@@ -265,6 +314,21 @@ function ToolCatalogRow({ tool }: { tool: ToolCatalogItem }) {
           {tool.requires_approval ? <Badge kind="warn">需要</Badge> : <Badge kind="ok">无需</Badge>}
           {tool.permission_action && <InlineCode>{tool.permission_action}</InlineCode>}
         </Detail>
+        <Detail label="planner">
+          <Badge kind={tool.planner_visible ? "ok" : "muted"}>
+            {tool.planner_visible ? "visible" : "hidden"}
+          </Badge>
+        </Detail>
+        {tool.replacement && (
+          <Detail label="replacement">
+            <InlineCode>{tool.replacement}</InlineCode>
+          </Detail>
+        )}
+        {tool.overlap_group && (
+          <Detail label="overlap">
+            <InlineCode>{tool.overlap_group}</InlineCode>
+          </Detail>
+        )}
         <Detail label="usage">
           <span>{tool.usage_hint}</span>
         </Detail>
@@ -286,6 +350,7 @@ function Detail({ label, children }: { label: string; children: React.ReactNode 
 }
 
 function matchesTool(tool: ToolCatalogItem, q: string): boolean {
+  if (!q) return true;
   return [
     tool.display_name,
     tool.short_label,
@@ -293,7 +358,30 @@ function matchesTool(tool: ToolCatalogItem, q: string): boolean {
     tool.execution_tool_id,
     ...(tool.legacy_tool_ids ?? []),
     tool.usage_hint,
+    tool.governance_status ?? "",
+    tool.replacement ?? "",
+    tool.overlap_group ?? "",
   ].some((value) => String(value ?? "").toLowerCase().includes(q));
+}
+
+function matchesFilter(tool: ToolCatalogItem, filter: ToolFilter): boolean {
+  switch (filter) {
+    case "planner":
+      return Boolean(tool.planner_visible);
+    case "deprecated":
+      return tool.governance_status === "deprecated" || tool.governance_status === "removed_candidate";
+    case "alias":
+      return tool.governance_status === "alias" || tool.governance_status === "merged";
+    case "high":
+      return tool.risk_level === "high" || tool.requires_approval;
+    case "host":
+    case "workspace":
+    case "network":
+    case "knowledge":
+      return tool.category === filter;
+    default:
+      return true;
+  }
 }
 
 function CapabilityCard({ cap }: { cap: CapabilityManifest }) {

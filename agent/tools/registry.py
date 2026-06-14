@@ -108,8 +108,8 @@ class ToolRegistry:
 
     def get(self, tool_id: str) -> ToolSpec:
         try:
-            from tool_runtime.tool_namespace import resolve_tool_id
-            tool_id = resolve_tool_id(tool_id)
+            from tool_runtime.tool_governance import resolve_governed_tool_id
+            tool_id = resolve_governed_tool_id(tool_id).execution_tool_id
         except Exception:
             pass
         return self._specs.get(tool_id)
@@ -117,8 +117,8 @@ class ToolRegistry:
     def dispatch(self, tool_id: str, args: dict, context=None) -> dict:
         """Execute tool via handler (direct call, no policy for agent-internal use)."""
         try:
-            from tool_runtime.tool_namespace import resolve_tool_id
-            tool_id = resolve_tool_id(tool_id)
+            from tool_runtime.tool_governance import resolve_governed_tool_id
+            tool_id = resolve_governed_tool_id(tool_id).execution_tool_id
         except Exception:
             pass
         # Check capability-layer handlers first

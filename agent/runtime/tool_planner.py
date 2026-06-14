@@ -10,6 +10,13 @@ from __future__ import annotations
 import os
 from typing import Any, TypedDict
 
+from tool_runtime.capability_actions import (
+    CAPABILITY_ACTIONS,
+    action_exists,
+    action_for_tool_set,
+    tools_for_action,
+)
+from tool_runtime.tool_governance import get_governance_entry, is_planner_visible
 from tool_runtime.tool_namespace import TOOL_NAMESPACE, get_namespace_entry
 
 
@@ -39,7 +46,7 @@ class ToolPlan(TypedDict, total=False):
     tool_planner: dict[str, Any]
 
 
-PLANNER_VERSION = "v2.2.2"
+PLANNER_VERSION = "v2.3"
 MAX_CANDIDATE_TOOLS = 16
 
 
@@ -97,29 +104,41 @@ def deterministic_plan_tools(
     """Build a minimal deterministic plan from the rule_scene chain."""
     available = _available_canonical_tools(available_catalog)
     safe_context = safe_context or {}
+    capability_steps = _capability_steps_from_rule_scene(user_input, rule_scene)
     steps: list[dict[str, Any]] = []
+    filtered: dict[str, list[str]] = {
+        "deprecated_tools_filtered": [],
+        "alias_tools_collapsed": [],
+    }
 
-    for chain_step in rule_scene.get("tool_chain") or []:
-        tools = [
-            tid for tid in chain_step.get("preferred_tools", [])
-            if tid in available
-        ]
+    for capability_step in capability_steps:
+        action_id = capability_step["capability_action"]
+        raw_tools = tools_for_action(action_id, include_fallback=True, available=available)
+        tools = _governance_filtered_tools(raw_tools, filtered)
         if not tools:
             continue
         step_no = len(steps) + 1
         required = _step_required(user_input, step_no, tools)
         steps.append({
             "step": step_no,
-            "goal": chain_step.get("purpose") or f"执行工具步骤 {step_no}",
+            "goal": capability_step.get("goal") or f"执行能力动作 {action_id}",
             "tool_candidates": tools,
             "required": required,
             "depends_on": list(range(1, step_no)) if step_no > 1 else [],
             "stop_if_failed": bool(required and step_no == 1),
         })
+        capability_step["step"] = step_no
+        capability_step["preferred_tools"] = tools
+
+    capability_steps = [step for step in capability_steps if step.get("preferred_tools")]
 
     if not steps:
-        tools = [tid for tid in rule_scene.get("candidate_tools", []) if tid in available][:5]
+        tools = _governance_filtered_tools(
+            [tid for tid in rule_scene.get("candidate_tools", []) if tid in available],
+            filtered,
+        )[:5]
         if tools:
+            action_id = action_for_tool_set(tools)
             steps.append({
                 "step": 1,
                 "goal": "执行当前场景的首选工具",
@@ -128,6 +147,12 @@ def deterministic_plan_tools(
                 "depends_on": [],
                 "stop_if_failed": True,
             })
+            capability_steps = [{
+                "step": 1,
+                "capability_action": action_id,
+                "goal": "执行当前场景的首选能力动作",
+                "preferred_tools": tools,
+            }]
 
     candidate_tools = _ordered_unique(
         tid
@@ -149,7 +174,9 @@ def deterministic_plan_tools(
         "categories": categories,
         "groups": groups,
         "candidate_tools": candidate_tools,
+        "capability_plan": capability_steps,
         "tool_plan": steps,
+        "governance": filtered,
         "needs_clarification": needs_clarification,
         "clarifying_question": "请提供要分析的配置文件路径，或先上传配置文件。" if needs_clarification else "",
         "reason": rule_scene.get("reason", "deterministic planner from rule_scene"),
@@ -207,6 +234,14 @@ def validate_tool_plan(
     if len(candidate_tools) > MAX_CANDIDATE_TOOLS:
         warnings.append(f"candidate_tools_large:{len(candidate_tools)}")
 
+    governed_out = [
+        f"{tid}:{get_governance_entry(tid).status}"
+        for tid in candidate_tools
+        if tid in available_canonical_tools and not is_planner_visible(tid)
+    ]
+    if governed_out:
+        errors.append(f"governance_not_planner_visible:{governed_out}")
+
     steps = list(plan.get("tool_plan") or [])
     expected_steps = list(range(1, len(steps) + 1))
     actual_steps = [int(step.get("step", 0) or 0) for step in steps]
@@ -226,6 +261,20 @@ def validate_tool_plan(
         bad_deps = [dep for dep in deps if not isinstance(dep, int) or dep >= step_no or dep < 1]
         if bad_deps:
             errors.append(f"step_{step_no}_invalid_depends_on:{bad_deps}")
+
+    capability_plan = list(plan.get("capability_plan") or [])
+    capability_steps = [int(step.get("step", 0) or 0) for step in capability_plan]
+    if capability_plan and capability_steps != expected_steps:
+        errors.append(f"capability_steps_not_consecutive:{capability_steps}")
+    for step in capability_plan:
+        step_no = int(step.get("step", 0) or 0)
+        action_id = str(step.get("capability_action", ""))
+        if not action_exists(action_id):
+            errors.append(f"capability_action_unknown:{action_id}")
+        preferred = list(step.get("preferred_tools") or step.get("tools") or [])
+        outside = [tid for tid in preferred if tid not in candidate_set]
+        if outside:
+            errors.append(f"capability_step_{step_no}_tools_not_in_candidates:{outside}")
 
     category_errors = _validate_categories_groups(plan, candidate_tools)
     errors.extend(category_errors)
@@ -249,6 +298,69 @@ def validate_tool_plan(
             errors.append("report_request_requires_workspace_artifact_save")
 
     return not errors, [*errors, *warnings]
+
+
+def _capability_steps_from_rule_scene(user_input: str, rule_scene: dict) -> list[dict[str, Any]]:
+    signals = rule_scene.get("signals") or {}
+    steps: list[dict[str, Any]] = []
+
+    def add(action_id: str, goal: str) -> None:
+        if action_id in CAPABILITY_ACTIONS and action_id not in {s["capability_action"] for s in steps}:
+            steps.append({
+                "step": len(steps) + 1,
+                "capability_action": action_id,
+                "goal": goal,
+                "preferred_tools": [],
+            })
+
+    if signals.get("has_uploaded_files") or signals.get("mentions_file"):
+        add("workspace.file.read", "读取用户上传或 workspace 中的文件")
+    if signals.get("mentions_web"):
+        add("web.official_docs.search", "检索官方文档或外部资料")
+    if signals.get("mentions_network_config"):
+        add("network.config.analyze", "离线分析网络配置")
+    if "translate" in (user_input or "").lower() or "翻译" in (user_input or ""):
+        add("network.config.translate", "离线翻译网络配置")
+    if signals.get("mentions_report"):
+        add("report.create_and_save", "生成报告并保存制品")
+    if signals.get("mentions_host"):
+        add("host.environment.inspect", "查询或操作当前本机环境")
+    if signals.get("mentions_knowledge"):
+        add("knowledge.search_and_answer", "检索知识库并基于安全摘录回答")
+    if signals.get("mentions_runtime"):
+        add("runtime.audit.inspect", "查看运行、trace、session 或审计信息")
+    if signals.get("mentions_memory"):
+        add("memory.profile.manage", "搜索或维护记忆/profile")
+
+    if not steps:
+        for chain_step in rule_scene.get("tool_chain") or []:
+            tools = list(chain_step.get("preferred_tools") or [])
+            action_id = action_for_tool_set(tools)
+            add(action_id, chain_step.get("purpose") or f"执行能力动作 {action_id}")
+    return steps
+
+
+def _governance_filtered_tools(tool_ids: list[str], filtered: dict[str, list[str]]) -> list[str]:
+    result: list[str] = []
+    for tool_id in tool_ids:
+        if tool_id not in TOOL_NAMESPACE:
+            continue
+        entry = get_governance_entry(tool_id)
+        if entry.status in {"alias", "merged"}:
+            filtered.setdefault("alias_tools_collapsed", []).append(tool_id)
+            replacement = entry.replacement
+            if replacement and replacement in TOOL_NAMESPACE and is_planner_visible(replacement):
+                if replacement not in result:
+                    result.append(replacement)
+            continue
+        if entry.status in {"deprecated", "removed_candidate"}:
+            filtered.setdefault("deprecated_tools_filtered", []).append(tool_id)
+            continue
+        if tool_id not in result:
+            result.append(tool_id)
+    for key in ("deprecated_tools_filtered", "alias_tools_collapsed"):
+        filtered[key] = _ordered_unique(filtered.get(key, []))
+    return result
 
 
 def _available_canonical_tools(available_catalog: dict) -> set[str]:
@@ -326,6 +438,8 @@ def _finalize_plan(plan: dict, *, mode: str, valid: bool, fallback_used: bool, w
     out.setdefault("needs_clarification", False)
     out.setdefault("clarifying_question", "")
     out.setdefault("tool_chain", _tool_chain_from_plan(out.get("tool_plan") or []))
+    out.setdefault("capability_plan", [])
+    out.setdefault("governance", {"deprecated_tools_filtered": [], "alias_tools_collapsed": []})
     out.setdefault("category", out.get("primary_category", ""))
     out.setdefault("group", (out.get("groups", {}).get(out.get("primary_category", ""), ["general"]) or ["general"])[0])
     out["tool_planner"] = {

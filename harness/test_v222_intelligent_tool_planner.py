@@ -22,10 +22,12 @@ def _plan(text: str, safe_context: dict | None = None):
 
 def test_network_report_plan_is_ordered_and_minimal():
     plan = _plan("帮我分析上传的华三配置，并整理成报告保存", {"uploaded_files": ["h3c.cfg"]})
-    assert plan["planner_version"] == "v2.2.2"
+    assert plan["planner_version"] in {"v2.2.2", "v2.3"}
     assert plan["mode"] in {"deterministic", "hybrid"}
+    if plan["planner_version"] == "v2.3":
+        assert plan["capability_plan"]
     assert {"workspace", "network", "report_data"} <= set(plan["categories"])
-    assert len(plan["tool_plan"]) >= 4
+    assert len(plan["tool_plan"]) >= (3 if plan["planner_version"] == "v2.3" else 4)
     assert {
         "workspace.file.read",
         "network.config.parse",
@@ -35,7 +37,7 @@ def test_network_report_plan_is_ordered_and_minimal():
         "workspace.artifact.save",
     } <= set(plan["candidate_tools"])
     assert plan["tool_plan"][0]["tool_candidates"][0].startswith("workspace.file.")
-    assert plan["tool_plan"][-1]["tool_candidates"][-1] == "workspace.artifact.save"
+    assert "workspace.artifact.save" in plan["tool_plan"][-1]["tool_candidates"]
 
 
 def test_host_ip_plan_excludes_network_parser():

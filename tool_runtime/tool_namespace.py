@@ -132,9 +132,9 @@ def resolve_tool_id(tool_id: str) -> str:
 
 def metadata_for_tool(tool_id: str) -> dict[str, Any]:
     try:
-        return get_namespace_entry(tool_id).metadata()
+        meta = get_namespace_entry(tool_id).metadata()
     except KeyError:
-        return {
+        meta = {
             "canonical_tool_id": tool_id,
             "execution_tool_id": tool_id,
             "legacy_tool_ids": [tool_id],
@@ -146,6 +146,12 @@ def metadata_for_tool(tool_id: str) -> dict[str, Any]:
             "usage_hint": f"Use {tool_id} when specifically needed.",
             "not_for": "Do not use outside its documented safety boundary.",
         }
+    try:
+        from tool_runtime.tool_governance import governance_metadata
+        meta.update(governance_metadata(meta["canonical_tool_id"]))
+    except Exception:
+        pass
+    return meta
 
 
 def enrich_spec(spec):

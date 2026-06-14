@@ -191,3 +191,10 @@ description: "Search public web pages for current or external information.
 4. 下一步验证 (Next verification step)
 5. 风险/注意事项 (Risks & notes)
 ```
+# v2.3 Governance Note
+
+The LLM should use capability actions and planner-exposed canonical tools.
+Do not select tools marked `alias`, `merged`, `deprecated`, or
+`removed_candidate` unless handling a legacy/direct invocation. High-risk host
+tools keep their existing approval requirements and are only exposed for
+explicit local-host scenarios.

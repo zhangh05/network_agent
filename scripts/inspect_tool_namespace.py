@@ -101,6 +101,19 @@ def main() -> int:
     except Exception as exc:
         errors.append(f"tool_planner_inspection_failed: {exc!r}")
 
+    try:
+        from tool_runtime.tool_governance import governance_summary, planner_visible_tool_ids
+        gov_summary = governance_summary()
+        planner_visible_count = len(planner_visible_tool_ids())
+        if gov_summary.get("merged", 0) <= 0:
+            errors.append("tool_governance missing merged tools")
+        if gov_summary.get("deprecated", 0) <= 0:
+            errors.append("tool_governance missing deprecated tools")
+        if planner_visible_count >= len(canonical_ids):
+            errors.append(f"planner_visible_count did not shrink: {planner_visible_count}")
+    except Exception as exc:
+        errors.append(f"tool_governance_inspection_failed: {exc!r}")
+
     by_category = Counter(entry.category for entry in TOOL_NAMESPACE.values())
     print(f"canonical_count {len(canonical_ids)}")
     print(f"execution_count {len(execution_ids)}")
@@ -108,6 +121,11 @@ def main() -> int:
     print(f"runtime_count {len(runtime_ids)}")
     print(f"model_visible_count {len(visible_ids)}")
     print("planner_mode deterministic/hybrid")
+    if "gov_summary" in locals():
+        print(f"planner_visible_count {planner_visible_count}")
+        print("governance")
+        for status, count in sorted(gov_summary.items()):
+            print(f"  {status}: {count}")
     print("categories")
     for category, count in sorted(by_category.items()):
         print(f"  {category}: {count}")
@@ -179,10 +197,14 @@ def _inspect_tool_planner(plan_tools, validate_tool_plan, canonical_ids: set[str
             errors.append(f"{name}: planner non-canonical {sorted(candidates - canonical_ids)}")
 
     nr = samples["network_report"]
+    if nr.get("planner_version") != "v2.3":
+        errors.append(f"planner version expected v2.3 got {nr.get('planner_version')}")
+    if not nr.get("capability_plan"):
+        errors.append("planner network_report missing capability_plan")
     if not {"workspace", "network", "report_data"} <= set(nr.get("categories") or []):
         errors.append("planner network_report missing workspace/network/report_data")
-    if len(nr.get("tool_plan") or []) < 4:
-        errors.append("planner network_report has too few steps")
+    if len(nr.get("tool_plan") or []) < 3:
+        errors.append("planner network_report has too few v2.3 capability steps")
 
     legacy = {"candidate_tools": ["file.read"], "tool_plan": [{"step": 1, "tool_candidates": ["file.read"]}]}
     if validate_tool_plan(legacy, canonical_ids, user_input="读文件")[0]:

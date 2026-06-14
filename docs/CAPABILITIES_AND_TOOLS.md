@@ -168,6 +168,34 @@ Plan validation rejects:
 `tool_scene`, plus `tool_planner` status (`mode`, `valid`, `fallback_used`,
 and warnings).
 
+## v2.3 Tool Architecture Optimization
+
+v2.3 keeps the 88 execution tools registered and adds a governance layer above
+the canonical namespace:
+
+```text
+user request
+→ rule_scene
+→ capability_action plan
+→ canonical candidate tools
+→ governance filter
+→ execution_tool_id resolve
+```
+
+New concepts:
+
+- `execution_tool_id`: stable low-level implementation id.
+- `canonical_tool_id`: LLM/frontend entrypoint.
+- `legacy_tool_id`: historical id accepted through alias resolution.
+- `capability_action`: planner-level action such as `network.config.analyze`
+  or `report.create_and_save`.
+- `governance_status`: `keep`, `alias`, `merged`, `deprecated`,
+  `removed_candidate`.
+
+Planner-visible tools are only `keep` tools selected by capability actions.
+Alias/merged tools still resolve for compatibility, and deprecated tools can
+still execute through legacy/direct calls with warnings.
+
 Registered but not model-visible:
 
 - `knowledge.read_source`: backend/admin callable, `callable_by_llm=False`

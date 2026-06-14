@@ -231,6 +231,7 @@ def register_runtime_routes(app):
     def api_tools_catalog():
         """Return read-only tool catalog — metadata only, no invoke capability."""
         from agent.runtime.services import default_runtime_services
+        from tool_runtime.tool_governance import governance_summary, planner_visible_tool_ids
         from tool_runtime.tool_namespace import category_tree_from_specs, metadata_for_tool
         services = default_runtime_services()
         specs = services.tool_service.registry.list_all()
@@ -263,6 +264,12 @@ def register_runtime_routes(app):
                 "short_label": meta["short_label"],
                 "usage_hint": meta["usage_hint"],
                 "not_for": meta["not_for"],
+                "governance_status": meta.get("governance_status", "keep"),
+                "replacement": meta.get("replacement"),
+                "deprecate_after": meta.get("deprecate_after"),
+                "overlap_group": meta.get("overlap_group", ""),
+                "planner_visible": bool(meta.get("planner_visible", True)),
+                "migration_notes": meta.get("migration_notes", ""),
             })
             tools.append(item)
         tools.sort(key=lambda t: t["canonical_tool_id"])
@@ -271,6 +278,8 @@ def register_runtime_routes(app):
             "tools": tools,
             "categories": categories,
             "count": len(tools),
+            "planner_visible_count": len(planner_visible_tool_ids()),
+            "governance_summary": governance_summary(),
             "note": "Read-only catalog. High-risk tools require approval.",
         })
 
@@ -294,10 +303,11 @@ def register_runtime_routes(app):
 
         from tool_runtime.integration import get_default_tool_runtime_client
         from tool_runtime.schemas import ToolInvocation
-        from tool_runtime.tool_namespace import get_canonical_tool_id, resolve_tool_id
+        from tool_runtime.tool_governance import resolve_governed_tool_id
 
         client = get_default_tool_runtime_client()
-        tool_id = resolve_tool_id(requested_tool_id)
+        governed = resolve_governed_tool_id(requested_tool_id)
+        tool_id = governed.execution_tool_id
         spec = client._registry.get_tool(tool_id)
 
         # Build invocation with approval_id
@@ -325,8 +335,12 @@ def register_runtime_routes(app):
         hist_entry["dry_run"] = dry_run
         hist_entry["risk_level"] = _get_tool_risk_level(client, tool_id)
         hist_entry["requested_tool_id"] = requested_tool_id
-        hist_entry["canonical_tool_id"] = get_canonical_tool_id(requested_tool_id)
+        hist_entry["canonical_tool_id"] = governed.canonical_tool_id
         hist_entry["execution_tool_id"] = tool_id
+        hist_entry["governance_status"] = governed.governance_status
+        hist_entry["replacement"] = governed.replacement
+        if governed.warning:
+            hist_entry.setdefault("warnings", []).append(governed.warning)
 
         with _lock:
             _tool_exec_history[result.invocation_id] = hist_entry
@@ -339,8 +353,10 @@ def register_runtime_routes(app):
             "invocation_id": result.invocation_id,
             "tool_id": result.tool_id,
             "requested_tool_id": requested_tool_id,
-            "canonical_tool_id": get_canonical_tool_id(requested_tool_id),
+            "canonical_tool_id": governed.canonical_tool_id,
             "execution_tool_id": tool_id,
+            "governance_status": governed.governance_status,
+            "replacement": governed.replacement,
             "status": result.status,
             "summary": (result.summary or "")[:500],
             "output": _safe_output(result.output),
@@ -348,7 +364,7 @@ def register_runtime_routes(app):
             "redacted": result.redacted,
             "policy_decision": result.policy_decision.__dict__ if result.policy_decision else None,
             "errors": result.errors[:20],
-            "warnings": result.warnings[:20],
+            "warnings": [*result.warnings[:20], *([governed.warning] if governed.warning else [])],
         })
 
     @app.route("/api/tools/dry-run", methods=["POST"])
@@ -362,9 +378,10 @@ def register_runtime_routes(app):
             return jsonify({"ok": False, "error": "tool_id is required"}), 400
 
         from tool_runtime.integration import get_default_tool_runtime_client
-        from tool_runtime.tool_namespace import get_canonical_tool_id, resolve_tool_id
+        from tool_runtime.tool_governance import resolve_governed_tool_id
         client = get_default_tool_runtime_client()
-        tool_id = resolve_tool_id(requested_tool_id)
+        governed = resolve_governed_tool_id(requested_tool_id)
+        tool_id = governed.execution_tool_id
         spec = client._registry.get_tool(tool_id)
         if not spec:
             return jsonify({"ok": False, "error": "tool not found"}), 404
@@ -377,10 +394,13 @@ def register_runtime_routes(app):
             "dry_run": True,
             "tool_id": tool_id,
             "requested_tool_id": requested_tool_id,
-            "canonical_tool_id": get_canonical_tool_id(requested_tool_id),
+            "canonical_tool_id": governed.canonical_tool_id,
             "execution_tool_id": tool_id,
+            "governance_status": governed.governance_status,
+            "replacement": governed.replacement,
             "risk_level": spec.risk_level,
             "requires_approval": spec.requires_approval,
+            "warnings": [governed.warning] if governed.warning else [],
             "params": list(arguments.keys()),
             "would_do": f"Would invoke {tool_id} with {len(arguments)} argument(s)",
             "note": "This is a preview. The tool will NOT be executed.",

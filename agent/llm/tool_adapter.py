@@ -9,6 +9,7 @@ Tool name mapping for LLM function calling:
 v2.2: LLM-visible function names use canonical namespace ids.
 v2.2.1: tool-chain routing can expose multiple categories for one task.
 v2.2.2: intelligent tool_plan routing constrains the exposed tool set.
+v2.3: capability_action planning filters governed/merged/deprecated tools.
 """
 
 from typing import List
@@ -134,18 +135,18 @@ def build_system_prompt_with_tools(workspace_id: str = "default") -> str:
     """Build the system prompt that tells the LLM about available tools.
 
     Uses LLM-safe tool names (with __ instead of .).
-    v2.2.2: Includes category/group routing, canonical tool ids, and tool_plan order.
+    v2.3: Includes category/group routing, canonical tool ids, capability_plan, and tool_plan order.
     """
     tools = list_tools_for_orchestrator()
 
     prompt = f"""You are Network Agent, a network-engineering AI assistant. You have {len(tools)} canonical tools available via function calling.
 
-## v2.2 Scene-Based Tool Selection by Category
+## v2.3 Scene-Based Tool Selection by Capability Action
 
-Route every user request through: Category → Group → Tool Action → canonical tool id.
+Route every user request through: Category → Group → capability_action → canonical tool id.
 Function names use canonical ids with dots converted to double underscores.
 For multi-step requests, follow RuntimeContext tool_scene.tool_chain in order.
-If RuntimeContext includes tool_scene.tool_plan, follow it as the execution plan.
+If RuntimeContext includes tool_scene.capability_plan/tool_plan, follow it as the execution plan.
 Execute required steps first and respect stop_if_failed.
 If needs_clarification=true, ask the clarifying_question before using tools.
 Do not skip file reading before parsing uploaded files.

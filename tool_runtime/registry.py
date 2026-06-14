@@ -48,8 +48,8 @@ class ToolRegistry:
     def get_tool(self, tool_id: str) -> Optional[ToolSpec]:
         """Get ToolSpec by tool_id. Returns None if not found."""
         try:
-            from tool_runtime.tool_namespace import resolve_tool_id
-            tool_id = resolve_tool_id(tool_id)
+            from tool_runtime.tool_governance import resolve_governed_tool_id
+            tool_id = resolve_governed_tool_id(tool_id).execution_tool_id
         except Exception:
             pass
         return self._specs.get(tool_id)
@@ -57,8 +57,8 @@ class ToolRegistry:
     def get_handler(self, tool_id: str) -> Optional[Callable]:
         """Get handler function by tool_id. Returns None if not found."""
         try:
-            from tool_runtime.tool_namespace import resolve_tool_id
-            tool_id = resolve_tool_id(tool_id)
+            from tool_runtime.tool_governance import resolve_governed_tool_id
+            tool_id = resolve_governed_tool_id(tool_id).execution_tool_id
         except Exception:
             pass
         return self._handlers.get(tool_id)

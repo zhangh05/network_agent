@@ -13,7 +13,8 @@ from agent.tools.registry import ToolRegistry
 from agent.llm.tool_adapter import to_llm_tool_name, from_llm_tool_name
 from agent.protocol.tool_call import ToolCall
 from agent.protocol.tool_result import ToolResult
-from tool_runtime.tool_namespace import get_canonical_tool_id, resolve_tool_id
+from tool_runtime.tool_namespace import get_canonical_tool_id
+from tool_runtime.tool_governance import resolve_governed_tool_id
 
 
 class UnknownToolCallError(Exception):
@@ -38,7 +39,9 @@ class ToolRouter:
         if allowed_tool_ids is not None:
             eligible = {s.tool_id for s in self.registry.list_model_visible()}
             self._allowed_tool_ids: set[str] | None = {
-                resolve_tool_id(t) for t in allowed_tool_ids if resolve_tool_id(t) in eligible
+                resolve_governed_tool_id(t).execution_tool_id
+                for t in allowed_tool_ids
+                if resolve_governed_tool_id(t).execution_tool_id in eligible
             }
             self._dynamic_visibility: bool = True
         else:
@@ -110,7 +113,9 @@ class ToolRouter:
             # in the registry (so the safety filter runs first).
             eligible = {s.tool_id for s in self.registry.list_model_visible()}
             self._allowed_tool_ids = {
-                resolve_tool_id(t) for t in allowed_tool_ids if resolve_tool_id(t) in eligible
+                resolve_governed_tool_id(t).execution_tool_id
+                for t in allowed_tool_ids
+                if resolve_governed_tool_id(t).execution_tool_id in eligible
             }
             self._dynamic_visibility = True
         self._build()
@@ -135,7 +140,7 @@ class ToolRouter:
 
     @staticmethod
     def resolve_tool_id(tool_id: str) -> str:
-        return resolve_tool_id(tool_id)
+        return resolve_governed_tool_id(tool_id).execution_tool_id
 
     @staticmethod
     def get_canonical_tool_id(tool_id: str) -> str:
@@ -152,7 +157,7 @@ class ToolRouter:
         # Whitelist check: only allow tools that were explicitly exposed to LLM
         if llm_name not in self.llm_name_map:
             requested_tool_id = from_llm_tool_name(llm_name)
-            execution_tool_id = resolve_tool_id(requested_tool_id)
+            execution_tool_id = resolve_governed_tool_id(requested_tool_id).execution_tool_id
             visible_execution_ids = {s.real_tool_id for s in self.model_visible_specs}
             if execution_tool_id not in visible_execution_ids:
                 raise UnknownToolCallError(f"Tool not visible to model: {llm_name}")

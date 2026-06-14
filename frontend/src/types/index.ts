@@ -8,6 +8,7 @@ export type CapabilityStatus = "enabled" | "planned" | "disabled";
 export type ToolStatus = "enabled" | "planned" | "disabled";
 export type RiskLevel = "low" | "medium" | "high" | "forbidden";
 export type Sensitivity = "public" | "internal" | "sensitive" | "secret";
+export type ToolGovernanceStatus = "keep" | "alias" | "merged" | "deprecated" | "removed_candidate";
 
 /* ───────────────────────── CapabilityManifest ─────────────────────────
  *
@@ -62,6 +63,12 @@ export interface ToolCatalogItem {
   risk_level: RiskLevel;
   requires_approval: boolean;
   permission_action: string;
+  governance_status?: ToolGovernanceStatus;
+  replacement?: string | null;
+  deprecate_after?: string | null;
+  overlap_group?: string;
+  planner_visible?: boolean;
+  migration_notes?: string;
   enabled: boolean;
   callable_by_llm: boolean;
   description?: string;
@@ -87,6 +94,8 @@ export interface ToolCatalogResponse {
   tools: ToolCatalogItem[];
   categories: ToolCatalogCategory[];
   count: number;
+  planner_visible_count?: number;
+  governance_summary?: Record<ToolGovernanceStatus, number>;
   note?: string;
 }
 
