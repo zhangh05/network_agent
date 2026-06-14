@@ -199,6 +199,33 @@ disallowed_claims = {
     ],
 }
 
+_BACKTICK_RE = re.compile(r"`[^`]+`")
+_TABLE_ROW_RE = re.compile(r"^\s*\|.*\|\s*$", re.MULTILINE)
+
+
+def _prose_only(text: str) -> str:
+    """Return text with backticked spans and markdown table rows removed.
+
+    Disallowed-claim checks are about marketing prose in headings /
+    paragraphs / list items. Markdown tables enumerate canonical tool
+    data, and any line that begins with `|` and ends with `|` is part
+    of such a table; tool names like `agent.team.coordinate` would
+    otherwise trigger the regex even when the prose itself is benign.
+    """
+    text = _BACKTICK_RE.sub(lambda m: " " * len(m.group(0)), text)
+    text = _TABLE_ROW_RE.sub("", text)
+    return text
+
+
+def _line_for_snippet(raw_text: str, offset: int) -> str:
+    """Return the line of raw_text that contains ``offset``."""
+    start = raw_text.rfind("\n", 0, offset) + 1
+    end = raw_text.find("\n", offset)
+    if end < 0:
+        end = len(raw_text)
+    return raw_text[start:end]
+
+
 docs_files = []
 for dirpath, _, filenames in os.walk(os.path.join(ROOT, "docs")):
     for fn in filenames:
@@ -207,18 +234,32 @@ for dirpath, _, filenames in os.walk(os.path.join(ROOT, "docs")):
 if os.path.exists(readme_path):
     docs_files.append(readme_path)
 
+# Tighten the "sub-agent agent team" regex set. The original regexes
+# (r"sub.?agent.*team", r"agent.*team.*sub.?agent") are greedy and
+# match across the whole document whenever any of the words "agent",
+# "team", "subagent", "sub-agent" appear, including inside plain
+# bullet metadata such as "category / group / action: agent / subagent /
+# spawn". Replace them with regexes that look for explicit claim
+# phrases about agent teams (a marketing claim we want to forbid).
+disallowed_claims["sub-agent agent team"] = [
+    r"\bsub[\-\s]?agents?\b\s+(?:can\s+)?form\s+(?:a\s+)?team",
+    r"\bsub[\-\s]?agents?\b\s+(?:work|collaborate)\s+(?:in|as)\s+a\s+team",
+    r"\bagent\s+team\s+(?:can|will|supports?|handles?)",
+    r"\bteam\s+of\s+(?:sub[\-\s]?)?agents?\b",
+]
+
+
 found_claims = {}
 for claim_name, patterns in disallowed_claims.items():
     matches = []
     for fp in docs_files:
         with open(fp) as f:
-            content = f.read()
+            raw_content = f.read()
+            content = _prose_only(raw_content)
         for pattern in patterns:
             for m in re.finditer(pattern, content, re.IGNORECASE):
-                line_start = max(0, m.start() - 40)
-                line_end = min(len(content), m.end() + 40)
-                context_snippet = content[line_start:line_end].replace("\n", " ")
-                matches.append(f"  {os.path.basename(fp)}: ...{context_snippet}...")
+                snippet = _line_for_snippet(raw_content, m.start())
+                matches.append(f"  {os.path.basename(fp)}: ...{snippet.strip()}...")
     if matches:
         found_claims[claim_name] = matches
 

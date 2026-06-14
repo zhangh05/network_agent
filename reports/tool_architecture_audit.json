@@ -5,11 +5,11 @@
     "legacy_alias_count": 90,
     "planner_visible_count": 84,
     "governance_summary": {
-      "alias": 1,
       "keep": 84,
-      "deprecated": 1,
       "merged": 1,
-      "removed_candidate": 1
+      "removed_candidate": 1,
+      "alias": 1,
+      "deprecated": 1
     },
     "governance_conflicts": 0,
     "duplicate_handler_groups": 0,
