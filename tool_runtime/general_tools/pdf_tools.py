@@ -20,12 +20,12 @@ def handle_pdf_extract_text(inv: ToolInvocation) -> dict:
     except ValueError as e:
         return _error(str(e))
 
-    if not target.is_file():
-        return _error(f"file not found: {filepath}")
-
     # Check file extension
     if target.suffix.lower() != ".pdf":
         return _error("file must be a .pdf file")
+
+    if not target.is_file():
+        return _error(f"file not found: {filepath}")
 
     file_size = target.stat().st_size
 
