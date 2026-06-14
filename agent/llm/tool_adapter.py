@@ -7,6 +7,7 @@ Tool name mapping for LLM function calling:
 - Convert `__` → `.` when mapping back to real tool_id
 
 v2.2: LLM-visible function names use canonical namespace ids.
+v2.2.1: tool-chain routing can expose multiple categories for one task.
 """
 
 from typing import List
@@ -132,7 +133,7 @@ def build_system_prompt_with_tools(workspace_id: str = "default") -> str:
     """Build the system prompt that tells the LLM about available tools.
 
     Uses LLM-safe tool names (with __ instead of .).
-    v2.2: Includes category/group routing and canonical tool ids.
+    v2.2.1: Includes category/group routing, canonical tool ids, and tool_chain order.
     """
     tools = list_tools_for_orchestrator()
 
@@ -142,6 +143,9 @@ def build_system_prompt_with_tools(workspace_id: str = "default") -> str:
 
 Route every user request through: Category → Group → Tool Action → canonical tool id.
 Function names use canonical ids with dots converted to double underscores.
+For multi-step requests, follow RuntimeContext tool_scene.tool_chain in order.
+Do not skip file reading before parsing uploaded files.
+Do not use host.* tools for network device configuration parsing.
 
 ### host 本机环境
 Use for local OS, localhost, IP, port, process, shell, PowerShell, and Python questions.

@@ -89,6 +89,12 @@ def main() -> int:
     if conflicts:
         errors.append(f"legacy alias conflicts: {conflicts}")
 
+    try:
+        from agent.runtime.tool_category_router import route_tool_scene
+        _inspect_tool_chain_routing(route_tool_scene, set(canonical_ids), errors)
+    except Exception as exc:
+        errors.append(f"tool_chain_routing_inspection_failed: {exc!r}")
+
     by_category = Counter(entry.category for entry in TOOL_NAMESPACE.values())
     print(f"canonical_count {len(canonical_ids)}")
     print(f"execution_count {len(execution_ids)}")
@@ -106,6 +112,37 @@ def main() -> int:
         return 1
     print("PASS")
     return 0
+
+
+def _inspect_tool_chain_routing(route_tool_scene, canonical_ids: set[str], errors: list[str]) -> None:
+    samples = {
+        "host": route_tool_scene("本机 OS 的 IP 是多少"),
+        "network_report": route_tool_scene("帮我分析上传的华三配置，并整理成报告保存"),
+        "web_network": route_tool_scene("根据官方文档看看这个 Cisco OSPF 配置有没有问题"),
+    }
+    for name, scene in samples.items():
+        candidates = scene.get("candidate_tools") or []
+        non_canonical = [tid for tid in candidates if tid not in canonical_ids]
+        if non_canonical:
+            errors.append(f"{name}: non-canonical candidate_tools {non_canonical}")
+        candidate_set = set(candidates)
+        for step in scene.get("tool_chain") or []:
+            preferred = set(step.get("preferred_tools") or [])
+            if not preferred <= candidate_set:
+                errors.append(f"{name}: preferred tools outside candidates {sorted(preferred - candidate_set)}")
+
+    network_report_categories = set(samples["network_report"].get("categories") or [])
+    if not {"workspace", "network", "report_data"} <= network_report_categories:
+        errors.append(f"network_report: missing chained categories {sorted(network_report_categories)}")
+    host_candidates = set(samples["host"].get("candidate_tools") or [])
+    if "network.config.parse" in host_candidates:
+        errors.append("host: unexpectedly includes network.config.parse")
+    web_network_categories = set(samples["web_network"].get("categories") or [])
+    if not {"web", "network"} <= web_network_categories:
+        errors.append(f"web_network: missing web/network categories {sorted(web_network_categories)}")
+    network_candidates = set(samples["web_network"].get("candidate_tools") or [])
+    if "host.shell.exec" in network_candidates:
+        errors.append("web_network: unexpectedly includes host.shell.exec")
 
 
 if __name__ == "__main__":

@@ -1,4 +1,4 @@
-# Tool Contract — Network Agent v2.2
+# Tool Contract — Network Agent v2.2.1
 
 本文档定义每个 Tool 的**必需字段**、**标准化返回值**、和**风险等级规则**。
 
@@ -18,6 +18,8 @@
 
 v2.2 adds a namespace metadata layer. The execution `tool_id` remains the
 stable runtime id; the canonical id is used by LLM and frontend catalog views.
+v2.2.1 adds multi-category scene routing and `tool_chain` planning on top of
+that namespace; it does not add handlers or change the execution id count.
 
 | Metadata 字段 | 类型 | 说明 |
 |------|------|------|
@@ -29,6 +31,10 @@ stable runtime id; the canonical id is used by LLM and frontend catalog views.
 | `action` | str | 动作，例如 `read`, `search`, `exec`, `render` |
 | `display_name` / `short_label` | str | 前端展示名称 |
 | `usage_hint` / `not_for` | str | 选择提示和边界说明 |
+
+`route_tool_scene()` returns canonical `candidate_tools` and a `tool_chain`.
+Each `tool_chain[].preferred_tools` entry must be a canonical id and must be
+present in `candidate_tools`.
 
 ### 1.2 分发字段
 

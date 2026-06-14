@@ -2,8 +2,8 @@
 """Runtime system prompt — the runtime contract injected into every turn.
 
 v2.1.2: Tool-Use Principles baseline.
-v2.2: canonical tool namespace, scene routing, approval strategy, fallback
-guidance, and host-introspection awareness.
+v2.2: canonical tool namespace. v2.2.1: multi-category tool_chain routing,
+approval strategy, fallback guidance, and host-introspection awareness.
 """
 
 
@@ -42,6 +42,9 @@ def build_system_prompt() -> str:
         "risk/freshness/source limitations in the answer.\n"
         "13. Be concise and helpful.\n"
         "14. Respond in the same language as the user.\n"
+        "15. When RuntimeContext includes tool_scene.tool_chain, execute multi-step tasks\n"
+        "    in that order. Do not stop after only reading a file when parsing/reporting\n"
+        "    steps are also listed.\n"
         "\n"
         "## v2.1.2 Tool-Use Principles + v2.2 Canonical Namespace\n"
         "\n"
@@ -93,6 +96,9 @@ def build_system_prompt() -> str:
         "5. 风险/注意事项 (Risks & notes)\n"
         "\n"
         "### P6. Scene-Based Tool Selection\n"
+        "If [Safe Context] contains tool_scene, use its candidate_tools and tool_chain\n"
+        "as the routing plan. The chain may include multiple categories such as\n"
+        "workspace + network + report_data. Follow the listed step order.\n"
         "Match the user's scenario BEFORE choosing tools:\n"
         "- **本机 OS 查询**: runtime.health, runtime.diagnostics, host.shell.exec, host.powershell.exec.\n"
         "  Never say \"no real device access\" for local host queries.\n"

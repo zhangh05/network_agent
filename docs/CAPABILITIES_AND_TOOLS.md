@@ -89,6 +89,54 @@ Namespace source and checks:
 `GET /api/tools/catalog` returns both a flat compatibility list and a
 `categories[]` tree for frontend directory display.
 
+## v2.2.1 Tool Chain Routing
+
+v2.2.1 keeps the same namespace/execution/alias mapping and upgrades the
+runtime scene router from a single category/group decision to a multi-category
+tool-chain plan:
+
+```text
+User request
+→ signals
+→ primary_category
+→ categories[]
+→ groups{}
+→ candidate_tools[]
+→ tool_chain[]
+→ ToolRouter canonical function names
+```
+
+Example request:
+
+```text
+帮我分析上传的华三配置，并整理成报告保存
+```
+
+Expected routing shape:
+
+```text
+primary_category: network
+categories: workspace, network, report_data
+candidate_tools:
+  workspace.file.read
+  workspace.file.preview
+  network.config.parse
+  network.interface.extract
+  network.route.extract
+  report.markdown.render
+  workspace.artifact.save
+```
+
+`tool_chain[]` orders the LLM's work:
+
+1. Read uploaded or workspace files.
+2. Parse the network configuration offline.
+3. Extract interface and route facts.
+4. Render and save the report artifact.
+
+Host tools are included only for explicit local-machine requests. Network
+configuration analysis uses `network.*` offline text tools, not `host.shell.*`.
+
 Registered but not model-visible:
 
 - `knowledge.read_source`: backend/admin callable, `callable_by_llm=False`

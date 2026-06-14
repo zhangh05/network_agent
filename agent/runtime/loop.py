@@ -1149,6 +1149,17 @@ def _safe_context_prompt_text(safe_context: dict | None) -> str:
         if value:
             projected[key] = _safe_prompt_value(value, max_items=5)
 
+    tool_scene = safe_context.get("tool_scene")
+    if isinstance(tool_scene, dict):
+        projected["tool_scene"] = _safe_prompt_value({
+            "primary_category": tool_scene.get("primary_category"),
+            "categories": tool_scene.get("categories"),
+            "groups": tool_scene.get("groups"),
+            "candidate_tools": tool_scene.get("candidate_tools"),
+            "tool_chain": tool_scene.get("tool_chain"),
+            "reason": tool_scene.get("reason"),
+        }, max_items=8)
+
     workspace_state = safe_context.get("workspace_state")
     if isinstance(workspace_state, dict):
         state = {}

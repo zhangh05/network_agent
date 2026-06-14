@@ -105,7 +105,15 @@ def build_turn_context(session, turn, services) -> TurnContext:
                     ctx.tool_router if hasattr(ctx.tool_router, "list_model_visible") else None
                 )
                 if base_reg is not None:
-                    tool_scene = route_tool_scene(user_msg)
+                    session_meta = getattr(session, "metadata", None) or {}
+                    tool_scene = route_tool_scene(
+                        user_input=user_msg,
+                        session_context={
+                            **session_meta,
+                            "workspace_id": ctx.workspace_id,
+                            "selected_skills": selected_skills,
+                        },
+                    )
                     allowed_tools = list(tool_scene.get("candidate_tools") or [])
                     ctx.tool_router = ToolRouter.for_turn(base_reg, allowed_tool_ids=allowed_tools)
                     if services and services.tool_service and hasattr(services.tool_service, "dispatch"):
@@ -185,6 +193,10 @@ def build_turn_context(session, turn, services) -> TurnContext:
         # Fallback to minimal context if full bundle build fails
         ctx.safe_context = {"workspace_id": ctx.workspace_id, "session_id": ctx.session_id}
         ctx.metadata.setdefault("context_errors", []).append(str(e)[:200])
+
+    if tool_scene:
+        ctx.safe_context["tool_scene"] = tool_scene
+        ctx.safe_context["tool_chain"] = tool_scene.get("tool_chain", [])
 
     # ── v2.1: Inject loaded skills into context ──
     # Read from session metadata first (skill.load writes there),
