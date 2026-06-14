@@ -138,15 +138,20 @@ def test_release_tags_not_moved():
     }
     for tag, oid in expected.items():
         result = subprocess.run(
-            ["git", "rev-parse", tag],
+            ["git", "ls-remote", "--tags", "origin", tag],
             cwd=PROJECT_ROOT,
             text=True,
             capture_output=True,
             check=True,
         )
-        assert result.stdout.strip() == oid
+        refs = {
+            line.split()[1]: line.split()[0]
+            for line in result.stdout.splitlines()
+            if line.split()
+        }
+        assert refs.get(f"refs/tags/{tag}") == oid
     absent = subprocess.run(
-        ["git", "tag", "--list", "v2.1.2*"],
+        ["git", "ls-remote", "--tags", "origin", "v2.1.2*"],
         cwd=PROJECT_ROOT,
         text=True,
         capture_output=True,
