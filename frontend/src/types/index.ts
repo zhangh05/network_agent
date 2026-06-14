@@ -95,6 +95,9 @@ export interface RuntimeEvent {
   name?: string;
   status?: string;
   summary?: string;
+  message?: string;
+  tool_id?: string;
+  level?: string;
   occurred_at?: string;
   timestamp?: string;
   payload?: Record<string, unknown>;

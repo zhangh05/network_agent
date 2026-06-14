@@ -27,17 +27,8 @@ WS_ROOT = ROOT / "workspaces"
 
 
 # ═══════════════ Helpers ═══════════════
-
-def _validate_workspace_path(workspace_id: str, subpath: str = "") -> Path:
-    """Validate and return a safe workspace path. Blocks traversal."""
-    ws_id = validate_workspace_id(workspace_id)
-    base = (WS_ROOT / ws_id).resolve()
-    # Sanitize subpath: remove any .. components
-    clean = subpath.replace("..", "").replace("//", "/").lstrip("/")
-    target = (base / clean).resolve()
-    if not str(target).startswith(str(base)):
-        raise ValueError(f"Path traversal blocked: {subpath}")
-    return target
+# _validate_workspace_path is now imported from tool_runtime.path_security
+# (safe implementation with proper traversal + symlink + encoding checks)
 
 
 def _safe_preview(text: str, max_chars: int = 500) -> str:

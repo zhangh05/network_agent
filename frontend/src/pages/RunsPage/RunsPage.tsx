@@ -2,25 +2,36 @@
  * RunsPage — v2.1.1: Run history list and detail view.
  */
 import { useEffect, useState, useCallback } from "react";
-import { workspacesApi } from "../../api";
+import { workspacesApi, runtimeAuditApi } from "../../api";
 import { useSessionStore } from "../../stores/session";
 import { Badge, EmptyState, LoadingState, StatusDot } from "../../components/common";
 import { IconRefresh } from "../../components/Icon";
-import type { RuntimeAuditTurn } from "../../types";
+import type { RuntimeAuditTurn, RuntimeEvent } from "../../types";
 
 export function RunsPage() {
   const { currentWorkspaceId } = useSessionStore();
+  const wsId = currentWorkspaceId || "default";
   const [runs, setRuns] = useState<RuntimeAuditTurn[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [selectedRun, setSelectedRun] = useState<RuntimeAuditTurn | null>(null);
+  const [traceEvents, setTraceEvents] = useState<RuntimeEvent[] | null>(null);
 
   const loadRuns = useCallback(async () => {
     setLoading(true); setError(null);
-    try { const data = await workspacesApi.recentRuns(currentWorkspaceId || "default"); setRuns(data.runs || []); }
+    try { const data = await workspacesApi.recentRuns(wsId); setRuns(data.runs || []); }
     catch (e: any) { setError(e?.message || "Failed"); }
     setLoading(false);
-  }, [currentWorkspaceId]);
+  }, [wsId]);
+
+  const loadTrace = async (run: RuntimeAuditTurn) => {
+    const rid = run.run_id || run.turn_id;
+    if (!rid) return;
+    try {
+      const data = await runtimeAuditApi.trace(wsId, rid);
+      setTraceEvents(data.events || []);
+    } catch { setTraceEvents(null); }
+  };
 
   useEffect(() => { loadRuns(); }, [loadRuns]);
 
@@ -36,39 +47,48 @@ export function RunsPage() {
     return "idle";
   };
 
+  const selectRun = (run: RuntimeAuditTurn) => {
+    if (selectedRun?.run_id === run.run_id) {
+      setSelectedRun(null); setTraceEvents(null);
+    } else {
+      setSelectedRun(run); loadTrace(run);
+    }
+  };
+
+  // Extract tool_call events from trace
+  const toolCalls = traceEvents?.filter(e => e.event_type === "tool_end" || e.event_type === "tool_error") || [];
+  const warnings = traceEvents?.filter(e => e.event_type === "warning" || e.level === "warn") || [];
+  const errors = traceEvents?.filter(e => e.event_type === "error" || e.level === "err") || [];
+
   return (
-    <div className="page-runs">
-      <div className="page-header">
+    <div className="page-runs" style={{ padding: 16 }}>
+      <div className="page-header" style={{ display: "flex", justifyContent: "space-between", marginBottom: 16 }}>
         <h2>运行记录</h2>
         <button className="btn-sm" onClick={loadRuns} title="刷新"><IconRefresh size={14} /></button>
       </div>
 
       {error && <div style={{ color: "var(--err)", padding: 8 }}>{error}</div>}
       {loading && <LoadingState />}
-
       {!loading && !error && runs.length === 0 && <EmptyState text="暂无运行记录" />}
 
-      <div className="runs-layout" style={{ display: "flex", gap: 16 }}>
+      <div style={{ display: "flex", gap: 16 }}>
         <div style={{ flex: 1, maxWidth: 340 }}>
           {runs.map((run) => (
             <div key={run.run_id || run.turn_id}
               style={{ padding: 10, marginBottom: 6, border: selectedRun?.run_id === run.run_id ? "1px solid var(--accent)" : "1px solid var(--border)", borderRadius: 6, cursor: "pointer" }}
-              onClick={() => setSelectedRun(selectedRun?.run_id === run.run_id ? null : run)}>
+              onClick={() => selectRun(run)}>
               <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
                 <StatusDot status={statusDot(run.status || "")} />
                 <span>{run.user_input_summary || run.intent || "(无摘要)"}</span>
                 <Badge kind={statusBadge(run.status || "unknown")}>{run.status || "unknown"}</Badge>
               </div>
-              <div style={{ fontSize: 12, color: "var(--text-muted)", marginTop: 4, display: "flex", gap: 8 }}>
-                <span>{run.session_id?.substring(0, 8)}</span>
-                {run.created_at && <span>{run.created_at}</span>}
-              </div>
+              <div style={{ fontSize: 12, color: "var(--text-muted)", marginTop: 4 }}>{run.session_id?.substring(0, 8)} {run.created_at}</div>
             </div>
           ))}
         </div>
 
         {selectedRun && (
-          <div style={{ flex: 1 }}>
+          <div style={{ flex: 1, overflow: "auto" }}>
             <h3>运行详情</h3>
             <table className="detail-table" style={{ width: "100%", fontSize: 13 }}>
               <tbody>
@@ -78,12 +98,48 @@ export function RunsPage() {
                 <tr><td>trace_id</td><td style={{ fontFamily: "monospace", fontSize: 11 }}>{selectedRun.trace_id || "-"}</td></tr>
                 <tr><td>started_at</td><td>{selectedRun.started_at || "-"}</td></tr>
                 <tr><td>finished_at</td><td>{selectedRun.finished_at || "-"}</td></tr>
-                <tr><td>tool_calls</td><td>{selectedRun.tool_call_count}</td></tr>
-                <tr><td>warnings</td><td>{selectedRun.warning_count}</td></tr>
-                <tr><td>errors</td><td>{selectedRun.error_count}</td></tr>
                 <tr><td>intent</td><td>{selectedRun.intent || "-"}</td></tr>
+                <tr><td>tool_calls</td><td>{selectedRun.tool_call_count}</td></tr>
               </tbody>
             </table>
+
+            {/* Tool calls detail from trace */}
+            {toolCalls.length > 0 && (
+              <div style={{ marginTop: 12 }}>
+                <h4>tool_calls ({toolCalls.length})</h4>
+                {toolCalls.map((e, i) => (
+                  <div key={i} style={{ padding: 6, marginBottom: 4, background: "var(--bg-secondary)", borderRadius: 4, fontSize: 12 }}>
+                    <Badge kind={e.event_type === "tool_error" ? "err" : "ok"}>{String(e.tool_id || e.name || e.event_type)}</Badge>
+                    {e.summary && <span style={{ marginLeft: 8 }}>{e.summary}</span>}
+                  </div>
+                ))}
+              </div>
+            )}
+
+            {warnings.length > 0 && (
+              <div style={{ marginTop: 12 }}>
+                <h4>warnings ({warnings.length})</h4>
+                {warnings.map((w, i) => <div key={i} style={{ color: "var(--warn)", fontSize: 12 }}>⚠ {String(w.summary || w.message || w.event_type)}</div>)}
+              </div>
+            )}
+
+            {errors.length > 0 && (
+              <div style={{ marginTop: 12 }}>
+                <h4>errors ({errors.length})</h4>
+                {errors.map((e, i) => <div key={i} style={{ color: "var(--err)", fontSize: 12 }}>✖ {String(e.summary || e.message || e.event_type)}</div>)}
+              </div>
+            )}
+
+            {/* metadata from events */}
+            {traceEvents && traceEvents.length > 0 && (
+              <div style={{ marginTop: 12 }}>
+                <h4>metadata (events: {traceEvents.length})</h4>
+                <pre style={{ fontSize: 11, maxHeight: 200, overflow: "auto", background: "var(--bg-secondary)", padding: 8, borderRadius: 4 }}>
+                  {JSON.stringify(traceEvents.slice(0, 5).map(e => ({ type: e.event_type, name: e.name, summary: e.summary })), null, 2)}
+                </pre>
+              </div>
+            )}
+
             {selectedRun.selected_skills?.length > 0 && (
               <div style={{ marginTop: 12 }}>
                 <strong>skills:</strong>
@@ -91,6 +147,10 @@ export function RunsPage() {
                   {selectedRun.selected_skills.map((s, i) => <Badge key={i} kind="info">{s}</Badge>)}
                 </div>
               </div>
+            )}
+
+            {(!traceEvents || traceEvents.length === 0) && !selectedRun.tool_call_count && (
+              <div style={{ color: "var(--text-muted)", fontSize: 12, marginTop: 12 }}>(无更多详情)</div>
             )}
           </div>
         )}

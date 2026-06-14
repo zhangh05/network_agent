@@ -3,26 +3,35 @@
 
 import logging
 from flask import request, jsonify
+from backend.core.errors import (
+    bad_request, server_error, invalid_workspace, invalid_session, too_large,
+)
 
 _log = logging.getLogger("agent_routes")
 
 
 def _validated_ws_id(ws_id: str):
     from workspace.ids import validate_workspace_id
-    ws = validate_workspace_id(ws_id)
-    if not ws:
-        return "", (jsonify({"ok": False, "error": "invalid workspace_id"}), 400)
-    return ws, None
+    try:
+        ws = validate_workspace_id(ws_id)
+        if not ws:
+            return "", invalid_workspace()
+        return ws, None
+    except ValueError:
+        return "", invalid_workspace()
 
 
 def _validated_session_id(sid: str):
     if not sid:
         return sid, None
     from workspace.ids import validate_session_id
-    s = validate_session_id(sid)
-    if not s:
-        return "", (jsonify({"ok": False, "error": "invalid session_id"}), 400)
-    return s, None
+    try:
+        s = validate_session_id(sid)
+        if not s:
+            return "", invalid_session()
+        return s, None
+    except ValueError:
+        return "", invalid_session()
 
 
 def agent_message():
@@ -44,22 +53,22 @@ def agent_message():
             return s_err
         session_id = sid
 
+    if not user_input:
+        return bad_request("message is required")
+
     # Cap user input length to prevent OOM
     MAX_INPUT_LENGTH = 65536  # 64KB
     if len(user_input) > MAX_INPUT_LENGTH:
-        return jsonify({"ok": False, "error": "message too long"}), 413
+        return too_large("message too long (max 64KB)")
 
     metadata = data.get("metadata") or {}
     # Cap metadata size to prevent abuse
     try:
         meta_json = jsonify(metadata).get_data(as_text=True) if metadata else "{}"
         if len(meta_json) > 16384:
-            return jsonify({"ok": False, "error": "metadata too large"}), 413
+            return too_large("metadata too large (max 16KB)")
     except Exception:
         metadata = {}
-
-    if not user_input:
-        return jsonify({"ok": False, "error": "message is required"}), 400
 
     try:
         from agent.app.service import get_default_agent_app
@@ -79,4 +88,4 @@ def agent_message():
         return jsonify(payload)
     except Exception as e:
         _log.exception("agent_message failed")
-        return jsonify({"ok": False, "error": "internal_error"}), 500
+        return server_error("agent execution failed")
