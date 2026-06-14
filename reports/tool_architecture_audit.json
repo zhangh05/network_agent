@@ -7,9 +7,9 @@
     "governance_summary": {
       "keep": 84,
       "merged": 1,
-      "removed_candidate": 1,
+      "deprecated": 1,
       "alias": 1,
-      "deprecated": 1
+      "removed_candidate": 1
     },
     "governance_conflicts": 0,
     "duplicate_handler_groups": 0,
