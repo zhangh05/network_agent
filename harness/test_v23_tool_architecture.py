@@ -139,10 +139,10 @@ def test_release_tags_are_not_moved_and_agent_run_not_restored():
         }
         assert refs.get(f"refs/tags/{tag}") == oid
 
-    route_defs = subprocess.run(
-        ["rg", r"@app\.route\([\"']/api/agent/run", "backend", "agent"],
-        cwd=PROJECT_ROOT,
-        text=True,
-        capture_output=True,
+    route_text = "\n".join(
+        path.read_text(errors="ignore")
+        for folder in ("backend", "agent")
+        for path in (PROJECT_ROOT / folder).rglob("*.py")
     )
-    assert route_defs.returncode != 0
+    assert '@app.route("/api/agent/run' not in route_text
+    assert "@app.route('/api/agent/run" not in route_text

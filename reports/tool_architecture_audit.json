@@ -5,30 +5,21 @@
     "legacy_alias_count": 90,
     "planner_visible_count": 84,
     "governance_summary": {
-      "deprecated": 1,
-      "merged": 1,
-      "keep": 84,
       "alias": 1,
-      "removed_candidate": 1
+      "removed_candidate": 1,
+      "merged": 1,
+      "deprecated": 1,
+      "keep": 84
     },
     "governance_conflicts": 0,
-    "duplicate_handler_groups": 2,
+    "duplicate_handler_groups": 0,
     "duplicate_schema_groups": 8,
     "overlap_group_count": 19,
     "conservative_reduction": 2,
     "aggressive_reduction": 4
   },
   "governance_conflicts": [],
-  "duplicate_handlers": {
-    "tool_runtime.general_tools.file_tools:handle_file_exists": [
-      "workspace.file.exists",
-      "workspace.file.path_exists"
-    ],
-    "tool_runtime.general_tools.file_tools:handle_file_list": [
-      "workspace.file.list",
-      "workspace.file.list_all"
-    ]
-  },
+  "duplicate_handlers": {},
   "duplicate_input_schemas": {
     "04a542e45a4a2911": [
       "agent.role.list",
@@ -2319,7 +2310,7 @@
       "group": "file",
       "action": "list_all",
       "handler_module": "tool_runtime.general_tools.file_tools",
-      "handler_name": "handle_file_list",
+      "handler_name": "handle_ws_list_files",
       "permission_action": "read",
       "risk_level": "low",
       "requires_approval": false,
@@ -2372,7 +2363,7 @@
       "group": "file",
       "action": "path_exists",
       "handler_module": "tool_runtime.general_tools.file_tools",
-      "handler_name": "handle_file_exists",
+      "handler_name": "handle_ws_path_exists",
       "permission_action": "read",
       "risk_level": "low",
       "requires_approval": false,
