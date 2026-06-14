@@ -62,6 +62,9 @@ Every LLM-visible tool description includes `tool_id`, `risk`, `source`, and `ap
 
 Runs are stored under `workspaces/<workspace_id>/runs/`. Session messages are stored under `workspaces/<workspace_id>/sessions/`. Runtime status files under `workspaces/_runtime/` are operational state and should not be committed as documentation.
 
-## Legacy Runtime
+## Deterministic Compatibility Pipeline
 
-`agent/legacy/` (historical only, `/api/agent/run` REMOVED in v2.1.1). It is not the primary Workbench path.
+`agent/legacy/` remains as a deterministic compatibility pipeline for
+registry-backed module turns, knowledge queries, trace/timeline projection, and
+release regression coverage. It is reached only through current entry points
+such as `POST /api/agent/message`; it is not a separate public Agent API.

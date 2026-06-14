@@ -8,7 +8,6 @@ This file records facts checked from current source and local runtime constructi
 - Framework: Flask
 - Default backend bind: `0.0.0.0:8010`
 - Main runtime endpoint: `POST /api/agent/message`
-- REMOVED (v2.1.1): `POST /api/agent/run` migrated to `/api/agent/message`
 
 ## Frontend
 
@@ -20,6 +19,8 @@ This file records facts checked from current source and local runtime constructi
 
 ## Runtime Registry
 
+- Release tag: `v2.1.1-full-closure`
+- Baseline commit: `b61a493d5a9f8e0eeb4f83b9656efa566dc91927`
 - Runtime capabilities are defined in `agent/capabilities/builtin.py`.
 - Current runtime capability count: 7 total, 4 enabled, 3 planned.
 - Current runtime tool registry count: 88 registered tools.

@@ -12,7 +12,6 @@ Current API routes are Flask routes registered by `backend/main.py` and `backend
 | GET | `/api/agent/status` | Agent status |
 | GET | `/api/agent/usage` | Agent usage statistics (tokens, turns, costs) |
 | POST | `/api/agent/message` | Main Codex-style runtime turn |
-| POST | `/api/agent/run` | ❌ REMOVED (v2.1.1) — migrated to `POST /api/agent/message` |
 
 ## Sessions
 
@@ -41,7 +40,6 @@ Current API routes are Flask routes registered by `backend/main.py` and `backend
 | GET | `/api/workspaces/<ws_id>/runs/<run_id>` |
 | GET | `/api/workspaces/<ws_id>/runs/<run_id>/trace` |
 | GET | `/api/workspaces/<ws_id>/traces` |
-| GET | `/api/agent/runs/<run_id>/trace` |
 | POST | `/api/reports/create` |
 | POST | `/api/workspaces/<ws_id>/runs/<run_id>/report` |
 | GET | `/api/workspaces/<ws_id>/reports` |
