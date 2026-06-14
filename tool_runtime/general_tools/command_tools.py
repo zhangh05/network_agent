@@ -1,31 +1,99 @@
-"""Real command tools — v2.1.1 split. Wrappers defined here have co_filename in this file."""
-_IMPORTED = False
-_HANDLERS = {}
+"""Split general tool handlers."""
+from tool_runtime.general_tools.shared import *
 
-def _lazy_import():
-    global _IMPORTED, _HANDLERS
-    if _IMPORTED: return
-    import tool_runtime.general_tools_base as _b
-    _HANDLERS["handle_command_approved_exec"] = _b.handle_command_approved_exec
-    _HANDLERS["handle_powershell_approved_script"] = _b.handle_powershell_approved_script
-    _HANDLERS["handle_slash_run"] = _b.handle_slash_run
-    _HANDLERS["handle_python_exec"] = _b.handle_python_exec
-    _IMPORTED = True
+def handle_command_approved_exec(inv: ToolInvocation) -> dict:
+    """Shell command execution on Linux/macOS.
 
-def handle_command_approved_exec(*args, **kwargs):
-    _lazy_import()
-    return _HANDLERS["handle_command_approved_exec"](*args, **kwargs)
+    Accepts a shell command string, executes via /bin/bash -c.
+    Safety limits: 30s timeout, 10000 chars output, workspace-root cwd.
+    Requires approval_id (high risk). Policy blocks destructive patterns.
+    """
+    import platform
+    if platform.system() == "Windows":
+        return _error("Shell execution only available on Linux/macOS. Use powershell.exec on Windows.")
+    command = (inv.arguments.get("command") or inv.arguments.get("command_id") or "").strip()
+    if not command:
+        return _error("command is required")
+    result = _run_shell(command)
+    return _result(result.pop("ok", False), result)
 
-def handle_powershell_approved_script(*args, **kwargs):
-    _lazy_import()
-    return _HANDLERS["handle_powershell_approved_script"](*args, **kwargs)
+def handle_powershell_approved_script(inv: ToolInvocation) -> dict:
+    """PowerShell script execution on Windows.
 
-def handle_slash_run(*args, **kwargs):
-    _lazy_import()
-    return _HANDLERS["handle_slash_run"](*args, **kwargs)
+    Accepts a PowerShell command string, executes via powershell -Command.
+    Safety limits: 15s timeout, 10000 chars output.
+    Requires approval_id (high risk). Policy blocks destructive patterns.
+    """
+    import platform
+    if platform.system() != "Windows":
+        return _error("PowerShell execution only available on Windows. Use shell.exec on Linux/macOS.")
+    command = (inv.arguments.get("command") or inv.arguments.get("script_id") or "").strip()
+    if not command:
+        return _error("command is required")
+    import subprocess
+    try:
+        result = subprocess.run(
+            ["powershell", "-NoProfile", "-NonInteractive", "-Command", command],
+            capture_output=True, text=True, timeout=15,
+        )
+        stdout = (result.stdout or "")[:_SHELL_MAX_OUTPUT]
+        stderr = (result.stderr or "")[:_SHELL_MAX_OUTPUT]
+        return _ok({
+            "exit_code": result.returncode,
+            "stdout": stdout,
+            "stderr": stderr,
+        })
+    except subprocess.TimeoutExpired:
+        return _error("command timed out after 15s")
+    except FileNotFoundError:
+        return _error("powershell not found")
+    except Exception as e:
+        return _error(str(e)[:200])
 
-def handle_python_exec(*args, **kwargs):
-    _lazy_import()
-    return _HANDLERS["handle_python_exec"](*args, **kwargs)
+def handle_slash_run(inv: ToolInvocation) -> dict:
+    """Execute a slash command via the command system."""
+    args = inv.arguments
+    command = str(args.get("command", "")).strip()
+    cmd_args = str(args.get("args", "")).strip()
+
+    if not command:
+        return _error("command is required")
+
+    try:
+        from agent.runtime.command_system import execute_command
+        result = execute_command(command, cmd_args, getattr(inv, 'session_id', None), getattr(inv, 'workspace_id', None))
+        return _ok({"command": command, "result": result})
+    except ImportError:
+        return _error("command system not available")
+    except Exception as e:
+        return _error(str(e)[:200])
+
+def handle_python_exec(inv: ToolInvocation) -> dict:
+    """Execute Python code in an AST-checked sandbox.
+
+    High risk tool. Code is parsed with AST to reject forbidden imports,
+    builtins, and dunder access before execution. Runs in a subprocess with
+    timeout. Requires explicit user approval.
+    """
+    workspace_id = inv.arguments.get("workspace_id", "default")
+    run_id = inv.arguments.get("run_id", "")
+    code = str(inv.arguments.get("code", "")).strip()
+    timeout = min(int(inv.arguments.get("timeout", 10) or 10), 10)
+
+    if not code:
+        return _error("code is required")
+
+    try:
+        validate_workspace_id(workspace_id)
+        from tool_runtime.python_exec import execute_python_code
+        result = execute_python_code(
+            code=code,
+            workspace_id=workspace_id,
+            run_id=run_id,
+            timeout=timeout,
+        )
+        return _result(result.pop("ok", False), result)
+    except Exception as e:
+        return _error(str(e)[:200])
 
 __all__ = ['handle_command_approved_exec', 'handle_powershell_approved_script', 'handle_slash_run', 'handle_python_exec']

@@ -84,7 +84,7 @@ def context_error(message: str, details: dict | None = None):
 
 def invalid_workspace():
     """Standard invalid workspace response."""
-    return _make_error("validation_error", "Invalid workspace_id", 400)
+    return _make_error("invalid_workspace_id", "Invalid workspace_id", 400)
 
 
 def invalid_session():

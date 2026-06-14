@@ -29,6 +29,8 @@ from backend.api.session_routes import (
     handle_session_create, handle_session_list,
     handle_session_detail, handle_session_update,
     handle_session_archive,
+    handle_session_restore, handle_session_soft_delete,
+    handle_session_delete_permanently,
     handle_session_messages, handle_session_default,
 )
 from backend.api.artifact_routes import register_artifact_routes
@@ -117,6 +119,18 @@ def create_app():
     @app.route("/api/sessions/<session_id>/archive", methods=["POST"])
     def api_session_archive(session_id):
         return handle_session_archive(session_id)
+
+    @app.route("/api/sessions/<session_id>/restore", methods=["POST"])
+    def api_session_restore(session_id):
+        return handle_session_restore(session_id)
+
+    @app.route("/api/sessions/<session_id>/soft-delete", methods=["POST"])
+    def api_session_soft_delete(session_id):
+        return handle_session_soft_delete(session_id)
+
+    @app.route("/api/sessions/<session_id>", methods=["DELETE"])
+    def api_session_delete_permanently(session_id):
+        return handle_session_delete_permanently(session_id)
 
     @app.route("/api/sessions/<session_id>/messages")
     def api_session_messages(session_id):

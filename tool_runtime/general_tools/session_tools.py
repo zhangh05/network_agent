@@ -1,66 +1,231 @@
-"""Real session tools — v2.1.1 split. Wrappers defined here have co_filename in this file."""
-_IMPORTED = False
-_HANDLERS = {}
+"""Split general tool handlers."""
+from tool_runtime.general_tools.shared import *
 
-def _lazy_import():
-    global _IMPORTED, _HANDLERS
-    if _IMPORTED: return
-    import tool_runtime.general_tools_base as _b
-    _HANDLERS["handle_session_list"] = _b.handle_session_list
-    _HANDLERS["handle_session_get_summary"] = _b.handle_session_get_summary
-    _HANDLERS["handle_session_create"] = _b.handle_session_create
-    _HANDLERS["handle_session_archive"] = _b.handle_session_archive
-    _HANDLERS["handle_run_list_recent"] = _b.handle_run_list_recent
-    _HANDLERS["handle_run_get_summary"] = _b.handle_run_get_summary
-    _HANDLERS["handle_session_snapshot"] = _b.handle_session_snapshot
-    _HANDLERS["handle_session_list_snapshots"] = _b.handle_session_list_snapshots
-    _HANDLERS["handle_session_rewind"] = _b.handle_session_rewind
-    _HANDLERS["handle_session_checkpoint"] = _b.handle_session_checkpoint
-    _HANDLERS["handle_session_export"] = _b.handle_session_export
-    _IMPORTED = True
+def handle_session_list(inv: ToolInvocation) -> dict:
+    ws = inv.arguments.get("workspace_id", "default")
+    try:
+        validate_workspace_id(ws)
+        from workspace.session_store import list_sessions
+        sessions = list_sessions(ws, limit=50)
+        results = []
+        for s in sessions:
+            results.append({
+                "session_id": s.get("session_id", ""),
+                "title": s.get("title", ""),
+                "status": s.get("status", "active"),
+                "updated_at": s.get("updated_at", ""),
+            })
+        return _ok({"sessions": results, "count": len(results)})
+    except Exception as e:
+        return _error(str(e)[:200])
 
-def handle_session_list(*args, **kwargs):
-    _lazy_import()
-    return _HANDLERS["handle_session_list"](*args, **kwargs)
+def handle_session_get_summary(inv: ToolInvocation) -> dict:
+    ws = inv.arguments.get("workspace_id", "default")
+    sid = inv.arguments.get("session_id", "")
+    try:
+        validate_workspace_id(ws)
+        from workspace.session_store import get_session
+        s = get_session(sid, ws)
+        if not s:
+            return _error("session not found")
+        messages = s.get("messages", [])
+        return _ok({
+            "session_id": sid,
+            "title": s.get("title", ""),
+            "message_count": len(messages),
+            "first_message": messages[0].get("content", "")[:100] if messages else "",
+            "last_message": messages[-1].get("content", "")[:100] if messages else "",
+        })
+    except Exception as e:
+        return _error(str(e)[:200])
 
-def handle_session_get_summary(*args, **kwargs):
-    _lazy_import()
-    return _HANDLERS["handle_session_get_summary"](*args, **kwargs)
+def handle_session_create(inv: ToolInvocation) -> dict:
+    ws = inv.arguments.get("workspace_id", "default")
+    title = inv.arguments.get("title", "new_session")
+    try:
+        validate_workspace_id(ws)
+        from workspace.session_store import create_session
+        import uuid
+        sid = str(uuid.uuid4())[:8]
+        create_session(ws, sid, title)
+        return _ok({"session_id": sid, "title": title})
+    except Exception as e:
+        return _error(str(e)[:200])
 
-def handle_session_create(*args, **kwargs):
-    _lazy_import()
-    return _HANDLERS["handle_session_create"](*args, **kwargs)
+def handle_session_archive(inv: ToolInvocation) -> dict:
+    ws = inv.arguments.get("workspace_id", "default")
+    sid = inv.arguments.get("session_id", "")
+    try:
+        validate_workspace_id(ws)
+        from workspace.session_store import archive_session
+        ok = archive_session(ws, sid)
+        return _ok({"archived": ok}) if ok else _error("archive failed")
+    except Exception as e:
+        return _error(str(e)[:200])
 
-def handle_session_archive(*args, **kwargs):
-    _lazy_import()
-    return _HANDLERS["handle_session_archive"](*args, **kwargs)
+def handle_run_list_recent(inv: ToolInvocation) -> dict:
+    ws = inv.arguments.get("workspace_id", "default")
+    limit = min(int(inv.arguments.get("limit", 5)), 20)
+    try:
+        validate_workspace_id(ws)
+        from workspace.run_store import list_runs
+        runs = list_runs(ws, limit=limit)
+        results = []
+        for r in runs:
+            results.append({
+                "run_id": r.get("run_id", ""),
+                "intent": r.get("intent", ""),
+                "status": r.get("status", "ok"),
+                "active_module": r.get("active_module", ""),
+                "created_at": r.get("created_at", ""),
+            })
+        return _ok({"runs": results, "count": len(results)})
+    except Exception as e:
+        return _error(str(e)[:200])
 
-def handle_run_list_recent(*args, **kwargs):
-    _lazy_import()
-    return _HANDLERS["handle_run_list_recent"](*args, **kwargs)
+def handle_run_get_summary(inv: ToolInvocation) -> dict:
+    ws = inv.arguments.get("workspace_id", "default")
+    run_id = inv.arguments.get("run_id", "")
+    try:
+        validate_workspace_id(ws)
+        from workspace.run_store import get_run
+        r = get_run(ws, run_id)
+        if not r:
+            return _error("run not found")
+        return _ok({
+            "run_id": run_id,
+            "intent": r.get("intent", ""),
+            "status": r.get("status", "ok"),
+            "active_module": r.get("active_module", ""),
+        })
+    except Exception as e:
+        return _error(str(e)[:200])
 
-def handle_run_get_summary(*args, **kwargs):
-    _lazy_import()
-    return _HANDLERS["handle_run_get_summary"](*args, **kwargs)
+def handle_session_snapshot(inv: ToolInvocation) -> dict:
+    """Create a snapshot of the current session state."""
+    ws = inv.arguments.get("workspace_id", "default")
+    sid = inv.arguments.get("session_id", "")
+    reason = str(inv.arguments.get("reason", "")).strip()
+    if not sid:
+        return _error("session_id is required")
+    try:
+        validate_workspace_id(ws)
+        from workspace.session_snapshot import create_snapshot
+        result = create_snapshot(workspace_id=ws, session_id=sid, reason=reason)
+        return _result(result.get("ok", False), result)
+    except Exception as e:
+        return _error(str(e)[:200])
 
-def handle_session_snapshot(*args, **kwargs):
-    _lazy_import()
-    return _HANDLERS["handle_session_snapshot"](*args, **kwargs)
+def handle_session_list_snapshots(inv: ToolInvocation) -> dict:
+    """List snapshots for a session."""
+    ws = inv.arguments.get("workspace_id", "default")
+    sid = inv.arguments.get("session_id", "")
+    if not sid:
+        return _error("session_id is required")
+    try:
+        validate_workspace_id(ws)
+        from workspace.session_snapshot import list_snapshots
+        results = list_snapshots(workspace_id=ws, session_id=sid)
+        return _ok({"snapshots": results, "count": len(results)})
+    except Exception as e:
+        return _error(str(e)[:200])
 
-def handle_session_list_snapshots(*args, **kwargs):
-    _lazy_import()
-    return _HANDLERS["handle_session_list_snapshots"](*args, **kwargs)
+def handle_session_rewind(inv: ToolInvocation) -> dict:
+    """Rewind a session to a previous snapshot."""
+    ws = inv.arguments.get("workspace_id", "default")
+    sid = inv.arguments.get("session_id", "")
+    snap_id = inv.arguments.get("snapshot_id", "")
+    dry_run = bool(inv.arguments.get("dry_run", True))
+    if not sid:
+        return _error("session_id is required")
+    if not snap_id:
+        return _error("snapshot_id is required")
+    try:
+        validate_workspace_id(ws)
+        from workspace.session_snapshot import rewind_session
+        result = rewind_session(
+            workspace_id=ws,
+            session_id=sid,
+            snapshot_id=snap_id,
+            dry_run=dry_run,
+        )
+        return _result(result.get("ok", False), result)
+    except Exception as e:
+        return _error(str(e)[:200])
 
-def handle_session_rewind(*args, **kwargs):
-    _lazy_import()
-    return _HANDLERS["handle_session_rewind"](*args, **kwargs)
+def handle_session_checkpoint(inv: ToolInvocation) -> dict:
+    """Create a checkpoint with message/run/artifact references."""
+    ws = inv.arguments.get("workspace_id", "default")
+    sid = inv.arguments.get("session_id", "")
+    reason = str(inv.arguments.get("reason", "")).strip()
+    if not sid:
+        return _error("session_id is required")
+    try:
+        validate_workspace_id(ws)
+        from workspace.session_store import get_session
+        s = get_session(sid, ws)
+        if not s:
+            return _error("session not found")
+        import uuid
+        cid = str(uuid.uuid4())[:8]
+        checkpoints_dir = WS_ROOT / ws / "sessions" / sid / "checkpoints"
+        checkpoints_dir.mkdir(parents=True, exist_ok=True)
+        messages = s.get("messages", [])
+        checkpoint = {
+            "checkpoint_id": cid,
+            "session_id": sid,
+            "workspace_id": ws,
+            "reason": reason,
+            "message_count": len(messages),
+            "run_refs": s.get("run_refs", []),
+            "artifact_refs": s.get("artifact_refs", []),
+            "created_at": time.strftime("%Y-%m-%dT%H:%M:%S"),
+        }
+        checkpoint_path = checkpoints_dir / f"{cid}.json"
+        checkpoint_path.write_text(json.dumps(checkpoint, ensure_ascii=False, indent=2), encoding="utf-8")
+        return _ok({
+            "checkpoint_id": cid,
+            "message_count": len(messages),
+            "reason": reason,
+        })
+    except Exception as e:
+        return _error(str(e)[:200])
 
-def handle_session_checkpoint(*args, **kwargs):
-    _lazy_import()
-    return _HANDLERS["handle_session_checkpoint"](*args, **kwargs)
-
-def handle_session_export(*args, **kwargs):
-    _lazy_import()
-    return _HANDLERS["handle_session_export"](*args, **kwargs)
+def handle_session_export(inv: ToolInvocation) -> dict:
+    """Export session messages to JSON or markdown."""
+    ws = inv.arguments.get("workspace_id", "default")
+    sid = inv.arguments.get("session_id", "")
+    fmt = str(inv.arguments.get("format", "md")).strip().lower()
+    if not sid:
+        return _error("session_id is required")
+    try:
+        validate_workspace_id(ws)
+        from workspace.session_store import get_session
+        s = get_session(sid, ws)
+        if not s:
+            return _error("session not found")
+        messages = s.get("messages", [])
+        title = s.get("title", "session")
+        if fmt == "json":
+            export = {
+                "session_id": sid,
+                "title": title,
+                "message_count": len(messages),
+                "messages": messages,
+            }
+            return _ok({"format": "json", "export": export})
+        else:
+            lines = [f"# {title}", f"Session: {sid}", f"Messages: {len(messages)}", ""]
+            for i, msg in enumerate(messages):
+                role = msg.get("role", "unknown")
+                content = msg.get("content", "")
+                lines.append(f"## Message {i + 1} ({role})")
+                lines.append("")
+                lines.append(content[:1000])
+                lines.append("")
+            md = "\n".join(lines)
+            return _ok({"format": "md", "export": md})
+    except Exception as e:
+        return _error(str(e)[:200])
 
 __all__ = ['handle_session_list', 'handle_session_get_summary', 'handle_session_create', 'handle_session_archive', 'handle_run_list_recent', 'handle_run_get_summary', 'handle_session_snapshot', 'handle_session_list_snapshots', 'handle_session_rewind', 'handle_session_checkpoint', 'handle_session_export']

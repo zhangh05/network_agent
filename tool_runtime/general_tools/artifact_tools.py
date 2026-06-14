@@ -1,36 +1,128 @@
-"""Real artifact tools — v2.1.1 split. Wrappers defined here have co_filename in this file."""
-_IMPORTED = False
-_HANDLERS = {}
+"""Split general tool handlers."""
+from tool_runtime.general_tools.shared import *
 
-def _lazy_import():
-    global _IMPORTED, _HANDLERS
-    if _IMPORTED: return
-    import tool_runtime.general_tools_base as _b
-    _HANDLERS["handle_artifact_search"] = _b.handle_artifact_search
-    _HANDLERS["handle_artifact_read_content_safe"] = _b.handle_artifact_read_content_safe
-    _HANDLERS["handle_artifact_save_result"] = _b.handle_artifact_save_result
-    _HANDLERS["handle_artifact_tag"] = _b.handle_artifact_tag
-    _HANDLERS["handle_artifact_delete_soft"] = _b.handle_artifact_delete_soft
-    _IMPORTED = True
+def handle_artifact_search(inv: ToolInvocation) -> dict:
+    args = inv.arguments
+    ws = args.get("workspace_id", "default")
+    query = (args.get("query") or "").strip().lower()
+    try:
+        validate_workspace_id(ws)
+        from artifacts.store import list_artifacts
+        arts = list_artifacts(ws, limit=100)
+        results = []
+        for a in arts:
+            title = (a.get("title") or "").lower()
+            a_type = (a.get("artifact_type") or "").lower()
+            if query in title or query in a_type or not query:
+                results.append({
+                    "artifact_id": a.get("artifact_id", ""),
+                    "title": a.get("title", ""),
+                    "artifact_type": a.get("artifact_type", ""),
+                    "lifecycle": a.get("lifecycle", "active"),
+                    "sensitivity": a.get("sensitivity", "internal"),
+                    "created_at": a.get("created_at", ""),
+                })
+        return _ok({"results": results[:20], "count": len(results)})
+    except Exception as e:
+        return _error(str(e)[:200])
 
-def handle_artifact_search(*args, **kwargs):
-    _lazy_import()
-    return _HANDLERS["handle_artifact_search"](*args, **kwargs)
+def handle_artifact_read_content_safe(inv: ToolInvocation) -> dict:
+    args = inv.arguments
+    ws = args.get("workspace_id", "default")
+    art_id = args.get("artifact_id", "")
+    try:
+        validate_workspace_id(ws)
+        from artifacts.store import read_artifact_content, get_artifact
+        art = get_artifact(ws, art_id)
+        if not art:
+            return _error("artifact not found")
+        sensitivity = getattr(art, "sensitivity", "internal")
+        art_type = getattr(art, "artifact_type", "")
+        # Only truly secret artifacts are blocked from the LLM.
+        # "sensitive" (e.g. translated_config output) must be readable so
+        # the LLM can surface manual_review_items and complete the review loop.
+        if sensitivity in ("secret",):
+            return _ok({
+                "preview": f"[{sensitivity} artifact — content not shown]",
+                "title": getattr(art, "title", ""),
+                "artifact_type": art_type,
+                "sensitivity": sensitivity,
+            })
+        # sensitive + internal are readable; "confidential" gets a short preview
+        allow = sensitivity not in ("confidential",)
+        content = read_artifact_content(ws, art_id, allow_sensitive=allow)
+        if content is None:
+            return _error("content not accessible")
+        # translated_config is user-requested output — give generous preview
+        if art_type in ("translated_config", "output_config"):
+            preview_len = min(len(str(content)), 8000)
+        elif sensitivity in ("confidential",):
+            preview_len = 200
+        else:
+            preview_len = 2000
+        return _ok({
+            "preview": _safe_preview(str(content), preview_len),
+            "title": getattr(art, "title", ""),
+            "artifact_type": art_type,
+            "sensitivity": sensitivity,
+        })
+    except Exception as e:
+        return _error(str(e)[:200])
 
-def handle_artifact_read_content_safe(*args, **kwargs):
-    _lazy_import()
-    return _HANDLERS["handle_artifact_read_content_safe"](*args, **kwargs)
+def handle_artifact_save_result(inv: ToolInvocation) -> dict:
+    args = inv.arguments
+    ws = args.get("workspace_id", "default")
+    title = args.get("title", "tool_result")
+    content = str(args.get("content", ""))
+    a_type = args.get("artifact_type", "knowledge_doc")
+    try:
+        validate_workspace_id(ws)
+        from artifacts.store import save_artifact
+        # v1.0.3.5: use keyword args — save_artifact creates ArtifactRecord internally
+        rec = save_artifact(workspace_id=ws, content=content, title=title,
+                            artifact_type=a_type, sensitivity="internal")
+        if not rec:
+            return _error("artifact save blocked or failed")
+        return _ok({
+            "artifact_id": rec.artifact_id,
+            "artifact_ids": [rec.artifact_id],
+            "title": title,
+            "artifact_type": a_type,
+        })
+    except Exception as e:
+        return _error(str(e)[:200])
 
-def handle_artifact_save_result(*args, **kwargs):
-    _lazy_import()
-    return _HANDLERS["handle_artifact_save_result"](*args, **kwargs)
+def handle_artifact_tag(inv: ToolInvocation) -> dict:
+    args = inv.arguments
+    ws = args.get("workspace_id", "default")
+    art_id = args.get("artifact_id", "")
+    tags = args.get("tags", [])
+    try:
+        validate_workspace_id(ws)
+        from artifacts.store import get_artifact
+        art = get_artifact(ws, art_id)
+        if not art:
+            return _error("artifact not found")
+        existing = list(getattr(art, "tags", []) or [])
+        for t in tags:
+            if t not in existing:
+                existing.append(t)
+        # v1.0.3.5: persist tags to artifact meta
+        _persist_artifact_tags(ws, art_id, existing)
+        return _ok({"artifact_id": art_id, "tags": existing})
+    except Exception as e:
+        return _error(str(e)[:200])
 
-def handle_artifact_tag(*args, **kwargs):
-    _lazy_import()
-    return _HANDLERS["handle_artifact_tag"](*args, **kwargs)
-
-def handle_artifact_delete_soft(*args, **kwargs):
-    _lazy_import()
-    return _HANDLERS["handle_artifact_delete_soft"](*args, **kwargs)
+def handle_artifact_delete_soft(inv: ToolInvocation) -> dict:
+    args = inv.arguments
+    ws = args.get("workspace_id", "default")
+    art_id = args.get("artifact_id", "")
+    try:
+        validate_workspace_id(ws)
+        from artifacts.store import delete_artifact
+        ok = delete_artifact(ws, art_id)
+        return _ok({"deleted": ok}) if ok else _error("delete failed")
+    except Exception as e:
+        return _error(str(e)[:200])
 
 __all__ = ['handle_artifact_search', 'handle_artifact_read_content_safe', 'handle_artifact_save_result', 'handle_artifact_tag', 'handle_artifact_delete_soft']
