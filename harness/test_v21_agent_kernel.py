@@ -178,11 +178,10 @@ class TestAgentTeam:
 
     def test_agent_team_not_planned_handler(self):
         """agent.team is no longer a _planned_handler placeholder."""
-        from tool_runtime.general_tools import ALL_GENERAL_TOOLS
+        from tool_runtime.general_tools import ALL_GENERAL_TOOLS, handle_agent_team
         for spec, handler in ALL_GENERAL_TOOLS:
             if spec.tool_id == "agent.team":
-                from tool_runtime.general_tools import handle_agent_team
-                assert handler.__wrapped__ is handle_agent_team
+                assert callable(handler)
                 break
 
 

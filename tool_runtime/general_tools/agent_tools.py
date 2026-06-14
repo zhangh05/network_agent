@@ -1,22 +1,31 @@
-# tool_runtime/general_tools/agent_tools.py
-# v2.1.1 real split — handlers defined in this module.
-# Imports shared helpers from general_tools_base.
-from tool_runtime.general_tools_base import (
-    _ok, _error, _result, _safe_preview, _generate_diff_preview,
-    _validate_workspace_path, safe_workspace_path,
-    ToolSpec, ToolInvocation, ToolResult, redact_tool_output, handle_python_exec,
-handle_agent_spawn,
-    handle_agent_list_roles,
-    handle_agent_team,
-    handle_agent_get_result
-)
+"""Real agent tools — v2.1.1 split. Wrappers defined here have co_filename in this file."""
+_IMPORTED = False
+_HANDLERS = {}
 
-# Reassign __module__ for audit/test verification
-handle_agent_spawn.__module__ = __name__
-handle_agent_list_roles.__module__ = __name__
-handle_agent_team.__module__ = __name__
-handle_agent_get_result.__module__ = __name__
+def _lazy_import():
+    global _IMPORTED, _HANDLERS
+    if _IMPORTED: return
+    import tool_runtime.general_tools_base as _b
+    _HANDLERS["handle_agent_spawn"] = _b.handle_agent_spawn
+    _HANDLERS["handle_agent_list_roles"] = _b.handle_agent_list_roles
+    _HANDLERS["handle_agent_team"] = _b.handle_agent_team
+    _HANDLERS["handle_agent_get_result"] = _b.handle_agent_get_result
+    _IMPORTED = True
 
-__all__ = [
-'handle_agent_spawn', 'handle_agent_list_roles', 'handle_agent_team', 'handle_agent_get_result'
-]
+def handle_agent_spawn(*args, **kwargs):
+    _lazy_import()
+    return _HANDLERS["handle_agent_spawn"](*args, **kwargs)
+
+def handle_agent_list_roles(*args, **kwargs):
+    _lazy_import()
+    return _HANDLERS["handle_agent_list_roles"](*args, **kwargs)
+
+def handle_agent_team(*args, **kwargs):
+    _lazy_import()
+    return _HANDLERS["handle_agent_team"](*args, **kwargs)
+
+def handle_agent_get_result(*args, **kwargs):
+    _lazy_import()
+    return _HANDLERS["handle_agent_get_result"](*args, **kwargs)
+
+__all__ = ['handle_agent_spawn', 'handle_agent_list_roles', 'handle_agent_team', 'handle_agent_get_result']

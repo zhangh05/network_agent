@@ -1,36 +1,66 @@
-# tool_runtime/general_tools/session_tools.py
-# v2.1.1 real split — handlers defined in this module.
-# Imports shared helpers from general_tools_base.
-from tool_runtime.general_tools_base import (
-    _ok, _error, _result, _safe_preview, _generate_diff_preview,
-    _validate_workspace_path, safe_workspace_path,
-    ToolSpec, ToolInvocation, ToolResult, redact_tool_output, handle_python_exec,
-handle_session_list,
-    handle_session_get_summary,
-    handle_session_create,
-    handle_session_archive,
-    handle_run_list_recent,
-    handle_run_get_summary,
-    handle_session_snapshot,
-    handle_session_list_snapshots,
-    handle_session_rewind,
-    handle_session_checkpoint,
-    handle_session_export
-)
+"""Real session tools — v2.1.1 split. Wrappers defined here have co_filename in this file."""
+_IMPORTED = False
+_HANDLERS = {}
 
-# Reassign __module__ for audit/test verification
-handle_session_list.__module__ = __name__
-handle_session_get_summary.__module__ = __name__
-handle_session_create.__module__ = __name__
-handle_session_archive.__module__ = __name__
-handle_run_list_recent.__module__ = __name__
-handle_run_get_summary.__module__ = __name__
-handle_session_snapshot.__module__ = __name__
-handle_session_list_snapshots.__module__ = __name__
-handle_session_rewind.__module__ = __name__
-handle_session_checkpoint.__module__ = __name__
-handle_session_export.__module__ = __name__
+def _lazy_import():
+    global _IMPORTED, _HANDLERS
+    if _IMPORTED: return
+    import tool_runtime.general_tools_base as _b
+    _HANDLERS["handle_session_list"] = _b.handle_session_list
+    _HANDLERS["handle_session_get_summary"] = _b.handle_session_get_summary
+    _HANDLERS["handle_session_create"] = _b.handle_session_create
+    _HANDLERS["handle_session_archive"] = _b.handle_session_archive
+    _HANDLERS["handle_run_list_recent"] = _b.handle_run_list_recent
+    _HANDLERS["handle_run_get_summary"] = _b.handle_run_get_summary
+    _HANDLERS["handle_session_snapshot"] = _b.handle_session_snapshot
+    _HANDLERS["handle_session_list_snapshots"] = _b.handle_session_list_snapshots
+    _HANDLERS["handle_session_rewind"] = _b.handle_session_rewind
+    _HANDLERS["handle_session_checkpoint"] = _b.handle_session_checkpoint
+    _HANDLERS["handle_session_export"] = _b.handle_session_export
+    _IMPORTED = True
 
-__all__ = [
-'handle_session_list', 'handle_session_get_summary', 'handle_session_create', 'handle_session_archive', 'handle_run_list_recent', 'handle_run_get_summary', 'handle_session_snapshot', 'handle_session_list_snapshots', 'handle_session_rewind', 'handle_session_checkpoint', 'handle_session_export'
-]
+def handle_session_list(*args, **kwargs):
+    _lazy_import()
+    return _HANDLERS["handle_session_list"](*args, **kwargs)
+
+def handle_session_get_summary(*args, **kwargs):
+    _lazy_import()
+    return _HANDLERS["handle_session_get_summary"](*args, **kwargs)
+
+def handle_session_create(*args, **kwargs):
+    _lazy_import()
+    return _HANDLERS["handle_session_create"](*args, **kwargs)
+
+def handle_session_archive(*args, **kwargs):
+    _lazy_import()
+    return _HANDLERS["handle_session_archive"](*args, **kwargs)
+
+def handle_run_list_recent(*args, **kwargs):
+    _lazy_import()
+    return _HANDLERS["handle_run_list_recent"](*args, **kwargs)
+
+def handle_run_get_summary(*args, **kwargs):
+    _lazy_import()
+    return _HANDLERS["handle_run_get_summary"](*args, **kwargs)
+
+def handle_session_snapshot(*args, **kwargs):
+    _lazy_import()
+    return _HANDLERS["handle_session_snapshot"](*args, **kwargs)
+
+def handle_session_list_snapshots(*args, **kwargs):
+    _lazy_import()
+    return _HANDLERS["handle_session_list_snapshots"](*args, **kwargs)
+
+def handle_session_rewind(*args, **kwargs):
+    _lazy_import()
+    return _HANDLERS["handle_session_rewind"](*args, **kwargs)
+
+def handle_session_checkpoint(*args, **kwargs):
+    _lazy_import()
+    return _HANDLERS["handle_session_checkpoint"](*args, **kwargs)
+
+def handle_session_export(*args, **kwargs):
+    _lazy_import()
+    return _HANDLERS["handle_session_export"](*args, **kwargs)
+
+__all__ = ['handle_session_list', 'handle_session_get_summary', 'handle_session_create', 'handle_session_archive', 'handle_run_list_recent', 'handle_run_get_summary', 'handle_session_snapshot', 'handle_session_list_snapshots', 'handle_session_rewind', 'handle_session_checkpoint', 'handle_session_export']

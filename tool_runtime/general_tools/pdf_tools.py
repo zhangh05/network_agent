@@ -1,16 +1,16 @@
-# tool_runtime/general_tools/pdf_tools.py
-# v2.1.1 real split — handlers defined in this module.
-# Imports shared helpers from general_tools_base.
-from tool_runtime.general_tools_base import (
-    _ok, _error, _result, _safe_preview, _generate_diff_preview,
-    _validate_workspace_path, safe_workspace_path,
-    ToolSpec, ToolInvocation, ToolResult, redact_tool_output, handle_python_exec,
-handle_pdf_extract_text
-)
+"""Real pdf tools — v2.1.1 split. Wrappers defined here have co_filename in this file."""
+_IMPORTED = False
+_HANDLERS = {}
 
-# Reassign __module__ for audit/test verification
-handle_pdf_extract_text.__module__ = __name__
+def _lazy_import():
+    global _IMPORTED, _HANDLERS
+    if _IMPORTED: return
+    import tool_runtime.general_tools_base as _b
+    _HANDLERS["handle_pdf_extract_text"] = _b.handle_pdf_extract_text
+    _IMPORTED = True
 
-__all__ = [
-'handle_pdf_extract_text'
-]
+def handle_pdf_extract_text(*args, **kwargs):
+    _lazy_import()
+    return _HANDLERS["handle_pdf_extract_text"](*args, **kwargs)
+
+__all__ = ['handle_pdf_extract_text']

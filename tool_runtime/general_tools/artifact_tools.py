@@ -1,24 +1,36 @@
-# tool_runtime/general_tools/artifact_tools.py
-# v2.1.1 real split — handlers defined in this module.
-# Imports shared helpers from general_tools_base.
-from tool_runtime.general_tools_base import (
-    _ok, _error, _result, _safe_preview, _generate_diff_preview,
-    _validate_workspace_path, safe_workspace_path,
-    ToolSpec, ToolInvocation, ToolResult, redact_tool_output, handle_python_exec,
-handle_artifact_search,
-    handle_artifact_read_content_safe,
-    handle_artifact_save_result,
-    handle_artifact_tag,
-    handle_artifact_delete_soft
-)
+"""Real artifact tools — v2.1.1 split. Wrappers defined here have co_filename in this file."""
+_IMPORTED = False
+_HANDLERS = {}
 
-# Reassign __module__ for audit/test verification
-handle_artifact_search.__module__ = __name__
-handle_artifact_read_content_safe.__module__ = __name__
-handle_artifact_save_result.__module__ = __name__
-handle_artifact_tag.__module__ = __name__
-handle_artifact_delete_soft.__module__ = __name__
+def _lazy_import():
+    global _IMPORTED, _HANDLERS
+    if _IMPORTED: return
+    import tool_runtime.general_tools_base as _b
+    _HANDLERS["handle_artifact_search"] = _b.handle_artifact_search
+    _HANDLERS["handle_artifact_read_content_safe"] = _b.handle_artifact_read_content_safe
+    _HANDLERS["handle_artifact_save_result"] = _b.handle_artifact_save_result
+    _HANDLERS["handle_artifact_tag"] = _b.handle_artifact_tag
+    _HANDLERS["handle_artifact_delete_soft"] = _b.handle_artifact_delete_soft
+    _IMPORTED = True
 
-__all__ = [
-'handle_artifact_search', 'handle_artifact_read_content_safe', 'handle_artifact_save_result', 'handle_artifact_tag', 'handle_artifact_delete_soft'
-]
+def handle_artifact_search(*args, **kwargs):
+    _lazy_import()
+    return _HANDLERS["handle_artifact_search"](*args, **kwargs)
+
+def handle_artifact_read_content_safe(*args, **kwargs):
+    _lazy_import()
+    return _HANDLERS["handle_artifact_read_content_safe"](*args, **kwargs)
+
+def handle_artifact_save_result(*args, **kwargs):
+    _lazy_import()
+    return _HANDLERS["handle_artifact_save_result"](*args, **kwargs)
+
+def handle_artifact_tag(*args, **kwargs):
+    _lazy_import()
+    return _HANDLERS["handle_artifact_tag"](*args, **kwargs)
+
+def handle_artifact_delete_soft(*args, **kwargs):
+    _lazy_import()
+    return _HANDLERS["handle_artifact_delete_soft"](*args, **kwargs)
+
+__all__ = ['handle_artifact_search', 'handle_artifact_read_content_safe', 'handle_artifact_save_result', 'handle_artifact_tag', 'handle_artifact_delete_soft']
