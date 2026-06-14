@@ -1,13 +1,15 @@
 import { useEffect, useState } from "react";
 import { useSessionStore } from "../stores/session";
+import { approvalApi } from "../api";
 import { IconAlert, IconCheck, IconClose } from "./Icon";
 
 interface PendingApproval {
   approval_id: string;
   tool_id: string;
-  description: string;
+  description?: string;
   risk_level: string;
-  arguments_summary: string;
+  arguments_preview: Record<string, unknown>;
+  created_at: string;
 }
 
 /**
@@ -24,10 +26,7 @@ export function ApprovalDialog({ onResolved }: { onResolved?: () => void }) {
 
     const poll = async () => {
       try {
-        const res = await fetch(
-          `/api/agent/approvals/pending?session_id=${currentSessionId}`
-        );
-        const data = await res.json();
+        const data = await approvalApi.pending(currentSessionId);
         if (data.ok && data.pending?.length > 0) {
           setPending(data.pending[0]);
         }
@@ -45,11 +44,7 @@ export function ApprovalDialog({ onResolved }: { onResolved?: () => void }) {
     if (!pending || resolving) return;
     setResolving(true);
     try {
-      await fetch(`/api/agent/approvals/${pending.approval_id}/resolve`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ allowed }),
-      });
+      await approvalApi.resolve(pending.approval_id, allowed);
     } catch {
       /* ignore */
     }
@@ -69,9 +64,9 @@ export function ApprovalDialog({ onResolved }: { onResolved?: () => void }) {
 
       <div className="approval-bubble-body">
         <code>{pending.tool_id}</code>
-        {pending.arguments_summary && (
+        {pending.arguments_preview && (
           <span className="approval-bubble-args">
-            {pending.arguments_summary}
+            {JSON.stringify(pending.arguments_preview).substring(0, 100)}
           </span>
         )}
       </div>

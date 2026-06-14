@@ -8,6 +8,8 @@ import { ReviewCenter } from "../pages/ReviewCenter/ReviewCenter";
 import { CapabilityCenter } from "../pages/CapabilityCenter/CapabilityCenter";
 import { RuntimeAudit } from "../pages/RuntimeAudit/RuntimeAudit";
 import { Settings } from "../pages/Settings/Settings";
+import { MemoryPage } from "../pages/MemoryPage/MemoryPage";
+import { RunsPage } from "../pages/RunsPage/RunsPage";
 import { ToastHost } from "../components/ToastHost";
 import { useUIStore, useSessionStore } from "../stores/session";
 import { systemApi, workspacesApi } from "../api";
@@ -24,6 +26,7 @@ import {
   IconMoon,
   IconSettings,
   IconSun,
+  IconDocument,
 } from "../components/Icon";
 
 const NAV_ITEMS: Array<{ to: string; label: string; testid: string; Icon: typeof IconChat }> = [
@@ -31,6 +34,8 @@ const NAV_ITEMS: Array<{ to: string; label: string; testid: string; Icon: typeof
   { to: "/knowledge", label: "知识库", testid: "nav-knowledge", Icon: IconBook },
   { to: "/artifacts", label: "制品中心", testid: "nav-artifacts", Icon: IconBox },
   { to: "/reviews", label: "评审中心", testid: "nav-reviews", Icon: IconCheck },
+  { to: "/memory", label: "记忆", testid: "nav-memory", Icon: IconDocument },
+  { to: "/runs", label: "运行", testid: "nav-runs", Icon: IconHistory },
   { to: "/capabilities", label: "能力矩阵", testid: "nav-capabilities", Icon: IconLayers },
   { to: "/audit", label: "运行审计", testid: "nav-audit", Icon: IconHistory },
   { to: "/settings", label: "系统设置", testid: "nav-settings", Icon: IconSettings },
@@ -198,6 +203,22 @@ export function App() {
               element={
                 <AppLayout cols={2}>
                   <Settings />
+                </AppLayout>
+              }
+            />
+            <Route
+              path="/memory"
+              element={
+                <AppLayout cols={1}>
+                  <MemoryPage />
+                </AppLayout>
+              }
+            />
+            <Route
+              path="/runs"
+              element={
+                <AppLayout cols={2}>
+                  <RunsPage />
                 </AppLayout>
               }
             />

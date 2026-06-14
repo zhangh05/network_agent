@@ -424,6 +424,61 @@ export const knowledgeApi = {
 /* ──────────────────────── 6b. memory ──────────────────────── */
 
 export const memoryApi = {
+  list: (
+    params: { workspace_id: string; include_deleted?: boolean; limit?: number },
+    signal?: AbortSignal,
+  ): Promise<{ ok: boolean; records: unknown[]; count?: number }> =>
+    apiRequest<{ ok: boolean; records: unknown[]; count?: number }>(
+      { method: "GET", url: "/memory/list", params },
+      signal,
+    ),
+
+  search: (
+    data: { query: string; workspace_id: string; limit?: number },
+    signal?: AbortSignal,
+  ): Promise<{ ok: boolean; results: unknown[]; count?: number }> =>
+    apiRequest<{ ok: boolean; results: unknown[]; count?: number }>(
+      { method: "POST", url: "/memory/search", data },
+      signal,
+    ),
+
+  create: (
+    data: { title: string; content: string; workspace_id?: string; scope?: string; tags?: string[] },
+    signal?: AbortSignal,
+  ): Promise<{ ok: boolean; memory_id: string }> =>
+    apiRequest<{ ok: boolean; memory_id: string }>(
+      { method: "POST", url: "/memory/write", data },
+      signal,
+    ),
+
+  deleteSoft: (
+    memoryId: string,
+    workspaceId: string,
+    signal?: AbortSignal,
+  ): Promise<{ ok: boolean }> =>
+    apiRequest<{ ok: boolean }>(
+      { method: "DELETE", url: `/memory/${encodeURIComponent(memoryId)}`, params: { workspace_id: workspaceId } },
+      signal,
+    ),
+
+  getProfile: (
+    workspaceId: string,
+    signal?: AbortSignal,
+  ): Promise<unknown> =>
+    apiRequest<unknown>(
+      { method: "GET", url: "/memory/status", params: { workspace_id: workspaceId } },
+      signal,
+    ),
+
+  setProfile: (
+    data: { scope?: string; memory_type?: string; source?: string },
+    signal?: AbortSignal,
+  ): Promise<{ ok: boolean }> =>
+    apiRequest<{ ok: boolean }>(
+      { method: "POST", url: "/memory/write", data },
+      signal,
+    ),
+
   confirm: (
     data: {
       title: string;
@@ -678,4 +733,44 @@ export const settingsApi = {
       signal,
     );
   },
+};
+
+/* ──────────────────────── 11. approval ──────────────────────── */
+
+export const approvalApi = {
+  pending: (sessionId: string, signal?: AbortSignal): Promise<{
+    ok: boolean;
+    pending: Array<{
+      approval_id: string;
+      tool_id: string;
+      risk_level: string;
+      arguments_preview: Record<string, unknown>;
+      created_at: string;
+    }>;
+    count: number;
+  }> =>
+    apiRequest({
+      method: "GET",
+      url: `/agent/approvals/pending?session_id=${encodeURIComponent(sessionId)}`,
+    }, signal),
+
+  resolve: (
+    approvalId: string,
+    allowed: boolean,
+  ): Promise<{ ok: boolean; approval_id: string; allowed: boolean }> =>
+    apiRequest({
+      method: "POST",
+      url: `/agent/approvals/${approvalId}/resolve`,
+      data: { allowed },
+    }),
+};
+
+/* ──────────────────────── 12. system status ──────────────────────── */
+
+export const systemStatusApi = {
+  health: (signal?: AbortSignal): Promise<{ status: string; api_mode: string; skills_loaded: number }> =>
+    apiRequest({ method: "GET", url: "/health" }, signal),
+
+  toolCount: (signal?: AbortSignal): Promise<{ registered: number; model_visible: number }> =>
+    apiRequest({ method: "GET", url: "/agent/status" }, signal),
 };
