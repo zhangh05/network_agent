@@ -1,52 +1,41 @@
-# Tool Architecture
+# Tool Architecture (v3.0)
 
-Network Agent v2.3 uses five layers for tools:
+## Layers
 
-1. **Execution layer**: 88 stable runtime tool ids and handlers.
-2. **Canonical namespace layer**: category/group/action ids for LLM and UI.
-3. **Governance layer**: lifecycle status and replacement metadata.
-4. **Capability action layer**: planner-level actions that expand to canonical tools.
-5. **Planner/router layer**: exposes only the current turn's safe candidate tools.
+1. **Namespace** (`tool_runtime/tool_namespace.py`): the canonical
+   catalog of canonical_tool_ids and their (category, group, action,
+   display_name, usage_hint, not_for, handler_id) metadata. No
+   transition surface.
+2. **Governance** (`tool_runtime/tool_governance.py`): per-tool
+   governance_status (one of `active | disabled | internal | forbidden`).
+3. **Capability actions** (`tool_runtime/capability_actions.py`):
+   planner verbs that map to preferred / fallback canonical tools.
+4. **Registry** (`tool_runtime/canonical_registry.py`): dispatch
+   table. Public registration key is `canonical_tool_id`; private
+   implementation key is `handler_id`.
 
-The execution layer remains stable for compatibility. v2.3 does not delete
-handlers. It classifies overlaps and removes redundant fragments from planner
-selection while preserving historical trace interpretation.
+## Files
 
-## Identifiers
+| file | purpose |
+|---|---|
+| `tool_runtime/tool_namespace.py` | canonical catalog |
+| `tool_runtime/tool_namespace_data.py` | static data |
+| `tool_runtime/tool_governance.py` | status + summary |
+| `tool_runtime/capability_actions.py` | planner verbs |
+| `tool_runtime/canonical_registry.py` | dispatch |
 
-- `execution_tool_id`: bottom-layer callable id, for example `file.read`.
-- `canonical_tool_id`: stable user/LLM/UI id, for example `workspace.file.read`.
-- `legacy_tool_id`: old id accepted as an alias, never registered as an extra tool.
-- `capability_action`: planner action, for example `network.config.analyze`.
+## Public surface
 
-## Planner Flow
+The public surface (LLM prompt, frontend default view, docs main
+tables, API catalog) exposes only:
 
-```text
-user request
-→ v2.2.1 rule_scene seed
-→ v2.3 capability_plan
-→ tool_plan
-→ governance validation
-→ ToolRouter candidate whitelist
-→ execution_tool_id
-```
+- canonical_tool_id
+- display_name
+- category / group / action
+- governance_status
+- capability_actions
+- risk_level
+- requires_approval
 
-If validation fails, the planner falls back to deterministic rule-seeded
-planning. The validator rejects invented tools, legacy ids in planner
-candidates, invalid dependencies, unsafe host/network mixes, and non-keep
-governance statuses.
-
-## Audit
-
-Run:
-
-```bash
-python3 scripts/audit_tool_architecture.py
-python3 scripts/inspect_tool_architecture.py
-```
-
-Artifacts:
-
-- `reports/TOOL_ARCHITECTURE_AUDIT.md`
-- `reports/tool_architecture_audit.json`
-
+handler_id is internal-only. It lives on the canonical registry
+dataclass but is not exposed in any public payload.

@@ -1,31 +1,31 @@
-# Tool Governance
+# Tool Governance (v3.0)
 
-v2.3 classifies every canonical tool with a lifecycle status:
+## Statuses
 
-| Status | Meaning |
-|---|---|
-| `keep` | Stable capability. Planner may select it through capability actions. |
-| `alias` | Compatibility-only id that resolves to a replacement. |
-| `merged` | Functionally covered by a replacement; old execution remains registered. |
-| `deprecated` | Direct/legacy calls remain compatible, but planner does not select it. |
-| `removed_candidate` | Candidate for a future major removal after a deprecation release. |
+| status | meaning | planner visible? |
+|---|---|---|
+| active | planner default candidate | yes |
+| disabled | not available right now | no |
+| internal | runtime-only, never exposed | no |
+| forbidden | refused by registry | no |
 
-## Current Governance Highlights
+## Migration policy
 
-- `workspace.file.list_all` is merged into `workspace.file.list`.
-- `workspace.file.path_exists` is an alias for `workspace.file.exists`.
-- `web.news.search` remains callable but is deprecated from default planner use.
-- `text.classify` is a removed candidate for future consolidation.
-- Host execution tools remain independent and high-risk approval behavior is unchanged.
+To retire a tool, set its `governance_status` to `forbidden`. The
+canonical_tool_id remains in place so existing references can be
+audited. The catalog verifier flags any new canonical ID that is not
+registered in `TOOL_NAMESPACE`.
 
-## Compatibility
+## Code reference
 
-Governance does not reduce the runtime registry count. Execution tools remain
-88/88. Historical traces can still be read because audit metadata records:
+```python
+from tool_runtime.tool_governance import (
+    TOOL_GOVERNANCE,
+    governance_summary,
+    planner_visible_tool_ids,
+    forbid,
+)
 
-- requested id
-- canonical id
-- execution id
-- governance status
-- replacement, when any
-
+# Mark a tool as retired:
+forbid("workspace.foo.bar", "removed in v3.0")
+```

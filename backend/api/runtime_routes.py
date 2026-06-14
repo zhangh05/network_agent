@@ -229,64 +229,85 @@ def register_runtime_routes(app):
 
     @app.route("/api/tools/catalog")
     def api_tools_catalog():
-        """Return read-only tool catalog — metadata only, no invoke capability."""
-        from agent.runtime.services import default_runtime_services
-        from tool_runtime.tool_governance import governance_summary, planner_visible_tool_ids
-        from tool_runtime.tool_namespace import category_tree_from_specs, metadata_for_tool
-        services = default_runtime_services()
-        specs = services.tool_service.registry.list_all()
+        """Return read-only tool catalog — canonical IDs only."""
+        from tool_runtime.tool_namespace import (
+            TOOL_NAMESPACE, category_tree_from_specs, metadata_for_tool,
+        )
+        from tool_runtime.tool_governance import (
+            governance_summary, planner_visible_tool_ids,
+        )
+        from tool_runtime.canonical_registry import (
+            CANONICAL_REGISTRY, list_canonical_ids,
+        )
+        from tool_runtime.capability_actions import capability_actions_for
+
         tools = []
-        for spec in specs:
-            item = {
-                "tool_id": spec.tool_id,
-                "name": getattr(spec, "name", spec.tool_id),
-                "category": getattr(spec, "category", ""),
-                "description": getattr(spec, "description", ""),
-                "risk_level": getattr(spec, "risk_level", "low"),
-                "enabled": bool(getattr(spec, "enabled", True)),
-                "requires_approval": bool(getattr(spec, "requires_approval", False)),
-                "input_schema": getattr(spec, "input_schema", {}) or {},
-                "callable_by_llm": bool(getattr(spec, "callable_by_llm", True)),
-                "forbidden": bool(getattr(spec, "forbidden", False)),
-                "source": getattr(spec, "source", "runtime"),
-                "permission_action": getattr(spec, "permission_action", ""),
-            }
-            meta = metadata_for_tool(spec.tool_id)
-            item["metadata"] = {**item.get("metadata", {}), **meta}
-            item.update({
-                "canonical_tool_id": meta["canonical_tool_id"],
-                "execution_tool_id": meta["execution_tool_id"],
-                "legacy_tool_ids": meta["legacy_tool_ids"],
+        for canonical_id in list_canonical_ids():
+            ns_entry = TOOL_NAMESPACE[canonical_id]
+            cr_entry = CANONICAL_REGISTRY[canonical_id]
+            meta = metadata_for_tool(canonical_id)
+            tools.append({
+                "tool_id": canonical_id,
+                "canonical_tool_id": canonical_id,
+                "display_name": meta["display_name"],
                 "category": meta["category"],
                 "group": meta["group"],
                 "action": meta["action"],
-                "display_name": meta["display_name"],
-                "short_label": meta["short_label"],
-                "usage_hint": meta["usage_hint"],
-                "not_for": meta["not_for"],
-                "governance_status": meta.get("governance_status", "keep"),
-                "replacement": meta.get("replacement"),
-                "deprecate_after": meta.get("deprecate_after"),
-                "overlap_group": meta.get("overlap_group", ""),
-                "planner_visible": bool(meta.get("planner_visible", True)),
-                "migration_notes": meta.get("migration_notes", ""),
+                "description": cr_entry.description,
+                "risk_level": cr_entry.risk_level,
+                "requires_approval": bool(cr_entry.requires_approval),
+                "input_schema": cr_entry.input_schema,
+                "permission_action": cr_entry.permission_action,
+                "callable_by_llm": True,
+                "enabled": True,
+                "governance_status": meta["governance_status"],
+                "planner_visible": bool(meta["planner_visible"]),
+                "capability_actions": capability_actions_for(canonical_id),
             })
-            tools.append(item)
         tools.sort(key=lambda t: t["canonical_tool_id"])
-        categories = category_tree_from_specs(specs)
+
+        # Build category tree from spec-like dicts.
+        class _S:
+            def __init__(self, t):
+                self.tool_id = t["canonical_tool_id"]
+                self.metadata = {
+                    "canonical_tool_id": t["canonical_tool_id"],
+                    "category": t["category"],
+                    "group": t["group"],
+                    "action": t["action"],
+                    "display_name": t["display_name"],
+                    "short_label": t["canonical_tool_id"],
+                    "usage_hint": "",
+                    "not_for": "",
+                    "handler_id": cr_entry.handler_id,
+                    "governance_status": t["governance_status"],
+                    "governance_reason": "",
+                    "planner_visible": t["planner_visible"],
+                }
+                self.risk_level = t["risk_level"]
+                self.requires_approval = t["requires_approval"]
+                self.permission_action = t["permission_action"]
+                self.enabled = True
+                self.callable_by_llm = True
+                self.description = t["description"]
+        categories = category_tree_from_specs([_S(t) for t in tools])
+
         return jsonify({
             "tools": tools,
             "categories": categories,
             "count": len(tools),
             "planner_visible_count": len(planner_visible_tool_ids()),
             "governance_summary": governance_summary(),
-            "note": "Read-only catalog. High-risk tools require approval.",
+            "note": (
+                "Read-only catalog. canonical_tool_id is the only public "
+                "tool ID; handler_id is internal-only."
+            ),
         })
 
     # ── Tool Invocation ──
     @app.route("/api/tools/invoke", methods=["POST"])
     def api_tools_invoke():
-        """Invoke a tool through the full safety pipeline."""
+        """Invoke a tool through the full safety pipeline. canonical ID only."""
         ws_id = request.args.get("workspace_id", "default")
         ws_id, err = _validated_ws_id(ws_id)
         if err:
@@ -301,18 +322,38 @@ def register_runtime_routes(app):
         if not requested_tool_id:
             return jsonify({"ok": False, "error": "tool_id is required"}), 400
 
+        from tool_runtime.canonical_registry import (
+            CANONICAL_REGISTRY, get_entry,
+        )
+        from tool_runtime.tool_governance import TOOL_GOVERNANCE
         from tool_runtime.integration import get_default_tool_runtime_client
         from tool_runtime.schemas import ToolInvocation
-        from tool_runtime.tool_governance import resolve_governed_tool_id
 
+        if requested_tool_id not in CANONICAL_REGISTRY:
+            return jsonify({
+                "ok": False,
+                "error": "unknown_tool_id",
+                "message": "Only canonical tool_id is supported.",
+            }), 400
+
+        gov = TOOL_GOVERNANCE.get(requested_tool_id)
+        if gov and gov.status == "forbidden":
+            return jsonify({
+                "ok": False,
+                "error": "forbidden_tool_id",
+                "message": gov.reason,
+            }), 403
+
+        entry = get_entry(requested_tool_id)
         client = get_default_tool_runtime_client()
-        governed = resolve_governed_tool_id(requested_tool_id)
-        tool_id = governed.execution_tool_id
-        spec = client._registry.get_tool(tool_id)
+        spec = None
+        try:
+            spec = client._registry.get_tool(requested_tool_id)
+        except Exception:
+            spec = None
 
-        # Build invocation with approval_id
         invocation = ToolInvocation(
-            tool_id=tool_id,
+            tool_id=requested_tool_id,
             arguments=arguments,
             workspace_id=ws_id,
             dry_run=dry_run,
@@ -320,33 +361,34 @@ def register_runtime_routes(app):
             approval_id=approval_id,
         )
 
-        if _requires_runtime_approval(spec) and not _validate_approved_tool_invocation(approval_id, tool_id, ws_id):
+        if _requires_runtime_approval(spec) and not _validate_approved_tool_invocation(approval_id, requested_tool_id, ws_id):
             return _blocked_tool_response(
-                invocation, ws_id, _get_tool_risk_level(client, tool_id),
+                invocation, ws_id, _get_tool_risk_level(client, requested_tool_id),
                 "invalid_or_unapproved_approval_id",
             )
 
-        # Run through executor directly (policy check included)
-        result = client._executor.execute(invocation)
+        # Dispatch via canonical registry (handler_id is internal).
+        from tool_runtime.canonical_registry import dispatch
+        try:
+            result_payload = dispatch(requested_tool_id, **arguments)
+            ok = True
+            error = ""
+        except Exception as exc:
+            result_payload = {"error": str(exc)}
+            ok = False
+            error = str(exc)
 
-        # Record history
-        hist_entry = result.as_dict()
-        hist_entry["workspace_id"] = ws_id
-        hist_entry["dry_run"] = dry_run
-        hist_entry["risk_level"] = _get_tool_risk_level(client, tool_id)
-        hist_entry["requested_tool_id"] = requested_tool_id
-        hist_entry["canonical_tool_id"] = governed.canonical_tool_id
-        hist_entry["execution_tool_id"] = tool_id
-        hist_entry["governance_status"] = governed.governance_status
-        hist_entry["replacement"] = governed.replacement
-        if governed.warning:
-            hist_entry.setdefault("warnings", []).append(governed.warning)
-
-        with _lock:
-            _tool_exec_history[result.invocation_id] = hist_entry
-            while len(_tool_exec_history) > _TOOL_HISTORY_MAX:
-                _tool_exec_history.popitem(last=False)
-        _persist_history()
+        hist_entry = {
+            "invocation_id": invocation.invocation_id,
+            "workspace_id": ws_id,
+            "dry_run": dry_run,
+            "tool_id": requested_tool_id,
+            "canonical_tool_id": requested_tool_id,
+            "governance_status": gov.status if gov else "active",
+            "ok": ok,
+            "result": result_payload,
+            "error": error,
+        }
 
         return jsonify({
             "ok": result.status in ("succeeded", "dry_run"),

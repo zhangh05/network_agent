@@ -356,7 +356,6 @@ function InspectorBody({ result }: { result: AgentResult }) {
 
 function ToolCallCard({ tc }: { tc: ToolCallResult }) {
   const canonicalId = metaString(tc.metadata, "canonical_tool_id") || tc.tool_id;
-  const executionId = metaString(tc.metadata, "execution_tool_id") || tc.tool_id;
   return (
     <div
       className="card"
@@ -366,7 +365,6 @@ function ToolCallCard({ tc }: { tc: ToolCallResult }) {
         <span className="row-flex" style={{ minWidth: 0 }}>
           <strong className="text-sm">{toolLabel(canonicalId)}</strong>
           <InlineCode>{canonicalId}</InlineCode>
-          {executionId !== canonicalId && <InlineCode>{executionId}</InlineCode>}
           {tc.ok ? (
             <Badge kind="ok" withDot>
               已完成

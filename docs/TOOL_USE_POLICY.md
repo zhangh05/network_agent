@@ -194,7 +194,6 @@ description: "Search public web pages for current or external information.
 # v2.3 Governance Note
 
 The LLM should use capability actions and planner-exposed canonical tools.
-Do not select tools marked `alias`, `merged`, `deprecated`, or
-`removed_candidate` unless handling a legacy/direct invocation. High-risk host
-tools keep their existing approval requirements and are only exposed for
-explicit local-host scenarios.
+The planner exposes only `governance_status == 'active'` canonical
+tools. High-risk host tools keep their existing approval requirements
+and are only exposed for explicit local-host scenarios.

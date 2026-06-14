@@ -36,9 +36,15 @@ class ToolSpec:
 
     A ToolSpec describes what a tool does and what constraints apply.
     It does NOT contain the handler function (stored separately in registry).
+
+    v3.0 notes:
+      - tool_id is the public canonical_tool_id (e.g. ``workspace.file.read``).
+      - handler_id is the internal implementation key (e.g.
+        ``file.read``). It is never exposed publicly.
     """
 
-    tool_id: str = ""                 # e.g. "parser.parse_config_text"
+    tool_id: str = ""                 # canonical_tool_id (public)
+    handler_id: str = ""              # internal handler key (private)
     name: str = ""                    # Human-readable name
     description: str = ""             # What it does
     category: str = ""                # artifact | parser | report | command
@@ -63,8 +69,8 @@ class ToolSpec:
         if self.category and self.category not in VALID_TOOL_CATEGORIES:
             raise ValueError(f"Invalid category: {self.category}")
 
-    def as_dict(self) -> dict:
-        return {
+    def as_dict(self, *, include_handler_id: bool = False) -> dict:
+        payload = {
             "tool_id": self.tool_id,
             "name": self.name,
             "description": self.description,
@@ -84,6 +90,9 @@ class ToolSpec:
             "permission_action": self.permission_action,
             "metadata": self.metadata,
         }
+        if include_handler_id:
+            payload["handler_id"] = self.handler_id
+        return payload
 
 
 @dataclass

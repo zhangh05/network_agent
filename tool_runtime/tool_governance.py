@@ -1,8 +1,11 @@
-"""v2.3 tool governance metadata and governed resolution.
+"""v3.0 canonical-only tool governance.
 
-The governance layer does not remove execution tools. It classifies canonical
-tools so planners and catalogs can prefer stable capability actions while old
-execution ids and trace ids remain explainable.
+Public identity contract:
+
+  - status is one of: active | disabled | internal | forbidden.
+  - planner_visible is True only for status == 'active'.
+  - reason is a free-form human-readable note.
+  - Tools that need to be retired are marked 'forbidden'.
 """
 
 from __future__ import annotations
@@ -10,220 +13,139 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any
 
-from tool_runtime.tool_namespace import TOOL_NAMESPACE, get_canonical_tool_id, get_execution_tool_id
+from tool_runtime.tool_namespace import TOOL_NAMESPACE
 
 
-GOVERNANCE_STATUSES = {"keep", "alias", "merged", "deprecated", "removed_candidate"}
-PLANNER_VISIBLE_STATUSES = {"keep"}
+VALID_STATUSES = ("active", "disabled", "internal", "forbidden")
 
 
 @dataclass(frozen=True)
 class ToolGovernanceEntry:
     canonical_tool_id: str
     status: str
-    replacement: str | None
-    deprecate_after: str | None
     reason: str
-    overlap_group: str
-    migration_notes: str
+    planner_visible: bool
 
-    def as_dict(self) -> dict[str, Any]:
-        return {
-            "canonical_tool_id": self.canonical_tool_id,
-            "status": self.status,
-            "replacement": self.replacement,
-            "deprecate_after": self.deprecate_after,
-            "reason": self.reason,
-            "overlap_group": self.overlap_group,
-            "migration_notes": self.migration_notes,
-        }
+    def __post_init__(self) -> None:
+        if self.status not in VALID_STATUSES:
+            raise ValueError(
+                f"invalid governance status: {self.status} "
+                f"(must be one of {VALID_STATUSES})"
+            )
 
 
-@dataclass(frozen=True)
-class GovernedToolResolution:
-    requested_tool_id: str
-    canonical_tool_id: str
-    effective_canonical_tool_id: str
-    execution_tool_id: str
-    governance_status: str
-    replacement: str | None
-    warning: str
+# ----------------------------------------------------------------------
+# v3.0 governance baseline.
+#
+# Default rule: a canonical_tool_id is 'active' and planner_visible
+# unless explicitly listed below. Only deviations from the default
+# are recorded here. The TOOL_GOVERNANCE dict is built lazily from
+# namespace + overrides so any canonical_id in TOOL_NAMESPACE gets a
+# valid governance entry.
+# ----------------------------------------------------------------------
 
-    def as_dict(self) -> dict[str, Any]:
-        return {
-            "requested_tool_id": self.requested_tool_id,
-            "canonical_tool_id": self.canonical_tool_id,
-            "effective_canonical_tool_id": self.effective_canonical_tool_id,
-            "execution_tool_id": self.execution_tool_id,
-            "governance_status": self.governance_status,
-            "replacement": self.replacement,
-            "warning": self.warning,
-        }
-
-
-def _overlap_group(canonical_tool_id: str) -> str:
-    if canonical_tool_id.startswith("workspace.file."):
-        return "workspace_file"
-    if canonical_tool_id.startswith("workspace.artifact.read"):
-        return "artifact_read"
-    if canonical_tool_id.startswith("workspace.artifact."):
-        return "artifact"
-    if canonical_tool_id.startswith("knowledge.search"):
-        return "knowledge_search"
-    if canonical_tool_id.startswith("knowledge.chunk."):
-        return "knowledge_chunk"
-    if canonical_tool_id.startswith("knowledge.source."):
-        return "knowledge_source"
-    if canonical_tool_id.startswith(("report.", "data.", "text.", "document.", "diagram.")):
-        return "report_data"
-    if canonical_tool_id.startswith("web."):
-        return "web_misc"
-    if canonical_tool_id.startswith("host."):
-        return "host_execution"
-    return canonical_tool_id.split(".", 1)[0]
-
-
-def _governance_for(canonical_tool_id: str) -> ToolGovernanceEntry:
-    merged: dict[str, tuple[str, str]] = {
-        "workspace.file.list_all": (
-            "workspace.file.list",
-            "workspace.list_files is a broader listing variant; keep compatibility but plan against workspace.file.list.",
-        ),
-    }
-    alias: dict[str, tuple[str, str]] = {
-        "workspace.file.path_exists": (
-            "workspace.file.exists",
-            "workspace.path_exists is a compatibility alias for workspace.file.exists.",
-        ),
-        "workspace.artifact.read_safe": (
-            "workspace.artifact.read",
-            "Safe-read semantics are represented by policy and metadata; use workspace.artifact.read as the stable action.",
-        ),
-    }
-    deprecated: dict[str, str] = {
-        "web.news.search": "News search remains callable for legacy requests but is not a default planner action.",
-    }
-    removed_candidate: dict[str, tuple[str | None, str]] = {
-        "text.classify": (
-            None,
-            "Rule-only text classification is a future candidate for consolidation into text.process.",
-        ),
-    }
-
-    if canonical_tool_id in merged:
-        replacement, reason = merged[canonical_tool_id]
-        return ToolGovernanceEntry(
-            canonical_tool_id=canonical_tool_id,
-            status="merged",
-            replacement=replacement,
-            deprecate_after=None,
-            reason=reason,
-            overlap_group=_overlap_group(canonical_tool_id),
-            migration_notes=f"Use {replacement}; legacy execution remains registered for trace compatibility.",
-        )
-    if canonical_tool_id in alias and alias[canonical_tool_id][0] in TOOL_NAMESPACE:
-        replacement, reason = alias[canonical_tool_id]
-        return ToolGovernanceEntry(
-            canonical_tool_id=canonical_tool_id,
-            status="alias",
-            replacement=replacement,
-            deprecate_after=None,
-            reason=reason,
-            overlap_group=_overlap_group(canonical_tool_id),
-            migration_notes=f"Resolve planner calls to {replacement}; keep old id as alias only.",
-        )
-    if canonical_tool_id in deprecated:
-        return ToolGovernanceEntry(
-            canonical_tool_id=canonical_tool_id,
-            status="deprecated",
-            replacement=None,
-            deprecate_after="v2.4-review",
-            reason=deprecated[canonical_tool_id],
-            overlap_group=_overlap_group(canonical_tool_id),
-            migration_notes="Do not select in planner; legacy direct calls still execute with a warning.",
-        )
-    if canonical_tool_id in removed_candidate:
-        replacement, reason = removed_candidate[canonical_tool_id]
-        return ToolGovernanceEntry(
-            canonical_tool_id=canonical_tool_id,
-            status="removed_candidate",
-            replacement=replacement,
-            deprecate_after="next-major",
-            reason=reason,
-            overlap_group=_overlap_group(canonical_tool_id),
-            migration_notes="Keep in v2.3; require a deprecation release before any real removal.",
-        )
-    return ToolGovernanceEntry(
-        canonical_tool_id=canonical_tool_id,
-        status="keep",
-        replacement=None,
-        deprecate_after=None,
-        reason="Stable canonical capability; keep visible to planner when selected by capability action.",
-        overlap_group=_overlap_group(canonical_tool_id),
-        migration_notes="No migration required.",
-    )
-
-
-TOOL_GOVERNANCE: dict[str, ToolGovernanceEntry] = {
-    canonical_id: _governance_for(canonical_id)
-    for canonical_id in TOOL_NAMESPACE
+_OVERRIDES: dict[str, tuple[str, str]] = {
+    # Disabled / internal tools are explicitly enumerated; everything
+    # else is 'active' by default.
+    # 'web.news.search': ('disabled', "Not selected by planner; use only on explicit request."),
 }
 
 
-def get_governance_entry(tool_id: str) -> ToolGovernanceEntry:
-    canonical = get_canonical_tool_id(tool_id)
-    return TOOL_GOVERNANCE.get(canonical, _governance_for(canonical))
+def _build_governance() -> dict[str, ToolGovernanceEntry]:
+    entries: dict[str, ToolGovernanceEntry] = {}
+    for canonical_id in TOOL_NAMESPACE:
+        status, reason = _OVERRIDES.get(canonical_id, ("active", "default active canonical tool."))
+        planner_visible = status == "active"
+        entries[canonical_id] = ToolGovernanceEntry(
+            canonical_tool_id=canonical_id,
+            status=status,
+            reason=reason,
+            planner_visible=planner_visible,
+        )
+    return entries
 
 
-def is_planner_visible(tool_id: str) -> bool:
-    entry = get_governance_entry(tool_id)
-    return entry.status in PLANNER_VISIBLE_STATUSES
+TOOL_GOVERNANCE: dict[str, ToolGovernanceEntry] = _build_governance()
+
+
+def governance_metadata(canonical_tool_id: str) -> dict[str, Any]:
+    entry = TOOL_GOVERNANCE.get(canonical_tool_id)
+    if entry is None:
+        return {
+            "governance_status": "forbidden",
+            "governance_reason": "unknown canonical_tool_id",
+            "planner_visible": False,
+        }
+    return {
+        "governance_status": entry.status,
+        "governance_reason": entry.reason,
+        "planner_visible": entry.planner_visible,
+    }
+
+
+def governance_summary() -> dict[str, int]:
+    counts = {status: 0 for status in VALID_STATUSES}
+    for entry in TOOL_GOVERNANCE.values():
+        counts[entry.status] = counts.get(entry.status, 0) + 1
+    return counts
 
 
 def planner_visible_tool_ids() -> list[str]:
     return sorted(
-        canonical_id
-        for canonical_id, entry in TOOL_GOVERNANCE.items()
-        if entry.status in PLANNER_VISIBLE_STATUSES
+        cid for cid, entry in TOOL_GOVERNANCE.items()
+        if entry.planner_visible
     )
 
 
-def governance_summary() -> dict[str, int]:
-    summary = {status: 0 for status in GOVERNANCE_STATUSES}
-    for entry in TOOL_GOVERNANCE.values():
-        summary[entry.status] += 1
-    return summary
+def is_planner_visible(canonical_tool_id: str) -> bool:
+    entry = TOOL_GOVERNANCE.get(canonical_tool_id)
+    return bool(entry and entry.planner_visible)
 
 
-def governance_metadata(tool_id: str) -> dict[str, Any]:
-    entry = get_governance_entry(tool_id)
-    return {
-        "governance_status": entry.status,
-        "replacement": entry.replacement,
-        "deprecate_after": entry.deprecate_after,
-        "overlap_group": entry.overlap_group,
-        "planner_visible": is_planner_visible(tool_id),
-        "migration_notes": entry.migration_notes,
-        "governance_reason": entry.reason,
-    }
+def forbid(canonical_tool_id: str, reason: str) -> None:
+    """Runtime API to mark a tool as forbidden (used by policy overrides)."""
+    TOOL_GOVERNANCE[canonical_tool_id] = ToolGovernanceEntry(
+        canonical_tool_id=canonical_tool_id,
+        status="forbidden",
+        reason=reason,
+        planner_visible=False,
+    )
 
 
-def resolve_governed_tool_id(tool_id: str) -> GovernedToolResolution:
-    canonical = get_canonical_tool_id(tool_id)
-    entry = get_governance_entry(canonical)
-    effective = canonical
-    warning = ""
-    if entry.status in {"alias", "merged"} and entry.replacement:
-        effective = entry.replacement
-        warning = f"{canonical} is {entry.status}; resolved to {entry.replacement}"
-    elif entry.status in {"deprecated", "removed_candidate"}:
-        warning = f"{canonical} is {entry.status}; keep for compatibility only"
-    return GovernedToolResolution(
-        requested_tool_id=tool_id,
-        canonical_tool_id=canonical,
-        effective_canonical_tool_id=effective,
-        execution_tool_id=get_execution_tool_id(effective),
-        governance_status=entry.status,
-        replacement=entry.replacement,
-        warning=warning,
+@dataclass(frozen=True)
+class ResolvedGovernance:
+    canonical_tool_id: str
+    handler_id: str
+    governance_status: str
+    warning: str = ""
+
+    @property
+    def execution_tool_id(self) -> str:
+        """v2.x compat: code that read .execution_tool_id now reads
+        the handler_id (the actual dispatch key in v3.0)."""
+        return self.handler_id
+
+
+def resolve_governed_tool_id(requested_tool_id: str) -> ResolvedGovernance:
+    """Resolve a canonical ID to a (canonical_id, handler_id, status).
+
+    v3.0 has no alias layer. The canonical_tool_id and handler_id are
+    looked up directly; status is the governance entry's status.
+    Unknown IDs return a synthetic ResolvedGovernance with the input as
+    both canonical and handler id (used by router test shims).
+    """
+    if requested_tool_id in TOOL_NAMESPACE:
+        entry = TOOL_GOVERNANCE[requested_tool_id]
+        return ResolvedGovernance(
+            canonical_tool_id=requested_tool_id,
+            handler_id=getattr(
+                TOOL_NAMESPACE[requested_tool_id], "handler_id",
+                requested_tool_id,
+            ),
+            governance_status=entry.status,
+        )
+    return ResolvedGovernance(
+        canonical_tool_id=requested_tool_id,
+        handler_id=requested_tool_id,
+        governance_status="unknown",
     )

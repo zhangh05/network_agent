@@ -49,29 +49,23 @@ export interface CapabilityManifest {
 /* ───────────────────────── Tool Namespace Catalog ───────────────────────── */
 
 export interface ToolCatalogItem {
+  /** canonical_tool_id is the only public tool ID. */
   tool_id: string;
   canonical_tool_id: string;
-  execution_tool_id: string;
-  legacy_tool_ids: string[];
   category: string;
   group: string;
   action: string;
   display_name: string;
-  short_label: string;
-  usage_hint: string;
-  not_for: string;
+  description?: string;
+  capability_actions?: string[];
   risk_level: RiskLevel;
   requires_approval: boolean;
-  permission_action: string;
+  permission_action?: string;
   governance_status?: ToolGovernanceStatus;
-  replacement?: string | null;
-  deprecate_after?: string | null;
-  overlap_group?: string;
   planner_visible?: boolean;
-  migration_notes?: string;
   enabled: boolean;
   callable_by_llm: boolean;
-  description?: string;
+  input_schema?: Record<string, unknown>;
   metadata?: Record<string, unknown>;
 }
 

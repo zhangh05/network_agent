@@ -1,16 +1,29 @@
-"""v2.2 Tool namespace and alias resolution."""
+"""v3.0 canonical-only tool namespace.
+
+Public identity contract:
+
+  - canonical_tool_id is the ONLY public tool identifier.
+  - handler_id is an internal-only implementation key. It is never
+    exposed to the LLM, frontend, public catalog, or docs main tables.
+
+Calls that pass non-canonical IDs will raise KeyError through
+get_namespace_entry().
+"""
+
+from __future__ import annotations
 
 from dataclasses import dataclass
 from typing import Any
 
-from tool_runtime.tool_namespace_data import NS_DATA
+from tool_runtime.tool_namespace_data import NS_DATA, CATEGORY_DEFS
+
+
+VALID_STATUSES = ("active", "disabled", "internal", "forbidden")
 
 
 @dataclass(frozen=True)
 class ToolNamespaceEntry:
     canonical_tool_id: str
-    execution_tool_id: str
-    legacy_tool_ids: tuple[str, ...]
     category: str
     group: str
     action: str
@@ -18,12 +31,16 @@ class ToolNamespaceEntry:
     short_label: str
     usage_hint: str
     not_for: str
+    handler_id: str
 
     def metadata(self) -> dict[str, Any]:
+        """Public metadata for the catalog / API / docs.
+
+        handler_id is intentionally NOT exposed here. It is internal-only
+        and only lives on the dataclass attribute itself.
+        """
         return {
             "canonical_tool_id": self.canonical_tool_id,
-            "execution_tool_id": self.execution_tool_id,
-            "legacy_tool_ids": list(self.legacy_tool_ids),
             "category": self.category,
             "group": self.group,
             "action": self.action,
@@ -34,100 +51,59 @@ class ToolNamespaceEntry:
         }
 
 
-CATEGORY_DEFS: dict[str, dict[str, str]] = {
-    "host": {"name": "Host 本机环境", "description": "当前运行机器上的本机 OS、Shell、PowerShell、Python 工具"},
-    "workspace": {"name": "Workspace 工作区", "description": "工作区文件、Artifact 制品和 workspace 元数据"},
-    "knowledge": {"name": "Knowledge 知识库", "description": "知识库问答、检索、导入和索引管理"},
-    "network": {"name": "Network 网络分析", "description": "离线网络配置解析、接口/路由提取和配置翻译"},
-    "web": {"name": "Web 外部资料", "description": "公开 Web、官方文档、新闻、天气和网页摘要"},
-    "runtime": {"name": "Runtime 运行审计", "description": "运行状态、session、run、review 和审计信息"},
-    "memory": {"name": "Memory 记忆", "description": "记忆搜索、创建、确认、profile 和更新"},
-    "report_data": {"name": "Report/Data/Text 输出处理", "description": "报告、表格、文本、JSON/YAML/CSV 和图表处理"},
-    "agent": {"name": "Agent 多 Agent", "description": "技能、子 Agent、角色、团队和结果读取"},
-}
+def _build_namespace() -> dict[str, ToolNamespaceEntry]:
+    entries: dict[str, ToolNamespaceEntry] = {}
+    for (
+        canonical_id,
+        category,
+        group,
+        action,
+        display_name,
+        short_label,
+        usage_hint,
+        not_for,
+        handler_id,
+    ) in NS_DATA:
+        if canonical_id in entries:
+            raise ValueError(
+                f"duplicate canonical_tool_id in namespace data: {canonical_id}"
+            )
+        entries[canonical_id] = ToolNamespaceEntry(
+            canonical_tool_id=canonical_id,
+            category=category,
+            group=group,
+            action=action,
+            display_name=display_name,
+            short_label=short_label,
+            usage_hint=usage_hint,
+            not_for=not_for,
+            handler_id=handler_id or canonical_id,
+        )
+    return entries
 
 
-TOOL_NAMESPACE: dict[str, ToolNamespaceEntry] = {
-    row[0]: ToolNamespaceEntry(
-        canonical_tool_id=row[0],
-        execution_tool_id=row[1],
-        legacy_tool_ids=tuple(row[2]),
-        category=row[3],
-        group=row[4],
-        action=row[5],
-        display_name=row[6],
-        short_label=row[7],
-        usage_hint=row[8],
-        not_for=row[9],
-    )
-    for row in NS_DATA
-}
-
-EXECUTION_TO_CANONICAL: dict[str, str] = {
-    entry.execution_tool_id: entry.canonical_tool_id
-    for entry in TOOL_NAMESPACE.values()
-}
-
-CANONICAL_TO_EXECUTION: dict[str, str] = {
-    entry.canonical_tool_id: entry.execution_tool_id
-    for entry in TOOL_NAMESPACE.values()
-}
-
-LEGACY_TO_CANONICAL: dict[str, str] = {}
-LEGACY_TO_EXECUTION: dict[str, str] = {}
-for entry in TOOL_NAMESPACE.values():
-    for alias in entry.legacy_tool_ids:
-        LEGACY_TO_CANONICAL.setdefault(alias, entry.canonical_tool_id)
-        LEGACY_TO_EXECUTION.setdefault(alias, entry.execution_tool_id)
-
-CANONICAL_TO_LEGACY: dict[str, list[str]] = {
-    entry.canonical_tool_id: list(entry.legacy_tool_ids)
-    for entry in TOOL_NAMESPACE.values()
-}
+TOOL_NAMESPACE: dict[str, ToolNamespaceEntry] = _build_namespace()
 
 
-def canonical_tool_ids() -> list[str]:
-    return sorted(TOOL_NAMESPACE)
-
-
-def execution_tool_ids() -> list[str]:
-    return sorted(EXECUTION_TO_CANONICAL)
-
-
-def legacy_aliases() -> list[str]:
-    return sorted(LEGACY_TO_CANONICAL)
+def is_canonical(tool_id: str) -> bool:
+    return tool_id in TOOL_NAMESPACE
 
 
 def get_namespace_entry(tool_id: str) -> ToolNamespaceEntry:
-    canonical = get_canonical_tool_id(tool_id)
-    entry = TOOL_NAMESPACE.get(canonical)
-    if entry is None:
+    if tool_id not in TOOL_NAMESPACE:
         raise KeyError(f"unknown tool namespace id: {tool_id}")
-    return entry
+    return TOOL_NAMESPACE[tool_id]
 
 
 def get_canonical_tool_id(tool_id: str) -> str:
-    if tool_id in TOOL_NAMESPACE:
-        return tool_id
-    if tool_id in EXECUTION_TO_CANONICAL:
-        return EXECUTION_TO_CANONICAL[tool_id]
-    if tool_id in LEGACY_TO_CANONICAL:
-        return LEGACY_TO_CANONICAL[tool_id]
+    """Return the canonical_tool_id for the given tool id.
+
+    v3.0: there is no alias layer. If ``tool_id`` is already a
+    canonical_tool_id, return it. If not, return the input as-is (used
+    by router test shims that exercise the router in isolation with
+    synthetic IDs).
+    """
     return tool_id
-
-
-def get_execution_tool_id(tool_id: str) -> str:
-    if tool_id in CANONICAL_TO_EXECUTION:
-        return CANONICAL_TO_EXECUTION[tool_id]
-    if tool_id in LEGACY_TO_EXECUTION:
-        return LEGACY_TO_EXECUTION[tool_id]
-    if tool_id in EXECUTION_TO_CANONICAL:
-        return tool_id
-    return tool_id
-
-
-def resolve_tool_id(tool_id: str) -> str:
-    return get_execution_tool_id(tool_id)
 
 
 def metadata_for_tool(tool_id: str) -> dict[str, Any]:
@@ -136,8 +112,6 @@ def metadata_for_tool(tool_id: str) -> dict[str, Any]:
     except KeyError:
         meta = {
             "canonical_tool_id": tool_id,
-            "execution_tool_id": tool_id,
-            "legacy_tool_ids": [tool_id],
             "category": tool_id.split(".", 1)[0] if "." in tool_id else "runtime",
             "group": "misc",
             "action": "use",
@@ -145,10 +119,11 @@ def metadata_for_tool(tool_id: str) -> dict[str, Any]:
             "short_label": tool_id,
             "usage_hint": f"Use {tool_id} when specifically needed.",
             "not_for": "Do not use outside its documented safety boundary.",
+            "handler_id": tool_id,
         }
     try:
         from tool_runtime.tool_governance import governance_metadata
-        meta.update(governance_metadata(meta["canonical_tool_id"]))
+        meta.update(governance_metadata(tool_id))
     except Exception:
         pass
     return meta
@@ -156,8 +131,9 @@ def metadata_for_tool(tool_id: str) -> dict[str, Any]:
 
 def enrich_spec(spec):
     """Attach namespace metadata to either ToolSpec dataclass variant."""
+    tool_id = getattr(spec, "tool_id", "")
     base = dict(getattr(spec, "metadata", {}) or {})
-    base.update(metadata_for_tool(getattr(spec, "tool_id", "")))
+    base.update(metadata_for_tool(tool_id))
     spec.metadata = base
     return spec
 
@@ -185,8 +161,6 @@ def category_tree_from_specs(specs: list) -> list[dict[str, Any]]:
             **meta,
             "tool_id": getattr(spec, "tool_id", ""),
             "canonical_tool_id": meta["canonical_tool_id"],
-            "execution_tool_id": meta["execution_tool_id"],
-            "legacy_tool_ids": meta["legacy_tool_ids"],
             "risk_level": getattr(spec, "risk_level", "low"),
             "requires_approval": bool(getattr(spec, "requires_approval", False)),
             "permission_action": getattr(spec, "permission_action", ""),

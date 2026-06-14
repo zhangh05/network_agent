@@ -209,17 +209,37 @@ def main():
         with open(readme_path) as f:
             readme_content = f.read()
         import re
-        m = re.search(r'(\d+)\s+registered\s*/\s*(\d+)\s+model-visible', readme_content)
-        if m:
-            readme_all = int(m.group(1))
-            readme_visible = int(m.group(2))
-            if readme_all == len(all_tools) and readme_visible == len(visible):
-                print(f"  ✅ README.md counts match runtime: {readme_all}/{readme_visible}")
+        # v3.0: README mentions canonical / handler / planner counts.
+        from tool_runtime.tool_namespace import TOOL_NAMESPACE
+        from tool_runtime.canonical_registry import CANONICAL_REGISTRY
+        from tool_runtime.tool_governance import planner_visible_tool_ids
+        canonical_count = len(TOOL_NAMESPACE)
+        registry_count = len(CANONICAL_REGISTRY)
+        visible_count = len(planner_visible_tool_ids())
+        # Accept any of these patterns in the README.
+        canonical_match = re.search(
+            r'(\d+)\s+canonical\s*/\s*(\d+)\s+active', readme_content,
+        )
+        if canonical_match:
+            doc_canonical = int(canonical_match.group(1))
+            doc_active = int(canonical_match.group(2))
+            if (doc_canonical == canonical_count
+                    and doc_active == visible_count):
+                print(
+                    f"  ✅ README.md counts match: "
+                    f"canonical={doc_canonical} active={doc_active}"
+                )
             else:
-                print(f"  ❌ README.md mismatch: doc={readme_all}/{readme_visible} runtime={len(all_tools)}/{len(visible)}")
+                print(
+                    f"  ❌ README.md mismatch: doc={doc_canonical}/{doc_active} "
+                    f"runtime={canonical_count}/{visible_count}"
+                )
                 docs_consistency_ok = False
         else:
-            print(f"  ❌ README.md does not contain tool count pattern")
+            print(
+                f"  ❌ README.md does not contain v3.0 count pattern "
+                f"(expected 'N canonical / N active')"
+            )
             docs_consistency_ok = False
     else:
         print(f"  ❌ README.md not found")

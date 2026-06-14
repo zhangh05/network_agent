@@ -1,97 +1,49 @@
 """harness/test_tool_id_baseline_files.py
 
-v2.1.3: Test that baseline files exist, are consistent, and the
-compare script uses repo files (not /tmp).
+v3.0: Replace the v2.x baseline-file existence check with a v3.0
+canonical-only registry / namespace parity check. There are no
+baselines/*.txt files any more (deleted in v3.0); the parity check
+moved into ``compare_tool_id_baseline.py``.
 """
 
-import pytest
-from pathlib import Path
-
-ROOT = Path(__file__).resolve().parents[1]
-RUNTIME_BL = ROOT / "baselines" / "tool_ids_v2.1.1-full-closure.txt"
-GENERAL_BL = ROOT / "baselines" / "general_tool_ids_v2.1.1-full-closure.txt"
+from __future__ import annotations
 
 
-def _read_ids(path: Path) -> list[str]:
-    ids = []
-    for line in path.read_text().splitlines():
-        line = line.strip()
-        if not line or line.startswith("#") or line.startswith("count "):
-            continue
-        ids.append(line)
-    return ids
-
-
-# ── Baseline file existence ──
-
-def test_runtime_baseline_exists():
-    assert RUNTIME_BL.exists(), f"Missing {RUNTIME_BL}"
-
-
-def test_general_baseline_exists():
-    assert GENERAL_BL.exists(), f"Missing {GENERAL_BL}"
-
-
-# ── No duplicates ──
-
-def test_runtime_baseline_no_duplicates():
-    ids = _read_ids(RUNTIME_BL)
-    assert len(ids) == len(set(ids)), f"Runtime baseline has duplicates"
-
-
-def test_general_baseline_no_duplicates():
-    ids = _read_ids(GENERAL_BL)
-    assert len(ids) == len(set(ids)), f"General baseline has duplicates"
-
-
-# ── Runtime baseline matches current runtime ──
-
-def test_runtime_baseline_matches_current():
-    from agent.runtime.services import default_runtime_services
-    svc = default_runtime_services()
-    reg = svc.tool_service.registry
-    current = sorted(t.tool_id for t in reg.list_all())
-
-    baseline_ids = sorted(_read_ids(RUNTIME_BL))
-    assert current == baseline_ids, (
-        f"Runtime baseline mismatch:\n"
-        f"  Baseline: {len(baseline_ids)} ids\n"
-        f"  Current:  {len(current)} ids\n"
-        f"  Added:    {sorted(set(current) - set(baseline_ids))}\n"
-        f"  Removed:  {sorted(set(baseline_ids) - set(current))}"
+def test_canonical_registry_matches_namespace():
+    from tool_runtime.tool_namespace import TOOL_NAMESPACE
+    from tool_runtime.canonical_registry import CANONICAL_REGISTRY
+    ns = set(TOOL_NAMESPACE)
+    cr = set(CANONICAL_REGISTRY)
+    assert ns == cr, (
+        f"Registry / namespace mismatch:\n"
+        f"  canonical (no handler): {sorted(ns - cr)}\n"
+        f"  handler (no canonical): {sorted(cr - ns)}"
     )
 
 
-# ── General baseline matches ALL_GENERAL_TOOLS ──
-
-def test_general_baseline_matches_current():
-    from tool_runtime.general_tools import ALL_GENERAL_TOOLS
-    general = sorted(spec.tool_id for spec, _ in ALL_GENERAL_TOOLS)
-
-    baseline_ids = sorted(_read_ids(GENERAL_BL))
-    assert general == baseline_ids, (
-        f"General baseline mismatch:\n"
-        f"  Baseline: {len(baseline_ids)} ids\n"
-        f"  Current:  {len(general)} ids\n"
-        f"  Added:    {sorted(set(general) - set(baseline_ids))}\n"
-        f"  Removed:  {sorted(set(baseline_ids) - set(general))}"
-    )
+def test_governance_has_only_canonical_ids():
+    from tool_runtime.tool_namespace import TOOL_NAMESPACE
+    from tool_runtime.tool_governance import TOOL_GOVERNANCE
+    assert set(TOOL_GOVERNANCE) == set(TOOL_NAMESPACE)
 
 
-# ── compare_tool_id_baseline.py uses repo files (not /tmp) ──
+def test_capability_actions_resolve_only_to_canonical():
+    from tool_runtime.tool_namespace import TOOL_NAMESPACE
+    from tool_runtime.capability_actions import CAPABILITY_ACTIONS
+    canonical = set(TOOL_NAMESPACE)
+    for action in CAPABILITY_ACTIONS.values():
+        for tool_id in action.preferred_tools + action.fallback_tools:
+            assert tool_id in canonical, (
+                f"capability_action {action.capability_action} "
+                f"references unknown canonical id {tool_id}"
+            )
 
-def test_compare_script_uses_repo_defaults():
-    """The compare script must default to baselines/ in repo, not /tmp."""
-    script_path = ROOT / "scripts" / "compare_tool_id_baseline.py"
-    content = script_path.read_text()
 
-    # Must reference baselines/ directory
-    assert "baselines" in content, "compare_tool_id_baseline.py must reference baselines/"
-
-    # Must NOT hardcode /tmp as default
-    assert '"/tmp/tool_ids_baseline.txt"' not in content, (
-        "compare_tool_id_baseline.py must not default to /tmp"
-    )
-    assert '"/tmp/general_ids_baseline.txt"' not in content, (
-        "compare_tool_id_baseline.py must not default to /tmp"
-    )
+def test_no_legacy_baseline_files():
+    """v3.0 deletes the v2.x baselines/*.txt files."""
+    from pathlib import Path
+    ROOT = Path(__file__).resolve().parents[1]
+    baselines_dir = ROOT / "baselines"
+    assert baselines_dir.exists()
+    leftover = list(baselines_dir.glob("*.txt")) + list(baselines_dir.glob("*.json"))
+    assert not leftover, f"v3.0 must not keep legacy baselines: {leftover}"

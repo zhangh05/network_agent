@@ -289,7 +289,7 @@ function ToolCatalogRow({ tool }: { tool: ToolCatalogItem }) {
   return (
     <details className="tool-row">
       <summary>
-        <span className="tool-label">{tool.short_label || tool.display_name}</span>
+        <span className="tool-label">{tool.display_name}</span>
         <InlineCode>{tool.canonical_tool_id}</InlineCode>
         {tool.governance_status && (
           <Badge kind={GOVERNANCE_KIND[tool.governance_status] ?? "muted"}>
@@ -299,14 +299,6 @@ function ToolCatalogRow({ tool }: { tool: ToolCatalogItem }) {
         <Badge kind={RISK_KIND[tool.risk_level] ?? "muted"}>{RISK_LABEL[tool.risk_level] ?? tool.risk_level}</Badge>
       </summary>
       <div className="tool-detail-grid">
-        <Detail label="execution">
-          <InlineCode>{tool.execution_tool_id}</InlineCode>
-        </Detail>
-        <Detail label="aliases">
-          {(tool.legacy_tool_ids ?? []).map((id) => (
-            <InlineCode key={id}>{id}</InlineCode>
-          ))}
-        </Detail>
         <Detail label="namespace">
           <InlineCode>{tool.category}/{tool.group}/{tool.action}</InlineCode>
         </Detail>
@@ -319,22 +311,18 @@ function ToolCatalogRow({ tool }: { tool: ToolCatalogItem }) {
             {tool.planner_visible ? "visible" : "hidden"}
           </Badge>
         </Detail>
-        {tool.replacement && (
-          <Detail label="replacement">
-            <InlineCode>{tool.replacement}</InlineCode>
+        {tool.capability_actions && tool.capability_actions.length > 0 && (
+          <Detail label="capability_actions">
+            {tool.capability_actions.map((a) => (
+              <InlineCode key={a}>{a}</InlineCode>
+            ))}
           </Detail>
         )}
-        {tool.overlap_group && (
-          <Detail label="overlap">
-            <InlineCode>{tool.overlap_group}</InlineCode>
+        {tool.description && (
+          <Detail label="description">
+            <span>{tool.description}</span>
           </Detail>
         )}
-        <Detail label="usage">
-          <span>{tool.usage_hint}</span>
-        </Detail>
-        <Detail label="not for">
-          <span>{tool.not_for}</span>
-        </Detail>
       </div>
     </details>
   );
@@ -353,14 +341,13 @@ function matchesTool(tool: ToolCatalogItem, q: string): boolean {
   if (!q) return true;
   return [
     tool.display_name,
-    tool.short_label,
     tool.canonical_tool_id,
-    tool.execution_tool_id,
-    ...(tool.legacy_tool_ids ?? []),
-    tool.usage_hint,
+    tool.category,
+    tool.group,
+    tool.action,
     tool.governance_status ?? "",
-    tool.replacement ?? "",
-    tool.overlap_group ?? "",
+    ...(tool.capability_actions ?? []),
+    tool.description ?? "",
   ].some((value) => String(value ?? "").toLowerCase().includes(q));
 }
 

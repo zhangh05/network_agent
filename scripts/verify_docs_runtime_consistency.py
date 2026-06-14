@@ -38,20 +38,30 @@ print("=" * 60)
 print("1. Runtime Tool Counts")
 try:
     from agent.runtime.services import default_runtime_services
+    from tool_runtime.tool_namespace import TOOL_NAMESPACE
+    from tool_runtime.canonical_registry import CANONICAL_REGISTRY
+    from tool_runtime.tool_governance import planner_visible_tool_ids
     svc = default_runtime_services()
-    reg = svc.tool_service.registry
-    all_tools = reg.list_all()
-    visible = reg.list_model_visible()
+    all_tools = svc.tool_service.registry.list_all()
+    visible = svc.tool_service.registry.list_model_visible()
     actual_all = len(all_tools)
     actual_visible = len(visible)
-    print(f"   Actual registered tools: {actual_all}")
-    print(f"   Actual model-visible:    {actual_visible}")
+    canonical_count = len(TOOL_NAMESPACE)
+    registry_count = len(CANONICAL_REGISTRY)
+    planner_visible_count = len(planner_visible_tool_ids())
+    print(f"   Registered (legacy registry): {actual_all}")
+    print(f"   Model-visible (legacy registry): {actual_visible}")
+    print(f"   Canonical count: {canonical_count}")
+    print(f"   Canonical registry count: {registry_count}")
+    print(f"   Planner-visible count: {planner_visible_count}")
 except Exception as e:
     print(f"   ERROR loading runtime: {e}")
     actual_all = 0
     actual_visible = 0
+    canonical_count = 0
+    registry_count = 0
+    planner_visible_count = 0
 
-# ── 2. Check README.md tool count consistency ────────────────────────
 
 print()
 print("=" * 60)
@@ -61,19 +71,19 @@ if os.path.exists(readme_path):
     with open(readme_path) as f:
         readme = f.read()
 
-    # Look for patterns like "70 registered / 70 model-visible"
-    m = re.search(r'(\d+)\s+registered\s*/\s*(\d+)\s+model-visible', readme)
+    # v3.0: README mentions "N canonical / N active".
+    m = re.search(r'(\d+)\s+canonical\s*/\s*(\d+)\s+active', readme)
     if m:
-        readme_all = int(m.group(1))
-        readme_visible = int(m.group(2))
-        check("README registered count matches runtime",
-              readme_all == actual_all,
-              f"README says {readme_all}, runtime says {actual_all}")
-        check("README model-visible count matches runtime",
-              readme_visible == actual_visible,
-              f"README says {readme_visible}, runtime says {actual_visible}")
+        readme_canonical = int(m.group(1))
+        readme_active = int(m.group(2))
+        check("README canonical count matches runtime",
+              readme_canonical == canonical_count,
+              f"README says {readme_canonical}, runtime says {canonical_count}")
+        check("README active count matches runtime",
+              readme_active == planner_visible_count,
+              f"README says {readme_active}, runtime says {planner_visible_count}")
     else:
-        check("README contains tool count pattern", False, "Could not find 'N registered / M model-visible' pattern")
+        check("README contains tool count pattern", False, "Could not find 'N canonical / N active' pattern")
 
     # Also check the tool count fact check section
     m2 = re.search(r'Expected current output:\s*`(\d+)\s+(\d+)`', readme)
@@ -94,42 +104,33 @@ if os.path.exists(docs_path):
     with open(docs_path) as f:
         docs = f.read()
 
-    # Check tool counts
-    m = re.search(r'Registered tools:\s*(\d+)', docs)
-    if m:
-        docs_all = int(m.group(1))
-        check("CAPABILITIES_AND_TOOLS.md registered count matches runtime",
-              docs_all == actual_all,
-              f"Docs says {docs_all}, runtime says {actual_all}")
-    else:
-        check("CAPABILITIES_AND_TOOLS.md contains registered tools count",
-              False, "Pattern not found")
+    # v3.0 doc: must point to the v3.0 catalog.
+    has_v3_pointer = "TOOL_CATALOG.md" in docs and "tool_catalog.json" in docs
+    check("CAPABILITIES_AND_TOOLS.md points to v3.0 catalog",
+          has_v3_pointer,
+          "missing TOOL_CATALOG.md or tool_catalog.json pointer" if not has_v3_pointer else "")
 
-    m2 = re.search(r'Model-visible tools:\s*(\d+)', docs)
-    if m2:
-        docs_visible = int(m2.group(1))
-        check("CAPABILITIES_AND_TOOLS.md model-visible count matches runtime",
-              docs_visible == actual_visible,
-              f"Docs says {docs_visible}, runtime says {actual_visible}")
+    # v3.0 doc: must NOT contain legacy pattern artifacts.
+    if "Registered tools:" in docs:
+        check("CAPABILITIES_AND_TOOLS.md no legacy 'Registered tools:' line",
+              False, "legacy v2.x pattern present")
     else:
-        check("CAPABILITIES_AND_TOOLS.md contains model-visible tools count",
-              False, "Pattern not found")
+        check("CAPABILITIES_AND_TOOLS.md no legacy 'Registered tools:' line",
+              True)
 
-    # Check capabilities
-    m3 = re.search(r'(\d+)\s+total,\s*(\d+)\s+enabled,\s*(\d+)\s+planned', docs)
-    if m3:
-        docs_total = int(m3.group(1))
-        docs_enabled = int(m3.group(2))
-        docs_planned = int(m3.group(3))
-        check("CAPABILITIES_AND_TOOLS.md capability total is 7",
-              docs_total == 7, f"Found {docs_total}")
-        check("CAPABILITIES_AND_TOOLS.md capability enabled is 4",
-              docs_enabled == 4, f"Found {docs_enabled}")
-        check("CAPABILITIES_AND_TOOLS.md capability planned is 3",
-              docs_planned == 3, f"Found {docs_planned}")
+    if "Model-visible tools:" in docs:
+        check("CAPABILITIES_AND_TOOLS.md no legacy 'Model-visible tools:' line",
+              False, "legacy v2.x pattern present")
     else:
-        check("CAPABILITIES_AND_TOOLS.md contains capability counts",
-              False, "Pattern not found")
+        check("CAPABILITIES_AND_TOOLS.md no legacy 'Model-visible tools:' line",
+              True)
+
+    if re.search(r'\d+\s+total,\s*\d+\s+enabled,\s*\d+\s+planned', docs):
+        check("CAPABILITIES_AND_TOOLS.md no legacy capability count pattern",
+              False, "legacy v2.x pattern present")
+    else:
+        check("CAPABILITIES_AND_TOOLS.md no legacy capability count pattern",
+              True)
 else:
     check("CAPABILITIES_AND_TOOLS.md exists", False, "File not found")
 

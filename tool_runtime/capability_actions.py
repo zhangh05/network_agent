@@ -1,26 +1,30 @@
-"""v2.3 capability actions used by the intelligent planner."""
+"""v3.0 canonical-only capability actions.
+
+A capability_action is a high-level planner verb that maps to one or
+more canonical_tool_ids. The planner resolves a user request into a
+set of capability_actions, expands each action into its preferred /
+fallback canonical tools, and then filters by governance (only
+status == 'active' canonicals survive).
+"""
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Any
-
-from tool_runtime.tool_governance import is_planner_visible
-from tool_runtime.tool_namespace import TOOL_NAMESPACE, get_namespace_entry
 
 
 @dataclass(frozen=True)
 class CapabilityAction:
-    action_id: str
+    capability_action: str
     category: str
     group: str
     preferred_tools: tuple[str, ...]
     fallback_tools: tuple[str, ...] = ()
     reason: str = ""
 
-    def as_dict(self) -> dict[str, Any]:
+    def metadata(self) -> dict[str, Any]:
         return {
-            "action_id": self.action_id,
+            "capability_action": self.capability_action,
             "category": self.category,
             "group": self.group,
             "preferred_tools": list(self.preferred_tools),
@@ -29,172 +33,201 @@ class CapabilityAction:
         }
 
 
-def _action(
-    action_id: str,
-    category: str,
-    group: str,
-    preferred: tuple[str, ...],
-    fallback: tuple[str, ...] = (),
-    reason: str = "",
-) -> CapabilityAction:
-    return CapabilityAction(action_id, category, group, preferred, fallback, reason)
-
-
 EXPLICIT_CAPABILITY_ACTIONS: dict[str, CapabilityAction] = {
-    "workspace.file.read": _action(
-        "workspace.file.read", "workspace", "file",
-        ("workspace.file.read", "workspace.file.preview"),
-        ("workspace.file.list",),
-        "Read or preview workspace files before analysis.",
+    # Host
+    "host.environment.inspect": CapabilityAction(
+        capability_action="host.environment.inspect",
+        category="host",
+        group="shell",
+        preferred_tools=("host.shell.exec", "host.powershell.exec",
+                         "host.python.exec", "runtime.health",
+                         "runtime.diagnostics"),
+        fallback_tools=("host.command.slash_run",),
+        reason="Inspect or operate on the current local host under approval policy.",
     ),
-    "workspace.file.manage": _action(
-        "workspace.file.manage", "workspace", "file",
-        ("workspace.file.list", "workspace.file.exists", "workspace.file.edit", "workspace.file.patch"),
-        (),
-        "List, check, edit, or patch workspace files.",
+    "host.shell.exec": CapabilityAction(
+        capability_action="host.shell.exec", category="host", group="shell",
+        preferred_tools=("host.shell.exec",), reason="Direct canonical action."),
+    "host.powershell.exec": CapabilityAction(
+        capability_action="host.powershell.exec", category="host", group="powershell",
+        preferred_tools=("host.powershell.exec",), reason="Direct canonical action."),
+    "host.python.exec": CapabilityAction(
+        capability_action="host.python.exec", category="host", group="python",
+        preferred_tools=("host.python.exec",), reason="Direct canonical action."),
+    "host.command.slash_run": CapabilityAction(
+        capability_action="host.command.slash_run", category="host", group="command",
+        preferred_tools=("host.command.slash_run",), reason="Direct canonical action."),
+
+    # Workspace
+    "workspace.file.manage": CapabilityAction(
+        capability_action="workspace.file.manage", category="workspace", group="file",
+        preferred_tools=("workspace.file.list", "workspace.file.exists",
+                         "workspace.file.edit", "workspace.file.patch"),
+        fallback_tools=("workspace.file.read", "workspace.file.preview",
+                        "workspace.file.write_artifact"),
+        reason="Manage workspace files end-to-end.",
     ),
-    "workspace.artifact.manage": _action(
-        "workspace.artifact.manage", "workspace", "artifact",
-        ("workspace.artifact.list", "workspace.artifact.search", "workspace.artifact.read", "workspace.artifact.save"),
-        ("workspace.artifact.diff", "workspace.artifact.export", "workspace.artifact.tag", "workspace.artifact.delete_soft"),
-        "Work with workspace artifact metadata and safe content.",
+    "workspace.artifact.manage": CapabilityAction(
+        capability_action="workspace.artifact.manage", category="workspace", group="artifact",
+        preferred_tools=("workspace.artifact.list", "workspace.artifact.search",
+                         "workspace.artifact.read", "workspace.artifact.save"),
+        fallback_tools=("workspace.artifact.diff", "workspace.artifact.export",
+                        "workspace.artifact.tag", "workspace.artifact.delete_soft"),
+        reason="Work with workspace artifact metadata and safe content.",
     ),
-    "network.config.analyze": _action(
-        "network.config.analyze", "network", "config",
-        ("network.config.parse", "network.interface.extract", "network.route.extract"),
-        (),
-        "Offline network configuration analysis.",
+    "workspace.document.pdf.extract_text": CapabilityAction(
+        capability_action="workspace.document.pdf.extract_text",
+        category="workspace", group="document",
+        preferred_tools=("workspace.document.pdf.extract_text",),
+        reason="Direct canonical action."),
+
+    # Knowledge
+    "knowledge.search_and_answer": CapabilityAction(
+        capability_action="knowledge.search_and_answer",
+        category="knowledge", group="search",
+        preferred_tools=("knowledge.query", "knowledge.search"),
+        fallback_tools=("knowledge.chunk.read", "knowledge.source.read",
+                        "knowledge.parent.read"),
+        reason="Search the knowledge base and answer from safe excerpts.",
     ),
-    "network.config.translate": _action(
-        "network.config.translate", "network", "config",
-        ("network.config.translate",),
-        (),
-        "Offline network configuration translation.",
+    "knowledge.maintain": CapabilityAction(
+        capability_action="knowledge.maintain",
+        category="knowledge", group="import",
+        preferred_tools=("knowledge.import.file", "knowledge.import.document",
+                         "knowledge.import.artifact", "knowledge.source.reindex"),
+        fallback_tools=("knowledge.source.reindex_all", "knowledge.source.disable",
+                        "knowledge.source.delete"),
+        reason="Maintain the knowledge base (import, reindex, retire).",
     ),
-    "web.official_docs.search": _action(
-        "web.official_docs.search", "web", "docs",
-        ("web.docs.official_search", "web.search", "web.page.summarize"),
-        ("web.page.extract_links",),
-        "Search official documentation and summarize public pages.",
+
+    # Network
+    "network.config.analyze": CapabilityAction(
+        capability_action="network.config.analyze",
+        category="network", group="config",
+        preferred_tools=("network.config.parse", "network.interface.extract",
+                         "network.route.extract"),
+        reason="Offline network configuration analysis.",
     ),
-    "knowledge.search_and_answer": _action(
-        "knowledge.search_and_answer", "knowledge", "search",
-        ("knowledge.query", "knowledge.search"),
-        ("knowledge.chunk.read", "knowledge.source.read", "knowledge.parent.read"),
-        "Search the knowledge base and answer from safe excerpts.",
+    "network.config.translate": CapabilityAction(
+        capability_action="network.config.translate",
+        category="network", group="config",
+        preferred_tools=("network.config.translate",),
+        reason="Offline network configuration translation."),
+
+    # Web
+    "web.official_docs.search": CapabilityAction(
+        capability_action="web.official_docs.search",
+        category="web", group="docs",
+        preferred_tools=("web.docs.official_search", "web.search", "web.page.summarize"),
+        fallback_tools=("web.page.extract_links",),
+        reason="Search official documentation and summarize public pages.",
     ),
-    "host.environment.inspect": _action(
-        "host.environment.inspect", "host", "shell",
-        ("host.shell.exec", "host.powershell.exec", "host.python.exec", "runtime.health", "runtime.diagnostics"),
-        (),
-        "Inspect or operate on the current local host under approval policy.",
+    "web.weather.read": CapabilityAction(
+        capability_action="web.weather.read", category="web", group="weather",
+        preferred_tools=("web.weather.current", "web.weather.forecast"),
+        reason="Read weather for a public location."),
+
+    # Runtime / Run / Session
+    "runtime.audit.inspect": CapabilityAction(
+        capability_action="runtime.audit.inspect",
+        category="runtime", group="audit",
+        preferred_tools=("runtime.health", "runtime.diagnostics",
+                         "run.list", "run.summary.get",
+                         "session.list", "session.summary.get"),
+        fallback_tools=("session.snapshot.list", "session.export",
+                        "runtime.selfcheck"),
+        reason="Inspect runtime, run, and session audit metadata.",
     ),
-    "runtime.audit.inspect": _action(
-        "runtime.audit.inspect", "runtime", "run",
-        ("runtime.health", "runtime.diagnostics", "run.list", "run.summary.get", "session.list", "session.summary.get"),
-        ("session.snapshot.list", "session.export"),
-        "Inspect runtime, run, and session audit metadata.",
+    "runtime.review.manage": CapabilityAction(
+        capability_action="runtime.review.manage",
+        category="runtime", group="review",
+        preferred_tools=("review.item.list", "review.item.update"),
+        reason="List and update review items."),
+    "runtime.session.manage": CapabilityAction(
+        capability_action="runtime.session.manage",
+        category="runtime", group="session",
+        preferred_tools=("session.snapshot.create", "session.snapshot.list",
+                         "session.checkpoint", "session.rewind",
+                         "session.export"),
+        reason="Manage session lifecycle and snapshots."),
+
+    # Memory
+    "memory.profile.manage": CapabilityAction(
+        capability_action="memory.profile.manage",
+        category="memory", group="profile",
+        preferred_tools=("memory.search", "memory.list",
+                         "memory.profile.get", "memory.profile.set"),
+        fallback_tools=("memory.create", "memory.confirm",
+                        "memory.update", "memory.delete_soft"),
+        reason="Search and manage memory records and profile fields.",
     ),
-    "memory.profile.manage": _action(
-        "memory.profile.manage", "memory", "profile",
-        ("memory.search", "memory.list", "memory.profile.get", "memory.profile.set"),
-        ("memory.create", "memory.confirm", "memory.update", "memory.delete_soft"),
-        "Search and manage memory records and profile fields.",
+
+    # Report / Data / Text
+    "report.create_and_save": CapabilityAction(
+        capability_action="report.create_and_save",
+        category="report_data", group="report",
+        preferred_tools=("report.markdown.render", "workspace.artifact.save"),
+        fallback_tools=("data.table.render", "diagram.mermaid.render"),
+        reason="Render a report and save it as a workspace artifact.",
     ),
-    "report.create_and_save": _action(
-        "report.create_and_save", "report_data", "report",
-        ("report.markdown.render", "workspace.artifact.save"),
-        ("data.table.render", "diagram.mermaid.render"),
-        "Render a report and save it as a workspace artifact.",
+    "data.text.process": CapabilityAction(
+        capability_action="data.text.process",
+        category="report_data", group="text",
+        preferred_tools=("text.redact", "text.diff", "text.keywords.extract"),
+        fallback_tools=("data.json.validate", "data.yaml.validate",
+                        "data.csv.summarize", "data.table.extract",
+                        "data.table.render"),
+        reason="Process structured data and safe text outputs.",
     ),
-    "data.text.process": _action(
-        "data.text.process", "report_data", "text",
-        ("text.redact", "text.diff", "text.keywords.extract"),
-        ("data.json.validate", "data.yaml.validate", "data.csv.summarize", "data.table.extract", "data.table.render"),
-        "Process structured data and safe text outputs.",
-    ),
-    "agent.team.coordinate": _action(
-        "agent.team.coordinate", "agent", "subagent",
-        ("agent.spawn", "agent.role.list", "agent.result.get"),
-        ("agent.team.run", "skill.list", "skill.request_load", "skill.load", "skill.find", "skill.inspect", "skill.create"),
-        "Coordinate skills and sub-agent work under runtime limits.",
+
+    # Agent / Skill
+    "agent.skill.manage": CapabilityAction(
+        capability_action="agent.skill.manage",
+        category="agent", group="skill",
+        preferred_tools=("skill.list", "skill.search", "skill.get",
+                         "skill.load", "skill.unload"),
+        reason="Discover, inspect, load and unload skills."),
+    "agent.team.coordinate": CapabilityAction(
+        capability_action="agent.team.coordinate",
+        category="agent", group="team",
+        preferred_tools=("agent.spawn", "agent.role.list", "agent.result.get"),
+        fallback_tools=("agent.team.run", "skill.list", "skill.load"),
+        reason="Coordinate child-agent work under runtime limits.",
     ),
 }
 
 
-def _default_action_for(canonical_id: str) -> CapabilityAction:
-    entry = get_namespace_entry(canonical_id)
-    action_id = canonical_id
-    return CapabilityAction(
-        action_id=action_id,
-        category=entry.category,
-        group=entry.group,
-        preferred_tools=(canonical_id,),
-        fallback_tools=(),
-        reason="Direct canonical action for a stable, non-overlapping tool.",
+def _build_all_actions() -> dict[str, CapabilityAction]:
+    actions = dict(EXPLICIT_CAPABILITY_ACTIONS)
+    # Default: every planner-visible canonical tool gets a 1:1 action.
+    from tool_runtime.tool_namespace import TOOL_NAMESPACE
+    from tool_runtime.tool_governance import (
+        TOOL_GOVERNANCE, planner_visible_tool_ids,
     )
-
-
-CAPABILITY_ACTIONS: dict[str, CapabilityAction] = dict(EXPLICIT_CAPABILITY_ACTIONS)
-for _canonical_id in sorted(TOOL_NAMESPACE):
-    if _canonical_id not in CAPABILITY_ACTIONS and is_planner_visible(_canonical_id):
-        CAPABILITY_ACTIONS[_canonical_id] = _default_action_for(_canonical_id)
-
-
-def action_exists(action_id: str) -> bool:
-    return action_id in CAPABILITY_ACTIONS
-
-
-def tools_for_action(action_id: str, *, include_fallback: bool = True, available: set[str] | None = None) -> list[str]:
-    action = CAPABILITY_ACTIONS[action_id]
-    tools = [*action.preferred_tools]
-    if include_fallback:
-        tools.extend(action.fallback_tools)
-    result: list[str] = []
-    for tool_id in tools:
-        if tool_id not in TOOL_NAMESPACE:
+    for canonical_id in planner_visible_tool_ids():
+        if canonical_id in actions:
             continue
-        if available is not None and tool_id not in available:
+        entry = TOOL_NAMESPACE[canonical_id]
+        gov = TOOL_GOVERNANCE[canonical_id]
+        if gov.status != "active":
             continue
-        if not is_planner_visible(tool_id):
-            continue
-        if tool_id not in result:
-            result.append(tool_id)
-    return result
+        actions[canonical_id] = CapabilityAction(
+            capability_action=canonical_id,
+            category=entry.category,
+            group=entry.group,
+            preferred_tools=(canonical_id,),
+            reason="Direct canonical action.",
+        )
+    return actions
 
 
-def action_for_tool_set(tool_ids: list[str]) -> str:
-    tool_set = set(tool_ids)
-    ranked = [
-        "workspace.file.read",
-        "web.official_docs.search",
-        "network.config.analyze",
-        "report.create_and_save",
-        "host.environment.inspect",
-        "knowledge.search_and_answer",
-        "runtime.audit.inspect",
-        "memory.profile.manage",
-        "data.text.process",
-        "agent.team.coordinate",
-    ]
-    for action_id in ranked:
-        action_tools = set(tools_for_action(action_id, include_fallback=True))
-        if action_tools and tool_set & action_tools:
-            return action_id
-    for tool_id in tool_ids:
-        if tool_id in CAPABILITY_ACTIONS:
-            return tool_id
-    return "data.text.process"
+CAPABILITY_ACTIONS: dict[str, CapabilityAction] = _build_all_actions()
 
 
-def canonical_capability_coverage() -> dict[str, list[str]]:
-    covered: set[str] = set()
-    for action in CAPABILITY_ACTIONS.values():
-        covered.update(t for t in action.preferred_tools if t in TOOL_NAMESPACE)
-        covered.update(t for t in action.fallback_tools if t in TOOL_NAMESPACE)
-    exempt = sorted(set(TOOL_NAMESPACE) - covered)
-    return {
-        "covered": sorted(covered),
-        "exempt": exempt,
-    }
-
+def capability_actions_for(canonical_tool_id: str) -> list[str]:
+    hits: list[str] = []
+    for action_id, action in CAPABILITY_ACTIONS.items():
+        if (canonical_tool_id in action.preferred_tools
+                or canonical_tool_id in action.fallback_tools):
+            hits.append(action_id)
+    return sorted(hits)
