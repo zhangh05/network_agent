@@ -167,20 +167,24 @@ def handle_memory_get_profile(inv: ToolInvocation) -> dict:
         validate_workspace_id(ws)
         profile_path = WS_ROOT / ws / "memory" / "profile.json"
         if not profile_path.is_file():
-            return _ok(inv, "", {
+            return _ok(inv, "No profile found; returning empty default.", {
                 "explicit_preferences": {},
                 "inferred_preferences": {},
                 "tool_usage_stats": {},
                 "updated_at": "",
+                "warnings": ["tool_returned_no_payload"],
             })
         import json
         data = json.loads(profile_path.read_text(encoding="utf-8"))
-        return _ok(inv, "", {
+        payload = {
             "explicit_preferences": data.get("explicit_preferences", {}),
             "inferred_preferences": data.get("inferred_preferences", {}),
             "tool_usage_stats": data.get("tool_usage_stats", {}),
             "updated_at": data.get("updated_at", ""),
-        })
+        }
+        if not any(v not in (None, "", [], {}) for v in payload.values()):
+            payload["warnings"] = ["tool_returned_no_payload"]
+        return _ok(inv, "Profile loaded.", payload)
     except Exception as e:
         return _error_inv(inv, str(e)[:200])
 
