@@ -80,42 +80,42 @@ class TestToolRuntimeClient:
         tool_ids = {t["tool_id"] for t in tools}
         assert len(tools) >= 40, f"Expected >= 40 tools, got {len(tools)}"
         assert "command.dry_run_echo" not in tool_ids
-        assert "parser.parse_config_text" in tool_ids
+        assert "network.config.parse" in tool_ids
 
     def test_invoke_constructs_invocation(self, client):
         from tool_runtime.context import ToolRuntimeContext
         ctx = ToolRuntimeContext(workspace_id="ws_x")
-        result = client.invoke("parser.parse_config_text", {"config_text": "hostname R1"},
+        result = client.invoke("network.config.parse", {"config_text": "hostname R1"},
                                dry_run=True, context=ctx)
         assert result.status == "dry_run"
-        assert result.tool_id == "parser.parse_config_text"
+        assert result.tool_id == "network.config.parse"
         assert result.invocation_id  # auto-generated
 
     def test_invoke_propagates_workspace_id(self, client):
         from tool_runtime.context import ToolRuntimeContext
         ctx = ToolRuntimeContext(workspace_id="my_ws")
-        result = client.invoke("parser.parse_config_text", {"config_text": "hostname R1"},
+        result = client.invoke("network.config.parse", {"config_text": "hostname R1"},
                                dry_run=True, context=ctx)
         assert result.status == "dry_run"
 
     def test_invoke_propagates_run_id(self, client):
         from tool_runtime.context import ToolRuntimeContext
         ctx = ToolRuntimeContext(run_id="run_abc123")
-        result = client.invoke("parser.parse_config_text", {"config_text": "hostname R1"},
+        result = client.invoke("network.config.parse", {"config_text": "hostname R1"},
                                dry_run=True, context=ctx)
         assert result.status == "dry_run"
 
     def test_invoke_propagates_job_id(self, client):
         from tool_runtime.context import ToolRuntimeContext
         ctx = ToolRuntimeContext(job_id="job_xyz789")
-        result = client.invoke("parser.parse_config_text", {"config_text": "hostname R1"},
+        result = client.invoke("network.config.parse", {"config_text": "hostname R1"},
                                dry_run=True, context=ctx)
         assert result.status == "dry_run"
 
     def test_invoke_propagates_requested_by(self, client):
         from tool_runtime.context import ToolRuntimeContext
         ctx = ToolRuntimeContext(requested_by="module:test")
-        result = client.invoke("parser.parse_config_text", {"config_text": "hostname R1"},
+        result = client.invoke("network.config.parse", {"config_text": "hostname R1"},
                                dry_run=True, context=ctx)
         assert result.status == "dry_run"
 
@@ -135,7 +135,7 @@ class TestToolRuntimeClient:
         assert result.status != "succeeded"
 
     def test_invoke_parser_dry_run_works(self, client):
-        result = client.invoke("parser.parse_config_text", {"config_text": "hostname R1"}, dry_run=True)
+        result = client.invoke("network.config.parse", {"config_text": "hostname R1"}, dry_run=True)
         assert result.status == "dry_run"
         assert result.output.get("vendor_hint") in ("unknown", "cisco")
 
@@ -151,10 +151,10 @@ class TestToolRuntimeClient:
             assert "tool_id" in t
 
     def test_get_tool_no_handler(self, client):
-        info = client.get_tool("parser.parse_config_text")
+        info = client.get_tool("network.config.parse")
         assert info is not None
         assert "handler" not in info
-        assert info["tool_id"] == "parser.parse_config_text"
+        assert info["tool_id"] == "network.config.parse"
 
     def test_client_does_not_import_llm(self):
         import tool_runtime.client
@@ -472,7 +472,7 @@ class TestForbiddenToolsStillBlocked:
         assert result.status != "succeeded"
 
     def test_shell_blocked(self, client):
-        result = client.invoke("shell.exec", {})
+        result = client.invoke("host.shell.exec", {})
         assert result.status != "succeeded"
 
 

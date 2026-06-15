@@ -4,9 +4,9 @@
 
 | 按钮文字 | 触发行为 | 对应工具 | 数据流 |
 |---|---|---|---|
-| **查看运行详情** | 打开右侧 Inspector 抽屉 | `run.get_summary` + `run.list_recent` | 展示本轮 tool_decision, candidate_tools, blocked_by |
+| **查看运行详情** | 打开右侧 Inspector 抽屉 | `run.summary.get` + `run.list` | 展示本轮 tool_decision, candidate_tools, blocked_by |
 | **记住结论** | 触发 memory.confirm/create 流程 | `memory.confirm` / `memory.create` | POST `/api/memory/confirm` → 记忆持久化 → RAG 召回 |
-| **存为知识** | 触发 knowledge.upload 流程 | `knowledge.index_artifact` / `artifact.save_result` | POST `/api/knowledge/upload` → 知识索引 → 可检索 |
+| **存为知识** | 触发 knowledge.upload 流程 | `knowledge.index_artifact` / `workspace.artifact.save` | POST `/api/knowledge/upload` → 知识索引 → 可检索 |
 | **来源 ({n})** | 打开 Inspector 查看引用 | `knowledge.search`, `memory.search`, `web.search` | 显示 K/M 引用来源 |
 
 ## 2. Inspector 工具调用面板（v2.1.2 新增）

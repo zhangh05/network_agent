@@ -102,9 +102,9 @@ CAPABILITY_KNOWLEDGE = CapabilityManifest(
                 "knowledge.read_source",
                 "knowledge.disable_source",
                 "knowledge.delete_source",
-                "knowledge.import_file",
-                "knowledge.list_chunks",
-                "knowledge.search_chunks",
+                "knowledge.import.file",
+                "knowledge.chunk.list",
+                "knowledge.search",
                 "knowledge.read_chunk",
                 "knowledge.read_parent",
                 "knowledge.reindex_source",
@@ -128,9 +128,9 @@ CAPABILITY_KNOWLEDGE = CapabilityManifest(
             prompt_summary=(
                 "Use knowledge_query for all knowledge operations. "
                 "For raw text use knowledge.import_document; for files "
-                "(md/txt/html/docx/text-pdf) use knowledge.import_file. "
+                "(md/txt/html/docx/text-pdf) use knowledge.import.file. "
                 "For retrieval, prefer knowledge.query (high-level) or "
-                "knowledge.search_chunks + knowledge.read_parent for "
+                "knowledge.search + knowledge.parent.read for "
                 "section-level context. If query returns no hits, say "
                 "so honestly and suggest importing more material."
             ),
@@ -361,7 +361,7 @@ CAPABILITY_KNOWLEDGE = CapabilityManifest(
             ),
         ),
         CapabilityToolRef(
-            tool_id="knowledge.search_chunks",
+            tool_id="knowledge.search",
             status="enabled",
             callable_by_llm=True,
             risk_level="low",

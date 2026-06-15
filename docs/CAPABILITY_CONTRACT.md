@@ -191,7 +191,7 @@ BUILTIN_CAPABILITIES: list[CapabilityManifest] = [
 | `module` | `knowledge` |
 | `skill` | `knowledge_query` |
 
-**Tools：** `knowledge.query`, `knowledge.list_sources`, `knowledge.search_chunks`,
+**Tools：** `knowledge.query`, `knowledge.list_sources`, `knowledge.search`,
 `knowledge.read_chunk`, `knowledge.read_parent`, `knowledge.import_document`,
 `knowledge.import_file`, `knowledge.import_chunks`, `knowledge.index_artifact`,
 `knowledge.reindex`
@@ -208,7 +208,7 @@ RAG 知识库：文档导入、索引构建、语义搜索、分块读取。
 | `skill` | `artifact_management` |
 
 **Tools：** `artifact.list`, `artifact.read`, `artifact.diff`, `artifact.export`,
-`artifact.save_result`
+`workspace.artifact.save`
 
 制品生命周期管理：列表、读取、保存、差异对比、导出。
 

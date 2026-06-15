@@ -106,11 +106,11 @@ def _select_tool_id(text: str, tools: list) -> Optional[str]:
     if any(k in lower for k in ["运行时", "runtime", "健康", "health", "诊断"]):
         return "runtime.health"
     if any(k in lower for k in ["最近运行", "recent run", "run history", "运行记录"]):
-        return "run.list_recent"
+        return "run.list"
     if any(k in lower for k in ["workspace", "工作区", "工作空间"]):
-        return "workspace.get_metadata"
+        return "workspace.metadata.get"
     if any(k in lower for k in ["artifact", "产物", "文件列表"]):
-        return "artifact.list"
+        return "workspace.artifact.list"
     if any(k in lower for k in ["知识库", "knowledge", "检索", "搜索"]):
         return "knowledge.search"
 
@@ -123,12 +123,12 @@ def _select_tool_id(text: str, tools: list) -> Optional[str]:
 
 def _build_arguments(tool_id: str, text: str, workspace_id: str) -> dict:
     args = {"workspace_id": workspace_id}
-    if tool_id in ("knowledge.search", "artifact.search", "memory.search"):
+    if tool_id in ("knowledge.search", "workspace.artifact.search", "memory.search"):
         args["query"] = _extract_query(text, tool_id)
         args["limit"] = 5
-    elif tool_id == "run.list_recent":
+    elif tool_id == "run.list":
         args["limit"] = 5
-    elif tool_id == "shell.exec":
+    elif tool_id == "host.shell.exec":
         pass  # LLM provides the full command
     return args
 

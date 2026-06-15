@@ -92,12 +92,12 @@ describe("useWorkbenchStore — bySession + persist (plan-C)", () => {
       },
     ];
     useWorkbenchStore.getState().mergeFromBackend("s-a", serverMsgs);
-    const merged = useWorkbenchStore.getState().bySession["s-a"] ?? [];
-    expect(merged.length).toBe(3); // 本地 1 + 服务端 2, 不会丢本地
+    const combined = useWorkbenchStore.getState().bySession["s-a"] ?? [];
+    expect(combined.length).toBe(3); // 本地 1 + 服务端 2, 不会丢本地
     // 按 created_at 升序
-    expect(merged[0]?.text).toBe("服务端用户");
-    expect(merged[1]?.text).toBe("服务端助手");
-    expect(merged[2]?.text).toBe("本地用户");
+    expect(combined[0]?.text).toBe("服务端用户");
+    expect(combined[1]?.text).toBe("服务端助手");
+    expect(combined[2]?.text).toBe("本地用户");
   });
 
   it("mergeFromBackend 服务端自身重复 id 去重", () => {

@@ -8,7 +8,7 @@ export type CapabilityStatus = "enabled" | "planned" | "disabled";
 export type ToolStatus = "enabled" | "planned" | "disabled";
 export type RiskLevel = "low" | "medium" | "high" | "forbidden";
 export type Sensitivity = "public" | "internal" | "sensitive" | "secret";
-export type ToolGovernanceStatus = "keep" | "alias" | "merged" | "deprecated" | "removed_candidate";
+export type ToolGovernanceStatus = "active" | "disabled" | "internal" | "forbidden";
 
 /* ───────────────────────── CapabilityManifest ─────────────────────────
  *

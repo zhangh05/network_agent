@@ -387,7 +387,7 @@ def handle_web_official_doc_search(inv: ToolInvocation) -> dict:
         approval_id=inv.approval_id,
     ))
     result = dict(out or {})
-    result["tool_id"] = "web.official_doc_search"
+    result["tool_id"] = "web.docs.official_search"
     result["source_type"] = "official_doc_search"
     result["vendor"] = vendor
     result["official_domains"] = domains

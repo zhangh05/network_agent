@@ -10,9 +10,9 @@ v1.0 (kept for compatibility, 6 tools):
   - knowledge.delete_source
 
 v1.0.1 (new, 6 tools):
-  - knowledge.import_file
-  - knowledge.list_chunks
-  - knowledge.search_chunks
+  - knowledge.import.file
+  - knowledge.chunk.list
+  - knowledge.search
   - knowledge.read_chunk
   - knowledge.read_parent
   - knowledge.reindex_source
@@ -258,7 +258,7 @@ TOOL_KNOWLEDGE_LIST_CHUNKS = ToolSpec(
 
 
 TOOL_KNOWLEDGE_SEARCH_CHUNKS = ToolSpec(
-    tool_id="knowledge.search_chunks",
+    tool_id="knowledge.search",
     name="search_chunks",
     category="knowledge",
     description=(
@@ -477,7 +477,7 @@ tool_handler_list_chunks = _build_handler(
     passthrough_keys=("workspace_id", "source_id", "chunk_type", "limit"),
 )
 tool_handler_search_chunks = _build_handler(
-    _knowledge_service.search_chunks, "knowledge.search_chunks",
+    _knowledge_service.search_chunks, "knowledge.search",
     passthrough_keys=("workspace_id", "query", "top_k", "scope",
                        "source_id", "source_type", "tags", "chapter"),
 )

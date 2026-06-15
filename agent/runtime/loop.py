@@ -734,7 +734,7 @@ def run_turn(session, turn, services=None, restricted_tool_router=None) -> Agent
                         needs_approval = is_high_risk or requires_approval or getattr(spec, 'requires_approval', False)
                         approval_denied = False
                         if needs_approval:
-                            if tid in ('shell.exec', 'powershell.exec'):
+                            if tid in ('host.shell.exec', 'host.powershell.exec'):
                                 from tool_runtime.policy import is_safe_command_first_word
                                 cmd = str(tool_call.arguments.get('command', ''))
                                 first_word = cmd.strip().split()[0] if cmd.strip() else ''
@@ -1037,7 +1037,7 @@ def _build_tool_decision(all_tool_results: list, context) -> dict:
             "failed_tools": failed_tools,
             "blocked_by": blocked_by if blocked_by else [],
             "approval_required": any(
-                tc.get("tool_id") in ("shell.exec", "powershell.exec", "python.exec")
+                tc.get("tool_id") in ("host.shell.exec", "host.powershell.exec", "host.python.exec")
                 for tc in all_tool_results
             ),
             "reason": "Tools were called to fulfill the user request.",

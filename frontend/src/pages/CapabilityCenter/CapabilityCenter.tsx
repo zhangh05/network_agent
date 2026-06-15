@@ -37,13 +37,15 @@ const RISK_LABEL: Record<RiskLevel, string> = {
   forbidden: "禁止",
 };
 
-type ToolFilter = "all" | "planner" | "deprecated" | "alias" | "high" | "host" | "workspace" | "network" | "knowledge";
+type ToolFilter = "all" | "planner" | "active" | "disabled" | "internal" | "forbidden" | "high" | "host" | "workspace" | "network" | "knowledge";
 
 const TOOL_FILTERS: Array<{ id: ToolFilter; label: string }> = [
   { id: "all", label: "All" },
   { id: "planner", label: "Planner-visible" },
-  { id: "deprecated", label: "Deprecated" },
-  { id: "alias", label: "Alias/Merged" },
+  { id: "active", label: "Active" },
+  { id: "disabled", label: "Disabled" },
+  { id: "internal", label: "Internal" },
+  { id: "forbidden", label: "Forbidden" },
   { id: "high", label: "High risk" },
   { id: "host", label: "Host" },
   { id: "workspace", label: "Workspace" },
@@ -52,11 +54,10 @@ const TOOL_FILTERS: Array<{ id: ToolFilter; label: string }> = [
 ];
 
 const GOVERNANCE_KIND: Record<ToolGovernanceStatus, "ok" | "info" | "warn" | "muted"> = {
-  keep: "ok",
-  alias: "info",
-  merged: "info",
-  deprecated: "warn",
-  removed_candidate: "muted",
+  active: "ok",
+  disabled: "info",
+  internal: "info",
+  forbidden: "warn",
 };
 
 interface RegistrySummary {
@@ -355,10 +356,14 @@ function matchesFilter(tool: ToolCatalogItem, filter: ToolFilter): boolean {
   switch (filter) {
     case "planner":
       return Boolean(tool.planner_visible);
-    case "deprecated":
-      return tool.governance_status === "deprecated" || tool.governance_status === "removed_candidate";
-    case "alias":
-      return tool.governance_status === "alias" || tool.governance_status === "merged";
+    case "active":
+      return tool.governance_status === "active";
+    case "disabled":
+      return tool.governance_status === "disabled";
+    case "internal":
+      return tool.governance_status === "internal";
+    case "forbidden":
+      return tool.governance_status === "forbidden";
     case "high":
       return tool.risk_level === "high" || tool.requires_approval;
     case "host":

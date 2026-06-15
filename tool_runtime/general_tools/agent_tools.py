@@ -46,7 +46,7 @@ def handle_agent_list_roles(inv: ToolInvocation) -> dict:
         {
             "name": "reviewer",
             "description": "Reviews worker outputs for quality, correctness, and completeness. Can request rework.",
-            "default_tools": ["text.diff", "text.classify", "memory.search", "artifact.search", "file.read"],
+            "default_tools": ["text.diff", "text.classify", "memory.search", "artifact.search", "workspace.file.read"],
         },
     ]
     return _ok({"roles": roles, "count": len(roles)})
@@ -82,18 +82,18 @@ def handle_agent_team(inv: ToolInvocation) -> dict:
             "memory.search", "memory.list", "memory.get_profile",
             "text.classify", "text.diff", "text.extract_keywords",
             "json.validate", "yaml.validate", "csv.summarize",
-            "workspace.list_files", "workspace.read_text_preview",
-            "workspace.path_exists", "workspace.get_metadata",
-            "file.list", "file.exists", "file.read",
-            "session.list", "session.get_summary",
-            "run.list_recent", "run.get_summary",
+            "workspace.file.list", "workspace.file.preview",
+            "workspace.file.exists", "workspace.get_metadata",
+            "workspace.file.list", "workspace.file.exists", "workspace.file.read",
+            "session.list", "session.summary.get",
+            "run.list", "run.summary.get",
         ]
         _text_data_tools = [
             "web.search", "web.fetch_summary",
             "text.classify", "text.diff", "text.extract_keywords",
             "json.validate", "yaml.validate", "csv.summarize",
-            "table.extract", "workspace.read_text_preview",
-            "file.read",
+            "table.extract", "workspace.file.preview",
+            "workspace.file.read",
         ]
 
         result = {"ok": True, "instruction": instruction, "roles_used": [], "plan": "", "worker_result": None, "reviewer_result": None}

@@ -89,7 +89,6 @@ def _build_tools() -> list[dict[str, Any]]:
             "short_label": ns_entry.short_label,
             "usage_hint": ns_entry.usage_hint,
             "not_for": ns_entry.not_for,
-            "handler_id": cr_entry.handler_id if cr_entry else "",
             "governance_status": gov_entry.status,
             "planner_visible": gov_entry.planner_visible,
             "governance_reason": gov_entry.reason,
@@ -343,15 +342,11 @@ def render_markdown(payload: dict[str, Any]) -> str:
     lines.append("## 9. Internal Handler Map (Runtime Only)")
     lines.append("")
     lines.append(
-        "`handler_id` is internal. The mapping below is for runtime "
-        "dispatch only and is NOT part of the public catalog. The "
-        "public catalog exposes `canonical_tool_id` exclusively."
+        "`handler_id` is internal-only and is NOT part of the public "
+        "catalog. The dispatch table lives in "
+        "`tool_runtime/canonical_registry.py` and is not surfaced in "
+        "this document."
     )
-    lines.append("")
-    lines.append("| canonical_tool_id | handler_id |")
-    lines.append("|---|---|")
-    for tool in tools:
-        lines.append(f"| `{tool['canonical_tool_id']}` | `{tool['handler_id']}` |")
     lines.append("")
 
     lines.append("## 10. Boundaries")

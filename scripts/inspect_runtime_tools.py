@@ -55,7 +55,7 @@ def main():
     print()
 
     # shell/powershell detail
-    for tid in ("shell.exec", "powershell.exec"):
+    for tid in ("host.shell.exec", "host.powershell.exec"):
         t = reg.get(tid)
         if t:
             print(f"=== {tid} ===")

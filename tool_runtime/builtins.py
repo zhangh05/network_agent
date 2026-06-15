@@ -2,10 +2,10 @@
 """v0.1 built-in low-risk tools.
 
 Four baseline tools are provided:
-  1. artifact.list          — list artifact summaries (no full content)
-  2. parser.parse_config_text    — shallow safe parsing of config text
-  3. parser.extract_interfaces   — extract interface names (no full blocks)
-  4. parser.extract_routes       — extract route-like line summaries
+  1. workspace.artifact.list       — list artifact summaries (no full content)
+  2. network.config.parse          — shallow safe parsing of config text
+  3. network.interface.extract     — extract interface names (no full blocks)
+  4. network.route.extract         — extract route-like line summaries
 
 All tools are risk_level=low and dry_run_supported=True.
 None execute real device commands, shells, or arbitrary file access.
@@ -180,10 +180,10 @@ BUILTIN_TOOLS = [
     ),
     (
         ToolSpec(
-            tool_id="parser.parse_config_text",
+            tool_id="network.config.parse",
             name="Parse Config Text",
-            description="Shallow safe parse of network device configuration text. Use when: user provides config text and you need vendor detection, block analysis, and structure hints. Returns vendor_hint, line counts, and block type detection (interfaces/ACL/routes). Read-only. Safe — no device access. Use BEFORE parser.extract_interfaces or parser.extract_routes for context.",
-            category="parser",
+            description="Shallow safe parse of network device configuration text. Use when: user provides config text and you need vendor detection, block analysis, and structure hints. Returns vendor_hint, line counts, and block type detection (interfaces/ACL/routes). Read-only. Safe — no device access. Use BEFORE network.interface.extract or network.route.extract for context.",
+            category="network",
             risk_level="low",
             permission_action="read",
             input_schema={
@@ -198,10 +198,10 @@ BUILTIN_TOOLS = [
     ),
     (
         ToolSpec(
-            tool_id="parser.extract_interfaces",
+            tool_id="network.interface.extract",
             name="Extract Interfaces",
-            description="Extract interface names from network device configuration text. Use when: user provides config and asks about interfaces, port mapping, or topology. No full interface blocks returned — only names. Read-only. Use artifact.save_result to preserve results. For full interface config blocks, use file.read on the uploaded config.",
-            category="parser",
+            description="Extract interface names from network device configuration text. Use when: user provides config and asks about interfaces, port mapping, or topology. No full interface blocks returned — only names. Read-only. Use workspace.artifact.save to preserve results. For full interface config blocks, use workspace.file.read on the uploaded config.",
+            category="network",
             risk_level="low",
             permission_action="read",
             input_schema={
@@ -216,10 +216,10 @@ BUILTIN_TOOLS = [
     ),
     (
         ToolSpec(
-            tool_id="parser.extract_routes",
+            tool_id="network.route.extract",
             name="Extract Routes",
             description="Extract route-like line summaries from network device configuration text. Use when: user provides config and asks about routing table, static routes, or path analysis. IPs are partially masked for safety. Read-only. Returns sanitized route summaries. Use with text.redact for additional safety before sharing.",
-            category="parser",
+            category="network",
             risk_level="low",
             permission_action="read",
             input_schema={

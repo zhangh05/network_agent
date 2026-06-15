@@ -156,13 +156,14 @@ Tool count fact check:
 ```bash
 python3 - <<'PY'
 from agent.runtime.services import default_runtime_services
+from tool_runtime.tool_namespace import TOOL_NAMESPACE
 svc = default_runtime_services()
 reg = svc.tool_service.registry
-print(len(reg.list_all()), len(reg.list_model_visible()))
+print(len(reg.list_all()), len(reg.list_model_visible()), len(TOOL_NAMESPACE))
 PY
 ```
 
-Expected current output: `88 88`.
+Expected current output: `98 98 98`.
 
 Namespace fact check:
 
@@ -170,9 +171,8 @@ Namespace fact check:
 python3 scripts/inspect_tool_namespace.py
 ```
 
-Expected current output includes `canonical_count 88`, `execution_count 88`, and `PASS`.
-The same check also validates v2.2.1 multi-category route samples.
-It also validates v2.3 governance, capability-action planning, deterministic planner, and validator samples.
+Expected current output includes `canonical_count 98`, `active 98 tools`,
+and `INSPECT TOOL NAMESPACE PASS`.
 
 Tool architecture audit:
 
@@ -181,22 +181,22 @@ python3 scripts/audit_tool_architecture.py
 python3 scripts/inspect_tool_architecture.py
 ```
 
-Expected current output includes `execution_count: 88`, `canonical_count: 88`,
-`governance_conflicts: 0`, `planner_uses_deprecated: 0`, and `PASS`.
+Expected current output includes `canonical_count: 98`, `planner_visible_count: 98`,
+`transition_statuses: 0`, and `PASS`.
 
-Full v2.3 tool catalog: [docs/TOOL_CATALOG_V2.3.md](docs/TOOL_CATALOG_V2.3.md)
-Machine-readable catalog: [reports/tool_catalog_v23.json](reports/tool_catalog_v23.json)
+Full v3.0 tool catalog: [docs/TOOL_CATALOG.md](docs/TOOL_CATALOG.md)
+Machine-readable catalog: [reports/tool_catalog.json](reports/tool_catalog.json)
 
 Catalog verification:
 
 ```bash
-python3 scripts/build_tool_catalog_v23.py
+python3 scripts/build_tool_catalog.py
 python3 scripts/verify_tool_catalog_doc.py
 ```
 
 Expected current output for the verifier: `verify_tool_catalog_doc PASS`.
 
-Latest local full harness evidence for this development head: `1317 passed, 12 skipped, 1 warning`.
+Latest local full harness evidence for this development head: `1042 passed, 7 skipped, 1 warning`.
 
 ## Documentation
 
@@ -206,8 +206,8 @@ Latest local full harness evidence for this development head: `1317 passed, 12 s
 - [Capabilities and Tools](docs/CAPABILITIES_AND_TOOLS.md)
 - [Tool Architecture](docs/TOOL_ARCHITECTURE.md)
 - [Tool Governance](docs/TOOL_GOVERNANCE.md)
-- [Tool Catalog v2.3](docs/TOOL_CATALOG_V2.3.md) — full v2.3 tool catalog.
-  Machine-readable mirror: [tool_catalog_v23.json](reports/tool_catalog_v23.json).
+- [Tool Catalog](docs/TOOL_CATALOG.md) — full v3.0 tool catalog.
+  Machine-readable mirror: [tool_catalog.json](reports/tool_catalog.json).
 - [Knowledge and Memory](docs/KNOWLEDGE.md)
 - [Frontend](docs/FRONTEND.md)
 - [Operations](docs/OPERATIONS.md)

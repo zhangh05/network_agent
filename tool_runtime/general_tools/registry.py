@@ -84,7 +84,7 @@ GENERAL_TOOL_INPUT_SCHEMAS = {
     # Artifact
     "artifact.search": _schema({"workspace_id": S["workspace_id"], "query": S["query"], "limit": S["limit"]}),
     "artifact.read_content_safe": _schema({"workspace_id": S["workspace_id"], "artifact_id": S["artifact_id"]}, ["artifact_id"]),
-    "artifact.save_result": _schema({
+    "workspace.artifact.save": _schema({
         "workspace_id": S["workspace_id"],
         "title": S["title"],
         "content": S["content"],
@@ -108,7 +108,7 @@ GENERAL_TOOL_INPUT_SCHEMAS = {
 
     # Web
     "web.fetch_summary": _schema({"url": S["url"]}, ["url"]),
-    "web.official_doc_search": _schema({
+    "web.docs.official_search": _schema({
         "query": S["query"],
         "vendor": {"type": "string", "description": "Vendor slug, e.g. cisco, huawei, h3c, ruijie, arista."},
     }, ["query"]),
@@ -137,11 +137,11 @@ GENERAL_TOOL_INPUT_SCHEMAS = {
     }, ["query"]),
 
     # Session / run / memory
-    "session.get_summary": _schema({"workspace_id": S["workspace_id"], "session_id": S["session_id"]}, ["session_id"]),
+    "session.summary.get": _schema({"workspace_id": S["workspace_id"], "session_id": S["session_id"]}, ["session_id"]),
     "session.create": _schema({"workspace_id": S["workspace_id"], "title": S["title"]}),
     "session.archive": _schema({"workspace_id": S["workspace_id"], "session_id": S["session_id"]}, ["session_id"]),
-    "run.list_recent": _schema({"workspace_id": S["workspace_id"], "limit": S["limit"]}),
-    "run.get_summary": _schema({"workspace_id": S["workspace_id"], "run_id": S["run_id"]}, ["run_id"]),
+    "run.list": _schema({"workspace_id": S["workspace_id"], "limit": S["limit"]}),
+    "run.summary.get": _schema({"workspace_id": S["workspace_id"], "run_id": S["run_id"]}, ["run_id"]),
     "memory.search": _schema({"query": S["query"], "limit": S["limit"]}, ["query"]),
     "skill.list": _schema({"workspace_id": S["workspace_id"]}),
     "memory.create": _schema({
@@ -234,15 +234,15 @@ GENERAL_TOOL_INPUT_SCHEMAS = {
     "table.extract": _schema({"text": S["text"]}, ["text"]),
 
     # Workspace
-    "workspace.list_files": _schema({"workspace_id": S["workspace_id"], "subdir": {"type": "string", "description": "Workspace-relative subdirectory."}}),
-    "workspace.read_text_preview": _schema({"workspace_id": S["workspace_id"], "filepath": {"type": "string", "description": "Workspace-relative text file path."}}, ["filepath"]),
+    "workspace.file.list": _schema({"workspace_id": S["workspace_id"], "subdir": {"type": "string", "description": "Workspace-relative subdirectory."}}),
+    "workspace.file.preview": _schema({"workspace_id": S["workspace_id"], "filepath": {"type": "string", "description": "Workspace-relative text file path."}}, ["filepath"]),
     "workspace.write_artifact_file": _schema({"workspace_id": S["workspace_id"], "filename": {"type": "string", "description": "Output filename, e.g. report.md or output.json."}, "content": S["content"]}, ["filename", "content"]),
-    "workspace.path_exists": _schema({"workspace_id": S["workspace_id"], "filepath": S["filepath"]}, ["filepath"]),
+    "workspace.file.exists": _schema({"workspace_id": S["workspace_id"], "filepath": S["filepath"]}, ["filepath"]),
     "workspace.get_metadata": _schema({"workspace_id": S["workspace_id"]}),
 
     # Approved high-risk surfaces
-    "shell.exec": _schema({"command": {"type": "string", "description": "Bash command. For Linux/macOS. On Windows, use powershell.exec."}}, ["command"]),
-    "powershell.exec": _schema({"command": {"type": "string", "description": "PowerShell command. For Windows. On Linux/macOS, use shell.exec."}}, ["command"]),
+    "host.shell.exec": _schema({"command": {"type": "string", "description": "Bash command. For Linux/macOS. On Windows, use powershell.exec."}}, ["command"]),
+    "host.powershell.exec": _schema({"command": {"type": "string", "description": "PowerShell command. For Windows. On Linux/macOS, use shell.exec."}}, ["command"]),
 
     # Python Exec (high risk, AST-sandboxed)
     "python.exec": _schema({
@@ -296,15 +296,15 @@ GENERAL_TOOL_INPUT_SCHEMAS = {
     }, ["instruction"]),
 
     # File
-    "file.list": _schema({
+    "workspace.file.list": _schema({
         "workspace_id": S["workspace_id"],
         "subdir": {"type": "string", "description": "Workspace-relative subdirectory to list."},
     }),
-    "file.exists": _schema({
+    "workspace.file.exists": _schema({
         "workspace_id": S["workspace_id"],
         "filepath": S["filepath"],
     }, ["filepath"]),
-    "file.read": _schema({
+    "workspace.file.read": _schema({
         "workspace_id": S["workspace_id"],
         "filepath": S["filepath"],
         "limit": {"type": "integer", "description": "Max chars to read, default 50000.", "default": 50000},
@@ -506,7 +506,7 @@ _reg("artifact.search", "Artifact Search", "artifact", "low",
      "Search workspace artifacts by title/type/keywords. Use when: user references prior outputs, reports, translated configs, or saved web pages. Not for: raw file system search (use file.list). Returns artifact_id, title, type, tags for each match. Read-only. Keep query specific.", handle_artifact_search, permission_action="read")
 _reg("artifact.read_content_safe", "Read Content Safe", "artifact", "low",
      "Read a size-limited safe preview of artifact content. Use ONLY after artifact.search/list identifies an artifact_id. Sensitive artifacts return metadata-only. Not for: reading raw files (use file.read). Read-only. Returns text preview or metadata block.", handle_artifact_read_content_safe, permission_action="read")
-_reg("artifact.save_result", "Save Result", "artifact", "medium",
+_reg("workspace.artifact.save", "Save Result", "artifact", "medium",
      "Save generated text/analysis as a workspace artifact for later reference or knowledge indexing. Use when: user asks to export, save, generate report, keep result. Not for: transient chat answers. Medium risk (writes workspace state). Do NOT store passwords, tokens, or raw device configs. Returns artifact_id.", handle_artifact_save_result, writes_artifact=True, permission_action="write")
 _reg("artifact.tag", "Tag Artifact", "artifact", "low",
      "Add tags to an existing artifact for categorization. Use when: user wants to label/categorize an artifact. Read-only for artifacts (write for metadata). Returns updated tag list.", handle_artifact_tag, permission_action="write")
@@ -572,7 +572,7 @@ _reg("web.search", "Web Search", "web", "medium",
      "Search public web pages for current or external information. Use when: user asks to look up public information, product docs, vendor examples, recent releases, GitHub projects, or any fact that may have changed. Not for: local workspace files, uploaded configs, private URLs, or official vendor docs (use web.official_doc_search). Returns ranked results with title/URL/domain/snippet/source-quality. Medium risk (network call, results may vary). Requires network permission.", handle_web_search, input_schema=WEB_SEARCH_INPUT_SCHEMA, permission_action="network")
 _reg("web.fetch_summary", "Fetch Summary", "web", "medium",
      "Fetch and summarize a public http(s) webpage. Use after web.search or when user provides a URL. Blocks private/local URLs (localhost, 192.168.x, 10.x). Not for: workspace files (use file.read), artifacts (use artifact.read_content_safe). Returns URL, title, and text summary. Medium risk (network call).", handle_web_fetch_summary, permission_action="network")
-_reg("web.official_doc_search", "Official Doc Search", "web", "low",
+_reg("web.docs.official_search", "Official Doc Search", "web", "low",
      "Search official vendor documentation by restricting to known vendor domains (cisco.com, huawei.com, h3c.com, juniper.net, arista.com, ietf.org, rfc-editor.org). Use when: user asks for vendor commands, protocol specs, release behavior, standards. Not for: general web search (use web.search), community forums. Low risk (domain-restricted). Read-only. Returns official doc results with domain markers.", handle_web_official_doc_search, permission_action="network")
 _reg("web.extract_links", "Extract Links", "web", "medium",
      "Extract public http(s) links from a webpage. Use when: user asks for references, downloads, related docs, or navigation targets from a page. Blocks private/local URLs. Returns list of links with text/title. Medium risk (network call).", handle_web_extract_links, permission_action="network")
@@ -582,15 +582,15 @@ _reg("web.save_to_artifact", "Save to Artifact", "web", "medium",
 # ── D. Session / Run / Memory Tools ──
 _reg("session.list", "List Sessions", "session", "low",
      "List all sessions in the workspace with summary metadata (title, created_at, message_count, status). Use when: user asks about past sessions, wants to switch context, or needs an overview. Read-only. Returns session list with ids.", handle_session_list, permission_action="read")
-_reg("session.get_summary", "Session Summary", "session", "low",
+_reg("session.summary.get", "Session Summary", "session", "low",
      "Get a session's summary metadata WITHOUT exposing full message content. Use when: user asks about a specific session's context. Read-only. Returns title, timestamps, run count, tags.", handle_session_get_summary, permission_action="read")
 _reg("session.create", "Create Session", "session", "medium",
      "Create a new conversation session. Use when: user wants a fresh context or new topic. Medium risk (creates persistent state). Returns new session_id.", handle_session_create, permission_action="write")
 _reg("session.archive", "Archive Session", "session", "medium",
      "Soft-archive a session (marks as archived, recoverable). Use when: user wants to clean up old sessions. Medium risk (modifies session state). Returns confirmation.", handle_session_archive, permission_action="write")
-_reg("run.list_recent", "Recent Runs", "session", "low",
+_reg("run.list", "Recent Runs", "session", "low",
      "List recent agent runs with summary metadata (tool_calls count, status, duration, timestamp). Use when: user asks about recent activity, wants to inspect a past run, or debug agent behavior. Read-only. Returns run list with run_ids.", handle_run_list_recent, permission_action="read")
-_reg("run.get_summary", "Run Summary", "session", "low",
+_reg("run.summary.get", "Run Summary", "session", "low",
      "Get a specific run's summary including tool calls, warnings, errors, trace metadata, and final response. Use when: user asks why a previous answer behaved a certain way, what tools were called, or to debug an agent turn. Read-only (no config exposure). Returns run detail dict with tool_calls array.", handle_run_get_summary, permission_action="read")
 
 # ── Real-time data tools backed by public web search ──
@@ -670,21 +670,21 @@ _reg("table.extract", "Extract Table", "text", "low",
      "Extract structured table data from Markdown text. Use when: you need to parse tabular data from formatted content. Read-only. Returns extracted rows and columns as structured data. Use with table.render_markdown to reformat.", handle_table_extract, permission_action="read")
 
 # ── H. Workspace Safe File Tools ──
-_reg("workspace.list_files", "List Files", "workspace", "low",
+_reg("workspace.file.list", "List Files", "workspace", "low",
      "List files in a workspace subdirectory (no path traversal outside workspace). Use when: user asks what files are available in the workspace. Read-only. Returns filename, size, and suffix for each file. Max 50 files.", handle_ws_list_files, permission_action="read")
-_reg("workspace.read_text_preview", "Read Text Preview", "workspace", "low",
+_reg("workspace.file.preview", "Read Text Preview", "workspace", "low",
      "Read a size-limited preview of a workspace text file. Use when: you need a quick preview before full file.read. Read-only. Returns first N chars of text content. For full content use file.read.", handle_ws_read_text_preview, permission_action="read")
 _reg("workspace.write_artifact_file", "Write File", "workspace", "medium",
      "Write content to a workspace output file. Use when: user wants to save generated content to the workspace filesystem. Medium risk (writes to disk). Only writes to workspaces/<ws>/output/. Returns filepath confirmation.", handle_ws_write_artifact_file, writes_artifact=True, permission_action="write")
-_reg("workspace.path_exists", "Path Exists", "workspace", "low",
+_reg("workspace.file.exists", "Path Exists", "workspace", "low",
      "Check whether a workspace-relative path exists. Use when: validating paths before file operations. Read-only. Returns exists/is_file/is_dir/size. Not for: listing files (use workspace.list_files), reading content (use file.read).", handle_ws_path_exists, permission_action="read")
 _reg("workspace.get_metadata", "Workspace Metadata", "workspace", "low",
      "Get workspace metadata including creation date, file count, session count, and artifact count. Use when: user asks about workspace overview. Read-only. Returns metadata dict.", handle_ws_get_metadata, permission_action="read")
 
 # ── I. Shell / PowerShell Tools (HIGH RISK, approval gated) ──
-_reg("shell.exec", "Shell Exec", "shell", "high",
+_reg("host.shell.exec", "Shell Exec", "shell", "high",
      "Execute a bash/shell command ON THE LOCAL HOST running this Agent (Linux/macOS). Use when: user asks for local OS info, IP address, hostname, DNS, listening ports, process status, file system checks, or to run read-only diagnostics. NOT for: remote network device commands (SSH/Telnet not available). HIGH RISK — requires explicit user approval. 30s timeout, 10000 chars max output. On Windows, use powershell.exec instead. Approval: '可执行。该命令只读不修改系统。将执行 {command}。请回复\"批准执行\"。'", handle_command_approved_exec, requires_approval=True, permission_action="exec")
-_reg("powershell.exec", "PowerShell Exec", "powershell", "high",
+_reg("host.powershell.exec", "PowerShell Exec", "powershell", "high",
      "Execute a PowerShell command ON THE LOCAL HOST running this Agent (Windows). Use when: user asks for local Windows OS info, IP configuration, process status, or system diagnostics. NOT for: remote device access, executing scripts from internet. HIGH RISK — requires explicit user approval. 15s timeout, 10000 chars max output. On Linux/macOS, use shell.exec instead. Approval: '可执行。该命令将运行在本地 Windows 主机。将执行 {command}。请回复\"批准执行\"。'", handle_powershell_approved_script, requires_approval=True, permission_action="exec")
 
 # ── J. Python Exec Tool (HIGH RISK, AST-sandboxed, approval gated) ──
@@ -714,11 +714,11 @@ _reg("slash.run", "Run Slash Command", "runtime", "low",
      "Execute a built-in slash command (e.g. /help, /skills, /context, /tools). Use when: user types a /command or asks about available commands. Read-only. Returns command output. See /help for the full command list.", handle_slash_run, permission_action="read")
 
 # ── File Tools ──
-_reg("file.list", "List Files", "file", "low",
+_reg("workspace.file.list", "List Files", "file", "low",
      "List files in a workspace subdirectory. Use when: user wants to see available files before reading. Read-only. Returns filename, size, suffix for up to 50 files. Use with file.read to inspect specific files.", handle_file_list, permission_action="read")
-_reg("file.exists", "File Exists", "file", "low",
+_reg("workspace.file.exists", "File Exists", "file", "low",
      "Check whether a workspace file or directory exists. Use when: validating file paths before reading or editing. Not for: listing directory contents (use file.list), path validation in different namespace (use workspace.path_exists). Read-only. Returns exists/is_file/is_dir/size.", handle_file_exists, permission_action="read")
-_reg("file.read", "Read File", "file", "low",
+_reg("workspace.file.read", "Read File", "file", "low",
      "Read a workspace text file safely with a 50000 char limit. Use when: user asks to inspect an uploaded file, generated artifact, config, log, or report stored in the workspace. NOT for: binary files (will be rejected), paths outside workspace. Read-only. Returns file text content. Paths are workspace-relative and protected.", handle_file_read, permission_action="read")
 _reg("file.edit", "Edit File", "file", "medium",
      "Edit a workspace file by exact string replacement. Use when: user asks to modify a file's content. Only writes to workspaces/<ws>/output/. Medium risk (modifies files). Returns lines_changed count. Requires old_string + new_string — exact match required.", handle_file_edit, writes_artifact=True, permission_action="write")
@@ -741,11 +741,18 @@ _reg("session.export", "Export Session", "session", "low",
 def register_all_general_tools(registry):
     """Register all general tools into a ToolRegistry.
 
-    Creates copies of ToolSpec instances to prevent cross-registry mutation.
+    v3.0: this is a thin pass-through to the canonical registry, which is
+    the v3.0 truth source for tool metadata and dispatch. The legacy
+    `ALL_GENERAL_TOOLS` list is kept for backward compatibility with
+    consumers that still iterate it, but new registrations come from
+    the canonical registry.
     """
     from copy import deepcopy
-    for spec, handler in ALL_GENERAL_TOOLS:
-        if spec.tool_id in REMOVED_GENERAL_TOOL_IDS:
+    from tool_runtime.canonical_registry import to_tool_specs
+    for spec, handler in to_tool_specs():
+        try:
+            registry.register_tool(deepcopy(spec), handler)
+        except ValueError:
+            # Already registered (e.g. by register_builtin_tools) — skip.
             continue
-        registry.register_tool(deepcopy(spec), handler)
     return registry

@@ -78,7 +78,6 @@ def main() -> int:
                 1 for e in TOOL_GOVERNANCE.values() if e.planner_visible
             ),
             "capability_action_count": len(CAPABILITY_ACTIONS),
-            "legacy_alias_count": 0,
             "transition_statuses": 0,
         },
         "governance_summary": dict(by_status),

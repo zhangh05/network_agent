@@ -16,9 +16,9 @@ def main():
     print()
 
     modules = {
-        "Tools": ["file.list","file.exists","file.read","file.edit","file.patch",
+        "Tools": ["workspace.file.list","workspace.file.exists","workspace.file.read","file.edit","file.patch",
                    "file.write","workspace.write_artifact_file",
-                   "shell.exec","powershell.exec","python.exec",
+                   "host.shell.exec","host.powershell.exec","python.exec",
                    "web.search","web.fetch_summary","web.extract_links"],
         "Skills": ["skill.list","skill.find_skills","skill.inspect",
                     "skill.request_load","skill.create","skill.load"],

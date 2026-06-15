@@ -1421,7 +1421,7 @@ user request
 - **risk_level**: low
 - **requires_approval**: false
 - **usage**: Read a safe text preview from a workspace file.
-- **boundary**: Do not read full large files; use file.read.
+- **boundary**: Do not read full large files; use workspace.file.read.
 
 ### `workspace.file.read`
 
@@ -1572,108 +1572,7 @@ active=98 disabled=0 internal=0 forbidden=0
 
 ## 9. Internal Handler Map (Runtime Only)
 
-`handler_id` is internal. The mapping below is for runtime dispatch only and is NOT part of the public catalog. The public catalog exposes `canonical_tool_id` exclusively.
-
-| canonical_tool_id | handler_id |
-|---|---|
-| `agent.result.get` | `agent.result.get` |
-| `agent.role.list` | `agent.role.list` |
-| `agent.spawn` | `agent.spawn` |
-| `agent.team.run` | `agent.team.run` |
-| `data.csv.summarize` | `data.csv.summarize` |
-| `data.json.validate` | `data.json.validate` |
-| `data.table.extract` | `data.table.extract` |
-| `data.table.render` | `data.table.render` |
-| `data.yaml.validate` | `data.yaml.validate` |
-| `diagram.mermaid.render` | `diagram.mermaid.render` |
-| `document.safe_summary.render` | `document.safe_summary.render` |
-| `host.command.slash_run` | `slash.run` |
-| `host.powershell.exec` | `powershell.exec` |
-| `host.python.exec` | `python.exec` |
-| `host.shell.exec` | `shell.exec` |
-| `knowledge.chunk.list` | `knowledge.chunk.list` |
-| `knowledge.chunk.read` | `knowledge.chunk.read` |
-| `knowledge.chunk.summary` | `knowledge.chunk.summary` |
-| `knowledge.import.artifact` | `knowledge.import.artifact` |
-| `knowledge.import.document` | `knowledge.import.document` |
-| `knowledge.import.file` | `knowledge.import.file` |
-| `knowledge.not_found.explain` | `knowledge.not_found.explain` |
-| `knowledge.parent.read` | `knowledge.parent.read` |
-| `knowledge.query` | `knowledge.query` |
-| `knowledge.search` | `knowledge.search` |
-| `knowledge.source.delete` | `knowledge.source.delete` |
-| `knowledge.source.disable` | `knowledge.source.disable` |
-| `knowledge.source.get` | `knowledge.source.get` |
-| `knowledge.source.list` | `knowledge.source.list` |
-| `knowledge.source.read` | `knowledge.source.read` |
-| `knowledge.source.reindex` | `knowledge.source.reindex` |
-| `knowledge.source.reindex_all` | `knowledge.source.reindex_all` |
-| `memory.confirm` | `memory.confirm` |
-| `memory.create` | `memory.create` |
-| `memory.delete_soft` | `memory.delete_soft` |
-| `memory.list` | `memory.list` |
-| `memory.profile.get` | `memory.profile.get` |
-| `memory.profile.set` | `memory.profile.set` |
-| `memory.search` | `memory.search` |
-| `memory.update` | `memory.update` |
-| `network.config.parse` | `network.config.parse` |
-| `network.config.translate` | `network.config.translate` |
-| `network.interface.extract` | `network.interface.extract` |
-| `network.route.extract` | `network.route.extract` |
-| `report.artifact.save` | `report.artifact.save` |
-| `report.markdown.render` | `report.markdown.render` |
-| `review.item.list` | `review.item.list` |
-| `review.item.update` | `review.item.update` |
-| `run.list` | `run.list` |
-| `run.summary.get` | `run.summary.get` |
-| `runtime.archive.preview` | `runtime.archive.preview` |
-| `runtime.diagnostics` | `runtime.diagnostics` |
-| `runtime.health` | `runtime.health` |
-| `runtime.retention.preview` | `runtime.retention.preview` |
-| `runtime.selfcheck` | `runtime.selfcheck` |
-| `session.checkpoint` | `session.checkpoint` |
-| `session.export` | `session.export` |
-| `session.list` | `session.list` |
-| `session.rewind` | `session.rewind` |
-| `session.snapshot.create` | `session.snapshot.create` |
-| `session.snapshot.list` | `session.snapshot.list` |
-| `session.summary.get` | `session.summary.get` |
-| `skill.get` | `skill.get` |
-| `skill.list` | `skill.list` |
-| `skill.load` | `skill.load` |
-| `skill.search` | `skill.search` |
-| `skill.unload` | `skill.unload` |
-| `slash.command.list` | `slash.command.list` |
-| `slash.command.run` | `slash.command.run` |
-| `text.classify` | `text.classify` |
-| `text.diff` | `text.diff` |
-| `text.keywords.extract` | `text.keywords.extract` |
-| `text.redact` | `text.redact` |
-| `web.docs.official_search` | `web.docs.official_search` |
-| `web.news.search` | `web.news.search` |
-| `web.page.extract_links` | `web.page.extract_links` |
-| `web.page.save_artifact` | `web.page.save_artifact` |
-| `web.page.summarize` | `web.page.summarize` |
-| `web.search` | `web.search` |
-| `web.weather.current` | `web.weather.current` |
-| `web.weather.forecast` | `web.weather.forecast` |
-| `workspace.artifact.delete_soft` | `artifact.delete` |
-| `workspace.artifact.diff` | `artifact.diff` |
-| `workspace.artifact.export` | `artifact.export` |
-| `workspace.artifact.list` | `artifact.list` |
-| `workspace.artifact.read` | `artifact.read` |
-| `workspace.artifact.save` | `artifact.save` |
-| `workspace.artifact.search` | `artifact.search` |
-| `workspace.artifact.tag` | `artifact.tag` |
-| `workspace.document.pdf.extract_text` | `pdf.extract_text` |
-| `workspace.file.edit` | `file.edit` |
-| `workspace.file.exists` | `file.exists` |
-| `workspace.file.list` | `file.list` |
-| `workspace.file.patch` | `file.patch` |
-| `workspace.file.preview` | `file.preview` |
-| `workspace.file.read` | `file.read` |
-| `workspace.file.write_artifact` | `file.write_artifact` |
-| `workspace.metadata.get` | `metadata.get` |
+`handler_id` is internal-only and is NOT part of the public catalog. The dispatch table lives in `tool_runtime/canonical_registry.py` and is not surfaced in this document.
 
 ## 10. Boundaries
 

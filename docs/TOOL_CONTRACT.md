@@ -5,7 +5,7 @@
 | layer | public? | example |
 |---|---|---|
 | canonical_tool_id | yes | `workspace.file.read` |
-| handler_id | internal | `file.read` |
+| handler_id | internal | `workspace.file.read` |
 | capability_action | yes (planner verb) | `workspace.file.manage` |
 | governance_status | yes | `active` / `disabled` / `internal` / `forbidden` |
 

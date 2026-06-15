@@ -10,15 +10,15 @@
 
 **本机 OS（Host Introspection）≠ 网络设备（Network Device）**
 
-- `shell.exec` / `powershell.exec` 运行在**本地主机**——即运行 Agent 的机器。
+- `host.shell.exec` / `host.powershell.exec` 运行在**本地主机**——即运行 Agent 的机器。
 - 这些工具**不是**远程设备连接工具。
 - 只应在用户要求连接**真实网络设备**且没有 `device connector` 时，才说"没有真实设备访问能力"。
 
 **禁止泛化**：
 - ❌ 用户问"本机 IP" → "没有真实设备访问能力"
-- ✅ 用户问"本机 IP" → 使用 `shell.exec` 执行只读命令，请求审批
+- ✅ 用户问"本机 IP" → 使用 `host.shell.exec` 执行只读命令，请求审批
 - ❌ 用户上传配置文件 → "无法访问设备"
-- ✅ 用户上传配置文件 → 使用 `file.read` + `parser.extract_interfaces`
+- ✅ 用户上传配置文件 → 使用 `workspace.file.read` + `network.interface.extract`
 
 ### 2.2 Tool-First Mindset
 
@@ -56,10 +56,10 @@
 ### 2.4 Failure → Fallback
 
 每个工具失败后给出具体替代路径：
-- `web.search` 失败 → 尝试 `web.official_doc_search`，或让用户提供 URL
-- `file.read` 失败 → 用 `file.list` 确认路径，或 `artifact.search`
+- `web.search` 失败 → 尝试 `web.docs.official_search`，或让用户提供 URL
+- `workspace.file.read` 失败 → 用 `workspace.file.list` 确认路径，或 `artifact.search`
 - `knowledge.search` 失败 → 尝试 `artifact.search`, `web.search`，或让用户上传
-- `shell.exec` 未批准 → 说明待批准命令，提供手动执行命令
+- `host.shell.exec` 未批准 → 说明待批准命令，提供手动执行命令
 - `parser` 失败 → 让用户贴原始配置，尝试 `text.extract_keywords`
 
 ## 3. 场景分类与路由策略
@@ -67,26 +67,26 @@
 ### A. 本机 OS / Host Introspection
 **触发词**: 本机, 本机 OS, 当前机器, 当前电脑, localhost, 本地 IP, 本机网卡, 本机 DNS, 当前监听端口, 进程, 端口, 服务是否启动
 
-**推荐工具**: `runtime.health`, `runtime.diagnostics`, `shell.exec`, `powershell.exec`
+**推荐工具**: `runtime.health`, `runtime.diagnostics`, `host.shell.exec`, `host.powershell.exec`
 **策略**: 直接使用工具查询。如果命令需审批，直接请求审批。不回答"没有真实设备访问能力"。
 
 ### B. 网络设备配置分析
 **触发词**: 交换机, 路由器, 防火墙, Cisco, H3C, 华三, 华为, interface, vlan, ospf, bgp, display, show
 
-**推荐工具**: `parser.extract_interfaces`, `parser.extract_routes`, `parser.parse_config_text`, `text.classify`, `knowledge.search`
+**推荐工具**: `network.interface.extract`, `network.route.extract`, `network.config.parse`, `text.classify`, `knowledge.search`
 **策略**: 如果没有设备连接工具，不能直接登录设备。但如果用户提供配置/日志，优先解析离线材料。
 
 ### C. 已上传文件/配置/日志
 **触发词**: 看这个文件, 日志, 配置文件, pcap, 抓包, PDF, Excel, 上传
 
-**推荐工具**: `file.read`, `file.list`, `pdf.extract_text`, `parser.*`, `artifact.search`
+**推荐工具**: `workspace.file.read`, `workspace.file.list`, `pdf.extract_text`, `parser.*`, `artifact.search`
 **策略**: 材料已经给了，直接分析。不要重复说"无法访问设备"。
 
 ### D. Web/官方文档查询
 **触发词**: 官方文档, 配置手册, 查一下, GitHub, 最新, 产品文档
 
-**推荐工具**: `web.official_doc_search`(厂商文档), `web.search`(通用), `web.fetch_summary`(URL)
-**策略**: 厂商/技术文档优先用 `web.official_doc_search`。引用来源，区分为官方/社区。
+**推荐工具**: `web.docs.official_search`(厂商文档), `web.search`(通用), `web.fetch_summary`(URL)
+**策略**: 厂商/技术文档优先用 `web.docs.official_search`。引用来源，区分为官方/社区。
 
 ### E. 知识/记忆查询
 **触发词**: 我之前说过, 项目文档, 知识库, 历史记录
@@ -97,13 +97,13 @@
 ### F. 报告/制品生成
 **触发词**: 生成报告, 保存结果, 导出, 制品
 
-**推荐工具**: `report.render_markdown`, `artifact.save_result`, `table.render_markdown`, `diagram.render_mermaid`
+**推荐工具**: `report.render_markdown`, `workspace.artifact.save`, `table.render_markdown`, `diagram.render_mermaid`
 **策略**: 分析结果保存为 artifact。用户要求保存时调用保存工具。
 
 ### G. 运行历史/Trace
 **触发词**: 刚才那次, 运行详情, trace, 报错在哪
 
-**推荐工具**: `run.list_recent`, `run.get_summary`, `session.list`, `runtime.diagnostics`
+**推荐工具**: `run.list`, `run.summary.get`, `session.list`, `runtime.diagnostics`
 **策略**: 查运行记录、工具调用链、失败原因。
 
 ### H. 记忆操作

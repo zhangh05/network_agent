@@ -64,7 +64,7 @@ The v2.1.2 system prompt (`agent/runtime/prompts.py`) now includes:
 - The Agent does not directly call arbitrary implementation functions.
 - Any public Tool HTTP API must remain policy and approval gated, with high-risk execution requiring an approved `approval_id`.
 - Sub-agent tool (`agent.spawn`) delegates work to child agent threads with `max_turns≤3`, restricted tool set, and no recursive nesting.
-- `shell.exec` / `powershell.exec` are high-risk tools that run ON THE LOCAL HOST — NOT on remote network devices.
+- `host.shell.exec` / `host.powershell.exec` are high-risk tools that run ON THE LOCAL HOST — NOT on remote network devices.
   They require approval via the approval dialog.
 
 ### v2.1.2 Tool Decision Transparency

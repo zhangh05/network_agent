@@ -21,7 +21,7 @@ SKILL_CONFIG_TRANSLATION = SkillSpec(
     name="Config Translation",
     description="Translate network configuration between vendor formats",
     status="enabled",
-    related_tools=["config_translation.translate_config", "parser.parse_config_text", "parser.extract_interfaces"],
+    related_tools=["network.config.translate", "network.config.parse", "network.interface.extract"],
     prompt_summary="Use this skill to translate network device configuration. Requires source_config and target_vendor. Does not claim deployable_config is authoritative unless module validation generated it.",
     module_id="config_translation",
 )

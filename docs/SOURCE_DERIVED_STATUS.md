@@ -34,7 +34,7 @@ Registered but not model-visible:
 Enabled model-visible runtime tools with extra execution gates:
 
 - `weather.current`, `weather.forecast`, and `news.search` are medium-risk real-time information tools backed by public Web search.
-- `shell.exec`, `powershell.exec`, and `python.exec` are high-risk approved execution tools. The LLM can see them, but execution requires approval and allowlisted ids.
+- `host.shell.exec`, `host.powershell.exec`, and `python.exec` are high-risk approved execution tools. The LLM can see them, but execution requires approval and allowlisted ids.
 
 ## Public Registry API
 

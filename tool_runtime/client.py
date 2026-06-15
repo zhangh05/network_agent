@@ -7,7 +7,7 @@ All invocations go through ToolPolicy, ToolExecutor, redaction, and audit.
 Example:
     client = get_default_tool_runtime_client()
     ctx = ToolRuntimeContext(workspace_id="default", module="config_translation")
-    result = client.invoke("parser.parse_config_text", {"config_text": cfg}, context=ctx)
+    result = client.invoke("network.config.parse", {"config_text": cfg}, context=ctx)
 """
 
 from typing import Optional
@@ -42,7 +42,7 @@ class ToolRuntimeClient:
         """Invoke a tool through the full safety pipeline.
 
         Args:
-            tool_id: The tool to invoke (e.g. "parser.parse_config_text").
+            tool_id: The tool to invoke (e.g. "network.config.parse").
             arguments: Tool arguments dict.
             dry_run: Override dry_run. If None, uses context.dry_run_default.
             context: Optional ToolRuntimeContext for workspace/run/job/caller info.

@@ -63,7 +63,7 @@ class PermissionMatrix:
         """Check whether a tool/action is permitted.
 
         Args:
-            tool_id: The tool identifier (e.g. 'shell.exec', 'file.read').
+            tool_id: The tool identifier (e.g. 'host.shell.exec', 'workspace.file.read').
             action: The action type (READ, WRITE, EXEC, NETWORK).
             context: Optional context dict with workspace_id, session_id, etc.
             spec: Optional ToolSpec for richer policy checking.
@@ -81,7 +81,7 @@ class PermissionMatrix:
         # 2. Check action-specific rules
         if action == PermissionAction.EXEC:
             # Shell/PowerShell/Python always need approval
-            if tool_id in ("shell.exec", "powershell.exec", "python.exec"):
+            if tool_id in ("host.shell.exec", "host.powershell.exec", "host.python.exec"):
                 return PermissionDecision.REQUIRE_APPROVAL
             # Unknown exec tools are denied
             return PermissionDecision.DENY
@@ -135,25 +135,24 @@ class PermissionMatrix:
         Returns:
             PermissionAction category (READ, WRITE, EXEC, NETWORK).
         """
-        if tool_id in ("shell.exec", "powershell.exec", "python.exec"):
+        if tool_id in ("host.shell.exec", "host.powershell.exec", "host.python.exec"):
             return PermissionAction.EXEC
-        if tool_id.startswith(("web.", "weather.", "news.")):
+        if tool_id.startswith(("web.",)):
             return PermissionAction.NETWORK
         read_tools = (
-            "artifact.search", "artifact.read_content_safe",
-            "knowledge.search", "knowledge.get_source", "knowledge.get_chunk_summary",
-            "memory.search", "memory.list", "memory.get_profile",
-            "session.get_summary", "run.list_recent", "run.get_summary",
-            "file.list", "file.exists", "file.read",
-            "workspace.list_files", "workspace.read_text_preview",
-            "workspace.path_exists", "workspace.get_metadata",
-            "skill.list", "skill.find_skills", "skill.inspect",
-            "session.list_snapshots", "session.snapshot",
+            "workspace.artifact.search", "workspace.artifact.read",
+            "knowledge.search", "knowledge.source.get", "knowledge.chunk.summary",
+            "memory.search", "memory.list", "memory.profile.get",
+            "session.summary.get", "run.list", "run.summary.get",
+            "workspace.file.list", "workspace.file.exists", "workspace.file.read",
+            "workspace.file.preview", "workspace.metadata.get",
+            "skill.list", "skill.search", "skill.get",
+            "session.snapshot.list", "session.snapshot.create",
             "runtime.health", "runtime.diagnostics",
-            "text.redact", "text.diff", "text.extract_keywords",
-            "text.classify", "json.validate", "yaml.validate",
-            "csv.summarize", "table.extract", "table.render_markdown",
-            "diagram.render_mermaid",
+            "text.redact", "text.diff", "text.keywords.extract",
+            "text.classify", "data.json.validate", "data.yaml.validate",
+            "data.csv.summarize", "data.table.extract", "data.table.render",
+            "diagram.mermaid.render",
         )
         if tool_id in read_tools:
             return PermissionAction.READ

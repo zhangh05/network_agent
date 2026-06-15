@@ -127,7 +127,7 @@ run_turn()
 | Capability 总数 | 7 |
 | Enabled Capability | 4 (`config_translation`, `knowledge`, `artifact`, `review`) |
 | Planned Capability | 3 (`topology`, `inspection`, `cmdb`) |
-| High-Risk 工具 | 3 (`shell.exec`, `powershell.exec`, `python.exec`) |
+| High-Risk 工具 | 3 (`host.shell.exec`, `host.powershell.exec`, `python.exec`) |
 | High-Risk 均需审批 | 是（全部 `requires_approval=True`） |
 | Sub-Agent 默认可见工具 | 36（仅只读低风险工具） |
 | MAX_STEPS | 8 |
@@ -161,7 +161,7 @@ run_turn()
 
 **Sub-Agent 隔离：**
 - Sub-agent 使用受限 ToolRouter，仅包含 `DEFAULT_ALLOWED_TOOLS`
-- 禁止工具包括：`shell.exec`, `powershell.exec`, `python.exec`, `agent.spawn`, 所有写操作工具
+- 禁止工具包括：`host.shell.exec`, `host.powershell.exec`, `python.exec`, `agent.spawn`, 所有写操作工具
 - Sub-agent 不可 spawn 子 agent（防止递归嵌套）
 - `max_turns ≤ 3`
 
@@ -194,7 +194,7 @@ CapabilityManifest
 
 ```python
 ToolSpec
-  tool_id: str                # e.g. "parser.parse_config_text"
+  tool_id: str                # e.g. "network.config.parse"
   name: str                   # 显示名称
   description: str            # 功能描述
   category: str               # artifact|parser|report|command|knowledge|web|...

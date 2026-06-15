@@ -137,14 +137,14 @@ export async function apiRequest<T = unknown>(
   timeoutMs?: number,
 ): Promise<T> {
   try {
-    const merged: AxiosRequestConfig = {
+    const combined: AxiosRequestConfig = {
       ...config,
       timeout: timeoutMs ?? TIMEOUTS.default,
     };
     if (signal) {
-      merged.signal = signal;
+      combined.signal = signal;
     }
-    const res = await apiClient.request<T>(merged);
+    const res = await apiClient.request<T>(combined);
     return res.data;
   } catch (err) {
     const url = (err as AxiosError)?.config?.url;

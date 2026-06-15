@@ -1,12 +1,3 @@
 {
-  "_note": "DEPRECATED v2.3 catalog. Superseded by reports/tool_catalog.json in v3.0. Retained for historical reference only.",
-  "summary": {
-    "canonical_count": 0,
-    "execution_count": 0,
-    "planner_visible_count": 0,
-    "legacy_alias_count": 0,
-    "governance_summary": {}
-  },
-  "_deprecation_reason": "v3.0 hard reset removed the legacy alias layer.",
-  "_replacement": "reports/tool_catalog.json"
+  "_note": "DEPRECATED v2.3 stub retained for git history. v3.0 catalog lives at reports/tool_catalog.json."
 }

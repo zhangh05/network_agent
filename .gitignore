@@ -58,3 +58,5 @@ docs/superpowers/
 node_modules/.vite/
 node_modules/**/*.results.json
 .superpowers/
+# Runtime-created sample skills
+skills/sample/

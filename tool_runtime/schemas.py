@@ -15,18 +15,28 @@ from typing import Any, Optional
 VALID_RISK_LEVELS = {"low", "medium", "high", "forbidden"}
 VALID_TOOL_STATUSES = {"succeeded", "failed", "blocked", "dry_run"}
 VALID_TOOL_CATEGORIES = {
+    # v0.2 categories (legacy aliases still in policy)
     "artifact", "parser", "report", "command",
     "knowledge", "web", "session", "runtime", "text", "workspace",
     "shell", "powershell", "python",
     "network", "device", "ssh", "telnet", "snmp", "nmap", "file",
     "skill", "memory",
+    # v3.0 categories
+    "host", "agent", "data", "diagram", "document",
+    "report_data",
+    "review", "slash", "team", "frontend", "general", "ops", "config_translation",
+    "weather", "news",
 }
 # v0.2 — expanded categories for general agent tools
 V02_ALLOWED_CATEGORIES = {
     "artifact", "parser", "report", "command",
     "knowledge", "web", "session", "runtime", "text", "workspace",
     "shell", "powershell",  # high-risk: only approved_exec allowed
-    "skill", "memory", "file",
+    "skill", "memory", "file", "network",
+    # v3.0 categories (canonical)
+    "host", "agent", "data", "diagram", "document", "report_data",
+    "review", "slash", "team", "frontend", "general", "ops",
+    "config_translation", "weather", "news",
 }
 
 
@@ -39,8 +49,8 @@ class ToolSpec:
 
     v3.0 notes:
       - tool_id is the public canonical_tool_id (e.g. ``workspace.file.read``).
-      - handler_id is the internal implementation key (e.g.
-        ``file.read``). It is never exposed publicly.
+      - handler_id is the internal implementation key. It is never
+        exposed publicly.
     """
 
     tool_id: str = ""                 # canonical_tool_id (public)

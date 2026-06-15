@@ -196,20 +196,20 @@ export const useWorkbenchStore = create<WorkbenchState>()(
           // (b) by message_id — catches server-side self-duplicates
           const contentSeen = new Set(cur.map((m) => `${m.role}:${m.text.slice(0, 200)}`));
           const idSeen = new Set(cur.map((m) => m.id));
-          const merged = [...cur];
+          const combined = [...cur];
           for (const m of converted) {
             if (idSeen.has(m.id)) continue;
             const ck = `${m.role}:${m.text.slice(0, 200)}`;
             if (contentSeen.has(ck)) continue;
             idSeen.add(m.id);
             contentSeen.add(ck);
-            merged.push(m);
+            combined.push(m);
           }
           // 按 created_at 升序
-          merged.sort((a, b) => a.created_at.localeCompare(b.created_at));
+          combined.sort((a, b) => a.created_at.localeCompare(b.created_at));
           const next = capHistory({
             ...s.bySession,
-            [session_id]: merged,
+            [session_id]: combined,
           });
           return {
             bySession: next,

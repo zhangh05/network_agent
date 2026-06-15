@@ -39,7 +39,7 @@ def test_handle_artifact_list():
 ```python
 # harness/test_approval_guard.py
 def test_high_risk_requires_approval():
-    spec = registry.get("shell.exec")
+    spec = registry.get("host.shell.exec")
     assert spec.risk_level == "high"
     assert spec.requires_approval is True
 ```
@@ -87,7 +87,7 @@ python3 scripts/inspect_runtime_tools.py
 **通过标准：**
 - 输出显示注册工具数为 88
 - 输出显示 LLM 可见工具数为 88
-- High-risk 工具列表正确（`shell.exec`, `powershell.exec`, `python.exec`）
+- High-risk 工具列表正确（`host.shell.exec`, `host.powershell.exec`, `python.exec`）
 - 所有 high-risk 工具 `approval=True`
 - Capability 计数正确（7 total, 4 enabled, 3 planned）
 - Production Foundation readiness 全部 `OK`
@@ -137,7 +137,7 @@ print(f'All {len(high)} high-risk tools have requires_approval=True')
 
 **验证内容：**
 - Sub-agent 的 `DEFAULT_ALLOWED_TOOLS` 不包含任何 high-risk 工具
-- Sub-agent 的 `FORBIDDEN_FOR_SUB_AGENT` 包含 `shell.exec`, `powershell.exec`, `python.exec`, `agent.spawn`
+- Sub-agent 的 `FORBIDDEN_FOR_SUB_AGENT` 包含 `host.shell.exec`, `host.powershell.exec`, `python.exec`, `agent.spawn`
 - Sub-agent 不能 spawn 子 agent
 - `MAX_SUB_AGENT_TURNS = 3`
 
