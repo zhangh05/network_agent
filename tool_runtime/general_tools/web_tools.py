@@ -10,7 +10,7 @@ def handle_web_search(inv: ToolInvocation) -> dict:
     language = (args.get("language") or "").strip() or "zh-CN"
     safe_search = (args.get("safe_search") or "moderate").strip().lower()
     if not query:
-        return _error("query is required")
+        return _error_inv(inv, "query is required")
     search_query = _build_web_search_query(query, domains)
     try:
         import requests
@@ -30,7 +30,7 @@ def handle_web_search(inv: ToolInvocation) -> dict:
             results = _filter_web_results(_parse_duckduckgo_html(html_resp.text, limit * 2), domains, limit)
             if results:
                 guidance = _web_search_guidance(query, results, domains)
-                return _ok({
+                return _ok(inv, "", {
                     "ok": True,
                     "status": "succeeded",
                     "query": query,
@@ -72,7 +72,7 @@ def handle_web_search(inv: ToolInvocation) -> dict:
         ia_results = _filter_web_results(ia_results, domains, limit)
         if ia_results:
             guidance = _web_search_guidance(query, ia_results, domains)
-            return _ok({
+            return _ok(inv, "", {
                 "ok": True,
                 "status": "succeeded",
                 "query": query,
@@ -93,7 +93,7 @@ def handle_web_search(inv: ToolInvocation) -> dict:
             })
 
         # ── No results from any provider ──
-        return _result(False, {
+        return _result(inv, False, {
             "status": "no_results",
             "query": query,
             "search_query": search_query,
@@ -108,7 +108,7 @@ def handle_web_search(inv: ToolInvocation) -> dict:
             "filters": {"domains": domains, "recency": recency or "any"},
         })
     except Exception as e:
-        return _result(False, {
+        return _result(inv, False, {
             "status": "provider_error",
             "query": query,
             "search_query": search_query,
@@ -126,7 +126,7 @@ def handle_weather_current(inv: ToolInvocation) -> dict:
     args = inv.arguments
     location = (args.get("location") or "").strip()
     if not location:
-        return _error("location is required")
+        return _error_inv(inv, "location is required")
     language = (args.get("language") or "zh-CN").strip() or "zh-CN"
     units = (args.get("units") or "metric").strip().lower()
     structured = _lookup_open_meteo_weather(
@@ -138,7 +138,7 @@ def handle_weather_current(inv: ToolInvocation) -> dict:
     )
     if structured.get("ok"):
         return _weather_structured_result(
-            tool_id="weather.current",
+            tool_id="web.weather.current",
             location=location,
             units=units,
             language=language,
@@ -164,7 +164,7 @@ def handle_weather_current(inv: ToolInvocation) -> dict:
     ))
     return _decorate_realtime_search_result(
         out,
-        tool_id="weather.current",
+        tool_id="web.weather.current",
         query=query,
         tool_fallback="web.search",
         extra={"location": location, "units": units, "language": language},
@@ -175,7 +175,7 @@ def handle_weather_forecast(inv: ToolInvocation) -> dict:
     args = inv.arguments
     location = (args.get("location") or "").strip()
     if not location:
-        return _error("location is required")
+        return _error_inv(inv, "location is required")
     days = _coerce_int(args.get("days", 3), default=3, min_value=1, max_value=10)
     language = (args.get("language") or "zh-CN").strip() or "zh-CN"
     units = (args.get("units") or "metric").strip().lower()
@@ -188,7 +188,7 @@ def handle_weather_forecast(inv: ToolInvocation) -> dict:
     )
     if structured.get("ok"):
         return _weather_structured_result(
-            tool_id="weather.forecast",
+            tool_id="web.weather.forecast",
             location=location,
             units=units,
             language=language,
@@ -214,7 +214,7 @@ def handle_weather_forecast(inv: ToolInvocation) -> dict:
     ))
     return _decorate_realtime_search_result(
         out,
-        tool_id="weather.forecast",
+        tool_id="web.weather.forecast",
         query=query,
         tool_fallback="web.search",
         extra={"location": location, "days": days, "units": units, "language": language},
@@ -225,7 +225,7 @@ def handle_news_search(inv: ToolInvocation) -> dict:
     args = inv.arguments
     query = (args.get("query") or "").strip()
     if not query:
-        return _error("query is required")
+        return _error_inv(inv, "query is required")
     recency = (args.get("recency") or "day").strip().lower()
     language = (args.get("language") or "zh-CN").strip() or "zh-CN"
     out = handle_web_search(ToolInvocation(
@@ -248,7 +248,7 @@ def handle_news_search(inv: ToolInvocation) -> dict:
     ))
     return _decorate_realtime_search_result(
         out,
-        tool_id="news.search",
+        tool_id="web.news.search",
         query=query,
         tool_fallback="web.search",
         extra={"recency": recency, "language": language},
@@ -258,9 +258,9 @@ def handle_web_fetch_summary(inv: ToolInvocation) -> dict:
     args = inv.arguments
     url = (args.get("url") or "").strip()
     if not url:
-        return _error("url is required")
+        return _error_inv(inv, "url is required")
     if _is_private_url(url):
-        return _error("blocked: private/local network URLs not allowed")
+        return _error_inv(inv, "blocked: private/local network URLs not allowed")
 
     # ── DNS resolution safety check ──
     try:
@@ -271,7 +271,7 @@ def handle_web_fetch_summary(inv: ToolInvocation) -> dict:
         if hostname:
             resolved_ip = socket.gethostbyname(hostname)
             if _is_private_ip(resolved_ip):
-                return _error(f"blocked: resolved IP {resolved_ip} is private/loopback")
+                return _error_inv(inv, f"blocked: resolved IP {resolved_ip} is private/loopback")
     except Exception:
         pass  # DNS resolution failure doesn't block; proceed
 
@@ -307,23 +307,23 @@ def handle_web_fetch_summary(inv: ToolInvocation) -> dict:
             final_url = resp.url
             redirect_url = final_url
             if _is_private_url(final_url):
-                return _error("blocked: redirect target is private/local network URL")
+                return _error_inv(inv, "blocked: redirect target is private/local network URL")
             try:
                 final_host = urlparse(final_url).hostname
                 if final_host:
                     final_ip = socket.gethostbyname(final_host)
                     if _is_private_ip(final_ip):
-                        return _error(f"blocked: redirect target resolved to private IP {final_ip}")
+                        return _error_inv(inv, f"blocked: redirect target resolved to private IP {final_ip}")
             except Exception:
                 pass
 
         if resp.status_code != 200:
-            return _error(f"HTTP {resp.status_code}")
+            return _error_inv(inv, f"HTTP {resp.status_code}")
         _fix_encoding(resp)
         html = resp.text
         text = _html_to_text(html)
         if not text:
-            return _result(False, {
+            return _result(inv, False, {
                 "status": "empty_readable_text",
                 "url": url,
                 "status_code": resp.status_code,
@@ -332,7 +332,7 @@ def handle_web_fetch_summary(inv: ToolInvocation) -> dict:
                 "warnings": ["web_fetch_empty_readable_text"],
                 "next_actions": ["换用更具体的公开网页 URL，或先用 web.extract_links 找正文页面。"],
             })
-        result = _ok({
+        result = _ok(inv, "", {
             "url": url,
             "title": _extract_title(html),
             "summary": _safe_preview(text, 800),
@@ -350,14 +350,14 @@ def handle_web_fetch_summary(inv: ToolInvocation) -> dict:
             del handle_web_fetch_summary._cache[oldest]
         return result
     except Exception as e:
-        return _error(str(e)[:200])
+        return _error_inv(inv, str(e)[:200])
 
 def handle_web_official_doc_search(inv: ToolInvocation) -> dict:
     args = inv.arguments
     query = (args.get("query") or "").strip()
     vendor = (args.get("vendor") or "").strip().lower()
     if not query:
-        return _error("query is required")
+        return _error_inv(inv, "query is required")
     doc_targets = {
         "cisco": ("cisco.com", "https://www.cisco.com/c/en/us/support/docs/index.html"),
         "huawei": ("huawei.com", "https://support.huawei.com/enterprise/en/doc/index.html"),
@@ -410,15 +410,15 @@ def handle_web_official_doc_search(inv: ToolInvocation) -> dict:
         result["count"] = len(result["results"])
         result["summary"] = "搜索未命中具体文档，已返回官方文档入口。"
         result["results_markdown"] = f"[1] {vendor} documentation index: {base}"
-    return _result(bool(result.get("results")), result)
+    return _result(inv, bool(result.get("results")), result)
 
 def handle_web_extract_links(inv: ToolInvocation) -> dict:
     args = inv.arguments
     url = (args.get("url") or "").strip()
     if not url:
-        return _error("url is required")
+        return _error_inv(inv, "url is required")
     if _is_private_url(url):
-        return _error("blocked: private/local network URLs not allowed")
+        return _error_inv(inv, "blocked: private/local network URLs not allowed")
     try:
         import requests
         headers = {
@@ -427,13 +427,13 @@ def handle_web_extract_links(inv: ToolInvocation) -> dict:
         }
         resp = requests.get(url, timeout=10, headers=headers)
         if resp.status_code != 200:
-            return _error(f"HTTP {resp.status_code}")
+            return _error_inv(inv, f"HTTP {resp.status_code}")
         _fix_encoding(resp)
         links = re.findall(r'href=["\'](https?://[^"\'\s]+)', resp.text)
         unique = list(dict.fromkeys(links))[:20]
-        return _ok({"url": url, "links": unique, "count": len(unique)})
+        return _ok(inv, "", {"url": url, "links": unique, "count": len(unique)})
     except Exception as e:
-        return _error(str(e)[:200])
+        return _error_inv(inv, str(e)[:200])
 
 def handle_web_save_to_artifact(inv: ToolInvocation) -> dict:
     args = inv.arguments
@@ -441,7 +441,7 @@ def handle_web_save_to_artifact(inv: ToolInvocation) -> dict:
     url = (args.get("url") or "").strip()
     title = args.get("title", "web_save")
     if _is_private_url(url):
-        return _error("blocked: private/local network URLs not allowed")
+        return _error_inv(inv, "blocked: private/local network URLs not allowed")
     try:
         import requests
         headers = {
@@ -450,16 +450,16 @@ def handle_web_save_to_artifact(inv: ToolInvocation) -> dict:
         }
         resp = requests.get(url, timeout=10, headers=headers)
         if resp.status_code != 200:
-            return _error(f"HTTP {resp.status_code}")
+            return _error_inv(inv, f"HTTP {resp.status_code}")
         _fix_encoding(resp)
         content = f"# {title}\n\nSource: {url}\n\n{_html_to_text(resp.text)}"
         from artifacts.store import save_artifact
         rec = save_artifact(workspace_id=ws, content=content, title=title,
                             artifact_type="knowledge_doc", sensitivity="internal")
         if not rec:
-            return _error("artifact save blocked or failed")
-        return _ok({"artifact_id": rec.artifact_id, "title": title, "source_url": url})
+            return _error_inv(inv, "artifact save blocked or failed")
+        return _ok(inv, "", {"artifact_id": rec.artifact_id, "title": title, "source_url": url})
     except Exception as e:
-        return _error(str(e)[:200])
+        return _error_inv(inv, str(e)[:200])
 
 __all__ = ['handle_web_search', 'handle_weather_current', 'handle_weather_forecast', 'handle_news_search', 'handle_web_fetch_summary', 'handle_web_official_doc_search', 'handle_web_extract_links', 'handle_web_save_to_artifact']

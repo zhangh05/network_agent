@@ -22,9 +22,9 @@ def handle_artifact_search(inv: ToolInvocation) -> dict:
                     "sensitivity": a.get("sensitivity", "internal"),
                     "created_at": a.get("created_at", ""),
                 })
-        return _ok({"results": results[:20], "count": len(results)})
+        return _ok(inv, "", {"results": results[:20], "count": len(results)})
     except Exception as e:
-        return _error(str(e)[:200])
+        return _error_inv(inv, str(e)[:200])
 
 def handle_artifact_read_content_safe(inv: ToolInvocation) -> dict:
     args = inv.arguments
@@ -35,14 +35,14 @@ def handle_artifact_read_content_safe(inv: ToolInvocation) -> dict:
         from artifacts.store import read_artifact_content, get_artifact
         art = get_artifact(ws, art_id)
         if not art:
-            return _error("artifact not found")
+            return _error_inv(inv, "artifact not found")
         sensitivity = getattr(art, "sensitivity", "internal")
         art_type = getattr(art, "artifact_type", "")
         # Only truly secret artifacts are blocked from the LLM.
         # "sensitive" (e.g. translated_config output) must be readable so
         # the LLM can surface manual_review_items and complete the review loop.
         if sensitivity in ("secret",):
-            return _ok({
+            return _ok(inv, "", {
                 "preview": f"[{sensitivity} artifact — content not shown]",
                 "title": getattr(art, "title", ""),
                 "artifact_type": art_type,
@@ -52,7 +52,7 @@ def handle_artifact_read_content_safe(inv: ToolInvocation) -> dict:
         allow = sensitivity not in ("confidential",)
         content = read_artifact_content(ws, art_id, allow_sensitive=allow)
         if content is None:
-            return _error("content not accessible")
+            return _error_inv(inv, "content not accessible")
         # translated_config is user-requested output — give generous preview
         if art_type in ("translated_config", "output_config"):
             preview_len = min(len(str(content)), 8000)
@@ -60,14 +60,14 @@ def handle_artifact_read_content_safe(inv: ToolInvocation) -> dict:
             preview_len = 200
         else:
             preview_len = 2000
-        return _ok({
+        return _ok(inv, "", {
             "preview": _safe_preview(str(content), preview_len),
             "title": getattr(art, "title", ""),
             "artifact_type": art_type,
             "sensitivity": sensitivity,
         })
     except Exception as e:
-        return _error(str(e)[:200])
+        return _error_inv(inv, str(e)[:200])
 
 def handle_artifact_save_result(inv: ToolInvocation) -> dict:
     args = inv.arguments
@@ -82,15 +82,15 @@ def handle_artifact_save_result(inv: ToolInvocation) -> dict:
         rec = save_artifact(workspace_id=ws, content=content, title=title,
                             artifact_type=a_type, sensitivity="internal")
         if not rec:
-            return _error("artifact save blocked or failed")
-        return _ok({
+            return _error_inv(inv, "artifact save blocked or failed")
+        return _ok(inv, "", {
             "artifact_id": rec.artifact_id,
             "artifact_ids": [rec.artifact_id],
             "title": title,
             "artifact_type": a_type,
         })
     except Exception as e:
-        return _error(str(e)[:200])
+        return _error_inv(inv, str(e)[:200])
 
 def handle_artifact_tag(inv: ToolInvocation) -> dict:
     args = inv.arguments
@@ -102,16 +102,16 @@ def handle_artifact_tag(inv: ToolInvocation) -> dict:
         from artifacts.store import get_artifact
         art = get_artifact(ws, art_id)
         if not art:
-            return _error("artifact not found")
+            return _error_inv(inv, "artifact not found")
         existing = list(getattr(art, "tags", []) or [])
         for t in tags:
             if t not in existing:
                 existing.append(t)
         # v1.0.3.5: persist tags to artifact meta
         _persist_artifact_tags(ws, art_id, existing)
-        return _ok({"artifact_id": art_id, "tags": existing})
+        return _ok(inv, "", {"artifact_id": art_id, "tags": existing})
     except Exception as e:
-        return _error(str(e)[:200])
+        return _error_inv(inv, str(e)[:200])
 
 def handle_artifact_delete_soft(inv: ToolInvocation) -> dict:
     args = inv.arguments
@@ -121,8 +121,8 @@ def handle_artifact_delete_soft(inv: ToolInvocation) -> dict:
         validate_workspace_id(ws)
         from artifacts.store import delete_artifact
         ok = delete_artifact(ws, art_id)
-        return _ok({"deleted": ok}) if ok else _error("delete failed")
+        return _ok(inv, f"Artifact {art_id} deleted={ok}.", {"deleted": ok}) if ok else _error_inv(inv, "delete failed")
     except Exception as e:
-        return _error(str(e)[:200])
+        return _error_inv(inv, str(e)[:200])
 
 __all__ = ['handle_artifact_search', 'handle_artifact_read_content_safe', 'handle_artifact_save_result', 'handle_artifact_tag', 'handle_artifact_delete_soft']

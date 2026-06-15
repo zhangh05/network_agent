@@ -6,7 +6,7 @@ def handle_skill_list(inv: ToolInvocation) -> dict:
     try:
         skills_dir = ROOT / "skills"
         if not skills_dir.is_dir():
-            return _ok({"results": [], "count": 0})
+            return _ok(inv, "", {"results": [], "count": 0})
         results = []
         for item in sorted(skills_dir.iterdir()):
             if not item.is_dir() or item.name.startswith(".") or item.name in ("__pycache__",):
@@ -40,9 +40,9 @@ def handle_skill_list(inv: ToolInvocation) -> dict:
                     except Exception:
                         pass
             results.append(skill_info)
-        return _ok({"results": results, "count": len(results)})
+        return _ok(inv, "", {"results": results, "count": len(results)})
     except Exception as e:
-        return _error(str(e)[:200])
+        return _error_inv(inv, str(e)[:200])
 
 def handle_skill_request_load(inv: ToolInvocation) -> dict:
     """Request loading a skill — records the request but does NOT inject system prompt.
@@ -56,7 +56,7 @@ def handle_skill_request_load(inv: ToolInvocation) -> dict:
     sid = args.get("session_id", "")
 
     if not skill_name:
-        return _error("skill_name is required")
+        return _error_inv(inv, "skill_name is required")
 
     # Verify skill exists in skills/ directory or registry
     skills_dir = ROOT / "skills"
@@ -67,7 +67,7 @@ def handle_skill_request_load(inv: ToolInvocation) -> dict:
             found = True
 
     if not found:
-        return _error(f"skill '{skill_name}' not found in skills directory")
+        return _error_inv(inv, f"skill '{skill_name}' not found in skills directory")
 
     # Record request to workspace (optional, best-effort)
     try:
@@ -82,7 +82,7 @@ def handle_skill_request_load(inv: ToolInvocation) -> dict:
     except Exception:
         pass
 
-    return _ok({
+    return _ok(inv, "", {
         "requested": True,
         "skill_name": skill_name,
         "message": "skill.load is the preferred way to activate skills; this request has been recorded",
@@ -107,17 +107,17 @@ def handle_skill_load(inv: ToolInvocation) -> dict:
     sid = args.get("session_id", "")
 
     if not skill_name:
-        return _error("skill_name is required")
+        return _error_inv(inv, "skill_name is required")
 
     # Sanitize skill name
     safe_name = re.sub(r"[^a-zA-Z0-9_\-]", "", skill_name)
     if not safe_name:
-        return _error(f"invalid skill_name: {skill_name}")
+        return _error_inv(inv, f"invalid skill_name: {skill_name}")
 
     # ── High-risk pattern check ──
     HIGH_RISK_PATTERNS = {"exec", "shell", "powershell", "command.exec", "command_exec"}
     if safe_name.lower() in HIGH_RISK_PATTERNS or any(p in safe_name.lower() for p in HIGH_RISK_PATTERNS):
-        return _error(f"skill '{safe_name}' matches high-risk pattern — loading blocked")
+        return _error_inv(inv, f"skill '{safe_name}' matches high-risk pattern — loading blocked")
 
     # Check skill exists in skills/ directory
     skills_dir = ROOT / "skills"
@@ -125,7 +125,7 @@ def handle_skill_load(inv: ToolInvocation) -> dict:
     md_path = skill_dir / "SKILL.md"
 
     if not skill_dir.is_dir() or safe_name.startswith("."):
-        return _error(f"skill '{safe_name}' not found in skills directory")
+        return _error_inv(inv, f"skill '{safe_name}' not found in skills directory")
 
     # ── Status gate: block pending_review skills ──
     yaml_path = skill_dir / "skill.yaml"
@@ -139,13 +139,13 @@ def handle_skill_load(inv: ToolInvocation) -> dict:
         except Exception:
             pass
     if skill_status == "pending_review":
-        return _error(f"skill '{safe_name}' has status=pending_review — must be reviewed before loading")
+        return _error_inv(inv, f"skill '{safe_name}' has status=pending_review — must be reviewed before loading")
 
     # Read SKILL.md content
     try:
         skill_prompt = md_path.read_text(encoding="utf-8")
     except Exception as e:
-        return _error(f"failed to read SKILL.md: {str(e)[:200]}")
+        return _error_inv(inv, f"failed to read SKILL.md: {str(e)[:200]}")
 
     # Record loaded skill in session metadata
     loaded_at = _time.strftime("%Y-%m-%dT%H:%M:%S")
@@ -173,7 +173,7 @@ def handle_skill_load(inv: ToolInvocation) -> dict:
     except Exception:
         pass
 
-    return _ok({
+    return _ok(inv, "", {
         "skill_name": safe_name,
         "loaded_at": loaded_at,
         "prompt_length": len(skill_prompt),
@@ -186,12 +186,12 @@ def handle_skill_find(inv: ToolInvocation) -> dict:
     limit = int(args.get("limit", 10))
 
     if not query:
-        return _error("query is required")
+        return _error_inv(inv, "query is required")
 
     try:
         skills_dir = ROOT / "skills"
         if not skills_dir.is_dir():
-            return _ok({"results": [], "count": 0, "query": query})
+            return _ok(inv, "", {"results": [], "count": 0, "query": query})
 
         matches = []
         for item in sorted(skills_dir.iterdir()):
@@ -242,9 +242,9 @@ def handle_skill_find(inv: ToolInvocation) -> dict:
             if len(matches) >= limit:
                 break
 
-        return _ok({"results": matches, "count": len(matches), "query": query})
+        return _ok(inv, "", {"results": matches, "count": len(matches), "query": query})
     except Exception as e:
-        return _error(str(e)[:200])
+        return _error_inv(inv, str(e)[:200])
 
 def handle_skill_create(inv: ToolInvocation) -> dict:
     """Create a new skill skeleton with SKILL.md and skill.yaml.
@@ -258,18 +258,18 @@ def handle_skill_create(inv: ToolInvocation) -> dict:
     capabilities = list(args.get("capabilities") or [])
 
     if not name:
-        return _error("name is required")
+        return _error_inv(inv, "name is required")
 
     # Sanitize skill name: only allow alphanumeric, hyphens, underscores
     safe_name = re.sub(r"[^a-zA-Z0-9_\-]", "", name)
     if not safe_name:
-        return _error("skill name must contain at least one valid character (a-z, 0-9, -, _)")
+        return _error_inv(inv, "skill name must contain at least one valid character (a-z, 0-9, -, _)")
 
     skills_dir = ROOT / "skills"
     skill_dir = skills_dir / safe_name
 
     if skill_dir.exists():
-        return _error(f"skill '{safe_name}' already exists")
+        return _error_inv(inv, f"skill '{safe_name}' already exists")
 
     try:
         skills_dir.mkdir(parents=True, exist_ok=True)
@@ -316,16 +316,16 @@ pending_review
         with open(skill_dir / "skill.yaml", "w", encoding="utf-8") as f:
             yaml.safe_dump(yaml_content, f, default_flow_style=False, allow_unicode=True)
 
-        return _ok({
+        return _ok(inv, "", {
             "skill_name": safe_name,
             "skill_path": str(skill_dir.relative_to(ROOT)),
             "status": "pending_review",
             "message": f"Skill '{safe_name}' created with status=pending_review. Review and enable before use.",
         })
     except FileExistsError:
-        return _error(f"skill '{safe_name}' already exists")
+        return _error_inv(inv, f"skill '{safe_name}' already exists")
     except Exception as e:
-        return _error(str(e)[:200])
+        return _error_inv(inv, str(e)[:200])
 
 def handle_skill_inspect(inv: ToolInvocation) -> dict:
     """Read and return a skill's SKILL.md content without loading it."""
@@ -333,19 +333,19 @@ def handle_skill_inspect(inv: ToolInvocation) -> dict:
     skill_name = str(args.get("skill_name", "")).strip()
 
     if not skill_name:
-        return _error("skill_name is required")
+        return _error_inv(inv, "skill_name is required")
 
     # Sanitize
     safe_name = re.sub(r"[^a-zA-Z0-9_\-]", "", skill_name)
     if not safe_name:
-        return _error(f"invalid skill_name: {skill_name}")
+        return _error_inv(inv, f"invalid skill_name: {skill_name}")
 
     skills_dir = ROOT / "skills"
     skill_dir = skills_dir / safe_name
     md_path = skill_dir / "SKILL.md"
 
     if not skill_dir.is_dir():
-        return _error(f"skill '{safe_name}' not found")
+        return _error_inv(inv, f"skill '{safe_name}' not found")
 
     try:
         yaml_path = skill_dir / "skill.yaml"
@@ -359,7 +359,7 @@ def handle_skill_inspect(inv: ToolInvocation) -> dict:
         if md_path.is_file():
             content = md_path.read_text(encoding="utf-8")
 
-        return _ok({
+        return _ok(inv, "", {
             "skill_name": safe_name,
             "skill_path": str(skill_dir.relative_to(ROOT)),
             "content": content,
@@ -368,6 +368,6 @@ def handle_skill_inspect(inv: ToolInvocation) -> dict:
             "description": yaml_data.get("description", ""),
         })
     except Exception as e:
-        return _error(str(e)[:200])
+        return _error_inv(inv, str(e)[:200])
 
 __all__ = ['handle_skill_list', 'handle_skill_request_load', 'handle_skill_load', 'handle_skill_find', 'handle_skill_create', 'handle_skill_inspect']

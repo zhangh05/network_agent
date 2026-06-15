@@ -15,9 +15,9 @@ def handle_session_list(inv: ToolInvocation) -> dict:
                 "status": s.get("status", "active"),
                 "updated_at": s.get("updated_at", ""),
             })
-        return _ok({"sessions": results, "count": len(results)})
+        return _ok(inv, "", {"sessions": results, "count": len(results)})
     except Exception as e:
-        return _error(str(e)[:200])
+        return _error_inv(inv, str(e)[:200])
 
 def handle_session_get_summary(inv: ToolInvocation) -> dict:
     ws = inv.arguments.get("workspace_id", "default")
@@ -27,9 +27,9 @@ def handle_session_get_summary(inv: ToolInvocation) -> dict:
         from workspace.session_store import get_session
         s = get_session(sid, ws)
         if not s:
-            return _error("session not found")
+            return _error_inv(inv, "session not found")
         messages = s.get("messages", [])
-        return _ok({
+        return _ok(inv, "", {
             "session_id": sid,
             "title": s.get("title", ""),
             "message_count": len(messages),
@@ -37,7 +37,7 @@ def handle_session_get_summary(inv: ToolInvocation) -> dict:
             "last_message": messages[-1].get("content", "")[:100] if messages else "",
         })
     except Exception as e:
-        return _error(str(e)[:200])
+        return _error_inv(inv, str(e)[:200])
 
 def handle_session_create(inv: ToolInvocation) -> dict:
     ws = inv.arguments.get("workspace_id", "default")
@@ -48,9 +48,9 @@ def handle_session_create(inv: ToolInvocation) -> dict:
         import uuid
         sid = str(uuid.uuid4())[:8]
         create_session(ws, sid, title)
-        return _ok({"session_id": sid, "title": title})
+        return _ok(inv, "", {"session_id": sid, "title": title})
     except Exception as e:
-        return _error(str(e)[:200])
+        return _error_inv(inv, str(e)[:200])
 
 def handle_session_archive(inv: ToolInvocation) -> dict:
     ws = inv.arguments.get("workspace_id", "default")
@@ -59,9 +59,9 @@ def handle_session_archive(inv: ToolInvocation) -> dict:
         validate_workspace_id(ws)
         from workspace.session_store import archive_session
         ok = archive_session(ws, sid)
-        return _ok({"archived": ok}) if ok else _error("archive failed")
+        return _ok(inv, "", {"archived": ok}) if ok else _error_inv(inv, "archive failed")
     except Exception as e:
-        return _error(str(e)[:200])
+        return _error_inv(inv, str(e)[:200])
 
 def handle_run_list_recent(inv: ToolInvocation) -> dict:
     ws = inv.arguments.get("workspace_id", "default")
@@ -79,9 +79,9 @@ def handle_run_list_recent(inv: ToolInvocation) -> dict:
                 "active_module": r.get("active_module", ""),
                 "created_at": r.get("created_at", ""),
             })
-        return _ok({"runs": results, "count": len(results)})
+        return _ok(inv, "", {"runs": results, "count": len(results)})
     except Exception as e:
-        return _error(str(e)[:200])
+        return _error_inv(inv, str(e)[:200])
 
 def handle_run_get_summary(inv: ToolInvocation) -> dict:
     ws = inv.arguments.get("workspace_id", "default")
@@ -91,15 +91,15 @@ def handle_run_get_summary(inv: ToolInvocation) -> dict:
         from workspace.run_store import get_run
         r = get_run(ws, run_id)
         if not r:
-            return _error("run not found")
-        return _ok({
+            return _error_inv(inv, "run not found")
+        return _ok(inv, "", {
             "run_id": run_id,
             "intent": r.get("intent", ""),
             "status": r.get("status", "ok"),
             "active_module": r.get("active_module", ""),
         })
     except Exception as e:
-        return _error(str(e)[:200])
+        return _error_inv(inv, str(e)[:200])
 
 def handle_session_snapshot(inv: ToolInvocation) -> dict:
     """Create a snapshot of the current session state."""
@@ -107,28 +107,28 @@ def handle_session_snapshot(inv: ToolInvocation) -> dict:
     sid = inv.arguments.get("session_id", "")
     reason = str(inv.arguments.get("reason", "")).strip()
     if not sid:
-        return _error("session_id is required")
+        return _error_inv(inv, "session_id is required")
     try:
         validate_workspace_id(ws)
         from workspace.session_snapshot import create_snapshot
         result = create_snapshot(workspace_id=ws, session_id=sid, reason=reason)
-        return _result(result.get("ok", False), result)
+        return _result(inv, result.get("ok", False), result)
     except Exception as e:
-        return _error(str(e)[:200])
+        return _error_inv(inv, str(e)[:200])
 
 def handle_session_list_snapshots(inv: ToolInvocation) -> dict:
     """List snapshots for a session."""
     ws = inv.arguments.get("workspace_id", "default")
     sid = inv.arguments.get("session_id", "")
     if not sid:
-        return _error("session_id is required")
+        return _error_inv(inv, "session_id is required")
     try:
         validate_workspace_id(ws)
         from workspace.session_snapshot import list_snapshots
         results = list_snapshots(workspace_id=ws, session_id=sid)
-        return _ok({"snapshots": results, "count": len(results)})
+        return _ok(inv, "", {"snapshots": results, "count": len(results)})
     except Exception as e:
-        return _error(str(e)[:200])
+        return _error_inv(inv, str(e)[:200])
 
 def handle_session_rewind(inv: ToolInvocation) -> dict:
     """Rewind a session to a previous snapshot."""
@@ -137,9 +137,9 @@ def handle_session_rewind(inv: ToolInvocation) -> dict:
     snap_id = inv.arguments.get("snapshot_id", "")
     dry_run = bool(inv.arguments.get("dry_run", True))
     if not sid:
-        return _error("session_id is required")
+        return _error_inv(inv, "session_id is required")
     if not snap_id:
-        return _error("snapshot_id is required")
+        return _error_inv(inv, "snapshot_id is required")
     try:
         validate_workspace_id(ws)
         from workspace.session_snapshot import rewind_session
@@ -149,9 +149,9 @@ def handle_session_rewind(inv: ToolInvocation) -> dict:
             snapshot_id=snap_id,
             dry_run=dry_run,
         )
-        return _result(result.get("ok", False), result)
+        return _result(inv, result.get("ok", False), result)
     except Exception as e:
-        return _error(str(e)[:200])
+        return _error_inv(inv, str(e)[:200])
 
 def handle_session_checkpoint(inv: ToolInvocation) -> dict:
     """Create a checkpoint with message/run/artifact references."""
@@ -159,13 +159,13 @@ def handle_session_checkpoint(inv: ToolInvocation) -> dict:
     sid = inv.arguments.get("session_id", "")
     reason = str(inv.arguments.get("reason", "")).strip()
     if not sid:
-        return _error("session_id is required")
+        return _error_inv(inv, "session_id is required")
     try:
         validate_workspace_id(ws)
         from workspace.session_store import get_session
         s = get_session(sid, ws)
         if not s:
-            return _error("session not found")
+            return _error_inv(inv, "session not found")
         import uuid
         cid = str(uuid.uuid4())[:8]
         checkpoints_dir = WS_ROOT / ws / "sessions" / sid / "checkpoints"
@@ -183,13 +183,13 @@ def handle_session_checkpoint(inv: ToolInvocation) -> dict:
         }
         checkpoint_path = checkpoints_dir / f"{cid}.json"
         checkpoint_path.write_text(json.dumps(checkpoint, ensure_ascii=False, indent=2), encoding="utf-8")
-        return _ok({
+        return _ok(inv, "", {
             "checkpoint_id": cid,
             "message_count": len(messages),
             "reason": reason,
         })
     except Exception as e:
-        return _error(str(e)[:200])
+        return _error_inv(inv, str(e)[:200])
 
 def handle_session_export(inv: ToolInvocation) -> dict:
     """Export session messages to JSON or markdown."""
@@ -197,13 +197,13 @@ def handle_session_export(inv: ToolInvocation) -> dict:
     sid = inv.arguments.get("session_id", "")
     fmt = str(inv.arguments.get("format", "md")).strip().lower()
     if not sid:
-        return _error("session_id is required")
+        return _error_inv(inv, "session_id is required")
     try:
         validate_workspace_id(ws)
         from workspace.session_store import get_session
         s = get_session(sid, ws)
         if not s:
-            return _error("session not found")
+            return _error_inv(inv, "session not found")
         messages = s.get("messages", [])
         title = s.get("title", "session")
         if fmt == "json":
@@ -213,7 +213,7 @@ def handle_session_export(inv: ToolInvocation) -> dict:
                 "message_count": len(messages),
                 "messages": messages,
             }
-            return _ok({"format": "json", "export": export})
+            return _ok(inv, "", {"format": "json", "export": export})
         else:
             lines = [f"# {title}", f"Session: {sid}", f"Messages: {len(messages)}", ""]
             for i, msg in enumerate(messages):
@@ -224,8 +224,8 @@ def handle_session_export(inv: ToolInvocation) -> dict:
                 lines.append(content[:1000])
                 lines.append("")
             md = "\n".join(lines)
-            return _ok({"format": "md", "export": md})
+            return _ok(inv, "", {"format": "md", "export": md})
     except Exception as e:
-        return _error(str(e)[:200])
+        return _error_inv(inv, str(e)[:200])
 
 __all__ = ['handle_session_list', 'handle_session_get_summary', 'handle_session_create', 'handle_session_archive', 'handle_run_list_recent', 'handle_run_get_summary', 'handle_session_snapshot', 'handle_session_list_snapshots', 'handle_session_rewind', 'handle_session_checkpoint', 'handle_session_export']

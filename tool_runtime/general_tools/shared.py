@@ -30,17 +30,91 @@ def _safe_preview(text: str, max_chars: int = 500) -> str:
     return text[:max_chars] + f"...[truncated, {len(text)} chars total]"
 
 
-def _ok(output: dict = None) -> dict:
-    return {"ok": True, **(output or {})}
+def _contract(inv: "ToolInvocation", ok: bool, status: str, summary: str,
+              output: dict = None) -> dict:
+    """Build a full LLM-facing tool result contract.
+
+    Every tool handler in v3.0 returns a dict that carries the public
+    tool_id, a status, and a short human-readable summary. The raw
+    tool-specific payload is preserved under its own keys.
+    """
+    out: dict[str, Any] = {"ok": ok, "status": status}
+    if summary:
+        out["summary"] = summary
+    elif "summary" not in (output or {}):
+        out["summary"] = _summarize(output or {})
+    else:
+        out["summary"] = (output or {}).get("summary") or _summarize(output or {})
+    tool_id = getattr(inv, "tool_id", "")
+    if tool_id:
+        out["tool_id"] = tool_id
+    if output:
+        for k, v in output.items():
+            out.setdefault(k, v)
+    return out
+
+
+def _ok(inv: "ToolInvocation", summary: str = "", output: dict = None) -> dict:
+    return _contract(inv, True, "ok", summary, output)
 
 
 def _error(msg: str) -> dict:
-    return {"ok": False, "error": msg}
+    return {"ok": False, "status": "failed", "summary": msg, "error": msg, "errors": [msg]}
 
 
-def _result(ok: bool, output: dict = None) -> dict:
-    """Build a tool result dict, preserving caller's ok flag."""
-    return {**(output or {}), "ok": ok}
+def _error_inv(inv: "ToolInvocation", msg: str) -> dict:
+    """Like _error but attaches the tool_id so the LLM-facing contract
+    is consistent across success and failure paths."""
+    out = _error(msg)
+    tool_id = getattr(inv, "tool_id", "")
+    if tool_id:
+        out["tool_id"] = tool_id
+    return out
+
+
+def _unavailable(inv: "ToolInvocation", msg: str) -> dict:
+    """Return a tool-id-aware error result for a tool that is not usable
+    in the current environment (e.g. PowerShell on Linux). Carries the
+    full LLM-facing contract (tool_id, status, summary) so callers can
+    render a useful message instead of an empty failure."""
+    return {
+        "ok": False,
+        "tool_id": getattr(inv, "tool_id", ""),
+        "status": "unavailable",
+        "summary": msg,
+        "error": msg,
+        "errors": [msg],
+    }
+
+
+def _result(inv: "ToolInvocation", ok: bool, output: dict = None) -> dict:
+    """Build a tool result dict with the full LLM-facing contract."""
+    if not output:
+        output = {}
+    summary = output.get("summary") or _summarize(output)
+    status = "ok" if ok else "failed"
+    out = _contract(inv, ok, status, summary, output)
+    if not ok and "errors" not in out:
+        msg = out.get("error") or summary or "failed"
+        out["errors"] = [msg]
+    return out
+
+
+def _summarize(output: dict) -> str:
+    """Best-effort short summary derived from a handler's output dict."""
+    for k in ("summary", "title", "message", "stdout", "stderr", "text", "error"):
+        v = output.get(k)
+        if isinstance(v, str) and v.strip():
+            return v.strip()[:200]
+    if "count" in output and "files" in output:
+        return f"Listed {output['count']} file(s)."
+    if "count" in output and "results" in output:
+        return f"Found {output['count']} result(s)."
+    if "count" in output and "chunks" in output:
+        return f"Found {output['count']} chunk(s)."
+    if "count" in output:
+        return f"Returned {output['count']} item(s)."
+    return "Completed."
 
 
 def _generate_diff_preview(old: str, new: str, max_lines: int = 6) -> str:
@@ -404,14 +478,14 @@ def _lookup_open_meteo_weather(*, location: str, days: int, language: str,
             headers={"User-Agent": "NetworkAgent/1.0 (+https://github.com/zhangh05/network_agent)"},
         )
         if geo_resp.status_code != 200:
-            return _result(False, {
+            return _result(_DummyInv(""), False, {
                 "status": "geocoding_http_error",
                 "errors": [f"open_meteo_geocoding_http_{geo_resp.status_code}"],
             })
         geo_data = geo_resp.json()
         matches = geo_data.get("results") or []
         if not matches:
-            return _result(False, {
+            return _result(_DummyInv(""), False, {
                 "status": "location_not_found",
                 "errors": ["open_meteo_location_not_found"],
             })
@@ -419,7 +493,7 @@ def _lookup_open_meteo_weather(*, location: str, days: int, language: str,
         latitude = place.get("latitude")
         longitude = place.get("longitude")
         if latitude is None or longitude is None:
-            return _result(False, {
+            return _result(_DummyInv(""), False, {
                 "status": "geocoding_missing_coordinates",
                 "errors": ["open_meteo_geocoding_missing_coordinates"],
             })
@@ -457,7 +531,7 @@ def _lookup_open_meteo_weather(*, location: str, days: int, language: str,
             headers={"User-Agent": "NetworkAgent/1.0 (+https://github.com/zhangh05/network_agent)"},
         )
         if weather_resp.status_code != 200:
-            return _result(False, {
+            return _result(_DummyInv(""), False, {
                 "status": "forecast_http_error",
                 "errors": [f"open_meteo_forecast_http_{weather_resp.status_code}"],
             })
@@ -468,12 +542,12 @@ def _lookup_open_meteo_weather(*, location: str, days: int, language: str,
             if include_current else {}
         )
         if include_current and not current:
-            return _result(False, {
+            return _result(_DummyInv(""), False, {
                 "status": "current_weather_empty",
                 "errors": ["open_meteo_current_weather_empty"],
             })
         if not include_current and not daily:
-            return _result(False, {
+            return _result(_DummyInv(""), False, {
                 "status": "forecast_empty",
                 "errors": ["open_meteo_forecast_empty"],
             })
@@ -497,7 +571,7 @@ def _lookup_open_meteo_weather(*, location: str, days: int, language: str,
             "forecast_daily": daily,
         })
     except Exception as e:
-        return _result(False, {
+        return _result(_DummyInv(""), False, {
             "status": "structured_weather_provider_error",
             "errors": [f"open_meteo_error: {str(e)[:200]}"],
         })
@@ -598,6 +672,11 @@ def _open_meteo_language(language: str) -> str:
     return "en"
 
 
+class _DummyInv:
+    def __init__(self, tool_id: str = ""):
+        self.tool_id = tool_id
+
+
 def _weather_structured_result(*, tool_id: str, location: str, units: str,
                                language: str, structured: dict) -> dict:
     result = dict(structured)
@@ -627,7 +706,7 @@ def _weather_structured_result(*, tool_id: str, location: str, units: str,
         "用 current 或 forecast_daily 的温度、降水概率/降水量、风速字段直接回答用户。",
         "如果用户要求官方气象台口径，再用 web.search 或 web.fetch_summary 交叉验证气象局页面。",
     ]
-    return _result(True, result)
+    return _result(_DummyInv(tool_id), True, result)
 
 
 def _weather_summary(result: dict) -> str:

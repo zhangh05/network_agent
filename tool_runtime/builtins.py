@@ -15,6 +15,19 @@ from tool_runtime.schemas import ToolSpec, ToolInvocation
 from tool_runtime.registry import ToolRegistry
 
 
+def _enrich_result(invocation, d):
+    out = dict(d)
+    if "tool_id" not in out:
+        out["tool_id"] = getattr(invocation, "tool_id", "")
+    if "status" not in out:
+        out["status"] = "ok" if out.get("ok") else "failed"
+    if "errors" not in out and not out.get("ok"):
+        msg = out.get("error") or out.get("summary") or "failed"
+        out["errors"] = [msg]
+    if "summary" not in out:
+        out["summary"] = "Completed."
+    return out
+
 # ═══════════════════════════════════
 # Tool Handlers
 # ═══════════════════════════════════
@@ -30,6 +43,8 @@ def _handler_artifact_list(invocation: ToolInvocation) -> dict:
         art_refs = state.get("artifact_refs", []) if isinstance(state, dict) else []
         return {
             "ok": True,
+            "tool_id": "workspace.artifact.list",
+            "status": "ok",
             "summary": f"Listed {len(art_refs)} artifact references",
             "artifacts": art_refs[:50],  # limit to 50 entries
             "workspace_id": workspace_id,
@@ -38,9 +53,11 @@ def _handler_artifact_list(invocation: ToolInvocation) -> dict:
     except Exception as exc:
         return {
             "ok": False,
+            "tool_id": "workspace.artifact.list",
+            "status": "failed",
             "summary": f"Failed to list artifacts: {str(exc)[:100]}",
             "artifacts": [],
-            "warnings": [f"artifact.list failed: {str(exc)[:100]}"],
+            "warnings": [f"workspace.artifact.list failed: {str(exc)[:100]}"],
         }
 
 
@@ -48,7 +65,7 @@ def _handler_parser_parse_config_text(invocation: ToolInvocation) -> dict:
     """Shallow safe parse of config text. Returns statistics only."""
     text = invocation.arguments.get("config_text", "")
     if not text:
-        return {"ok": False, "summary": "No config_text provided", "warnings": ["config_text required"]}
+        return _enrich_result(invocation, {"ok": False, "summary": "No config_text provided", "warnings": ["config_text required"]})
 
     lines = text.split("\n")
     non_empty = [l for l in lines if l.strip() and not l.strip().startswith("!")]
@@ -76,7 +93,7 @@ def _handler_parser_parse_config_text(invocation: ToolInvocation) -> dict:
     if line_count > 10000:
         warnings.append("Large config detected, consider splitting")
 
-    return {
+    return _enrich_result(invocation, {
         "ok": True,
         "summary": f"Parsed {line_count} lines ({non_empty_count} non-empty), vendor={vendor_hint}",
         "line_count": line_count,
@@ -86,14 +103,14 @@ def _handler_parser_parse_config_text(invocation: ToolInvocation) -> dict:
         "has_acl_like_lines": has_acl,
         "has_route_like_lines": has_route,
         "warnings": warnings,
-    }
+    })
 
 
 def _handler_parser_extract_interfaces(invocation: ToolInvocation) -> dict:
     """Extract interface names from config text. No full interface blocks returned."""
     text = invocation.arguments.get("config_text", "")
     if not text:
-        return {"ok": False, "summary": "No config_text provided", "warnings": ["config_text required"]}
+        return _enrich_result(invocation, {"ok": False, "summary": "No config_text provided", "warnings": ["config_text required"]})
 
     import re
     # Match interface definitions: "interface GigabitEthernet0/0/1" etc
@@ -108,21 +125,21 @@ def _handler_parser_extract_interfaces(invocation: ToolInvocation) -> dict:
     if total > 100:
         warnings.append(f"Truncated from {total} to 100 interfaces")
 
-    return {
+    return _enrich_result(invocation, {
         "ok": True,
         "summary": f"Found {total} unique interface names",
         "interface_count": total,
         "interface_names": limited,
         "truncated": total > 100,
         "warnings": warnings,
-    }
+    })
 
 
 def _handler_parser_extract_routes(invocation: ToolInvocation) -> dict:
     """Extract route-like line summaries. No full config blocks."""
     text = invocation.arguments.get("config_text", "")
     if not text:
-        return {"ok": False, "summary": "No config_text provided", "warnings": ["config_text required"]}
+        return _enrich_result(invocation, {"ok": False, "summary": "No config_text provided", "warnings": ["config_text required"]})
 
     import re
     # Match static route patterns
@@ -145,14 +162,14 @@ def _handler_parser_extract_routes(invocation: ToolInvocation) -> dict:
     if total > 100:
         warnings.append(f"Truncated from {total} to 100 route lines")
 
-    return {
+    return _enrich_result(invocation, {
         "ok": True,
         "summary": f"Found {total} route-like lines",
         "route_count": total,
         "route_summaries": limited,
         "truncated": total > 100,
         "warnings": warnings,
-    }
+    })
 
 
 # ═══════════════════════════════════

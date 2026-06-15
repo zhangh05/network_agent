@@ -14,9 +14,9 @@ def handle_memory_search(inv: ToolInvocation) -> dict:
                 "title": r.get("title", ""),
                 "summary": (r.get("content", "") or "")[:200],
             })
-        return _ok({"results": safe, "count": len(safe)})
+        return _ok(inv, "", {"results": safe, "count": len(safe)})
     except Exception as e:
-        return _error(str(e)[:200])
+        return _error_inv(inv, str(e)[:200])
 
 def handle_memory_create(inv: ToolInvocation) -> dict:
     """Create a long-term memory entry. Default status=pending_confirmation.
@@ -27,11 +27,11 @@ def handle_memory_create(inv: ToolInvocation) -> dict:
     title = str(args.get("title", "")).strip()
     content = str(args.get("content", "")).strip()
     if not title or not content:
-        return _error("title and content are required")
+        return _error_inv(inv, "title and content are required")
     try:
         from memory.redaction import contains_secret, redact_text
         if contains_secret(title) or contains_secret(content):
-            return _error("content contains secrets — memory.create blocked")
+            return _error_inv(inv, "content contains secrets — memory.create blocked")
         from memory.writer import write_memory
         import time
         key = str(args.get("key", title[:60]))
@@ -62,15 +62,15 @@ def handle_memory_create(inv: ToolInvocation) -> dict:
             user_confirmed=False,
         )
         if not memory_id:
-            return _error("memory write blocked by policy")
-        return _ok({
+            return _error_inv(inv, "memory write blocked by policy")
+        return _ok(inv, "", {
             "memory_id": memory_id,
             "status": "pending_confirmation",
             "key": key,
             "value_preview": value_preview,
         })
     except Exception as e:
-        return _error(str(e)[:200])
+        return _error_inv(inv, str(e)[:200])
 
 def handle_memory_list(inv: ToolInvocation) -> dict:
     """List memory entries. Phase 2: support status/session_id filtering, value_preview only."""
@@ -112,9 +112,9 @@ def handle_memory_list(inv: ToolInvocation) -> dict:
                 "created_at": r.get("created_at", ""),
                 "tags": r.get("tags", [])[:5],
             })
-        return _ok({"results": summaries, "count": len(summaries)})
+        return _ok(inv, "", {"results": summaries, "count": len(summaries)})
     except Exception as e:
-        return _error(str(e)[:200])
+        return _error_inv(inv, str(e)[:200])
 
 def handle_memory_confirm(inv: ToolInvocation) -> dict:
     """Confirm a pending_confirmation memory entry.
@@ -127,18 +127,18 @@ def handle_memory_confirm(inv: ToolInvocation) -> dict:
     args = inv.arguments
     memory_id = str(args.get("memory_id", "")).strip()
     if not memory_id:
-        return _error("memory_id is required")
+        return _error_inv(inv, "memory_id is required")
     try:
         from memory.backends.jsonl_store import JSONLMemoryStore
         store = JSONLMemoryStore()
         entry = store.get(memory_id)
         if not entry:
-            return _error(f"memory_id not found: {memory_id}")
+            return _error_inv(inv, f"memory_id not found: {memory_id}")
 
         meta = entry.get("metadata") or {}
         status = meta.get("status", "confirmed") if isinstance(meta, dict) else "confirmed"
         if status == "confirmed":
-            return _ok({"memory_id": memory_id, "already_confirmed": True, "status": "confirmed"})
+            return _ok(inv, "", {"memory_id": memory_id, "already_confirmed": True, "status": "confirmed"})
 
         # Update status
         if isinstance(meta, dict):
@@ -156,9 +156,9 @@ def handle_memory_confirm(inv: ToolInvocation) -> dict:
         # except Exception:
         #     pass
 
-        return _ok({"memory_id": memory_id, "status": "confirmed", "already_confirmed": False})
+        return _ok(inv, "", {"memory_id": memory_id, "status": "confirmed", "already_confirmed": False})
     except Exception as e:
-        return _error(str(e)[:200])
+        return _error_inv(inv, str(e)[:200])
 
 def handle_memory_get_profile(inv: ToolInvocation) -> dict:
     """Get user profile. Phase 2: returns explicit/implicit/tool_stats/updated_at."""
@@ -167,7 +167,7 @@ def handle_memory_get_profile(inv: ToolInvocation) -> dict:
         validate_workspace_id(ws)
         profile_path = WS_ROOT / ws / "memory" / "profile.json"
         if not profile_path.is_file():
-            return _ok({
+            return _ok(inv, "", {
                 "explicit_preferences": {},
                 "inferred_preferences": {},
                 "tool_usage_stats": {},
@@ -175,14 +175,14 @@ def handle_memory_get_profile(inv: ToolInvocation) -> dict:
             })
         import json
         data = json.loads(profile_path.read_text(encoding="utf-8"))
-        return _ok({
+        return _ok(inv, "", {
             "explicit_preferences": data.get("explicit_preferences", {}),
             "inferred_preferences": data.get("inferred_preferences", {}),
             "tool_usage_stats": data.get("tool_usage_stats", {}),
             "updated_at": data.get("updated_at", ""),
         })
     except Exception as e:
-        return _error(str(e)[:200])
+        return _error_inv(inv, str(e)[:200])
 
 def handle_memory_set_profile(inv: ToolInvocation) -> dict:
     """Set user profile. Phase 2: merge=false replaces; merge=true (default) merges into explicit_preferences.
@@ -194,12 +194,12 @@ def handle_memory_set_profile(inv: ToolInvocation) -> dict:
     value = inv.arguments.get("value")
     merge = bool(args.get("merge", True)) if (args := inv.arguments) else True
     if not field:
-        return _error("field is required")
+        return _error_inv(inv, "field is required")
     try:
         validate_workspace_id(ws)
         from memory.redaction import contains_secret
         if isinstance(value, str) and contains_secret(value):
-            return _error("value contains secrets — set_profile blocked")
+            return _error_inv(inv, "value contains secrets — set_profile blocked")
         import json, time
         memory_dir = WS_ROOT / ws / "memory"
         memory_dir.mkdir(parents=True, exist_ok=True)
@@ -214,9 +214,9 @@ def handle_memory_set_profile(inv: ToolInvocation) -> dict:
             profile["explicit_preferences"] = {field: value} if value is not None else {}
         profile["updated_at"] = time.strftime("%Y-%m-%dT%H:%M:%S")
         profile_path.write_text(json.dumps(profile, ensure_ascii=False, indent=2), encoding="utf-8")
-        return _ok({"field": field, "saved": True})
+        return _ok(inv, "", {"field": field, "saved": True})
     except Exception as e:
-        return _error(str(e)[:200])
+        return _error_inv(inv, str(e)[:200])
 
 def handle_memory_update(inv: ToolInvocation) -> dict:
     """Update an existing memory entry's content field directly (not just metadata)."""
@@ -224,18 +224,18 @@ def handle_memory_update(inv: ToolInvocation) -> dict:
     memory_id = str(args.get("memory_id", "")).strip()
     content = str(args.get("content", "")).strip()
     if not memory_id:
-        return _error("memory_id is required")
+        return _error_inv(inv, "memory_id is required")
     if not content:
-        return _error("content is required")
+        return _error_inv(inv, "content is required")
     try:
         from memory.redaction import contains_secret
         if contains_secret(content):
-            return _error("content contains secrets — memory.update blocked")
+            return _error_inv(inv, "content contains secrets — memory.update blocked")
         from memory.backends.jsonl_store import JSONLMemoryStore
         store = JSONLMemoryStore()
         entry = store.get(memory_id)
         if not entry:
-            return _error(f"memory_id not found: {memory_id}")
+            return _error_inv(inv, f"memory_id not found: {memory_id}")
         # Update the actual content field, not just metadata
         entry["content"] = content
         # Also update metadata timestamp
@@ -246,30 +246,30 @@ def handle_memory_update(inv: ToolInvocation) -> dict:
         meta["status"] = "updated"
         entry["metadata"] = meta
         store.update_metadata(memory_id, meta)
-        return _ok({"memory_id": memory_id, "updated": True})
+        return _ok(inv, "", {"memory_id": memory_id, "updated": True})
     except Exception as e:
-        return _error(str(e)[:200])
+        return _error_inv(inv, str(e)[:200])
 
 def handle_memory_delete_soft(inv: ToolInvocation) -> dict:
     """Soft-delete a memory entry. Marks as deleted, does not remove from store."""
     args = inv.arguments
     memory_id = str(args.get("memory_id", "")).strip()
     if not memory_id:
-        return _error("memory_id is required")
+        return _error_inv(inv, "memory_id is required")
     try:
         from memory.backends.jsonl_store import JSONLMemoryStore
         store = JSONLMemoryStore()
         entry = store.get(memory_id)
         if not entry:
-            return _error(f"memory_id not found: {memory_id}")
+            return _error_inv(inv, f"memory_id not found: {memory_id}")
         meta = (entry.get("metadata") or {})
         if not isinstance(meta, dict):
             meta = {}
         meta["status"] = "deleted"
         meta["deleted_at"] = time.strftime("%Y-%m-%dT%H:%M:%S")
         store.update_metadata(memory_id, meta)
-        return _ok({"memory_id": memory_id, "deleted": True})
+        return _ok(inv, "", {"memory_id": memory_id, "deleted": True})
     except Exception as e:
-        return _error(str(e)[:200])
+        return _error_inv(inv, str(e)[:200])
 
 __all__ = ['handle_memory_search', 'handle_memory_create', 'handle_memory_list', 'handle_memory_confirm', 'handle_memory_get_profile', 'handle_memory_set_profile', 'handle_memory_update', 'handle_memory_delete_soft']

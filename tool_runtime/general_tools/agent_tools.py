@@ -14,7 +14,7 @@ def handle_agent_spawn(inv: ToolInvocation) -> dict:
     max_turns = int(inv.arguments.get("max_turns", 1))
 
     if not instruction:
-        return _error("instruction is required")
+        return _error_inv(inv, "instruction is required")
 
     try:
         validate_workspace_id(workspace_id)
@@ -26,9 +26,9 @@ def handle_agent_spawn(inv: ToolInvocation) -> dict:
             allowed_tools=allowed_tools if allowed_tools else None,
             max_turns=max_turns,
         )
-        return _result(result.get("ok", False), result)
+        return _result(inv, result.get("ok", False), result)
     except Exception as e:
-        return _error(str(e)[:200])
+        return _error_inv(inv, str(e)[:200])
 
 def handle_agent_list_roles(inv: ToolInvocation) -> dict:
     """List available agent roles: planner, worker, reviewer."""
@@ -49,7 +49,7 @@ def handle_agent_list_roles(inv: ToolInvocation) -> dict:
             "default_tools": ["text.diff", "text.classify", "memory.search", "artifact.search", "workspace.file.read"],
         },
     ]
-    return _ok({"roles": roles, "count": len(roles)})
+    return _ok(inv, "", {"roles": roles, "count": len(roles)})
 
 def handle_agent_team(inv: ToolInvocation) -> dict:
     """Minimal multi-agent team with planner/worker/reviewer roles.
@@ -67,7 +67,7 @@ def handle_agent_team(inv: ToolInvocation) -> dict:
     roles = list(args.get("roles") or ["planner", "worker"])
 
     if not instruction:
-        return _error("instruction is required")
+        return _error_inv(inv, "instruction is required")
 
     try:
         validate_workspace_id(workspace_id)
@@ -162,9 +162,9 @@ def handle_agent_team(inv: ToolInvocation) -> dict:
             }
             result["roles_used"].append("reviewer")
 
-        return _ok(result)
+        return _ok(inv, f"Team run completed (roles={roles}).", result)
     except Exception as e:
-        return _error(str(e)[:200])
+        return _error_inv(inv, str(e)[:200])
 
 def handle_agent_get_result(inv: ToolInvocation) -> dict:
     """Get sub-agent result by child_session_id.
@@ -176,7 +176,7 @@ def handle_agent_get_result(inv: ToolInvocation) -> dict:
     child_session_id = str(args.get("child_session_id", "")).strip()
 
     if not child_session_id:
-        return _error("child_session_id is required")
+        return _error_inv(inv, "child_session_id is required")
 
     try:
         validate_workspace_id(ws)
@@ -208,7 +208,7 @@ def handle_agent_get_result(inv: ToolInvocation) -> dict:
                 from workspace.run_store import list_runs
                 runs = list_runs(ws, session_id=child_session_id, limit=10)
                 if runs:
-                    return _ok({
+                    return _ok(inv, "", {
                         "child_session_id": child_session_id,
                         "workspace_id": ws,
                         "run_count": len(runs),
@@ -216,7 +216,7 @@ def handle_agent_get_result(inv: ToolInvocation) -> dict:
                     })
             except Exception:
                 pass
-            return _ok({
+            return _ok(inv, "", {
                 "child_session_id": child_session_id,
                 "workspace_id": ws,
                 "message_count": 0,
@@ -225,6 +225,6 @@ def handle_agent_get_result(inv: ToolInvocation) -> dict:
                 "note": "no records found for this child session",
             })
     except Exception as e:
-        return _error(str(e)[:200])
+        return _error_inv(inv, str(e)[:200])
 
 __all__ = ['handle_agent_spawn', 'handle_agent_list_roles', 'handle_agent_team', 'handle_agent_get_result']

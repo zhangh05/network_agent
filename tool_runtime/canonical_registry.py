@@ -969,10 +969,17 @@ def to_tool_specs() -> list[tuple]:
             ns_entry = get_namespace_entry(entry.canonical_tool_id)
         except Exception:
             pass
+        # Build the description: prefer the namespace's usage_hint, then
+        # the entry description, then the namespace's display_name.
+        description = (
+            (getattr(ns_entry, "usage_hint", "") if ns_entry else "")
+            or entry.description
+            or (getattr(ns_entry, "display_name", "") if ns_entry else "")
+        )
         spec = ToolSpec(
             tool_id=entry.canonical_tool_id,
             handler_id=entry.canonical_tool_id,
-            description=entry.description,
+            description=description,
             category=ns_entry.category if ns_entry else "",
             risk_level=entry.risk_level,
             requires_approval=entry.requires_approval,

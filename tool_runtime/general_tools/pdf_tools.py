@@ -12,20 +12,20 @@ def handle_pdf_extract_text(inv: ToolInvocation) -> dict:
     page_range = str(args.get("page_range", "")).strip()
 
     if not filepath:
-        return _error("filepath is required")
+        return _error_inv(inv, "filepath is required")
 
     # Validate workspace path
     try:
         target = _validate_workspace_path(ws, filepath)
     except ValueError as e:
-        return _error(str(e))
+        return _error_inv(inv, str(e))
 
     # Check file extension
     if target.suffix.lower() != ".pdf":
-        return _error("file must be a .pdf file")
+        return _error_inv(inv, "file must be a .pdf file")
 
     if not target.is_file():
-        return _error(f"file not found: {filepath}")
+        return _error_inv(inv, f"file not found: {filepath}")
 
     file_size = target.stat().st_size
 
@@ -48,7 +48,7 @@ def handle_pdf_extract_text(inv: ToolInvocation) -> dict:
                 "file_size": file_size,
             })
     except Exception:
-        return _error("not a PDF file")
+        return _error_inv(inv, "not a PDF file")
 
     # ── Parse and validate page range ──
     start_page = None
@@ -63,12 +63,12 @@ def handle_pdf_extract_text(inv: ToolInvocation) -> dict:
                 start_page = int(parts[0].strip()) - 1
                 end_page = int(parts[1].strip()) - 1
         except (ValueError, IndexError):
-            return _error(f"invalid page_range format: {page_range}. Use e.g. '1-3' or '5'")
+            return _error_inv(inv, f"invalid page_range format: {page_range}. Use e.g. '1-3' or '5'")
         # Validate range
         if start_page is not None and (start_page < 0 or end_page < start_page):
-            return _error(f"invalid page_range: start must be >= 1 and <= end")
+            return _error_inv(inv, f"invalid page_range: start must be >= 1 and <= end")
         if end_page is not None and start_page is not None and (end_page - start_page >= 100):
-            return _error(f"page_range too large: max 100 pages. Got {end_page - start_page + 1}")
+            return _error_inv(inv, f"page_range too large: max 100 pages. Got {end_page - start_page + 1}")
 
     # ── Try to import PyPDF2 ──
     try:
@@ -117,6 +117,6 @@ def handle_pdf_extract_text(inv: ToolInvocation) -> dict:
             "method": _method,
         })
     except Exception as e:
-        return _error(str(e)[:200])
+        return _error_inv(inv, str(e)[:200])
 
 __all__ = ['handle_pdf_extract_text']

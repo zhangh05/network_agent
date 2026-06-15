@@ -10,12 +10,12 @@ def handle_command_approved_exec(inv: ToolInvocation) -> dict:
     """
     import platform
     if platform.system() == "Windows":
-        return _error("Shell execution only available on Linux/macOS. Use powershell.exec on Windows.")
+        return _unavailable(inv, "Shell execution only available on Linux/macOS. Use host.powershell.exec on Windows.")
     command = (inv.arguments.get("command") or inv.arguments.get("command_id") or "").strip()
     if not command:
-        return _error("command is required")
+        return _unavailable(inv, "command is required")
     result = _run_shell(command)
-    return _result(result.pop("ok", False), result)
+    return _result(inv, result.pop("ok", False), result)
 
 def handle_powershell_approved_script(inv: ToolInvocation) -> dict:
     """PowerShell script execution on Windows.
@@ -26,10 +26,10 @@ def handle_powershell_approved_script(inv: ToolInvocation) -> dict:
     """
     import platform
     if platform.system() != "Windows":
-        return _error("PowerShell execution only available on Windows. Use shell.exec on Linux/macOS.")
+        return _unavailable(inv, "PowerShell execution only available on Windows. Use host.shell.exec on Linux/macOS.")
     command = (inv.arguments.get("command") or inv.arguments.get("script_id") or "").strip()
     if not command:
-        return _error("command is required")
+        return _unavailable(inv, "command is required")
     import subprocess
     try:
         result = subprocess.run(
@@ -38,17 +38,17 @@ def handle_powershell_approved_script(inv: ToolInvocation) -> dict:
         )
         stdout = (result.stdout or "")[:_SHELL_MAX_OUTPUT]
         stderr = (result.stderr or "")[:_SHELL_MAX_OUTPUT]
-        return _ok({
+        return _ok(inv, f"PowerShell command finished (exit={result.returncode}).", {
             "exit_code": result.returncode,
             "stdout": stdout,
             "stderr": stderr,
         })
     except subprocess.TimeoutExpired:
-        return _error("command timed out after 15s")
+        return _error_inv(inv, "command timed out after 15s")
     except FileNotFoundError:
-        return _error("powershell not found")
+        return _error_inv(inv, "powershell not found")
     except Exception as e:
-        return _error(str(e)[:200])
+        return _error_inv(inv, str(e)[:200])
 
 def handle_slash_run(inv: ToolInvocation) -> dict:
     """Execute a slash command via the command system."""
@@ -57,16 +57,16 @@ def handle_slash_run(inv: ToolInvocation) -> dict:
     cmd_args = str(args.get("args", "")).strip()
 
     if not command:
-        return _error("command is required")
+        return _error_inv(inv, "command is required")
 
     try:
         from agent.runtime.command_system import execute_command
         result = execute_command(command, cmd_args, getattr(inv, 'session_id', None), getattr(inv, 'workspace_id', None))
-        return _ok({"command": command, "result": result})
+        return _ok(inv, f"Slash command '{command}' executed.", {"command": command, "result": result})
     except ImportError:
-        return _error("command system not available")
+        return _error_inv(inv, "command system not available")
     except Exception as e:
-        return _error(str(e)[:200])
+        return _error_inv(inv, str(e)[:200])
 
 def handle_python_exec(inv: ToolInvocation) -> dict:
     """Execute Python code in an AST-checked sandbox.
@@ -81,7 +81,7 @@ def handle_python_exec(inv: ToolInvocation) -> dict:
     timeout = min(int(inv.arguments.get("timeout", 10) or 10), 10)
 
     if not code:
-        return _error("code is required")
+        return _error_inv(inv, "code is required")
 
     try:
         validate_workspace_id(workspace_id)
@@ -92,8 +92,8 @@ def handle_python_exec(inv: ToolInvocation) -> dict:
             run_id=run_id,
             timeout=timeout,
         )
-        return _result(result.pop("ok", False), result)
+        return _result(inv, result.pop("ok", False), result)
     except Exception as e:
-        return _error(str(e)[:200])
+        return _error_inv(inv, str(e)[:200])
 
 __all__ = ['handle_command_approved_exec', 'handle_powershell_approved_script', 'handle_slash_run', 'handle_python_exec']
