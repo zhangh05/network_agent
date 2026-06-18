@@ -1,0 +1,91 @@
+skill_name: config_translation
+display_name: 配置翻译技能
+description: Agent 调用配置翻译模块的技能适配器
+category: translation
+
+status: enabled
+skill_type: python_adapter
+
+module: config_translation
+module_api: /api/modules/config-translation/translate
+adapter_path: skills/config_translation/adapter.py
+
+entrypoint:
+  type: python
+  function: translate
+  signature: payload        # adapter receives payload dict
+
+capabilities:
+  - capability_id: config.translate
+    intent: translate_config
+    function: translate
+    description: 将网络设备配置从一个厂商语法转换为另一个厂商语法
+    risk_level: medium
+  - capability_id: config.review
+    intent: context_qa
+    function: review
+    description: 基于最近一次配置翻译结果进行解释和问答
+    risk_level: low
+
+# ── Artifact auto-save (generic, driven by skill.yaml) ──
+artifact:
+  auto_save_input: true
+  auto_save_output: true
+  input_type: input_config
+  output_type: translated_config
+  output_field: deployable_config
+  sensitivity: internal
+  scope: run
+
+# ── Response compose (generic, driven by skill.yaml) ──
+compose:
+  mode: structured            # structured | template | raw
+  status_path: ok             # where in result to find ok/fail
+  summary_fields:
+    - field: deployable_config
+      label: Deployable lines
+      type: line_count
+    - field: manual_review
+      label: Manual review
+      type: count
+    - field: semantic_near
+      label: Semantic near
+      type: count
+    - field: unsupported
+      label: Unsupported
+      type: count
+    - field: quality_summary
+      label: Quality
+      type: quality
+
+execution:
+  calls_module: true
+  calls_llm: false
+
+red_lines:
+  - do_not_modify_deployable_config
+  - do_not_use_full_output_as_deployable
+  - do_not_call_llm
+  - do_not_hide_manual_review
+  - do_not_bypass_translate_bundle
+  - do_not_call_retired_api
+  - do_not_call_http_self
+
+trace:
+  record_skill_call: true
+  record_module_call: true
+  record_full_input: false
+  record_full_output: false
+
+memory:
+  write_run_summary: true
+  write_full_input: false
+  write_full_output: false
+
+tests:
+  required_contract_tests:
+    - skill_schema
+    - adapter_contract
+    - no_llm_contract
+    - no_http_self_contract
+    - trace_contract

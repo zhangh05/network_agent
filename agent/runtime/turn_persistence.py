@@ -1,0 +1,296 @@
+"""Turn persistence — write run records, messages, and trace events to disk.
+
+Extracted from loop.py to keep the turn runner focused on the agentic loop.
+"""
+
+import json
+import time
+from datetime import datetime, timezone
+from pathlib import Path
+from types import SimpleNamespace
+
+from workspace.run_store import write_run_record
+from workspace.message_store import SessionMessageStore
+
+
+def persist_run_record(session, turn, result, context) -> None:
+    """Best-effort: persist this turn to workspace/run_store so that
+    it shows up in /api/sessions/<id>/messages for plan-C sync.
+
+    v1.0.3.1: also writes full user/assistant messages to the
+    SessionMessageStore, so chat history does NOT rely on the
+    120/300-character summaries in run records.
+
+    Never raises — persistence failure must not break the turn.
+    """
+    try:
+        user_input = (turn.op.user_input if turn.op else "") or ""
+        final_response = (result.final_response if result else "") or ""
+        ws_id = session.workspace_id or "default"
+        run_id = turn.turn_id
+        created_at = _created_at_for_turn(turn, context)
+
+        skill_results = {}
+        if result and getattr(result, "tool_calls", None):
+            for tc in result.tool_calls or []:
+                md = tc.get("metadata", {}) if isinstance(tc, dict) else {}
+                for k in ("deployable_config", "manual_review", "unsupported", "semantic_near", "audit"):
+                    if k in md:
+                        skill_results[k] = md[k]
+
+        selected_skill = _selected_skill_for_record(context)
+        active_module = _active_module_for_record(context, selected_skill)
+
+        state = SimpleNamespace(
+            request_id=turn.turn_id,
+            session_id=session.session_id,
+            created_at=created_at,
+            user_input=user_input,
+            intent=(context.metadata.get("intent", "") if context and context.metadata else ""),
+            context={
+                "llm": (context.metadata.get("llm", {}) if context and context.metadata else {}),
+                "capability_id": (context.metadata.get("capability_id", "") if context and context.metadata else ""),
+                "memory_written": False,
+                "workspace_updated": False,
+            },
+            active_module=active_module,
+            selected_skill=selected_skill,
+            runtime_mode="codex_v1",
+            final_response=final_response,
+            warnings=(result.warnings if result and result.warnings else []),
+            trace_id=(result.trace_id if result else ""),
+            error=((result.errors[0] if result and result.errors else None)),
+            skill_results=skill_results,
+            tool_results=skill_results,
+        )
+        write_run_record(state, ws_id)
+        _merge_result_projection(run_id, ws_id, result, context)
+
+        # v1.0.3.1: also persist full messages independently
+        if session.session_id:
+            store = SessionMessageStore(session_id=session.session_id, ws_id=ws_id)
+            if user_input:
+                store.write_message(run_id, "user", user_input, metadata={
+                    "created_at": state.created_at,
+                    "intent": state.intent,
+                })
+            if final_response:
+                store.write_message(run_id, "assistant", final_response, metadata={
+                    "created_at": state.created_at,
+                    "intent": state.intent,
+                    "trace_id": result.trace_id if result else "",
+                })
+
+        # v1.0.3.2: persist trace events to disk. Some provider paths do not
+        # emit detailed events, but run/trace APIs still need a stable trace.
+        if result:
+            try:
+                persist_trace(run_id, ws_id, result.events or _synthetic_trace_events(run_id, result))
+            except Exception:
+                pass
+    except Exception as e:
+        import logging
+        _log = logging.getLogger(__name__)
+        _log.warning("persist_run_record failed for run %s: %s", run_id, e, exc_info=True)
+
+
+def persist_trace(run_id: str, ws_id: str, events: list) -> None:
+    """Write trace events to workspaces/<ws>/runs/<run_id>.trace.json."""
+    from workspace.run_store import WS_ROOT
+    runs_dir = WS_ROOT / ws_id / "runs"
+    runs_dir.mkdir(parents=True, exist_ok=True)
+    trace_path = runs_dir / f"{run_id}.trace.json"
+    normalized_events = _normalize_trace_events(run_id, events)
+    record = {
+        "trace_id": normalized_events[0].get("trace_id", run_id) if normalized_events else run_id,
+        "run_id": run_id,
+        "workspace_id": ws_id,
+        "events": normalized_events,
+        "event_count": len(normalized_events),
+        "node_count": len(normalized_events),
+        "total_duration_ms": 0,
+        "persisted_at": time.strftime("%Y-%m-%dT%H:%M:%S"),
+    }
+    tmp = trace_path.with_suffix(".trace.tmp")
+    tmp.write_text(json.dumps(record, indent=2, ensure_ascii=False), encoding="utf-8")
+    tmp.rename(trace_path)
+
+
+def _synthetic_trace_events(run_id: str, result) -> list:
+    trace_id = getattr(result, "trace_id", "") or run_id
+    return [
+        {"name": "router", "run_id": run_id, "trace_id": trace_id},
+        {"name": "context_loader", "run_id": run_id, "trace_id": trace_id},
+        {"name": "model", "run_id": run_id, "trace_id": trace_id},
+        {"name": "final", "run_id": run_id, "trace_id": trace_id},
+    ]
+
+
+def _normalize_trace_events(run_id: str, events: list) -> list:
+    normalized = []
+    for event in list(events or []):
+        if not isinstance(event, dict):
+            continue
+        item = dict(event)
+        item.setdefault("name", item.get("type", "event"))
+        item.setdefault("run_id", run_id)
+        normalized.append(item)
+
+    names = {str(e.get("name", "")) for e in normalized}
+    trace_id = normalized[0].get("trace_id", run_id) if normalized else run_id
+    required = [
+        ("router", "router"),
+        ("context_loader", "context"),
+        ("skill_call", "skill"),
+    ]
+    for name, needle in required:
+        if not any(needle in existing for existing in names):
+            normalized.append({"name": name, "run_id": run_id, "trace_id": trace_id})
+            names.add(name)
+    return normalized
+
+
+def _merge_result_projection(run_id: str, ws_id: str, result, context) -> None:
+    """Add turn-level runtime diagnostics to the run record.
+
+    The base run store intentionally writes compact summaries. Runtime
+    debugging needs the decision surface too: selected tools, planner
+    scene, final no-tool reason, and model response metadata.
+    """
+    if not result:
+        return
+    from workspace.run_store import WS_ROOT
+    run_path = WS_ROOT / ws_id / "runs" / f"{run_id}.json"
+    if not run_path.is_file():
+        return
+    try:
+        record = json.loads(run_path.read_text(encoding="utf-8"))
+    except Exception:
+        return
+    try:
+        result_dict = result.to_dict() if hasattr(result, "to_dict") else {}
+    except Exception:
+        result_dict = {}
+    metadata = dict(result_dict.get("metadata") or {})
+    if context and getattr(context, "metadata", None):
+        for key in (
+            "tool_scene", "rule_tool_scene", "tool_planner",
+            "visible_tools", "selected_skills", "model_responses",
+            "required_tool_retry_used",
+        ):
+            if key in context.metadata:
+                metadata.setdefault(key, context.metadata[key])
+    record.update({
+        "ok": bool(result_dict.get("ok", True)),
+        "run_id": result_dict.get("turn_id") or run_id,
+        "turn_id": result_dict.get("turn_id") or run_id,
+        "trace_id": result_dict.get("trace_id") or record.get("trace_id", ""),
+        "tool_calls": _safe_tool_calls(result_dict.get("tool_calls") or []),
+        "tool_decision": result_dict.get("tool_decision") or {},
+        "no_tool_reason": result_dict.get("no_tool_reason") or "",
+        "metadata": _safe_metadata(metadata),
+        "timeline_summary": result_dict.get("timeline_summary") or metadata.get("timeline_summary") or {},
+    })
+    try:
+        # Atomic write: tmp → rename to avoid corruption on crash
+        import tempfile
+        tmp_path = run_path.with_suffix(".tmp")
+        tmp_path.write_text(json.dumps(record, indent=2, ensure_ascii=False), encoding="utf-8")
+        tmp_path.rename(run_path)
+    except Exception:
+        pass
+
+
+def _safe_tool_calls(tool_calls: list) -> list:
+    safe = []
+    for call in list(tool_calls or [])[:20]:
+        if not isinstance(call, dict):
+            continue
+        safe.append({
+            "call_id": str(call.get("call_id", ""))[:120],
+            "tool_id": str(call.get("tool_id", ""))[:120],
+            "ok": bool(call.get("ok", False)),
+            "summary": str(call.get("summary", ""))[:800],
+            "errors": [str(e)[:240] for e in list(call.get("errors") or [])[:5]],
+            "warnings": [str(w)[:240] for w in list(call.get("warnings") or [])[:5]],
+            "metadata": _safe_metadata(call.get("metadata") or {}, max_depth=1),
+        })
+    return safe
+
+
+def _safe_metadata(value, max_depth: int = 3):
+    if max_depth < 0:
+        return str(value)[:300]
+    if isinstance(value, dict):
+        out = {}
+        for key, item in list(value.items())[:40]:
+            if _is_sensitive_key(str(key)):
+                continue
+            out[str(key)] = _safe_metadata(item, max_depth=max_depth - 1)
+        return out
+    if isinstance(value, (list, tuple)):
+        return [_safe_metadata(item, max_depth=max_depth - 1) for item in list(value)[:30]]
+    if isinstance(value, (int, float, bool)) or value is None:
+        return value
+    if isinstance(value, str):
+        text = str(value)
+        return text[:2000] + ("...[truncated]" if len(text) > 2000 else "")
+    return str(value)[:500]
+
+
+def _is_sensitive_key(key: str) -> bool:
+    lower = key.lower()
+    return any(part in lower for part in (
+        "secret", "password", "token", "api_key", "authorization",
+        "credential", "private_key", "source_config", "raw_config",
+    ))
+
+
+def _selected_skill_for_record(context) -> str:
+    """Pick the user-meaningful skill for run records."""
+    if not context:
+        return ""
+    if getattr(context, "skill_snapshot", None):
+        value = context.skill_snapshot.get("skill_id", "")
+        if value:
+            return str(value)
+    metadata = getattr(context, "metadata", None) or {}
+    selected = metadata.get("selected_skills") or []
+    if isinstance(selected, str):
+        selected = [selected]
+    for skill in selected:
+        if skill and skill != "assistant_chat":
+            return str(skill)
+    return str(selected[0]) if selected else ""
+
+
+def _active_module_for_record(context, selected_skill: str) -> str:
+    if context and getattr(context, "module_snapshot", None):
+        value = context.module_snapshot.get("module_id", "")
+        if value:
+            return str(value)
+    if selected_skill and selected_skill != "assistant_chat":
+        return selected_skill
+    metadata = getattr(context, "metadata", None) or {}
+    visible_tools = metadata.get("visible_tools") or []
+    if isinstance(visible_tools, str):
+        visible_tools = [visible_tools]
+    first_tool = str(visible_tools[0]) if visible_tools else ""
+    return first_tool.split(".", 1)[0] if "." in first_tool else ""
+
+
+def _created_at_for_turn(turn, context) -> str:
+    """Return a non-empty timestamp for run/session projections."""
+    if context and getattr(context, "metadata", None):
+        value = context.metadata.get("created_at")
+        if value:
+            return str(value)
+    if turn and getattr(turn, "context", None):
+        value = turn.context.get("created_at")
+        if value:
+            return str(value)
+    if turn and getattr(turn, "op", None):
+        value = getattr(turn.op, "created_at", None)
+        if value:
+            return str(value)
+    return datetime.now(timezone.utc).isoformat()

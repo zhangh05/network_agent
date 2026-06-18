@@ -1,0 +1,350 @@
+import { useEffect, useState, useRef, useCallback } from "react";
+import { useSessionStore } from "../stores/session";
+import { approvalApi } from "../api";
+import { IconAlert, IconCheck, IconClose, IconClock } from "./Icon";
+
+interface PendingApproval {
+  approval_id: string;
+  tool_id: string;
+  description?: string;
+  risk_level: string;
+  arguments_preview?: Record<string, unknown>;
+  arguments_summary?: string;
+  created_at: number;
+  created_at_iso?: string;
+  /** v2.3.1-p1: risk source information */
+  argument_source?: string;
+  argument_risk?: string;
+  reason?: string;
+  recommendation?: string;
+}
+
+// ── Module-level persistent state (survives re-renders) ──
+let _globalPending: PendingApproval | null = null;
+let _globalSecondsLeft = 60;
+let _globalResolving = false;
+const _listeners = new Set<() => void>();
+
+function _notifyListeners() {
+  _listeners.forEach((fn) => fn());
+}
+
+/**
+ * ApprovalBubble — small popup above the input bar for high-risk tool approval.
+ *
+ * Polls /api/agent/approvals/pending every 500ms.  State is module-level
+ * so the bubble persists across parent re-renders (e.g., during SSE streaming).
+ * Auto-denies after 60s.
+ */
+export function ApprovalBubble({ onResolved }: { onResolved?: () => void }) {
+  const { currentSessionId } = useSessionStore();
+  const [, setTick] = useState(0);
+  const onResolvedRef = useRef(onResolved);
+  onResolvedRef.current = onResolved;
+  const mountedRef = useRef(true);
+
+  useEffect(() => {
+    mountedRef.current = true;
+    return () => { mountedRef.current = false; };
+  }, []);
+
+  // Reset module-level state when component unmounts (session change)
+  useEffect(() => {
+    return () => {
+      _globalPending = null;
+      _globalResolving = false;
+      _globalSecondsLeft = 60;
+    };
+  }, []);
+  useEffect(() => {
+    const listener = () => { if (mountedRef.current) setTick((n) => n + 1); };
+    _listeners.add(listener);
+    return () => { _listeners.delete(listener); };
+  }, []);
+
+  // Poll for pending approvals
+  useEffect(() => {
+    if (!currentSessionId) return;
+
+    let cancelled = false;
+
+    const poll = async () => {
+      try {
+        const data = await approvalApi.pending(currentSessionId);
+        if (cancelled) return;
+        if (data.ok && data.pending?.length > 0) {
+          const p = data.pending[0] as PendingApproval;
+          _globalPending = p;
+          // created_at is a Python time.time() float (seconds since epoch),
+          // but JS Date expects milliseconds. Multiply by 1000.
+          const created = new Date(p.created_at * 1000).getTime();
+          const elapsed = (Date.now() - created) / 1000;
+          _globalSecondsLeft = Math.max(0, Math.ceil(60 - elapsed));
+        } else {
+          // Only clear if not currently resolving
+          if (!_globalResolving) {
+            _globalPending = null;
+            _globalSecondsLeft = 60;
+          }
+        }
+        _notifyListeners();
+      } catch {
+        /* ignore */
+      }
+    };
+
+    poll();
+    const interval = setInterval(poll, 5000);
+    return () => {
+      cancelled = true;
+      clearInterval(interval);
+    };
+  }, [currentSessionId]);
+
+  // Countdown timer
+  useEffect(() => {
+    if (!_globalPending) return;
+
+    const timer = setInterval(() => {
+      _globalSecondsLeft -= 1;
+      if (_globalSecondsLeft <= 0) {
+        _globalSecondsLeft = 0;
+        // Auto-deny
+        if (!_globalResolving && _globalPending) {
+          resolveApproval(false);
+        }
+      }
+      _notifyListeners();
+    }, 1000);
+
+    return () => clearInterval(timer);
+  }, [_globalPending?.approval_id]);
+
+  const resolveApproval = useCallback(async (allowed: boolean) => {
+    const p = _globalPending;
+    if (!p || _globalResolving) return;
+    _globalResolving = true;
+    _notifyListeners();
+    try {
+      await approvalApi.resolve(p.approval_id, allowed);
+    } catch {
+      /* ignore */
+    }
+    _globalPending = null;
+    _globalSecondsLeft = 60;
+    _globalResolving = false;
+    _notifyListeners();
+    onResolvedRef.current?.();
+  }, []);
+
+  const pending = _globalPending;
+  const secondsLeft = _globalSecondsLeft;
+  const resolving = _globalResolving;
+
+  if (!pending) return null;
+
+  const isUrgent = secondsLeft <= 10;
+
+  return (
+    <div className="approval-bubble-popup" data-testid="approval-bubble">
+      <div className="abp-inner">
+        <div className="abp-header">
+          <IconAlert size={14} />
+          <span>高危操作</span>
+          <span className={`abp-countdown ${isUrgent ? "urgent" : ""}`}>
+            <IconClock size={11} />
+            {secondsLeft}s
+          </span>
+        </div>
+
+        <div className="abp-body">
+          <code>{pending.tool_id}</code>
+          {(pending.arguments_preview || pending.arguments_summary) && (
+            <span className="abp-args">
+              {pending.arguments_preview
+                ? JSON.stringify(pending.arguments_preview).substring(0, 80)
+                : pending.arguments_summary?.substring(0, 80)}
+            </span>
+          )}
+          {/* v2.3.1-p1: risk source info */}
+          {(pending.argument_source || pending.recommendation) && (
+            <div className="abp-risk-info">
+              {pending.argument_source && (
+                <span className="abp-risk-tag" data-source={pending.argument_source}>
+                  来源: {pending.argument_source === "unknown" ? "❓ 未知" : pending.argument_source}
+                </span>
+              )}
+              {pending.recommendation && (
+                <span className="abp-risk-note">{pending.recommendation}</span>
+              )}
+            </div>
+          )}
+        </div>
+
+        <div className="abp-actions">
+          <button
+            className="btn sm ghost"
+            onClick={() => resolveApproval(false)}
+            disabled={resolving}
+            type="button"
+          >
+            <IconClose size={11} /> 拒绝
+          </button>
+          <button
+            className="btn sm primary"
+            onClick={() => resolveApproval(true)}
+            disabled={resolving}
+            type="button"
+            autoFocus
+          >
+            <IconCheck size={11} /> 允许
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/* ── Small popup styles — positioned above input bar ── */
+const STYLE = `
+.approval-bubble-popup {
+  position: fixed;
+  bottom: 100px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 200;
+  animation: abpSlideUp 0.25s ease-out;
+}
+@keyframes abpSlideUp {
+  from { opacity: 0; transform: translateX(-50%) translateY(12px); }
+  to { opacity: 1; transform: translateX(-50%) translateY(0); }
+}
+.abp-inner {
+  background: var(--surface, #fff);
+  border: 1px solid var(--danger, #c0392b);
+  border-left: 3px solid var(--danger, #c0392b);
+  border-radius: 10px;
+  padding: 12px 16px;
+  min-width: 300px;
+  max-width: 420px;
+  box-shadow: 0 4px 20px rgba(0,0,0,0.14);
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.abp-header {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--danger, #c0392b);
+}
+.abp-countdown {
+  margin-left: auto;
+  display: flex;
+  align-items: center;
+  gap: 3px;
+  font-size: 11px;
+  font-weight: 500;
+  color: var(--text-3, #999);
+  background: var(--bg-soft, #f5f0e8);
+  padding: 2px 8px;
+  border-radius: 10px;
+}
+.abp-countdown.urgent {
+  color: var(--danger, #c0392b);
+  background: rgba(192, 57, 43, 0.1);
+  animation: abpPulse 0.8s infinite;
+}
+@keyframes abpPulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.6; }
+}
+.abp-body {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  align-items: baseline;
+  font-size: 12px;
+}
+.abp-body code {
+  background: var(--bg-soft, #f5f0e8);
+  padding: 2px 6px;
+  border-radius: 4px;
+  font-size: 11px;
+  font-weight: 600;
+}
+.abp-args {
+  color: var(--text-3, #999);
+  font-size: 11px;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.abp-actions {
+  display: flex;
+  gap: 8px;
+  justify-content: flex-end;
+}
+.abp-actions .btn.primary {
+  background: var(--primary, #2563eb);
+  color: #fff;
+  border: none;
+  padding: 4px 14px;
+  border-radius: 6px;
+  font-size: 12px;
+  cursor: pointer;
+  font-weight: 500;
+}
+
+/* v2.3.1-p1: Risk source info in approval bubble */
+.abp-risk-info {
+  margin-top: 6px;
+  padding: 6px 8px;
+  background: var(--surface-2, #fff3cd);
+  border-radius: 4px;
+  font-size: 11px;
+  line-height: 1.5;
+}
+.abp-risk-tag {
+  display: inline-block;
+  padding: 1px 6px;
+  border-radius: 3px;
+  background: var(--surface-3, #f0f0f0);
+  margin-right: 6px;
+  font-weight: 500;
+}
+.abp-risk-tag[data-source="unknown"],
+.abp-risk-tag[data-source="rag"],
+.abp-risk-tag[data-source="memory"] {
+  background: var(--danger-soft, #fde8e8);
+  border: 1px solid var(--danger, #c0392b);
+}
+.abp-risk-note {
+  color: var(--text-2, #666);
+  font-style: italic;
+}
+
+.abp-actions .btn.primary:hover { opacity: 0.9; }
+.abp-actions .btn.ghost {
+  background: transparent;
+  color: var(--fg-muted, #666);
+  border: 1px solid var(--line, #ddd);
+  padding: 4px 12px;
+  border-radius: 6px;
+  font-size: 12px;
+  cursor: pointer;
+}
+.abp-actions .btn.ghost:hover {
+  border-color: var(--danger, #c0392b);
+  color: var(--danger, #c0392b);
+}
+`;
+if (typeof document !== "undefined" && !document.getElementById("abp-style")) {
+  const el = document.createElement("style");
+  el.id = "abp-style";
+  el.textContent = STYLE;
+  document.head.appendChild(el);
+}

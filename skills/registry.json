@@ -1,0 +1,62 @@
+{
+  "version": "1.0.0",
+  "description": "Network Agent Skill Registry",
+  "skills": [
+    {
+      "skill_name": "config_translation",
+      "display_name": "配置翻译",
+      "module": "config_translation",
+      "enabled": true,
+      "description": "Use the config translation module to translate network device configuration across vendors.",
+      "skill_doc": "skills/config_translation/SKILL.md",
+      "adapter": "skills/config_translation/adapter.py",
+      "entrypoint": {
+        "type": "python_adapter",
+        "module": "skills.config_translation.adapter",
+        "function": "translate"
+      },
+      "module_api": "/api/modules/config-translation/translate",
+      "input_schema": {
+        "properties": {
+          "filepath": {"type": "string"},
+          "source_config": {"type": "string"},
+          "source_vendor": {"type": "string"},
+          "target_vendor": {"type": "string"}
+        },
+        "required": ["target_vendor"]
+      },
+      "output_schema": {"required": ["deployable_config", "manual_review", "semantic_near", "unsupported", "audit"]},
+      "red_lines": [
+        "do_not_modify_deployable_config",
+        "do_not_use_full_output_as_deployable",
+        "do_not_call_llm",
+        "do_not_hide_manual_review",
+        "do_not_bypass_translate_bundle"
+      ],
+      "risk_level": "medium",
+      "can_generate_deployable": true
+    },
+    {
+      "skill_name": "topology_draw",
+      "display_name": "拓扑绘图",
+      "module": "topology",
+      "enabled": false,
+      "description": "Extract and draw network topology from device configurations.",
+      "skill_doc": "skills/topology_draw/SKILL.md",
+      "entrypoint": {"type": "planned"},
+      "risk_level": "low",
+      "can_generate_deployable": false
+    },
+    {
+      "skill_name": "inspection_analyze",
+      "display_name": "巡检分析",
+      "module": "inspection",
+      "enabled": false,
+      "description": "Run compliance checks and best-practice audits on configurations.",
+      "skill_doc": "skills/inspection_analyze/SKILL.md",
+      "entrypoint": {"type": "planned"},
+      "risk_level": "medium",
+      "can_generate_deployable": false
+    }
+  ]
+}

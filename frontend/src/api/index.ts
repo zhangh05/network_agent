@@ -1,0 +1,992 @@
+/**
+ * API layer — typed endpoint groups. Each module is a thin function layer; the page
+ * components only call these functions and never call axios directly.
+ * No business logic, no caching, no transformation. If a field is missing
+ * from the backend response, the function returns `null`/empty list and
+ * the page renders the empty / error state.
+ *
+ * All endpoints are aligned to the real backend contracts. v1.0.1 fix
+ * pass: corrected /agent/message, /knowledge/sources/from-artifact,
+ * /knowledge/search, /knowledge/chunks, /review-items, etc.
+ */
+
+import { apiRequest, TIMEOUTS } from "./client";
+import type {
+  AgentResult,
+  Artifact,
+  CapabilityManifest,
+  KnowledgeChunk,
+  KnowledgeSearchResult,
+  KnowledgeSource,
+  ReviewItem,
+  RuntimeAuditTurn,
+  RuntimeSummary,
+  Session,
+  SessionMessage,
+  ToolCatalogResponse,
+  Workspace,
+  AppVersion,
+} from "../types";
+
+/* ──────────────────────── 0. system ──────────────────────── */
+
+export const systemApi = {
+  version: (signal?: AbortSignal): Promise<AppVersion> =>
+    apiRequest<AppVersion>({ method: "GET", url: "/version" }, signal),
+};
+
+/* ──────────────────────── 1. agent ──────────────────────── */
+
+export interface AgentRunRequest {
+  message: string;
+  workspace_id: string;
+  session_id?: string | null;
+  metadata?: Record<string, unknown>;
+}
+
+export const agentApi = {
+  /** POST /api/agent/message — Codex-style runtime endpoint (v0.6+).
+   *  This is the SLOW endpoint (LLM + 工具调用 + 可选 web search).
+   *  实测 30-120s, 设 180s timeout 避免误报. */
+  run: (req: AgentRunRequest, signal?: AbortSignal): Promise<AgentResult> =>
+    apiRequest<AgentResult>(
+      { method: "POST", url: "/agent/message", data: req },
+      signal,
+      TIMEOUTS.agentTurn,
+    ),
+};
+
+export const configTranslationApi = {
+  translate: (
+    data: {
+      source_config: string;
+      target_vendor: string;
+      source_vendor?: string;
+      options?: Record<string, unknown>;
+    },
+    signal?: AbortSignal,
+  ): Promise<Record<string, unknown>> =>
+    apiRequest<Record<string, unknown>>(
+      { method: "POST", url: "/modules/config-translation/translate", data },
+      signal,
+      TIMEOUTS.agentTurn,
+    ),
+};
+
+/* ──────────────────────── 2. sessions ──────────────────────── */
+
+export const sessionsApi = {
+  list: (
+    workspace_id: string,
+    status?: string,
+    signal?: AbortSignal,
+  ): Promise<{ sessions: Session[]; counts?: Record<string, number> }> =>
+    apiRequest<{ sessions: Session[]; counts?: Record<string, number> }>(
+      {
+        method: "GET",
+        url: "/sessions",
+        params: { workspace_id, status: status || "active", limit: 200 },
+      },
+      signal,
+    ),
+  get: (
+    session_id: string,
+    workspace_id: string,
+    signal?: AbortSignal,
+  ): Promise<{ session: Session; messages?: unknown[] }> =>
+    apiRequest<{ session: Session; messages?: unknown[] }>(
+      {
+        method: "GET",
+        url: `/sessions/${session_id}`,
+        params: { workspace_id, include_messages: 1 },
+      },
+      signal,
+    ),
+  /**
+   * GET /api/sessions/<id>/messages — chat history reconstructed from
+   * run records. Used by the workbench for cross-device refresh
+   * (plan-C). Returns [] when no runs are linked to the session
+   * (current backend behaviour; see types.SessionMessage).
+   */
+  messages: (
+    session_id: string,
+    workspace_id: string = "default",
+    signal?: AbortSignal,
+  ): Promise<{ ok: boolean; messages: SessionMessage[]; count: number }> =>
+    apiRequest<{ ok: boolean; messages: SessionMessage[]; count: number }>(
+      {
+        method: "GET",
+        url: `/sessions/${session_id}/messages`,
+        params: { workspace_id },
+      },
+      signal,
+    ),
+  create: (
+    workspace_id: string,
+    title?: string,
+    signal?: AbortSignal,
+  ): Promise<{ ok: boolean; session: Session }> =>
+    apiRequest<{ ok: boolean; session: Session }>(
+      {
+        method: "POST",
+        url: "/sessions",
+        data: { workspace_id, title: title || "" },
+      },
+      signal,
+    ),
+  archive: (
+    session_id: string,
+    workspace_id: string,
+    signal?: AbortSignal,
+  ): Promise<{ ok: boolean; session: Session }> =>
+    apiRequest<{ ok: boolean; session: Session }>(
+      {
+        method: "POST",
+        url: `/sessions/${session_id}/archive`,
+        params: { workspace_id },
+      },
+      signal,
+    ),
+  rename: (
+    session_id: string,
+    workspace_id: string,
+    title: string,
+    signal?: AbortSignal,
+  ): Promise<{ ok: boolean; session: Session }> =>
+    apiRequest<{ ok: boolean; session: Session }>(
+      {
+        method: "PUT",
+        url: `/sessions/${session_id}`,
+        params: { workspace_id },
+        data: { title },
+      },
+      signal,
+    ),
+  softDelete: (
+    session_id: string,
+    workspace_id: string,
+    signal?: AbortSignal,
+  ): Promise<{ ok: boolean; session: Session }> =>
+    apiRequest<{ ok: boolean; session: Session }>(
+      {
+        method: "POST",
+        url: `/sessions/${session_id}/soft-delete`,
+        params: { workspace_id },
+      },
+      signal,
+    ),
+  delete: (
+    session_id: string,
+    workspace_id: string,
+    signal?: AbortSignal,
+  ): Promise<{ ok: boolean; message?: string }> =>
+    apiRequest<{ ok: boolean; message?: string }>(
+      {
+        method: "DELETE",
+        url: `/sessions/${session_id}`,
+        params: { workspace_id, confirm: "true" },
+      },
+      signal,
+    ),
+};
+
+/* ──────────────────────── 3. workspaces ──────────────────────── */
+
+export const workspacesApi = {
+  list: (signal?: AbortSignal): Promise<{ workspaces: Workspace[] }> =>
+    apiRequest<{ workspaces: Workspace[] }>(
+      { method: "GET", url: "/workspaces" },
+      signal,
+    ),
+  get: (
+    workspace_id: string,
+    signal?: AbortSignal,
+  ): Promise<{ workspace: Workspace }> =>
+    apiRequest<{ workspace: Workspace }>(
+      { method: "GET", url: `/workspaces/${workspace_id}/state` },
+      signal,
+    ),
+  recentRuns: (
+    workspace_id: string,
+    session_id?: string | null,
+    signal?: AbortSignal,
+  ): Promise<{ runs: RuntimeAuditTurn[] }> =>
+    apiRequest<{ runs: RuntimeAuditTurn[] }>(
+      {
+        method: "GET",
+        url: "/runs/recent",
+        params: session_id ? { workspace_id, session_id } : { workspace_id },
+      },
+      signal,
+    ),
+};
+
+/* ──────────────────────── 3b. runtime summary ──────────────────────── */
+
+export const runtimeApi = {
+  summary: (signal?: AbortSignal): Promise<RuntimeSummary> =>
+    apiRequest<RuntimeSummary>({ method: "GET", url: "/runtime/summary" }, signal),
+  health: (signal?: AbortSignal) =>
+    apiRequest<{ components: unknown[]; summary: Record<string, number> }>(
+      { method: "GET", url: "/runtime/health" }, signal),
+  selfcheck: (signal?: AbortSignal) =>
+    apiRequest<{ status: string; issues: unknown[]; checks: Record<string, unknown> }>(
+      { method: "GET", url: "/runtime/selfcheck" }, signal),
+};
+
+/* ──────────────────────── 12. jobs (extended) ──────────────────────── */
+
+export const jobsApi = {
+  /** GET /api/jobs */
+  list: (workspace_id: string, signal?: AbortSignal) =>
+    apiRequest<{ jobs: unknown[] }>({ method: "GET", url: "/jobs", params: { workspace_id } }, signal),
+
+  /** GET /api/jobs/:id */
+  get: (job_id: string, signal?: AbortSignal) =>
+    apiRequest<{ job: unknown }>({ method: "GET", url: `/jobs/${job_id}` }, signal),
+
+  /** POST /api/jobs/:id/cancel */
+  cancel: (job_id: string, workspace_id?: string) =>
+    apiRequest<{ ok: boolean }>({ method: "POST", url: `/jobs/${job_id}/cancel`, data: { workspace_id: workspace_id || "default" } }),
+
+  /** POST /api/jobs/:id/retry */
+  retry: (job_id: string, workspace_id?: string) =>
+    apiRequest<{ ok: boolean }>({ method: "POST", url: `/jobs/${job_id}/retry`, data: { workspace_id: workspace_id || "default" } }),
+
+  /** GET /api/jobs/:id/events */
+  events: (job_id: string, signal?: AbortSignal) =>
+    apiRequest<{ events: unknown[] }>({ method: "GET", url: `/jobs/${job_id}/events` }, signal),
+
+  /** GET /api/jobs/:id/logs */
+  logs: (job_id: string, signal?: AbortSignal) =>
+    apiRequest<{ logs: string }>({ method: "GET", url: `/jobs/${job_id}/logs` }, signal),
+
+  /** GET /api/jobs/:id/artifacts */
+  artifacts: (job_id: string, signal?: AbortSignal) =>
+    apiRequest<{
+      input_artifacts: string[];
+      output_artifacts: string[];
+      report_artifacts: string[];
+    }>({ method: "GET", url: `/jobs/${job_id}/artifacts` }, signal),
+};
+
+/* ──────────────────────── 4. capabilities ──────────────────────── */
+
+export const capabilitiesApi = {
+  /** GET /api/capabilities — public YAML capability projection. */
+  manifest: (
+    signal?: AbortSignal,
+  ): Promise<{ capabilities: CapabilityManifest[]; enabled: string[] }> =>
+    apiRequest<{ capabilities: CapabilityManifest[]; enabled: string[] }>(
+      { method: "GET", url: "/capabilities" },
+      signal,
+    ),
+};
+
+export const registryApi = {
+  modules: (signal?: AbortSignal): Promise<{ modules: unknown[] }> =>
+    apiRequest<{ modules: unknown[] }>({ method: "GET", url: "/modules" }, signal),
+  skills: (signal?: AbortSignal): Promise<{ skills: unknown[] }> =>
+    apiRequest<{ skills: unknown[] }>({ method: "GET", url: "/skills" }, signal),
+  status: (signal?: AbortSignal): Promise<Record<string, unknown>> =>
+    apiRequest<Record<string, unknown>>({ method: "GET", url: "/registry/status" }, signal),
+};
+
+/* ──────────────────────── 5. tools ──────────────────────── */
+
+export const toolsApi = {
+  catalog: (signal?: AbortSignal): Promise<ToolCatalogResponse> =>
+    apiRequest<ToolCatalogResponse>({ method: "GET", url: "/tools/catalog" }, signal),
+};
+
+/* ──────────────────────── 6. knowledge ──────────────────────── */
+
+export const knowledgeApi = {
+  listSources: (
+    workspace_id: string,
+    signal?: AbortSignal,
+  ): Promise<{ sources: KnowledgeSource[]; counts?: Record<string, number> }> =>
+    apiRequest<{ sources: KnowledgeSource[]; counts?: Record<string, number> }>(
+      { method: "GET", url: "/knowledge/sources", params: { workspace_id } },
+      signal,
+    ),
+  /**
+   * POST /api/knowledge/sources/from-artifact
+   * Body: { workspace_id, artifact_id } — JSON (NOT multipart).
+   */
+  importFromArtifact: (
+    workspace_id: string,
+    artifact_id: string,
+    signal?: AbortSignal,
+  ): Promise<{ ok: boolean; source: KnowledgeSource }> =>
+    apiRequest<{ ok: boolean; source: KnowledgeSource }>(
+      {
+        method: "POST",
+        url: "/knowledge/sources/from-artifact",
+        data: { workspace_id, artifact_id },
+      },
+      signal,
+      TIMEOUTS.knowledgeImport,
+    ),
+  upload: (
+    workspace_id: string,
+    file: File,
+    opts?: { title?: string; tags?: string; source_type?: string; scope?: string; language?: string },
+    signal?: AbortSignal,
+  ): Promise<{ ok: boolean; source: KnowledgeSource; summary?: string }> => {
+    const form = new FormData();
+    form.append("workspace_id", workspace_id);
+    form.append("file", file);
+    if (opts?.title) form.append("title", opts.title);
+    if (opts?.tags) form.append("tags", opts.tags);
+    if (opts?.source_type) form.append("source_type", opts.source_type);
+    if (opts?.scope) form.append("scope", opts.scope);
+    if (opts?.language) form.append("language", opts.language);
+    return apiRequest<{ ok: boolean; source: KnowledgeSource; summary?: string }>(
+      {
+        method: "POST",
+        url: "/knowledge/upload",
+        data: form,
+      },
+      signal,
+      TIMEOUTS.knowledgeImport,
+    );
+  },
+  reindex: (
+    source_id: string,
+    workspace_id: string,
+    signal?: AbortSignal,
+  ): Promise<{ ok: boolean; source?: KnowledgeSource }> =>
+    apiRequest<{ ok: boolean; source?: KnowledgeSource }>(
+      {
+        method: "POST",
+        url: `/knowledge/sources/${source_id}/reindex`,
+        params: { workspace_id },
+      },
+      signal,
+    ),
+  delete: (
+    source_id: string,
+    workspace_id: string,
+    signal?: AbortSignal,
+  ): Promise<{ ok: boolean; summary: string }> =>
+    apiRequest<{ ok: boolean; summary: string }>(
+      {
+        method: "DELETE",
+        url: `/knowledge/sources/${source_id}`,
+        params: { workspace_id },
+      },
+      signal,
+    ),
+  rename: (
+    source_id: string,
+    workspace_id: string,
+    title: string,
+    signal?: AbortSignal,
+  ): Promise<{ ok: boolean; source: KnowledgeSource }> =>
+    apiRequest<{ ok: boolean; source: KnowledgeSource }>(
+      {
+        method: "PATCH",
+        url: `/knowledge/sources/${source_id}`,
+        data: { workspace_id, title },
+      },
+      signal,
+    ),
+  getSource: (
+    source_id: string,
+    workspace_id: string,
+    signal?: AbortSignal,
+  ): Promise<{ ok: boolean; source: KnowledgeSource & { chunks?: any[] } }> =>
+    apiRequest<{ ok: boolean; source: KnowledgeSource & { chunks?: any[] } }>(
+      {
+        method: "GET",
+        url: `/knowledge/sources/${source_id}`,
+        params: { workspace_id },
+      },
+      signal,
+    ),
+  search: (
+    q: string,
+    workspace_id: string,
+    opts?: { limit?: number; source_id?: string },
+    signal?: AbortSignal,
+  ): Promise<KnowledgeSearchResult> =>
+    apiRequest<KnowledgeSearchResult>(
+      {
+        method: "GET",
+        url: "/knowledge/search",
+        params: {
+          q,
+          workspace_id,
+          limit: opts?.limit ?? 20,
+          source_id: opts?.source_id,
+        },
+      },
+      signal,
+    ),
+  getChunk: (
+    chunk_id: string,
+    workspace_id: string,
+    signal?: AbortSignal,
+  ): Promise<{ chunk: KnowledgeChunk }> =>
+    apiRequest<{ chunk: KnowledgeChunk }>(
+      {
+        method: "GET",
+        url: `/knowledge/chunks/${chunk_id}`,
+        params: { workspace_id },
+      },
+      signal,
+    ),
+};
+
+/* ──────────────────────── 6b. memory ──────────────────────── */
+
+export const memoryApi = {
+  list: (
+    params: { workspace_id: string; include_deleted?: boolean; limit?: number },
+    signal?: AbortSignal,
+  ): Promise<{ ok: boolean; records: unknown[]; count?: number }> =>
+    apiRequest<{ ok: boolean; records: unknown[]; count?: number }>(
+      { method: "GET", url: "/memory/list", params },
+      signal,
+    ),
+
+  search: (
+    data: { query: string; workspace_id: string; limit?: number },
+    signal?: AbortSignal,
+  ): Promise<{ ok: boolean; results: unknown[]; count?: number }> =>
+    apiRequest<{ ok: boolean; results: unknown[]; count?: number }>(
+      { method: "POST", url: "/memory/search", data },
+      signal,
+    ),
+
+  create: (
+    data: { title: string; content: string; workspace_id?: string; scope?: string; tags?: string[] },
+    signal?: AbortSignal,
+  ): Promise<{ ok: boolean; memory_id: string }> =>
+    apiRequest<{ ok: boolean; memory_id: string }>(
+      { method: "POST", url: "/memory/write", data },
+      signal,
+    ),
+
+  deleteSoft: (
+    memoryId: string,
+    workspaceId: string,
+    signal?: AbortSignal,
+  ): Promise<{ ok: boolean }> =>
+    apiRequest<{ ok: boolean }>(
+      { method: "DELETE", url: `/memory/${encodeURIComponent(memoryId)}`, params: { workspace_id: workspaceId } },
+      signal,
+    ),
+
+  getProfile: (
+    workspaceId: string,
+    signal?: AbortSignal,
+  ): Promise<unknown> =>
+    apiRequest<unknown>(
+      { method: "GET", url: "/memory/status", params: { workspace_id: workspaceId } },
+      signal,
+    ),
+
+  setProfile: (
+    data: { scope?: string; memory_type?: string; source?: string },
+    signal?: AbortSignal,
+  ): Promise<{ ok: boolean }> =>
+    apiRequest<{ ok: boolean }>(
+      { method: "POST", url: "/memory/write", data },
+      signal,
+    ),
+
+  confirm: (
+    data: {
+      title: string;
+      content: string;
+      memory_type?: "decision" | "translation_rule" | "user_preference" | string;
+      tags?: string[];
+      project_id?: string;
+    },
+    signal?: AbortSignal,
+  ): Promise<{ ok: boolean; memory_id: string; redaction_applied?: boolean; conflict_detected?: boolean; conflicts?: unknown[] }> =>
+    apiRequest<{ ok: boolean; memory_id: string; redaction_applied?: boolean; conflict_detected?: boolean; conflicts?: unknown[] }>(
+      {
+        method: "POST",
+        url: "/memory/confirm",
+        data,
+      },
+      signal,
+    ),
+};
+
+/* ──────────────────────── 7. artifacts ──────────────────────── */
+
+export const artifactsApi = {
+  list: (
+    workspace_id: string,
+    signal?: AbortSignal,
+  ): Promise<{ artifacts: Artifact[] }> =>
+    apiRequest<{ artifacts: Artifact[] }>(
+      { method: "GET", url: `/workspaces/${workspace_id}/artifacts` },
+      signal,
+    ),
+  get: (
+    workspace_id: string,
+    artifact_id: string,
+    signal?: AbortSignal,
+  ): Promise<{ artifact: Artifact }> =>
+    apiRequest<{ artifact: Artifact }>(
+      {
+        method: "GET",
+        url: `/workspaces/${workspace_id}/artifacts/${artifact_id}`,
+      },
+      signal,
+    ),
+  /** GET /api/workspaces/<ws>/artifacts/<art>/content — full content (text). */
+  content: (
+    workspace_id: string,
+    artifact_id: string,
+    signal?: AbortSignal,
+  ): Promise<{ content: string; metadata?: Record<string, unknown> }> =>
+    apiRequest<{ content: string; metadata?: Record<string, unknown> }>(
+      {
+        method: "GET",
+        url: `/workspaces/${workspace_id}/artifacts/${artifact_id}/content`,
+      },
+      signal,
+    ),
+  /**
+   * Export — content + sensitivity flags. The backend may also provide
+   * a /promote endpoint for deployable promotion; we don't expose that
+   * from the frontend (config.push is forbidden per the platform rules).
+   */
+  export: (
+    workspace_id: string,
+    artifact_id: string,
+    signal?: AbortSignal,
+  ): Promise<{ content: string; metadata?: Record<string, unknown> }> =>
+    apiRequest<{ content: string; metadata?: Record<string, unknown> }>(
+      {
+        method: "GET",
+        url: `/workspaces/${workspace_id}/artifacts/${artifact_id}/content`,
+      },
+      signal,
+    ),
+  /**
+   * GET /api/workspaces/<ws>/artifacts/<art>/summarize — backend summary.
+   * Returns the artifact metadata plus a `summary` field if the
+   * backend has computed one. Surface this in the "摘要" tab.
+   */
+  summarize: (
+    workspace_id: string,
+    artifact_id: string,
+    signal?: AbortSignal,
+  ): Promise<{
+    ok: boolean;
+    summary: {
+      artifact_id: string;
+      artifact_type: string;
+      title: string;
+      summary: string;
+      sensitivity?: string;
+      sha256_short?: string;
+      size_bytes?: number;
+      created_at?: string;
+    };
+  }> =>
+    apiRequest<{
+      ok: boolean;
+      summary: {
+        artifact_id: string;
+        artifact_type: string;
+        title: string;
+        summary: string;
+        sensitivity?: string;
+        sha256_short?: string;
+        size_bytes?: number;
+        created_at?: string;
+      };
+    }>(
+      {
+        method: "GET",
+        url: `/workspaces/${workspace_id}/artifacts/${artifact_id}/summarize`,
+      },
+      signal,
+      TIMEOUTS.summarize,
+    ),
+  batchDelete: (
+    workspace_id: string,
+    artifact_ids: string[],
+    signal?: AbortSignal,
+  ): Promise<{ ok: boolean; deleted: number; total: number }> =>
+    apiRequest<{ ok: boolean; deleted: number; total: number }>(
+      {
+        method: "POST",
+        url: `/workspaces/${workspace_id}/artifacts/batch-delete`,
+        data: { artifact_ids },
+      },
+      signal,
+    ),
+};
+
+/* ──────────────────────── 8. reviews ──────────────────────── */
+
+export const reviewsApi = {
+  /**
+   * GET /api/workspaces/<ws_id>/review-items — workspace-level aggregated list.
+   * Optional ?status=pending|accepted|ignored|modified filter.
+   */
+  list: (
+    workspace_id: string,
+    status?: string,
+    signal?: AbortSignal,
+  ): Promise<{ items: ReviewItem[]; count: number; workspace_id: string }> =>
+    apiRequest<{ items: ReviewItem[]; count: number; workspace_id: string }>(
+      {
+        method: "GET",
+        url: `/workspaces/${workspace_id}/review-items`,
+        params: status ? { status } : undefined,
+      },
+      signal,
+    ),
+  /**
+   * PUT /api/review-items/<item_id>?workspace_id=&artifact_id=
+   * Body: { status, user_note }
+   */
+  update: (
+    item_id: string,
+    update: { status: string; user_note?: string; workspace_id: string; artifact_id: string },
+    signal?: AbortSignal,
+  ): Promise<{ ok: boolean; item?: ReviewItem; summary?: string }> =>
+    apiRequest<{ ok: boolean; item?: ReviewItem; summary?: string }>(
+      {
+        method: "PUT",
+        url: `/review-items/${item_id}`,
+        params: { workspace_id: update.workspace_id, artifact_id: update.artifact_id },
+        data: { status: update.status, user_note: update.user_note ?? "" },
+      },
+      signal,
+    ),
+};
+
+/* ──────────────────────── 9. runtime_audit ──────────────────────── */
+
+export const runtimeAuditApi = {
+    recent: (
+      workspace_id: string,
+      signal?: AbortSignal,
+    ): Promise<{ runs: RuntimeAuditTurn[] }> =>
+      apiRequest<{ runs: RuntimeAuditTurn[] }>(
+        { method: "GET", url: "/runs/recent", params: { workspace_id, session_status: "" } },
+        signal,
+      ),
+  run: (
+    run_id: string,
+    signal?: AbortSignal,
+  ): Promise<unknown> =>
+    apiRequest<unknown>(
+      { method: "GET", url: `/runs/${run_id}` },
+      signal,
+    ),
+  trace: (
+    workspace_id: string,
+    run_id: string,
+    signal?: AbortSignal,
+  ): Promise<{ events: RuntimeAuditTurn["events"] }> =>
+    apiRequest<{ events: RuntimeAuditTurn["events"] }>(
+      {
+        method: "GET",
+        url: `/workspaces/${workspace_id}/runs/${run_id}/trace`,
+      },
+      signal,
+    ),
+};
+
+/* ──────────────────────── 10. settings ──────────────────────── */
+
+import type { LlmConfig, LlmStatus, LlmTestResult, LlmTestRequest, ProviderConfig, ProviderListResponse, ProviderSaveResponse, ProviderActivateResponse } from "../types";
+
+export const settingsApi = {
+  llmConfig: (signal?: AbortSignal): Promise<LlmConfig> =>
+    apiRequest<LlmConfig>({ method: "GET", url: "/agent/llm/config" }, signal),
+
+  updateLlmConfig: (
+    update: Partial<LlmConfig> & { clear_api_key?: boolean; api_key?: string },
+    signal?: AbortSignal,
+  ): Promise<{ ok: boolean; config: LlmConfig }> =>
+    apiRequest<{ ok: boolean; config: LlmConfig }>(
+      { method: "POST", url: "/agent/llm/config", data: update },
+      signal,
+    ),
+
+  deleteLlmConfig: (signal?: AbortSignal): Promise<{ ok: boolean; deleted: boolean }> =>
+    apiRequest<{ ok: boolean; deleted: boolean }>(
+      { method: "DELETE", url: "/agent/llm/config" },
+      signal,
+    ),
+
+  llmStatus: (signal?: AbortSignal): Promise<LlmStatus> =>
+    apiRequest<LlmStatus>({ method: "GET", url: "/agent/llm/status" }, signal),
+
+  llmTest: (req: LlmTestRequest): Promise<LlmTestResult> => {
+    const { signal, ...body } = req;
+    return apiRequest<LlmTestResult>(
+      {
+        method: "POST",
+        url: "/agent/llm/test",
+        data: {
+          task: body.task ?? "result_summarize",
+          message: body.message ?? "ping",
+          base_url: body.base_url,
+          model: body.model,
+          api_key: body.api_key,
+          provider: body.provider,
+        },
+      },
+      signal,
+    );
+  },
+
+  // Per-provider config endpoints (v3.1.2+)
+  providersList: (signal?: AbortSignal): Promise<ProviderListResponse> =>
+    apiRequest<ProviderListResponse>({ method: "GET", url: "/agent/llm/providers" }, signal),
+
+  providerGet: (providerId: string, signal?: AbortSignal): Promise<ProviderSaveResponse> =>
+    apiRequest<ProviderSaveResponse>({ method: "GET", url: `/agent/llm/providers/${providerId}` }, signal),
+
+  providerSave: (
+    providerId: string,
+    update: Partial<ProviderConfig> & { clear_api_key?: boolean; api_key?: string },
+    signal?: AbortSignal,
+  ): Promise<ProviderSaveResponse> =>
+    apiRequest<ProviderSaveResponse>(
+      { method: "POST", url: `/agent/llm/providers/${providerId}`, data: update },
+      signal,
+    ),
+
+  providerDelete: (providerId: string, signal?: AbortSignal): Promise<{ ok: boolean; deleted: boolean }> =>
+    apiRequest<{ ok: boolean; deleted: boolean }>(
+      { method: "DELETE", url: `/agent/llm/providers/${providerId}` },
+      signal,
+    ),
+
+  llmActivate: (
+    providerId: string,
+    config?: Partial<ProviderConfig> & { clear_api_key?: boolean; api_key?: string },
+    signal?: AbortSignal,
+  ): Promise<ProviderActivateResponse> =>
+    apiRequest<ProviderActivateResponse>(
+      { method: "POST", url: "/agent/llm/activate", data: { provider: providerId, ...config } },
+      signal,
+    ),
+};
+
+/* ──────────────────────── 11. approval ──────────────────────── */
+
+export const approvalApi = {
+  pending: (sessionId: string, signal?: AbortSignal): Promise<{
+    ok: boolean;
+    pending: Array<{
+      approval_id: string;
+      tool_id: string;
+      risk_level: string;
+      arguments_preview: Record<string, unknown>;
+      created_at: number;
+      created_at_iso: string;
+    }>;
+    count: number;
+  }> =>
+    apiRequest({
+      method: "GET",
+      url: `/agent/approvals/pending?session_id=${encodeURIComponent(sessionId)}`,
+    }, signal),
+
+  resolve: (
+    approvalId: string,
+    allowed: boolean,
+  ): Promise<{ ok: boolean; approval_id: string; allowed: boolean }> =>
+    apiRequest({
+      method: "POST",
+      url: `/agent/approvals/${approvalId}/resolve`,
+      data: { allowed },
+    }),
+};
+
+/* ──────────────────────── 12. system status ──────────────────────── */
+
+export const systemStatusApi = {
+  health: (signal?: AbortSignal): Promise<{ status: string; api_mode: string; skills_loaded: number }> =>
+    apiRequest({ method: "GET", url: "/health" }, signal),
+
+  toolCount: (signal?: AbortSignal): Promise<{ registered: number; model_visible: number }> =>
+    apiRequest({ method: "GET", url: "/agent/status" }, signal),
+};
+
+/* ──────────────────────── 12. agent usage ──────────────────────── */
+
+export const agentUsageApi = {
+  /** GET /api/agent/usage */
+  get: (signal?: AbortSignal) =>
+    apiRequest<{ usage: Record<string, unknown> }>({ method: "GET", url: "/agent/usage" }, signal),
+};
+
+/* ──────────────────────── 13. agent usage ──────────────────────── */
+
+export const reportsApi = {
+  /** POST /api/reports/create */
+  create: (data: { workspace_id: string; title?: string; content?: string }) =>
+    apiRequest<{ ok: boolean; artifact_id?: string }>({ method: "POST", url: "/reports/create", data }),
+
+  /** GET /api/workspaces/:ws/reports */
+  list: (workspace_id: string, signal?: AbortSignal) =>
+    apiRequest<{ reports: unknown[] }>({ method: "GET", url: `/workspaces/${workspace_id}/reports` }, signal),
+
+  /** GET /api/workspaces/:ws/reports/:artifact_id/content */
+  content: (workspace_id: string, artifact_id: string, signal?: AbortSignal) =>
+    apiRequest<{ content: string }>(
+      { method: "GET", url: `/workspaces/${workspace_id}/reports/${artifact_id}/content` },
+      signal,
+    ),
+};
+
+/* ──────────────────────── 16. context / prompts ──────────────────────── */
+
+export const contextApi = {
+  status: (signal?: AbortSignal) =>
+    apiRequest<{
+      context_runtime_enabled: boolean;
+      supported_refs: string[];
+      default_budget: { max_items: number; max_chars: number };
+    }>({ method: "GET", url: "/context/status" }, signal),
+
+  resolve: (data: { workspace_id: string; context_ref: string }) =>
+    apiRequest<unknown>({ method: "POST", url: "/context/resolve", data }),
+
+  build: (data: { workspace_id: string; session_id: string }) =>
+    apiRequest<unknown>({ method: "POST", url: "/context/build", data }),
+};
+
+export const promptsApi = {
+  list: (signal?: AbortSignal) =>
+    apiRequest<{ prompts: unknown[] }>({ method: "GET", url: "/prompts" }, signal),
+
+  get: (prompt_id: string, signal?: AbortSignal) =>
+    apiRequest<unknown>({ method: "GET", url: `/prompts/${prompt_id}` }, signal),
+
+  render: (data: { prompt_id: string; variables: Record<string, string> }) =>
+    apiRequest<unknown>({ method: "POST", url: "/prompts/render", data }),
+};
+
+/* ──────────────────────── 17. tools (extended) ──────────────────────── */
+
+export const toolsInvokeApi = {
+  invoke: (data: { tool_id: string; params: Record<string, unknown>; workspace_id: string }) =>
+    apiRequest<{ ok: boolean; result?: unknown }>({ method: "POST", url: "/tools/invoke", data }),
+
+  dryRun: (data: { tool_id: string; params: Record<string, unknown>; workspace_id: string }) =>
+    apiRequest<{ ok: boolean; approval_required?: boolean }>({ method: "POST", url: "/tools/dry-run", data }),
+
+  history: (workspace_id: string, signal?: AbortSignal) =>
+    apiRequest<{ records: unknown[]; count: number; workspace_id: string }>(
+      { method: "GET", url: "/tools/history", params: { workspace_id } }, signal),
+
+  permissions: (signal?: AbortSignal) =>
+    apiRequest<{
+      workspace_id: string;
+      tools: unknown[];
+      forbidden_count: number;
+      high_risk_count: number;
+      approval_required_count: number;
+    }>({ method: "GET", url: "/tools/permissions" }, signal),
+};
+
+/* ──────────────────────── 18. retention / archive ──────────────────────── */
+
+export const retentionApi = {
+  preview: (workspace_id: string, signal?: AbortSignal) =>
+    apiRequest<{ preview: unknown }>(
+      { method: "GET", url: `/workspaces/${workspace_id}/retention/preview` },
+      signal,
+    ),
+
+  apply: (workspace_id: string) =>
+    apiRequest<{ ok: boolean }>({ method: "POST", url: `/workspaces/${workspace_id}/retention/apply` }),
+
+  audits: (workspace_id: string, signal?: AbortSignal) =>
+    apiRequest<{ audits: unknown[] }>(
+      { method: "GET", url: `/workspaces/${workspace_id}/retention/audits` },
+      signal,
+    ),
+
+  auditDetail: (workspace_id: string, audit_id: string, signal?: AbortSignal) =>
+    apiRequest<{ audit: unknown }>(
+      { method: "GET", url: `/workspaces/${workspace_id}/retention/audits/${audit_id}` },
+      signal,
+    ),
+};
+
+export const archiveApi = {
+  preview: (workspace_id: string, signal?: AbortSignal) =>
+    apiRequest<{ preview: unknown }>(
+      { method: "GET", url: `/workspaces/${workspace_id}/archive/preview` },
+      signal,
+    ),
+
+  apply: (workspace_id: string) =>
+    apiRequest<{ ok: boolean }>({ method: "POST", url: `/workspaces/${workspace_id}/archive/apply` }),
+
+  audits: (workspace_id: string, signal?: AbortSignal) =>
+    apiRequest<{ audits: unknown[] }>(
+      { method: "GET", url: `/workspaces/${workspace_id}/archive/audits` },
+      signal,
+    ),
+
+  auditDetail: (workspace_id: string, audit_id: string, signal?: AbortSignal) =>
+    apiRequest<{ audit: unknown }>(
+      { method: "GET", url: `/workspaces/${workspace_id}/archive/audits/${audit_id}` },
+      signal,
+    ),
+};
+
+/* ──────────────────────── 19. workspace extended ──────────────────────── */
+
+export const workspaceExtApi = {
+  /** GET /api/workspaces/:id/state */
+  state: (workspace_id: string, signal?: AbortSignal) =>
+    apiRequest<{ workspace: Workspace }>({ method: "GET", url: `/workspaces/${workspace_id}/state` }, signal),
+
+  /** GET /api/workspaces/:id/history */
+  history: (workspace_id: string, signal?: AbortSignal) =>
+    apiRequest<{ workspace_id: string; runs: unknown[]; count: number }>(
+      { method: "GET", url: `/workspaces/${workspace_id}/history` }, signal),
+
+  /** GET /api/workspaces/:id/traces */
+  traces: (workspace_id: string, signal?: AbortSignal) =>
+    apiRequest<{ traces: unknown[] }>({ method: "GET", url: `/workspaces/${workspace_id}/traces` }, signal),
+
+  /** GET /api/workspaces/:id/selfcheck */
+  selfcheck: (workspace_id: string, signal?: AbortSignal) =>
+    apiRequest<{ ok: boolean; issues: unknown[] }>({ method: "GET", url: `/workspaces/${workspace_id}/selfcheck` }, signal),
+};
+
+/* ──────────────────────── 20. session extended ──────────────────────── */
+
+export const sessionExtApi = {
+  /** GET /api/sessions/default */
+  default: (signal?: AbortSignal) =>
+    apiRequest<{ session: Session }>({ method: "GET", url: "/sessions/default" }, signal),
+
+  /** POST /api/sessions/:id/restore */
+  restore: (session_id: string, workspace_id: string) =>
+    apiRequest<{ ok: boolean }>({ method: "POST", url: `/sessions/${session_id}/restore`, data: { workspace_id } }),
+};
+
+/* ──────────────────────── 21. modules ──────────────────────── */
+
+export const modulesExtApi = {
+  /** GET /api/modules/:name/status */
+  status: (module_name: string, signal?: AbortSignal) =>
+    apiRequest<{ ok: boolean; status: string }>({ method: "GET", url: `/modules/${module_name}/status` }, signal),
+
+  /** POST /api/registry/reload */
+  reloadRegistry: () =>
+    apiRequest<{ ok: boolean }>({ method: "POST", url: "/registry/reload" }),
+};

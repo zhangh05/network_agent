@@ -1,0 +1,12 @@
+{
+  "enabled": false,
+  "provider": "minimax",
+  "safe_mode": true,
+  "base_url": "https://api.minimaxi.com/v1",
+  "model": "MiniMax-M3",
+  "temperature": 0.2,
+  "max_tokens": 1200,
+  "api_key": "",
+  "updated_at": null,
+  "source": "auto_default"
+}

@@ -1,0 +1,55 @@
+__pycache__/
+*.py[cod]
+venv/
+.env
+*.env
+config/llm.local.yaml
+config/secrets.yaml
+apikey
+api_key
+minimax_apikey
+minimax_api_key
+*.log
+.DS_Store
+memory/data/
+data/
+reports/*secret*
+reports/*apikey*
+reports/*key*
+# workspaces runtime data
+workspaces/*/state.json
+workspaces/*/workspace.yaml
+workspaces/*/runs/
+workspaces/*/sessions/
+workspaces/*/files/
+workspaces/*/sys/
+workspaces/*/usage/
+workspaces/*/archives/
+workspaces/*/reviews/
+workspaces/*/upload/
+workspaces/*/indexes/
+workspaces/_runtime/
+workspaces/*/test.txt
+# Exclude test workspaces entirely
+workspaces/test/
+workspaces/test_p2/
+workspaces/test_p3/
+workspaces/test_p4/
+workspaces/test_p5/
+workspaces/test_p6/
+workspaces/api_contract_test/
+workspaces/test_ws/
+workspaces/ws_a/
+workspaces/ws_b/
+workspaces/default_get_or_create/
+config/LLM_setting.json
+config/providers/
+config/llm.local.json
+API_key.txt
+# Generated audit/planning output
+reports/
+node_modules/.vite/
+node_modules/**/*.results.json
+.superpowers/
+# Runtime-created sample skills
+skills/sample/

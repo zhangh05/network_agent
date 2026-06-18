@@ -1,0 +1,63 @@
+{
+  "version": "2.0.0",
+  "description": "Network Agent Module Registry",
+  "modules": [
+    {
+      "module_name": "config_translation",
+      "display_name": "配置翻译",
+      "status": "enabled",
+      "maturity": "embedded_mvp",
+      "module_path": "modules/config_translation",
+      "description": "Translate network device configuration across vendors.",
+      "owner": "modules.config_translation.backend",
+      "ui_owned_by": "network_agent_unified_ui",
+      "has_own_retired_frontend": false,
+      "llm_dependency": false,
+      "primary_api": "/api/modules/config-translation/translate",
+      "translator_entry": "translate_bundle",
+      "external_dependency": false,
+      "has_ui": true,
+      "ui_route": "/modules/translate",
+      "capabilities": ["config_translate", "manual_review", "risk_audit"]
+    },
+    {
+      "module_name": "topology",
+      "display_name": "拓扑绘图",
+      "status": "planned",
+      "maturity": "planned",
+      "module_path": "modules/topology",
+      "description": "Extract and draw network topology from device configurations.",
+      "owner": "modules.topology",
+      "has_ui": false,
+      "has_own_retired_frontend": false,
+      "primary_api": null,
+      "external_dependency": false
+    },
+    {
+      "module_name": "inspection",
+      "display_name": "巡检分析",
+      "status": "planned",
+      "maturity": "planned",
+      "module_path": "modules/inspection",
+      "description": "Run compliance checks and best-practice audits on configurations.",
+      "owner": "modules.inspection",
+      "has_ui": false,
+      "has_own_retired_frontend": false,
+      "primary_api": null,
+      "external_dependency": false
+    },
+    {
+      "module_name": "knowledge_base",
+      "display_name": "知识库",
+      "status": "enabled",
+      "maturity": "embedded_mvp",
+      "module_path": "modules/knowledge_base",
+      "description": "Network engineering knowledge base search and retrieval.",
+      "owner": "modules.knowledge_base",
+      "has_ui": false,
+      "has_own_retired_frontend": false,
+      "primary_api": "/api/knowledge/search",
+      "external_dependency": false
+    }
+  ]
+}
