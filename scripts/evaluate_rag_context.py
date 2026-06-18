@@ -74,12 +74,13 @@ def evaluate() -> dict:
     bundle = build_context_bundle(workspace_id, user_input="OSPF FULL 变 INIT 怎么排查")
     safe = bundle.safe_llm_context.as_dict()
     sources = safe.get("context_sources") or []
-    hits = safe.get("knowledge_hits") or []
+    k_hits = safe.get("knowledge_hits") or []
+    m_hits = safe.get("memory_hits") or []
     text = json.dumps(safe, ensure_ascii=False)
     metrics = {
-        "source_count": len(sources),
-        "knowledge_hit_count": sum(1 for s in sources if s.get("evidence_type") == "knowledge"),
-        "memory_hit_count": sum(1 for s in sources if s.get("evidence_type") == "memory"),
+        "source_count": len(sources) + len(k_hits) + len(m_hits),
+        "knowledge_hit_count": len(k_hits) + sum(1 for s in sources if s.get("evidence_type") == "knowledge"),
+        "memory_hit_count": len(m_hits) + sum(1 for s in sources if s.get("evidence_type") == "memory"),
         "citation_count": len(safe.get("citations") or []),
         "has_ospf_evidence": "FULL to INIT" in text or "one-way Hello" in text,
         "has_memory_evidence": "shortest command sequence" in text,
