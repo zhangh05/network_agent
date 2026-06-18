@@ -94,7 +94,7 @@ def handle_memory_delete(memory_id):
     store = get_store()
     record = store.get(str(memory_id))
     if not record:
-        return jsonify({"ok": False, "error": "memory_not_found"}), 404
+        return jsonify({"ok": False, "error": "memory_not_found"})
     ok = store.delete(str(memory_id))
     projection = {"ok": True, "deleted_count": 0}
     if ok:

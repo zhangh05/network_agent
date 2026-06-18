@@ -46,6 +46,12 @@ def temp_dirs(monkeypatch):
     try:
         import context.context_store as _cs
         monkeypatch.setattr(_cs, "_BASE", ws_dir)
+        _cs._stores.clear()  # Reset singletons so new stores use patched path
+    except Exception:
+        pass
+    try:
+        import context.unified_retriever as _ur
+        _ur._retrievers.clear()  # Reset retriever singletons
     except Exception:
         pass
 
