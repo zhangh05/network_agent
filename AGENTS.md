@@ -1,53 +1,58 @@
-# Agent Handoff
+# Agent 系统
 
-## 本地路径
+## RuntimeLoop
 
-```text
-/Users/zhangh01/Desktop/network_agent
+Codex-style agentic loop，每轮最多 8 个工具调用步骤：
+
+```
+用户消息 → 意图分析 → 工具规划 → LLM 决策 → 工具执行 → 结果注入 → LLM 回复
+                                     ↑                         │
+                                     └─────── 循环(最多8步) ────┘
 ```
 
-本仓库使用系统 `python3`，不要自行创建或切换到 `venv`、`.venv`。
+### 执行流程
 
-## 启动
+1. **build_turn_context** — 构建 TurnContext（session/history/safe_context）
+2. **tool_planner** — 基线工具 + 意图专属工具 → candidate_tools
+3. **message_builder** — 组装 LLM messages（system + history + context + user）
+4. **LLM sampling** — 流式调用 MiniMax M3
+5. **tool_dispatch** — 执行工具调用，结果注入下一轮 messages
+6. **enrich_metadata** — 将 memory/knowledge hit counts 写入 AgentResult
 
-```bash
-cd /Users/zhangh01/Desktop/network_agent
-python3 backend/main.py --host 0.0.0.0 --port 8010
+### 安全检查链
 
-cd /Users/zhangh01/Desktop/network_agent/frontend
-npm run dev -- --host 0.0.0.0
+```
+RAG 注入扫描 → argument_source 追踪 → action_class 过滤 → 审批门控
 ```
 
-## 验证
+## 工具执行
 
-优先运行与改动相关的测试。准备提交时再运行必要的组合门禁。
+### 注册
 
-```bash
-python3 -m pytest harness/<target_test>.py -q
-cd frontend
-npm test -- --run
-npm run typecheck
-npm run build
+`tool_runtime/canonical_registry.py` 定义所有 104 个工具的 handler、input_schema、权限。
+
+### 调用
+
+```python
+ToolInvocation(
+    tool_id="web.search",
+    arguments={"query": "OSPF RFC"},
+    workspace_id="default",
+    run_id="...",
+)
+→ handler(inv) → {"ok": True, "results": [...]}
 ```
 
-## 当前边界
+### 审批
 
-- Agent 公共入口：`POST /api/agent/message`
-- 知识实现：`agent/modules/knowledge/`
-- 模型可调用工具：以 `tool_runtime/canonical_registry.py` 为准
-- 工具名称空间：以 `tool_runtime/tool_namespace_data.py` 为准
-- 用户文件：`workspaces/{workspace_id}/files/{upload|agent}/`
-- 系统数据：`workspaces/{workspace_id}/sys/`
-- 前端 API：`frontend/src/api/index.ts`
-- 前端路由：`frontend/src/app/App.tsx`
+高危工具（host.shell.exec、host.python.exec）触发前端审批弹窗，用户确认后执行。
 
-不要新增重复实现、兼容分支或旁路工具调用。新增能力必须进入当前注册表、规划器、权限和审计链路。
+## Session 管理
 
-## 工作约束
+- 每个 session 独立的 message history
+- SessionMessageStore 持久化到 `workspaces/{ws}/sessions/{sid}/messages/`
+- 支持 checkpoint/rewind/export
 
-- 不提交 `config/providers/`、本地密钥、工作区运行数据、缓存或构建产物。
-- 不删除或覆盖用户未要求处理的本地数据。
-- 不用 `git checkout --`、`git reset --hard` 等命令覆盖现有改动。
-- 修改前后端契约时，同时检查 API 类型、页面调用和契约测试。
-- 修复报文分析时，验证“文件管理选择报文 -> `/packet?sid=...` -> 恢复会话”完整流程。
-- 修改工具选择时，验证工具目录、分类路由、规划器和真实执行入口一致。
+## 子代理
+
+`agent.spawn` 和 `agent.team.run` 支持多代理协作，但当前主要用单 agent 模式。

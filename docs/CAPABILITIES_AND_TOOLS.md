@@ -1,47 +1,70 @@
-# Capabilities And Tools
+# 工具与能力
 
-## 分层
+## 工具分类 (104 个)
 
-- **Capability**：面向用户的能力边界，例如报文分析、配置翻译、知识检索。
-- **Planner**：根据用户意图选择最小且足够的候选工具。
-- **ToolRouter**：按 canonical tool id 定位 handler。
-- **ToolRuntime**：执行 schema、权限、审批、路径、审计和脱敏策略。
+### web (8 个) — 外部网络访问
+| tool_id | 说明 |
+|---------|------|
+| `web.search` | DuckDuckGo 网页搜索 |
+| `web.page.summarize` | 网页正文提取 |
+| `web.page.extract_links` | 网页链接提取 |
+| `web.page.save_artifact` | 网页保存为制品 |
+| `web.docs.official_search` | 厂商官方文档搜索 (Cisco/Huawei/H3C/...) |
+| `web.news.search` | 新闻搜索 |
+| `web.weather.current` | 实时天气 (Open-Meteo) |
+| `web.weather.forecast` | 天气预报 |
 
-## 工具来源
+### knowledge (16 个) — 知识库
+| tool_id | 说明 |
+|---------|------|
+| `knowledge.search` | BM25 全文搜索 |
+| `knowledge.import.file` | 文件导入 |
+| `knowledge.import.document` | 文本导入 |
+| `knowledge.source.list/get/read/delete/disable/reindex` | 来源管理 |
+| `knowledge.chunk.list/read/summary` | chunk 操作 |
 
-| 来源 | 文件 |
-|------|------|
-| Canonical registry | `tool_runtime/canonical_registry.py` |
-| 名称空间与模型提示 | `tool_runtime/tool_namespace_data.py` |
-| 能力动作映射 | `tool_runtime/capability_actions.py` |
-| 分类路由 | `agent/runtime/tool_category_router.py` |
-| 计划校验 | `agent/runtime/tool_planner.py` |
+### network (8 个) — 网络配置
+| tool_id | 说明 |
+|---------|------|
+| `network.config.parse` | 配置文件解析 |
+| `network.config.translate` | 配置翻译 (H3C↔Cisco) |
+| `network.interface.extract` | 接口信息提取 |
+| `network.route.extract` | 路由表提取 |
+| `network.pcap.parse/session/filter/align` | 抓包分析 |
 
-这些文件必须保持同一组工具 id。模型不可见、内部或禁止的工具不得进入 planner 候选集。
+### memory (8 个) — 记忆系统
+| tool_id | 说明 |
+|---------|------|
+| `memory.search/list/create/update/confirm/delete_soft` | CRUD |
+| `memory.profile.get/set` | 用户画像 |
 
-## 选择原则
+### host (4 个) — 系统命令
+| tool_id | 说明 | 审批 |
+|---------|------|------|
+| `host.shell.exec` | Shell 命令 | 需审批 |
+| `host.python.exec` | Python 脚本 | 需审批 |
+| `host.powershell.exec` | PowerShell | 需审批 |
+| `host.command.slash_run` | 斜杠命令 | 需审批 |
 
-1. 优先使用语义最具体的工具。
-2. 文件读取、知识检索、报文分析、配置分析分别进入对应名称空间。
-3. 多步骤任务先读取和分析，再执行写入或外部动作。
-4. 工具参数必须来自用户输入、可信上下文或前一步真实结果。
-5. 工具无结果时明确返回无结果，不伪造来源、文件、设备状态或执行结果。
+### workspace (18 个) — 文件与制品
+文件读写、制品管理、PDF 提取等。
 
-## 知识工具
+### 其他
+- `agent.*` (4) — 结果获取、角色、子代理
+- `session.*` (7) — 会话管理
+- `skill.*` (7) — 技能管理
+- `data.*` (5) — CSV/JSON/YAML/表格
+- `text.*` (4) — 分类/对比/关键词/脱敏
+- `report.*` (2) — 报告生成
+- `review.*` (2) — 审阅
+- `runtime.*` (5) — 运行时诊断
+- `run.*` (2) — 运行记录
+- `slash.*` (2) — 斜杠命令
+- `diagram.*` (1) — Mermaid 图表
+- `document.*` (1) — 文档摘要
 
-知识能力使用 `knowledge.search` 进行检索，并通过来源与 parent chunk 补充上下文。导入、来源管理、重建索引和分块读取均由 `agent/modules/knowledge/` 实现。
+## 能力声明
 
-## 报文工具
+每个领域模块声明 `CapabilityManifest`，包含 operations、tools、safety rules。
 
-报文工具覆盖 pcap 解析、连接筛选和 TCP 对齐。报文必须来自工作区文件或本次明确上传，不允许声称连接了远端设备。
-
-## 验证
-
-```bash
-python3 -m pytest \
-  harness/test_registry_contract.py \
-  harness/test_tool_architecture.py \
-  harness/test_tool_governance.py \
-  harness/test_tool_runtime_integration_contract.py \
-  harness/test_tool_intent_planner.py -q
-```
+通过 `/api/capabilities` 查看所有已注册能力。

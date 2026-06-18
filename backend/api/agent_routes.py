@@ -78,9 +78,19 @@ def _normalize_agent_result(result: dict, ws_id: str) -> dict:
     result.setdefault("memory_written", False)
     result.setdefault("workspace_updated", False)
     result.setdefault("memory_hits_count", 0)
+    result.setdefault("knowledge_hits_count", 0)
     result.setdefault("llm", {"enabled": False, "used": False})
     if result.get("trace_id") and not result.get("trace_available"):
         result["trace_available"] = True
+    # v3.0.0+: surface memory/knowledge hit counts from turn metadata
+    # (the runtime context builder writes them into ctx.metadata). Without
+    # this, the AgentResult.memory_hits_count field is always 0 and the
+    # Inspector/UI cannot tell whether RAG was used.
+    md = result.get("metadata") or {}
+    if "memory_hits_count" in md and isinstance(md["memory_hits_count"], int):
+        result["memory_hits_count"] = md["memory_hits_count"]
+    if "knowledge_hits_count" in md and isinstance(md["knowledge_hits_count"], int):
+        result["knowledge_hits_count"] = md["knowledge_hits_count"]
     return result
 
 

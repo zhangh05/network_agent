@@ -306,28 +306,23 @@ def _count_artifacts(ws_id: str) -> int:
 
 
 def _count_knowledge_sources(ws_id: str) -> int:
-    """Count knowledge sources from the knowledge store."""
+    """Count knowledge sources from ContextStore."""
     ws_id = validate_workspace_id(ws_id)
-    sources = WS_ROOT / ws_id / "sys" / "knowledge" / "sources.jsonl"
-    if not sources.is_file():
-        return 0
-    count = 0
     try:
-        for line in sources.read_text(encoding="utf-8").splitlines():
-            if line.strip():
-                count += 1
+        from context.context_store import get_context_store
+        store = get_context_store(ws_id)
+        return store.count(item_type="knowledge_source")
     except Exception:
         return 0
-    return count
 
 
 def _count_memory(ws_id: str) -> int:
-    """Count memory records for a project."""
+    """Count memory records from ContextStore."""
     ws_id = validate_workspace_id(ws_id)
     try:
-        from memory.backends.jsonl_store import JSONLMemoryStore
-        store = JSONLMemoryStore()
-        return store.count(project_id=ws_id)
+        from context.context_store import get_context_store
+        store = get_context_store(ws_id)
+        return store.count(item_type="memory_hit")
     except Exception:
         return 0
 

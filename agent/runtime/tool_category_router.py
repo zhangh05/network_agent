@@ -128,8 +128,8 @@ def route_tool_scene(
     mentions_config_translate = _contains(text, ("翻译", "转换", "转成", "转为", "改成", "translate", "convert")) and _contains(text, ("配置", "config", "华三", "h3c", "cisco", "huawei", "juniper", "思科"))
     mentions_packet = _contains(text, ("pcap", "pcapng", "报文", "抓包", "数据包", "五元组", "tcp流", "tcp 流", "seq", "ack", "重传", "乱序", "丢包", "sequence gap", "wireshark"))
     mentions_knowledge = _contains(text, ("知识库", "knowledge", "rag", "资料库", "source", "chunk", "之前导入", "内部资料",
-                                           "资料", "文档", "本地有", "有没有相关", "文件里", "导入的",
-                                           "查一下", "搜索一下", "找找", "看看有没有", "有没有什么"))
+                                           "资料", "文档", "本地有", "有没有相关", "文件里", "导入的"))
+    mentions_search = _contains(text, ("查一下", "搜索一下", "找找", "看看有没有", "有没有什么", "搜索", "检索"))
     mentions_host = _contains(text, ("本机", "localhost", "127.0.0.1", "ipconfig", "ifconfig", "route print",
                                      "netstat", "端口", "进程", "process", "shell", "powershell", "python", "os ",
                                      "ping", "traceroute", "nslookup", "dig", "curl", "wget", "system info",
@@ -149,12 +149,13 @@ def route_tool_scene(
         "mentions_config_translate": mentions_config_translate and not is_definition_question,
         "mentions_packet": mentions_packet,
         "mentions_report": _contains(text, ("报告", "整理", "输出", "markdown", "表格", "导出", "保存", "制品", "artifact")),
-        "mentions_web": (not mentions_knowledge) and _contains(text, ("官方文档", "最新", "网页", "url", "http", "厂商文档", "手册", "docs", "documentation",
-                                                                       "搜索", "检索", "搜索引擎", "网上", "互联网", "上网", "查查",
-                                                                       "新闻", "资讯", "最近发生", "热点")),
+        "mentions_web": _contains(text, ("官方文档", "最新", "网页", "url", "http", "厂商文档", "手册", "docs", "documentation",
+                                                                       "搜索引擎", "网上", "互联网", "上网", "查查",
+                                                                       "新闻", "资讯", "最近发生", "热点")) or (mentions_search and not mentions_knowledge),
         "mentions_weather": _contains(text, ("天气", "weather", "气温", "温度", "降雨", "下雨", "湿度", "风力", "台风", "晴", "阴", "多云",
                                                "紫外线", "空气质量", "aqi", "预报", "forecast")),
         "mentions_knowledge": mentions_knowledge,
+        "mentions_search": mentions_search,
         "mentions_host": mentions_host,
         "mentions_runtime": _contains(text, ("trace", "run", "session", "运行详情", "审计", "timeline", "checkpoint")),
         "mentions_memory": _contains(text, ("记住", "偏好", "profile", "remember", "memory", "记忆")) or bool(memory_hints),

@@ -42,23 +42,10 @@ def temp_dirs(monkeypatch):
     ws_dir = _temp_ws
     reports_dir = _temp_rpts
 
-    # Monkeypatch JSONL store to use temp directory
-    _original_init = None
+    # Monkeypatch ContextStore to use temp directory
     try:
-        from memory.backends.jsonl_store import JSONLMemoryStore
-        _original_init = JSONLMemoryStore.__init__
-
-        def _patched_init(self, data_dir: str = ""):
-            self._dir = mem_dir
-            self._dir.mkdir(parents=True, exist_ok=True)
-            self._path = self._dir / "memories.jsonl"
-            self._deleted_path = self._dir / ".deleted_memories.json"
-            self._migrate_old_file = lambda: None
-
-        monkeypatch.setattr(
-            "memory.backends.jsonl_store.JSONLMemoryStore.__init__",
-            _patched_init,
-        )
+        import context.context_store as _cs
+        monkeypatch.setattr(_cs, "_BASE", ws_dir)
     except Exception:
         pass
 

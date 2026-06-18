@@ -59,7 +59,7 @@ CAPABILITY_KNOWLEDGE = CapabilityManifest(
         "Workspace knowledge store. Import documents, list "
         "sources, read source content, soft-disable / soft-delete "
         "sources, and query. Backed by a local JSONL store "
-        "({ws_root}/{workspace_id}/sys/knowledge/sources.jsonl). "
+        "({ws_root}/{workspace_id}/context/items.jsonl). "
         "NEVER fabricates sources, citations, scores, or titles."
     ),
     module=CapabilityModuleSpec(
@@ -499,6 +499,6 @@ CAPABILITY_KNOWLEDGE = CapabilityManifest(
     metadata={
         "version": "1.0.1",
         "owners": ["agent_backend"],
-        "storage": "workspace/{workspace_id}/knowledge/{sources.jsonl,chunks.jsonl,index.meta.json}",
+        "storage": "workspace/{workspace_id}/context/items.jsonl (unified ContextStore)",
     },
 )

@@ -384,12 +384,12 @@ def _module_sources(workspace_id: str, status: str = None) -> list:
             "enabled": bool(s.get("enabled", True)),
             "chunk_count": child_counts.get(s.get("source_id", ""), 0),
             "language": meta.get("language", ""),
-            "tags": list(meta.get("tags") or []),
+            "tags": list(s.get("tags") or meta.get("tags") or []),
             "created_at": s.get("created_at", ""),
             "updated_at": s.get("updated_at", ""),
             "metadata": {
                 "format": meta.get("format", ""),
-                "scope": meta.get("scope", "workspace"),
+                "scope": s.get("scope", meta.get("scope", "workspace")),
             },
         })
     return out

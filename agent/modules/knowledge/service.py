@@ -44,13 +44,14 @@ def import_document(workspace_id: str, title: str, content: str,
 def list_sources(workspace_id: str, include_disabled: bool = False,
                   include_deleted: bool = False) -> dict:
     from agent.modules.knowledge.store import list_sources as _impl
-    items = _impl(workspace_id=workspace_id, include_disabled=include_disabled,
+    result = _impl(workspace_id=workspace_id, include_disabled=include_disabled,
                  include_deleted=include_deleted)
+    sources = result.get("sources", []) if isinstance(result, dict) else []
     return {
         "ok": True,
-        "summary": f"Listed {len(items)} source(s)",
-        "sources": items,
-        "count": len(items),
+        "summary": f"Listed {len(sources)} source(s)",
+        "sources": sources,
+        "count": len(sources),
         "errors": [], "warnings": [],
     }
 
@@ -168,13 +169,14 @@ def import_file(
 def list_chunks(workspace_id: str, source_id: str = "",
                  chunk_type: str = "", limit: int = 200) -> dict:
     from agent.modules.knowledge.index import list_chunks as _impl
-    items = _impl(workspace_id=workspace_id, source_id=source_id,
+    result = _impl(workspace_id=workspace_id, source_id=source_id,
                  chunk_type=chunk_type, limit=limit)
+    chunks = result.get("chunks", []) if isinstance(result, dict) else []
     return {
         "ok": True,
-        "summary": f"Listed {len(items)} chunk(s)",
-        "chunks": items,
-        "count": len(items),
+        "summary": f"Listed {len(chunks)} chunk(s)",
+        "chunks": chunks,
+        "count": len(chunks),
         "errors": [], "warnings": [],
     }
 
@@ -278,8 +280,9 @@ def query_knowledge(
 
     from agent.modules.knowledge.index import load_all_chunks
     from agent.modules.knowledge.store import list_sources as _list_sources
-    enabled_source_ids = {s["source_id"] for s in
-                          _list_sources(workspace_id=workspace_id)
+    _src_result = _list_sources(workspace_id=workspace_id)
+    _sources_list = _src_result.get("sources", []) if isinstance(_src_result, dict) else []
+    enabled_source_ids = {s["source_id"] for s in _sources_list
                           if s.get("enabled", True)
                           and not s.get("deleted", False)}
     children = [c for c in load_all_chunks(workspace_id)
@@ -292,7 +295,7 @@ def query_knowledge(
         )
 
     from agent.modules.knowledge.store import query as _store_query
-    stats_enabled = sum(1 for s in _list_sources(workspace_id=workspace_id)
+    stats_enabled = sum(1 for s in _sources_list
                         if s.get("enabled", True)
                         and not s.get("deleted", False))
     if stats_enabled > 0:

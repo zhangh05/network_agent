@@ -112,8 +112,21 @@ export const useWorkbenchStore = create<WorkbenchState>()(
       switchSession: (session_id) => {
         // Always update history from bySession, even if id hasn't changed —
         // persist hydration can restore bySession while currentSessionId stays null.
-        const history = session_id ? (get().bySession[session_id] ?? []) : [];
-        set({ currentSessionId: session_id, history });
+        // v3.0.0+: if session_id is set but bySession has no record (e.g.
+        // session was just created server-side and not yet synced), seed
+        // the slot with an empty list so the UI doesn't render the empty
+        // workspace state mid-transition.
+        set((s) => {
+          if (session_id && !s.bySession[session_id]) {
+            return {
+              currentSessionId: session_id,
+              history: [],
+              bySession: { ...s.bySession, [session_id]: [] },
+            };
+          }
+          const history = session_id ? (s.bySession[session_id] ?? []) : [];
+          return { currentSessionId: session_id, history };
+        });
       },
 
       appendUser: (text, session_id) => {

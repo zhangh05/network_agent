@@ -1,5 +1,5 @@
 # context/fragments/memory.py
-"""Memory hits fragment — retrieves relevant past interactions."""
+"""Memory hits fragment — retrieves relevant past interactions via UnifiedRetriever."""
 
 import logging
 from .base import ContextFragment, FragmentPriority
@@ -8,7 +8,7 @@ logger = logging.getLogger(__name__)
 
 
 class MemoryHitsFragment(ContextFragment):
-    """Retrieves memory hits from the JSONL memory store for context injection."""
+    """Retrieves memory hits from unified ContextStore for context injection."""
 
     priority = FragmentPriority.MEMORY
     token_budget = 2048
@@ -17,12 +17,9 @@ class MemoryHitsFragment(ContextFragment):
         ws_id = getattr(state, "workspace_id", "default") or "default"
         user_input = getattr(state, "user_input", "") or ""
         try:
-            from memory.retriever import retrieve_for_context
-            hits = retrieve_for_context(
-                query=user_input,
-                project_id=ws_id,
-                limit=5,
-            )
+            from context.unified_retriever import get_retriever
+            retriever = get_retriever(ws_id)
+            hits = retriever.search_memory(user_input, top_k=5)
             return {"ok": True, "hits": hits, "count": len(hits)}
         except Exception:
             logger.debug("MemoryHitsFragment: retrieval failed", exc_info=True)

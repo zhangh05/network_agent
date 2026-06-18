@@ -1,35 +1,50 @@
-"""Seed default memories — idempotent, only writes if not already present."""
+#!/usr/bin/env python3
+# scripts/seed_default_memories.py
+"""Seed default memory entries into unified ContextStore.
 
-import sys, os
+v3.1.0: Uses context.context_store directly.
+"""
+
+import sys
+import os
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from memory.schemas import MemoryRecord
-from memory.backends.jsonl_store import JSONLMemoryStore
+from context.context_store import get_context_store
+from memory.writer import write_memory
 
-DECISIONS = [
+
+DEFAULT_MEMORIES = [
     {
-        "memory_type": "decision",
+        "title": "OSPF answer style",
+        "content": "When answering OSPF troubleshooting questions, start with the shortest command sequence.",
+        "memory_type": "user_preference",
         "scope": "long_term",
-        "title": "Null0 simple static route policy",
-        "content": "Simple Null0/NULL0 blackhole static routes are valid static routes and should NOT be forced to manual review unless combined with track, VRF, BFD, policy, or other complex attributes.",
-        "tags": ["config_translation", "static_route", "null0"],
-        "confidence": 1.0,
-        "source": "user_confirmed",
-        "project_id": "",
-    }
+        "tags": ["ospf", "style"],
+    },
 ]
 
-def seed():
-    store = JSONLMemoryStore()
-    existing = store.search("Null0 static route")
-    existing_titles = {r.get('title','') if isinstance(r,dict) else (r.title if hasattr(r,'title') else '') for r in existing}
-    for d in DECISIONS:
-        if d["title"] in existing_titles:
-            print(f"SKIP (exists): {d['title']}")
-            continue
-        r = MemoryRecord(**d)
-        store.put(r)
-        print(f"SEEDED: {d['title']}")
+
+def seed(workspace_id: str = "default"):
+    store = get_context_store(workspace_id)
+    existing = store.count(item_type="memory_hit")
+    if existing > 0:
+        print(f"Store already has {existing} memories, skipping seed.")
+        return
+
+    for mem in DEFAULT_MEMORIES:
+        mid = write_memory(
+            title=mem["title"],
+            content=mem["content"],
+            memory_type=mem.get("memory_type", "knowledge_note"),
+            scope=mem.get("scope", "long_term"),
+            tags=mem.get("tags", []),
+            project_id=workspace_id,
+        )
+        print(f"  Seeded: {mid} — {mem['title']}")
+
+    print(f"Done. Seeded {len(DEFAULT_MEMORIES)} memories.")
+
 
 if __name__ == "__main__":
-    seed()
+    ws = sys.argv[1] if len(sys.argv) > 1 else "default"
+    seed(ws)

@@ -1,50 +1,65 @@
-# Frontend
+# 前端架构
 
 ## 技术栈
 
-React 18、TypeScript、Vite 5、React Router、Zustand、Axios、Vitest 和 Playwright。
+- React 18 + TypeScript
+- Vite 5 (dev server + build)
+- Zustand (状态管理)
+- React Router (路由)
 
-## 页面
+## 页面结构
 
-| Route | Component | Purpose |
-|-------|-----------|---------|
-| `/workbench` | `AgentWorkbench` | 对话、工具进度和结果 |
-| `/files` | `FileManager` | 统一文件管理 |
-| `/packet` | `PacketAnalysis` | 报文连接与 TCP 对齐分析 |
-| `/runs` | `RunsPage` | 运行记录与 trace |
-| `/capabilities` | `CapabilityCenter` | 能力和工具状态 |
-| `/jobs` | `JobsPage` | 作业管理 |
-| `/diagnostics` | `Diagnostics` | 系统诊断 |
-| `/settings` | `Settings` | LLM Provider 配置 |
+| 路径 | 页面 | 说明 |
+|------|------|------|
+| `/` | AgentWorkbench | 主聊天界面 |
+| `/knowledge` | KnowledgeLibrary | 知识库管理 |
+| `/memory` | MemoryPage | 记忆管理 |
+| `/files` | FileManager | 统一文件管理 |
+| `/artifacts` | ArtifactCenter | 制品中心 |
+| `/settings` | Settings | LLM/系统设置 |
+| `/runs` | RunsPage | 运行记录 |
+| `/audit` | RuntimeAudit | 审计日志 |
+| `/diagnostics` | Diagnostics | 系统诊断 |
 
-## 状态
+## 状态管理 (Zustand)
 
-| Store | Purpose |
-|-------|---------|
-| `useSessionStore` | 当前工作区、会话和会话列表 |
-| `useWorkbenchStore` | 按会话保存消息和发送状态 |
-| `useUIStore` | 主题、侧栏和检查器状态 |
-| `useToastStore` | 全局通知 |
+| Store | 文件 | 职责 |
+|-------|------|------|
+| `workbench` | `stores/workbench.ts` | 聊天历史、发送状态、latestResult |
+| `session` | `stores/session.ts` | 当前 session/workspace |
+| `ui` | `stores/ui.ts` | UI 状态（侧栏、主题） |
 
-## 文件到报文分析
+persist middleware 持久化到 localStorage。
 
-1. `/api/pcap/parse` 创建统一文件记录并写入 `metadata.session_id`。
-2. `FileManager` 只对带有效 session 的报文显示分析入口。
-3. 点击后进入 `/packet?sid={session_id}`。
-4. `PacketAnalysis` 调用 `/api/pcap/session/{session_id}` 恢复连接列表。
-5. 用户选择连接后调用 `/api/pcap/filter` 和 `/api/pcap/align`。
+## 通信模式
 
-## API
+### WebSocket 流式
 
-- `frontend/src/api/client.ts`：Axios 实例、错误和超时策略。
-- `frontend/src/api/index.ts`：业务 API 类型与封装。
-- 开发代理：`/api/*` -> `VITE_DEV_API_TARGET`，默认 `http://127.0.0.1:8010`。
-
-## 验证
-
-```bash
-cd frontend
-npm test -- --run
-npm run typecheck
-npm run build
+```typescript
+ws = new WebSocket("/ws/agent")
+ws.onmessage = (event) => {
+  const data = JSON.parse(event.data)
+  if (data.type === "token") appendToken(data.content)
+  if (data.type === "event") handleEvent(data)
+  if (data.type === "done") setLatestResult(data)
+}
 ```
+
+### HTTP Fallback
+
+```typescript
+const res = await apiRequest("/api/agent/message", { method: "POST", body: { message, workspace_id } })
+appendAssistant(res.final_response, res)
+setLatestResult(res)
+```
+
+## 文件管理
+
+`/api/files` 返回三种来源的数据：
+
+1. **文件系统** — `files/upload/` 和 `files/agent/` 的 record.json
+2. **知识源** — ContextStore `knowledge_source` 项
+3. **记忆** — ContextStore `memory_hit` 项
+
+前端通过 `type` 字段过滤标签：all/pcap/knowledge/memory/artifact/general。
+删除操作自动判断来源（文件系统 or ContextStore），真实删除。

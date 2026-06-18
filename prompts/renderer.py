@@ -71,9 +71,26 @@ def _replace_template_loops(text: str, ctx: dict, citations: list) -> str:
     text = re.sub(r'\{%\s*for\s+art\s+in\s+artifact_refs\s*%\}[\s\S]*?\{%\s*endfor\s*%\}', art_block, text)
 
     # Memory hits
+    # v3.0.0+: include the full `content` field, not just the title+summary.
+    # Many memory records store the actual answer in `content` (e.g. an IP
+    # address, a specific port number, a hostname) while title/summary only
+    # describe the topic. The previous 100-char summary cap caused the LLM
+    # to see "本机 IP 地址" but never the actual IP, which made the
+    # RAG-augmented answer indistinguishable from a no-context answer.
     mem_block = ""
     for m in ctx.get("memory_hits", []):
-        mem_block += f"- Memory: {m.get('title','')}: {str(m.get('summary',''))[:100]}\n"
+        title = (m.get("title") or "").strip()
+        summary = (m.get("summary") or "").strip()
+        content = (m.get("content") or "").strip()
+        # Prefer content if it has substance; fall back to summary.
+        body = content if len(content) > len(summary) else summary
+        # Strip title prefix from body to avoid duplicating it.
+        if title and body.startswith(title):
+            body = body[len(title):].lstrip(" :：\n")
+        line = f"- Memory: {title}"
+        if body:
+            line += f" — {body[:400]}"
+        mem_block += line + "\n"
     text = re.sub(r'\{%\s*for\s+mem\s+in\s+memory_hits\s*%\}[\s\S]*?\{%\s*endfor\s*%\}', mem_block, text)
 
     # Citations

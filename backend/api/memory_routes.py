@@ -79,13 +79,13 @@ def handle_memory_confirm():
 
     from memory.store import get_store
     record = get_store().get(mid)
-    meta = record.metadata if record else {}
+    meta = (record.get("metadata") or {}) if record else {}
     return jsonify({
         "ok": True,
         "memory_id": mid,
         "redaction_applied": False,
-        "conflict_detected": bool((meta or {}).get("conflict_detected")),
-        "conflicts": list((meta or {}).get("conflicts") or []),
+        "conflict_detected": bool(meta.get("conflict_detected")),
+        "conflicts": list(meta.get("conflicts") or []),
     })
 
 
@@ -98,7 +98,7 @@ def handle_memory_delete(memory_id):
     if ok:
         try:
             from memory.indexer import delete_memory_projection
-            workspace_id = record.project_id if record else ""
+            workspace_id = record.get("project_id", "") if record else ""
             projection = delete_memory_projection(str(memory_id), workspace_id=workspace_id or "")
         except Exception as exc:
             projection = {"ok": False, "error": str(exc)[:160], "deleted_count": 0}

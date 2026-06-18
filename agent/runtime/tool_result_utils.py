@@ -82,7 +82,7 @@ def _tool_namespace_metadata(tool_id: str) -> dict:
 def enrich_metadata(metadata: dict, context) -> dict:
     """Inject selected_skills / visible_tools from TurnContext into metadata."""
     if context and getattr(context, "metadata", None):
-        for k in ("selected_skills", "visible_tools"):
+        for k in ("selected_skills", "visible_tools", "memory_hits_count", "knowledge_hits_count"):
             if k in context.metadata and k not in metadata:
                 metadata[k] = context.metadata[k]
     safe_context = getattr(context, "safe_context", None) or {}
@@ -108,6 +108,13 @@ def enrich_metadata(metadata: dict, context) -> dict:
         diagnostics = safe_context.get("retrieval_diagnostics") or {}
         if diagnostics and "retrieval_diagnostics" not in metadata:
             metadata["retrieval_diagnostics"] = diagnostics
+        # v3.0.0+: also surface hit counts from safe_context itself if the
+        # runtime context builder didn't populate ctx.metadata (defensive).
+        for k in ("memory_hits_count", "knowledge_hits_count"):
+            if k not in metadata:
+                arr = safe_context.get(k.replace("_count", "s")) or []
+                if isinstance(arr, list):
+                    metadata[k] = len(arr)
     return metadata
 
 

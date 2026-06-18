@@ -13,9 +13,9 @@ def handle_memory_status():
     store = get_store()
     return jsonify({
         "enabled": True,
-        "backend": "jsonl",
+        "backend": "context_store",
         "records": store.count(),
-        "data_file": "memories.jsonl",
+        "data_file": "context/items.jsonl",
     })
 
 
@@ -47,12 +47,12 @@ def handle_memory_write():
         return jsonify({"ok": False, "error": "Blocked by memory policy"}), 400
 
     record = get_store().get(memory_id)
-    meta = record.metadata if record else {}
+    meta = (record.get("metadata") or {}) if record else {}
     return jsonify({
         "ok": True,
         "memory_id": memory_id,
-        "conflict_detected": bool((meta or {}).get("conflict_detected")),
-        "conflicts": list((meta or {}).get("conflicts") or []),
+        "conflict_detected": bool(meta.get("conflict_detected")),
+        "conflicts": list(meta.get("conflicts") or []),
     })
 
 

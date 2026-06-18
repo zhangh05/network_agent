@@ -20,7 +20,7 @@ Three primary data classes:
     overlap). Children are what retrieval returns; parents can be
     fetched on demand via knowledge.parent.read.
 
-The chunk store is JSONL (chunks.jsonl) under the same workspace dir
+The chunk store is unified ContextStore (items.jsonl) under the workspace context dir
 as the v1.0 source store. Scope (global / workspace / session) is
 encoded in each chunk's metadata so retrieval can filter without
 ambiguity.

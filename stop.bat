@@ -1,38 +1,48 @@
 @echo off
-REM stop.bat -- network_agent stop (Windows)
-REM
-REM Stops the backend (port 8010) and frontend (port 5173) processes.
-REM
-REM Usage:
-REM   stop.bat         Stop all network_agent services
+setlocal EnableExtensions EnableDelayedExpansion
 
-setlocal
+set "ROOT=%~dp0"
+if "%BACKEND_PORT%"=="" set "BACKEND_PORT=8010"
+if "%FRONTEND_PORT%"=="" set "FRONTEND_PORT=5173"
+set "BACKEND_PID_FILE=%ROOT%.backend.pid"
+set "FRONTEND_PID_FILE=%ROOT%.frontend.pid"
+set "STATUS=0"
 
-echo.
-echo  ========================================
-echo    Stopping network_agent ...
-echo  ========================================
-echo.
+call :stop_service frontend %FRONTEND_PORT% "%FRONTEND_PID_FILE%" "vite[\\/]bin[\\/]vite.js"
+if errorlevel 1 set "STATUS=1"
+call :stop_service backend %BACKEND_PORT% "%BACKEND_PID_FILE%" "backend[\\/]main.py"
+if errorlevel 1 set "STATUS=1"
 
-REM Kill backend
-set "FOUND=0"
-for /f "tokens=5" %%a in ('netstat -ano ^| findstr ":8010 " ^| findstr "LISTENING"') do (
-    set "FOUND=1"
-    taskkill /F /PID %%a >nul 2>&1
+if /I not "%~1"=="--no-pause" pause
+exit /b %STATUS%
+
+:stop_service
+set "ROLE=%~1"
+set "PORT=%~2"
+set "PID_FILE=%~3"
+set "PATTERN=%~4"
+set "PID="
+
+if exist "%PID_FILE%" set /p PID=<"%PID_FILE%"
+if defined PID (
+    powershell -NoProfile -Command "$p=Get-CimInstance Win32_Process -Filter 'ProcessId=!PID!' -ErrorAction SilentlyContinue; if($p -and $p.CommandLine -match '%PATTERN%'){exit 0}else{exit 1}"
+    if errorlevel 1 set "PID="
 )
-if "%FOUND%"=="1" (echo  [backend]  Stopped) else (echo  [backend]  Not running)
-
-REM Kill frontend
-set "FOUND=0"
-for /f "tokens=5" %%a in ('netstat -ano ^| findstr ":5173 " ^| findstr "LISTENING"') do (
-    set "FOUND=1"
-    taskkill /F /PID %%a >nul 2>&1
+if not defined PID (
+    for /f %%P in ('powershell -NoProfile -Command "$c=Get-NetTCPConnection -LocalPort %PORT% -State Listen -ErrorAction SilentlyContinue | Select-Object -First 1; if($c){$c.OwningProcess}"') do set "PID=%%P"
 )
-if "%FOUND%"=="1" (echo  [frontend] Stopped) else (echo  [frontend] Not running)
+if not defined PID (
+    echo [%ROLE%] Not running.
+    if exist "%PID_FILE%" del /q "%PID_FILE%"
+    exit /b 0
+)
 
-echo.
-echo  ========================================
-echo    Done.
-echo  ========================================
-echo.
-pause
+powershell -NoProfile -Command "$p=Get-CimInstance Win32_Process -Filter 'ProcessId=!PID!' -ErrorAction SilentlyContinue; if(-not $p -or $p.CommandLine -notmatch '%PATTERN%'){exit 1}; Stop-Process -Id !PID! -ErrorAction Stop"
+if errorlevel 1 (
+    echo [%ROLE%] Refusing to stop unverified process on port %PORT% ^(PID !PID!^).
+    if exist "%PID_FILE%" del /q "%PID_FILE%"
+    exit /b 1
+)
+if exist "%PID_FILE%" del /q "%PID_FILE%"
+echo [%ROLE%] Stopped ^(PID !PID!^).
+exit /b 0

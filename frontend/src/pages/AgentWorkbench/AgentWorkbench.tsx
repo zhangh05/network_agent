@@ -43,6 +43,7 @@ export function AgentWorkbench() {
   const {
     sending, lastUserInput, latestResult, bySession,
     appendUser, appendAssistant, setSending, switchSession, mergeFromBackend,
+    setLatestResult,
   } = useWorkbenchStore();
 
   // Render from the canonical session map. `history` is only a compatibility
@@ -307,6 +308,10 @@ export function AgentWorkbench() {
           useWorkbenchStore.getState().switchSession(resolvedSid);
         }
         appendAssistant(sanitizeAssistantText(res.final_response ?? ""), res, resolvedSid);
+        // v3.0.0+: HTTP fallback path must also update latestResult, so
+        // the right-hand Inspector panel refreshes (previously only the
+        // WebSocket path wrote it).
+        setLatestResult(res);
         notifyRunCompleted();
         if (res.ok) {
           toast({ kind: "success", title: "回答完成", body: "可在右侧检查器查看详情" });

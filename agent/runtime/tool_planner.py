@@ -192,6 +192,20 @@ def deterministic_plan_tools(
     # tools unless the scene explicitly allows them.
     candidate_tools = _action_class_filter(candidate_tools, rule_scene)
 
+    # v3.1.0: Always inject baseline tools so the LLM has minimum capabilities.
+    # The router selects intent-specific tools, but the LLM should always have
+    # access to core search, file read, memory, and web tools.
+    _BASELINE_TOOLS = [
+        "web.search", "web.page.summarize", "web.docs.official_search",
+        "knowledge.search", "knowledge.source.list",
+        "memory.search", "memory.list", "memory.create",
+        "workspace.file.read", "workspace.file.list",
+        "host.shell.exec",
+        "agent.result.get", "agent.role.list",
+        "skill.list",
+    ]
+    candidate_tools = _ordered_unique([*candidate_tools, *_BASELINE_TOOLS])
+
     # v2.3.3: Safety net — auto-inject workspace.file.read when config
     # parsing tools are selected but file reading tools are missing.
     # This prevents tool chain breakage where the LLM gets parsing tools

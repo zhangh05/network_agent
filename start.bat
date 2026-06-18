@@ -1,143 +1,122 @@
 @echo off
-title network_agent v2.3.1
+setlocal EnableExtensions EnableDelayedExpansion
+title Network Agent
 
 set "ROOT=%~dp0"
 if "%BACKEND_PORT%"=="" set "BACKEND_PORT=8010"
 if "%FRONTEND_PORT%"=="" set "FRONTEND_PORT=5173"
+if "%INSTALL_DEPS%"=="" set "INSTALL_DEPS=auto"
+set "LOG_DIR=%ROOT%workspace\logs"
+set "BACKEND_PID_FILE=%ROOT%.backend.pid"
+set "FRONTEND_PID_FILE=%ROOT%.frontend.pid"
 
-echo.
-echo  ========================================
-echo    network_agent v2.3.1
-echo    Auto Setup ^& Start
-echo  ========================================
-echo.
+echo Network Agent
+echo Checking Python 3.12+ and Node.js 18+...
 
-REM === 1. Python ===
-echo  [1/4] Checking Python 3.10+ ...
-python --version >nul 2>&1
-if not errorlevel 1 (
-    set "PYTHON=python"
-    goto :python_found
+set "PYTHON="
+for %%P in (py python python3) do (
+    if not defined PYTHON (
+        %%P -c "import sys; raise SystemExit(0 if sys.version_info >= (3,12) else 1)" >nul 2>&1
+        if not errorlevel 1 set "PYTHON=%%P"
+    )
 )
-python3 --version >nul 2>&1
-if not errorlevel 1 (
-    set "PYTHON=python3"
-    goto :python_found
-)
-echo.
-echo  [ERROR] Python is not installed or not in PATH.
-echo          Please install Python 3.10+ from:
-echo          https://www.python.org/downloads/
-echo          IMPORTANT: Check "Add Python to PATH" during installation.
-echo.
-exit /b 1
-
-:python_found
-for /f "tokens=2" %%v in ('%PYTHON% --version 2^>^&1') do echo         OK -- Python %%v
-
-REM === 2. Node.js ===
-echo  [2/4] Checking Node.js 18+ ...
-node --version >nul 2>&1
-if errorlevel 1 (
-    echo.
-    echo  [ERROR] Node.js is not installed or not in PATH.
-    echo          Please install Node.js 18+ from:
-    echo          https://nodejs.org/
-    echo.
+if not defined PYTHON (
+    echo [ERROR] Python 3.12+ is required.
     exit /b 1
 )
-for /f %%v in ('node --version') do echo         OK -- Node.js %%v
 
-REM === 3. Python deps ===
-echo  [3/4] Installing Python dependencies (Tsinghua mirror) ...
-cd /d "%ROOT%"
+node -e "process.exit(Number(process.versions.node.split('.')[0]) >= 18 ? 0 : 1)" >nul 2>&1
+if errorlevel 1 (
+    echo [ERROR] Node.js 18+ is required.
+    exit /b 1
+)
 
-%PYTHON% -c "import flask" >nul 2>&1
-if not errorlevel 1 (
-    echo         Already installed -- skipping.
-) else (
-    echo         Downloading packages (may take 1-3 minutes) ...
-    %PYTHON% -m pip install -r requirements.txt -i https://pypi.tuna.tsinghua.edu.cn/simple --quiet
+if /I not "%INSTALL_DEPS%"=="false" if not "%INSTALL_DEPS%"=="0" (
+    %PYTHON% -c "import flask, flask_sock, yaml, langgraph, bs4, lxml, pdfplumber, scapy" >nul 2>&1
     if errorlevel 1 (
-        echo.
-        echo  [ERROR] Failed to install Python packages.
-        echo          Please check your network and try again.
-        echo.
+        %PYTHON% -m pip install -r "%ROOT%requirements.txt"
+        if errorlevel 1 exit /b 1
+    )
+    if not exist "%ROOT%frontend\node_modules\.bin\vite.cmd" (
+        pushd "%ROOT%frontend"
+        call npm install
+        if errorlevel 1 (
+            popd
+            exit /b 1
+        )
+        popd
+    )
+)
+
+if not exist "%LOG_DIR%" mkdir "%LOG_DIR%"
+
+call :adopt backend %BACKEND_PORT% "%BACKEND_PID_FILE%" "backend[\\/]main.py"
+if errorlevel 2 exit /b 1
+if errorlevel 1 (
+    echo [backend] Starting on port %BACKEND_PORT%...
+    powershell -NoProfile -Command "$p=Start-Process -FilePath '%PYTHON%' -ArgumentList @('%ROOT%backend\main.py','--host','0.0.0.0','--port','%BACKEND_PORT%') -WorkingDirectory '%ROOT%' -RedirectStandardOutput '%LOG_DIR%\backend.log' -RedirectStandardError '%LOG_DIR%\backend.error.log' -WindowStyle Hidden -PassThru; $p.Id | Set-Content '%BACKEND_PID_FILE%'"
+    if errorlevel 1 exit /b 1
+)
+call :wait_url backend "http://127.0.0.1:%BACKEND_PORT%/api/health" "%BACKEND_PID_FILE%"
+if errorlevel 1 (
+    call "%ROOT%stop.bat" --no-pause
+    echo [ERROR] Backend failed to start. See %LOG_DIR%\backend.error.log
+    exit /b 1
+)
+
+call :adopt frontend %FRONTEND_PORT% "%FRONTEND_PID_FILE%" "vite[\\/]bin[\\/]vite.js"
+if errorlevel 2 (
+    call "%ROOT%stop.bat" --no-pause
+    exit /b 1
+)
+if errorlevel 1 (
+    echo [frontend] Starting on port %FRONTEND_PORT%...
+    powershell -NoProfile -Command "$p=Start-Process -FilePath 'node' -ArgumentList @('%ROOT%frontend\node_modules\vite\bin\vite.js','--host','0.0.0.0','--port','%FRONTEND_PORT%') -WorkingDirectory '%ROOT%frontend' -RedirectStandardOutput '%LOG_DIR%\frontend.log' -RedirectStandardError '%LOG_DIR%\frontend.error.log' -WindowStyle Hidden -PassThru; $p.Id | Set-Content '%FRONTEND_PID_FILE%'"
+    if errorlevel 1 (
+        call "%ROOT%stop.bat" --no-pause
         exit /b 1
     )
-    echo         OK
+)
+call :wait_url frontend "http://127.0.0.1:%FRONTEND_PORT%" "%FRONTEND_PID_FILE%"
+if errorlevel 1 (
+    call "%ROOT%stop.bat" --no-pause
+    echo [ERROR] Frontend failed to start. See %LOG_DIR%\frontend.error.log
+    exit /b 1
 )
 
-REM === 4. Frontend deps ===
-echo  [4/4] Installing frontend dependencies (taobao mirror) ...
-cd /d "%ROOT%frontend"
+echo.
+echo Backend:  http://localhost:%BACKEND_PORT%
+echo Frontend: http://localhost:%FRONTEND_PORT%
+echo Stop with: stop.bat
+exit /b 0
 
-if exist "node_modules\" (
-    echo         Already installed -- skipping.
-) else (
-    echo         First run -- downloading packages (may take 2-5 minutes) ...
-    npm install --registry=https://registry.npmmirror.com
-    if errorlevel 1 (
-        echo.
-        echo  [ERROR] npm install failed.
-        echo          Please check your network and try again.
-        echo.
-        exit /b 1
-    )
-    echo         OK
+:adopt
+set "ROLE=%~1"
+set "PORT=%~2"
+set "PID_FILE=%~3"
+set "PATTERN=%~4"
+set "OWNER_PID="
+for /f %%P in ('powershell -NoProfile -Command "$c=Get-NetTCPConnection -LocalPort %PORT% -State Listen -ErrorAction SilentlyContinue | Select-Object -First 1; if($c){$c.OwningProcess}"') do set "OWNER_PID=%%P"
+if not defined OWNER_PID exit /b 1
+powershell -NoProfile -Command "$p=Get-CimInstance Win32_Process -Filter 'ProcessId=!OWNER_PID!'; if($p -and $p.CommandLine -match '%PATTERN%'){exit 0}else{exit 1}"
+if errorlevel 1 (
+    echo [ERROR] Port %PORT% is occupied by another process ^(PID !OWNER_PID!^).
+    exit /b 2
 )
+> "%PID_FILE%" echo !OWNER_PID!
+echo [%ROLE%] Already running on port %PORT% ^(PID !OWNER_PID!^).
+exit /b 0
 
-REM === Start services ===
-echo.
-echo  ========================================
-echo    Starting services ...
-echo  ========================================
-echo.
-
-cd /d "%ROOT%"
-
-if not exist "workspace\logs\" mkdir workspace\logs
-
-echo  [backend] Starting on port %BACKEND_PORT% ...
-start "network_agent_backend" /min cmd /c "%PYTHON% backend\main.py --host 0.0.0.0 --port %BACKEND_PORT% 1>workspace\logs\backend.log 2>&1"
-
-echo  [backend] Waiting for health check ...
-for /l %%i in (1,1,30) do (
-    timeout /t 1 /nobreak >nul
-    curl -s http://localhost:%BACKEND_PORT%/api/health >nul 2>&1
+:wait_url
+set "ROLE=%~1"
+set "URL=%~2"
+set "PID_FILE=%~3"
+for /l %%I in (1,1,30) do (
+    powershell -NoProfile -Command "try{Invoke-WebRequest -UseBasicParsing -TimeoutSec 2 '%URL%' | Out-Null; exit 0}catch{exit 1}"
     if not errorlevel 1 (
-        echo  [backend] Ready
-        goto :backend_ok
+        echo [%ROLE%] Ready.
+        exit /b 0
     )
-)
-echo  [backend] Started (health check timed out -- may still be loading)
-:backend_ok
-
-cd /d "%ROOT%frontend"
-
-echo  [frontend] Starting on port %FRONTEND_PORT% ...
-start "network_agent_frontend" /min cmd /c "npx vite --host 0.0.0.0 --port %FRONTEND_PORT% 1>..\workspace\logs\frontend.log 2>&1"
-
-echo  [frontend] Waiting for server ...
-for /l %%i in (1,1,30) do (
     timeout /t 1 /nobreak >nul
-    curl -s http://localhost:%FRONTEND_PORT% >nul 2>&1
-    if not errorlevel 1 (
-        echo  [frontend] Ready
-        goto :frontend_ok
-    )
 )
-echo  [frontend] Started (server check timed out -- may still be building)
-:frontend_ok
-
-echo.
-echo  ========================================
-echo    All services are running!
-echo.
-echo    Backend   http://localhost:%BACKEND_PORT%
-echo    Frontend  http://localhost:%FRONTEND_PORT%
-echo.
-echo    To stop:  stop.bat
-echo    Logs:     workspace\logs\
-echo  ========================================
-echo.
+exit /b 1

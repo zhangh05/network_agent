@@ -296,8 +296,19 @@ def _safe_context_from_bundle(bundle, ctx) -> dict:
     if not bundle:
         return safe
     # Inject context bundle data
-    if hasattr(bundle, "safe_context") and bundle.safe_context:
+    # v3.0.0+: CRITICAL FIX — the field is `safe_llm_context` (per
+    # context.schemas.ContextBundle), not `safe_context`. The previous
+    # hasattr check always failed, silently dropping all memory_hits,
+    # knowledge_hits, context_sources, citations and retrieval_diagnostics
+    # from the safe dict. This made AgentResult.memory_hits_count stay at 0
+    # and made the Inspector show no RAG evidence even when retrieval
+    # succeeded. Accept both attribute names for backward compatibility.
+    sc = None
+    if hasattr(bundle, "safe_llm_context") and bundle.safe_llm_context:
+        sc = bundle.safe_llm_context
+    elif hasattr(bundle, "safe_context") and bundle.safe_context:
         sc = bundle.safe_context
+    if sc is not None:
         safe["intent"] = getattr(sc, "intent", "") or ""
         if hasattr(sc, "artifact_refs") and sc.artifact_refs:
             safe["artifact_refs"] = list(sc.artifact_refs)
@@ -351,6 +362,21 @@ def _safe_context_from_bundle(bundle, ctx) -> dict:
 
     # v3.0.0: Auto-compact if context exceeds model budget
     safe = _auto_compact_context(safe, ctx, bundle)
+
+    # v3.0.0+: Surface memory/knowledge hit counts into metadata so the
+    # AgentResult.memory_hits_count field and the Inspector can see what
+    # the LLM actually received. Previously this metadata was lost
+    # between safe_context and the final response.
+    try:
+        mh = safe.get("memory_hits")
+        kh = safe.get("knowledge_hits")
+        if isinstance(mh, list):
+            ctx.metadata["memory_hits_count"] = len(mh)
+        if isinstance(kh, list):
+            ctx.metadata["knowledge_hits_count"] = len(kh)
+    except Exception:
+        pass
+
     return safe
 
 

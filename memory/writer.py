@@ -1,11 +1,14 @@
 # memory/writer.py
-"""Memory writer — high-level write interface with redaction and policy enforcement."""
+"""Memory writer — writes to unified ContextStore with redaction and policy enforcement.
 
+v3.1.0: Writes directly to ContextStore. No legacy JSONL or RAG projection.
+"""
+
+import uuid
 from typing import Optional
-from memory.schemas import MemoryRecord, SCOPES
-from memory.redaction import redact_text, redact_dict, contains_secret, summarize_config_safely
+from memory.redaction import redact_text, contains_secret
 from memory.policy import can_write_memory
-from memory.store import get_store
+from context.context_store import get_context_store
 
 
 def write_memory(
@@ -22,11 +25,11 @@ def write_memory(
     metadata: dict = None,
     user_confirmed: bool = False,
 ) -> str:
-    """Write a memory record with redaction and policy enforcement.
-    
-    Returns memory_id on success, empty string on policy block.
+    """Write a memory record to ContextStore.
+
+    Returns item_id on success, empty string on policy block.
     """
-    # ═══ Step 1: Redaction ═══
+    # Step 1: Redaction
     has_secret = contains_secret(content) or contains_secret(title)
     if has_secret:
         content = redact_text(content)
@@ -36,19 +39,17 @@ def write_memory(
     else:
         redaction_applied = False
 
-    # ═══ Step 2: Policy check ═══
+    # Step 2: Policy check
     effective_confidence = "user_confirmed" if user_confirmed else confidence
     policy = can_write_memory(
         memory_type=memory_type,
         content=content,
         confidence=effective_confidence,
     )
-
     if not policy.allowed:
-        # Blocked by policy — don't write
         return ""
 
-    # ═══ Step 3: Conflict scan ═══
+    # Step 3: Conflict scan
     meta = dict(metadata or {})
     try:
         from memory.conflicts import detect_memory_conflicts
@@ -65,37 +66,37 @@ def write_memory(
     except Exception:
         pass
 
-    # ═══ Step 3: Build record ═══
-    record = MemoryRecord(
-        scope=scope,
-        memory_type=memory_type,
-        title=title,
-        summary=summary or (content[:200] if content else ""),
-        content=content,
-        tags=tags or [],
-        project_id=project_id,
-        source=source,
-        confidence=effective_confidence,
-        sensitivity=sensitivity,
-        metadata=meta,
-        redaction_applied=redaction_applied or policy.redaction_needed,
-    )
+    # Step 4: Write to ContextStore
+    workspace_id = project_id or "default"
+    memory_id = f"mem_{uuid.uuid4().hex[:12]}"
 
-    # ═══ Step 4: Persist ═══
-    store = get_store()
-    memory_id = store.put(record)
+    item = {
+        "item_id": memory_id,
+        "item_type": "memory_hit",
+        "source": source,
+        "source_id": source,
+        "title": title,
+        "summary": summary or (content[:200] if content else ""),
+        "content": content,
+        "scope": scope,
+        "sensitivity": sensitivity,
+        "priority": 0,
+        "tags": tags or [],
+        "memory_id": memory_id,
+        "memory_type": memory_type,
+        "confidence": effective_confidence,
+        "project_id": project_id,
+        "metadata": meta,
+        "redaction_applied": redaction_applied or policy.redaction_needed,
+    }
 
-    # ═══ Step 5: RAG projection (best effort) ═══
-    try:
-        from memory.indexer import index_memory_record
-        index_memory_record(record)
-    except Exception:
-        pass
+    store = get_context_store(workspace_id)
+    store.put(item)
 
     return memory_id
 
 
-# ─── Convenience writers ───
+# Convenience writers
 
 def write_run_summary(
     intent: str,
@@ -106,7 +107,7 @@ def write_run_summary(
     project_id: str = "default",
     artifact_refs: list = None,
 ) -> Optional[str]:
-    """Write a run_summary record (always short_term, auto-redacted)."""
+    """Write a run_summary record."""
     content = f"intent={intent} skill={skill} module={module}{counts}"
     if llm_metadata and llm_metadata.get("used"):
         content += f" | llm:{llm_metadata.get('provider')} task:{llm_metadata.get('task')}"
@@ -137,17 +138,12 @@ def write_user_confirmed_decision(
     tags: list = None,
     project_id: str = "",
 ) -> Optional[str]:
-    """Write a user-confirmed decision (can be long_term)."""
+    """Write a user-confirmed decision."""
     return write_memory(
-        title=title,
-        content=content,
-        scope="long_term",
-        memory_type="decision",
-        tags=tags or [],
-        project_id=project_id,
-        source="user",
-        confidence="user_confirmed",
-        sensitivity="internal",
+        title=title, content=content,
+        scope="long_term", memory_type="decision",
+        tags=tags or [], project_id=project_id,
+        source="user", confidence="user_confirmed",
         user_confirmed=True,
     )
 
@@ -158,17 +154,12 @@ def write_translation_rule(
     tags: list = None,
     project_id: str = "",
 ) -> Optional[str]:
-    """Write a translation rule (requires user_confirmed)."""
+    """Write a translation rule."""
     return write_memory(
-        title=title,
-        content=content,
-        scope="long_term",
-        memory_type="translation_rule",
-        tags=tags or ["translation_rule"],
-        project_id=project_id,
-        source="user",
-        confidence="user_confirmed",
-        sensitivity="internal",
+        title=title, content=content,
+        scope="long_term", memory_type="translation_rule",
+        tags=tags or ["translation_rule"], project_id=project_id,
+        source="user", confidence="user_confirmed",
         user_confirmed=True,
     )
 
@@ -179,23 +170,18 @@ def write_user_preference(
     tags: list = None,
     project_id: str = "",
 ) -> Optional[str]:
-    """Write a user preference (long_term, auto-redacted)."""
+    """Write a user preference."""
     return write_memory(
-        title=title,
-        content=content,
-        scope="long_term",
-        memory_type="user_preference",
-        tags=tags or [],
-        project_id=project_id,
-        source="user",
-        confidence="user_confirmed",
-        sensitivity="internal",
+        title=title, content=content,
+        scope="long_term", memory_type="user_preference",
+        tags=tags or [], project_id=project_id,
+        source="user", confidence="user_confirmed",
         user_confirmed=True,
     )
 
 
 def write_job_summary(job_record) -> Optional[str]:
-    """Write job summary to memory (sanitized, no full config/key/path)."""
+    """Write job summary to memory."""
     if not job_record:
         return None
     jd = job_record.as_dict() if hasattr(job_record, "as_dict") else job_record
@@ -205,22 +191,14 @@ def write_job_summary(job_record) -> Optional[str]:
         "title": jd.get("title", ""),
         "status": jd.get("status", ""),
         "progress": jd.get("progress", {}),
-        "run_ids": jd.get("run_ids", []),
-        "artifact_refs": jd.get("artifact_refs", []),
-        "report_artifacts": jd.get("report_artifacts", []),
-        "result_summary": jd.get("result_summary", {}),
-        "warnings": jd.get("warnings", []),
-        "error": str(jd.get("error", ""))[:200],
     }
     content = f"job_id={safe['job_id']} type={safe['job_type']} status={safe['status']}"
     return write_memory(
         title=f"Job: {safe['job_type']} ({safe['status']})",
         content=content,
-        scope="project",
-        memory_type="run_summary",
+        scope="project", memory_type="run_summary",
         tags=["job_summary", safe.get("job_type", ""), safe.get("status", "")],
         project_id=jd.get("workspace_id", "default"),
         source="agent",
-        sensitivity="internal",
         metadata={"job_summary": safe},
     )

@@ -1,32 +1,18 @@
 # context/compressor.py
 """Context compressor — limits, strips content, enforces budget, deduplicates.
 
-v0.2 improvements:
+v3.1.0 refactoring:
+  - Schema-driven stripping via schema_registry (replaces blacklist).
   - Dynamic budget: adjusts max_chars based on LLM model's context window.
   - Semantic dedup: merges items with similar summaries to reduce redundancy.
-  - Declarative sensitive keys via SENSITIVE_KEY_PATTERNS (regex-aware).
 """
 
 import json
 import re
 from difflib import SequenceMatcher
 from context.schemas import ContextItem, ContextBudget, resolve_budget_for_model
+from context.schema_registry import strip_by_schema, is_metadata_key_blocked
 
-
-# ─── Sensitive key handling ───
-
-# Exact-match sensitive keys (fast path)
-SENSITIVE_KEYS = {"source_config", "deployable_config", "content", "file_content",
-                  "report_content", "raw_prompt", "key", "token", "password",
-                  "community", "secret", "private_key", "absolute_path"}
-
-# Regex patterns for sensitive keys (catches variants like source_config_v2, api_key_path)
-SENSITIVE_KEY_PATTERNS = [
-    re.compile(r"(api_?key|secret_?key|private_?key|access_?token)", re.IGNORECASE),
-    re.compile(r"(source_config|deployable_config|raw_prompt)", re.IGNORECASE),
-    re.compile(r"(password|passwd|credential)", re.IGNORECASE),
-    re.compile(r"(community_string|snmp_community)", re.IGNORECASE),
-]
 
 # Dedup similarity threshold (0-1): items with summary similarity above this are merged
 DEDUP_SIMILARITY_THRESHOLD = 0.75
@@ -63,8 +49,8 @@ def compress_context_items(items: list, budget: ContextBudget = None,
             continue
         counts[t] = c + 1
 
-        # Strip sensitive keys from content
-        item.content = _strip_sensitive(item.content)
+        # Strip sensitive keys from content (schema-driven)
+        item.content = _strip_sensitive(item.content, item_type=item.item_type)
         compressed.append(item)
 
     # ── 2. Semantic deduplication ──
@@ -101,28 +87,34 @@ def _limit_for(item_type: str, budget: ContextBudget) -> int:
     return m.get(item_type, 50)
 
 
-def _strip_sensitive(obj):
-    """Recursively strip sensitive keys from a nested dict/list.
+def _strip_sensitive(obj, item_type: str = ""):
+    """Strip sensitive keys from a nested dict/list using schema_registry.
 
-    Uses both exact match (SENSITIVE_KEYS) and regex patterns
-    (SENSITIVE_KEY_PATTERNS) to catch variants.
+    v3.1.0: Replaced blacklist with schema_registry whitelist.
+    - For top-level item dicts with known item_type, uses strip_by_schema()
+      to keep only whitelisted fields.
+    - For nested dicts (metadata, content sub-objects), only strips keys
+      that are structural secrets (via is_metadata_key_blocked).
+    - Legitimate data fields (content, summary, title) are NEVER stripped.
     """
     if isinstance(obj, dict):
-        return {k: _strip_sensitive(v) for k, v in obj.items()
-                if k not in SENSITIVE_KEYS
-                and "path" not in k.lower()
-                and not _matches_sensitive_pattern(k)}
+        # If we have item_type context, use full schema filtering
+        if item_type:
+            obj_with_type = dict(obj)
+            obj_with_type.setdefault("item_type", item_type)
+            return strip_by_schema(obj_with_type)
+
+        # For generic dicts (no item_type context), only strip blocked metadata keys
+        out = {}
+        for k, v in obj.items():
+            if is_metadata_key_blocked(k):
+                out[k] = "[redacted]"
+                continue
+            out[k] = _strip_sensitive(v)
+        return out
     if isinstance(obj, list):
         return [_strip_sensitive(i) for i in obj]
     return obj
-
-
-def _matches_sensitive_pattern(key: str) -> bool:
-    """Check if a key matches any sensitive key regex pattern."""
-    for pattern in SENSITIVE_KEY_PATTERNS:
-        if pattern.search(key):
-            return True
-    return False
 
 
 def _dedup_items(items: list) -> tuple:

@@ -1,94 +1,97 @@
-# Network Agent
+# 网工智枢 (Network Agent)
 
-面向网络工程场景的本地 LLM Agent。项目由 Flask API、React/TypeScript 前端、Agent Runtime 和受策略约束的工具运行时组成。
-
-## 核心能力
-
-- 对话工作台：理解用户意图，规划并调用合适的工具。
-- 文件管理：统一管理报文、分析结果、知识、记忆、制品和通用文件。
-- 报文分析：解析 `pcap`、按连接筛选并执行 TCP 序列对齐。
-- 知识检索：导入文档、分块索引、BM25 检索和来源追踪。
-- 网络任务：配置解析、配置翻译、接口与路由提取。
-- 运行治理：审批、审计、作业、诊断、归档和保留策略。
+网络工程智能助手 — Flask + React/TypeScript + LLM Agent 平台。
 
 ## 快速开始
 
-要求 Python 3.12+ 和 Node.js 18+。
-
 ```bash
-python3 -m pip install -r requirements.txt
-python3 backend/main.py --host 0.0.0.0 --port 8010
+# 后端
+pip install -r requirements.txt
+python -m backend.main --port 8010
 
-cd frontend
-npm install
-npm run dev -- --host 0.0.0.0
+# 前端
+cd frontend && npm install && npm run dev
 ```
 
-浏览器访问 `http://localhost:5173`。Vite 将 `/api` 请求代理到 `http://127.0.0.1:8010`。
+访问 http://localhost:5173
 
-## 运行链路
+## 架构概览
 
-```text
-React/Vite
-  -> POST /api/agent/message
-  -> AgentApp / RuntimeLoop
-  -> ToolCategoryRouter / ToolPlanner
-  -> LLM
-  -> ToolRouter / ToolRuntime
-  -> workspace persistence
+```
+用户 → React 前端 (5173) → Flask API (8010) → RuntimeLoop → LLM (MiniMax M3)
+                                                    ↓
+                                              ContextStore ← UnifiedRetriever (BM25)
+                                              (items.jsonl)   ↑
+                                                    ↓         |
+                                              104 个工具 → 工具执行 → 结果返回
 ```
 
-模型只能看到当前注册表允许暴露的工具。工具参数在执行前经过 schema、权限、路径和审批校验，执行结果经过审计与脱敏后返回对话。
+### 统一上下文架构 (v3.1.0)
 
-## 项目结构
+所有可检索数据存储在单一文件 `workspaces/{ws}/context/items.jsonl`：
 
-```text
-backend/                    Flask 入口和 API 路由
-agent/                      Agent、LLM、规划器和能力模块
-agent/modules/knowledge/    当前知识库实现
-tool_runtime/               工具注册、策略、执行和审计
-workspace/                  工作区、会话和运行记录
-artifacts/                  制品模型与存储
-memory/                     记忆检索与写入
-runtime/                    诊断、归档和保留策略
-frontend/                   React/TypeScript 前端
-harness/                    后端和契约测试
-docs/                       架构、API、运行时和前端文档
+| item_type | 说明 | 数量 |
+|-----------|------|------|
+| `knowledge_chunk` | 知识库文档片段 | ~200 |
+| `knowledge_source` | 知识库来源 | ~10 |
+| `memory_hit` | Agent 记忆 | ~20 |
+| `profile` | 用户画像 | 1 |
+
+**统一检索**：`UnifiedRetriever` 提供单一 BM25 引擎，支持 CJK n-gram、scope boost、Jaccard 去重。
+
+### 工具系统
+
+104 个注册工具，按 15 个分类：
+
+| 分类 | 数量 | 示例 |
+|------|------|------|
+| web | 8 | web.search, web.page.summarize |
+| knowledge | 16 | knowledge.search, knowledge.import.file |
+| network | 8 | network.config.parse, network.pcap.parse |
+| memory | 8 | memory.create, memory.search |
+| workspace | 18 | workspace.file.read, workspace.artifact.save |
+| host | 4 | host.shell.exec, host.python.exec |
+| agent | 4 | agent.spawn, agent.team.run |
+| 其他 | 38 | data.*, text.*, session.*, skill.* 等 |
+
+每个场景保证 15+ 可见工具（含基线工具集），意图专属工具在基线之上叠加。
+
+### 安全层
+
+- 全链路注入扫描（knowledge/memory/tool_result）
+- action_class 5 级分级（read/write/mutate/execute/external）
+- argument_source 追踪（user/rag/memory/unknown）
+- 高危工具审批门控
+- schema 驱动的敏感字段过滤（白名单，非黑名单）
+
+### 自动上下文压缩
+
+三级压缩防止上下文溢出：
+
+1. **RAG 压缩**：类型限额 + 语义去重 + 字符预算
+2. **Auto-compact**：85% 阈值触发，4 层逐级压缩
+3. **会话压缩**：旧对话摘要化，保留最近 3 轮
+
+## 目录结构
+
+```
+agent/                 Agent 核心引擎（runtime, llm, modules, tools）
+backend/               Flask HTTP/WS 后端
+frontend/              React/TS 前端
+context/               统一上下文系统（ContextStore, UnifiedRetriever, schema_registry）
+memory/                记忆系统（委托到 ContextStore）
+tool_runtime/          工具运行时（104 个工具注册、分类、权限）
+modules/               领域模块（配置翻译、巡检、拓扑）
+prompts/               Prompt 模板系统
+config/                LLM 配置
+workspaces/            工作区运行时数据
 ```
 
-## 数据布局
+## 技术栈
 
-```text
-workspaces/{workspace_id}/
-├── files/
-│   ├── upload/             用户上传文件
-│   └── agent/              Agent 生成文件
-├── sys/                    知识索引、审计、临时数据和内部状态
-├── sessions/               会话元数据与消息
-└── runs/                   Agent 运行记录
-```
-
-运行数据、本地 LLM 配置、API Key、缓存和构建产物由 `.gitignore` 排除。
-
-## LLM 配置
-
-在系统设置页配置并激活 Provider。当前支持 MiniMax-M3 等 OpenAI-compatible 模型。每个 Provider 的本地配置保存在 `config/providers/`，该目录不会提交到 Git。
-
-## 验证
-
-```bash
-python3 -m pytest harness -q
-cd frontend
-npm test -- --run
-npm run typecheck
-npm run build
-```
-
-更多说明：
-
-- [架构](docs/ARCHITECTURE.md)
-- [API](docs/API.md)
-- [能力与工具](docs/CAPABILITIES_AND_TOOLS.md)
-- [运行时](docs/RUNTIME.md)
-- [前端](docs/FRONTEND.md)
-- [开发交接](AGENTS.md)
+- **后端**: Python 3.13, Flask
+- **前端**: React 18, TypeScript, Vite, Zustand
+- **LLM**: MiniMax M3 (245K context window)
+- **检索**: BM25 + CJK bigram/trigram
+- **存储**: JSONL（追加写入 + 墓碑删除 + compact GC）
+- **通信**: WebSocket (流式) + HTTP (fallback)
