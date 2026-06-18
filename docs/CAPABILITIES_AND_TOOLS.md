@@ -1,5 +1,9 @@
 # 工具与能力
 
+## ToolRouter 与 model-visible 工具
+
+ToolRouter (`agent/runtime/tool_category_router.py`) 根据用户意图选择 model-visible 工具集合。每个场景保证 15+ 个工具可见（含 14 个基线工具），意图专属工具在基线之上叠加。
+
 ## 工具分类 (104 个)
 
 ### web (8 个) — 外部网络访问

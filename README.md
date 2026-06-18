@@ -95,3 +95,20 @@ workspaces/            工作区运行时数据
 - **检索**: BM25 + CJK bigram/trigram
 - **存储**: JSONL（追加写入 + 墓碑删除 + compact GC）
 - **通信**: WebSocket (流式) + HTTP (fallback)
+
+## 测试
+
+```bash
+python3 -m pytest harness -q
+cd frontend && npm run typecheck
+```
+
+## 文档
+
+- [DESIGN.md](DESIGN.md) — 架构设计
+- [AGENTS.md](AGENTS.md) — Agent 系统
+- [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) — 架构详解
+- [docs/API.md](docs/API.md) — API 参考
+- [docs/CAPABILITIES_AND_TOOLS.md](docs/CAPABILITIES_AND_TOOLS.md) — 工具目录
+- [docs/FRONTEND.md](docs/FRONTEND.md) — 前端架构
+- [docs/RUNTIME.md](docs/RUNTIME.md) — 运行时系统

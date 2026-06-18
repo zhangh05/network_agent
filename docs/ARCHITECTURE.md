@@ -66,5 +66,9 @@ Agent/用户 → writer.py → 脱敏 → 策略检查 → 冲突扫描 → Cont
 ## 前后端通信
 
 - **WebSocket** `/ws/agent` — 流式 token + 事件
-- **HTTP** `/api/agent/message` — 非流式 fallback
+- **HTTP** `/api/agent/message` — 非流式 fallback (POST /api/agent/message)
 - **REST** `/api/knowledge/*`, `/api/memory/*`, `/api/files/*` — CRUD
+
+## ToolRuntime
+
+工具运行时 (`tool_runtime/`) 管理 104 个注册工具的生命周期：注册、分类、路由、执行、审批。ToolRouter 根据用户意图选择 candidate tools，ToolRuntime 通过 `dispatch()` 执行，结果经 ToolResult 标准化后返回。

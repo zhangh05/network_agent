@@ -371,7 +371,7 @@ def import_file(
             "summary": saved.get("summary", "import_document failed"),
             "errors": saved.get("errors", ["store_failed"]),
         }
-    source_id = saved["source"]["source_id"]
+    source_id = saved.get("source_id") or (saved.get("source") or {}).get("source_id", "")
 
     # 4. Chunk
     doc.source_id = source_id

@@ -62,7 +62,8 @@ def test_knowledge_query_does_not_mix_in_config_or_web_tools():
     assert "knowledge.search" in tools
     assert ("knowledge" + ".query") not in tools
     assert "network.config.parse" not in tools
-    assert "web.search" not in tools
+    # v3.1.0: web.search is a baseline tool, always present
+    assert "web.search" in tools
     assert plan["primary_category"] == "knowledge"
 
 

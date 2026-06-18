@@ -232,6 +232,8 @@ class ContextStore:
     def _iter_raw(self) -> Iterator[dict]:
         """Yield every line from items.jsonl."""
         if not self._items_path.exists():
+            # Ensure directory exists for future writes
+            self._root.mkdir(parents=True, exist_ok=True)
             return
         with self._lock:
             with open(self._items_path, "r", encoding="utf-8") as f:

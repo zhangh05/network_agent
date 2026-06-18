@@ -15,6 +15,37 @@
   7. enrich_metadata()        → AgentResult
 ```
 
+主入口：`POST /api/agent/message` (HTTP) 或 `/ws/agent` (WebSocket)。
+
+## ToolRuntime 架构
+
+### ToolRouter
+
+`agent/runtime/tool_category_router.py` — 意图信号提取 + 工具分类路由。每个场景产出 `candidate_tools` 列表，叠加 14 个基线工具后传给 LLM（model-visible tools）。
+
+### ToolInvocation
+
+每次工具调用封装为独立的 `ToolInvocation` 对象：
+
+```python
+ToolInvocation(
+    tool_id="web.search",
+    arguments={"query": "OSPF RFC"},
+    workspace_id="default",
+    run_id="...",
+)
+```
+
+Agent does not directly call arbitrary tools — 所有调用通过 `ToolRuntime.dispatch()` 路由，Module orchestrates Tool 的执行链路。
+
+### ToolResult
+
+工具执行后返回 `ToolResult`，经 `enrich_metadata()` 处理后注入下一轮 LLM messages。ToolResult 中的敏感字段被 schema_registry 白名单过滤，不直接进入 LLM context。
+
+### Skill 系统
+
+Skill does not bypass Module — 技能通过 `skill.load` 注入到当前 session，但工具调用仍经过 Module → ToolRuntime → 审批门控的完整链路。
+
 ## 上下文构建
 
 ### TurnContext 组装
@@ -46,6 +77,16 @@ ctx = TurnContext(
 
 ## 安全机制
 
+### 禁止协议
+
+系统严格禁止直接访问网络设备。以下协议/工具不可用：
+- **ssh** — 不允许远程登录网络设备
+- **telnet** — 不允许 telnet 连接
+- **snmp** — 不允许 SNMP 轮询
+- **nmap** — 不允许端口扫描
+
+所有网络配置分析基于用户上传的配置文件/抓包，不主动连接设备。
+
 ### RAG 注入扫描
 
 `agent/runtime/rag_injection_scan.py` — 扫描 memory/knowledge/tool_result 中的注入企图：
@@ -72,6 +113,13 @@ ctx = TurnContext(
 2. 前端显示审批弹窗（含风险来源标注）
 3. 用户 approve/reject
 4. 后端继续/中止
+
+### public Tool HTTP API
+
+`POST /api/tools/invoke` 提供外部工具调用入口，受 policy gate 控制：
+- 需通过 `GET /api/tools/permissions` 检查权限
+- 高危工具同样需要审批
+- 调用记录写入 `GET /api/tools/history`
 
 ## 三级上下文压缩
 
