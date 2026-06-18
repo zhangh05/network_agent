@@ -224,10 +224,13 @@ class UnifiedRetriever:
     def _maybe_reindex(self):
         """Rebuild BM25 index if store has changed."""
         items = self._store.all_items()
-        if len(items) != self._indexed_count or (
+        count = len(items)
+        if count != self._indexed_count or (
             time.time() - self._last_index_time > 30
-        ):
+        ) or (count > 0 and not self._bm25._built):
             with self._lock:
+                # Re-read in case of concurrent update
+                items = self._store.all_items()
                 self._bm25.fit(items)
                 self._indexed_count = len(items)
                 self._last_index_time = time.time()
