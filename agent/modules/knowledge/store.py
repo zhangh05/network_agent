@@ -103,7 +103,7 @@ def import_document(
 
     # Also create basic chunks for searchability
     try:
-        _create_basic_chunks(workspace_id, source_id, title.strip()[:200], content)
+        _create_basic_chunks(workspace_id, source_id, title.strip()[:200], content, meta)
     except Exception:
         pass
 
@@ -115,10 +115,11 @@ def import_document(
     }
 
 
-def _create_basic_chunks(workspace_id: str, source_id: str, title: str, content: str):
+def _create_basic_chunks(workspace_id: str, source_id: str, title: str, content: str, meta: dict = None):
     """Create simple chunks from content for BM25 searchability."""
     if not content or not content.strip():
         return
+    meta = meta or {}
     store = get_context_store(workspace_id)
     chunk_size = 800
     overlap = 100
