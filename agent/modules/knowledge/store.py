@@ -101,12 +101,52 @@ def import_document(
     store = get_context_store(workspace_id)
     store.put(item)
 
+    # Also create basic chunks for searchability
+    try:
+        _create_basic_chunks(workspace_id, source_id, title.strip()[:200], content)
+    except Exception:
+        pass
+
     return {
         "ok": True,
         "source_id": source_id,
         "title": item["title"],
         "summary": f"Imported: {item['title']} ({len(content)} chars)",
     }
+
+
+def _create_basic_chunks(workspace_id: str, source_id: str, title: str, content: str):
+    """Create simple chunks from content for BM25 searchability."""
+    if not content or not content.strip():
+        return
+    store = get_context_store(workspace_id)
+    chunk_size = 800
+    overlap = 100
+    text = content.strip()
+    chunks = []
+    i = 0
+    idx = 0
+    while i < len(text):
+        end = min(i + chunk_size, len(text))
+        chunk_text = text[i:end]
+        chunk_id = f"kch_{source_id[5:]}_{idx:04d}" if source_id.startswith("ksrc_") else f"kch_{uuid.uuid4().hex[:8]}_{idx:04d}"
+        chunks.append({
+            "item_id": f"kc_{chunk_id}",
+            "item_type": "knowledge_chunk",
+            "source": "knowledge_import",
+            "source_id": source_id,
+            "title": title,
+            "content": chunk_text,
+            "chunk_id": chunk_id,
+            "chunk_type": "child",
+            "chunk_index": idx,
+            "scope": "workspace",
+            "metadata": {"source_type": "document"},
+        })
+        idx += 1
+        i = end - overlap if end < len(text) else end
+    if chunks:
+        store.put_many(chunks)
 
 
 def list_sources(
