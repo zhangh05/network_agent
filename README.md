@@ -72,7 +72,7 @@ workspaces/{workspace_id}/
 
 ## LLM 配置
 
-在系统设置页配置并激活 Provider。每个 Provider 的本地配置保存在 `config/providers/`，该目录不会提交到 Git。
+在系统设置页配置并激活 Provider。当前支持 MiniMax-M3 等 OpenAI-compatible 模型。每个 Provider 的本地配置保存在 `config/providers/`，该目录不会提交到 Git。
 
 ## 验证
 

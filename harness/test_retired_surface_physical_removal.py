@@ -44,18 +44,14 @@ class TestActiveCodeClean:
         assert enabled == sorted(["artifact", "config_translation", "knowledge", "review"])
 
 
-class TestRetiredSurfacesDoc:
-    def test_doc_exists(self):
-        assert (PROJECT_ROOT / "docs" / "RETIRED_SURFACES.md").exists()
+class TestCurrentDocs:
+    def test_history_only_doc_is_absent(self):
+        assert not (PROJECT_ROOT / "docs" / "RETIRED_SURFACES.md").exists()
 
-    def test_doc_marks_retired(self):
-        c = (PROJECT_ROOT / "docs" / "RETIRED_SURFACES.md").read_text()
-        for term in ("/api/translate", "GraphAgent", "network-translator", "8020"):
-            assert term in c
-
-    def test_doc_has_anti_regression_ref(self):
-        c = (PROJECT_ROOT / "docs" / "RETIRED_SURFACES.md").read_text()
-        assert "anti-regression" in c.lower() or "anti_regression" in c.lower()
+    def test_current_docs_reference_current_runtime(self):
+        c = (PROJECT_ROOT / "docs" / "RUNTIME.md").read_text()
+        assert "POST /api/agent/message" in c
+        assert "ToolRuntime" in c
 
 
 class TestPathBoundary:
@@ -183,13 +179,12 @@ class TestSourceFormat:
 
 
 class TestReadmeDocs:
-    def test_readme_has_current_baseline(self):
+    def test_readme_has_current_validation_commands(self):
         c = (PROJECT_ROOT / "README.md").read_text()
-        assert "passed" in c.lower()
-        # Should not have old baselines
-        assert "493 passed" not in c
-        assert "850 passed" not in c
+        assert "python3 -m pytest harness -q" in c
+        assert "npm run typecheck" in c
 
-    def test_retired_surfaces_doc_in_readme(self):
+    def test_readme_only_links_current_docs(self):
         c = (PROJECT_ROOT / "README.md").read_text()
-        assert "RETIRED_SURFACES" in c or "retired" in c.lower()
+        assert "RETIRED_SURFACES" not in c
+        assert "docs/RUNTIME.md" in c

@@ -150,3 +150,4 @@ def test_import_from_artifact_uses_current_store_and_is_searchable(tmp_path, mon
     body = search_resp.get_json()
     assert body["count"] >= 1
     assert "OSPF" in body["results"][0]["safe_excerpt"]
+    assert body["results"][0]["artifact_id"] == rec.artifact_id

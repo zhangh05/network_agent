@@ -514,6 +514,8 @@ def query(
             "metadata": {
                 "source_id": s.get("source_id", ""),
                 "created_at": s.get("created_at", ""),
+                "artifact_id": (s.get("metadata") or {}).get("artifact_id", ""),
+                "artifact_type": (s.get("metadata") or {}).get("artifact_type", ""),
             },
         })
     summaries = []

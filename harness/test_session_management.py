@@ -161,24 +161,19 @@ class TestSessionMessages:
         msgs = get_session_messages(s["session_id"], "default")
         assert msgs == []
 
-    def test_get_session_messages_from_runs(self):
+    def test_get_session_messages_from_canonical_store(self):
+        from workspace.message_store import SessionMessageStore
+
         s = create_session("default", "Messages Test")
-        # Create two runs associated with the session
+        store = SessionMessageStore(s["session_id"], "default")
         for i in range(2):
-            state = NetworkAgentState(
-                request_id=f"run_msg_{i}",
-                user_input=f"question {i}",
-                intent="assistant_chat",
-                final_response=f"answer {i}",
-                workspace_id="default",
-                session_id=s["session_id"],
-            )
-            write_run_record(state, "default")
+            run_id = f"run_msg_{i}"
+            metadata = {"created_at": f"2026-01-01T00:00:0{i}Z"}
+            store.write_message(run_id, "user", f"question {i}", metadata)
+            store.write_message(run_id, "assistant", f"answer {i}", metadata)
 
         msgs = get_session_messages(s["session_id"], "default")
-        # Each run produces user + assistant message = 4 messages
         assert len(msgs) == 4
-        # Check ordering: user messages should alternate with assistant
         assert msgs[0]["role"] == "user"
         assert msgs[1]["role"] == "assistant"
 
