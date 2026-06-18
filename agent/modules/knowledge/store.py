@@ -141,7 +141,10 @@ def _create_basic_chunks(workspace_id: str, source_id: str, title: str, content:
             "chunk_type": "child",
             "chunk_index": idx,
             "scope": "workspace",
-            "metadata": {"source_type": "document"},
+            "metadata": {
+                "source_type": meta.get("source_type", "document"),
+                "artifact_id": meta.get("artifact_id", ""),
+            },
         })
         idx += 1
         i = end - overlap if end < len(text) else end

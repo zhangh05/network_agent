@@ -423,7 +423,7 @@ def _module_search_results(workspace_id: str, query: str, source_id: str = "", l
         out.append({
             "chunk_id": h.get("chunk_id", ""),
             "source_id": h.get("source_id", ""),
-            "artifact_id": "",
+            "artifact_id": (h.get("metadata") or {}).get("artifact_id", ""),
             "title": h.get("title", ""),
             "artifact_name": h.get("title", ""),
             "summary": h.get("chapter", "") or h.get("section", ""),
