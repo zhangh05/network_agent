@@ -93,6 +93,8 @@ def handle_memory_delete(memory_id):
     """Tombstone-delete a memory record."""
     store = get_store()
     record = store.get(str(memory_id))
+    if not record:
+        return jsonify({"ok": False, "error": "memory_not_found"}), 404
     ok = store.delete(str(memory_id))
     projection = {"ok": True, "deleted_count": 0}
     if ok:

@@ -347,7 +347,11 @@ def _import_artifact_as_knowledge(workspace_id: str, artifact_id: str) -> dict:
     )
     if not result.get("ok"):
         return {"ok": False, "error": (result.get("errors") or ["indexing_failed"])[0]}
-    source = result.get("source", {})
+    source = {
+        "source_id": result.get("source_id", ""),
+        "title": result.get("title", ""),
+        "workspace_id": workspace_id,
+    }
     return {"ok": True, "source": source}
 
 

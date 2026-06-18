@@ -116,9 +116,9 @@ ctx = TurnContext(
 
 ### public Tool HTTP API
 
-`POST /api/tools/invoke` 提供外部工具调用入口，受 policy gate 控制：
-- 需通过 `GET /api/tools/permissions` 检查权限
-- 高危工具同样需要审批
+`POST /api/tools/invoke` 提供外部工具调用入口，受 policy 和 approval 门控：
+- 需通过 `GET /api/tools/permissions` 检查 policy 权限
+- 高危工具同样需要 approval 审批
 - 调用记录写入 `GET /api/tools/history`
 
 ## 三级上下文压缩
