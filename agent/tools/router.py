@@ -21,6 +21,18 @@ class UnknownToolCallError(Exception):
     pass
 
 
+class ToolArgumentParseError(Exception):
+    """Raised when an LLM tool-call's arguments string is not valid JSON.
+
+    Previously these errors were silently swallowed and `{"raw": ...}` was
+    passed downstream, which made tool handlers fail with cryptic
+    'missing required field' errors instead of telling the model that
+    its JSON was malformed. Raising lets the loop surface a clear hint
+    to the model so it can correct its output format.
+    """
+    pass
+
+
 class ToolRouter:
     def __init__(self, registry: ToolRegistry = None, *, allowed_tool_ids=None):
         """Construct a ToolRouter.
@@ -227,10 +239,27 @@ class ToolRouter:
 
         if isinstance(args, str):
             import json
-            try:
-                args = json.loads(args)
-            except Exception:
-                args = {"raw": args}
+            stripped = args.strip()
+            # Empty arguments are allowed (some tools take no args).
+            if not stripped:
+                args = {}
+            else:
+                try:
+                    args = json.loads(stripped)
+                except Exception as e:
+                    # v4.0: surface parse failure clearly so the model can
+                    # fix the format. Previously this was silently wrapped
+                    # in {"raw": ...} which masked the real error.
+                    preview = stripped[:120]
+                    raise ToolArgumentParseError(
+                        f"Tool {llm_name} arguments are not valid JSON "
+                        f"({type(e).__name__}: {e}); got: {preview!r}"
+                    ) from e
+                if not isinstance(args, dict):
+                    raise ToolArgumentParseError(
+                        f"Tool {llm_name} arguments must be a JSON object, "
+                        f"got {type(args).__name__}"
+                    )
 
         real_tool_id = self.llm_name_map[llm_name]
         tc = ToolCall(

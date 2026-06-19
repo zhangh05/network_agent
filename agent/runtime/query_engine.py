@@ -247,17 +247,39 @@ class StreamEmitter:
         events = emitter.to_events()
     """
 
-    _realtime = None  # Thread-local realtime callback
+    # v4.0: use threading.local so each thread has its own callback.
+    # Previously this was a plain class attribute, which caused events
+    # from concurrent turns / WebSocket connections to leak across each
+    # other (a connection's callback could be overwritten before its
+    # turn finished, sending events to the wrong queue).
+    _tls = None
+
+    @classmethod
+    def _tls_state(cls):
+        """Lazily construct the per-thread state on first use."""
+        if cls._tls is None:
+            import threading
+            cls._tls = threading.local()
+        return cls._tls
 
     @classmethod
     def set_realtime_callback(cls, callback):
-        """Set a thread-local callback for real-time event streaming."""
-        cls._realtime = callback
+        """Set the real-time callback for the current thread only."""
+        state = cls._tls_state()
+        state.realtime = callback
 
     @classmethod
     def clear_realtime_callback(cls):
-        """Clear the thread-local realtime callback."""
-        cls._realtime = None
+        """Clear the real-time callback for the current thread only."""
+        if cls._tls is not None:
+            cls._tls.realtime = None
+
+    @classmethod
+    def _get_realtime(cls):
+        """Read the current thread's real-time callback, if any."""
+        if cls._tls is None:
+            return None
+        return getattr(cls._tls, "realtime", None)
 
     def __init__(self):
         self._events: list[dict] = []
@@ -271,8 +293,8 @@ class StreamEmitter:
         """
         event = {"type": event_type, "timestamp": time.time(), **data}
         self._events.append(event)
-        # Push to realtime callback if registered
-        cb = StreamEmitter._realtime
+        # Push to thread-local realtime callback if registered
+        cb = StreamEmitter._get_realtime()
         if cb:
             try:
                 cb(event)

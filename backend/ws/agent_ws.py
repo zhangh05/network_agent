@@ -53,9 +53,24 @@ def register_ws_routes(app):
                     ws.send(json.dumps({"type": "error", "message": "Empty user_input"}, ensure_ascii=True))
                     continue
 
-                session_id = msg.get("session_id", "")
-                workspace_id = msg.get("workspace_id", "default")
+                # v4.0: validate session_id and workspace_id to prevent
+                # path traversal in downstream run/session stores.
+                session_id = msg.get("session_id", "") or ""
+                workspace_id = msg.get("workspace_id", "default") or "default"
+                try:
+                    from workspace.ids import validate_workspace_id, validate_session_id
+                    workspace_id = validate_workspace_id(workspace_id)
+                    if session_id:
+                        session_id = validate_session_id(session_id)
+                except Exception:
+                    ws.send(json.dumps({
+                        "type": "error",
+                        "message": "Invalid session_id or workspace_id",
+                    }, ensure_ascii=True))
+                    continue
                 metadata = msg.get("metadata", {})
+                if not isinstance(metadata, dict):
+                    metadata = {}
 
                 # Event queue for thread-safe communication
                 event_queue = queue.Queue()
@@ -138,9 +153,6 @@ def _run_agent_thread(user_input, session_id, workspace_id, metadata, event_queu
         )
 
         result_payload = result.to_dict()
-
-        import sys as _sys
-        print(f"[ws-agent] final_response_len={len(result_payload.get('final_response', ''))}", file=_sys.stderr)
 
         if result_payload.get("final_response"):
             from agent.llm.runtime import sanitize_provider_output
