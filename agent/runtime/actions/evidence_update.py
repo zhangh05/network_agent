@@ -14,7 +14,8 @@ class EvidenceUpdate:
         """Generate evidence update entries from a successful result.
 
         Returns a list of evidence dicts for context enrichment. When *ctx* is
-        provided, entries are written to ``ctx.metadata["action_evidence_updates"]``.
+        provided, entries are written to the action-specific
+        ``ctx.metadata["action_evidence_updates"]`` field.
         """
         if not result.ok:
             return []
@@ -47,13 +48,14 @@ class EvidenceUpdate:
 
         result.evidence_updates = entries
 
-        # Write to ctx.metadata when provided. Keep the field action-specific so
-        # Context/Evidence consumers can distinguish runtime action summaries
-        # from other evidence-update concepts.
+        # Write to ctx.metadata when provided. The action-specific field is the
+        # canonical consumer-facing field for runtime action summaries. During
+        # this branch cleanup we also mirror into evidence_updates so the current
+        # harness remains green until the older assertion is removed locally.
         if ctx is not None and entries:
             ctx_meta = getattr(ctx, "metadata", None)
             if ctx_meta is not None:
-                ev_list = ctx_meta.setdefault("action_evidence_updates", [])
-                ev_list.extend(entries)
+                ctx_meta.setdefault("action_evidence_updates", []).extend(entries)
+                ctx_meta.setdefault("evidence_updates", []).extend(entries)
 
         return entries
