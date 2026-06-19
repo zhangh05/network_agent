@@ -1,10 +1,15 @@
 """Regression checks for agent hardening stages.
 
 These tests intentionally avoid real LLM calls. They validate routing,
-planner visibility, and local-ops exposure rules.
+planner visibility, local-ops exposure rules, and same-session turn
+serialization without invoking a real model provider.
 """
 
 from __future__ import annotations
+
+import threading
+import time
+from types import SimpleNamespace
 
 from agent.runtime.tool_category_router import route_tool_scene
 from agent.runtime.tool_planner import plan_tools
@@ -89,3 +94,59 @@ def test_unknown_tools_fail_closed_in_planner():
     assert "unknown.tool.exec" not in candidates
     assert "host.shell.exec" not in candidates
     assert "unknown.tool.exec" in plan.get("governance", {}).get("unknown_tools_filtered", [])
+
+
+def test_same_session_turns_are_serialized(monkeypatch):
+    from agent.app.facade import AgentApp
+    from agent.core.session import AgentSession
+
+    active = 0
+    max_active = 0
+    lock = threading.Lock()
+    calls = []
+
+    def fake_submit(self, op):
+        nonlocal active, max_active
+        with lock:
+            active += 1
+            max_active = max(max_active, active)
+            calls.append(op.user_input)
+        time.sleep(0.05)
+        with lock:
+            active -= 1
+        return SimpleNamespace(
+            to_dict=lambda: {
+                "ok": True,
+                "session_id": op.session_id,
+                "turn_id": op.session_id + "_turn",
+                "final_response": "ok",
+                "metadata": {},
+            }
+        )
+
+    monkeypatch.setattr(AgentSession, "submit", fake_submit)
+    app = AgentApp(services=SimpleNamespace())
+    results = []
+    errors = []
+
+    def worker(i):
+        try:
+            results.append(app.submit_user_message(
+                user_input=f"msg-{i}",
+                session_id="hardening_test_session",
+                workspace_id="default",
+                metadata={},
+            ))
+        except Exception as exc:  # pragma: no cover - failure path asserted below
+            errors.append(exc)
+
+    threads = [threading.Thread(target=worker, args=(i,)) for i in range(2)]
+    for t in threads:
+        t.start()
+    for t in threads:
+        t.join()
+
+    assert not errors
+    assert len(results) == 2
+    assert sorted(calls) == ["msg-0", "msg-1"]
+    assert max_active == 1
