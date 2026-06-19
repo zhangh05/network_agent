@@ -3,9 +3,6 @@
 
 from __future__ import annotations
 
-import json
-from typing import Any
-
 from agent.runtime.actions.models import ActionResult
 
 
@@ -41,7 +38,7 @@ class ResultScanner:
         """Scan the result content and set scan_status."""
         content = _extract_text_content(action_result)
         if not content:
-            action_result.scan_status = "safe"
+            action_result.scan_status = "skipped"
             return action_result
 
         try:
