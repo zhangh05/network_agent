@@ -1,11 +1,11 @@
 # context/loader.py
 """Context loader — loads raw ContextItems from all sources.
 
-v3.1.0: All retrieval goes through UnifiedRetriever. No legacy paths.
+v4.0.0: Memory and knowledge retrieval moved to runtime/memory and
+runtime/knowledge modules. Loader handles workspace/artifact/job/report only.
 """
 
 from context.schemas import ContextItem, ContextRef
-from context.unified_retriever import get_retriever
 
 
 def load_context_items(workspace_id: str, context_ref=None, intent: str = "",
@@ -49,81 +49,6 @@ def load_context_items(workspace_id: str, context_ref=None, intent: str = "",
                 content=safe_ws, sensitivity="internal", scope="workspace",
                 token_estimate=len(str(safe_ws)) // 4,
             ))
-        except Exception:
-            pass
-
-    # 4. Memory hits (P4) — UnifiedRetriever only
-    if include_memory:
-        try:
-            retriever = get_retriever(workspace_id)
-            hits = retriever.search_memory(user_input or intent or "", top_k=10)
-            for h in hits:
-                items.append(ContextItem(
-                    item_type="memory_hit", source="memory", priority=40,
-                    title=h.get("title", ""),
-                    summary=str(h.get("summary", ""))[:200],
-                    content=h,
-                    sensitivity="internal", scope="project",
-                    source_id=h.get("memory_id", h.get("item_id", "")),
-                    token_estimate=len(str(h)) // 4,
-                ))
-        except Exception:
-            pass
-
-    # 5. Knowledge chunks (P2) — UnifiedRetriever only
-    if include_knowledge and (user_input or "").strip():
-        try:
-            retriever = get_retriever(workspace_id)
-            k_hits = retriever.search_knowledge(user_input, top_k=8)
-            for idx, h in enumerate(k_hits, start=1):
-                excerpt = h.get("content", "") or h.get("index_text", "") or ""
-                content = {
-                    "citation_id": f"K{idx}",
-                    "chunk_id": h.get("chunk_id", h.get("item_id", "")),
-                    "source_id": h.get("source_id", ""),
-                    "title": h.get("title", ""),
-                    "content": h.get("content", ""),
-                    "summary": h.get("summary", ""),
-                    "score": h.get("_score", 0),
-                    "chapter": h.get("chapter", ""),
-                    "section": h.get("section", ""),
-                    "source_type": h.get("source_type", ""),
-                    "evidence_type": "knowledge",
-                }
-                items.append(ContextItem(
-                    item_type="knowledge_chunk", source="knowledge", priority=15,
-                    title=content["title"],
-                    summary=str(excerpt)[:200],
-                    content=content,
-                    sensitivity="internal", scope="knowledge",
-                    source_id=content["chunk_id"] or content["source_id"],
-                    citation_id=content["citation_id"],
-                    token_estimate=len(str(content)) // 4,
-                ))
-
-            if k_hits:
-                sources = [
-                    {
-                        "source_id": h.get("source_id", ""),
-                        "chunk_id": h.get("chunk_id", h.get("item_id", "")),
-                        "citation_id": f"K{i}",
-                        "evidence_type": "knowledge",
-                        "source_type": h.get("source_type", ""),
-                        "title": h.get("title", ""),
-                    }
-                    for i, h in enumerate(k_hits, start=1)
-                ]
-                items.append(ContextItem(
-                    item_type="retrieval_diagnostics", source="knowledge", priority=18,
-                    title="Context retrieval diagnostics",
-                    summary=f"{len(sources)} source reference(s)",
-                    content={
-                        "context_sources": sources,
-                        "retrieval_diagnostics": {"engine": "unified_bm25", "query": user_input},
-                    },
-                    sensitivity="internal", scope="workspace",
-                    token_estimate=len(str(sources)) // 4,
-                ))
         except Exception:
             pass
 

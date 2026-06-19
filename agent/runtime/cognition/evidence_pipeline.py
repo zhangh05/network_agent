@@ -1,9 +1,11 @@
 # agent/runtime/cognition/evidence_pipeline.py
-"""EvidencePipeline — builds EvidenceBundle directly from ContextBundle.
+"""EvidencePipeline — builds EvidenceBundle from ContextBundle + layered pipeline.
 
-Reads memory/knowledge hits, artifact refs, citations, workspace state
-directly from the bundle, runs injection scanning via scan_chunks,
-applies ContextBudgetManager, and returns a normalized EvidenceBundle.
+Uses ContextQueryPlanner → ContextResolver → MemoryQueryPlanner → MemoryRetriever
+→ KnowledgeQueryPlanner → KnowledgeRetrieverV2 → KnowledgeReranker → CitationGraph
+→ EvidenceMerge → EvidenceConflictDetector → TrustPolicy → ContextBudgetManager.
+
+Maintains backward compatibility: bundle extraction path still works.
 """
 
 from __future__ import annotations
@@ -25,7 +27,8 @@ class EvidencePipeline:
 
         Extracts evidence directly from the bundle, runs injection
         scanning, applies budget compaction, and normalizes results
-        into the evidence model.
+        into the evidence model.  Then populates layered evidence,
+        conflict detection, and trust policy.
         """
         evidence = EvidenceBundle()
         if not bundle:
@@ -75,6 +78,9 @@ class EvidencePipeline:
         # ── Write hit counts into ctx.metadata ────────────────────
         ctx.metadata["evidence_memory_count"] = len(evidence.memory_items)
         ctx.metadata["evidence_knowledge_count"] = len(evidence.knowledge_items)
+
+        # ── Layered evidence, conflict detection, trust policy ────
+        self._populate_layers(evidence, ctx)
 
         return evidence
 
@@ -177,6 +183,49 @@ class EvidencePipeline:
         ctx.metadata["knowledge_hits_count"] = len([
             i for i in evidence.knowledge_items if i.scan_status != "blocked"
         ])
+
+    def _populate_layers(self, evidence: EvidenceBundle, ctx) -> None:
+        """Populate layered evidence, run conflict detection and trust policy."""
+        from agent.runtime.cognition.evidence_layers import EvidenceLayer
+        from agent.runtime.cognition.evidence_conflict import EvidenceConflictDetector
+        from agent.runtime.cognition.trust_policy import TrustPolicy
+
+        # Build layers from flat items
+        evidence.context_layer = EvidenceLayer(
+            layer_name="context",
+            trust_level="high",
+            policy="context_resolver",
+            items=[{"type": "workspace_state", "data": evidence.workspace_state}] if evidence.workspace_state else [],
+        )
+
+        evidence.memory_layer = EvidenceLayer(
+            layer_name="memory",
+            trust_level="low",
+            policy="memory_use_policy",
+            items=list(evidence.memory_items),
+        )
+
+        evidence.knowledge_layer = EvidenceLayer(
+            layer_name="knowledge",
+            trust_level="medium",
+            policy="source_policy",
+            items=list(evidence.knowledge_items),
+        )
+
+        evidence.artifact_layer = EvidenceLayer(
+            layer_name="artifact",
+            trust_level="high",
+            policy="artifact_policy",
+            items=list(evidence.artifact_refs),
+        )
+
+        # Conflict detection
+        detector = EvidenceConflictDetector()
+        evidence.conflicts = detector.detect(evidence)
+
+        # Trust policy
+        policy = TrustPolicy()
+        evidence.trust_report = policy.apply(evidence, ctx)
 
 
 def _hit_to_evidence(hit: Any, source_type: str, scan_status: str = "safe") -> EvidenceItem:

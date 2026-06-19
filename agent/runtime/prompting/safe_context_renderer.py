@@ -82,6 +82,23 @@ def render_safe_context(safe_context: dict | None) -> str:
         if state:
             projected["workspace_state"] = state
 
+    # Evidence conflicts
+    evidence_conflicts = safe_context.get("evidence_conflicts")
+    if evidence_conflicts:
+        lines = ["## Evidence Conflicts"]
+        for c in list(evidence_conflicts)[:3]:
+            if isinstance(c, dict):
+                ctype = c.get("conflict_type", "unknown")
+                desc = c.get("description", "")
+                severity = c.get("severity", "warning")
+                lines.append(f"⚠ [{severity}] {ctype}: {desc[:200]}")
+        projected["evidence_conflicts_text"] = "\n".join(lines)
+
+    # Trust warnings
+    trust_warnings = safe_context.get("trust_warnings")
+    if trust_warnings:
+        projected["trust_warnings"] = _safe_prompt_value(trust_warnings, max_items=5)
+
     if not projected:
         return ""
     text = json.dumps(projected, ensure_ascii=False, sort_keys=True, default=str)
