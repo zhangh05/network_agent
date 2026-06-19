@@ -443,22 +443,26 @@ def _auto_compact_context(safe_context: dict, ctx, bundle) -> dict:
     ctx.metadata["auto_compact"] = True
     ctx.metadata["compact_pre_tokens"] = estimated
 
-    # Layer 1: trim history (drop oldest 2 turns).
-    # Drop oldest 2 unconditionally when we have at least 2 turns.
-    # The previous fallback `[ctx.history_window[-1]] if ctx.history_window else []`
-    # over-trimmed small windows (len 2-3 → kept only 1).
-    if hasattr(bundle, "compressed_items") and bundle.compressed_items:
-        history_count = len([i for i in bundle.compressed_items if getattr(i, "item_type", "") == "history_turn"])
-        if history_count > 4:
-            ctx.metadata["compact_layer"] = "trim_history"
-            ctx.metadata["compact_history_before"] = len(ctx.history_window)
-            if len(ctx.history_window) >= 2:
-                ctx.history_window = ctx.history_window[2:]
-            # else: window too small to trim safely; leave as-is
-            ctx.metadata["compact_history_after"] = len(ctx.history_window)
-            if _estimate_context_tokens(compacted) + _estimate_history_tokens(ctx.history_window) <= threshold:
-                ctx.metadata["compact_post_tokens"] = _estimate_context_tokens(compacted) + _estimate_history_tokens(ctx.history_window)
-                return compacted
+    # Layer 1: trim history (drop oldest 2 turns, but always keep >= 2 most recent).
+    #
+    # Boundary fix (Round 6 review):
+    # Previously the guard `history_count > 4` was computed from
+    # `bundle.compressed_items` (history_turn items) while the actual slice used
+    # `len(ctx.history_window)`. When the two counts diverged (e.g. compressed_items
+    # had 5 entries but ctx.history_window only 3), `[2:]` kept only the last
+    # element — losing user/assistant pairing and breaking the LLM context.
+    #
+    # Fix: guard and slice both use `len(ctx.history_window)` and we always keep
+    # at least the most recent 2 entries so user/assistant pairing is preserved.
+    if len(ctx.history_window) > 2:
+        ctx.metadata["compact_layer"] = "trim_history"
+        ctx.metadata["compact_history_before"] = len(ctx.history_window)
+        keep = max(2, len(ctx.history_window) - 2)
+        ctx.history_window = ctx.history_window[-keep:]
+        ctx.metadata["compact_history_after"] = len(ctx.history_window)
+        if _estimate_context_tokens(compacted) + _estimate_history_tokens(ctx.history_window) <= threshold:
+            ctx.metadata["compact_post_tokens"] = _estimate_context_tokens(compacted) + _estimate_history_tokens(ctx.history_window)
+            return compacted
 
     # Layer 2: drop low-score knowledge chunks
     knowledge_hits = compacted.get("knowledge_hits", [])

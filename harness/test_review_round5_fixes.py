@@ -128,8 +128,10 @@ def types_simple(**kwargs):
 class TestTrimHistoryBoundary:
     """Auto-compact trim_history must drop oldest 2 turns without over-trimming."""
 
-    def test_history_window_len_2_drops_to_empty(self):
-        # 2 items: dropping 2 leaves [] (correct, not 1)
+    def test_history_window_len_2_not_modified(self):
+        # 2 items: at the guard threshold (len > 2 is False), so we must leave
+        # the window alone — the previous "drop 2 oldest" semantics would have
+        # left [], losing the entire user/assistant pair and breaking the LLM.
         ctx = types_simple(
             model_config={"model": ""},
             history_window=[{"role": "user"}, {"role": "assistant"}],
@@ -151,14 +153,13 @@ class TestTrimHistoryBoundary:
             {"score": 0.5, "content": "x" * 30000} for _ in range(20)
         ]
         _auto_compact_context(safe_context, ctx, bundle)
-        # Window of 2 should drop to 0 (not stay at 1)
-        assert len(ctx.history_window) == 0
-        # trim_history must have actually executed (history_before > 0)
-        assert ctx.metadata.get("compact_history_before") == 2
-        assert ctx.metadata.get("compact_history_after") == 0
+        # Window of 2 is too small to trim — must remain intact so user/assistant pairing holds.
+        assert len(ctx.history_window) == 2
 
-    def test_history_window_len_3_drops_to_1(self):
-        # 3 items: dropping 2 leaves [item3] (correct)
+    def test_history_window_len_3_keeps_pairing(self):
+        # 3 items: drop 2 oldest, keep last 2 (user/assistant pair). The
+        # previous "drop 2 oldest" semantics would have left only 1 item,
+        # breaking the pairing.
         ctx = types_simple(
             model_config={"model": ""},
             history_window=[{"role": "user"}, {"role": "assistant"}, {"role": "user"}],
@@ -175,11 +176,13 @@ class TestTrimHistoryBoundary:
             "context_sources": {},
         }
         _auto_compact_context(safe_context, ctx, bundle)
-        assert len(ctx.history_window) == 1
+        # Keep the most recent 2 (user/assistant pair).
+        assert len(ctx.history_window) == 2
         assert ctx.metadata.get("compact_history_before") == 3
-        assert ctx.metadata.get("compact_history_after") == 1
+        assert ctx.metadata.get("compact_history_after") == 2
 
-    def test_history_window_len_4_drops_to_2(self):
+    def test_history_window_len_4_keeps_2(self):
+        # 4 items: drop 2 oldest, keep 2 most recent (the floor).
         ctx = types_simple(
             model_config={"model": ""},
             history_window=[{"i": i} for i in range(4)],
@@ -201,8 +204,9 @@ class TestTrimHistoryBoundary:
         assert ctx.metadata.get("compact_history_after") == 2
 
     def test_history_window_len_1_not_modified(self):
-        # 1 item: layer 1 fires (history_count>4 from bundle) but the
-        # actual window drop is guarded by len>=2 so window stays at 1.
+        # 1 item: window is too small for trim_history (Round 6 guard is
+        # `len > 2`), so trim_history does not fire at all — but later
+        # compaction layers (drop_low_score / etc.) may still run.
         ctx = types_simple(
             model_config={"model": ""},
             history_window=[{"role": "user"}],
@@ -219,14 +223,117 @@ class TestTrimHistoryBoundary:
             "context_sources": {},
         }
         _auto_compact_context(safe_context, ctx, bundle)
-        # Window of 1 cannot be trimmed by 2; leave as-is.
+        # Window of 1 cannot be trimmed — leave as-is.
         assert len(ctx.history_window) == 1
-        assert ctx.metadata.get("compact_history_before") == 1
-        assert ctx.metadata.get("compact_history_after") == 1
+        # trim_history did not run, so its metadata keys must be absent.
+        assert ctx.metadata.get("compact_history_before") is None
+        assert ctx.metadata.get("compact_history_after") is None
 
 
 def _history_turn():
     return types_simple(item_type="history_turn")
+
+
+# ─────────────────────────────────────────────────────────────────────
+# agent/runtime/context_builder.py — Round 6: history_window vs compressed_items mismatch
+# ─────────────────────────────────────────────────────────────────────
+
+class TestTrimHistoryCompressedItemsMismatch:
+    """Round 6 regression: trim_history used to compare `history_count > 4`
+    (from compressed_items) but slice `ctx.history_window[2:]` (from ctx).
+    When the two counts diverged, a 3-element history_window could lose 2
+    of 3 entries and keep only the last one, breaking user/assistant pairing.
+
+    The fix: guard and slice both use `len(ctx.history_window)`.
+    """
+
+    def test_compressed_items_huge_history_window_3_keeps_pairing(self):
+        # compressed_items has 8 history_turn items but ctx.history_window only 3.
+        # Old code: history_count=8 > 4 → enters branch → [2:] leaves 1 → broken.
+        # New code: guard is len(history_window)>2 → keep=2 → safe.
+        ctx = types_simple(
+            model_config={"model": ""},
+            history_window=[{"role": "user"}, {"role": "assistant"}, {"role": "user"}],
+            metadata={},
+        )
+        bundle = types_simple(compressed_items=[_history_turn() for _ in range(8)])
+        from agent.runtime.context_builder import _auto_compact_context
+        safe_context = {
+            "knowledge_hits": [{"score": 0.5, "content": "x" * 30000} for _ in range(20)],
+            "memory_hits": [],
+            "workspace_state": {},
+            "citations": [],
+            "retrieval_diagnostics": {},
+            "context_sources": {},
+        }
+        _auto_compact_context(safe_context, ctx, bundle)
+        # Critical: must keep 2 (user/assistant pair), NOT just 1
+        assert len(ctx.history_window) == 2
+
+    def test_compressed_items_empty_history_window_3_keeps_pairing(self):
+        # compressed_items has 0 history_turn but ctx.history_window has 3.
+        # Old code: history_count=0 NOT > 4 → skip → history_window stays 3.
+        # New code: guard is len(history_window)>2 → drop 2 oldest → keep 2.
+        ctx = types_simple(
+            model_config={"model": ""},
+            history_window=[{"i": i} for i in range(3)],
+            metadata={},
+        )
+        bundle = types_simple(compressed_items=[])  # empty
+        from agent.runtime.context_builder import _auto_compact_context
+        safe_context = {
+            "knowledge_hits": [{"score": 0.5, "content": "x" * 30000} for _ in range(20)],
+            "memory_hits": [],
+            "workspace_state": {},
+            "citations": [],
+            "retrieval_diagnostics": {},
+            "context_sources": {},
+        }
+        _auto_compact_context(safe_context, ctx, bundle)
+        # Now we DO trim because guard uses history_window length, not history_count.
+        assert len(ctx.history_window) == 2
+
+    def test_history_window_5_keeps_3(self):
+        # 5 items: keep last 3 (drop 2 oldest).
+        ctx = types_simple(
+            model_config={"model": ""},
+            history_window=[{"i": i} for i in range(5)],
+            metadata={},
+        )
+        bundle = types_simple(compressed_items=[_history_turn() for _ in range(6)])
+        from agent.runtime.context_builder import _auto_compact_context
+        safe_context = {
+            "knowledge_hits": [{"score": 0.5, "content": "x" * 30000} for _ in range(20)],
+            "memory_hits": [],
+            "workspace_state": {},
+            "citations": [],
+            "retrieval_diagnostics": {},
+            "context_sources": {},
+        }
+        _auto_compact_context(safe_context, ctx, bundle)
+        assert len(ctx.history_window) == 3
+        assert ctx.metadata.get("compact_history_before") == 5
+        assert ctx.metadata.get("compact_history_after") == 3
+
+    def test_history_window_10_keeps_8(self):
+        # 10 items: drop 2 oldest, keep 8.
+        ctx = types_simple(
+            model_config={"model": ""},
+            history_window=[{"i": i} for i in range(10)],
+            metadata={},
+        )
+        bundle = types_simple(compressed_items=[_history_turn() for _ in range(15)])
+        from agent.runtime.context_builder import _auto_compact_context
+        safe_context = {
+            "knowledge_hits": [{"score": 0.5, "content": "x" * 30000} for _ in range(20)],
+            "memory_hits": [],
+            "workspace_state": {},
+            "citations": [],
+            "retrieval_diagnostics": {},
+            "context_sources": {},
+        }
+        _auto_compact_context(safe_context, ctx, bundle)
+        assert len(ctx.history_window) == 8
 
 
 # ─────────────────────────────────────────────────────────────────────
