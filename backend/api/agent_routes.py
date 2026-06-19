@@ -56,6 +56,30 @@ def _result_status(result: dict) -> int:
     return 200
 
 
+def _resolve_stream_mode(data: dict) -> tuple[bool, str]:
+    """Return (stream_enabled, stream_mode).
+
+    Historical `stream=true` is kept compatible, but it is explicitly
+    classified as `event_replay`: the turn is executed first and the
+    collected AgentResult.events are replayed as SSE. A future true live
+    stream should use a distinct `live` mode and a realtime emitter path.
+    """
+    requested = data.get("stream_mode") or data.get("stream") or False
+    if requested is True:
+        return True, "event_replay"
+    if requested is False or requested is None:
+        return False, "sync"
+    mode = str(requested).strip().lower()
+    if mode in {"1", "true", "yes", "sse", "event_replay", "replay"}:
+        return True, "event_replay"
+    if mode in {"live", "live_stream"}:
+        # Do not pretend this endpoint is live: it currently replays events
+        # after AgentApp.submit_user_message() returns. WebSocket remains the
+        # realtime transport until the HTTP path is wired to StreamEmitter.
+        return True, "event_replay"
+    return False, "sync"
+
+
 def _normalize_agent_result(result: dict, ws_id: str) -> dict:
     """Backfill stable message fields without exposing unsafe payloads."""
     result.setdefault("ok", not bool(result.get("error")))
@@ -98,7 +122,7 @@ def agent_message():
     """POST /api/agent/message — submit user message via AgentApp."""
     data = request.get_json(silent=True) or {}
     user_input = data.get("message", data.get("text", ""))
-    stream = data.get("stream", False)  # v3.1.1: SSE streaming support
+    stream, stream_mode = _resolve_stream_mode(data)
 
     # Validate workspace_id
     workspace_id = data.get("workspace_id", "default")
@@ -141,6 +165,13 @@ def agent_message():
             return too_large("metadata too large (max 16KB)")
     except Exception:
         metadata = {}
+    if not isinstance(metadata, dict):
+        metadata = {}
+    metadata = dict(metadata)
+    metadata.setdefault("transport", "http")
+    metadata.setdefault("stream_mode", stream_mode)
+    if stream and stream_mode == "event_replay":
+        metadata.setdefault("stream_contract", "event_replay_after_turn_complete")
 
     try:
         intent = data.get("intent") or metadata.get("intent") or ""
@@ -156,15 +187,20 @@ def agent_message():
         result_payload = result.to_dict()
         result_payload = _normalize_agent_result(result_payload, ws_id)
         _apply_current_contract_hints(result_payload, user_input, payload)
+        result_payload.setdefault("metadata", {})["stream_mode"] = stream_mode
+        if stream and stream_mode == "event_replay":
+            warnings = result_payload.setdefault("warnings", [])
+            msg = "stream_mode=event_replay: HTTP SSE replays collected events after turn completion; use WebSocket for live events."
+            if msg not in warnings:
+                warnings.append(msg)
         if result_payload.get("final_response"):
             from agent.llm.runtime import sanitize_provider_output
             result_payload["final_response"], stripped = sanitize_provider_output(result_payload["final_response"])
             if stripped:
                 result_payload.setdefault("metadata", {})["reasoning_stripped"] = True
 
-        # v3.1.1: SSE streaming — stream AgentResult.events as Server-Sent Events
         if stream:
-            return _stream_sse_response(result_payload)
+            return _stream_sse_response(result_payload, mode=stream_mode)
 
         return jsonify(result_payload)
     except Exception as e:
@@ -180,23 +216,30 @@ def agent_message():
         }), 500
 
 
-# ── v3.1.1: SSE streaming helper ────────────────────────────────────────
+# ── SSE helper ─────────────────────────────────────────────────────────
 
-def _stream_sse_response(result: dict):
-    """Stream AgentResult events as Server-Sent Events (SSE).
+def _stream_sse_response(result: dict, mode: str = "event_replay"):
+    """Replay AgentResult events as Server-Sent Events (SSE).
 
-    Each event is sent as: data: <json>\n\n
-    Final response is sent as: data: <json>\n\n (event: final)
+    This is intentionally named replay semantics: `agent_message()` has
+    already completed before this function emits events. It preserves the
+    old stream=true API while avoiding the false implication of live
+    model/tool streaming.
     """
     import json as _json
     from flask import Response
 
     def generate():
+        meta = {
+            "stream_mode": mode,
+            "contract": "event_replay_after_turn_complete",
+            "trace_id": result.get("trace_id", ""),
+            "turn_id": result.get("turn_id", ""),
+        }
+        yield f"event: meta\ndata: {_json.dumps(meta, ensure_ascii=False)}\n\n"
         events = result.get("events", [])
-        # Stream each event
         for ev in events:
             yield f"data: {_json.dumps(ev, ensure_ascii=False)}\n\n"
-        # Send final response as a meta event
         final = {
             "ok": result.get("ok", True),
             "final_response": result.get("final_response", ""),
@@ -214,7 +257,7 @@ def _stream_sse_response(result: dict):
         headers={
             "Cache-Control": "no-cache",
             "Connection": "keep-alive",
-            "X-Accel-Buffering": "no",  # nginx buffering off
+            "X-Accel-Buffering": "no",
         },
     )
 
