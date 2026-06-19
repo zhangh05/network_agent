@@ -256,11 +256,10 @@ class TestPromptCompiler:
 # ── E. No legacy compat entries in old modules ─────────────────────
 
 class TestNoLegacyCompat:
-    def test_tool_visibility_policy_emptied(self):
-        """tool_visibility_policy.py should not export BASELINE_READ_TOOLS."""
-        import agent.runtime.tool_visibility_policy as mod
-        assert not hasattr(mod, "BASELINE_READ_TOOLS")
-        assert not hasattr(mod, "LOCAL_OPS_TOOLS")
+    def test_tool_visibility_policy_removed(self):
+        """tool_visibility_policy.py must be deleted (migrated to tool_planning/visibility.py)."""
+        from pathlib import Path
+        assert not Path("agent/runtime/tool_visibility_policy.py").exists()
 
     def test_new_visibility_canonical(self):
         """New canonical path exports the policy constants."""
@@ -435,10 +434,10 @@ class TestNoLegacyCompatExtended:
         import agent.runtime.prompts as mod
         assert not hasattr(mod, "build_system_prompt")
 
-    def test_no_deterministic_plan_from_rule_scene(self):
-        """tool_planner.py must not export deterministic_plan_from_rule_scene alias."""
-        import agent.runtime.tool_planner as mod
-        assert not hasattr(mod, "deterministic_plan_from_rule_scene")
+    def test_legacy_tool_planner_removed(self):
+        """tool_planner.py must be deleted (migrated to tool_planning/)."""
+        from pathlib import Path
+        assert not Path("agent/runtime/tool_planner.py").exists()
 
     def test_no_backward_compatible_fields_in_router(self):
         """tool_category_router.py must not have 'Backward-compatible fields' comment."""
@@ -520,23 +519,6 @@ class TestRefactorArchitecture:
         source = inspect.getsource(context_budget)
         assert "context_compaction" not in source
         assert "auto_compact_context" not in source
-
-    def test_tool_planner_no_plan_tools(self):
-        """tool_planner.py must not define plan_tools or deterministic_plan_tools."""
-        import agent.runtime.tool_planner as mod
-        assert not hasattr(mod, "plan_tools")
-        assert not hasattr(mod, "deterministic_plan_tools")
-
-    def test_tool_planner_no_helper_functions(self):
-        """tool_planner.py must not have migrated helper functions."""
-        import agent.runtime.tool_planner as mod
-        for name in ("_governance_filtered_tools", "_available_canonical_tools",
-                      "_capability_steps_from_rule_scene", "_step_required",
-                      "_needs_file_clarification", "_finalize_plan", "_ordered_unique",
-                      "_action_class_filter", "_tool_chain_from_plan",
-                      "_categories_groups_from_tools", "_SIGNAL_DISPATCH",
-                      "PLANNER_VERSION", "MAX_CANDIDATE_TOOLS"):
-            assert not hasattr(mod, name), f"tool_planner.py still exports {name}"
 
     def test_tool_planning_no_old_tool_planner_import(self):
         """No module under tool_planning/ should import from agent.runtime.tool_planner."""
