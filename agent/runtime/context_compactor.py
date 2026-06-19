@@ -7,11 +7,17 @@ Strategy:
 - Strip secrets/tokens/passwords/api_keys/source_config/raw_config
 - Never compact system prompt or current user message
 - Returns compaction metadata
+
+v3.1.1: CompactionStrategy enum + structured metrics
+- fast_eviction: deterministic summary replacement (default, sub-ms)
+- llm_summary: LLM-based summarization (slower, higher quality, optional)
 """
 
 from __future__ import annotations
 
+import enum
 import json
+import time
 from typing import Any
 
 # ── Forbidden keys in any compacted context ──
@@ -19,6 +25,86 @@ FORBIDDEN_KEYS = {
     "secret", "password", "token", "api_key", "private_key",
     "source_config", "raw_config", "ssh_key", "credentials",
 }
+
+
+class CompactionStrategy(str, enum.Enum):
+    """Strategy used to compact history.
+
+    - fast_eviction: replace old messages with deterministic summaries
+                     (no LLM call, ~0ms, used by default in token_manager).
+    - llm_summary:   call LLM to summarize older messages into a coherent
+                     paragraph (slower, higher quality, opt-in).
+    """
+    FAST_EVICTION = "fast_eviction"
+    LLM_SUMMARY = "llm_summary"
+
+
+class CompactionMetric:
+    """Structured metric record for a single compaction event.
+
+    Designed to be JSON-serializable for logs and frontend dashboards.
+    """
+    __slots__ = (
+        "strategy",
+        "trigger",            # "auto" | "manual"
+        "threshold_pct",      # e.g. 75.0
+        "original_messages",
+        "original_estimated_tokens",
+        "compacted_messages",
+        "compacted_estimated_tokens",
+        "compacted_message_count",
+        "duration_ms",
+        "reference_context_item_id",
+        "ts",
+    )
+
+    def __init__(
+        self,
+        strategy: CompactionStrategy,
+        trigger: str,
+        threshold_pct: float,
+        original_messages: int,
+        original_estimated_tokens: int,
+        compacted_messages: int,
+        compacted_estimated_tokens: int,
+        compacted_message_count: int,
+        duration_ms: float,
+        reference_context_item_id: str = "",
+        ts: str = "",
+    ) -> None:
+        self.strategy = strategy
+        self.trigger = trigger
+        self.threshold_pct = threshold_pct
+        self.original_messages = original_messages
+        self.original_estimated_tokens = original_estimated_tokens
+        self.compacted_messages = compacted_messages
+        self.compacted_estimated_tokens = compacted_estimated_tokens
+        self.compacted_message_count = compacted_message_count
+        self.duration_ms = round(duration_ms, 2)
+        self.reference_context_item_id = reference_context_item_id
+        self.ts = ts
+
+    @property
+    def retention_ratio(self) -> float:
+        if self.original_estimated_tokens <= 0:
+            return 0.0
+        return round(self.compacted_estimated_tokens / self.original_estimated_tokens, 3)
+
+    def to_dict(self) -> dict:
+        return {
+            "strategy": self.strategy.value,
+            "trigger": self.trigger,
+            "threshold_pct": self.threshold_pct,
+            "original_messages": self.original_messages,
+            "original_estimated_tokens": self.original_estimated_tokens,
+            "compacted_messages": self.compacted_messages,
+            "compacted_estimated_tokens": self.compacted_estimated_tokens,
+            "compacted_message_count": self.compacted_message_count,
+            "duration_ms": self.duration_ms,
+            "reference_context_item_id": self.reference_context_item_id,
+            "retention_ratio": self.retention_ratio,
+            "ts": self.ts,
+        }
 
 
 def estimate_context_size(messages: list) -> int:
@@ -107,17 +193,41 @@ def _message_content(msg) -> str:
     return str(msg)
 
 
-def compact_messages(messages: list, keep_recent: int = 6) -> tuple[list, dict]:
+def compact_messages(
+    messages: list,
+    keep_recent: int = 6,
+    strategy: CompactionStrategy = CompactionStrategy.FAST_EVICTION,
+    trigger: str = "auto",
+    threshold_pct: float = 75.0,
+) -> tuple[list, dict]:
     """Compact message list.
 
-    Returns (compacted_messages, metadata).
+    Returns (compacted_messages, metadata). metadata includes:
+      - strategy: CompactionStrategy used
+      - trigger: "auto" | "manual"
+      - threshold_pct: trigger threshold at the time of compaction
+      - compacted_message_count: how many messages were replaced
+      - original_estimated_tokens / compacted_estimated_tokens
+      - reference_context_item_id: id of the first kept message (context anchor)
+      - duration_ms: time spent compacting
+      - retention_ratio: compacted/original token ratio
+
+    Rules:
     - Keeps system messages intact
     - Keeps most recent keep_recent messages intact
     - Replaces older non-system messages with deterministic summaries
     - Never compacts the last user message
     """
+    from datetime import datetime, timezone
+
+    t0 = time.perf_counter()
     if not messages or len(messages) <= keep_recent:
-        return messages, {"compacted": False, "reason": "below_threshold"}
+        return messages, {
+            "compacted": False,
+            "reason": "below_threshold",
+            "strategy": strategy.value,
+            "duration_ms": round((time.perf_counter() - t0) * 1000, 2),
+        }
 
     # Find the user message position (must not be compacted)
     user_positions = [
@@ -154,13 +264,59 @@ def compact_messages(messages: list, keep_recent: int = 6) -> tuple[list, dict]:
             compacted_count += 1
 
     new_est = estimate_context_size(compacted)
+    duration_ms = round((time.perf_counter() - t0) * 1000, 2)
+
+    # ── Reference context item: first kept non-system message ──
+    ref_id = ""
+    for m in compacted:
+        if isinstance(m, dict) and not _is_system_message(m):
+            mid = m.get("message_id") or m.get("id") or m.get("run_id") or ""
+            if mid:
+                ref_id = str(mid)
+                break
+        elif hasattr(m, "message_id"):
+            ref_id = str(getattr(m, "message_id", "") or "")
+            if ref_id:
+                break
 
     return compacted, {
         "compacted": True,
+        "strategy": strategy.value,
+        "trigger": trigger,
+        "threshold_pct": threshold_pct,
         "compacted_message_count": compacted_count,
         "original_estimated_tokens": original_est,
         "compacted_estimated_tokens": new_est,
+        "duration_ms": duration_ms,
+        "reference_context_item_id": ref_id,
+        "retention_ratio": round(new_est / original_est, 3) if original_est > 0 else 0.0,
+        "ts": datetime.now(timezone.utc).isoformat(),
     }
+
+
+def build_compaction_metric(
+    meta: dict,
+    strategy: CompactionStrategy,
+    trigger: str,
+    threshold_pct: float,
+    original_messages: int,
+    reference_context_item_id: str = "",
+) -> CompactionMetric:
+    """Build a CompactionMetric from compact_messages() metadata."""
+    from datetime import datetime, timezone
+    return CompactionMetric(
+        strategy=strategy,
+        trigger=trigger,
+        threshold_pct=threshold_pct,
+        original_messages=original_messages,
+        original_estimated_tokens=int(meta.get("original_estimated_tokens", 0)),
+        compacted_messages=original_messages - int(meta.get("compacted_message_count", 0)),
+        compacted_estimated_tokens=int(meta.get("compacted_estimated_tokens", 0)),
+        compacted_message_count=int(meta.get("compacted_message_count", 0)),
+        duration_ms=float(meta.get("duration_ms", 0.0)),
+        reference_context_item_id=meta.get("reference_context_item_id") or reference_context_item_id,
+        ts=meta.get("ts", "") or datetime.now(timezone.utc).isoformat(),
+    )
 
 
 def _build_deterministic_summary(msg) -> dict:

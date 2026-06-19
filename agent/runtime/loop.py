@@ -914,13 +914,67 @@ def _apply_manual_compact(session, turn, messages):
         return
 
     try:
-        from agent.runtime.context_compactor import compact_messages
-        compacted, meta = compact_messages(messages, keep_recent=6)
+        from agent.runtime.context_compactor import (
+            compact_messages,
+            CompactionStrategy,
+            build_compaction_metric,
+        )
+        from agent.hooks import HookEvent
+
+        original_message_count = len(messages)
+        strategy = CompactionStrategy.FAST_EVICTION
+
+        # ── PRE_COMPACT hook (Codex pattern) ──
+        try:
+            from agent.hooks_integration import get_hook_registry
+            registry = get_hook_registry()
+            state = {"session": session, "turn": turn}
+            pre_outcome = registry.run_hooks(
+                HookEvent.PRE_COMPACT,
+                state,
+                {
+                    "strategy": strategy.value,
+                    "trigger": "manual",
+                    "threshold_pct": 0.0,
+                    "original_messages": original_message_count,
+                    "manual_compact": True,
+                },
+                target="context",
+            )
+            if pre_outcome.should_stop:
+                turn.warnings.append("manual_compact_skipped: pre_compact_hook stopped")
+                return
+        except Exception:
+            pass
+
+        compacted, meta = compact_messages(
+            messages,
+            keep_recent=6,
+            strategy=strategy,
+            trigger="manual",
+            threshold_pct=0.0,
+        )
         if meta.get('compacted'):
             messages[:] = compacted
             if hasattr(session, 'metadata'):
                 session.metadata['manual_compact_requested'] = False
                 session.metadata['manual_compact_applied'] = True
+
+            # ── Build structured metric ──
+            metric = build_compaction_metric(
+                meta,
+                strategy=strategy,
+                trigger="manual",
+                threshold_pct=0.0,
+                original_messages=original_message_count,
+            )
+            metric_dict = metric.to_dict()
+
+            if hasattr(turn, 'metadata'):
+                for k, v in metric_dict.items():
+                    turn.metadata[k] = v
+                turn.metadata['reference_context_item_id'] = metric.reference_context_item_id
+
             try:
                 import json as _json
                 from pathlib import Path
@@ -930,9 +984,30 @@ def _apply_manual_compact(session, turn, messages):
                     disk_meta2 = _json.loads(meta_path2.read_text(encoding='utf-8'))
                     disk_meta2.pop('manual_compact_requested', None)
                     disk_meta2['manual_compact_applied'] = True
+                    # Persist the structured metric and reference id
+                    disk_meta2['last_compaction'] = metric_dict
+                    disk_meta2['reference_context_item_id'] = metric.reference_context_item_id
                     meta_path2.write_text(_json.dumps(disk_meta2, ensure_ascii=False, indent=2), encoding='utf-8')
             except Exception:
                 pass
-            turn.warnings.append(f"manual_compact_applied: {meta.get('compacted_message_count')} msgs")
+
+            # ── POST_COMPACT hook (Codex pattern) ──
+            try:
+                registry.run_hooks(
+                    HookEvent.POST_COMPACT,
+                    state,
+                    metric_dict,
+                    target="context",
+                )
+            except Exception:
+                pass
+
+            turn.warnings.append(
+                f"manual_compact_applied[{strategy.value}]: "
+                f"{meta.get('compacted_message_count')} msgs, "
+                f"tokens {meta.get('original_estimated_tokens')} → "
+                f"{meta.get('compacted_estimated_tokens')} "
+                f"({metric.duration_ms}ms, ref={metric.reference_context_item_id or '-'})"
+            )
     except Exception as e:
         turn.warnings.append(f"manual_compact_failed: {e}")
