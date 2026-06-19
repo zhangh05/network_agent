@@ -443,13 +443,18 @@ def _auto_compact_context(safe_context: dict, ctx, bundle) -> dict:
     ctx.metadata["auto_compact"] = True
     ctx.metadata["compact_pre_tokens"] = estimated
 
-    # Layer 1: trim history (drop oldest 2 turns)
+    # Layer 1: trim history (drop oldest 2 turns).
+    # Drop oldest 2 unconditionally when we have at least 2 turns.
+    # The previous fallback `[ctx.history_window[-1]] if ctx.history_window else []`
+    # over-trimmed small windows (len 2-3 → kept only 1).
     if hasattr(bundle, "compressed_items") and bundle.compressed_items:
         history_count = len([i for i in bundle.compressed_items if getattr(i, "item_type", "") == "history_turn"])
         if history_count > 4:
             ctx.metadata["compact_layer"] = "trim_history"
             ctx.metadata["compact_history_before"] = len(ctx.history_window)
-            ctx.history_window = ctx.history_window[2:] if len(ctx.history_window) >= 4 else [ctx.history_window[-1]] if ctx.history_window else []
+            if len(ctx.history_window) >= 2:
+                ctx.history_window = ctx.history_window[2:]
+            # else: window too small to trim safely; leave as-is
             ctx.metadata["compact_history_after"] = len(ctx.history_window)
             if _estimate_context_tokens(compacted) + _estimate_history_tokens(ctx.history_window) <= threshold:
                 ctx.metadata["compact_post_tokens"] = _estimate_context_tokens(compacted) + _estimate_history_tokens(ctx.history_window)

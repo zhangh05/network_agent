@@ -47,12 +47,64 @@ from agent.runtime.permission_check import (
     build_permission_denied_result, build_shell_denied_result,
 )
 
-MAX_STEPS = 8
+MAX_STEPS = 8  # default; per-turn / per-session / env override via _resolve_max_steps()
+
+# v5.0.0: MAX_STEPS is now configurable through three layers (highest wins):
+#   1. env var AGENT_MAX_STEPS               — operator-level ops override
+#   2. turn.metadata["max_steps"]            — per-turn override (e.g. agent.team spawns)
+#   3. session.metadata["max_steps"]         — per-session override
+#   4. MAX_STEPS module constant (8)         — default fallback
+# Sub-agents get a stricter upper bound (32) regardless of override to keep
+# recursion depth bounded.
+import os as _os
+
+MAX_STEPS_ENV = int(_os.getenv("AGENT_MAX_STEPS", "0") or 0)
+MAX_STEPS_SUBAGENT_CEILING = int(_os.getenv("AGENT_MAX_STEPS_SUBAGENT_CEILING", "32") or 32)
+
+
+def _coerce_int_steps(value, default: int) -> int:
+    """Coerce arbitrary metadata / env value to a positive int with sane bounds.
+
+    Returns default when value is None / unparseable / out of [1, 1024].
+    """
+    if value is None:
+        return default
+    try:
+        n = int(value)
+    except (TypeError, ValueError):
+        return default
+    if n < 1 or n > 1024:
+        return default
+    return n
+
+
+def _resolve_max_steps(session=None, turn=None, *, is_sub_agent: bool = False) -> int:
+    """Resolve the effective MAX_STEPS for a turn.
+
+    Precedence (highest wins): turn.metadata > session.metadata > env > module default.
+    Sub-agent turns are additionally capped at MAX_STEPS_SUBAGENT_CEILING.
+    """
+    default = MAX_STEPS
+    # 1. env override
+    if MAX_STEPS_ENV > 0:
+        default = MAX_STEPS_ENV
+    # 2. per-session metadata
+    sess_meta = getattr(session, 'metadata', None)
+    if isinstance(sess_meta, dict):
+        default = _coerce_int_steps(sess_meta.get('max_steps'), default)
+    # 3. per-turn metadata (highest priority)
+    turn_meta = getattr(turn, 'metadata', None)
+    if isinstance(turn_meta, dict):
+        default = _coerce_int_steps(turn_meta.get('max_steps'), default)
+    # Sub-agent safety ceiling
+    if is_sub_agent and default > MAX_STEPS_SUBAGENT_CEILING:
+        default = MAX_STEPS_SUBAGENT_CEILING
+    return default
+
 
 # v3.2.0 (Guardian): approval wait timeout is configurable per-agent-class.
 # Sub-agents get a shorter window so a slow parent agent doesn't accumulate
 # approval waits across turns. Env vars override the defaults.
-import os as _os
 
 _APPROVAL_TIMEOUT_DEFAULT_S = float(_os.getenv("APPROVAL_TIMEOUT_DEFAULT_S", "120"))
 _APPROVAL_TIMEOUT_SUBAGENT_S = float(_os.getenv("APPROVAL_TIMEOUT_SUBAGENT_S", "30"))
@@ -189,7 +241,21 @@ def run_turn(session, turn, services=None, restricted_tool_router=None) -> Agent
     final_response = ""
     _tool_stop_requested = False
 
-    while step < MAX_STEPS:
+    # v5.0.0: resolve effective MAX_STEPS once per turn (env > session > turn > default).
+    # Sub-agents additionally capped via restricted_tool_router detection below.
+    _is_sub_agent_turn = bool(
+        isinstance(getattr(session, 'metadata', None), dict)
+        and session.metadata.get('is_sub_agent')
+    )
+    _max_steps = _resolve_max_steps(
+        session=session, turn=turn, is_sub_agent=_is_sub_agent_turn,
+    )
+    if _max_steps != MAX_STEPS:
+        turn.warnings.append(
+            f"max_steps_override: {_max_steps} (default={MAX_STEPS})"
+        )
+
+    while step < _max_steps:
         step += 1
 
         # audit: model_request_started
@@ -491,11 +557,11 @@ def run_turn(session, turn, services=None, restricted_tool_router=None) -> Agent
 
     # Max steps exceeded
     turn.status = "finished"
-    turn.warnings.append(f"max_steps ({MAX_STEPS}) reached — partial result")
+    turn.warnings.append(f"max_steps ({_max_steps}) reached — partial result")
     if audit_events:
         audit_events.emit("turn_finished", session_id=session.session_id, turn_id=turn.turn_id,
                           warning="max_steps exceeded")
-    emitter.emit(StreamEvent.ERROR, {"error_type": "max_steps", "steps": MAX_STEPS, "message": f"已达到最大步数 ({MAX_STEPS})，返回部分结果"})
+    emitter.emit(StreamEvent.ERROR, {"error_type": "max_steps", "steps": _max_steps, "message": f"已达到最大步数 ({_max_steps})，返回部分结果"})
     stream_events = emitter.to_events()
     _partial = AgentResult(
         ok=True,
@@ -503,12 +569,12 @@ def run_turn(session, turn, services=None, restricted_tool_router=None) -> Agent
         session_id=session.session_id,
         turn_id=turn.turn_id,
         trace_id=context.trace_id,
-        warnings=[f"max_steps ({MAX_STEPS}) reached — partial result"],
+        warnings=[f"max_steps ({_max_steps}) reached — partial result"],
         events=stream_events,
         metadata=enrich_metadata({
             "terminal_reason": "max_steps_exceeded",
             "partial": True,
-            "steps": MAX_STEPS,
+            "steps": _max_steps,
         }, context),
     )
     persist_run_record(session, turn, _partial, context)

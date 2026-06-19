@@ -497,6 +497,11 @@ def _reg(tool_id, name, category, risk_level, description, handler,
         tags=[risk_level, category],
         permission_action=permission_action,
     )
+    # v5.0.0: skip duplicate tool_ids to prevent the same handler being
+    # registered twice (which would surface two entries with different
+    # category labels in legacy consumers iterating ALL_GENERAL_TOOLS).
+    if any(existing.tool_id == tool_id for existing, _ in ALL_GENERAL_TOOLS):
+        return spec
     ALL_GENERAL_TOOLS.append((spec, _wrap_general_handler(tool_id, handler)))
     return spec
 

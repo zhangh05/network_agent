@@ -8,8 +8,14 @@ and trace ID generation for turn-level observability.
 import time
 import uuid
 from dataclasses import dataclass, field
+from datetime import datetime, timezone
 from functools import wraps
 from typing import Any, Callable, Optional
+
+
+def _now_iso() -> str:
+    """UTC ISO 8601 timestamp (with timezone offset). Same convention as context_store._now_iso."""
+    return datetime.now(timezone.utc).isoformat()
 
 
 # ═══════════════════════════
@@ -289,9 +295,16 @@ class StreamEmitter:
 
         Args:
             event_type: One of the StreamEvent constants.
-            data: Event payload dict. A 'timestamp' key is added automatically.
+            data: Event payload dict. The following keys are added automatically:
+                - ``timestamp``     — float seconds since epoch (for sortability / duration math)
+                - ``timestamp_iso`` — UTC ISO 8601 string (for human-readable audit logs)
         """
-        event = {"type": event_type, "timestamp": time.time(), **data}
+        event = {
+            "type": event_type,
+            "timestamp": time.time(),
+            "timestamp_iso": _now_iso(),
+            **data,
+        }
         self._events.append(event)
         # Push to thread-local realtime callback if registered
         cb = StreamEmitter._get_realtime()

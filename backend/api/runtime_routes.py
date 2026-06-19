@@ -7,6 +7,7 @@ import uuid
 import threading
 from collections import OrderedDict
 from datetime import datetime, timezone
+from pathlib import Path
 
 from flask import jsonify, request
 
@@ -19,17 +20,19 @@ _tool_exec_history = OrderedDict()
 _tool_approvals = OrderedDict()
 _lock = threading.Lock()
 
-_HISTORY_FILE = os.path.join(os.path.dirname(__file__), '..', '..', 'data', 'tool_history.json')
-_APPROVALS_FILE = os.path.join(os.path.dirname(__file__), '..', '..', 'data', 'tool_approvals.json')
+_HISTORY_FILE = Path(__file__).resolve().parent.parent.parent / 'data' / 'tool_history.json'
+_APPROVALS_FILE = Path(__file__).resolve().parent.parent.parent / 'data' / 'tool_approvals.json'
 
 
 def _persist_history():
+    # v5.0.0: write through workspace.atomic_io for crash-safe persistence
+    # (was a non-atomic open(...).write(...), which could leave the JSON
+    # half-written if the process was killed mid-flush).
     with _lock:
         snapshot = list(_tool_exec_history.values())
     try:
-        os.makedirs(os.path.dirname(_HISTORY_FILE), exist_ok=True)
-        with open(_HISTORY_FILE, 'w') as f:
-            json.dump(snapshot, f, indent=2, ensure_ascii=False)
+        from workspace.atomic_io import atomic_write_json
+        atomic_write_json(_HISTORY_FILE, snapshot, indent=2)
     except Exception:
         pass
 
@@ -38,32 +41,26 @@ def _persist_approvals():
     with _lock:
         snapshot = list(_tool_approvals.values())
     try:
-        os.makedirs(os.path.dirname(_APPROVALS_FILE), exist_ok=True)
-        with open(_APPROVALS_FILE, 'w') as f:
-            json.dump(snapshot, f, indent=2, ensure_ascii=False)
+        from workspace.atomic_io import atomic_write_json
+        atomic_write_json(_APPROVALS_FILE, snapshot, indent=2)
     except Exception:
         pass
 
 
 def _load_persisted():
-    try:
-        if os.path.exists(_HISTORY_FILE):
-            with open(_HISTORY_FILE) as f:
-                items = json.load(f) or []
-            for item in items:
+    from workspace.atomic_io import safe_read_json
+    items = safe_read_json(_HISTORY_FILE, default=[]) or []
+    if isinstance(items, list):
+        for item in items:
+            if isinstance(item, dict):
                 _tool_exec_history[item.get('invocation_id', '')] = item
-    except Exception:
-        pass
-    try:
-        if os.path.exists(_APPROVALS_FILE):
-            with open(_APPROVALS_FILE) as f:
-                items = json.load(f) or []
-            for item in items:
+    items = safe_read_json(_APPROVALS_FILE, default=[]) or []
+    if isinstance(items, list):
+        for item in items:
+            if isinstance(item, dict):
                 approval_id = item.get('approval_id', '')
                 if approval_id:
                     _tool_approvals[approval_id] = item
-    except Exception:
-        pass
 
 
 _load_persisted()
