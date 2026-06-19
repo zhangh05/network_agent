@@ -23,21 +23,11 @@ from agent.runtime.context_tools import (
     build_base_tool_router,
     persist_tool_scene_to_session,
 )
+from agent.runtime.state.hooks import prepare_runtime_state_for_turn, runtime_state_prompt_block
 
 
 def build_turn_context(session, turn, services) -> TurnContext:
-    """Build complete TurnContext for a turn execution.
-
-    Pipeline order:
-    1. Create TurnContext
-    2. model_config / history / base router
-    3. select_skills
-    4. SceneDecision (via decide_scene)
-    5. EvidencePipeline → EvidenceBundle
-    6. ToolPlannerV2(scene_decision, evidence_bundle)
-    7. Set tool_router visible tools
-    8. runtime_snapshot / safe_context / metadata
-    """
+    """Build complete TurnContext for a turn execution."""
     ctx = TurnContext(
         turn_id=turn.turn_id,
         session_id=session.session_id,
@@ -45,6 +35,7 @@ def build_turn_context(session, turn, services) -> TurnContext:
         trace_id=str(uuid.uuid4()),
         user_input=turn.op.user_input if turn.op else "",
     )
+    setattr(ctx, "session", session)
     ctx.metadata["context_status"] = "building"
 
     if bool(getattr(session, "is_sub_agent", False)):
@@ -67,6 +58,9 @@ def build_turn_context(session, turn, services) -> TurnContext:
 
     # ── 4. SceneDecision (via decide_scene) ───────────────────────
     ctx.scene_decision = _compute_scene_decision(ctx, session)
+
+    # ── 4b. RuntimeState / TaskWorkflow pre-prompt hook ───────────
+    _prepare_runtime_state(ctx, session)
 
     # ── 5-6. EvidencePipeline → EvidenceBundle
     evidence_bundle = _build_evidence(ctx, turn, selected_skills, services)
@@ -105,6 +99,7 @@ def build_turn_context(session, turn, services) -> TurnContext:
     ctx.runtime_snapshot = snapshot.to_dict()
 
     ctx.safe_context = _safe_context_from_evidence(ctx, evidence_bundle)
+    _inject_runtime_state_snapshot(ctx)
     if tool_scene:
         ctx.safe_context["tool_scene"] = tool_scene
         ctx.safe_context["tool_plan"] = tool_scene.get("tool_plan", [])
@@ -187,6 +182,15 @@ def _compute_scene_decision(ctx, session):
         return None
 
 
+def _prepare_runtime_state(ctx, session) -> None:
+    try:
+        prepare_runtime_state_for_turn(ctx, session=session)
+        ctx.metadata["runtime_state_status"] = "ok"
+    except Exception as exc:
+        ctx.metadata["runtime_state_status"] = "failed"
+        ctx.metadata.setdefault("context_errors", []).append(f"runtime_state: {exc!s}"[:200])
+
+
 def _build_evidence(ctx, turn, selected_skills: list[str], services=None):
     """Run EvidencePipeline to produce EvidenceBundle."""
     from agent.runtime.cognition.evidence_pipeline import EvidencePipeline
@@ -209,12 +213,17 @@ def _safe_context_from_evidence(ctx, evidence_bundle) -> dict:
     return safe
 
 
-def _plan_tools_v2(ctx, evidence_bundle, session, services, selected_skills: list[str]) -> dict:
-    """Use ToolPlannerV2 to plan tools from SceneDecision + EvidenceBundle.
+def _inject_runtime_state_snapshot(ctx) -> None:
+    block = runtime_state_prompt_block(ctx)
+    if not block:
+        return
+    ctx.safe_context["runtime_state_snapshot"] = ctx.metadata.get("runtime_state_snapshot", {})
+    ctx.safe_context["runtime_state_summary"] = ctx.metadata.get("runtime_state_snapshot_summary", "")
+    ctx.safe_context["runtime_state_section"] = block
 
-    Returns a dict with selected_visible_tools, dynamic_visibility, tool_scene,
-    rule_tool_scene, and warnings.
-    """
+
+def _plan_tools_v2(ctx, evidence_bundle, session, services, selected_skills: list[str]) -> dict:
+    """Use ToolPlannerV2 to plan tools from SceneDecision + EvidenceBundle."""
     result = {
         "selected_visible_tools": [],
         "dynamic_visibility": False,
