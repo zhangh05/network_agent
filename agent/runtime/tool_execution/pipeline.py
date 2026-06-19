@@ -1,31 +1,36 @@
 # agent/runtime/tool_execution/pipeline.py
-"""ToolExecutionPipeline — orchestrates tool chain: pre_tool → permission → risk → approval → dispatch → post_tool → append."""
+"""ToolExecutionPipeline — orchestrates tool chain via ActionExecutor.
+
+v3: ActionExecutor is the PRIMARY tool execution path.
+Flow: pre_tool_hook → ActionPlanner.plan → ActionExecutor.execute
+      → action_result_to_tool_result → post_tool_hook → append_tool_result.
+"""
 
 import json
+import time
 
 from agent.protocol.message import ToolResultMessage
 from agent.protocol.tool_result import ToolResult
 from agent.runtime.hook_runner import run_pre_tool_hook, run_post_tool_hook
 from agent.runtime.query_engine import StreamEvent
 
-from agent.runtime.tool_execution.permission_stage import PermissionStage
-from agent.runtime.tool_execution.risk_stage import RiskStage
-from agent.runtime.tool_execution.approval_stage import ApprovalStage
-from agent.runtime.tool_execution.dispatch_stage import DispatchStage
 from agent.runtime.tool_execution.result_stage import ResultStage, append_tool_result
 from agent.runtime.tool_execution.unknown_tool_stage import handle_unknown_tool
 from agent.runtime.tool_execution.catalog_stage import expand_tools_from_catalog_result
+
+from agent.runtime.actions.planner import ActionPlanner
+from agent.runtime.actions.executor import ActionExecutor
+from agent.runtime.actions.result import action_result_to_tool_result
 
 
 class ToolExecutionPipeline:
     """Orchestrate the full tool chain for a set of tool calls."""
 
     def __init__(self):
-        self._permission = PermissionStage()
-        self._risk = RiskStage()
-        self._approval = ApprovalStage()
-        self._dispatch = DispatchStage()
         self._result = ResultStage()
+        # Action execution kernel
+        self._action_planner = ActionPlanner()
+        self._action_executor = ActionExecutor()
 
     def run(self, state, resp, events):
         """Execute all tool calls from the model response.
@@ -93,7 +98,7 @@ class ToolExecutionPipeline:
         return tool_stop_requested
 
     def _execute_single(self, state, tool_call, tc, events, step):
-        """Execute a single tool call through the chain.
+        """Execute a single tool call through ActionExecutor.
 
         Returns (result, should_skip, should_stop).
         """
@@ -115,33 +120,37 @@ class ToolExecutionPipeline:
         if hook_input and isinstance(hook_input, dict):
             tool_call.arguments.update(hook_input)
 
-        # 2. Permission check
-        denied_result, denied, requires_approval, spec, risk_level = self._permission.run(
-            state, tool_call, events, step)
-        if denied:
-            append_tool_result(denied_result, tool_call, tc, state.all_tool_results, state.messages)
-            return denied_result, True, False  # skip
+        # 2. Plan
+        call_id = tc.id if hasattr(tc, 'id') else tc.get("id", "")
+        llm_name = tc.name if hasattr(tc, 'name') else tc.get("name", "unknown")
+        turn_id = getattr(state.turn, 'turn_id', '')
+        action_plan = self._action_planner.plan(
+            tool_call_id=call_id,
+            tool_name=llm_name,
+            tool_id=tid,
+            arguments=dict(tool_call.arguments),
+            turn_id=turn_id,
+            raw_call=tc,
+            context=getattr(state, 'context', None),
+        )
 
-        # 3. Approval gate (includes shell safety and risk analysis)
-        from agent.runtime.permission_check import needs_approval as _needs_approval
-        if _needs_approval(tid, spec, risk_level, requires_approval):
-            # Run risk analysis first
-            risk_result, risk_blocked, arg_source, arg_risk = self._risk.run(
-                state, tool_call, spec, risk_level, events, step)
-            if risk_blocked:
-                append_tool_result(risk_result, tool_call, tc, state.all_tool_results, state.messages)
-                return risk_result, True, False  # skip
+        # 3. Execute via ActionExecutor (risk → approval → dispatch → normalize → scan → audit → evidence)
+        action_result = self._action_executor.execute(
+            action_plan,
+            tool_call=tool_call,
+            ctx=getattr(state, 'context', None),
+            state=state,
+            events=events,
+            step=step,
+        )
 
-            # Run approval
-            apr_result, apr_denied = self._approval.run(
-                state, tool_call, spec, risk_level, requires_approval,
-                arg_source, arg_risk, events, step)
-            if apr_denied:
-                append_tool_result(apr_result, tool_call, tc, state.all_tool_results, state.messages)
-                return apr_result, True, False  # skip
+        # 4. Convert ActionResult → ToolResult for pipeline compatibility
+        result = action_result_to_tool_result(action_result)
 
-        # 4. Dispatch
-        result = self._dispatch.run(state, tool_call, events, step)
+        # If blocked or approval_pending, skip further processing
+        if action_result.status in ("blocked", "approval_pending"):
+            append_tool_result(result, tool_call, tc, state.all_tool_results, state.messages)
+            return result, True, False  # skip
 
         # 5. Post-tool hook
         post_stop = run_post_tool_hook(state.session, tid, result, state.turn)
