@@ -33,11 +33,10 @@ def build_turn_context(session, turn, services) -> TurnContext:
     2. model_config / history / base router
     3. select_skills
     4. SceneDecision (via decide_scene)
-    5. build ContextBundle
-    6. EvidencePipeline → EvidenceBundle
-    7. ToolPlannerV2(scene_decision, evidence_bundle)
-    8. Set tool_router visible tools
-    9. runtime_snapshot / safe_context / metadata
+    5. EvidencePipeline → EvidenceBundle
+    6. ToolPlannerV2(scene_decision, evidence_bundle)
+    7. Set tool_router visible tools
+    8. runtime_snapshot / safe_context / metadata
     """
     ctx = TurnContext(
         turn_id=turn.turn_id,
@@ -69,8 +68,8 @@ def build_turn_context(session, turn, services) -> TurnContext:
     # ── 4. SceneDecision (via decide_scene) ───────────────────────
     ctx.scene_decision = _compute_scene_decision(ctx, session)
 
-    # ── 5-6. build ContextBundle → EvidencePipeline → EvidenceBundle
-    evidence_bundle = _build_evidence(ctx, turn, selected_skills)
+    # ── 5-6. EvidencePipeline → EvidenceBundle
+    evidence_bundle = _build_evidence(ctx, turn, selected_skills, services)
 
     # ── 7. ToolPlannerV2(scene_decision, evidence_bundle) ─────────
     plan_result = _plan_tools_v2(ctx, evidence_bundle, session, services, selected_skills)
@@ -188,38 +187,18 @@ def _compute_scene_decision(ctx, session):
         return None
 
 
-def _build_evidence(ctx, turn, selected_skills: list[str]):
-    """Build ContextBundle and run EvidencePipeline to produce EvidenceBundle."""
+def _build_evidence(ctx, turn, selected_skills: list[str], services=None):
+    """Run EvidencePipeline to produce EvidenceBundle."""
     from agent.runtime.cognition.evidence_pipeline import EvidencePipeline
 
+    pipeline = EvidencePipeline()
     try:
-        from context.builder import build_context_bundle
-        from context.schemas import ContextBudget
-
-        derived_intent = ctx.metadata.get("intent", "")
-        if not derived_intent and selected_skills:
-            for s in selected_skills:
-                if s not in ("assistant_chat", "capability_discovery"):
-                    derived_intent = s
-                    break
-        derived_cap = ctx.metadata.get("capability_id", "") or derived_intent
-        bundle = build_context_bundle(
-            workspace_id=ctx.workspace_id,
-            user_input=ctx.user_input or "",
-            intent=derived_intent,
-            capability_id=derived_cap,
-            budget=ContextBudget(),
-            run_id=turn.turn_id if turn else "",
-            trace_id=ctx.trace_id,
-        )
-        ctx.metadata["safe_context_status"] = "ok"
+        return pipeline.build(ctx, services=services)
     except Exception as e:
         ctx.metadata["safe_context_status"] = "failed"
         ctx.metadata.setdefault("context_errors", []).append(str(e)[:200])
-        bundle = None
-
-    pipeline = EvidencePipeline()
-    return pipeline.build(bundle, ctx)
+        from agent.runtime.cognition.evidence_models import EvidenceBundle
+        return EvidenceBundle()
 
 
 def _safe_context_from_evidence(ctx, evidence_bundle) -> dict:

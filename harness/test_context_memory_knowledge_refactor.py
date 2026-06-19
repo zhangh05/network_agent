@@ -239,12 +239,12 @@ class TestEvidenceMerge:
         assert len(bundle.citations) == 1
 
         # Layer fields populated
-        assert bundle._context_layer.layer_name == "context"
-        assert bundle._memory_layer.layer_name == "memory"
-        assert bundle._knowledge_layer.layer_name == "knowledge"
-        assert bundle._artifact_layer.layer_name == "artifact"
-        assert bundle._memory_layer.count == 1
-        assert bundle._knowledge_layer.count == 1
+        assert bundle.context_layer.layer_name == "context"
+        assert bundle.memory_layer.layer_name == "memory"
+        assert bundle.knowledge_layer.layer_name == "knowledge"
+        assert bundle.artifact_layer.layer_name == "artifact"
+        assert bundle.memory_layer.count == 1
+        assert bundle.knowledge_layer.count == 1
 
     def test_merge_empty_inputs(self):
         from agent.runtime.cognition.evidence_merge import EvidenceMerge
@@ -463,3 +463,179 @@ class TestImportability:
         ctx = TurnContext()
         assert hasattr(ctx, "context_frame")
         assert ctx.context_frame is None
+
+
+# ── 11. Source code cleanliness ────────────────────────────────────
+
+class TestSourceCodeCleanliness:
+    def test_evidence_pipeline_no_safe_llm_context(self):
+        """EvidencePipeline source must not reference safe_llm_context."""
+        import inspect
+        import agent.runtime.cognition.evidence_pipeline as mod
+        source = inspect.getsource(mod)
+        assert "safe_llm_context" not in source
+
+    def test_context_builder_no_build_context_bundle(self):
+        """ContextBuilder source must not import or call build_context_bundle."""
+        import inspect
+        import agent.runtime.context_builder as mod
+        source = inspect.getsource(mod)
+        assert "build_context_bundle" not in source
+
+    def test_context_builder_py_no_memory_knowledge_hits(self):
+        """context/builder.py must not assemble memory_hits or knowledge_hits."""
+        import inspect
+        import context.builder as mod
+        source = inspect.getsource(mod)
+        assert "memory_hits" not in source
+        assert "knowledge_hits" not in source
+
+    def test_evidence_merge_no_private_layer_fields(self):
+        """EvidenceMerge must use public layer fields (no underscore prefix)."""
+        import inspect
+        import agent.runtime.cognition.evidence_merge as mod
+        source = inspect.getsource(mod)
+        assert "_context_layer" not in source
+        assert "_memory_layer" not in source
+        assert "_knowledge_layer" not in source
+        assert "_artifact_layer" not in source
+
+    def test_evidence_pipeline_no_backward_compat_text(self):
+        """EvidencePipeline must not mention 'Maintains backward compatibility'."""
+        import inspect
+        import agent.runtime.cognition.evidence_pipeline as mod
+        source = inspect.getsource(mod)
+        assert "Maintains backward" not in source
+
+
+# ── 12. Pipeline call order (monkeypatch) ──────────────────────────
+
+class TestPipelineCallOrder:
+    def test_pipeline_calls_all_stages(self, monkeypatch):
+        """EvidencePipeline.build() must call all pipeline stages in order."""
+        call_log = []
+
+        from agent.core.turn_context import TurnContext
+        ctx = TurnContext(workspace_id="test_ws", user_input="test")
+        ctx.metadata = {}
+
+        import agent.runtime.context.query_plan as cqp_mod
+        import agent.runtime.context.resolver as cr_mod
+        import agent.runtime.memory.query_planner as mqp_mod
+        import agent.runtime.memory.retriever as mr_mod
+        import agent.runtime.knowledge.query_planner as kqp_mod
+        import agent.runtime.knowledge.retriever as kr_mod
+        import agent.runtime.knowledge.reranker as krr_mod
+        import agent.runtime.knowledge.citation as cg_mod
+        import agent.runtime.cognition.evidence_merge as em_mod
+        import agent.runtime.cognition.evidence_conflict as ec_mod
+        import agent.runtime.cognition.trust_policy as tp_mod
+        import agent.runtime.cognition.context_budget as cb_mod
+
+        originals = {
+            "ContextQueryPlanner.plan": cqp_mod.ContextQueryPlanner.plan,
+            "ContextResolver.resolve": cr_mod.ContextResolver.resolve,
+            "MemoryQueryPlanner.plan": mqp_mod.MemoryQueryPlanner.plan,
+            "MemoryRetriever.retrieve": mr_mod.MemoryRetriever.retrieve,
+            "KnowledgeQueryPlanner.plan": kqp_mod.KnowledgeQueryPlanner.plan,
+            "KnowledgeRetrieverV2.retrieve": kr_mod.KnowledgeRetrieverV2.retrieve,
+            "KnowledgeReranker.rerank": krr_mod.KnowledgeReranker.rerank,
+            "CitationGraph.build": cg_mod.CitationGraph.build,
+            "EvidenceMerge.merge": em_mod.EvidenceMerge.merge,
+            "EvidenceConflictDetector.detect": ec_mod.EvidenceConflictDetector.detect,
+            "TrustPolicy.apply": tp_mod.TrustPolicy.apply,
+            "ContextBudgetManager.apply": cb_mod.ContextBudgetManager.apply,
+        }
+
+        def make_wrapper(name, orig):
+            def wrapper(self, *a, **kw):
+                call_log.append(name)
+                return orig(self, *a, **kw)
+            return wrapper
+
+        monkeypatch.setattr(cqp_mod.ContextQueryPlanner, "plan", make_wrapper("ContextQueryPlanner.plan", originals["ContextQueryPlanner.plan"]))
+        monkeypatch.setattr(cr_mod.ContextResolver, "resolve", make_wrapper("ContextResolver.resolve", originals["ContextResolver.resolve"]))
+        monkeypatch.setattr(mqp_mod.MemoryQueryPlanner, "plan", make_wrapper("MemoryQueryPlanner.plan", originals["MemoryQueryPlanner.plan"]))
+        monkeypatch.setattr(mr_mod.MemoryRetriever, "retrieve", make_wrapper("MemoryRetriever.retrieve", originals["MemoryRetriever.retrieve"]))
+        monkeypatch.setattr(kqp_mod.KnowledgeQueryPlanner, "plan", make_wrapper("KnowledgeQueryPlanner.plan", originals["KnowledgeQueryPlanner.plan"]))
+        monkeypatch.setattr(kr_mod.KnowledgeRetrieverV2, "retrieve", make_wrapper("KnowledgeRetrieverV2.retrieve", originals["KnowledgeRetrieverV2.retrieve"]))
+        monkeypatch.setattr(krr_mod.KnowledgeReranker, "rerank", make_wrapper("KnowledgeReranker.rerank", originals["KnowledgeReranker.rerank"]))
+        monkeypatch.setattr(cg_mod.CitationGraph, "build", make_wrapper("CitationGraph.build", originals["CitationGraph.build"]))
+        monkeypatch.setattr(em_mod.EvidenceMerge, "merge", make_wrapper("EvidenceMerge.merge", originals["EvidenceMerge.merge"]))
+        monkeypatch.setattr(ec_mod.EvidenceConflictDetector, "detect", make_wrapper("EvidenceConflictDetector.detect", originals["EvidenceConflictDetector.detect"]))
+        monkeypatch.setattr(tp_mod.TrustPolicy, "apply", make_wrapper("TrustPolicy.apply", originals["TrustPolicy.apply"]))
+        monkeypatch.setattr(cb_mod.ContextBudgetManager, "apply", make_wrapper("ContextBudgetManager.apply", originals["ContextBudgetManager.apply"]))
+
+        from agent.runtime.cognition.evidence_pipeline import EvidencePipeline
+        pipeline = EvidencePipeline()
+        pipeline.build(ctx)
+
+        expected = [
+            "ContextQueryPlanner.plan",
+            "ContextResolver.resolve",
+            "MemoryQueryPlanner.plan",
+            "MemoryRetriever.retrieve",
+            "KnowledgeQueryPlanner.plan",
+            "KnowledgeRetrieverV2.retrieve",
+            "KnowledgeReranker.rerank",
+            "CitationGraph.build",
+            "EvidenceMerge.merge",
+            "EvidenceConflictDetector.detect",
+            "TrustPolicy.apply",
+            "ContextBudgetManager.apply",
+        ]
+        assert call_log == expected, f"Call order mismatch: {call_log}"
+
+
+# ── 13. QueryPlan metadata written to ctx ──────────────────────────
+
+class TestQueryPlanMetadata:
+    def test_pipeline_writes_all_metadata(self):
+        """EvidencePipeline must write query plans and counts to ctx.metadata."""
+        from agent.core.turn_context import TurnContext
+        from agent.runtime.cognition.evidence_pipeline import EvidencePipeline
+
+        ctx = TurnContext(workspace_id="test_ws", user_input="test query")
+        ctx.metadata = {}
+
+        pipeline = EvidencePipeline()
+        pipeline.build(ctx)
+
+        assert "context_query_plan" in ctx.metadata
+        assert "memory_query_plan" in ctx.metadata
+        assert "knowledge_query_plan" in ctx.metadata
+        assert "evidence_conflicts" in ctx.metadata
+        assert "trust_report" in ctx.metadata
+        assert "evidence_memory_count" in ctx.metadata
+        assert "evidence_knowledge_count" in ctx.metadata
+        assert "safe_context_status" in ctx.metadata
+        assert ctx.metadata["safe_context_status"] == "ok"
+
+    def test_pipeline_sets_context_frame(self):
+        """EvidencePipeline must set ctx.context_frame."""
+        from agent.core.turn_context import TurnContext
+        from agent.runtime.cognition.evidence_pipeline import EvidencePipeline
+
+        ctx = TurnContext(workspace_id="test_ws", user_input="test")
+        ctx.metadata = {}
+
+        pipeline = EvidencePipeline()
+        pipeline.build(ctx)
+
+        assert ctx.context_frame is not None
+
+    def test_context_query_plan_is_dict(self):
+        """context_query_plan metadata must be a dict with plan fields."""
+        from agent.core.turn_context import TurnContext
+        from agent.runtime.cognition.evidence_pipeline import EvidencePipeline
+
+        ctx = TurnContext(workspace_id="test_ws", user_input="hello")
+        ctx.metadata = {}
+
+        pipeline = EvidencePipeline()
+        pipeline.build(ctx)
+
+        plan = ctx.metadata["context_query_plan"]
+        assert isinstance(plan, dict)
+        assert "include_workspace" in plan
+        assert "reason" in plan

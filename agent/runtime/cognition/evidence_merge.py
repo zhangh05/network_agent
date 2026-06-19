@@ -107,11 +107,11 @@ class EvidenceMerge:
         if scan_reports:
             evidence.scan_reports = list(scan_reports)
 
-        # -- Attach layers (stored in metadata until evidence_models is updated) --
-        evidence._context_layer = context_layer
-        evidence._memory_layer = memory_layer
-        evidence._knowledge_layer = knowledge_layer
-        evidence._artifact_layer = artifact_layer
+        # -- Attach layers --
+        evidence.context_layer = context_layer
+        evidence.memory_layer = memory_layer
+        evidence.knowledge_layer = knowledge_layer
+        evidence.artifact_layer = artifact_layer
 
         return evidence
 
