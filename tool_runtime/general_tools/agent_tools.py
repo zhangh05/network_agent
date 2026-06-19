@@ -111,7 +111,9 @@ def handle_agent_team(inv: ToolInvocation) -> dict:
                 f"Plan the execution of this task. Break it into subtasks. "
                 f"Do NOT execute — only produce a structured plan.\n\n"
                 f"Task: {instruction}\n\n"
-                f"Output your plan as a numbered list of subtasks. Each subtask should be specific and actionable."
+                f"Output your plan STRICTLY as a JSON array of objects: "
+                f'[{{"id": "1", "task": "..."}}, {{"id": "2", "task": "..."}}]. '
+                f"Each subtask should be specific and actionable. Do not add prose."
             )
             plan_result = run_sub_agent(
                 instruction=plan_instruction,
@@ -122,14 +124,19 @@ def handle_agent_team(inv: ToolInvocation) -> dict:
             )
             if plan_result.get("ok"):
                 result["plan"] = plan_result.get("final_response", "") or plan_result.get("summary", "")
-                # Parse subtasks from plan output (numbered list detection)
+                # v3.2.0 (Guardian): parse JSON subtasks, fall back to numbered list.
                 plan_text = result["plan"]
-                for line in plan_text.split("\n"):
-                    stripped = line.strip()
-                    if stripped and (stripped[0].isdigit() and (". " in stripped or ") " in stripped or "、".encode() in stripped.encode())):
-                        task = stripped.split(". ", 1)[-1].split(") ", 1)[-1].split("、", 1)[-1].strip()
-                        if task:
-                            subtasks.append(task)
+                parsed_json = _parse_planner_json(plan_text)
+                if parsed_json is not None:
+                    subtasks = parsed_json
+                else:
+                    # Legacy fallback: numbered list (kept for LLM compatibility).
+                    for line in plan_text.split("\n"):
+                        stripped = line.strip()
+                        if stripped and (stripped[0].isdigit() and (". " in stripped or ") " in stripped or "、".encode() in stripped.encode())):
+                            task = stripped.split(". ", 1)[-1].split(") ", 1)[-1].split("、", 1)[-1].strip()
+                            if task:
+                                subtasks.append(task)
             else:
                 result["plan"] = f"Planner failed: {plan_result.get('error', 'unknown')}"
             result["roles_used"].append("planner")
@@ -299,4 +306,82 @@ def handle_agent_get_result(inv: ToolInvocation) -> dict:
     except Exception as e:
         return _error_inv(inv, str(e)[:200])
 
-__all__ = ['handle_agent_spawn', 'handle_agent_list_roles', 'handle_agent_team', 'handle_agent_get_result']
+__all__ = ['handle_agent_spawn', 'handle_agent_list_roles', 'handle_agent_team', 'handle_agent_get_result', '_parse_planner_json']
+
+
+def _parse_planner_json(plan_text: str):
+    """v3.2.0 (Guardian): extract subtasks from planner JSON output.
+
+    Accepts either:
+      - a bare JSON array: [{"task": "..."}]
+      - JSON wrapped in ```json ... ``` fences
+      - a top-level object with a "subtasks" key
+      - surrounding prose (we find the first JSON array/object span)
+
+    Returns a list of subtask strings, or None if no JSON could be parsed.
+    The caller falls back to numbered-list parsing in that case.
+    """
+    import json as _json
+    import re
+
+    if not plan_text:
+        return None
+
+    text = plan_text.strip()
+
+    # Strip ```json fences
+    fence_match = re.search(r"```(?:json)?\s*(\[.*?\]|\{.*?\})\s*```", text, re.DOTALL)
+    if fence_match:
+        text = fence_match.group(1)
+
+    # Try parsing directly
+    candidates: list = []
+    try:
+        candidates.append(_json.loads(text))
+    except Exception:
+        pass
+
+    # Find first balanced array/object span
+    if not candidates:
+        for opener, closer in (("[", "]"), ("{", "}")):
+            start = text.find(opener)
+            if start == -1:
+                continue
+            depth = 0
+            for i in range(start, len(text)):
+                if text[i] == opener:
+                    depth += 1
+                elif text[i] == closer:
+                    depth -= 1
+                    if depth == 0:
+                        snippet = text[start:i + 1]
+                        try:
+                            candidates.append(_json.loads(snippet))
+                        except Exception:
+                            pass
+                        break
+
+    for obj in candidates:
+        if isinstance(obj, list):
+            tasks = []
+            for item in obj:
+                if isinstance(item, dict) and item.get("task"):
+                    tasks.append(str(item["task"]).strip())
+                elif isinstance(item, str):
+                    tasks.append(item.strip())
+            tasks = [t for t in tasks if t]
+            if tasks:
+                return tasks[:10]  # cap to 10 to bound parallel fan-out
+        elif isinstance(obj, dict):
+            sub = obj.get("subtasks") or obj.get("tasks") or obj.get("plan")
+            if isinstance(sub, list) and sub:
+                tasks = []
+                for item in sub:
+                    if isinstance(item, dict) and item.get("task"):
+                        tasks.append(str(item["task"]).strip())
+                    elif isinstance(item, str):
+                        tasks.append(item.strip())
+                tasks = [t for t in tasks if t]
+                if tasks:
+                    return tasks[:10]
+    return None

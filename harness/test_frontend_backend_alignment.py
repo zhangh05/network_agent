@@ -217,7 +217,10 @@ def _frontend_url_references() -> list[tuple[str, str, str, int]]:
     """Return (method, url, file, line) for frontend API URL literals."""
     root = Path(__file__).resolve().parents[1]
     files = list((root / "frontend" / "src").rglob("*.ts")) + list((root / "frontend" / "src").rglob("*.tsx"))
-    url_pat = re.compile(r"url:\s*(`[^`]+`|'[^']+'|\"[^\"]+\")")
+    # v3.2.0: tolerate template literals with nested expressions / inner backticks
+    # (e.g. ``${qs ? `/foo?${qs}` : "/foo"}``). Match the outer backticks first
+    # and resolve nested expressions inside before extracting the URL skeleton.
+    url_pat = re.compile(r"url:\s*(`[^`\\]+(?:\\.[^`\\]*)*`|'[^']+'|\"[^\"]+\")")
     refs: list[tuple[str, str, str, int]] = []
     for path in files:
         text = path.read_text(encoding="utf-8", errors="ignore")

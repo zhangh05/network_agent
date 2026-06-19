@@ -49,6 +49,19 @@ from agent.runtime.permission_check import (
 
 MAX_STEPS = 8
 
+# v3.2.0 (Guardian): approval wait timeout is configurable per-agent-class.
+# Sub-agents get a shorter window so a slow parent agent doesn't accumulate
+# approval waits across turns. Env vars override the defaults.
+import os as _os
+
+_APPROVAL_TIMEOUT_DEFAULT_S = float(_os.getenv("APPROVAL_TIMEOUT_DEFAULT_S", "120"))
+_APPROVAL_TIMEOUT_SUBAGENT_S = float(_os.getenv("APPROVAL_TIMEOUT_SUBAGENT_S", "30"))
+
+
+def _get_approval_timeout(is_sub_agent: bool = False) -> float:
+    """Return the approval-wait timeout for this agent class."""
+    return _APPROVAL_TIMEOUT_SUBAGENT_S if is_sub_agent else _APPROVAL_TIMEOUT_DEFAULT_S
+
 
 def run_turn(session, turn, services=None, restricted_tool_router=None) -> AgentResult:
     """Execute a single turn: user message → LLM → tools → LLM → ... → final answer.
@@ -698,8 +711,11 @@ def _execute_tool_chain(tool_call, tc, context, session, turn, step,
         emitter.emit(StreamEvent.APPROVAL_REQUIRED, {"approval_id": apr.approval_id, "tool_id": apr.tool_id})
         run_approval_hook(session, "required", apr.approval_id, apr.tool_id, context)
 
-        # Non-blocking: wait up to 60s for user approval
-        allowed = store.wait(apr.approval_id, timeout=60.0)
+        # Non-blocking: wait up to APPROVAL_TIMEOUT_S for user approval.
+        # Sub-agents (is_sub_agent) get the shorter window so a slow parent
+        # agent doesn't accumulate approval waits across turns.
+        timeout = _get_approval_timeout(is_sub_agent=bool(getattr(session, 'metadata', {}) or {}).get('is_sub_agent'))
+        allowed = store.wait(apr.approval_id, timeout=timeout)
         store.cleanup(apr.approval_id)
 
         if not allowed:

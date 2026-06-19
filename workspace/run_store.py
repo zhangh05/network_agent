@@ -244,3 +244,62 @@ def get_last_run(ws_id: str = "default") -> Optional[dict]:
     """Get the most recent run record."""
     runs = list_runs(ws_id, limit=1)
     return runs[0] if runs else None
+
+
+def write_sub_agent_run(
+    ws_id: str,
+    child_session_id: str,
+    parent_run_id: str,
+    child_run_id: str,
+    instruction: str,
+    ok: bool,
+    final_response: str,
+    tool_calls_count: int,
+    steps: int,
+    visible_tool_ids: list,
+) -> str:
+    """v3.2.0 (Guardian): write a structured run record for a sub-agent.
+
+    Sub-agents normally re-use the main `write_run_record` path indirectly
+    via their inner `run_turn`. This helper captures the *parent-visible*
+    audit footprint: who spawned whom, with what tools, and what the child
+    returned. The record uses the parent_run_id as the canonical run_id so
+    a sub-agent invocation is a single line in the parent timeline.
+    """
+    from workspace.manager import ensure_workspace
+    from memory.redaction import redact_text
+    ws_id = ensure_workspace(ws_id)
+
+    run_dir = WS_ROOT / ws_id / "runs"
+    run_id = parent_run_id
+    created_at = time.strftime("%Y-%m-%dT%H:%M:%S")
+
+    record = {
+        "run_id": run_id,
+        "workspace_id": ws_id,
+        "session_id": child_session_id,
+        "request_id": child_run_id,
+        "created_at": created_at,
+        "started_at": created_at,
+        "finished_at": time.strftime("%Y-%m-%dT%H:%M:%S"),
+        "kind": "sub_agent",
+        "is_sub_agent": True,
+        "parent_run_id": parent_run_id,
+        "child_run_id": child_run_id,
+        "child_session_id": child_session_id,
+        "user_input_summary": redact_text(instruction or "")[:300],
+        "intent": "sub_agent",
+        "status": "ok" if ok else "error",
+        "final_response_summary": redact_text(final_response or "")[:500],
+        "tool_calls_count": tool_calls_count,
+        "steps": steps,
+        "visible_tool_ids": list(visible_tool_ids or [])[:200],
+        "sensitivity": "internal",
+        "redaction_applied": True,
+    }
+
+    run_dir.mkdir(parents=True, exist_ok=True)
+    (run_dir / f"{run_id}.json").write_text(
+        json.dumps(record, indent=2, ensure_ascii=False)
+    )
+    return run_id

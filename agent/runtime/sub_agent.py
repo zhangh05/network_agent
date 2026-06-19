@@ -6,6 +6,7 @@ a child session, and a hard turn limit. It returns compressed results to the
 parent agent.
 """
 
+import time
 import uuid
 from pathlib import Path
 from typing import List, Optional
@@ -243,13 +244,47 @@ def run_sub_agent(instruction: str, workspace_id: str,
         sub_ok = False
         final_response = f"Sub-agent execution failed: {str(e)[:500]}"
     finally:
-        # Cleanup: soft-delete orphaned child session
-        if child_session_id and isinstance(child_session_id, str) and len(child_session_id) >= 8:
-            try:
-                from workspace.session_store import soft_delete_session
-                soft_delete_session(child_session_id, workspace_id)
-            except Exception:
-                pass
+        # v3.2.0 (Guardian): keep the child session + write a structured run
+        # record so parents and humans can audit what sub-agents actually did.
+        # The session metadata tags it as a sub-agent; the run record carries
+        # parent_run_id / child_run_id / visible_tool_ids.
+        try:
+            if child_session_id:
+                from workspace.session_store import update_session
+                update_session(
+                    child_session_id, workspace_id,
+                    metadata={
+                        "is_sub_agent": True,
+                        "parent_run_id": parent_run_id,
+                        "child_run_id": child_run_id,
+                        "parent_session_id": parent_session_id,
+                        "tool_calls_count": tool_calls_count,
+                        "steps": steps,
+                        "ok": sub_ok,
+                        "finished_at": time.time(),
+                    },
+                    title=f"sub_agent_{child_run_id}",
+                )
+        except Exception:
+            pass
+
+        # Structured run record (visible via /api/workspaces/{ws}/runs).
+        try:
+            from workspace.run_store import write_sub_agent_run
+            write_sub_agent_run(
+                ws_id=workspace_id,
+                child_session_id=child_session_id or f"sub_{child_run_id}",
+                parent_run_id=parent_run_id,
+                child_run_id=child_run_id,
+                instruction=instruction,
+                ok=sub_ok,
+                final_response=final_response[:5000],
+                tool_calls_count=tool_calls_count,
+                steps=steps,
+                visible_tool_ids=visible_tool_ids,
+            )
+        except Exception:
+            pass
 
     return {
         "ok": sub_ok,

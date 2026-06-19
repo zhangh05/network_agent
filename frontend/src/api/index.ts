@@ -808,7 +808,38 @@ export const approvalApi = {
       url: `/agent/approvals/${approvalId}/resolve`,
       data: { allowed },
     }),
+
+  history: (params: { sessionId?: string; toolId?: string; limit?: number } = {}): Promise<{
+    ok: boolean;
+    history: Array<Record<string, unknown>>;
+    count: number;
+  }> => {
+    const q = new URLSearchParams();
+    if (params.sessionId) q.set("session_id", params.sessionId);
+    if (params.toolId) q.set("tool_id", params.toolId);
+    if (params.limit) q.set("limit", String(params.limit));
+    const qs = q.toString();
+    const url = qs ? `/agent/approvals/history?${qs}` : "/agent/approvals/history";
+    return apiRequest({
+      method: "GET",
+      url,
+    });
+  },
 };
+
+/** Open the Guardian SSE stream. Returns an EventSource that the caller must close. */
+export function openApprovalStream(onEvent: (e: { kind: string; approval_id: string; session_id: string; tool_id: string; allowed: boolean; ts: number }) => void, onError?: (err: Event) => void): EventSource {
+  const es = new EventSource("/api/agent/approvals/sse");
+  es.onmessage = (ev) => {
+    try {
+      onEvent(JSON.parse(ev.data));
+    } catch {
+      /* ignore malformed payload */
+    }
+  };
+  if (onError) es.onerror = onError;
+  return es;
+}
 
 /* ──────────────────────── 12. system status ──────────────────────── */
 
