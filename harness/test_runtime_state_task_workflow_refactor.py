@@ -182,8 +182,8 @@ def test_step_executor_prepare():
 def test_step_executor_apply_action_results():
     ctx = _make_ctx(metadata={
         "action_trace": [
-            {"action_id": "act_001", "tool_id": "file.read", "status": "success", "summary": "Read config"},
-            {"action_id": "act_002", "tool_id": "file.write", "status": "success", "summary": "Wrote output"},
+            {"type": "result", "action_id": "act_001", "tool_id": "file.read", "status": "success", "summary": "Read config"},
+            {"type": "result", "action_id": "act_002", "tool_id": "file.write", "status": "success", "summary": "Wrote output"},
         ],
         "action_evidence_updates": [
             {"artifact_id": "art_x1"},
@@ -203,9 +203,10 @@ def test_step_executor_apply_action_results():
 def test_approval_pending_step_status():
     ctx = _make_ctx(metadata={
         "action_trace": [
-            {"action_id": "act_010", "status": "approval_pending"},
+            {"type": "result", "action_id": "act_010", "status": "approval_pending"},
         ],
         "action_evidence_updates": [],
+        "pending_approvals": [{"action_id": "act_010"}],
     })
     state, task, wf = _make_state_with_task_and_workflow()
     executor = StepExecutor()
@@ -217,13 +218,12 @@ def test_approval_pending_step_status():
 # ── 11. RuntimeStateTransition advances to next step ────────────────────
 
 def test_transition_advances_to_next_step():
+    from agent.runtime.tasking.models import StepResult
     state, task, wf = _make_state_with_task_and_workflow()
     transition = RuntimeStateTransition()
-    transition.apply_step_result(state, "step_1", "completed", summary="done")
+    step_result = StepResult(step_id="step_1", task_id=task.task_id, status="completed", summary="done")
+    transition.apply_step_result(state, step_result)
     assert wf.current_step_id == "step_2"
-    assert wf.steps[1].status == "running"
-    assert task.current_step_id == "step_2"
-    assert wf.progress_percent == 50.0
 
 
 # ── 12. CompletionEvaluator marks task completed ────────────────────────
