@@ -60,8 +60,8 @@ MAX_CANDIDATE_TOOLS = 24
 # are intentionally supported by the product, but they are exposed only when
 # the routed scene explicitly requests local operations / diagnostics.
 #
-# v3.2: Policy constants and helpers live in tool_visibility_policy.py.
-from agent.runtime.tool_visibility_policy import (
+# v3.3: Policy constants and helpers live in tool_planning/visibility.py.
+from agent.runtime.tool_planning.visibility import (
     BASELINE_READ_TOOLS,
     LOCAL_OPS_TOOLS,
     scene_allows_local_ops,
@@ -276,9 +276,6 @@ def deterministic_plan_tools(
     return plan
 
 
-# v3.1: compatibility name — no duplicate code
-deterministic_plan_from_rule_scene = deterministic_plan_tools
-
 
 def llm_plan_tools(
     user_input: str,
@@ -293,82 +290,8 @@ def llm_plan_tools(
     return None
 
 
-def validate_tool_plan(
-    plan: dict,
-    available_canonical_tools: set[str],
-    *,
-    user_input: str = "",
-) -> tuple[bool, list[str]]:
-    """Validate a tool plan. Returns (is_valid, messages).
-
-    v3.1: consolidated validation — single pass over steps and capability_plan.
-    """
-    errors: list[str] = []
-    warnings: list[str] = []
-    candidate_tools = list(plan.get("candidate_tools") or [])
-    candidate_set = set(candidate_tools)
-
-    # ── Candidate-level checks ──
-    missing = [tid for tid in candidate_tools if tid not in available_canonical_tools]
-    if missing:
-        errors.append(f"candidate_tools_not_canonical_or_unknown:{missing}")
-
-    if len(candidate_tools) != len(candidate_set):
-        errors.append("candidate_tools_duplicate")
-    if len(candidate_tools) > MAX_CANDIDATE_TOOLS:
-        warnings.append(f"candidate_tools_large:{len(candidate_tools)}")
-
-    governed_out = [
-        f"{tid}:{_cached_governance_entry(tid).status}"
-        for tid in candidate_tools
-        if tid in available_canonical_tools and not is_planner_visible(tid)
-    ]
-    if governed_out:
-        errors.append(f"governance_not_planner_visible:{governed_out}")
-
-    # ── Step-level checks (single pass) ──
-    steps = list(plan.get("tool_plan") or [])
-    expected_steps = list(range(1, len(steps) + 1))
-    actual_steps = [int(step.get("step", 0) or 0) for step in steps]
-    if actual_steps != expected_steps:
-        errors.append(f"steps_not_consecutive:{actual_steps}")
-
-    for step in steps:
-        step_no = int(step.get("step", 0) or 0)
-        tools = list(step.get("tool_candidates") or [])
-        outside = [tid for tid in tools if tid not in candidate_set]
-        if outside:
-            errors.append(f"step_{step_no}_tools_not_in_candidates:{outside}")
-        unknown = [tid for tid in tools if tid not in available_canonical_tools]
-        if unknown:
-            errors.append(f"step_{step_no}_tools_unknown:{unknown}")
-        deps = list(step.get("depends_on") or [])
-        bad_deps = [dep for dep in deps if not isinstance(dep, int) or dep >= step_no or dep < 1]
-        if bad_deps:
-            errors.append(f"step_{step_no}_invalid_depends_on:{bad_deps}")
-
-    # ── Capability plan checks ──
-    capability_plan = list(plan.get("capability_plan") or [])
-    capability_steps_list = [int(step.get("step", 0) or 0) for step in capability_plan]
-    if capability_plan and capability_steps_list != expected_steps:
-        errors.append(f"capability_steps_not_consecutive:{capability_steps_list}")
-    for step in capability_plan:
-        step_no = int(step.get("step", 0) or 0)
-        action_id = str(step.get("capability_action", ""))
-        if not action_exists(action_id):
-            errors.append(f"capability_action_unknown:{action_id}")
-        preferred = list(step.get("preferred_tools") or step.get("tools") or [])
-        outside = [tid for tid in preferred if tid not in candidate_set]
-        if outside:
-            errors.append(f"capability_step_{step_no}_tools_not_in_candidates:{outside}")
-
-    # ── Category/group consistency ──
-    errors.extend(_validate_categories_groups(plan, candidate_tools))
-
-    # ── Domain-specific semantic checks ──
-    errors.extend(_semantic_checks(user_input, candidate_set))
-
-    return not errors, [*errors, *warnings]
+# v3.3: validate_tool_plan moved to tool_planning/validation.py.
+from agent.runtime.tool_planning.validation import validate_tool_plan
 
 
 # ─── v3.1: Keyword-driven capability dispatch ─────────────────────────
@@ -429,47 +352,6 @@ def _capability_steps_from_rule_scene(user_input: str, rule_scene: dict) -> list
             add(action_id, chain_step.get("purpose") or f"执行能力动作 {action_id}")
     return steps
 
-
-# ─── Semantic checks (extracted for clarity) ──────────────────────────
-
-
-def _semantic_checks(user_input: str, candidate_set: set[str]) -> list[str]:
-    """Domain-specific semantic validation rules."""
-    errors: list[str] = []
-    lower = (user_input or "").lower()
-
-    # Network config should not use host shell unless explicitly requested.
-    network_request = any(k in lower for k in ("华三", "h3c", "cisco", "huawei", "juniper",
-                                                 "ospf", "bgp", "配置", "running-config", "network config"))
-    explicit_host = any(k in lower for k in ("本机", "localhost", "shell", "powershell",
-                                              "python", "ifconfig", "ipconfig", "netstat"))
-    if network_request and not explicit_host and {"host.shell.exec", "host.powershell.exec"} & candidate_set:
-        errors.append("network_plan_must_not_use_host_shell")
-
-    # File analysis requires workspace file read
-    file_analysis = any(k in lower for k in ("上传", "配置文件", "文件", "workspace", "pcap", "pdf",
-                                              "这个配置", "这份配置", "帮我看", "帮我分析"))
-    analysis_keywords = any(k in lower for k in ("分析", "解析", "检查", "提取", "看看", "review", "analyze"))
-    if (file_analysis and analysis_keywords and "network.config.parse" in candidate_set):
-        if not {"workspace.file.read", "workspace.file.preview"} & candidate_set:
-            errors.append("file_analysis_requires_workspace_read_or_preview")
-
-    packet_request = any(k in lower for k in ("pcap", "pcapng", "报文", "抓包", "五元组", "tcp流", "tcp 流", "重传", "乱序", "seq gap"))
-    if packet_request and "network.pcap.parse" in candidate_set:
-        if "network.pcap.align" not in candidate_set:
-            errors.append("pcap_request_requires_tcp_align_tool")
-        if "workspace.file.read" not in candidate_set:
-            errors.append("pcap_request_requires_workspace_read")
-
-    # Report request requires markdown render + artifact save
-    report_request = any(k in lower for k in ("报告", "整理", "保存", "导出", "制品", "artifact"))
-    if report_request:
-        if "report.markdown.render" not in candidate_set:
-            errors.append("report_request_requires_report_markdown_render")
-        if "workspace.artifact.save" not in candidate_set:
-            errors.append("report_request_requires_workspace_artifact_save")
-
-    return errors
 
 
 # ─── Tool filtering & helpers ─────────────────────────────────────────
@@ -560,23 +442,6 @@ def _categories_groups_from_tools(candidate_tools: list[str], rule_scene: dict) 
             categories.append(category)
     return categories, groups
 
-
-def _validate_categories_groups(plan: dict, candidate_tools: list[str]) -> list[str]:
-    """v3.1: Uses cached namespace lookups."""
-    errors: list[str] = []
-    categories = set(plan.get("categories") or [])
-    groups = plan.get("groups") or {}
-    for tool_id in candidate_tools:
-        if tool_id not in TOOL_NAMESPACE:
-            continue
-        entry = _cached_namespace_entry(tool_id)
-        if entry is None:
-            continue
-        if entry.category not in categories:
-            errors.append(f"tool_category_missing:{tool_id}:{entry.category}")
-        if entry.group not in set(groups.get(entry.category, [])):
-            errors.append(f"tool_group_missing:{tool_id}:{entry.category}.{entry.group}")
-    return errors
 
 
 def _tool_chain_from_plan(steps: list[dict[str, Any]]) -> list[dict[str, Any]]:

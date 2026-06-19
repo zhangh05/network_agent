@@ -108,6 +108,10 @@ def build_turn_context(session, turn, services) -> TurnContext:
         tool_scene=tool_scene,
         rule_tool_scene=rule_tool_scene,
     )
+
+    # v3.3: Compute SceneDecision for downstream consumers
+    _attach_scene_decision(ctx, session)
+
     ctx.metadata["context_status"] = "ok" if not ctx.metadata.get("context_errors") else "degraded"
     return ctx
 
@@ -243,3 +247,25 @@ def _write_context_metadata(
         if tool_scene.get("visibility"):
             ctx.metadata["tool_visibility"] = tool_scene.get("visibility")
         persist_tool_scene_to_session(session, tool_scene, rule_tool_scene)
+
+
+def _attach_scene_decision(ctx, session) -> None:
+    """Compute and attach SceneDecision + EvidenceBundle to ctx."""
+    try:
+        from agent.runtime.cognition.scene_decision import decide_scene
+
+        session_meta = getattr(session, "metadata", None) or {}
+        previous_scene = session_meta.get("last_tool_scene") if isinstance(session_meta, dict) else None
+        previous_rule_scene = session_meta.get("last_rule_tool_scene") if isinstance(session_meta, dict) else None
+
+        ctx.scene_decision = decide_scene(
+            ctx.user_input or "",
+            session_context=session_meta if isinstance(session_meta, dict) else {},
+            previous_scene=previous_scene,
+            previous_rule_scene=previous_rule_scene,
+            intent=ctx.metadata.get("intent", ""),
+        )
+        ctx.metadata["scene_decision_status"] = "ok"
+    except Exception as e:
+        ctx.metadata["scene_decision_status"] = "failed"
+        ctx.metadata.setdefault("context_errors", []).append(f"scene_decision: {e!s}"[:200])

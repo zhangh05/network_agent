@@ -55,7 +55,7 @@ def test_ip_prompt_enables_tool_contract_and_approval_note():
 
 
 def test_tool_followup_detection_keeps_previous_scene():
-    from agent.runtime.context_tools import is_tool_followup
+    from agent.runtime.cognition.scene_decision import is_tool_followup
 
     assert is_tool_followup("不对，你肯定搞错了，能显示的，你调用有问题")
     assert is_tool_followup("有shell")

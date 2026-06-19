@@ -1,25 +1,14 @@
 # agent/runtime/context_tools.py
-"""Tool visibility and planning helpers for TurnContext construction."""
+"""Tool visibility and planning helpers for TurnContext construction.
+
+v3.3: is_tool_followup moved to cognition/scene_decision.py.
+"""
 
 from __future__ import annotations
 
 from typing import Any
 
-
-def is_tool_followup(user_msg: str) -> bool:
-    text = (user_msg or "").strip().lower()
-    if not text:
-        return False
-    markers = (
-        "不对", "错了", "搞错", "调用有问题", "没调用", "没有调用",
-        "继续", "再来", "重新", "重试", "有shell", "有 shell",
-        "你肯定", "能显示", "刚才", "上一轮", "上一步",
-        "wrong", "retry", "again", "continue", "use the tool",
-        "用错了", "调错了", "不是这个工具", "换一个工具",
-        "再试", "再调", "调用失败", "重来",
-        "这个不行", "不行", "没有用", "没效果",
-    )
-    return any(marker in text for marker in markers)
+from agent.runtime.cognition.scene_decision import is_tool_followup
 
 
 def build_base_tool_router(ctx, services):
