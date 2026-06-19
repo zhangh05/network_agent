@@ -37,6 +37,14 @@ class MemoryRetriever:
         return items
 
 
+def _safe_float(val: Any, default: float = 1.0) -> float:
+    """Convert val to float, returning default on failure."""
+    try:
+        return float(val) if val is not None else default
+    except (ValueError, TypeError):
+        return default
+
+
 def _hit_to_memory_item(hit: dict[str, Any]) -> MemoryItem:
     """Convert a raw retriever hit dict into a MemoryItem."""
     return MemoryItem(
@@ -45,7 +53,7 @@ def _hit_to_memory_item(hit: dict[str, Any]) -> MemoryItem:
         scope=hit.get("scope", "workspace"),
         content=hit.get("content", "") if isinstance(hit.get("content"), str) else str(hit.get("content", "")),
         summary=str(hit.get("summary", ""))[:200],
-        confidence=float(hit.get("confidence", 1.0) or 1.0),
+        confidence=_safe_float(hit.get("confidence", 1.0), 1.0),
         confirmation_status=hit.get("confirmation_status", "unconfirmed"),
         tags=list(hit.get("tags", []) or []),
         metadata={k: v for k, v in hit.items() if k not in {

@@ -8,6 +8,7 @@ import os
 import sys
 import tempfile
 from pathlib import Path
+from types import SimpleNamespace
 
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
@@ -69,18 +70,34 @@ def seed(workspace_id: str) -> None:
 def evaluate() -> dict:
     workspace_id = "rag_eval_ws"
     seed(workspace_id)
-    from context.builder import build_context_bundle
 
-    bundle = build_context_bundle(workspace_id, user_input="OSPF FULL 变 INIT 怎么排查")
-    safe = bundle.safe_llm_context.as_dict()
-    sources = safe.get("context_sources") or []
+    from agent.core.turn_context import TurnContext
+    from agent.runtime.cognition.evidence_pipeline import EvidencePipeline
+
+    ctx = TurnContext(
+        workspace_id=workspace_id,
+        user_input="OSPF FULL 变 INIT 怎么排查",
+        scene_decision=SimpleNamespace(
+            is_simple_chat=False,
+            is_knowledge_task=True,
+            needs_knowledge=True,
+            is_factual_query=True,
+            needs_memory=True,
+            is_memory_task=False,
+            user_input="OSPF FULL 变 INIT 怎么排查",
+        ),
+        metadata={},
+    )
+    evidence = EvidencePipeline().build(ctx)
+    safe = evidence.to_safe_context()
+
     k_hits = safe.get("knowledge_hits") or []
     m_hits = safe.get("memory_hits") or []
     text = json.dumps(safe, ensure_ascii=False)
     metrics = {
-        "source_count": len(sources) + len(k_hits) + len(m_hits),
-        "knowledge_hit_count": len(k_hits) + sum(1 for s in sources if s.get("evidence_type") == "knowledge"),
-        "memory_hit_count": len(m_hits) + sum(1 for s in sources if s.get("evidence_type") == "memory"),
+        "source_count": len(k_hits) + len(m_hits),
+        "knowledge_hit_count": len(k_hits),
+        "memory_hit_count": len(m_hits),
         "citation_count": len(safe.get("citations") or []),
         "has_ospf_evidence": "FULL to INIT" in text or "one-way Hello" in text,
         "has_memory_evidence": "shortest command sequence" in text,
