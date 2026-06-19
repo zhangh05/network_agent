@@ -56,6 +56,22 @@ class ToolPlan(TypedDict, total=False):
 PLANNER_VERSION = "v2.4"
 MAX_CANDIDATE_TOOLS = 24
 
+# Baseline tools must remain read/search/list oriented. Local execution tools
+# are intentionally supported by the product, but they are exposed only when
+# the routed scene explicitly requests local operations / diagnostics.
+_BASELINE_READ_TOOLS = [
+    "web.search", "web.page.summarize", "web.docs.official_search",
+    "knowledge.search", "knowledge.source.list",
+    "memory.search", "memory.list",
+    "workspace.file.read", "workspace.file.list",
+    "agent.result.get", "agent.role.list", "tool.catalog.search",
+    "skill.list",
+]
+_LOCAL_OPS_TOOLS = [
+    "host.shell.exec", "host.powershell.exec", "host.python.exec",
+    "runtime.health", "runtime.diagnostics",
+]
+
 # ─── v3.1: Cached namespace lookup ────────────────────────────────────
 
 @lru_cache(maxsize=128)
@@ -75,7 +91,6 @@ def _cached_governance_entry(tool_id: str):
     except Exception:
         from tool_runtime.tool_governance import GovernanceEntry
         return GovernanceEntry(status="unknown")
-
 # ─── Main planner entry point ─────────────────────────────────────────
 
 
@@ -138,6 +153,8 @@ def deterministic_plan_tools(
     steps: list[dict[str, Any]] = []
     filtered: dict[str, list[str]] = {
         "non_active_tools_filtered": [],
+        "unknown_tools_filtered": [],
+        "local_ops_filtered": [],
     }
 
     for capability_step in capability_steps:
@@ -188,28 +205,26 @@ def deterministic_plan_tools(
         for step in steps
         for tid in step.get("tool_candidates", [])
     )
-    # v2.3.2: action_class filter — remove write/mutate/execute/destructive
-    # tools unless the scene explicitly allows them.
+    # v2.3.2: action_class filter — remove destructive actions unless the
+    # scene explicitly allows them. Unknown tools are fail-closed.
     candidate_tools = _action_class_filter(candidate_tools, rule_scene)
 
-    # v3.1.0: Always inject baseline tools so the LLM has minimum capabilities.
-    # The router selects intent-specific tools, but the LLM should always have
-    # access to core search, file read, memory, and web tools.
-    _BASELINE_TOOLS = [
-        "web.search", "web.page.summarize", "web.docs.official_search",
-        "knowledge.search", "knowledge.source.list",
-        "memory.search", "memory.list", "memory.create",
-        "workspace.file.read", "workspace.file.list",
-        "host.shell.exec", "host.powershell.exec", "host.python.exec",
-        "agent.result.get", "agent.role.list", "tool.catalog.search",
-        "skill.list",
-    ]
-    candidate_tools = _ordered_unique([*candidate_tools, *_BASELINE_TOOLS])
+    local_ops_enabled = _scene_allows_local_ops(rule_scene, user_input)
+    baseline_tools = list(_BASELINE_READ_TOOLS)
+    if local_ops_enabled:
+        baseline_tools.extend(_LOCAL_OPS_TOOLS)
+    else:
+        filtered["local_ops_filtered"].extend([tid for tid in _LOCAL_OPS_TOOLS if tid in available])
+
+    # Baseline injection is now read/search/list only unless the scene is local_ops.
+    # This preserves shell/PowerShell as an explicit product capability while
+    # preventing them from contaminating simple chat, knowledge QA, translation,
+    # report, and offline file-analysis scenes.
+    candidate_tools = _ordered_unique([*candidate_tools, *baseline_tools])
+    candidate_tools = _governance_filtered_tools([tid for tid in candidate_tools if tid in available], filtered)
 
     # v2.3.3: Safety net — auto-inject workspace.file.read when config
     # parsing tools are selected but file reading tools are missing.
-    # This prevents tool chain breakage where the LLM gets parsing tools
-    # but cannot read file contents, causing fallback to python.exec.
     _has_config_tools = {"network.config.parse", "network.config.translate",
                          "network.interface.extract", "network.route.extract"} & set(candidate_tools)
     _has_file_tools = {"workspace.file.read", "workspace.file.preview",
@@ -225,6 +240,13 @@ def deterministic_plan_tools(
     categories, groups = _categories_groups_from_tools(candidate_tools, rule_scene)
     primary = rule_scene.get("primary_category") or rule_scene.get("category") or (categories[0] if categories else "web")
     group = rule_scene.get("group") or (groups.get(primary) or ["general"])[0]
+    visibility_meta = _visibility_metadata(
+        rule_scene=rule_scene,
+        candidate_tools=candidate_tools,
+        baseline_tools=baseline_tools,
+        local_ops_enabled=local_ops_enabled,
+        filtered=filtered,
+    )
     plan = {
         "planner_version": PLANNER_VERSION,
         "mode": "deterministic",
@@ -235,6 +257,7 @@ def deterministic_plan_tools(
         "capability_plan": capability_steps,
         "tool_plan": steps,
         "governance": filtered,
+        "visibility": visibility_meta,
         "needs_clarification": needs_clarification,
         "clarifying_question": "请提供要分析的配置文件路径，或先上传配置文件。" if needs_clarification else "",
         "reason": rule_scene.get("reason", "deterministic planner from rule_scene"),
@@ -365,7 +388,8 @@ def _capability_steps_from_rule_scene(user_input: str, rule_scene: dict) -> list
     """Build capability steps from rule_scene signals.
 
     v3.1: Uses keyword-driven dispatch instead of repeated if/elif.
-    v3.1.1: Always includes agent.team.coordinate for sub-agent visibility.
+    v3.1.1: sub-agent coordination is exposed only when the scene detects a
+    complex / parallel / delegated task, not as a universal baseline.
     """
     signals = rule_scene.get("signals") or {}
     steps: list[dict[str, Any]] = []
@@ -390,10 +414,6 @@ def _capability_steps_from_rule_scene(user_input: str, rule_scene: dict) -> list
     if ("translate" in lower or "翻译" in lower) and "network.config.translate" in CAPABILITY_ACTIONS:
         add("network.config.translate", "离线翻译网络配置")
 
-    # v3.1.1: Always expose sub-agent coordination for tool-enabled sessions.
-    # The LLM decides when to spawn read-only sub-agents.
-    add("agent.team.coordinate", "需要时可派生子代理并行处理复杂任务")
-
     if not steps:
         for chain_step in rule_scene.get("tool_chain") or []:
             tools = list(chain_step.get("preferred_tools") or [])
@@ -410,7 +430,7 @@ def _semantic_checks(user_input: str, candidate_set: set[str]) -> list[str]:
     errors: list[str] = []
     lower = (user_input or "").lower()
 
-    # Network config should not use host shell
+    # Network config should not use host shell unless explicitly requested.
     network_request = any(k in lower for k in ("华三", "h3c", "cisco", "huawei", "juniper",
                                                  "ospf", "bgp", "配置", "running-config", "network config"))
     explicit_host = any(k in lower for k in ("本机", "localhost", "shell", "powershell",
@@ -419,7 +439,6 @@ def _semantic_checks(user_input: str, candidate_set: set[str]) -> list[str]:
         errors.append("network_plan_must_not_use_host_shell")
 
     # File analysis requires workspace file read
-    # v2.3.3: expanded detection to include implicit references
     file_analysis = any(k in lower for k in ("上传", "配置文件", "文件", "workspace", "pcap", "pdf",
                                               "这个配置", "这份配置", "帮我看", "帮我分析"))
     analysis_keywords = any(k in lower for k in ("分析", "解析", "检查", "提取", "看看", "review", "analyze"))
@@ -452,12 +471,13 @@ def _governance_filtered_tools(tool_ids: list[str], filtered: dict[str, list[str
     """v3.0 canonical-only governance filter.
 
     Keeps planner-visible canonical tools and records filtered
-    (non-active / non-canonical) ids under ``non_active_tools_filtered``.
-    v3.0 has no alias / merge / replacement layer; the canonical id IS the dispatch key.
+    (non-active / non-canonical) ids under governance fields.
+    Unknown tools fail closed instead of passing through.
     """
     result: list[str] = []
     for tool_id in tool_ids:
         if tool_id not in TOOL_NAMESPACE:
+            filtered.setdefault("unknown_tools_filtered", []).append(tool_id)
             continue
         if not is_planner_visible(tool_id):
             filtered.setdefault("non_active_tools_filtered", []).append(tool_id)
@@ -466,6 +486,12 @@ def _governance_filtered_tools(tool_ids: list[str], filtered: dict[str, list[str
             result.append(tool_id)
     filtered["non_active_tools_filtered"] = _ordered_unique(
         filtered.get("non_active_tools_filtered", []),
+    )
+    filtered["unknown_tools_filtered"] = _ordered_unique(
+        filtered.get("unknown_tools_filtered", []),
+    )
+    filtered["local_ops_filtered"] = _ordered_unique(
+        filtered.get("local_ops_filtered", []),
     )
     return result
 
@@ -485,9 +511,47 @@ def _step_required(user_input: str, step_no: int, tools: list[str]) -> bool:
     return False
 
 
+def _scene_allows_local_ops(rule_scene: dict, user_input: str) -> bool:
+    signals = rule_scene.get("signals") or {}
+    if signals.get("mentions_host"):
+        return True
+    categories = set(rule_scene.get("categories") or [])
+    if "host" in categories:
+        return True
+    groups = rule_scene.get("groups") or {}
+    if groups.get("host"):
+        return True
+    lower = (user_input or "").lower()
+    explicit = (
+        "本机", "localhost", "127.0.0.1", "shell", "powershell", "cmd",
+        "执行命令", "跑命令", "运行命令", "终端", "命令行", "ipconfig",
+        "ifconfig", "netstat", "process", "进程", "端口", "磁盘", "内存",
+        "cpu", "system info", "启动服务", "停止服务",
+    )
+    return any(k in lower for k in explicit)
+
+
+def _visibility_metadata(
+    *,
+    rule_scene: dict,
+    candidate_tools: list[str],
+    baseline_tools: list[str],
+    local_ops_enabled: bool,
+    filtered: dict[str, list[str]],
+) -> dict[str, Any]:
+    return {
+        "scene": rule_scene.get("primary_category") or rule_scene.get("category") or "unknown",
+        "reason": rule_scene.get("reason", ""),
+        "candidate_count": len(candidate_tools),
+        "local_ops_enabled": bool(local_ops_enabled),
+        "baseline_tools_added": list(baseline_tools),
+        "visible_tools": list(candidate_tools),
+        "filtered": dict(filtered),
+    }
+
+
 def _needs_file_clarification(user_input: str, safe_context: dict, rule_scene: dict) -> bool:
     lower = (user_input or "").lower()
-    # v2.3.3: Expanded to detect implicit file references like "这个配置" / "帮我看看"
     mentions_file = any(k in lower for k in (
         "这个配置文件", "这个文件", "上传的", "上传文件", "配置文件",
         "日志文件", "文件", "this config file", "this file", "uploaded file",
@@ -565,7 +629,8 @@ def _finalize_plan(plan: dict, *, mode: str, valid: bool, fallback_used: bool, w
     out.setdefault("clarifying_question", "")
     out.setdefault("tool_chain", _tool_chain_from_plan(out.get("tool_plan") or []))
     out.setdefault("capability_plan", [])
-    out.setdefault("governance", {"deprecated_tools_filtered": [], "alias_tools_collapsed": []})
+    out.setdefault("governance", {"non_active_tools_filtered": [], "unknown_tools_filtered": [], "local_ops_filtered": []})
+    out.setdefault("visibility", {})
     out.setdefault("category", out.get("primary_category", ""))
     out.setdefault("group", (out.get("groups", {}).get(out.get("primary_category", ""), ["general"]) or ["general"])[0])
     out["tool_planner"] = {
@@ -591,10 +656,9 @@ def _ordered_unique(items) -> list[str]:
 def _action_class_filter(candidate_tools: list[str], rule_scene: dict) -> list[str]:
     """Filter candidate tools by action_class.
 
-    v2.3.2-p2: LLM has full authority. read/write/execute/external tools all pass through.
-    Only destructive mutations (delete/disable/reindex_all/unload/spawn/rewind/checkpoint)
-    are held back and require explicit user intent.
-    High-risk tools (shell/exec/edit) still go through approval gate.
+    v2.4 hardening: unknown tools fail closed. Destructive mutations are held
+    back unless the scene explicitly allows them. High-risk local ops still
+    go through the approval gate when deliberately exposed.
     """
     from tool_runtime.action_class import classify_tool
     from tool_runtime.tool_namespace import TOOL_NAMESPACE
@@ -603,7 +667,6 @@ def _action_class_filter(candidate_tools: list[str], rule_scene: dict) -> list[s
     for tid in candidate_tools:
         entry = TOOL_NAMESPACE.get(tid)
         if entry is None:
-            result.append(tid)
             continue
         ac = classify_tool(tid, entry.category, entry.group, entry.action)
 
