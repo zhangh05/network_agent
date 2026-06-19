@@ -56,16 +56,43 @@ def _is_execute_tool(tool_id: str) -> bool:
     return bool(_EXECUTE_TOOL_PATTERNS.search(tool_id))
 
 
+def _has_conflicts(evidence_bundle) -> bool:
+    """Check if an evidence bundle contains conflicting entries."""
+    if isinstance(evidence_bundle, dict):
+        return bool(evidence_bundle.get("conflicts"))
+    if hasattr(evidence_bundle, "conflicts"):
+        return bool(evidence_bundle.conflicts)
+    return False
+
+
+def _apply_conflict_risk(decision: RiskDecision, plan: ActionPlan, evidence_bundle) -> None:
+    """Escalate actions when current evidence contains unresolved conflicts."""
+    if not _has_conflicts(evidence_bundle):
+        return
+    if plan.action_class not in ("execute", "mutate", "write"):
+        return
+    decision.approval_required = True
+    if "evidence_conflict_requires_approval" not in decision.warnings:
+        decision.warnings.append("evidence_conflict_requires_approval")
+    if plan.action_class == "execute" and decision.risk_level not in ("high", "critical"):
+        decision.risk_level = "high"
+
+
 class RiskPolicy:
     """Evaluate risk of an ActionPlan and return a RiskDecision."""
 
     def evaluate(self, plan: ActionPlan, *, ctx=None,
                  evidence_bundle=None) -> RiskDecision:
-        """Assess risk based on action class, tool id, and arguments.
+        """Assess risk based on action class, tool id, arguments, and evidence.
 
-        When *evidence_bundle* has conflicts and the action is execute/mutate,
-        approval_required is forced True.  plan.risk_level is updated in-place.
+        If the caller does not pass an evidence bundle explicitly, the policy
+        falls back to ``ctx.evidence_bundle``. Unresolved evidence conflicts force
+        approval for write/mutate/execute actions and keep execute actions high
+        risk at minimum.
         """
+        if evidence_bundle is None and ctx is not None:
+            evidence_bundle = getattr(ctx, "evidence_bundle", None)
+
         decision = RiskDecision(
             action_id=plan.action_id,
             action_class=plan.action_class,
@@ -79,6 +106,7 @@ class RiskPolicy:
             decision.approval_required = True
             decision.reason = f"Dangerous command pattern detected: {dangerous_match}"
             decision.warnings.append("critical_command_blocked")
+            _apply_conflict_risk(decision, plan, evidence_bundle)
             plan.risk_level = decision.risk_level
             return decision
 
@@ -87,22 +115,22 @@ class RiskPolicy:
             decision.risk_level = "high"
             decision.approval_required = True
             decision.reason = "Execute-class tool requires approval"
+            _apply_conflict_risk(decision, plan, evidence_bundle)
             plan.risk_level = decision.risk_level
-            # Evidence-bundle conflict escalation
-            if evidence_bundle and _has_conflicts(evidence_bundle) and plan.action_class in ("execute", "mutate"):
-                decision.approval_required = True
             return decision
 
         # 3. Classify by action_class
         if plan.action_class == "read":
             decision.risk_level = "low"
             decision.reason = "Read-only operation"
+            _apply_conflict_risk(decision, plan, evidence_bundle)
             plan.risk_level = decision.risk_level
             return decision
 
         if plan.action_class == "write":
             decision.risk_level = "medium"
             decision.reason = "Write operation"
+            _apply_conflict_risk(decision, plan, evidence_bundle)
             plan.risk_level = decision.risk_level
             return decision
 
@@ -110,32 +138,20 @@ class RiskPolicy:
             decision.risk_level = "medium-high"
             decision.approval_required = True
             decision.reason = "Destructive/mutate operation"
-            # Evidence-bundle conflict escalation
-            if evidence_bundle and _has_conflicts(evidence_bundle):
-                decision.approval_required = True
+            _apply_conflict_risk(decision, plan, evidence_bundle)
             plan.risk_level = decision.risk_level
             return decision
 
         if plan.action_class == "external":
             decision.risk_level = "medium"
             decision.reason = "External API call"
+            _apply_conflict_risk(decision, plan, evidence_bundle)
             plan.risk_level = decision.risk_level
             return decision
 
         # Default
         decision.risk_level = "low"
         decision.reason = "Default low risk"
-        # Evidence-bundle conflict escalation for execute/mutate
-        if evidence_bundle and _has_conflicts(evidence_bundle) and plan.action_class in ("execute", "mutate"):
-            decision.approval_required = True
+        _apply_conflict_risk(decision, plan, evidence_bundle)
         plan.risk_level = decision.risk_level
         return decision
-
-
-def _has_conflicts(evidence_bundle) -> bool:
-    """Check if an evidence bundle contains conflicting entries."""
-    if isinstance(evidence_bundle, dict):
-        return bool(evidence_bundle.get("conflicts"))
-    if hasattr(evidence_bundle, "conflicts"):
-        return bool(evidence_bundle.conflicts)
-    return False
