@@ -181,12 +181,33 @@ class TestDenyIsTerminal:
             risk_level='high',
             permission_action='exec',
         )
-        _, denied, decision = check_tool_permission(
+        requires_approval, denied, decision = check_tool_permission(
             "forbidden.exec.tool", spec, ctx, turn)
-        # The matrix should either deny or require approval for exec tools.
-        # We just verify the function runs without error.
-        assert isinstance(denied, bool)
-        assert isinstance(decision, PermissionDecision)
+        # DENY must be terminal — hard assertions
+        assert decision == PermissionDecision.DENY
+        assert denied is True
+        assert requires_approval is False
+        assert any("permission_denied_terminal" in w for w in turn.warnings)
+
+    def test_shell_requires_approval_not_deny(self):
+        """Shell tools must go through the approval gate (needs_approval returns True).
+
+        Note: The PermissionMatrix v0.2 forbidden list includes shell for
+        backward-compat, but the runtime uses needs_approval() to route
+        high-risk exec tools through the approval popup, not through DENY.
+        """
+        from agent.runtime.permission_check import needs_approval
+        from agent.runtime.permission_matrix import PermissionDecision
+
+        spec = types.SimpleNamespace(
+            risk_level='high',
+            permission_action='exec',
+            requires_approval=True,
+        )
+        # Shell must require approval via needs_approval
+        assert needs_approval("host.shell.exec", spec, 'high', True) is True
+        # PowerShell too
+        assert needs_approval("host.powershell.exec", spec, 'high', True) is True
 
 
 # ---------------------------------------------------------------------------
@@ -328,33 +349,33 @@ class TestToolExecutionPipelineOrder:
         assert hasattr(p, '_result')
 
     def test_repeated_tool_failure_detection(self):
-        from agent.runtime.tool_execution.pipeline import _repeated_tool_failure
+        from agent.runtime.tool_execution.retry_policy import detect_repeated_tool_failure
 
         # No failure
-        assert _repeated_tool_failure([]) is None
-        assert _repeated_tool_failure([{"ok": True}]) is None
+        assert detect_repeated_tool_failure([]) is None
+        assert detect_repeated_tool_failure([{"ok": True}]) is None
 
         # Repeated failure
         results = [
             {"ok": False, "tool_id": "t1", "errors": ["err1"], "summary": "fail"},
             {"ok": False, "tool_id": "t1", "errors": ["err1"], "summary": "fail"},
         ]
-        assert _repeated_tool_failure(results) is not None
+        assert detect_repeated_tool_failure(results) is not None
 
         # Different tools — not repeated
         results2 = [
             {"ok": False, "tool_id": "t1", "errors": ["err1"]},
             {"ok": False, "tool_id": "t2", "errors": ["err1"]},
         ]
-        assert _repeated_tool_failure(results2) is None
+        assert detect_repeated_tool_failure(results2) is None
 
     def test_preserve_tool_payload_edges(self):
-        from agent.runtime.tool_execution.result_stage import _preserve_tool_payload_edges
+        from agent.runtime.tool_execution.result_stage import preserve_tool_payload_edges
         short = "hello"
-        assert _preserve_tool_payload_edges(short, 100) == short
+        assert preserve_tool_payload_edges(short, 100) == short
 
         long_text = "x" * 500
-        result = _preserve_tool_payload_edges(long_text, 100)
+        result = preserve_tool_payload_edges(long_text, 100)
         assert len(result) <= 200  # truncated with marker
         assert "truncated middle" in result
 

@@ -11,10 +11,10 @@ class ResultStage:
     """Format and append a tool result to messages and all_tool_results."""
 
     def run(self, result, tool_call, tc, all_tool_results, messages):
-        _append_tool_result(result, tool_call, tc, all_tool_results, messages)
+        append_tool_result(result, tool_call, tc, all_tool_results, messages)
 
 
-def _append_tool_result(result, tool_call, tc, all_tool_results, messages):
+def append_tool_result(result, tool_call, tc, all_tool_results, messages):
     """Append a tool result to the result list and message list."""
     all_tool_results.append(to_standard_tool_call(tool_call.call_id, tool_call.real_tool_id, result))
     tool_msg_payload = build_tool_message_payload(result)
@@ -43,13 +43,13 @@ def _append_tool_result(result, tool_call, tc, all_tool_results, messages):
     trunc_limit = 20000 if _has_large else 8000
     serialized_payload = json.dumps(tool_msg_payload, ensure_ascii=False)
     tool_msg = ToolResultMessage(
-        content=_preserve_tool_payload_edges(serialized_payload, trunc_limit),
+        content=preserve_tool_payload_edges(serialized_payload, trunc_limit),
         tool_call_id=tc.id if hasattr(tc, 'id') else tc.get("id", ""),
     )
     messages.append(tool_msg.to_llm_message())
 
 
-def _preserve_tool_payload_edges(text: str, limit: int) -> str:
+def preserve_tool_payload_edges(text: str, limit: int) -> str:
     """Truncate text while retaining useful content from both edges."""
     if len(text) <= limit:
         return text

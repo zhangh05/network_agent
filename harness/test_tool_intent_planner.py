@@ -156,7 +156,7 @@ def test_router_can_expand_current_turn_visibility_from_catalog_result():
 def test_runtime_loop_expands_visibility_after_catalog_search_result():
     from types import SimpleNamespace
     from agent.protocol.tool_result import ToolResult
-    from agent.runtime.tool_execution.pipeline import _maybe_expand_tools_from_catalog_result
+    from agent.runtime.tool_execution.catalog_stage import expand_tools_from_catalog_result
     from agent.tools.registry import ToolRegistry
     from agent.tools.router import ToolRouter
     from agent.tools.schemas import ToolSpec
@@ -184,7 +184,7 @@ def test_runtime_loop_expands_visibility_after_catalog_search_result():
     session = SimpleNamespace(session_id="s1")
     turn = SimpleNamespace(turn_id="t1", warnings=[])
 
-    added = _maybe_expand_tools_from_catalog_result(result, context, session, turn, 1, None, emitter)
+    added = expand_tools_from_catalog_result(result, context, session, turn, 1, None, emitter)
 
     assert added == ["skill.create", "skill.load"]
     assert context.visible_tool_ids == ["skill.create", "skill.load", "tool.catalog.search"]

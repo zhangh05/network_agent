@@ -20,13 +20,14 @@ from agent.runtime.runtime_events import RuntimeEventBus
 from agent.runtime.stages.context import ContextStage
 from agent.runtime.stages.messages import MessageStage
 from agent.runtime.stages.model import ModelStage, _ModelBlocked, _ProviderError
-from agent.runtime.tool_execution.pipeline import (
-    ToolExecutionPipeline,
-    _repeated_tool_failure,
-    _should_retry_for_required_tools,
-    _required_tool_retry_prompt,
-    _check_output_policy,
+from agent.runtime.stages.persistence import PersistenceStage
+from agent.runtime.tool_execution.pipeline import ToolExecutionPipeline
+from agent.runtime.tool_execution.retry_policy import (
+    detect_repeated_tool_failure,
+    should_retry_for_required_tools,
+    required_tool_retry_prompt,
 )
+from agent.runtime.tool_execution.output_policy import check_output_policy
 from agent.runtime.result_builder import (
     build_success_result,
     build_error_result,
@@ -210,7 +211,7 @@ class TurnRunner:
                     break
 
                 # Repeated tool failure detection
-                repeated_failure = _repeated_tool_failure(state.all_tool_results)
+                repeated_failure = detect_repeated_tool_failure(state.all_tool_results)
                 if repeated_failure:
                     tool_id = repeated_failure.get("tool_id", "unknown")
                     summary = repeated_failure.get("summary") or "工具连续返回相同错误。"
@@ -228,9 +229,9 @@ class TurnRunner:
 
             # LLM returned content (final answer)
             # Required tool retry (only on empty content, step 1)
-            if not resp.content and _should_retry_for_required_tools(state.context, state.all_tool_results, state.step):
+            if not resp.content and should_retry_for_required_tools(state.context, state.all_tool_results, state.step):
                 state.messages.append(RuntimeContextMessage(
-                    content=_required_tool_retry_prompt(state.context)
+                    content=required_tool_retry_prompt(state.context)
                 ).to_llm_message())
                 state.context.metadata["required_tool_retry_used"] = True
                 events.model_retry_required_tool(state.step)
@@ -242,11 +243,10 @@ class TurnRunner:
                 events.assistant_message(len(state.final_response), reasoning_stripped)
 
             # Output policy check
-            output_policy_ok = _check_output_policy(state.final_response, self.turn)
+            output_policy_ok = check_output_policy(state.final_response, self.turn)
             state.metadata["output_policy_ok"] = output_policy_ok
 
-            self.session.history.append(UserMessage(content=state.context.user_input))
-            self.session.history.append(AssistantMessage(content=state.final_response))
+            PersistenceStage().append_final_messages(state)
 
             events.turn_completed()
             self.turn.status = "finished"
