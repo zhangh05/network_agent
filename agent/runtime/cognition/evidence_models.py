@@ -63,6 +63,17 @@ class EvidenceBundle:
     source_config_artifact_id: str = ""
     warnings: list[str] = field(default_factory=list)
 
+    # Layered evidence structure (Phase 3)
+    context_layer: Any = None     # EvidenceLayer
+    memory_layer: Any = None      # EvidenceLayer
+    knowledge_layer: Any = None   # EvidenceLayer
+    artifact_layer: Any = None    # EvidenceLayer
+
+    # Conflict and trust metadata
+    conflicts: list[Any] = field(default_factory=list)
+    trust_report: dict[str, Any] = field(default_factory=dict)
+    citation_graph: list[Any] = field(default_factory=list)
+
     def by_source(self, source_type: str) -> list[EvidenceItem]:
         """Return evidence items filtered by source_type."""
         if source_type == "memory":
@@ -110,6 +121,20 @@ class EvidenceBundle:
             safe["context_sources"] = list(self.context_sources)
         if self.warnings:
             safe["context_warnings"] = list(self.warnings)
+        if self.conflicts:
+            safe["evidence_conflicts"] = [
+                {
+                    "conflict_type": getattr(c, "conflict_type", ""),
+                    "description": getattr(c, "description", ""),
+                    "severity": getattr(c, "severity", "warning"),
+                }
+                for c in self.conflicts
+            ]
+        if self.trust_report and self.trust_report.get("adjustments"):
+            safe["trust_warnings"] = [
+                f"{a['source_type']}:{a['item_id']} trust {a['from']}→{a['to']}"
+                for a in self.trust_report.get("adjustments", [])
+            ]
         return safe
 
 

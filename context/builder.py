@@ -49,44 +49,13 @@ def build_context_bundle(workspace_id: str, user_input: str = "",
         selected_artifact_id=ref.ref_id if ref.ref_type == "artifact" else "",
     )
 
-    # 6. Build safe LLM context — content is always dict from UnifiedRetriever
-    _memory_hits = [
-        item.content for item in compressed
-        if item.item_type == "memory_hit" and isinstance(item.content, dict)
-    ]
-
-    _knowledge_hits = [
-        item.content for item in compressed
-        if item.item_type == "knowledge_chunk" and isinstance(item.content, dict)
-    ]
-
+    # 6. Build safe LLM context — slim: request, workspace, artifacts, jobs only
     safe = SafeLLMContext(
         workspace_id=workspace_id, intent=intent, user_input=user_input,
         context_ref=ref,
         artifact_refs=[i.content for i in compressed if i.item_type == "artifact_summary"][:10],
-        memory_hits=_memory_hits[:5],
-        knowledge_hits=_knowledge_hits[:5],
         warnings=list(warnings),
     )
-
-    # Diagnostics
-    diagnostics = [i.content for i in compressed if i.item_type == "retrieval_diagnostics"]
-    if diagnostics:
-        safe.context_sources = list(diagnostics[0].get("context_sources") or [])
-        safe.retrieval_diagnostics = dict(diagnostics[0].get("retrieval_diagnostics") or {})
-
-    # Citations from knowledge hits
-    safe.citations = [
-        {
-            "citation_id": hit.get("citation_id", f"K{idx}"),
-            "source_id": hit.get("source_id", ""),
-            "chunk_id": hit.get("chunk_id", ""),
-            "title": hit.get("title", ""),
-            "source_type": hit.get("source_type", ""),
-            "evidence_type": hit.get("evidence_type", "knowledge"),
-        }
-        for idx, hit in enumerate(safe.knowledge_hits, start=1)
-    ]
 
     # Load workspace state
     try:

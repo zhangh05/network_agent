@@ -103,6 +103,9 @@ class ToolPlannerV2:
         available = available_canonical_tools(available_catalog)
         valid, messages = validate_tool_plan(plan, available, user_input=scene.user_input)
 
+        # Evidence-aware adjustments
+        self._apply_evidence_adjustments(plan, evidence_bundle, messages)
+
         # Attach planner metadata
         plan["tool_planner"] = {
             "planner_version": plan.get("planner_version", ""),
@@ -112,6 +115,39 @@ class ToolPlannerV2:
             "warnings": messages,
         }
         return plan
+
+    def _apply_evidence_adjustments(
+        self,
+        plan: dict,
+        evidence_bundle: Any,
+        messages: list[str],
+    ) -> None:
+        """Adjust tool plan based on evidence bundle layers and conflicts."""
+        if evidence_bundle is None:
+            return
+
+        # When conflicts exist, warn about high-risk exec usage
+        conflicts = getattr(evidence_bundle, "conflicts", None)
+        if conflicts:
+            messages.append("evidence_conflicts_detected: use exec tools with caution")
+            plan.setdefault("evidence_warnings", []).append(
+                "Conflicting evidence detected — verify before executing"
+            )
+
+        # Artifact layer presence → ensure file tools visible
+        artifact_layer = getattr(evidence_bundle, "artifact_layer", None)
+        if artifact_layer and getattr(artifact_layer, "items", None):
+            candidates = plan.get("candidate_tools", [])
+            file_tools = ["workspace.file.read", "workspace.file.list", "workspace.file.preview"]
+            for ft in file_tools:
+                if ft not in candidates:
+                    candidates.append(ft)
+            plan["candidate_tools"] = candidates
+
+        # Knowledge layer presence → note in plan
+        knowledge_layer = getattr(evidence_bundle, "knowledge_layer", None)
+        if knowledge_layer and getattr(knowledge_layer, "items", None):
+            plan.setdefault("evidence_sources", []).append("knowledge")
 
 
 # ─── Main planner entry point ─────────────────────────────────────────

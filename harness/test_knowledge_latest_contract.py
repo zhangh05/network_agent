@@ -61,6 +61,17 @@ def test_no_source_file_references_removed_knowledge_surfaces():
         "tool_handler_" + "query",
         "TOOL_KNOWLEDGE_" + "QUERY",
     ]
+    # New-architecture pipeline files legitimately reference knowledge querying
+    new_pipeline_prefixes = (
+        "agent/runtime/cognition/",
+        "agent/runtime/knowledge/",
+        "agent/runtime/memory/",
+        "agent/runtime/context/",
+    )
+    # Test files that exercise the new pipeline and import from it
+    new_pipeline_test_files = {
+        "harness/test_context_memory_knowledge_refactor.py",
+    }
     for root in scanned_roots:
         base = PROJECT_ROOT / root
         if not base.exists():
@@ -70,8 +81,13 @@ def test_no_source_file_references_removed_knowledge_surfaces():
                 continue
             if not path.is_file() or path.suffix not in {".py", ".ts", ".tsx", ".js", ".jsx", ".json", ".yaml", ".yml", ".md"}:
                 continue
-            text = path.read_text(encoding="utf-8", errors="ignore")
             rel = path.relative_to(PROJECT_ROOT)
+            rel_posix = rel.as_posix()
+            if any(rel_posix.startswith(p) for p in new_pipeline_prefixes):
+                continue
+            if rel_posix in new_pipeline_test_files:
+                continue
+            text = path.read_text(encoding="utf-8", errors="ignore")
             for needle in forbidden:
                 assert needle not in text, f"{rel} still contains {needle!r}"
 

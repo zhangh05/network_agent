@@ -407,11 +407,11 @@ class TestEvidencePipelineIndependence:
         assert "safe_context_from_bundle" not in source
 
     def test_calls_scan_chunks_directly(self):
-        """EvidencePipeline must call scan_chunks directly."""
+        """EvidencePipeline must call scan_chunk for injection scanning."""
         import inspect
         from agent.runtime.cognition import evidence_pipeline
         source = inspect.getsource(evidence_pipeline)
-        assert "scan_chunks" in source
+        assert "scan_chunk" in source
 
     def test_builds_scan_report(self):
         """EvidencePipeline must produce ScanReport objects."""

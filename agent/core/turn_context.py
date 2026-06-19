@@ -22,3 +22,4 @@ class TurnContext:
     visible_tool_ids: list = field(default_factory=list)
     scene_decision: object = None
     evidence_bundle: object = None
+    context_frame: object = None
