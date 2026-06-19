@@ -59,18 +59,15 @@ MAX_CANDIDATE_TOOLS = 24
 # Baseline tools must remain read/search/list oriented. Local execution tools
 # are intentionally supported by the product, but they are exposed only when
 # the routed scene explicitly requests local operations / diagnostics.
-_BASELINE_READ_TOOLS = [
-    "web.search", "web.page.summarize", "web.docs.official_search",
-    "knowledge.search", "knowledge.source.list",
-    "memory.search", "memory.list",
-    "workspace.file.read", "workspace.file.list",
-    "tool.catalog.search",
-    "skill.list",
-]
-_LOCAL_OPS_TOOLS = [
-    "host.shell.exec", "host.powershell.exec", "host.python.exec",
-    "runtime.health", "runtime.diagnostics",
-]
+#
+# v3.2: Policy constants and helpers live in tool_visibility_policy.py.
+# Backward-compatible aliases are provided for existing test imports.
+from agent.runtime.tool_visibility_policy import (
+    BASELINE_READ_TOOLS as _BASELINE_READ_TOOLS,
+    LOCAL_OPS_TOOLS as _LOCAL_OPS_TOOLS,
+    scene_allows_local_ops as _scene_allows_local_ops,
+    build_visibility_metadata as _visibility_metadata,
+)
 
 # ─── v3.1: Cached namespace lookup ────────────────────────────────────
 
@@ -521,45 +518,6 @@ def _step_required(user_input: str, step_no: int, tools: list[str]) -> bool:
     if "network.config.parse" in tools:
         return True
     return False
-
-
-def _scene_allows_local_ops(rule_scene: dict, user_input: str) -> bool:
-    signals = rule_scene.get("signals") or {}
-    if signals.get("mentions_host"):
-        return True
-    categories = set(rule_scene.get("categories") or [])
-    if "host" in categories:
-        return True
-    groups = rule_scene.get("groups") or {}
-    if groups.get("host"):
-        return True
-    lower = (user_input or "").lower()
-    explicit = (
-        "本机", "localhost", "127.0.0.1", "shell", "powershell", "cmd",
-        "执行命令", "跑命令", "运行命令", "终端", "命令行", "ipconfig",
-        "ifconfig", "netstat", "process", "进程", "端口", "磁盘", "内存",
-        "cpu", "system info", "启动服务", "停止服务",
-    )
-    return any(k in lower for k in explicit)
-
-
-def _visibility_metadata(
-    *,
-    rule_scene: dict,
-    candidate_tools: list[str],
-    baseline_tools: list[str],
-    local_ops_enabled: bool,
-    filtered: dict[str, list[str]],
-) -> dict[str, Any]:
-    return {
-        "scene": rule_scene.get("primary_category") or rule_scene.get("category") or "unknown",
-        "reason": rule_scene.get("reason", ""),
-        "candidate_count": len(candidate_tools),
-        "local_ops_enabled": bool(local_ops_enabled),
-        "baseline_tools_added": list(baseline_tools),
-        "visible_tools": list(candidate_tools),
-        "filtered": dict(filtered),
-    }
 
 
 def _needs_file_clarification(user_input: str, safe_context: dict, rule_scene: dict) -> bool:

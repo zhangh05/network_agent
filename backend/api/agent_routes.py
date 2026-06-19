@@ -35,11 +35,8 @@ def _validated_session_id(sid: str):
 
 
 def _json_len(value) -> int:
-    import json
-    try:
-        return len(json.dumps(value, ensure_ascii=False).encode("utf-8"))
-    except Exception:
-        return 0
+    from backend.api.agent_contract import metadata_size
+    return metadata_size(value)
 
 
 def _source_config_too_large_response():
@@ -57,65 +54,15 @@ def _result_status(result: dict) -> int:
 
 
 def _resolve_stream_mode(data: dict) -> tuple[bool, str]:
-    """Return (stream_enabled, stream_mode).
-
-    Historical `stream=true` is kept compatible, but it is explicitly
-    classified as `event_replay`: the turn is executed first and the
-    collected AgentResult.events are replayed as SSE. A future true live
-    stream should use a distinct `live` mode and a realtime emitter path.
-    """
-    requested = data.get("stream_mode") or data.get("stream") or False
-    if requested is True:
-        return True, "event_replay"
-    if requested is False or requested is None:
-        return False, "sync"
-    mode = str(requested).strip().lower()
-    if mode in {"1", "true", "yes", "sse", "event_replay", "replay"}:
-        return True, "event_replay"
-    if mode in {"live", "live_stream"}:
-        # Do not pretend this endpoint is live: it currently replays events
-        # after AgentApp.submit_user_message() returns. WebSocket remains the
-        # realtime transport until the HTTP path is wired to StreamEmitter.
-        return True, "event_replay"
-    return False, "sync"
+    """Delegate to shared agent_contract helper."""
+    from backend.api.agent_contract import resolve_stream_mode
+    return resolve_stream_mode(data)
 
 
 def _normalize_agent_result(result: dict, ws_id: str) -> dict:
-    """Backfill stable message fields without exposing unsafe payloads."""
-    result.setdefault("ok", not bool(result.get("error")))
-    result.setdefault("workspace_id", ws_id)
-    result.setdefault("run_id", result.get("turn_id") or result.get("request_id") or "")
-    result.setdefault("turn_id", result.get("run_id") or result.get("request_id") or "")
-    result.setdefault("trace_id", "")
-    result.setdefault("intent", "assistant_chat")
-    result.setdefault("active_module", None)
-    result.setdefault("selected_skill", None)
-    result.setdefault("final_response", "")
-    result.setdefault("tool_calls", [])
-    result.setdefault("warnings", [])
-    result.setdefault("errors", [])
-    result.setdefault("metadata", {})
-    result.setdefault("report_artifacts", [])
-    result.setdefault("artifact_refs", [])
-    result.setdefault("trace_available", bool(result.get("trace_id")))
-    result.setdefault("timeline_summary", {})
-    result.setdefault("memory_written", False)
-    result.setdefault("workspace_updated", False)
-    result.setdefault("memory_hits_count", 0)
-    result.setdefault("knowledge_hits_count", 0)
-    result.setdefault("llm", {"enabled": False, "used": False})
-    if result.get("trace_id") and not result.get("trace_available"):
-        result["trace_available"] = True
-    # v3.0.0+: surface memory/knowledge hit counts from turn metadata
-    # (the runtime context builder writes them into ctx.metadata). Without
-    # this, the AgentResult.memory_hits_count field is always 0 and the
-    # Inspector/UI cannot tell whether RAG was used.
-    md = result.get("metadata") or {}
-    if "memory_hits_count" in md and isinstance(md["memory_hits_count"], int):
-        result["memory_hits_count"] = md["memory_hits_count"]
-    if "knowledge_hits_count" in md and isinstance(md["knowledge_hits_count"], int):
-        result["knowledge_hits_count"] = md["knowledge_hits_count"]
-    return result
+    """Delegate to shared agent_contract helper."""
+    from backend.api.agent_contract import normalize_agent_result
+    return normalize_agent_result(result, ws_id)
 
 
 def agent_message():
@@ -167,11 +114,8 @@ def agent_message():
         metadata = {}
     if not isinstance(metadata, dict):
         metadata = {}
-    metadata = dict(metadata)
-    metadata.setdefault("transport", "http")
-    metadata.setdefault("stream_mode", stream_mode)
-    if stream and stream_mode == "event_replay":
-        metadata.setdefault("stream_contract", "event_replay_after_turn_complete")
+    from backend.api.agent_contract import normalize_metadata
+    metadata = normalize_metadata(metadata, transport="http", stream_mode=stream_mode)
 
     try:
         intent = data.get("intent") or metadata.get("intent") or ""

@@ -49,11 +49,11 @@ def check_tool_permission(tool_id: str, spec, context, turn) -> tuple[bool, bool
     decision = pm.check(tool_id, action, context, spec=spec)
 
     if decision == PermissionDecision.DENY:
-        # For high-risk tools, escalate DENY to REQUIRE_APPROVAL
-        if risk_level == 'high':
-            decision = PermissionDecision.REQUIRE_APPROVAL
-            turn.warnings.append(f"permission_deny_escalated_to_approval: {tool_id}")
-            return True, False, decision
+        # DENY is terminal — it cannot be escalated to REQUIRE_APPROVAL.
+        # High-risk tools (shell, python) are REQUIRE_APPROVAL by default via
+        # the PermissionMatrix; if the matrix explicitly returns DENY (e.g. for
+        # forbidden or unknown exec tools), that decision is final.
+        turn.warnings.append(f"permission_denied_terminal: {tool_id}")
         return False, True, decision
 
     requires_approval = decision == PermissionDecision.REQUIRE_APPROVAL
