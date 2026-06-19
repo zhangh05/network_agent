@@ -7,7 +7,6 @@ Pipeline: RiskPolicy → ApprovalGate → ToolDispatcher → ResultNormalizer
 
 from __future__ import annotations
 
-import time
 from typing import Any
 
 from agent.runtime.actions.models import ActionPlan, ActionResult
@@ -46,7 +45,8 @@ class ActionExecutor:
         metadata = ctx_meta if ctx_meta is not None else {}
 
         # 1. Risk evaluation
-        risk = self.risk_policy.evaluate(plan, ctx=ctx)
+        evidence_bundle = getattr(ctx, "evidence_bundle", None) if ctx is not None else None
+        risk = self.risk_policy.evaluate(plan, ctx=ctx, evidence_bundle=evidence_bundle)
 
         # Update plan from risk decision
         plan.risk_level = risk.risk_level
