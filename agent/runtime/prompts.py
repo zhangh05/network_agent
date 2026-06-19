@@ -30,7 +30,7 @@ ANTI_HALLUCINATION = (
 
 RUNTIME_CONTRACT = (
     "\n## Rules\n"
-    "1. Only call tools from the function list. Dots in tool IDs = underscores in function calls (same tool).\n"
+    "1. Only call tools from the function list. Dots in tool IDs become double underscores in function calls: web.search → web__search.\n"
     "2. Never generate deployable_config as a final authoritative artifact.\n"
     "3. If context is insufficient, say what is missing.\n"
     "4. Cite factual claims with [K1]/[M2] ids when provided. 3-5 core points first, offer to expand.\n"
@@ -43,6 +43,9 @@ RUNTIME_CONTRACT = (
     "10. **Exec tools stay available.** Prefer domain tools when they directly match the task; "
     "use host.shell.exec / host.python.exec for local diagnostics, computation, scripts, "
     "or gaps not covered by specialized tools. Approval popup handles risk.\n"
+    "11. **Tool catalog discovery.** If the visible direct tools do not include the specific action you need, "
+    "or a list/search tool only proves that specialized actions exist, call tool.catalog.search before saying a tool is unavailable. "
+    "Use the returned load_tool_ids as the next-step tool choices.\n"
 )
 
 # ─── Tool Category Guide (injected when tools are available) ─────────────────
@@ -85,6 +88,7 @@ TOOL_CATEGORY_GUIDE = (
     "3. If web search would help → search web\n"
     "4. If task is complex/multi-step → consider spawning sub-agents in parallel\n"
     "5. Only answer from general knowledge as a last resort\n"
+    "6. If the user asks whether a tool/capability exists, call tool.catalog.search unless the exact tool is already visible.\n"
     "\n"
     "### Common Workflows\n"
     "- **Config analysis**: workspace.file.list → workspace.file.read → network.config.parse → network.interface.extract\n"
@@ -208,7 +212,9 @@ def classify_intent(intent: str = "", user_input: str = "") -> dict:
                                    "设备", "命令", "执行", "查询", "搜索", "知识", "文件",
                                    "检查", "查看", "分析", "扫描", "ping", "端口", "日志",
                                    "拓扑", "连通", "延迟", "proxy", "python", "shell",
-                                   "pcap", "pcapng", "报文", "抓包", "重传", "乱序")
+                                   "pcap", "pcapng", "报文", "抓包", "重传", "乱序",
+                                   "tool", "skill", "capability", "工具", "技能", "能力",
+                                   "加载", "创建", "安装")
     ):
         return profile
 
@@ -225,7 +231,9 @@ def classify_intent(intent: str = "", user_input: str = "") -> dict:
                                    "ip", "os", "port", "route", "interface", "version",
                                    "翻译", "搜索", "知识", "执行", "命令", "查询",
                                    "本机", "系统", "地址", "端口", "进程", "网卡", "report",
-                                   "pcap", "pcapng", "报文", "抓包", "重传", "乱序")
+                                   "pcap", "pcapng", "报文", "抓包", "重传", "乱序",
+                                   "tool", "skill", "capability", "工具", "技能", "能力",
+                                   "加载", "创建", "安装")
     ):
         profile["has_tools"] = True
 
@@ -237,7 +245,8 @@ def classify_intent(intent: str = "", user_input: str = "") -> dict:
 
     # Knowledge
     if any(kw in combined for kw in ("knowledge", "search", "rag", "memory", "artifact",
-                                       "workspace.file", "document", "知识", "搜索", "文件")):
+                                       "workspace.file", "document", "知识", "搜索", "文件",
+                                       "skill", "技能", "工具", "能力")):
         profile["has_knowledge"] = True
 
     # Network

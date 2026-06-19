@@ -6,6 +6,17 @@
  */
 import { useState, useMemo } from "react";
 import { Badge } from "./common";
+import {
+  deriveRunTraceStats,
+  eventToolId,
+  isTraceErrorEvent,
+  isTraceLlmEvent,
+  isTraceNodeEvent,
+  isTraceSkillEvent,
+  isTraceToolEvent,
+  isTraceWarningEvent,
+  traceEventType,
+} from "../utils/runTraceStats";
 import type { RuntimeEvent, RuntimeAuditTurn } from "../types";
 
 interface Props {
@@ -13,10 +24,10 @@ interface Props {
   selectedRun: RuntimeAuditTurn | null;
 }
 
-type EventFilter = "all" | "tool" | "warning" | "error" | "llm" | "node";
+type EventFilter = "all" | "tool" | "skill" | "warning" | "error" | "llm" | "node";
 
 const FILTER_LABELS: Record<EventFilter, string> = {
-  all: "全部", tool: "工具", warning: "警告", error: "错误", llm: "LLM", node: "节点",
+  all: "全部", tool: "工具", skill: "Skill", warning: "警告", error: "错误", llm: "LLM", node: "节点",
 };
 
 export function TraceDetailPanel({ traceEvents, selectedRun }: Props) {
@@ -32,21 +43,21 @@ export function TraceDetailPanel({ traceEvents, selectedRun }: Props) {
     let r = traceEvents;
     if (filter !== "all") {
       r = r.filter((e) => {
-        const et = (e.event_type || "").toLowerCase();
-        if (filter === "tool") return et.includes("tool");
-        if (filter === "warning") return et === "warning" || e.level === "warn";
-        if (filter === "error") return et === "error" || e.level === "err";
-        if (filter === "llm") return et.includes("model") || et.includes("llm") || et.includes("assistant");
-        if (filter === "node") return et.includes("node") || et.includes("agent");
+        if (filter === "tool") return isTraceToolEvent(e);
+        if (filter === "skill") return isTraceSkillEvent(e);
+        if (filter === "warning") return isTraceWarningEvent(e);
+        if (filter === "error") return isTraceErrorEvent(e);
+        if (filter === "llm") return isTraceLlmEvent(e);
+        if (filter === "node") return isTraceNodeEvent(e);
         return true;
       });
     }
     if (search.trim()) {
       const q = search.toLowerCase();
       r = r.filter((e) =>
-        (e.event_type || "").toLowerCase().includes(q) ||
+        traceEventType(e).includes(q) ||
         (e.tool_id || "").toLowerCase().includes(q) ||
-        (evToolId(e) || "").toLowerCase().includes(q) ||
+        (eventToolId(e) || "").toLowerCase().includes(q) ||
         (e.summary || "").toLowerCase().includes(q) ||
         (e.name || "").toLowerCase().includes(q) ||
         (e.message || "").toLowerCase().includes(q)
@@ -59,15 +70,20 @@ export function TraceDetailPanel({ traceEvents, selectedRun }: Props) {
     if (!traceEvents) return {} as Record<string, number>;
     const c: Record<string, number> = { all: traceEvents.length };
     for (const e of traceEvents) {
-      const et = (e.event_type || "").toLowerCase();
-      if (et.includes("tool")) c.tool = (c.tool || 0) + 1;
-      if (et === "warning" || e.level === "warn") c.warning = (c.warning || 0) + 1;
-      if (et === "error" || e.level === "err") c.error = (c.error || 0) + 1;
-      if (et.includes("model") || et.includes("llm") || et.includes("assistant")) c.llm = (c.llm || 0) + 1;
-      if (et.includes("node") || et.includes("agent")) c.node = (c.node || 0) + 1;
+      if (isTraceToolEvent(e)) c.tool = (c.tool || 0) + 1;
+      if (isTraceSkillEvent(e)) c.skill = (c.skill || 0) + 1;
+      if (isTraceWarningEvent(e)) c.warning = (c.warning || 0) + 1;
+      if (isTraceErrorEvent(e)) c.error = (c.error || 0) + 1;
+      if (isTraceLlmEvent(e)) c.llm = (c.llm || 0) + 1;
+      if (isTraceNodeEvent(e)) c.node = (c.node || 0) + 1;
     }
     return c;
   }, [traceEvents]);
+
+  const runStats = useMemo(
+    () => deriveRunTraceStats(selectedRun, traceEvents),
+    [selectedRun, traceEvents],
+  );
 
   if (!selectedRun) return null;
   if (traceEvents === null && selectedRun.trace_id) {
@@ -94,12 +110,12 @@ export function TraceDetailPanel({ traceEvents, selectedRun }: Props) {
 
       {/* ── Quick stats ── */}
       <div style={{ display: "flex", flexWrap: "wrap", gap: 6, marginBottom: 12 }}>
-        <span className="badge info">{selectedRun.tool_call_count ?? 0} 工具</span>
-        <span className="badge warn">{selectedRun.warning_count ?? 0} 警告</span>
-        <span className="badge err">{selectedRun.error_count ?? 0} 错误</span>
-        {selectedRun.started_at && (
+        <span className="badge info">{runStats.toolCallCount} 工具</span>
+        <span className="badge warn">{runStats.warningCount} 警告</span>
+        <span className="badge err">{runStats.errorCount} 错误</span>
+        {runStats.startedAt && (
           <span style={{ color: "var(--text-4)", fontSize: "var(--fs-11)", padding: "2px 0" }}>
-            {String(selectedRun.started_at)}
+            {String(runStats.startedAt)}
           </span>
         )}
       </div>
@@ -138,10 +154,10 @@ export function TraceDetailPanel({ traceEvents, selectedRun }: Props) {
         ) : (
           filtered.map((e, idx) => {
             const open = expanded.has(idx);
-            const rawType = e.event_type || e.type || "";
+            const rawType = e.event_type || e.type || e.name || "";
             const et = evTypeLabel(rawType, e);
             const badge = evBadge(e);
-            const tId = e.tool_id || evToolId(e);
+            const tId = e.tool_id || eventToolId(e);
             return (
               <div key={idx} style={{ borderBottom: "1px solid var(--line-2)", fontSize: "var(--fs-12)" }}>
                 <div
@@ -213,8 +229,8 @@ export function TraceDetailPanel({ traceEvents, selectedRun }: Props) {
                 run_id: selectedRun.run_id, turn_id: selectedRun.turn_id, trace_id: selectedRun.trace_id,
                 session_id: selectedRun.session_id, status: selectedRun.status, intent: selectedRun.intent,
                 started_at: selectedRun.started_at, finished_at: selectedRun.finished_at,
-                tool_call_count: selectedRun.tool_call_count, warning_count: selectedRun.warning_count,
-                error_count: selectedRun.error_count, events_count: traceEvents?.length ?? 0,
+                tool_call_count: runStats.toolCallCount, warning_count: runStats.warningCount,
+                error_count: runStats.errorCount, events_count: traceEvents?.length ?? 0,
               }, null, 2)}
             </pre>
           </div>
@@ -224,18 +240,13 @@ export function TraceDetailPanel({ traceEvents, selectedRun }: Props) {
   );
 }
 
-function evToolId(ev: RuntimeAuditTurn["events"][number]): string {
-  const meta = (ev.metadata || ev.payload || {}) as Record<string, unknown>;
-  if (typeof meta.canonical_tool_id === "string") return meta.canonical_tool_id;
-  return ev.tool_id || "";
-}
-
 function evBadge(e: RuntimeEvent): "ok" | "err" | "warn" | "info" | "muted" {
-  const et = (e.event_type || "").toLowerCase();
+  const et = traceEventType(e);
   const lv = (e.level || "").toLowerCase();
   if (et.includes("error") || et.includes("failed") || lv === "err" || lv === "error") return "err";
   if (et === "warning" || lv === "warn") return "warn";
   if (et.includes("finish") || et.includes("completed") || et === "tool_end") return "ok";
+  if (et.includes("skill")) return "info";
   if (et.includes("tool") || et.includes("node") || et.includes("agent")) return "info";
   return "muted";
 }

@@ -53,8 +53,8 @@ class ToolPlan(TypedDict, total=False):
     tool_planner: dict[str, Any]
 
 
-PLANNER_VERSION = "v2.3"
-MAX_CANDIDATE_TOOLS = 16
+PLANNER_VERSION = "v2.4"
+MAX_CANDIDATE_TOOLS = 24
 
 # ─── v3.1: Cached namespace lookup ────────────────────────────────────
 
@@ -200,8 +200,8 @@ def deterministic_plan_tools(
         "knowledge.search", "knowledge.source.list",
         "memory.search", "memory.list", "memory.create",
         "workspace.file.read", "workspace.file.list",
-        "host.shell.exec",
-        "agent.result.get", "agent.role.list",
+        "host.shell.exec", "host.powershell.exec", "host.python.exec",
+        "agent.result.get", "agent.role.list", "tool.catalog.search",
         "skill.list",
     ]
     candidate_tools = _ordered_unique([*candidate_tools, *_BASELINE_TOOLS])

@@ -9,6 +9,7 @@ import { isApiError } from "../../types";
 import type { AgentResult, ToolCallResult } from "../../types";
 import { sanitizeAssistantText, renderAssistantHtml } from "../../utils/displayText";
 import { beginModelStep, discardToolCallDraft, finalizeStreamText } from "../../utils/agentStream";
+import { agentResultFromWsDone } from "../../utils/wsResult";
 import { notifyRunCompleted } from "../../utils/appEvents";
 import { IconAlert, IconBolt, IconSend } from "../../components/Icon";
 import { ApprovalBubble } from "../../components/ApprovalBubble";
@@ -199,11 +200,15 @@ export function AgentWorkbench() {
       const streamingResult: {
         session_id?: string;
         turn_id?: string;
+        trace_id?: string;
+        events?: AgentResult["events"];
         tool_calls_count?: number;
         tool_calls?: ToolCallResult[];
         metadata?: Record<string, unknown>;
         errors?: string[];
         warnings?: string[];
+        tool_decision?: AgentResult["tool_decision"];
+        no_tool_reason?: string;
       } = {};
 
       await new Promise<void>((resolve) => {
@@ -218,6 +223,9 @@ export function AgentWorkbench() {
                 setStreamingText(streamedText);
                 break;
               case "event":
+                if (msg.data) {
+                  streamingResult.events = [...(streamingResult.events || []), msg.data];
+                }
                 // Log events for debugging
                 if (msg.name === "model_started") {
                   streamState = beginModelStep(streamedText);
@@ -238,11 +246,15 @@ export function AgentWorkbench() {
                 streamedText = finalizeStreamText(streamState.draft, msg.final_response || "");
                 streamingResult.session_id = msg.session_id;
                 streamingResult.turn_id = msg.turn_id;
+                streamingResult.trace_id = msg.trace_id;
+                streamingResult.events = msg.events || streamingResult.events || [];
                 streamingResult.tool_calls_count = msg.tool_calls_count || streamingResult.tool_calls_count;
                 streamingResult.tool_calls = msg.tool_calls || [];
                 streamingResult.metadata = msg.metadata || {};
                 streamingResult.errors = msg.errors || [];
                 streamingResult.warnings = msg.warnings || [];
+                streamingResult.tool_decision = msg.tool_decision;
+                streamingResult.no_tool_reason = msg.no_tool_reason;
                 resolve();
                 break;
               case "error":
@@ -271,18 +283,7 @@ export function AgentWorkbench() {
         useWorkbenchStore.getState().switchSession(resolvedSid);
       }
 
-      const wsResult: AgentResult = {
-        ok: !(streamingResult.errors?.length),
-        final_response: sanitizeAssistantText(streamedText || "(empty response)"),
-        events: [],
-        trace_id: "—",
-        session_id: resolvedSid || "—",
-        turn_id: streamingResult.turn_id || `turn-${Date.now()}`,
-        tool_calls: (streamingResult as any).tool_calls || [],
-        warnings: streamingResult.warnings || [],
-        errors: streamingResult.errors || [],
-        metadata: (streamingResult as any).metadata || {},
-      };
+      const wsResult = agentResultFromWsDone(streamingResult, streamedText, resolvedSid);
       appendAssistant(wsResult.final_response, wsResult, resolvedSid);
       notifyRunCompleted();
 
@@ -626,8 +627,8 @@ function ResultInline({ result, fallbackText }: { result: AgentResult | undefine
           <details className="inline-technical-details">
             <summary>技术详情</summary>
             <div className="chat-tool-calls">
-              {(result?.tool_calls ?? []).map((tc: ToolCallResult) => (
-                <span key={tc.call_id} className="chat-tool-call">
+              {(result?.tool_calls ?? []).map((tc: ToolCallResult, idx: number) => (
+                <span key={tc.call_id || `${tc.tool_id}-${idx}`} className="chat-tool-call">
                   <span className="tc-name">{toolLabel(tc.tool_id)}</span>
                   <span className={"tc-status " + (tc.ok ? "ok" : "err")}>
                     {tc.ok ? "已完成" : "需关注"}

@@ -2078,6 +2078,121 @@ details.collapse[open] summary::before {
   padding-right: 8px;
 }
 
+.markdown-body .pipe-row {
+  color: var(--text-2);
+}
+
+.markdown-body .pipe-row-separator {
+  color: var(--text-hint);
+  padding: 0 3px;
+}
+
+.markdown-body .pipe-card {
+  display: grid;
+  grid-template-columns: minmax(92px, 0.7fr) minmax(82px, 0.5fr) minmax(0, 2.2fr);
+  gap: 8px 12px;
+  align-items: start;
+  margin: 8px 0;
+  padding: 9px 11px;
+  background: rgba(250, 252, 254, 0.92);
+  border: 1px solid var(--line-2);
+  border-radius: 6px;
+}
+
+.markdown-body .pipe-card-title {
+  font-weight: 680;
+  color: var(--text);
+}
+
+.markdown-body .pipe-card-meta {
+  color: var(--accent-strong);
+  font-weight: 620;
+  white-space: nowrap;
+}
+
+.markdown-body .pipe-card-body {
+  color: var(--text-2);
+  line-height: 1.55;
+}
+
+[data-theme="dark"] .markdown-body .pipe-card {
+  background: rgba(17, 24, 39, 0.72);
+}
+
+.markdown-body .report-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 8px;
+  margin: 10px 0 14px;
+}
+
+.markdown-body .report-card {
+  padding: 10px 12px;
+  background: rgba(250, 252, 254, 0.96);
+  border: 1px solid var(--line-2);
+  border-radius: 6px;
+}
+
+.markdown-body .report-card-head {
+  display: grid;
+  grid-template-columns: minmax(120px, 0.42fr) auto;
+  gap: 8px 12px;
+  align-items: baseline;
+  margin-bottom: 4px;
+}
+
+.markdown-body .report-card-title {
+  font-weight: 720;
+  color: var(--text);
+}
+
+.markdown-body .report-card-meta {
+  justify-self: start;
+  padding: 1px 8px;
+  border-radius: 999px;
+  background: rgba(24, 95, 143, 0.08);
+  color: var(--accent-strong);
+  font-weight: 680;
+  font-size: 0.92em;
+  white-space: nowrap;
+}
+
+.markdown-body .report-card-body {
+  color: var(--text-2);
+  line-height: 1.62;
+}
+
+.markdown-body .insight-list {
+  display: grid;
+  gap: 7px;
+  margin: 10px 0 12px;
+}
+
+.markdown-body .insight-item {
+  display: grid;
+  grid-template-columns: minmax(130px, 0.38fr) minmax(0, 1fr);
+  gap: 8px 12px;
+  padding: 8px 10px;
+  background: rgba(246, 249, 252, 0.96);
+  border-left: 3px solid var(--accent);
+  border-radius: 0 6px 6px 0;
+}
+
+.markdown-body .insight-label {
+  font-weight: 720;
+  color: var(--text);
+}
+
+.markdown-body .insight-text {
+  color: var(--text-2);
+  line-height: 1.56;
+}
+
+[data-theme="dark"] .markdown-body .report-card,
+[data-theme="dark"] .markdown-body .insight-item {
+  background: rgba(17, 24, 39, 0.72);
+}
+
 /* Lists */
 .markdown-body ul,
 .markdown-body ol {
@@ -3127,8 +3242,16 @@ details.collapse[open] summary::before {
   .knowledge-meta-grid,
   .settings-grid,
   .settings-row-grid,
-  .review-empty-steps {
+  .review-empty-steps,
+  .markdown-body .pipe-card,
+  .markdown-body .report-card-head,
+  .markdown-body .insight-item {
     grid-template-columns: minmax(0, 1fr);
+  }
+
+  .markdown-body .pipe-card-meta,
+  .markdown-body .report-card-meta {
+    white-space: normal;
   }
 
   .modal {

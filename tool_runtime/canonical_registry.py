@@ -405,6 +405,187 @@ _S = {
 }
 
 
+def _handler_tool_catalog_search(inv: ToolInvocation) -> dict:
+    """Search the canonical tool catalog and return loadable tool ids."""
+    from tool_runtime.tool_governance import TOOL_GOVERNANCE
+    from tool_runtime.tool_namespace import TOOL_NAMESPACE
+
+    args = inv.arguments or {}
+    query = str(args.get("query") or "").strip()
+    context_summary = str(args.get("context_summary") or "").strip()
+    category_filter = str(args.get("category") or "").strip()
+    group_filter = str(args.get("group") or "").strip()
+    valid_categories = {ns.category for ns in TOOL_NAMESPACE.values()}
+    valid_groups = {ns.group for ns in TOOL_NAMESPACE.values()}
+    if category_filter and category_filter not in valid_categories:
+        if category_filter in valid_groups and not group_filter:
+            group_filter = category_filter
+        category_filter = ""
+    if group_filter and group_filter not in valid_groups:
+        group_filter = ""
+    try:
+        limit = int(args.get("limit") or 8)
+    except Exception:
+        limit = 8
+    limit = max(1, min(limit, 20))
+
+    search_text = " ".join(part for part in (query, context_summary) if part)
+    if not search_text:
+        return {
+            "ok": False,
+            "tool_id": "tool.catalog.search",
+            "status": "failed",
+            "summary": "需要提供要搜索的工具需求。",
+            "errors": ["missing_query"],
+        }
+
+    tokens = _catalog_query_tokens(search_text)
+    scored: list[tuple[int, str, dict[str, Any]]] = []
+    for tool_id, ns in TOOL_NAMESPACE.items():
+        if tool_id == "tool.catalog.search":
+            continue
+        if category_filter and ns.category != category_filter:
+            continue
+        if group_filter and ns.group != group_filter:
+            continue
+        gov = TOOL_GOVERNANCE.get(tool_id)
+        if gov is not None and gov.status in {"forbidden", "disabled", "internal"}:
+            continue
+        entry = CANONICAL_REGISTRY.get(tool_id)
+        if entry is None:
+            continue
+        haystack = " ".join([
+            tool_id, ns.category, ns.group, ns.action, ns.display_name,
+            ns.short_label, ns.usage_hint, ns.not_for, entry.description,
+        ]).lower()
+        score = _catalog_score(tool_id, ns.category, ns.group, haystack, tokens, search_text)
+        if score <= 0:
+            continue
+        scored.append((score, tool_id, {
+            "tool_id": tool_id,
+            "display_name": ns.display_name,
+            "category": ns.category,
+            "group": ns.group,
+            "action": ns.action,
+            "risk_level": entry.risk_level,
+            "requires_approval": entry.requires_approval,
+            "reason": _catalog_reason(tool_id, ns.display_name, score, tokens),
+            "usage_hint": ns.usage_hint,
+        }))
+
+    scored.sort(key=lambda item: (-item[0], item[1]))
+    matches = [item[2] for item in scored[:limit]]
+    load_ids = [m["tool_id"] for m in matches]
+    expansion = {
+        "query": query,
+        "context_summary": context_summary[:500],
+        "load_tool_ids": load_ids,
+        "matched_count": len(matches),
+    }
+    return {
+        "ok": True,
+        "tool_id": "tool.catalog.search",
+        "status": "succeeded",
+        "summary": f"工具目录匹配到 {len(matches)} 个可加载工具。",
+        "content": {
+            "matched_tools": matches,
+            "load_tool_ids": load_ids,
+            "instruction": "这些工具已可加入当前回合；下一步请直接调用最合适的工具完成用户需求。",
+        },
+        "data": {
+            "matched_tools": matches,
+            "load_tool_ids": load_ids,
+        },
+        "metadata": {
+            "tool_catalog_expansion": expansion,
+        },
+    }
+
+
+def _catalog_query_tokens(text: str) -> list[str]:
+    import re
+    base = [t.lower() for t in re.findall(r"[\w.\-]+", text or "") if len(t.strip()) >= 2]
+    lowered = (text or "").lower()
+    phrases = {
+        "技能": ["skill"], "加载": ["load"], "创建": ["create"], "安装": ["install"],
+        "报文": ["pcap", "packet"], "抓包": ["pcap"], "重传": ["retransmission"],
+        "序列": ["sequence"], "五元组": ["5tuple"], "tcp": ["tcp"],
+        "文件": ["file"], "编辑": ["edit"], "修改": ["edit", "patch"], "补丁": ["patch"],
+        "知识库": ["knowledge"], "索引": ["index", "reindex"], "导入": ["import"],
+        "记忆": ["memory"], "上下文": ["context"], "运行记录": ["run", "trace"],
+        "事件": ["event"], "会话": ["session"], "网页": ["web"], "官方": ["official"],
+        "新闻": ["news"], "天气": ["weather"], "表格": ["table"], "json": ["json"],
+        "yaml": ["yaml"], "csv": ["csv"], "报告": ["report"],
+    }
+    expanded = list(base)
+    for phrase, additions in phrases.items():
+        if phrase in lowered:
+            expanded.extend(additions)
+    return _ordered_unique(expanded)
+
+
+def _ordered_unique(items) -> list[str]:
+    seen = set()
+    out: list[str] = []
+    for item in items:
+        if not item or item in seen:
+            continue
+        seen.add(item)
+        out.append(item)
+    return out
+
+
+def _catalog_score(tool_id: str, category: str, group: str, haystack: str, tokens: list[str], text: str) -> int:
+    lowered = (text or "").lower()
+    score = 0
+    for token in tokens:
+        if token == tool_id:
+            score += 80
+        elif token in tool_id:
+            score += 28
+        elif token in haystack:
+            score += 8
+    intent_boosts = [
+        (("skill", "技能"), "skill.", 35),
+        (("load", "加载"), "skill.load", 45),
+        (("create", "创建"), "skill.create", 45),
+        (("install", "安装"), "skill.install", 45),
+        (("pcap", "报文", "抓包", "packet"), "network.pcap.", 40),
+        (("retransmission", "重传", "sequence", "序列", "tcp"), "network.pcap.align", 42),
+        (("file", "文件"), "workspace.file.", 22),
+        (("edit", "编辑", "修改"), "workspace.file.edit", 40),
+        (("patch", "补丁"), "workspace.file.patch", 40),
+        (("knowledge", "知识库"), "knowledge.", 30),
+        (("import", "导入"), "knowledge.import.", 35),
+        (("reindex", "索引"), "knowledge.source.reindex", 35),
+        (("memory", "记忆"), "memory.", 28),
+        (("run", "运行记录", "trace", "事件"), "run.", 30),
+        (("session", "会话"), "session.", 25),
+        (("web", "网页", "官方", "新闻", "天气"), "web.", 25),
+        (("table", "表格"), "data.table.", 28),
+        (("json",), "data.json.validate", 34),
+        (("yaml",), "data.yaml.validate", 34),
+        (("csv",), "data.csv.summarize", 34),
+        (("report", "报告"), "report.", 26),
+    ]
+    for needles, prefix, boost in intent_boosts:
+        if any(n in lowered or n in tokens for n in needles):
+            if tool_id == prefix or tool_id.startswith(prefix):
+                score += boost
+    if category in tokens:
+        score += 12
+    if group in tokens:
+        score += 12
+    return score
+
+
+def _catalog_reason(tool_id: str, display_name: str, score: int, tokens: list[str]) -> str:
+    matched = [t for t in tokens[:8] if t in tool_id.lower()]
+    if matched:
+        return f"{display_name} 与关键词 {', '.join(matched)} 匹配。"
+    return f"{display_name} 与当前需求相关，匹配分 {score}。"
+
+
 # canonical_tool_id -> CanonicalToolEntry
 _RAW_REGISTRY: list[CanonicalToolEntry] = [
     # Host
@@ -1123,6 +1304,18 @@ _RAW_REGISTRY: list[CanonicalToolEntry] = [
         input_schema=_schema({
             "workspace_id": _S["workspace_id"], "child_session_id": _S["session_id"],
         }, ["child_session_id"]),
+    ),
+    CanonicalToolEntry(
+        canonical_tool_id="tool.catalog.search",
+        handler=_adapt(_handler_tool_catalog_search),
+        input_schema=_schema({
+            "query": _S["query"],
+            "context_summary": {"type": "string", "description": "Optional short summary of the current conversation, page, memory, or prior tool result."},
+            "category": {"type": "string", "description": "Optional category filter such as network, workspace, knowledge, memory, web, agent."},
+            "group": {"type": "string", "description": "Optional group filter such as pcap, file, skill, source."},
+            "limit": {"type": "integer", "description": "Max tools to return, 1-20.", "default": 8},
+        }, ["query"]),
+        description="Search the full tool catalog and return loadable specialized tool_ids for the current turn.",
     ),
     CanonicalToolEntry(
         canonical_tool_id="skill.list",

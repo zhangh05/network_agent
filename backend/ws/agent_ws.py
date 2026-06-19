@@ -170,12 +170,16 @@ def _run_agent_thread(user_input, session_id, workspace_id, metadata, event_queu
             "type": "done",
             "session_id": resolved_session_id,
             "turn_id": result_payload.get("turn_id", ""),
+            "trace_id": result_payload.get("trace_id", ""),
             "final_response": result_payload.get("final_response", ""),
+            "events": result_payload.get("events", []),
             "tool_calls_count": tool_calls_count,
             "tool_calls": tool_calls,
             "metadata": metadata,
             "errors": result_payload.get("errors", []),
             "warnings": result_payload.get("warnings", []),
+            "tool_decision": result_payload.get("tool_decision", {}),
+            "no_tool_reason": result_payload.get("no_tool_reason", ""),
         })
 
     except Exception as e:

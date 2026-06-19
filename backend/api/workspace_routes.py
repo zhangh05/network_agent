@@ -6,6 +6,100 @@ from workspace.ids import validate_session_id, validate_workspace_id
 from artifacts.store import sanitize_record
 
 
+def _trace_event_type(event: dict) -> str:
+    return str(event.get("event_type") or event.get("type") or event.get("name") or "").lower()
+
+
+def _trace_event_level(event: dict) -> str:
+    return str(event.get("level") or event.get("status") or "").lower()
+
+
+def _trace_event_bag(event: dict) -> dict:
+    for key in ("metadata", "payload"):
+        value = event.get(key)
+        if isinstance(value, dict):
+            return value
+    return {}
+
+
+def _trace_event_tool_id(event: dict) -> str:
+    bag = _trace_event_bag(event)
+    for source in (bag, event):
+        for key in ("canonical_tool_id", "tool_id"):
+            value = source.get(key)
+            if isinstance(value, str) and value.strip():
+                return value.strip()
+    return ""
+
+
+def _trace_event_time(event: dict) -> str:
+    value = event.get("occurred_at") or event.get("started_at") or event.get("timestamp") or ""
+    return str(value) if value is not None else ""
+
+
+def _safe_run_trace_summary(run: dict, trace: dict | None) -> dict:
+    """Derive display-safe run counters from redacted trace events."""
+    events = trace.get("events", []) if isinstance(trace, dict) else []
+    if not isinstance(events, list):
+        events = []
+
+    tool_ids: set[str] = set()
+    anonymous_tool_events = 0
+    warning_count = 0
+    error_count = 0
+    timestamps: list[str] = []
+
+    for event in events:
+        if not isinstance(event, dict):
+            continue
+        event_type = _trace_event_type(event)
+        event_level = _trace_event_level(event)
+        event_time = _trace_event_time(event)
+        if event_time:
+            timestamps.append(event_time)
+
+        tool_id = _trace_event_tool_id(event)
+        if "tool" in event_type or "approval" in event_type or tool_id:
+            if tool_id:
+                tool_ids.add(tool_id)
+            else:
+                anonymous_tool_events += 1
+        if "warn" in event_type or event_level in {"warn", "warning"}:
+            warning_count += 1
+        if "error" in event_type or "fail" in event_type or event_level in {"err", "error"}:
+            error_count += 1
+
+    warnings = run.get("warnings", [])
+    if isinstance(warnings, list):
+        warning_count = max(warning_count, len(warnings))
+    if run.get("error"):
+        error_count = max(error_count, 1)
+
+    visible_tools = run.get("visible_tools", [])
+    if isinstance(visible_tools, list):
+        for tool in visible_tools:
+            if isinstance(tool, str) and tool.strip():
+                tool_ids.add(tool.strip())
+
+    selected_skills = run.get("selected_skills")
+    if not isinstance(selected_skills, list):
+        selected_skill = run.get("selected_skill")
+        selected_skills = [selected_skill] if isinstance(selected_skill, str) and selected_skill else []
+
+    tool_count = max(int(run.get("tool_call_count") or 0), len(tool_ids) or anonymous_tool_events)
+    return {
+        "turn_id": run.get("turn_id") or run.get("run_id") or "",
+        "started_at": run.get("started_at") or (timestamps[0] if timestamps else run.get("created_at", "")),
+        "finished_at": run.get("finished_at") or (timestamps[-1] if timestamps else ""),
+        "selected_skills": selected_skills,
+        "visible_tools": sorted(tool_ids),
+        "tool_call_count": tool_count,
+        "warning_count": max(int(run.get("warning_count") or 0), warning_count),
+        "error_count": max(int(run.get("error_count") or 0), error_count),
+        "event_count": len(events),
+    }
+
+
 def _invalid_ws():
     return jsonify({"ok": False, "error": "invalid_workspace_id"}), 400
 
@@ -172,9 +266,18 @@ def register_workspace_routes(app):
             "active_module", "selected_skill", "status", "error",
             "warnings", "quality_summary", "elapsed_ms", "created_at",
             "node_timings", "trace_id", "user_input_summary", "final_response",
+            "turn_id", "started_at", "finished_at", "selected_skills",
+            "visible_tools", "tool_call_count", "warning_count", "error_count",
+            "tool_decision", "no_tool_reason",
         })
+        from observability.store import get_trace
         for r in recent:
             safe_run = {k: v for k, v in r.items() if k in _SAFE_RUN_KEYS}
+            rid = safe_run.get("run_id") or safe_run.get("turn_id")
+            trace = get_trace(rid, ws_id) if rid else None
+            safe_run.update(_safe_run_trace_summary(r, trace))
+            if trace and trace.get("trace_id") and not safe_run.get("trace_id"):
+                safe_run["trace_id"] = trace.get("trace_id")
             # Attach session title so the frontend can show run→session association
             safe_run["session_title"] = session_titles.get(r.get("session_id", ""), "")
             safe_recent.append(safe_run)

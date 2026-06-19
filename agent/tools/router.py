@@ -76,6 +76,8 @@ class ToolRouter:
             )
             self.model_visible_specs.append(llm_spec)
             self.llm_name_map[llm_name] = spec.tool_id
+            for alias in self._llm_name_aliases(canonical_tool_id):
+                self.llm_name_map.setdefault(alias, spec.tool_id)
 
     @staticmethod
     def _describe_for_llm(spec) -> str:
@@ -111,6 +113,17 @@ class ToolRouter:
 
         return f"{prefix} {body} | tool_id={canonical_tool_id}"
 
+    @staticmethod
+    def _llm_name_aliases(tool_id: str) -> set[str]:
+        """Return tolerant aliases for common model underscore variants."""
+        parts = [p for p in tool_id.split(".") if p]
+        aliases: set[str] = set()
+        if len(parts) >= 3:
+            aliases.add("_".join(parts[:-1]) + "__" + parts[-1])
+        if len(parts) == 2:
+            aliases.add("_".join(parts))
+        return aliases
+
     def apply_dynamic_visibility(self, allowed_tool_ids):
         """Restrict the LLM-visible whitelist to the given canonical tool_ids.
 
@@ -135,6 +148,30 @@ class ToolRouter:
             }
             self._dynamic_visibility = True
         self._build()
+
+    def expand_dynamic_visibility(self, tool_ids) -> list[str]:
+        """Add canonical tool_ids to the current turn's visible whitelist.
+
+        This is used by tool.catalog.search: catalog search may discover a
+        specialized tool after the first model call, then the runtime exposes
+        only those newly selected tools for the next model step.
+        """
+        if not tool_ids:
+            return []
+        eligible = {s.tool_id for s in self.registry.list_model_visible()}
+        additions = [t for t in tool_ids if t in eligible]
+        if not additions:
+            return []
+        if self._allowed_tool_ids is None:
+            # Full visibility is already active, so no rebuild is needed.
+            return sorted(set(additions))
+        before = set(self._allowed_tool_ids)
+        self._allowed_tool_ids.update(additions)
+        added = sorted(self._allowed_tool_ids - before)
+        if added:
+            self._dynamic_visibility = True
+            self._build()
+        return added
 
     @property
     def dynamic_visibility(self) -> bool:

@@ -68,4 +68,38 @@ describe("Inspector — AgentResult normal rendering", () => {
     const okBadges = screen.getAllByTestId("badge-ok");
     expect(okBadges.length).toBeGreaterThan(0);
   });
+
+  it("derives knowledge sources from knowledge tool calls when metadata is sparse", () => {
+    useWorkbenchStore.setState({
+      latestResult: {
+        ...sampleResult,
+        metadata: {
+          selected_skills: ["assistant_chat"],
+          visible_tools: ["knowledge.search"],
+        },
+        tool_calls: [
+          {
+            call_id: "call-knowledge",
+            tool_id: "knowledge.search",
+            ok: true,
+            source_count: 1,
+            result: {
+              source_summary: [
+                {
+                  source_id: "src-ifconfig",
+                  title: "ifconfig 输出知识",
+                  snippet: "en1 是当前 Wi-Fi 主接口。",
+                  score: 1,
+                },
+              ],
+            },
+          },
+        ],
+      },
+    });
+
+    render(<Inspector />);
+    expect(screen.getByTestId("inspector-sources")).toHaveTextContent("ifconfig 输出知识");
+    expect(screen.queryByText("本 turn 未命中 knowledge")).not.toBeInTheDocument();
+  });
 });

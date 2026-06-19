@@ -10,6 +10,7 @@ import { Badge, StatusDot, EmptyState, LoadingState, CodeBlock } from "../../com
 import { IconRefresh, IconAlert } from "../../components/Icon";
 import { TraceDetailPanel } from "../../components/TraceDetailPanel";
 import { APP_EVENTS } from "../../utils/appEvents";
+import { deriveRunTraceStats } from "../../utils/runTraceStats";
 import type { RuntimeAuditTurn } from "../../types";
 
 /* ── Status helpers ── */
@@ -121,6 +122,11 @@ export function RunsPage() {
     return { error: String(err).slice(0, 200), timeoutSecs: secs };
   }, [trace]);
 
+  const selectedStats = useMemo(
+    () => deriveRunTraceStats(sel, trace),
+    [sel, trace],
+  );
+
   // ── Empty ──
   if (!loading && !error && runs.length === 0) {
     return (
@@ -186,7 +192,9 @@ export function RunsPage() {
                 <div style={{ display: "flex", gap: 8, marginLeft: 16, fontSize: "var(--fs-10)", color: "var(--text-4)" }}>
                   <span>{r.session_id?.substring(0, 8) || "-"}</span>
                   <span>{r.created_at ? new Date(r.created_at).toLocaleString("zh-CN", { month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit" }) : "-"}</span>
-                  {r.tool_call_count > 0 && <span>{r.tool_call_count} 工具</span>}
+                  {Number(r.tool_call_count || 0) > 0 && <span>{r.tool_call_count} 工具</span>}
+                  {Number(r.warning_count || 0) > 0 && <span>{r.warning_count} 警告</span>}
+                  {Number(r.error_count || 0) > 0 && <span>{r.error_count} 错误</span>}
                 </div>
               </button>
             );
@@ -226,24 +234,17 @@ export function RunsPage() {
                       <Info label="运行 ID" value={sel.turn_id || sel.run_id} mono />
                       <Info label="追踪 ID" value={sel.trace_id} mono />
                       <Info label="意图" value={sel.intent} />
-                      <Info label="开始" value={sel.started_at} />
-                      <Info label="结束" value={sel.finished_at} />
-                      <Info label="工具调用" value={sel.tool_call_count ? String(sel.tool_call_count) : "-"} />
-                      {sel.error_count !== undefined && <Info label="错误" value={String(sel.error_count)} />}
-                      {sel.warning_count !== undefined && <Info label="警告" value={String(sel.warning_count)} />}
+                      <Info label="开始" value={selectedStats.startedAt} />
+                      <Info label="结束" value={selectedStats.finishedAt} />
+                      <Info label="工具调用" value={selectedStats.toolCallCount ? String(selectedStats.toolCallCount) : "-"} />
+                      <Info label="错误" value={String(selectedStats.errorCount)} />
+                      <Info label="警告" value={String(selectedStats.warningCount)} />
                     </div>
                   </div>
 
                   <TraceDetailPanel traceEvents={trace} selectedRun={sel} />
 
-                  {sel.selected_skills?.length > 0 && (
-                    <div style={{ marginTop: 16 }}>
-                      <div className="section-head">Skills</div>
-                      <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>{sel.selected_skills.map((s) => <Badge key={s} kind="info">{s}</Badge>)}</div>
-                    </div>
-                  )}
-
-                  {(!trace || trace.length === 0) && !sel.tool_call_count && (
+                  {(!trace || trace.length === 0) && !selectedStats.toolCallCount && (
                     <div style={{ padding: "40px 0", textAlign: "center", color: "var(--text-3)", fontSize: "var(--fs-12)" }}>暂无更多详情</div>
                   )}
                 </>

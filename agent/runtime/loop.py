@@ -320,6 +320,7 @@ def run_turn(session, turn, services=None, restricted_tool_router=None) -> Agent
             )
             messages.append(assistant_msg.to_llm_message())
 
+            expanded_tools_this_step = []
             for tc in resp.tool_calls:
                 llm_name = tc.name if hasattr(tc, 'name') else tc.get("name", "unknown")
 
@@ -348,6 +349,16 @@ def run_turn(session, turn, services=None, restricted_tool_router=None) -> Agent
                 if should_skip:
                     continue
 
+                added_tools = _maybe_expand_tools_from_catalog_result(
+                    result, context, session, turn, step, audit_events, emitter,
+                )
+                if added_tools:
+                    expanded_tools_this_step.extend(added_tools)
+                    try:
+                        tools = context.tool_router.model_visible_tools()
+                    except Exception:
+                        pass
+
             if _tool_stop_requested:
                 final_response = "Tool execution was stopped by a post-tool hook."
                 break
@@ -370,6 +381,13 @@ def run_turn(session, turn, services=None, restricted_tool_router=None) -> Agent
                     _build_tool_decision(all_tool_results, context), "",
                     {"terminal_reason": "repeated_tool_failure", "steps": step},
                 )
+
+            if expanded_tools_this_step:
+                messages.append(RuntimeContextMessage(content=(
+                    "Tool catalog expanded the current turn with these newly visible tools: "
+                    + json.dumps(sorted(set(expanded_tools_this_step)), ensure_ascii=False)
+                    + ". Continue by calling the best matching specialized tool if it is needed."
+                )).to_llm_message())
 
             continue
 
@@ -527,6 +545,61 @@ def _repeated_tool_failure(tool_results: list) -> dict | None:
     if not current_errors and previous.get("summary") != current.get("summary"):
         return None
     return current
+
+
+def _maybe_expand_tools_from_catalog_result(result, context, session, turn, step, audit_events, emitter) -> list[str]:
+    """Expand per-turn visible tools from a successful catalog search result."""
+    if not result or getattr(result, "tool_id", "") != "tool.catalog.search" or not getattr(result, "ok", False):
+        return []
+    expansion = {}
+    metadata = getattr(result, "metadata", {}) or {}
+    if isinstance(metadata.get("tool_catalog_expansion"), dict):
+        expansion = metadata["tool_catalog_expansion"]
+    data = getattr(result, "data", {}) or {}
+    raw = getattr(result, "raw", {}) or {}
+    load_ids = (
+        expansion.get("load_tool_ids")
+        or data.get("load_tool_ids")
+        or raw.get("load_tool_ids")
+        or []
+    )
+    if not load_ids or not getattr(context, "tool_router", None):
+        return []
+    try:
+        added = context.tool_router.expand_dynamic_visibility(load_ids)
+    except Exception as exc:
+        if hasattr(turn, "warnings"):
+            turn.warnings.append(f"tool_catalog_expand_failed: {str(exc)[:120]}")
+        return []
+    if not added:
+        return []
+    visible = sorted(set(getattr(context, "visible_tool_ids", []) or []) | set(added))
+    context.visible_tool_ids = visible
+    context.metadata["visible_tools"] = visible
+    context.metadata.setdefault("dynamic_tool_expansions", []).append({
+        "step": step,
+        "query": expansion.get("query", ""),
+        "added_tool_ids": added,
+    })
+    try:
+        from agent.runtime.query_engine import StreamEvent
+        emitter.emit(StreamEvent.TOOL_RESULT, {
+            "tool_id": "tool.catalog.search",
+            "ok": True,
+            "summary": f"工具目录已追加 {len(added)} 个工具到当前回合。",
+            "added_tool_ids": added,
+        })
+    except Exception:
+        pass
+    if audit_events:
+        audit_events.emit(
+            "tool_catalog_expanded",
+            session_id=session.session_id,
+            turn_id=turn.turn_id,
+            step=step,
+            added_tool_ids=added,
+        )
+    return added
 
 
 def _execute_tool_chain(tool_call, tc, context, session, turn, step,

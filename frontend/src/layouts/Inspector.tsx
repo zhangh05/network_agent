@@ -159,8 +159,8 @@ function InspectorBody({ result }: { result: AgentResult }) {
                 技术详情
               </summary>
               <div className="col-flex mt-2" data-testid="inspector-tool-calls" style={{ gap: 6 }}>
-                {(result.tool_calls ?? []).map((tc) => (
-                  <ToolCallCard key={tc.call_id} tc={tc} />
+                {(result.tool_calls ?? []).map((tc, idx) => (
+                  <ToolCallCard key={tc.call_id || `${tc.tool_id}-${idx}`} tc={tc} />
                 ))}
               </div>
             </details>
@@ -252,12 +252,15 @@ function InspectorBody({ result }: { result: AgentResult }) {
         <ArtifactsList result={result} />
       </Collapsible>
 
-      <Collapsible title="知识源" count={result.metadata?.source_count ?? 0}>
-        {result.metadata?.source_count ? (
+      {(() => {
+        const sourceInfo = knowledgeSourceInfo(result);
+        return (
+      <Collapsible title="知识源" count={sourceInfo.count}>
+        {sourceInfo.count > 0 ? (
           <div data-testid="inspector-sources">
             <div className="inspector-row">
               <span className="label">count</span>
-              <span className="value">{String(result.metadata?.source_count)}</span>
+              <span className="value">{String(sourceInfo.count)}</span>
             </div>
             <div className="inspector-row">
               <span className="label">backend</span>
@@ -270,7 +273,9 @@ function InspectorBody({ result }: { result: AgentResult }) {
               <span className="value">{String(result.metadata?.scope ?? "—")}</span>
             </div>
             <div className="col-flex mt-2" style={{ gap: 6 }}>
-              {((result.metadata?.context_sources as any[]) ?? []).slice(0, 8).map((s, idx) => (
+              {sourceInfo.sources.length === 0 ? (
+                <div className="text-sm muted">知识检索已执行，但本 turn 未返回来源明细。</div>
+              ) : sourceInfo.sources.slice(0, 8).map((s, idx) => (
                 <div className="card" key={`${s.chunk_id || s.source_id || idx}`} style={{ padding: 8, marginBottom: 0 }}>
                   <div className="row-flex" style={{ justifyContent: "space-between", gap: 8 }}>
                     <strong className="text-sm">{s.citation_id || `S${idx + 1}`} · {s.title || s.source_id}</strong>
@@ -287,6 +292,8 @@ function InspectorBody({ result }: { result: AgentResult }) {
           <div className="text-sm muted">本 turn 未命中 knowledge</div>
         )}
       </Collapsible>
+        );
+      })()}
 
       <Collapsible title="警告" count={result.warnings?.length ?? 0}>
         {(result.warnings ?? []).length === 0 ? (
@@ -483,6 +490,32 @@ function countArtifacts(result: AgentResult): number {
     total += (tc.artifacts?.length ?? 0);
   }
   return total;
+}
+
+function knowledgeSourceInfo(result: AgentResult): { count: number; sources: any[] } {
+  const metadata = result.metadata ?? {};
+  const metaSources = ((metadata.context_sources as any[]) ?? (metadata.source_summary as any[]) ?? []) as any[];
+  const toolSources: any[] = [];
+  let toolSourceCount = 0;
+
+  for (const tc of result.tool_calls ?? []) {
+    if (!tc.tool_id?.startsWith("knowledge.")) continue;
+    if (typeof tc.source_count === "number") toolSourceCount += tc.source_count;
+    const toolResult = tc.result as any;
+    const fromResult =
+      (Array.isArray(toolResult?.context_sources) && toolResult.context_sources) ||
+      (Array.isArray(toolResult?.source_summary) && toolResult.source_summary) ||
+      (Array.isArray(toolResult?.results) && toolResult.results) ||
+      [];
+    toolSources.push(...fromResult);
+    if (!tc.source_count && typeof toolResult?.source_count === "number") toolSourceCount += toolResult.source_count;
+    if (!tc.source_count && typeof toolResult?.count === "number") toolSourceCount += toolResult.count;
+  }
+
+  const sources = metaSources.length ? metaSources : toolSources;
+  const metaCount = typeof metadata.source_count === "number" ? metadata.source_count : 0;
+  const count = Math.max(metaCount, sources.length, toolSourceCount);
+  return { count, sources };
 }
 
 function ArtifactsList({ result }: { result: AgentResult }) {
