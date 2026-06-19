@@ -76,15 +76,14 @@ def register_ws_routes(app):
                 if not isinstance(metadata, dict):
                     metadata = {}
                 try:
-                    if len(json.dumps(metadata, ensure_ascii=False).encode("utf-8")) > _MAX_WS_METADATA_JSON:
+                    from backend.api.agent_contract import metadata_size, normalize_metadata
+                    if metadata_size(metadata) > _MAX_WS_METADATA_JSON:
                         ws.send(json.dumps({"type": "error", "message": "metadata too large (max 16KB)"}, ensure_ascii=True))
                         continue
                 except Exception:
                     metadata = {}
-                metadata = dict(metadata)
-                metadata.setdefault("transport", "websocket")
-                metadata.setdefault("stream_mode", "live")
-                metadata.setdefault("stream_contract", "live_stream_via_stream_emitter")
+                from backend.api.agent_contract import normalize_metadata
+                metadata = normalize_metadata(metadata, transport="websocket", stream_mode="live")
 
                 # Event queue for thread-safe communication
                 event_queue = queue.Queue(maxsize=1000)

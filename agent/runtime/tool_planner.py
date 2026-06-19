@@ -59,18 +59,14 @@ MAX_CANDIDATE_TOOLS = 24
 # Baseline tools must remain read/search/list oriented. Local execution tools
 # are intentionally supported by the product, but they are exposed only when
 # the routed scene explicitly requests local operations / diagnostics.
-_BASELINE_READ_TOOLS = [
-    "web.search", "web.page.summarize", "web.docs.official_search",
-    "knowledge.search", "knowledge.source.list",
-    "memory.search", "memory.list",
-    "workspace.file.read", "workspace.file.list",
-    "tool.catalog.search",
-    "skill.list",
-]
-_LOCAL_OPS_TOOLS = [
-    "host.shell.exec", "host.powershell.exec", "host.python.exec",
-    "runtime.health", "runtime.diagnostics",
-]
+#
+# v3.2: Policy constants and helpers live in tool_visibility_policy.py.
+from agent.runtime.tool_visibility_policy import (
+    BASELINE_READ_TOOLS,
+    LOCAL_OPS_TOOLS,
+    scene_allows_local_ops,
+    build_visibility_metadata,
+)
 
 # ─── v3.1: Cached namespace lookup ────────────────────────────────────
 
@@ -209,12 +205,12 @@ def deterministic_plan_tools(
     # scene explicitly allows them. Unknown tools are fail-closed.
     candidate_tools = _action_class_filter(candidate_tools, rule_scene)
 
-    local_ops_enabled = _scene_allows_local_ops(rule_scene, user_input)
-    baseline_tools = list(_BASELINE_READ_TOOLS)
+    local_ops_enabled = scene_allows_local_ops(rule_scene, user_input)
+    baseline_tools = list(BASELINE_READ_TOOLS)
     if local_ops_enabled:
-        baseline_tools.extend(_LOCAL_OPS_TOOLS)
+        baseline_tools.extend(LOCAL_OPS_TOOLS)
     else:
-        filtered["local_ops_filtered"].extend([tid for tid in _LOCAL_OPS_TOOLS if tid in available])
+        filtered["local_ops_filtered"].extend([tid for tid in LOCAL_OPS_TOOLS if tid in available])
 
     # Baseline injection is now read/search/list only unless the scene is local_ops.
     # This preserves shell/PowerShell as an explicit product capability while
@@ -227,7 +223,7 @@ def deterministic_plan_tools(
     # does not request local operations — not just from baseline injection.
     # This prevents scene-supplied candidates from smuggling in shell/exec.
     if not local_ops_enabled:
-        _local_ops_set = set(_LOCAL_OPS_TOOLS)
+        _local_ops_set = set(LOCAL_OPS_TOOLS)
         _stripped = [t for t in candidate_tools if t in _local_ops_set]
         candidate_tools = [t for t in candidate_tools if t not in _local_ops_set]
         if _stripped:
@@ -252,7 +248,7 @@ def deterministic_plan_tools(
     categories, groups = _categories_groups_from_tools(candidate_tools, rule_scene)
     primary = rule_scene.get("primary_category") or rule_scene.get("category") or (categories[0] if categories else "web")
     group = rule_scene.get("group") or (groups.get(primary) or ["general"])[0]
-    visibility_meta = _visibility_metadata(
+    visibility_meta = build_visibility_metadata(
         rule_scene=rule_scene,
         candidate_tools=candidate_tools,
         baseline_tools=baseline_tools,
@@ -521,45 +517,6 @@ def _step_required(user_input: str, step_no: int, tools: list[str]) -> bool:
     if "network.config.parse" in tools:
         return True
     return False
-
-
-def _scene_allows_local_ops(rule_scene: dict, user_input: str) -> bool:
-    signals = rule_scene.get("signals") or {}
-    if signals.get("mentions_host"):
-        return True
-    categories = set(rule_scene.get("categories") or [])
-    if "host" in categories:
-        return True
-    groups = rule_scene.get("groups") or {}
-    if groups.get("host"):
-        return True
-    lower = (user_input or "").lower()
-    explicit = (
-        "本机", "localhost", "127.0.0.1", "shell", "powershell", "cmd",
-        "执行命令", "跑命令", "运行命令", "终端", "命令行", "ipconfig",
-        "ifconfig", "netstat", "process", "进程", "端口", "磁盘", "内存",
-        "cpu", "system info", "启动服务", "停止服务",
-    )
-    return any(k in lower for k in explicit)
-
-
-def _visibility_metadata(
-    *,
-    rule_scene: dict,
-    candidate_tools: list[str],
-    baseline_tools: list[str],
-    local_ops_enabled: bool,
-    filtered: dict[str, list[str]],
-) -> dict[str, Any]:
-    return {
-        "scene": rule_scene.get("primary_category") or rule_scene.get("category") or "unknown",
-        "reason": rule_scene.get("reason", ""),
-        "candidate_count": len(candidate_tools),
-        "local_ops_enabled": bool(local_ops_enabled),
-        "baseline_tools_added": list(baseline_tools),
-        "visible_tools": list(candidate_tools),
-        "filtered": dict(filtered),
-    }
 
 
 def _needs_file_clarification(user_input: str, safe_context: dict, rule_scene: dict) -> bool:

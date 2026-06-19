@@ -151,49 +151,11 @@ def run_turn(session, turn, services=None, restricted_tool_router=None) -> Agent
     if restricted_tool_router is not None:
         context.tool_router = restricted_tool_router
 
-    # v1.0.3.1: hydrate history_window from SessionMessageStore (disk) —
-    #    merge with in-memory session.history to avoid losing recent messages.
-    try:
-        from workspace.message_store import SessionMessageStore
-        store = SessionMessageStore(session_id=session.session_id, ws_id=session.workspace_id or "default")
-        memory_msgs = list(session.history[-8:]) if hasattr(session, 'history') and session.history else []
-        memory_ids = {getattr(m, 'id', getattr(m, 'message_id', None)) for m in memory_msgs if hasattr(m, 'id') or hasattr(m, 'message_id')}
-        if store.exists():
-            window = store.get_history_window(k=8)
-            if window:
-                msgs = []
-                seen = set()
-                for m in window:
-                    mid = m.get("message_id") or m.get("id") or m.get("content", "")[:40]
-                    if mid and mid in seen:
-                        continue
-                    seen.add(mid)
-                    role = m.get("role", "")
-                    content = m.get("content", "")
-                    if role == "user":
-                        msgs.append(UserMessage(content=content))
-                    elif role == "assistant":
-                        msgs.append(AssistantMessage(content=content))
-                    elif role == "tool":
-                        msgs.append(ToolResultMessage(
-                            content=json.dumps({"ok": m.get("ok", False), "summary": content[:500]}, ensure_ascii=False),
-                            tool_call_id=m.get("tool_call_id", m.get("id", "")),
-                        ))
-                # Append in-memory msgs not already covered by disk
-                for mm in memory_msgs:
-                    mid = getattr(mm, 'id', getattr(mm, 'message_id', None))
-                    if mid and mid in memory_ids and mid not in seen:
-                        msgs.append(mm)
-                # Trim to k
-                context.history_window = msgs[-8:]
-        elif memory_msgs:
-            context.history_window = memory_msgs
-    except Exception as e:
-        import logging
-        logging.getLogger(__name__).warning(
-            "Failed to hydrate history_window from SessionMessageStore for %s: %s",
-            session.session_id, e,
-        )
+    # v3.2: history hydration is now handled by a focused helper instead of
+    # inline SessionMessageStore access. This keeps loop.py free of
+    # persistence details while preserving the same merge semantics.
+    from agent.runtime.context_history import hydrate_history_from_store
+    hydrate_history_from_store(session, context, k=8)
 
     if audit_events:
         audit_events.emit("context_built", session_id=session.session_id, turn_id=turn.turn_id)
