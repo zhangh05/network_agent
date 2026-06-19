@@ -23,3 +23,4 @@ class TurnContext:
     scene_decision: object = None
     evidence_bundle: object = None
     context_frame: object = None
+    runtime_state: object = None
