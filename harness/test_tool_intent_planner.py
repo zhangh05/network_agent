@@ -5,7 +5,7 @@ from __future__ import annotations
 
 def _plan(user_input: str, *, safe_context: dict | None = None) -> dict:
     from agent.runtime.tool_category_router import route_tool_scene
-    from agent.runtime.tool_planner import plan_tools
+    from agent.runtime.tool_planning.planner import plan_tools
     from tool_runtime.tool_namespace import TOOL_NAMESPACE
 
     rule_scene = route_tool_scene(user_input)
@@ -67,9 +67,9 @@ def test_knowledge_query_does_not_mix_in_config_or_web_tools():
 
 
 def test_runtime_prompt_does_not_forbid_exec_fallback_globally():
-    from agent.runtime.prompts import build_system_prompt
+    from agent.runtime.prompting.profile import PromptProfile
 
-    prompt = build_system_prompt(intent="assistant_chat", user_input="用 python 计算一下")
+    prompt = PromptProfile.from_classify_intent(intent="assistant_chat", user_input="用 python 计算一下").build()
 
     assert "High-risk tools open an approval popup" in prompt
     assert "Do NOT fall back to host.python.exec" not in prompt
@@ -218,9 +218,9 @@ def test_router_accepts_common_tool_catalog_underscore_alias():
 
 
 def test_runtime_prompt_uses_double_underscore_tool_name_rule_and_catalog_fallback():
-    from agent.runtime.prompts import build_system_prompt
+    from agent.runtime.prompting.profile import PromptProfile
 
-    prompt = build_system_prompt(intent="assistant_chat", user_input="有没有创建并加载 skill 的工具")
+    prompt = PromptProfile.from_classify_intent(intent="assistant_chat", user_input="有没有创建并加载 skill 的工具").build()
 
     assert "web.search → web__search" in prompt
     assert "tool.catalog.search" in prompt

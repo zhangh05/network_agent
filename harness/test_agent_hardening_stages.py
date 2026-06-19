@@ -12,7 +12,7 @@ import time
 from types import SimpleNamespace
 
 from agent.runtime.tool_category_router import route_tool_scene
-from agent.runtime.tool_planner import plan_tools
+from agent.runtime.tool_planning.planner import plan_tools
 from tool_runtime.tool_namespace import TOOL_NAMESPACE
 
 

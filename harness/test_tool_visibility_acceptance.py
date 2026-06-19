@@ -14,7 +14,7 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 import pytest
 from agent.runtime.tool_category_router import route_tool_scene
-from agent.runtime.tool_planner import deterministic_plan_tools
+from agent.runtime.tool_planning.planner import deterministic_plan_tools
 from tool_runtime.tool_namespace import TOOL_NAMESPACE
 
 _LOCAL_EXEC_TOOLS = {"host.shell.exec", "host.powershell.exec", "host.python.exec"}
@@ -165,23 +165,23 @@ class TestSubAgent:
 
 class TestBaselineIntegrity:
     def test_baseline_no_shell(self):
-        from agent.runtime.tool_visibility_policy import BASELINE_READ_TOOLS
+        from agent.runtime.tool_planning.visibility import BASELINE_READ_TOOLS
         assert "host.shell.exec" not in BASELINE_READ_TOOLS
 
     def test_baseline_no_powershell(self):
-        from agent.runtime.tool_visibility_policy import BASELINE_READ_TOOLS
+        from agent.runtime.tool_planning.visibility import BASELINE_READ_TOOLS
         assert "host.powershell.exec" not in BASELINE_READ_TOOLS
 
     def test_baseline_no_python_exec(self):
-        from agent.runtime.tool_visibility_policy import BASELINE_READ_TOOLS
+        from agent.runtime.tool_planning.visibility import BASELINE_READ_TOOLS
         assert "host.python.exec" not in BASELINE_READ_TOOLS
 
     def test_baseline_no_agent_spawn(self):
-        from agent.runtime.tool_visibility_policy import BASELINE_READ_TOOLS
+        from agent.runtime.tool_planning.visibility import BASELINE_READ_TOOLS
         assert "agent.spawn" not in BASELINE_READ_TOOLS
 
     def test_local_ops_tools_separate(self):
-        from agent.runtime.tool_visibility_policy import LOCAL_OPS_TOOLS
+        from agent.runtime.tool_planning.visibility import LOCAL_OPS_TOOLS
         assert "host.shell.exec" in LOCAL_OPS_TOOLS
         assert "host.powershell.exec" in LOCAL_OPS_TOOLS
         assert "host.python.exec" in LOCAL_OPS_TOOLS

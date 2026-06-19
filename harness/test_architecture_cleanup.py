@@ -169,7 +169,7 @@ class TestAgentContract:
 
 class TestToolVisibilityPolicy:
     def test_policy_importable(self):
-        from agent.runtime.tool_visibility_policy import (
+        from agent.runtime.tool_planning.visibility import (
             BASELINE_READ_TOOLS,
             LOCAL_OPS_TOOLS,
             scene_allows_local_ops,
@@ -181,21 +181,21 @@ class TestToolVisibilityPolicy:
         assert callable(build_visibility_metadata)
 
     def test_local_ops_true_for_host_request(self):
-        from agent.runtime.tool_visibility_policy import scene_allows_local_ops
+        from agent.runtime.tool_planning.visibility import scene_allows_local_ops
         assert scene_allows_local_ops({}, "查看本机IP") is True
 
     def test_local_ops_false_for_translate(self):
-        from agent.runtime.tool_visibility_policy import scene_allows_local_ops
+        from agent.runtime.tool_planning.visibility import scene_allows_local_ops
         assert scene_allows_local_ops({}, "翻译这段配置") is False
 
     def test_baseline_no_shell(self):
-        from agent.runtime.tool_visibility_policy import BASELINE_READ_TOOLS
+        from agent.runtime.tool_planning.visibility import BASELINE_READ_TOOLS
         assert "host.shell.exec" not in BASELINE_READ_TOOLS
         assert "host.powershell.exec" not in BASELINE_READ_TOOLS
         assert "host.python.exec" not in BASELINE_READ_TOOLS
 
     def test_local_ops_has_shell(self):
-        from agent.runtime.tool_visibility_policy import LOCAL_OPS_TOOLS
+        from agent.runtime.tool_planning.visibility import LOCAL_OPS_TOOLS
         assert "host.shell.exec" in LOCAL_OPS_TOOLS
         assert "host.powershell.exec" in LOCAL_OPS_TOOLS
         assert "host.python.exec" in LOCAL_OPS_TOOLS

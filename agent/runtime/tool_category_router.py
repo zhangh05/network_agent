@@ -234,7 +234,6 @@ def route_tool_scene(
         reasons.append("默认使用低风险检索能力")
 
     primary_category = _primary_category(signals, categories)
-    primary_group = _primary_group(primary_category, groups)
     candidates, warnings = _candidate_tools_for_groups(groups)
     candidate_set = set(candidates)
     tool_chain = _build_tool_chain(signals, candidate_set)
@@ -248,9 +247,6 @@ def route_tool_scene(
         "reason": "；".join(reasons) if reasons else "根据用户输入选择工具链",
         "warnings": warnings,
         "signals": signals,
-        # Backward-compatible fields.
-        "category": primary_category,
-        "group": primary_group,
     }
 
 

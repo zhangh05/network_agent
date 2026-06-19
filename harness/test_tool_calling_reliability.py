@@ -45,9 +45,9 @@ def test_tool_message_payload_preserves_stdout_tail():
 
 
 def test_ip_prompt_enables_tool_contract_and_approval_note():
-    from agent.runtime.prompts import build_system_prompt
+    from agent.runtime.prompting.profile import PromptProfile
 
-    prompt = build_system_prompt(intent="assistant_chat", user_input="查看本机IP地址")
+    prompt = PromptProfile.from_classify_intent(intent="assistant_chat", user_input="查看本机IP地址").build()
 
     assert "required steps" in prompt
     assert "High-risk tools open an approval popup" in prompt
@@ -55,7 +55,7 @@ def test_ip_prompt_enables_tool_contract_and_approval_note():
 
 
 def test_tool_followup_detection_keeps_previous_scene():
-    from agent.runtime.context_tools import is_tool_followup
+    from agent.runtime.cognition.scene_decision import is_tool_followup
 
     assert is_tool_followup("不对，你肯定搞错了，能显示的，你调用有问题")
     assert is_tool_followup("有shell")
@@ -79,7 +79,7 @@ def test_provider_parses_function_call_shape():
 
 
 def test_uploaded_file_without_reference_needs_clarification():
-    from agent.runtime.tool_planner import _needs_file_clarification
+    from agent.runtime.tool_planning.planner import _needs_file_clarification
 
     assert _needs_file_clarification(
         "帮我分析上传的华三配置，并整理成报告保存",

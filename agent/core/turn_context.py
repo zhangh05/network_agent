@@ -20,3 +20,5 @@ class TurnContext:
     history_window: list = field(default_factory=list)
     metadata: dict = field(default_factory=dict)
     visible_tool_ids: list = field(default_factory=list)
+    scene_decision: object = None
+    evidence_bundle: object = None

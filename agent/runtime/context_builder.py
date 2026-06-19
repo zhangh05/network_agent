@@ -5,8 +5,10 @@ The builder is intentionally an orchestration pipeline. Heavy responsibilities
 are delegated to focused helpers:
 - context_history.py     — in-memory/disk history window handling
 - context_tools.py       — tool scene routing and per-turn visibility
-- context_safe.py        — ContextBundle → SafeContext extraction and scans
 - context_compaction.py  — token budget estimation and compaction decisions
+- cognition/scene_decision.py   — unified scene decision
+- cognition/evidence_pipeline.py — evidence extraction + injection scan
+- tool_planning/planner.py      — ToolPlannerV2 planning
 """
 
 from __future__ import annotations
@@ -17,10 +19,8 @@ from agent.core.turn_context import TurnContext
 from agent.context.snapshot import build_runtime_snapshot
 from agent.llm.config import resolve_provider_config
 from agent.runtime.context_history import initial_history_window
-from agent.runtime.context_safe import safe_context_from_bundle
 from agent.runtime.context_tools import (
     build_base_tool_router,
-    plan_tool_visibility,
     persist_tool_scene_to_session,
 )
 
@@ -28,9 +28,16 @@ from agent.runtime.context_tools import (
 def build_turn_context(session, turn, services) -> TurnContext:
     """Build complete TurnContext for a turn execution.
 
-    This function should remain mostly orchestration. Runtime behavior stays
-    compatible with the previous implementation, while context concerns are
-    split into independently testable helpers.
+    Pipeline order:
+    1. Create TurnContext
+    2. model_config / history / base router
+    3. select_skills
+    4. SceneDecision (via decide_scene)
+    5. build ContextBundle
+    6. EvidencePipeline → EvidenceBundle
+    7. ToolPlannerV2(scene_decision, evidence_bundle)
+    8. Set tool_router visible tools
+    9. runtime_snapshot / safe_context / metadata
     """
     ctx = TurnContext(
         turn_id=turn.turn_id,
@@ -44,10 +51,12 @@ def build_turn_context(session, turn, services) -> TurnContext:
     if bool(getattr(session, "is_sub_agent", False)):
         ctx.metadata["is_sub_agent"] = True
 
+    # ── 2. model_config / history / base router ───────────────────
     ctx.model_config = _resolve_model_config()
     ctx.history_window = initial_history_window(session, k=8)
     ctx.tool_router = build_base_tool_router(ctx, services)
 
+    # ── 3. select_skills ──────────────────────────────────────────
     skill_snap = _snapshot_service(getattr(services, "skill_service", None), "skill")
     module_snap = _snapshot_service(getattr(services, "module_service", None), "module")
     ctx.skill_snapshot = skill_snap
@@ -57,18 +66,21 @@ def build_turn_context(session, turn, services) -> TurnContext:
     selector = getattr(services, "skill_selector", None) if services else None
     selected_skills, selector_warnings = _select_skills(selector, cap_reg, ctx.user_input, ctx)
 
-    visibility = plan_tool_visibility(
-        ctx,
-        session,
-        services,
-        selected_skills=selected_skills,
-    )
-    selected_visible_tools = list(visibility.get("selected_visible_tools") or [])
-    dynamic_visibility = bool(visibility.get("dynamic_visibility"))
-    tool_scene = dict(visibility.get("tool_scene") or {})
-    rule_tool_scene = dict(visibility.get("rule_tool_scene") or {})
-    selector_warnings.extend(list(visibility.get("warnings") or []))
+    # ── 4. SceneDecision (via decide_scene) ───────────────────────
+    ctx.scene_decision = _compute_scene_decision(ctx, session)
 
+    # ── 5-6. build ContextBundle → EvidencePipeline → EvidenceBundle
+    evidence_bundle = _build_evidence(ctx, turn, selected_skills)
+
+    # ── 7. ToolPlannerV2(scene_decision, evidence_bundle) ─────────
+    plan_result = _plan_tools_v2(ctx, evidence_bundle, session, services, selected_skills)
+    selected_visible_tools = list(plan_result.get("selected_visible_tools") or [])
+    dynamic_visibility = bool(plan_result.get("dynamic_visibility"))
+    tool_scene = dict(plan_result.get("tool_scene") or {})
+    rule_tool_scene = dict(plan_result.get("rule_tool_scene") or {})
+    selector_warnings.extend(list(plan_result.get("warnings") or []))
+
+    # ── 8-9. runtime_snapshot / safe_context / metadata ───────────
     visible_tools, all_tools_count = _tool_counts(ctx)
     base_enabled = _base_enabled_skills(services)
     snapshot = build_runtime_snapshot(
@@ -93,7 +105,7 @@ def build_turn_context(session, turn, services) -> TurnContext:
         snapshot.metadata["rule_tool_scene"] = rule_tool_scene
     ctx.runtime_snapshot = snapshot.to_dict()
 
-    ctx.safe_context = _build_safe_context(ctx, turn, selected_skills)
+    ctx.safe_context = _safe_context_from_evidence(ctx, evidence_bundle)
     if tool_scene:
         ctx.safe_context["tool_scene"] = tool_scene
         ctx.safe_context["tool_plan"] = tool_scene.get("tool_plan", [])
@@ -108,8 +120,12 @@ def build_turn_context(session, turn, services) -> TurnContext:
         tool_scene=tool_scene,
         rule_tool_scene=rule_tool_scene,
     )
+
     ctx.metadata["context_status"] = "ok" if not ctx.metadata.get("context_errors") else "degraded"
     return ctx
+
+
+# ─── Helper functions ─────────────────────────────────────────────────
 
 
 def _resolve_model_config() -> dict:
@@ -148,6 +164,137 @@ def _select_skills(selector, cap_reg, user_msg: str, ctx=None) -> tuple[list[str
         return [], warnings
 
 
+def _compute_scene_decision(ctx, session):
+    """Compute SceneDecision for the current turn."""
+    try:
+        from agent.runtime.cognition.scene_decision import decide_scene
+
+        session_meta = getattr(session, "metadata", None) or {}
+        previous_scene = session_meta.get("last_tool_scene") if isinstance(session_meta, dict) else None
+        previous_rule_scene = session_meta.get("last_rule_tool_scene") if isinstance(session_meta, dict) else None
+
+        decision = decide_scene(
+            ctx.user_input or "",
+            session_context=session_meta if isinstance(session_meta, dict) else {},
+            previous_scene=previous_scene,
+            previous_rule_scene=previous_rule_scene,
+            intent=ctx.metadata.get("intent", ""),
+        )
+        ctx.metadata["scene_decision_status"] = "ok"
+        return decision
+    except Exception as e:
+        ctx.metadata["scene_decision_status"] = "failed"
+        ctx.metadata.setdefault("context_errors", []).append(f"scene_decision: {e!s}"[:200])
+        return None
+
+
+def _build_evidence(ctx, turn, selected_skills: list[str]):
+    """Build ContextBundle and run EvidencePipeline to produce EvidenceBundle."""
+    from agent.runtime.cognition.evidence_pipeline import EvidencePipeline
+
+    try:
+        from context.builder import build_context_bundle
+        from context.schemas import ContextBudget
+
+        derived_intent = ctx.metadata.get("intent", "")
+        if not derived_intent and selected_skills:
+            for s in selected_skills:
+                if s not in ("assistant_chat", "capability_discovery"):
+                    derived_intent = s
+                    break
+        derived_cap = ctx.metadata.get("capability_id", "") or derived_intent
+        bundle = build_context_bundle(
+            workspace_id=ctx.workspace_id,
+            user_input=ctx.user_input or "",
+            intent=derived_intent,
+            capability_id=derived_cap,
+            budget=ContextBudget(),
+            run_id=turn.turn_id if turn else "",
+            trace_id=ctx.trace_id,
+        )
+        ctx.metadata["safe_context_status"] = "ok"
+    except Exception as e:
+        ctx.metadata["safe_context_status"] = "failed"
+        ctx.metadata.setdefault("context_errors", []).append(str(e)[:200])
+        bundle = None
+
+    pipeline = EvidencePipeline()
+    return pipeline.build(bundle, ctx)
+
+
+def _safe_context_from_evidence(ctx, evidence_bundle) -> dict:
+    """Convert EvidenceBundle to safe_context dict."""
+    safe = {"workspace_id": ctx.workspace_id, "session_id": ctx.session_id}
+    if evidence_bundle is not None and hasattr(evidence_bundle, "to_safe_context"):
+        safe.update(evidence_bundle.to_safe_context())
+    return safe
+
+
+def _plan_tools_v2(ctx, evidence_bundle, session, services, selected_skills: list[str]) -> dict:
+    """Use ToolPlannerV2 to plan tools from SceneDecision + EvidenceBundle.
+
+    Returns a dict with selected_visible_tools, dynamic_visibility, tool_scene,
+    rule_tool_scene, and warnings.
+    """
+    result = {
+        "selected_visible_tools": [],
+        "dynamic_visibility": False,
+        "tool_scene": {},
+        "rule_tool_scene": {},
+        "warnings": [],
+    }
+    cap_reg = getattr(services, "capability_registry", None) if services else None
+    selector = getattr(services, "skill_selector", None) if services else None
+    if selector is None or cap_reg is None or ctx.tool_router is None:
+        return result
+
+    scene_decision = getattr(ctx, "scene_decision", None)
+    if scene_decision is None:
+        return result
+
+    try:
+        from agent.tools.router import ToolRouter
+        from agent.llm.tool_adapter import from_llm_tool_name
+        from agent.runtime.tool_planning.planner import ToolPlannerV2
+        from agent.runtime.tool_planning.scene_adapter import scene_to_rule_scene
+        from tool_runtime.tool_namespace import TOOL_NAMESPACE
+
+        base_reg = getattr(ctx.tool_router, "registry", None) or (
+            ctx.tool_router if hasattr(ctx.tool_router, "list_model_visible") else None
+        )
+        if base_reg is None:
+            return result
+
+        planner = ToolPlannerV2()
+        tool_scene = planner.plan(
+            scene_decision,
+            evidence_bundle=evidence_bundle,
+            available_catalog={"tools": list(TOOL_NAMESPACE)},
+            model_config=ctx.model_config,
+        )
+        rule_tool_scene = scene_to_rule_scene(scene_decision)
+
+        allowed_tools = list(tool_scene.get("candidate_tools") or [])
+        ctx.tool_router = ToolRouter.for_turn(base_reg, allowed_tool_ids=allowed_tools)
+        if services and getattr(services, "tool_service", None) and hasattr(services.tool_service, "dispatch"):
+            ctx.tool_router.dispatch_delegate = services.tool_service.dispatch
+
+        visible_tools = sorted({
+            from_llm_tool_name(t["function"]["name"])
+            for t in ctx.tool_router.model_visible_tools()
+        })
+        ctx.visible_tool_ids = visible_tools
+        result.update({
+            "selected_visible_tools": visible_tools,
+            "dynamic_visibility": True,
+            "tool_scene": tool_scene,
+            "rule_tool_scene": rule_tool_scene,
+        })
+    except Exception as e:
+        result["warnings"].append(f"skill_selector_error: {e!r}")
+    return result
+
+
 def _tool_counts(ctx) -> tuple[list, int]:
     visible_tools = []
     all_tools_count = 0
@@ -176,35 +323,6 @@ def _base_enabled_skills(services) -> list[str]:
         except Exception:
             base_enabled = []
     return base_enabled
-
-
-def _build_safe_context(ctx, turn, selected_skills: list[str]) -> dict:
-    from context.builder import build_context_bundle
-    from context.schemas import ContextBudget
-
-    try:
-        derived_intent = ctx.metadata.get("intent", "")
-        if not derived_intent and selected_skills:
-            for s in selected_skills:
-                if s not in ("assistant_chat", "capability_discovery"):
-                    derived_intent = s
-                    break
-        derived_cap = ctx.metadata.get("capability_id", "") or derived_intent
-        bundle = build_context_bundle(
-            workspace_id=ctx.workspace_id,
-            user_input=ctx.user_input or "",
-            intent=derived_intent,
-            capability_id=derived_cap,
-            budget=ContextBudget(),
-            run_id=turn.turn_id if turn else "",
-            trace_id=ctx.trace_id,
-        )
-        ctx.metadata["safe_context_status"] = "ok"
-        return safe_context_from_bundle(bundle, ctx)
-    except Exception as e:
-        ctx.metadata["safe_context_status"] = "failed"
-        ctx.metadata.setdefault("context_errors", []).append(str(e)[:200])
-        return {"workspace_id": ctx.workspace_id, "session_id": ctx.session_id}
 
 
 def _inject_loaded_skills(ctx, session) -> None:
