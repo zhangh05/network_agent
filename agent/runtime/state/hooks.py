@@ -3,8 +3,6 @@
 
 from __future__ import annotations
 
-from dataclasses import asdict
-
 from agent.runtime.state.resolver import RuntimeStateResolver
 from agent.runtime.state.snapshot import RuntimeStateSnapshotter
 from agent.runtime.state.store import RuntimeStateStore
@@ -21,11 +19,8 @@ def prepare_runtime_state_for_turn(ctx, session=None):
     if session is not None:
         setattr(ctx, "session", session)
 
-    resolver = RuntimeStateResolver()
-    state = resolver.resolve(ctx)
-
-    detector = TaskDetector()
-    signal = detector.detect(getattr(ctx, "user_input", ""), ctx=ctx, state=state)
+    state = RuntimeStateResolver().resolve(ctx)
+    signal = TaskDetector().detect(getattr(ctx, "user_input", ""), ctx=ctx, state=state)
     ctx.metadata["task_signal"] = {
         "kind": signal.kind,
         "confidence": signal.confidence,
@@ -50,7 +45,7 @@ def prepare_runtime_state_for_turn(ctx, session=None):
 
 
 def complete_runtime_state_after_actions(ctx, session=None):
-    """Apply ActionExecutionKernel metadata to the current step and snapshot state."""
+    """Apply action metadata to the current step and snapshot state."""
     if session is not None:
         setattr(ctx, "session", session)
 
@@ -89,7 +84,7 @@ def _snapshot_summary(snapshot) -> str:
 
 
 def runtime_state_prompt_block(ctx) -> str:
-    """Return a compact runtime-state block for safe context / prompt renderers."""
+    """Return a compact runtime-state block for safe context renderers."""
     snap = ctx.metadata.get("runtime_state_snapshot") or {}
     summary = ctx.metadata.get("runtime_state_snapshot_summary", "")
     current_step = ctx.metadata.get("current_step") or {}
@@ -105,5 +100,5 @@ def runtime_state_prompt_block(ctx) -> str:
             f"status={current_step.get('status', '')}"
         )
     if pending:
-        lines.append(f"Pending approvals: {len(pending)}. Do not repeat high-risk actions until approved.")
+        lines.append(f"Pending approvals: {len(pending)}. Await approval before repeating gated actions.")
     return "\n".join(x for x in lines if x)[:1500]
