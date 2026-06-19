@@ -3,8 +3,6 @@
 
 from __future__ import annotations
 
-from typing import Any
-
 from agent.runtime.actions.models import ActionPlan, ActionResult
 
 
@@ -15,9 +13,8 @@ class EvidenceUpdate:
                *, ctx=None) -> list:
         """Generate evidence update entries from a successful result.
 
-        Returns a list of evidence dicts for context enrichment.
-        When *ctx* is provided, entries are also written to
-        ``ctx.metadata["evidence_updates"]``.
+        Returns a list of evidence dicts for context enrichment. When *ctx* is
+        provided, entries are written to ``ctx.metadata["action_evidence_updates"]``.
         """
         if not result.ok:
             return []
@@ -50,11 +47,13 @@ class EvidenceUpdate:
 
         result.evidence_updates = entries
 
-        # Write to ctx.metadata when provided
+        # Write to ctx.metadata when provided. Keep the field action-specific so
+        # Context/Evidence consumers can distinguish runtime action summaries
+        # from other evidence-update concepts.
         if ctx is not None and entries:
             ctx_meta = getattr(ctx, "metadata", None)
             if ctx_meta is not None:
-                ev_list = ctx_meta.setdefault("evidence_updates", [])
+                ev_list = ctx_meta.setdefault("action_evidence_updates", [])
                 ev_list.extend(entries)
 
         return entries
