@@ -2,16 +2,16 @@
 
 Design:
 - WebSocket endpoint: /ws/agent
-- Client sends JSON messages, server pushes streaming events.
-- Events are pushed via StreamEmitter's realtime callback (thread-local).
-- run_turn() runs in a background thread; events flow through queue → WebSocket.
+- Client sends JSON messages, server pushes live StreamEmitter events.
+- Business execution still goes through AgentApp.submit_user_message(), so
+  HTTP and WebSocket share the same Agent Runtime contract.
 
 Message protocol:
   Client → Server:
     {"type": "message", "user_input": "...", "session_id": "...", "workspace_id": "default"}
 
   Server → Client:
-    {"type": "event", "name": "...", "data": {...}}  — general event
+    {"type": "event", "name": "...", "data": {...}}  — live event
     {"type": "done", "final_response": "...", "session_id": "...", "turn_id": "...", "tool_calls_count": 0}
     {"type": "error", "message": "..."}
 """
@@ -23,6 +23,8 @@ import traceback
 from flask_sock import Sock
 
 sock = Sock()
+_MAX_WS_INPUT_LENGTH = 65536
+_MAX_WS_METADATA_JSON = 16384
 
 
 def register_ws_routes(app):
@@ -48,13 +50,14 @@ def register_ws_routes(app):
                     ws.send(json.dumps({"type": "error", "message": f"Unknown type: {msg.get('type')}"}, ensure_ascii=True))
                     continue
 
-                user_input = msg.get("user_input", "")
+                user_input = msg.get("user_input", msg.get("message", ""))
                 if not user_input:
                     ws.send(json.dumps({"type": "error", "message": "Empty user_input"}, ensure_ascii=True))
                     continue
+                if len(str(user_input)) > _MAX_WS_INPUT_LENGTH:
+                    ws.send(json.dumps({"type": "error", "message": "message too long (max 64KB)"}, ensure_ascii=True))
+                    continue
 
-                # v4.0: validate session_id and workspace_id to prevent
-                # path traversal in downstream run/session stores.
                 session_id = msg.get("session_id", "") or ""
                 workspace_id = msg.get("workspace_id", "default") or "default"
                 try:
@@ -68,28 +71,29 @@ def register_ws_routes(app):
                         "message": "Invalid session_id or workspace_id",
                     }, ensure_ascii=True))
                     continue
+
                 metadata = msg.get("metadata", {})
                 if not isinstance(metadata, dict):
                     metadata = {}
+                try:
+                    if len(json.dumps(metadata, ensure_ascii=False).encode("utf-8")) > _MAX_WS_METADATA_JSON:
+                        ws.send(json.dumps({"type": "error", "message": "metadata too large (max 16KB)"}, ensure_ascii=True))
+                        continue
+                except Exception:
+                    metadata = {}
+                metadata = dict(metadata)
+                metadata.setdefault("transport", "websocket")
+                metadata.setdefault("stream_mode", "live")
+                metadata.setdefault("stream_contract", "live_stream_via_stream_emitter")
 
                 # Event queue for thread-safe communication
-                event_queue = queue.Queue()
-
-                def realtime_callback(event):
-                    try:
-                        event_queue.put(event, block=False)
-                    except queue.Full:
-                        pass
-
-                # Register callback on StreamEmitter (thread-local)
-                from agent.runtime.query_engine import StreamEmitter
-                StreamEmitter.set_realtime_callback(realtime_callback)
-
+                event_queue = queue.Queue(maxsize=1000)
                 error_holder = {"error": None}
+                stats = {"live_events": 0}
 
                 thread = threading.Thread(
                     target=_run_agent_thread,
-                    args=(user_input, session_id, workspace_id, metadata, event_queue, error_holder),
+                    args=(user_input, session_id, workspace_id, metadata, event_queue, error_holder, stats),
                     daemon=True,
                 )
                 thread.start()
@@ -113,10 +117,7 @@ def register_ws_routes(app):
                     try:
                         ws.send(json.dumps(event, ensure_ascii=True, default=str))
                     except Exception:
-                        StreamEmitter.clear_realtime_callback()
                         return
-
-                StreamEmitter.clear_realtime_callback()
 
                 if error_holder["error"]:
                     try:
@@ -139,9 +140,26 @@ def register_ws_routes(app):
     return app
 
 
-def _run_agent_thread(user_input, session_id, workspace_id, metadata, event_queue, error_holder):
-    """Run agent in background thread."""
+def _run_agent_thread(user_input, session_id, workspace_id, metadata, event_queue, error_holder, stats):
+    """Run agent in background thread through the shared AgentApp contract."""
+    from agent.runtime.query_engine import StreamEmitter
+
+    def realtime_callback(event):
+        try:
+            stats["live_events"] = int(stats.get("live_events", 0)) + 1
+            event_queue.put({
+                "type": "event",
+                "name": event.get("type", event.get("name", "event")) if isinstance(event, dict) else "event",
+                "data": event,
+            }, timeout=0.2)
+        except Exception:
+            pass
+
     try:
+        # StreamEmitter stores callbacks thread-locally, so it must be set in
+        # the same worker thread that runs AgentApp.submit_user_message().
+        StreamEmitter.set_realtime_callback(realtime_callback)
+
         from agent.app.service import get_default_agent_app
         app = get_default_agent_app()
 
@@ -158,24 +176,24 @@ def _run_agent_thread(user_input, session_id, workspace_id, metadata, event_queu
             from agent.llm.runtime import sanitize_provider_output
             result_payload["final_response"], _ = sanitize_provider_output(result_payload["final_response"])
 
-        # Push collected events from AgentResult.
-        for ev in result_payload.get("events", []):
-            try:
-                event_queue.put({"type": "event", "name": ev.get("type", "event"), "data": ev}, timeout=0.5)
-            except queue.Full:
-                pass
+        # Fallback: if no live events were emitted, replay collected events so
+        # older runtime paths still produce observable progress data.
+        if int(stats.get("live_events", 0)) == 0:
+            for ev in result_payload.get("events", []):
+                try:
+                    event_queue.put({"type": "event", "name": ev.get("type", "event"), "data": ev}, timeout=0.5)
+                except queue.Full:
+                    pass
 
-        # Compute tool_calls_count and extract tool_calls + metadata
         tool_calls = result_payload.get("tool_calls", [])
         tool_calls_count = len(tool_calls) or len([
             e for e in result_payload.get("events", [])
             if e.get("type") == "tool_call"
         ])
-        metadata = result_payload.get("metadata", {})
-        if not metadata:
-            metadata = {}
+        metadata_out = result_payload.get("metadata", {}) or {}
+        metadata_out.setdefault("transport", "websocket")
+        metadata_out.setdefault("stream_mode", "live" if int(stats.get("live_events", 0)) else "event_replay_fallback")
 
-        # Use the actual session_id from result (may differ for newly created sessions)
         resolved_session_id = result_payload.get("session_id") or session_id or ""
 
         event_queue.put({
@@ -187,7 +205,7 @@ def _run_agent_thread(user_input, session_id, workspace_id, metadata, event_queu
             "events": result_payload.get("events", []),
             "tool_calls_count": tool_calls_count,
             "tool_calls": tool_calls,
-            "metadata": metadata,
+            "metadata": metadata_out,
             "errors": result_payload.get("errors", []),
             "warnings": result_payload.get("warnings", []),
             "tool_decision": result_payload.get("tool_decision", {}),
@@ -199,4 +217,8 @@ def _run_agent_thread(user_input, session_id, workspace_id, metadata, event_queu
         error_holder["error"] = str(e)[:500]
         event_queue.put({"type": "error", "message": str(e)[:500]})
     finally:
+        try:
+            StreamEmitter.clear_realtime_callback()
+        except Exception:
+            pass
         event_queue.put(None)
