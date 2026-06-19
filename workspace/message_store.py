@@ -20,6 +20,7 @@ The AgentSession in-memory list is now a *derived* cache, not the source.
 from __future__ import annotations
 
 import json
+import os
 import re
 import uuid
 from pathlib import Path
@@ -90,9 +91,10 @@ class SessionMessageStore:
 
         Returns the message_id, or None if the content is empty.
 
-        Content is redacted (no keys, no configs) before writing.
-        If content exceeds ARTIFACT_THRESHOLD, it is saved as a temp
-        artifact and the message stores an `artifact_ref` instead.
+        Content is redacted before writing. If content still exceeds
+        ARTIFACT_THRESHOLD after redaction, it is saved as a redacted artifact
+        and the message stores an `artifact_ref` instead. Large messages no
+        longer bypass redaction.
         """
         if not content or not content.strip():
             return None
@@ -102,7 +104,7 @@ class SessionMessageStore:
                 return None
 
         rid = _safe_rid(run_id)
-        safe_content = redact_text(content) if len(content.encode("utf-8")) < ARTIFACT_THRESHOLD else content
+        safe_content = redact_text(str(content))
 
         msg_dir = self._messages_dir()
         msg_dir.mkdir(parents=True, exist_ok=True)
@@ -111,11 +113,12 @@ class SessionMessageStore:
         meta.setdefault("run_id", rid)
         meta.setdefault("session_id", self.session_id)
         meta.setdefault("workspace_id", self.ws_id)
+        meta.setdefault("redacted", True)
 
-        # Large content → artifact reference
-        if len(content.encode("utf-8", errors="replace")) > ARTIFACT_THRESHOLD:
-            artifact_id = self._write_artifact(content, role, rid)
-            size = len(content.encode("utf-8", errors="replace"))
+        # Large redacted content → artifact reference
+        if len(safe_content.encode("utf-8", errors="replace")) > ARTIFACT_THRESHOLD:
+            artifact_id = self._write_artifact(safe_content, role, rid)
+            size = len(safe_content.encode("utf-8", errors="replace"))
             record = {
                 "role": role,
                 "run_id": rid,
@@ -124,6 +127,7 @@ class SessionMessageStore:
                 "artifact_ref": {
                     "artifact_id": artifact_id,
                     "size_bytes": size,
+                    "redacted": True,
                 },
                 "metadata": meta,
             }
@@ -215,7 +219,7 @@ class SessionMessageStore:
                         k: meta[k] for k in ("run_id", "intent", "status",
                                               "capability", "quality_summary",
                                               "manual_review_count", "trace_id",
-                                              "llm_metadata")
+                                              "llm_metadata", "redacted")
                         if k in meta
                     }
 
@@ -229,7 +233,7 @@ class SessionMessageStore:
     # ── Artifact storage for large content ──
 
     def _write_artifact(self, content: str, role: str, run_id: str) -> str:
-        """Write content > ARTIFACT_THRESHOLD as an artifact file.
+        """Write content > ARTIFACT_THRESHOLD as a redacted artifact file.
 
         Returns the artifact_id.
         """
@@ -237,7 +241,7 @@ class SessionMessageStore:
         art_dir = WS_ROOT / self.ws_id / "files" / "agent"
         art_dir.mkdir(parents=True, exist_ok=True)
         art_path = art_dir / f"{artifact_id}.txt"
-        art_path.write_text(content, encoding="utf-8")
+        _atomic_write_text(art_path, str(content))
         return artifact_id
 
 
@@ -273,21 +277,39 @@ def _sanitize_assistant_content(content: str) -> str:
         cleaned, _ = sanitize_provider_output(str(content))
         return cleaned if isinstance(cleaned, str) else ""
     except Exception:
-        # Fail-closed: better to show nothing than to leak provider
-        # reasoning or unsanitized tool-call JSON.
         return ""
 
 
 def _atomic_write(path: Path, data: dict) -> None:
-    """Write JSON atomically: tmp → rename."""
-    import logging
-    _log = logging.getLogger(__name__)
+    """Write JSON atomically with unique tmp + os.replace.
+
+    The previous fixed `.tmp` path could be clobbered by concurrent writes.
+    This function fail-closed: callers see an exception rather than silently
+    losing persistence.
+    """
+    payload = json.dumps(data, indent=2, ensure_ascii=False)
+    _atomic_write_text(path, payload)
+
+
+def _atomic_write_text(path: Path, text: str) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    tmp = path.with_name(path.name + f".tmp.{os.getpid()}.{uuid.uuid4().hex[:8]}")
+    fd = os.open(str(tmp), os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o644)
     try:
-        tmp = path.with_suffix(".tmp")
-        tmp.write_text(json.dumps(data, indent=2, ensure_ascii=False), encoding="utf-8")
-        tmp.rename(path)
-    except Exception as e:
-        _log.warning("_atomic_write failed: %s", e)
+        with os.fdopen(fd, "w", encoding="utf-8") as f:
+            f.write(text)
+            f.flush()
+            try:
+                os.fsync(f.fileno())
+            except OSError:
+                pass
+        os.replace(tmp, path)
+    except Exception:
+        try:
+            tmp.unlink()
+        except OSError:
+            pass
+        raise
 
 
 def get_message_store(session_id: str = None, ws_id: str = "default") -> "SessionMessageStore":
