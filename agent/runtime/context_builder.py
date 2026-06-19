@@ -39,6 +39,7 @@ def build_turn_context(session, turn, services) -> TurnContext:
         trace_id=str(uuid.uuid4()),
         user_input=turn.op.user_input if turn.op else "",
     )
+    ctx.metadata["context_status"] = "building"
 
     if bool(getattr(session, "is_sub_agent", False)):
         ctx.metadata["is_sub_agent"] = True
@@ -54,7 +55,7 @@ def build_turn_context(session, turn, services) -> TurnContext:
 
     cap_reg = getattr(services, "capability_registry", None) if services else None
     selector = getattr(services, "skill_selector", None) if services else None
-    selected_skills = _select_skills(selector, cap_reg, ctx.user_input)
+    selected_skills, selector_warnings = _select_skills(selector, cap_reg, ctx.user_input, ctx)
 
     visibility = plan_tool_visibility(
         ctx,
@@ -66,7 +67,7 @@ def build_turn_context(session, turn, services) -> TurnContext:
     dynamic_visibility = bool(visibility.get("dynamic_visibility"))
     tool_scene = dict(visibility.get("tool_scene") or {})
     rule_tool_scene = dict(visibility.get("rule_tool_scene") or {})
-    selector_warnings = list(visibility.get("warnings") or [])
+    selector_warnings.extend(list(visibility.get("warnings") or []))
 
     visible_tools, all_tools_count = _tool_counts(ctx)
     base_enabled = _base_enabled_skills(services)
@@ -107,6 +108,7 @@ def build_turn_context(session, turn, services) -> TurnContext:
         tool_scene=tool_scene,
         rule_tool_scene=rule_tool_scene,
     )
+    ctx.metadata["context_status"] = "ok" if not ctx.metadata.get("context_errors") else "degraded"
     return ctx
 
 
@@ -126,13 +128,24 @@ def _snapshot_service(service, label: str) -> dict:
         return {}
 
 
-def _select_skills(selector, cap_reg, user_msg: str) -> list[str]:
+def _select_skills(selector, cap_reg, user_msg: str, ctx=None) -> tuple[list[str], list[str]]:
+    warnings: list[str] = []
     if selector is None or cap_reg is None:
-        return []
+        if ctx is not None:
+            ctx.metadata["selector_status"] = "unavailable"
+        return [], warnings
     try:
-        return list(selector.select(user_msg or "", capability_registry=cap_reg))
-    except Exception:
-        return []
+        selected = list(selector.select(user_msg or "", capability_registry=cap_reg))
+        if ctx is not None:
+            ctx.metadata["selector_status"] = "ok"
+        return selected, warnings
+    except Exception as exc:
+        msg = f"skill_selector_error: {exc!r}"
+        warnings.append(msg)
+        if ctx is not None:
+            ctx.metadata["selector_status"] = "failed"
+            ctx.metadata.setdefault("selector_errors", []).append(str(exc)[:200])
+        return [], warnings
 
 
 def _tool_counts(ctx) -> tuple[list, int]:
@@ -186,8 +199,10 @@ def _build_safe_context(ctx, turn, selected_skills: list[str]) -> dict:
             run_id=turn.turn_id if turn else "",
             trace_id=ctx.trace_id,
         )
+        ctx.metadata["safe_context_status"] = "ok"
         return safe_context_from_bundle(bundle, ctx)
     except Exception as e:
+        ctx.metadata["safe_context_status"] = "failed"
         ctx.metadata.setdefault("context_errors", []).append(str(e)[:200])
         return {"workspace_id": ctx.workspace_id, "session_id": ctx.session_id}
 
