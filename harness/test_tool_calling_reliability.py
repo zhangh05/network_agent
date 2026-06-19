@@ -21,7 +21,7 @@ def test_handler_dict_adapter_replaces_old_adapter_name():
 def test_tool_message_payload_preserves_stdout_tail():
     from agent.protocol.tool_result import ToolResult
     from agent.runtime.tool_result_utils import build_tool_message_payload
-    from agent.runtime.loop import _preserve_tool_payload_edges
+    from agent.runtime.tool_execution.result_stage import preserve_tool_payload_edges
 
     stdout = ("noise\n" * 1200) + "IMPORTANT_IP=198.19.0.1\n"
     result = ToolResult.from_handler_dict(
@@ -37,7 +37,7 @@ def test_tool_message_payload_preserves_stdout_tail():
 
     payload = build_tool_message_payload(result)
     serialized = json.dumps(payload, ensure_ascii=False)
-    shown = _preserve_tool_payload_edges(serialized, 20000)
+    shown = preserve_tool_payload_edges(serialized, 20000)
 
     assert "stdout" in payload
     assert "IMPORTANT_IP=198.19.0.1" in payload["stdout"]
