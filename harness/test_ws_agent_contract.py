@@ -35,7 +35,8 @@ def test_ws_done_payload_includes_full_inspector_fields(monkeypatch):
 
     event_queue = queue.Queue()
     error_holder = {"error": None}
-    agent_ws._run_agent_thread("q", "s-1", "default", {}, event_queue, error_holder)
+    stats = {"live_events": 0}
+    agent_ws._run_agent_thread("q", "s-1", "default", {}, event_queue, error_holder, stats)
 
     messages = []
     while not event_queue.empty():
@@ -46,4 +47,6 @@ def test_ws_done_payload_includes_full_inspector_fields(monkeypatch):
     assert len(done["events"]) == 2
     assert done["tool_decision"]["selected_tools"] == ["knowledge.search"]
     assert done["tool_calls"][0]["tool_id"] == "knowledge.search"
+    assert done["metadata"]["stream_mode"] == "event_replay_fallback"
+    assert done["metadata"]["transport"] == "websocket"
     assert error_holder["error"] is None
