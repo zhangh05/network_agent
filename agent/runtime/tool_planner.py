@@ -64,7 +64,7 @@ _BASELINE_READ_TOOLS = [
     "knowledge.search", "knowledge.source.list",
     "memory.search", "memory.list",
     "workspace.file.read", "workspace.file.list",
-    "agent.result.get", "agent.role.list", "tool.catalog.search",
+    "tool.catalog.search",
     "skill.list",
 ]
 _LOCAL_OPS_TOOLS = [
@@ -180,7 +180,7 @@ def deterministic_plan_tools(
 
     if not steps:
         tools = _governance_filtered_tools(
-            [tid for tid in rule_scene.get("candidate_tools", []) if tid in available],
+            list(rule_scene.get("candidate_tools", [])),
             filtered,
         )[:5]
         if tools:
@@ -222,6 +222,18 @@ def deterministic_plan_tools(
     # report, and offline file-analysis scenes.
     candidate_tools = _ordered_unique([*candidate_tools, *baseline_tools])
     candidate_tools = _governance_filtered_tools([tid for tid in candidate_tools if tid in available], filtered)
+
+    # v2.4: Strip local ops tools from ALL candidate sources when the scene
+    # does not request local operations — not just from baseline injection.
+    # This prevents scene-supplied candidates from smuggling in shell/exec.
+    if not local_ops_enabled:
+        _local_ops_set = set(_LOCAL_OPS_TOOLS)
+        _stripped = [t for t in candidate_tools if t in _local_ops_set]
+        candidate_tools = [t for t in candidate_tools if t not in _local_ops_set]
+        if _stripped:
+            filtered.setdefault("local_ops_filtered", [])
+            filtered["local_ops_filtered"].extend(_stripped)
+            filtered["local_ops_filtered"] = _ordered_unique(filtered["local_ops_filtered"])
 
     # v2.3.3: Safety net — auto-inject workspace.file.read when config
     # parsing tools are selected but file reading tools are missing.
