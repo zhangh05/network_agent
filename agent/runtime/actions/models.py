@@ -42,7 +42,7 @@ class ActionPlan:
     evidence_refs: list = field(default_factory=list)
     context_refs: list = field(default_factory=list)
     argument_sources: dict = field(default_factory=dict)
-    status: str = "planned"             # planned/approved/rejected/executing/completed/failed
+    status: str = "planned"             # planned/approved/rejected/executing/success/failed
     warnings: list = field(default_factory=list)
     metadata: dict = field(default_factory=dict)
 
@@ -80,14 +80,14 @@ class ActionResult:
     tool_name: str = ""
     tool_id: str = ""
     ok: bool = False
-    status: str = "pending"             # pending/executing/completed/failed/blocked/skipped
+    status: str = "failed"              # success/failed/blocked/approval_pending/timeout
     result: Any = None
     normalized_result: Any = None
     error: str = ""
     error_type: str = ""
     retryable: bool = False
     attempts: int = 0
-    scan_status: str = "not_scanned"    # not_scanned/clean/flagged/blocked
+    scan_status: str = "skipped"        # safe/summary/blocked/skipped
     evidence_updates: list = field(default_factory=list)
     artifact_refs: list = field(default_factory=list)
     started_at: float = 0.0

@@ -7,6 +7,7 @@ Validates the new action pipeline: ActionPlanner → RiskPolicy → ApprovalGate
 
 from __future__ import annotations
 
+import inspect
 from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
 
@@ -18,7 +19,7 @@ from agent.runtime.actions.risk import RiskPolicy
 from agent.runtime.actions.approval import ApprovalGate
 from agent.runtime.actions.executor import ActionExecutor
 from agent.runtime.actions.dispatcher import ToolDispatcher
-from agent.runtime.actions.result import ResultNormalizer
+from agent.runtime.actions.result import ResultNormalizer, action_result_to_tool_result
 from agent.runtime.actions.scanner import ResultScanner
 from agent.runtime.actions.retry import RetryPolicy
 from agent.runtime.actions.audit import ActionAuditTrail
@@ -203,9 +204,10 @@ def test_low_risk_read_no_approval():
     assert decision.required is False
 
 
-# ── 6. ActionExecutor doesn't dispatch when approval pending ─────────────
+# ── 6. ActionExecutor blocks on approval_pending ─────────────────────────
 
 def test_executor_no_dispatch_when_approval_pending():
+    """ActionExecutor returns approval_pending and does NOT dispatch."""
     executor = ActionExecutor()
     plan = ActionPlan(
         tool_id="host.shell.exec", action_class="execute",
@@ -213,17 +215,40 @@ def test_executor_no_dispatch_when_approval_pending():
         arguments={"command": "ls"},
     )
     mock_tool_call = MagicMock()
-    mock_context = MagicMock()
+    mock_ctx = MagicMock()
+    mock_ctx.metadata = {}
 
-    result = executor.execute(plan, mock_tool_call, mock_context, metadata={})
+    result = executor.execute(plan, tool_call=mock_tool_call, ctx=mock_ctx)
 
     # Should NOT have dispatched
-    mock_context.tool_router.dispatch.assert_not_called()
-    assert result.status == "pending_approval"
+    mock_ctx.tool_router.dispatch.assert_not_called()
+    assert result.status == "approval_pending"
     assert result.ok is False
 
 
-# ── 7. ResultNormalizer handles various types ────────────────────────────
+# ── 7. ActionExecutor blocks dangerous commands ──────────────────────────
+
+def test_executor_blocks_dangerous_command():
+    """ActionExecutor returns blocked for dangerous commands."""
+    executor = ActionExecutor()
+    plan = ActionPlan(
+        tool_id="host.shell.exec", action_class="execute",
+        tool_call_id="call_rm", tool_name="host__shell__exec",
+        arguments={"command": "rm -rf /"},
+    )
+    mock_tool_call = MagicMock()
+    mock_ctx = MagicMock()
+    mock_ctx.metadata = {}
+
+    result = executor.execute(plan, tool_call=mock_tool_call, ctx=mock_ctx)
+
+    mock_ctx.tool_router.dispatch.assert_not_called()
+    assert result.status == "blocked"
+    assert result.ok is False
+    assert "Dangerous" in result.error
+
+
+# ── 8. ResultNormalizer handles various types ────────────────────────────
 
 def test_normalizer_handles_tool_result():
     normalizer = ResultNormalizer()
@@ -266,7 +291,7 @@ def test_normalizer_handles_none():
     assert ar.normalized_result["data"] is None
 
 
-# ── 8. ResultScanner blocks injection ────────────────────────────────────
+# ── 9. ResultScanner blocks injection ────────────────────────────────────
 
 def test_scanner_blocks_high_risk_injection():
     scanner = ResultScanner()
@@ -276,20 +301,19 @@ def test_scanner_blocks_high_risk_injection():
     )
     ar.normalized_result = {"data": ar.result}
     scanner.scan(ar)
-    # scan_chunk should detect this as high risk
-    assert ar.scan_status in ("blocked", "flagged", "clean", "not_scanned")
-    # Regardless of whether the scan module fully loads, verify it runs without error
+    # scan_status uses canonical values
+    assert ar.scan_status in ("blocked", "summary", "safe", "skipped")
 
 
-def test_scanner_clean_for_normal_content():
+def test_scanner_safe_for_normal_content():
     scanner = ResultScanner()
     ar = ActionResult(result="Interface GigabitEthernet0/0 is up", ok=True)
     ar.normalized_result = {"data": ar.result}
     scanner.scan(ar)
-    assert ar.scan_status in ("clean", "not_scanned")
+    assert ar.scan_status in ("safe", "skipped")
 
 
-# ── 9. RetryPolicy no auto-retry for high-risk execute ──────────────────
+# ── 10. RetryPolicy no auto-retry for high-risk execute ──────────────────
 
 def test_no_retry_for_high_risk_execute():
     retry = RetryPolicy()
@@ -315,7 +339,7 @@ def test_no_retry_when_already_retried():
     assert retry.should_retry(plan, result, risk) is False
 
 
-# ── 10. AuditTrail writes metadata ──────────────────────────────────────
+# ── 11. AuditTrail writes metadata ──────────────────────────────────────
 
 def test_audit_trail_records_plan_and_result():
     audit = ActionAuditTrail()
@@ -335,8 +359,8 @@ def test_audit_trail_records_plan_and_result():
 
     result = ActionResult(
         action_id="act_test1", tool_id="workspace.file.read",
-        ok=True, status="completed", latency_ms=42.5,
-        scan_status="clean",
+        ok=True, status="success", latency_ms=42.5,
+        scan_status="safe",
     )
     audit.record_result(result, meta)
     assert len(meta["action_trace"]) == 2
@@ -344,14 +368,14 @@ def test_audit_trail_records_plan_and_result():
     assert meta["action_trace"][1]["ok"] is True
 
 
-# ── 11. EvidenceUpdate summarizes read results ───────────────────────────
+# ── 12. EvidenceUpdate summarizes read results ───────────────────────────
 
 def test_evidence_update_creates_entry_for_successful_read():
     ev = EvidenceUpdate()
     plan = ActionPlan(tool_id="workspace.file.read", action_class="read")
     result = ActionResult(
         action_id="act_ev1", tool_id="workspace.file.read",
-        ok=True, status="completed",
+        ok=True, status="success",
         normalized_result={"ok": True, "summary": "Read 42 lines from /etc/hosts"},
     )
     entries = ev.update(plan, result)
@@ -369,7 +393,7 @@ def test_evidence_update_empty_for_failed():
     assert entries == []
 
 
-# ── 12. All modules importable ───────────────────────────────────────────
+# ── 13. All modules importable ───────────────────────────────────────────
 
 def test_all_action_modules_importable():
     import agent.runtime.actions
@@ -384,5 +408,201 @@ def test_all_action_modules_importable():
     import agent.runtime.actions.retry
     import agent.runtime.actions.audit
     import agent.runtime.actions.evidence_update
-    # All imports succeeded
     assert True
+
+
+# ══════════════════════════════════════════════════════════════════════════
+# NEW: Tests required by the action-execution-kernel-refactor review
+# ══════════════════════════════════════════════════════════════════════════
+
+# ── 14. Pipeline uses ActionExecutor (source check) ──────────────────────
+
+def test_pipeline_uses_action_executor():
+    """ToolExecutionPipeline._execute_single delegates to ActionExecutor."""
+    src = inspect.getsource(
+        __import__("agent.runtime.tool_execution.pipeline", fromlist=["ToolExecutionPipeline"])
+        .ToolExecutionPipeline._execute_single
+    )
+    assert "action_executor" in src or "ActionExecutor" in src
+    assert "action_result_to_tool_result" in src
+
+
+# ── 15. Pipeline does NOT manually chain old stages ──────────────────────
+
+def test_pipeline_no_manual_old_stage_chain():
+    """_execute_single no longer calls PermissionStage/RiskStage/ApprovalStage/DispatchStage."""
+    src = inspect.getsource(
+        __import__("agent.runtime.tool_execution.pipeline", fromlist=["ToolExecutionPipeline"])
+        .ToolExecutionPipeline._execute_single
+    )
+    assert "self._permission.run" not in src
+    assert "self._risk.run" not in src
+    assert "self._approval.run" not in src
+    assert "self._dispatch.run" not in src
+
+
+# ── 16. RiskPolicy sees evidence_bundle conflicts ────────────────────────
+
+def test_risk_policy_sees_conflicts():
+    """When evidence_bundle has conflicts, execute/mutate actions require approval."""
+    rp = RiskPolicy()
+    plan = ActionPlan(tool_id="workspace.file.read", action_class="mutate",
+                      arguments={"path": "/tmp/x"})
+    bundle = {"conflicts": ["version_mismatch"]}
+    decision = rp.evaluate(plan, evidence_bundle=bundle)
+    assert decision.approval_required is True
+
+
+def test_risk_policy_no_conflict_no_extra_approval():
+    """Without conflicts, a read action should not require approval."""
+    rp = RiskPolicy()
+    plan = ActionPlan(tool_id="workspace.file.read", action_class="read",
+                      arguments={"path": "/tmp/x"})
+    decision = rp.evaluate(plan, evidence_bundle=None)
+    assert decision.approval_required is False
+
+
+# ── 17. Canonical status values ──────────────────────────────────────────
+
+def test_canonical_action_result_status_values():
+    """ActionResult status must be one of the canonical set."""
+    canonical = {"success", "failed", "blocked", "approval_pending", "timeout"}
+    # Default
+    ar = ActionResult()
+    assert ar.status in canonical
+
+    # Successful dispatch
+    ar2 = ActionResult(ok=True, status="success")
+    assert ar2.status in canonical
+
+    # Blocked
+    ar3 = ActionResult(ok=False, status="blocked")
+    assert ar3.status in canonical
+
+    # Approval pending
+    ar4 = ActionResult(ok=False, status="approval_pending")
+    assert ar4.status in canonical
+
+
+def test_canonical_scan_status_values():
+    """scan_status must be one of the canonical set."""
+    canonical = {"safe", "summary", "blocked", "skipped"}
+    # Default
+    ar = ActionResult()
+    assert ar.scan_status in canonical
+
+
+# ── 18. action_result_to_tool_result conversion ──────────────────────────
+
+def test_action_result_to_tool_result_success():
+    """Converts a successful ActionResult to a ToolResult."""
+    from agent.protocol.tool_result import ToolResult
+    ar = ActionResult(
+        action_id="act_conv1", tool_id="workspace.file.read",
+        ok=True, status="success",
+        normalized_result={"ok": True, "summary": "Read 10 lines"},
+        scan_status="safe", latency_ms=15.3,
+    )
+    tr = action_result_to_tool_result(ar)
+    assert isinstance(tr, ToolResult)
+    assert tr.ok is True
+    assert "Read 10 lines" in tr.summary
+    assert tr.metadata["action_id"] == "act_conv1"
+    assert tr.metadata["scan_status"] == "safe"
+
+
+def test_action_result_to_tool_result_passthrough():
+    """When ActionResult wraps a ToolResult, returns it directly."""
+    from agent.protocol.tool_result import ToolResult
+    original = ToolResult(ok=True, summary="original result")
+    ar = ActionResult(
+        action_id="act_pt1", tool_id="workspace.file.read",
+        ok=True, status="success", result=original,
+    )
+    tr = action_result_to_tool_result(ar)
+    assert tr is original
+
+
+def test_action_result_to_tool_result_failed():
+    """Converts a failed ActionResult to a ToolResult with errors."""
+    from agent.protocol.tool_result import ToolResult
+    ar = ActionResult(
+        action_id="act_fail", tool_id="host.shell.exec",
+        ok=False, status="blocked",
+        error="Dangerous command pattern detected",
+        scan_status="skipped",
+    )
+    tr = action_result_to_tool_result(ar)
+    assert isinstance(tr, ToolResult)
+    assert tr.ok is False
+    assert "Dangerous" in tr.summary
+    assert len(tr.errors) == 1
+
+
+# ── 19. Evidence update writes ctx.metadata ──────────────────────────────
+
+def test_evidence_update_writes_ctx_metadata():
+    """EvidenceUpdate writes entries to ctx.metadata['evidence_updates']."""
+    ev = EvidenceUpdate()
+    ctx = SimpleNamespace(metadata={})
+    plan = ActionPlan(tool_id="workspace.file.read", action_class="read")
+    result = ActionResult(
+        action_id="act_ctx_ev", tool_id="workspace.file.read",
+        ok=True, status="success",
+        normalized_result={"ok": True, "summary": "5 lines read"},
+    )
+    ev.update(plan, result, ctx=ctx)
+    assert "evidence_updates" in ctx.metadata
+    assert len(ctx.metadata["evidence_updates"]) == 1
+    assert ctx.metadata["evidence_updates"][0]["tool_id"] == "workspace.file.read"
+
+
+# ── 20. Audit trace writes ctx.metadata ──────────────────────────────────
+
+def test_audit_trail_writes_ctx_metadata():
+    """AuditTrail writes trace entries to ctx.metadata['action_trace']."""
+    audit = ActionAuditTrail()
+    ctx = SimpleNamespace(metadata={})
+    local_meta = {}  # separate local metadata dict
+    plan = ActionPlan(
+        action_id="act_ctx_audit", tool_id="workspace.file.read",
+        action_class="read",
+    )
+    risk = RiskDecision(action_id="act_ctx_audit", risk_level="low")
+    audit.record_plan(plan, risk, local_meta, ctx=ctx)
+    assert "action_trace" in ctx.metadata
+    assert ctx.metadata["action_trace"][0]["type"] == "plan"
+
+    result = ActionResult(
+        action_id="act_ctx_audit", tool_id="workspace.file.read",
+        ok=True, status="success", scan_status="safe",
+    )
+    audit.record_result(result, local_meta, ctx=ctx)
+    assert len(ctx.metadata["action_trace"]) == 2
+    assert ctx.metadata["action_trace"][1]["type"] == "result"
+
+
+# ── 21. ApprovalGate writes ctx.metadata ─────────────────────────────────
+
+def test_approval_gate_writes_ctx_metadata():
+    """ApprovalGate writes decisions to ctx.metadata."""
+    gate = ApprovalGate()
+    ctx = SimpleNamespace(metadata={})
+    plan = ActionPlan(tool_id="host.shell.exec", action_class="execute")
+    risk = RiskDecision(risk_level="high", approval_required=True)
+    gate.decide(plan, risk, ctx=ctx)
+    assert "approval_decisions" in ctx.metadata
+    assert "pending_approvals" in ctx.metadata
+    assert ctx.metadata["approval_decisions"][0]["status"] == "pending"
+
+
+# ── 22. RiskPolicy updates plan.risk_level in place ──────────────────────
+
+def test_risk_policy_updates_plan_risk_level():
+    """RiskPolicy.evaluate sets plan.risk_level in-place."""
+    rp = RiskPolicy()
+    plan = ActionPlan(tool_id="host.shell.exec", action_class="execute",
+                      arguments={"command": "ls"})
+    assert plan.risk_level == "low"  # default
+    rp.evaluate(plan)
+    assert plan.risk_level == "high"

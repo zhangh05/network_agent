@@ -1,5 +1,9 @@
 # agent/runtime/actions/result.py
-"""ResultNormalizer — converts raw tool output to normalized ActionResult fields."""
+"""ResultNormalizer — converts raw tool output to normalized ActionResult fields.
+
+Also provides ``action_result_to_tool_result`` for backward-compatible
+conversion of ActionResult → ToolResult.
+"""
 
 from __future__ import annotations
 
@@ -53,3 +57,48 @@ class ResultNormalizer:
         # Fallback
         action_result.normalized_result = {"ok": action_result.ok, "data": str(raw)[:2000]}
         return action_result
+
+
+def action_result_to_tool_result(action_result: ActionResult):
+    """Convert an ActionResult to a ToolResult for pipeline backward compatibility.
+
+    If the ActionResult already wraps a ToolResult (via .result), that object is
+    returned directly.  Otherwise a new ToolResult is synthesised from the
+    ActionResult's normalised fields.
+    """
+    from agent.protocol.tool_result import ToolResult
+
+    raw = action_result.result
+    # If raw is already a ToolResult, return it directly
+    if isinstance(raw, ToolResult):
+        return raw
+
+    # Build summary
+    summary = ""
+    if action_result.error:
+        summary = action_result.error[:200]
+    elif isinstance(action_result.normalized_result, dict):
+        summary = action_result.normalized_result.get("summary", "")
+        if not summary:
+            data = action_result.normalized_result.get("data")
+            if isinstance(data, str):
+                summary = data[:200]
+    if not summary and hasattr(raw, "summary"):
+        summary = getattr(raw, "summary", "")[:200]
+    if not summary:
+        summary = f"{action_result.tool_id}: {action_result.status}"
+
+    errors = []
+    if action_result.error:
+        errors.append(action_result.error[:200])
+
+    return ToolResult(
+        ok=action_result.ok,
+        summary=summary,
+        errors=errors,
+        metadata={
+            "action_id": action_result.action_id,
+            "scan_status": action_result.scan_status,
+            "latency_ms": action_result.latency_ms,
+        },
+    )

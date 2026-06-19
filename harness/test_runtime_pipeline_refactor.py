@@ -342,10 +342,8 @@ class TestToolExecutionPipelineOrder:
     def test_pipeline_has_all_stages(self):
         from agent.runtime.tool_execution.pipeline import ToolExecutionPipeline
         p = ToolExecutionPipeline()
-        assert hasattr(p, '_permission')
-        assert hasattr(p, '_risk')
-        assert hasattr(p, '_approval')
-        assert hasattr(p, '_dispatch')
+        assert hasattr(p, '_action_planner')
+        assert hasattr(p, '_action_executor')
         assert hasattr(p, '_result')
 
     def test_repeated_tool_failure_detection(self):

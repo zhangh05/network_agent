@@ -34,27 +34,29 @@ class ActionExecutor:
         self.audit = ActionAuditTrail()
         self.evidence = EvidenceUpdate()
 
-    def execute(self, plan: ActionPlan, tool_call: Any, context: Any,
-                metadata: dict = None) -> ActionResult:
+    def execute(self, plan: ActionPlan, *, tool_call: Any, ctx: Any,
+                state: Any = None, events: Any = None,
+                step: int = 0) -> ActionResult:
         """Execute an action plan through the full pipeline.
 
         Returns an ActionResult with all fields populated.
         """
-        if metadata is None:
-            metadata = {}
+        # Derive a metadata dict for audit recording
+        ctx_meta = getattr(ctx, "metadata", None) if ctx is not None else None
+        metadata = ctx_meta if ctx_meta is not None else {}
 
         # 1. Risk evaluation
-        risk = self.risk_policy.evaluate(plan)
+        risk = self.risk_policy.evaluate(plan, ctx=ctx)
 
         # Update plan from risk decision
         plan.risk_level = risk.risk_level
         plan.approval_required = risk.approval_required
 
         # 2. Audit the plan
-        self.audit.record_plan(plan, risk, metadata)
+        self.audit.record_plan(plan, risk, metadata, ctx=ctx)
 
         # 3. Approval gate
-        approval = self.approval_gate.decide(plan, risk)
+        approval = self.approval_gate.decide(plan, risk, ctx=ctx)
 
         # If blocked → return immediately
         if risk.blocked:
@@ -68,7 +70,9 @@ class ActionExecutor:
                 error=risk.reason,
                 error_type="risk_blocked",
             )
-            self.audit.record_result(result, metadata)
+            if events is not None:
+                _emit_events(events, plan.tool_id, step, result)
+            self.audit.record_result(result, metadata, ctx=ctx)
             return result
 
         # If approval pending → return without dispatching
@@ -79,7 +83,7 @@ class ActionExecutor:
                 tool_name=plan.tool_name,
                 tool_id=plan.tool_id,
                 ok=False,
-                status="pending_approval",
+                status="approval_pending",
                 error="Action requires approval",
                 error_type="approval_pending",
                 metadata={"approval": {
@@ -88,11 +92,13 @@ class ActionExecutor:
                     "prompt": approval.prompt,
                 }},
             )
-            self.audit.record_result(result, metadata)
+            if events is not None:
+                _emit_events(events, plan.tool_id, step, result)
+            self.audit.record_result(result, metadata, ctx=ctx)
             return result
 
         # 4. Dispatch
-        result = self.dispatcher.dispatch(plan, tool_call, context)
+        result = self.dispatcher.dispatch(plan, tool_call, ctx=ctx, state=state)
 
         # 5. Normalize
         self.normalizer.normalize(result)
@@ -100,15 +106,42 @@ class ActionExecutor:
         # 6. Scan
         self.scanner.scan(result)
 
-        # 7. Retry check (for informational purposes; actual retry is caller's job)
+        # 7. Retry check (informational; actual retry is caller's job)
         if not result.ok:
             result.retryable = self.retry_policy.should_retry(plan, result, risk)
 
-        # 8. Audit result
-        self.audit.record_result(result, metadata)
+        # 8. Record events
+        if events is not None:
+            _emit_events(events, plan.tool_id, step, result)
 
-        # 9. Evidence update
+        # 9. Audit result
+        self.audit.record_result(result, metadata, ctx=ctx)
+
+        # 10. Evidence update
         if result.ok:
-            self.evidence.update(plan, result)
+            self.evidence.update(plan, result, ctx=ctx)
 
         return result
+
+
+def _emit_events(events, tid: str, step: int, result: ActionResult) -> None:
+    """Emit tool-level events for pipeline compatibility."""
+    ok = result.ok
+    summary = ""
+    if result.error:
+        summary = result.error[:200]
+    elif hasattr(result.result, "summary"):
+        summary = getattr(result.result, "summary", "")[:200]
+    else:
+        summary = result.status
+
+    if ok:
+        if hasattr(events, "tool_call_completed"):
+            events.tool_call_completed(tid, ok, summary)
+    else:
+        if hasattr(events, "tool_call_failed"):
+            errors = [result.error[:200]] if result.error else [result.status]
+            events.tool_call_failed(tid, errors)
+
+    if hasattr(events, "record_tool_result"):
+        events.record_tool_result(step, tid, ok, summary)

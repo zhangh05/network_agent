@@ -41,7 +41,7 @@ class ResultScanner:
         """Scan the result content and set scan_status."""
         content = _extract_text_content(action_result)
         if not content:
-            action_result.scan_status = "clean"
+            action_result.scan_status = "safe"
             return action_result
 
         try:
@@ -56,13 +56,13 @@ class ResultScanner:
                 action_result.scan_status = "blocked"
                 action_result.metadata["injection_scan"] = "high_risk_blocked"
             elif risk == "medium":
-                action_result.scan_status = "flagged"
-                action_result.metadata["injection_scan"] = "medium_risk_flagged"
+                action_result.scan_status = "summary"
+                action_result.metadata["injection_scan"] = "medium_risk_summary"
             else:
-                action_result.scan_status = "clean"
+                action_result.scan_status = "safe"
         except ImportError:
-            action_result.scan_status = "not_scanned"
+            action_result.scan_status = "skipped"
         except Exception:
-            action_result.scan_status = "not_scanned"
+            action_result.scan_status = "skipped"
 
         return action_result
