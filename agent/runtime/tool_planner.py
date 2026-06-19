@@ -61,12 +61,11 @@ MAX_CANDIDATE_TOOLS = 24
 # the routed scene explicitly requests local operations / diagnostics.
 #
 # v3.2: Policy constants and helpers live in tool_visibility_policy.py.
-# Backward-compatible aliases are provided for existing test imports.
 from agent.runtime.tool_visibility_policy import (
-    BASELINE_READ_TOOLS as _BASELINE_READ_TOOLS,
-    LOCAL_OPS_TOOLS as _LOCAL_OPS_TOOLS,
-    scene_allows_local_ops as _scene_allows_local_ops,
-    build_visibility_metadata as _visibility_metadata,
+    BASELINE_READ_TOOLS,
+    LOCAL_OPS_TOOLS,
+    scene_allows_local_ops,
+    build_visibility_metadata,
 )
 
 # ─── v3.1: Cached namespace lookup ────────────────────────────────────
@@ -206,12 +205,12 @@ def deterministic_plan_tools(
     # scene explicitly allows them. Unknown tools are fail-closed.
     candidate_tools = _action_class_filter(candidate_tools, rule_scene)
 
-    local_ops_enabled = _scene_allows_local_ops(rule_scene, user_input)
-    baseline_tools = list(_BASELINE_READ_TOOLS)
+    local_ops_enabled = scene_allows_local_ops(rule_scene, user_input)
+    baseline_tools = list(BASELINE_READ_TOOLS)
     if local_ops_enabled:
-        baseline_tools.extend(_LOCAL_OPS_TOOLS)
+        baseline_tools.extend(LOCAL_OPS_TOOLS)
     else:
-        filtered["local_ops_filtered"].extend([tid for tid in _LOCAL_OPS_TOOLS if tid in available])
+        filtered["local_ops_filtered"].extend([tid for tid in LOCAL_OPS_TOOLS if tid in available])
 
     # Baseline injection is now read/search/list only unless the scene is local_ops.
     # This preserves shell/PowerShell as an explicit product capability while
@@ -224,7 +223,7 @@ def deterministic_plan_tools(
     # does not request local operations — not just from baseline injection.
     # This prevents scene-supplied candidates from smuggling in shell/exec.
     if not local_ops_enabled:
-        _local_ops_set = set(_LOCAL_OPS_TOOLS)
+        _local_ops_set = set(LOCAL_OPS_TOOLS)
         _stripped = [t for t in candidate_tools if t in _local_ops_set]
         candidate_tools = [t for t in candidate_tools if t not in _local_ops_set]
         if _stripped:
@@ -249,7 +248,7 @@ def deterministic_plan_tools(
     categories, groups = _categories_groups_from_tools(candidate_tools, rule_scene)
     primary = rule_scene.get("primary_category") or rule_scene.get("category") or (categories[0] if categories else "web")
     group = rule_scene.get("group") or (groups.get(primary) or ["general"])[0]
-    visibility_meta = _visibility_metadata(
+    visibility_meta = build_visibility_metadata(
         rule_scene=rule_scene,
         candidate_tools=candidate_tools,
         baseline_tools=baseline_tools,

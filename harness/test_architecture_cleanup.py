@@ -177,18 +177,6 @@ class TestToolVisibilityPolicy:
         assert callable(scene_allows_local_ops)
         assert callable(build_visibility_metadata)
 
-    def test_compat_aliases_in_planner(self):
-        from agent.runtime.tool_planner import (
-            _BASELINE_READ_TOOLS,
-            _LOCAL_OPS_TOOLS,
-            _scene_allows_local_ops,
-            _visibility_metadata,
-        )
-        assert isinstance(_BASELINE_READ_TOOLS, list)
-        assert isinstance(_LOCAL_OPS_TOOLS, list)
-        assert callable(_scene_allows_local_ops)
-        assert callable(_visibility_metadata)
-
     def test_local_ops_true_for_host_request(self):
         from agent.runtime.tool_visibility_policy import scene_allows_local_ops
         assert scene_allows_local_ops({}, "查看本机IP") is True
