@@ -1,7 +1,12 @@
 # agent/runtime/tool_execution/pipeline.py
-"""ToolExecutionPipeline — orchestrates tool chain: pre_tool → permission → risk → approval → dispatch → post_tool → append."""
+"""ToolExecutionPipeline — orchestrates tool chain: pre_tool → permission → risk → approval → dispatch → post_tool → append.
+
+v2: Integrates ActionPlanner / action post-processing (normalizer, scanner,
+audit trail, evidence update) while preserving the full existing stage chain.
+"""
 
 import json
+import time
 
 from agent.protocol.message import ToolResultMessage
 from agent.protocol.tool_result import ToolResult
@@ -16,6 +21,14 @@ from agent.runtime.tool_execution.result_stage import ResultStage, append_tool_r
 from agent.runtime.tool_execution.unknown_tool_stage import handle_unknown_tool
 from agent.runtime.tool_execution.catalog_stage import expand_tools_from_catalog_result
 
+from agent.runtime.actions.planner import ActionPlanner
+from agent.runtime.actions.models import ActionResult as _ActionResult
+from agent.runtime.actions.result import ResultNormalizer
+from agent.runtime.actions.scanner import ResultScanner
+from agent.runtime.actions.audit import ActionAuditTrail
+from agent.runtime.actions.evidence_update import EvidenceUpdate
+from agent.runtime.actions.risk import RiskPolicy as _ActionRiskPolicy
+
 
 class ToolExecutionPipeline:
     """Orchestrate the full tool chain for a set of tool calls."""
@@ -26,6 +39,13 @@ class ToolExecutionPipeline:
         self._approval = ApprovalStage()
         self._dispatch = DispatchStage()
         self._result = ResultStage()
+        # Action execution kernel components
+        self._action_planner = ActionPlanner()
+        self._action_risk = _ActionRiskPolicy()
+        self._result_normalizer = ResultNormalizer()
+        self._result_scanner = ResultScanner()
+        self._audit_trail = ActionAuditTrail()
+        self._evidence_update = EvidenceUpdate()
 
     def run(self, state, resp, events):
         """Execute all tool calls from the model response.
@@ -99,6 +119,24 @@ class ToolExecutionPipeline:
         """
         tid = tool_call.real_tool_id
 
+        # ── Action plan (new kernel layer) ──
+        call_id = tc.id if hasattr(tc, 'id') else tc.get("id", "")
+        llm_name = tc.name if hasattr(tc, 'name') else tc.get("name", "unknown")
+        turn_id = getattr(state.turn, 'turn_id', '')
+        action_plan = self._action_planner.plan(
+            tool_call_id=call_id,
+            tool_name=llm_name,
+            tool_id=tid,
+            arguments=dict(tool_call.arguments),
+            turn_id=turn_id,
+            raw_call=tc,
+            context=getattr(state, 'context', None),
+        )
+        # Evaluate action-level risk (informational — existing stages still gate)
+        action_risk = self._action_risk.evaluate(action_plan)
+        ctx_meta = getattr(state.context, 'metadata', None) or {}
+        self._audit_trail.record_plan(action_plan, action_risk, ctx_meta)
+
         # 1. Pre-tool hook
         hook_allowed, hook_input, hook_reason = run_pre_tool_hook(state.session, tid, tool_call.arguments)
         if not hook_allowed:
@@ -141,7 +179,28 @@ class ToolExecutionPipeline:
                 return apr_result, True, False  # skip
 
         # 4. Dispatch
+        _dispatch_start = time.time()
         result = self._dispatch.run(state, tool_call, events, step)
+
+        # ── Action post-processing (new kernel layer) ──
+        action_result = _ActionResult(
+            action_id=action_plan.action_id,
+            tool_call_id=call_id,
+            tool_name=llm_name,
+            tool_id=tid,
+            result=result,
+            ok=getattr(result, 'ok', False),
+            status="completed" if getattr(result, 'ok', False) else "failed",
+            started_at=_dispatch_start,
+            finished_at=time.time(),
+            attempts=1,
+        )
+        action_result.latency_ms = (action_result.finished_at - action_result.started_at) * 1000
+        self._result_normalizer.normalize(action_result)
+        self._result_scanner.scan(action_result)
+        self._audit_trail.record_result(action_result, ctx_meta)
+        if action_result.ok:
+            self._evidence_update.update(action_plan, action_result)
 
         # 5. Post-tool hook
         post_stop = run_post_tool_hook(state.session, tid, result, state.turn)
