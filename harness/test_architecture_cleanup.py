@@ -59,8 +59,11 @@ class TestContextHistoryHelper:
         assert callable(hydrate_history_from_store)
 
     def test_loop_uses_helper(self):
-        text = Path("agent/runtime/loop.py").read_text(encoding="utf-8")
-        assert "hydrate_history_from_store" in text
+        # After pipeline refactor, hydrate is called in stages/context.py
+        # (delegated from loop.py via runner.py -> ContextStage).
+        from pathlib import Path
+        ctx_text = Path("agent/runtime/stages/context.py").read_text(encoding="utf-8")
+        assert "hydrate_history_from_store" in ctx_text
 
     def test_loop_does_not_inline_store(self):
         text = Path("agent/runtime/loop.py").read_text(encoding="utf-8")

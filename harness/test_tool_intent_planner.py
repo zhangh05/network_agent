@@ -156,7 +156,7 @@ def test_router_can_expand_current_turn_visibility_from_catalog_result():
 def test_runtime_loop_expands_visibility_after_catalog_search_result():
     from types import SimpleNamespace
     from agent.protocol.tool_result import ToolResult
-    from agent.runtime.loop import _maybe_expand_tools_from_catalog_result
+    from agent.runtime.tool_execution.pipeline import _maybe_expand_tools_from_catalog_result
     from agent.tools.registry import ToolRegistry
     from agent.tools.router import ToolRouter
     from agent.tools.schemas import ToolSpec

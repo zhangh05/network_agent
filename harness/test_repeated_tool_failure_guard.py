@@ -1,5 +1,5 @@
 def test_repeated_tool_failure_detects_same_failed_call_twice():
-    from agent.runtime.loop import _repeated_tool_failure
+    from agent.runtime.tool_execution.pipeline import _repeated_tool_failure
 
     results = [
         {
@@ -23,7 +23,7 @@ def test_repeated_tool_failure_detects_same_failed_call_twice():
 
 
 def test_repeated_tool_failure_ignores_different_errors():
-    from agent.runtime.loop import _repeated_tool_failure
+    from agent.runtime.tool_execution.pipeline import _repeated_tool_failure
 
     results = [
         {"tool_id": "network.config.translate", "ok": False, "errors": ["missing_source_config"]},

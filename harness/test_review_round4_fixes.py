@@ -237,7 +237,7 @@ class TestLoopApplyManualCompact:
     def test_none_metadata_does_not_raise(self):
         """Previously getattr(session, 'metadata', {}).get(...) raised
         AttributeError when metadata was None."""
-        from agent.runtime.loop import _apply_manual_compact
+        from agent.runtime.stages.messages import _apply_manual_compact
 
         class FakeTurn:
             warnings = []
@@ -257,7 +257,7 @@ class TestLoopApplyManualCompact:
         assert messages == []
 
     def test_empty_metadata_does_not_raise(self):
-        from agent.runtime.loop import _apply_manual_compact
+        from agent.runtime.stages.messages import _apply_manual_compact
 
         class FakeTurn:
             warnings = []
@@ -272,7 +272,7 @@ class TestLoopApplyManualCompact:
         _apply_manual_compact(FakeSession(), FakeTurn(), [])
 
     def test_missing_metadata_attr_does_not_raise(self):
-        from agent.runtime.loop import _apply_manual_compact
+        from agent.runtime.stages.messages import _apply_manual_compact
 
         class FakeTurn:
             warnings = []

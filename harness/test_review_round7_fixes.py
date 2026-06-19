@@ -561,7 +561,7 @@ class TestAppendEventConcurrency:
 
 class TestPreserveToolPayloadEdgesUTF8:
     def test_does_not_split_cjk_codepoint(self):
-        from agent.runtime.loop import _preserve_tool_payload_edges
+        from agent.runtime.tool_execution.result_stage import _preserve_tool_payload_edges
         # 10 CJK characters (each 3 bytes UTF-8, 1 Python char)
         text = "你好世界你好世界你好世界你好世"  # 14 chars
         # Force truncation
@@ -574,7 +574,7 @@ class TestPreserveToolPayloadEdgesUTF8:
         assert "truncated middle" in out
 
     def test_short_text_unchanged(self):
-        from agent.runtime.loop import _preserve_tool_payload_edges
+        from agent.runtime.tool_execution.result_stage import _preserve_tool_payload_edges
         text = "hello"
         out = _preserve_tool_payload_edges(text, limit=100)
         assert out == text
@@ -599,7 +599,7 @@ class TestRecordRecentFailureLogging:
             monkeypatch.setattr(llm.config, "record_recent_failure", boom)
 
         # Touch the codepath via direct invocation
-        from agent.runtime.loop import _preserve_tool_payload_edges  # any import to load module
+        from agent.runtime.tool_execution.result_stage import _preserve_tool_payload_edges  # any import to load module
         # Just ensure the loop module imported successfully
         from agent.runtime import loop
         assert loop is not None
