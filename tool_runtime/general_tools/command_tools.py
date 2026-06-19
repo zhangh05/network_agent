@@ -11,7 +11,10 @@ def handle_command_approved_exec(inv: ToolInvocation) -> dict:
     import platform
     if platform.system() == "Windows":
         return _unavailable(inv, "Shell execution only available on Linux/macOS. Use host.powershell.exec on Windows.")
-    command = (inv.arguments.get("command") or inv.arguments.get("command_id") or "").strip()
+    # v3.2.1: Only accept `command`. Legacy `command_id` was the v0.3
+    # allowlist field name; silently executing it as a shell command would
+    # bypass all policy checks.
+    command = (inv.arguments.get("command") or "").strip()
     if not command:
         return _unavailable(inv, "command is required")
     result = _run_shell(command)
@@ -27,7 +30,7 @@ def handle_powershell_approved_script(inv: ToolInvocation) -> dict:
     import platform
     if platform.system() != "Windows":
         return _unavailable(inv, "PowerShell execution only available on Windows. Use host.shell.exec on Linux/macOS.")
-    command = (inv.arguments.get("command") or inv.arguments.get("script_id") or "").strip()
+    command = (inv.arguments.get("command") or "").strip()
     if not command:
         return _unavailable(inv, "command is required")
     import subprocess

@@ -19,8 +19,14 @@ import os
 import time
 import threading
 import uuid
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Optional, Iterator
+
+
+def _now_iso() -> str:
+    """UTC ISO 8601 timestamp — matches workspace.session_store."""
+    return datetime.now(timezone.utc).isoformat()
 
 # ---------------------------------------------------------------------------
 # Workspace root helper (shared with knowledge/index.py)
@@ -72,7 +78,7 @@ class ContextStore:
         item["item_id"] = item_id
         item.setdefault("item_type", "unknown")
         item.setdefault("workspace_id", self.workspace_id)
-        item.setdefault("created_at", time.strftime("%Y-%m-%dT%H:%M:%S"))
+        item.setdefault("created_at", _now_iso())
         item.setdefault("deleted", False)
 
         with self._lock:
@@ -90,7 +96,7 @@ class ContextStore:
                     item["item_id"] = item_id
                     item.setdefault("item_type", "unknown")
                     item.setdefault("workspace_id", self.workspace_id)
-                    item.setdefault("created_at", time.strftime("%Y-%m-%dT%H:%M:%S"))
+                    item.setdefault("created_at", _now_iso())
                     item.setdefault("deleted", False)
                     f.write(json.dumps(item, ensure_ascii=False, default=str) + "\n")
                     ids.append(item_id)
@@ -103,7 +109,7 @@ class ContextStore:
                 f.write(json.dumps({
                     "item_id": item_id,
                     "deleted": True,
-                    "deleted_at": time.strftime("%Y-%m-%dT%H:%M:%S"),
+                    "deleted_at": _now_iso(),
                 }, ensure_ascii=False) + "\n")
         return True
 
@@ -149,8 +155,25 @@ class ContextStore:
             seen[iid] = item
 
         if include_deleted:
-            # re-scan to include deleted
-            pass  # TODO if needed
+            # Re-scan and merge tombstones (skeleton records with deleted=True)
+            # so audit/debug callers can inspect the deletion trail.
+            tombstones: dict[str, dict] = {}
+            for item in self._iter_raw():
+                if not item.get("deleted"):
+                    continue
+                iid = item.get("item_id", "")
+                if not iid:
+                    continue
+                tombstones[iid] = {
+                    "item_id": iid,
+                    "item_type": item.get("item_type", "unknown"),
+                    "workspace_id": item.get("workspace_id", self.workspace_id),
+                    "deleted": True,
+                    "deleted_at": item.get("deleted_at", ""),
+                    "created_at": item.get("created_at", ""),
+                }
+            for iid, tomb in tombstones.items():
+                seen.setdefault(iid, tomb)
 
         results = list(seen.values())
         # newest first
@@ -193,17 +216,42 @@ class ContextStore:
                     if iid not in deleted:
                         live[iid] = item
 
-            # Backup
+            # Atomic rewrite: write to a sibling tmp file, fsync, then
+            # os.replace() into place. On failure the original file is
+            # untouched, so we never lose data.
             bak = self._items_path.with_suffix(
                 f".bak.{time.strftime('%Y%m%d%H%M%S')}"
             )
-            if self._items_path.exists():
-                self._items_path.rename(bak)
+            tmp = self._items_path.with_suffix(".tmp")
+            fd = os.open(
+                str(tmp), os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o644
+            )
+            try:
+                with os.fdopen(fd, "w", encoding="utf-8") as f:
+                    for item in live.values():
+                        f.write(json.dumps(item, ensure_ascii=False, default=str) + "\n")
+                    f.flush()
+                    try:
+                        os.fsync(f.fileno())
+                    except OSError:
+                        pass
+            except Exception:
+                # Remove partial tmp file on failure
+                try:
+                    tmp.unlink()
+                except OSError:
+                    pass
+                raise
 
-            # Rewrite
-            with open(self._items_path, "w", encoding="utf-8") as f:
-                for item in live.values():
-                    f.write(json.dumps(item, ensure_ascii=False, default=str) + "\n")
+            # Keep a timestamped backup before swap for forensic recovery
+            if self._items_path.exists():
+                try:
+                    self._items_path.rename(bak)
+                except OSError:
+                    # If rename fails, proceed with replace anyway
+                    pass
+
+            os.replace(tmp, self._items_path)
 
         return {
             "before": len(live) + len(deleted),
@@ -214,7 +262,7 @@ class ContextStore:
 
     def cleanup_expired(self, dry_run: bool = False) -> dict:
         """Remove items past their expires_at."""
-        now = time.strftime("%Y-%m-%dT%H:%M:%S")
+        now = _now_iso()
         expired: list[str] = []
         for item in self.all_items():
             ea = item.get("expires_at", "")

@@ -71,3 +71,37 @@ def is_valid_session_id(sid: str) -> bool:
         return True
     except ValueError:
         return False
+
+
+# Run IDs are generated as `run_<epoch>` or from `state.request_id`.
+# They become file path segments, so apply the same constraints as
+# workspace IDs but allow a leading `run_` prefix.
+_RUN_ID_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.-]{0,127}$")
+
+
+def validate_run_id(rid: str) -> str:
+    """Return a valid run ID or raise ValueError.
+
+    Run IDs are used as file path segments; reject anything that could
+    cause path traversal or escape the workspace.
+    """
+    if not isinstance(rid, str):
+        raise ValueError("invalid_run_id")
+    rid = rid.strip()
+    if not rid or len(rid) > 128:
+        raise ValueError("invalid_run_id")
+    if "\x00" in rid or "/" in rid or "\\" in rid:
+        raise ValueError("invalid_run_id")
+    if rid in {".", ".."}:
+        raise ValueError("invalid_run_id")
+    if not _RUN_ID_RE.fullmatch(rid):
+        raise ValueError("invalid_run_id")
+    return rid
+
+
+def is_valid_run_id(rid: str) -> bool:
+    try:
+        validate_run_id(rid)
+        return True
+    except ValueError:
+        return False

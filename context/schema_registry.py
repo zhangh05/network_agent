@@ -17,6 +17,11 @@ from __future__ import annotations
 _COMMON_FIELDS = frozenset({
     "item_id",
     "item_type",
+    "workspace_id",
+    "created_at",
+    "updated_at",
+    "deleted",
+    "deleted_at",
     "source",
     "priority",
     "title",
@@ -28,6 +33,9 @@ _COMMON_FIELDS = frozenset({
     "citation_id",
     "source_id",
     "redaction_applied",
+    "trace_id",
+    "run_id",
+    "tags",
     # metadata is handled specially (recursively filtered)
 })
 

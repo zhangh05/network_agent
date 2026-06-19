@@ -416,8 +416,6 @@ def run_turn(session, turn, services=None, restricted_tool_router=None) -> Agent
 
         if not _tool_stop_requested:
             from agent.llm.runtime import sanitize_provider_output
-            import sys as _sys
-            print(f"[loop] final_answer content_len={len(resp.content or '')}, tool_calls={resp.has_tool_calls()}", file=_sys.stderr)
             final_response, reasoning_stripped = sanitize_provider_output(resp.content)
             if audit_events:
                 audit_events.emit("assistant_message", session_id=session.session_id, turn_id=turn.turn_id,
@@ -714,7 +712,11 @@ def _execute_tool_chain(tool_call, tc, context, session, turn, step,
         # Non-blocking: wait up to APPROVAL_TIMEOUT_S for user approval.
         # Sub-agents (is_sub_agent) get the shorter window so a slow parent
         # agent doesn't accumulate approval waits across turns.
-        timeout = _get_approval_timeout(is_sub_agent=bool(getattr(session, 'metadata', {}) or {}).get('is_sub_agent'))
+        # v4.0: safely read sub-agent flag — session.metadata can be None or
+        # missing, and `.get()` must be called on the dict, not on bool().
+        session_meta = getattr(session, 'metadata', None)
+        is_sub_agent = bool(isinstance(session_meta, dict) and session_meta.get('is_sub_agent'))
+        timeout = _get_approval_timeout(is_sub_agent=is_sub_agent)
         allowed = store.wait(apr.approval_id, timeout=timeout)
         store.cleanup(apr.approval_id)
 
@@ -856,10 +858,12 @@ def _preserve_tool_payload_edges(text: str, limit: int) -> str:
 
 
 def _handle_unknown_tool(tc, llm_name, error, all_tool_results, messages, audit_events, audit_trace, session, turn, step):
-    """Handle an unknown tool call from the LLM.
+    """Handle an unknown / un-parseable tool call from the LLM.
 
     v2.3.3: Enhanced hint with alternative tool suggestions so the LLM
     can recover rather than falling back to python.exec.
+    v4.0: Distinguish ToolArgumentParseError so the LLM gets a JSON-format
+    hint instead of an "unknown tool" hint.
     """
     error_name = getattr(error, '__class__', type(error)).__name__
     if audit_events:
@@ -867,19 +871,37 @@ def _handle_unknown_tool(tc, llm_name, error, all_tool_results, messages, audit_
                           tool_id=llm_name, errors=[str(error)[:200]])
     if audit_trace:
         audit_trace.record_tool_result(turn.turn_id, step, llm_name, False, str(error)[:100])
+
+    from agent.tools.router import ToolArgumentParseError
+    is_arg_parse_error = isinstance(error, ToolArgumentParseError)
+
+    summary = (
+        f"Tool arguments not parseable: {str(error)[:160]}"
+        if is_arg_parse_error
+        else f"Tool not visible to model: {llm_name}"
+    )
     all_tool_results.append({
         "tool_id": llm_name,
         "ok": False,
-        "summary": f"Tool not visible to model: {llm_name}",
+        "summary": summary[:200],
     })
-    # v2.3.3: Suggest alternative tools based on what the LLM was trying to do
-    hint = (
-        "This tool is not available in your current function list. "
-        "Use ONLY the tools provided. If you need to read a file, use workspace__file__read. "
-        "If you need to parse a config, use network__config__parse. "
-        "If a provided host exec tool is the best fit for local computation or diagnostics, "
-        "call it and let the approval popup handle risk."
-    )
+
+    if is_arg_parse_error:
+        hint = (
+            "The arguments you sent for this tool are not a valid JSON object. "
+            "Re-issue the tool call with `arguments` as a JSON object "
+            "(e.g. {\"path\": \"/tmp/x\"}). Do not wrap the entire payload "
+            "in quotes or include trailing prose."
+        )
+    else:
+        # v2.3.3: Suggest alternative tools based on what the LLM was trying to do
+        hint = (
+            "This tool is not available in your current function list. "
+            "Use ONLY the tools provided. If you need to read a file, use workspace__file__read. "
+            "If you need to parse a config, use network__config__parse. "
+            "If a provided host exec tool is the best fit for local computation or diagnostics, "
+            "call it and let the approval popup handle risk."
+        )
     tool_msg = ToolResultMessage(
         content=json.dumps({
             "ok": False,
@@ -913,16 +935,23 @@ def _check_output_policy(final_response, turn) -> bool:
 
 def _apply_manual_compact(session, turn, messages):
     """Apply manual compact flag from /compact command."""
-    manual_compact_requested = getattr(session, 'metadata', {}).get('manual_compact_requested') if hasattr(session, 'metadata') else False
+    # v4.0: safely read sub-agent / compact flag — session.metadata can be
+    # None or missing; .get() must be called on the dict, not on None.
+    _sess_meta = getattr(session, 'metadata', None)
+    if not isinstance(_sess_meta, dict):
+        _sess_meta = {}
+    manual_compact_requested = _sess_meta.get('manual_compact_requested', False)
     if not manual_compact_requested:
         try:
-            import json as _json
-            from pathlib import Path
             from workspace.run_store import WS_ROOT as _wsr
-            meta_path = _wsr / (session.workspace_id or 'default') / "sessions" / session.session_id / "meta.json"
-            if meta_path.is_file():
-                disk_meta = _json.loads(meta_path.read_text(encoding='utf-8'))
-                manual_compact_requested = disk_meta.get('manual_compact_requested', False)
+            from workspace.atomic_io import safe_read_json
+            from workspace.ids import validate_workspace_id, validate_session_id
+            ws_id = validate_workspace_id(session.workspace_id) if session.workspace_id else "default"
+            sess_id = validate_session_id(session.session_id)
+            meta_path = _wsr / ws_id / "sessions" / sess_id / "meta.json"
+            disk_meta = safe_read_json(meta_path, default={}) or {}
+            if isinstance(disk_meta, dict):
+                manual_compact_requested = bool(disk_meta.get('manual_compact_requested', False))
         except Exception:
             pass
 
@@ -992,18 +1021,20 @@ def _apply_manual_compact(session, turn, messages):
                 turn.metadata['reference_context_item_id'] = metric.reference_context_item_id
 
             try:
-                import json as _json
-                from pathlib import Path
                 from workspace.run_store import WS_ROOT as _wsr2
-                meta_path2 = _wsr2 / (session.workspace_id or 'default') / "sessions" / session.session_id / "meta.json"
-                if meta_path2.is_file():
-                    disk_meta2 = _json.loads(meta_path2.read_text(encoding='utf-8'))
+                from workspace.atomic_io import safe_read_json, atomic_write_json
+                from workspace.ids import validate_workspace_id, validate_session_id
+                ws_id2 = validate_workspace_id(session.workspace_id) if session.workspace_id else "default"
+                sess_id2 = validate_session_id(session.session_id)
+                meta_path2 = _wsr2 / ws_id2 / "sessions" / sess_id2 / "meta.json"
+                disk_meta2 = safe_read_json(meta_path2, default={}) or {}
+                if isinstance(disk_meta2, dict):
                     disk_meta2.pop('manual_compact_requested', None)
                     disk_meta2['manual_compact_applied'] = True
                     # Persist the structured metric and reference id
                     disk_meta2['last_compaction'] = metric_dict
                     disk_meta2['reference_context_item_id'] = metric.reference_context_item_id
-                    meta_path2.write_text(_json.dumps(disk_meta2, ensure_ascii=False, indent=2), encoding='utf-8')
+                    atomic_write_json(meta_path2, disk_meta2)
             except Exception:
                 pass
 

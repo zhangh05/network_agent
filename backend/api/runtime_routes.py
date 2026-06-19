@@ -379,6 +379,24 @@ def register_runtime_routes(app):
                 "invalid_or_unapproved_approval_id",
             )
 
+        # v3.2.1: Enforce ToolPolicy.check() before dispatch. Without this
+        # guard, _check_argument_safety (rm -rf, /etc/passwd, |, >, etc.)
+        # and risk-level gating are bypassed.
+        policy_decision = None
+        try:
+            policy_decision = client._policy.check(spec, invocation)
+        except Exception as policy_exc:
+            app.logger.warning(
+                "policy_check_failed tool_id=%s err=%s",
+                requested_tool_id, policy_exc,
+            )
+        if policy_decision is not None and not policy_decision.allowed:
+            return _blocked_tool_response(
+                invocation, ws_id,
+                policy_decision.risk_level or _get_tool_risk_level(client, requested_tool_id),
+                policy_decision.reason or "policy_blocked",
+            )
+
         # Dispatch via canonical registry. `dispatch` returns the raw
         # handler dict. We only consume it as the new variables:
         # requested_tool_id, gov, result_payload, ok, error.

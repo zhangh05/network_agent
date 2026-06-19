@@ -91,4 +91,3 @@ def _build_default_registry(capability_registry=None) -> "ToolRegistry":
     if capability_registry is not None:
         reg.register_capability_tools(capability_registry)
     return reg
-    return reg

@@ -12,6 +12,22 @@ ROOT = Path(__file__).resolve().parent.parent
 WS_ROOT = ROOT / "workspaces"
 
 
+def _safe_run_id(raw: str) -> str:
+    """Validate or generate a safe run_id used as a path segment.
+
+    Reject anything that could escape the workspace via `..`, `/`, etc.
+    Falls back to ``run_<epoch>`` if the supplied value is unsafe.
+    """
+    from workspace.ids import validate_run_id
+
+    if raw:
+        try:
+            return validate_run_id(raw)
+        except ValueError:
+            pass
+    return f"run_{int(time.time() * 1000)}"
+
+
 def write_run_record(state, ws_id: str = "default") -> str:
     """Write a sanitized run record. No full configs, no keys.
 
@@ -24,7 +40,7 @@ def write_run_record(state, ws_id: str = "default") -> str:
     ws_id = ensure_workspace(ws_id)
 
     run_dir = WS_ROOT / ws_id / "runs"
-    run_id = state.request_id or f"run_{int(time.time())}"
+    run_id = _safe_run_id(state.request_id or f"run_{int(time.time())}")
     created_at = getattr(state, "created_at", "") or time.strftime("%Y-%m-%dT%H:%M:%S")
 
     result = state.skill_results or state.tool_results or {}
@@ -171,8 +187,9 @@ def _safe_artifact_refs_from_context(state) -> list:
 
 def get_run(run_id: str, ws_id: str = "default") -> dict:
     """Get a run record."""
-    from workspace.ids import validate_workspace_id
+    from workspace.ids import validate_run_id, validate_workspace_id
     ws_id = validate_workspace_id(ws_id)
+    run_id = validate_run_id(run_id)
     path = WS_ROOT / ws_id / "runs" / f"{run_id}.json"
     if path.is_file():
         try:

@@ -13,7 +13,7 @@ import uuid
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
-from workspace.ids import validate_workspace_id
+from workspace.ids import validate_session_id, validate_workspace_id
 from workspace.manager import ensure_workspace
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -27,10 +27,9 @@ def _session_dir(ws_id: str) -> Path:
 
 def _session_path(session_id: str, ws_id: str) -> Path:
     """Return the file path for a session record. Validates session_id to prevent path traversal."""
-    # Validate session_id: only allow alphanumeric + underscore + hyphen
-    safe_id = re.sub(r'[^a-zA-Z0-9_-]', '', str(session_id))
-    if safe_id != str(session_id) or not safe_id:
-        raise ValueError(f"Invalid session_id: {session_id}")
+    # Use the canonical validator from workspace.ids so session validation
+    # matches SessionMessageStore (rejects reserved names, >64 chars, etc.).
+    safe_id = validate_session_id(session_id)
     return _session_dir(ws_id) / f"{safe_id}.json"
 
 

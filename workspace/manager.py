@@ -7,9 +7,15 @@ from typing import Optional
 from pathlib import Path
 
 from workspace.ids import validate_workspace_id, is_valid_workspace_id
+from workspace.atomic_io import atomic_write_text, atomic_write_json, safe_read_json
 
 ROOT = Path(__file__).resolve().parent.parent
 WS_ROOT = ROOT / "workspaces"
+
+
+def _atomic_write_text(path: Path, text: str) -> None:
+    """Deprecated thin wrapper — use workspace.atomic_io.atomic_write_text instead."""
+    atomic_write_text(path, text)
 
 
 def ensure_workspace(ws_id: str = "default") -> str:
@@ -106,7 +112,7 @@ def update_workspace_state(ws_id: str, patch: dict) -> dict:
 
     try:
         state_text = json.dumps(s, indent=2, ensure_ascii=False)
-        (WS_ROOT / ws_id / "sys" / "state.json").write_text(state_text)
+        _atomic_write_text(WS_ROOT / ws_id / "sys" / "state.json", state_text)
     except Exception:
         pass
     return s
