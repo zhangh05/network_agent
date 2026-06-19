@@ -169,7 +169,11 @@ def handle_skill_load(inv: ToolInvocation) -> dict:
                 "loaded_at": loaded_at,
             }
             meta["loaded_skills"] = loaded_skills
-            session_meta_path.write_text(_json.dumps(meta, ensure_ascii=False, indent=2), encoding="utf-8")
+            # P1 fix (round 7): write session meta atomically. Previous
+            # write_text would leave the file truncated if the process
+            # crashed mid-write, and next load would JSONDecodeError.
+            from workspace.atomic_io import atomic_write_json
+            atomic_write_json(session_meta_path, meta)
     except Exception:
         pass
 

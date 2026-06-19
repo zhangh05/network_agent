@@ -259,15 +259,23 @@ def _message_content(role: str, content: str) -> str:
 
 
 def _sanitize_assistant_content(content: str) -> str:
-    """Strip provider reasoning from assistant text before display/context use."""
+    """Strip provider reasoning from assistant text before display/context use.
+
+    Fail-closed: if the sanitizer cannot be loaded or raises, return an
+    empty string rather than the unsanitized content. Reasoning blocks
+    may contain tool-call JSON or provider-internal data that must never
+    leak to the user or back into the LLM context window.
+    """
     if not content:
         return ""
     try:
         from agent.llm.runtime import sanitize_provider_output
         cleaned, _ = sanitize_provider_output(str(content))
-        return cleaned
+        return cleaned if isinstance(cleaned, str) else ""
     except Exception:
-        return str(content)
+        # Fail-closed: better to show nothing than to leak provider
+        # reasoning or unsanitized tool-call JSON.
+        return ""
 
 
 def _atomic_write(path: Path, data: dict) -> None:

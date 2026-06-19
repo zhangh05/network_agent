@@ -182,7 +182,7 @@ def preview_retention(workspace_id: str = "default",
     sessions_dir = ws_dir / "sessions"
     if sessions_dir.is_dir():
         for sf in sessions_dir.iterdir():
-            if not sf.suffix == ".json":
+            if sf.suffix != ".json":
                 continue
             if not is_safe_path(sf, ws_dir):
                 blocked.append({"path": sf.name, "reason": "path_not_in_workspace"})
@@ -266,17 +266,35 @@ def apply_retention(workspace_id: str = "default",
             elif ctype == "artifact":
                 path = ws_dir / "files" / candidate.get("src", "agent") / name
             elif ctype in ("session_expired", "session_deleted"):
+                # P1 fix (round 7): validate `sid` is a plain identifier
+                # before using it as a directory name. Previous code used
+                # `name.replace(".json", "")` which produced wrong paths
+                # when `name` was e.g. a renamed file (`abc.json.bak`) or
+                # a path-like value, leading to shutil.rmtree on the
+                # wrong directory or raising on a non-existent path.
+                import re as _re
+                sid_raw = candidate.get("sid") or (name[:-5] if name.endswith(".json") else name)
+                if (
+                    not isinstance(sid_raw, str)
+                    or sid_raw in (".", "..")
+                    or not _re.fullmatch(r"[A-Za-z0-9_\-\.]{1,128}", sid_raw)
+                ):
+                    preview.warnings.append(
+                        f"refused to delete session dir for malformed sid={sid_raw!r}"
+                    )
+                    continue
                 path = ws_dir / "sessions" / name
                 # Also clean up session subdirectories (messages, snapshots, checkpoints)
                 if path and path.exists():
-                    session_id = candidate.get("sid", name.replace(".json", ""))
-                    session_dir = ws_dir / "sessions" / session_id
-                    if session_dir.is_dir():
+                    session_dir = ws_dir / "sessions" / sid_raw
+                    if is_safe_path(session_dir, ws_dir) and session_dir.is_dir():
                         import shutil
                         try:
                             shutil.rmtree(str(session_dir))
-                        except Exception:
-                            pass
+                        except Exception as e:
+                            preview.warnings.append(
+                                f"Failed to remove session_dir={sid_raw}: {str(e)[:100]}"
+                            )
             if path and path.exists() and is_safe_path(path, ws_dir):
                 path.unlink()
                 key = "sessions" if ctype.startswith("session") else ctype

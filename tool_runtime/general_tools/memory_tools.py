@@ -6,11 +6,23 @@ and context.context_store (ContextStore). No legacy JSONL backends.
 from tool_runtime.general_tools.shared import *
 
 
+def _caller_workspace(inv: ToolInvocation) -> str:
+    requested = str(inv.arguments.get("workspace_id") or "").strip()
+    caller = str(inv.workspace_id or "").strip()
+    if caller and requested and caller != requested:
+        raise ValueError(
+            f"workspace_id mismatch: caller={caller!r}, requested={requested!r}"
+        )
+    workspace_id = caller or requested or "default"
+    validate_workspace_id(workspace_id)
+    return workspace_id
+
+
 def handle_memory_search(inv: ToolInvocation) -> dict:
     query = (inv.arguments.get("query") or "").strip()
     try:
         from memory.store import get_store
-        store = get_store()
+        store = get_store(_caller_workspace(inv))
         results = store.search(query, limit=10)
         safe = []
         for r in results:
@@ -38,7 +50,7 @@ def handle_memory_create(inv: ToolInvocation) -> dict:
         import time
         key = str(args.get("key", title[:60]))
         value_preview = content[:200]
-        ws = str(args.get("workspace_id", "default"))
+        ws = _caller_workspace(inv)
         sid = str(args.get("session_id", ""))
         memory_id = write_memory(
             title=title,
@@ -79,11 +91,12 @@ def handle_memory_list(inv: ToolInvocation) -> dict:
     args = inv.arguments
     try:
         from memory.store import get_store
-        store = get_store()
+        ws = _caller_workspace(inv)
+        store = get_store(ws)
         results = store.list(
             scope=args.get("scope"),
             memory_type=args.get("memory_type"),
-            project_id=args.get("workspace_id"),
+            project_id=ws,
             limit=args.get("limit", 20),
         )
         status_filter = args.get("status", "")
@@ -123,8 +136,11 @@ def handle_memory_confirm(inv: ToolInvocation) -> dict:
     if not memory_id:
         return _error_inv(inv, "memory_id is required")
     try:
+        # P0 fix (round 7): use the caller's workspace, not hardcoded "default".
+        # Cross-workspace data access is a privilege boundary.
         from context.context_store import get_context_store
-        store = get_context_store("default")
+        ws = _caller_workspace(inv)
+        store = get_context_store(ws)
         entry = store.get(memory_id)
         if not entry:
             return _error_inv(inv, f"memory_id not found: {memory_id}")
@@ -147,9 +163,8 @@ def handle_memory_confirm(inv: ToolInvocation) -> dict:
 
 
 def handle_memory_get_profile(inv: ToolInvocation) -> dict:
-    ws = inv.arguments.get("workspace_id", "default")
     try:
-        validate_workspace_id(ws)
+        ws = _caller_workspace(inv)
         from context.context_store import get_context_store
         store = get_context_store(ws)
         items = store.list_items(item_type="profile", limit=1)
@@ -182,14 +197,13 @@ def handle_memory_get_profile(inv: ToolInvocation) -> dict:
 
 
 def handle_memory_set_profile(inv: ToolInvocation) -> dict:
-    ws = inv.arguments.get("workspace_id", "default")
     field = str(inv.arguments.get("field", "")).strip()
     value = inv.arguments.get("value")
     merge = bool(inv.arguments.get("merge", True))
     if not field:
         return _error_inv(inv, "field is required")
     try:
-        validate_workspace_id(ws)
+        ws = _caller_workspace(inv)
         from memory.redaction import contains_secret
         if isinstance(value, str) and contains_secret(value):
             return _error_inv(inv, "value contains secrets — set_profile blocked")
@@ -236,8 +250,11 @@ def handle_memory_update(inv: ToolInvocation) -> dict:
         if contains_secret(content):
             return _error_inv(inv, "content contains secrets — memory.update blocked")
         import time
+        # P0 fix (round 7): use caller's workspace instead of hardcoded "default"
+        # to enforce workspace isolation.
         from context.context_store import get_context_store
-        store = get_context_store("default")
+        ws = _caller_workspace(inv)
+        store = get_context_store(ws)
         entry = store.get(memory_id)
         if not entry:
             return _error_inv(inv, f"memory_id not found: {memory_id}")
@@ -260,8 +277,11 @@ def handle_memory_delete_soft(inv: ToolInvocation) -> dict:
     if not memory_id:
         return _error_inv(inv, "memory_id is required")
     try:
+        # P0 fix (round 7): enforce workspace isolation; do not let one
+        # workspace's LLM delete another workspace's memory.
         from context.context_store import get_context_store
-        store = get_context_store("default")
+        ws = _caller_workspace(inv)
+        store = get_context_store(ws)
         entry = store.get(memory_id)
         if not entry:
             return _error_inv(inv, f"memory_id not found: {memory_id}")

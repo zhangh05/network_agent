@@ -32,8 +32,10 @@ def build_turn_context(session, turn, services) -> TurnContext:
         trace_id=str(uuid.uuid4()),
         user_input=turn.op.user_input if turn.op else "",
     )
-    # v3.1.1: Carry sub-agent flag from session metadata to context
-    if hasattr(session, 'metadata') and (session.metadata or {}).get('is_sub_agent'):
+    # v3.1.1: Carry sub-agent flag to context.
+    # P0 fix (round 7): read from session.is_sub_agent (immutable
+    # trust marker), not session.metadata which an LLM could set.
+    if bool(getattr(session, 'is_sub_agent', False)):
         ctx.metadata['is_sub_agent'] = True
 
     # 1. Load model config

@@ -19,6 +19,7 @@ Returns 401 on auth failure:
 
 import os
 import logging
+import hmac
 from functools import wraps
 
 import flask
@@ -143,7 +144,8 @@ def register_auth_middleware(app: flask.Flask) -> None:
             logger.warning("auth_denied: path=%s reason=no_token", path)
             return _unauthorized_response("Missing API token — provide Authorization: Bearer <token> or X-API-Key: <token>")
 
-        if token != api_token:
+        # Constant-time comparison: prevents timing-based token leakage.
+        if not hmac.compare_digest(str(token), str(api_token)):
             logger.warning("auth_denied: path=%s reason=invalid_token", path)
             return _unauthorized_response("Invalid API token")
 

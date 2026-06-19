@@ -202,9 +202,10 @@ def run_sub_agent(instruction: str, workspace_id: str,
             workspace_id=workspace_id,
             services=services,
         )
-        # v3.1.1: Mark as sub-agent so the prompt builder injects role constraints
-        session.metadata = session.metadata or {}
-        session.metadata["is_sub_agent"] = True
+        # v3.1.1: Mark as sub-agent so the prompt builder injects role constraints.
+        # P0 fix (round 7): use the immutable trust marker `mark_sub_agent()`
+        # instead of writing to session.metadata (which the LLM could also write).
+        session.mark_sub_agent()
 
         from agent.protocol.op import AgentOp
         op = AgentOp(

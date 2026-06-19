@@ -20,9 +20,20 @@ class AgentOp:
 
     @classmethod
     def user_message(cls, user_input: str, session_id: str = None, workspace_id: str = "default", metadata: dict = None) -> "AgentOp":
+        # session_id is intentionally NOT auto-generated. Previously we
+        # minted a UUID here when no session_id was supplied, which
+        # produced orphan sessions that were never persisted or
+        # rejoinable. Callers must now pass an explicit session_id;
+        # for new sessions the AgentApp layer is responsible for
+        # creating one (via SessionStore) and routing the op to it.
+        if not session_id:
+            raise ValueError(
+                "session_id is required — AgentApp must create a session "
+                "before submitting a user_message op (no implicit UUID minting)"
+            )
         return cls(
             type="user_message",
-            session_id=session_id or str(uuid.uuid4()),
+            session_id=session_id,
             workspace_id=workspace_id,
             user_input=user_input,
             metadata=metadata or {},

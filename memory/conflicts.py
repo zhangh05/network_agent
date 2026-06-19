@@ -25,7 +25,7 @@ def detect_memory_conflicts(
     """
     try:
         from memory.store import get_store
-        existing = get_store().list(
+        existing = get_store(project_id or "default").list(
             memory_type=memory_type or None,
             project_id=project_id or None,
             limit=500,

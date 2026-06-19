@@ -100,7 +100,13 @@ def handle_file_edit(inv: ToolInvocation) -> dict:
             return _ok(inv, "", {"lines_changed": 0, "note": "no changes made"})
         # Generate preview/diff before writing
         diff_preview = _generate_diff_preview(old_string, new_string)
-        target.write_text(new_content, encoding="utf-8")
+        # P1 fix (round 7): write atomically via workspace.atomic_io so
+        # a process crash mid-write cannot leave a half-written file
+        # (which previously failed next read with JSONDecodeError or
+        # truncated-content errors). Shared tmp+uuid scheme also avoids
+        # concurrent-edit tmp collisions.
+        from workspace.atomic_io import atomic_write_text
+        atomic_write_text(target, new_content)
         lines_changed = abs(new_content.count("\n") - content.count("\n")) or count
         return _ok(inv, "", {
             "lines_changed": lines_changed,
@@ -151,10 +157,12 @@ def handle_file_patch(inv: ToolInvocation) -> dict:
                     new_lines.append(line[1:] + "\n")
             result_lines[old_start:old_start + old_count] = new_lines
         new_content = "".join(result_lines)
-        # Write to temp file first, then atomically rename to avoid half-written state
-        temp_path = target.with_suffix(target.suffix + ".patch_tmp")
-        temp_path.write_text(new_content, encoding="utf-8")
-        temp_path.replace(target)
+        # Write atomically via workspace.atomic_io (P1 fix round 7).
+        # Previous code used `target.with_suffix(target.suffix + ".patch_tmp")`
+        # which collided across concurrent edits; the new helper uses
+        # pid+uuid tmp names + O_EXCL for race-free atomic write.
+        from workspace.atomic_io import atomic_write_text
+        atomic_write_text(target, new_content)
         return _ok(inv, "", {
             "lines_added": lines_added,
             "lines_removed": lines_removed,
@@ -204,7 +212,9 @@ def handle_ws_write_artifact_file(inv: ToolInvocation) -> dict:
         out_dir.mkdir(exist_ok=True)
         safe_name = re.sub(r'[^a-zA-Z0-9_.-]', '_', filename)
         out_file = out_dir / safe_name
-        out_file.write_text(content, encoding="utf-8")
+        # P1 fix (round 7): write atomically via workspace.atomic_io.
+        from workspace.atomic_io import atomic_write_text
+        atomic_write_text(out_file, content)
         return _ok(inv, "", {"filepath": str(out_file.relative_to(ROOT)), "size": len(content)})
     except Exception as e:
         return _error_inv(inv, str(e)[:200])

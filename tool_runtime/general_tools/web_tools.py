@@ -1,5 +1,12 @@
 """Split general tool handlers."""
+import threading
+
 from tool_runtime.general_tools.shared import *
+
+
+_fetch_summary_cache_lock = threading.Lock()
+_fetch_summary_cache: dict[str, tuple[float, dict]] = {}
+
 
 def handle_web_search(inv: ToolInvocation) -> dict:
     args = inv.arguments
@@ -279,19 +286,24 @@ def handle_web_fetch_summary(inv: ToolInvocation) -> dict:
     ws_id = inv.workspace_id or "default"
     cache_key = f"{ws_id}::{url.lower().strip()}"
     _now = time.time()
-    if not hasattr(handle_web_fetch_summary, '_cache'):
-        handle_web_fetch_summary._cache = {}
-    _cache = handle_web_fetch_summary._cache
-    # Clean stale entries (thread-safe best-effort)
-    for k in list(_cache.keys()):
-        if _now - _cache[k][0] >= 60:
-            del _cache[k]
-    if cache_key in _cache:
-        cached_at, cached_result = _cache[cache_key]
-        if _now - cached_at < 60:
-            cached_result["cached"] = True
-            cached_result["cached_at"] = cached_at
-            return cached_result
+    # P1 fix (round 7): cache lookups / writes now happen under a lock so
+    # concurrent fetches don't race on dict mutation (RuntimeError on
+    # "dictionary changed size during iteration") or duplicate the
+    # oldest-entry eviction.
+    with _fetch_summary_cache_lock:
+        _cache = _fetch_summary_cache
+        # Clean stale entries (60s TTL)
+        for k in list(_cache.keys()):
+            if _now - _cache[k][0] >= 60:
+                del _cache[k]
+        if cache_key in _cache:
+            cached_at, cached_result = _cache[cache_key]
+            if _now - cached_at < 60:
+                return {
+                    **cached_result,
+                    "cached": True,
+                    "cached_at": cached_at,
+                }
 
     try:
         import requests
@@ -342,12 +354,15 @@ def handle_web_fetch_summary(inv: ToolInvocation) -> dict:
             "redirected": url != redirect_url,
             "final_url": redirect_url if url != redirect_url else "",
         })
-        # Cache the result
-        handle_web_fetch_summary._cache[cache_key] = (_now, result)
-        # Limit cache size
-        if len(handle_web_fetch_summary._cache) > 100:
-            oldest = min(handle_web_fetch_summary._cache, key=lambda k: handle_web_fetch_summary._cache[k][0])
-            del handle_web_fetch_summary._cache[oldest]
+        # Cache the result under the same lock.
+        with _fetch_summary_cache_lock:
+            _fetch_summary_cache[cache_key] = (_now, result)
+            if len(_fetch_summary_cache) > 100:
+                oldest = min(
+                    _fetch_summary_cache,
+                    key=lambda k: _fetch_summary_cache[k][0],
+                )
+                del _fetch_summary_cache[oldest]
         return result
     except Exception as e:
         return _error_inv(inv, str(e)[:200])

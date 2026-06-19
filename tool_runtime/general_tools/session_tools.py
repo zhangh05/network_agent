@@ -182,7 +182,12 @@ def handle_session_checkpoint(inv: ToolInvocation) -> dict:
             "created_at": time.strftime("%Y-%m-%dT%H:%M:%S"),
         }
         checkpoint_path = checkpoints_dir / f"{cid}.json"
-        checkpoint_path.write_text(json.dumps(checkpoint, ensure_ascii=False, indent=2), encoding="utf-8")
+        # P1 fix (round 7): write checkpoint atomically. A crash mid-write
+        # previously left a truncated JSON file that subsequent loads
+        # raised on; atomic_write_json via workspace.atomic_io gives us
+        # tmp+os.replace with pid+uuid tmp names.
+        from workspace.atomic_io import atomic_write_json
+        atomic_write_json(checkpoint_path, checkpoint)
         return _ok(inv, "", {
             "checkpoint_id": cid,
             "message_count": len(messages),

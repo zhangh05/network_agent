@@ -5,6 +5,8 @@ v3.1.0: All data lives in ContextStore. This module provides
 backward-compatible API for callers that import get_store().
 """
 
+import threading
+
 from context.context_store import get_context_store
 
 
@@ -92,12 +94,15 @@ class ContextStoreAdapter:
         return self._store.compact()
 
 
-_store = None
+_stores: dict[str, ContextStoreAdapter] = {}
+_stores_lock = threading.Lock()
 
 
 def get_store(workspace_id: str = "default") -> ContextStoreAdapter:
     """Return the ContextStore adapter (backward-compatible API)."""
-    global _store
-    if _store is None or _store.workspace_id != workspace_id:
-        _store = ContextStoreAdapter(workspace_id)
-    return _store
+    with _stores_lock:
+        store = _stores.get(workspace_id)
+        if store is None:
+            store = ContextStoreAdapter(workspace_id)
+            _stores[workspace_id] = store
+        return store

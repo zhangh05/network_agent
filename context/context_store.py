@@ -222,9 +222,16 @@ class ContextStore:
             bak = self._items_path.with_suffix(
                 f".bak.{time.strftime('%Y%m%d%H%M%S')}"
             )
-            tmp = self._items_path.with_suffix(".tmp")
+            # P1 fix (round 7): unique tmp name per call (pid + uuid) and
+            # O_EXCL prevents concurrent compact() calls from clobbering
+            # each other's tmp file. Without O_EXCL, two concurrent
+            # compacts could race in os.open() with O_TRUNC and end up
+            # with mixed content in the final items.jsonl.
+            tmp = self._items_path.with_name(
+                self._items_path.name + f".tmp.{os.getpid()}.{uuid.uuid4().hex[:8]}"
+            )
             fd = os.open(
-                str(tmp), os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o644
+                str(tmp), os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o644
             )
             try:
                 with os.fdopen(fd, "w", encoding="utf-8") as f:
@@ -243,15 +250,27 @@ class ContextStore:
                     pass
                 raise
 
-            # Keep a timestamped backup before swap for forensic recovery
+            # Copy a backup before the atomic swap. Renaming the primary
+            # first would leave items.jsonl missing if os.replace failed.
             if self._items_path.exists():
                 try:
-                    self._items_path.rename(bak)
-                except OSError:
-                    # If rename fails, proceed with replace anyway
-                    pass
+                    import shutil
+                    shutil.copy2(self._items_path, bak)
+                except OSError as e:
+                    import logging
+                    logging.getLogger(__name__).warning(
+                        "compact: backup copy failed (path=%s bak=%s err=%s) — proceeding without backup",
+                        self._items_path, bak, e,
+                    )
 
-            os.replace(tmp, self._items_path)
+            try:
+                os.replace(tmp, self._items_path)
+            except Exception:
+                try:
+                    tmp.unlink()
+                except OSError:
+                    pass
+                raise
 
         return {
             "before": len(live) + len(deleted),
@@ -270,10 +289,39 @@ class ContextStore:
                 expired.append(item["item_id"])
 
         if not dry_run:
-            for iid in expired:
-                self.delete(iid)
+            if expired:
+                # P1 fix (round 7): batch delete via single compact() rather
+                # than N tombstone appends. N tombstones cause the JSONL
+                # to grow by N lines for every cleanup run, doubling IO;
+                # the next read still has to scan past every tombstone.
+                # Compact once at the end gives O(N) write cost in a single
+                # tmp+replace operation.
+                self.delete_many(expired)
+                self.compact()
+            return {"expired_count": len(expired), "dry_run": dry_run, "compacted": bool(expired)}
 
         return {"expired_count": len(expired), "dry_run": dry_run}
+
+    def delete_many(self, item_ids: list) -> None:
+        """Mark multiple items deleted in a single write batch.
+
+        P1 fix (round 7): writes a single tombstone line per iid under
+        a single lock acquisition, instead of N independent delete()
+        calls each holding/releasing the write lock. Combined with
+        compact() this gives O(N) IO total for cleanup_expired().
+        """
+        if not item_ids:
+            return
+        with self._lock:
+            ts = _now_iso()
+            with open(self._items_path, "a", encoding="utf-8") as f:
+                for iid in item_ids:
+                    tombstone = {
+                        "item_id": iid,
+                        "deleted": True,
+                        "deleted_at": ts,
+                    }
+                    f.write(json.dumps(tombstone, ensure_ascii=False) + "\n")
 
     # ---- Internal ----
 

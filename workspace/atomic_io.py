@@ -12,8 +12,22 @@ Public API:
 
 import json
 import os
+import uuid
 from pathlib import Path
 from typing import Any, Optional
+
+
+# P1 fix (round 7): per-call tmp filename with pid+uuid to prevent
+# concurrent writers from clobbering each other's tmp file. With a
+# single shared `.tmp` suffix, two processes/threads writing to the
+# same target would race in the open() call (O_TRUNC after the loser
+# already wrote data) and the resulting os.replace could install a
+# half-written file. The `pid.uuid` suffix keeps tmp paths unique
+# across processes and threads (uuid4 makes intra-process collisions
+# impossible too).
+def _unique_tmp(path: Path) -> Path:
+    suffix = f".tmp.{os.getpid()}.{uuid.uuid4().hex[:8]}"
+    return path.with_name(path.name + suffix)
 
 
 def atomic_write_text(path: Path, text: str) -> None:
@@ -25,8 +39,11 @@ def atomic_write_text(path: Path, text: str) -> None:
     """
     path = Path(path)
     path.parent.mkdir(parents=True, exist_ok=True)
-    tmp = path.with_suffix(path.suffix + ".tmp")
-    fd = os.open(str(tmp), os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o644)
+    tmp = _unique_tmp(path)
+    # O_EXCL prevents two writers from racing into the same tmp path
+    # even on unusual filesystems where the pid+uuid suffix could
+    # still collide (e.g. tmpfs shared between containers).
+    fd = os.open(str(tmp), os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o644)
     try:
         with os.fdopen(fd, "w", encoding="utf-8") as f:
             f.write(text)
@@ -43,7 +60,14 @@ def atomic_write_text(path: Path, text: str) -> None:
         except OSError:
             pass
         raise
-    os.replace(tmp, path)
+    try:
+        os.replace(tmp, path)
+    except Exception:
+        try:
+            tmp.unlink()
+        except OSError:
+            pass
+        raise
 
 
 def atomic_write_json(path: Path, obj: Any, *, indent: Optional[int] = 2) -> None:

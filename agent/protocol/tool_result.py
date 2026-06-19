@@ -28,6 +28,15 @@ if TYPE_CHECKING:
     from agent.protocol.module_result import ModuleResult
 
 
+def _safe_truncate_utf8(text: str, max_chars: int) -> str:
+    """Truncate a Unicode string to at most ``max_chars`` characters."""
+    if not text or max_chars <= 0:
+        return ""
+    if len(text) <= max_chars:
+        return text
+    return text[:max_chars]
+
+
 # Max serialized length of `content` when it is a string. This is only
 # a preview; structured data/raw remain the source of truth.
 CONTENT_PREVIEW_MAX_LEN = 12000
@@ -138,7 +147,10 @@ class ToolResult:
             preview_payload["errors"] = list(mr.errors)[:5]
         if mr.warnings:
             preview_payload["warnings"] = list(mr.warnings)[:5]
-        content_str = json.dumps(preview_payload, ensure_ascii=False)[:content_max_len]
+        content_str = _safe_truncate_utf8(
+            json.dumps(preview_payload, ensure_ascii=False),
+            content_max_len,
+        )
 
         return cls(
             call_id=call_id,

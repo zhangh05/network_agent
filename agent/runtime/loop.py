@@ -242,11 +242,9 @@ def run_turn(session, turn, services=None, restricted_tool_router=None) -> Agent
     _tool_stop_requested = False
 
     # v5.0.0: resolve effective MAX_STEPS once per turn (env > session > turn > default).
-    # Sub-agents additionally capped via restricted_tool_router detection below.
-    _is_sub_agent_turn = bool(
-        isinstance(getattr(session, 'metadata', None), dict)
-        and session.metadata.get('is_sub_agent')
-    )
+    # P0 fix (round 7): read from session._is_sub_agent (immutable trust marker),
+    # not session.metadata['is_sub_agent'] which an LLM could set via memory.update.
+    _is_sub_agent_turn = bool(getattr(session, 'is_sub_agent', False))
     _max_steps = _resolve_max_steps(
         session=session, turn=turn, is_sub_agent=_is_sub_agent_turn,
     )
@@ -331,8 +329,15 @@ def run_turn(session, turn, services=None, restricted_tool_router=None) -> Agent
             try:
                 from agent.llm.config import record_recent_failure
                 record_recent_failure(f"llm_invoke_error: {error_str[:100]}", "provider_timeout" if is_timeout else "provider_error")
-            except Exception:
-                pass
+            except Exception as _cf_err:
+                # P2 fix (round 7): log instead of silently swallow.
+                # record_recent_failure feeds the provider circuit
+                # breaker; if it silently fails the breaker never
+                # trips and we keep hammering a broken provider.
+                import logging
+                logging.getLogger(__name__).warning(
+                    "record_recent_failure (sync path) failed: %s", _cf_err
+                )
             return _error_result(session, turn, context, emitter, audit_events,
                 user_msg, classify_error(e), [], turn.errors,
                 {"needed": False, "reason": "LLM provider error prevented tool selection."},
@@ -377,8 +382,13 @@ def run_turn(session, turn, services=None, restricted_tool_router=None) -> Agent
             try:
                 from agent.llm.config import record_recent_failure
                 record_recent_failure(user_msg, "provider_timeout" if is_timeout else "provider_error")
-            except Exception:
-                pass
+            except Exception as _cf_err:
+                # P2 fix (round 7): see comment above — this path is
+                # hit on streaming-timeout / provider-error response.
+                import logging
+                logging.getLogger(__name__).warning(
+                    "record_recent_failure (streaming path) failed: %s", _cf_err
+                )
 
             return _error_result(session, turn, context, emitter, audit_events,
                 user_msg, error_type, [], [resp.error],
@@ -778,10 +788,9 @@ def _execute_tool_chain(tool_call, tc, context, session, turn, step,
         # Non-blocking: wait up to APPROVAL_TIMEOUT_S for user approval.
         # Sub-agents (is_sub_agent) get the shorter window so a slow parent
         # agent doesn't accumulate approval waits across turns.
-        # v4.0: safely read sub-agent flag — session.metadata can be None or
-        # missing, and `.get()` must be called on the dict, not on bool().
-        session_meta = getattr(session, 'metadata', None)
-        is_sub_agent = bool(isinstance(session_meta, dict) and session_meta.get('is_sub_agent'))
+        # P0 fix (round 7): read from session._is_sub_agent (immutable
+        # trust marker), not session.metadata which an LLM could set.
+        is_sub_agent = bool(getattr(session, 'is_sub_agent', False))
         timeout = _get_approval_timeout(is_sub_agent=is_sub_agent)
         allowed = store.wait(apr.approval_id, timeout=timeout)
         store.cleanup(apr.approval_id)
@@ -914,13 +923,17 @@ def _required_tool_retry_prompt(context) -> str:
 
 
 def _preserve_tool_payload_edges(text: str, limit: int) -> str:
+    """Truncate text while retaining useful content from both edges."""
     if len(text) <= limit:
         return text
+    from agent.protocol.tool_result import _safe_truncate_utf8
     marker = f'\n"...[truncated middle, {len(text)} chars total]..."\n'
     keep = max(0, limit - len(marker))
     head = max(keep * 2 // 3, keep // 2)
     tail = keep - head
-    return text[:head] + marker + text[-tail:]
+    head_str = _safe_truncate_utf8(text[:head] if head > 0 else "", head)
+    tail_str = _safe_truncate_utf8(text[-tail:] if tail > 0 else "", tail)
+    return head_str + marker + tail_str
 
 
 def _handle_unknown_tool(tc, llm_name, error, all_tool_results, messages, audit_events, audit_trace, session, turn, step):

@@ -37,11 +37,15 @@ def test_compact_is_atomic_when_write_fails(monkeypatch, tmp_path):
     original_lines = original.strip().split("\n")
     assert len(original_lines) == 4  # 2 puts + 1 delete + 1 implicit
 
-    # Force os.open to fail when writing the .tmp path
+    # Force os.open to fail when writing the unique .tmp.<pid>.<uuid> path.
+    # Round 7 fix changed the tmp suffix from `.tmp` to `.tmp.<pid>.<uuid>`
+    # to avoid concurrent-writer collisions, so we match on the new pattern.
     import contextlib
     real_os_open = cs.os.open
     def boom(path, *args, **kwargs):
-        if str(path).endswith(".tmp"):
+        spath = str(path)
+        # match any items.jsonl.tmp.* suffix used by the new atomic_io
+        if spath.endswith(".tmp") or ".tmp." in spath and "items.jsonl.tmp" in spath:
             raise OSError("simulated disk full")
         return real_os_open(path, *args, **kwargs)
     monkeypatch.setattr(cs.os, "open", boom)
@@ -53,8 +57,9 @@ def test_compact_is_atomic_when_write_fails(monkeypatch, tmp_path):
     after = (tmp_path / "default" / "context" / "items.jsonl").read_text()
     assert after == original, "original items.jsonl must survive a failed compact"
 
-    # No leftover .tmp file
-    assert not (tmp_path / "default" / "context" / "items.jsonl.tmp").exists()
+    # No leftover .tmp file (any of the possible unique tmp names)
+    leftover = list((tmp_path / "default" / "context").glob("items.jsonl.tmp*"))
+    assert not leftover, f"unexpected tmp files left behind: {leftover}"
 
 
 def test_compact_succeeds_and_drops_tombstones(monkeypatch, tmp_path):
@@ -240,7 +245,9 @@ def test_state_json_atomic_write(monkeypatch, tmp_path):
 
     real_os_open = manager.os.open
     def boom(path, *args, **kwargs):
-        if str(path).endswith(".tmp"):
+        # Round 7 fix: tmp suffix is `.tmp.<pid>.<uuid>` so check for
+        # any `.tmp` substring (covers old + new patterns).
+        if ".tmp" in str(path):
             raise OSError("simulated disk full")
         return real_os_open(path, *args, **kwargs)
     monkeypatch.setattr(manager.os, "open", boom)
@@ -250,7 +257,9 @@ def test_state_json_atomic_write(monkeypatch, tmp_path):
 
     # Original untouched
     assert state_path.read_text() == '{"old": true}'
-    assert not state_path.with_suffix(state_path.suffix + ".tmp").exists()
+    # No leftover tmp files (any of the unique tmp names)
+    leftover = list(state_path.parent.glob("state.json.tmp*"))
+    assert not leftover, f"unexpected tmp files: {leftover}"
 
 
 def test_state_json_atomic_write_success(monkeypatch, tmp_path):
