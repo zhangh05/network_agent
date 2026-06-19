@@ -1,14 +1,11 @@
 # agent/runtime/actions/result.py
 """ResultNormalizer — converts raw tool output to normalized ActionResult fields.
 
-Also provides ``action_result_to_tool_result`` for backward-compatible
-conversion of ActionResult → ToolResult.
+Also provides ``action_result_to_tool_result`` for the ActionResult → ToolResult
+protocol conversion used by the existing runtime message contract.
 """
 
 from __future__ import annotations
-
-import json
-from typing import Any
 
 from agent.runtime.actions.models import ActionResult
 
@@ -60,10 +57,10 @@ class ResultNormalizer:
 
 
 def action_result_to_tool_result(action_result: ActionResult):
-    """Convert an ActionResult to a ToolResult for pipeline backward compatibility.
+    """Convert an ActionResult to a ToolResult for the runtime protocol.
 
     If the ActionResult already wraps a ToolResult (via .result), that object is
-    returned directly.  Otherwise a new ToolResult is synthesised from the
+    returned directly. Otherwise a new ToolResult is synthesised from the
     ActionResult's normalised fields.
     """
     from agent.protocol.tool_result import ToolResult
