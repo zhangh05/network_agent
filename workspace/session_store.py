@@ -276,23 +276,79 @@ def _auto_title_from_run(run_id: str, ws_id: str) -> str:
 
 
 def get_session_messages(session_id: str, ws_id: str = "default") -> List[Dict[str, Any]]:
-    """Convert a session's runs into a message list for chat UI restoration.
+    """Return a session's messages for chat UI restoration.
 
-    v1.0.3.1: delegates to workspace.message_store.SessionMessageStore
-    so the message_id (and every other field) is identical across
-    every read. The implementation is the single source of truth;
-    this function remains as a thin re-export.
-
-    Each run produces two messages:
-      - role: 'user', message_id: '<run_id>:user', content: user_input_summary
-      - role: 'assistant', message_id: '<run_id>:assistant',
-              content: final_response_summary + metadata
-
-    Messages are ordered by run creation time.
+    Full message files are canonical for current runs. Older or interrupted
+    runs may have a valid session association but no message files; in that
+    case, project the sanitized run summaries into chat messages. Missing or
+    deleted sessions never fall back to runs, so deletion semantics remain
+    intact.
     """
     from workspace.message_store import SessionMessageStore
+
+    if get_session(session_id, ws_id) is None:
+        return []
+
     store = SessionMessageStore(session_id=session_id, ws_id=ws_id)
-    return store.get_messages()
+    messages = store.get_messages()
+    if messages:
+        return messages
+
+    from workspace.run_store import list_runs, run_sort_key
+
+    runs = [
+        run for run in list_runs(ws_id, limit=100_000)
+        if run.get("session_id") == session_id
+    ]
+    runs.sort(key=run_sort_key)
+
+    projected: List[Dict[str, Any]] = []
+    for run in runs:
+        run_id = str(run.get("run_id") or run.get("turn_id") or "").strip()
+        if not run_id:
+            continue
+        created_at = (
+            run.get("created_at")
+            or run.get("started_at")
+            or run.get("finished_at")
+            or ""
+        )
+        metadata = {
+            key: run[key]
+            for key in (
+                "intent",
+                "status",
+                "capability",
+                "quality_summary",
+                "manual_review_count",
+                "trace_id",
+                "llm_metadata",
+            )
+            if key in run
+        }
+        user_content = str(run.get("user_input_summary") or "").strip()
+        assistant_content = str(run.get("final_response_summary") or "").strip()
+        if user_content:
+            projected.append({
+                "message_id": f"{run_id}:user",
+                "session_id": session_id,
+                "role": "user",
+                "content": user_content,
+                "created_at": created_at,
+                "run_id": run_id,
+                "metadata": metadata,
+            })
+        if assistant_content:
+            projected.append({
+                "message_id": f"{run_id}:assistant",
+                "session_id": session_id,
+                "role": "assistant",
+                "content": assistant_content,
+                "created_at": created_at,
+                "run_id": run_id,
+                "metadata": metadata,
+            })
+    return projected
 
 
 def get_or_create_default_session(ws_id: str = "default") -> Dict[str, Any]:

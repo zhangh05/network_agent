@@ -50,7 +50,10 @@ function nextId(): string {
  * Also cap the entire map to MAX_SESSIONS entries by simple LRU on
  * session_id (good enough — chat sessions are not high-cardinality).
  */
-function capHistory(map: Record<string, ChatMsg[]>): Record<string, ChatMsg[]> {
+function capHistory(
+  map: Record<string, ChatMsg[]>,
+  keepSessionId?: string,
+): Record<string, ChatMsg[]> {
   if (!map || typeof map !== "object") return {};
   // Per-session cap
   const capped: Record<string, ChatMsg[]> = {};
@@ -65,8 +68,10 @@ function capHistory(map: Record<string, ChatMsg[]>): Record<string, ChatMsg[]> {
   // Global cap (LRU: drop keys with lexicographically smallest id)
   const keys = Object.keys(capped);
   if (keys.length > MAX_SESSIONS) {
-    const sorted = [...keys].sort();
-    const toDelete = sorted.slice(0, sorted.length - MAX_SESSIONS);
+    const sorted = [...keys]
+      .filter((key) => key !== keepSessionId)
+      .sort();
+    const toDelete = sorted.slice(0, keys.length - MAX_SESSIONS);
     for (const k of toDelete) delete capped[k];
   }
   return capped;
@@ -140,7 +145,7 @@ export const useWorkbenchStore = create<WorkbenchState>()(
         };
         set((s) => {
           const cur = s.bySession[sid] ?? [];
-          const next = capHistory({ ...s.bySession, [sid]: [...cur, msg] });
+          const next = capHistory({ ...s.bySession, [sid]: [...cur, msg] }, sid);
           // Update history when this is the active session, including _scratch fallback
           const isActive = s.currentSessionId === sid || (!s.currentSessionId && sid === "_scratch");
           return {
@@ -166,7 +171,7 @@ export const useWorkbenchStore = create<WorkbenchState>()(
         };
         set((s) => {
           const cur = s.bySession[sid] ?? [];
-          const next = capHistory({ ...s.bySession, [sid]: [...cur, msg] });
+          const next = capHistory({ ...s.bySession, [sid]: [...cur, msg] }, sid);
           const isActive = s.currentSessionId === sid || (!s.currentSessionId && sid === "_scratch");
           return {
             bySession: next,
@@ -209,7 +214,17 @@ export const useWorkbenchStore = create<WorkbenchState>()(
           // `result` 不可从后端还原, 渲染为纯文本气泡 (无 inline 工具调用)
         }));
         set((s) => {
-          const cur = s.bySession[session_id] ?? [];
+          const persisted = s.bySession[session_id];
+          const cur = Array.isArray(persisted)
+            ? persisted.filter(
+                (message): message is ChatMsg =>
+                  !!message &&
+                  typeof message.id === "string" &&
+                  typeof message.text === "string" &&
+                  typeof message.created_at === "string" &&
+                  ["user", "assistant", "system"].includes(message.role),
+              )
+            : [];
           // v1.0.3.2: dual dedup strategy
           // (a) by content+role — catches local vs backend duplicates
           // (b) by message_id — catches server-side self-duplicates
@@ -226,10 +241,13 @@ export const useWorkbenchStore = create<WorkbenchState>()(
           }
           // 按 created_at 升序
           combined.sort((a, b) => a.created_at.localeCompare(b.created_at));
-          const next = capHistory({
-            ...s.bySession,
-            [session_id]: combined,
-          });
+          const next = capHistory(
+            {
+              ...s.bySession,
+              [session_id]: combined,
+            },
+            session_id,
+          );
           return {
             bySession: next,
             history: s.currentSessionId === session_id ? next[session_id] : s.history,
