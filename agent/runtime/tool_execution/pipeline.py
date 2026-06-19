@@ -7,12 +7,9 @@ Flow: pre_tool_hook → ActionPlanner.plan → ActionExecutor.execute
 """
 
 import json
-import time
 
-from agent.protocol.message import ToolResultMessage
 from agent.protocol.tool_result import ToolResult
 from agent.runtime.hook_runner import run_pre_tool_hook, run_post_tool_hook
-from agent.runtime.query_engine import StreamEvent
 
 from agent.runtime.tool_execution.result_stage import ResultStage, append_tool_result
 from agent.runtime.tool_execution.unknown_tool_stage import handle_unknown_tool
@@ -21,6 +18,7 @@ from agent.runtime.tool_execution.catalog_stage import expand_tools_from_catalog
 from agent.runtime.actions.planner import ActionPlanner
 from agent.runtime.actions.executor import ActionExecutor
 from agent.runtime.actions.result import action_result_to_tool_result
+from agent.runtime.state.hooks import complete_runtime_state_after_actions
 
 
 class ToolExecutionPipeline:
@@ -28,7 +26,6 @@ class ToolExecutionPipeline:
 
     def __init__(self):
         self._result = ResultStage()
-        # Action execution kernel
         self._action_planner = ActionPlanner()
         self._action_executor = ActionExecutor()
 
@@ -66,7 +63,6 @@ class ToolExecutionPipeline:
             events.tool_call_started(tool_call.real_tool_id, state.step)
             events.record_tool_call(state.step, tool_call.real_tool_id, str(tool_call.arguments)[:100])
 
-            # Execute the full chain
             result, should_skip, should_stop = self._execute_single(
                 state, tool_call, tc, events, state.step)
 
@@ -95,6 +91,7 @@ class ToolExecutionPipeline:
                 + ". Continue by calling the best matching specialized tool if it is needed."
             )).to_llm_message())
 
+        _complete_runtime_state(state)
         return tool_stop_requested
 
     def _execute_single(self, state, tool_call, tc, events, step):
@@ -104,7 +101,6 @@ class ToolExecutionPipeline:
         """
         tid = tool_call.real_tool_id
 
-        # 1. Pre-tool hook
         hook_allowed, hook_input, hook_reason = run_pre_tool_hook(state.session, tid, tool_call.arguments)
         if not hook_allowed:
             result = ToolResult(
@@ -115,12 +111,11 @@ class ToolExecutionPipeline:
             events.tool_call_failed(tid, result.errors)
             events.record_tool_result(step, tid, False, result.summary)
             append_tool_result(result, tool_call, tc, state.all_tool_results, state.messages)
-            return result, True, False  # skip
+            return result, True, False
 
         if hook_input and isinstance(hook_input, dict):
             tool_call.arguments.update(hook_input)
 
-        # 2. Plan
         call_id = tc.id if hasattr(tc, 'id') else tc.get("id", "")
         llm_name = tc.name if hasattr(tc, 'name') else tc.get("name", "unknown")
         turn_id = getattr(state.turn, 'turn_id', '')
@@ -134,7 +129,6 @@ class ToolExecutionPipeline:
             context=getattr(state, 'context', None),
         )
 
-        # 3. Execute via ActionExecutor (risk → approval → dispatch → normalize → scan → audit → evidence)
         action_result = self._action_executor.execute(
             action_plan,
             tool_call=tool_call,
@@ -144,21 +138,29 @@ class ToolExecutionPipeline:
             step=step,
         )
 
-        # 4. Convert ActionResult → ToolResult for pipeline compatibility
         result = action_result_to_tool_result(action_result)
 
-        # If blocked or approval_pending, skip further processing
         if action_result.status in ("blocked", "approval_pending"):
             append_tool_result(result, tool_call, tc, state.all_tool_results, state.messages)
-            return result, True, False  # skip
+            return result, True, False
 
-        # 5. Post-tool hook
         post_stop = run_post_tool_hook(state.session, tid, result, state.turn)
         if post_stop:
             state.turn.warnings.append(f"post_tool_stop: {tid} stopped by hook")
             append_tool_result(result, tool_call, tc, state.all_tool_results, state.messages)
-            return result, False, True  # stop
+            return result, False, True
 
-        # 6. Append result
         append_tool_result(result, tool_call, tc, state.all_tool_results, state.messages)
         return result, False, False
+
+
+def _complete_runtime_state(state) -> None:
+    try:
+        complete_runtime_state_after_actions(
+            getattr(state, "context", None),
+            session=getattr(state, "session", None),
+        )
+    except Exception:
+        ctx = getattr(state, "context", None)
+        if ctx is not None:
+            ctx.metadata.setdefault("runtime_state_warnings", []).append("post_action_state_update_failed")
