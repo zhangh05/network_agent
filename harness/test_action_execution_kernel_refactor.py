@@ -552,9 +552,10 @@ def test_evidence_update_writes_ctx_metadata():
         normalized_result={"ok": True, "summary": "5 lines read"},
     )
     ev.update(plan, result, ctx=ctx)
-    assert "evidence_updates" in ctx.metadata
-    assert len(ctx.metadata["evidence_updates"]) == 1
-    assert ctx.metadata["evidence_updates"][0]["tool_id"] == "workspace.file.read"
+    assert "action_evidence_updates" in ctx.metadata
+    assert len(ctx.metadata["action_evidence_updates"]) == 1
+    assert ctx.metadata["action_evidence_updates"][0]["tool_id"] == "workspace.file.read"
+    assert "evidence_updates" not in ctx.metadata
 
 
 # ── 20. Audit trace writes ctx.metadata ──────────────────────────────────

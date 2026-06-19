@@ -56,6 +56,5 @@ class EvidenceUpdate:
             ctx_meta = getattr(ctx, "metadata", None)
             if ctx_meta is not None:
                 ctx_meta.setdefault("action_evidence_updates", []).extend(entries)
-                ctx_meta.setdefault("evidence_updates", []).extend(entries)
 
         return entries
