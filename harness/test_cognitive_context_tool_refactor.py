@@ -331,3 +331,174 @@ class TestCognitionModels:
         from agent.runtime.cognition.evidence_pipeline import EvidencePipeline
         pipeline = EvidencePipeline()
         assert hasattr(pipeline, "build")
+
+
+# ── H. ContextBuilder order verification ─────────────────────────────
+
+class TestContextBuilderOrder:
+    def test_scene_before_evidence_before_tool_plan(self):
+        """build_turn_context must run scene → evidence → tool_plan in order."""
+        import inspect
+        from agent.runtime import context_builder
+        source = inspect.getsource(context_builder.build_turn_context)
+
+        # SceneDecision must appear before evidence and tool planning
+        idx_scene = source.index("_compute_scene_decision")
+        idx_evidence = source.index("_build_evidence")
+        idx_tool_plan = source.index("_plan_tools_v2")
+        assert idx_scene < idx_evidence < idx_tool_plan
+
+    def test_no_attach_scene_decision_at_end(self):
+        """_attach_scene_decision should not exist — scene is computed early."""
+        import inspect
+        from agent.runtime import context_builder
+        source = inspect.getsource(context_builder)
+        assert "_attach_scene_decision" not in source
+
+    def test_no_plan_tool_visibility_import(self):
+        """context_builder should not import plan_tool_visibility."""
+        import inspect
+        from agent.runtime import context_builder
+        source = inspect.getsource(context_builder)
+        assert "plan_tool_visibility" not in source
+
+
+# ── I. ToolPlannerV2 independence ────────────────────────────────────
+
+class TestToolPlannerV2Independence:
+    def test_no_plan_tools_import(self):
+        """ToolPlannerV2 must not call plan_tools (the wrapper), only deterministic_plan_tools."""
+        import inspect
+        from agent.runtime.tool_planning import planner
+        source = inspect.getsource(planner)
+        # Should import deterministic_plan_tools, NOT plan_tools
+        assert "deterministic_plan_tools" in source
+        assert "from agent.runtime.tool_planner import plan_tools" not in source
+
+    def test_no_empty_safe_context(self):
+        """ToolPlannerV2 must not pass safe_context={}."""
+        import inspect
+        from agent.runtime.tool_planning import planner
+        source = inspect.getsource(planner)
+        assert "safe_context={}" not in source
+
+    def test_uses_validation(self):
+        """ToolPlannerV2 must use validate_tool_plan from validation.py."""
+        import inspect
+        from agent.runtime.tool_planning import planner
+        source = inspect.getsource(planner)
+        assert "validate_tool_plan" in source
+
+
+# ── J. EvidencePipeline independence ─────────────────────────────────
+
+class TestEvidencePipelineIndependence:
+    def test_no_safe_context_from_bundle_call(self):
+        """EvidencePipeline must not delegate to safe_context_from_bundle."""
+        import inspect
+        from agent.runtime.cognition import evidence_pipeline
+        source = inspect.getsource(evidence_pipeline)
+        assert "safe_context_from_bundle" not in source
+
+    def test_calls_scan_chunks_directly(self):
+        """EvidencePipeline must call scan_chunks directly."""
+        import inspect
+        from agent.runtime.cognition import evidence_pipeline
+        source = inspect.getsource(evidence_pipeline)
+        assert "scan_chunks" in source
+
+    def test_builds_scan_report(self):
+        """EvidencePipeline must produce ScanReport objects."""
+        import inspect
+        from agent.runtime.cognition import evidence_pipeline
+        source = inspect.getsource(evidence_pipeline)
+        assert "ScanReport" in source
+
+
+# ── K. No legacy compat entries (extended) ───────────────────────────
+
+class TestNoLegacyCompatExtended:
+    def test_no_classify_intent_in_prompts(self):
+        """prompts.py must not export classify_intent."""
+        import agent.runtime.prompts as mod
+        assert not hasattr(mod, "classify_intent")
+
+    def test_no_build_system_prompt_in_prompts(self):
+        """prompts.py must not export build_system_prompt."""
+        import agent.runtime.prompts as mod
+        assert not hasattr(mod, "build_system_prompt")
+
+    def test_no_deterministic_plan_from_rule_scene(self):
+        """tool_planner.py must not export deterministic_plan_from_rule_scene alias."""
+        import agent.runtime.tool_planner as mod
+        assert not hasattr(mod, "deterministic_plan_from_rule_scene")
+
+    def test_no_backward_compatible_fields_in_router(self):
+        """tool_category_router.py must not have 'Backward-compatible fields' comment."""
+        import inspect
+        from agent.runtime import tool_category_router
+        source = inspect.getsource(tool_category_router)
+        assert "Backward-compatible fields" not in source
+
+    def test_no_empty_safe_context_in_context_tools(self):
+        """context_tools.py must not pass safe_context={}."""
+        import inspect
+        from agent.runtime import context_tools
+        source = inspect.getsource(context_tools)
+        assert "safe_context={}" not in source
+
+    def test_no_plan_tool_visibility_in_context_tools(self):
+        """context_tools.py must not define plan_tool_visibility."""
+        import agent.runtime.context_tools as mod
+        assert not hasattr(mod, "plan_tool_visibility")
+
+    def test_router_scene_no_category_compat_key(self):
+        """route_tool_scene must not return 'category' compat key."""
+        from agent.runtime.tool_category_router import route_tool_scene
+        result = route_tool_scene("查看本机端口")
+        assert "category" not in result
+        assert "group" not in result
+        assert "primary_category" in result
+
+
+# ── L. Simple chat does not default to web.search ────────────────────
+
+class TestSimpleChatNoWebSearch:
+    def test_simple_chat_no_web_category(self):
+        from agent.runtime.cognition.scene_decision import decide_scene
+        for msg in ("你好", "hello", "谢谢", "ok"):
+            d = decide_scene(msg)
+            assert d.is_simple_chat is True, f"{msg!r} should be simple chat"
+            assert "web" not in d.categories, f"{msg!r} should not have web category"
+            assert d.primary_category != "web", f"{msg!r} should not be web primary"
+
+    def test_scene_adapter_chat_produces_chat_primary(self):
+        from agent.runtime.cognition.scene_decision import decide_scene
+        from agent.runtime.tool_planning.scene_adapter import scene_to_rule_scene
+        d = decide_scene("你好")
+        rule = scene_to_rule_scene(d)
+        assert rule["primary_category"] == "chat"
+
+
+# ── M. Artifact evidence enables file tools ──────────────────────────
+
+class TestArtifactEvidenceEnablesFileTools:
+    def test_artifact_refs_in_evidence(self):
+        """EvidenceBundle with artifact_refs should include them in safe_context."""
+        from agent.runtime.cognition.evidence_models import EvidenceBundle
+        bundle = EvidenceBundle()
+        bundle.artifact_refs = [{"artifact_id": "config_001", "name": "running-config.txt"}]
+        safe = bundle.to_safe_context()
+        assert "artifact_refs" in safe
+        assert len(safe["artifact_refs"]) == 1
+        assert safe["artifact_refs"][0]["artifact_id"] == "config_001"
+
+    def test_workspace_state_in_evidence(self):
+        """EvidenceBundle with workspace_state should include it in safe_context."""
+        from agent.runtime.cognition.evidence_models import EvidenceBundle
+        bundle = EvidenceBundle()
+        bundle.workspace_state = {"files": ["config.txt"], "workspace_id": "ws1"}
+        safe = bundle.to_safe_context()
+        assert "workspace_state" in safe
+        assert safe["workspace_state"]["workspace_id"] == "ws1"
+

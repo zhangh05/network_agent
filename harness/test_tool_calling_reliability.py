@@ -45,9 +45,9 @@ def test_tool_message_payload_preserves_stdout_tail():
 
 
 def test_ip_prompt_enables_tool_contract_and_approval_note():
-    from agent.runtime.prompts import build_system_prompt
+    from agent.runtime.prompting.profile import PromptProfile
 
-    prompt = build_system_prompt(intent="assistant_chat", user_input="查看本机IP地址")
+    prompt = PromptProfile.from_classify_intent(intent="assistant_chat", user_input="查看本机IP地址").build()
 
     assert "required steps" in prompt
     assert "High-risk tools open an approval popup" in prompt
