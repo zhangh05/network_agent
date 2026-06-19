@@ -138,7 +138,7 @@ class TestTrimHistoryBoundary:
             metadata={},
         )
         bundle = types_simple(compressed_items=[_history_turn() for _ in range(6)])
-        from agent.runtime.context_builder import _auto_compact_context
+        from agent.runtime.context_compaction import auto_compact_context
         # Force budget-tight so we enter compact path
         safe_context = {
             "knowledge_hits": [],
@@ -152,7 +152,7 @@ class TestTrimHistoryBoundary:
         safe_context["knowledge_hits"] = [
             {"score": 0.5, "content": "x" * 30000} for _ in range(20)
         ]
-        _auto_compact_context(safe_context, ctx, bundle)
+        auto_compact_context(safe_context, ctx, bundle)
         # Window of 2 is too small to trim — must remain intact so user/assistant pairing holds.
         assert len(ctx.history_window) == 2
 
@@ -166,7 +166,7 @@ class TestTrimHistoryBoundary:
             metadata={},
         )
         bundle = types_simple(compressed_items=[_history_turn() for _ in range(6)])
-        from agent.runtime.context_builder import _auto_compact_context
+        from agent.runtime.context_compaction import auto_compact_context
         safe_context = {
             "knowledge_hits": [{"score": 0.5, "content": "x" * 30000} for _ in range(20)],
             "memory_hits": [],
@@ -175,7 +175,7 @@ class TestTrimHistoryBoundary:
             "retrieval_diagnostics": {},
             "context_sources": {},
         }
-        _auto_compact_context(safe_context, ctx, bundle)
+        auto_compact_context(safe_context, ctx, bundle)
         # Keep the most recent 2 (user/assistant pair).
         assert len(ctx.history_window) == 2
         assert ctx.metadata.get("compact_history_before") == 3
@@ -189,7 +189,7 @@ class TestTrimHistoryBoundary:
             metadata={},
         )
         bundle = types_simple(compressed_items=[_history_turn() for _ in range(6)])
-        from agent.runtime.context_builder import _auto_compact_context
+        from agent.runtime.context_compaction import auto_compact_context
         safe_context = {
             "knowledge_hits": [{"score": 0.5, "content": "x" * 30000} for _ in range(20)],
             "memory_hits": [],
@@ -198,7 +198,7 @@ class TestTrimHistoryBoundary:
             "retrieval_diagnostics": {},
             "context_sources": {},
         }
-        _auto_compact_context(safe_context, ctx, bundle)
+        auto_compact_context(safe_context, ctx, bundle)
         assert len(ctx.history_window) == 2
         assert ctx.metadata.get("compact_history_before") == 4
         assert ctx.metadata.get("compact_history_after") == 2
@@ -213,7 +213,7 @@ class TestTrimHistoryBoundary:
             metadata={},
         )
         bundle = types_simple(compressed_items=[_history_turn() for _ in range(6)])
-        from agent.runtime.context_builder import _auto_compact_context
+        from agent.runtime.context_compaction import auto_compact_context
         safe_context = {
             "knowledge_hits": [{"score": 0.5, "content": "x" * 30000} for _ in range(20)],
             "memory_hits": [],
@@ -222,7 +222,7 @@ class TestTrimHistoryBoundary:
             "retrieval_diagnostics": {},
             "context_sources": {},
         }
-        _auto_compact_context(safe_context, ctx, bundle)
+        auto_compact_context(safe_context, ctx, bundle)
         # Window of 1 cannot be trimmed — leave as-is.
         assert len(ctx.history_window) == 1
         # trim_history did not run, so its metadata keys must be absent.
@@ -257,7 +257,7 @@ class TestTrimHistoryCompressedItemsMismatch:
             metadata={},
         )
         bundle = types_simple(compressed_items=[_history_turn() for _ in range(8)])
-        from agent.runtime.context_builder import _auto_compact_context
+        from agent.runtime.context_compaction import auto_compact_context
         safe_context = {
             "knowledge_hits": [{"score": 0.5, "content": "x" * 30000} for _ in range(20)],
             "memory_hits": [],
@@ -266,7 +266,7 @@ class TestTrimHistoryCompressedItemsMismatch:
             "retrieval_diagnostics": {},
             "context_sources": {},
         }
-        _auto_compact_context(safe_context, ctx, bundle)
+        auto_compact_context(safe_context, ctx, bundle)
         # Critical: must keep 2 (user/assistant pair), NOT just 1
         assert len(ctx.history_window) == 2
 
@@ -280,7 +280,7 @@ class TestTrimHistoryCompressedItemsMismatch:
             metadata={},
         )
         bundle = types_simple(compressed_items=[])  # empty
-        from agent.runtime.context_builder import _auto_compact_context
+        from agent.runtime.context_compaction import auto_compact_context
         safe_context = {
             "knowledge_hits": [{"score": 0.5, "content": "x" * 30000} for _ in range(20)],
             "memory_hits": [],
@@ -289,7 +289,7 @@ class TestTrimHistoryCompressedItemsMismatch:
             "retrieval_diagnostics": {},
             "context_sources": {},
         }
-        _auto_compact_context(safe_context, ctx, bundle)
+        auto_compact_context(safe_context, ctx, bundle)
         # Now we DO trim because guard uses history_window length, not history_count.
         assert len(ctx.history_window) == 2
 
@@ -301,7 +301,7 @@ class TestTrimHistoryCompressedItemsMismatch:
             metadata={},
         )
         bundle = types_simple(compressed_items=[_history_turn() for _ in range(6)])
-        from agent.runtime.context_builder import _auto_compact_context
+        from agent.runtime.context_compaction import auto_compact_context
         safe_context = {
             "knowledge_hits": [{"score": 0.5, "content": "x" * 30000} for _ in range(20)],
             "memory_hits": [],
@@ -310,7 +310,7 @@ class TestTrimHistoryCompressedItemsMismatch:
             "retrieval_diagnostics": {},
             "context_sources": {},
         }
-        _auto_compact_context(safe_context, ctx, bundle)
+        auto_compact_context(safe_context, ctx, bundle)
         assert len(ctx.history_window) == 3
         assert ctx.metadata.get("compact_history_before") == 5
         assert ctx.metadata.get("compact_history_after") == 3
@@ -323,7 +323,7 @@ class TestTrimHistoryCompressedItemsMismatch:
             metadata={},
         )
         bundle = types_simple(compressed_items=[_history_turn() for _ in range(15)])
-        from agent.runtime.context_builder import _auto_compact_context
+        from agent.runtime.context_compaction import auto_compact_context
         safe_context = {
             "knowledge_hits": [{"score": 0.5, "content": "x" * 30000} for _ in range(20)],
             "memory_hits": [],
@@ -332,7 +332,7 @@ class TestTrimHistoryCompressedItemsMismatch:
             "retrieval_diagnostics": {},
             "context_sources": {},
         }
-        _auto_compact_context(safe_context, ctx, bundle)
+        auto_compact_context(safe_context, ctx, bundle)
         assert len(ctx.history_window) == 8
 
 

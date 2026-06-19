@@ -55,11 +55,11 @@ def test_ip_prompt_enables_tool_contract_and_approval_note():
 
 
 def test_tool_followup_detection_keeps_previous_scene():
-    from agent.runtime.context_builder import _is_tool_followup
+    from agent.runtime.context_tools import is_tool_followup
 
-    assert _is_tool_followup("不对，你肯定搞错了，能显示的，你调用有问题")
-    assert _is_tool_followup("有shell")
-    assert not _is_tool_followup("搜索 Kubernetes 官方文档")
+    assert is_tool_followup("不对，你肯定搞错了，能显示的，你调用有问题")
+    assert is_tool_followup("有shell")
+    assert not is_tool_followup("搜索 Kubernetes 官方文档")
 
 
 def test_provider_parses_function_call_shape():

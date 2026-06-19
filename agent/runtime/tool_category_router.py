@@ -115,7 +115,6 @@ def route_tool_scene(
     session_context = session_context or {}
 
     mentions_file = _contains(text, ("上传", "文件", "workspace", "工作区", "日志", "读取", "路径", "config file", "pcap", "pcapng", "报文", "抓包", "pdf"))
-    # v2.3.3: Detect implicit file references — "这个配置" / "这份日志" imply a file exists
     mentions_file_implicit = (
         _contains(text, ("这个配置", "这份配置", "这个文件", "这份文件", "上面的配置", "之前的配置",
                          "那个配置", "那份配置", "刚才的配置", "已上传", "已导入",
@@ -133,12 +132,10 @@ def route_tool_scene(
     mentions_host = _contains(text, ("本机", "localhost", "127.0.0.1", "ipconfig", "ifconfig", "route print",
                                      "netstat", "端口", "进程", "process", "shell", "powershell", "python", "os ",
                                      "ping", "traceroute", "nslookup", "dig", "curl", "wget", "system info",
-                                     "系统信息", "系统状态", "磁盘", "内存", "cpu"))
+                                     "系统信息", "系统状态", "磁盘", "内存", "cpu", "执行命令", "跑命令", "运行命令", "命令行", "终端"))
     mentions_computation = _contains(text, ("python", "计算", "算一下", "统计", "95 分位", "95分位", "percentile", "脚本", "数据处理"))
-    # "What is X" questions should use web/knowledge, not config parsing
     is_definition_question = _contains(text, ("是什么", "什么是", "介绍", "解释", "说明", "what is", "define"))
 
-    # v2.3.3: Implicit file reference detection — "这个配置" / "帮我看" imply file operations
     effective_mentions_file = mentions_file or mentions_file_implicit or bool(uploaded_files)
 
     signals = {
@@ -159,7 +156,6 @@ def route_tool_scene(
         "mentions_host": mentions_host,
         "mentions_runtime": _contains(text, ("trace", "run", "session", "运行详情", "审计", "timeline", "checkpoint")),
         "mentions_memory": _contains(text, ("记住", "偏好", "profile", "remember", "memory", "记忆")) or bool(memory_hints),
-        # v3.1.1: sub-agent coordination — expose for complex / multi-step / parallel tasks
         "mentions_sub_agent": _contains(text, ("子代理", "sub agent", "spawn", "并行", "同时", "分头", "委托",
                                                 "研究一下", "全面看看", "都检查", "全部", "所有文件",
                                                 "每一个", "分别", "各自")),
@@ -179,7 +175,7 @@ def route_tool_scene(
     if signals["mentions_host"]:
         include("host", "shell", "powershell", "python")
         include("runtime", "health")
-        reasons.append("用户请求查看或操作当前本机环境")
+        reasons.append("用户明确请求查看或操作当前本机环境")
 
     if signals["has_uploaded_files"] or signals["mentions_file"]:
         include("workspace", "file")
@@ -187,10 +183,6 @@ def route_tool_scene(
 
     if signals["mentions_network_config"] and not signals["mentions_knowledge"]:
         include("network", "config", "interface", "route")
-        # v2.3.3: Config analysis ALWAYS needs file reading capability.
-        # Users say "分析配置" without explicitly mentioning "文件", but
-        # the config must come from somewhere (uploaded file or workspace).
-        # Always include workspace.file to avoid tool chain breakage.
         include("workspace", "file")
         reasons.append("用户请求离线网络配置分析")
 
@@ -229,6 +221,10 @@ def route_tool_scene(
         include("workspace", "artifact")
         reasons.append("用户请求整理输出、报告或保存制品")
 
+    if signals["mentions_sub_agent"]:
+        include("agent", "subagent", "team", "role", "result")
+        reasons.append("用户请求复杂/并行/委托式任务")
+
     if not categories and workspace_state:
         include("workspace", "file")
         reasons.append("上下文指向 workspace 操作")
@@ -236,11 +232,6 @@ def route_tool_scene(
     if not categories:
         include("web", "search")
         reasons.append("默认使用低风险检索能力")
-
-    # v3.1.1: Always expose sub-agent coordination tools for tool-enabled sessions.
-    # The LLM has full authority to decide when to spawn read-only sub-agents.
-    # For simple_chat (no tools in context_builder), the fast path skips all tools.
-    include("agent", "subagent", "team", "role", "result")
 
     primary_category = _primary_category(signals, categories)
     primary_group = _primary_group(primary_category, groups)
@@ -346,8 +337,6 @@ def _build_tool_chain(signals: dict[str, bool], candidates: set[str]) -> list[di
         ])
 
     if signals.get("mentions_network_config"):
-        # v2.3.3: File reading is a prerequisite for config parsing.
-        # Always include workspace.file.read BEFORE network.config.parse.
         add("读取配置文件内容", [
             "workspace.file.read",
             "workspace.file.list",
@@ -409,15 +398,15 @@ def _build_tool_chain(signals: dict[str, bool], candidates: set[str]) -> list[di
             "workspace.artifact.save",
         ])
 
+    if signals.get("mentions_sub_agent"):
+        add("派生子代理并行处理复杂任务", [
+            "agent.spawn",
+            "agent.role.list",
+            "agent.result.get",
+        ])
+
     if not steps:
         add("执行当前场景的首选工具", _sort_candidates(candidates)[:5])
-
-    # v3.1.1: Always include sub-agent coordination tools
-    add("需要时可派生子代理并行处理", [
-        "agent.spawn",
-        "agent.role.list",
-        "agent.result.get",
-    ])
 
     for index, step in enumerate(steps, start=1):
         step["step"] = index

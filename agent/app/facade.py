@@ -2,7 +2,9 @@
 """AgentApp — main entry point for the Codex-style runtime."""
 
 import logging
+import threading
 import time
+import uuid
 from agent.core.session import AgentSession
 from agent.core.thread import AgentThread
 from agent.protocol.op import AgentOp
@@ -51,9 +53,20 @@ class AgentApp:
             services = default_runtime_services()
         self.services = services
         self._sessions: dict = {}
+        # Protects the session map, session creation, TTL eviction, and
+        # per-session lock map. The turn itself is executed outside this
+        # lock, guarded by the individual session lock below.
+        self._sessions_lock = threading.RLock()
+        self._session_turn_locks: dict[str, threading.RLock] = {}
 
-    def _evict_expired(self):
-        """Remove sessions that exceed TTL or max count."""
+    def _new_session_id(self) -> str:
+        return f"session_{uuid.uuid4().hex[:12]}"
+
+    def _evict_expired_locked(self):
+        """Remove sessions that exceed TTL or max count.
+
+        Caller must hold self._sessions_lock.
+        """
         now = time.time()
         # Evict by TTL
         expired = [
@@ -62,6 +75,7 @@ class AgentApp:
         ]
         for sid in expired:
             del self._sessions[sid]
+            self._session_turn_locks.pop(sid, None)
 
         # Evict oldest if still over max
         if len(self._sessions) > _MAX_SESSIONS:
@@ -72,6 +86,28 @@ class AgentApp:
             overflow = len(self._sessions) - _MAX_SESSIONS
             for sid in sorted_sids[:overflow]:
                 del self._sessions[sid]
+                self._session_turn_locks.pop(sid, None)
+
+    def _get_or_create_session_locked(self, sid: str, workspace_id: str):
+        """Return (session, turn_lock), creating both atomically.
+
+        Caller must hold self._sessions_lock.
+        """
+        if sid not in self._sessions:
+            session = AgentSession(session_id=sid, workspace_id=workspace_id, services=self.services)
+            self._sessions[sid] = session
+            self._session_turn_locks[sid] = threading.RLock()
+            # v2.4: restore session history from disk to avoid blank history
+            # after process restart or TTL expiry. This runs before the
+            # session is released to a turn, so no request can observe a
+            # half-restored history window.
+            _restore_session_history(session, sid, workspace_id)
+        else:
+            session = self._sessions[sid]
+            self._session_turn_locks.setdefault(sid, threading.RLock())
+
+        session._last_access = time.time()
+        return session, self._session_turn_locks[sid]
 
     def submit_user_message(
         self,
@@ -80,26 +116,30 @@ class AgentApp:
         workspace_id: str = "default",
         metadata: dict = None,
     ) -> "AgentResult":
-        """Submit a user message and return AgentResult."""
-        self._evict_expired()
+        """Submit a user message and return AgentResult.
 
-        # Create or retrieve session
-        sid = session_id or f"session_{len(self._sessions)}"
-        if sid not in self._sessions:
-            session = AgentSession(session_id=sid, workspace_id=workspace_id, services=self.services)
-            self._sessions[sid] = session
-            # v2.4: restore session history from disk to avoid blank history
-            # after process restart or TTL expiry
-            _restore_session_history(session, sid, workspace_id)
-        else:
-            session = self._sessions[sid]
+        Runtime hardening:
+        - session map access is serialized to avoid concurrent creation races;
+        - implicit sessions use UUIDs instead of len(self._sessions);
+        - turns for the same session are serialized to prevent history,
+          context, tool-result, and trace cross-talk.
+        """
+        with self._sessions_lock:
+            self._evict_expired_locked()
+            sid = session_id or self._new_session_id()
+            session, turn_lock = self._get_or_create_session_locked(sid, workspace_id)
 
-        # Track last access time for eviction
-        session._last_access = time.time()
+        # The expensive turn execution happens outside the global session-map
+        # lock, but inside this session's turn lock. Different sessions can run
+        # concurrently; the same session cannot interleave turns.
+        with turn_lock:
+            if metadata is None:
+                metadata = {}
+            elif not isinstance(metadata, dict):
+                metadata = {}
+            metadata = dict(metadata)
+            metadata.setdefault("turn_serialization", "per_session")
 
-        # Create op and thread
-        op = AgentOp.user_message(user_input=user_input, session_id=sid, workspace_id=workspace_id, metadata=metadata)
-        thread = AgentThread(session=session)
-
-        # Submit and return result
-        return thread.submit(op)
+            op = AgentOp.user_message(user_input=user_input, session_id=sid, workspace_id=workspace_id, metadata=metadata)
+            thread = AgentThread(session=session)
+            return thread.submit(op)
