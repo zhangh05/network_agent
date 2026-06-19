@@ -1,12 +1,84 @@
 # agent/runtime/tool_planning/chain_builder.py
 """Chain builder — builds tool_chain from SceneDecision signals.
 
-Extracted from tool_category_router.py::_build_tool_chain.
+Also contains deterministic chain helpers migrated from tool_planner.py:
+- _SIGNAL_DISPATCH table
+- tool_chain_from_plan
+- categories_groups_from_tools
 """
 
 from __future__ import annotations
 
+from functools import lru_cache
 from typing import Any
+
+from tool_runtime.tool_namespace import get_namespace_entry
+
+
+@lru_cache(maxsize=128)
+def _cached_namespace_entry(tool_id: str):
+    try:
+        return get_namespace_entry(tool_id)
+    except Exception:
+        return None
+
+
+# ─── Signal dispatch table ─────────────────────────────────────────────
+
+# Map signal keywords to (capability_action_id, goal_template)
+SIGNAL_DISPATCH = [
+    (("has_uploaded_files", "mentions_file"), "workspace.file.read", "读取上传或 workspace 中的文本文件"),
+    (("has_uploaded_files", "mentions_image"), "workspace.file.read_image", "读取上传图片的尺寸/格式元数据"),
+    (("mentions_web",), "web.official_docs.search", "检索官方文档或外部资料"),
+    (("mentions_weather",), "web.weather.read", "查询天气信息"),
+    (("mentions_knowledge",), "knowledge.search_and_answer", "检索知识库并基于安全摘录回答"),
+    (("mentions_config_translate",), "network.config.translate", "离线翻译网络配置"),
+    (("mentions_packet",), "network.pcap.analyze", "离线分析 PCAP 报文、连接和 TCP 序列"),
+    (("mentions_network_config",), "network.config.analyze", "离线分析网络配置"),
+    (("mentions_report",), "report.create_and_save", "生成报告并保存制品"),
+    (("mentions_host",), "host.environment.inspect", "查询或操作当前本机环境"),
+    (("mentions_runtime",), "runtime.audit.inspect", "查看运行、trace、session 或审计信息"),
+    (("mentions_memory",), "memory.profile.manage", "搜索或维护记忆/profile"),
+    (("mentions_sub_agent",), "agent.team.coordinate", "派生子代理并行处理复杂任务"),
+]
+
+
+# ─── Deterministic chain helpers ───────────────────────────────────────
+
+
+def tool_chain_from_plan(steps: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    return [
+        {
+            "step": step.get("step"),
+            "purpose": step.get("goal", ""),
+            "preferred_tools": list(step.get("tool_candidates") or []),
+        }
+        for step in steps
+    ]
+
+
+def categories_groups_from_tools(
+    candidate_tools: list[str], rule_scene: dict,
+) -> tuple[list[str], dict[str, list[str]]]:
+    """Build categories and groups from candidate tools using cached lookups."""
+    categories: list[str] = []
+    groups: dict[str, list[str]] = {}
+    for tool_id in candidate_tools:
+        entry = _cached_namespace_entry(tool_id)
+        if entry is None:
+            continue
+        if entry.category not in categories:
+            categories.append(entry.category)
+        groups.setdefault(entry.category, [])
+        if entry.group not in groups[entry.category]:
+            groups[entry.category].append(entry.group)
+    for category in rule_scene.get("categories") or []:
+        if category in groups and category not in categories:
+            categories.append(category)
+    return categories, groups
+
+
+# ─── Signal-based chain builder ────────────────────────────────────────
 
 
 def build_tool_chain(signals: dict[str, bool], candidates: set[str]) -> list[dict[str, Any]]:

@@ -5,7 +5,7 @@ from __future__ import annotations
 
 def _plan(user_input: str, *, safe_context: dict | None = None) -> dict:
     from agent.runtime.tool_category_router import route_tool_scene
-    from agent.runtime.tool_planner import plan_tools
+    from agent.runtime.tool_planning.planner import plan_tools
     from tool_runtime.tool_namespace import TOOL_NAMESPACE
 
     rule_scene = route_tool_scene(user_input)

@@ -79,7 +79,7 @@ def test_provider_parses_function_call_shape():
 
 
 def test_uploaded_file_without_reference_needs_clarification():
-    from agent.runtime.tool_planner import _needs_file_clarification
+    from agent.runtime.tool_planning.planner import _needs_file_clarification
 
     assert _needs_file_clarification(
         "帮我分析上传的华三配置，并整理成报告保存",

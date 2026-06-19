@@ -163,25 +163,20 @@ class EvidencePipeline:
             ctx.metadata.setdefault("context_warnings", []).extend(scan_result["warnings"])
 
     def _apply_budget(self, evidence: EvidenceBundle, ctx, bundle) -> None:
-        """Apply budget compaction via ContextBudgetManager."""
+        """Apply budget compaction via ContextBudgetManager at EvidenceItem level."""
         from agent.runtime.cognition.context_budget import ContextBudgetManager
 
-        safe_dict = evidence.to_safe_context()
-        safe_dict["workspace_id"] = ctx.workspace_id
-        safe_dict["session_id"] = ctx.session_id
         mgr = ContextBudgetManager()
-        compacted = mgr.apply(safe_dict, ctx, bundle)
-
-        # Update evidence from compacted output (budget may have removed items)
+        mgr.apply(evidence, ctx, bundle)
         evidence.budget_report = mgr.last_report
 
-        # Surface hit counts (same as context_safe._surface_hit_counts)
-        mh = compacted.get("memory_hits")
-        kh = compacted.get("knowledge_hits")
-        if isinstance(mh, list):
-            ctx.metadata["memory_hits_count"] = len(mh)
-        if isinstance(kh, list):
-            ctx.metadata["knowledge_hits_count"] = len(kh)
+        # Surface hit counts (non-blocked items only, matching legacy behavior)
+        ctx.metadata["memory_hits_count"] = len([
+            i for i in evidence.memory_items if i.scan_status != "blocked"
+        ])
+        ctx.metadata["knowledge_hits_count"] = len([
+            i for i in evidence.knowledge_items if i.scan_status != "blocked"
+        ])
 
 
 def _hit_to_evidence(hit: Any, source_type: str, scan_status: str = "safe") -> EvidenceItem:

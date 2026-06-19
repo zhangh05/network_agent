@@ -375,6 +375,13 @@ class TestToolPlannerV2Independence:
         assert "deterministic_plan_tools" in source
         assert "from agent.runtime.tool_planner import plan_tools" not in source
 
+    def test_no_old_tool_planner_reference(self):
+        """ToolPlannerV2 source must not reference agent.runtime.tool_planner module."""
+        import inspect
+        from agent.runtime.tool_planning import planner
+        source = inspect.getsource(planner)
+        assert "agent.runtime.tool_planner" not in source
+
     def test_no_empty_safe_context(self):
         """ToolPlannerV2 must not pass safe_context={}."""
         import inspect
@@ -501,4 +508,62 @@ class TestArtifactEvidenceEnablesFileTools:
         safe = bundle.to_safe_context()
         assert "workspace_state" in safe
         assert safe["workspace_state"]["workspace_id"] == "ws1"
+
+
+# ── N. Refactor architecture assertions ───────────────────────────────
+
+class TestRefactorArchitecture:
+    def test_context_budget_no_context_compaction(self):
+        """context_budget.py must not reference context_compaction."""
+        import inspect
+        from agent.runtime.cognition import context_budget
+        source = inspect.getsource(context_budget)
+        assert "context_compaction" not in source
+        assert "auto_compact_context" not in source
+
+    def test_tool_planner_no_plan_tools(self):
+        """tool_planner.py must not define plan_tools or deterministic_plan_tools."""
+        import agent.runtime.tool_planner as mod
+        assert not hasattr(mod, "plan_tools")
+        assert not hasattr(mod, "deterministic_plan_tools")
+
+    def test_tool_planner_no_helper_functions(self):
+        """tool_planner.py must not have migrated helper functions."""
+        import agent.runtime.tool_planner as mod
+        for name in ("_governance_filtered_tools", "_available_canonical_tools",
+                      "_capability_steps_from_rule_scene", "_step_required",
+                      "_needs_file_clarification", "_finalize_plan", "_ordered_unique",
+                      "_action_class_filter", "_tool_chain_from_plan",
+                      "_categories_groups_from_tools", "_SIGNAL_DISPATCH",
+                      "PLANNER_VERSION", "MAX_CANDIDATE_TOOLS"):
+            assert not hasattr(mod, name), f"tool_planner.py still exports {name}"
+
+    def test_tool_planning_no_old_tool_planner_import(self):
+        """No module under tool_planning/ should import from agent.runtime.tool_planner."""
+        import inspect
+        from agent.runtime.tool_planning import planner, chain_builder, visibility, validation
+        for mod in (planner, chain_builder, visibility, validation):
+            source = inspect.getsource(mod)
+            assert "agent.runtime.tool_planner" not in source, \
+                f"{mod.__name__} still references agent.runtime.tool_planner"
+
+    def test_cognition_no_context_compaction_import(self):
+        """No module under cognition/ should import from context_compaction."""
+        import inspect
+        from agent.runtime.cognition import context_budget, evidence_pipeline
+        for mod in (context_budget, evidence_pipeline):
+            source = inspect.getsource(mod)
+            assert "context_compaction" not in source, \
+                f"{mod.__name__} still references context_compaction"
+
+    def test_plan_tools_available_from_new_location(self):
+        """plan_tools and deterministic_plan_tools importable from tool_planning.planner."""
+        from agent.runtime.tool_planning.planner import plan_tools, deterministic_plan_tools
+        assert callable(plan_tools)
+        assert callable(deterministic_plan_tools)
+
+    def test_needs_file_clarification_available_from_new_location(self):
+        """_needs_file_clarification importable from tool_planning.planner."""
+        from agent.runtime.tool_planning.planner import _needs_file_clarification
+        assert callable(_needs_file_clarification)
 

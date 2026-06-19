@@ -14,7 +14,7 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 import pytest
 from agent.runtime.tool_category_router import route_tool_scene
-from agent.runtime.tool_planner import deterministic_plan_tools
+from agent.runtime.tool_planning.planner import deterministic_plan_tools
 from tool_runtime.tool_namespace import TOOL_NAMESPACE
 
 _LOCAL_EXEC_TOOLS = {"host.shell.exec", "host.powershell.exec", "host.python.exec"}
