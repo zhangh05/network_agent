@@ -3,46 +3,66 @@
 
 from __future__ import annotations
 
-from typing import Any, Optional
+from typing import Any
+
+
+def _ok(tool_id: str, **kwargs) -> dict[str, Any]:
+    kwargs.setdefault("ok", True)
+    kwargs.setdefault("status", "succeeded")
+    kwargs.setdefault("tool_id", tool_id)
+    kwargs.setdefault("summary", f"{tool_id} succeeded")
+    return kwargs
+
+
+def _fail(tool_id: str, error: str, **kwargs) -> dict[str, Any]:
+    kwargs["ok"] = False
+    kwargs.setdefault("status", "failed")
+    kwargs.setdefault("tool_id", tool_id)
+    kwargs["error"] = error
+    kwargs.setdefault("summary", error)
+    return kwargs
 
 
 def handle_file_get(inv, *, file_id: str = "", limit: int = 2000) -> dict[str, Any]:
     """Read text content of a managed file by file_id."""
     from storage.file_store import get_file_record, read_file_content
 
-    rec = get_file_record(inv.workspace_id or "default", file_id)
+    ws = getattr(inv, "workspace_id", None) or "default"
+    rec = get_file_record(ws, file_id)
     if not rec:
-        return {"ok": False, "status": "failed", "tool_id": "file.get", "error": "file_not_found", "file_id": file_id}
+        return _fail("file.get", "file_not_found", file_id=file_id)
+
     if rec.get("binary"):
-        return {
-            "ok": True, "tool_id": "file.get", "status": "succeeded", "file_id": file_id,
-            "file_kind": rec.get("file_kind"), "size_bytes": rec.get("size_bytes"),
-            "sha256": rec.get("sha256"), "path": rec.get("path"),
-        }
+        return _ok("file.get", file_kind=rec.get("file_kind"), size_bytes=rec.get("size_bytes"),
+                   sha256=rec.get("sha256"), path=rec.get("path"),
+                   summary="binary file — metadata only")
+
     try:
-        content = read_file_content(inv.workspace_id or "default", file_id)
-        return {"ok": True, "tool_id": "file.get", "status": "succeeded", "file_id": file_id, "content": content[:limit],
-                "size_bytes": rec.get("size_bytes"), "truncated": len(content) > limit}
+        content = read_file_content(ws, file_id)
+        return _ok("file.get", content=content[:limit],
+                   size_bytes=rec.get("size_bytes"),
+                   truncated=len(content) > limit, file_id=file_id)
     except Exception as exc:
-        return {"ok": False, "status": "failed", "tool_id": "file.get", "error": str(exc)[:200], "file_id": file_id}
+        return _fail("file.get", str(exc)[:200], file_id=file_id)
 
 
 def handle_file_preview(inv, *, file_id: str = "", limit: int = 500) -> dict[str, Any]:
     """Preview a managed file's metadata and text preview."""
     from storage.file_store import get_file_record, read_file_content
 
-    rec = get_file_record(inv.workspace_id or "default", file_id)
+    ws = getattr(inv, "workspace_id", None) or "default"
+    rec = get_file_record(ws, file_id)
     if not rec:
-        return {"ok": False, "status": "failed", "tool_id": "file.get", "error": "file_not_found", "file_id": file_id}
-    result: dict[str, Any] = {
-        "ok": True, "tool_id": "file.get", "status": "succeeded", "file_id": file_id,
-        "file_kind": rec.get("file_kind"), "binary": rec.get("binary"),
-        "size_bytes": rec.get("size_bytes"), "sha256": rec.get("sha256"),
-        "path": rec.get("path"), "logical_type": rec.get("logical_type"),
-    }
+        return _fail("file.preview", "file_not_found", file_id=file_id)
+
+    result = _ok("file.preview", file_kind=rec.get("file_kind"), binary=rec.get("binary"),
+                 size_bytes=rec.get("size_bytes"), sha256=rec.get("sha256"),
+                 path=rec.get("path"), logical_type=rec.get("logical_type"),
+                 file_id=file_id)
+
     if not rec.get("binary"):
         try:
-            content = read_file_content(inv.workspace_id or "default", file_id)
+            content = read_file_content(ws, file_id)
             result["preview"] = content[:limit]
             result["truncated"] = len(content) > limit
         except Exception:
@@ -54,8 +74,9 @@ def handle_file_references(inv, *, file_id: str = "") -> dict[str, Any]:
     """Query ReferenceIndex for a file."""
     from storage.reference_index import list_references_for_file
 
-    refs = list_references_for_file(inv.workspace_id or "default", file_id)
-    return {"ok": True, "tool_id": "file.get", "status": "succeeded", "file_id": file_id, "references": refs, "count": len(refs)}
+    ws = getattr(inv, "workspace_id", None) or "default"
+    refs = list_references_for_file(ws, file_id)
+    return _ok("file.references", references=refs, count=len(refs), file_id=file_id)
 
 
 def handle_file_write_agent_output(
@@ -65,14 +86,18 @@ def handle_file_write_agent_output(
     """Write content through FileStore.write_agent_output."""
     from storage.file_store import write_agent_output
 
+    if not content:
+        return _fail("file.write_agent_output", "content_required")
+
+    ws = getattr(inv, "workspace_id", None) or "default"
+    run_id = getattr(inv, "run_id", "")
     rec = write_agent_output(
-        workspace_id=inv.workspace_id or "default",
-        content=content, logical_type=logical_type, file_kind=file_kind,
-        title=title or "agent_output", ext=ext,
-        source="tool_runtime", run_id=getattr(inv, "run_id", ""),
+        workspace_id=ws, content=content, logical_type=logical_type,
+        file_kind=file_kind, title=title or "agent_output", ext=ext,
+        source="tool_runtime", run_id=run_id,
     )
-    return {"ok": True, "tool_id": "file.get", "status": "succeeded", "file_id": rec.file_id, "path": rec.path,
-            "size_bytes": rec.size_bytes, "sha256": rec.sha256}
+    return _ok("file.write_agent_output", file_id=rec.file_id, path=rec.path,
+               size_bytes=rec.size_bytes, sha256=rec.sha256)
 
 
 def handle_file_import_workspace_path(inv, *, filepath: str = "") -> dict[str, Any]:
@@ -81,24 +106,27 @@ def handle_file_import_workspace_path(inv, *, filepath: str = "") -> dict[str, A
     from storage.file_store import import_user_upload
     from storage.paths import workspace_root
 
-    ws = workspace_root(inv.workspace_id or "default")
-    target = (ws / filepath).resolve()
+    if not filepath:
+        return _fail("file.import_workspace_path", "filepath_required")
+
+    ws = getattr(inv, "workspace_id", None) or "default"
+    root = workspace_root(ws)
+    target = (root / filepath).resolve()
     try:
-        target.relative_to(ws)
+        target.relative_to(root)
     except ValueError:
-        return {"ok": False, "status": "failed", "tool_id": "file.get", "error": "path_not_in_workspace", "filepath": filepath}
+        return _fail("file.import_workspace_path", "path_not_in_workspace", filepath=filepath)
 
     allowed = {"files/user_upload", "files/agent_output", "files/knowledge", "inbox"}
-    if not any(str(target.relative_to(ws)).startswith(a) for a in allowed):
-        return {"ok": False, "status": "failed", "tool_id": "file.get", "error": "filepath not in allowed current dirs", "filepath": filepath}
+    if not any(str(target.relative_to(root)).startswith(a) for a in allowed):
+        return _fail("file.import_workspace_path", "path_not_allowed", filepath=filepath)
 
     if not target.exists():
-        return {"ok": False, "status": "failed", "tool_id": "file.get", "error": "file_not_found", "filepath": filepath}
+        return _fail("file.import_workspace_path", "file_not_found", filepath=filepath)
 
     rec = import_user_upload(
-        workspace_id=inv.workspace_id or "default",
-        file_source=str(target), original_name=target.name,
+        workspace_id=ws, file_source=str(target), original_name=target.name,
         source="file_import_workspace_path",
     )
-    return {"ok": True, "tool_id": "file.get", "status": "succeeded", "file_id": rec.file_id, "path": rec.path,
-            "size_bytes": rec.size_bytes, "sha256": rec.sha256}
+    return _ok("file.import_workspace_path", file_id=rec.file_id, path=rec.path,
+               size_bytes=rec.size_bytes, sha256=rec.sha256)
