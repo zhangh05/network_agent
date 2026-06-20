@@ -2,10 +2,10 @@
 """Safe legacy data migration into FileStore.
 
 Supports:
-- files/upload/* → import_user_upload
-- files/agent/<content> → write_agent_output/import_user_upload
-- files/agent/<id>.meta.json → index/artifacts.jsonl backfill
-- <pcap>.meta.json sidecar → pcap_session/pcap_connections artifacts
+- files/upload/* -> import_user_upload
+- files/agent/<content> -> write_agent_output/import_user_upload
+- files/agent/<id>.meta.json -> index/artifacts.jsonl backfill
+- <pcap>.meta.json sidecar -> pcap_session/pcap_connections artifacts
 
 All operations are read-only in dry_run mode.
 Apply mode creates FileRecord/ArtifactRecord/ReferenceIndex.
@@ -20,11 +20,6 @@ from pathlib import Path
 from typing import Any
 
 from storage.paths import workspace_root, get_workspace_root
-from storage.schemas import FileRecord, FileReference
-
-
-def _safe_name_for_kind(name: str) -> str:
-    return re.sub(r"[^a-zA-Z0-9_.-]", "_", name or "unnamed")[:80]
 
 
 def _guess_kind(filename: str) -> tuple:
@@ -52,7 +47,62 @@ def _guess_kind(filename: str) -> tuple:
     return "text", False
 
 
-# ── Scan ─────────────────────────────────────────────────────────────
+def _append_artifact_record(workspace_id: str, data: dict) -> None:
+    """Upsert migrated artifact metadata into index/artifacts.jsonl."""
+    idx_path = workspace_root(workspace_id) / "index" / "artifacts.jsonl"
+    idx_path.parent.mkdir(parents=True, exist_ok=True)
+    artifact_id = data.get("artifact_id", "")
+    records: list[dict] = []
+    if idx_path.exists():
+        for line in idx_path.read_text(encoding="utf-8").splitlines():
+            if not line.strip():
+                continue
+            try:
+                rec = json.loads(line)
+            except json.JSONDecodeError:
+                continue
+            if artifact_id and rec.get("artifact_id") == artifact_id:
+                continue
+            records.append(rec)
+    records.append(data)
+    idx_path.write_text(
+        "\n".join(json.dumps(r, ensure_ascii=False, default=str) for r in records) + "\n",
+        encoding="utf-8",
+    )
+
+    if artifact_id:
+        try:
+            from artifacts.store import _load_index, _save_index
+            idx = _load_index(workspace_id)
+            if artifact_id not in idx.artifact_ids:
+                idx.artifact_ids.append(artifact_id)
+            _save_index(idx)
+        except Exception:
+            pass
+
+
+def _find_migrated_file_id_for_artifact_meta(
+    data: dict,
+    legacy_content_file_ids: dict[str, str],
+) -> str:
+    """Resolve migrated FileStore file_id for a legacy artifact meta record."""
+    candidates = []
+    for value in (data.get("relative_path"), data.get("path")):
+        if not value:
+            continue
+        value = str(value).replace("\\", "/")
+        candidates.append(value)
+        if "files/agent/" in value:
+            candidates.append(value.split("files/agent/", 1)[1])
+        if not value.startswith("files/agent/"):
+            candidates.append(f"files/agent/{Path(value).name}")
+    for candidate in candidates:
+        if candidate in legacy_content_file_ids:
+            return legacy_content_file_ids[candidate]
+    return ""
+
+
+# Scan
 
 def scan_workspace_legacy_paths(workspace_id: str) -> dict[str, Any]:
     """Return legacy files found in workspace without modifying anything."""
@@ -63,7 +113,6 @@ def scan_workspace_legacy_paths(workspace_id: str) -> dict[str, Any]:
     legacy_artifact_meta = []
     legacy_pcap_sidecar = []
 
-    # files/upload/*
     upload_dir = ws / "files" / "upload"
     if upload_dir.is_dir():
         for f in upload_dir.iterdir():
@@ -75,7 +124,6 @@ def scan_workspace_legacy_paths(workspace_id: str) -> dict[str, Any]:
                     "size": f.stat().st_size,
                 })
 
-    # files/agent/*
     agent_dir = ws / "files" / "agent"
     if agent_dir.is_dir():
         for f in agent_dir.iterdir():
@@ -87,23 +135,22 @@ def scan_workspace_legacy_paths(workspace_id: str) -> dict[str, Any]:
                     "path": rel, "abs_path": str(f), "name": f.name,
                 })
             elif f.name in ("artifacts_index.json", "run_artifacts.json") or f.name.endswith(".index.json"):
-                continue  # skip index files
+                continue
             else:
                 legacy_agent_content.append({
                     "path": rel, "abs_path": str(f), "name": f.name,
                     "size": f.stat().st_size,
                 })
 
-    # PCAP sidecar *.meta.json (at any level in workspace)
     for mf in ws.rglob("*.meta.json"):
-        if "files/agent/" in str(mf) or "files/upload" in str(mf.parent):
-            continue  # already covered by artifact meta scan
-        if mf.parent != ws / "files" / "agent":
-            legacy_pcap_sidecar.append({
-                "path": str(mf.relative_to(ws)),
-                "abs_path": str(mf),
-                "name": mf.name,
-            })
+        mf_s = str(mf).replace("\\", "/")
+        if "/files/agent/" in mf_s or "/files/upload" in mf_s:
+            continue
+        legacy_pcap_sidecar.append({
+            "path": str(mf.relative_to(ws)),
+            "abs_path": str(mf),
+            "name": mf.name,
+        })
 
     return {
         "workspace_id": workspace_id,
@@ -115,7 +162,7 @@ def scan_workspace_legacy_paths(workspace_id: str) -> dict[str, Any]:
     }
 
 
-# ── Migrate ───────────────────────────────────────────────────────────
+# Migrate
 
 def _already_indexed(workspace_id: str, rel_path: str) -> bool:
     """Check if a file at rel_path already has a FileRecord."""
@@ -140,8 +187,8 @@ def migrate_workspace_legacy_paths(
     migrated: list[dict] = []
     skipped: list[dict] = []
     errors: list[dict] = []
+    legacy_content_file_ids: dict[str, str] = {}
 
-    # ── upload files ──
     for uf in scan["legacy_upload_files"]:
         if _already_indexed(workspace_id, uf["path"]):
             skipped.append(uf)
@@ -176,9 +223,8 @@ def migrate_workspace_legacy_paths(
                 )
                 migrated.append({**action, "file_id": rec.file_id})
             except Exception as exc:
-                    errors.append({**action, "error": str(exc)[:200]})
+                errors.append({**action, "error": str(exc)[:200]})
 
-        # ── agent content files ──
     for af in scan["legacy_agent_content_files"]:
         if _already_indexed(workspace_id, af["path"]):
             skipped.append(af)
@@ -230,10 +276,11 @@ def migrate_workspace_legacy_paths(
                         },
                     )
                 migrated.append({**action, "file_id": rec.file_id})
+                legacy_content_file_ids[af["path"]] = rec.file_id
+                legacy_content_file_ids[af["name"]] = rec.file_id
             except Exception as exc:
                 errors.append({**action, "error": str(exc)[:200]})
 
-        # ── artifact meta → index/artifacts.jsonl ──
     for am in scan["legacy_artifact_meta_files"]:
         action = {
             "type": "migrate_artifact_meta",
@@ -245,17 +292,27 @@ def migrate_workspace_legacy_paths(
             try:
                 meta_path = Path(am["abs_path"])
                 data = json.loads(meta_path.read_text())
-                idx_path = workspace_root(workspace_id) / "index" / "artifacts.jsonl"
-                idx_path.parent.mkdir(parents=True, exist_ok=True)
                 data["_migrated_from"] = am["path"]
                 data["_legacy_migration"] = True
-                with open(idx_path, "a", encoding="utf-8") as f:
-                    f.write(json.dumps(data, ensure_ascii=False, default=str) + "\n")
-                migrated.append({**action, "artifact_id": data.get("artifact_id", "")})
+                file_id = data.get("file_id") or _find_migrated_file_id_for_artifact_meta(
+                    data, legacy_content_file_ids
+                )
+                if file_id:
+                    data["file_id"] = file_id
+                    metadata = data.get("metadata") or {}
+                    if isinstance(metadata, dict):
+                        metadata["file_id"] = file_id
+                        metadata["storage_managed"] = True
+                        data["metadata"] = metadata
+                _append_artifact_record(workspace_id, data)
+                migrated.append({
+                    **action,
+                    "artifact_id": data.get("artifact_id", ""),
+                    "file_id": data.get("file_id", ""),
+                })
             except Exception as exc:
                 errors.append({**action, "error": str(exc)[:200]})
 
-        # ── PCAP sidecar → artifacts ──
     for ps in scan["legacy_pcap_sidecar_files"]:
         action = {
             "type": "migrate_pcap_sidecar",
@@ -284,7 +341,7 @@ def migrate_workspace_legacy_paths(
                     },
                 )
                 if meta.get("connections"):
-                    conn_art = save_artifact(
+                    save_artifact(
                         workspace_id=workspace_id,
                         content=json.dumps(meta["connections"], ensure_ascii=False, indent=2),
                         artifact_type="pcap_connections",
@@ -297,7 +354,6 @@ def migrate_workspace_legacy_paths(
                         },
                     )
 
-                # ReferenceIndex: link pcap file if available
                 if meta.get("filepath"):
                     pcap_path = meta["filepath"]
                     try:
@@ -313,7 +369,7 @@ def migrate_workspace_legacy_paths(
                     "session_artifact_id": session_art.artifact_id if session_art else "",
                 })
             except Exception as exc:
-                    errors.append({**action, "error": str(exc)[:200]})
+                errors.append({**action, "error": str(exc)[:200]})
 
     return {
         "workspace_id": workspace_id,
