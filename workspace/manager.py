@@ -26,8 +26,6 @@ def ensure_workspace(ws_id: str = "default") -> str:
     for d in [
         "runs",
         "sessions",
-        "files/upload",
-        "files/agent",
         "sys",
     ]:
         (ws / d).mkdir(parents=True, exist_ok=True)

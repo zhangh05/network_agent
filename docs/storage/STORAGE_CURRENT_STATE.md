@@ -1,64 +1,54 @@
-# Storage Current State
+# Storage Final State
 
 ## Overview
 
-The `storage/` package provides a unified file management layer for the workspace.
+The `storage/` package provides the unified file management layer. All legacy compatibility code has been removed.
 
-## Components (v1)
+## Completed Migration
+
+| Module | Status |
+|--------|--------|
+| `workspace/manager.py` | ✅ Calls `ensure_workspace_storage_dirs` |
+| `artifacts/store.py` | ✅ Writes through `FileStore.write_agent_output`; requires `file_id` for reads |
+| `artifacts/schemas.py` | ✅ `ArtifactRecord.file_id` |
+| `backend/api/artifact_routes.py` | ✅ Upload preserves originals via `import_user_upload` |
+| `workspace/message_store.py` | ✅ Large content via managed artifacts |
+| `agent/modules/pcap/service.py` | ✅ `file_id` parse; result artifacts; no sidecar |
+| `agent/modules/knowledge/ingestion.py` | ✅ `file_id` import; normalized FileRecord |
+| `config_analysis/service.py` | ✅ `file_id` parameter |
+| `storage/reference_index.py` | ✅ Cross-reference index |
+| `storage/legacy_migration.py` | ✅ Legacy data migration tool |
+
+## FileStore Components
 
 | File | Purpose |
 |------|---------|
 | `storage/paths.py` | Unified workspace root resolution |
 | `storage/schemas.py` | FileRecord and FileReference data models |
-| `storage/file_store.py` | File write/read/index operations |
-| `storage/reference_index.py` | Cross-reference index (file ↔ entity) |
-| `storage/policy.py` | Size limits, kind classification, retention |
+| `storage/file_store.py` | Managed file write/read/index/delete |
+| `storage/reference_index.py` | Cross-reference index |
+| `storage/policy.py` | Size limits, kind classification |
 | `storage/gc.py` | Dry-run garbage collection |
-
-## FileRecord Fields (v1)
-
-- `file_id` — unique ID (`file_<uuid16>`)
-- `workspace_id` — workspace scope
-- `logical_type` — user_upload, artifact_output, pcap_result, report, etc.
-- `file_kind` — text, binary, pcap, json, markdown, etc.
-- `path` — workspace-relative path
-- `original_name`, `mime_type`, `binary`, `size_bytes`, `sha256`
-- `created_at`, `created_by`, `session_id`, `run_id`, `source`
-- `sensitivity`, `lifecycle`, `retention_policy`, `metadata`
-
-## Integration Status
-
-| Module | Status |
-|--------|--------|
-| `workspace/manager.py` | ✅ Calls `ensure_workspace_storage_dirs` |
-| `artifacts/store.py` | ✅ Writes through `FileStore.write_agent_output`; sets `file_id`; ReferenceIndex |
-| `artifacts/schemas.py` | ✅ Added `file_id` field to `ArtifactRecord` |
-| `config_analysis/service.py` | ✅ Supports `file_id` parameter |
-| `workspace/message_store.py` | ✅ Large content routes through `save_artifact` + FileStore |
-| `agent/modules/pcap/service.py` | ✅ Supports `file_id`; result artifacts; no new sidecar writes |
-| `agent/modules/knowledge/ingestion.py` | ✅ import supports `file_id`; normalized markdown stored as FileRecord |
-| `backend/api/artifact_routes.py` | ✅ Upload preserves originals via `import_user_upload` |
+| `storage/legacy_migration.py` | Historical data migration |
 
 ## Directory Structure
 
 ```
 workspaces/<ws>/
   files/
-    user_upload/original/     # uploaded originals (preserved)
-    user_upload/staged/       # pre-processing staging
-    agent_output/config/      # translated/analyzed configs
-    agent_output/pcap/        # PCAP analysis results
-    agent_output/report/      # generated reports
-    agent_output/export/      # general exports
-    agent_output/message/     # large message content
-    knowledge/source/         # knowledge import originals
+    user_upload/original/     # uploaded originals
+    agent_output/config/      # config analysis
+    agent_output/pcap/        # PCAP results
+    agent_output/report/      # reports
+    agent_output/export/      # exports
+    agent_output/message/     # large messages
+    knowledge/source/         # knowledge imports
     knowledge/normalized/     # normalized markdown
-    tmp/                      # atomic write staging
-    upload/                   # [legacy compat]
-    agent/                    # [legacy compat]
+    tmp/                      # atomic writes
   index/
-    files.jsonl               # file record index
-    references.jsonl          # cross-reference index
+    files.jsonl               # file records
+    references.jsonl          # cross-references
+    artifacts.jsonl           # artifact records
   inbox/
   context/
   sessions/
@@ -66,10 +56,26 @@ workspaces/<ws>/
   sys/
 ```
 
+## Removed Legacy Paths
+
+- `files/upload` — removed from new workspace init and runtime
+- `files/agent` — removed from new workspace init and runtime
+- `tracking_only` / `legacy_artifact_store` — removed from runtime
+- PCAP sidecar read/write — removed from runtime
+- Artifact legacy path fallback — removed from read operations
+
+## Migration Tool
+
+For historical workspaces with legacy data:
+
+```bash
+python scripts/storage_legacy_migrate.py --all --dry-run
+python scripts/storage_legacy_migrate.py --all --apply
+python scripts/storage_legacy_migrate.py --workspace default --dry-run
+python scripts/storage_legacy_migrate.py --workspace default --apply
+```
+
 ## Pending Work
 
-- Artifact upload consumers: follow-up UI/module flows should use returned file_id
-- Legacy path migration (files/upload → files/user_upload)
-- Historical workspace data migration
-- Full lifecycle / physical GC
-- Old storage cleanup final round
+- Physical GC / hard delete policy
+- Optional historical data archive/export

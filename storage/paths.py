@@ -39,9 +39,6 @@ def ensure_workspace_storage_dirs(workspace_id: str) -> None:
         "files/knowledge/source",
         "files/knowledge/normalized",
         "files/tmp",
-        # Legacy compat (not for new writes)
-        "files/upload",
-        "files/agent",
         # System dirs
         "index",
         "context",
