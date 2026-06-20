@@ -81,3 +81,19 @@ The final snapshot is written after finalization so artifact and task updates ar
 - Tool results are normalized and scanned before reuse.
 - Memory candidates are filtered before they can be accepted into a write plan.
 - StabilityGate verifies the presence of required runtime outputs.
+
+## Capability-first Execution Architecture
+
+The runtime now uses a capability-first execution model.
+
+Definitions:
+
+- Skill: a CapabilityPackage-derived user-facing business entry.
+- CapabilityPackage: internal business capability declaration.
+- Business Module: domain implementation service. Current modules are config_translation, config_analysis, and pcap_analysis.
+- Platform Service: infrastructure service such as workspace, knowledge, memory, artifact, runtime, report, and web.
+- Tool: callable adapter. LLM-visible business tools are directory-level tools such as config.analysis.run and pcap.analysis.run.
+
+Old fine-grained tools such as network.config.* and network.pcap.* are internal compatibility adapters and must not be selected directly.
+
+See [docs/CAPABILITY_FIRST_ARCHITECTURE.md](docs/CAPABILITY_FIRST_ARCHITECTURE.md).

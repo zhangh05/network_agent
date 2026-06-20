@@ -78,3 +78,19 @@ High-risk tools (`host.shell.exec`, `host.python.exec`) trigger approval gates.
 ## Sub-agents
 
 `agent.spawn` and `agent.team.run` support multi-agent collaboration. Primary mode is single agent.
+
+## Capability-first Execution Architecture
+
+The runtime now uses a capability-first execution model.
+
+Definitions:
+
+- Skill: a CapabilityPackage-derived user-facing business entry.
+- CapabilityPackage: internal business capability declaration.
+- Business Module: domain implementation service. Current modules are config_translation, config_analysis, and pcap_analysis.
+- Platform Service: infrastructure service such as workspace, knowledge, memory, artifact, runtime, report, and web.
+- Tool: callable adapter. LLM-visible business tools are directory-level tools such as config.analysis.run and pcap.analysis.run.
+
+Old fine-grained tools such as network.config.* and network.pcap.* are internal compatibility adapters and must not be selected directly.
+
+See [docs/CAPABILITY_FIRST_ARCHITECTURE.md](docs/CAPABILITY_FIRST_ARCHITECTURE.md).
