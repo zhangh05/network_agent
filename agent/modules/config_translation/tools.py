@@ -21,7 +21,7 @@ from agent.tools.schemas import ToolSpec
 
 
 TOOL_CONFIG_TRANSLATION = ToolSpec(
-    tool_id="network.config.translate",
+    tool_id="config.analysis.run",
     name="translate_config",
     category="config",
     description=(
@@ -68,7 +68,7 @@ TOOL_CONFIG_TRANSLATION = ToolSpec(
 
 
 def tool_handler(args: dict, context=None) -> dict:
-    """Handle network.config.translate tool invocations.
+    """Handle config.analysis.run tool invocations.
 
     v0.8.2: returns a dict that is structurally a ToolResult.
     """
@@ -125,7 +125,7 @@ def tool_handler(args: dict, context=None) -> dict:
 
     # 3. Project to ToolResult (runtime / LLM contract)
     tr = ToolResult.from_module_result(
-        tool_id="network.config.translate",
+        tool_id="config.analysis.run",
         call_id=call_id,
         module_result=mr,
     )

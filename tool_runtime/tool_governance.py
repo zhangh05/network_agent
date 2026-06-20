@@ -44,17 +44,7 @@ class ToolGovernanceEntry:
 # valid governance entry.
 # ----------------------------------------------------------------------
 
-_OVERRIDES: dict[str, tuple[str, str]] = {
-    # Old fine-grained tools replaced by directory-level entrypoints.
-    "network.config.parse": ("internal", "Use config.analysis.run with action=parse."),
-    "network.config.translate": ("internal", "Use config.analysis.run with action=translate."),
-    "network.interface.extract": ("internal", "Use config.analysis.run with action=extract_interfaces."),
-    "network.route.extract": ("internal", "Use config.analysis.run with action=extract_routes."),
-    "network.pcap.parse": ("internal", "Use pcap.analysis.run with action=parse."),
-    "network.pcap.session": ("internal", "Use pcap.analysis.run with action=session."),
-    "network.pcap.filter": ("internal", "Use pcap.analysis.run with action=filter."),
-    "network.pcap.align": ("internal", "Use pcap.analysis.run with action=align."),
-}
+_OVERRIDES: dict[str, tuple[str, str]] = {}
 
 
 def _build_governance() -> dict[str, ToolGovernanceEntry]:

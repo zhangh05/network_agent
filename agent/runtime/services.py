@@ -77,7 +77,7 @@ def _build_default_registry(capability_registry=None) -> "ToolRegistry":
 
     v2.3.3: All tool_ids are now canonical (non-canonical IDs are
     filtered out). Capability tools provide the actual handler implementations
-    for knowledge.search, workspace.artifact.*, review.*, network.config.translate.
+    for knowledge.search, workspace.artifact.*, review.*, config.analysis.run.
     """
     from agent.tools.registry import ToolRegistry
     reg = ToolRegistry()

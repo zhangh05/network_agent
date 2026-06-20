@@ -42,7 +42,7 @@ CAPABILITY_CONFIG_TRANSLATION = CapabilityManifest(
         CapabilitySkillSpec(
             skill_id="config_translation",
             status="enabled",
-            related_tools=["network.config.translate"],
+            related_tools=["config.analysis.run"],
             intent_patterns=[
                 "配置翻译",
                 "配置转换",
@@ -80,7 +80,7 @@ CAPABILITY_CONFIG_TRANSLATION = CapabilityManifest(
     ],
     tools=[
         CapabilityToolRef(
-            tool_id="network.config.translate",
+            tool_id="config.analysis.run",
             status="enabled",
             callable_by_llm=True,
             risk_level="medium",

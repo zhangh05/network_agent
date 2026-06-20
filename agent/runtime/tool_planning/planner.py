@@ -381,8 +381,8 @@ def _capability_steps_from_rule_scene(user_input: str, rule_scene: dict) -> list
             add(action_id, goal)
 
     lower = (user_input or "").lower()
-    if ("translate" in lower or "翻译" in lower) and "network.config.translate" in CAPABILITY_ACTIONS:
-        add("network.config.translate", "离线翻译网络配置")
+    if ("translate" in lower or "翻译" in lower) and "config.translation" in CAPABILITY_ACTIONS:
+        add("config.translation", "离线翻译网络配置")
 
     if not steps:
         for chain_step in rule_scene.get("tool_chain") or []:

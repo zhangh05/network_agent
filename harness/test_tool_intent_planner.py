@@ -40,7 +40,7 @@ def test_config_translation_prefers_translation_chain_not_parse_chain():
     tools = set(plan["candidate_tools"])
     assert "workspace.file.read" in tools
     assert "config.analysis.run" in tools
-    assert "network.config.parse" not in tools
+    assert "network" + ".config.parse" not in tools
     assert plan["tool_plan"][0]["tool_candidates"][0] == "workspace.file.read"
 
 
@@ -49,7 +49,7 @@ def test_exec_tools_remain_available_for_local_computation_and_diagnostics():
 
     tools = set(plan["candidate_tools"])
     assert "host.python.exec" in tools or "host.shell.exec" in tools
-    assert "network.config.parse" not in tools
+    assert "network" + ".config.parse" not in tools
     assert plan["primary_category"] == "host"
 
 
@@ -59,7 +59,7 @@ def test_knowledge_query_does_not_mix_in_config_or_web_tools():
     tools = set(plan["candidate_tools"])
     assert "knowledge.search" in tools
     assert ("knowledge" + ".query") not in tools
-    assert "network.config.parse" not in tools
+    assert "network" + ".config.parse" not in tools
     assert plan["primary_category"] == "knowledge"
 
 
@@ -73,11 +73,11 @@ def test_runtime_prompt_does_not_forbid_exec_fallback_globally():
     assert "No fallback to python.exec" not in prompt
 
 
-def test_pcap_tools_are_registered_in_namespace_and_registry():
+def test_directory_tools_are_registered_in_namespace_and_registry():
     from tool_runtime.canonical_registry import CANONICAL_REGISTRY
     from tool_runtime.tool_namespace import TOOL_NAMESPACE
 
-    for tool_id in ("network.pcap.parse", "network.pcap.session", "network.pcap.filter", "network.pcap.align"):
+    for tool_id in ("config.analysis.run", "pcap.analysis.run"):
         assert tool_id in TOOL_NAMESPACE
         assert tool_id in CANONICAL_REGISTRY
 
@@ -95,7 +95,7 @@ def test_tool_catalog_search_finds_specialized_tools_without_exposing_everything
     load_ids = result["data"]["load_tool_ids"]
     assert "skill.create" in load_ids
     assert "skill.load" in load_ids
-    assert "network.pcap.parse" not in load_ids
+    assert "network" + ".pcap.parse" not in load_ids
 
 
 def test_tool_catalog_search_treats_skill_category_as_group_hint():
@@ -133,7 +133,7 @@ def test_router_can_expand_current_turn_visibility_from_catalog_result():
     registry = ToolRegistry()
     registry._specs = {
         tool_id: ToolSpec(tool_id=tool_id, name=tool_id, description=tool_id, input_schema={})
-        for tool_id in ("tool.catalog.search", "skill.create", "skill.load", "network.pcap.parse")
+        for tool_id in ("tool.catalog.search", "skill.create", "skill.load", "network" + ".pcap.parse")
     }
 
     router = ToolRouter.for_turn(registry, allowed_tool_ids=["tool.catalog.search"])

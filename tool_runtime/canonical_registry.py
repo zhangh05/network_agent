@@ -160,90 +160,12 @@ from tool_runtime.builtins import (
 )
 
 
-def _handler_config_translate(inv: ToolInvocation) -> dict:
-    """Call the config_translation skill adapter."""
-    import sys
-    from pathlib import Path
-    root = Path(__file__).resolve().parents[1]
-    skills_dir = str(root / "skills" / "config_translation")
-    if skills_dir not in sys.path:
-        sys.path.insert(0, skills_dir)
-    from adapter import translate
-    args = inv.arguments or {}
-    out = translate({**args})
-    if not isinstance(out, dict):
-        return {
-            "ok": False,
-            "tool_id": "network.config.translate",
-            "status": "failed",
-            "summary": "配置翻译工具返回了非结构化结果。",
-            "errors": ["invalid_translate_result"],
-            "raw": out,
-        }
-    normalized = dict(out)
-    normalized.setdefault("tool_id", "network.config.translate")
-    ok = bool(normalized.get("ok", True) and not normalized.get("errors"))
-    normalized.setdefault("ok", ok)
-    normalized.setdefault("status", "succeeded" if ok else "failed")
-    normalized.setdefault(
-        "summary",
-        "配置翻译完成。" if ok else "配置翻译失败。",
-    )
-    if not ok and not normalized.get("errors"):
-        normalized["errors"] = ["translation_failed"]
-    return normalized
-
-
 def _safe_int(value, default: int = 0) -> int:
     """Convert value to int safely, returning default on failure."""
     try:
         return int(value or default)
     except (ValueError, TypeError):
         return default
-
-
-def _handler_pcap_parse(inv: ToolInvocation) -> dict:
-    """Parse a workspace PCAP file — delegates to pcap module service."""
-    from agent.modules.pcap.service import parse_pcap_file
-    args = inv.arguments or {}
-    workspace_id = args.get("workspace_id") or inv.workspace_id or "default"
-    filepath = args.get("filepath") or args.get("path") or ""
-    return parse_pcap_file(workspace_id, filepath)
-
-
-def _handler_pcap_session(inv: ToolInvocation) -> dict:
-    """Retrieve PCAP session — delegates to pcap module service."""
-    from agent.modules.pcap.service import get_pcap_session
-    args = inv.arguments or {}
-    return get_pcap_session(args.get("session_id") or "")
-
-
-def _handler_pcap_filter(inv: ToolInvocation) -> dict:
-    """Filter PCAP session — delegates to pcap module service."""
-    from agent.modules.pcap.service import filter_pcap_session
-    args = inv.arguments or {}
-    return filter_pcap_session(
-        args.get("session_id") or "",
-        args.get("src", ""),
-        _safe_int(args.get("sport", 0)),
-        args.get("dst", ""),
-        _safe_int(args.get("dport", 0)),
-    )
-
-
-def _handler_pcap_align(inv: ToolInvocation) -> dict:
-    """TCP alignment analysis — delegates to pcap module service."""
-    from agent.modules.pcap.service import align_pcap_tcp
-    args = inv.arguments or {}
-    use_filter = all(k in args for k in ("src", "sport", "dst", "dport"))
-    return align_pcap_tcp(
-        args.get("session_id") or "",
-        args.get("src", ""),
-        _safe_int(args.get("sport", 0)),
-        args.get("dst", ""),
-        _safe_int(args.get("dport", 0)),
-        use_filter=use_filter,
-    )
 
 
 # ── Directory-level tool handlers ────────────────────────────────────
@@ -467,8 +389,9 @@ def _catalog_score(tool_id: str, category: str, group: str, haystack: str, token
         (("load", "加载"), "skill.load", 45),
         (("create", "创建"), "skill.create", 45),
         (("install", "安装"), "skill.install", 45),
-        (("pcap", "报文", "抓包", "packet"), "network.pcap.", 40),
-        (("retransmission", "重传", "sequence", "序列", "tcp"), "network.pcap.align", 42),
+        (("pcap", "报文", "抓包", "packet"), "pcap.analysis.run", 40),
+        (("retransmission", "重传", "sequence", "序列", "tcp"), "pcap.analysis.run", 42),
+        (("config", "配置", "翻译", "translate"), "config.analysis.run", 40),
         (("file", "文件"), "workspace.file.", 22),
         (("edit", "编辑", "修改"), "workspace.file.edit", 40),
         (("patch", "补丁"), "workspace.file.patch", 40),
@@ -798,80 +721,6 @@ _RAW_REGISTRY: list[CanonicalToolEntry] = [
         canonical_tool_id="knowledge.not_found.explain",
         handler=_adapt(handle_knowledge_explain_not_found),
         input_schema=_schema({"query": _S["query"], "workspace_id": _S["workspace_id"]}, ["query"]),
-    ),
-
-    # Network
-    CanonicalToolEntry(
-        canonical_tool_id="network.config.parse",
-        handler=_adapt(_handler_parser_parse_config_text),
-        input_schema=_schema({
-            "text": _S["text"],
-            "vendor": {"type": "string", "description": "Vendor slug, e.g. cisco, huawei."},
-        }, ["text"]),
-        description="Offline parse of a network device configuration.",
-    ),
-    CanonicalToolEntry(
-        canonical_tool_id="network.interface.extract",
-        handler=_adapt(_handler_parser_extract_interfaces),
-        input_schema=_schema({"text": _S["text"]}, ["text"]),
-        description="Extract interface entries from a configuration.",
-    ),
-    CanonicalToolEntry(
-        canonical_tool_id="network.route.extract",
-        handler=_adapt(_handler_parser_extract_routes),
-        input_schema=_schema({"text": _S["text"]}, ["text"]),
-        description="Extract route entries from a configuration.",
-    ),
-    CanonicalToolEntry(
-        canonical_tool_id="network.config.translate",
-        handler=_adapt(_handler_config_translate),
-        input_schema=_schema({
-            "filepath": {"type": "string", "description": "Workspace-relative file path to the config file. Preferred for large files — pass the path after reading with workspace.file.read."},
-            "source_config": {"type": "string", "description": "Raw config text. Only for short inline configs."},
-            "source_vendor": {"type": "string", "description": "Source vendor, e.g. h3c, cisco, huawei."},
-            "target_vendor": {"type": "string", "description": "Target vendor, e.g. cisco, huawei."},
-            "workspace_id": {"type": "string", "description": "Workspace ID, default 'default'."},
-        }, ["target_vendor"]),
-        description="Translate network device configuration between vendor formats. Pass filepath for uploaded files or source_config for inline text.",
-    ),
-    CanonicalToolEntry(
-        canonical_tool_id="network.pcap.parse",
-        handler=_adapt(_handler_pcap_parse),
-        input_schema=_schema({
-            "workspace_id": _S["workspace_id"],
-            "filepath": _S["filepath"],
-        }, ["filepath"]),
-        description="Parse a workspace PCAP/PCAPNG file and group packet flows.",
-    ),
-    CanonicalToolEntry(
-        canonical_tool_id="network.pcap.session",
-        handler=_adapt(_handler_pcap_session),
-        input_schema=_schema({"session_id": _S["session_id"]}, ["session_id"]),
-        description="Read parsed PCAP session metadata and connection groups.",
-    ),
-    CanonicalToolEntry(
-        canonical_tool_id="network.pcap.filter",
-        handler=_adapt(_handler_pcap_filter),
-        input_schema=_schema({
-            "session_id": _S["session_id"],
-            "src": {"type": "string", "description": "Source IP."},
-            "sport": {"type": "integer", "description": "Source TCP/UDP port."},
-            "dst": {"type": "string", "description": "Destination IP."},
-            "dport": {"type": "integer", "description": "Destination TCP/UDP port."},
-        }, ["session_id", "src", "sport", "dst", "dport"]),
-        description="Filter a parsed PCAP session by bidirectional 5-tuple.",
-    ),
-    CanonicalToolEntry(
-        canonical_tool_id="network.pcap.align",
-        handler=_adapt(_handler_pcap_align),
-        input_schema=_schema({
-            "session_id": _S["session_id"],
-            "src": {"type": "string", "description": "Optional source IP."},
-            "sport": {"type": "integer", "description": "Optional source TCP port."},
-            "dst": {"type": "string", "description": "Optional destination IP."},
-            "dport": {"type": "integer", "description": "Optional destination TCP port."},
-        }, ["session_id"]),
-        description="Analyze TCP sequence/ack alignment and packet anomalies.",
     ),
 
     # Web

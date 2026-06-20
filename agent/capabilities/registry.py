@@ -162,7 +162,7 @@ class CapabilityRegistry:
 
     def enabled_business_tool_ids(self) -> List[str]:
         """Same as visible_tool_ids() but restricted to capability tools
-        (i.e., business tools such as network.config.translate and
+        (i.e., business tools such as config.analysis.run and
         knowledge.search). Useful for RuntimeSnapshot to list them
         distinctly from general ToolRuntime tools.
         """
