@@ -13,12 +13,10 @@ from tool_runtime.tool_namespace import TOOL_NAMESPACE
 
 
 BASELINE_READ_TOOLS = [
-    "web.search", "web.page.summarize", "web.docs.official_search",
-    "knowledge.search", "knowledge.source.list",
-    "memory.search", "memory.list",
-    "workspace.file.read", "workspace.file.list",
+    "skill.search", "skill.load",
+    "workspace.file.list", "workspace.file.read",
+    "workspace.artifact.read",
     "tool.catalog.search",
-    "skill.list",
 ]
 
 LOCAL_OPS_TOOLS = [
