@@ -2,7 +2,7 @@
 
 Current source architecture reference.
 
-Pipeline: Input -> State -> Evidence -> Planning -> Kernel -> Output -> Response -> Reports -> Snapshot.
+Pipeline: Input -> RuntimeState -> Evidence -> Planning -> Kernel -> Output -> Response -> Reports -> Snapshot.
 
 Main packages:
 

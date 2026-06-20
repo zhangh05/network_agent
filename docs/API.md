@@ -17,7 +17,7 @@ Knowledge and memory APIs remain storage-facing. Runtime memory write planning i
 
 ## Runtime metadata in agent result
 
-The current architecture expects these structured metadata fields when available:
+The current architecture produces a RuntimeState aggregate per turn. These structured metadata fields are available in the agent result:
 
 - runtime_state_snapshot
 - task_signal

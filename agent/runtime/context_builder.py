@@ -5,7 +5,6 @@ The builder is intentionally an orchestration pipeline. Heavy responsibilities
 are delegated to focused helpers:
 - context_history.py     — in-memory/disk history window handling
 - context_tools.py       — tool scene routing and per-turn visibility
-- context_compaction.py  — token budget estimation and compaction decisions
 - cognition/scene_decision.py   — unified scene decision
 - cognition/evidence_pipeline.py — evidence extraction + injection scan
 - tool_planning/planner.py      — ToolPlannerV2 planning

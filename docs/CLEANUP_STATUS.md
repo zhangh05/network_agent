@@ -10,12 +10,16 @@ Branch: cleanup-doc-rewrite
 - docs/RUNTIME rewritten around current turn flow and finalization metadata.
 - docs/API rewritten around current public interface and metadata contract.
 - docs/FRONTEND rewritten around metadata-driven inspection.
-- docs/CAPABILITIES_AND_TOOLS reduced to current truth-source reference.
+- docs/CAPABILITIES_AND_TOOLS rewritten with full metadata table and version resolution.
+- AGENTS.md rewritten for current turn lifecycle and runtime packages.
+- docs/AGENT_HARDENING_STAGES.md updated to remove context_safe/context_compaction references.
+- Removed RuntimeLoop references from prompting/blocks.py, loop.py docstring, config_translation service.
+- Removed context_compaction.py reference from context_builder.py docstring.
 - Added harness/test_doc_cleanup_current_architecture.py.
 
 ## Current architecture source
 
-The current runtime architecture is based on:
+The current runtime architecture is based on RuntimeState and the following packages:
 
 - agent/runtime/state
 - agent/runtime/tasking

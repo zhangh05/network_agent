@@ -1,6 +1,6 @@
 # Frontend Integration
 
-Frontend should treat runtime metadata as the inspection surface.
+Frontend should treat RuntimeState metadata as the inspection surface.
 
 ## Primary result fields
 
