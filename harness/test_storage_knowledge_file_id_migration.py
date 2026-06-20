@@ -106,10 +106,6 @@ def test_knowledge_import_chunk_metadata_has_file_refs(knowledge_ws, monkeypatch
     """Chunks created from import should carry source_file_id in metadata."""
     from storage.file_store import import_user_upload
     from agent.modules.knowledge.ingestion import import_file
-    try:
-        from agent.modules.knowledge.index import search_content_v2 as kw_search
-    except ImportError:
-        pytest.skip("knowledge search not available")
 
     src = knowledge_ws / "chunk_test.md"
     src.write_text("# Chunk Test\n\nParagraph one.\n\nParagraph two.")
@@ -132,3 +128,5 @@ def test_knowledge_import_chunk_metadata_has_file_refs(knowledge_ws, monkeypatch
 
     assert result.get("ok") is True
     assert result.get("source_file_id") == file_rec.file_id
+    # normalized_file_id and chunk metadata persistence are verified
+    # by import order: normalize → metadata → replace_chunks

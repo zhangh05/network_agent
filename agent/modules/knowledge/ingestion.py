@@ -433,14 +433,11 @@ def import_file(
             f"{' '.join(tags or [])} | {c.content}"
         )
 
-    # 6. Save chunks (replace any prior for this source_id)
-    n = _index.replace_chunks(workspace_id, source_id, parents + children)
-
-    # 7. Write normalized markdown as FileRecord
+    # 6. Write normalized markdown as FileRecord BEFORE chunk persistence
     normalized_file_id = ""
     try:
         from storage.file_store import write_agent_output
-        nm = getattr(doc, "content", "") or ""
+        nm = getattr(doc, "content", "") or getattr(doc, "body_text", "") or ""
         if nm:
             normalized_rec = write_agent_output(
                 workspace_id=workspace_id,
@@ -461,10 +458,29 @@ def import_file(
     except Exception:
         pass
 
-    # Update chunk metadata with normalized_file_id
+    # 7. Add file refs to chunk metadata before persistence
     if normalized_file_id:
-        for c in parents + children:
-            c.metadata["normalized_file_id"] = normalized_file_id
+        base_meta["normalized_file_id"] = normalized_file_id
+    base_meta["storage_managed"] = bool(source_file_id or normalized_file_id)
+    for c in parents:
+        c.metadata.update(base_meta)
+    for c in children:
+        c.metadata.update(base_meta)
+    # Re-build index_text for children with source_title (so BM25
+    # scores against the title boost).
+    for c in children:
+        c.index_text = (
+            f"{full_title} | {c.chapter} | {c.section} | "
+            f"{' '.join(tags or [])} | {c.content}"
+        )
+    for c in parents:
+        c.index_text = (
+            f"{full_title} | {c.chapter} | {c.section} | "
+            f"{' '.join(tags or [])} | {c.content}"
+        )
+
+    # 8. Save chunks AFTER metadata is complete
+    n = _index.replace_chunks(workspace_id, source_id, parents + children)
 
     # ReferenceIndex: link source/normalized files to knowledge source
     try:
