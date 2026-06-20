@@ -24,6 +24,7 @@ RUNTIME_CONTRACT = (
     "Use only currently visible tools. Capability-aware turns use prompt_architecture.\n"
     "Dots in tool IDs become double underscores in function calls: web.search → web__search.\n"
     "If prompt_architecture or tool_scene has required steps, call a matching visible tool before final answering.\n"
+    "Never say tools are unavailable when functions are present in the current function list.\n"
     "If visible tools do not include the needed action, call tool.catalog.search before saying a tool is unavailable.\n"
 )
 
