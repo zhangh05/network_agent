@@ -45,9 +45,15 @@ class ToolGovernanceEntry:
 # ----------------------------------------------------------------------
 
 _OVERRIDES: dict[str, tuple[str, str]] = {
-    # Disabled / internal tools are explicitly enumerated; everything
-    # else is 'active' by default.
-    # 'web.news.search': ('disabled', "Not selected by planner; use only on explicit request."),
+    # Old fine-grained tools replaced by directory-level entrypoints.
+    "network.config.parse": ("internal", "Use config.analysis.run with action=parse."),
+    "network.config.translate": ("internal", "Use config.analysis.run with action=translate."),
+    "network.interface.extract": ("internal", "Use config.analysis.run with action=extract_interfaces."),
+    "network.route.extract": ("internal", "Use config.analysis.run with action=extract_routes."),
+    "network.pcap.parse": ("internal", "Use pcap.analysis.run with action=parse."),
+    "network.pcap.session": ("internal", "Use pcap.analysis.run with action=session."),
+    "network.pcap.filter": ("internal", "Use pcap.analysis.run with action=filter."),
+    "network.pcap.align": ("internal", "Use pcap.analysis.run with action=align."),
 }
 
 

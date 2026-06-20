@@ -40,7 +40,7 @@ from agent.runtime.tool_planning.visibility import (
 
 
 PLANNER_VERSION = "v2.4"
-MAX_CANDIDATE_TOOLS = 24
+MAX_CANDIDATE_TOOLS = 12
 
 
 # ─── Cached lookups ───────────────────────────────────────────────────
@@ -90,7 +90,13 @@ class ToolPlannerV2:
             safe_context = evidence_bundle.to_safe_context()
 
         if available_catalog is None:
-            available_catalog = {"tools": list(TOOL_NAMESPACE)}
+            from agent.runtime.capability_routing.toolset import active_tool_catalog
+            available_catalog = active_tool_catalog(
+                scene.user_input,
+                scene=scene,
+                safe_context=safe_context,
+                limit=MAX_CANDIDATE_TOOLS,
+            )
 
         plan = deterministic_plan_tools(
             user_input=scene.user_input,
@@ -114,6 +120,8 @@ class ToolPlannerV2:
             "fallback_used": False,
             "warnings": messages,
         }
+        if "capability_routing" in available_catalog:
+            plan["capability_routing"] = available_catalog["capability_routing"]
         return plan
 
     def _apply_evidence_adjustments(
@@ -175,6 +183,10 @@ def plan_tools(
     plan = seed
     fallback_used = False
     validation_messages = list(seed_messages)
+
+    # Preserve capability routing metadata from the catalog
+    if "capability_routing" in available_catalog:
+        plan["capability_routing"] = available_catalog["capability_routing"]
 
     if mode in {"llm", "hybrid"}:
         llm_plan = llm_plan_tools(user_input, safe_context, seed, available_catalog, model_config)
@@ -273,6 +285,9 @@ def deterministic_plan_tools(
         filtered["local_ops_filtered"].extend([tid for tid in LOCAL_OPS_TOOLS if tid in available])
 
     candidate_tools = _ordered_unique([*candidate_tools, *baseline_tools])
+    # When the catalog came from capability routing, trust its tool selection
+    if "capability_routing" in available_catalog:
+        candidate_tools = _ordered_unique([*candidate_tools, *[tid for tid in available]])
     candidate_tools = governance_filtered_tools([tid for tid in candidate_tools if tid in available], filtered)
 
     if not local_ops_enabled:
