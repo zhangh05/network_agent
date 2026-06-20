@@ -83,6 +83,20 @@ def _record_meta_dict(rec: ArtifactRecord) -> dict:
     return data
 
 
+def _logical_type_for_artifact(artifact_type: str) -> str:
+    """Map artifact_type to a storage logical_type for FileRecord tracking."""
+    mapping = {
+        "translated_config": "translated_config",
+        "output_config": "translated_config",
+        "report": "report",
+        "pcap_session": "pcap_session",
+        "pcap_connections": "pcap_connections",
+        "pcap_result": "pcap_result",
+        "message_large_content": "message_large_content",
+    }
+    return mapping.get((artifact_type or "").strip(), "artifact_output")
+
+
 def _validate_source_path(source_path: str, workspace_id: str = "") -> bool:
     """Strict path boundary check using resolve().relative_to()."""
     if not source_path:
@@ -179,18 +193,48 @@ def save_artifact(workspace_id: str, content: str = "", source_path: str = "",
     sha = hashlib.sha256(content.encode()).hexdigest()
     size = len(content.encode())
 
-    # Determine subdirectory
-    type_dir = _type_dir(artifact_type)
+    # Meta directory for backward compatibility (meta.json only, not content)
     art_dir = _get_ws_root() / workspace_id / "files" / "agent"
     art_dir.mkdir(parents=True, exist_ok=True)
 
-    # Safe filename
-    base = _safe_name(title or artifact_type)
+    # Write content through FileStore (main path for new artifacts)
     ext = cls["file_ext"] or "txt"
-    fname = f"{base}_{art_id}.{ext}"
-    fpath = art_dir / fname
+    logical_type = _logical_type_for_artifact(artifact_type)
+    file_kind = cls["file_ext"] or ext or "text"
 
-    fpath.write_text(content)
+    file_id = ""
+    fname = ""
+    try:
+        from storage.file_store import write_agent_output
+        file_rec = write_agent_output(
+            workspace_id=workspace_id,
+            content=content,
+            logical_type=logical_type,
+            file_kind=file_kind,
+            title=title or artifact_type or art_id,
+            ext=ext,
+            source=source,
+            run_id=run_id,
+            sensitivity=sensitivity,
+            metadata={
+                "artifact_id": art_id,
+                "artifact_type": artifact_type,
+                "storage_managed": True,
+                "write_path": "filestore",
+            },
+        )
+        file_id = file_rec.file_id
+        ws = _get_ws_root() / workspace_id
+        fpath = (ws / file_rec.path).resolve()
+        fname = file_rec.path
+        size = file_rec.size_bytes
+        sha = file_rec.sha256
+    except Exception:
+        # Fallback to legacy write — still used when FileStore path resolution fails
+        base = _safe_name(title or artifact_type)
+        fname = f"{base}_{art_id}.{ext}"
+        fpath = art_dir / fname
+        fpath.write_text(content)
 
     # Build record
     title = title or f"{artifact_type}: {art_id}"
@@ -202,6 +246,7 @@ def save_artifact(workspace_id: str, content: str = "", source_path: str = "",
         path=str(fpath), relative_path=fname,
         mime_type=cls["mime_type"], file_ext=cls["file_ext"],
         size_bytes=size, sha256=sha, source=source,
+        file_id=file_id,
         metadata=redact_metadata(metadata or {}),
         tags=tags or cls["tags"],
         redaction_applied=cls["contains_secret"],
@@ -209,7 +254,10 @@ def save_artifact(workspace_id: str, content: str = "", source_path: str = "",
 
     # Write metadata
     meta_path = art_dir / f"{art_id}.meta.json"
-    meta_path.write_text(json.dumps(_record_meta_dict(rec), indent=2, ensure_ascii=False))
+    meta_dict = _record_meta_dict(rec)
+    if file_id:
+        meta_dict["storage_managed"] = True
+    meta_path.write_text(json.dumps(meta_dict, indent=2, ensure_ascii=False))
 
     # Update index
     idx = _load_index(workspace_id)
@@ -220,6 +268,19 @@ def save_artifact(workspace_id: str, content: str = "", source_path: str = "",
     # Update run artifact index
     if run_id:
         _update_run_index(workspace_id, run_id, art_id, artifact_type, title)
+
+    # ReferenceIndex: link file to artifact (non-fatal)
+    try:
+        from storage.reference_index import add_reference
+        if file_id:
+            add_reference(workspace_id, file_id, "artifact", art_id, "output",
+                          metadata={"artifact_type": artifact_type, "run_id": run_id})
+        src_file = (metadata or {}).get("source_file_id")
+        if src_file:
+            add_reference(workspace_id, src_file, "artifact", art_id, "source",
+                          metadata={"artifact_type": artifact_type, "run_id": run_id})
+    except Exception:
+        pass
 
     return rec
 
@@ -253,6 +314,17 @@ def read_artifact_content(workspace_id: str, artifact_id: str,
         return None
     if rec.lifecycle == "deleted":
         return None
+
+    # FileStore-first: use file_id if available
+    file_id = getattr(rec, "file_id", "") or (rec.metadata or {}).get("file_id", "")
+    if file_id:
+        try:
+            from storage.file_store import read_file_content
+            return read_file_content(workspace_id, file_id)
+        except Exception:
+            pass
+
+    # Legacy path fallback
     path = Path(rec.path) if rec.path else None
     if path and path.is_file():
         return path.read_text()

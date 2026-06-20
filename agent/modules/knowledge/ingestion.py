@@ -108,7 +108,14 @@ def _allowed_import_roots(workspace_id: str) -> List[Path]:
       - workspace/{ws_id}/inbox/    (staging area)
     """
     base = _ws_root() / workspace_id
-    return [base / "files" / "upload", base / "files" / "agent", base / "inbox"]
+    return [
+        base / "files" / "upload",
+        base / "files" / "agent",
+        base / "files" / "agent_output",
+        base / "files" / "user_upload",
+        base / "files" / "knowledge",
+        base / "inbox",
+    ]
 
 
 def _validate_import_path(workspace_id: str, path: Union[str, Path]) -> dict:
@@ -224,6 +231,7 @@ def import_file(
     language: str = "zh",
     tags: Optional[List[str]] = None,
     metadata: Optional[dict] = None,
+    file_id: str = "",
 ) -> dict:
     """Top-level ingestion: file -> source + chunks.
 
@@ -252,6 +260,20 @@ def import_file(
                 "errors": ["invalid_scope"]}
 
     # v1.0.1.1 — Path security check (only when source is a path).
+    # If file_id is provided, resolve via FileStore and bypass allowlist.
+    source_file_id = (file_id or "").strip()
+    if source_file_id:
+        try:
+            from storage.file_store import resolve_file_path
+            resolved_fs = resolve_file_path(workspace_id, source_file_id)
+            source = resolved_fs
+        except Exception as exc:
+            return {
+                "ok": False,
+                "summary": f"file_id 无效: {str(exc)[:200]}",
+                "errors": ["invalid_file_id"],
+            }
+
     is_path_like = isinstance(source, (str, Path)) and not (
         isinstance(source, str) and (
             source.startswith("ksrc_") or len(source) < 4096
@@ -388,6 +410,8 @@ def import_file(
         "format": doc.format,
         "tags": list(tags or []),
     }
+    if source_file_id:
+        base_meta["source_file_id"] = source_file_id
     for key in ("hidden", "origin", "memory_id", "memory_type",
                 "memory_scope", "memory_confidence", "memory_source"):
         if key in source_meta:
@@ -409,10 +433,66 @@ def import_file(
             f"{' '.join(tags or [])} | {c.content}"
         )
 
-    # 6. Save chunks (replace any prior for this source_id)
+    # 6. Write normalized markdown as FileRecord BEFORE chunk persistence
+    normalized_file_id = ""
+    try:
+        from storage.file_store import write_agent_output
+        nm = getattr(doc, "content", "") or getattr(doc, "body_text", "") or ""
+        if nm:
+            normalized_rec = write_agent_output(
+                workspace_id=workspace_id,
+                content=nm,
+                logical_type="knowledge_normalized",
+                file_kind="markdown",
+                title=f"normalized_{source_id}",
+                ext="md",
+                source="knowledge_import",
+                sensitivity="internal",
+                metadata={
+                    "source_id": source_id,
+                    "source_file_id": source_file_id,
+                    "storage_managed": True,
+                },
+            )
+            normalized_file_id = normalized_rec.file_id
+    except Exception:
+        pass
+
+    # 7. Add file refs to chunk metadata before persistence
+    if normalized_file_id:
+        base_meta["normalized_file_id"] = normalized_file_id
+    base_meta["storage_managed"] = bool(source_file_id or normalized_file_id)
+    for c in parents:
+        c.metadata.update(base_meta)
+    for c in children:
+        c.metadata.update(base_meta)
+    # Re-build index_text for children with source_title (so BM25
+    # scores against the title boost).
+    for c in children:
+        c.index_text = (
+            f"{full_title} | {c.chapter} | {c.section} | "
+            f"{' '.join(tags or [])} | {c.content}"
+        )
+    for c in parents:
+        c.index_text = (
+            f"{full_title} | {c.chapter} | {c.section} | "
+            f"{' '.join(tags or [])} | {c.content}"
+        )
+
+    # 8. Save chunks AFTER metadata is complete
     n = _index.replace_chunks(workspace_id, source_id, parents + children)
 
-    return {
+    # ReferenceIndex: link source/normalized files to knowledge source
+    try:
+        from storage.reference_index import add_reference
+        if source_file_id:
+            add_reference(workspace_id, source_file_id, "knowledge_source", source_id, "source")
+        if normalized_file_id:
+            add_reference(workspace_id, normalized_file_id, "knowledge_source", source_id, "normalized")
+    except Exception:
+        pass
+
+    result: dict[str, Any] = {
         "ok": True,
         "summary": (
             f"Imported {full_title} ({doc.format}) as {source_id} "
@@ -429,6 +509,11 @@ def import_file(
         "warnings": list(doc.warnings or []),
         "errors": [],
     }
+    if source_file_id:
+        result["source_file_id"] = source_file_id
+    if normalized_file_id:
+        result["normalized_file_id"] = normalized_file_id
+    return result
 
 
 def reindex_source(workspace_id: str, source_id: str) -> dict:

@@ -32,6 +32,13 @@ def ensure_workspace(ws_id: str = "default") -> str:
     ]:
         (ws / d).mkdir(parents=True, exist_ok=True)
 
+    # Create new unified storage directories (non-fatal for backward compat)
+    try:
+        from storage.paths import ensure_workspace_storage_dirs
+        ensure_workspace_storage_dirs(ws_id)
+    except Exception:
+        pass
+
     # workspace.yaml
     yaml_path = ws / "sys" / "workspace.yaml"
     if not yaml_path.exists():
