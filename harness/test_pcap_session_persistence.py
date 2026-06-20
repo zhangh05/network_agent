@@ -36,10 +36,41 @@ def test_pcap_session_index_written(pcap_ws):
     # Verify the function handles file_id and returns appropriate error
     if not result.get("ok"):
         assert "errors" in result
-    else:
-        # On success, verify session index exists
-        idx_path = pcap_ws / "test_ws" / "index" / "pcap_sessions.jsonl"
-        # Not requiring success since no actual pcap to parse
+    # No actual pcap to parse — verification of index is in the recovery test below
+
+
+def test_pcap_session_recovery_restores_connections(pcap_ws, monkeypatch):
+    """After writing session index, get_pcap_session must restore non-empty connections."""
+    import json
+
+    monkeypatch.setenv("NA_WORKSPACE_ROOT", str(pcap_ws))
+
+    idx_dir = pcap_ws / "test_ws" / "index"
+    idx_dir.mkdir(parents=True, exist_ok=True)
+    idx_path = idx_dir / "pcap_sessions.jsonl"
+    record = {
+        "session_id": "sess_test_recovery",
+        "filepath": str(pcap_ws / "test.pcap"),
+        "filename": "test.pcap",
+        "total_packets": 42,
+        "connection_count": 3,
+        "connections": [
+            {"src": "10.0.0.1", "dst": "10.0.0.2"},
+            {"src": "10.0.0.3", "dst": "10.0.0.4"},
+            {"src": "10.0.0.5", "dst": "10.0.0.6"},
+        ],
+    }
+    idx_path.write_text(json.dumps(record, ensure_ascii=False) + "\n", encoding="utf-8")
+
+    from agent.modules.pcap.service import get_pcap_session
+    result = get_pcap_session("sess_test_recovery", workspace_id="test_ws")
+
+    assert result["ok"] is True
+    assert result["session_id"] == "sess_test_recovery"
+    assert result["total_packets"] == 42
+    assert result["connections"]
+    assert len(result["connections"]) == 3
+    assert result["connections"][0]["src"] == "10.0.0.1"
 
 
 def test_pcap_parse_accepts_file_id_param(pcap_ws):
