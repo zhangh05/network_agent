@@ -95,3 +95,21 @@ def test_apply_migrates_upload_files(legacy_ws):
 
     files = list_files("test_ws", lifecycle="")
     assert len(files) >= 1, "Upload file should have FileRecord after migration"
+
+
+def test_dry_run_migrated_is_empty(legacy_ws):
+    from storage.legacy_migration import migrate_workspace_legacy_paths
+
+    result = migrate_workspace_legacy_paths("test_ws", dry_run=True)
+    assert result["dry_run"] is True
+    assert result["planned"]
+    assert result["migrated"] == [], f"dry-run migrated must be empty, got {result['migrated']}"
+    assert result["errors"] == []
+
+
+def test_apply_migrated_has_results(legacy_ws):
+    from storage.legacy_migration import migrate_workspace_legacy_paths
+
+    result = migrate_workspace_legacy_paths("test_ws", dry_run=False)
+    assert result["dry_run"] is False
+    assert result["migrated"], "apply must populate migrated"

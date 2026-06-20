@@ -59,8 +59,9 @@ def main():
     else:
         print(output)
 
-    # Also save per-workspace report
-    for r in results:
+    # Save per-workspace report only in apply mode.
+    # dry-run must not modify workspace files.
+    if not args.dry_run:
         ws = r["workspace_id"]
         from storage.paths import workspace_root
         idx_dir = workspace_root(ws) / "index"

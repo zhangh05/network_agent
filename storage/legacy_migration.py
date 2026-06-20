@@ -176,11 +176,9 @@ def migrate_workspace_legacy_paths(
                 )
                 migrated.append({**action, "file_id": rec.file_id})
             except Exception as exc:
-                errors.append({**action, "error": str(exc)[:200]})
-        else:
-            migrated.append(action)  # in dry_run, planned = migrated
+                    errors.append({**action, "error": str(exc)[:200]})
 
-    # ── agent content files ──
+        # ── agent content files ──
     for af in scan["legacy_agent_content_files"]:
         if _already_indexed(workspace_id, af["path"]):
             skipped.append(af)
@@ -234,10 +232,8 @@ def migrate_workspace_legacy_paths(
                 migrated.append({**action, "file_id": rec.file_id})
             except Exception as exc:
                 errors.append({**action, "error": str(exc)[:200]})
-        else:
-            migrated.append(action)
 
-    # ── artifact meta → index/artifacts.jsonl ──
+        # ── artifact meta → index/artifacts.jsonl ──
     for am in scan["legacy_artifact_meta_files"]:
         action = {
             "type": "migrate_artifact_meta",
@@ -258,10 +254,8 @@ def migrate_workspace_legacy_paths(
                 migrated.append({**action, "artifact_id": data.get("artifact_id", "")})
             except Exception as exc:
                 errors.append({**action, "error": str(exc)[:200]})
-        else:
-            migrated.append(action)
 
-    # ── PCAP sidecar → artifacts ──
+        # ── PCAP sidecar → artifacts ──
     for ps in scan["legacy_pcap_sidecar_files"]:
         action = {
             "type": "migrate_pcap_sidecar",
@@ -319,9 +313,7 @@ def migrate_workspace_legacy_paths(
                     "session_artifact_id": session_art.artifact_id if session_art else "",
                 })
             except Exception as exc:
-                errors.append({**action, "error": str(exc)[:200]})
-        else:
-            migrated.append(action)
+                    errors.append({**action, "error": str(exc)[:200]})
 
     return {
         "workspace_id": workspace_id,
