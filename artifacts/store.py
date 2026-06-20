@@ -184,34 +184,37 @@ def save_artifact(workspace_id: str, content: str = "", source_path: str = "",
     art_dir = _get_ws_root() / workspace_id / "files" / "agent"
     art_dir.mkdir(parents=True, exist_ok=True)
 
-    # Write content via FileStore for managed indexing
-    file_record = None
+    # Safe filename
+    base = _safe_name(title or artifact_type)
+    ext = cls["file_ext"] or "txt"
+    fname = f"{base}_{art_id}.{ext}"
+    fpath = art_dir / fname
+
+    fpath.write_text(content)
+
+    # Create a FileRecord for tracking (non-fatal)
+    file_id = ""
     try:
-        from storage.file_store import write_agent_output
-        file_record = write_agent_output(
+        from storage.file_store import create_file_record
+        ws = _get_ws_root() / workspace_id
+        rel_path = str(fpath.relative_to(ws))
+        file_rec = create_file_record(
             workspace_id=workspace_id,
-            content=content,
             logical_type="artifact_output",
-            file_kind=cls["file_ext"] or "txt",
-            title=title or artifact_type,
-            ext=cls["file_ext"] or "txt",
+            file_kind=ext,
+            path=rel_path,
+            original_name=fname,
+            size_bytes=size,
+            sha256=sha,
             source=source,
             run_id=run_id,
             sensitivity=sensitivity,
-            metadata={"artifact_id": art_id, "artifact_type": artifact_type},
+            metadata={"artifact_id": art_id, "artifact_type": artifact_type,
+                       "storage_managed": True},
         )
-        fpath = Path(file_record.as_dict()["path"])
-        ws_root = _get_ws_root() / workspace_id
-        abs_fpath = ws_root / fpath
-        fname = abs_fpath.name
+        file_id = file_rec.file_id
     except Exception:
-        # Fallback to legacy direct write
-        base = _safe_name(title or artifact_type)
-        ext = cls["file_ext"] or "txt"
-        fname = f"{base}_{art_id}.{ext}"
-        fpath = art_dir / fname
-        fpath.write_text(content)
-        abs_fpath = fpath
+        pass
 
     # Build record
     title = title or f"{artifact_type}: {art_id}"
@@ -220,10 +223,10 @@ def save_artifact(workspace_id: str, content: str = "", source_path: str = "",
         module=module, skill=skill, capability_id=capability_id,
         artifact_type=artifact_type, title=title,
         scope=scope, sensitivity=sensitivity, lifecycle="active",
-        path=str(abs_fpath), relative_path=str(fpath) if file_record else fname,
+        path=str(fpath), relative_path=fname,
         mime_type=cls["mime_type"], file_ext=cls["file_ext"],
         size_bytes=size, sha256=sha, source=source,
-        file_id=file_record.file_id if file_record else "",
+        file_id=file_id,
         metadata=redact_metadata(metadata or {}),
         tags=tags or cls["tags"],
         redaction_applied=cls["contains_secret"],
@@ -232,7 +235,7 @@ def save_artifact(workspace_id: str, content: str = "", source_path: str = "",
     # Write metadata
     meta_path = art_dir / f"{art_id}.meta.json"
     meta_dict = _record_meta_dict(rec)
-    if file_record:
+    if file_id:
         meta_dict["storage_managed"] = True
     meta_path.write_text(json.dumps(meta_dict, indent=2, ensure_ascii=False))
 
