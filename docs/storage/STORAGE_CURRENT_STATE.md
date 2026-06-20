@@ -37,7 +37,7 @@ The `storage/` package provides a unified file management layer for the workspac
 | `workspace/message_store.py` | ⏳ Planned |
 | `agent/modules/pcap/service.py` | ⏳ Planned |
 | `agent/modules/knowledge/ingestion.py` | ⏳ Planned |
-| `backend/api/artifact_routes.py` | ⏳ Planned |
+| `backend/api/artifact_routes.py` | ✅ Upload preserves originals via `import_user_upload`; text→artifact, binary→FileRecord only |
 
 ## Directory Structure
 

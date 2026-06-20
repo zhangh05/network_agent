@@ -34,6 +34,33 @@ def _validated_limit(default=100, max_value=500):
         return None, _invalid_limit()
 
 
+def _guess_upload_kind(filename: str, artifact_type: str = "") -> tuple:
+    """Return (file_kind, binary) for uploaded file."""
+    name = (filename or "").lower()
+    at = (artifact_type or "").lower()
+    if name.endswith((".pcap", ".pcapng")) or at in ("pcap", "pcap_input"):
+        return "pcap", True
+    if name.endswith(".pdf"):
+        return "pdf", True
+    if name.endswith(".docx"):
+        return "docx", True
+    if name.endswith(".xlsx"):
+        return "xlsx", True
+    if name.endswith(".pptx"):
+        return "pptx", True
+    if name.endswith((".zip", ".tar", ".gz", ".7z")):
+        return "zip", True
+    if name.endswith((".json",)):
+        return "json", False
+    if name.endswith((".yaml", ".yml")):
+        return "yaml", False
+    if name.endswith((".md",)):
+        return "markdown", False
+    if name.endswith((".cfg", ".conf", ".txt", ".log")) or at in ("config", "config_input"):
+        return "config", False
+    return "text", False
+
+
 def register_artifact_routes(app):
     """Register all artifact API routes on the Flask app."""
 
@@ -75,7 +102,7 @@ def register_artifact_routes(app):
         ws_id, err = _validated_ws_id(ws_id)
         if err:
             return err
-        import re
+
         max_size = _get_max_size()
 
         if request.content_length and request.content_length > max_size + 1_048_576:
@@ -87,35 +114,89 @@ def register_artifact_routes(app):
         if not f.filename:
             return jsonify({"ok": False, "error": "empty filename"}), 400
 
-        safe = re.sub(r"[^a-zA-Z0-9_.-]", "_", f.filename)[:120]
-        upload_dir = _get_ws_root() / ws_id / "files" / "upload"
-        upload_dir.mkdir(parents=True, exist_ok=True)
-        src_path = upload_dir / safe
-        f.save(str(src_path))
+        artifact_type = request.form.get("artifact_type", "")
+        title = request.form.get("title", f.filename)
+        scope = request.form.get("scope", "workspace")
+        sensitivity = request.form.get("sensitivity", "")
+        run_id = request.form.get("run_id", "")
+        session_id = request.form.get("session_id", "")
 
-        file_size = src_path.stat().st_size
-        if file_size > max_size:
-            src_path.unlink()
-            return jsonify({"ok": False, "error": "file_too_large"}), 413
+        file_kind, binary = _guess_upload_kind(f.filename, artifact_type)
+
+        logical_type = "user_upload"
+        if artifact_type in ("config", "config_input", "translated_config") or file_kind == "config":
+            logical_type = "config_input"
+        elif file_kind == "pcap":
+            logical_type = "pcap_input"
+        elif artifact_type in ("knowledge", "knowledge_source"):
+            logical_type = "knowledge_source"
+        elif artifact_type in ("chat_attachment",):
+            logical_type = "chat_attachment"
 
         try:
-            content = src_path.read_text(errors="replace")
-        except Exception:
-            src_path.unlink()
-            return jsonify({"ok": False, "error": "cannot read file"}), 400
+            from storage.file_store import import_user_upload, read_file_content
+            file_record = import_user_upload(
+                workspace_id=ws_id,
+                file_source=f.stream,
+                original_name=f.filename,
+                logical_type=logical_type,
+                file_kind=file_kind,
+                binary=binary,
+                source="artifact_upload",
+                session_id=session_id,
+                run_id=run_id,
+                sensitivity=sensitivity or "internal",
+                metadata={
+                    "artifact_type": artifact_type,
+                    "title": title,
+                    "scope": scope,
+                },
+            )
+        except ValueError as exc:
+            msg = str(exc)
+            if "file_too_large" in msg:
+                return jsonify({"ok": False, "error": "file_too_large", "detail": msg}), 413
+            if "unsupported_file_kind" in msg:
+                return jsonify({"ok": False, "error": "unsupported_file_kind", "detail": msg}), 400
+            return jsonify({"ok": False, "error": "upload_failed", "detail": msg[:200]}), 400
+        except Exception as exc:
+            return jsonify({"ok": False, "error": "upload_failed", "detail": str(exc)[:200]}), 400
 
-        rec = save_artifact(
-            workspace_id=ws_id, content=content,
-            artifact_type=request.form.get("artifact_type", ""),
-            title=request.form.get("title", f.filename),
-            scope=request.form.get("scope", "workspace"),
-            sensitivity=request.form.get("sensitivity", ""),
-            run_id=request.form.get("run_id", ""),
-        )
-        src_path.unlink()
-        if not rec:
-            return jsonify({"ok": False, "error": "artifact creation blocked"}), 400
-        return jsonify({"ok": True, "artifact": sanitize_record(rec)})
+        artifact = None
+        warnings = []
+
+        if not binary:
+            try:
+                content = read_file_content(ws_id, file_record.file_id)
+                rec = save_artifact(
+                    workspace_id=ws_id,
+                    content=content,
+                    artifact_type=artifact_type or logical_type,
+                    title=title,
+                    scope=scope,
+                    sensitivity=sensitivity,
+                    run_id=run_id,
+                    metadata={
+                        "source_file_id": file_record.file_id,
+                        "upload_preserved": True,
+                        "storage_managed": True,
+                    },
+                )
+                if rec:
+                    artifact = sanitize_record(rec)
+                else:
+                    warnings.append("artifact_creation_blocked")
+            except Exception as exc:
+                warnings.append(f"artifact_creation_failed: {str(exc)[:120]}")
+        else:
+            warnings.append("binary_upload_preserved_as_file_only")
+
+        return jsonify({
+            "ok": True,
+            "file": file_record.as_dict(),
+            "artifact": artifact,
+            "warnings": warnings,
+        })
 
     @app.route("/api/workspaces/<ws_id>/artifacts/batch-delete", methods=["POST"])
     def api_artifact_batch_delete(ws_id):
