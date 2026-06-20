@@ -12,19 +12,19 @@ def handle_file_get(inv, *, file_id: str = "", limit: int = 2000) -> dict[str, A
 
     rec = get_file_record(inv.workspace_id or "default", file_id)
     if not rec:
-        return {"ok": False, "error": "file_not_found", "file_id": file_id}
+        return {"ok": False, "tool_id": "file.get", "error": "file_not_found", "file_id": file_id}
     if rec.get("binary"):
         return {
-            "ok": True, "file_id": file_id,
+            "ok": True, "tool_id": "file.get", "status": "succeeded", "file_id": file_id,
             "file_kind": rec.get("file_kind"), "size_bytes": rec.get("size_bytes"),
             "sha256": rec.get("sha256"), "path": rec.get("path"),
         }
     try:
         content = read_file_content(inv.workspace_id or "default", file_id)
-        return {"ok": True, "file_id": file_id, "content": content[:limit],
+        return {"ok": True, "tool_id": "file.get", "status": "succeeded", "file_id": file_id, "content": content[:limit],
                 "size_bytes": rec.get("size_bytes"), "truncated": len(content) > limit}
     except Exception as exc:
-        return {"ok": False, "error": str(exc)[:200], "file_id": file_id}
+        return {"ok": False, "tool_id": "file.get", "error": str(exc)[:200], "file_id": file_id}
 
 
 def handle_file_preview(inv, *, file_id: str = "", limit: int = 500) -> dict[str, Any]:
@@ -35,7 +35,7 @@ def handle_file_preview(inv, *, file_id: str = "", limit: int = 500) -> dict[str
     if not rec:
         return {"ok": False, "error": "file_not_found", "file_id": file_id}
     result: dict[str, Any] = {
-        "ok": True, "file_id": file_id,
+        "ok": True, "tool_id": "file.get", "status": "succeeded", "file_id": file_id,
         "file_kind": rec.get("file_kind"), "binary": rec.get("binary"),
         "size_bytes": rec.get("size_bytes"), "sha256": rec.get("sha256"),
         "path": rec.get("path"), "logical_type": rec.get("logical_type"),
@@ -55,7 +55,7 @@ def handle_file_references(inv, *, file_id: str = "") -> dict[str, Any]:
     from storage.reference_index import list_references_for_file
 
     refs = list_references_for_file(inv.workspace_id or "default", file_id)
-    return {"ok": True, "file_id": file_id, "references": refs, "count": len(refs)}
+    return {"ok": True, "tool_id": "file.get", "status": "succeeded", "file_id": file_id, "references": refs, "count": len(refs)}
 
 
 def handle_file_write_agent_output(
@@ -71,7 +71,7 @@ def handle_file_write_agent_output(
         title=title or "agent_output", ext=ext,
         source="tool_runtime", run_id=getattr(inv, "run_id", ""),
     )
-    return {"ok": True, "file_id": rec.file_id, "path": rec.path,
+    return {"ok": True, "tool_id": "file.get", "status": "succeeded", "file_id": rec.file_id, "path": rec.path,
             "size_bytes": rec.size_bytes, "sha256": rec.sha256}
 
 
@@ -100,5 +100,5 @@ def handle_file_import_workspace_path(inv, *, filepath: str = "") -> dict[str, A
         file_source=str(target), original_name=target.name,
         source="file_import_workspace_path",
     )
-    return {"ok": True, "file_id": rec.file_id, "path": rec.path,
+    return {"ok": True, "tool_id": "file.get", "status": "succeeded", "file_id": rec.file_id, "path": rec.path,
             "size_bytes": rec.size_bytes, "sha256": rec.sha256}
