@@ -71,6 +71,6 @@ workspaces/<ws>/
 - Message store: route large content through artifact/file store
 - PCAP service: file_id input, result artifacts
 - Knowledge ingestion: file_id import, normalized file records
-- Artifact upload route: preserve originals via FileStore
+- Artifact upload consumers: follow-up UI/module flows should use returned file_id
 - Legacy path migration (files/upload → files/user_upload)
 - Full GC implementation
