@@ -19,7 +19,6 @@ from functools import lru_cache
 from agent.capabilities.registry import CapabilityRegistry
 from agent.capabilities.schemas import CapabilityManifest
 
-from agent.modules.config_translation.capability import CAPABILITY_CONFIG_TRANSLATION
 from agent.modules.knowledge.capability import CAPABILITY_KNOWLEDGE
 from agent.modules.artifact.capability import CAPABILITY_ARTIFACT
 from agent.modules.review.capability import CAPABILITY_REVIEW
@@ -29,7 +28,6 @@ from agent.modules.cmdb.capability import CAPABILITY_CMDB
 
 
 BUILTIN_CAPABILITIES: list[CapabilityManifest] = [
-    CAPABILITY_CONFIG_TRANSLATION,
     CAPABILITY_KNOWLEDGE,
     CAPABILITY_ARTIFACT,
     CAPABILITY_REVIEW,

@@ -1,4 +1,4 @@
-# harness/test_legacy_tool_module_cleanup.py
+# harness/test_tool_module_directory_entrypoints.py
 """Guards for PRB+PRC: planner chain cleanup, PCAP service decoupling, config_analysis impl."""
 
 import inspect
