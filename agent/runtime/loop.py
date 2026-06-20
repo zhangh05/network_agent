@@ -1,5 +1,5 @@
 # agent/runtime/loop.py
-"""RuntimeLoop — thin entry point delegating to TurnRunner.
+"""TurnRunner — thin entry point delegating to TurnRunner.
 
 The main function run_turn() orchestrates the agentic loop by delegating
 to the stage-pipeline architecture in agent.runtime.runner.  Supporting

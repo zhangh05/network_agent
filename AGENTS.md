@@ -1,58 +1,80 @@
-# Agent 系统
+# Agent Runtime
 
-## RuntimeLoop
+This document describes the current Agent runtime architecture.
 
-Codex-style agentic loop，每轮最多 8 个工具调用步骤：
-
-```
-用户消息 → 意图分析 → 工具规划 → LLM 决策 → 工具执行 → 结果注入 → LLM 回复
-                                     ↑                         │
-                                     └─────── 循环(最多8步) ────┘
-```
-
-### 执行流程
-
-1. **build_turn_context** — 构建 TurnContext（session/history/safe_context）
-2. **tool_planner** — 基线工具 + 意图专属工具 → candidate_tools
-3. **message_builder** — 组装 LLM messages（system + history + context + user）
-4. **LLM sampling** — 流式调用 MiniMax M3
-5. **tool_dispatch** — 执行工具调用，结果注入下一轮 messages
-6. **enrich_metadata** — 将 memory/knowledge hit counts 写入 AgentResult
-
-### 安全检查链
+## Turn lifecycle
 
 ```
-RAG 注入扫描 → argument_source 追踪 → action_class 过滤 → 审批门控
+UserInput
+  -> TurnContext
+  -> SceneDecision
+  -> RuntimeState / TaskWorkflow
+  -> Context / Memory / Knowledge (EvidencePipeline)
+  -> ToolPlannerV2
+  -> PromptCompiler
+  -> LLM sampling
+  -> ActionPlanner -> ActionExecutor (RiskPolicy -> ApprovalGate -> Dispatch)
+  -> ResultCollector -> ArtifactPlanner -> ArtifactWriter -> ArtifactRegistry
+  -> OutputSummarizer
+  -> ResponseComposer
+  -> MemoryWritePlanner
+  -> ObservabilityCollector
+  -> TruthReporter
+  -> StabilityGate
+  -> RuntimeStateSnapshot
+  -> FinalResponse
 ```
 
-## 工具执行
+## Runtime packages
 
-### 注册
+| Package | Purpose |
+|---------|---------|
+| `agent/runtime/context_builder.py` | Builds TurnContext from session, turn, and services |
+| `agent/runtime/cognition/` | SceneDecision, EvidencePipeline, PromptCompiler, ToolPlannerV2 |
+| `agent/runtime/state/` | RuntimeState, TaskState, WorkflowState, StepState, hooks |
+| `agent/runtime/tasking/` | TaskDetector, TaskPlanner, StepExecutor, CompletionEvaluator |
+| `agent/runtime/actions/` | ActionPlan, RiskPolicy, ApprovalGate, ActionExecutor |
+| `agent/runtime/tool_execution/` | ToolExecutionPipeline (orchestrates ActionExecutor) |
+| `agent/runtime/output/` | ResultCollector, ArtifactPlanner, ArtifactWriter, ArtifactRegistry |
+| `agent/runtime/response/` | ResponsePolicy, ResponseComposer, ResponseRenderer |
+| `agent/runtime/memory_write/` | MemoryWritePlanner, MemoryRiskFilter, MemoryDedupe |
+| `agent/runtime/observability/` | ObservabilityCollector, ObservabilityExporter, TurnTrace |
+| `agent/runtime/truth/` | VersionTruth, ConfigTruth, CapabilityTruth, TruthReporter |
+| `agent/runtime/stability/` | StabilityGate, StabilityChecks |
 
-`tool_runtime/canonical_registry.py` 定义所有 104 个工具的 handler、input_schema、权限。
+## Runtime metadata keys
 
-### 调用
+Each turn produces these entries in `ctx.metadata`:
 
-```python
-ToolInvocation(
-    tool_id="web.search",
-    arguments={"query": "OSPF RFC"},
-    workspace_id="default",
-    run_id="...",
-)
-→ handler(inv) → {"ok": True, "results": [...]}
+| Key | Source |
+|-----|--------|
+| `runtime_state_snapshot` | RuntimeStateSnapshotter |
+| `task_signal` | TaskDetector |
+| `action_trace` | ActionAuditTrail |
+| `artifact_records` | ArtifactRegistry |
+| `output_summary` | OutputSummarizer |
+| `final_response` | ResponseComposer |
+| `memory_write_plan` | MemoryWritePlanner |
+| `turn_trace` | ObservabilityCollector |
+| `truth_report` | TruthReporter |
+| `stability_report` | StabilityGate |
+
+## Tool execution
+
+Tools are registered in `tool_runtime/canonical_registry.py`. Each tool call goes through:
+
+```
+ActionPlanner -> RiskPolicy -> ApprovalGate -> ToolDispatcher -> ResultNormalizer -> ResultScanner -> ActionAuditTrail
 ```
 
-### 审批
+High-risk tools (`host.shell.exec`, `host.python.exec`) trigger approval gates.
 
-高危工具（host.shell.exec、host.python.exec）触发前端审批弹窗，用户确认后执行。
+## Session management
 
-## Session 管理
+- Each session maintains an independent message history.
+- `SessionMessageStore` persists to `workspaces/{ws}/sessions/{sid}/messages/`.
+- Supports checkpoint, rewind, and export.
 
-- 每个 session 独立的 message history
-- SessionMessageStore 持久化到 `workspaces/{ws}/sessions/{sid}/messages/`
-- 支持 checkpoint/rewind/export
+## Sub-agents
 
-## 子代理
-
-`agent.spawn` 和 `agent.team.run` 支持多代理协作，但当前主要用单 agent 模式。
+`agent.spawn` and `agent.team.run` support multi-agent collaboration. Primary mode is single agent.

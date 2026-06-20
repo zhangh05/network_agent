@@ -22,8 +22,7 @@ Implemented in this branch:
 - `context_builder.py` has been converted from a large all-in-one function into an orchestration pipeline.
 - `agent/runtime/context_history.py` owns initial history-window extraction and durable SessionMessageStore hydration helpers.
 - `agent/runtime/context_tools.py` owns follow-up detection, scene routing, deterministic planning, and per-turn visible-tool allowlists.
-- `agent/runtime/context_safe.py` owns ContextBundle → SafeContext extraction, RAG/memory injection scanning, and scan metadata.
-- `agent/runtime/context_compaction.py` owns token estimation and layered auto-compaction decisions.
+- `agent/runtime/cognition/` owns scene decision, evidence pipeline, and prompt compilation (replaced the former context_safe and context_compaction modules).
 - Transport and stream mode are attached to turn metadata.
 - Tool visibility metadata is produced by the planner: scene, reason, visible tools, local-ops status, baseline tools, and filtered tools.
 - Unknown tools fail closed in the deterministic planner.
@@ -32,7 +31,7 @@ Implemented in this branch:
 
 Follow-up implementation target:
 
-- Move RuntimeLoop history hydration to `context_history.hydrate_history_from_store()` when doing the next loop-stage refactor.
+- Move turn history hydration to `context_history.hydrate_history_from_store()` when doing the next loop-stage refactor.
 - Add context/run store hardening where those stores still use fixed temp files or swallow persistence failures.
 - Surface scan/compaction metadata in the frontend Inspector decision panel.
 
