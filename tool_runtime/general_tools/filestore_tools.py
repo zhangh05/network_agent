@@ -20,6 +20,7 @@ def _fail(tool_id: str, error: str, **kwargs) -> dict[str, Any]:
     kwargs.setdefault("tool_id", tool_id)
     kwargs["error"] = error
     kwargs.setdefault("summary", error)
+    kwargs.setdefault("errors", [error])
     return kwargs
 
 
