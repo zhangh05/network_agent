@@ -4,6 +4,11 @@
 artifact_id = art_<uuid[:16]> (unique per object, not content-based).
 sha256 = content fingerprint (for dedup reference, not for identity).
 source_path validated against allowed directories only.
+
+Current runtime storage model:
+- artifact content is always stored through storage.file_store
+- artifact metadata is stored in workspaces/<ws>/index/artifacts.jsonl
+- runtime no longer writes artifact content or metadata to legacy files/agent
 """
 
 import json, hashlib, os, re, time, shutil, uuid
@@ -17,8 +22,14 @@ from artifacts.classifier import classify_file
 ROOT = Path(__file__).resolve().parent.parent
 WS_ROOT = ROOT / "workspaces"
 
-# Allowed source directories for source_path reads
-ALLOWED_SOURCE_DIRS = ["files/upload", "files/agent", "shared"]
+# Allowed source directories for source_path reads. Legacy files/upload and
+# files/agent are intentionally not allowed for new runtime reads.
+ALLOWED_SOURCE_DIRS = [
+    "files/user_upload",
+    "files/agent_output",
+    "files/knowledge",
+    "shared",
+]
 
 MAX_FILE_SIZE = 200 * 1024 * 1024  # 200MB
 
@@ -56,6 +67,33 @@ def _index_path(ws_id: str) -> Path:
     return _get_ws_root() / ws_id / "sys" / "artifacts.index.json"
 
 
+def _artifact_records_path(ws_id: str) -> Path:
+    from workspace.ids import validate_workspace_id
+    ws_id = validate_workspace_id(ws_id)
+    return _get_ws_root() / ws_id / "index" / "artifacts.jsonl"
+
+
+def _read_artifact_record_dicts(ws_id: str) -> list[dict]:
+    p = _artifact_records_path(ws_id)
+    if not p.is_file():
+        return []
+    records: list[dict] = []
+    for line in p.read_text(encoding="utf-8").splitlines():
+        if not line.strip():
+            continue
+        try:
+            records.append(json.loads(line))
+        except json.JSONDecodeError:
+            continue
+    return records
+
+
+def _artifact_record_from_dict(data: dict) -> ArtifactRecord:
+    return ArtifactRecord(**{
+        k: v for k, v in data.items() if k in ArtifactRecord.__dataclass_fields__
+    })
+
+
 def _load_index(ws_id: str) -> ArtifactIndex:
     p = _index_path(ws_id)
     if p.is_file():
@@ -66,6 +104,13 @@ def _load_index(ws_id: str) -> ArtifactIndex:
                                 updated_at=d.get("updated_at", ""))
         except Exception:
             pass
+
+    # Fallback to the metadata JSONL if the lightweight sys index is absent.
+    records = _read_artifact_record_dicts(ws_id)
+    if records:
+        ids = [r.get("artifact_id", "") for r in records if r.get("artifact_id")]
+        return ArtifactIndex(workspace_id=ws_id, artifact_ids=ids,
+                             artifact_count=len(ids), updated_at="")
     return ArtifactIndex(workspace_id=ws_id)
 
 
@@ -79,8 +124,38 @@ def _save_index(idx: ArtifactIndex):
 
 def _record_meta_dict(rec: ArtifactRecord) -> dict:
     data = rec.as_dict()
-    data["path"] = rec.path
+    # Keep complete storage-critical metadata in the JSONL record even if the
+    # public schema summary omits some fields.
+    data.update({
+        "path": rec.path,
+        "relative_path": rec.relative_path,
+        "description": rec.description,
+        "mime_type": rec.mime_type,
+        "file_ext": rec.file_ext,
+        "size_bytes": rec.size_bytes,
+        "sha256": rec.sha256,
+        "file_id": rec.file_id,
+        "created_by": rec.created_by,
+        "metadata": rec.metadata,
+        "derived_from": rec.derived_from,
+        "references": rec.references,
+    })
     return data
+
+
+def _save_artifact_record(rec: ArtifactRecord) -> None:
+    """Upsert one ArtifactRecord into index/artifacts.jsonl."""
+    p = _artifact_records_path(rec.workspace_id or "default")
+    p.parent.mkdir(parents=True, exist_ok=True)
+    records = [
+        r for r in _read_artifact_record_dicts(rec.workspace_id or "default")
+        if r.get("artifact_id") != rec.artifact_id
+    ]
+    records.append(_record_meta_dict(rec))
+    p.write_text(
+        "\n".join(json.dumps(r, ensure_ascii=False, default=str) for r in records) + "\n",
+        encoding="utf-8",
+    )
 
 
 def _logical_type_for_artifact(artifact_type: str) -> str:
@@ -102,20 +177,17 @@ def _validate_source_path(source_path: str, workspace_id: str = "") -> bool:
     if not source_path:
         return True
 
-    # Absolute vs relative
     try:
         resolved = Path(source_path).resolve()
     except Exception:
         return False
 
-    # Reject known dangerous paths
     banned = ["/etc/", "/var/", "/tmp/", "config/LLM", ".git/", "memory/data/"]
     p_str = str(resolved)
     for bp in banned:
         if bp in p_str:
             return False
 
-    # Build allowed parents
     allowed_parents = []
     root_path = ROOT.resolve()
     ws_root = _get_ws_root().resolve()
@@ -130,8 +202,10 @@ def _validate_source_path(source_path: str, workspace_id: str = "") -> bool:
     allowed_parents.append(ws_root / "runtime" / "uploads")
     if workspace_id:
         ws = ws_root / workspace_id
-        allowed_parents.append(ws / "files" / "upload")
-        allowed_parents.append(ws / "files" / "agent")
+        for rel in ALLOWED_SOURCE_DIRS:
+            if rel.startswith("shared"):
+                continue
+            allowed_parents.append(ws / rel)
 
     for parent in allowed_parents:
         try:
@@ -153,14 +227,12 @@ def save_artifact(workspace_id: str, content: str = "", source_path: str = "",
     from workspace.manager import ensure_workspace
     ensure_workspace(workspace_id)
 
-    # Read from source_path with security validation
     if source_path and not content:
         if not _validate_source_path(source_path, workspace_id):
             return None
         sp = Path(source_path)
         if not sp.is_file():
             return None
-        # Size guard BEFORE read_text()
         max_size = _get_max_size()
         file_size = sp.stat().st_size
         if file_size > max_size:
@@ -171,39 +243,25 @@ def save_artifact(workspace_id: str, content: str = "", source_path: str = "",
     if not content:
         return None
 
-    # Content branch size guard (text content)
     max_size = _get_max_size()
     if len(content.encode("utf-8")) > max_size:
         return None
 
-    # Security check: reject or redact secret content
     if contains_secret(content):
         if sensitivity == "secret":
             content = redact_artifact_content(content)
         else:
             return None
 
-    # Classify
     cls = classify_file(source_path, content)
     artifact_type = artifact_type or cls["artifact_type"]
     sensitivity = sensitivity or cls["sensitivity"]
 
-    # Unique artifact_id (not content-based)
     art_id = _new_artifact_id()
-    sha = hashlib.sha256(content.encode()).hexdigest()
-    size = len(content.encode())
-
-    # Meta directory for backward compatibility (meta.json only, not content)
-    art_dir = _get_ws_root() / workspace_id / "files" / "agent"
-    art_dir.mkdir(parents=True, exist_ok=True)
-
-    # Write content through FileStore (main path for new artifacts)
     ext = cls["file_ext"] or "txt"
     logical_type = _logical_type_for_artifact(artifact_type)
     file_kind = cls["file_ext"] or ext or "text"
 
-    file_id = ""
-    fname = ""
     try:
         from storage.file_store import write_agent_output
         file_rec = write_agent_output(
@@ -223,20 +281,13 @@ def save_artifact(workspace_id: str, content: str = "", source_path: str = "",
                 "write_path": "filestore",
             },
         )
-        file_id = file_rec.file_id
-        ws = _get_ws_root() / workspace_id
-        fpath = (ws / file_rec.path).resolve()
-        fname = file_rec.path
-        size = file_rec.size_bytes
-        sha = file_rec.sha256
     except Exception:
-        # Fallback to legacy write — still used when FileStore path resolution fails
-        base = _safe_name(title or artifact_type)
-        fname = f"{base}_{art_id}.{ext}"
-        fpath = art_dir / fname
-        fpath.write_text(content)
+        # No legacy fallback: if FileStore fails, artifact creation fails.
+        return None
 
-    # Build record
+    ws = _get_ws_root() / workspace_id
+    fpath = (ws / file_rec.path).resolve()
+    fname = file_rec.path
     title = title or f"{artifact_type}: {art_id}"
     rec = ArtifactRecord(
         artifact_id=art_id, workspace_id=workspace_id, run_id=run_id,
@@ -245,35 +296,27 @@ def save_artifact(workspace_id: str, content: str = "", source_path: str = "",
         scope=scope, sensitivity=sensitivity, lifecycle="active",
         path=str(fpath), relative_path=fname,
         mime_type=cls["mime_type"], file_ext=cls["file_ext"],
-        size_bytes=size, sha256=sha, source=source,
-        file_id=file_id,
+        size_bytes=file_rec.size_bytes, sha256=file_rec.sha256, source=source,
+        file_id=file_rec.file_id,
         metadata=redact_metadata(metadata or {}),
         tags=tags or cls["tags"],
         redaction_applied=cls["contains_secret"],
     )
 
-    # Write metadata
-    meta_path = art_dir / f"{art_id}.meta.json"
-    meta_dict = _record_meta_dict(rec)
-    if file_id:
-        meta_dict["storage_managed"] = True
-    meta_path.write_text(json.dumps(meta_dict, indent=2, ensure_ascii=False))
+    _save_artifact_record(rec)
 
-    # Update index
     idx = _load_index(workspace_id)
     if art_id not in idx.artifact_ids:
         idx.artifact_ids.append(art_id)
     _save_index(idx)
 
-    # Update run artifact index
     if run_id:
         _update_run_index(workspace_id, run_id, art_id, artifact_type, title)
 
-    # ReferenceIndex: link file to artifact (non-fatal)
     try:
         from storage.reference_index import add_reference
-        if file_id:
-            add_reference(workspace_id, file_id, "artifact", art_id, "output",
+        if rec.file_id:
+            add_reference(workspace_id, rec.file_id, "artifact", art_id, "output",
                           metadata={"artifact_type": artifact_type, "run_id": run_id})
         src_file = (metadata or {}).get("source_file_id")
         if src_file:
@@ -289,16 +332,12 @@ def get_artifact(workspace_id: str, artifact_id: str) -> Optional[ArtifactRecord
     """Get artifact by exact ID (not sha256)."""
     from workspace.ids import validate_workspace_id
     workspace_id = validate_workspace_id(workspace_id)
-    for src in ("upload", "agent"):
-        meta = _get_ws_root() / workspace_id / "files" / src / f"{artifact_id}.meta.json"
-        if meta.is_file():
+    for data in reversed(_read_artifact_record_dicts(workspace_id)):
+        if data.get("artifact_id") == artifact_id:
             try:
-                data = json.loads(meta.read_text())
-                return ArtifactRecord(**{
-                    k: v for k, v in data.items() if k in ArtifactRecord.__dataclass_fields__
-                })
+                return _artifact_record_from_dict(data)
             except Exception:
-                pass
+                return None
     return None
 
 
@@ -315,7 +354,6 @@ def read_artifact_content(workspace_id: str, artifact_id: str,
     if rec.lifecycle == "deleted":
         return None
 
-    # FileStore-first: use file_id if available
     file_id = getattr(rec, "file_id", "") or (rec.metadata or {}).get("file_id", "")
     if file_id:
         try:
@@ -324,7 +362,6 @@ def read_artifact_content(workspace_id: str, artifact_id: str,
         except Exception:
             pass
 
-    # No valid file_id — artifact may not be migrated yet
     return None
 
 
@@ -335,28 +372,41 @@ def list_artifacts(workspace_id: str, run_id: str = None, artifact_type: str = N
     results = []
     for aid in idx.artifact_ids:
         rec = get_artifact(workspace_id, aid)
-        if not rec: continue
-        if not include_deleted and rec.lifecycle == "deleted": continue
-        if run_id and rec.run_id != run_id: continue
-        if artifact_type and rec.artifact_type != artifact_type: continue
-        if scope and rec.scope != scope: continue
-        if sensitivity and rec.sensitivity != sensitivity: continue
+        if not rec:
+            continue
+        if not include_deleted and rec.lifecycle == "deleted":
+            continue
+        if run_id and rec.run_id != run_id:
+            continue
+        if artifact_type and rec.artifact_type != artifact_type:
+            continue
+        if scope and rec.scope != scope:
+            continue
+        if sensitivity and rec.sensitivity != sensitivity:
+            continue
         results.append(sanitize_record(rec, include_metadata=True))
-        if len(results) >= limit: break
+        if len(results) >= limit:
+            break
     return results
+
+
+def update_artifact_tags(workspace_id: str, artifact_id: str, tags: list) -> bool:
+    rec = get_artifact(workspace_id, artifact_id)
+    if not rec:
+        return False
+    rec.tags = list(tags or [])
+    rec.updated_at = time.strftime("%Y-%m-%dT%H:%M:%S")
+    _save_artifact_record(rec)
+    return True
 
 
 def delete_artifact(workspace_id: str, artifact_id: str) -> bool:
     rec = get_artifact(workspace_id, artifact_id)
-    if not rec: return False
+    if not rec:
+        return False
     rec.lifecycle = "deleted"
     rec.updated_at = time.strftime("%Y-%m-%dT%H:%M:%S")
-    for src in ("agent", "upload"):
-        meta_path = _get_ws_root() / workspace_id / "files" / src / f"{artifact_id}.meta.json"
-        if meta_path.is_file():
-            meta_path.write_text(json.dumps(_record_meta_dict(rec), indent=2, ensure_ascii=False))
-            break
-    # Also remove from knowledge index
+    _save_artifact_record(rec)
     _remove_from_knowledge_index(workspace_id, artifact_id)
     return True
 
@@ -379,26 +429,27 @@ def _remove_from_knowledge_index(workspace_id: str, artifact_id: str):
 
 
 def promote_artifact(workspace_id: str, artifact_id: str, target_scope: str) -> Optional[ArtifactRecord]:
-    if target_scope not in ("workspace", "shared", "global"): return None
+    if target_scope not in ("workspace", "shared", "global"):
+        return None
     rec = get_artifact(workspace_id, artifact_id)
-    if not rec: return None
-    if rec.sensitivity == "secret" and target_scope == "shared": return None
+    if not rec:
+        return None
+    if rec.sensitivity == "secret" and target_scope == "shared":
+        return None
     if rec.sensitivity == "sensitive" and target_scope == "shared" \
-            and not rec.metadata.get("_explicit_allow_sensitive_share"): return None
+            and not rec.metadata.get("_explicit_allow_sensitive_share"):
+        return None
     rec.scope = target_scope
     rec.lifecycle = "promoted"
     rec.updated_at = time.strftime("%Y-%m-%dT%H:%M:%S")
-    for src in ("agent", "upload"):
-        meta_path = _get_ws_root() / workspace_id / "files" / src / f"{artifact_id}.meta.json"
-        if meta_path.is_file():
-            meta_path.write_text(json.dumps(_record_meta_dict(rec), indent=2, ensure_ascii=False))
-            break
+    _save_artifact_record(rec)
     return rec
 
 
 def summarize_artifact_content(workspace_id: str, artifact_id: str) -> dict:
     rec = get_artifact(workspace_id, artifact_id)
-    if not rec: return {}
+    if not rec:
+        return {}
     return {"artifact_id": rec.artifact_id, "artifact_type": rec.artifact_type,
             "title": rec.title, "size_bytes": rec.size_bytes,
             "sensitivity": rec.sensitivity, "summary": rec.summary,
@@ -431,6 +482,7 @@ def sanitize_record(rec: ArtifactRecord, include_metadata: bool = False) -> dict
         "lifecycle": rec.lifecycle, "relative_path": rec.relative_path,
         "mime_type": rec.mime_type, "file_ext": rec.file_ext,
         "size_bytes": rec.size_bytes, "sha256_short": rec.sha256[:12] if rec.sha256 else "",
+        "file_id": rec.file_id,
         "source": rec.source, "created_at": rec.created_at, "updated_at": rec.updated_at,
         "tags": rec.tags, "redaction_applied": rec.redaction_applied,
     }
