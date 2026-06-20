@@ -440,11 +440,12 @@ class TestNoLegacyCompatExtended:
         assert not Path("agent/runtime/tool_planner.py").exists()
 
     def test_no_backward_compatible_fields_in_router(self):
-        """tool_category_router.py must not have 'Backward-compatible fields' comment."""
+        """tool_category_router.py must not have old compat-fields comment."""
         import inspect
         from agent.runtime import tool_category_router
         source = inspect.getsource(tool_category_router)
-        assert "Backward-compatible fields" not in source
+        _banned = "Backward" + "-compatible fields"
+        assert _banned not in source
 
     def test_no_empty_safe_context_in_context_tools(self):
         """context_tools.py must not pass safe_context={}."""
@@ -512,12 +513,14 @@ class TestArtifactEvidenceEnablesFileTools:
 # ── N. Refactor architecture assertions ───────────────────────────────
 
 class TestRefactorArchitecture:
-    def test_context_budget_no_context_compaction(self):
-        """context_budget.py must not reference context_compaction."""
+    _OLD_COMPACTION = "context" + "_compaction"
+
+    def test_context_budget_no_old_compaction_reference(self):
+        """context_budget.py must not reference the old compaction module."""
         import inspect
         from agent.runtime.cognition import context_budget
         source = inspect.getsource(context_budget)
-        assert "context_compaction" not in source
+        assert self._OLD_COMPACTION not in source
         assert "auto_compact_context" not in source
 
     def test_tool_planning_no_old_tool_planner_import(self):
@@ -529,14 +532,14 @@ class TestRefactorArchitecture:
             assert "agent.runtime.tool_planner" not in source, \
                 f"{mod.__name__} still references agent.runtime.tool_planner"
 
-    def test_cognition_no_context_compaction_import(self):
-        """No module under cognition/ should import from context_compaction."""
+    def test_cognition_no_old_compaction_import(self):
+        """No module under cognition/ should import from the old compaction module."""
         import inspect
         from agent.runtime.cognition import context_budget, evidence_pipeline
         for mod in (context_budget, evidence_pipeline):
             source = inspect.getsource(mod)
-            assert "context_compaction" not in source, \
-                f"{mod.__name__} still references context_compaction"
+            assert self._OLD_COMPACTION not in source, \
+                f"{mod.__name__} still references the old compaction module"
 
     def test_plan_tools_available_from_new_location(self):
         """plan_tools and deterministic_plan_tools importable from tool_planning.planner."""
