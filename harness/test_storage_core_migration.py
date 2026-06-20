@@ -37,7 +37,7 @@ def storage_ws(monkeypatch, tmp_path):
 
 def test_save_artifact_writes_through_filestore(storage_ws):
     from artifacts.store import save_artifact
-    from storage.file_store import list_files
+    from storage.file_store import list_files, resolve_file_path
 
     rec = save_artifact(
         workspace_id="test_ws",
@@ -55,7 +55,31 @@ def test_save_artifact_writes_through_filestore(storage_ws):
     matched = [f for f in files if f.get("file_id") == rec.file_id]
     assert matched, "FileRecord must exist in index"
     assert matched[0]["metadata"].get("write_path") == "filestore"
-    assert matched[0]["metadata"].get("tracking_only") is not True
+    # Verify file is in FileStore-managed directory, not legacy files/agent/
+    assert matched[0]["path"].startswith("files/agent_output/")
+    assert not matched[0]["path"].startswith("files/agent/")
+
+    # Verify physical file path
+    physical = resolve_file_path("test_ws", rec.file_id)
+    assert "files/agent_output" in str(physical).replace("\\", "/")
+    assert physical.exists()
+
+
+def test_new_artifact_does_not_write_legacy_content_file(storage_ws):
+    """New artifacts must not write content files under files/agent/ — only meta.json is allowed."""
+    from artifacts.store import save_artifact
+
+    rec = save_artifact(
+        workspace_id="test_ws",
+        content="new artifact content",
+        artifact_type="report",
+        title="new report",
+    )
+
+    legacy_files = list((storage_ws / "test_ws" / "files" / "agent").glob("*new_report*"))
+    legacy_content_files = [p for p in legacy_files if not p.name.endswith(".meta.json")]
+    assert legacy_content_files == []
+    assert rec.file_id
 
 
 def test_save_artifact_creates_reference_index(storage_ws):

@@ -36,7 +36,7 @@ The `storage/` package provides a unified file management layer for the workspac
 | `config_analysis/service.py` | ✅ Supports `file_id` parameter |
 | `workspace/message_store.py` | ✅ Large content routes through `save_artifact` + FileStore |
 | `agent/modules/pcap/service.py` | ✅ Supports `file_id`; result artifacts; no new sidecar writes |
-| `agent/modules/knowledge/ingestion.py` | ⏳ file_id parameter planned |
+| `agent/modules/knowledge/ingestion.py` | ✅ import supports `file_id`; normalized markdown stored as FileRecord |
 | `backend/api/artifact_routes.py` | ✅ Upload preserves originals via `import_user_upload` |
 
 ## Directory Structure
@@ -68,7 +68,6 @@ workspaces/<ws>/
 
 ## Pending Work
 
-- Knowledge ingestion: file_id import, normalized file records
 - Artifact upload consumers: follow-up UI/module flows should use returned file_id
 - Legacy path migration (files/upload → files/user_upload)
 - Historical workspace data migration

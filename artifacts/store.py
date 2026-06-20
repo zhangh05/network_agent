@@ -193,36 +193,26 @@ def save_artifact(workspace_id: str, content: str = "", source_path: str = "",
     sha = hashlib.sha256(content.encode()).hexdigest()
     size = len(content.encode())
 
-    # Determine subdirectory (legacy compat — meta still goes here)
+    # Meta directory for backward compatibility (meta.json only, not content)
     art_dir = _get_ws_root() / workspace_id / "files" / "agent"
     art_dir.mkdir(parents=True, exist_ok=True)
 
+    # Write content through FileStore (main path for new artifacts)
     ext = cls["file_ext"] or "txt"
+    logical_type = _logical_type_for_artifact(artifact_type)
+    file_kind = cls["file_ext"] or ext or "text"
 
-    # Write content to legacy files/agent/ for backward compatibility.
-    # TODO: migrate to files/agent_output/ via FileStore.write_agent_output
-    #       once all consumers (knowledge import, artifact read, etc.) support
-    #       the new directory structure.
-    base = _safe_name(title or artifact_type)
-    fname = f"{base}_{art_id}.{ext}"
-    fpath = art_dir / fname
-    fpath.write_text(content)
-
-    # Create a FileRecord for this artifact write
     file_id = ""
-    _lt = _logical_type_for_artifact(artifact_type)
+    fname = ""
     try:
-        from storage.file_store import create_file_record
-        ws = _get_ws_root() / workspace_id
-        rel_path = str(fpath.relative_to(ws))
-        file_rec = create_file_record(
+        from storage.file_store import write_agent_output
+        file_rec = write_agent_output(
             workspace_id=workspace_id,
-            logical_type=_lt,
-            file_kind=ext,
-            path=rel_path,
-            original_name=fname,
-            size_bytes=size,
-            sha256=sha,
+            content=content,
+            logical_type=logical_type,
+            file_kind=file_kind,
+            title=title or artifact_type or art_id,
+            ext=ext,
             source=source,
             run_id=run_id,
             sensitivity=sensitivity,
@@ -234,8 +224,17 @@ def save_artifact(workspace_id: str, content: str = "", source_path: str = "",
             },
         )
         file_id = file_rec.file_id
+        ws = _get_ws_root() / workspace_id
+        fpath = (ws / file_rec.path).resolve()
+        fname = file_rec.path
+        size = file_rec.size_bytes
+        sha = file_rec.sha256
     except Exception:
-        pass
+        # Fallback to legacy write — still used when FileStore path resolution fails
+        base = _safe_name(title or artifact_type)
+        fname = f"{base}_{art_id}.{ext}"
+        fpath = art_dir / fname
+        fpath.write_text(content)
 
     # Build record
     title = title or f"{artifact_type}: {art_id}"
@@ -315,6 +314,17 @@ def read_artifact_content(workspace_id: str, artifact_id: str,
         return None
     if rec.lifecycle == "deleted":
         return None
+
+    # FileStore-first: use file_id if available
+    file_id = getattr(rec, "file_id", "") or (rec.metadata or {}).get("file_id", "")
+    if file_id:
+        try:
+            from storage.file_store import read_file_content
+            return read_file_content(workspace_id, file_id)
+        except Exception:
+            pass
+
+    # Legacy path fallback
     path = Path(rec.path) if rec.path else None
     if path and path.is_file():
         return path.read_text()
