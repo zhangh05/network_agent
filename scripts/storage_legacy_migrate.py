@@ -62,14 +62,15 @@ def main():
     # Save per-workspace report only in apply mode.
     # dry-run must not modify workspace files.
     if not args.dry_run:
+        from storage.paths import workspace_root
+
         for r in results:
             ws = r["workspace_id"]
-        from storage.paths import workspace_root
-        idx_dir = workspace_root(ws) / "index"
-        idx_dir.mkdir(parents=True, exist_ok=True)
-        report_path = idx_dir / "legacy_migration_report.json"
-        with open(report_path, "w", encoding="utf-8") as f:
-            json.dump(r, f, ensure_ascii=False, indent=2, default=str)
+            idx_dir = workspace_root(ws) / "index"
+            idx_dir.mkdir(parents=True, exist_ok=True)
+            report_path = idx_dir / "legacy_migration_report.json"
+            with open(report_path, "w", encoding="utf-8") as f:
+                json.dump(r, f, ensure_ascii=False, indent=2, default=str)
 
 
 if __name__ == "__main__":
