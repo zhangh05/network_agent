@@ -21,14 +21,8 @@ _CHAIN_ORDER = {
     "web.search": 21,
     "web.page.summarize": 22,
     "web.page.extract_links": 23,
-    "network.config.parse": 30,
-    "network.interface.extract": 31,
-    "network.route.extract": 32,
-    "network.config.translate": 33,
-    "network.pcap.parse": 34,
-    "network.pcap.session": 35,
-    "network.pcap.filter": 36,
-    "network.pcap.align": 37,
+    "config.analysis.run": 30,
+    "pcap.analysis.run": 34,
     "knowledge.search": 41,
     "knowledge.chunk.read": 42,
     "knowledge.source.read": 43,
@@ -338,11 +332,7 @@ def _build_tool_chain(signals: dict[str, bool], candidates: set[str]) -> list[di
             "workspace.file.list",
             "workspace.file.preview",
         ])
-        add("离线解析网络配置", ["network.config.parse"])
-        add("提取接口与路由信息", [
-            "network.interface.extract",
-            "network.route.extract",
-        ])
+        add("离线分析网络配置", ["config.analysis.run"])
 
     if signals.get("mentions_config_translate"):
         add("读取待翻译配置文件内容", [
@@ -350,19 +340,14 @@ def _build_tool_chain(signals: dict[str, bool], candidates: set[str]) -> list[di
             "workspace.file.list",
             "workspace.file.preview",
         ])
-        add("离线翻译网络配置", ["network.config.translate"])
+        add("离线翻译网络配置", ["config.analysis.run"])
 
     if signals.get("mentions_packet"):
-        add("读取并解析 PCAP 报文文件", [
+        add("读取 PCAP 报文文件", [
             "workspace.file.read",
             "workspace.file.list",
-            "network.pcap.parse",
         ])
-        add("查看报文连接与流量分组", [
-            "network.pcap.session",
-            "network.pcap.filter",
-        ])
-        add("分析 TCP 序列、重传、乱序和 gap", ["network.pcap.align"])
+        add("离线分析 PCAP 报文、连接和 TCP 序列", ["pcap.analysis.run"])
 
     if signals.get("mentions_host"):
         add("查询或操作当前本机环境", [

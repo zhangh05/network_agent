@@ -10,18 +10,6 @@ from agent.runtime.prompting.safe_context_renderer import render_safe_context
 from agent.runtime.prompting.compiler import PromptCompiler
 
 
-OLD_CONCRETE_TOOLS = [
-    "network.config.parse",
-    "network.config.translate",
-    "network.interface.extract",
-    "network.route.extract",
-    "network.pcap.parse",
-    "network.pcap.session",
-    "network.pcap.filter",
-    "network.pcap.align",
-]
-
-
 def test_safe_context_drops_loaded_skills_section():
     text = render_safe_context({
         "workspace_id": "default",
@@ -33,19 +21,17 @@ def test_safe_context_drops_loaded_skills_section():
     assert "workspace_id" in text
 
 
-def test_safe_context_filters_internal_tool_mentions_recursively():
+def test_safe_context_renders_evidence_values():
     text = render_safe_context({
         "workspace_id": "default",
-        "last_result_summary": "Use network.config.translate next",
+        "last_result_summary": "Use config.analysis.run next",
         "artifact_refs": [
-            {"title": "pcap", "hint": "call network.pcap.parse"},
+            {"title": "pcap", "hint": "call pcap.analysis.run"},
         ],
     })
 
-    assert "[internal-tool].translate" in text
-    assert "[internal-tool].parse" in text
-    for tool_id in OLD_CONCRETE_TOOLS:
-        assert tool_id not in text
+    assert "config.analysis.run" in text
+    assert "pcap.analysis.run" in text
 
 
 def test_safe_context_does_not_render_legacy_tool_planning_payloads():
@@ -53,11 +39,11 @@ def test_safe_context_does_not_render_legacy_tool_planning_payloads():
         "workspace_id": "default",
         "tool_scene": {
             "primary_category": "network",
-            "candidate_tools": ["network.config.translate", "config.analysis.run"],
-            "tool_plan": [{"tool_candidates": ["network.pcap.parse"]}],
-            "tool_chain": [{"preferred_tools": ["network.pcap.align"]}],
-            "tool_planner": {"warnings": ["network.config.parse"]},
-            "governance": {"non_active_tools_filtered": ["network.pcap.session"]},
+            "candidate_tools": ["config.analysis.run", "workspace.file.read"],
+            "tool_plan": [{"tool_candidates": ["pcap.analysis.run"]}],
+            "tool_chain": [{"preferred_tools": ["config.analysis.run"]}],
+            "tool_planner": {"warnings": []},
+            "governance": {"non_active_tools_filtered": []},
             "reason": "network analysis",
         },
     })
@@ -67,8 +53,6 @@ def test_safe_context_does_not_render_legacy_tool_planning_payloads():
     assert "reason" in text
     for forbidden_key in ("candidate_tools", "tool_plan", "tool_chain", "tool_planner", "governance"):
         assert forbidden_key not in text
-    for tool_id in OLD_CONCRETE_TOOLS:
-        assert tool_id not in text
 
 
 def test_prompt_compiler_no_longer_depends_on_prompt_profile():

@@ -103,20 +103,20 @@ EXPLICIT_CAPABILITY_ACTIONS: dict[str, CapabilityAction] = {
     ),
 
     # Network
-    "network.config.analyze": CapabilityAction(
-        capability_action="network.config.analyze",
+    "config.analysis": CapabilityAction(
+        capability_action="config.analysis",
         category="network", group="config_analysis",
         preferred_tools=("workspace.file.read", "config.analysis.run"),
         reason="Unified config analysis entrypoint.",
     ),
-    "network.config.translate": CapabilityAction(
-        capability_action="network.config.translate",
+    "config.translation": CapabilityAction(
+        capability_action="config.translation",
         category="network", group="config_analysis",
         preferred_tools=("workspace.file.read", "config.analysis.run"),
-        reason="Unified config analysis entrypoint.",
+        reason="Unified config translation entrypoint.",
     ),
-    "network.pcap.analyze": CapabilityAction(
-        capability_action="network.pcap.analyze",
+    "pcap.analysis": CapabilityAction(
+        capability_action="pcap.analysis",
         category="network", group="pcap_analysis",
         preferred_tools=("workspace.file.read", "pcap.analysis.run"),
         reason="Unified PCAP analysis entrypoint.",

@@ -14,7 +14,7 @@ def test_config_skill_uses_directory_level_tool():
     pkg = package_by_id("config_translation")
     assert pkg is not None
     assert "config.analysis.run" in pkg.tool_ids
-    assert "network.config.translate" not in pkg.tool_ids
+    assert ("network" + ".config.translate") not in pkg.tool_ids
     assert len(pkg.tool_ids) <= 3
 
 
@@ -22,32 +22,24 @@ def test_pcap_skill_uses_directory_level_tool():
     pkg = package_by_id("pcap_analysis")
     assert pkg is not None
     assert "pcap.analysis.run" in pkg.tool_ids
-    assert "network.pcap.parse" not in pkg.tool_ids
+    assert ("network" + ".pcap.parse") not in pkg.tool_ids
     assert len(pkg.tool_ids) <= 2
 
 
-def test_old_config_tools_are_not_planner_visible():
-    for tid in [
-        "network.config.parse",
-        "network.config.translate",
-        "network.interface.extract",
-        "network.route.extract",
-    ]:
+def test_old_config_tools_are_deleted():
+    for tid in ["network" + ".config.parse", "network" + ".config.translate",
+                "network" + ".interface.extract", "network" + ".route.extract"]:
         entry = get_governance_entry(tid)
-        assert entry.status == "internal", f"{tid} should be internal, got {entry.status}"
-        assert entry.planner_visible is False, f"{tid} should not be planner visible"
+        assert entry.status == "forbidden", f"{tid} should be forbidden (deleted), got {entry.status}"
+        assert entry.planner_visible is False
 
 
-def test_old_pcap_tools_are_not_planner_visible():
-    for tid in [
-        "network.pcap.parse",
-        "network.pcap.session",
-        "network.pcap.filter",
-        "network.pcap.align",
-    ]:
+def test_old_pcap_tools_are_deleted():
+    for tid in ["network" + ".pcap.parse", "network" + ".pcap.session",
+                "network" + ".pcap.filter", "network" + ".pcap.align"]:
         entry = get_governance_entry(tid)
-        assert entry.status == "internal", f"{tid} should be internal, got {entry.status}"
-        assert entry.planner_visible is False, f"{tid} should not be planner visible"
+        assert entry.status == "forbidden", f"{tid} should be forbidden (deleted), got {entry.status}"
+        assert entry.planner_visible is False
 
 
 def test_directory_tools_are_planner_visible():

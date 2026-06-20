@@ -2,11 +2,11 @@
 
 import pytest
 
-from backend.api.pcap_routes import (
-    _PCAP_SESSIONS,
-    _filter_by_5tuple,
-    _get_connection_groups,
-    _tcp_stream_align,
+from agent.modules.pcap.core import (
+    PCAP_SESSIONS as _PCAP_SESSIONS,
+    filter_by_5tuple as _filter_by_5tuple,
+    get_connection_groups as _get_connection_groups,
+    tcp_stream_align as _tcp_stream_align,
 )
 from backend.main import app as _flask_app
 

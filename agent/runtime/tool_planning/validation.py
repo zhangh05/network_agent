@@ -134,14 +134,12 @@ def _semantic_checks(user_input: str, candidate_set: set[str]) -> list[str]:
     file_analysis = any(k in lower for k in ("上传", "配置文件", "文件", "workspace", "pcap", "pdf",
                                               "这个配置", "这份配置", "帮我看", "帮我分析"))
     analysis_keywords = any(k in lower for k in ("分析", "解析", "检查", "提取", "看看", "review", "analyze"))
-    if (file_analysis and analysis_keywords and "network.config.parse" in candidate_set):
+    if (file_analysis and analysis_keywords and "config.analysis.run" in candidate_set):
         if not {"workspace.file.read", "workspace.file.preview"} & candidate_set:
             errors.append("file_analysis_requires_workspace_read_or_preview")
 
     packet_request = any(k in lower for k in ("pcap", "pcapng", "报文", "抓包", "五元组", "tcp流", "tcp 流", "重传", "乱序", "seq gap"))
-    if packet_request and "network.pcap.parse" in candidate_set:
-        if "network.pcap.align" not in candidate_set:
-            errors.append("pcap_request_requires_tcp_align_tool")
+    if packet_request and "pcap.analysis.run" in candidate_set:
         if "workspace.file.read" not in candidate_set:
             errors.append("pcap_request_requires_workspace_read")
 

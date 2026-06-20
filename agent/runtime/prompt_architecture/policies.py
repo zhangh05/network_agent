@@ -18,7 +18,6 @@ Respond in the user's language. Be concise and operational.
 - Platform Services provide infrastructure. Workspace, knowledge, memory, artifact, runtime, report, and web are platform services, not business modules.
 - Tools are callable adapters. Prefer directory-level business tools.
 - Directory-level business tools are config.analysis.run and pcap.analysis.run.
-- Fine-grained tools such as network.config.* and network.pcap.* are internal adapters and must not be selected directly.
 
 ## Safety rules
 

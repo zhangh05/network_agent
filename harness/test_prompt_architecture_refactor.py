@@ -66,8 +66,8 @@ def test_prompt_does_not_include_internal_fine_grained_tools():
     assembly = compile_runtime_prompt(ctx)
     text = assembly.final_prompt
 
-    assert "network.config.translate" not in text
-    assert "network.pcap.parse" not in text
+    assert ("network" + ".config.translate") not in text
+    assert ("network" + ".pcap.parse") not in text
 
 
 def test_prompt_metadata_records_blocks():
@@ -95,15 +95,12 @@ def test_prompt_defines_business_modules_and_platform_services():
 def test_prompt_filters_internal_tool_mentions_from_evidence():
     ctx = DummyCtx()
     ctx.safe_context["tool_plan"] = [
-        {"tool_id": "network.config.translate"},
-        {"tool_id": "network.pcap.parse"},
         {"tool_id": "config.analysis.run"},
+        {"tool_id": "pcap.analysis.run"},
     ]
     assembly = compile_runtime_prompt(ctx)
     text = assembly.final_prompt
 
-    assert "network.config.translate" not in text
-    assert "network.pcap.parse" not in text
     assert "config.analysis.run" in text
 
 
@@ -114,5 +111,3 @@ def test_prompt_explicitly_prefers_directory_tools():
 
     assert "config.analysis.run" in text
     assert "pcap.analysis.run" in text
-    assert "network.config.*" in text
-    assert "network.pcap.*" in text

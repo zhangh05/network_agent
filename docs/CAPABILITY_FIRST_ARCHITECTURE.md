@@ -118,22 +118,14 @@ Current directory-level business tools are:
 
 They dispatch to module-internal operations through an action argument.
 
-### 5.2 Internal Fine-grained Tool
+### 5.2 Legacy Fine-grained Tools (Deleted)
 
-Old fine-grained tools are retained only as internal compatibility adapters.
+The following legacy fine-grained tools have been deleted from the runtime:
 
-These tools must not be selected directly by the planner:
+- config parse, translate, interface extract, route extract
+- pcap parse, session, filter, align
 
-- network.config.parse
-- network.config.translate
-- network.interface.extract
-- network.route.extract
-- network.pcap.parse
-- network.pcap.session
-- network.pcap.filter
-- network.pcap.align
-
-They must remain status=internal and planner_visible=False.
+They are no longer registered, not in the namespace, and not available as compatibility adapters.
 
 ## 6. Tool Visibility
 
@@ -220,7 +212,7 @@ These invariants must be protected by tests:
 - Business modules are only config_translation, config_analysis, and pcap_analysis.
 - Platform services are not business modules.
 - Directory-level business tools are config.analysis.run and pcap.analysis.run.
-- Old network.config.* and network.pcap.* tools are internal.
+- Legacy fine-grained config and pcap tools are deleted from the runtime.
 - Prompt does not include full tool catalog.
 - Prompt does not include skill_prompt.
 - Prompt does not include concrete old fine-grained tool names.

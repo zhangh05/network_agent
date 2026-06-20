@@ -190,7 +190,8 @@ class TestBoundary:
                     with open(os.path.join(dirpath,f),encoding="utf-8",errors="replace") as fh:
                         assert "agent.llm" not in fh.read()
     def test_skill_no_llm(self):
-        with open(os.path.join(ROOT,"skills","config_translation","adapter.py"),encoding="utf-8") as f:
+        """Config analysis service must not import agent.llm."""
+        with open(os.path.join(ROOT,"agent","modules","config_analysis","service.py"),encoding="utf-8") as f:
             assert "agent.llm" not in f.read()
     def test_executor_no_llm(self):
         """Executor must not import agent.llm or call LLM APIs directly.

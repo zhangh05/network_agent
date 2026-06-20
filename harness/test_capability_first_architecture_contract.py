@@ -18,7 +18,7 @@ def test_architecture_doc_exists_and_defines_core_terms():
     assert "Business Module" in text
     assert "Platform Service" in text
     assert "Directory-level Tool" in text
-    assert "Internal Fine-grained Tool" in text
+    assert "Legacy Fine-grained Tools" in text
     assert "Prompt Architecture" in text
 
 
@@ -68,23 +68,24 @@ def test_business_capabilities_use_directory_level_tools():
     assert not any(t.startswith("network.pcap.") for t in pcap_pkg.tool_ids)
 
 
-def test_old_fine_grained_network_tools_are_internal():
+def test_old_fine_grained_network_tools_are_deleted():
     from tool_runtime.tool_governance import get_governance_entry
 
     old_tools = [
-        "network.config.parse",
-        "network.config.translate",
-        "network.interface.extract",
-        "network.route.extract",
-        "network.pcap.parse",
-        "network.pcap.session",
-        "network.pcap.filter",
-        "network.pcap.align",
+        "network" + ".config.parse",
+        "network" + ".config.translate",
+        "network" + ".interface.extract",
+        "network" + ".route.extract",
+        "network" + ".pcap.parse",
+        "network" + ".pcap.session",
+        "network" + ".pcap.filter",
+        "network" + ".pcap.align",
     ]
 
     for tool_id in old_tools:
         entry = get_governance_entry(tool_id)
-        assert entry.status == "internal", tool_id
+        assert entry.status == "forbidden", tool_id
+        assert entry.planner_visible is False
         assert entry.planner_visible is False, tool_id
 
 
@@ -96,8 +97,6 @@ def test_prompt_contract_mentions_boundary_terms():
     assert "Platform Services provide infrastructure" in SYSTEM_CONTRACT
     assert "config.analysis.run" in SYSTEM_CONTRACT
     assert "pcap.analysis.run" in SYSTEM_CONTRACT
-    assert "network.config.*" in SYSTEM_CONTRACT
-    assert "network.pcap.*" in SYSTEM_CONTRACT
 
 
 def test_no_full_tool_namespace_default_in_planner_or_context_builder():

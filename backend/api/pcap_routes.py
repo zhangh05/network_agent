@@ -20,16 +20,6 @@ from agent.modules.pcap.core import (
 )
 from agent.modules.knowledge.ingestion import _ws_root
 
-# Re-export for backward compatibility (other modules may import these)
-_PCAP_SESSIONS = PCAP_SESSIONS
-_parse_pcap = parse_pcap
-_get_connection_groups = get_connection_groups
-_filter_by_5tuple = filter_by_5tuple
-_tcp_stream_align = tcp_stream_align
-_session_meta_path = session_meta_path
-_load_session_from_file = load_session_from_file
-_safe_name = safe_name
-
 
 def _ensure_pcap_file_record(session_id: str, filename: str, filepath: str, total_pkts: int, groups: list, ws_id: str) -> str:
     """Create a file record for this pcap in the unified files system. Returns file_id."""

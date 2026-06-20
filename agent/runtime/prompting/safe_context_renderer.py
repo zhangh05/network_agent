@@ -11,11 +11,6 @@ from __future__ import annotations
 import json
 from typing import Any
 
-INTERNAL_TOOL_PREFIXES = (
-    "network.config.",
-    "network.pcap.",
-)
-
 LEGACY_TOOL_SCENE_KEYS = {
     "candidate_tools",
     "capability_plan",
@@ -131,18 +126,12 @@ def render_safe_context(safe_context: dict | None) -> str:
 
 
 def _strip_internal_tool_mentions(value: Any) -> Any:
-    if isinstance(value, str):
-        text = value
-        for prefix in INTERNAL_TOOL_PREFIXES:
-            text = text.replace(prefix, "[internal-tool].")
-        return text
+    """Filter legacy tool scene keys from safe_context values."""
     if isinstance(value, dict):
         cleaned = {}
         for key, item in value.items():
             key_text = str(key)
             if key_text in LEGACY_TOOL_SCENE_KEYS:
-                continue
-            if any(prefix in key_text for prefix in INTERNAL_TOOL_PREFIXES):
                 continue
             cleaned[key_text] = _strip_internal_tool_mentions(item)
         return cleaned

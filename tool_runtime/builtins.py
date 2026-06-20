@@ -1,11 +1,8 @@
 # tool_runtime/builtins.py
 """v0.1 built-in low-risk tools.
 
-Four baseline tools are provided:
+One baseline tool is provided:
   1. workspace.artifact.list       — list artifact summaries (no full content)
-  2. network.config.parse          — shallow safe parsing of config text
-  3. network.interface.extract     — extract interface names (no full blocks)
-  4. network.route.extract         — extract route-like line summaries
 
 All tools are risk_level=low and dry_run_supported=True.
 None execute real device commands, shells, or arbitrary file access.
@@ -61,117 +58,6 @@ def _handler_artifact_list(invocation: ToolInvocation) -> dict:
         }
 
 
-def _handler_parser_parse_config_text(invocation: ToolInvocation) -> dict:
-    """Shallow safe parse of config text. Returns statistics only."""
-    text = invocation.arguments.get("config_text", "")
-    if not text:
-        return _enrich_result(invocation, {"ok": False, "summary": "No config_text provided", "warnings": ["config_text required"]})
-
-    lines = text.split("\n")
-    non_empty = [l for l in lines if l.strip() and not l.strip().startswith("!")]
-    line_count = len(lines)
-    non_empty_count = len(non_empty)
-
-    # Heuristic vendor detection
-    vendor_hint = "unknown"
-    text_lower = text.lower()
-    if "huawei" in text_lower or "vlanif" in text_lower or "sysname" in text_lower:
-        vendor_hint = "huawei"
-    elif "h3c" in text_lower or "comware" in text_lower:
-        vendor_hint = "h3c"
-    elif "cisco" in text_lower or "ios" in text_lower or "enable" in text_lower:
-        vendor_hint = "cisco"
-    elif "ruijie" in text_lower:
-        vendor_hint = "ruijie"
-
-    # Block detection
-    has_interface = "interface " in text_lower or "interface\n" in text_lower
-    has_acl = "access-list" in text_lower or "acl" in text_lower
-    has_route = "ip route" in text_lower or "route " in text_lower
-
-    warnings = []
-    if line_count > 10000:
-        warnings.append("Large config detected, consider splitting")
-
-    return _enrich_result(invocation, {
-        "ok": True,
-        "summary": f"Parsed {line_count} lines ({non_empty_count} non-empty), vendor={vendor_hint}",
-        "line_count": line_count,
-        "non_empty_line_count": non_empty_count,
-        "vendor_hint": vendor_hint,
-        "has_interface_blocks": has_interface,
-        "has_acl_like_lines": has_acl,
-        "has_route_like_lines": has_route,
-        "warnings": warnings,
-    })
-
-
-def _handler_parser_extract_interfaces(invocation: ToolInvocation) -> dict:
-    """Extract interface names from config text. No full interface blocks returned."""
-    text = invocation.arguments.get("config_text", "")
-    if not text:
-        return _enrich_result(invocation, {"ok": False, "summary": "No config_text provided", "warnings": ["config_text required"]})
-
-    import re
-    # Match interface definitions: "interface GigabitEthernet0/0/1" etc
-    pattern = re.compile(r'^\s*(?:interface|int)\s+(\S+)', re.IGNORECASE | re.MULTILINE)
-    matches = pattern.findall(text)
-
-    interface_names = list(dict.fromkeys(matches))  # dedup, preserve order
-    total = len(interface_names)
-    limited = interface_names[:100]
-
-    warnings = []
-    if total > 100:
-        warnings.append(f"Truncated from {total} to 100 interfaces")
-
-    return _enrich_result(invocation, {
-        "ok": True,
-        "summary": f"Found {total} unique interface names",
-        "interface_count": total,
-        "interface_names": limited,
-        "truncated": total > 100,
-        "warnings": warnings,
-    })
-
-
-def _handler_parser_extract_routes(invocation: ToolInvocation) -> dict:
-    """Extract route-like line summaries. No full config blocks."""
-    text = invocation.arguments.get("config_text", "")
-    if not text:
-        return _enrich_result(invocation, {"ok": False, "summary": "No config_text provided", "warnings": ["config_text required"]})
-
-    import re
-    # Match static route patterns
-    route_pattern = re.compile(
-        r'^\s*(?:ip\s+)?route(?:-static)?\s+(.+)$', re.IGNORECASE | re.MULTILINE
-    )
-    matches = route_pattern.findall(text)
-
-    # Sanitize: strip sensitive-looking content
-    sanitized = []
-    for m in matches:
-        clean = m.strip()[:120]
-        # Mask potential IPs with partial redaction (keep structure)
-        clean = re.sub(r'(\d{1,3}\.\d{1,3})\.\d{1,3}\.\d{1,3}', r'\1.x.x', clean)
-        sanitized.append(clean)
-
-    total = len(sanitized)
-    limited = sanitized[:100]
-    warnings = []
-    if total > 100:
-        warnings.append(f"Truncated from {total} to 100 route lines")
-
-    return _enrich_result(invocation, {
-        "ok": True,
-        "summary": f"Found {total} route-like lines",
-        "route_count": total,
-        "route_summaries": limited,
-        "truncated": total > 100,
-        "warnings": warnings,
-    })
-
-
 # ═══════════════════════════════════
 # ToolSpec Definitions
 # ═══════════════════════════════════
@@ -194,60 +80,6 @@ BUILTIN_TOOLS = [
             },
         ),
         _handler_artifact_list,
-    ),
-    (
-        ToolSpec(
-            tool_id="network.config.parse",
-            name="Parse Config Text",
-            description="Shallow safe parse of network device configuration text. Use when: user provides config text and you need vendor detection, block analysis, and structure hints. Returns vendor_hint, line counts, and block type detection (interfaces/ACL/routes). Read-only. Safe — no device access. Use BEFORE network.interface.extract or network.route.extract for context.",
-            category="network",
-            risk_level="low",
-            permission_action="read",
-            input_schema={
-                "type": "object",
-                "required": ["config_text"],
-                "properties": {
-                    "config_text": {"type": "string", "description": "Network device configuration text to parse (offline — no device access needed)."},
-                },
-            },
-        ),
-        _handler_parser_parse_config_text,
-    ),
-    (
-        ToolSpec(
-            tool_id="network.interface.extract",
-            name="Extract Interfaces",
-            description="Extract interface names from network device configuration text. Use when: user provides config and asks about interfaces, port mapping, or topology. No full interface blocks returned — only names. Read-only. Use workspace.artifact.save to preserve results. For full interface config blocks, use workspace.file.read on the uploaded config.",
-            category="network",
-            risk_level="low",
-            permission_action="read",
-            input_schema={
-                "type": "object",
-                "required": ["config_text"],
-                "properties": {
-                    "config_text": {"type": "string", "description": "Network device configuration text to parse (offline — no device access needed)."},
-                },
-            },
-        ),
-        _handler_parser_extract_interfaces,
-    ),
-    (
-        ToolSpec(
-            tool_id="network.route.extract",
-            name="Extract Routes",
-            description="Extract route-like line summaries from network device configuration text. Use when: user provides config and asks about routing table, static routes, or path analysis. IPs are partially masked for safety. Read-only. Returns sanitized route summaries. Use with text.redact for additional safety before sharing.",
-            category="network",
-            risk_level="low",
-            permission_action="read",
-            input_schema={
-                "type": "object",
-                "required": ["config_text"],
-                "properties": {
-                    "config_text": {"type": "string", "description": "Network device configuration text to parse (offline — no device access needed)."},
-                },
-            },
-        ),
-        _handler_parser_extract_routes,
     ),
 ]
 
