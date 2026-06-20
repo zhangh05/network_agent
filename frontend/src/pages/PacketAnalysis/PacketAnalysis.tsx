@@ -189,7 +189,6 @@ export function PacketAnalysis() {
                 const fileId = saveRes.ok ? saveRes.file?.file_id || "" : "";
                 const text = fileId
                   ? `请分析这份 TCP 报文数据。使用 workspace.file.read 工具，参数 file_id="${fileId}"。`
-                  ? `帮我分析这个 TCP 报文。请使用 workspace.file.read 工具读取文件，参数：workspace_id="${wsId}", filepath="${filePath}"`
                   : `帮我分析这个 TCP 连接：${result.conn}，${result.total_tcp_packets} 个报文，${(result.anomalies||[]).length} 个异常`;
 
                 // 3. Store and navigate
