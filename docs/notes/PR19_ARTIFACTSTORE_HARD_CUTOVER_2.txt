@@ -1,3 +1,0 @@
-PR19 ArtifactStore Hard Cutover
-
-Branch implementation note.
