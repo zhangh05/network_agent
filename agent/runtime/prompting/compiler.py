@@ -61,11 +61,13 @@ class PromptCompiler:
         if is_simple_chat:
             messages.append(SystemMessage(content=CORE_PROMPT).to_llm_message())
         else:
-            profile = PromptProfile.from_classify_intent(intent=intent, user_input=user_input)
-            prompt = profile.build()
+            from agent.runtime.prompt_architecture.compiler import compile_runtime_prompt
+            assembly = compile_runtime_prompt(context)
+            prompt = assembly.final_prompt
             if getattr(context, "metadata", {}).get('is_sub_agent'):
                 prompt = SUB_AGENT_PREAMBLE + "\n" + prompt
             messages.append(SystemMessage(content=prompt).to_llm_message())
+            context.metadata["prompt_assembly"] = assembly.metadata
 
         # ── Runtime snapshot ──────────────────────────────────────
         if not is_simple_chat:
@@ -85,15 +87,9 @@ class PromptCompiler:
             from agent.protocol.message import RuntimeContextMessage
             messages.append(RuntimeContextMessage(content=safe_context_text).to_llm_message())
 
-        # ── Skill injections ──────────────────────────────────────
-        if not is_simple_chat and services and services.skill_service:
-            try:
-                from agent.skills.injection import build_skill_injections
-                inj = build_skill_injections(context)
-                if inj:
-                    messages.append(RuntimeContextMessage(content=inj).to_llm_message())
-            except Exception:
-                pass
+        # ── Skill injections (capability contracts, no prompt injection) ──
+        # Capability context is already in the system prompt via prompt_architecture.
+        # Skip legacy skill prompt injection.
 
         # ── History window ────────────────────────────────────────
         for h in context.history_window:
