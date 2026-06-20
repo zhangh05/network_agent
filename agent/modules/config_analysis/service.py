@@ -26,12 +26,21 @@ def run_config_analysis(
     *,
     workspace_id: str = "default",
     filepath: str = "",
+    file_id: str = "",
     source_config: str = "",
     target_vendor: str = "",
     source_vendor: str = "",
     **kwargs,
 ) -> dict[str, Any]:
     """Unified config analysis dispatcher."""
+
+    # Resolve source_config from file_id if not provided directly
+    if not source_config and file_id:
+        try:
+            from storage.file_store import read_file_content
+            source_config = read_file_content(workspace_id, file_id)
+        except Exception:
+            pass
     action = (action or "").strip()
 
     if action not in VALID_ACTIONS:

@@ -184,13 +184,34 @@ def save_artifact(workspace_id: str, content: str = "", source_path: str = "",
     art_dir = _get_ws_root() / workspace_id / "files" / "agent"
     art_dir.mkdir(parents=True, exist_ok=True)
 
-    # Safe filename
-    base = _safe_name(title or artifact_type)
-    ext = cls["file_ext"] or "txt"
-    fname = f"{base}_{art_id}.{ext}"
-    fpath = art_dir / fname
-
-    fpath.write_text(content)
+    # Write content via FileStore for managed indexing
+    file_record = None
+    try:
+        from storage.file_store import write_agent_output
+        file_record = write_agent_output(
+            workspace_id=workspace_id,
+            content=content,
+            logical_type="artifact_output",
+            file_kind=cls["file_ext"] or "txt",
+            title=title or artifact_type,
+            ext=cls["file_ext"] or "txt",
+            source=source,
+            run_id=run_id,
+            sensitivity=sensitivity,
+            metadata={"artifact_id": art_id, "artifact_type": artifact_type},
+        )
+        fpath = Path(file_record.as_dict()["path"])
+        ws_root = _get_ws_root() / workspace_id
+        abs_fpath = ws_root / fpath
+        fname = abs_fpath.name
+    except Exception:
+        # Fallback to legacy direct write
+        base = _safe_name(title or artifact_type)
+        ext = cls["file_ext"] or "txt"
+        fname = f"{base}_{art_id}.{ext}"
+        fpath = art_dir / fname
+        fpath.write_text(content)
+        abs_fpath = fpath
 
     # Build record
     title = title or f"{artifact_type}: {art_id}"
@@ -199,9 +220,10 @@ def save_artifact(workspace_id: str, content: str = "", source_path: str = "",
         module=module, skill=skill, capability_id=capability_id,
         artifact_type=artifact_type, title=title,
         scope=scope, sensitivity=sensitivity, lifecycle="active",
-        path=str(fpath), relative_path=fname,
+        path=str(abs_fpath), relative_path=str(fpath) if file_record else fname,
         mime_type=cls["mime_type"], file_ext=cls["file_ext"],
         size_bytes=size, sha256=sha, source=source,
+        file_id=file_record.file_id if file_record else "",
         metadata=redact_metadata(metadata or {}),
         tags=tags or cls["tags"],
         redaction_applied=cls["contains_secret"],
@@ -209,7 +231,10 @@ def save_artifact(workspace_id: str, content: str = "", source_path: str = "",
 
     # Write metadata
     meta_path = art_dir / f"{art_id}.meta.json"
-    meta_path.write_text(json.dumps(_record_meta_dict(rec), indent=2, ensure_ascii=False))
+    meta_dict = _record_meta_dict(rec)
+    if file_record:
+        meta_dict["storage_managed"] = True
+    meta_path.write_text(json.dumps(meta_dict, indent=2, ensure_ascii=False))
 
     # Update index
     idx = _load_index(workspace_id)

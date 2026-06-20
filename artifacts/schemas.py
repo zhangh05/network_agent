@@ -44,6 +44,7 @@ class ArtifactRecord:
     file_ext: str = ""
     size_bytes: int = 0
     sha256: str = ""
+    file_id: str = ""  # Managed file ID from storage.file_store
     source: str = "module_output"
     created_by: str = ""
     created_at: str = field(default_factory=_utcnow)
