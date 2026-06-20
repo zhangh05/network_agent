@@ -83,6 +83,20 @@ def _record_meta_dict(rec: ArtifactRecord) -> dict:
     return data
 
 
+def _logical_type_for_artifact(artifact_type: str) -> str:
+    """Map artifact_type to a storage logical_type for FileRecord tracking."""
+    mapping = {
+        "translated_config": "translated_config",
+        "output_config": "translated_config",
+        "report": "report",
+        "pcap_session": "pcap_session",
+        "pcap_connections": "pcap_connections",
+        "pcap_result": "pcap_result",
+        "message_large_content": "message_large_content",
+    }
+    return mapping.get((artifact_type or "").strip(), "artifact_output")
+
+
 def _validate_source_path(source_path: str, workspace_id: str = "") -> bool:
     """Strict path boundary check using resolve().relative_to()."""
     if not source_path:
@@ -193,15 +207,18 @@ def save_artifact(workspace_id: str, content: str = "", source_path: str = "",
     fpath.write_text(content)
 
     # Create a FileRecord for tracking (non-fatal)
+    # Create a FileRecord for tracking the existing artifact write path.
+    # Full artifact write migration to FileStore.write_agent_output is follow-up.
     file_id = ""
     try:
         from storage.file_store import create_file_record
         ws = _get_ws_root() / workspace_id
         rel_path = str(fpath.relative_to(ws))
+        _lt = _logical_type_for_artifact(artifact_type)
         file_rec = create_file_record(
             workspace_id=workspace_id,
-            logical_type="artifact_output",
-            file_kind=ext,
+            logical_type=_lt,
+            file_kind=cls["file_ext"] or ext or "text",
             path=rel_path,
             original_name=fname,
             size_bytes=size,
@@ -210,7 +227,8 @@ def save_artifact(workspace_id: str, content: str = "", source_path: str = "",
             run_id=run_id,
             sensitivity=sensitivity,
             metadata={"artifact_id": art_id, "artifact_type": artifact_type,
-                       "storage_managed": True},
+                       "storage_managed": True, "tracking_only": True,
+                       "write_path": "legacy_artifact_store"},
         )
         file_id = file_rec.file_id
     except Exception:

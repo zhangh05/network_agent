@@ -109,6 +109,22 @@ def _dir_for_type(logical_type: str) -> str:
 
 # ── Public API ───────────────────────────────────────────────────────
 
+def _resolve_workspace_relative_path(workspace_id: str, rel_path: str) -> Path:
+    """Resolve a workspace-relative path and enforce containment."""
+    if not rel_path:
+        raise ValueError("empty file path")
+    p = Path(str(rel_path))
+    if p.is_absolute():
+        raise ValueError("file path must be workspace-relative")
+    ws = workspace_root(workspace_id).resolve()
+    target = (ws / p).resolve()
+    try:
+        target.relative_to(ws)
+    except ValueError as exc:
+        raise ValueError(f"path_escape_denied: {rel_path}") from exc
+    return target
+
+
 def create_file_record(
     workspace_id: str,
     logical_type: str,
@@ -129,6 +145,19 @@ def create_file_record(
     file_id: str = "",
 ) -> FileRecord:
     """Create and index a FileRecord (file must already exist on disk)."""
+    # Validate path: must be workspace-relative, within workspace boundary, and an existing file
+    target = _resolve_workspace_relative_path(workspace_id, path)
+    if not target.exists():
+        raise FileNotFoundError(f"file not found for FileRecord: {path}")
+    if not target.is_file():
+        raise ValueError(f"FileRecord path is not a file: {path}")
+
+    # Auto-fill size and hash if not provided
+    if not size_bytes:
+        size_bytes = target.stat().st_size
+    if not sha256:
+        sha256 = _sha256_of_file(target)
+
     fid = file_id or _gen_file_id()
     rec = FileRecord(
         file_id=fid,
@@ -194,6 +223,21 @@ def import_user_upload(
     size = target.stat().st_size
     sha = _sha256_of_file(target)
     mime = _guess_mime(original_name, binary)
+
+    # Policy enforcement: reject disallowed kinds or oversized files
+    from storage.policy import MAX_UPLOAD_BYTES, ALLOWED_UPLOAD_KINDS
+    if file_kind not in ALLOWED_UPLOAD_KINDS:
+        try:
+            target.unlink()
+        except OSError:
+            pass
+        raise ValueError(f"unsupported_file_kind: {file_kind}")
+    if size > MAX_UPLOAD_BYTES:
+        try:
+            target.unlink()
+        except OSError:
+            pass
+        raise ValueError(f"file_too_large: {size} > {MAX_UPLOAD_BYTES}")
 
     return create_file_record(
         workspace_id=workspace_id,
@@ -282,6 +326,8 @@ def read_file_content(workspace_id: str, file_id: str) -> str:
     rec = get_file_record(workspace_id, file_id)
     if not rec:
         raise FileNotFoundError(f"No file record for {file_id}")
+    if rec.get("binary"):
+        raise ValueError(f"binary file cannot be read as text: {file_id}")
     path = resolve_file_path(workspace_id, file_id)
     return path.read_text(encoding="utf-8", errors="replace")
 
@@ -291,13 +337,16 @@ def resolve_file_path(workspace_id: str, file_id: str) -> Path:
     rec = get_file_record(workspace_id, file_id)
     if not rec:
         raise FileNotFoundError(f"No file record for {file_id}")
-    ws = workspace_root(workspace_id)
+    ws = workspace_root(workspace_id).resolve()
     resolved = (ws / rec["path"]).resolve()
-    # Path traversal check
-    if not str(resolved).startswith(str(ws.resolve())):
-        raise ValueError(f"Path escape denied for {file_id}")
+    try:
+        resolved.relative_to(ws)
+    except ValueError as exc:
+        raise ValueError(f"Path escape denied for {file_id}") from exc
     if not resolved.exists():
         raise FileNotFoundError(f"File not found on disk: {rec['path']}")
+    if not resolved.is_file():
+        raise ValueError(f"FileRecord path is not a file: {rec['path']}")
     return resolved
 
 

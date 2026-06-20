@@ -31,7 +31,7 @@ The `storage/` package provides a unified file management layer for the workspac
 | Module | Status |
 |--------|--------|
 | `workspace/manager.py` | ✅ Calls `ensure_workspace_storage_dirs` |
-| `artifacts/store.py` | ✅ Uses `write_agent_output`, sets `file_id` |
+| `artifacts/store.py` | ✅ Creates FileRecord for existing artifact writes (tracking-only); full FileStore write migration is follow-up |
 | `artifacts/schemas.py` | ✅ Added `file_id` field to `ArtifactRecord` |
 | `config_analysis/service.py` | ✅ Supports `file_id` parameter |
 | `workspace/message_store.py` | ⏳ Planned |

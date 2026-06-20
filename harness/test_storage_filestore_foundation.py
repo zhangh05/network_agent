@@ -238,3 +238,83 @@ def test_policy_constants_exist():
     assert "pcap" in BINARY_KINDS
     assert "text" in TEXT_KINDS
     assert "internal" in SENSITIVITY_LEVELS
+
+
+# ── Path security hardening ──────────────────────────────────────────
+
+def test_create_file_record_rejects_path_escape(tmp_workspace):
+    from storage.file_store import create_file_record
+    with pytest.raises(ValueError):
+        create_file_record(
+            workspace_id="test_ws",
+            logical_type="artifact_output",
+            file_kind="text",
+            path="../evil.txt",
+        )
+
+
+def test_create_file_record_rejects_absolute_path(tmp_workspace):
+    from storage.file_store import create_file_record
+    with pytest.raises(ValueError):
+        create_file_record(
+            workspace_id="test_ws",
+            logical_type="artifact_output",
+            file_kind="text",
+            path="/tmp/evil.txt",
+        )
+
+
+def test_resolve_file_path_rejects_prefix_spoof(tmp_workspace):
+    from storage.file_store import resolve_file_path
+
+    evil_ws = tmp_workspace / "test_ws_evil"
+    evil_ws.mkdir()
+    evil_file = evil_ws / "evil.txt"
+    evil_file.write_text("evil")
+
+    idx = tmp_workspace / "test_ws" / "index" / "files.jsonl"
+    idx.parent.mkdir(parents=True, exist_ok=True)
+    idx.write_text(
+        '{"file_id":"file_bad","workspace_id":"test_ws","logical_type":"artifact_output",'
+        '"file_kind":"text","path":"../test_ws_evil/evil.txt","lifecycle":"active"}\n',
+        encoding="utf-8",
+    )
+
+    with pytest.raises(ValueError):
+        resolve_file_path("test_ws", "file_bad")
+
+
+# ── Policy enforcement ───────────────────────────────────────────────
+
+def test_import_user_upload_rejects_invalid_file_kind(tmp_workspace):
+    from storage.file_store import import_user_upload
+
+    src = tmp_workspace / "bad.bin"
+    src.write_text("bad")
+
+    with pytest.raises(ValueError, match="unsupported_file_kind"):
+        import_user_upload(
+            workspace_id="test_ws",
+            file_source=str(src),
+            original_name="bad.bin",
+            file_kind="malware",
+        )
+
+
+def test_read_file_content_rejects_binary(tmp_workspace):
+    from storage.file_store import import_user_upload, read_file_content
+
+    src = tmp_workspace / "pkt.pcap"
+    src.write_bytes(b"\xd4\xc3\xb2\xa1")
+
+    rec = import_user_upload(
+        workspace_id="test_ws",
+        file_source=str(src),
+        original_name="pkt.pcap",
+        logical_type="pcap_input",
+        file_kind="pcap",
+        binary=True,
+    )
+
+    with pytest.raises(ValueError, match="binary"):
+        read_file_content("test_ws", rec.file_id)
