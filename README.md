@@ -5,7 +5,19 @@ Network Agent is a local runtime for network engineering workflows.
 ## Runtime pipeline
 
 ```text
-UserInput -> SceneDecision -> RuntimeState -> Evidence -> Planner -> Prompt -> ActionKernel -> Output -> Response -> MemoryPlan -> Trace -> Truth -> Stability -> Snapshot
+UserInput
+  -> TurnContext
+  -> SceneDecision
+  -> RuntimeState / TaskWorkflow
+  -> EvidencePipeline
+  -> CapabilityRouter
+  -> SkillManifest / CapabilityPackage
+  -> ModuleServiceManifest
+  -> ToolBundle
+  -> ToolPlannerV2
+  -> PromptArchitecture
+  -> ActionExecutionKernel
+  -> Output / Response / Memory / Observability / Truth / Stability
 ```
 
 ## LLM configuration

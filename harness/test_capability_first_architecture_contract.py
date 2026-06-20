@@ -108,3 +108,48 @@ def test_no_full_tool_namespace_default_in_planner_or_context_builder():
         text = Path(path).read_text(encoding="utf-8")
         assert 'available_catalog = {"tools": list(TOOL_NAMESPACE)}' not in text
         assert 'available_catalog={"tools": list(TOOL_NAMESPACE)}' not in text
+
+
+def test_readme_runtime_pipeline_matches_capability_first_chain():
+    text = Path("README.md").read_text(encoding="utf-8")
+
+    assert "CapabilityRouter" in text
+    assert "SkillManifest / CapabilityPackage" in text
+    assert "ModuleServiceManifest" in text
+    assert "ToolBundle" in text
+    assert "ToolPlannerV2" in text
+    assert "PromptArchitecture" in text
+    assert "ActionExecutionKernel" in text
+
+    old_chain_fragments = [
+        "UserInput -> SceneDecision -> RuntimeState -> Evidence -> Planner",
+        "Evidence -> Planner -> Prompt",
+        "Planner -> Prompt -> ActionKernel",
+        "MemoryPlan -> Trace -> Truth -> Stability",
+    ]
+    for frag in old_chain_fragments:
+        assert frag not in text, f"README still contains old pipeline: {frag}"
+
+
+def test_docs_do_not_contain_old_planner_first_pipeline():
+    paths = [
+        Path("README.md"),
+        Path("DESIGN.md"),
+        Path("AGENTS.md"),
+        Path("docs/ARCHITECTURE.md"),
+        Path("docs/CAPABILITY_FIRST_ARCHITECTURE.md"),
+    ]
+
+    old_chain_fragments = [
+        "UserInput -> SceneDecision -> RuntimeState -> Evidence -> Planner",
+        "Evidence -> Planner -> Prompt",
+        "Planner -> Prompt -> ActionKernel",
+        "MemoryPlan -> Trace -> Truth -> Stability",
+    ]
+
+    for path in paths:
+        if not path.exists():
+            continue
+        text = path.read_text(encoding="utf-8")
+        for frag in old_chain_fragments:
+            assert frag not in text, f"{path} still contains old pipeline fragment: {frag}"

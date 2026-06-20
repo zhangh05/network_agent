@@ -2,7 +2,7 @@
 
 Current source architecture reference.
 
-Pipeline: Input -> RuntimeState -> Evidence -> Planning -> Kernel -> Output -> Response -> Reports -> Snapshot.
+Pipeline: UserInput -> TurnContext -> SceneDecision -> RuntimeState -> EvidencePipeline -> CapabilityRouter -> SkillManifest -> ToolBundle -> ToolPlannerV2 -> PromptArchitecture -> ActionExecutionKernel -> Output -> Reports -> Snapshot.
 
 Main packages:
 
