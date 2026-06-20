@@ -22,6 +22,7 @@ from dataclasses import dataclass
 from typing import Any, Callable
 
 from tool_runtime.schemas import ToolSpec, ToolInvocation
+from tool_runtime.registry_helpers import tool_keyword_score
 
 
 def _adapt(handler: Callable[[ToolInvocation], dict]) -> Callable[..., Any]:
@@ -1179,6 +1180,53 @@ _RAW_REGISTRY: list[CanonicalToolEntry] = [
             "dport": {"type": "integer", "description": "Destination port for filter."},
         }, ["action"]),
         description="Unified PCAP analysis: parse, session, filter, align.",
+    ),
+    # ── FileStore tools ──
+    CanonicalToolEntry(
+        canonical_tool_id="file.get",
+        handler=lambda inv: __import__("tool_runtime.general_tools.filestore_tools", fromlist=["handle_file_get"]).handle_file_get(inv, **inv.arguments or {}),
+        input_schema=_schema({
+            "file_id": {"type": "string", "description": "FileStore file_id to read."},
+            "limit": {"type": "integer", "description": "Max chars to return.", "default": 2000},
+        }, ["file_id"]),
+        description="Read text content of a FileStore-managed file by file_id.",
+    ),
+    CanonicalToolEntry(
+        canonical_tool_id="file.preview",
+        handler=lambda inv: __import__("tool_runtime.general_tools.filestore_tools", fromlist=["handle_file_preview"]).handle_file_preview(inv, **inv.arguments or {}),
+        input_schema=_schema({
+            "file_id": {"type": "string", "description": "FileStore file_id to preview."},
+            "limit": {"type": "integer", "description": "Preview length.", "default": 500},
+        }, ["file_id"]),
+        description="Preview a FileStore file: metadata + text preview.",
+    ),
+    CanonicalToolEntry(
+        canonical_tool_id="file.references",
+        handler=lambda inv: __import__("tool_runtime.general_tools.filestore_tools", fromlist=["handle_file_references"]).handle_file_references(inv, **inv.arguments or {}),
+        input_schema=_schema({
+            "file_id": {"type": "string", "description": "FileStore file_id to query references for."},
+        }, ["file_id"]),
+        description="Query cross-references for a FileStore file.",
+    ),
+    CanonicalToolEntry(
+        canonical_tool_id="file.write_agent_output",
+        handler=lambda inv: __import__("tool_runtime.general_tools.filestore_tools", fromlist=["handle_file_write_agent_output"]).handle_file_write_agent_output(inv, **inv.arguments or {}),
+        input_schema=_schema({
+            "content": {"type": "string", "description": "Content to write."},
+            "logical_type": {"type": "string", "description": "Logical type.", "default": "artifact_output"},
+            "file_kind": {"type": "string", "description": "File kind.", "default": "text"},
+            "title": {"type": "string", "description": "Title for the artifact."},
+            "ext": {"type": "string", "description": "File extension.", "default": "txt"},
+        }, ["content"]),
+        description="Write output through FileStore and get file_id.",
+    ),
+    CanonicalToolEntry(
+        canonical_tool_id="file.import_workspace_path",
+        handler=lambda inv: __import__("tool_runtime.general_tools.filestore_tools", fromlist=["handle_file_import_workspace_path"]).handle_file_import_workspace_path(inv, **inv.arguments or {}),
+        input_schema=_schema({
+            "filepath": {"type": "string", "description": "Workspace-relative path to import."},
+        }, ["filepath"]),
+        description="Import a workspace file into FileStore and get file_id.",
     ),
 ]
 
