@@ -32,7 +32,7 @@ def test_skill_load_returns_capability_contract_not_prompt():
     result = load_skill("config_translation")
     assert result.ok
     assert "config_translation" in result.capability_ids
-    assert "network.config.translate" in result.tool_ids
+    assert "config.analysis.run" in result.tool_ids
     assert not hasattr(result, "skill_prompt")
 
 
@@ -54,7 +54,7 @@ def test_skill_session_record_has_capability_contract():
     record = skill_session_record(result)
     assert record["skill_id"] == "pcap_analysis"
     assert "pcap_analysis" in record["capability_ids"]
-    assert "network.pcap.parse" in record["tool_ids"]
+    assert "pcap.analysis.run" in record["tool_ids"]
     assert "skill_prompt" not in record
 
 

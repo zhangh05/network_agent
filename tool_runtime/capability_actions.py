@@ -105,27 +105,22 @@ EXPLICIT_CAPABILITY_ACTIONS: dict[str, CapabilityAction] = {
     # Network
     "network.config.analyze": CapabilityAction(
         capability_action="network.config.analyze",
-        category="network", group="config",
-        # v2.3.3: Include workspace.file.read — config analysis requires
-        # reading the file first. Without this, the LLM has parsing tools
-        # but no way to read the config content, causing tool chain breakage.
-        preferred_tools=("workspace.file.read", "workspace.file.list",
-                         "network.config.parse", "network.interface.extract",
-                         "network.route.extract"),
-        reason="Offline network configuration analysis (read file → parse → extract).",
+        category="network", group="config_analysis",
+        preferred_tools=("workspace.file.read", "config.analysis.run"),
+        reason="Unified config analysis entrypoint.",
     ),
     "network.config.translate": CapabilityAction(
         capability_action="network.config.translate",
-        category="network", group="config",
-        preferred_tools=("workspace.file.read", "network.config.translate"),
-        reason="Offline network configuration translation (read file → translate)."),
+        category="network", group="config_analysis",
+        preferred_tools=("workspace.file.read", "config.analysis.run"),
+        reason="Unified config analysis entrypoint.",
+    ),
     "network.pcap.analyze": CapabilityAction(
         capability_action="network.pcap.analyze",
-        category="network", group="pcap",
-        preferred_tools=("workspace.file.read", "network.pcap.parse",
-                         "network.pcap.session", "network.pcap.filter",
-                         "network.pcap.align"),
-        reason="Offline packet capture analysis (read/parse PCAP → inspect flows → align TCP)."),
+        category="network", group="pcap_analysis",
+        preferred_tools=("workspace.file.read", "pcap.analysis.run"),
+        reason="Unified PCAP analysis entrypoint.",
+    ),
 
     # Web
     "web.official_docs.search": CapabilityAction(

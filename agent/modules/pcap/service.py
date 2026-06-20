@@ -161,3 +161,39 @@ def align_pcap_tcp(session_id: str, src: str = "", sport: int = 0,
         "summary": f"完成 TCP 序列对齐，发现 {len(result.get('anomalies', []))} 个异常。",
         **result,
     }
+
+
+def run_pcap_analysis(
+    action: str,
+    *,
+    workspace_id: str = "default",
+    filepath: str = "",
+    session_id: str = "",
+    src: str = "",
+    sport: int = 0,
+    dst: str = "",
+    dport: int = 0,
+    use_filter: bool = False,
+    **kwargs,
+) -> dict:
+    """Unified PCAP analysis dispatcher."""
+    action = (action or "").strip()
+
+    if action == "parse":
+        return parse_pcap_file(workspace_id, filepath)
+
+    if action == "session":
+        return get_pcap_session(session_id)
+
+    if action == "filter":
+        return filter_pcap_session(session_id, src=src, sport=sport, dst=dst, dport=dport)
+
+    if action == "align":
+        return align_pcap_tcp(session_id, src=src, sport=sport, dst=dst, dport=dport, use_filter=use_filter)
+
+    return {
+        "ok": False,
+        "status": "failed",
+        "summary": f"unsupported pcap action: {action}",
+        "errors": ["unsupported_action"],
+    }

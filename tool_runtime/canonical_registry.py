@@ -238,6 +238,38 @@ def _handler_pcap_align(inv: ToolInvocation) -> dict:
     )
 
 
+# ── Directory-level tool handlers ────────────────────────────────────
+
+def _handler_config_analysis_run(inv: ToolInvocation) -> dict:
+    """Unified config analysis entrypoint — delegates to config_analysis service."""
+    from agent.modules.config_analysis.service import run_config_analysis
+    args = inv.arguments or {}
+    return run_config_analysis(
+        action=str(args.get("action", "")),
+        workspace_id=inv.workspace_id or args.get("workspace_id", "default"),
+        filepath=str(args.get("filepath", "")),
+        source_config=str(args.get("source_config", "")),
+        source_vendor=str(args.get("source_vendor", "")),
+        target_vendor=str(args.get("target_vendor", "")),
+    )
+
+
+def _handler_pcap_analysis_run(inv: ToolInvocation) -> dict:
+    """Unified PCAP analysis entrypoint — delegates to pcap service."""
+    from agent.modules.pcap.service import run_pcap_analysis
+    args = inv.arguments or {}
+    return run_pcap_analysis(
+        action=str(args.get("action", "")),
+        workspace_id=inv.workspace_id or args.get("workspace_id", "default"),
+        filepath=str(args.get("filepath", "")),
+        session_id=str(args.get("session_id", "")),
+        src=str(args.get("src", "")),
+        sport=int(args.get("sport", 0) or 0),
+        dst=str(args.get("dst", "")),
+        dport=int(args.get("dport", 0) or 0),
+        use_filter=bool(args.get("use_filter", False)),
+    )
+
 def _schema(properties: dict | None = None, required: list[str] | None = None) -> dict:
     return {
         "type": "object",
@@ -1261,6 +1293,35 @@ _RAW_REGISTRY: list[CanonicalToolEntry] = [
             "command": {"type": "string"},
             "args": {"type": "string"},
         }, ["command"]),
+    ),
+    # ── Directory-level business tools ──
+    CanonicalToolEntry(
+        canonical_tool_id="config.analysis.run",
+        handler=_handler_config_analysis_run,
+        input_schema=_schema({
+            "action": {"type": "string", "description": "Action: parse, translate, extract_interfaces, extract_routes, diff, summarize.", "enum": ["parse", "translate", "extract_interfaces", "extract_routes", "diff", "summarize"]},
+            "workspace_id": _S["workspace_id"],
+            "filepath": _S["filepath"],
+            "source_config": {"type": "string", "description": "Inline config text (alternative to filepath)."},
+            "source_vendor": {"type": "string", "description": "Source vendor, e.g. huawei, h3c, cisco."},
+            "target_vendor": {"type": "string", "description": "Target vendor for translation."},
+        }, ["action"]),
+        description="Unified config analysis: parse, translate, extract, diff, summarize.",
+    ),
+    CanonicalToolEntry(
+        canonical_tool_id="pcap.analysis.run",
+        handler=_handler_pcap_analysis_run,
+        input_schema=_schema({
+            "action": {"type": "string", "description": "Action: parse, session, filter, align.", "enum": ["parse", "session", "filter", "align"]},
+            "workspace_id": _S["workspace_id"],
+            "filepath": _S["filepath"],
+            "session_id": _S["session_id"],
+            "src": {"type": "string", "description": "Source IP for filter."},
+            "sport": {"type": "integer", "description": "Source port for filter."},
+            "dst": {"type": "string", "description": "Destination IP for filter."},
+            "dport": {"type": "integer", "description": "Destination port for filter."},
+        }, ["action"]),
+        description="Unified PCAP analysis: parse, session, filter, align.",
     ),
 ]
 

@@ -37,7 +37,7 @@ def test_skill_load_returns_capability_contract():
     out = handle_skill_load(_inv("skill.load", {"skill_name": "config_translation"}))
     assert out.get("ok")
     assert "config_translation" in out.get("capability_ids", [])
-    assert "network.config.translate" in out.get("tool_ids", [])
+    assert "config.analysis.run" in out.get("tool_ids", [])
     assert "skill_prompt" not in out
 
 

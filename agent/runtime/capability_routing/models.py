@@ -20,6 +20,7 @@ class ModuleServiceManifest:
     service_path: str
     operations: tuple[str, ...] = ()
     owns_business_logic: bool = True
+    kind: str = "platform"  # "business" | "platform"
 
 
 @dataclass(frozen=True)

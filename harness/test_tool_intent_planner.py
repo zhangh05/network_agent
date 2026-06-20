@@ -22,8 +22,7 @@ def test_packet_analysis_routes_to_pcap_tools():
     plan = _plan("分析这个 pcap 报文，看看 TCP 流有没有重传、乱序和 seq gap")
 
     tools = set(plan["candidate_tools"])
-    assert "network.pcap.parse" in tools
-    assert "network.pcap.align" in tools
+    assert "pcap.analysis.run" in tools
     assert "workspace.file.read" in tools
     assert plan["primary_category"] == "network"
     assert any(
@@ -40,7 +39,7 @@ def test_config_translation_prefers_translation_chain_not_parse_chain():
 
     tools = set(plan["candidate_tools"])
     assert "workspace.file.read" in tools
-    assert "network.config.translate" in tools
+    assert "config.analysis.run" in tools
     assert "network.config.parse" not in tools
     assert plan["tool_plan"][0]["tool_candidates"][0] == "workspace.file.read"
 
@@ -123,8 +122,7 @@ def test_tool_catalog_search_finds_pcap_alignment_tools():
     ))
 
     load_ids = result["data"]["load_tool_ids"]
-    assert load_ids[0] == "network.pcap.align"
-    assert "network.pcap.parse" in load_ids
+    assert "pcap.analysis.run" in load_ids
 
 
 def test_router_can_expand_current_turn_visibility_from_catalog_result():

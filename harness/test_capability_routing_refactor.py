@@ -29,7 +29,7 @@ def test_config_request_routes_to_config_capability():
     route = route_capabilities("帮我翻译 H3C 到 Cisco 的配置")
     assert "config_translation" in route.capability_ids
     bundle = build_active_tool_bundle("帮我翻译 H3C 到 Cisco 的配置")
-    assert "network.config.translate" in bundle.visible_tools
+    assert "config.analysis.run" in bundle.visible_tools
     assert len(bundle.visible_tools) <= 12
 
 
@@ -37,5 +37,5 @@ def test_pcap_request_routes_to_pcap_capability():
     route = route_capabilities("分析这个 pcap 抓包里的 tcp 重传")
     assert "pcap_analysis" in route.capability_ids
     bundle = build_active_tool_bundle("分析这个 pcap 抓包里的 tcp 重传")
-    assert "network.pcap.parse" in bundle.visible_tools
+    assert "pcap.analysis.run" in bundle.visible_tools
     assert len(bundle.visible_tools) <= 12

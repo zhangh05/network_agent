@@ -103,7 +103,7 @@ class TestConfigTranslate:
         self.tools = _candidates(self.plan)
 
     def test_config_translate_present(self):
-        assert "network.config.translate" in self.tools
+        assert "config.analysis.run" in self.tools
 
     def test_file_tools_present(self):
         file_tools = {"workspace.file.read", "workspace.file.list", "workspace.file.preview"}

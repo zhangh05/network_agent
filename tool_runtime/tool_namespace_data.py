@@ -483,4 +483,12 @@ NS_DATA = [
      "Run a registered slash command.",
      "Do not run unregistered commands.",
      "slash.command.run"),
+    ("config.analysis.run", "network", "config_analysis", "run", "配置分析统一入口", "config.analysis.run",
+     "Run config analysis actions: parse, translate, extract_interfaces, extract_routes, diff, summarize.",
+     "Do not claim translated config is production-ready.",
+     "config.analysis.run"),
+    ("pcap.analysis.run", "network", "pcap_analysis", "run", "PCAP 分析统一入口", "pcap.analysis.run",
+     "Run PCAP analysis actions: parse, session, filter, align.",
+     "Do not use for text configs.",
+     "pcap.analysis.run"),
 ]

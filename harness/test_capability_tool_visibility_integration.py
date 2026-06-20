@@ -40,13 +40,13 @@ class TestCapabilityVisibilityIntegration:
         plan = _plan("把这段华为配置翻译成 Cisco IOS-XE 格式")
         tools = set(plan.get("candidate_tools") or [])
         assert len(tools) <= 12, f"config translate got {len(tools)} candidate tools"
-        assert "network.config.translate" in tools
+        assert "config.analysis.run" in tools
 
     def test_pcap_analysis_small_set(self):
         plan = _plan("分析这个 PCAP 文件，识别 TCP 重传")
         tools = set(plan.get("candidate_tools") or [])
         assert len(tools) <= 12, f"pcap got {len(tools)} candidate tools"
-        assert "network.pcap.parse" in tools
+        assert "pcap.analysis.run" in tools
 
     def test_knowledge_qa_small_set(self):
         plan = _plan("查找关于 OSPF 邻居建立过程的知识")
