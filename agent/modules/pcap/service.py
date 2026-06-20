@@ -193,6 +193,7 @@ def run_pcap_analysis(
 
     return {
         "ok": False,
+        "tool_id": "pcap.analysis.run",
         "status": "failed",
         "summary": f"unsupported pcap action: {action}",
         "errors": ["unsupported_action"],

@@ -36,6 +36,7 @@ def run_config_analysis(
     if action not in VALID_ACTIONS:
         return {
             "ok": False,
+            "tool_id": "config.analysis.run",
             "status": "failed",
             "summary": f"unsupported config action: {action}",
             "errors": ["unsupported_action"],
@@ -71,6 +72,7 @@ def run_config_analysis(
 def _stub_action(action: str, message: str) -> dict[str, Any]:
     return {
         "ok": False,
+        "tool_id": "config.analysis.run",
         "status": "not_implemented",
         "summary": message,
         "errors": [f"{action}_not_implemented"],
