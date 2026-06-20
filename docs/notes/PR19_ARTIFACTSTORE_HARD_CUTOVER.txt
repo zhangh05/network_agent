@@ -1,0 +1,19 @@
+PR19 ArtifactStore Hard Cutover
+
+Summary
+
+This branch hardens ArtifactStore runtime storage after the legacy compatibility cleanup.
+
+Changes
+
+- Artifact metadata is written to indexed records.
+- Artifact content remains managed by FileStore.
+- Artifact creation fails if managed file write fails.
+- Artifact tag delete promote updates go through indexed artifact records.
+- Workspace write artifact tool writes through FileStore and returns file_id.
+- Legacy migration links migrated artifact metadata to migrated FileStore file_id when possible.
+
+Tests
+
+- harness/test_artifactstore_hard_cutover.py
+- harness/test_artifactstore_hard_cutover_contract.py
