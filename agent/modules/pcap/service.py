@@ -15,10 +15,8 @@ from agent.modules.pcap.core import (
     PCAP_SESSIONS,
     filter_by_5tuple,
     get_connection_groups,
-    load_session_from_file,
     parse_pcap,
     pcap_session_id_for,
-    session_meta_path,
     tcp_stream_align,
 )
 
@@ -77,9 +75,6 @@ def parse_pcap_file(workspace_id: str, filepath: str = "", file_id: str = "") ->
         "session_id": sid, "filepath": str(path), "filename": path.name,
         "total_packets": len(packets), "connections": groups,
     }
-    # Legacy sidecar — no longer written for new parses.
-    # session_meta_path(str(path)).write_text(json.dumps(meta, ensure_ascii=False))
-
     # Save result artifacts (non-fatal)
     artifacts = []
     try:
@@ -122,7 +117,7 @@ def parse_pcap_file(workspace_id: str, filepath: str = "", file_id: str = "") ->
 
 def get_pcap_session(session_id: str) -> dict:
     """Retrieve an existing PCAP session."""
-    session = PCAP_SESSIONS.get(session_id) or load_session_from_file(session_id)
+    session = PCAP_SESSIONS.get(session_id)
     if not session:
         return {"ok": False, "tool_id": "pcap.analysis.run", "status": "failed",
                 "summary": "未找到 PCAP session。", "errors": ["session_not_found"]}
@@ -138,7 +133,7 @@ def get_pcap_session(session_id: str) -> dict:
 def filter_pcap_session(session_id: str, src: str = "", sport: int = 0,
                          dst: str = "", dport: int = 0) -> dict:
     """Filter PCAP session packets by 5-tuple."""
-    session = PCAP_SESSIONS.get(session_id) or load_session_from_file(session_id)
+    session = PCAP_SESSIONS.get(session_id)
     if not session:
         return {"ok": False, "tool_id": "pcap.analysis.run", "status": "failed",
                 "summary": "未找到 PCAP session。", "errors": ["session_not_found"]}
@@ -155,7 +150,7 @@ def align_pcap_tcp(session_id: str, src: str = "", sport: int = 0,
                     dst: str = "", dport: int = 0,
                     use_filter: bool = False) -> dict:
     """TCP sequence number / ACK alignment analysis."""
-    session = PCAP_SESSIONS.get(session_id) or load_session_from_file(session_id)
+    session = PCAP_SESSIONS.get(session_id)
     if not session:
         return {"ok": False, "tool_id": "pcap.analysis.run", "status": "failed",
                 "summary": "未找到 PCAP session。", "errors": ["session_not_found"]}

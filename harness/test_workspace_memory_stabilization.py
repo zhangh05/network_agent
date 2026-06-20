@@ -20,8 +20,8 @@ class TestWorkspaceManager:
         ws = Path(str(temp_dirs["workspace_dir"])) / ws_id
         assert ws.is_dir()
         assert (ws / "runs").is_dir()
-        assert (ws / "files" / "upload").is_dir()
-        assert (ws / "files" / "agent").is_dir()
+        assert (ws / "files" / "user_upload" / "original").is_dir()
+        assert (ws / "files" / "agent_output" / "export").is_dir()
 
     def test_workspace_yaml_created(self, temp_dirs):
         from workspace.manager import ensure_workspace

@@ -324,10 +324,7 @@ def read_artifact_content(workspace_id: str, artifact_id: str,
         except Exception:
             pass
 
-    # Legacy path fallback
-    path = Path(rec.path) if rec.path else None
-    if path and path.is_file():
-        return path.read_text()
+    # No valid file_id — artifact may not be migrated yet
     return None
 
 
