@@ -77,3 +77,42 @@ def test_prompt_metadata_records_blocks():
     assert assembly.metadata["prompt_architecture"] == "capability_first"
     assert "capability_context" in assembly.metadata["block_ids"]
     assert "active_tool_contract" in assembly.metadata["block_ids"]
+
+
+def test_prompt_defines_business_modules_and_platform_services():
+    ctx = DummyCtx()
+    assembly = compile_runtime_prompt(ctx)
+    text = assembly.final_prompt
+
+    assert "config_translation" in text
+    assert "config_analysis" in text
+    assert "pcap_analysis" in text
+    assert "platform services" in text.lower() or "Platform Services" in text
+    assert "workspace" in text
+    assert "knowledge" in text
+
+
+def test_prompt_filters_internal_tool_mentions_from_evidence():
+    ctx = DummyCtx()
+    ctx.safe_context["tool_plan"] = [
+        {"tool_id": "network.config.translate"},
+        {"tool_id": "network.pcap.parse"},
+        {"tool_id": "config.analysis.run"},
+    ]
+    assembly = compile_runtime_prompt(ctx)
+    text = assembly.final_prompt
+
+    assert "network.config.translate" not in text
+    assert "network.pcap.parse" not in text
+    assert "config.analysis.run" in text
+
+
+def test_prompt_explicitly_prefers_directory_tools():
+    ctx = DummyCtx()
+    assembly = compile_runtime_prompt(ctx)
+    text = assembly.final_prompt
+
+    assert "config.analysis.run" in text
+    assert "pcap.analysis.run" in text
+    assert "network.config.*" in text
+    assert "network.pcap.*" in text

@@ -13,6 +13,38 @@ from typing import Any
 from agent.runtime.prompt_architecture.models import PromptBlock
 
 
+# ── Internal tool filtering ──────────────────────────────────────────
+
+INTERNAL_TOOL_PREFIXES = (
+    "network.config.",
+    "network.pcap.",
+)
+
+
+def _strip_internal_tool_mentions(value):
+    """Recursively replace internal fine-grained tool names with a placeholder."""
+    if isinstance(value, str):
+        for prefix in INTERNAL_TOOL_PREFIXES:
+            if prefix in value:
+                return value.replace(prefix, "[internal-tool].")
+        return value
+    if isinstance(value, list):
+        return [_strip_internal_tool_mentions(v) for v in value]
+    if isinstance(value, tuple):
+        return tuple(_strip_internal_tool_mentions(v) for v in value)
+    if isinstance(value, dict):
+        cleaned = {}
+        for k, v in value.items():
+            key = str(k)
+            if any(prefix in key for prefix in INTERNAL_TOOL_PREFIXES):
+                continue
+            cleaned[key] = _strip_internal_tool_mentions(v)
+        return cleaned
+    return value
+
+
+# ── Block builders ───────────────────────────────────────────────────
+
 def build_runtime_state_block(ctx) -> PromptBlock | None:
     """Build a block from RuntimeStateSnapshot."""
     snapshot = getattr(ctx, "runtime_snapshot", None) or {}
@@ -53,16 +85,17 @@ def build_capability_context_block(ctx) -> PromptBlock | None:
 
     contracts = safe.get("loaded_skill_contracts") or []
     if contracts:
-        # Strip skill_prompt — never inject prompt text into the system prompt
         clean_contracts = [
             {k: v for k, v in c.items() if k != "skill_prompt"}
             for c in contracts if isinstance(c, dict)
         ]
+        clean_contracts = _strip_internal_tool_mentions(clean_contracts)
         lines.append("")
         lines.append("loaded_skill_contracts:")
         lines.append(json.dumps(clean_contracts, ensure_ascii=False, default=str)[:2000])
 
     if capability_routing:
+        capability_routing = _strip_internal_tool_mentions(capability_routing)
         lines.append("")
         lines.append("capability_routing:")
         lines.append(json.dumps(capability_routing, ensure_ascii=False, default=str)[:2000])
@@ -93,6 +126,7 @@ def build_evidence_context_block(ctx) -> PromptBlock | None:
             keep[key] = safe[key]
     if not keep:
         return None
+    keep = _strip_internal_tool_mentions(keep)
     return PromptBlock(
         block_id="evidence_context",
         title="Evidence Context",
@@ -116,9 +150,11 @@ def build_active_tool_contract_block(ctx) -> PromptBlock | None:
         *[f"- {tool_id}" for tool_id in visible_tools],
         "",
         "Do not call internal or hidden tools.",
-        "Use directory-level business tools when available:",
-        "- config.analysis.run for config analysis actions.",
-        "- pcap.analysis.run for PCAP analysis actions.",
+        "",
+        "Business tool rules:",
+        "- Use config.analysis.run for config parse/translate/interface/route/diff/summarize actions.",
+        "- Use pcap.analysis.run for pcap parse/session/filter/align actions.",
+        "- Do not call network.config.* or network.pcap.* directly; they are internal adapters.",
     ]
     return PromptBlock(
         block_id="active_tool_contract",
