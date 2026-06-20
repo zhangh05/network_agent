@@ -1,7 +1,9 @@
 # agent/runtime/prompting/safe_context_renderer.py
-"""Safe context prompt renderer — moved from message_builder.py::safe_context_prompt_text.
+"""Safe context renderer for untrusted evidence.
 
-Renamed to render_safe_context(). Works with both dict input and EvidenceBundle.
+This renderer must not re-inject legacy skill prompt sections or old tool plans.
+Tool availability and planning are represented by prompt_architecture blocks and
+runtime tool schemas, not by safe_context evidence.
 """
 
 from __future__ import annotations
@@ -9,11 +11,27 @@ from __future__ import annotations
 import json
 from typing import Any
 
+INTERNAL_TOOL_PREFIXES = (
+    "network.config.",
+    "network.pcap.",
+)
+
+LEGACY_TOOL_SCENE_KEYS = {
+    "candidate_tools",
+    "capability_plan",
+    "tool_plan",
+    "tool_chain",
+    "tool_planner",
+    "governance",
+}
+
 
 def render_safe_context(safe_context: dict | None) -> str:
-    """Project safe_context into a compact prompt block.
+    """Project safe_context into a compact evidence block.
 
-    Accepts a plain dict (legacy) or an EvidenceBundle.to_safe_context() output.
+    This function accepts a plain dict or an EvidenceBundle.to_safe_context()
+    output. It deliberately excludes legacy skill sections and tool planning
+    payloads because those are not evidence.
     """
     if not isinstance(safe_context, dict) or not safe_context:
         return ""
@@ -22,7 +40,6 @@ def render_safe_context(safe_context: dict | None) -> str:
     scalar_keys = (
         "workspace_id", "session_id", "intent", "capability_id",
         "source_config_artifact_id", "last_result_summary", "job_summary",
-        "loaded_skills_section",
     )
     for key in scalar_keys:
         if key in safe_context and safe_context[key] not in (None, "", [], {}):
@@ -56,20 +73,17 @@ def render_safe_context(safe_context: dict | None) -> str:
 
     tool_scene = safe_context.get("tool_scene")
     if isinstance(tool_scene, dict):
-        projected["tool_scene"] = _safe_prompt_value({
+        scene_evidence = {
             "primary_category": tool_scene.get("primary_category"),
             "categories": tool_scene.get("categories"),
             "groups": tool_scene.get("groups"),
-            "candidate_tools": tool_scene.get("candidate_tools"),
-            "capability_plan": tool_scene.get("capability_plan"),
-            "tool_plan": tool_scene.get("tool_plan"),
-            "tool_chain": tool_scene.get("tool_chain"),
-            "governance": tool_scene.get("governance"),
             "needs_clarification": tool_scene.get("needs_clarification"),
             "clarifying_question": tool_scene.get("clarifying_question"),
-            "tool_planner": tool_scene.get("tool_planner"),
             "reason": tool_scene.get("reason"),
-        }, max_items=8)
+        }
+        scene_evidence = {k: v for k, v in scene_evidence.items() if v not in (None, "", [], {})}
+        if scene_evidence:
+            projected["tool_scene_evidence"] = _safe_prompt_value(scene_evidence, max_items=8)
 
     workspace_state = safe_context.get("workspace_state")
     if isinstance(workspace_state, dict):
@@ -82,7 +96,6 @@ def render_safe_context(safe_context: dict | None) -> str:
         if state:
             projected["workspace_state"] = state
 
-    # Evidence conflicts
     evidence_conflicts = safe_context.get("evidence_conflicts")
     if evidence_conflicts:
         lines = ["## Evidence Conflicts"]
@@ -94,11 +107,11 @@ def render_safe_context(safe_context: dict | None) -> str:
                 lines.append(f"⚠ [{severity}] {ctype}: {desc[:200]}")
         projected["evidence_conflicts_text"] = "\n".join(lines)
 
-    # Trust warnings
     trust_warnings = safe_context.get("trust_warnings")
     if trust_warnings:
         projected["trust_warnings"] = _safe_prompt_value(trust_warnings, max_items=5)
 
+    projected = _strip_internal_tool_mentions(projected)
     if not projected:
         return ""
     text = json.dumps(projected, ensure_ascii=False, sort_keys=True, default=str)
@@ -117,11 +130,34 @@ def render_safe_context(safe_context: dict | None) -> str:
     )
 
 
+def _strip_internal_tool_mentions(value: Any) -> Any:
+    if isinstance(value, str):
+        text = value
+        for prefix in INTERNAL_TOOL_PREFIXES:
+            text = text.replace(prefix, "[internal-tool].")
+        return text
+    if isinstance(value, dict):
+        cleaned = {}
+        for key, item in value.items():
+            key_text = str(key)
+            if key_text in LEGACY_TOOL_SCENE_KEYS:
+                continue
+            if any(prefix in key_text for prefix in INTERNAL_TOOL_PREFIXES):
+                continue
+            cleaned[key_text] = _strip_internal_tool_mentions(item)
+        return cleaned
+    if isinstance(value, (list, tuple)):
+        return [_strip_internal_tool_mentions(item) for item in value]
+    return value
+
+
 def _safe_prompt_value(value: Any, max_items: int = 8, max_text: int = 600) -> Any:
     if isinstance(value, dict):
         result = {}
         for key, item in value.items():
             if _is_forbidden_prompt_key(str(key)):
+                continue
+            if str(key) in LEGACY_TOOL_SCENE_KEYS:
                 continue
             result[str(key)] = _safe_prompt_value(item, max_items=3, max_text=240)
             if len(result) >= max_items:

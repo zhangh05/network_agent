@@ -1,14 +1,14 @@
 # agent/runtime/prompting/compiler.py
-"""PromptCompiler — orchestrates profile + blocks + safe_context + history into messages.
+"""PromptCompiler — assembles system prompt, safe_context, history and user input.
 
-Called by MessageStage instead of build_initial_messages doing everything inline.
+For non-simple-chat turns, system prompt assembly is delegated to the
+capability-first prompt architecture. Simple chat keeps the minimal CORE_PROMPT.
 """
 
 from __future__ import annotations
 
 from typing import Any
 
-from agent.runtime.prompting.profile import PromptProfile
 from agent.runtime.prompting.blocks import CORE_PROMPT, SUB_AGENT_PREAMBLE
 from agent.runtime.prompting.safe_context_renderer import render_safe_context
 from agent.runtime.prompting.history_renderer import build_user_content_with_images
@@ -20,8 +20,8 @@ class PromptCompiler:
     def compile(self, context: Any, services: Any) -> list:
         """Build the initial message list.
 
-        Delegates to PromptProfile for system prompt assembly, render_safe_context
-        for context injection, and build_user_content_with_images for vision.
+        Non-simple-chat turns use capability-first prompt blocks.
+        Safe context is rendered as untrusted evidence only.
         """
         from agent.protocol.message import UserMessage, SystemMessage, RuntimeContextMessage
         from agent.context.snapshot import RuntimeSnapshot
