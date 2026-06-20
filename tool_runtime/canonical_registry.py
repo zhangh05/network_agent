@@ -194,6 +194,14 @@ def _handler_config_translate(inv: ToolInvocation) -> dict:
     return normalized
 
 
+def _safe_int(value, default: int = 0) -> int:
+    """Convert value to int safely, returning default on failure."""
+    try:
+        return int(value or default)
+    except (ValueError, TypeError):
+        return default
+
+
 def _handler_pcap_parse(inv: ToolInvocation) -> dict:
     """Parse a workspace PCAP file — delegates to pcap module service."""
     from agent.modules.pcap.service import parse_pcap_file
@@ -217,9 +225,9 @@ def _handler_pcap_filter(inv: ToolInvocation) -> dict:
     return filter_pcap_session(
         args.get("session_id") or "",
         args.get("src", ""),
-        int(args.get("sport", 0) or 0),
+        _safe_int(args.get("sport", 0)),
         args.get("dst", ""),
-        int(args.get("dport", 0) or 0),
+        _safe_int(args.get("dport", 0)),
     )
 
 
@@ -231,9 +239,9 @@ def _handler_pcap_align(inv: ToolInvocation) -> dict:
     return align_pcap_tcp(
         args.get("session_id") or "",
         args.get("src", ""),
-        int(args.get("sport", 0) or 0),
+        _safe_int(args.get("sport", 0)),
         args.get("dst", ""),
-        int(args.get("dport", 0) or 0),
+        _safe_int(args.get("dport", 0)),
         use_filter=use_filter,
     )
 
@@ -264,9 +272,9 @@ def _handler_pcap_analysis_run(inv: ToolInvocation) -> dict:
         filepath=str(args.get("filepath", "")),
         session_id=str(args.get("session_id", "")),
         src=str(args.get("src", "")),
-        sport=int(args.get("sport", 0) or 0),
+        sport=_safe_int(args.get("sport", 0)),
         dst=str(args.get("dst", "")),
-        dport=int(args.get("dport", 0) or 0),
+        dport=_safe_int(args.get("dport", 0)),
         use_filter=bool(args.get("use_filter", False)),
     )
 

@@ -57,7 +57,7 @@ def test_knowledge_qa_does_not_expose_local_ops():
 
 def test_config_translate_does_not_fallback_to_local_shell():
     candidates = _candidates("把这个华三配置翻译成思科配置")
-    assert "network.config.translate" in candidates
+    assert "config.analysis.run" in candidates
     assert {"workspace.file.read", "workspace.file.list"} & candidates
     assert not ({"host.shell.exec", "host.powershell.exec"} & candidates)
 
