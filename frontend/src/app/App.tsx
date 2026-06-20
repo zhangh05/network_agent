@@ -10,6 +10,11 @@ import { Diagnostics } from "../pages/Diagnostics/Diagnostics";
 import { JobsPage } from "../pages/JobsPage/JobsPage";
 import { PacketAnalysis } from "../pages/PacketAnalysis/PacketAnalysis";
 import { FileManager } from "../pages/FileManager/FileManager";
+import { KnowledgeLibrary } from "../pages/KnowledgeLibrary/KnowledgeLibrary";
+import { ArtifactCenter } from "../pages/ArtifactCenter/ArtifactCenter";
+import { ReviewCenter } from "../pages/ReviewCenter/ReviewCenter";
+import { MemoryPage } from "../pages/MemoryPage/MemoryPage";
+import { RuntimeAudit } from "../pages/RuntimeAudit/RuntimeAudit";
 import { ToastHost } from "../components/ToastHost";
 import { useUIStore } from "../stores/session";
 import { systemApi } from "../api";
@@ -34,6 +39,11 @@ const NAV_ITEMS: Array<{ to: string; label: string; testid: string; Icon: typeof
   { to: "/runs", label: "运行", testid: "nav-runs", Icon: IconHistory },
   { to: "/capabilities", label: "能力矩阵", testid: "nav-capabilities", Icon: IconLayers },
   { to: "/jobs", label: "作业", testid: "nav-jobs", Icon: IconBolt },
+  { to: "/knowledge", label: "知识库", testid: "nav-knowledge", Icon: IconBox },
+  { to: "/artifacts", label: "制品", testid: "nav-artifacts", Icon: IconBox },
+  { to: "/memory", label: "记忆", testid: "nav-memory", Icon: IconBox },
+  { to: "/reviews", label: "评审", testid: "nav-reviews", Icon: IconBolt },
+  { to: "/audit", label: "审计", testid: "nav-audit", Icon: IconShield },
   { to: "/diagnostics", label: "系统诊断", testid: "nav-diagnostics", Icon: IconShield },
   { to: "/settings", label: "系统设置", testid: "nav-settings", Icon: IconSettings },
 ];
@@ -159,10 +169,22 @@ export function App() {
                 </ErrorBoundary>
               }
             />
-            <Route path="/knowledge" element={<Navigate to="/files" replace />} />
-            <Route path="/artifacts" element={<Navigate to="/files" replace />} />
-            <Route path="/memory" element={<Navigate to="/files" replace />} />
-            <Route path="/reviews" element={<Navigate to="/files" replace />} />
+            <Route path="/knowledge" element={
+                <ErrorBoundary><AppLayout cols={2}><KnowledgeLibrary /></AppLayout></ErrorBoundary>
+              }
+            />
+            <Route path="/artifacts" element={
+                <ErrorBoundary><AppLayout cols={2}><ArtifactCenter /></AppLayout></ErrorBoundary>
+              }
+            />
+            <Route path="/memory" element={
+                <ErrorBoundary><AppLayout cols={2}><MemoryPage /></AppLayout></ErrorBoundary>
+              }
+            />
+            <Route path="/reviews" element={
+                <ErrorBoundary><AppLayout cols={2}><ReviewCenter /></AppLayout></ErrorBoundary>
+              }
+            />
             <Route
               path="/capabilities"
               element={
@@ -173,7 +195,10 @@ export function App() {
                 </ErrorBoundary>
               }
             />
-            <Route path="/audit" element={<Navigate to="/runs" replace />} />
+            <Route path="/audit" element={
+                <ErrorBoundary><AppLayout cols={2}><RuntimeAudit /></AppLayout></ErrorBoundary>
+              }
+            />
             <Route
               path="/jobs"
               element={

@@ -173,26 +173,22 @@ export function PacketAnalysis() {
                   })),
                 }, null, 2);
 
-                const saveRes = await apiRequest<{ ok: boolean; file_id: string }>({
-                  method: "POST", url: "/files",
+                const saveRes = await apiRequest<{ ok: boolean; file: { file_id: string }; artifact?: unknown }>({
+                  method: "POST", url: `/workspaces/${wsId}/artifacts/upload`,
                   data: {
                     title: `${result.conn}`,
-                    type: "pcap_analysis", source: "agent", hidden: true,
+                    artifact_type: "pcap_analysis", source: "agent",
                     content: analysisData, extension: "json",
                     tags: ["tcp", "analysis"],
                     metadata: { session_id: sessionId, conn: result.conn },
                     workspace_id: wsId,
                   },
-                }).catch(() => ({ ok: false, file_id: "" }));
+                }).catch(() => ({ ok: false, file: { file_id: "" } }));
 
-                // 2. Build prompt with file path reference
-                // Note: workspace.file.read already resolves relative to workspace root,
-                // so we only pass the workspace-relative path without "workspaces/<id>/" prefix.
-                const filePath = saveRes.file_id
-                  ? `files/agent/${saveRes.file_id}/content/content.json`
-                  : "";
-                const text = filePath
-                  ? `帮我分析这个 TCP 报文。请使用 workspace.file.read 工具读取文件，参数：workspace_id="${wsId}", filepath="${filePath}"`
+                // Build prompt with file_id reference for LLM tool use
+                const fileId = saveRes.ok ? saveRes.file?.file_id || "" : "";
+                const text = fileId
+                  ? `请分析这份 TCP 报文数据。使用 workspace.file.read 工具，参数 file_id="${fileId}"。`
                   : `帮我分析这个 TCP 连接：${result.conn}，${result.total_tcp_packets} 个报文，${(result.anomalies||[]).length} 个异常`;
 
                 // 3. Store and navigate

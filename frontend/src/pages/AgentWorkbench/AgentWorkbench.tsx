@@ -137,15 +137,16 @@ export function AgentWorkbench() {
         try {
           const form = new FormData();
           form.append("file", a.file);
-          form.append("type", "general");
+          form.append("artifact_type", "general");
           form.append("title", a.name);
           form.append("workspace_id", currentWorkspaceId);
-          const res = await apiRequest<{ ok: boolean; file_id: string }>({
-            method: "POST", url: "/files", data: form,
+          const res = await apiRequest<{ ok: boolean; file: { file_id: string; path?: string; logical_type?: string }; artifact?: unknown; warnings?: string[] }>({
+            method: "POST", url: `/workspaces/${currentWorkspaceId}/artifacts/upload`, data: form,
           });
-          if (res.ok && res.file_id) {
+          const fid = res.ok ? res.file?.file_id : "";
+          if (fid) {
             results.push(a.name);
-            fileRefs.push(`files/upload/${res.file_id}/content/${a.name}`);
+            fileRefs.push(`file_id=${fid}`);
           } else {
             results.push(`${a.name}(失败)`);
           }
@@ -568,10 +569,10 @@ function ResultInline({ result, fallbackText }: { result: AgentResult | undefine
         const file = new File([finalText], `${finalText.slice(0, 30)}.txt`, { type: "text/plain" });
         const form = new FormData();
         form.append("file", file);
-        form.append("type", "memory");
+        form.append("artifact_type", "memory");
         form.append("title", finalText.slice(0, 42) || "本次结论");
         form.append("workspace_id", currentWorkspaceId);
-        await apiRequest({ method: "POST", url: "/files", data: form });
+        await apiRequest({ method: "POST", url: `/workspaces/${currentWorkspaceId}/artifacts/upload`, data: form });
       } catch {}
       if (res.conflict_detected) {
         toast({ kind: "warning", title: "已记录，但发现冲突", body: "这条记忆和已有记忆可能不一致，请稍后在记忆列表核对。" });
@@ -605,10 +606,10 @@ function ResultInline({ result, fallbackText }: { result: AgentResult | undefine
       try {
         const form = new FormData();
         form.append("file", file);
-        form.append("type", "knowledge");
+        form.append("artifact_type", "knowledge");
         form.append("title", title);
         form.append("workspace_id", currentWorkspaceId);
-        await apiRequest({ method: "POST", url: "/files", data: form });
+        await apiRequest({ method: "POST", url: `/workspaces/${currentWorkspaceId}/artifacts/upload`, data: form });
       } catch {}
       toast({ kind: "success", title: "已保存到知识库", body: "这条回答已整理为可检索文档" });
     } catch (e: unknown) {

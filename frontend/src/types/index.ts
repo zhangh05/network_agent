@@ -272,6 +272,8 @@ export interface Artifact {
   file_ext: string;
   /** Truncated SHA-256, e.g. "abc12345". May be empty. */
   sha256_short: string;
+  /** Managed file_id from FileStore. Required for read operations. */
+  file_id: string;
   /** Path relative to the artifact store root. */
   relative_path: string;
   /** Lifecycle, e.g. "active" | "archived" | "deleted". */
