@@ -65,6 +65,7 @@ def temp_dirs(monkeypatch):
     monkeypatch.setenv("NETWORK_AGENT_REPORTS_DIR", str(reports_dir))
     monkeypatch.setenv("NETWORK_AGENT_MEMORY_DIR", str(mem_dir))
     monkeypatch.setenv("NETWORK_AGENT_WORKSPACE_DIR", str(ws_dir))
+    monkeypatch.setenv("NA_WORKSPACE_ROOT", str(ws_dir))
 
     yield {
         "memory_dir": mem_dir,
