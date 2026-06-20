@@ -48,6 +48,7 @@ from backend.api.review_routes import register_review_routes
 from backend.api.pcap_routes import register_pcap_routes
 from backend.api.files_routes import register_files_routes
 from backend.api.reference_routes import register_reference_routes
+from backend.api.workspace_status_routes import register_workspace_status_routes
 from backend.core.settings import UNIFIED_PORT, API_MODE, BUILD_COMMIT, TRANSLATOR_ENTRY
 from backend.core.paths import FRONTEND_DIR
 from backend.core.rate_limit import rate_limit_middleware
@@ -259,6 +260,7 @@ def create_app():
     register_pcap_routes(app)        # /api/pcap/* (parse, filter, align)
     register_files_routes(app)      # /api/files/* (unified files CRUD)
     register_reference_routes(app)   # /api/workspaces/<ws>/files/<fid>/references, reference-graph
+    register_workspace_status_routes(app)  # /api/workspaces/<ws>/status, /storage/health
 
     # ── WebSocket routes (real-time streaming) ──
     from backend.ws.agent_ws import register_ws_routes
