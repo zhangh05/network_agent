@@ -12,7 +12,7 @@ def handle_file_get(inv, *, file_id: str = "", limit: int = 2000) -> dict[str, A
 
     rec = get_file_record(inv.workspace_id or "default", file_id)
     if not rec:
-        return {"ok": False, "tool_id": "file.get", "error": "file_not_found", "file_id": file_id}
+        return {"ok": False, "status": "failed", "tool_id": "file.get", "error": "file_not_found", "file_id": file_id}
     if rec.get("binary"):
         return {
             "ok": True, "tool_id": "file.get", "status": "succeeded", "file_id": file_id,
@@ -24,7 +24,7 @@ def handle_file_get(inv, *, file_id: str = "", limit: int = 2000) -> dict[str, A
         return {"ok": True, "tool_id": "file.get", "status": "succeeded", "file_id": file_id, "content": content[:limit],
                 "size_bytes": rec.get("size_bytes"), "truncated": len(content) > limit}
     except Exception as exc:
-        return {"ok": False, "tool_id": "file.get", "error": str(exc)[:200], "file_id": file_id}
+        return {"ok": False, "status": "failed", "tool_id": "file.get", "error": str(exc)[:200], "file_id": file_id}
 
 
 def handle_file_preview(inv, *, file_id: str = "", limit: int = 500) -> dict[str, Any]:
@@ -33,7 +33,7 @@ def handle_file_preview(inv, *, file_id: str = "", limit: int = 500) -> dict[str
 
     rec = get_file_record(inv.workspace_id or "default", file_id)
     if not rec:
-        return {"ok": False, "error": "file_not_found", "file_id": file_id}
+        return {"ok": False, "status": "failed", "tool_id": "file.get", "error": "file_not_found", "file_id": file_id}
     result: dict[str, Any] = {
         "ok": True, "tool_id": "file.get", "status": "succeeded", "file_id": file_id,
         "file_kind": rec.get("file_kind"), "binary": rec.get("binary"),
@@ -86,14 +86,14 @@ def handle_file_import_workspace_path(inv, *, filepath: str = "") -> dict[str, A
     try:
         target.relative_to(ws)
     except ValueError:
-        return {"ok": False, "error": "path_not_in_workspace", "filepath": filepath}
+        return {"ok": False, "status": "failed", "tool_id": "file.get", "error": "path_not_in_workspace", "filepath": filepath}
 
     allowed = {"files/user_upload", "files/agent_output", "files/knowledge", "inbox"}
     if not any(str(target.relative_to(ws)).startswith(a) for a in allowed):
-        return {"ok": False, "error": "filepath not in allowed current dirs", "filepath": filepath}
+        return {"ok": False, "status": "failed", "tool_id": "file.get", "error": "filepath not in allowed current dirs", "filepath": filepath}
 
     if not target.exists():
-        return {"ok": False, "error": "file_not_found", "filepath": filepath}
+        return {"ok": False, "status": "failed", "tool_id": "file.get", "error": "file_not_found", "filepath": filepath}
 
     rec = import_user_upload(
         workspace_id=inv.workspace_id or "default",
