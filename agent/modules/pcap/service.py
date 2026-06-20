@@ -75,6 +75,20 @@ def parse_pcap_file(workspace_id: str, filepath: str = "", file_id: str = "") ->
         "session_id": sid, "filepath": str(path), "filename": path.name,
         "total_packets": len(packets), "connections": groups,
     }
+    # Persist session to index for recovery after memory reset
+    try:
+        from storage.paths import workspace_root
+        idx_dir = workspace_root(workspace_id) / "index"
+        idx_dir.mkdir(parents=True, exist_ok=True)
+        idx_path = idx_dir / "pcap_sessions.jsonl"
+        record = {"session_id": sid, "filepath": str(path), "filename": path.name,
+                  "total_packets": len(packets), "connection_count": len(groups),
+                  "connections": groups}
+        with open(idx_path, "a", encoding="utf-8") as f:
+            f.write(json.dumps(record, ensure_ascii=False, default=str) + "\n")
+    except Exception:
+        pass
+
     # Save result artifacts (non-fatal)
     artifacts = []
     try:
@@ -115,10 +129,30 @@ def parse_pcap_file(workspace_id: str, filepath: str = "", file_id: str = "") ->
     return result
 
 
-def get_pcap_session(session_id: str) -> dict:
+def get_pcap_session(session_id: str, workspace_id: str = "default") -> dict:
     """Retrieve an existing PCAP session."""
     session = PCAP_SESSIONS.get(session_id)
     if not session:
+        # Try recovering from persisted index
+        try:
+            import json
+            from storage.paths import workspace_root
+            idx_path = workspace_root(workspace_id) / "index" / "pcap_sessions.jsonl"
+            if idx_path.exists():
+                for line in idx_path.read_text(encoding="utf-8").strip().split("\n"):
+                    if not line.strip():
+                        continue
+                    rec = json.loads(line)
+                    if rec.get("session_id") == session_id:
+                        return {
+                            "ok": True, "tool_id": "pcap.analysis.run", "status": "succeeded",
+                            "summary": f"PCAP session 有 {rec.get('total_packets', 0)} 个报文 (从 index 恢复)。",
+                            "session_id": session_id, "filename": rec.get("filename", ""),
+                            "total_packets": rec.get("total_packets", 0),
+                            "connections": rec.get("connections", []),
+                        }
+        except Exception:
+            pass
         return {"ok": False, "tool_id": "pcap.analysis.run", "status": "failed",
                 "summary": "未找到 PCAP session。", "errors": ["session_not_found"]}
     return {

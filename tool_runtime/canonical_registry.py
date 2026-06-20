@@ -22,6 +22,29 @@ from dataclasses import dataclass
 from typing import Any, Callable
 
 from tool_runtime.schemas import ToolSpec, ToolInvocation
+from tool_runtime.registry_helpers import tool_keyword_score
+
+
+# ── FileStore tool helpers ──
+
+def _make_filestore_handler(tool_id: str, param_names: list[str]):
+    """Create a handler that extracts named params from inv.arguments."""
+    def handler(inv: ToolInvocation):
+        args = (inv.arguments or {})
+        kwargs = {n: args.get(n, "") for n in param_names}
+        from tool_runtime.general_tools.filestore_tools import (
+            handle_file_get, handle_file_preview, handle_file_references,
+            handle_file_write_agent_output, handle_file_import_workspace_path,
+        )
+        handlers = {
+            "file.get": handle_file_get,
+            "file.preview": handle_file_preview,
+            "file.references": handle_file_references,
+            "file.write_agent_output": handle_file_write_agent_output,
+            "file.import_workspace_path": handle_file_import_workspace_path,
+        }
+        return handlers[tool_id](inv, **kwargs)
+    return handler
 
 
 def _adapt(handler: Callable[[ToolInvocation], dict]) -> Callable[..., Any]:
@@ -175,6 +198,7 @@ def _handler_config_analysis_run(inv: ToolInvocation) -> dict:
         action=str(args.get("action", "")),
         workspace_id=inv.workspace_id or args.get("workspace_id", "default"),
         filepath=str(args.get("filepath", "")),
+        file_id=str(args.get("file_id", "")),
         source_config=str(args.get("source_config", "")),
         source_vendor=str(args.get("source_vendor", "")),
         target_vendor=str(args.get("target_vendor", "")),
@@ -1157,6 +1181,7 @@ _RAW_REGISTRY: list[CanonicalToolEntry] = [
             "action": {"type": "string", "description": "Action: parse, translate, extract_interfaces, extract_routes, diff, summarize.", "enum": ["parse", "translate", "extract_interfaces", "extract_routes", "diff", "summarize"]},
             "workspace_id": _S["workspace_id"],
             "filepath": _S["filepath"],
+            "file_id": {"type": "string", "description": "FileStore file_id. When provided, reads config from FileStore. Takes priority over filepath."},
             "source_config": {"type": "string", "description": "Inline config text (alternative to filepath)."},
             "source_vendor": {"type": "string", "description": "Source vendor, e.g. huawei, h3c, cisco."},
             "target_vendor": {"type": "string", "description": "Target vendor for translation."},
@@ -1177,6 +1202,53 @@ _RAW_REGISTRY: list[CanonicalToolEntry] = [
             "dport": {"type": "integer", "description": "Destination port for filter."},
         }, ["action"]),
         description="Unified PCAP analysis: parse, session, filter, align.",
+    ),
+    # ── FileStore tools ──
+    CanonicalToolEntry(
+        canonical_tool_id="file.get",
+        handler=_make_filestore_handler("file.get", ["file_id", "limit"]),
+        input_schema=_schema({
+            "file_id": {"type": "string", "description": "FileStore file_id to read."},
+            "limit": {"type": "integer", "description": "Max chars to return.", "default": 2000},
+        }, ["file_id"]),
+        description="Read text content of a FileStore-managed file by file_id.",
+    ),
+    CanonicalToolEntry(
+        canonical_tool_id="file.preview",
+        handler=_make_filestore_handler("file.preview", ["file_id", "limit"]),
+        input_schema=_schema({
+            "file_id": {"type": "string", "description": "FileStore file_id to preview."},
+            "limit": {"type": "integer", "description": "Preview length.", "default": 500},
+        }, ["file_id"]),
+        description="Preview a FileStore file: metadata + text preview.",
+    ),
+    CanonicalToolEntry(
+        canonical_tool_id="file.references",
+        handler=_make_filestore_handler("file.references", ["file_id"]),
+        input_schema=_schema({
+            "file_id": {"type": "string", "description": "FileStore file_id to query references for."},
+        }, ["file_id"]),
+        description="Query cross-references for a FileStore file.",
+    ),
+    CanonicalToolEntry(
+        canonical_tool_id="file.write_agent_output",
+        handler=_make_filestore_handler("file.write_agent_output", ["content", "logical_type", "file_kind", "title", "ext"]),
+        input_schema=_schema({
+            "content": {"type": "string", "description": "Content to write."},
+            "logical_type": {"type": "string", "description": "Logical type.", "default": "artifact_output"},
+            "file_kind": {"type": "string", "description": "File kind.", "default": "text"},
+            "title": {"type": "string", "description": "Title for the artifact."},
+            "ext": {"type": "string", "description": "File extension.", "default": "txt"},
+        }, ["content"]),
+        description="Write output through FileStore and get file_id.",
+    ),
+    CanonicalToolEntry(
+        canonical_tool_id="file.import_workspace_path",
+        handler=_make_filestore_handler("file.import_workspace_path", ["filepath"]),
+        input_schema=_schema({
+            "filepath": {"type": "string", "description": "Workspace-relative path to import."},
+        }, ["filepath"]),
+        description="Import a workspace file into FileStore and get file_id.",
     ),
 ]
 
