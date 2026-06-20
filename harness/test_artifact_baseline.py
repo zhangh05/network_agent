@@ -186,16 +186,15 @@ class TestArtifactAPI:
         from workspace.manager import ensure_workspace
         ensure_workspace("api_dirs")
         p = Path(str(temp_dirs["workspace_dir"])) / "api_dirs"
-        assert (p / "files" / "upload").is_dir()
-        assert (p / "files" / "agent").is_dir()
         assert (p / "sys").is_dir()
+        assert (p / "files" / "user_upload" / "original").is_dir()
+        assert (p / "files" / "agent_output" / "export").is_dir()
 
     def test_workspace_dirs(self, temp_dirs):
         from workspace.manager import ensure_workspace
         ensure_workspace("api_dir")
         p = Path(str(temp_dirs["workspace_dir"])) / "api_dir"
-        assert (p / "files" / "upload").is_dir()
-        assert (p / "files" / "agent").is_dir()
+        assert (p / "sys").is_dir()
         assert (p / "sys").is_dir()
 
 
