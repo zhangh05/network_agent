@@ -1184,7 +1184,7 @@ _RAW_REGISTRY: list[CanonicalToolEntry] = [
     # ── FileStore tools ──
     CanonicalToolEntry(
         canonical_tool_id="file.get",
-        handler=lambda inv: __import__("tool_runtime.general_tools.filestore_tools", fromlist=["handle_file_get"]).handle_file_get(inv, **inv.arguments or {}),
+        handler=lambda inv: __import__("tool_runtime.general_tools.filestore_tools", fromlist=["handle_file_get"]).handle_file_get(inv, file_id=inv.arguments.get("file_id", ""), limit=inv.arguments.get("limit", 2000)),
         input_schema=_schema({
             "file_id": {"type": "string", "description": "FileStore file_id to read."},
             "limit": {"type": "integer", "description": "Max chars to return.", "default": 2000},
@@ -1193,7 +1193,7 @@ _RAW_REGISTRY: list[CanonicalToolEntry] = [
     ),
     CanonicalToolEntry(
         canonical_tool_id="file.preview",
-        handler=lambda inv: __import__("tool_runtime.general_tools.filestore_tools", fromlist=["handle_file_preview"]).handle_file_preview(inv, **inv.arguments or {}),
+        handler=lambda inv: __import__("tool_runtime.general_tools.filestore_tools", fromlist=["handle_file_preview"]).handle_file_preview(inv, file_id=inv.arguments.get("file_id", ""), limit=inv.arguments.get("limit", 500)),
         input_schema=_schema({
             "file_id": {"type": "string", "description": "FileStore file_id to preview."},
             "limit": {"type": "integer", "description": "Preview length.", "default": 500},
@@ -1202,7 +1202,7 @@ _RAW_REGISTRY: list[CanonicalToolEntry] = [
     ),
     CanonicalToolEntry(
         canonical_tool_id="file.references",
-        handler=lambda inv: __import__("tool_runtime.general_tools.filestore_tools", fromlist=["handle_file_references"]).handle_file_references(inv, **inv.arguments or {}),
+        handler=lambda inv: __import__("tool_runtime.general_tools.filestore_tools", fromlist=["handle_file_references"]).handle_file_references(inv, file_id=inv.arguments.get("file_id", "")),
         input_schema=_schema({
             "file_id": {"type": "string", "description": "FileStore file_id to query references for."},
         }, ["file_id"]),
@@ -1210,7 +1210,7 @@ _RAW_REGISTRY: list[CanonicalToolEntry] = [
     ),
     CanonicalToolEntry(
         canonical_tool_id="file.write_agent_output",
-        handler=lambda inv: __import__("tool_runtime.general_tools.filestore_tools", fromlist=["handle_file_write_agent_output"]).handle_file_write_agent_output(inv, **inv.arguments or {}),
+        handler=lambda inv: __import__("tool_runtime.general_tools.filestore_tools", fromlist=["handle_file_write_agent_output"]).handle_file_write_agent_output(inv, content=inv.arguments.get("content", ""), logical_type=inv.arguments.get("logical_type", "artifact_output"), file_kind=inv.arguments.get("file_kind", "text"), title=inv.arguments.get("title", ""), ext=inv.arguments.get("ext", "txt")),
         input_schema=_schema({
             "content": {"type": "string", "description": "Content to write."},
             "logical_type": {"type": "string", "description": "Logical type.", "default": "artifact_output"},
@@ -1222,7 +1222,7 @@ _RAW_REGISTRY: list[CanonicalToolEntry] = [
     ),
     CanonicalToolEntry(
         canonical_tool_id="file.import_workspace_path",
-        handler=lambda inv: __import__("tool_runtime.general_tools.filestore_tools", fromlist=["handle_file_import_workspace_path"]).handle_file_import_workspace_path(inv, **inv.arguments or {}),
+        handler=lambda inv: __import__("tool_runtime.general_tools.filestore_tools", fromlist=["handle_file_import_workspace_path"]).handle_file_import_workspace_path(inv, filepath=inv.arguments.get("filepath", "")),
         input_schema=_schema({
             "filepath": {"type": "string", "description": "Workspace-relative path to import."},
         }, ["filepath"]),
