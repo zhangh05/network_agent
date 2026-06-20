@@ -45,19 +45,21 @@ def test_config_analysis_filepath_works(config_ws):
     assert isinstance(result, dict)
 
 
-def test_config_analysis_accepts_file_id(config_ws):
-    """run_config_analysis should accept file_id parameter."""
+def test_config_analysis_file_id_only_no_source_config(config_ws):
+    """run_config_analysis should work with file_id only, no source_config."""
     from storage.file_store import write_agent_output
     from agent.modules.config_analysis.service import run_config_analysis
 
-    rec = write_agent_output("test_ws", "interface Eth0/0\n", "config_input", "text", title="test")
+    rec = write_agent_output(
+        "test_ws",
+        "interface GigabitEthernet0/0/1\n description uplink\n ip address 10.0.0.1 255.255.255.0\n",
+        "config_input", "text", title="test config",
+    )
 
     result = run_config_analysis(
-        action="translate",
-        source_config="interface Eth0/0\n",
-        source_vendor="cisco_ios",
-        target_vendor="huawei_vrp",
+        action="extract_interfaces",
         workspace_id="test_ws",
-        source_file_id=rec.file_id,
+        file_id=rec.file_id,
     )
     assert isinstance(result, dict)
+    assert "ok" in result or "error" not in str(result).lower()[:50]
