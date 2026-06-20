@@ -18,6 +18,13 @@ interface FileRecord {
   metadata: Record<string, unknown>;
   created_at: string;
   updated_at: string;
+  // FileStore fields (may be present for migrated files)
+  logical_type?: string;
+  file_kind?: string;
+  binary?: boolean;
+  sha256?: string;
+  path?: string;
+  size_bytes?: number;
 }
 
 const TYPE_TABS: Array<{ key: string; label: string }> = [
@@ -28,7 +35,7 @@ const TYPE_TABS: Array<{ key: string; label: string }> = [
   { key: "memory", label: "记忆" },
   { key: "artifact", label: "制品" },
   { key: "general", label: "通用" },
-];
+]
 
 const TYPE_BADGE_MAP: Record<string, string> = {
   pcap: "info", pcap_analysis: "muted", knowledge: "accent", memory: "ok", artifact: "muted", general: "info",
@@ -47,7 +54,7 @@ function matchesType(f: FileRecord, type: string): boolean {
   if (type === "all") return true;
   if (type === "pcap") return hasPcapSession(f);
   if (type === "pcap_analysis") return isPcapAnalysis(f);
-  return f.type === type;
+  return (f.logical_type || f.type || "") === type || (f.file_kind || "") === type;
 }
 
 function typeLabel(f: FileRecord): string {

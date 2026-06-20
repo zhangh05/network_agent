@@ -1021,3 +1021,29 @@ export const modulesExtApi = {
   reloadRegistry: () =>
     apiRequest<{ ok: boolean }>({ method: "POST", url: "/registry/reload" }),
 };
+
+/** Workspace status API — added with FileStore stabilization. */
+export const workspaceStatusApi = {
+  /** GET /api/workspaces/<ws>/status */
+  status: (workspace_id: string, signal?: AbortSignal) =>
+    apiRequest<{ ok: boolean; status: string; data: Record<string, unknown>; errors: string[] }>({ method: "GET", url: `/workspaces/${workspace_id}/status` }, signal),
+
+  /** GET /api/workspaces/<ws>/storage/health */
+  storageHealth: (workspace_id: string, signal?: AbortSignal) =>
+    apiRequest<{ ok: boolean; data: Record<string, unknown> }>({ method: "GET", url: `/workspaces/${workspace_id}/storage/health` }, signal),
+};
+
+/** Reference index API. */
+export const referenceApi = {
+  /** GET /api/workspaces/<ws>/files/<file_id>/references */
+  fileRefs: (workspace_id: string, file_id: string, signal?: AbortSignal) =>
+    apiRequest<{ ok: boolean; references: unknown[]; count: number }>({ method: "GET", url: `/workspaces/${workspace_id}/files/${file_id}/references` }, signal),
+
+  /** GET /api/workspaces/<ws>/artifacts/<artifact_id>/references */
+  artifactRefs: (workspace_id: string, artifact_id: string, signal?: AbortSignal) =>
+    apiRequest<{ ok: boolean; references: unknown[]; count: number }>({ method: "GET", url: `/workspaces/${workspace_id}/artifacts/${artifact_id}/references` }, signal),
+
+  /** GET /api/workspaces/<ws>/reference-graph */
+  graph: (workspace_id: string, signal?: AbortSignal) =>
+    apiRequest<{ ok: boolean; nodes: unknown[]; edges: unknown[]; count: number }>({ method: "GET", url: `/workspaces/${workspace_id}/reference-graph` }, signal),
+};
