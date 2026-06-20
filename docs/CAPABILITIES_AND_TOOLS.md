@@ -24,7 +24,7 @@ Each turn produces the following metadata entries managed by the finalization ke
 
 ## Tool registry
 
-Tools are registered in `tool_runtime/canonical_registry.py`. The count is dynamic and depends on loaded modules.
+Tools are registered in `tool_runtime/canonical_registry.py`. The count is dynamic and depends on loaded modules. ToolRouter builds a per-turn model-visible tool list from the planner output.
 
 ## Version source
 

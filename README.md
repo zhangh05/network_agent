@@ -8,6 +8,10 @@ Network Agent is a local runtime for network engineering workflows.
 UserInput -> SceneDecision -> RuntimeState -> Evidence -> Planner -> Prompt -> ActionKernel -> Output -> Response -> MemoryPlan -> Trace -> Truth -> Stability -> Snapshot
 ```
 
+## LLM configuration
+
+The runtime uses MiniMax M3. LLM provider settings are loaded from `config/providers/` or `LLM_setting.json`. See [docs/RUNTIME.md](docs/RUNTIME.md) for the full turn flow.
+
 ## Directories
 
 ```text
@@ -45,6 +49,8 @@ stability_report
 ## Tests
 
 ```bash
-python -m pytest harness/test_agent_core_finalization_refactor.py -q
-python -m pytest harness/test_runtime_state_task_workflow_main_path.py harness/test_runtime_state_task_workflow_refactor.py -q
+python3 -m pytest harness -q
+python3 -m pytest harness/test_agent_core_finalization_refactor.py -q
+python3 -m pytest harness/test_runtime_state_task_workflow_main_path.py harness/test_runtime_state_task_workflow_refactor.py -q
+npm run typecheck
 ```
