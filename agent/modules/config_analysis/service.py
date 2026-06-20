@@ -2,11 +2,12 @@
 """Unified config analysis module service.
 
 Directory-level entrypoint for all config-related operations.
-Tool handlers call run_config_analysis() instead of individual functions.
+Provides heuristic parsing for common network configuration formats.
 """
 
 from __future__ import annotations
 
+import re
 from typing import Any
 
 
@@ -35,9 +36,7 @@ def run_config_analysis(
 
     if action not in VALID_ACTIONS:
         return {
-            "ok": False,
-            "tool_id": "config.analysis.run",
-            "status": "failed",
+            "ok": False, "tool_id": "config.analysis.run", "status": "failed",
             "summary": f"unsupported config action: {action}",
             "errors": ["unsupported_action"],
         }
@@ -52,28 +51,197 @@ def run_config_analysis(
         )
 
     if action == "parse":
-        return _stub_action("parse", "Config parsing is planned but not yet wired to a module service.")
+        result = parse_config(source_config, vendor=source_vendor)
+        return {
+            "ok": True, "tool_id": "config.analysis.run", "status": "succeeded",
+            "summary": f"解析完成：{result.get('line_count', 0)} 行，"
+                       f"{len(result.get('interfaces', []))} 个接口，"
+                       f"{len(result.get('routes', []))} 条路由。",
+            **result,
+        }
 
     if action == "extract_interfaces":
-        return _stub_action("extract_interfaces", "Interface extraction is planned but not yet wired.")
+        parsed = parse_config(source_config, vendor=source_vendor)
+        interfaces = parsed.get("interfaces", [])
+        return {
+            "ok": True, "tool_id": "config.analysis.run", "status": "succeeded",
+            "summary": f"提取到 {len(interfaces)} 个接口。",
+            "interfaces": interfaces,
+        }
 
     if action == "extract_routes":
-        return _stub_action("extract_routes", "Route extraction is planned but not yet wired.")
+        parsed = parse_config(source_config, vendor=source_vendor)
+        routes = parsed.get("routes", [])
+        return {
+            "ok": True, "tool_id": "config.analysis.run", "status": "succeeded",
+            "summary": f"提取到 {len(routes)} 条路由。",
+            "routes": routes,
+        }
 
     if action == "diff":
-        return _stub_action("diff", "Config diff is not implemented yet.")
+        before = kwargs.get("before", "")
+        after = kwargs.get("after", "")
+        result = diff_configs(before, after)
+        return {
+            "ok": True, "tool_id": "config.analysis.run", "status": "succeeded",
+            "summary": f"差异：+{len(result.get('added', []))} -{len(result.get('removed', []))} ~{len(result.get('changed', []))}",
+            **result,
+        }
 
     if action == "summarize":
-        return _stub_action("summarize", "Config summarize is not implemented yet.")
+        parsed = parse_config(source_config, vendor=source_vendor)
+        summary = summarize_config(parsed)
+        return {
+            "ok": True, "tool_id": "config.analysis.run", "status": "succeeded",
+            "summary": summary,
+        }
 
-    return _stub_action(action, f"Action '{action}' is not implemented.")
-
-
-def _stub_action(action: str, message: str) -> dict[str, Any]:
     return {
-        "ok": False,
-        "tool_id": "config.analysis.run",
-        "status": "not_implemented",
-        "summary": message,
+        "ok": False, "tool_id": "config.analysis.run", "status": "not_implemented",
+        "summary": f"Action '{action}' is not implemented.",
         "errors": [f"{action}_not_implemented"],
     }
+
+
+# ── Heuristic config parsing ────────────────────────────────────────
+
+_INTERFACE_PATTERNS = [
+    re.compile(r"^interface\s+(\S+)", re.IGNORECASE),
+]
+
+_ROUTE_PATTERNS = [
+    re.compile(r"^ip\s+route-static\s+(.*)", re.IGNORECASE),
+    re.compile(r"^ip\s+route\s+(.*)", re.IGNORECASE),
+    re.compile(r"^ipv6\s+route\s+(.*)", re.IGNORECASE),
+    re.compile(r"^route-static\s+(.*)", re.IGNORECASE),
+]
+
+_VLAN_PATTERNS = [
+    re.compile(r"^vlan\s+(\d[\d,\s-]*)", re.IGNORECASE),
+    re.compile(r"^vlan\s+batch\s+(.*)", re.IGNORECASE),
+]
+
+_VENDOR_HINTS = {
+    "huawei": ["sysname", "undo", "aaa", "interface GigabitEthernet", "interface Vlanif", "ip route-static"],
+    "h3c": ["sysname", "undo", "interface Ten-GigabitEthernet", "interface Vlan-interface"],
+    "cisco": ["hostname", "interface GigabitEthernet", "ip route ", "router ospf", "router bgp"],
+    "juniper": ["set interfaces", "set routing-options", "set protocols"],
+}
+
+
+def parse_config(text: str, vendor: str = "") -> dict[str, Any]:
+    """Heuristic parse of a network config text block."""
+    text = text or ""
+    lines = text.split("\n")
+    vendor = (vendor or "").lower().strip() or _guess_vendor(text)
+
+    interfaces: list[dict] = []
+    routes: list[dict] = []
+    vlans: list[str] = []
+    warnings: list[str] = []
+    current_iface: dict | None = None
+
+    for line in lines:
+        stripped = line.strip()
+        if not stripped or stripped.startswith("!") or stripped == "#":
+            if current_iface:
+                interfaces.append(current_iface)
+                current_iface = None
+            continue
+
+        # Interface detection
+        for pat in _INTERFACE_PATTERNS:
+            m = pat.match(stripped)
+            if m:
+                if current_iface:
+                    interfaces.append(current_iface)
+                current_iface = {"name": m.group(1), "lines": [stripped], "ip": None, "description": ""}
+                break
+        else:
+            if current_iface:
+                current_iface["lines"].append(stripped)
+                ip_match = re.match(r"ip\s+address\s+(\S+)\s+(\S+)", stripped, re.IGNORECASE)
+                if ip_match:
+                    current_iface["ip"] = f"{ip_match.group(1)}/{ip_match.group(2)}"
+                desc_match = re.match(r"description\s+(.*)", stripped, re.IGNORECASE)
+                if desc_match:
+                    current_iface["description"] = desc_match.group(1).strip()
+
+        # Route detection
+        for pat in _ROUTE_PATTERNS:
+            m = pat.match(stripped)
+            if m:
+                routes.append({"raw": stripped, "detail": m.group(1).strip()})
+                break
+
+        # VLAN detection
+        for pat in _VLAN_PATTERNS:
+            m = pat.match(stripped)
+            if m:
+                vlans.append(m.group(1).strip())
+                break
+
+    if current_iface:
+        interfaces.append(current_iface)
+
+    return {
+        "vendor": vendor,
+        "line_count": len(lines),
+        "interfaces": interfaces,
+        "routes": routes,
+        "vlans": vlans,
+        "warnings": warnings,
+    }
+
+
+def extract_interfaces(text: str, vendor: str = "") -> list[dict]:
+    """Extract interface list from config text."""
+    return parse_config(text, vendor=vendor).get("interfaces", [])
+
+
+def extract_routes(text: str, vendor: str = "") -> list[dict]:
+    """Extract route list from config text."""
+    return parse_config(text, vendor=vendor).get("routes", [])
+
+
+def diff_configs(before: str, after: str) -> dict[str, Any]:
+    """Simple line-based config diff."""
+    before_lines = set((before or "").strip().split("\n"))
+    after_lines = set((after or "").strip().split("\n"))
+    added = sorted(after_lines - before_lines)
+    removed = sorted(before_lines - after_lines)
+    return {
+        "added": [l for l in added if l.strip()],
+        "removed": [l for l in removed if l.strip()],
+        "changed": [],
+    }
+
+
+def summarize_config(parsed: dict) -> str:
+    """Generate a concise summary of a parsed config."""
+    parts = [f"厂商: {parsed.get('vendor', 'unknown')}"]
+    parts.append(f"总行数: {parsed.get('line_count', 0)}")
+    ifaces = parsed.get("interfaces", [])
+    if ifaces:
+        parts.append(f"接口数: {len(ifaces)}")
+        named = [i["name"] for i in ifaces[:5]]
+        parts.append(f"接口示例: {', '.join(named)}")
+    routes = parsed.get("routes", [])
+    if routes:
+        parts.append(f"路由条目: {len(routes)}")
+    vlans = parsed.get("vlans", [])
+    if vlans:
+        parts.append(f"VLAN: {', '.join(vlans[:5])}")
+    return "; ".join(parts)
+
+
+def _guess_vendor(text: str) -> str:
+    """Guess vendor from config text heuristics."""
+    lower = text.lower()
+    scores: dict[str, int] = {}
+    for vendor, hints in _VENDOR_HINTS.items():
+        scores[vendor] = sum(1 for h in hints if h.lower() in lower)
+    if not scores:
+        return "unknown"
+    best = max(scores, key=lambda v: scores[v])
+    return best if scores[best] > 0 else "unknown"

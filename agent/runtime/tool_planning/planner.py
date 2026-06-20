@@ -299,8 +299,7 @@ def deterministic_plan_tools(
             filtered["local_ops_filtered"].extend(_stripped)
             filtered["local_ops_filtered"] = _ordered_unique(filtered["local_ops_filtered"])
 
-    _has_config_tools = {"network.config.parse", "network.config.translate",
-                         "network.interface.extract", "network.route.extract"} & set(candidate_tools)
+    _has_config_tools = {"config.analysis.run"} & set(candidate_tools)
     _has_file_tools = {"workspace.file.read", "workspace.file.preview",
                        "workspace.file.list"} & set(candidate_tools)
     if _has_config_tools and not _has_file_tools:
@@ -399,7 +398,7 @@ def _capability_steps_from_rule_scene(user_input: str, rule_scene: dict) -> list
 def _step_required(user_input: str, step_no: int, tools: list[str]) -> bool:
     if step_no == 1:
         return True
-    if "network.config.parse" in tools:
+    if "config.analysis.run" in tools or "pcap.analysis.run" in tools:
         return True
     return False
 
