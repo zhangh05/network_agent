@@ -119,6 +119,27 @@ class TestArtifactPlanner:
         assert all(p.task_id == "t1" for p in plans)
         assert all(p.artifact_id.startswith("art_") for p in plans)
 
+    def test_safe_kinds_use_create_mode(self):
+        """Cleanup Test 2: markdown/json/csv/log → write_mode=create."""
+        from agent.runtime.output.models import OutputSource
+        from agent.runtime.output.planner import ArtifactPlanner
+
+        cases = [
+            ("text", "markdown", "create"),
+            ("json", "json", "create"),
+            ("table", "csv", "create"),
+            ("log", "log", "create"),
+            ("image", "image", "register_only"),
+            ("file", "other", "register_only"),
+        ]
+        planner = ArtifactPlanner()
+        for content_type, expected_kind, expected_mode in cases:
+            src = OutputSource(source_id=f"s_{content_type}", content_type=content_type, content="data")
+            plans = planner.plan([src])
+            assert len(plans) == 1, f"Failed for {content_type}"
+            assert plans[0].kind == expected_kind, f"kind mismatch for {content_type}"
+            assert plans[0].write_mode == expected_mode, f"write_mode mismatch for {content_type}: got {plans[0].write_mode}"
+
 
 class TestArtifactRegistry:
     """Test 4: ArtifactRegistry writes artifact_records to ctx.metadata."""
@@ -140,6 +161,45 @@ class TestArtifactRegistry:
         assert "artifact_records" in ctx.metadata
         assert len(ctx.metadata["artifact_records"]) == 1
         assert ctx.metadata["artifact_records"][0]["artifact_id"] == "art_001"
+
+    def test_sync_task_id_step_id_to_artifact_state(self):
+        """Cleanup Test 3: ArtifactState gets task_id and step_id."""
+        from agent.runtime.output.models import ArtifactRecord
+        from agent.runtime.output.registry import ArtifactRegistry
+        from agent.runtime.state.models import RuntimeState, TaskState, WorkflowState, StepState
+
+        state = RuntimeState()
+        state.active_task = TaskState(task_id="t1")
+        step = StepState(step_id="s1", task_id="t1")
+        state.active_workflow = WorkflowState(task_id="t1", steps=[step])
+        ctx = _make_ctx()
+        ctx.runtime_state = state
+
+        record = ArtifactRecord(artifact_id="art_X", task_id="t1", step_id="s1", kind="json", status="created")
+        ArtifactRegistry().register(ctx, record)
+
+        assert len(state.artifacts) == 1
+        assert state.artifacts[0].task_id == "t1"
+        assert state.artifacts[0].step_id == "s1"
+
+    def test_sync_step_state_artifact_ids(self):
+        """Cleanup Test 4: StepState.artifact_ids synced by ArtifactRegistry."""
+        from agent.runtime.output.models import ArtifactRecord
+        from agent.runtime.output.registry import ArtifactRegistry
+        from agent.runtime.state.models import RuntimeState, TaskState, WorkflowState, StepState
+
+        state = RuntimeState()
+        state.active_task = TaskState(task_id="t1")
+        step = StepState(step_id="s1", task_id="t1")
+        state.active_workflow = WorkflowState(task_id="t1", steps=[step])
+        ctx = _make_ctx()
+        ctx.runtime_state = state
+
+        record = ArtifactRecord(artifact_id="art_Y", task_id="t1", step_id="s1", kind="csv", status="created")
+        ArtifactRegistry().register(ctx, record)
+
+        assert "art_Y" in step.artifact_ids
+        assert "art_Y" in state.active_task.artifact_ids
 
 
 class TestOutputSummary:
@@ -252,6 +312,27 @@ class TestMemoryRiskFilter:
         assert accepted[0].candidate_id == "c1"
         assert len(skipped) == 2
 
+    def test_skipped_reason_no_sensitive_echo(self):
+        """Cleanup Test 7: skipped reasons must not contain raw token/password/IP."""
+        from agent.runtime.memory_write.filter import MemoryRiskFilter
+        from agent.runtime.memory_write.models import MemoryCandidate
+
+        candidates = [
+            MemoryCandidate(candidate_id="c1", content="password=MyS3cretP@ss!", memory_type="user_preference"),
+            MemoryCandidate(candidate_id="c2", content="server at 192.168.1.100:8080", memory_type="tool_learning"),
+            MemoryCandidate(candidate_id="c3", content="token=sk-abc123XYZ456789012345678", memory_type="tool_learning"),
+        ]
+        filt = MemoryRiskFilter()
+        _, skipped = filt.filter(candidates)
+        assert len(skipped) == 3
+        for s in skipped:
+            reason = s["reason"]
+            assert "password" not in reason.lower() or reason == "sensitive_match: credential_pattern"
+            assert "MyS3cret" not in reason
+            assert "192.168" not in reason
+            assert "sk-abc" not in reason
+            assert reason.startswith("sensitive_match: ")
+
 
 # ═══════════════════════════════════════════════════════════════════════
 # Round 11: Observability
@@ -337,6 +418,17 @@ class TestVersionTruth:
         assert "3.2.0" in v.full()
         assert v.version() == "3.2.0"
 
+    def test_fallback_has_warning(self):
+        """Cleanup Test 8: If no real version source, warnings list is non-empty."""
+        from agent.runtime.truth.version import VersionTruth
+
+        v = VersionTruth()
+        if v.is_fallback():
+            assert len(v.warnings()) > 0
+            assert "version_fallback_used" in v.warnings()[0]
+        else:
+            assert len(v.warnings()) == 0
+
 
 # ═══════════════════════════════════════════════════════════════════════
 # Round 13: Stability Gate
@@ -385,6 +477,93 @@ class TestStabilityNoOldStage:
             source_dir=os.path.join(os.path.dirname(__file__), "..")
         )
         assert result.passed is True
+
+
+# ═══════════════════════════════════════════════════════════════════════
+# Cleanup: Snapshot / Artifact sync / StabilityGate auto
+# ═══════════════════════════════════════════════════════════════════════
+
+
+class TestFinalizationSnapshotSync:
+    """Cleanup Tests 5-6: After finalization, snapshot includes artifact info."""
+
+    def test_snapshot_recent_artifacts(self):
+        """Cleanup Test 6: recent_artifacts appears in snapshot after finalization."""
+        from agent.runtime.output.models import ArtifactRecord
+        from agent.runtime.output.registry import ArtifactRegistry
+        from agent.runtime.state.models import RuntimeState, TaskState, WorkflowState, StepState
+        from agent.runtime.state.snapshot import RuntimeStateSnapshotter
+
+        state = RuntimeState()
+        state.active_task = TaskState(task_id="t1")
+        step = StepState(step_id="s1", task_id="t1")
+        state.active_workflow = WorkflowState(task_id="t1", steps=[step], current_step_id="s1")
+        ctx = _make_ctx()
+        ctx.runtime_state = state
+
+        record = ArtifactRecord(artifact_id="art_SNAP", task_id="t1", step_id="s1", kind="json", status="created")
+        ArtifactRegistry().register(ctx, record)
+
+        snap = RuntimeStateSnapshotter().snapshot(ctx, state)
+        assert "art_SNAP" in snap.recent_artifacts
+        snap_dict = ctx.metadata.get("runtime_state_snapshot", {})
+        assert "art_SNAP" in snap_dict.get("recent_artifacts", [])
+
+    def test_artifact_ids_saved_in_task_state(self):
+        """Cleanup Test 5: TaskState.artifact_ids saved after finalization."""
+        from agent.runtime.output.models import ArtifactRecord
+        from agent.runtime.output.registry import ArtifactRegistry
+        from agent.runtime.state.models import RuntimeState, TaskState
+
+        state = RuntimeState()
+        state.active_task = TaskState(task_id="t1")
+        ctx = _make_ctx()
+        ctx.runtime_state = state
+
+        record = ArtifactRecord(artifact_id="art_SAVE", task_id="t1", kind="csv", status="created")
+        ArtifactRegistry().register(ctx, record)
+        assert "art_SAVE" in state.active_task.artifact_ids
+
+
+class TestStabilityGateAutoAppears:
+    """Cleanup Test 1: stability_report appears after finalization."""
+
+    def test_stability_report_after_finalization(self):
+        from agent.runtime.stability.gate import StabilityGate
+
+        ctx = _make_ctx(metadata={
+            "runtime_state_snapshot": {},
+            "task_signal": {},
+            "action_trace": [],
+            "artifact_records": [],
+            "output_summary": {},
+            "final_response": {},
+            "turn_trace": {},
+            "truth_report": {},
+            "memory_write_plan": {},
+        })
+        StabilityGate().check(ctx, source_dir=os.path.join(os.path.dirname(__file__), ".."))
+        assert "stability_report" in ctx.metadata
+        assert ctx.metadata["stability_report"]["passed"] is True
+
+    def test_empty_action_trace_does_not_fail(self):
+        """action_trace=[] should not cause stability failure."""
+        from agent.runtime.stability.gate import StabilityGate
+
+        ctx = _make_ctx(metadata={
+            "runtime_state_snapshot": {},
+            "task_signal": {},
+            "action_trace": [],
+            "artifact_records": [],
+            "output_summary": {},
+            "final_response": {},
+            "turn_trace": {},
+            "truth_report": {},
+            "memory_write_plan": {},
+        })
+        gate = StabilityGate()
+        report = gate.check(ctx, source_dir=os.path.join(os.path.dirname(__file__), ".."))
+        assert report.passed is True
 
 
 # ═══════════════════════════════════════════════════════════════════════

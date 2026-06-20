@@ -31,7 +31,7 @@ class TruthReporter:
         cfg = ConfigTruth().snapshot(ctx)
         cap = CapabilityTruth().snapshot(ctx)
 
-        warnings: list[str] = []
+        warnings: list[str] = list(ver.warnings())
         if not cfg.model_provider:
             warnings.append("model_provider not configured")
         if cap.tool_count == 0:

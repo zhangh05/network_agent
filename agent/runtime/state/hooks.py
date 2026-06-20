@@ -59,9 +59,9 @@ def complete_runtime_state_after_actions(ctx, session=None):
         transition.apply_step_result(state, step_result, ctx=ctx)
 
     CompletionEvaluator().evaluate(ctx, state)
-    _snapshot_and_save(ctx, state, session=session)
 
     _run_finalization_kernels(ctx)
+    _snapshot_and_save(ctx, state, session=session)
     return state
 
 
@@ -115,6 +115,9 @@ def _run_finalization_kernels(ctx) -> None:
     if ctx is None:
         return
 
+    # Ensure action_trace key exists (no-tool turns produce empty list)
+    ctx.metadata.setdefault("action_trace", [])
+
     # 1. Output Kernel: collect → plan → write → register → summarize
     try:
         from agent.runtime.output.collector import ResultCollector
@@ -163,3 +166,10 @@ def _run_finalization_kernels(ctx) -> None:
         TruthReporter().report(ctx)
     except Exception:
         ctx.metadata.setdefault("runtime_state_warnings", []).append("truth_reporter_failed")
+
+    # 6. Stability Gate
+    try:
+        from agent.runtime.stability.gate import StabilityGate
+        StabilityGate().check(ctx)
+    except Exception:
+        ctx.metadata.setdefault("runtime_state_warnings", []).append("stability_gate_failed")

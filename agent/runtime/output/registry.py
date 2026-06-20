@@ -14,6 +14,7 @@ class ArtifactRegistry:
         records.append(self._to_dict(record))
         self._sync_runtime_state(ctx, record)
         self._sync_task_state(ctx, record)
+        self._sync_step_state(ctx, record)
 
     def register_all(self, ctx, records: list[ArtifactRecord]) -> None:
         for rec in records:
@@ -30,6 +31,8 @@ class ArtifactRegistry:
         from agent.runtime.state.models import ArtifactState
         art_state = ArtifactState(
             artifact_id=record.artifact_id,
+            task_id=record.task_id,
+            step_id=record.step_id,
             kind=record.kind,
             path=record.path,
             summary=record.title or record.summary,
@@ -47,6 +50,20 @@ class ArtifactRegistry:
         if hasattr(task, "artifact_ids") and task.artifact_ids is not None:
             if record.artifact_id not in task.artifact_ids:
                 task.artifact_ids.append(record.artifact_id)
+
+    def _sync_step_state(self, ctx, record: ArtifactRecord) -> None:
+        state = getattr(ctx, "runtime_state", None)
+        if state is None:
+            return
+        workflow = getattr(state, "active_workflow", None)
+        if workflow is None or not hasattr(workflow, "steps"):
+            return
+        for step in workflow.steps:
+            if step.step_id == record.step_id:
+                if hasattr(step, "artifact_ids") and step.artifact_ids is not None:
+                    if record.artifact_id not in step.artifact_ids:
+                        step.artifact_ids.append(record.artifact_id)
+                break
 
     @staticmethod
     def _to_dict(record: ArtifactRecord) -> dict:

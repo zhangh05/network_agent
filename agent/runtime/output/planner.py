@@ -19,6 +19,9 @@ _CONTENT_TYPE_TO_KIND = {
 }
 
 
+_SAFE_WRITE_KINDS = {"markdown", "txt", "json", "csv", "log"}
+
+
 class ArtifactPlanner:
     """Decide which sources should become artifacts and plan their creation."""
 
@@ -30,6 +33,7 @@ class ArtifactPlanner:
             kind = _CONTENT_TYPE_TO_KIND.get(src.content_type, "other")
             ext = _kind_to_ext(kind)
             aid = f"art_{uuid.uuid4().hex[:8]}"
+            write_mode = "create" if kind in _SAFE_WRITE_KINDS else "register_only"
             plan = ArtifactPlan(
                 artifact_id=aid,
                 task_id=task_id or src.task_id,
@@ -39,7 +43,7 @@ class ArtifactPlanner:
                 title=src.summary[:80] or f"{src.tool_id or 'output'}_{aid[:12]}",
                 filename=f"{aid}.{ext}",
                 target_path=f"workspace/output/artifacts/{aid}.{ext}",
-                write_mode="register_only",
+                write_mode=write_mode,
             )
             plans.append(plan)
         return plans
