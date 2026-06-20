@@ -59,6 +59,8 @@ def complete_runtime_state_after_actions(ctx, session=None):
         transition.apply_step_result(state, step_result, ctx=ctx)
 
     CompletionEvaluator().evaluate(ctx, state)
+
+    _run_finalization_kernels(ctx)
     _snapshot_and_save(ctx, state, session=session)
     return state
 
@@ -102,3 +104,72 @@ def runtime_state_prompt_block(ctx) -> str:
     if pending:
         lines.append(f"Pending approvals: {len(pending)}. Await approval before repeating gated actions.")
     return "\n".join(x for x in lines if x)[:1500]
+
+
+def _run_finalization_kernels(ctx) -> None:
+    """Run output/response/memory/observability/truth finalization kernels.
+
+    Each kernel writes to ctx.metadata. Failures are swallowed to avoid
+    breaking the main turn flow.
+    """
+    if ctx is None:
+        return
+
+    # Ensure action_trace key exists (no-tool turns produce empty list)
+    ctx.metadata.setdefault("action_trace", [])
+
+    # 1. Output Kernel: collect → plan → write → register → summarize
+    try:
+        from agent.runtime.output.collector import ResultCollector
+        from agent.runtime.output.planner import ArtifactPlanner
+        from agent.runtime.output.writer import ArtifactWriter
+        from agent.runtime.output.registry import ArtifactRegistry
+        from agent.runtime.output.summary import OutputSummarizer
+
+        snap = ctx.metadata.get("runtime_state_snapshot") or {}
+        task_id = snap.get("active_task_id", "") if isinstance(snap, dict) else ""
+        step_id = snap.get("active_step_id", "") if isinstance(snap, dict) else ""
+
+        sources = ResultCollector().collect(ctx)
+        plans = ArtifactPlanner().plan(sources, task_id=task_id, step_id=step_id)
+        writer = ArtifactWriter()
+        records = [writer.write(p, sources) for p in plans]
+        ArtifactRegistry().register_all(ctx, records)
+        OutputSummarizer().summarize(ctx, sources, records, task_id=task_id, step_id=step_id)
+    except Exception:
+        ctx.metadata.setdefault("runtime_state_warnings", []).append("output_kernel_failed")
+
+    # 2. Response Composer
+    try:
+        from agent.runtime.response.composer import ResponseComposer
+        ResponseComposer().compose(ctx)
+    except Exception:
+        ctx.metadata.setdefault("runtime_state_warnings", []).append("response_composer_failed")
+
+    # 3. Memory Write Planner
+    try:
+        from agent.runtime.memory_write.planner import MemoryWritePlanner
+        MemoryWritePlanner().plan(ctx)
+    except Exception:
+        ctx.metadata.setdefault("runtime_state_warnings", []).append("memory_write_planner_failed")
+
+    # 4. Observability Collector
+    try:
+        from agent.runtime.observability.collector import ObservabilityCollector
+        ObservabilityCollector().collect(ctx)
+    except Exception:
+        ctx.metadata.setdefault("runtime_state_warnings", []).append("observability_collector_failed")
+
+    # 5. Truth Reporter
+    try:
+        from agent.runtime.truth.report import TruthReporter
+        TruthReporter().report(ctx)
+    except Exception:
+        ctx.metadata.setdefault("runtime_state_warnings", []).append("truth_reporter_failed")
+
+    # 6. Stability Gate
+    try:
+        from agent.runtime.stability.gate import StabilityGate
+        StabilityGate().check(ctx)
+    except Exception:
+        ctx.metadata.setdefault("runtime_state_warnings", []).append("stability_gate_failed")
