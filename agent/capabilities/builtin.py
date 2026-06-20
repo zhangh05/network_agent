@@ -45,8 +45,9 @@ def get_default_capability_registry() -> CapabilityRegistry:
     ToolRegistry, RuntimeSnapshot) sees the SAME registry instance.
     """
     reg = CapabilityRegistry(BUILTIN_CAPABILITIES)
-    # Sanity: assert the seven v0.9 expected entries exist.
-    expected = {"config_translation", "knowledge", "artifact", "review",
+    # Sanity: assert the expected entries exist.
+    # config_translation is now handled via capability-first routing (CapabilityPackage).
+    expected = {"knowledge", "artifact", "review",
                 "topology", "inspection", "cmdb"}
     ids = {m.capability_id for m in reg.list_all()}
     missing = expected - ids
