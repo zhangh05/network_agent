@@ -108,7 +108,14 @@ def _allowed_import_roots(workspace_id: str) -> List[Path]:
       - workspace/{ws_id}/inbox/    (staging area)
     """
     base = _ws_root() / workspace_id
-    return [base / "files" / "upload", base / "files" / "agent", base / "inbox"]
+    return [
+        base / "files" / "upload",
+        base / "files" / "agent",
+        base / "files" / "agent_output",
+        base / "files" / "user_upload",
+        base / "files" / "knowledge",
+        base / "inbox",
+    ]
 
 
 def _validate_import_path(workspace_id: str, path: Union[str, Path]) -> dict:
