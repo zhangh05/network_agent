@@ -25,6 +25,35 @@ from tool_runtime.schemas import ToolSpec, ToolInvocation
 from tool_runtime.registry_helpers import tool_keyword_score
 
 
+# ── FileStore tool helpers ──
+
+def _get_filestore_handlers():
+    """Lazy import filestore tool handlers to avoid module-level import issues."""
+    from tool_runtime.general_tools.filestore_tools import (
+        handle_file_get,
+        handle_file_preview,
+        handle_file_references,
+        handle_file_write_agent_output,
+        handle_file_import_workspace_path,
+    )
+    return {
+        "file.get": handle_file_get,
+        "file.preview": handle_file_preview,
+        "file.references": handle_file_references,
+        "file.write_agent_output": handle_file_write_agent_output,
+        "file.import_workspace_path": handle_file_import_workspace_path,
+    }
+
+
+def _make_filestore_handler(tool_id: str, param_names: list[str]):
+    """Create a handler that extracts named params from inv.arguments."""
+    def handler(inv: ToolInvocation):
+        args = (inv.arguments or {})
+        kwargs = {n: args.get(n, "") for n in param_names}
+        return _get_filestore_handlers()[tool_id](inv, **kwargs)
+    return handler
+
+
 def _adapt(handler: Callable[[ToolInvocation], dict]) -> Callable[..., Any]:
     """Adapter: existing handlers take (inv: ToolInvocation)."""
     def _callable(*args: Any, **kwargs: Any) -> Any:
@@ -1184,7 +1213,7 @@ _RAW_REGISTRY: list[CanonicalToolEntry] = [
     # ── FileStore tools ──
     CanonicalToolEntry(
         canonical_tool_id="file.get",
-        handler=lambda inv: __import__("tool_runtime.general_tools.filestore_tools", fromlist=["handle_file_get"]).handle_file_get(inv, file_id=(inv.arguments or {}).get("file_id", ""), limit=(inv.arguments or {}).get("limit", 2000)),
+        handler=_make_filestore_handler("file.get", ["file_id", "limit"]),
         input_schema=_schema({
             "file_id": {"type": "string", "description": "FileStore file_id to read."},
             "limit": {"type": "integer", "description": "Max chars to return.", "default": 2000},
@@ -1193,7 +1222,7 @@ _RAW_REGISTRY: list[CanonicalToolEntry] = [
     ),
     CanonicalToolEntry(
         canonical_tool_id="file.preview",
-        handler=lambda inv: __import__("tool_runtime.general_tools.filestore_tools", fromlist=["handle_file_preview"]).handle_file_preview(inv, file_id=(inv.arguments or {}).get("file_id", ""), limit=(inv.arguments or {}).get("limit", 500)),
+        handler=_make_filestore_handler("file.preview", ["file_id", "limit"]),
         input_schema=_schema({
             "file_id": {"type": "string", "description": "FileStore file_id to preview."},
             "limit": {"type": "integer", "description": "Preview length.", "default": 500},
@@ -1202,7 +1231,7 @@ _RAW_REGISTRY: list[CanonicalToolEntry] = [
     ),
     CanonicalToolEntry(
         canonical_tool_id="file.references",
-        handler=lambda inv: __import__("tool_runtime.general_tools.filestore_tools", fromlist=["handle_file_references"]).handle_file_references(inv, file_id=(inv.arguments or {}).get("file_id", "")),
+        handler=_make_filestore_handler("file.references", ["file_id"]),
         input_schema=_schema({
             "file_id": {"type": "string", "description": "FileStore file_id to query references for."},
         }, ["file_id"]),
@@ -1210,7 +1239,7 @@ _RAW_REGISTRY: list[CanonicalToolEntry] = [
     ),
     CanonicalToolEntry(
         canonical_tool_id="file.write_agent_output",
-        handler=lambda inv: __import__("tool_runtime.general_tools.filestore_tools", fromlist=["handle_file_write_agent_output"]).handle_file_write_agent_output(inv, content=(inv.arguments or {}).get("content", ""), logical_type=(inv.arguments or {}).get("logical_type", "artifact_output"), file_kind=(inv.arguments or {}).get("file_kind", "text"), title=(inv.arguments or {}).get("title", ""), ext=(inv.arguments or {}).get("ext", "txt")),
+        handler=_make_filestore_handler("file.write_agent_output", ["content", "logical_type", "file_kind", "title", "ext"]),
         input_schema=_schema({
             "content": {"type": "string", "description": "Content to write."},
             "logical_type": {"type": "string", "description": "Logical type.", "default": "artifact_output"},
@@ -1222,7 +1251,7 @@ _RAW_REGISTRY: list[CanonicalToolEntry] = [
     ),
     CanonicalToolEntry(
         canonical_tool_id="file.import_workspace_path",
-        handler=lambda inv: __import__("tool_runtime.general_tools.filestore_tools", fromlist=["handle_file_import_workspace_path"]).handle_file_import_workspace_path(inv, filepath=(inv.arguments or {}).get("filepath", "")),
+        handler=_make_filestore_handler("file.import_workspace_path", ["filepath"]),
         input_schema=_schema({
             "filepath": {"type": "string", "description": "Workspace-relative path to import."},
         }, ["filepath"]),
