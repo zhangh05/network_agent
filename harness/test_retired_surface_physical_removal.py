@@ -41,7 +41,7 @@ class TestActiveCodeClean:
         from registry.loader import load_module_registry
         mods = load_module_registry()
         enabled = sorted([m.module_name for m in mods if m.is_enabled()])
-        assert enabled == sorted(["artifact", "config_translation", "knowledge", "review"])
+        assert enabled == sorted(["artifact", "knowledge", "review"])
 
 
 class TestCurrentDocs:

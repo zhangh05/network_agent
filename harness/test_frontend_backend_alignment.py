@@ -125,7 +125,7 @@ def test_capabilities_api_projection():
     assert "enabled" in data
 
     caps = data["capabilities"]
-    assert len(caps) == 7, f"Expected 7 capabilities, got {len(caps)}"
+    assert len(caps) == 6, f"Expected 6 capabilities, got {len(caps)}"
 
     for c in caps:
         assert "capability_id" in c
@@ -133,8 +133,7 @@ def test_capabilities_api_projection():
         assert c["status"] in ("enabled", "planned", "disabled")
 
     enabled_ids = data["enabled"]
-    assert len(enabled_ids) == 4
-    assert "config_translation" in enabled_ids
+    assert len(enabled_ids) == 3
     assert "knowledge" in enabled_ids
     assert "artifact" in enabled_ids
     assert "review" in enabled_ids
@@ -274,6 +273,6 @@ def test_runtime_summary_uses_capability_registry():
         resp = client.get("/api/runtime/summary")
         data = resp.get_json()
 
-        assert data["capabilities"]["total"] == 7
-        assert data["capabilities"]["enabled"] == 4
+        assert data["capabilities"]["total"] == 6
+        assert data["capabilities"]["enabled"] == 3
         assert data["capabilities"]["planned"] == 3
