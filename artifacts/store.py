@@ -198,21 +198,31 @@ def save_artifact(workspace_id: str, content: str = "", source_path: str = "",
     art_dir.mkdir(parents=True, exist_ok=True)
 
     ext = cls["file_ext"] or "txt"
-    _lt = _logical_type_for_artifact(artifact_type)
 
-    # Write content through FileStore
+    # Write content to legacy files/agent/ for backward compatibility.
+    # TODO: migrate to files/agent_output/ via FileStore.write_agent_output
+    #       once all consumers (knowledge import, artifact read, etc.) support
+    #       the new directory structure.
+    base = _safe_name(title or artifact_type)
+    fname = f"{base}_{art_id}.{ext}"
+    fpath = art_dir / fname
+    fpath.write_text(content)
+
+    # Create a FileRecord for this artifact write
     file_id = ""
-    fpath = None
-    fname = ""
+    _lt = _logical_type_for_artifact(artifact_type)
     try:
-        from storage.file_store import write_agent_output
-        file_rec = write_agent_output(
+        from storage.file_store import create_file_record
+        ws = _get_ws_root() / workspace_id
+        rel_path = str(fpath.relative_to(ws))
+        file_rec = create_file_record(
             workspace_id=workspace_id,
-            content=content,
             logical_type=_lt,
             file_kind=ext,
-            title=title or artifact_type or art_id,
-            ext=ext,
+            path=rel_path,
+            original_name=fname,
+            size_bytes=size,
+            sha256=sha,
             source=source,
             run_id=run_id,
             sensitivity=sensitivity,
@@ -224,16 +234,8 @@ def save_artifact(workspace_id: str, content: str = "", source_path: str = "",
             },
         )
         file_id = file_rec.file_id
-        ws = _get_ws_root() / workspace_id
-        fpath = (ws / file_rec.path).resolve()
-        fname = file_rec.path
     except Exception:
-        # Fallback to legacy direct write
-        base = _safe_name(title or artifact_type)
-        fname_legacy = f"{base}_{art_id}.{ext}"
-        fpath = art_dir / fname_legacy
-        fpath.write_text(content)
-        fname = fname_legacy
+        pass
 
     # Build record
     title = title or f"{artifact_type}: {art_id}"
