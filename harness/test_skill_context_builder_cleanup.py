@@ -1,0 +1,56 @@
+# harness/test_skill_context_builder_cleanup.py
+"""Verify context_builder no longer injects skill prompts or uses full tool catalog."""
+
+import os
+import sys
+from pathlib import Path
+
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
+
+
+class DummyCtx:
+    def __init__(self):
+        self.metadata = {}
+        self.safe_context = {}
+
+
+class DummySession:
+    def __init__(self):
+        self.metadata = {
+            "loaded_skills": {
+                "config_translation": {
+                    "skill_prompt": "SHOULD_NOT_APPEAR",
+                    "capability_ids": ["config_translation"],
+                    "module_ids": ["config_translation"],
+                    "tool_ids": ["network.config.translate"],
+                    "prompt_hints": ["hint"],
+                    "safety_notes": ["safe"],
+                }
+            }
+        }
+
+
+def test_loaded_skills_do_not_inject_prompt_text():
+    from agent.runtime.context_builder import _inject_loaded_skills
+
+    ctx = DummyCtx()
+    session = DummySession()
+    _inject_loaded_skills(ctx, session)
+
+    assert "loaded_skills_section" not in ctx.safe_context
+    dumped = str(ctx.safe_context)
+    assert "SHOULD_NOT_APPEAR" not in dumped
+    assert "skill_prompt" not in dumped
+    assert "loaded_skill_contracts" in ctx.safe_context
+    assert ctx.safe_context["loaded_skill_contracts"][0]["capability_ids"] == ["config_translation"]
+
+
+def test_context_builder_does_not_use_full_tool_namespace_catalog():
+    text = Path("agent/runtime/context_builder.py").read_text(encoding="utf-8")
+    assert "list(TOOL_NAMESPACE)" not in text
+    assert 'available_catalog={"tools": list(TOOL_NAMESPACE)}' not in text
+
+
+def test_context_builder_uses_active_tool_catalog():
+    text = Path("agent/runtime/context_builder.py").read_text(encoding="utf-8")
+    assert "active_tool_catalog" in text

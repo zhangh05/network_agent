@@ -56,6 +56,7 @@ def handle_skill_load(inv: ToolInvocation) -> dict:
     if not result.ok:
         return _error_inv(inv, result.message)
 
+    record = skill_session_record(result)
     return _ok(inv, "", {
         "skill_id": result.skill_id,
         "status": result.status,
@@ -65,6 +66,7 @@ def handle_skill_load(inv: ToolInvocation) -> dict:
         "prompt_hints": list(result.prompt_hints),
         "safety_notes": list(result.safety_notes),
         "message": result.message,
+        "skill_record": record,
     })
 
 

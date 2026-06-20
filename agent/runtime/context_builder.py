@@ -244,7 +244,7 @@ def _plan_tools_v2(ctx, evidence_bundle, session, services, selected_skills: lis
         from agent.llm.tool_adapter import from_llm_tool_name
         from agent.runtime.tool_planning.planner import ToolPlannerV2
         from agent.runtime.tool_planning.scene_adapter import scene_to_rule_scene
-        from tool_runtime.tool_namespace import TOOL_NAMESPACE
+        from agent.runtime.capability_routing.toolset import active_tool_catalog
 
         base_reg = getattr(ctx.tool_router, "registry", None) or (
             ctx.tool_router if hasattr(ctx.tool_router, "list_model_visible") else None
@@ -253,10 +253,16 @@ def _plan_tools_v2(ctx, evidence_bundle, session, services, selected_skills: lis
             return result
 
         planner = ToolPlannerV2()
+        available_catalog = active_tool_catalog(
+            ctx.user_input,
+            scene=scene_decision,
+            safe_context=getattr(ctx, "safe_context", {}) or {},
+            limit=12,
+        )
         tool_scene = planner.plan(
             scene_decision,
             evidence_bundle=evidence_bundle,
-            available_catalog={"tools": list(TOOL_NAMESPACE)},
+            available_catalog=available_catalog,
             model_config=ctx.model_config,
         )
         rule_tool_scene = scene_to_rule_scene(scene_decision)
@@ -313,20 +319,26 @@ def _base_enabled_skills(services) -> list[str]:
 
 
 def _inject_loaded_skills(ctx, session) -> None:
+    """Inject loaded skill contracts into safe_context (no prompt injection)."""
     session_loaded = getattr(session, "metadata", {}) or {}
     loaded_skills = (session_loaded.get("loaded_skills") or ctx.metadata.get("loaded_skills") or {})
     if not loaded_skills:
         return
 
-    skill_lines = ["## Loaded Skills", ""]
-    for skill_name, skill_info in loaded_skills.items():
-        prompt = skill_info.get("skill_prompt", "")[:3000] if isinstance(skill_info, dict) else ""
-        if prompt:
-            skill_lines.append(f"### {skill_name}")
-            skill_lines.append(prompt)
-            skill_lines.append("")
-    if len(skill_lines) > 2:
-        ctx.safe_context["loaded_skills_section"] = "\n".join(skill_lines)
+    contracts = []
+    for skill_id, skill_info in loaded_skills.items():
+        if not isinstance(skill_info, dict):
+            continue
+        contracts.append({
+            "skill_id": skill_id,
+            "capability_ids": list(skill_info.get("capability_ids") or []),
+            "module_ids": list(skill_info.get("module_ids") or []),
+            "tool_ids": list(skill_info.get("tool_ids") or []),
+            "prompt_hints": list(skill_info.get("prompt_hints") or []),
+            "safety_notes": list(skill_info.get("safety_notes") or []),
+        })
+    if contracts:
+        ctx.safe_context["loaded_skill_contracts"] = contracts
 
 
 def _write_context_metadata(
