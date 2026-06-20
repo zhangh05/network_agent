@@ -1,7 +1,10 @@
 # agent/runtime/prompting/profile.py
-"""PromptProfile — assembles system prompt fragments based on scene decision.
+"""Legacy PromptProfile adapter.
 
-Moved from prompts.py and adapted to accept SceneDecision.
+Non-simple-chat turns no longer use PromptProfile. They are compiled by
+agent.runtime.prompt_architecture.compiler.compile_runtime_prompt().
+This module remains only for backwards-compatible imports and tests that still
+inspect legacy prompt fragments.
 """
 
 from __future__ import annotations
