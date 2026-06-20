@@ -27,30 +27,23 @@ from tool_runtime.registry_helpers import tool_keyword_score
 
 # ── FileStore tool helpers ──
 
-def _get_filestore_handlers():
-    """Lazy import filestore tool handlers to avoid module-level import issues."""
-    from tool_runtime.general_tools.filestore_tools import (
-        handle_file_get,
-        handle_file_preview,
-        handle_file_references,
-        handle_file_write_agent_output,
-        handle_file_import_workspace_path,
-    )
-    return {
-        "file.get": handle_file_get,
-        "file.preview": handle_file_preview,
-        "file.references": handle_file_references,
-        "file.write_agent_output": handle_file_write_agent_output,
-        "file.import_workspace_path": handle_file_import_workspace_path,
-    }
-
-
 def _make_filestore_handler(tool_id: str, param_names: list[str]):
     """Create a handler that extracts named params from inv.arguments."""
     def handler(inv: ToolInvocation):
         args = (inv.arguments or {})
         kwargs = {n: args.get(n, "") for n in param_names}
-        return _get_filestore_handlers()[tool_id](inv, **kwargs)
+        from tool_runtime.general_tools.filestore_tools import (
+            handle_file_get, handle_file_preview, handle_file_references,
+            handle_file_write_agent_output, handle_file_import_workspace_path,
+        )
+        handlers = {
+            "file.get": handle_file_get,
+            "file.preview": handle_file_preview,
+            "file.references": handle_file_references,
+            "file.write_agent_output": handle_file_write_agent_output,
+            "file.import_workspace_path": handle_file_import_workspace_path,
+        }
+        return handlers[tool_id](inv, **kwargs)
     return handler
 
 
