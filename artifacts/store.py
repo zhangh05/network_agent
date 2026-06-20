@@ -229,12 +229,8 @@ def save_artifact(workspace_id: str, content: str = "", source_path: str = "",
         fname = file_rec.path
         size = file_rec.size_bytes
         sha = file_rec.sha256
-    except Exception:
-        # Fallback to legacy write — still used when FileStore path resolution fails
-        base = _safe_name(title or artifact_type)
-        fname = f"{base}_{art_id}.{ext}"
-        fpath = art_dir / fname
-        fpath.write_text(content)
+    except Exception as exc:
+        raise RuntimeError(f"FileStore artifact write failed for {art_id}: {exc}") from exc
 
     # Build record
     title = title or f"{artifact_type}: {art_id}"

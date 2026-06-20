@@ -1,21 +1,35 @@
-# Storage Current State
+# Storage Current State (Final)
 
 ## Overview
 
 The `storage/` package provides a unified file management layer for the workspace.
 
-## Components (v1)
+## Completed Migration
+
+| Module | Status |
+|--------|--------|
+| `workspace/manager.py` | ✅ Calls `ensure_workspace_storage_dirs` |
+| `artifacts/store.py` | ✅ Writes through `FileStore.write_agent_output` with `file_id` |
+| `artifacts/schemas.py` | ✅ Added `file_id` field to `ArtifactRecord` |
+| `backend/api/artifact_routes.py` | ✅ Upload preserves originals via `import_user_upload` |
+| `workspace/message_store.py` | ✅ Large content routes through `save_artifact` + FileStore |
+| `agent/modules/pcap/service.py` | ✅ Supports `file_id`; result artifacts; no new sidecar writes |
+| `agent/modules/knowledge/ingestion.py` | ✅ import supports `file_id`; normalized FileRecord |
+| `config_analysis/service.py` | ✅ Supports `file_id` parameter |
+| `storage/reference_index.py` | ✅ Links files to artifacts/messages/knowledge/pcap |
+
+## FileStore Components
 
 | File | Purpose |
 |------|---------|
 | `storage/paths.py` | Unified workspace root resolution |
 | `storage/schemas.py` | FileRecord and FileReference data models |
-| `storage/file_store.py` | File write/read/index operations |
+| `storage/file_store.py` | Managed file write/read/index/delete |
 | `storage/reference_index.py` | Cross-reference index (file ↔ entity) |
 | `storage/policy.py` | Size limits, kind classification, retention |
 | `storage/gc.py` | Dry-run garbage collection |
 
-## FileRecord Fields (v1)
+## FileRecord Fields
 
 - `file_id` — unique ID (`file_<uuid16>`)
 - `workspace_id` — workspace scope
@@ -26,26 +40,12 @@ The `storage/` package provides a unified file management layer for the workspac
 - `created_at`, `created_by`, `session_id`, `run_id`, `source`
 - `sensitivity`, `lifecycle`, `retention_policy`, `metadata`
 
-## Integration Status
-
-| Module | Status |
-|--------|--------|
-| `workspace/manager.py` | ✅ Calls `ensure_workspace_storage_dirs` |
-| `artifacts/store.py` | ✅ Writes through `FileStore.write_agent_output`; sets `file_id`; ReferenceIndex |
-| `artifacts/schemas.py` | ✅ Added `file_id` field to `ArtifactRecord` |
-| `config_analysis/service.py` | ✅ Supports `file_id` parameter |
-| `workspace/message_store.py` | ✅ Large content routes through `save_artifact` + FileStore |
-| `agent/modules/pcap/service.py` | ✅ Supports `file_id`; result artifacts; no new sidecar writes |
-| `agent/modules/knowledge/ingestion.py` | ✅ import supports `file_id`; normalized markdown stored as FileRecord |
-| `backend/api/artifact_routes.py` | ✅ Upload preserves originals via `import_user_upload` |
-
-## Directory Structure
+## Directory Structure (Current)
 
 ```
 workspaces/<ws>/
   files/
-    user_upload/original/     # uploaded originals (preserved)
-    user_upload/staged/       # pre-processing staging
+    user_upload/original/     # uploaded originals (current)
     agent_output/config/      # translated/analyzed configs
     agent_output/pcap/        # PCAP analysis results
     agent_output/report/      # generated reports
@@ -54,8 +54,8 @@ workspaces/<ws>/
     knowledge/source/         # knowledge import originals
     knowledge/normalized/     # normalized markdown
     tmp/                      # atomic write staging
-    upload/                   # [legacy compat]
-    agent/                    # [legacy compat]
+    upload/                   # [legacy compat, read-only]
+    agent/                    # [legacy compat, metadata only]
   index/
     files.jsonl               # file record index
     references.jsonl          # cross-reference index
@@ -66,10 +66,16 @@ workspaces/<ws>/
   sys/
 ```
 
+## Compatibility
+
+Legacy directories retained for read compatibility only:
+
+- `files/upload` — historical read compatibility; no new writes
+- `files/agent` — legacy artifact metadata and read fallback; no new content writes
+
 ## Pending Work
 
-- Artifact upload consumers: follow-up UI/module flows should use returned file_id
-- Legacy path migration (files/upload → files/user_upload)
+- UI/module consumers fully switching to `file_id`
 - Historical workspace data migration
-- Full lifecycle / physical GC
-- Old storage cleanup final round
+- Legacy path migration (optional)
+- Physical GC / hard delete
