@@ -22,30 +22,19 @@ from agent.modules.knowledge.ingestion import _ws_root
 
 
 def _ensure_pcap_file_record(session_id: str, filename: str, filepath: str, total_pkts: int, groups: list, ws_id: str) -> str:
-    """Create a file record for this pcap in the unified files system. Returns file_id."""
-    from backend.api.files_routes import _source_dir, _now_iso
-    file_id = f"f_{session_id}"
-    record_dir = _source_dir(ws_id, "upload") / file_id
-    record_dir.mkdir(parents=True, exist_ok=True)
-    now = _now_iso()
-    rec = {
-        "file_id": file_id, "type": "pcap",
-        "title": filename, "filename": filename,
-        "mime_type": "application/vnd.tcpdump.pcap",
-        "size": Path(filepath).stat().st_size,
-        "tags": [], "workspace_id": ws_id,
-        "source": "upload", "indexed": False,
-        "parent_id": None,
-        "metadata": {
-            "session_id": session_id,
-            "filepath": filepath,
-            "total_packets": total_pkts,
-            "connection_count": len(groups),
-        },
-        "created_at": now, "updated_at": now,
-    }
-    (record_dir / "record.json").write_text(json.dumps(rec, ensure_ascii=False, indent=2))
-    return file_id
+    """Create a FileRecord via FileStore. Returns file_id."""
+    try:
+        from storage.file_store import import_user_upload
+        rec = import_user_upload(
+            workspace_id=ws_id, file_source=filepath,
+            original_name=filename, logical_type="pcap_input",
+            file_kind="pcap", binary=True, source="pcap_parse",
+            metadata={"session_id": session_id, "total_packets": total_pkts,
+                       "connection_count": len(groups)},
+        )
+        return rec.file_id
+    except Exception:
+        return f"pcap_{session_id}"
 
 
 def register_pcap_routes(app):

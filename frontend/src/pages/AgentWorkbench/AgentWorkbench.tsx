@@ -606,10 +606,10 @@ function ResultInline({ result, fallbackText }: { result: AgentResult | undefine
       try {
         const form = new FormData();
         form.append("file", file);
-        form.append("type", "knowledge");
+        form.append("artifact_type", "knowledge");
         form.append("title", title);
         form.append("workspace_id", currentWorkspaceId);
-        await apiRequest({ method: "POST", url: "/files", data: form });
+        await apiRequest({ method: "POST", url: `/workspaces/${currentWorkspaceId}/artifacts/upload`, data: form });
       } catch {}
       toast({ kind: "success", title: "已保存到知识库", body: "这条回答已整理为可检索文档" });
     } catch (e: unknown) {
