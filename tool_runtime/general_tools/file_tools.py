@@ -1,6 +1,32 @@
 """Split general tool handlers."""
 from tool_runtime.general_tools.shared import *
 
+
+_CURRENT_WRITE_DIRS = (
+    "user_upload",
+    "agent_output",
+    "knowledge",
+    "inbox",
+)
+
+
+def _is_current_workspace_write_path(ws: str, target: Path) -> bool:
+    files_root = (WS_ROOT / ws / "files").resolve()
+    inbox_root = (WS_ROOT / ws / "inbox").resolve()
+    try:
+        target.relative_to(inbox_root)
+        return True
+    except ValueError:
+        pass
+    for src in _CURRENT_WRITE_DIRS[:3]:
+        try:
+            target.relative_to((files_root / src).resolve())
+            return True
+        except ValueError:
+            continue
+    return False
+
+
 def handle_file_list(inv: ToolInvocation) -> dict:
     """List files in workspace subdirectory. Max 50 files."""
     ws = inv.arguments.get("workspace_id", "default")
@@ -21,6 +47,7 @@ def handle_file_list(inv: ToolInvocation) -> dict:
     except Exception as e:
         return _error_inv(inv, str(e)[:200])
 
+
 def handle_file_exists(inv: ToolInvocation) -> dict:
     """Check whether a workspace file exists and return metadata."""
     ws = inv.arguments.get("workspace_id", "default")
@@ -39,6 +66,7 @@ def handle_file_exists(inv: ToolInvocation) -> dict:
     except Exception as e:
         return _error_inv(inv, str(e)[:200])
 
+
 def handle_file_read(inv: ToolInvocation) -> dict:
     """Read workspace text file up to 50000 chars. Rejects binary files."""
     ws = inv.arguments.get("workspace_id", "default")
@@ -50,7 +78,6 @@ def handle_file_read(inv: ToolInvocation) -> dict:
             return _error_inv(inv, "file not found")
         if target.stat().st_size > 1024 * 1024:
             return _error_inv(inv, "file too large (>1MB)")
-        # Reject binary files
         with open(target, "rb") as f:
             head = f.read(1024)
         if b"\x00" in head:
@@ -69,8 +96,9 @@ def handle_file_read(inv: ToolInvocation) -> dict:
     except Exception as e:
         return _error_inv(inv, str(e)[:200])
 
+
 def handle_file_edit(inv: ToolInvocation) -> dict:
-    """Edit a workspace file by string replacement. Only writes to workspaces/<ws>/files/."""
+    """Edit a current workspace-managed text file by string replacement."""
     ws = inv.arguments.get("workspace_id", "default")
     filepath = inv.arguments.get("filepath", "")
     old_string = inv.arguments.get("old_string", "")
@@ -78,13 +106,8 @@ def handle_file_edit(inv: ToolInvocation) -> dict:
     replace_all = bool(inv.arguments.get("replace_all", False))
     try:
         target = _validate_workspace_path(ws, filepath)
-        files_root = (WS_ROOT / ws / "files").resolve()
-        in_files = any(
-            str(target).startswith(str(files_root / src))
-            for src in ("upload", "agent")
-        )
-        if not in_files:
-            return _error_inv(inv, "file.edit only writes to workspaces/<ws>/files/upload/ or files/agent/ directory")
+        if not _is_current_workspace_write_path(ws, target):
+            return _error_inv(inv, "file.edit only writes to current managed workspace directories")
         if not target.is_file():
             return _error_inv(inv, "file not found")
         content = target.read_text(encoding="utf-8")
@@ -98,13 +121,7 @@ def handle_file_edit(inv: ToolInvocation) -> dict:
             new_content = content.replace(old_string, new_string, 1)
         if new_content == content:
             return _ok(inv, "", {"lines_changed": 0, "note": "no changes made"})
-        # Generate preview/diff before writing
         diff_preview = _generate_diff_preview(old_string, new_string)
-        # P1 fix (round 7): write atomically via workspace.atomic_io so
-        # a process crash mid-write cannot leave a half-written file
-        # (which previously failed next read with JSONDecodeError or
-        # truncated-content errors). Shared tmp+uuid scheme also avoids
-        # concurrent-edit tmp collisions.
         from workspace.atomic_io import atomic_write_text
         atomic_write_text(target, new_content)
         lines_changed = abs(new_content.count("\n") - content.count("\n")) or count
@@ -116,18 +133,20 @@ def handle_file_edit(inv: ToolInvocation) -> dict:
     except Exception as e:
         return _error_inv(inv, str(e)[:200])
 
+
 def handle_file_patch(inv: ToolInvocation) -> dict:
-    """Apply a unified diff patch to a workspace file. Writes to temp first, then renames."""
+    """Apply a unified diff patch to a current workspace-managed file."""
     ws = inv.arguments.get("workspace_id", "default")
     filepath = inv.arguments.get("filepath", "")
     patch_text = inv.arguments.get("patch_text", "")
     try:
         target = _validate_workspace_path(ws, filepath)
+        if not _is_current_workspace_write_path(ws, target):
+            return _error_inv(inv, "file.patch only writes to current managed workspace directories")
         if not target.is_file():
             return _error_inv(inv, "file not found")
         original = target.read_text(encoding="utf-8")
         original_lines = original.splitlines(keepends=True)
-        # Parse unified diff hunks: @@ -old_start,old_count +new_start,new_count @@ body
         hunks = re.findall(
             r"@@ -(\d+),?(\d*) \+(\d+),?(\d*) @@\n?(.*?)(?=@@|\Z)",
             patch_text, re.DOTALL,
@@ -137,12 +156,9 @@ def handle_file_patch(inv: ToolInvocation) -> dict:
         lines_added = 0
         lines_removed = 0
         result_lines = list(original_lines)
-        # Apply in reverse to preserve line offsets
         for hunk in reversed(hunks):
             old_start = int(hunk[0]) - 1
             old_count = int(hunk[1]) if hunk[1] else 1
-            new_start = int(hunk[2]) - 1
-            new_count = int(hunk[3]) if hunk[3] else 1
             body = hunk[4]
             new_lines = []
             for line in body.split("\n"):
@@ -157,10 +173,6 @@ def handle_file_patch(inv: ToolInvocation) -> dict:
                     new_lines.append(line[1:] + "\n")
             result_lines[old_start:old_start + old_count] = new_lines
         new_content = "".join(result_lines)
-        # Write atomically via workspace.atomic_io (P1 fix round 7).
-        # Previous code used `target.with_suffix(target.suffix + ".patch_tmp")`
-        # which collided across concurrent edits; the new helper uses
-        # pid+uuid tmp names + O_EXCL for race-free atomic write.
         from workspace.atomic_io import atomic_write_text
         atomic_write_text(target, new_content)
         return _ok(inv, "", {
@@ -170,6 +182,7 @@ def handle_file_patch(inv: ToolInvocation) -> dict:
         })
     except Exception as e:
         return _error_inv(inv, str(e)[:200])
+
 
 def handle_ws_list_files(inv: ToolInvocation) -> dict:
     ws = inv.arguments.get("workspace_id", "default")
@@ -188,6 +201,7 @@ def handle_ws_list_files(inv: ToolInvocation) -> dict:
     except Exception as e:
         return _error_inv(inv, str(e)[:200])
 
+
 def handle_ws_read_text_preview(inv: ToolInvocation) -> dict:
     ws = inv.arguments.get("workspace_id", "default")
     filepath = inv.arguments.get("filepath", "")
@@ -202,22 +216,34 @@ def handle_ws_read_text_preview(inv: ToolInvocation) -> dict:
     except Exception as e:
         return _error_inv(inv, str(e)[:200])
 
+
 def handle_ws_write_artifact_file(inv: ToolInvocation) -> dict:
     ws = inv.arguments.get("workspace_id", "default")
     filename = inv.arguments.get("filename", "output.txt")
     content = str(inv.arguments.get("content", ""))
     try:
         validate_workspace_id(ws)
-        out_dir = WS_ROOT / ws / "files" / "agent"
-        out_dir.mkdir(exist_ok=True)
-        safe_name = re.sub(r'[^a-zA-Z0-9_.-]', '_', filename)
-        out_file = out_dir / safe_name
-        # P1 fix (round 7): write atomically via workspace.atomic_io.
-        from workspace.atomic_io import atomic_write_text
-        atomic_write_text(out_file, content)
-        return _ok(inv, "", {"filepath": str(out_file.relative_to(ROOT)), "size": len(content)})
+        safe_name = re.sub(r'[^a-zA-Z0-9_.-]', '_', filename or "output.txt")
+        suffix = Path(safe_name).suffix.lstrip(".") or "txt"
+        title = Path(safe_name).stem or "output"
+        from storage.file_store import write_agent_output
+        rec = write_agent_output(
+            workspace_id=ws,
+            content=content,
+            logical_type="artifact_output",
+            file_kind=suffix,
+            title=title,
+            ext=suffix,
+            source="workspace.file.write_artifact",
+        )
+        return _ok(inv, "", {
+            "filepath": rec.path,
+            "file_id": rec.file_id,
+            "size": rec.size_bytes,
+        })
     except Exception as e:
         return _error_inv(inv, str(e)[:200])
+
 
 def handle_ws_path_exists(inv: ToolInvocation) -> dict:
     ws = inv.arguments.get("workspace_id", "default")
@@ -227,6 +253,7 @@ def handle_ws_path_exists(inv: ToolInvocation) -> dict:
         return _ok(inv, "", {"exists": target.exists(), "is_file": target.is_file(), "is_dir": target.is_dir()})
     except Exception as e:
         return _error_inv(inv, str(e)[:200])
+
 
 def handle_ws_get_metadata(inv: ToolInvocation) -> dict:
     ws = inv.arguments.get("workspace_id", "default")
@@ -240,12 +267,9 @@ def handle_ws_get_metadata(inv: ToolInvocation) -> dict:
     except Exception as e:
         return _error_inv(inv, str(e)[:200])
 
+
 def handle_file_read_image(inv: ToolInvocation) -> dict:
-    """Read image file metadata and attempt OCR-style description.
-    
-    Returns image dimensions, format, size, and a placeholder for
-    the user to describe what's in the image if vision models aren't available.
-    """
+    """Read image file metadata."""
     ws = inv.arguments.get("workspace_id", "default")
     filepath = inv.arguments.get("filepath", "")
     try:
@@ -254,13 +278,10 @@ def handle_file_read_image(inv: ToolInvocation) -> dict:
             return _error_inv(inv, f"file not found: {filepath}")
         if target.stat().st_size > 20 * 1024 * 1024:
             return _error_inv(inv, "image too large (>20MB)")
-        
         suffix = target.suffix.lower()
-        img_exts = {".png",".jpg",".jpeg",".gif",".webp",".bmp",".tiff",".ico",".svg"}
+        img_exts = {".png", ".jpg", ".jpeg", ".gif", ".webp", ".bmp", ".tiff", ".ico", ".svg"}
         if suffix not in img_exts:
             return _error_inv(inv, f"not an image file: {suffix}")
-        
-        # Try to get image dimensions using PIL if available
         dims = ""
         try:
             from PIL import Image
@@ -268,7 +289,6 @@ def handle_file_read_image(inv: ToolInvocation) -> dict:
                 dims = f"{img.width}x{img.height}"
         except Exception:
             dims = "unknown"
-        
         return _ok(inv, f"Image {target.name} ({dims})", {
             "filename": target.name,
             "size": target.stat().st_size,
@@ -276,9 +296,10 @@ def handle_file_read_image(inv: ToolInvocation) -> dict:
             "dimensions": dims,
             "filepath": filepath,
             "workspace_id": ws,
-            "note": "Image file saved. If you need to analyze the content, ask the user to describe what the image shows, or use a vision-capable model.",
+            "note": "Image file metadata returned.",
         })
     except Exception as e:
         return _error_inv(inv, str(e)[:200])
+
 
 __all__ = ['handle_file_list', 'handle_file_exists', 'handle_file_read', 'handle_file_edit', 'handle_file_patch', 'handle_ws_list_files', 'handle_ws_read_text_preview', 'handle_ws_write_artifact_file', 'handle_ws_path_exists', 'handle_ws_get_metadata']
