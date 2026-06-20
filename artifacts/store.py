@@ -193,46 +193,47 @@ def save_artifact(workspace_id: str, content: str = "", source_path: str = "",
     sha = hashlib.sha256(content.encode()).hexdigest()
     size = len(content.encode())
 
-    # Determine subdirectory
-    type_dir = _type_dir(artifact_type)
+    # Determine subdirectory (legacy compat — meta still goes here)
     art_dir = _get_ws_root() / workspace_id / "files" / "agent"
     art_dir.mkdir(parents=True, exist_ok=True)
 
-    # Safe filename
-    base = _safe_name(title or artifact_type)
     ext = cls["file_ext"] or "txt"
-    fname = f"{base}_{art_id}.{ext}"
-    fpath = art_dir / fname
+    _lt = _logical_type_for_artifact(artifact_type)
 
-    fpath.write_text(content)
-
-    # Create a FileRecord for tracking (non-fatal)
-    # Create a FileRecord for tracking the existing artifact write path.
-    # Full artifact write migration to FileStore.write_agent_output is follow-up.
+    # Write content through FileStore
     file_id = ""
+    fpath = None
+    fname = ""
     try:
-        from storage.file_store import create_file_record
-        ws = _get_ws_root() / workspace_id
-        rel_path = str(fpath.relative_to(ws))
-        _lt = _logical_type_for_artifact(artifact_type)
-        file_rec = create_file_record(
+        from storage.file_store import write_agent_output
+        file_rec = write_agent_output(
             workspace_id=workspace_id,
+            content=content,
             logical_type=_lt,
-            file_kind=cls["file_ext"] or ext or "text",
-            path=rel_path,
-            original_name=fname,
-            size_bytes=size,
-            sha256=sha,
+            file_kind=ext,
+            title=title or artifact_type or art_id,
+            ext=ext,
             source=source,
             run_id=run_id,
             sensitivity=sensitivity,
-            metadata={"artifact_id": art_id, "artifact_type": artifact_type,
-                       "storage_managed": True, "tracking_only": True,
-                       "write_path": "legacy_artifact_store"},
+            metadata={
+                "artifact_id": art_id,
+                "artifact_type": artifact_type,
+                "storage_managed": True,
+                "write_path": "filestore",
+            },
         )
         file_id = file_rec.file_id
+        ws = _get_ws_root() / workspace_id
+        fpath = (ws / file_rec.path).resolve()
+        fname = file_rec.path
     except Exception:
-        pass
+        # Fallback to legacy direct write
+        base = _safe_name(title or artifact_type)
+        fname_legacy = f"{base}_{art_id}.{ext}"
+        fpath = art_dir / fname_legacy
+        fpath.write_text(content)
+        fname = fname_legacy
 
     # Build record
     title = title or f"{artifact_type}: {art_id}"
@@ -266,6 +267,19 @@ def save_artifact(workspace_id: str, content: str = "", source_path: str = "",
     # Update run artifact index
     if run_id:
         _update_run_index(workspace_id, run_id, art_id, artifact_type, title)
+
+    # ReferenceIndex: link file to artifact (non-fatal)
+    try:
+        from storage.reference_index import add_reference
+        if file_id:
+            add_reference(workspace_id, file_id, "artifact", art_id, "output",
+                          metadata={"artifact_type": artifact_type, "run_id": run_id})
+        src_file = (metadata or {}).get("source_file_id")
+        if src_file:
+            add_reference(workspace_id, src_file, "artifact", art_id, "source",
+                          metadata={"artifact_type": artifact_type, "run_id": run_id})
+    except Exception:
+        pass
 
     return rec
 

@@ -14,8 +14,9 @@ REPO_ROOT = Path(__file__).resolve().parent.parent
 
 
 def get_workspace_root() -> Path:
-    """Return the workspace root directory, respecting NA_WORKSPACE_ROOT env."""
-    return Path(os.environ.get("NA_WORKSPACE_ROOT", REPO_ROOT / "workspaces")).resolve()
+    """Return the workspace root directory, respecting env vars."""
+    env = os.environ.get("NA_WORKSPACE_ROOT") or os.environ.get("NETWORK_AGENT_WORKSPACE_DIR")
+    return Path(env if env else REPO_ROOT / "workspaces").resolve()
 
 
 def workspace_root(workspace_id: str) -> Path:

@@ -117,7 +117,7 @@ class SessionMessageStore:
 
         # Large redacted content → artifact reference
         if len(safe_content.encode("utf-8", errors="replace")) > ARTIFACT_THRESHOLD:
-            artifact_id = self._write_artifact(safe_content, role, rid)
+            art_info = self._write_artifact(safe_content, role, rid)
             size = len(safe_content.encode("utf-8", errors="replace"))
             record = {
                 "role": role,
@@ -125,7 +125,9 @@ class SessionMessageStore:
                 "session_id": self.session_id,
                 "content": "",
                 "artifact_ref": {
-                    "artifact_id": artifact_id,
+                    "artifact_id": art_info.get("artifact_id", ""),
+                    "file_id": art_info.get("file_id", ""),
+                    "artifact_type": art_info.get("artifact_type", "message_large_content"),
                     "size_bytes": size,
                     "redacted": True,
                 },
@@ -232,17 +234,47 @@ class SessionMessageStore:
 
     # ── Artifact storage for large content ──
 
-    def _write_artifact(self, content: str, role: str, run_id: str) -> str:
-        """Write content > ARTIFACT_THRESHOLD as a redacted artifact file.
+    def _write_artifact(self, content: str, role: str, run_id: str) -> dict:
+        """Write content > ARTIFACT_THRESHOLD as a managed artifact.
 
-        Returns the artifact_id.
+        Returns a dict with artifact_id, file_id, etc.
         """
-        artifact_id = f"msg_{_safe_rid(run_id)}_{role}_{uuid.uuid4().hex[:8]}"
-        art_dir = WS_ROOT / self.ws_id / "files" / "agent"
-        art_dir.mkdir(parents=True, exist_ok=True)
-        art_path = art_dir / f"{artifact_id}.txt"
-        _atomic_write_text(art_path, str(content))
-        return artifact_id
+        try:
+            from artifacts.store import save_artifact
+            title = f"Large message: {run_id}:{role}"
+            rec = save_artifact(
+                workspace_id=self.ws_id,
+                content=content,
+                artifact_type="message_large_content",
+                title=title,
+                scope="session",
+                sensitivity="internal",
+                run_id=run_id,
+                metadata={
+                    "session_id": self.session_id,
+                    "role": role,
+                    "storage_managed": True,
+                },
+            )
+            if rec:
+                try:
+                    from storage.reference_index import add_reference
+                    if rec.file_id:
+                        add_reference(self.ws_id, rec.file_id, "message",
+                                      f"{run_id}:{role}", "large_content",
+                                      metadata={"artifact_id": rec.artifact_id,
+                                                 "session_id": self.session_id})
+                except Exception:
+                    pass
+                return {
+                    "artifact_id": rec.artifact_id,
+                    "file_id": rec.file_id,
+                    "artifact_type": "message_large_content",
+                    "title": title,
+                }
+        except Exception:
+            pass
+        return {}
 
 
 def _message_sort_key(message: Dict[str, Any]) -> tuple:

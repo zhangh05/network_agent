@@ -189,6 +189,7 @@ def _handler_pcap_analysis_run(inv: ToolInvocation) -> dict:
         action=str(args.get("action", "")),
         workspace_id=inv.workspace_id or args.get("workspace_id", "default"),
         filepath=str(args.get("filepath", "")),
+        file_id=str(args.get("file_id", "")),
         session_id=str(args.get("session_id", "")),
         src=str(args.get("src", "")),
         sport=_safe_int(args.get("sport", 0)),

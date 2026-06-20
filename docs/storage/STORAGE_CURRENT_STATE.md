@@ -31,13 +31,13 @@ The `storage/` package provides a unified file management layer for the workspac
 | Module | Status |
 |--------|--------|
 | `workspace/manager.py` | ✅ Calls `ensure_workspace_storage_dirs` |
-| `artifacts/store.py` | ✅ Creates FileRecord for existing artifact writes (tracking-only); full FileStore write migration is follow-up |
+| `artifacts/store.py` | ✅ Writes through `FileStore.write_agent_output`; sets `file_id`; ReferenceIndex |
 | `artifacts/schemas.py` | ✅ Added `file_id` field to `ArtifactRecord` |
 | `config_analysis/service.py` | ✅ Supports `file_id` parameter |
-| `workspace/message_store.py` | ⏳ Planned |
-| `agent/modules/pcap/service.py` | ⏳ Planned |
-| `agent/modules/knowledge/ingestion.py` | ⏳ Planned |
-| `backend/api/artifact_routes.py` | ✅ Upload preserves originals via `import_user_upload`; text→artifact, binary→FileRecord only |
+| `workspace/message_store.py` | ✅ Large content routes through `save_artifact` + FileStore |
+| `agent/modules/pcap/service.py` | ✅ Supports `file_id`; result artifacts; no new sidecar writes |
+| `agent/modules/knowledge/ingestion.py` | ⏳ file_id parameter planned |
+| `backend/api/artifact_routes.py` | ✅ Upload preserves originals via `import_user_upload` |
 
 ## Directory Structure
 
@@ -68,9 +68,9 @@ workspaces/<ws>/
 
 ## Pending Work
 
-- Message store: route large content through artifact/file store
-- PCAP service: file_id input, result artifacts
 - Knowledge ingestion: file_id import, normalized file records
 - Artifact upload consumers: follow-up UI/module flows should use returned file_id
 - Legacy path migration (files/upload → files/user_upload)
-- Full GC implementation
+- Historical workspace data migration
+- Full lifecycle / physical GC
+- Old storage cleanup final round
