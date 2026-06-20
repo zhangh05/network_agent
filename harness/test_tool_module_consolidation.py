@@ -60,8 +60,31 @@ def test_directory_tools_are_planner_visible():
 def test_module_type_classification():
     from agent.runtime.capability_routing.module_types import is_business_module, is_platform_service
     assert is_business_module("config_translation")
+    assert is_business_module("config_analysis")
     assert is_business_module("pcap_analysis")
+    assert not is_business_module("pcap")
     assert not is_business_module("workspace")
     assert is_platform_service("workspace")
     assert is_platform_service("knowledge")
     assert not is_platform_service("config_translation")
+    assert not is_platform_service("config_analysis")
+    assert not is_platform_service("pcap_analysis")
+
+
+def test_capability_module_ids_match_business_modules():
+    from agent.runtime.capability_routing.manifests import MODULE_MANIFESTS
+    config_pkg = package_by_id("config_translation")
+    assert config_pkg is not None
+    assert "config_translation" in config_pkg.module_ids
+    assert "config_analysis" in config_pkg.module_ids
+    assert "workspace" in config_pkg.module_ids
+    for mid in config_pkg.module_ids:
+        assert mid in MODULE_MANIFESTS, f"{mid} not in MODULE_MANIFESTS"
+
+    pcap_pkg = package_by_id("pcap_analysis")
+    assert pcap_pkg is not None
+    assert "pcap_analysis" in pcap_pkg.module_ids
+    assert "pcap" not in pcap_pkg.module_ids
+    assert "workspace" in pcap_pkg.module_ids
+    for mid in pcap_pkg.module_ids:
+        assert mid in MODULE_MANIFESTS, f"{mid} not in MODULE_MANIFESTS"

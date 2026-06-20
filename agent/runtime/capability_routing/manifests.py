@@ -44,11 +44,11 @@ MODULE_MANIFESTS: dict[str, ModuleServiceManifest] = {
         operations=("parse", "translate", "extract_interfaces", "extract_routes", "diff", "summarize"),
         kind="business",
     ),
-    "pcap": ModuleServiceManifest(
-        module_id="pcap",
-        package="backend.api.pcap_routes",
+    "pcap_analysis": ModuleServiceManifest(
+        module_id="pcap_analysis",
+        package="agent.modules.pcap",
         service_path="agent.modules.pcap.service",
-        operations=("parse", "filter", "align"),
+        operations=("parse", "session", "filter", "align"),
         kind="business",
     ),
     "report": ModuleServiceManifest(
@@ -102,7 +102,7 @@ CAPABILITY_PACKAGES: tuple[CapabilityPackage, ...] = (
         display_name="Config Translation",
         description="Parse, translate, compare and summarize network configuration text.",
         intent_keywords=("config", "configuration", "translate", "配置", "翻译", "转换", "厂商", "h3c", "cisco", "huawei"),
-        module_ids=("config_translation", "workspace"),
+        module_ids=("config_translation", "config_analysis", "workspace"),
         tool_ids=("workspace.file.list", "workspace.file.read", "config.analysis.run"),
         prompt_hints=("Translated config is analysis output, not deployable configuration.",),
         output_kinds=("markdown", "translated_config"),
@@ -114,7 +114,7 @@ CAPABILITY_PACKAGES: tuple[CapabilityPackage, ...] = (
         display_name="PCAP Analysis",
         description="Parse and inspect packet capture files.",
         intent_keywords=("pcap", "pcapng", "packet", "抓包", "报文", "五元组", "tcp", "重传"),
-        module_ids=("pcap", "workspace"),
+        module_ids=("pcap_analysis", "workspace"),
         tool_ids=("workspace.file.list", "pcap.analysis.run"),
         output_kinds=("summary", "table"),
         priority=6,
