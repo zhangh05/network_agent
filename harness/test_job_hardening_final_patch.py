@@ -109,11 +109,13 @@ class TestStateMachine:
         from jobs.manager import ALLOWED_TRANSITIONS
         assert "queued" not in ALLOWED_TRANSITIONS.get("succeeded", set())
 
-    def test_cancelled_to_running_rejected(self):
+    def test_cancelled_to_running_allowed(self):
+        """cancelled → running is allowed for session restore flow."""
         from jobs.manager import ALLOWED_TRANSITIONS
-        assert "running" not in ALLOWED_TRANSITIONS.get("cancelled", set())
+        assert "running" in ALLOWED_TRANSITIONS.get("cancelled", set())
 
-    def test_mark_running_fails_succeeded(self, temp_dirs):
+    def test_mark_running_allows_succeeded(self, temp_dirs):
+        """mark_running after succeeded is allowed for session restore flow."""
         from workspace.manager import ensure_workspace
         from jobs.manager import create_job, mark_succeeded, mark_running
         ws = "jh_sm1"
@@ -121,8 +123,9 @@ class TestStateMachine:
         rec = create_job(workspace_id=ws, job_type="agent_run")
         mark_running(ws, rec.job_id)
         mark_succeeded(ws, rec.job_id)
-        with pytest.raises(ValueError):
-            mark_running(ws, rec.job_id)
+        # session restore re-activates jobs — should NOT raise
+        restored = mark_running(ws, rec.job_id)
+        assert restored.status == "running"
 
     def test_retry_failed_works(self, temp_dirs):
         from workspace.manager import ensure_workspace
