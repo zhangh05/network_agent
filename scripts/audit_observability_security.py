@@ -66,12 +66,12 @@ def audit():
             continue
         # Not all runs have trace yet, this is informational
 
-    # 3. Check no /api/translate, no backend/services, no old GraphAgent
+    # 3. Check no external translation service routes.
     for py_file in PROJECT_ROOT.rglob("*.py"):
         if py_file.name.startswith("__"):
             continue
         p = str(py_file)
-        if "retired" in p or "scripts/audit" in p or "harness/" in p:
+        if "scripts/audit" in p or "harness/" in p:
             continue
         content = py_file.read_text()
         if "/api/translate" in content and "已删除" not in content:

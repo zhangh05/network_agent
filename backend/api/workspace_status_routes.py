@@ -5,9 +5,7 @@ from __future__ import annotations
 
 from flask import jsonify
 
-from backend.core.error_codes import (
-    api_ok, api_error, INVALID_WORKSPACE_ID, WORKSPACE_NOT_FOUND,
-)
+from backend.core.responses import error_response, ok_response
 from workspace.ids import validate_workspace_id
 
 
@@ -19,7 +17,7 @@ def register_workspace_status_routes(app):
         try:
             ws_id = validate_workspace_id(ws_id or "default")
         except ValueError:
-            body, code = api_error(INVALID_WORKSPACE_ID, "invalid workspace_id")
+            body, code = error_response("INVALID_WORKSPACE_ID", "invalid workspace_id", 400)
             return jsonify(body), code
 
         data: dict = {"workspace_exists": False, "file_count": 0, "artifact_count": 0,
@@ -30,7 +28,7 @@ def register_workspace_status_routes(app):
         from storage.paths import workspace_root
         ws = workspace_root(ws_id)
         if not ws.is_dir():
-            body, code = api_error(WORKSPACE_NOT_FOUND, "workspace not found")
+            body, code = error_response("WORKSPACE_NOT_FOUND", "workspace not found", 404)
             return jsonify(body), code
         data["workspace_exists"] = True
 
@@ -80,7 +78,8 @@ def register_workspace_status_routes(app):
         else:
             data["storage_health"] = "no_data"
 
-        return jsonify(api_ok(data=data))
+        body, code = ok_response(data, workspace_id=ws_id)
+        return jsonify(body), code
 
 
     @app.route("/api/workspaces/<ws_id>/storage/health")
@@ -88,13 +87,14 @@ def register_workspace_status_routes(app):
         try:
             ws_id = validate_workspace_id(ws_id or "default")
         except ValueError:
-            body, code = api_error(INVALID_WORKSPACE_ID, "invalid workspace_id")
+            body, code = error_response("INVALID_WORKSPACE_ID", "invalid workspace_id", 400)
             return jsonify(body), code
 
         try:
             from storage.doctor import run_doctor
             result = run_doctor(ws_id)
-            return jsonify(api_ok(data=result))
+            body, code = ok_response(result, workspace_id=ws_id)
+            return jsonify(body), code
         except Exception as exc:
-            body, code = api_error("INTERNAL_ERROR", str(exc)[:200])
+            body, code = error_response("INTERNAL_ERROR", str(exc)[:200], 500)
             return jsonify(body), code

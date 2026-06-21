@@ -22,7 +22,7 @@ UserInput
 
 ## LLM configuration
 
-The runtime uses MiniMax M3. LLM provider settings are loaded from `config/providers/` or `LLM_setting.json`. See [docs/RUNTIME.md](docs/RUNTIME.md) for the full turn flow.
+The runtime uses MiniMax M3. LLM provider settings are loaded from `config/providers/`. See [docs/RUNTIME.md](docs/RUNTIME.md) for the full turn flow.
 
 ## Directories
 
@@ -78,7 +78,5 @@ Definitions:
 - Business Module: domain implementation service. Current modules are config_translation, config_analysis, and pcap_analysis.
 - Platform Service: infrastructure service such as workspace, knowledge, memory, artifact, runtime, report, and web.
 - Tool: callable adapter. LLM-visible business tools are directory-level tools such as config.analysis.run and pcap.analysis.run.
-
-Old fine-grained tools such as network.config.* and network.pcap.* are internal compatibility adapters and must not be selected directly.
 
 See [docs/CAPABILITY_FIRST_ARCHITECTURE.md](docs/CAPABILITY_FIRST_ARCHITECTURE.md).

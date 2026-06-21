@@ -13,28 +13,7 @@ from tool_runtime.general_tools.command_tools import handle_command_approved_exe
 from tool_runtime.general_tools.agent_tools import handle_agent_spawn, handle_agent_list_roles, handle_agent_team, handle_agent_get_result
 from tool_runtime.general_tools.runtime_tools import handle_knowledge_index_artifact, handle_knowledge_reindex, handle_knowledge_search, handle_knowledge_get_source, handle_knowledge_get_chunk_summary, handle_knowledge_explain_not_found, handle_runtime_health, handle_runtime_selfcheck, handle_runtime_diagnostics, handle_runtime_retention_preview, handle_runtime_archive_preview, handle_report_render_markdown, handle_report_save_artifact, handle_doc_render_from_safe_summary, handle_table_render_markdown, handle_diagram_render_mermaid, handle_text_redact, handle_text_diff, handle_text_extract_keywords, handle_text_classify, handle_json_validate, handle_yaml_validate, handle_csv_summarize, handle_table_extract
 
-ALL_GENERAL_TOOLS = []
-
-REMOVED_GENERAL_TOOL_IDS = {
-    # Replaced by capability-level artifact tools.
-    "artifact.search",
-    "artifact.read_content_safe",
-    "artifact.tag",
-    "artifact.delete_soft",
-    # Replaced by capability-level knowledge tools.
-    "knowledge.index_artifact",
-    "knowledge.reindex",
-    "knowledge.search",
-    "knowledge.get_source",
-    "knowledge.get_chunk_summary",
-    "knowledge.explain_not_found",
-    # Operational/backend-only surfaces; not useful as default agent tools.
-    "session.create",
-    "session.archive",
-    "runtime.selfcheck",
-    "runtime.retention_preview",
-    "runtime.archive_preview",
-}
+_DEFINED_GENERAL_TOOLS = []
 
 def _schema(properties: dict = None, required: list[str] = None) -> dict:
     return {
@@ -497,12 +476,10 @@ def _reg(tool_id, name, category, risk_level, description, handler,
         tags=[risk_level, category],
         permission_action=permission_action,
     )
-    # v5.0.0: skip duplicate tool_ids to prevent the same handler being
-    # registered twice (which would surface two entries with different
-    # category labels in legacy consumers iterating ALL_GENERAL_TOOLS).
-    if any(existing.tool_id == tool_id for existing, _ in ALL_GENERAL_TOOLS):
+    # Skip duplicate tool_ids to prevent the same handler being registered twice.
+    if any(existing.tool_id == tool_id for existing, _ in _DEFINED_GENERAL_TOOLS):
         return spec
-    ALL_GENERAL_TOOLS.append((spec, _wrap_general_handler(tool_id, handler)))
+    _DEFINED_GENERAL_TOOLS.append((spec, _wrap_general_handler(tool_id, handler)))
     return spec
 
 
@@ -748,11 +725,8 @@ _reg("session.export", "Export Session", "session", "low",
 def register_all_general_tools(registry):
     """Register all general tools into a ToolRegistry.
 
-    v3.0: this is a thin pass-through to the canonical registry, which is
-    the v3.0 truth source for tool metadata and dispatch. The older
-    `ALL_GENERAL_TOOLS` list is kept for backward compatibility with
-    consumers that still iterate it, but new registrations come from
-    the canonical registry.
+    This is a thin pass-through to the canonical registry, which is the truth
+    source for tool metadata and dispatch.
     """
     from copy import deepcopy
     from tool_runtime.canonical_registry import to_tool_specs

@@ -28,7 +28,14 @@ const TYPE_TABS = [
 
 function matchesType(f: FileItem, t: string): boolean {
   if (t === "all") return true;
+  if (t === "pcap") return ["pcap", "pcap_input", "pcap_analysis", "pcap_session", "pcap_connections"].includes(f.artifact_type);
   return f.artifact_type === t;
+}
+
+function isRawPacketCapture(f: FileItem): boolean {
+  if (!["pcap", "pcap_input"].includes(f.artifact_type)) return false;
+  const suffix = String(f.file_ext || f.title || "").toLowerCase();
+  return suffix.endsWith(".pcap") || suffix.endsWith(".pcapng");
 }
 
 function fmtSize(bytes: number): string {
@@ -62,7 +69,7 @@ export function FileManager() {
   const fetchFiles = async () => {
     setLoading(true);
     try {
-      const res = await artifactsApi.list(ws, { include_deleted: "0", limit: "500" });
+      const res = await artifactsApi.list(ws);
       const items: FileItem[] = (res as any).artifacts || [];
       setAllFiles(items);
     } catch {}
@@ -110,9 +117,27 @@ export function FileManager() {
   const deleteFile = async (artifactId: string) => {
     if (!confirm("确认删除？")) return;
     try {
-      await artifactsApi.batchDelete(ws, [{ artifact_id: artifactId }]);
+      await artifactsApi.batchDelete(ws, [artifactId]);
       setAllFiles(prev => prev.filter(x => x.artifact_id !== artifactId));
       if (selected?.artifact_id === artifactId) setSelected(null);
+    } catch {}
+  };
+
+  const openPacketAnalysis = async (f: FileItem) => {
+    const existingSessionId = String(f.metadata?.session_id || "");
+    if (existingSessionId) {
+      navigate(`/packet?sid=${encodeURIComponent(existingSessionId)}`);
+      return;
+    }
+    try {
+      const res = await apiRequest<{ ok: boolean; session_id?: string; error?: string; message?: string }>({
+        method: "POST",
+        url: "/pcap/parse-file",
+        data: { workspace_id: ws, file_id: f.file_id },
+      });
+      if (res.ok && res.session_id) {
+        navigate(`/packet?sid=${encodeURIComponent(res.session_id)}`);
+      }
     } catch {}
   };
 
@@ -189,21 +214,26 @@ export function FileManager() {
               <div className="empty-text">选择文件查看详情</div>
             </div>
           ) : (
-            <>
-              <div className="card" style={{ padding: "14px 16px", marginBottom: 12 }}>
-                <div style={{ display: "flex", justifyContent: "space-between" }}>
-                  <div>
-                    <h3 style={{ fontSize: "var(--fs-16)", fontWeight: 720, margin: 0 }}>{selected.title}</h3>
-                    <div style={{ display: "flex", gap: 8, marginTop: 6, fontSize: "var(--fs-11)", color: "var(--text-3)" }}>
-                      <span>{selected.artifact_type}</span>
-                      <span style={{ fontFamily: "var(--font-mono)" }}>{selected.file_id}</span>
-                      <span>{fmtSize(selected.size_bytes)}</span>
-                      <span>{fmtTime(selected.created_at)}</span>
-                    </div>
-                  </div>
-                  <button className="btn danger-ghost sm" onClick={() => deleteFile(selected.artifact_id)}>删除</button>
-                </div>
-              </div>
+	            <>
+	              <div className="card" style={{ padding: "14px 16px", marginBottom: 12 }}>
+	                <div style={{ display: "flex", justifyContent: "space-between", gap: 8 }}>
+	                  <div>
+	                    <h3 style={{ fontSize: "var(--fs-16)", fontWeight: 720, margin: 0 }}>{selected.title}</h3>
+	                    <div style={{ display: "flex", gap: 8, marginTop: 6, fontSize: "var(--fs-11)", color: "var(--text-3)" }}>
+	                      <span>{selected.artifact_type}</span>
+	                      <span style={{ fontFamily: "var(--font-mono)" }}>{selected.file_id}</span>
+	                      <span>{fmtSize(selected.size_bytes)}</span>
+	                      <span>{fmtTime(selected.created_at)}</span>
+	                    </div>
+	                  </div>
+	                  <div style={{ display: "flex", gap: 6, alignItems: "flex-start", flexShrink: 0 }}>
+	                    {isRawPacketCapture(selected) && selected.file_id && (
+	                      <button className="btn primary sm" onClick={() => openPacketAnalysis(selected)}>打开分析</button>
+	                    )}
+	                    <button className="btn danger-ghost sm" onClick={() => deleteFile(selected.artifact_id)}>删除</button>
+	                  </div>
+	                </div>
+	              </div>
 
               {detailContent ? (
                 <div className="card" style={{ flex: 1, overflow: "auto", padding: 0 }}>

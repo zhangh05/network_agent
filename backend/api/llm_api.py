@@ -57,16 +57,9 @@ def handle_llm_config_get():
     except Exception:
         pass
 
-    # Fallback to previous settings
-    settings = load_llm_settings()
-    if settings:
-        result = sanitize_llm_settings(settings)
-        result["config_path"] = get_llm_setting_path()
-        result["global"] = True
-        return jsonify(result)
     return jsonify({
         "enabled": False, "provider": "disabled",
-        "config_path": get_llm_setting_path(),
+        "config_path": "config/providers/<provider>.json",
         "global": True,
         "note": "No UI settings saved yet. Use POST /api/agent/llm/config to configure. "
                 "Configuration is global — one setting for all workspaces."

@@ -1,8 +1,8 @@
 # memory/store.py
 """Memory store factory — wraps unified ContextStore.
 
-v3.1.0: All data lives in ContextStore. This module provides
-backward-compatible API for callers that import get_store().
+All data lives in ContextStore. This module is the MemoryStore facade for
+callers that import get_store().
 """
 
 import threading
@@ -11,13 +11,13 @@ from context.context_store import get_context_store
 
 
 class _DictWithAsDict(dict):
-    """Dict subclass with as_dict() for backward compat."""
+    """Dict subclass with as_dict() for record-style callers."""
     def as_dict(self):
         return dict(self)
 
 
 class ContextStoreAdapter:
-    """Adapter that wraps ContextStore with backward-compatible memory API."""
+    """Adapter that wraps ContextStore with the MemoryStore API."""
 
     def __init__(self, workspace_id: str = "default"):
         self._store = get_context_store(workspace_id)
@@ -99,7 +99,7 @@ _stores_lock = threading.Lock()
 
 
 def get_store(workspace_id: str = "default") -> ContextStoreAdapter:
-    """Return the ContextStore adapter (backward-compatible API)."""
+    """Return the ContextStore-backed MemoryStore facade."""
     with _stores_lock:
         store = _stores.get(workspace_id)
         if store is None:

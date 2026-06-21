@@ -20,7 +20,7 @@ Each turn produces the following metadata entries managed by the finalization ke
 | `memory_write_plan` | Candidates for memory persistence (plan only, not persisted) |
 | `turn_trace` | Observability events collected across the turn |
 | `truth_report` | Version, config, and capability snapshot |
-| `stability_report` | Gate check results for metadata, old-stage, and compat residue |
+| `stability_report` | Gate check results for metadata, removed-stage, and residue scans |
 
 ## Tool registry
 

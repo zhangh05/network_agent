@@ -1,7 +1,7 @@
 """UI/API Contract Alignment Tests — v0.1
 
 Ensures the Vite/React frontend source aligns with Foundation Baseline:
-- No retired API paths (8020, /api/translate, etc.)
+- No external service API paths (8020, /api/translate, etc.)
 - Correct backend provider enums
 - MiniMax-M3 as default (not MiniMax-M1)
 - Planned modules marked as planned/coming_soon
@@ -45,7 +45,7 @@ class TestForbiddenPatterns:
         """/api/translate must NOT appear as a call path in frontend."""
         html = _html()
         assert "/api/translate" not in html, (
-            "/api/translate found in frontend — this is a deprecated retired endpoint"
+            "/api/translate found in frontend — this endpoint is removed"
         )
 
     def test_no_port_8020(self):
@@ -66,7 +66,7 @@ class TestForbiddenPatterns:
         """backend/services/config_translation must NOT appear."""
         html = _html()
         assert "backend/services/config_translation" not in html, (
-            "backend/services/config_translation reference found — deprecated path"
+            "backend/services/config_translation reference found — removed path"
         )
 
     def test_no_network_translator_dependency(self):

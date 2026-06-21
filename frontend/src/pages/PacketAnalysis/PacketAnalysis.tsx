@@ -2,6 +2,7 @@ import { useState, useRef, useEffect } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
 import { useSessionStore } from "../../stores/session";
 import { apiRequest } from "../../api/client";
+import { artifactsApi } from "../../api";
 import { IconAlert } from "../../components/Icon";
 
 interface ConnectionGroup {
@@ -79,13 +80,13 @@ export function PacketAnalysis() {
     triedRestore.current = true;
 
     // Try URL param first (from FileManager "打开分析" link)
-    const sidFromUrl = searchParams.get("sid");
-    if (sidFromUrl) {
-      sessionStorage.removeItem("pcap_session"); // clear stale
-      apiRequest<{ ok: boolean; session_id: string; filename: string; total_packets: number; connections: ConnectionGroup[] }>({
-        method: "GET", url: `/pcap/session/${sidFromUrl}`,
-      }).then(res => {
-        if (!res.ok) return;
+	    const sidFromUrl = searchParams.get("sid");
+	    if (sidFromUrl) {
+	      sessionStorage.removeItem("pcap_session"); // clear stale
+	      apiRequest<{ ok: boolean; session_id: string; filename: string; total_packets: number; connections: ConnectionGroup[] }>({
+	        method: "GET", url: `/pcap/session/${sidFromUrl}`, params: { workspace_id: wsId },
+	      }).then(res => {
+	        if (!res.ok) return;
         setSessionId(res.session_id);
         setFilename(res.filename);
         setTotalPackets(res.total_packets);
@@ -98,13 +99,13 @@ export function PacketAnalysis() {
     // Fallback to localStorage
     const saved = sessionStorage.getItem("pcap_session");
     if (!saved) return;
-    let sid = "";
-    try { sid = JSON.parse(saved).sessionId; } catch { return; }
-    if (!sid) return;
-    apiRequest<{ ok: boolean; session_id: string; filename: string; total_packets: number; connections: ConnectionGroup[] }>({
-      method: "GET", url: `/pcap/session/${sid}`,
-    }).then(res => {
-      if (!res.ok) { sessionStorage.removeItem("pcap_session"); return; }
+	    let sid = "";
+	    try { sid = JSON.parse(saved).sessionId; } catch { return; }
+	    if (!sid) return;
+	    apiRequest<{ ok: boolean; session_id: string; filename: string; total_packets: number; connections: ConnectionGroup[] }>({
+	      method: "GET", url: `/pcap/session/${sid}`, params: { workspace_id: wsId },
+	    }).then(res => {
+	      if (!res.ok) { sessionStorage.removeItem("pcap_session"); return; }
       setSessionId(res.session_id);
       setFilename(res.filename);
       setTotalPackets(res.total_packets);
@@ -124,16 +125,16 @@ export function PacketAnalysis() {
   });
 
   async function analyze(conn: ConnectionGroup) {
-    const key = `${conn.src}:${conn.sport}-${conn.dst}:${conn.dport}`;
-    setActiveKey(key); setError(""); setLoading(true);
-    try {
-      await apiRequest({ method: "POST", url: "/pcap/filter",
-        data: { session_id: sessionId, src: conn.src, sport: conn.sport, dst: conn.dst, dport: conn.dport } });
-      const aRes = await apiRequest<{ ok: boolean; error?: string;
-        events: AlignEvent[]; anomalies: any[];
-        syn_count: number; fin_count: number; rst_count: number; total_tcp_packets: number;
-      }>({ method: "POST", url: "/pcap/align",
-        data: { session_id: sessionId, src: conn.src, sport: conn.sport, dst: conn.dst, dport: conn.dport } });
+	    const key = `${conn.src}:${conn.sport}-${conn.dst}:${conn.dport}`;
+	    setActiveKey(key); setError(""); setLoading(true);
+	    try {
+	      await apiRequest({ method: "POST", url: "/pcap/filter",
+	        data: { workspace_id: wsId, session_id: sessionId, src: conn.src, sport: conn.sport, dst: conn.dst, dport: conn.dport } });
+	      const aRes = await apiRequest<{ ok: boolean; error?: string;
+	        events: AlignEvent[]; anomalies: any[];
+	        syn_count: number; fin_count: number; rst_count: number; total_tcp_packets: number;
+	      }>({ method: "POST", url: "/pcap/align",
+	        data: { workspace_id: wsId, session_id: sessionId, src: conn.src, sport: conn.sport, dst: conn.dst, dport: conn.dport } });
       if (!aRes.ok) { setError(aRes.error || "分析失败"); return; }
       setResult({
         conn: `${conn.src}:${conn.sport} ↔ ${conn.dst}:${conn.dport}`,
@@ -162,7 +163,7 @@ export function PacketAnalysis() {
           {result && (
             <button className="btn"
               onClick={async () => {
-                // 1. Save analysis as a file record
+                // 1. Save analysis as an artifact (writes through FileStore)
                 const analysisData = JSON.stringify({
                   conn: result.conn,
                   stats: { pkts: result.total_tcp_packets, syn: result.syn_count, fin: result.fin_count, rst: result.rst_count },
@@ -173,20 +174,17 @@ export function PacketAnalysis() {
                   })),
                 }, null, 2);
 
-                const saveRes = await apiRequest<{ ok: boolean; file: { file_id: string }; artifact?: unknown }>({
-                  method: "POST", url: `/workspaces/${wsId}/artifacts/upload`,
-                  data: {
-                    title: `${result.conn}`,
-                    artifact_type: "pcap_analysis", source: "agent",
-                    content: analysisData, extension: "json",
-                    tags: ["tcp", "analysis"],
-                    metadata: { session_id: sessionId, conn: result.conn },
-                    workspace_id: wsId,
-                  },
-                }).catch(() => ({ ok: false, file: { file_id: "" } }));
+                const saveRes = await artifactsApi.create(wsId, {
+                  content: analysisData,
+                  artifact_type: "pcap_analysis",
+                  title: `${result.conn}`,
+                  tags: ["tcp", "analysis"],
+                  metadata: { session_id: sessionId, conn: result.conn },
+                  source: "agent",
+                }).catch(() => ({ ok: false, artifact: null } as any));
 
                 // Build prompt with file_id reference for LLM tool use
-                const fileId = saveRes.ok ? saveRes.file?.file_id || "" : "";
+                const fileId = saveRes.ok ? saveRes.artifact?.file_id || "" : "";
                 const text = fileId
                   ? `请分析这份 TCP 报文数据。使用 workspace.file.read 工具，参数 file_id="${fileId}"。`
                   : `帮我分析这个 TCP 连接：${result.conn}，${result.total_tcp_packets} 个报文，${(result.anomalies||[]).length} 个异常`;

@@ -168,15 +168,3 @@ def safe_workspace_path(workspace_id: str, subpath: str = "") -> Path:
         raise PathSecurityError(f"invalid_workspace_path: {e}") from e
 
     return target
-
-
-# ── Backward-compatible wrapper ──
-def _validate_workspace_path(workspace_id: str, subpath: str = "") -> Path:
-    """Backward-compatible wrapper around safe_workspace_path.
-
-    Preserves ValueError behavior for existing callers.
-    """
-    try:
-        return safe_workspace_path(workspace_id, subpath)
-    except PathSecurityError as e:
-        raise ValueError(str(e)) from e

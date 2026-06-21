@@ -87,9 +87,8 @@ class PromptCompiler:
             from agent.protocol.message import RuntimeContextMessage
             messages.append(RuntimeContextMessage(content=safe_context_text).to_llm_message())
 
-        # ── Skill injections (capability contracts, no prompt injection) ──
+        # ── Capability contracts ────────────────────────────────────
         # Capability context is already in the system prompt via prompt_architecture.
-        # Skip legacy skill prompt injection.
 
         # ── History window ────────────────────────────────────────
         for h in context.history_window:

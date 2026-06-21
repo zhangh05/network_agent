@@ -6,7 +6,7 @@ Validates:
 2. EvidenceBundle — normalization of memory/knowledge items
 3. ToolPlannerV2 — importable
 4. PromptCompiler — importable and callable
-5. No legacy compat entries in old modules
+5. Current module boundaries
 6. Local ops still exposed for explicit host scenes
 """
 
@@ -219,12 +219,6 @@ class TestPromptCompiler:
         from agent.runtime.prompting.compiler import PromptCompiler
         assert callable(PromptCompiler)
 
-    def test_profile_importable(self):
-        from agent.runtime.prompting.profile import PromptProfile
-        p = PromptProfile(has_tools=True)
-        text = p.build()
-        assert "Network Agent" in text
-
     def test_blocks_importable(self):
         from agent.runtime.prompting.blocks import (
             CORE_PROMPT, ANTI_HALLUCINATION, RUNTIME_CONTRACT,
@@ -245,24 +239,26 @@ class TestPromptCompiler:
         result = build_user_content_with_images(None, "hello")
         assert result == "hello"
 
-    def test_profile_from_scene_decision(self):
-        from agent.runtime.prompting.profile import PromptProfile
+    def test_scene_decision_can_drive_prompt_architecture(self):
+        from types import SimpleNamespace
         from agent.runtime.cognition.scene_decision import decide_scene
+        from agent.runtime.prompt_architecture.compiler import compile_runtime_prompt
+
         d = decide_scene("查看本机端口")
-        p = PromptProfile.from_scene_decision(d)
-        assert p.has_tools is True
+        context = SimpleNamespace(
+            metadata={"scene_decision": d.__dict__},
+            visible_tool_ids=["host.shell.exec"],
+            safe_context={},
+        )
+        assembly = compile_runtime_prompt(context)
+        assert assembly.final_prompt
 
 
-# ── E. No legacy compat entries in old modules ─────────────────────
+# ── E. Current module boundaries ────────────────────────────────────
 
-class TestNoLegacyCompat:
-    def test_tool_visibility_policy_removed(self):
-        """tool_visibility_policy.py must be deleted (migrated to tool_planning/visibility.py)."""
-        from pathlib import Path
-        assert not Path("agent/runtime/tool_visibility_policy.py").exists()
-
+class TestCurrentModuleBoundaries:
     def test_new_visibility_canonical(self):
-        """New canonical path exports the policy constants."""
+        """Canonical path exports the policy constants."""
         from agent.runtime.tool_planning.visibility import (
             BASELINE_READ_TOOLS,
             LOCAL_OPS_TOOLS,
@@ -332,19 +328,19 @@ class TestCognitionModels:
         assert hasattr(pipeline, "build")
 
 
-# ── H. ContextBuilder order verification ─────────────────────────────
+# ── H. ContextBuilder / ContextPipeline order verification ──────────
 
 class TestContextBuilderOrder:
     def test_scene_before_evidence_before_tool_plan(self):
-        """build_turn_context must run scene → evidence → tool_plan in order."""
+        """Pipeline stages must run scene → retrieval → evidence → tool_plan in order."""
         import inspect
-        from agent.runtime import context_builder
-        source = inspect.getsource(context_builder.build_turn_context)
+        from agent.runtime.context_pipeline.pipeline import ContextPipeline
+        source = inspect.getsource(ContextPipeline.run)
 
-        # SceneDecision must appear before evidence and tool planning
-        idx_scene = source.index("_compute_scene_decision")
-        idx_evidence = source.index("_build_evidence")
-        idx_tool_plan = source.index("_plan_tools_v2")
+        # Stage 6 (scene) must appear before stage 9 (evidence) before stage 10 (tool_plan)
+        idx_scene = source.index("self._scene.run")
+        idx_evidence = source.index("self._evidence.run")
+        idx_tool_plan = source.index("self._tool_planning.run")
         assert idx_scene < idx_evidence < idx_tool_plan
 
     def test_no_attach_scene_decision_at_end(self):
@@ -421,26 +417,11 @@ class TestEvidencePipelineIndependence:
         assert "ScanReport" in source
 
 
-# ── K. No legacy compat entries (extended) ───────────────────────────
+# ── K. Prompt/runtime boundary checks ────────────────────────────────
 
-class TestNoLegacyCompatExtended:
-    def test_no_classify_intent_in_prompts(self):
-        """prompts.py must not export classify_intent."""
-        import agent.runtime.prompts as mod
-        assert not hasattr(mod, "classify_intent")
-
-    def test_no_build_system_prompt_in_prompts(self):
-        """prompts.py must not export build_system_prompt."""
-        import agent.runtime.prompts as mod
-        assert not hasattr(mod, "build_system_prompt")
-
-    def test_legacy_tool_planner_removed(self):
-        """tool_planner.py must be deleted (migrated to tool_planning/)."""
-        from pathlib import Path
-        assert not Path("agent/runtime/tool_planner.py").exists()
-
+class TestPromptRuntimeBoundaries:
     def test_no_backward_compatible_fields_in_router(self):
-        """tool_category_router.py must not have old compat-fields comment."""
+        """tool_category_router.py must keep current field names explicit."""
         import inspect
         from agent.runtime import tool_category_router
         source = inspect.getsource(tool_category_router)
@@ -551,4 +532,3 @@ class TestRefactorArchitecture:
         """_needs_file_clarification importable from tool_planning.planner."""
         from agent.runtime.tool_planning.planner import _needs_file_clarification
         assert callable(_needs_file_clarification)
-

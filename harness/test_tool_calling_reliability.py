@@ -1,12 +1,10 @@
 import json
 
 
-def test_handler_dict_adapter_replaces_old_adapter_name():
+def test_handler_dict_adapter_is_canonical_constructor():
     from agent.protocol.tool_result import ToolResult
 
     assert hasattr(ToolResult, "from_handler_dict")
-    retired_name = "from_" + "".join(chr(c) for c in (108, 101, 103, 97, 99, 121)) + "_dict"
-    assert not hasattr(ToolResult, retired_name)
 
     result = ToolResult.from_handler_dict(
         tool_id="host.shell.exec",
@@ -45,9 +43,9 @@ def test_tool_message_payload_preserves_stdout_tail():
 
 
 def test_ip_prompt_enables_tool_contract_and_approval_note():
-    from agent.runtime.prompting.profile import PromptProfile
+    from agent.runtime.prompting.blocks import APPROVAL_NOTE, CORE_PROMPT, RUNTIME_CONTRACT
 
-    prompt = PromptProfile.from_classify_intent(intent="assistant_chat", user_input="查看本机IP地址").build()
+    prompt = CORE_PROMPT + RUNTIME_CONTRACT + APPROVAL_NOTE
 
     assert "required steps" in prompt
     assert "High-risk tools open an approval popup" in prompt

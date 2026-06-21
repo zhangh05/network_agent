@@ -3,7 +3,7 @@
  *
  * 验证:
  *  1. appendUser/appendAssistant 写入 bySession map
- *  2. switchSession 切换历史视图
+ *  2. switchSession 切换当前会话
  *  3. 跨 session 隔离: 切走再切回来, 历史独立
  *  4. mergeFromBackend 按 created_at 升序 merge, 不删本地
  *  5. clear 清空当前会话
@@ -29,7 +29,7 @@ const SAMPLE_RESULT: AgentResult = {
 
 beforeEach(() => {
   useWorkbenchStore.getState().clear();
-  useWorkbenchStore.setState({ bySession: {}, history: [] });
+  useWorkbenchStore.setState({ bySession: {} });
 });
 
 describe("useWorkbenchStore — bySession + persist (plan-C)", () => {
@@ -44,7 +44,6 @@ describe("useWorkbenchStore — bySession + persist (plan-C)", () => {
     expect(s.bySession["s-a"]?.[1]?.text).toBe("你好, 有什么可以帮您?");
     expect(s.bySession["s-a"]?.[1]?.role).toBe("assistant");
     expect(s.bySession["s-a"]?.[1]?.result?.trace_id).toBe("trace-1");
-    expect(s.history.length).toBe(2);
     expect(s.latestResult?.trace_id).toBe("trace-1");
   });
 
@@ -62,7 +61,7 @@ describe("useWorkbenchStore — bySession + persist (plan-C)", () => {
     useWorkbenchStore.getState().switchSession("s-a");
     useWorkbenchStore.getState().appendUser("会话A问题", "s-a");
     useWorkbenchStore.getState().switchSession("s-b");
-    expect(useWorkbenchStore.getState().history.length).toBe(0);
+    expect(useWorkbenchStore.getState().bySession["s-b"]).toEqual([]);
     useWorkbenchStore.getState().appendUser("会话B问题", "s-b");
     expect(useWorkbenchStore.getState().bySession["s-a"]?.length).toBe(1);
     expect(useWorkbenchStore.getState().bySession["s-b"]?.length).toBe(1);
@@ -70,7 +69,7 @@ describe("useWorkbenchStore — bySession + persist (plan-C)", () => {
     expect(useWorkbenchStore.getState().bySession["s-b"]?.[0]?.text).toBe("会话B问题");
     // 切回 A
     useWorkbenchStore.getState().switchSession("s-a");
-    expect(useWorkbenchStore.getState().history[0]?.text).toBe("会话A问题");
+    expect(useWorkbenchStore.getState().bySession["s-a"]?.[0]?.text).toBe("会话A问题");
   });
 
   it("mergeFromBackend 不删本地, 按 created_at 升序", () => {
@@ -114,66 +113,6 @@ describe("useWorkbenchStore — bySession + persist (plan-C)", () => {
     expect(useWorkbenchStore.getState().bySession["s-a"]?.[1]?.text).toBe("本地消息");
   });
 
-  it("mergeFromBackend replaces an invalid persisted session entry", () => {
-    useWorkbenchStore.setState({
-      bySession: { "legacy-session": {} as never },
-      currentSessionId: "legacy-session",
-      history: [],
-    });
-    const serverMsgs: SessionMessage[] = [
-      {
-        message_id: "run-legacy:user",
-        role: "user",
-        content: "你好",
-        created_at: "2026-06-19T04:01:10Z",
-        run_id: "run-legacy",
-      },
-      {
-        message_id: "run-legacy:assistant",
-        role: "assistant",
-        content: "你好，我在。",
-        created_at: "2026-06-19T04:01:11Z",
-        run_id: "run-legacy",
-      },
-    ];
-
-    useWorkbenchStore.getState().mergeFromBackend("legacy-session", serverMsgs);
-
-    expect(useWorkbenchStore.getState().bySession["legacy-session"]).toHaveLength(2);
-    expect(useWorkbenchStore.getState().history).toHaveLength(2);
-  });
-
-  it("mergeFromBackend ignores malformed messages inside a persisted session", () => {
-    useWorkbenchStore.setState({
-      bySession: {
-        "legacy-session": [
-          { id: "legacy", role: "user", content: "旧结构没有 text 字段" },
-        ] as never,
-      },
-      currentSessionId: "legacy-session",
-      history: [],
-    });
-
-    useWorkbenchStore.getState().mergeFromBackend("legacy-session", [
-      {
-        message_id: "run-current:user",
-        role: "user",
-        content: "你好",
-        created_at: "2026-06-19T04:01:10Z",
-        run_id: "run-current",
-      },
-      {
-        message_id: "run-current:assistant",
-        role: "assistant",
-        content: "你好，我在。",
-        created_at: "2026-06-19T04:01:11Z",
-        run_id: "run-current",
-      },
-    ]);
-
-    expect(useWorkbenchStore.getState().bySession["legacy-session"]).toHaveLength(2);
-  });
-
   it("mergeFromBackend keeps the active session when the persisted cache is full", () => {
     useWorkbenchStore.setState({
       bySession: Object.fromEntries(
@@ -183,7 +122,6 @@ describe("useWorkbenchStore — bySession + persist (plan-C)", () => {
         ]),
       ),
       currentSessionId: "f07f3f4731b8495c",
-      history: [],
     });
 
     useWorkbenchStore.getState().mergeFromBackend("f07f3f4731b8495c", [
@@ -204,7 +142,6 @@ describe("useWorkbenchStore — bySession + persist (plan-C)", () => {
     ]);
 
     expect(useWorkbenchStore.getState().bySession["f07f3f4731b8495c"]).toHaveLength(2);
-    expect(useWorkbenchStore.getState().history).toHaveLength(2);
   });
 
   it("clear 清空指定 session", () => {

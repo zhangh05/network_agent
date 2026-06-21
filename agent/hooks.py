@@ -47,7 +47,6 @@ class HookEvent(str, enum.Enum):
     POST_MODEL = "PostModel"            # after LLM response: can validate or modify output
     ON_ERROR = "OnError"                # on any error: can intercept, log, or retry
     ON_APPROVAL = "OnApproval"          # on approval required/resolved: can auto-approve or escalate
-    ON_COMPACT = "OnCompact"            # on context compact: can trigger pre/post-compact logic
 
 
 # ═══════════════════════════

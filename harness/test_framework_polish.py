@@ -84,22 +84,14 @@ class TestLLMSettingsValidation:
 
     def test_minimax_empty_model_saves_m3(self, tmp_path):
         from agent.llm.settings import save_llm_settings, load_llm_settings, delete_llm_settings
-        import agent.llm.settings as mod
-        old_path = str(mod.SETTINGS_PATH)
-        test_path = tmp_path / "LLM_setting.json"
-        test_path.parent.mkdir(exist_ok=True)
-        mod.SETTINGS_PATH = test_path
 
-        try:
-            data = save_llm_settings({
-                "enabled": True, "provider": "minimax", "model": "",
-            })
-            assert data["model"] == "MiniMax-M3"
-            loaded = load_llm_settings()
-            assert loaded["model"] == "MiniMax-M3"
-        finally:
-            mod.SETTINGS_PATH = Path(old_path)
-            delete_llm_settings()
+        data = save_llm_settings({
+            "enabled": True, "provider": "minimax", "model": "",
+        })
+        assert data["model"] == "MiniMax-M3"
+        loaded = load_llm_settings()
+        assert loaded["model"] == "MiniMax-M3"
+        delete_llm_settings()
 
     def test_openai_empty_model_still_requires(self):
         from agent.llm.settings import validate_llm_settings
@@ -124,10 +116,10 @@ class TestDocsPolish:
         content = (PROJECT_ROOT / "README.md").read_text()
         assert "skeleton" not in content.lower() or "non skeleton" not in content.lower()
 
-    def test_readme_mentions_llm_setting_json(self):
-        """README should mention LLM config — old LLM_setting.json or new config/providers/."""
+    def test_readme_mentions_provider_config(self):
+        """README should mention provider-backed LLM config."""
         content = (PROJECT_ROOT / "README.md").read_text()
-        assert "LLM_setting.json" in content or "config/providers" in content or "LLM 配置" in content
+        assert "config/providers" in content or "LLM 配置" in content
 
     def test_readme_mentions_minimax_m3(self):
         """README should mention MiniMax as supported provider."""
@@ -137,4 +129,3 @@ class TestDocsPolish:
     def test_architecture_no_llm_skeleton(self):
         content = (PROJECT_ROOT / "docs" / "ARCHITECTURE.md").read_text()
         assert "skeleton" not in content.lower() or "已实现" in content
-

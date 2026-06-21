@@ -7,7 +7,6 @@ Each LLM provider stores its configuration independently:
 Active provider selection is tracked in:
   config/providers/_active  (plain text, one line: the active provider id)
 
-This replaces the old single-file config/LLM_setting.json approach.
 """
 
 import json
@@ -84,30 +83,6 @@ def _provider_path(provider_id: str) -> Path:
     return PROVIDERS_DIR / f"{provider_id}.json"
 
 
-def _migrate_previous_settings():
-    """One-time migration: convert old config/LLM_setting.json to per-provider files."""
-    previous_settings = ROOT / "config" / "LLM_setting.json"
-    if not previous_settings.is_file():
-        return
-
-    _ensure_dir()
-
-    # If any provider config already exists, skip migration
-    if any(PROVIDERS_DIR.glob("*.json")):
-        return
-
-    try:
-        data = json.loads(previous_settings.read_text())
-        provider = data.get("provider", "")
-        if provider and provider in PROVIDER_PRESETS:
-            cfg = _build_provider_config(provider, data)
-            _write_json(_provider_path(provider), cfg)
-            # Set as active
-            _write_active(provider)
-    except Exception:
-        pass
-
-
 def _build_provider_config(provider_id: str, data: Optional[dict] = None) -> dict:
     """Build a clean provider config dict, merging preset defaults with stored data."""
     preset = PROVIDER_PRESETS.get(provider_id, PROVIDER_PRESETS["custom"])
@@ -171,7 +146,6 @@ def _mask_key(key: str) -> Optional[str]:
 
 def list_providers() -> list[dict]:
     """Return all provider configs (sanitized), with active flag."""
-    _migrate_previous_settings()
     _ensure_dir()
 
     active = get_active_provider()

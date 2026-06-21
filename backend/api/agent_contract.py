@@ -22,11 +22,10 @@ def metadata_size(value: Any) -> int:
 def resolve_stream_mode(data: dict) -> tuple[bool, str]:
     """Return (stream_enabled, stream_mode).
 
-    Historical ``stream=true`` is kept compatible but explicitly classified as
-    ``event_replay``: the turn completes first, then events are replayed.
-    A true ``live`` stream requires the WebSocket transport.
+    HTTP accepts only the current ``stream_mode`` field. A true ``live`` stream
+    requires the WebSocket transport.
     """
-    requested = data.get("stream_mode") or data.get("stream") or False
+    requested = data.get("stream_mode") or False
     if requested is True:
         return True, "event_replay"
     if requested is False or requested is None:

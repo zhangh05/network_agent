@@ -297,19 +297,12 @@ class TestStreamEmitterTimestamp:
 # ─────────────────────────────────────────────────────────────────────
 
 class TestRegistryDedup:
-    """_reg() must skip duplicate tool_ids in ALL_GENERAL_TOOLS."""
+    """_reg() must skip duplicate tool_ids in the internal definition list."""
 
     def test_duplicate_tool_id_skipped(self, monkeypatch):
-        # Simulate the duplicate scenario by importing twice with same tool_id.
-        # We can do this directly by appending to ALL_GENERAL_TOOLS.
-        from tool_runtime.general_tools import registry as reg_mod
-        from tool_runtime.general_tools.registry import _reg, ALL_GENERAL_TOOLS
+        from tool_runtime.general_tools.registry import _DEFINED_GENERAL_TOOLS, _reg
 
-        # Snapshot existing tool_ids to detect duplicates
-        existing_ids = [s.tool_id for s, _ in ALL_GENERAL_TOOLS]
-        # Find a tool_id that already has two registrations (the bug we're fixing).
-        # After the fix, _reg must short-circuit on second registration.
-        before = len(ALL_GENERAL_TOOLS)
+        before = len(_DEFINED_GENERAL_TOOLS)
         # Use a fake handler
         _reg(
             tool_id="workspace.file.list",  # already registered twice in source
@@ -319,15 +312,15 @@ class TestRegistryDedup:
             description="dup",
             handler=lambda inv: {"ok": True},
         )
-        after = len(ALL_GENERAL_TOOLS)
+        after = len(_DEFINED_GENERAL_TOOLS)
         # Should not have grown because duplicate
         assert after == before, (
-            f"duplicate _reg was not deduped; ALL_GENERAL_TOOLS grew by {after - before}"
+            f"duplicate _reg was not deduped; list grew by {after - before}"
         )
 
     def test_unique_tool_id_still_registered(self):
-        from tool_runtime.general_tools.registry import _reg, ALL_GENERAL_TOOLS
-        before = len(ALL_GENERAL_TOOLS)
+        from tool_runtime.general_tools.registry import _DEFINED_GENERAL_TOOLS, _reg
+        before = len(_DEFINED_GENERAL_TOOLS)
         # Use a unique fake tool_id with a valid category.
         _reg(
             tool_id="round5.test.unique_tool_id",
@@ -337,7 +330,7 @@ class TestRegistryDedup:
             description="unique",
             handler=lambda inv: {"ok": True},
         )
-        after = len(ALL_GENERAL_TOOLS)
+        after = len(_DEFINED_GENERAL_TOOLS)
         assert after == before + 1
 
 

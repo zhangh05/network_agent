@@ -39,11 +39,10 @@ def test_capability_actions_resolve_only_to_canonical():
             )
 
 
-def test_no_retired_baseline_files():
-    """v3.0 deletes the v2.x baselines/*.txt files."""
+def test_baseline_directory_uses_current_format():
     from pathlib import Path
     ROOT = Path(__file__).resolve().parents[1]
     baselines_dir = ROOT / "baselines"
     assert baselines_dir.exists()
     leftover = list(baselines_dir.glob("*.txt")) + list(baselines_dir.glob("*.json"))
-    assert not leftover, f"v3.0 must not keep retired baselines: {leftover}"
+    assert not leftover, f"baselines directory should not contain raw snapshots: {leftover}"

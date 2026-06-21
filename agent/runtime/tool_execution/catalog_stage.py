@@ -2,6 +2,7 @@
 """Expand per-turn visible tools from a successful catalog search result."""
 
 from agent.runtime.query_engine import StreamEvent
+from agent.runtime.tool_planning.policy import ToolPlanningPolicy
 
 
 def expand_tools_from_catalog_result(result, context, session, turn, step,
@@ -15,12 +16,14 @@ def expand_tools_from_catalog_result(result, context, session, turn, step,
         expansion = metadata["tool_catalog_expansion"]
     data = getattr(result, "data", {}) or {}
     raw = getattr(result, "raw", {}) or {}
-    load_ids = (
+    requested_ids = list(
         expansion.get("load_tool_ids")
         or data.get("load_tool_ids")
         or raw.get("load_tool_ids")
         or []
     )
+    policy = ToolPlanningPolicy.default()
+    load_ids = requested_ids[:policy.catalog_expansion_max_tools]
     if not load_ids or not getattr(context, "tool_router", None):
         return []
     try:
@@ -38,6 +41,10 @@ def expand_tools_from_catalog_result(result, context, session, turn, step,
         "step": step,
         "query": expansion.get("query", ""),
         "added_tool_ids": added,
+        "requested_count": len(requested_ids),
+        "added_count": len(added),
+        "truncated": len(requested_ids) > len(load_ids),
+        "ranking_version": expansion.get("ranking_version", ""),
     })
     try:
         emitter.emit(StreamEvent.TOOL_RESULT, {

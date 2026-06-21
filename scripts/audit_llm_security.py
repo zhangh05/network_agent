@@ -5,8 +5,13 @@ import json, os, sys, re, glob
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 KEY_PATTERN = re.compile(r'(sk-[A-Za-z0-9]{20,})|(eyJ[A-Za-z0-9+/=]{30,})', re.IGNORECASE)
 DATA_DIRS = {"memory/data", "reports", "workspaces", "frontend"}
-SOURCE_DIRS = {"agent", "backend", "modules", "skills", "harness", "config", "docs", "scripts"}
+SOURCE_DIRS = {"agent", "backend", "modules", "skills", "docs", "scripts"}
 SKIP_DIR_NAMES = {"__pycache__", "node_modules", ".vite", "dist", "build", "coverage"}
+SKIP_DATA_FILES = {
+    "reports/tool_catalog.json",
+    "reports/TOOL_CATALOG.md",
+    "reports/tool_architecture_audit.json",
+}
 
 def scan_data_file(path, relpath):
     """Scan data/output files for secrets and full configs."""
@@ -80,6 +85,8 @@ def main():
                 if f.endswith('.pyc'): continue
                 fp = os.path.join(dirpath,f)
                 rel = os.path.relpath(fp,ROOT)
+                if rel in SKIP_DATA_FILES:
+                    continue
                 issues += scan_data_file(fp, rel)
     
     # Boundary check

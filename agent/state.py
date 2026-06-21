@@ -55,10 +55,7 @@ class NetworkAgentState:
     skill_calls: List[Dict[str, Any]] = field(default_factory=list)
     skill_results: Dict[str, Any] = field(default_factory=dict)
 
-    # DEPRECATED: tool_calls / tool_results are pre-ToolRuntime naming.
-    # They alias skill_calls / skill_results for backward compatibility with
-    # old state, trace, run, and test code. Do NOT use these for new Tool Runtime.
-    # Future Tool Runtime will use independent ToolSpec / ToolInvocation / ToolResult.
+    # Tool audit projection used by traces, run records, and UI contracts.
     tool_calls: List[Dict[str, Any]] = field(default_factory=list)
     tool_results: Dict[str, Any] = field(default_factory=dict)
 

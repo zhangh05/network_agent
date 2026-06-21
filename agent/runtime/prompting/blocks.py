@@ -1,9 +1,8 @@
 # agent/runtime/prompting/blocks.py
-"""Minimal compatibility prompt constants.
+"""Minimal prompt constants.
 
 Non-simple-chat turns use agent.runtime.prompt_architecture. These constants are
-kept for simple chat, sub-agent preambles, and backwards-compatible imports.
-They must not encode legacy tool-first network workflows.
+kept for simple chat, sub-agent preambles, and reusable prompt fragments.
 """
 
 CORE_PROMPT = (

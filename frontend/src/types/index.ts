@@ -546,7 +546,72 @@ export interface RuntimeAuditTurn {
   timeline_summary?: string;
   report_artifacts?: Array<{ artifact_id: string; title: string }>;
   artifact_refs?: Array<{ artifact_id: string; title: string }>;
+  decision_available?: boolean;
+  decision_summary?: DecisionSummary;
   metadata?: Record<string, unknown>;
+}
+
+export interface DecisionSummary {
+  schema_version?: string;
+  decision_status?: string;
+  capability_ids?: string[];
+  visible_tool_count?: number;
+  called_tool_count?: number;
+  blocked_tool_count?: number;
+  retrieval?: Record<string, string>;
+  real_event_count?: number;
+  synthetic_event_count?: number;
+  missing_event_count?: number;
+}
+
+export interface DecisionReport {
+  schema_version: string;
+  run_id: string;
+  session_id: string;
+  workspace_id: string;
+  created_at: string;
+  decision_status: "complete" | "degraded" | string;
+  scene_decision: Record<string, unknown>;
+  capability_route: {
+    capability_ids?: string[];
+    module_ids?: string[];
+    confidence?: Record<string, number>;
+    candidate_scores?: Record<string, number>;
+    signals?: string[];
+    ambiguous?: boolean;
+    fallback_used?: boolean;
+    latency_ms?: number;
+    route_version?: string;
+    [key: string]: unknown;
+  };
+  tool_planning_decision: {
+    visible_tools?: string[];
+    required_tools?: string[];
+    optional_tools?: string[];
+    blocked_tools?: Array<{ tool_id?: string; reason?: string }>;
+    selection_reason?: string;
+    local_ops_allowed?: boolean;
+    catalog_expansion_allowed?: boolean;
+    [key: string]: unknown;
+  };
+  retrieval_decision: Record<string, Record<string, unknown>>;
+  catalog_expansions: Array<Record<string, unknown>>;
+  context_pipeline: Record<string, unknown>;
+  visibility_violations: Array<Record<string, unknown>>;
+  tool_execution_summary: {
+    called: string[];
+    blocked: string[];
+    failed: string[];
+    succeeded: string[];
+  };
+  trace_summary: {
+    real_event_count: number;
+    synthetic_event_count: number;
+    missing_event_count: number;
+  };
+  warnings: string[];
+  errors: string[];
+  redaction_applied: boolean;
 }
 
 /* ──────────────────────────── ApiError ──────────────────────────── */

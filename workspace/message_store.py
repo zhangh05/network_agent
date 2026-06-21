@@ -320,10 +320,10 @@ def _atomic_write(path: Path, data: dict) -> None:
     losing persistence.
     """
     payload = json.dumps(data, indent=2, ensure_ascii=False)
-    _atomic_write_text(path, payload)
+    _write_text_atomically(path, payload)
 
 
-def _atomic_write_text(path: Path, text: str) -> None:
+def _write_text_atomically(path: Path, text: str) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     tmp = path.with_name(path.name + f".tmp.{os.getpid()}.{uuid.uuid4().hex[:8]}")
     fd = os.open(str(tmp), os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o644)

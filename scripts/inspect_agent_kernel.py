@@ -32,7 +32,7 @@ def main():
                       "session.rewind","session.checkpoint","session.export"],
         "Command": ["slash.run", "command_system", "SLASH_COMMANDS"],
         "Hook": ["PRE_TOOL_USE","POST_TOOL_USE","PRE_TURN","POST_TURN",
-                  "PRE_MODEL","POST_MODEL","ON_ERROR","ON_APPROVAL","ON_COMPACT"],
+                  "PRE_MODEL","POST_MODEL","ON_ERROR","ON_APPROVAL"],
         "Query Engine": ["QueryResult","with_retry","ErrorType","build_trace_id",
                           "rate_limit","token_limit"],
     }
@@ -65,7 +65,7 @@ def main():
                     pass
             # Hook event checks
             if c in ("PRE_TOOL_USE", "POST_TOOL_USE", "PRE_TURN", "POST_TURN",
-                     "PRE_MODEL", "POST_MODEL", "ON_ERROR", "ON_APPROVAL", "ON_COMPACT"):
+                     "PRE_MODEL", "POST_MODEL", "ON_ERROR", "ON_APPROVAL"):
                 try:
                     from agent.hooks import HookEvent
                     event_map = {
@@ -77,7 +77,6 @@ def main():
                         "POST_MODEL": "PostModel",
                         "ON_ERROR": "OnError",
                         "ON_APPROVAL": "OnApproval",
-                        "ON_COMPACT": "OnCompact",
                     }
                     event_name = event_map.get(c, "")
                     if event_name and any(e.value == event_name for e in HookEvent):
@@ -150,8 +149,7 @@ def main():
                     except Exception:
                         pass
                 if c == "session.create":
-                    # session.create is defined but may be in REMOVED_GENERAL_TOOL_IDS
-                    from tool_runtime.general_tools import REMOVED_GENERAL_TOOL_IDS, handle_session_create
+                    from tool_runtime.general_tools import handle_session_create
                     ok += 1
                     continue
                 # Generic import
@@ -250,7 +248,7 @@ def main():
     print()
     print("--- all modules at 100% ---")
     done = [
-        "skill.create (enabled, no longer in REMOVED list)",
+        "skill.create (enabled)",
         "skill.load (runtime-controlled, returns skill_prompt)",
         "agent.team (PREVIEW: demo only, not production-ready)",
         "pdf.extract_text (pypdf2 + text fallback)",

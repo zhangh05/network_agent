@@ -1,58 +1,174 @@
-# Backend API Contract
+# API Contract — canonical response shapes and error conventions
 
-## Response Envelope
+## Canonical response envelope
 
-All backend APIs return a consistent envelope:
-
-**Success:**
+### Success (single object)
 ```json
 {
   "ok": true,
-  "status": "ok",
-  "summary": "",
-  "data": {},
-  "errors": []
+  "item": { ... },
+  "workspace_id": "default"
 }
 ```
 
-**Failure:**
+### Success (list)
+```json
+{
+  "ok": true,
+  "items": [ ... ],
+  "count": 42,
+  "workspace_id": "default"
+}
+```
+
+### Error
 ```json
 {
   "ok": false,
-  "status": "failed",
-  "summary": "",
-  "error_code": "",
-  "errors": []
+  "error": "MACHINE_READABLE_CODE",
+  "message": "Human-readable description",
+  "details": { ... }
 }
 ```
 
-## Stable APIs
-
-| Method | Route | Description |
-|--------|-------|-------------|
-| GET | `/api/tools/catalog` | Tool catalog |
-| GET | `/api/workspaces/<ws>/status` | Workspace stats + health |
-| GET | `/api/workspaces/<ws>/storage/health` | Storage doctor result |
-| GET | `/api/workspaces/<ws>/files/<file_id>/references` | File reference index |
-| GET | `/api/workspaces/<ws>/artifacts/<artifact_id>/references` | Artifact reference index |
-| GET | `/api/workspaces/<ws>/reference-graph` | Reference graph |
-
-## Error Codes
-
+### HTTP status codes
 | Code | Meaning |
 |------|---------|
-| `WORKSPACE_NOT_FOUND` | Workspace does not exist |
-| `INVALID_WORKSPACE_ID` | Workspace ID is invalid |
-| `FILE_NOT_FOUND` | FileRecord not found |
-| `FILE_NOT_ACCESSIBLE` | File exists in index but not on disk |
-| `ARTIFACT_NOT_FOUND` | ArtifactRecord not found |
-| `PCAP_SESSION_NOT_FOUND` | PCAP session not in memory or index |
-| `REFERENCE_NOT_FOUND` | ReferenceIndex entry not found |
-| `TOOL_NOT_ALLOWED` | Tool is forbidden or not permitted |
-| `RISK_APPROVAL_REQUIRED` | High-risk action needs approval |
-| `INTERNAL_ERROR` | Unexpected backend error |
+| 200 | Success |
+| 400 | Bad request (invalid input, missing field, invalid workspace_id) |
+| 404 | Resource not found |
+| 413 | Payload too large |
+| 500 | Internal server error |
 
-## Stability Rule
+### Removed shapes (do NOT use)
+```
+{"ok": false, "detail": "..."}     → use "message"
+{"status": "failed", ...}          → use "ok": false
+{"summary": "...", "error_code": "..."} → use "error"/"message"
+```
 
-Frontend refactor may depend on this contract after PR #20 is merged.
-New APIs in this PR use the envelope; legacy APIs adopt it progressively.
+---
+
+## Core API reference
+
+### POST /api/agent/message
+```
+Request:  { "workspace_id": "...", "message": "...", "session_id": "..." }
+Response: { "ok": true, "reply": "...", "session_id": "..." }
+Error:    { "ok": false, "error": "LLM_UNAVAILABLE", "message": "..." }
+```
+
+### GET /api/sessions/<sid>/messages
+```
+Response: { "ok": true, "messages": [...], "count": N, "session_id": "sid" }
+Error:    { "ok": false, "error": "SESSION_NOT_FOUND", "message": "...", 404 }
+```
+
+### GET /api/runs/recent
+```
+Response: { "ok": true, "runs": [...], "count": N }
+Error:    { "ok": false, "error": "INTERNAL_ERROR", "message": "...", 500 }
+```
+Sensitive fields NEVER returned: source_config, raw_config, api_key, password, token, secret.
+
+### GET /api/workspaces/<ws>/runs/<run_id>/decision
+```
+Response: { "ok": true, "item": { "schema_version": "decision_report.v2", ... }, "workspace_id": "ws" }
+Error:    { "ok": false, "error": "DECISION_REPORT_NOT_FOUND", "message": "...", 404 }
+```
+
+### GET /api/workspaces/<ws>/artifacts
+```
+Response: { "ok": true, "artifacts": [...], "workspace_id": "ws" }
+Error:    { "ok": false, "error": "INVALID_WORKSPACE_ID", "message": "...", 400 }
+```
+
+### POST /api/workspaces/<ws>/artifacts
+```
+Request:  { "content": "...", "artifact_type": "...", "title": "..." }
+Response: { "ok": true, "artifact": { "artifact_id": "...", "file_id": "...", ... } }
+Error:    { "ok": false, "error": "...", "message": "...", 400 }
+```
+
+### POST /api/workspaces/<ws>/artifacts/upload
+```
+Request:  multipart/form-data with 'file' field
+Response: { "ok": true, "file": { "file_id": "...", ... }, "artifact": {...} or null }
+Error:    { "ok": false, "error": "no file provided", "message": "...", 400 }
+```
+
+### GET /api/workspaces/<ws>/artifacts/<aid>/content
+```
+Response: { "ok": true, "content": "...", "metadata": {...} }
+Error:    { "ok": false, "error": "ARTIFACT_NOT_FOUND", "message": "...", 404 }
+```
+
+### POST /api/pcap/parse
+```
+Request:  multipart/form-data with 'file' field
+Response: { "ok": true, "session_id": "...", "file_id": "...", "total_packets": N, "connections": [...] }
+Error:    { "ok": false, "error": "no file provided", "message": "...", 400 }
+```
+
+### POST /api/pcap/parse-file
+```
+Request:  { "workspace_id": "default", "file_id": "file_..." }
+Response: { "ok": true, "session_id": "...", "file_id": "...", "total_packets": N, "connections": [...] }
+Error:    { "ok": false, "error": "missing_file_id|pcap_parse_failed", "message": "...", 400 }
+```
+
+### GET /api/pcap/session/<sid>
+```
+Response: { "ok": true, "session_id": "...", "filename": "...", "total_packets": N, "connections": [...] }
+Error:    { "ok": false, "error": "PCAP_SESSION_NOT_FOUND", "message": "...", 404 }
+```
+
+### POST /api/pcap/filter
+```
+Request:  { "session_id": "...", "filter": "tcp.port == 80" }
+Response: { "ok": true, "packets": [...] }
+Error:    { "ok": false, "error": "PCAP_SESSION_NOT_FOUND", "message": "...", 404 }
+```
+
+### GET /api/runtime/health
+```
+Response: { "ok": true, "status": "healthy", "components": {...} }
+```
+
+### GET /api/runtime/selfcheck
+```
+Response: { "ok": true, "status": "ok", "checks": [...] }
+```
+
+---
+
+## Sensitive fields — never returned by any API
+
+| Field | Reason |
+|-------|--------|
+| `api_key` | Credential |
+| `password` | Credential |
+| `token` | Credential |
+| `secret` | Credential |
+| `authorization` | Credential |
+| `source_config` | Raw user config |
+| `raw_config` | Raw user config |
+| `private_key` | Credential |
+| `community` | SNMP credential |
+| `pre-shared-key` | VPN credential |
+
+---
+
+## Response helper modules
+
+- `backend/core/responses.py` — canonical envelope helpers (P2-C)
+
+All backend code should use `backend.core.responses` for response envelopes.
+
+---
+
+## Version
+
+- Document version: v1.0
+- Schema version: api_contract.v1
+- Last updated: 2026-06-21

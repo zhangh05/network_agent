@@ -1,8 +1,7 @@
 # memory/retriever.py
 """Memory retriever — delegates to unified ContextStore + UnifiedRetriever.
 
-v3.1.0: All retrieval goes through context.unified_retriever.
-No legacy BM25/JSONL paths.
+All retrieval goes through context.unified_retriever.
 """
 
 import logging

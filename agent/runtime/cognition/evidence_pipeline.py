@@ -219,7 +219,7 @@ class EvidencePipeline:
                 warnings=k_warnings,
             ))
 
-        # -- Write scan metadata for trace/Inspector compatibility --
+        # -- Write scan metadata for trace and Inspector views --
         scan_meta = ctx.metadata.setdefault("context_scan", {})
         scan_meta["memory"] = {
             "safe_count": safe_mem,

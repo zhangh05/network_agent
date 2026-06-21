@@ -19,7 +19,7 @@ describe("Agent Workbench — source_summary rendering", () => {
     resetMocks();
     installMockApi();
     useWorkbenchStore.getState().clear();
-    useWorkbenchStore.setState({ bySession: {}, history: [] });
+    useWorkbenchStore.setState({ bySession: {} });
     useSessionStore.setState({
       currentWorkspaceId: "ws-1",
       currentSessionId: "s-1",

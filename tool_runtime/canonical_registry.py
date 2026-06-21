@@ -268,9 +268,11 @@ _S = {
 
 def _handler_tool_catalog_search(inv: ToolInvocation) -> dict:
     """Search the canonical tool catalog and return loadable tool ids."""
+    import time
     from tool_runtime.tool_governance import TOOL_GOVERNANCE
     from tool_runtime.tool_namespace import TOOL_NAMESPACE
 
+    started = time.perf_counter()
     args = inv.arguments or {}
     query = str(args.get("query") or "").strip()
     context_summary = str(args.get("context_summary") or "").strip()
@@ -342,6 +344,11 @@ def _handler_tool_catalog_search(inv: ToolInvocation) -> dict:
         "context_summary": context_summary[:500],
         "load_tool_ids": load_ids,
         "matched_count": len(matches),
+        "catalog_size": len(TOOL_NAMESPACE),
+        "query_token_count": len(tokens),
+        "ranking_version": "catalog_rank.v2",
+        "latency_ms": round((time.perf_counter() - started) * 1000.0, 3),
+        "truncated": len(scored) > len(matches),
     }
     return {
         "ok": True,

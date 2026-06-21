@@ -92,6 +92,9 @@ def register_artifact_routes(app):
             title=data.get("title", ""), scope=data.get("scope", "workspace"),
             sensitivity=data.get("sensitivity", ""),
             run_id=data.get("run_id", ""),
+            metadata=data.get("metadata", None),
+            tags=data.get("tags", None),
+            source=data.get("source", "api"),
         )
         if not rec:
             return jsonify({"ok": False, "error": "artifact creation blocked"}), 400

@@ -1,1 +1,1 @@
-# agent/runtime/stability — Legacy Cleanup / Stability Gate
+# agent/runtime/stability — Runtime Stability Gate

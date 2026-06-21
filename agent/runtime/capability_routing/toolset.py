@@ -37,7 +37,8 @@ def build_active_tool_bundle(
         capability_tools.extend(package.tool_ids)
     core_tools = _valid_tool_ids(CORE_TOOL_IDS)
     scoped_tools = _valid_tool_ids(capability_tools)
-    return ToolBundle(
+    total_unique = len(dict.fromkeys([*core_tools, *scoped_tools]))
+    bundle = ToolBundle(
         core_tools=core_tools,
         capability_tools=scoped_tools,
         capability_ids=route.capability_ids,
@@ -49,8 +50,12 @@ def build_active_tool_bundle(
             "route_confidence": dict(route.confidence),
             "core_tool_count": len(core_tools),
             "capability_tool_count": len(scoped_tools),
+            "route": route.to_dict(),
+            "truncated": total_unique > limit,
         },
     )
+    bundle.metadata["visible_tool_count"] = len(bundle.visible_tools)
+    return bundle
 
 
 def active_tool_catalog(user_input: str, *, scene: Any = None, safe_context: dict | None = None, limit: int = DEFAULT_TOOL_LIMIT) -> dict:

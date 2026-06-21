@@ -13,7 +13,7 @@ describe("Experience polish", () => {
     resetMocks();
     installMockApi();
     useSessionStore.getState().reset();
-    useWorkbenchStore.setState({ bySession: {}, history: [], currentSessionId: null });
+    useWorkbenchStore.setState({ bySession: {}, currentSessionId: null });
     useUIStore.setState({ inspectorOpen: true, sidebarOpen: true, theme: "light" });
   });
 
@@ -104,7 +104,6 @@ describe("Experience polish", () => {
             { id: "a1", role: "assistant", text: "你好，我在。", created_at: "2026-06-18T06:38:24Z" },
           ],
         },
-        history: [],
         currentSessionId: "sess-restored",
       });
     });

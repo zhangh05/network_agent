@@ -85,16 +85,11 @@ class TestProvider:
 # ═══ Runtime ═══
 class TestRuntime:
     def test_disabled_fallback(self, monkeypatch, tmp_path):
-        import agent.llm.settings as settings_mod
         from agent.llm.runtime import safe_generate
         from agent.state import NetworkAgentState
-        settings_path = tmp_path / "LLM_setting.json"
-        settings_path.write_text(json.dumps({
-            "enabled": False,
-            "provider": "disabled",
-            "safe_mode": True,
-        }))
-        monkeypatch.setattr(settings_mod, "SETTINGS_PATH", settings_path)
+        monkeypatch.setattr("agent.llm.settings.resolve_effective_llm_config", lambda: {
+            "enabled": False, "provider": "disabled", "safe_mode": True,
+        })
         s=NetworkAgentState(intent="translate_config")
         o=safe_generate("response_compose",s)
         assert o.llm_used is False
@@ -196,7 +191,7 @@ class TestBoundary:
     def test_executor_no_llm(self):
         """Executor must not import agent.llm or call LLM APIs directly.
         Passing state.context llm metadata is allowed (read-only aggregation).
-        v3.1: retired skill_executor.py removed — check runtime/tool_runner.py instead."""
+        v3.1: check runtime permission layer."""
         fp=os.path.join(ROOT,"agent","runtime","permission_check.py")
         with open(fp,encoding="utf-8") as f:
             content = f.read()

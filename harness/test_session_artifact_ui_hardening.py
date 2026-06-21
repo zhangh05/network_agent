@@ -167,12 +167,12 @@ class TestBackendRouteIntegrity:
                 source += "\n" + p.read_text()
         return source
 
-    def test_no_retired_routes(self):
-        """Check that retired API routes are absent."""
+    def test_no_external_service_routes(self):
+        """Check that backend exposes the integrated app routes only."""
         source = self._collect_all_backend_routes()
-        retired = ["/api/translate", "GraphAgent", "network-translator", ":8020"]
-        for r in retired:
-            assert r not in source, f"Retired route '{r}' found in backend code"
+        forbidden = ["/api/translate", "GraphAgent", "network-translator", ":8020"]
+        for r in forbidden:
+            assert r not in source, f"Unexpected route '{r}' found in backend code"
 
     def test_all_required_routes_exist(self):
         """All required routes must exist in backend code."""
@@ -390,8 +390,8 @@ class TestLocalStorageSecurity:
         for s in suspicious:
             assert s not in html, f"Prompt data must not be in localStorage: {s}"
 
-    def test_retired_keys_cleaned(self):
-        """init function must clean retired localStorage keys."""
+    def test_persisted_workspace_keys_are_explicit(self):
+        """Persist config must keep only active workspace keys."""
         html = read_frontend_source_text()
         assert "partialize" in html
         assert "currentWorkspaceId" in html

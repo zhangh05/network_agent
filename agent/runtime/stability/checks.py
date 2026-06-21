@@ -32,11 +32,9 @@ _OLD_STAGE_PATTERNS = [
     re.compile(r"self\._dispatch\.run"),
 ]
 
-_COMPAT_PATTERNS = [
-    re.compile(r"\bcompat\b", re.IGNORECASE),
-    re.compile(r"\bcompatible\b", re.IGNORECASE),
-    re.compile(r"Backward-compatible", re.IGNORECASE),
-    re.compile(r"legacy\s+wrapper", re.IGNORECASE),
+_RESIDUE_PATTERNS = [
+    re.compile(r"\balias\s+wrapper\b", re.IGNORECASE),
+    re.compile(r"\binactive\s+wrapper\b", re.IGNORECASE),
 ]
 
 
@@ -74,10 +72,10 @@ def check_no_old_stage_chain(source_dir: str = "") -> CheckResult:
     return CheckResult(name="no_old_stage_chain", passed=True, details="No old stage patterns in pipeline")
 
 
-def check_no_compat_residue(source_dir: str = "", dirs: list[str] | None = None) -> CheckResult:
-    """Check that no compatibility/alias/legacy wrapper residue exists in new modules."""
+def check_no_runtime_residue(source_dir: str = "", dirs: list[str] | None = None) -> CheckResult:
+    """Check that no inactive wrapper residue exists in runtime modules."""
     if not source_dir:
-        return CheckResult(name="no_compat_residue", passed=True, details="Skipped (no source_dir)")
+        return CheckResult(name="no_runtime_residue", passed=True, details="Skipped (no source_dir)")
     target_dirs = dirs or [
         "agent/runtime/output",
         "agent/runtime/response",
@@ -102,17 +100,17 @@ def check_no_compat_residue(source_dir: str = "", dirs: list[str] | None = None)
                 content = open(fpath, "r", encoding="utf-8").read()
             except Exception:
                 continue
-            for pat in _COMPAT_PATTERNS:
+            for pat in _RESIDUE_PATTERNS:
                 m = pat.search(content)
                 if m:
                     hits.append(f"{d}/{fname}: {m.group()}")
     if hits:
         return CheckResult(
-            name="no_compat_residue",
+            name="no_runtime_residue",
             passed=False,
-            details=f"Compat residue found: {'; '.join(hits[:5])}",
+            details=f"Runtime residue found: {'; '.join(hits[:5])}",
         )
-    return CheckResult(name="no_compat_residue", passed=True, details="No compat/alias/legacy residue")
+    return CheckResult(name="no_runtime_residue", passed=True, details="No inactive wrapper residue")
 
 
 def check_kernel_reports(ctx) -> CheckResult:

@@ -1,10 +1,8 @@
 # agent/modules/knowledge/store.py
 """Knowledge Store — delegates to unified ContextStore.
 
-v3.1.0: All source records stored as item_type="knowledge_source"
-in ContextStore (items.jsonl).
-
-Public API preserved for backward compat with service.py / tools.py.
+All source records are stored as item_type="knowledge_source" in ContextStore
+(items.jsonl).
 """
 
 from __future__ import annotations

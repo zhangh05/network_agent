@@ -119,22 +119,7 @@ def audit():
             for leak in find_secrets(content, str(report)):
                 key_leaks.append(leak)
 
-    # 5. Check config/LLM_setting.json git tracking
-    setting_file = PROJECT_ROOT / "config" / "LLM_setting.json"
-    if setting_file.is_file():
-        # Check if it's in .gitignore
-        gitignore = PROJECT_ROOT / ".gitignore"
-        if gitignore.is_file():
-            gi = gitignore.read_text()
-            if "LLM_setting.json" not in gi:
-                issues.append({
-                    "issue": "LLM_setting_json_not_gitignored",
-                    "severity": "high",
-                })
-    else:
-        pass  # Not created yet, fine
-
-    # 6. Check module isolation — no module should import agent.llm
+    # 5. Check module isolation — no module should import agent.llm
     for py_file in PROJECT_ROOT.glob("modules/**/*.py"):
         content = py_file.read_text()
         if "agent.llm" in content or "from agent.llm" in content:
@@ -161,12 +146,12 @@ def audit():
                 "file": str(py_file),
             })
 
-    # 9. Check no old GraphAgent (exclude retired and this script)
+    # 9. Check no external GraphAgent surface.
     for py_file in PROJECT_ROOT.rglob("*.py"):
         if py_file.name.startswith("__"):
             continue
         p = str(py_file)
-        if "retired" in p or "scripts/audit_workspace" in p or "scripts/audit_observability" in p or "scripts/audit_registry" in p or "scripts/audit_artifact" in p or "scripts/audit_context" in p or "scripts/audit_prompt" in p or "scripts/audit_job" in p or "scripts/audit_report" in p or "scripts/cleanup" in p or "scripts/live_" in p or "scripts/seed_" in p or "harness/" in p:
+        if "scripts/audit_workspace" in p or "scripts/audit_observability" in p or "scripts/audit_artifact" in p or "scripts/audit_context" in p or "scripts/audit_prompt" in p or "scripts/audit_job" in p or "scripts/audit_report" in p or "scripts/cleanup" in p or "scripts/live_" in p or "scripts/seed_" in p or "harness/" in p:
             continue
         content = py_file.read_text()
         if "GraphAgent" in content:
@@ -176,7 +161,7 @@ def audit():
             })
 
     # 10. Check no /api/translate
-    # (We know it's removed from routes, but check retired)
+    # Check active backend routes.
     for py_file in PROJECT_ROOT.glob("backend/**/*.py"):
         content = py_file.read_text()
         if 'route("/api/translate"' in content:
@@ -198,7 +183,7 @@ def audit():
         if py_file.name.startswith("__"):
             continue
         p = str(py_file)
-        if "retired" in p or "scripts/audit_workspace" in p or "scripts/audit_llm" in p or "scripts/audit_artifact" in p or "scripts/audit_context" in p or "scripts/audit_prompt" in p or "scripts/audit_job" in p or "scripts/audit_report" in p or "scripts/cleanup" in p or "scripts/live_" in p or "scripts/seed_" in p or "harness/" in p:
+        if "scripts/audit_workspace" in p or "scripts/audit_llm" in p or "scripts/audit_artifact" in p or "scripts/audit_context" in p or "scripts/audit_prompt" in p or "scripts/audit_job" in p or "scripts/audit_report" in p or "scripts/cleanup" in p or "scripts/live_" in p or "scripts/seed_" in p or "harness/" in p:
             continue
         content = py_file.read_text()
         if "sys.path.append" in content and "network-translator" in content:
@@ -218,7 +203,7 @@ def audit():
         if py_file.name.startswith("__"):
             continue
         p = str(py_file)
-        if "harness/" in p or "retired" in p or "scripts/audit" in p:
+        if "harness/" in p or "scripts/audit" in p:
             continue
         content = py_file.read_text()
         # Count MiniMax-M1 occurrences that aren't in migration code

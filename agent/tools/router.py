@@ -38,9 +38,8 @@ class ToolRouter:
         """Construct a ToolRouter.
 
         Use `ToolRouter.for_turn(registry, allowed_tool_ids)` for the
-        per-turn pattern. Direct construction is kept for compatibility
-        with tests and older call sites; pass `allowed_tool_ids` to bake
-        the per-turn whitelist in at construction time.
+        per-turn pattern; pass `allowed_tool_ids` to bake the per-turn
+        whitelist in at construction time.
         """
         self.registry = registry or ToolRegistry()
         self.model_visible_specs: list = []

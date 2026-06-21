@@ -1,5 +1,5 @@
 # agent/runtime_status.py
-"""Agent runtime status — independent of the retired graph."""
+"""Agent runtime status."""
 
 import json
 import os
@@ -38,7 +38,7 @@ def get_runtime_status() -> dict:
     from agent.llm.runtime import get_llm_status
     llm_status = get_llm_status()
 
-    # Supported intents — hardcoded list (no retired graph dependency)
+    # Supported intents.
     supported_intents = [
         "assistant_chat", "translate_config", "knowledge_query", "context_qa",
         "topology_draw", "inspection_analyze", "memory_search", "skill_query",

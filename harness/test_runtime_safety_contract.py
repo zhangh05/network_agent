@@ -1,28 +1,8 @@
-"""Retired Surface Physical Removal & Runtime Safety Tests — v0.1"""
-import os
-import sys
+"""Runtime safety and documentation contract tests."""
 import json
-import re
-import inspect
-import pytest
 from pathlib import Path
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
-
-
-class TestRetiredRemoved:
-    def test_retired_dir_not_exists(self):
-        assert not (PROJECT_ROOT / "retired").exists()
-
-    def test_retired_apps_not_exists(self):
-        assert not (PROJECT_ROOT / "retired" / "apps").exists()
-
-    def test_no_old_api_translate_app(self):
-        # Check with subprocess that old translator_service is gone
-        assert not (PROJECT_ROOT / "retired" / "apps" / "translator_service" / "app.py").exists()
-
-    def test_no_old_graphagent_app(self):
-        assert not (PROJECT_ROOT / "retired" / "apps" / "agent_service" / "app.py").exists()
 
 
 class TestActiveCodeClean:
@@ -45,9 +25,6 @@ class TestActiveCodeClean:
 
 
 class TestCurrentDocs:
-    def test_history_only_doc_is_absent(self):
-        assert not (PROJECT_ROOT / "docs" / "RETIRED_SURFACES.md").exists()
-
     def test_current_docs_reference_current_runtime(self):
         c = (PROJECT_ROOT / "docs" / "RUNTIME.md").read_text()
         assert "POST /api/agent/message" in c
@@ -154,7 +131,7 @@ class TestRedaction:
         result = redact_dict({"data": "hello", "password": "x"})
         json.dumps(result)  # must not raise
 
-    def test_retired_alias_sanitize_output(self):
+    def test_sanitize_output(self):
         from runtime.redaction import sanitize_output
         result = sanitize_output("password secret123")
         assert "secret123" not in result
@@ -186,5 +163,4 @@ class TestReadmeDocs:
 
     def test_readme_only_links_current_docs(self):
         c = (PROJECT_ROOT / "README.md").read_text()
-        assert "RETIRED_SURFACES" not in c
         assert "docs/RUNTIME.md" in c

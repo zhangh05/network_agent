@@ -1,10 +1,8 @@
 # agent/modules/knowledge/index.py
-"""Knowledge index — delegates to unified ContextStore + UnifiedRetriever.
+"""Knowledge index — delegates to ContextStore + UnifiedRetriever.
 
-v3.1.0: Chunk storage uses ContextStore (item_type="knowledge_chunk").
+Chunk storage uses ContextStore (item_type="knowledge_chunk").
 Search uses UnifiedRetriever (single BM25 engine).
-
-Public API preserved for backward compat with ingestion.py / service.py / tools.py.
 """
 
 from __future__ import annotations

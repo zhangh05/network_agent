@@ -110,18 +110,15 @@ def test_gc_script_exists_and_importable():
     from scripts.storage_gc import run_gc_dry_run
 
 
-def test_legacy_files_agent_not_in_runtime():
-    """Runtime code MUST NOT reference legacy paths."""
+def test_runtime_uses_current_storage_tokens():
+    """Runtime code should use current storage and artifact-store tokens."""
     root = Path(__file__).resolve().parents[1]
     runtime_dirs = ["artifacts", "workspace", "agent", "backend", "storage", "tool_runtime"]
-    exempt = ["storage/legacy_migration.py", "scripts/storage_legacy_migrate.py"]
     hits = []
     for rd in runtime_dirs:
         for py_file in (root / rd).rglob("*.py"):
             rel = str(py_file.relative_to(root))
-            if any(rel.startswith(e) or rel == e for e in exempt):
-                continue
             text = py_file.read_text(encoding="utf-8", errors="ignore")
-            if "legacy_artifact_store" in text or "tracking_only" in text:
+            if "tracking_only" in text:
                 hits.append(rel)
-    assert hits == [], f"Legacy tokens found: {hits}"
+    assert hits == [], f"Unexpected tokens found: {hits}"

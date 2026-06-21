@@ -223,11 +223,11 @@ class TestPathSecurity:
 
     def test_relative_to_rejects_prefix_sibling(self):
         from artifacts.store import _validate_source_path
-        assert not _validate_source_path("runtime/uploads_evil/../../config/LLM_setting.json")
+        assert not _validate_source_path("runtime/uploads_evil/../../config/providers/minimax.json")
 
     def test_relative_to_rejects_config(self):
         from artifacts.store import _validate_source_path
-        assert not _validate_source_path("config/LLM_setting.json")
+        assert not _validate_source_path("config/providers/minimax.json")
 
 
 class TestRegression:

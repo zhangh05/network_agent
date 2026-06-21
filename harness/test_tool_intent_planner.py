@@ -34,7 +34,7 @@ def test_packet_analysis_routes_to_pcap_tools():
 def test_config_translation_prefers_translation_chain_not_parse_chain():
     plan = _plan(
         "把上传的华三配置翻译成思科",
-        safe_context={"uploaded_files": [{"path": "files/upload/h3c.txt"}]},
+        safe_context={"uploaded_files": [{"path": "files/user_upload/original/h3c.txt"}]},
     )
 
     tools = set(plan["candidate_tools"])
@@ -64,9 +64,9 @@ def test_knowledge_query_does_not_mix_in_config_or_web_tools():
 
 
 def test_runtime_prompt_does_not_forbid_exec_fallback_globally():
-    from agent.runtime.prompting.profile import PromptProfile
+    from agent.runtime.prompting.blocks import APPROVAL_NOTE, RUNTIME_CONTRACT
 
-    prompt = PromptProfile.from_classify_intent(intent="assistant_chat", user_input="用 python 计算一下").build()
+    prompt = RUNTIME_CONTRACT + APPROVAL_NOTE
 
     assert "High-risk tools open an approval popup" in prompt
     assert "Do NOT fall back to host.python.exec" not in prompt
@@ -90,6 +90,9 @@ def test_tool_catalog_search_finds_specialized_tools_without_exposing_everything
         tool_id="tool.catalog.search",
         arguments={"query": "创建一个 skill 并加载到当前会话", "limit": 6},
     ))
+    assert result["metadata"]["tool_catalog_expansion"]["ranking_version"] == "catalog_rank.v2"
+    assert result["metadata"]["tool_catalog_expansion"]["latency_ms"] >= 0
+    assert result["metadata"]["tool_catalog_expansion"]["catalog_size"] > 0
 
     assert result["ok"] is True
     load_ids = result["data"]["load_tool_ids"]
@@ -214,9 +217,9 @@ def test_router_accepts_common_tool_catalog_underscore_alias():
 
 
 def test_runtime_prompt_uses_double_underscore_tool_name_rule_and_catalog_fallback():
-    from agent.runtime.prompting.profile import PromptProfile
+    from agent.runtime.prompting.blocks import RUNTIME_CONTRACT
 
-    prompt = PromptProfile.from_classify_intent(intent="assistant_chat", user_input="有没有创建并加载 skill 的工具").build()
+    prompt = RUNTIME_CONTRACT
 
     assert "web.search → web__search" in prompt
     assert "tool.catalog.search" in prompt

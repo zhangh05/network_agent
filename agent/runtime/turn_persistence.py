@@ -101,12 +101,21 @@ def persist_trace(run_id: str, ws_id: str, events: list) -> None:
     runs_dir.mkdir(parents=True, exist_ok=True)
     trace_path = runs_dir / f"{run_id}.trace.json"
     normalized_events = _normalize_trace_events(run_id, events)
+
+    # ── P0: Separate real vs synthetic vs missing counts ──
+    real_events = [e for e in normalized_events if not e.get("synthetic")]
+    synthetic_events = [e for e in normalized_events if e.get("synthetic") and not e.get("missing")]
+    missing_events = [e for e in normalized_events if e.get("synthetic") and e.get("missing")]
+
     record = {
         "trace_id": normalized_events[0].get("trace_id", run_id) if normalized_events else run_id,
         "run_id": run_id,
         "workspace_id": ws_id,
         "events": normalized_events,
         "event_count": len(normalized_events),
+        "real_event_count": len(real_events),
+        "synthetic_event_count": len(synthetic_events),
+        "missing_event_count": len(missing_events),
         "node_count": len(normalized_events),
         "total_duration_ms": 0,
         "persisted_at": time.strftime("%Y-%m-%dT%H:%M:%S"),
@@ -117,16 +126,33 @@ def persist_trace(run_id: str, ws_id: str, events: list) -> None:
 
 
 def _synthetic_trace_events(run_id: str, result) -> list:
+    """Generate synthetic trace events when the provider emitted none.
+
+    ALL events produced here carry synthetic: true — they are
+    fallback records, not real execution events. Inspectors and
+    run summaries MUST distinguish these from real events.
+    """
     trace_id = getattr(result, "trace_id", "") or run_id
+    reason = "no_real_trace_from_provider"
     return [
-        {"name": "router", "run_id": run_id, "trace_id": trace_id},
-        {"name": "context_loader", "run_id": run_id, "trace_id": trace_id},
-        {"name": "model", "run_id": run_id, "trace_id": trace_id},
-        {"name": "final", "run_id": run_id, "trace_id": trace_id},
+        {"name": "router", "run_id": run_id, "trace_id": trace_id,
+         "synthetic": True, "reason": reason},
+        {"name": "context_loader", "run_id": run_id, "trace_id": trace_id,
+         "synthetic": True, "reason": reason},
+        {"name": "model", "run_id": run_id, "trace_id": trace_id,
+         "synthetic": True, "reason": reason},
+        {"name": "final", "run_id": run_id, "trace_id": trace_id,
+         "synthetic": True, "reason": reason},
     ]
 
 
 def _normalize_trace_events(run_id: str, events: list) -> list:
+    """Normalize trace events — mark missing required events as synthetic.
+
+    Events that are missing from the trace (router, context_loader,
+    skill_call) are marked with synthetic: true + missing: true so
+    inspectors can distinguish them from real execution events.
+    """
     normalized = []
     for event in list(events or []):
         if not isinstance(event, dict):
@@ -145,7 +171,14 @@ def _normalize_trace_events(run_id: str, events: list) -> list:
     ]
     for name, needle in required:
         if not any(needle in existing for existing in names):
-            normalized.append({"name": name, "run_id": run_id, "trace_id": trace_id})
+            normalized.append({
+                "name": name,
+                "run_id": run_id,
+                "trace_id": trace_id,
+                "synthetic": True,
+                "missing": True,
+                "reason": f"required_trace_node_{name}_absent",
+            })
             names.add(name)
     return normalized
 
@@ -175,8 +208,9 @@ def _merge_result_projection(run_id: str, ws_id: str, result, context) -> None:
     if context and getattr(context, "metadata", None):
         for key in (
             "tool_scene", "rule_tool_scene", "tool_planner",
-            "visible_tools", "selected_skills", "model_responses",
-            "required_tool_retry_used",
+            "tool_planning_decision", "visible_tools", "selected_skills",
+            "model_responses", "required_tool_retry_used",
+            "visibility_violations", "decision_report_path",
         ):
             if key in context.metadata:
                 metadata.setdefault(key, context.metadata[key])

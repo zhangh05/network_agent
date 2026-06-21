@@ -227,79 +227,8 @@ def register_runtime_routes(app):
     @app.route("/api/tools/catalog")
     def api_tools_catalog():
         """Return read-only tool catalog — canonical IDs only."""
-        from tool_runtime.tool_namespace import (
-            TOOL_NAMESPACE, category_tree_from_specs, metadata_for_tool,
-        )
-        from tool_runtime.tool_governance import (
-            governance_summary, planner_visible_tool_ids,
-        )
-        from tool_runtime.canonical_registry import (
-            CANONICAL_REGISTRY, list_canonical_ids,
-        )
-        from tool_runtime.capability_actions import capability_actions_for
-
-        tools = []
-        for canonical_id in list_canonical_ids():
-            ns_entry = TOOL_NAMESPACE[canonical_id]
-            cr_entry = CANONICAL_REGISTRY[canonical_id]
-            meta = metadata_for_tool(canonical_id)
-            tools.append({
-                "tool_id": canonical_id,
-                "canonical_tool_id": canonical_id,
-                "display_name": meta["display_name"],
-                "category": meta["category"],
-                "group": meta["group"],
-                "action": meta["action"],
-                "description": cr_entry.description,
-                "risk_level": cr_entry.risk_level,
-                "requires_approval": bool(cr_entry.requires_approval),
-                "input_schema": cr_entry.input_schema,
-                "permission_action": cr_entry.permission_action,
-                "callable_by_llm": True,
-                "enabled": True,
-                "governance_status": meta["governance_status"],
-                "planner_visible": bool(meta["planner_visible"]),
-                "capability_actions": capability_actions_for(canonical_id),
-            })
-        tools.sort(key=lambda t: t["canonical_tool_id"])
-
-        # Build category tree from spec-like dicts.
-        class _S:
-            def __init__(self, t):
-                self.tool_id = t["canonical_tool_id"]
-                self.metadata = {
-                    "canonical_tool_id": t["canonical_tool_id"],
-                    "category": t["category"],
-                    "group": t["group"],
-                    "action": t["action"],
-                    "display_name": t["display_name"],
-                    "short_label": t["canonical_tool_id"],
-                    "usage_hint": "",
-                    "not_for": "",
-                    "handler_id": cr_entry.handler_id,
-                    "governance_status": t["governance_status"],
-                    "governance_reason": "",
-                    "planner_visible": t["planner_visible"],
-                }
-                self.risk_level = t["risk_level"]
-                self.requires_approval = t["requires_approval"]
-                self.permission_action = t["permission_action"]
-                self.enabled = True
-                self.callable_by_llm = True
-                self.description = t["description"]
-        categories = category_tree_from_specs([_S(t) for t in tools])
-
-        return jsonify({
-            "tools": tools,
-            "categories": categories,
-            "count": len(tools),
-            "planner_visible_count": len(planner_visible_tool_ids()),
-            "governance_summary": governance_summary(),
-            "note": (
-                "Read-only catalog. canonical_tool_id is the only public "
-                "tool ID; handler_id is internal-only."
-            ),
-        })
+        from tool_runtime.catalog_snapshot import build_catalog_snapshot
+        return jsonify(build_catalog_snapshot())
 
     # ── Tool Invocation ──
     @app.route("/api/tools/invoke", methods=["POST"])

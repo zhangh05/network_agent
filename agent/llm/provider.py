@@ -279,6 +279,19 @@ def _api_generate(req: LLMRequest, cfg: dict) -> LLMResponse:
                 "timeout_seconds": timeout_s,
             },
         )
+    except (BrokenPipeError, ConnectionResetError) as e:
+        # Server hung up during request — typically invalid auth or endpoint
+        error_type = ERROR_TYPE_PROVIDER_NETWORK_ERROR
+        redacted = _redact_error_detail(str(e))
+        return LLMResponse(
+            error=f"{error_type}: Connection terminated by server ({redacted})",
+            metadata={
+                "error_type": error_type,
+                "http_status": None,
+                "error_detail": redacted[:200],
+                "retryable": True,
+            },
+        )
     except json.JSONDecodeError as e:
         error_type = ERROR_TYPE_PROVIDER_SCHEMA_REJECTED
         return LLMResponse(

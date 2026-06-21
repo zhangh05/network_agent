@@ -2,7 +2,7 @@
 
 ## Overview
 
-The `storage/` package provides the unified file management layer. All legacy compatibility code has been removed.
+The `storage/` package is the only supported file management layer.
 
 ## Completed Migration
 
@@ -17,7 +17,6 @@ The `storage/` package provides the unified file management layer. All legacy co
 | `agent/modules/knowledge/ingestion.py` | ✅ `file_id` import; normalized FileRecord |
 | `config_analysis/service.py` | ✅ `file_id` parameter |
 | `storage/reference_index.py` | ✅ Cross-reference index |
-| `storage/legacy_migration.py` | ✅ Legacy data migration tool |
 
 ## FileStore Components
 
@@ -29,7 +28,6 @@ The `storage/` package provides the unified file management layer. All legacy co
 | `storage/reference_index.py` | Cross-reference index |
 | `storage/policy.py` | Size limits, kind classification |
 | `storage/gc.py` | Dry-run garbage collection |
-| `storage/legacy_migration.py` | Historical data migration |
 
 ## Directory Structure
 
@@ -56,24 +54,14 @@ workspaces/<ws>/
   sys/
 ```
 
-## Removed Legacy Paths
+## Removed Paths
 
-- `files/upload` — removed from new workspace init and runtime
-- `files/agent` — removed from new workspace init and runtime
-- `tracking_only` / `legacy_artifact_store` — removed from runtime
+- Removed artifact-store markers are not accepted by runtime
 - PCAP sidecar read/write — removed from runtime
-- Artifact legacy path fallback — removed from read operations
+- Artifact path fallback — removed from read operations
 
-## Migration Tool
-
-For historical workspaces with legacy data:
-
-```bash
-python scripts/storage_legacy_migrate.py --all --dry-run
-python scripts/storage_legacy_migrate.py --all --apply
-python scripts/storage_legacy_migrate.py --workspace default --dry-run
-python scripts/storage_legacy_migrate.py --workspace default --apply
-```
+There is no migration entrypoint in the runtime tree. Current workspaces use
+the FileStore/ArtifactStore indexes as the source of truth.
 
 ## Pending Work
 

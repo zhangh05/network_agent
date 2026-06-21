@@ -43,7 +43,7 @@ class TestSelfcheck:
         if enabled:
             assert sorted(enabled) == sorted(["config_translation", "knowledge_base"]) or len(enabled) >= 1
 
-    def test_selfcheck_forbidden_api_ok(self):
+    def test_selfcheck_forbidden_api_passes(self):
         result = run_selfcheck("default")
         forbidden = result.checks.get("forbidden_api", "")
         if forbidden:

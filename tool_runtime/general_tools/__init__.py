@@ -9,16 +9,14 @@ from tool_runtime.general_tools.file_tools import handle_file_list, handle_file_
 from tool_runtime.general_tools.command_tools import handle_command_approved_exec, handle_powershell_approved_script, handle_slash_run, handle_python_exec
 from tool_runtime.general_tools.agent_tools import handle_agent_spawn, handle_agent_list_roles, handle_agent_team, handle_agent_get_result
 from tool_runtime.general_tools.runtime_tools import handle_knowledge_index_artifact, handle_knowledge_reindex, handle_knowledge_search, handle_knowledge_get_source, handle_knowledge_get_chunk_summary, handle_knowledge_explain_not_found, handle_runtime_health, handle_runtime_selfcheck, handle_runtime_diagnostics, handle_runtime_retention_preview, handle_runtime_archive_preview, handle_report_render_markdown, handle_report_save_artifact, handle_doc_render_from_safe_summary, handle_table_render_markdown, handle_diagram_render_mermaid, handle_text_redact, handle_text_diff, handle_text_extract_keywords, handle_text_classify, handle_json_validate, handle_yaml_validate, handle_csv_summarize, handle_table_extract
-from tool_runtime.general_tools.registry import ALL_GENERAL_TOOLS, REMOVED_GENERAL_TOOL_IDS, register_all_general_tools
-from tool_runtime.general_tools.shared import ROOT, WS_ROOT, _generate_diff_preview, _validate_workspace_path
+from tool_runtime.general_tools.registry import register_all_general_tools
+from tool_runtime.general_tools.shared import ROOT, WS_ROOT, _generate_diff_preview, _workspace_path
 __all__ = [
-    'ALL_GENERAL_TOOLS',
-    'REMOVED_GENERAL_TOOL_IDS',
     'register_all_general_tools',
     'ROOT',
     'WS_ROOT',
     '_generate_diff_preview',
-    '_validate_workspace_path',
+    '_workspace_path',
     'handle_artifact_search',
     'handle_artifact_read_content_safe',
     'handle_artifact_save_result',

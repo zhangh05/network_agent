@@ -8,7 +8,7 @@ source_path validated against allowed directories only.
 Current runtime storage model:
 - artifact content is always stored through storage.file_store
 - artifact metadata is stored in workspaces/<ws>/index/artifacts.jsonl
-- runtime no longer writes artifact content or metadata to legacy files/agent
+- runtime artifact content and metadata have one write path
 """
 
 import json, hashlib, os, re, time, shutil, uuid
@@ -22,8 +22,8 @@ from artifacts.classifier import classify_file
 ROOT = Path(__file__).resolve().parent.parent
 WS_ROOT = ROOT / "workspaces"
 
-# Allowed source directories for source_path reads. Legacy files/upload and
-# files/agent are intentionally not allowed for new runtime reads.
+# Allowed source directories for source_path reads. Removed storage directories
+# are intentionally not allowed for runtime reads.
 ALLOWED_SOURCE_DIRS = [
     "files/user_upload",
     "files/agent_output",
@@ -282,7 +282,7 @@ def save_artifact(workspace_id: str, content: str = "", source_path: str = "",
             },
         )
     except Exception:
-        # No legacy fallback: if FileStore fails, artifact creation fails.
+        # If FileStore fails, artifact creation fails.
         return None
 
     ws = _get_ws_root() / workspace_id

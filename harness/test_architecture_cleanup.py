@@ -123,11 +123,11 @@ class TestAgentContract:
         )
         assert all(callable(f) for f in [metadata_size, resolve_stream_mode, normalize_metadata, normalize_agent_result])
 
-    def test_stream_true_is_event_replay(self):
+    def test_stream_bool_is_ignored(self):
         from backend.api.agent_contract import resolve_stream_mode
         enabled, mode = resolve_stream_mode({"stream": True})
-        assert enabled is True
-        assert mode == "event_replay"
+        assert enabled is False
+        assert mode == "sync"
 
     def test_stream_live_degrades_to_event_replay(self):
         from backend.api.agent_contract import resolve_stream_mode
@@ -135,7 +135,7 @@ class TestAgentContract:
         assert enabled is True
         assert mode == "event_replay"
 
-    def test_stream_false_is_sync(self):
+    def test_missing_stream_mode_is_sync(self):
         from backend.api.agent_contract import resolve_stream_mode
         enabled, mode = resolve_stream_mode({"stream": False})
         assert enabled is False

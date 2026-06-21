@@ -235,6 +235,7 @@ def test_context_store_timestamps_are_utc_iso(monkeypatch, tmp_path):
 def test_state_json_atomic_write(monkeypatch, tmp_path):
     """If write fails midway, state.json must not be corrupted."""
     from workspace import manager
+    from workspace import atomic_io
 
     monkeypatch.setattr(manager, "WS_ROOT", tmp_path)
     manager.ensure_workspace("default")
@@ -243,17 +244,17 @@ def test_state_json_atomic_write(monkeypatch, tmp_path):
     state_path.parent.mkdir(parents=True, exist_ok=True)
     state_path.write_text('{"old": true}')
 
-    real_os_open = manager.os.open
+    real_os_open = atomic_io.os.open
     def boom(path, *args, **kwargs):
         # Round 7 fix: tmp suffix is `.tmp.<pid>.<uuid>` so check for
         # any `.tmp` substring (covers old + new patterns).
         if ".tmp" in str(path):
             raise OSError("simulated disk full")
         return real_os_open(path, *args, **kwargs)
-    monkeypatch.setattr(manager.os, "open", boom)
+    monkeypatch.setattr(atomic_io.os, "open", boom)
 
     with pytest.raises(OSError):
-        manager._atomic_write_text(state_path, '{"new": true}')
+        atomic_io.atomic_write_text(state_path, '{"new": true}')
 
     # Original untouched
     assert state_path.read_text() == '{"old": true}'
@@ -264,9 +265,10 @@ def test_state_json_atomic_write(monkeypatch, tmp_path):
 
 def test_state_json_atomic_write_success(monkeypatch, tmp_path):
     from workspace import manager
+    from workspace.atomic_io import atomic_write_text
     monkeypatch.setattr(manager, "WS_ROOT", tmp_path)
     manager.ensure_workspace("default")
     state_path = tmp_path / "default" / "sys" / "state.json"
     state_path.parent.mkdir(parents=True, exist_ok=True)
-    manager._atomic_write_text(state_path, '{"new": true}')
+    atomic_write_text(state_path, '{"new": true}')
     assert state_path.read_text() == '{"new": true}'

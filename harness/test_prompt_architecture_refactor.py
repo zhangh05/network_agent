@@ -51,7 +51,7 @@ def test_prompt_uses_capability_first_contract():
     assert "config.analysis.run" in text
 
 
-def test_prompt_does_not_include_legacy_skill_prompt():
+def test_prompt_uses_manifest_fields_only():
     ctx = DummyCtx()
     ctx.safe_context["loaded_skill_contracts"][0]["skill_prompt"] = "SHOULD_NOT_APPEAR"
     assembly = compile_runtime_prompt(ctx)

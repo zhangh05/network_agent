@@ -100,6 +100,39 @@ def _safe_run_trace_summary(run: dict, trace: dict | None) -> dict:
     }
 
 
+def _safe_decision_summary(report: dict | None) -> dict:
+    if not isinstance(report, dict):
+        return {}
+    route = report.get("capability_route")
+    route = route if isinstance(route, dict) else {}
+    planning = report.get("tool_planning_decision")
+    planning = planning if isinstance(planning, dict) else {}
+    execution = report.get("tool_execution_summary")
+    execution = execution if isinstance(execution, dict) else {}
+    retrieval = report.get("retrieval_decision")
+    retrieval = retrieval if isinstance(retrieval, dict) else {}
+    trace = report.get("trace_summary")
+    trace = trace if isinstance(trace, dict) else {}
+    retrieval_status = {}
+    for name, value in retrieval.items():
+        if isinstance(value, dict):
+            retrieval_status[str(name)] = str(value.get("status", "unknown"))
+    return {
+        "schema_version": str(report.get("schema_version", "")),
+        "decision_status": str(report.get("decision_status", "degraded")),
+        "capability_ids": [
+            str(value) for value in list(route.get("capability_ids") or [])[:10]
+        ],
+        "visible_tool_count": len(list(planning.get("visible_tools") or [])),
+        "called_tool_count": len(list(execution.get("called") or [])),
+        "blocked_tool_count": len(list(execution.get("blocked") or [])),
+        "retrieval": retrieval_status,
+        "real_event_count": int(trace.get("real_event_count") or 0),
+        "synthetic_event_count": int(trace.get("synthetic_event_count") or 0),
+        "missing_event_count": int(trace.get("missing_event_count") or 0),
+    }
+
+
 def _invalid_ws():
     return jsonify({"ok": False, "error": "invalid_workspace_id"}), 400
 
@@ -271,6 +304,7 @@ def register_workspace_routes(app):
             "tool_decision", "no_tool_reason",
         })
         from observability.store import get_trace
+        from agent.runtime.decision_report.writer import read_decision_report
         for r in recent:
             safe_run = {k: v for k, v in r.items() if k in _SAFE_RUN_KEYS}
             rid = safe_run.get("run_id") or safe_run.get("turn_id")
@@ -278,6 +312,10 @@ def register_workspace_routes(app):
             safe_run.update(_safe_run_trace_summary(r, trace))
             if trace and trace.get("trace_id") and not safe_run.get("trace_id"):
                 safe_run["trace_id"] = trace.get("trace_id")
+            decision_report = read_decision_report(rid, ws_id) if rid else None
+            safe_run["decision_available"] = bool(decision_report)
+            if decision_report:
+                safe_run["decision_summary"] = _safe_decision_summary(decision_report)
             # Attach session title so the frontend can show run→session association
             safe_run["session_title"] = session_titles.get(r.get("session_id", ""), "")
             safe_recent.append(safe_run)
@@ -354,7 +392,6 @@ def register_workspace_routes(app):
         from observability.store import list_traces
         return jsonify({"traces": list_traces(ws_id)})
 
-    # REMOVED (pre-v3.0): /api/agent/runs/<run_id>/trace (duplicate of workspace-scoped trace)
 
     # ── Reports / Export ──
     @app.route("/api/reports/create", methods=["POST"])

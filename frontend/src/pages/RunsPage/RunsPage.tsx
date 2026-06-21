@@ -9,9 +9,10 @@ import { useSessionStore } from "../../stores/session";
 import { Badge, StatusDot, EmptyState, LoadingState, CodeBlock } from "../../components/common";
 import { IconRefresh, IconAlert } from "../../components/Icon";
 import { TraceDetailPanel } from "../../components/TraceDetailPanel";
+import { DecisionReportPanel } from "../../components/DecisionReportPanel";
 import { APP_EVENTS } from "../../utils/appEvents";
 import { deriveRunTraceStats } from "../../utils/runTraceStats";
-import type { RuntimeAuditTurn } from "../../types";
+import type { DecisionReport, RuntimeAuditTurn } from "../../types";
 
 /* ── Status helpers ── */
 
@@ -77,7 +78,10 @@ export function RunsPage() {
   const [error, setError] = useState<string | null>(null);
   const [sel, setSel] = useState<RuntimeAuditTurn | null>(null);
   const [trace, setTrace] = useState<any[] | null>(null);
-  const [tab, setTab] = useState<"overview" | "events">("overview");
+  const [decision, setDecision] = useState<DecisionReport | null>(null);
+  const [decisionLoading, setDecisionLoading] = useState(false);
+  const [decisionError, setDecisionError] = useState("");
+  const [tab, setTab] = useState<"overview" | "events" | "decision">("overview");
 
   const load = useCallback(async () => {
     setLoading(true); setError(null);
@@ -93,6 +97,22 @@ export function RunsPage() {
     catch { setTrace(null); }
   };
 
+  const loadDecision = async (run: RuntimeAuditTurn) => {
+    const rid = run.run_id || run.turn_id;
+    if (!rid) return;
+    setDecisionLoading(true);
+    setDecisionError("");
+    try {
+      const response = await runtimeAuditApi.decision(wsId, rid);
+      setDecision(response.item || null);
+    } catch (error: any) {
+      setDecision(null);
+      setDecisionError(error?.message || "该运行没有可读取的决策报告");
+    } finally {
+      setDecisionLoading(false);
+    }
+  };
+
   useEffect(() => { load(); }, [load]);
   useEffect(() => {
     const h = () => load();
@@ -101,8 +121,20 @@ export function RunsPage() {
   }, [load]);
 
   const pick = (run: RuntimeAuditTurn) => {
-    if (sel?.run_id === run.run_id) { setSel(null); setTrace(null); }
-    else { setSel(run); setTrace(null); setTab("overview"); loadTrace(run); }
+    if (sel?.run_id === run.run_id) {
+      setSel(null);
+      setTrace(null);
+      setDecision(null);
+      setDecisionError("");
+    } else {
+      setSel(run);
+      setTrace(null);
+      setDecision(null);
+      setDecisionError("");
+      setTab("overview");
+      void loadTrace(run);
+      void loadDecision(run);
+    }
   };
 
   const failInfo = useMemo(() => {
@@ -224,6 +256,7 @@ export function RunsPage() {
               <div className="tabs" style={{ marginBottom: 16 }}>
                 <button className={"tab" + (tab === "overview" ? " active" : "")} onClick={() => setTab("overview")}>概览</button>
                 <button className={"tab" + (tab === "events" ? " active" : "")} onClick={() => setTab("events")}>事件时间线</button>
+                <button className={"tab" + (tab === "decision" ? " active" : "")} onClick={() => setTab("decision")}>决策</button>
               </div>
 
               {tab === "overview" && (
@@ -292,6 +325,14 @@ export function RunsPage() {
                     </>
                   )}
                 </>
+              )}
+
+              {tab === "decision" && (
+                <DecisionReportPanel
+                  report={decision}
+                  loading={decisionLoading}
+                  error={decisionError}
+                />
               )}
             </div>
           )}

@@ -26,96 +26,13 @@ from agent.runtime.state.hooks import prepare_runtime_state_for_turn, runtime_st
 
 
 def build_turn_context(session, turn, services) -> TurnContext:
-    """Build complete TurnContext for a turn execution."""
-    ctx = TurnContext(
-        turn_id=turn.turn_id,
-        session_id=session.session_id,
-        workspace_id=session.workspace_id or "default",
-        trace_id=str(uuid.uuid4()),
-        user_input=turn.op.user_input if turn.op else "",
-    )
-    setattr(ctx, "session", session)
-    ctx.metadata["context_status"] = "building"
+    """Build complete TurnContext for a turn execution.
 
-    if bool(getattr(session, "is_sub_agent", False)):
-        ctx.metadata["is_sub_agent"] = True
-
-    # ── 2. model_config / history / base router ───────────────────
-    ctx.model_config = _resolve_model_config()
-    ctx.history_window = initial_history_window(session, k=8)
-    ctx.tool_router = build_base_tool_router(ctx, services)
-
-    # ── 3. select_skills ──────────────────────────────────────────
-    skill_snap = _snapshot_service(getattr(services, "skill_service", None), "skill")
-    module_snap = _snapshot_service(getattr(services, "module_service", None), "module")
-    ctx.skill_snapshot = skill_snap
-    ctx.module_snapshot = module_snap
-
-    cap_reg = getattr(services, "capability_registry", None) if services else None
-    selector = getattr(services, "skill_selector", None) if services else None
-    selected_skills, selector_warnings = _select_skills(selector, cap_reg, ctx.user_input, ctx)
-
-    # ── 4. SceneDecision (via decide_scene) ───────────────────────
-    ctx.scene_decision = _compute_scene_decision(ctx, session)
-
-    # ── 4b. RuntimeState / TaskWorkflow pre-prompt hook ───────────
-    _prepare_runtime_state(ctx, session)
-
-    # ── 5-6. EvidencePipeline → EvidenceBundle
-    evidence_bundle = _build_evidence(ctx, turn, selected_skills, services)
-
-    # ── 7. ToolPlannerV2(scene_decision, evidence_bundle) ─────────
-    plan_result = _plan_tools_v2(ctx, evidence_bundle, session, services, selected_skills)
-    selected_visible_tools = list(plan_result.get("selected_visible_tools") or [])
-    dynamic_visibility = bool(plan_result.get("dynamic_visibility"))
-    tool_scene = dict(plan_result.get("tool_scene") or {})
-    rule_tool_scene = dict(plan_result.get("rule_tool_scene") or {})
-    selector_warnings.extend(list(plan_result.get("warnings") or []))
-
-    # ── 8-9. runtime_snapshot / safe_context / metadata ───────────
-    visible_tools, all_tools_count = _tool_counts(ctx)
-    base_enabled = _base_enabled_skills(services)
-    snapshot = build_runtime_snapshot(
-        tool_count=all_tools_count,
-        visible_tool_count=len(visible_tools),
-        workspace_id=ctx.workspace_id,
-        session_id=ctx.session_id,
-        model=ctx.model_config.get("model", ""),
-        capability_registry=cap_reg,
-        skill_snap=skill_snap,
-        module_snap=module_snap,
-        base_enabled_skills=base_enabled,
-        selected_skills=selected_skills,
-        selected_visible_tools=selected_visible_tools,
-        dynamic_tool_visibility=dynamic_visibility,
-    )
-    snapshot.metadata = dict(getattr(snapshot, "metadata", None) or {})
-    if selector_warnings:
-        snapshot.metadata.setdefault("warnings", []).extend(selector_warnings)
-    if tool_scene:
-        snapshot.metadata["tool_scene"] = tool_scene
-        snapshot.metadata["rule_tool_scene"] = rule_tool_scene
-    ctx.runtime_snapshot = snapshot.to_dict()
-
-    ctx.safe_context = _safe_context_from_evidence(ctx, evidence_bundle)
-    _inject_runtime_state_snapshot(ctx)
-    if tool_scene:
-        ctx.safe_context["tool_scene"] = tool_scene
-        ctx.safe_context["tool_plan"] = tool_scene.get("tool_plan", [])
-        ctx.safe_context["rule_tool_scene"] = rule_tool_scene
-
-    _inject_loaded_skills(ctx, session)
-    _write_context_metadata(
-        ctx=ctx,
-        session=session,
-        selected_skills=selected_skills,
-        selected_visible_tools=selected_visible_tools,
-        tool_scene=tool_scene,
-        rule_tool_scene=rule_tool_scene,
-    )
-
-    ctx.metadata["context_status"] = "ok" if not ctx.metadata.get("context_errors") else "degraded"
-    return ctx
+    Delegates to ContextPipeline (13-stage pipeline).
+    """
+    from agent.runtime.context_pipeline.pipeline import ContextPipeline
+    pipeline = ContextPipeline()
+    return pipeline.run(session, turn, services)
 
 
 # ─── Helper functions ─────────────────────────────────────────────────
@@ -202,6 +119,158 @@ def _build_evidence(ctx, turn, selected_skills: list[str], services=None):
         ctx.metadata.setdefault("context_errors", []).append(str(e)[:200])
         from agent.runtime.cognition.evidence_models import EvidenceBundle
         return EvidenceBundle()
+
+
+# ── P1-B: RetrievalTriggerPolicy integration ──────────────────────────
+
+def _evaluate_retrieval_policy(ctx, session) -> None:
+    """Run RetrievalTriggerPolicy before evidence building.
+
+    Produces a RetrievalDecision stored in ctx.metadata["retrieval_decision"].
+    This guides the EvidencePipeline to decide what to retrieve.
+    """
+    try:
+        from agent.runtime.retrieval.trigger_policy import RetrievalTriggerPolicy
+
+        session_meta = getattr(session, "metadata", None) or {}
+        scene_decision = getattr(ctx, "scene_decision", None)
+        is_simple = getattr(scene_decision, "is_simple_chat", False) if scene_decision else False
+        is_factual = getattr(scene_decision, "is_factual_query", False) if scene_decision else False
+
+        # Check if session has meaningful history (more than just a greeting)
+        history = getattr(ctx, "history_window", None) or []
+        session_has_history = len(history) > 1
+
+        # Check for file/artifact refs in context
+        safe_ctx = ctx.safe_context if hasattr(ctx, "safe_context") else {}
+        file_ids = list(safe_ctx.get("file_ids", []) or [])
+        artifact_ids = list(safe_ctx.get("artifact_ids", []) or [])
+        artifact_refs = ctx.metadata.get("artifact_refs", []) or []
+        has_file_refs = bool(file_ids or artifact_ids or artifact_refs)
+
+        # Check for tool retry state
+        is_tool_retry = bool(ctx.metadata.get("required_tool_retry_used"))
+
+        # ── Determine index availability ──
+        has_memory_index = True  # UnifiedRetriever always has the index
+        has_knowledge_index = True  # Same
+
+        policy = RetrievalTriggerPolicy()
+        decision = policy.evaluate(
+            user_input=ctx.user_input or "",
+            session_meta=session_meta,
+            ctx_meta=ctx.metadata,
+            has_memory_index=has_memory_index,
+            has_knowledge_index=has_knowledge_index,
+            is_simple_chat=is_simple,
+            is_factual_query=is_factual,
+            session_has_history=session_has_history,
+            has_file_refs=has_file_refs,
+            file_ids=file_ids,
+            artifact_ids=artifact_ids,
+            is_tool_retry=is_tool_retry,
+        )
+
+        ctx.metadata["retrieval_decision"] = decision.to_dict()
+
+        # Augment scene_decision with policy signals
+        if scene_decision and hasattr(scene_decision, "needs_memory"):
+            # Don't downgrade: if scene already said required, keep it
+            if decision.memory_required and not scene_decision.needs_memory:
+                scene_decision.needs_memory = True
+                scene_decision.is_memory_task = True
+        if scene_decision and hasattr(scene_decision, "needs_knowledge"):
+            if decision.knowledge_required and not scene_decision.needs_knowledge:
+                scene_decision.needs_knowledge = True
+                scene_decision.is_knowledge_task = True
+
+    except Exception:
+        ctx.metadata.setdefault("context_warnings", []).append(
+            "retrieval_policy_evaluation_failed"
+        )
+
+
+def _enrich_retrieval_decision_from_evidence(ctx, evidence_bundle) -> None:
+    """Enrich the RetrievalDecision with actual retrieval results.
+
+    Called after EvidencePipeline has executed.
+    Updates ctx.metadata["retrieval_decision"] with hit/miss/error status.
+    """
+    try:
+        rd = ctx.metadata.get("retrieval_decision")
+        if not rd or not isinstance(rd, dict):
+            return
+
+        from agent.runtime.retrieval.unknown_feedback import (
+            UnknownFeedback,
+            enrich_retrieval_decision,
+        )
+        from agent.runtime.retrieval.trigger_policy import RetrievalDecision
+
+        # Reconstruct the decision object
+        mem_pre = rd.get("_pre_decisions", {})
+        decision = RetrievalDecision(
+            memory_status=mem_pre.get("memory_status", "not_applicable"),
+            memory_required=mem_pre.get("memory_required", False),
+            memory_reason=mem_pre.get("memory_reason", ""),
+            knowledge_status=mem_pre.get("knowledge_status", "not_applicable"),
+            knowledge_required=mem_pre.get("knowledge_required", False),
+            knowledge_reason=mem_pre.get("knowledge_reason", ""),
+            file_evidence_status=mem_pre.get("file_evidence_status", "not_applicable"),
+            file_evidence_required=mem_pre.get("file_evidence_required", False),
+            file_evidence_reason=mem_pre.get("file_evidence_reason", ""),
+            queries=list(mem_pre.get("queries", [])),
+        )
+
+        # Extract actual results from EvidenceBundle
+        memory_results = []
+        knowledge_results = []
+        if evidence_bundle is not None:
+            memory_results = (
+                getattr(evidence_bundle, "memory_items", None)
+                or getattr(evidence_bundle, "memory_layer", None)
+            )
+            if hasattr(memory_results, "items"):
+                memory_results = memory_results.items
+            elif not isinstance(memory_results, list):
+                memory_results = []
+
+            knowledge_results = (
+                getattr(evidence_bundle, "knowledge_items", None)
+                or getattr(evidence_bundle, "knowledge_layer", None)
+            )
+            if hasattr(knowledge_results, "items"):
+                knowledge_results = knowledge_results.items
+            elif not isinstance(knowledge_results, list):
+                knowledge_results = []
+
+        # Build feedback for misses
+        mem_feedback = None
+        if not memory_results and decision.memory_status not in ("skipped", "not_applicable"):
+            mem_feedback = UnknownFeedback.for_no_match("memory")
+
+        k_feedback = None
+        if not knowledge_results and decision.knowledge_status not in ("skipped", "not_applicable"):
+            k_feedback = UnknownFeedback.for_no_match("knowledge")
+
+        # Enrich
+        decision = enrich_retrieval_decision(
+            decision,
+            memory_results=list(memory_results),
+            knowledge_results=list(knowledge_results),
+            memory_feedback=mem_feedback,
+            knowledge_feedback=k_feedback,
+        )
+
+        # Write back — preserve _pre_decisions for audit
+        enriched = decision.to_dict()
+        enriched["_pre_decisions"] = rd.get("_pre_decisions", {})
+        ctx.metadata["retrieval_decision"] = enriched
+
+    except Exception:
+        ctx.metadata.setdefault("context_warnings", []).append(
+            "retrieval_decision_enrichment_failed"
+        )
 
 
 def _safe_context_from_evidence(ctx, evidence_bundle) -> dict:
@@ -359,4 +428,9 @@ def _write_context_metadata(
         ctx.metadata["tool_planner"] = tool_scene.get("tool_planner", {})
         if tool_scene.get("visibility"):
             ctx.metadata["tool_visibility"] = tool_scene.get("visibility")
+        # ── P0: Persist ToolPlanningDecision for audit/inspection ──
+        if tool_scene.get("tool_planning_decision"):
+            ctx.metadata["tool_planning_decision"] = tool_scene["tool_planning_decision"]
+        if tool_scene.get("capability_routing"):
+            ctx.metadata["capability_routing"] = tool_scene["capability_routing"]
         persist_tool_scene_to_session(session, tool_scene, rule_tool_scene)

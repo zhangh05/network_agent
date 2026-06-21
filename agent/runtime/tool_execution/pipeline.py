@@ -116,6 +116,44 @@ class ToolExecutionPipeline:
         if hook_input and isinstance(hook_input, dict):
             tool_call.arguments.update(hook_input)
 
+        # ── Secondary visibility validation (hard policy enforcement) ──
+        # tid is already canonical (resolved by tool_router.build_tool_call).
+        # If the planner failed and visible_tool_ids is empty,
+        # the safe fallback allows ONLY baseline read tools.
+        ctx = getattr(state, 'context', None)
+        if ctx is not None:
+            visible_ids = getattr(ctx, 'visible_tool_ids', None)
+
+            # Degraded mode: planner or context builder failed,
+            # fall back to the minimal baseline safe tool set.
+            if not visible_ids:
+                from agent.runtime.tool_planning.visibility import BASELINE_READ_TOOLS
+                visible_ids = list(BASELINE_READ_TOOLS)
+                ctx.metadata.setdefault("fallback_visible_tool_ids_used", True)
+
+            if tid not in visible_ids:
+                violation = {
+                    "tool_id": tid,
+                    "step": step,
+                    "visible_tool_ids": list(visible_ids),
+                    "fallback_used": ctx.metadata.get("fallback_visible_tool_ids_used", False),
+                }
+                result = ToolResult(
+                    ok=False,
+                    summary=f"Tool {tid} blocked: not in visible tool set for this turn",
+                    errors=[f"visibility_violation: {tid} is not in visible_tool_ids"],
+                )
+                events.tool_call_failed(tid, result.errors)
+                events.record_tool_result(step, tid, False, result.summary)
+                append_tool_result(result, tool_call, tc, state.all_tool_results, state.messages)
+                # ── P0: visibility violation in three places ──
+                # (1) tool_results — already in all_tool_results via append
+                # (2) trace event — emit explicitly
+                events.error("visibility_violation", str({k: violation[k] for k in ("tool_id", "step")}))
+                # (3) run/decision metadata
+                ctx.metadata.setdefault("visibility_violations", []).append(violation)
+                return result, True, False
+
         call_id = tc.id if hasattr(tc, 'id') else tc.get("id", "")
         llm_name = tc.name if hasattr(tc, 'name') else tc.get("name", "unknown")
         turn_id = getattr(state.turn, 'turn_id', '')

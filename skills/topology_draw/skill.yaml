@@ -23,5 +23,3 @@ execution:
 
 memory:
   write_run_summary: true
-  write_full_input: false
-  write_full_output: false

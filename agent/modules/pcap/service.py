@@ -144,12 +144,21 @@ def get_pcap_session(session_id: str, workspace_id: str = "default") -> dict:
                         continue
                     rec = json.loads(line)
                     if rec.get("session_id") == session_id:
+                        filepath = rec.get("filepath", "")
+                        packets = parse_pcap(filepath) if filepath else []
+                        groups = get_connection_groups(packets) if packets else rec.get("connections", [])
+                        if packets:
+                            PCAP_SESSIONS[session_id] = {
+                                "filepath": filepath,
+                                "packets": packets,
+                                "groups": groups,
+                            }
                         return {
                             "ok": True, "tool_id": "pcap.analysis.run", "status": "succeeded",
                             "summary": f"PCAP session 有 {rec.get('total_packets', 0)} 个报文 (从 index 恢复)。",
                             "session_id": session_id, "filename": rec.get("filename", ""),
-                            "total_packets": rec.get("total_packets", 0),
-                            "connections": rec.get("connections", []),
+                            "total_packets": len(packets) if packets else rec.get("total_packets", 0),
+                            "connections": groups,
                         }
         except Exception:
             pass
@@ -165,9 +174,13 @@ def get_pcap_session(session_id: str, workspace_id: str = "default") -> dict:
 
 
 def filter_pcap_session(session_id: str, src: str = "", sport: int = 0,
-                         dst: str = "", dport: int = 0) -> dict:
+                         dst: str = "", dport: int = 0,
+                         workspace_id: str = "default") -> dict:
     """Filter PCAP session packets by 5-tuple."""
     session = PCAP_SESSIONS.get(session_id)
+    if not session:
+        get_pcap_session(session_id, workspace_id=workspace_id)
+        session = PCAP_SESSIONS.get(session_id)
     if not session:
         return {"ok": False, "tool_id": "pcap.analysis.run", "status": "failed",
                 "summary": "未找到 PCAP session。", "errors": ["session_not_found"]}
@@ -182,9 +195,13 @@ def filter_pcap_session(session_id: str, src: str = "", sport: int = 0,
 
 def align_pcap_tcp(session_id: str, src: str = "", sport: int = 0,
                     dst: str = "", dport: int = 0,
-                    use_filter: bool = False) -> dict:
+                    use_filter: bool = False,
+                    workspace_id: str = "default") -> dict:
     """TCP sequence number / ACK alignment analysis."""
     session = PCAP_SESSIONS.get(session_id)
+    if not session:
+        get_pcap_session(session_id, workspace_id=workspace_id)
+        session = PCAP_SESSIONS.get(session_id)
     if not session:
         return {"ok": False, "tool_id": "pcap.analysis.run", "status": "failed",
                 "summary": "未找到 PCAP session。", "errors": ["session_not_found"]}
@@ -211,11 +228,11 @@ def run_pcap_analysis(
     if action == "parse":
         return parse_pcap_file(workspace_id, filepath=filepath, file_id=file_id)
     if action == "session":
-        return get_pcap_session(session_id)
+        return get_pcap_session(session_id, workspace_id=workspace_id)
     if action == "filter":
-        return filter_pcap_session(session_id, src=src, sport=sport, dst=dst, dport=dport)
+        return filter_pcap_session(session_id, src=src, sport=sport, dst=dst, dport=dport, workspace_id=workspace_id)
     if action == "align":
-        return align_pcap_tcp(session_id, src=src, sport=sport, dst=dst, dport=dport, use_filter=use_filter)
+        return align_pcap_tcp(session_id, src=src, sport=sport, dst=dst, dport=dport, use_filter=use_filter, workspace_id=workspace_id)
     return {
         "ok": False, "tool_id": "pcap.analysis.run", "status": "failed",
         "summary": f"unsupported pcap action: {action}", "errors": ["unsupported_action"],

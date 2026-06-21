@@ -10,8 +10,7 @@ Hard checks (any failure = exit 1):
   5. governance_status values are only active / disabled / internal / forbidden.
   6. Disabled / internal / forbidden tools have a reason.
   7. No truncation markers (—, -, TODO, TBD, ..., 待补充).
-  8. No retired surface strings (execution_tool_id, retired_alias,
-     replacement, migration_notes) on the public catalog side.
+  8. Public catalog only exposes current catalog fields.
   9. catalog summary matches reports/tool_catalog.json.
 """
 
@@ -32,9 +31,10 @@ JSON_PATH = ROOT / "reports" / "tool_catalog.json"
 EXPECTED_GOVERNANCE = {"active", "disabled", "internal", "forbidden"}
 H3_RE = re.compile(r"^###\s+`([^`]+)`", re.MULTILINE)
 PLACEHOLDER_TAILS = ("—", "-", "...", "TODO", "TBD", "待补充")
-FORBIDDEN_PUBLIC_TERMS = (
-    "retired_alias", "execution_tool_id", "migration_notes",
-    "replacement: ", "status: deprecated", "status: removed_candidate",
+EXPECTED_PUBLIC_TERMS = (
+    "canonical_tool_id",
+    "governance_status",
+    "planner_visible",
 )
 
 
@@ -114,11 +114,11 @@ def _check_no_truncation(doc: str) -> list[str]:
     return errors
 
 
-def _check_no_forbidden_public_terms(doc: str) -> list[str]:
+def _check_public_terms(doc: str) -> list[str]:
     errors: list[str] = []
-    for term in FORBIDDEN_PUBLIC_TERMS:
-        if term in doc:
-            errors.append(f"doc contains forbidden public surface term: {term}")
+    for term in EXPECTED_PUBLIC_TERMS:
+        if term not in doc:
+            errors.append(f"doc missing public catalog term: {term}")
     return errors
 
 
@@ -161,7 +161,7 @@ def main() -> int:
         ("canonical coverage + uniqueness", _check_canonical_coverage(doc, truth)),
         ("tool fields present + valid", _check_tool_fields(doc)),
         ("no truncation placeholders", _check_no_truncation(doc)),
-        ("no forbidden public surface terms", _check_no_forbidden_public_terms(doc)),
+        ("public catalog terms", _check_public_terms(doc)),
         ("doc summary alignment", _check_summary_alignment(doc, catalog)),
     ]
     total = sum(len(errs) for _, errs in checks)

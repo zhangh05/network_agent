@@ -5,9 +5,9 @@ from dataclasses import dataclass, field
 from typing import Any, Optional
 
 # Valid enums
-VALID_STATUSES = {"enabled", "planned", "disabled", "deprecated"}
+VALID_STATUSES = {"enabled", "planned", "disabled"}
 VALID_MATURITIES = {"experimental", "embedded_mvp", "beta_ready", "production_ready", "planned"}
-# RETIRED / DEPRECATED: "external_tool" is pre-ToolRuntime naming.
+# Removed tool-runtime naming is intentionally not accepted here.
 # It must NOT be used for future Tool Runtime design, which will use independent
 # ToolSpec / ToolRegistry / ToolInvocation / ToolResult.
 # New skills must use python_adapter, prompt_skill, or workflow_skill.
@@ -59,14 +59,10 @@ class ModuleSpec:
 
     # Memory
     memory_write_run_summary: bool = False
-    memory_write_full_input: bool = False
-    memory_write_full_output: bool = False
     memory_allowed_types: list = field(default_factory=list)
 
     # Trace
     trace_enabled: bool = True
-    trace_full_input: bool = False
-    trace_full_output: bool = False
     trace_record_counts: bool = True
     trace_policy: str = "sanitized_metadata_only"
 
@@ -122,11 +118,7 @@ class SkillSpec:
     requires_adapter: bool = True
     trace_record_skill_call: bool = True
     trace_record_module_call: bool = True
-    trace_full_input: bool = False
-    trace_full_output: bool = False
     memory_write_run_summary: bool = True
-    memory_full_input: bool = False
-    memory_full_output: bool = False
     test_contracts: list = field(default_factory=list)
     # ── v0.3: generic artifact auto-save and compose config ──
     artifact: dict = field(default_factory=dict)
@@ -160,10 +152,6 @@ class CapabilitySpec:
     requires_verification: bool = False
     requires_manual_review_if_any: bool = False
     llm_allowed: bool = False
-    memory_full_input: bool = False
-    memory_full_output: bool = False
-    trace_full_input: bool = False
-    trace_full_output: bool = False
     artifact_full_input_allowed: bool = False
     artifact_sensitivity: str = "internal"
     ui_module_route: str = ""

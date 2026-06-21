@@ -1,7 +1,7 @@
 # agent/runtime/prompting/safe_context_renderer.py
 """Safe context renderer for untrusted evidence.
 
-This renderer must not re-inject legacy skill prompt sections or old tool plans.
+This renderer must not re-inject internal tool planning sections.
 Tool availability and planning are represented by prompt_architecture blocks and
 runtime tool schemas, not by safe_context evidence.
 """
@@ -11,7 +11,7 @@ from __future__ import annotations
 import json
 from typing import Any
 
-LEGACY_TOOL_SCENE_KEYS = {
+INTERNAL_TOOL_SCENE_KEYS = {
     "candidate_tools",
     "capability_plan",
     "tool_plan",
@@ -25,8 +25,8 @@ def render_safe_context(safe_context: dict | None) -> str:
     """Project safe_context into a compact evidence block.
 
     This function accepts a plain dict or an EvidenceBundle.to_safe_context()
-    output. It deliberately excludes legacy skill sections and tool planning
-    payloads because those are not evidence.
+    output. It deliberately excludes tool planning payloads because those are
+    not evidence.
     """
     if not isinstance(safe_context, dict) or not safe_context:
         return ""
@@ -126,12 +126,12 @@ def render_safe_context(safe_context: dict | None) -> str:
 
 
 def _strip_internal_tool_mentions(value: Any) -> Any:
-    """Filter legacy tool scene keys from safe_context values."""
+    """Filter internal tool scene keys from safe_context values."""
     if isinstance(value, dict):
         cleaned = {}
         for key, item in value.items():
             key_text = str(key)
-            if key_text in LEGACY_TOOL_SCENE_KEYS:
+            if key_text in INTERNAL_TOOL_SCENE_KEYS:
                 continue
             cleaned[key_text] = _strip_internal_tool_mentions(item)
         return cleaned
@@ -146,7 +146,7 @@ def _safe_prompt_value(value: Any, max_items: int = 8, max_text: int = 600) -> A
         for key, item in value.items():
             if _is_forbidden_prompt_key(str(key)):
                 continue
-            if str(key) in LEGACY_TOOL_SCENE_KEYS:
+            if str(key) in INTERNAL_TOOL_SCENE_KEYS:
                 continue
             result[str(key)] = _safe_prompt_value(item, max_items=3, max_text=240)
             if len(result) >= max_items:

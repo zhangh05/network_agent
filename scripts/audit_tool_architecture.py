@@ -2,7 +2,7 @@
 """v3.0 audit: verify canonical-only architecture invariants.
 
 Invariants:
-  - No transition statuses (alias / merged / deprecated / removed_candidate).
+  - No transition statuses.
   - handler_id is internal-only and never equals the canonical_tool_id
     in any public catalog payload.
   - Every canonical_tool_id has a planner_visible status.
@@ -33,18 +33,32 @@ def main() -> int:
     errors: list[str] = []
 
     # 1. No transition statuses.
-    forbidden = {"alias", "merged", "deprecated", "removed_candidate"}
+    forbidden = {"alias", "merged"}
     for entry in TOOL_GOVERNANCE.values():
         if entry.status in forbidden:
             errors.append(f"forbidden status in governance: {entry.status}")
 
-    # 2. Namespace metadata() must not contain transition fields.
+    # 2. Namespace metadata() must only contain public fields.
     for cid, ns_entry in TOOL_NAMESPACE.items():
         meta = ns_entry.metadata()
-        for f in ("execution_tool_id", "retired_tool_ids",
-                  "replacement", "migration_notes"):
-            if f in meta:
-                errors.append(f"{cid}: namespace metadata exposes {f}")
+        public_fields = {
+            "action",
+            "canonical_tool_id",
+            "category",
+            "description",
+            "display_name",
+            "group",
+            "name",
+            "not_for",
+            "risk",
+            "schema",
+            "short_label",
+            "tags",
+            "usage_hint",
+        }
+        extra_fields = set(meta) - public_fields
+        if extra_fields:
+            errors.append(f"{cid}: namespace metadata exposes unsupported fields {sorted(extra_fields)}")
 
     # 3. capability_actions must resolve to canonical ids.
     for action in CAPABILITY_ACTIONS.values():

@@ -4,7 +4,6 @@
  *
  * 状态:
  *  - bySession: Record<session_id, ChatMsg[]> 持久化到 localStorage
- *  - history: 当前会话的历史视图 (derived from bySession[currentSessionId])
  *  - currentSessionId: 镜像 useSessionStore.currentSessionId
  *  - latestResult: 右侧检查器 (Inspector) 用
  *  - sending: 是否在等后端
@@ -80,7 +79,6 @@ function capHistory(
 interface WorkbenchState {
   bySession: Record<string, ChatMsg[]>;
   currentSessionId: string | null;
-  history: ChatMsg[];
   latestResult: AgentResult | null;
   sending: boolean;
   /** v1.0.3.3: last user input for retry */
@@ -109,15 +107,12 @@ export const useWorkbenchStore = create<WorkbenchState>()(
     (set, get) => ({
       bySession: {},
       currentSessionId: null,
-      history: [],
       latestResult: null,
       sending: false,
       lastUserInput: "",
 
       switchSession: (session_id) => {
-        // Always update history from bySession, even if id hasn't changed —
-        // persist hydration can restore bySession while currentSessionId stays null.
-        // v3.0.0+: if session_id is set but bySession has no record (e.g.
+        // If session_id is set but bySession has no record (e.g.
         // session was just created server-side and not yet synced), seed
         // the slot with an empty list so the UI doesn't render the empty
         // workspace state mid-transition.
@@ -125,12 +120,10 @@ export const useWorkbenchStore = create<WorkbenchState>()(
           if (session_id && !s.bySession[session_id]) {
             return {
               currentSessionId: session_id,
-              history: [],
               bySession: { ...s.bySession, [session_id]: [] },
             };
           }
-          const history = session_id ? (s.bySession[session_id] ?? []) : [];
-          return { currentSessionId: session_id, history };
+          return { currentSessionId: session_id };
         });
       },
 
@@ -146,11 +139,8 @@ export const useWorkbenchStore = create<WorkbenchState>()(
         set((s) => {
           const cur = s.bySession[sid] ?? [];
           const next = capHistory({ ...s.bySession, [sid]: [...cur, msg] }, sid);
-          // Update history when this is the active session, including _scratch fallback
-          const isActive = s.currentSessionId === sid || (!s.currentSessionId && sid === "_scratch");
           return {
             bySession: next,
-            history: isActive ? next[sid] : s.history,
             lastUserInput: text,
           };
         });
@@ -172,10 +162,8 @@ export const useWorkbenchStore = create<WorkbenchState>()(
         set((s) => {
           const cur = s.bySession[sid] ?? [];
           const next = capHistory({ ...s.bySession, [sid]: [...cur, msg] }, sid);
-          const isActive = s.currentSessionId === sid || (!s.currentSessionId && sid === "_scratch");
           return {
             bySession: next,
-            history: isActive ? next[sid] : s.history,
             latestResult: cleanResult ?? s.latestResult,
           };
         });
@@ -187,7 +175,7 @@ export const useWorkbenchStore = create<WorkbenchState>()(
       clear: (session_id) => {
         const sid = session_id ?? get().currentSessionId;
         if (!sid) {
-          set({ history: [], latestResult: null });
+          set({ latestResult: null });
           return;
         }
         set((s) => {
@@ -195,7 +183,6 @@ export const useWorkbenchStore = create<WorkbenchState>()(
           delete next[sid];
           return {
             bySession: next,
-            history: s.currentSessionId === sid ? [] : s.history,
             latestResult: s.currentSessionId === sid ? null : s.latestResult,
           };
         });
@@ -250,7 +237,6 @@ export const useWorkbenchStore = create<WorkbenchState>()(
           );
           return {
             bySession: next,
-            history: s.currentSessionId === session_id ? next[session_id] : s.history,
           };
         });
       },

@@ -1,11 +1,14 @@
 # backend/api/knowledge_routes.py
 """Knowledge Index API routes — search, source management."""
 
+from pathlib import Path
+
 from flask import jsonify, request
 from workspace.ids import validate_workspace_id
 
 
-RETIRED_SEARCH_PARAMS = {"artifact_type", "sensitivity", "artifact_id"}
+KNOWLEDGE_SEARCH_PARAMS = {"workspace_id", "q", "limit", "source_id"}
+IMAGE_EXTENSIONS = {"png", "jpg", "jpeg", "gif", "webp", "bmp", "svg"}
 
 
 def _invalid_ws():
@@ -17,6 +20,24 @@ def _validated_ws_id(raw="default"):
         return validate_workspace_id(raw or "default"), None
     except ValueError:
         return None, _invalid_ws()
+
+
+def _knowledge_file_kind(extension: str) -> str:
+    return {
+        "txt": "text",
+        "md": "markdown",
+        "markdown": "markdown",
+        "htm": "html",
+        "html": "html",
+        "yaml": "yaml",
+        "yml": "yaml",
+        "json": "json",
+        "xml": "xml",
+        "csv": "csv",
+        "log": "log",
+        "pdf": "pdf",
+        "docx": "docx",
+    }.get(extension, "text")
 
 
 def register_knowledge_routes(app):
@@ -34,23 +55,35 @@ def register_knowledge_routes(app):
         if not uploaded.filename:
             return jsonify({"ok": False, "error": "empty filename"}), 400
 
-        import re
-        from agent.modules.knowledge.ingestion import _ws_root
-        safe_name = re.sub(r"[^a-zA-Z0-9_.-]", "_", uploaded.filename)[:120] or "upload.txt"
-        upload_dir = _ws_root() / ws_id / "files" / "upload"
-        upload_dir.mkdir(parents=True, exist_ok=True)
-        target = upload_dir / safe_name
-        uploaded.save(str(target))
+        ext = Path(uploaded.filename).suffix.lower().lstrip(".")
+        file_kind = ext if ext in IMAGE_EXTENSIONS else _knowledge_file_kind(ext)
+        binary = ext in IMAGE_EXTENSIONS or ext in {"pdf", "docx"}
+        try:
+            from storage.file_store import import_user_upload, resolve_file_path
 
-        # Image files: save as attachment, skip full ingestion (parser doesn't support them)
-        _IMG_EXTS = {"png", "jpg", "jpeg", "gif", "webp", "bmp", "svg", "ico"}
-        ext = safe_name.rsplit(".", 1)[-1].lower() if "." in safe_name else ""
-        if ext in _IMG_EXTS:
-            # Keep the file (skip finally unlink), return saved path
+            file_record = import_user_upload(
+                workspace_id=ws_id,
+                file_source=uploaded.stream,
+                original_name=uploaded.filename,
+                logical_type="knowledge_source",
+                file_kind=file_kind,
+                binary=binary,
+                source="knowledge_upload",
+                metadata={"source_type": request.form.get("source_type", "project_doc")},
+            )
+            target = resolve_file_path(ws_id, file_record.file_id)
+        except ValueError as exc:
+            return jsonify({"ok": False, "error": str(exc)[:200]}), 400
+        except Exception as exc:
+            return jsonify({"ok": False, "error": "upload_failed", "message": str(exc)[:200]}), 400
+
+        # Images are managed attachments; document parsers do not ingest them.
+        if ext in IMAGE_EXTENSIONS:
             return jsonify({
                 "ok": True,
                 "source": {
-                    "source_id": f"att_{ws_id}_{safe_name}",
+                    "source_id": file_record.file_id,
+                    "file_id": file_record.file_id,
                     "workspace_id": ws_id,
                     "title": request.form.get("title", "") or uploaded.filename,
                     "source_type": "attachment",
@@ -61,33 +94,30 @@ def register_knowledge_routes(app):
                     "status": "attached",
                     "enabled": False,
                     "tags": [],
-                    "filepath": f"files/upload/{safe_name}",
+                    "filepath": file_record.path,
                 },
-                "summary": f"图片已保存: {safe_name}",
+                "summary": f"图片已保存: {uploaded.filename}",
             })
 
-        try:
-            tags = [
-                t.strip()
-                for t in (request.form.get("tags", "") or "").split(",")
-                if t.strip()
-            ]
-            from agent.modules.knowledge.service import import_file
-            result = import_file(
-                workspace_id=ws_id,
-                source=str(target),
-                title=request.form.get("title", "") or uploaded.filename,
-                source_type=request.form.get("source_type", "project_doc") or "project_doc",
-                scope=request.form.get("scope", "workspace") or "workspace",
-                language=request.form.get("language", "zh") or "zh",
-                tags=tags,
-                metadata={"uploaded_filename": uploaded.filename},
-            )
-        finally:
-            try:
-                target.unlink()
-            except Exception:
-                pass
+        tags = [
+            t.strip()
+            for t in (request.form.get("tags", "") or "").split(",")
+            if t.strip()
+        ]
+        from agent.modules.knowledge.service import import_file
+        result = import_file(
+            workspace_id=ws_id,
+            source=str(target),
+            title=request.form.get("title", "") or uploaded.filename,
+            source_type=request.form.get("source_type", "project_doc") or "project_doc",
+            scope=request.form.get("scope", "workspace") or "workspace",
+            language=request.form.get("language", "zh") or "zh",
+            tags=tags,
+            metadata={
+                "uploaded_filename": uploaded.filename,
+                "file_id": file_record.file_id,
+            },
+        )
 
         if not result.get("ok"):
             return jsonify({
@@ -235,18 +265,18 @@ def register_knowledge_routes(app):
     # ── Search ──
     @app.route("/api/knowledge/search")
     def api_knowledge_search():
+        unknown_params = sorted(set(request.args) - KNOWLEDGE_SEARCH_PARAMS)
+        if unknown_params:
+            return jsonify({
+                "ok": False,
+                "error": "invalid_query_params",
+                "invalid_params": unknown_params,
+                "message": "知识库搜索只支持 q、workspace_id、limit、source_id。",
+            }), 400
         ws_id = request.args.get("workspace_id", "default")
         ws_id, err = _validated_ws_id(ws_id)
         if err:
             return err
-        retired = sorted(p for p in RETIRED_SEARCH_PARAMS if p in request.args)
-        if retired:
-            return jsonify({
-                "ok": False,
-                "error": "retired_query_params",
-                "retired_params": retired,
-                "message": "知识库搜索只支持 q、workspace_id、limit、source_id。",
-            }), 400
         query = request.args.get("q", "").strip()
         source_id = request.args.get("source_id")
         try:

@@ -28,7 +28,7 @@ TEXT_KINDS = frozenset({
 ALLOWED_UPLOAD_KINDS = frozenset({
     "text", "config", "pcap", "pcapng", "pdf", "docx", "xlsx",
     "markdown", "json", "yaml", "xml", "csv", "html", "log",
-    "zip", "tar", "gz",
+    "zip", "tar", "gz", "png", "jpg", "jpeg", "gif", "svg", "webp",
 })
 
 # ── Retention ────────────────────────────────────────────────────────

@@ -20,6 +20,7 @@ import type {
   KnowledgeSource,
   ReviewItem,
   RuntimeAuditTurn,
+  DecisionReport,
   RuntimeSummary,
   Session,
   SessionMessage,
@@ -528,6 +529,30 @@ export const artifactsApi = {
       { method: "GET", url: `/workspaces/${workspace_id}/artifacts` },
       signal,
     ),
+  /** POST /api/workspaces/<ws>/artifacts — create artifact from JSON payload. */
+  create: (
+    workspace_id: string,
+    data: {
+      content: string;
+      artifact_type: string;
+      title: string;
+      scope?: string;
+      sensitivity?: string;
+      run_id?: string;
+      metadata?: Record<string, unknown>;
+      tags?: string[];
+      source?: string;
+    },
+    signal?: AbortSignal,
+  ): Promise<{ ok: boolean; artifact: Artifact }> =>
+    apiRequest<{ ok: boolean; artifact: Artifact }>(
+      {
+        method: "POST",
+        url: `/workspaces/${workspace_id}/artifacts`,
+        data,
+      },
+      signal,
+    ),
   get: (
     workspace_id: string,
     artifact_id: string,
@@ -695,6 +720,18 @@ export const runtimeAuditApi = {
       {
         method: "GET",
         url: `/workspaces/${workspace_id}/runs/${run_id}/trace`,
+      },
+      signal,
+    ),
+  decision: (
+    workspace_id: string,
+    run_id: string,
+    signal?: AbortSignal,
+  ): Promise<{ ok: boolean; item: DecisionReport; workspace_id: string }> =>
+    apiRequest<{ ok: boolean; item: DecisionReport; workspace_id: string }>(
+      {
+        method: "GET",
+        url: `/workspaces/${workspace_id}/runs/${run_id}/decision`,
       },
       signal,
     ),

@@ -1,7 +1,7 @@
 # memory/writer.py
 """Memory writer — writes to unified ContextStore with redaction and policy enforcement.
 
-v3.1.0: Writes directly to ContextStore. No legacy JSONL or RAG projection.
+Writes directly to ContextStore. JSONL and RAG projections are not used.
 """
 
 import uuid

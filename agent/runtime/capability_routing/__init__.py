@@ -10,6 +10,7 @@ This package defines the boundary between capabilities, modules, and tools:
 from .models import CapabilityPackage, ModuleServiceManifest, ToolBundle
 from .router import CapabilityRouter, route_capabilities
 from .toolset import build_active_tool_bundle
+from .evaluation import RoutingCase, evaluate_router
 
 __all__ = [
     "CapabilityPackage",
@@ -18,4 +19,6 @@ __all__ = [
     "CapabilityRouter",
     "route_capabilities",
     "build_active_tool_bundle",
+    "RoutingCase",
+    "evaluate_router",
 ]

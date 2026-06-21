@@ -1,5 +1,5 @@
 # harness/test_backend_final_stabilization.py
-"""Final backend stabilization tests: API contract, error codes, status, health, doctor."""
+"""Final backend stabilization tests: API contract, status, health, doctor."""
 
 import json
 import os
@@ -29,32 +29,18 @@ def test_api_contract_doc_exists():
     assert (PROJECT / "docs" / "backend" / "API_CONTRACT.md").exists()
 
 
-def test_error_codes_module_exists():
-    from backend.core.error_codes import (
-        api_ok, api_error, WORKSPACE_NOT_FOUND, INVALID_WORKSPACE_ID,
-        FILE_NOT_FOUND, ARTIFACT_NOT_FOUND, PCAP_SESSION_NOT_FOUND,
-        REFERENCE_NOT_FOUND, INTERNAL_ERROR,
-    )
+def test_response_helpers_module_exists():
+    from backend.core.responses import ok_response, error_response
 
+    body, status = ok_response({"x": 1}, workspace_id="test_ws")
+    assert status == 200
+    assert body == {"ok": True, "workspace_id": "test_ws", "x": 1}
 
-def test_api_ok_envelope():
-    from backend.core.error_codes import api_ok
-    r = api_ok(data={"x": 1}, summary="done")
-    assert r["ok"] is True
-    assert r["status"] == "ok"
-    assert r["summary"] == "done"
-    assert r["data"] == {"x": 1}
-    assert r["errors"] == []
-
-
-def test_api_error_envelope():
-    from backend.core.error_codes import api_error
-    body, code = api_error("FILE_NOT_FOUND", "missing", details=["not there"])
+    body, status = error_response("FILE_NOT_FOUND", "missing", 404)
+    assert status == 404
     assert body["ok"] is False
-    assert body["status"] == "failed"
-    assert body["error_code"] == "FILE_NOT_FOUND"
-    assert body["errors"] == ["not there"]
-    assert code == 400
+    assert body["error"] == "FILE_NOT_FOUND"
+    assert body["message"] == "missing"
 
 
 def test_workspace_status_api(stab_ws, monkeypatch):
@@ -68,11 +54,9 @@ def test_workspace_status_api(stab_ws, monkeypatch):
 
     body = resp.get_json()
     assert body["ok"] is True
-    assert body["status"] == "ok"
-    assert body["data"]["workspace_exists"] is True
-    assert isinstance(body["data"]["file_count"], int)
-    assert isinstance(body["data"]["artifact_count"], int)
-    assert body["errors"] == []
+    assert body["workspace_exists"] is True
+    assert isinstance(body["file_count"], int)
+    assert isinstance(body["artifact_count"], int)
     # No absolute path leak
     for v in json.dumps(body).split():
         assert not v.startswith("/private/")
@@ -88,7 +72,8 @@ def test_workspace_status_invalid_id(stab_ws, monkeypatch):
     resp = client.get("/api/workspaces/%20/status")
     body = resp.get_json()
     assert body is not None
-    assert body.get("error_code") == "INVALID_WORKSPACE_ID"
+    assert body.get("error") == "INVALID_WORKSPACE_ID"
+    assert body.get("message") == "invalid workspace_id"
 
 
 def test_storage_health_api(stab_ws, monkeypatch):
@@ -102,7 +87,7 @@ def test_storage_health_api(stab_ws, monkeypatch):
 
     body = resp.get_json()
     assert body["ok"] is True
-    assert "checks" in body["data"]
+    assert "checks" in body
 
 
 def test_storage_doctor_does_not_modify(stab_ws):

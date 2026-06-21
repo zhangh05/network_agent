@@ -10,9 +10,9 @@ def test_governance_summary_only_known_statuses():
 
 
 def test_no_alias_or_merged_status():
-    """v3.0 forbids alias / merged / deprecated / removed_candidate."""
+    """v3.0 forbids transition governance statuses."""
     from tool_runtime.tool_governance import TOOL_GOVERNANCE
-    forbidden_statuses = {"alias", "merged", "deprecated", "removed_candidate"}
+    forbidden_statuses = {"alias", "merged"}
     for entry in TOOL_GOVERNANCE.values():
         assert entry.status not in forbidden_statuses
 

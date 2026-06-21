@@ -3,9 +3,7 @@
 
 import logging
 from flask import request, jsonify
-from backend.core.errors import (
-    bad_request, server_error, invalid_workspace, invalid_session, too_large,
-)
+from backend.core.responses import error_response
 
 _log = logging.getLogger("agent_routes")
 
@@ -15,10 +13,10 @@ def _validated_ws_id(ws_id: str):
     try:
         ws = validate_workspace_id(ws_id)
         if not ws:
-            return "", invalid_workspace()
+            return "", _json_error("INVALID_WORKSPACE_ID", "invalid workspace_id", 400)
         return ws, None
     except ValueError:
-        return "", invalid_workspace()
+        return "", _json_error("INVALID_WORKSPACE_ID", "invalid workspace_id", 400)
 
 
 def _validated_session_id(sid: str):
@@ -28,10 +26,10 @@ def _validated_session_id(sid: str):
     try:
         s = validate_session_id(sid)
         if not s:
-            return "", invalid_session()
+            return "", _json_error("INVALID_SESSION_ID", "invalid session_id", 400)
         return s, None
     except ValueError:
-        return "", invalid_session()
+        return "", _json_error("INVALID_SESSION_ID", "invalid session_id", 400)
 
 
 def _json_len(value) -> int:
@@ -40,8 +38,12 @@ def _json_len(value) -> int:
 
 
 def _source_config_too_large_response():
-    from backend.core.errors import _make_error
-    return _make_error("source_config_too_large", "source_config too large", 413)
+    return _json_error("SOURCE_CONFIG_TOO_LARGE", "source_config too large", 413)
+
+
+def _json_error(code: str, message: str, status: int, details: dict | None = None):
+    body, status_code = error_response(code, message, status, details)
+    return jsonify(body), status_code
 
 
 def _result_status(result: dict) -> int:
@@ -86,11 +88,11 @@ def agent_message():
         session_id = sid
 
     if not user_input:
-        return bad_request("message is required")
+        return _json_error("BAD_REQUEST", "message is required", 400)
 
     payload = data.get("payload") or {}
     if not isinstance(payload, dict):
-        return bad_request("payload must be an object")
+        return _json_error("BAD_REQUEST", "payload must be an object", 400)
 
     # Match the module runtime limit before dispatch so API status is stable.
     from backend.core.limits import source_config_too_large
@@ -102,14 +104,14 @@ def agent_message():
     # Cap user input length to prevent OOM
     MAX_INPUT_LENGTH = 65536  # 64KB
     if len(user_input) > MAX_INPUT_LENGTH:
-        return too_large("message too long (max 64KB)")
+        return _json_error("PAYLOAD_TOO_LARGE", "message too long (max 64KB)", 413)
 
     metadata = data.get("metadata") or {}
     # Cap metadata size to prevent abuse
     try:
-        meta_json = jsonify(metadata).get_data(as_text=True) if metadata else "{}"
-        if len(meta_json) > 16384:
-            return too_large("metadata too large (max 16KB)")
+            meta_json = jsonify(metadata).get_data(as_text=True) if metadata else "{}"
+            if len(meta_json) > 16384:
+                return _json_error("PAYLOAD_TOO_LARGE", "metadata too large (max 16KB)", 413)
     except Exception:
         metadata = {}
     if not isinstance(metadata, dict):
@@ -150,14 +152,12 @@ def agent_message():
     except Exception as e:
         _log.exception("agent_message failed")
         err_msg = str(e)[:500]
-        return jsonify({
-            "ok": False,
-            "error": "server_error",
-            "message": "agent execution failed",
-            "details": {"exception": err_msg, "type": type(e).__name__},
-            "status": 500,
-            "trace_id": None,
-        }), 500
+        return _json_error(
+            "INTERNAL_ERROR",
+            "agent execution failed",
+            500,
+            {"exception": err_msg, "type": type(e).__name__},
+        )
 
 
 # ── SSE helper ─────────────────────────────────────────────────────────
@@ -166,9 +166,8 @@ def _stream_sse_response(result: dict, mode: str = "event_replay"):
     """Replay AgentResult events as Server-Sent Events (SSE).
 
     This is intentionally named replay semantics: `agent_message()` has
-    already completed before this function emits events. It preserves the
-    old stream=true API while avoiding the false implication of live
-    model/tool streaming.
+    already completed before this function emits events. Use WebSocket when
+    live model/tool streaming is required.
     """
     import json as _json
     from flask import Response
@@ -207,7 +206,7 @@ def _stream_sse_response(result: dict, mode: str = "event_replay"):
 
 
 def _apply_current_contract_hints(result_payload: dict, user_input: str, payload: dict) -> None:
-    """Backfill current API hints that older UI/tests still inspect."""
+    """Attach module hints used by the current workbench UI."""
     text = (user_input or "").lower()
     payload = payload or {}
     if not result_payload.get("active_module"):

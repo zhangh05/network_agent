@@ -19,7 +19,7 @@ def _check_file(path, patterns, label):
         if p.lower() in content:
             high.append(f"{label}: contains '{p}'")
 
-EXCLUDE_DIRS = {"venv", "retired", "scripts", "__pycache__", ".git", ".workbuddy", "harness", "workspaces", "runtime", "memory", "reports", "logs", ".run"}
+EXCLUDE_DIRS = {"venv", "scripts", "__pycache__", ".git", ".workbuddy", "harness", "workspaces", "runtime", "memory", "reports", "logs", ".run"}
 EXCLUDE_FILES = {"registry/validator.py", "modules/config_translation/backend/client.py"}
 EXCLUDE_PREFIXES = ("test_",)
 

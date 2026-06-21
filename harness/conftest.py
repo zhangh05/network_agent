@@ -91,15 +91,17 @@ def temp_dirs(monkeypatch):
 @pytest.fixture(autouse=True)
 def protect_llm_config():
     """Backup and restore real LLM config to prevent test pollution."""
-    import agent.llm.settings as mod
-    real_path = Path(__file__).resolve().parent.parent / "config" / "LLM_setting.json"
-    backup = None
-    if real_path.is_file():
-        backup = real_path.read_text()
+    providers_dir = Path(__file__).resolve().parent.parent / "config" / "providers"
+    backup_dir = None
+    if providers_dir.exists():
+        import tempfile
+        backup_dir = Path(tempfile.mkdtemp(prefix="na_provider_backup_")) / "providers"
+        shutil.copytree(providers_dir, backup_dir)
     yield
-    if backup is not None:
-        real_path.parent.mkdir(exist_ok=True)
-        real_path.write_text(backup)
+    if backup_dir is not None:
+        shutil.rmtree(providers_dir, ignore_errors=True)
+        providers_dir.parent.mkdir(exist_ok=True)
+        shutil.copytree(backup_dir, providers_dir)
 
 
 @pytest.fixture

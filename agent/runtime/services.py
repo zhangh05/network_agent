@@ -46,8 +46,7 @@ def default_runtime_services() -> RuntimeServices:
     # The context_builder must build a fresh ToolRouter per turn.
     tool_router = ToolRouter.for_turn(tool_registry)
 
-    # Module/Skill registries derived from CapabilityRegistry (compat API
-    # preserved; consumers can keep calling .snapshot(), .list_enabled_*() etc.)
+    # Module/Skill registries derived from CapabilityRegistry.
     module_reg = ModuleRegistry.from_capabilities(cap_reg)
     skill_reg = SkillRegistry.from_capabilities(cap_reg)
 

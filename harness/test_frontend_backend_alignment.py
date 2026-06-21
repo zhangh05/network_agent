@@ -68,20 +68,20 @@ def test_tool_call_standard_fields():
 
 
 def test_tool_call_dict_compat():
-    """Retired dict-shaped results also produce the 10 standard fields."""
+    """Dict-shaped results also produce the 10 standard fields."""
     from agent.runtime.tool_result_utils import to_standard_tool_call
 
-    retired = {
+    payload = {
         "ok": False,
         "summary": "something went wrong",
         "errors": ["bad arg"],
     }
-    tc = to_standard_tool_call("call_002", "test.fail", retired)
+    tc = to_standard_tool_call("call_002", "test.fail", payload)
 
     assert tc["ok"] is False
     assert tc["summary"] == "something went wrong"
     assert tc["errors"] == ["bad arg"]
-    # All fields present even for retired
+    # All fields present for dict-shaped payloads.
     assert "artifacts" in tc
     assert "source_count" in tc
     assert "metadata" in tc

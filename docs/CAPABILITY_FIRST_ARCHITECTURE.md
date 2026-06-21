@@ -118,15 +118,6 @@ Current directory-level business tools are:
 
 They dispatch to module-internal operations through an action argument.
 
-### 5.2 Legacy Fine-grained Tools (Deleted)
-
-The following legacy fine-grained tools have been deleted from the runtime:
-
-- config parse, translate, interface extract, route extract
-- pcap parse, session, filter, align
-
-They are no longer registered, not in the namespace, and not available as compatibility adapters.
-
 ## 6. Tool Visibility
 
 ToolPlannerV2 must not default to the full TOOL_NAMESPACE.
@@ -172,7 +163,6 @@ The prompt must state:
 - Platform Services = workspace, knowledge, memory, artifact, runtime, report, web;
 - Tool = callable adapter;
 - directory-level tools are preferred;
-- network.config.* and network.pcap.* are internal adapters.
 
 ## 8. Registry Boundary
 
@@ -195,10 +185,6 @@ It must not contain:
 
 ## 9. Non-goals
 
-The architecture does not make every tool disappear immediately.
-
-Old fine-grained tools may remain temporarily for compatibility, but must be internal.
-
 The goal is not to expose more tools.
 
 The goal is to expose fewer, better-scoped tools.
@@ -212,8 +198,6 @@ These invariants must be protected by tests:
 - Business modules are only config_translation, config_analysis, and pcap_analysis.
 - Platform services are not business modules.
 - Directory-level business tools are config.analysis.run and pcap.analysis.run.
-- Legacy fine-grained config and pcap tools are deleted from the runtime.
 - Prompt does not include full tool catalog.
 - Prompt does not include skill_prompt.
-- Prompt does not include concrete old fine-grained tool names.
 - ToolPlannerV2 does not default to list(TOOL_NAMESPACE).

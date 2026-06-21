@@ -62,6 +62,8 @@ def main() -> int:
         "docs/CAPABILITIES_AND_TOOLS.md",
         "docs/FRONTEND.md",
         "docs/RUNTIME.md",
+        "docs/backend/API_CONTRACT.md",
+        "docs/storage/STORAGE_BOUNDARIES.md",
     ]
     for path in required_docs:
         check((ROOT / path).is_file(), f"{path} exists")
@@ -75,30 +77,10 @@ def main() -> int:
         "POST /api/agent/message",
         "agent/modules/knowledge/",
         "tool_runtime/canonical_registry.py",
-        "/packet?sid=",
+        "GET /api/pcap/session/<sid>",
     ]
     for reference in required_current_refs:
         check(reference in combined_docs, f"documents current surface: {reference}")
-
-    removed_refs = [
-        "context/knowledge_loader",
-        "knowledge.query",
-        "skills/knowledge_search",
-        "tool_runtime/general_tools_base",
-        "docs/RETIRED_SURFACES.md",
-    ]
-    for reference in removed_refs:
-        check(reference not in combined_docs, f"documents omit removed surface: {reference}")
-
-    removed_paths = [
-        "knowledge",
-        "context/knowledge_loader.py",
-        "skills/knowledge_search",
-        "tool_runtime/general_tools_base.py",
-        "docs/RETIRED_SURFACES.md",
-    ]
-    for path in removed_paths:
-        check(not (ROOT / path).exists(), f"removed path is absent: {path}")
 
     print(
         f"\n{len(failures)} failure(s)"

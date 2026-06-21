@@ -1,4 +1,4 @@
-"""Guards for legacy prompt/safe_context cleanup."""
+"""Guards for current prompt/safe_context cleanup."""
 
 import inspect
 import os
@@ -34,7 +34,7 @@ def test_safe_context_renders_evidence_values():
     assert "pcap.analysis.run" in text
 
 
-def test_safe_context_does_not_render_legacy_tool_planning_payloads():
+def test_safe_context_does_not_render_tool_planning_payloads():
     text = render_safe_context({
         "workspace_id": "default",
         "tool_scene": {

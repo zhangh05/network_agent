@@ -139,7 +139,7 @@ class EvidenceBundle:
 
 
 def _evidence_to_hit(item: EvidenceItem) -> dict[str, Any]:
-    """Convert an EvidenceItem to the legacy hit dict format."""
+    """Convert an EvidenceItem to the retrieval-hit dict format."""
     hit: dict[str, Any] = {}
     if item.title:
         hit["title"] = item.title

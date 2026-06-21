@@ -175,7 +175,7 @@ def render_markdown(payload: dict[str, Any]) -> str:
     governance_summary = summary["governance_summary"]
 
     lines: list[str] = []
-    lines.append("# Network Agent Tool Catalog (v3.0 clean canonical-only)")
+    lines.append("# Network Agent Tool Catalog (v3.0 canonical-only)")
     lines.append("")
     lines.append(
         "> Single source: `tool_runtime/tool_namespace.py` + "
@@ -192,9 +192,8 @@ def render_markdown(payload: dict[str, Any]) -> str:
     lines.append("## 1. Identity Contract")
     lines.append("")
     lines.append(
-        "v3.0 tool IDs are canonical-only. There is **no** transition "
-        "surface for retired tools; if a tool needs to be retired, its "
-        "governance_status becomes `forbidden`."
+        "v3.0 tool IDs are canonical-only. Tools outside the active public "
+        "surface are represented by governance_status `forbidden`."
     )
     lines.append("")
     lines.append("- **canonical_tool_id**: the public tool ID used by the "

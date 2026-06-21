@@ -94,6 +94,4 @@ Definitions:
 - Platform Service: infrastructure service such as workspace, knowledge, memory, artifact, runtime, report, and web.
 - Tool: callable adapter. LLM-visible business tools are directory-level tools such as config.analysis.run and pcap.analysis.run.
 
-Old fine-grained tools such as network.config.* and network.pcap.* are internal compatibility adapters and must not be selected directly.
-
 See [docs/CAPABILITY_FIRST_ARCHITECTURE.md](docs/CAPABILITY_FIRST_ARCHITECTURE.md).

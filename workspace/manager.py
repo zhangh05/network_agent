@@ -1,7 +1,6 @@
 """Workspace manager — CRUD for workspaces, state, runs, and artifact counts."""
 
 import json
-import os
 import time
 from typing import Optional
 from pathlib import Path
@@ -11,12 +10,6 @@ from workspace.atomic_io import atomic_write_text, atomic_write_json, safe_read_
 
 ROOT = Path(__file__).resolve().parent.parent
 WS_ROOT = ROOT / "workspaces"
-
-
-def _atomic_write_text(path: Path, text: str) -> None:
-    """Deprecated thin wrapper — use workspace.atomic_io.atomic_write_text instead."""
-    atomic_write_text(path, text)
-
 
 def ensure_workspace(ws_id: str = "default") -> str:
     """Ensure workspace dirs exist. Creates sys/workspace.yaml + sys/state.json if missing."""
@@ -30,7 +23,7 @@ def ensure_workspace(ws_id: str = "default") -> str:
     ]:
         (ws / d).mkdir(parents=True, exist_ok=True)
 
-    # Create new unified storage directories (non-fatal for backward compat)
+    # Create FileStore, ArtifactStore, ContextStore, and RunStore directories.
     try:
         from storage.paths import ensure_workspace_storage_dirs
         ensure_workspace_storage_dirs(ws_id)
@@ -117,7 +110,7 @@ def update_workspace_state(ws_id: str, patch: dict) -> dict:
 
     try:
         state_text = json.dumps(s, indent=2, ensure_ascii=False)
-        _atomic_write_text(WS_ROOT / ws_id / "sys" / "state.json", state_text)
+        atomic_write_text(WS_ROOT / ws_id / "sys" / "state.json", state_text)
     except Exception:
         pass
     return s
@@ -247,7 +240,7 @@ def get_workspace_runs(ws_id: str = "default") -> list:
     runs = []
     if runs_dir.is_dir():
         for f in sorted(runs_dir.glob("*.json"), reverse=True):
-            if f.name.endswith(".trace.json"):
+            if not _is_run_record_file(f):
                 continue
             try:
                 runs.append(json.loads(f.read_text()))
@@ -275,8 +268,18 @@ def _count_runs(ws_id: str) -> int:
     ws_id = validate_workspace_id(ws_id)
     runs_dir = WS_ROOT / ws_id / "runs"
     if runs_dir.is_dir():
-        return len([p for p in runs_dir.glob("*.json") if not p.name.endswith(".trace.json")])
+        return len([p for p in runs_dir.glob("*.json") if _is_run_record_file(p)])
     return 0
+
+
+def _is_run_record_file(path: Path) -> bool:
+    name = path.name
+    if not name.endswith(".json"):
+        return False
+    return not (
+        name.endswith(".trace.json")
+        or name.endswith(".decision.json")
+    )
 
 
 def _count_sessions(ws_id: str) -> int:
@@ -297,23 +300,13 @@ def _count_sessions(ws_id: str) -> int:
 
 
 def _count_artifacts(ws_id: str) -> int:
-    """Count artifact records without counting source subdirectories."""
+    """Count artifact records from the artifact index."""
     ws_id = validate_workspace_id(ws_id)
-    ws = WS_ROOT / ws_id
-    count = 0
-    seen: set[str] = set()
-
-    for src in ("upload", "agent"):
-        src_dir = ws / "files" / src
-        if not src_dir.is_dir():
-            continue
-        for meta in src_dir.glob("*.meta.json"):
-            artifact_id = meta.name[:-10]
-            if artifact_id not in seen:
-                seen.add(artifact_id)
-                count += 1
-
-    return count
+    try:
+        from artifacts.store import list_artifacts
+        return len(list_artifacts(ws_id, include_deleted=False))
+    except Exception:
+        return 0
 
 
 def _count_knowledge_sources(ws_id: str) -> int:

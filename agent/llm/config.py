@@ -1,5 +1,5 @@
 # agent/llm/config.py
-"""LLM config loader — unified config with priority: UI settings > env > llm.local.yaml > llm.yaml."""
+"""LLM config loader — env and YAML fallback config."""
 
 import os
 import yaml
@@ -35,7 +35,7 @@ def load_llm_config() -> dict:
 def resolve_provider_config(llm_config: dict = None) -> dict:
     """Get the active provider config with resolved API key.
     
-    Priority: UI settings (config/LLM_setting.json) > env/file fallback > default.
+    Priority: active provider config > env/file fallback > default.
     """
     # ═══ First: try UI settings (highest priority) ═══
     try:

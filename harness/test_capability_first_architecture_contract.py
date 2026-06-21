@@ -18,7 +18,6 @@ def test_architecture_doc_exists_and_defines_core_terms():
     assert "Business Module" in text
     assert "Platform Service" in text
     assert "Directory-level Tool" in text
-    assert "Legacy Fine-grained Tools" in text
     assert "Prompt Architecture" in text
 
 
@@ -60,12 +59,10 @@ def test_business_capabilities_use_directory_level_tools():
     config_pkg = package_by_id("config_translation")
     assert config_pkg is not None
     assert "config.analysis.run" in config_pkg.tool_ids
-    assert not any(t.startswith("network.config.") for t in config_pkg.tool_ids)
 
     pcap_pkg = package_by_id("pcap_analysis")
     assert pcap_pkg is not None
     assert "pcap.analysis.run" in pcap_pkg.tool_ids
-    assert not any(t.startswith("network.pcap.") for t in pcap_pkg.tool_ids)
 
 
 def test_old_fine_grained_network_tools_are_deleted():

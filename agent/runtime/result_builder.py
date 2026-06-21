@@ -60,6 +60,9 @@ def build_success_result(state) -> AgentResult:
 
     persist_run_record(state.session, state.turn, result, state.context)
 
+    # ── P1-A: Write per-turn Decision Report ──
+    _write_decision_report(result, state)
+
     try:
         from agent.llm.config import record_recent_success
         record_recent_success()
@@ -90,6 +93,8 @@ def build_error_result(state, final_response, error_type, extra_meta,
         metadata=enrich_metadata(extra_meta, state.context),
     )
     persist_run_record(state.session, state.turn, err, state.context)
+    # ── P1-A: Decision report for error results ──
+    _write_decision_report(err, state)
     return err
 
 
@@ -111,6 +116,8 @@ def build_partial_result(state, reason) -> AgentResult:
         }, state.context),
     )
     persist_run_record(state.session, state.turn, _partial, state.context)
+    # ── P1-A: Decision report for partial results ──
+    _write_decision_report(_partial, state)
     return _partial
 
 
@@ -131,4 +138,83 @@ def build_blocked_result(state, reason, hook_event="pre_turn") -> AgentResult:
         }, state.context),
     )
     persist_run_record(state.session, state.turn, result, state.context)
+    # ── P1-A: Decision report for blocked results ──
+    _write_decision_report(result, state)
     return result
+
+
+# ── P1-A: Decision Report generation ───────────────────────────────────
+
+def _write_decision_report(result, state) -> None:
+    """Generate and persist a per-turn Decision Report.
+
+    Best-effort: failures are recorded as turn warnings,
+    they do not cause turn failures.
+    """
+    try:
+        ctx = getattr(state, "context", None)
+        if ctx is None:
+            return
+
+        from agent.runtime.decision_report.builder import build_decision_report
+        from agent.runtime.decision_report.writer import write_decision_report
+
+        result_dict = (
+            result.to_dict() if hasattr(result, "to_dict") else {}
+        )
+
+        run_id = (
+            getattr(state.turn, "turn_id", "")
+            or getattr(ctx, "turn_id", "")
+            or getattr(ctx, "trace_id", "")
+        )
+
+        report = build_decision_report(
+            run_id=run_id,
+            session_id=getattr(state.session, "session_id", ""),
+            workspace_id=getattr(ctx, "workspace_id", "default"),
+            context=ctx,
+            result=result,
+            result_dict=result_dict,
+        )
+
+        report_path = write_decision_report(report)
+
+        # Store only the path in the run record, not the full JSON
+        if report_path:
+            state.metadata.setdefault("decision_report_path", report_path)
+            ctx.metadata.setdefault("decision_report_path", report_path)
+            _backfill_decision_report_path(
+                run_id=run_id,
+                workspace_id=getattr(ctx, "workspace_id", "default"),
+                report_path=report_path,
+            )
+
+    except Exception:
+        import logging
+        _log = logging.getLogger(__name__)
+        _log.warning("decision_report_write_failed", exc_info=True)
+
+
+def _backfill_decision_report_path(*, run_id: str, workspace_id: str, report_path: str) -> None:
+    """Attach the sidecar report path to an already-written run record."""
+    try:
+        import json
+        from workspace.run_store import WS_ROOT
+
+        run_file = WS_ROOT / workspace_id / "runs" / f"{run_id}.json"
+        if not run_file.is_file():
+            return
+
+        record = json.loads(run_file.read_text(encoding="utf-8"))
+        metadata = record.get("metadata")
+        if not isinstance(metadata, dict):
+            metadata = {}
+        metadata["decision_report_path"] = report_path
+        record["metadata"] = metadata
+
+        tmp = run_file.with_suffix(".tmp")
+        tmp.write_text(json.dumps(record, indent=2, ensure_ascii=False), encoding="utf-8")
+        tmp.rename(run_file)
+    except Exception:
+        pass

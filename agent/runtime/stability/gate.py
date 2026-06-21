@@ -5,7 +5,7 @@ from __future__ import annotations
 
 from agent.runtime.stability.checks import (
     check_kernel_reports,
-    check_no_compat_residue,
+    check_no_runtime_residue,
     check_no_old_stage_chain,
     check_required_metadata,
 )
@@ -19,7 +19,7 @@ class StabilityGate:
         results = [
             check_required_metadata(ctx),
             check_no_old_stage_chain(source_dir=source_dir),
-            check_no_compat_residue(source_dir=source_dir),
+            check_no_runtime_residue(source_dir=source_dir),
             check_kernel_reports(ctx),
         ]
 

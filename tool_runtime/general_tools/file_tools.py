@@ -32,7 +32,7 @@ def handle_file_list(inv: ToolInvocation) -> dict:
     ws = inv.arguments.get("workspace_id", "default")
     subdir = inv.arguments.get("subdir", "")
     try:
-        target = _validate_workspace_path(ws, subdir)
+        target = _workspace_path(ws, subdir)
         if not target.exists():
             return _ok(inv, "", {"files": [], "count": 0})
         files = []
@@ -53,7 +53,7 @@ def handle_file_exists(inv: ToolInvocation) -> dict:
     ws = inv.arguments.get("workspace_id", "default")
     filepath = inv.arguments.get("filepath", "")
     try:
-        target = _validate_workspace_path(ws, filepath)
+        target = _workspace_path(ws, filepath)
         exists = target.exists()
         result = {
             "exists": exists,
@@ -73,7 +73,7 @@ def handle_file_read(inv: ToolInvocation) -> dict:
     filepath = inv.arguments.get("filepath", "")
     limit = min(int(inv.arguments.get("limit", 50000)), 50000)
     try:
-        target = _validate_workspace_path(ws, filepath)
+        target = _workspace_path(ws, filepath)
         if not target.is_file():
             return _error_inv(inv, "file not found")
         if target.stat().st_size > 1024 * 1024:
@@ -105,7 +105,7 @@ def handle_file_edit(inv: ToolInvocation) -> dict:
     new_string = inv.arguments.get("new_string", "")
     replace_all = bool(inv.arguments.get("replace_all", False))
     try:
-        target = _validate_workspace_path(ws, filepath)
+        target = _workspace_path(ws, filepath)
         if not _is_current_workspace_write_path(ws, target):
             return _error_inv(inv, "file.edit only writes to current managed workspace directories")
         if not target.is_file():
@@ -140,7 +140,7 @@ def handle_file_patch(inv: ToolInvocation) -> dict:
     filepath = inv.arguments.get("filepath", "")
     patch_text = inv.arguments.get("patch_text", "")
     try:
-        target = _validate_workspace_path(ws, filepath)
+        target = _workspace_path(ws, filepath)
         if not _is_current_workspace_write_path(ws, target):
             return _error_inv(inv, "file.patch only writes to current managed workspace directories")
         if not target.is_file():
@@ -188,7 +188,7 @@ def handle_ws_list_files(inv: ToolInvocation) -> dict:
     ws = inv.arguments.get("workspace_id", "default")
     subdir = inv.arguments.get("subdir", "")
     try:
-        target = _validate_workspace_path(ws, subdir)
+        target = _workspace_path(ws, subdir)
         if not target.exists():
             return _ok(inv, "", {"files": [], "count": 0})
         files = []
@@ -206,7 +206,7 @@ def handle_ws_read_text_preview(inv: ToolInvocation) -> dict:
     ws = inv.arguments.get("workspace_id", "default")
     filepath = inv.arguments.get("filepath", "")
     try:
-        target = _validate_workspace_path(ws, filepath)
+        target = _workspace_path(ws, filepath)
         if not target.is_file():
             return _error_inv(inv, "file not found")
         if target.stat().st_size > 1024 * 1024:
@@ -249,7 +249,7 @@ def handle_ws_path_exists(inv: ToolInvocation) -> dict:
     ws = inv.arguments.get("workspace_id", "default")
     filepath = inv.arguments.get("filepath", "")
     try:
-        target = _validate_workspace_path(ws, filepath)
+        target = _workspace_path(ws, filepath)
         return _ok(inv, "", {"exists": target.exists(), "is_file": target.is_file(), "is_dir": target.is_dir()})
     except Exception as e:
         return _error_inv(inv, str(e)[:200])
@@ -258,7 +258,7 @@ def handle_ws_path_exists(inv: ToolInvocation) -> dict:
 def handle_ws_get_metadata(inv: ToolInvocation) -> dict:
     ws = inv.arguments.get("workspace_id", "default")
     try:
-        target = _validate_workspace_path(ws)
+        target = _workspace_path(ws)
         return _ok(inv, "", {
             "workspace_id": ws,
             "exists": target.exists(),
@@ -273,7 +273,7 @@ def handle_file_read_image(inv: ToolInvocation) -> dict:
     ws = inv.arguments.get("workspace_id", "default")
     filepath = inv.arguments.get("filepath", "")
     try:
-        target = _validate_workspace_path(ws, filepath)
+        target = _workspace_path(ws, filepath)
         if not target.is_file():
             return _error_inv(inv, f"file not found: {filepath}")
         if target.stat().st_size > 20 * 1024 * 1024:

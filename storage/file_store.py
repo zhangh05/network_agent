@@ -20,6 +20,7 @@ from typing import IO, Any, Union
 
 from storage.paths import workspace_root, ensure_workspace_storage_dirs
 from storage.schemas import FileRecord
+from storage import index  # P2-B: locked, atomic index operations
 
 
 # ── Helpers ──────────────────────────────────────────────────────────
@@ -49,41 +50,6 @@ def _sha256_of_file(path: Path) -> str:
             h.update(chunk)
     return h.hexdigest()
 
-
-def _index_path(workspace_id: str) -> Path:
-    return workspace_root(workspace_id) / "index" / "files.jsonl"
-
-
-def _append_to_index(workspace_id: str, record: FileRecord) -> None:
-    """Append a FileRecord to the workspace file index."""
-    idx = _index_path(workspace_id)
-    idx.parent.mkdir(parents=True, exist_ok=True)
-    line = json.dumps(record.as_dict(), ensure_ascii=False, default=str)
-    with open(idx, "a", encoding="utf-8") as f:
-        f.write(line + "\n")
-
-
-def _update_index_record(workspace_id: str, file_id: str, updates: dict) -> None:
-    """Update a record in the JSONL index (rewrite approach for small indexes)."""
-    idx = _index_path(workspace_id)
-    if not idx.exists():
-        return
-    lines = idx.read_text(encoding="utf-8").strip().split("\n")
-    new_lines = []
-    for line in lines:
-        if not line.strip():
-            continue
-        try:
-            rec = json.loads(line)
-            if rec.get("file_id") == file_id:
-                rec.update(updates)
-            new_lines.append(json.dumps(rec, ensure_ascii=False, default=str))
-        except json.JSONDecodeError:
-            new_lines.append(line)
-    idx.write_text("\n".join(new_lines) + "\n", encoding="utf-8")
-
-
-# ── Category path mapping ────────────────────────────────────────────
 
 _LOGICAL_TYPE_TO_DIR = {
     "user_upload": "files/user_upload/original",
@@ -178,7 +144,7 @@ def create_file_record(
         sensitivity=sensitivity,
         metadata=metadata or {},
     )
-    _append_to_index(workspace_id, rec)
+    index.append_file_record(workspace_id, rec)
     return rec
 
 
@@ -352,34 +318,18 @@ def resolve_file_path(workspace_id: str, file_id: str) -> Path:
 
 def get_file_record(workspace_id: str, file_id: str) -> dict | None:
     """Look up a FileRecord from the JSONL index."""
-    idx = _index_path(workspace_id)
-    if not idx.exists():
-        return None
-    for line in idx.read_text(encoding="utf-8").strip().split("\n"):
-        if not line.strip():
-            continue
-        try:
-            rec = json.loads(line)
-            if rec.get("file_id") == file_id:
-                return rec
-        except json.JSONDecodeError:
-            continue
+    records = index.read_file_records(workspace_id)
+    for rec in records:
+        if rec.get("file_id") == file_id:
+            return rec
     return None
 
 
 def list_files(workspace_id: str, *, logical_type: str = "", lifecycle: str = "active") -> list[dict]:
     """List file records, optionally filtered by logical_type and lifecycle."""
-    idx = _index_path(workspace_id)
-    if not idx.exists():
-        return []
+    records = index.read_file_records(workspace_id)
     results = []
-    for line in idx.read_text(encoding="utf-8").strip().split("\n"):
-        if not line.strip():
-            continue
-        try:
-            rec = json.loads(line)
-        except json.JSONDecodeError:
-            continue
+    for rec in records:
         if lifecycle and rec.get("lifecycle") != lifecycle:
             continue
         if logical_type and rec.get("logical_type") != logical_type:
@@ -393,7 +343,7 @@ def soft_delete_file(workspace_id: str, file_id: str) -> bool:
     rec = get_file_record(workspace_id, file_id)
     if not rec:
         return False
-    _update_index_record(workspace_id, file_id, {
+    index.update_file_record(workspace_id, file_id, {
         "lifecycle": "soft_deleted",
         "metadata": {**rec.get("metadata", {}), "deleted_at": _now_iso()},
     })

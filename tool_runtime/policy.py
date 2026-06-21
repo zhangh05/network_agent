@@ -1,5 +1,5 @@
 # tool_runtime/policy.py
-"""ToolPolicy v0.2 — permission and safety enforcement with risk levels.
+"""ToolPolicy — permission and safety enforcement with risk levels.
 
 Checks:
   1. tool_id exists in registry
@@ -12,15 +12,14 @@ Checks:
   8. arguments safe (no shell/ssh injection signatures)
   9. high-risk: requires_approval + approval_id check
   10. high-risk: dry_run default enforcement
-  11. approved_exec: command_id/script_id from allowlist
+  11. approved execution requires explicit approval metadata
 """
 
 from tool_runtime.schemas import ToolSpec, ToolInvocation, PolicyDecision
 
-# v0.2 allowed risk levels
 V02_ALLOWED_RISK_LEVELS = {"low", "medium", "high"}
 
-# v0.2 forbidden tool_ids — blocked at policy level even if registered
+# Forbidden tool_ids — blocked at policy level even if registered
 V02_FORBIDDEN_TOOLS = {
     "ssh.exec", "telnet.exec", "snmp.walk", "nmap.scan", "ping.sweep",
     "command.exec", "host.shell.exec", "device.exec", "config.push",
@@ -28,7 +27,7 @@ V02_FORBIDDEN_TOOLS = {
     "host.powershell.exec",
 }
 
-# v0.2 forbidden tool_id patterns — regex patterns that catch variants
+# Forbidden tool_id patterns — regex patterns that catch variants
 # e.g. shell_exec_v2, config.push_force, ssh.exec_old
 import re as _re
 V02_FORBIDDEN_PATTERNS = [

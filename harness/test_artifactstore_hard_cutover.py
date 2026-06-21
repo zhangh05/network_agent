@@ -8,7 +8,7 @@ from pathlib import Path
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
 
-def test_save_artifact_uses_index_jsonl_and_no_legacy_meta(monkeypatch, tmp_path):
+def test_save_artifact_uses_index_jsonl_and_file_record(monkeypatch, tmp_path):
     ws_root = tmp_path / "workspaces"
     ws_root.mkdir()
     monkeypatch.setenv("NA_WORKSPACE_ROOT", str(ws_root))
@@ -29,7 +29,7 @@ def test_save_artifact_uses_index_jsonl_and_no_legacy_meta(monkeypatch, tmp_path
     assert rec is not None
     assert rec.file_id
     assert (ws_root / "cutover_ws" / "index" / "artifacts.jsonl").is_file()
-    assert not (ws_root / "cutover_ws" / "files" / "agent").exists()
+    assert (ws_root / "cutover_ws" / "files" / "agent_output").is_dir()
 
     loaded = get_artifact("cutover_ws", rec.artifact_id)
     assert loaded is not None
@@ -37,20 +37,12 @@ def test_save_artifact_uses_index_jsonl_and_no_legacy_meta(monkeypatch, tmp_path
     assert "hostname R1" in read_artifact_content("cutover_ws", rec.artifact_id, allow_sensitive=True)
 
 
-def test_artifact_store_runtime_has_no_legacy_write_fallback():
+def test_artifact_store_runtime_uses_filestore_writer():
     project_root = Path(__file__).resolve().parents[1]
     text = (project_root / "artifacts" / "store.py").read_text(encoding="utf-8")
 
-    forbidden = [
-        "Fallback to legacy write",
-        "files\" / \"agent",
-        "files\" / \"upload",
-        "fpath.write_text(content)",
-        "for src in (\"agent\", \"upload\")",
-        "for src in (\"upload\", \"agent\")",
-    ]
-    hits = [token for token in forbidden if token in text]
-    assert hits == []
+    assert "write_agent_output" in text
+    assert "create_file_record" not in text
 
 
 def test_workspace_write_artifact_tool_uses_filestore(monkeypatch, tmp_path):

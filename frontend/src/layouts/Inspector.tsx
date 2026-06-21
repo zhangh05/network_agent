@@ -1,3 +1,4 @@
+import { useEffect, useState } from "react";
 import { useWorkbenchStore } from "../stores/workbench";
 import {
   Badge,
@@ -5,8 +6,10 @@ import {
   EmptyState,
   InlineCode,
 } from "../components/common";
-import type { AgentResult, ToolCallResult } from "../types";
+import type { AgentResult, DecisionReport, ToolCallResult } from "../types";
 import { IconAlert, IconBolt, IconShield } from "../components/Icon";
+import { DecisionReportPanel } from "../components/DecisionReportPanel";
+import { runtimeAuditApi } from "../api";
 
 /**
  * Turn Inspector — shows the latest AgentResult in detail.
@@ -34,6 +37,31 @@ export function Inspector() {
 }
 
 function InspectorBody({ result }: { result: AgentResult }) {
+  const [decision, setDecision] = useState<DecisionReport | null>(null);
+  const [decisionLoading, setDecisionLoading] = useState(false);
+  const [decisionError, setDecisionError] = useState("");
+  const runId = result.turn_id || result.trace_id;
+  const workspaceId = String(result.metadata?.workspace_id || "default");
+
+  useEffect(() => {
+    let active = true;
+    setDecision(null);
+    setDecisionError("");
+    if (!runId) return () => { active = false; };
+    setDecisionLoading(true);
+    runtimeAuditApi.decision(workspaceId, runId)
+      .then((response) => {
+        if (active) setDecision(response.item || null);
+      })
+      .catch((error) => {
+        if (active) setDecisionError(error?.message || "该 turn 没有决策报告");
+      })
+      .finally(() => {
+        if (active) setDecisionLoading(false);
+      });
+    return () => { active = false; };
+  }, [runId, workspaceId]);
+
   return (
     <div data-testid="inspector-body" style={{ paddingBottom: 24 }}>
       {/* 身份 */}
@@ -114,6 +142,18 @@ function InspectorBody({ result }: { result: AgentResult }) {
             </div>
           )}
         </div>
+      </Collapsible>
+
+      <Collapsible
+        title="决策报告"
+        count={decision ? 1 : 0}
+        testid="inspector-decision-report"
+      >
+        <DecisionReportPanel
+          report={decision}
+          loading={decisionLoading}
+          error={decisionError}
+        />
       </Collapsible>
 
       <Collapsible

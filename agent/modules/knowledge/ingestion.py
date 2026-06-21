@@ -91,13 +91,9 @@ def _now_iso() -> str:
 # ── Path security ──
 
 def _ws_root() -> Path:
-    """Workspace root. Mirrors other knowledge modules."""
-    try:
-        import workspace.manager as wm
-        return wm.WS_ROOT
-    except Exception:
-        from artifacts.store import _get_ws_root
-        return _get_ws_root()
+    """Workspace root for managed storage."""
+    from storage.paths import get_workspace_root
+    return get_workspace_root()
 
 
 def _allowed_import_roots(workspace_id: str) -> List[Path]:

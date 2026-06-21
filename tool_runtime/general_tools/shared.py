@@ -11,7 +11,7 @@ from typing import Any, Optional
 
 from tool_runtime.schemas import ToolSpec, ToolInvocation, ToolResult
 from tool_runtime.redaction import redact_tool_output
-from tool_runtime.path_security import safe_workspace_path, _validate_workspace_path
+from tool_runtime.path_security import PathSecurityError, safe_workspace_path
 from workspace.ids import validate_workspace_id
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -19,7 +19,11 @@ WS_ROOT = ROOT / "workspaces"
 
 
 # ═══════════════ Helpers ═══════════════
-# _validate_workspace_path is now imported from tool_runtime.path_security
+def _workspace_path(workspace_id: str, subpath: str = "") -> Path:
+    try:
+        return safe_workspace_path(workspace_id, subpath)
+    except PathSecurityError as exc:
+        raise ValueError(str(exc)) from exc
 # (safe implementation with proper traversal + symlink + encoding checks)
 
 

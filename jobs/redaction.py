@@ -13,13 +13,13 @@ SENSITIVE_KEYS = {
     "source_config", "deployable_config", "config", "raw_config", "full_config",
     "content", "file_content", "report_content", "prompt", "full_prompt",
     "api_key", "key", "token", "password", "passwd", "secret", "community",
-    "authorization", "private_key", "LLM_setting",
+    "authorization", "private_key",
     "MINIMAX_API_KEY", "OPENAI_API_KEY", "DEEPSEEK_API_KEY",
 }
 CONFIG_KEYS = {"source_config", "deployable_config", "config", "raw_config", "full_config"}
 SECRET_KEYS = {"api_key", "key", "token", "password", "passwd", "secret", "community",
                "authorization", "private_key", "MINIMAX_API_KEY", "OPENAI_API_KEY",
-               "DEEPSEEK_API_KEY", "LLM_setting"}
+               "DEEPSEEK_API_KEY"}
 CONTENT_KEYS = {"content", "file_content", "report_content"}
 PROMPT_KEYS = {"prompt", "full_prompt"}
 

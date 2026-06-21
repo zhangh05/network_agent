@@ -21,5 +21,5 @@ Rules:
 7. Do not use host.* for network device analysis.
 8. Do not use web.* to read local workspace files.
 9. Do not invent capability actions or tools.
-10. Do not select deprecated, removed_candidate, alias, or merged tools as planner candidates.
+10. Do not select removed_candidate, alias, or merged tools as planner candidates.
 11. If a required file path or input is missing, set needs_clarification=true.

@@ -174,12 +174,12 @@ class TestToolRuntimeClient:
             "ToolRuntimeClient must not import Memory writer"
         )
 
-    def test_client_does_not_import_retired_state(self):
+    def test_client_does_not_import_agent_state(self):
         import tool_runtime.client
         import inspect
         source = inspect.getsource(tool_runtime.client)
         assert "from agent.state import" not in source, (
-            "ToolRuntimeClient must not import retired agent/state.py"
+            "ToolRuntimeClient must not import agent/state.py"
         )
 
 
@@ -393,8 +393,7 @@ class TestDocContent:
         assert "toolinvocation" in text or "tool invocation" in text, (
             "Doc must reference ToolInvocation"
         )
-        # Must not recommend retired tool_calls
-        assert "agent/state" not in text or "retired" in text
+        assert "agent/state" not in text
 
 
 # ══════════════════════════════════════════════════
@@ -402,7 +401,7 @@ class TestDocContent:
 # ══════════════════════════════════════════════════
 
 class TestNamingBoundary:
-    def test_tool_runtime_no_import_retired(self):
+    def test_tool_runtime_no_import_agent_state(self):
         """Tool Runtime modules must not import from agent/state.py."""
         import importlib, inspect
         modules = [
@@ -416,9 +415,7 @@ class TestNamingBoundary:
             assert "from agent.state import" not in source, (
                 f"{mod_name} must not import from agent.state"
             )
-            assert "tool_calls" not in source, (
-                f"{mod_name} must not reference retired tool_calls"
-            )
+            assert "tool_calls" not in source
 
     def test_tool_runtime_client_no_llm(self):
         import tool_runtime.client

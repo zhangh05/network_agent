@@ -1,15 +1,8 @@
 # agent/skills/registry.py
 """SkillRegistry — thin view over CapabilityRegistry.
 
-v1.0.3.1: SkillRegistry is no longer a parallel source of truth.
-It MUST be constructed with a CapabilityRegistry and reads everything
-through it. There is no default-construct path that loads hardcoded
-skills, eliminating the previous risk of "older skills override
-capability skills" or vice versa.
-
-The compatibility shape (enabled / planned dicts via .snapshot(),
-list_enabled_skills(), list_planned_skills()) is preserved so existing
-callers (harness, runtime) keep working.
+SkillRegistry is not a parallel source of truth. It must be constructed with a
+CapabilityRegistry and reads everything through it.
 """
 
 from __future__ import annotations
@@ -111,11 +104,7 @@ class SkillRegistry:
 
     @classmethod
     def from_capabilities(cls, capability_registry) -> "SkillRegistry":
-        """Build a SkillRegistry from a CapabilityRegistry. Required form.
-
-        Kept for backward-compat with callers that already use this
-        factory method. New code can also call SkillRegistry(cap_reg).
-        """
+        """Build a SkillRegistry from a CapabilityRegistry."""
         return cls(capability_registry)
 
     @property

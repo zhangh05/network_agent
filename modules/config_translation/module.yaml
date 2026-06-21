@@ -63,8 +63,6 @@ artifacts:
 
 memory:
   write_run_summary: true
-  write_full_input: false
-  write_full_output: false
   allowed_memory_types:
     - run_summary
     - decision
@@ -72,8 +70,6 @@ memory:
 
 trace:
   enabled: true
-  record_full_input: false
-  record_full_output: false
   record_counts: true
   record_policy: sanitized_metadata_only
 

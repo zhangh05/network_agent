@@ -94,8 +94,3 @@ def sanitize_runtime_output(data) -> dict:
     Always produces JSON-serializable output.
     """
     return redact_dict(copy.deepcopy(data)) if isinstance(data, dict) else data
-
-
-# ── Retired aliases for backward compatibility ──
-sanitize_output = redact_text
-sanitize_dict = redact_dict

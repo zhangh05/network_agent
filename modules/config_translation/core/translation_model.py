@@ -128,7 +128,7 @@ class ClassifiedTranslation:
         return self.target == TranslationTarget.DEPLOYABLE
 
     def to_review_item(self) -> dict:
-        """Convert to structured review item for evaluator compatibility.
+        """Convert to a structured review item for evaluators.
 
         Uses redacted source_line as source_excerpt. Falls back to line
         only if source_line is empty AND evidence.source_line_unknown is set.
@@ -191,70 +191,6 @@ class TranslationBundle:
     def unknown_items(self) -> List[dict]:
         return [c.to_review_item() for c in self.classified
                 if c.target == TranslationTarget.UNKNOWN]
-
-    @property
-    def full_output(self) -> str:
-        """Backward-compatible full output with deployable + review markers."""
-        parts = [self.deployable_config]
-        for item in self.manual_review_items:
-            parts.append(f"# MANUAL_REVIEW {item.get('source_excerpt', item.get('candidate_line', ''))}")
-        for item in self.unsupported_items:
-            parts.append(f"# MANUAL_REVIEW unsupported source command: {item.get('source_excerpt', '')}")
-        for item in self.semantic_near_items:
-            candidate = item.get('candidate_line', item.get('suggested_line', ''))
-            source = item.get('source_excerpt', item.get('source_line', ''))
-            parts.append(f"# SEMANTIC_NEAR source: {source}  // suggested: {candidate}")
-        return "\n".join(p for p in parts if p)
-
-    @property
-    def wrapped_full_output(self) -> str:
-        """Full output with markdown code fences (old format compatibility)."""
-        body = self.full_output
-        if not body.strip():
-            return ""
-        vendor = "unknown"
-        for c in self.classified:
-            if c.origin and hasattr(c.origin, 'value'):
-                vendor = c.origin.value
-                break
-        return f"```{vendor}\n{body.strip()}\n```"
-
-    # ── Retired compatibility ──
-
-    @property
-    def audit(self) -> Dict[str, Any]:
-        """DEPRECATED: use coverage_audit instead. Kept for backward compat."""
-        ca = self.coverage_audit or {}
-        retired_count = sum(1 for c in self.candidates
-                           if c.provenance in (Provenance.RAW_STRING, Provenance.UNKNOWN))
-        return {
-            "total_candidates": ca.get("candidate_count", len(self.candidates)),
-            "total_classified": ca.get("classified_count", len(self.classified)),
-            "deployable_count": ca.get("deployable_count", 0),
-            "manual_review_count": ca.get("review_count", len(self.manual_review_items)),
-            "unsupported_count": ca.get("unsupported_count", len(self.unsupported_items)),
-            "semantic_near_count": ca.get("semantic_near_count", len(self.semantic_near_items)),
-            "unknown_count": ca.get("unknown_count", len(self.unknown_items)),
-            "exact_candidate_count": ca.get("exact_count", 0),
-            "review_candidate_count": 0,
-            "raw_candidate_count": retired_count,
-        }
-
-    def to_sections(self) -> Dict[str, Any]:
-        """Return dict compatible with old translate_separated() format."""
-        items = {"manual_review": [], "unsupported": []}
-        for citem in self.manual_review_items:
-            items["manual_review"].append(citem)
-        for citem in self.unsupported_items:
-            items["unsupported"].append(citem)
-        return {
-            "deployable_config": self.deployable_config,
-            "manual_review_items": items["manual_review"],
-            "unsupported_items": items["unsupported"],
-            "semantic_near_items": self.semantic_near_items,
-            "full_output": self.wrapped_full_output,
-            "audit": self.audit,
-        }
 
     @property
     def mapping_log(self) -> List[Dict[str, Any]]:

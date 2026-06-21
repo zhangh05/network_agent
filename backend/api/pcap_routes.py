@@ -1,144 +1,135 @@
-"""Pcap analysis API — upload, parse, filter, TCP seq alignment.
+"""PCAP analysis API — upload, parse, filter, TCP seq alignment."""
 
-Backend route layer — delegates to agent.modules.pcap.core for all logic.
-"""
+from flask import jsonify, request
 
-import json
-import hashlib
-from pathlib import Path
-from flask import request, jsonify
-
-from agent.modules.pcap.core import (
-    PCAP_SESSIONS,
-    get_connection_groups,
-    filter_by_5tuple,
-    load_session_from_file,
-    parse_pcap,
-    safe_name,
-    session_meta_path,
-    tcp_stream_align,
+from agent.modules.pcap.service import (
+    align_pcap_tcp,
+    filter_pcap_session,
+    get_pcap_session,
+    parse_pcap_file,
 )
-from agent.modules.knowledge.ingestion import _ws_root
-
-
-def _ensure_pcap_file_record(session_id: str, filename: str, filepath: str, total_pkts: int, groups: list, ws_id: str) -> str:
-    """Create a FileRecord via FileStore. Returns file_id."""
-    try:
-        from storage.file_store import import_user_upload
-        rec = import_user_upload(
-            workspace_id=ws_id, file_source=filepath,
-            original_name=filename, logical_type="pcap_input",
-            file_kind="pcap", binary=True, source="pcap_parse",
-            metadata={"session_id": session_id, "total_packets": total_pkts,
-                       "connection_count": len(groups)},
-        )
-        return rec.file_id
-    except Exception:
-        return f"pcap_{session_id}"
+from workspace.ids import validate_workspace_id
 
 
 def register_pcap_routes(app):
-    """Register pcap analysis API routes."""
+    """Register PCAP analysis API routes."""
 
     @app.route("/api/pcap/parse", methods=["POST"])
     def api_pcap_parse():
-        ws_id = request.form.get("workspace_id", "default")
+        try:
+            ws_id = validate_workspace_id(request.form.get("workspace_id", "default") or "default")
+        except ValueError:
+            return jsonify({"ok": False, "error": "invalid_workspace_id"}), 400
+
         if "file" not in request.files:
             return jsonify({"ok": False, "error": "no file"}), 400
         uploaded = request.files["file"]
         if not uploaded.filename:
             return jsonify({"ok": False, "error": "empty filename"}), 400
 
-        safe = safe_name(uploaded.filename)
-        up_dir = _ws_root() / ws_id / "files" / "upload"
-        up_dir.mkdir(parents=True, exist_ok=True)
-        target = up_dir / safe
-        uploaded.save(str(target))
+        try:
+            from storage.file_store import import_user_upload
 
-        packets = parse_pcap(str(target))
-        if not packets:
-            return jsonify({"ok": False, "error": "无法解析 pcap 文件"}), 400
+            rec = import_user_upload(
+                workspace_id=ws_id,
+                file_source=uploaded.stream,
+                original_name=uploaded.filename,
+                logical_type="pcap_input",
+                file_kind="pcap",
+                binary=True,
+                source="pcap_parse",
+            )
+        except Exception as exc:
+            return jsonify({
+                "ok": False,
+                "error": "pcap_upload_failed",
+                "message": str(exc)[:200],
+            }), 400
 
-        groups = get_connection_groups(packets)
-        session_id = hashlib.md5(open(str(target), "rb").read(1024)).hexdigest()[:12]
-        PCAP_SESSIONS[session_id] = {"filepath": str(target), "packets": packets, "groups": groups}
-
-        meta = {
-            "session_id": session_id, "filepath": str(target),
-            "filename": safe, "total_packets": len(packets), "connections": groups,
-        }
-        session_meta_path(str(target)).write_text(json.dumps(meta, ensure_ascii=False))
-
-        display_name = uploaded.filename or safe
-        file_id = _ensure_pcap_file_record(session_id, display_name, str(target), len(packets), groups, ws_id)
+        result = parse_pcap_file(ws_id, file_id=rec.file_id)
+        if not result.get("ok"):
+            errors = result.get("errors") or ["pcap_parse_failed"]
+            return jsonify({
+                "ok": False,
+                "error": str(errors[0]),
+                "message": result.get("summary", "无法解析 pcap 文件"),
+            }), 400
 
         return jsonify({
-            "ok": True, "session_id": session_id, "file_id": file_id,
-            "filename": safe, "total_packets": len(packets),
-            "connections": groups,
-            "summary": f"共 {len(packets)} 个报文, {len(groups)} 条连接",
+            "ok": True,
+            "session_id": result.get("session_id", ""),
+            "file_id": rec.file_id,
+            "filename": result.get("filename", uploaded.filename),
+            "total_packets": result.get("total_packets", 0),
+            "connections": result.get("connections", []),
+            "summary": result.get("summary", ""),
+        })
+
+    @app.route("/api/pcap/parse-file", methods=["POST"])
+    def api_pcap_parse_file():
+        data = request.get_json(force=True) or {}
+        try:
+            ws_id = validate_workspace_id(data.get("workspace_id", "default") or "default")
+        except ValueError:
+            return jsonify({"ok": False, "error": "invalid_workspace_id"}), 400
+        file_id = str(data.get("file_id", "") or "")
+        if not file_id:
+            return jsonify({"ok": False, "error": "missing_file_id"}), 400
+
+        result = parse_pcap_file(ws_id, file_id=file_id)
+        if not result.get("ok"):
+            errors = result.get("errors") or ["pcap_parse_failed"]
+            return jsonify({
+                "ok": False,
+                "error": str(errors[0]),
+                "message": result.get("summary", "无法解析 pcap 文件"),
+            }), 400
+
+        return jsonify({
+            "ok": True,
+            "session_id": result.get("session_id", ""),
+            "file_id": file_id,
+            "filename": result.get("filename", ""),
+            "total_packets": result.get("total_packets", 0),
+            "connections": result.get("connections", []),
+            "summary": result.get("summary", ""),
         })
 
     @app.route("/api/pcap/session/<session_id>", methods=["GET"])
     def api_pcap_session(session_id):
-        session = PCAP_SESSIONS.get(session_id) or load_session_from_file(session_id)
-        if not session:
-            import os
-            for ws_dir in _ws_root().iterdir():
-                if not ws_dir.is_dir() or ws_dir.name.startswith("_"):
-                    continue
-                for src_name in ("upload", "agent"):
-                    up = ws_dir / "files" / src_name
-                    if not up.exists():
-                        continue
-                    for fname in os.listdir(str(up)):
-                        if not fname.endswith(".meta.json"):
-                            continue
-                        try:
-                            meta = json.loads((up / fname).read_text())
-                            if meta.get("session_id") == session_id:
-                                return jsonify({"ok": True, **meta})
-                        except Exception:
-                            continue
+        ws_id = request.args.get("workspace_id", "default") or "default"
+        result = get_pcap_session(session_id, workspace_id=ws_id)
+        if not result.get("ok"):
             return jsonify({"ok": False, "error": "session not found"}), 404
-        return jsonify({
-            "ok": True, "session_id": session_id,
-            "filename": Path(session["filepath"]).name,
-            "total_packets": len(session["packets"]),
-            "connections": session.get("groups", []),
-        })
+        return jsonify(result)
 
     @app.route("/api/pcap/filter", methods=["POST"])
     def api_pcap_filter():
         data = request.get_json(force=True)
-        session_id = data.get("session_id", "")
-        session = PCAP_SESSIONS.get(session_id) or load_session_from_file(session_id)
-        if not session:
-            return jsonify({"ok": False, "error": "session not found"}), 404
-        filtered = filter_by_5tuple(
-            session["packets"], data.get("src", ""), data.get("sport", 0),
-            data.get("dst", ""), data.get("dport", 0),
+        result = filter_pcap_session(
+            data.get("session_id", ""),
+            src=data.get("src", ""),
+            sport=data.get("sport", 0),
+            dst=data.get("dst", ""),
+            dport=data.get("dport", 0),
+            workspace_id=data.get("workspace_id", "default") or "default",
         )
-        session["filtered"] = filtered
-        return jsonify({
-            "ok": True, "count": len(filtered),
-            "packets": filtered[:500], "truncated": len(filtered) > 500,
-        })
+        if not result.get("ok"):
+            return jsonify({"ok": False, "error": "session not found"}), 404
+        return jsonify(result)
 
     @app.route("/api/pcap/align", methods=["POST"])
     def api_pcap_align():
         data = request.get_json(force=True)
-        session_id = data.get("session_id", "")
-        session = PCAP_SESSIONS.get(session_id) or load_session_from_file(session_id)
-        if not session:
+        result = align_pcap_tcp(
+            data.get("session_id", ""),
+            src=data.get("src", ""),
+            sport=data.get("sport", 0),
+            dst=data.get("dst", ""),
+            dport=data.get("dport", 0),
+            use_filter=all(k in data for k in ("src", "sport", "dst", "dport")),
+            workspace_id=data.get("workspace_id", "default") or "default",
+        )
+        if not result.get("ok"):
             return jsonify({"ok": False, "error": "session not found"}), 404
-        packets = session.get("packets", [])
-        if all(k in data for k in ("src", "sport", "dst", "dport")):
-            filtered = filter_by_5tuple(
-                packets, data.get("src", ""), data.get("sport", 0),
-                data.get("dst", ""), data.get("dport", 0),
-            )
-        else:
-            filtered = session.get("filtered", packets)
-        result = tcp_stream_align(filtered)
-        return jsonify({"ok": True, **result})
+        return jsonify(result)

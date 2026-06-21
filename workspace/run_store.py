@@ -103,9 +103,15 @@ def write_run_record(state, ws_id: str = "default") -> str:
         "redaction_applied": True,
     }
 
-    (run_dir / f"{run_id}.json").write_text(
-        json.dumps(record, indent=2, ensure_ascii=False)
+    # ── Atomic write: tmp → rename (P2-A: crash-safe) ──
+    from pathlib import Path
+    record_path = run_dir / f"{run_id}.json"
+    tmp_path = record_path.with_suffix(".tmp")
+    tmp_path.write_text(
+        json.dumps(record, indent=2, ensure_ascii=False),
+        encoding="utf-8",
     )
+    tmp_path.rename(record_path)
 
     # Associate run with session if session_id is present
     if state.session_id:
@@ -210,7 +216,7 @@ def list_runs(ws_id: str = "default", limit: int = 50) -> list:
 
     runs = []
     for f in sorted(runs_dir.glob("*.json"), reverse=True):
-        if f.name.endswith(".trace.json"):
+        if not _is_run_record_file(f):
             continue
         try:
             runs.append(_normalize_run_record(json.loads(f.read_text())))
@@ -218,6 +224,22 @@ def list_runs(ws_id: str = "default", limit: int = 50) -> list:
             pass
     runs.sort(key=run_sort_key, reverse=True)
     return runs[:limit]
+
+
+def _is_run_record_file(path: Path) -> bool:
+    """Return True only for canonical run records.
+
+    The runs directory also stores sidecar JSON documents such as
+    ``*.trace.json`` and ``*.decision.json``. Those must never be surfaced as
+    user-visible run rows.
+    """
+    name = path.name
+    if not name.endswith(".json"):
+        return False
+    return not (
+        name.endswith(".trace.json")
+        or name.endswith(".decision.json")
+    )
 
 
 def run_sort_key(record: dict) -> tuple:
@@ -316,7 +338,13 @@ def write_sub_agent_run(
     }
 
     run_dir.mkdir(parents=True, exist_ok=True)
-    (run_dir / f"{run_id}.json").write_text(
-        json.dumps(record, indent=2, ensure_ascii=False)
+    # ── Atomic write: tmp → rename (P2-A: crash-safe) ──
+    from pathlib import Path
+    record_path = run_dir / f"{run_id}.json"
+    tmp_path = record_path.with_suffix(".tmp")
+    tmp_path.write_text(
+        json.dumps(record, indent=2, ensure_ascii=False),
+        encoding="utf-8",
     )
+    tmp_path.rename(record_path)
     return run_id

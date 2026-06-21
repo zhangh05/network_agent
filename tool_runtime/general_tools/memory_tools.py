@@ -1,7 +1,7 @@
 """Memory tool handlers — uses unified ContextStore.
 
-v3.1.0: All operations go through memory.store (ContextStoreAdapter)
-and context.context_store (ContextStore). No legacy JSONL backends.
+All operations go through memory.store (ContextStoreAdapter)
+and context.context_store (ContextStore).
 """
 from tool_runtime.general_tools.shared import *
 

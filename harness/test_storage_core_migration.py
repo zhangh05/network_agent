@@ -1,5 +1,5 @@
 # harness/test_storage_core_migration.py
-"""Tests for core FileStore migration: artifact writes, message store, PCAP file_id."""
+"""Tests for core FileStore behavior: artifact writes, message store, PCAP file_id."""
 
 import json
 import os
@@ -55,9 +55,7 @@ def test_save_artifact_writes_through_filestore(storage_ws):
     matched = [f for f in files if f.get("file_id") == rec.file_id]
     assert matched, "FileRecord must exist in index"
     assert matched[0]["metadata"].get("write_path") == "filestore"
-    # Verify file is in FileStore-managed directory, not legacy files/agent/
     assert matched[0]["path"].startswith("files/agent_output/")
-    assert not matched[0]["path"].startswith("files/agent/")
 
     # Verify physical file path
     physical = resolve_file_path("test_ws", rec.file_id)
@@ -65,9 +63,9 @@ def test_save_artifact_writes_through_filestore(storage_ws):
     assert physical.exists()
 
 
-def test_new_artifact_does_not_write_legacy_content_file(storage_ws):
-    """New artifacts must not write content files under files/agent/ — only meta.json is allowed."""
+def test_new_artifact_writes_current_content_file(storage_ws):
     from artifacts.store import save_artifact
+    from storage.file_store import resolve_file_path
 
     rec = save_artifact(
         workspace_id="test_ws",
@@ -76,10 +74,8 @@ def test_new_artifact_does_not_write_legacy_content_file(storage_ws):
         title="new report",
     )
 
-    legacy_files = list((storage_ws / "test_ws" / "files" / "agent").glob("*new_report*"))
-    legacy_content_files = [p for p in legacy_files if not p.name.endswith(".meta.json")]
-    assert legacy_content_files == []
     assert rec.file_id
+    assert resolve_file_path("test_ws", rec.file_id).is_file()
 
 
 def test_save_artifact_creates_reference_index(storage_ws):
@@ -160,7 +156,6 @@ def test_pcap_parse_accepts_file_id(storage_ws):
 
 def test_pcap_parse_no_sidecar_written(storage_ws):
     """New parses should not write <pcap>.meta.json sidecar files."""
-    from agent.modules.pcap.core import session_meta_path
     from agent.modules.pcap.service import parse_pcap_file
 
     # Even if parse fails, no sidecar should be written for new parses

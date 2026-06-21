@@ -125,7 +125,7 @@ class ActionExecutor:
 
 
 def _emit_events(events, tid: str, step: int, result: ActionResult) -> None:
-    """Emit tool-level events for pipeline compatibility."""
+    """Emit tool-level events for the execution pipeline."""
     ok = result.ok
     summary = ""
     if result.error:

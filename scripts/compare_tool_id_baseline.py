@@ -1,9 +1,5 @@
 #!/usr/bin/env python3
-"""v3.0 baseline check: every canonical_tool_id has a handler.
-
-This replaces the v2.x retired baseline comparison that referenced
-baselines/*.txt files (which have been deleted in v3.0).
-"""
+"""v3.0 baseline check: every canonical_tool_id has a handler."""
 
 from __future__ import annotations
 

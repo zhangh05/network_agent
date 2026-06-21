@@ -50,15 +50,26 @@ def test_planner_visible_only_when_active():
             assert entry.planner_visible is False
 
 
-def test_no_retired_aliases_in_public_surface():
-    """Public surface must not expose transition / migration fields."""
+def test_public_namespace_metadata_fields_are_current():
     from tool_runtime.tool_namespace import TOOL_NAMESPACE
+    allowed_fields = {
+        "action",
+        "canonical_tool_id",
+        "category",
+        "description",
+        "display_name",
+        "group",
+        "name",
+        "not_for",
+        "risk",
+        "schema",
+        "short_label",
+        "tags",
+        "usage_hint",
+    }
     for entry in TOOL_NAMESPACE.values():
         meta = entry.metadata()
-        # These keys must NOT appear in public namespace metadata.
-        for forbidden in ("execution_tool_id", "retired_tool_ids",
-                          "replacement", "migration_notes"):
-            assert forbidden not in meta
+        assert set(meta) <= allowed_fields
 
 
 def test_capability_actions_resolve_to_canonical():

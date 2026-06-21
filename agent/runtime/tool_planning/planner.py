@@ -122,6 +122,19 @@ class ToolPlannerV2:
         }
         if "capability_routing" in available_catalog:
             plan["capability_routing"] = available_catalog["capability_routing"]
+
+        # ── Build ToolPlanningDecision (hard contract for audit/inspection) ──
+        from agent.runtime.tool_planning.decision import ToolPlanningDecision
+        from agent.runtime.tool_planning.policy import ToolPlanningPolicy
+
+        policy = ToolPlanningPolicy.default()
+        decision = ToolPlanningDecision.from_plan(
+            plan,
+            capability_route=plan.get("capability_routing"),
+            policy=policy,
+        )
+        plan["tool_planning_decision"] = decision.to_dict()
+
         return plan
 
     def _apply_evidence_adjustments(

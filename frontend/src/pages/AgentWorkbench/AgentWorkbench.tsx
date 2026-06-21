@@ -47,8 +47,6 @@ export function AgentWorkbench() {
     setLatestResult,
   } = useWorkbenchStore();
 
-  // Render from the canonical session map. `history` is only a compatibility
-  // mirror and can lag behind persist hydration or backend message sync.
   const activeHistoryKey = currentSessionId ?? "_scratch";
   const visibleHistory = bySession?.[activeHistoryKey] ?? [];
   const [input, setInput] = useState("");

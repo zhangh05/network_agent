@@ -10,7 +10,7 @@ Implemented in this branch:
 - Implicit sessions now use UUID-based ids instead of `session_{len(self._sessions)}`.
 - Turns for the same session are serialized with a per-session turn lock.
 - Different sessions can still run concurrently.
-- HTTP `stream=true` is explicitly marked as `event_replay`, not true live streaming.
+- HTTP streaming uses `stream_mode=event_replay`; true live streaming uses WebSocket.
 - WebSocket execution continues to use the shared `AgentApp.submit_user_message()` contract.
 - WebSocket `StreamEmitter` callback is set inside the worker thread, where thread-local callbacks actually apply.
 - Harness coverage includes same-session turn serialization without invoking a real LLM provider.

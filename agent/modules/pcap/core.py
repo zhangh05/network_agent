@@ -9,53 +9,12 @@ import from here.
 from __future__ import annotations
 
 import hashlib
-import json
-import os
 import re
-from pathlib import Path
 from typing import Any
 
 # ── Session state ────────────────────────────────────────────────────
 
 PCAP_SESSIONS: dict[str, dict] = {}
-
-
-def session_meta_path(filepath: str) -> Path:
-    return Path(str(filepath) + ".meta.json")
-
-
-def load_session_from_file(session_id: str) -> dict | None:
-    """Try to re-parse a session from its saved file + meta."""
-    try:
-        from agent.modules.knowledge.ingestion import _ws_root
-        ws_root = _ws_root()
-    except Exception:
-        return None
-    if not ws_root.exists():
-        return None
-    for ws_dir in ws_root.iterdir():
-        if not ws_dir.is_dir() or ws_dir.name.startswith("_"):
-            continue
-        for src_name in ("upload", "agent"):
-            up_dir = ws_dir / "files" / src_name
-            if not up_dir.exists():
-                continue
-            for fname in os.listdir(str(up_dir)):
-                if not fname.endswith(".meta.json"):
-                    continue
-                try:
-                    meta = json.loads((up_dir / fname).read_text())
-                    if meta.get("session_id") == session_id:
-                        filepath = meta["filepath"]
-                        packets = parse_pcap(filepath)
-                        if packets:
-                            groups = get_connection_groups(packets)
-                            session = {"filepath": filepath, "packets": packets, "groups": groups}
-                            PCAP_SESSIONS[session_id] = session
-                            return session
-                except Exception:
-                    continue
-    return None
 
 
 def safe_name(filename: str) -> str:

@@ -78,7 +78,6 @@ def check_token_limit(messages, context, session, turn, step):
                 )
                 metric_dict = metric.to_dict()
 
-                # Backwards-compatible warning string
                 turn.warnings.append(
                     f"context_compacted[{strategy.value}]: "
                     f"{meta.get('compacted_message_count', 0)} msgs, "
@@ -106,25 +105,6 @@ def check_token_limit(messages, context, session, turn, step):
                         turn.warnings.append("compaction_post_hook_signaled_stop")
                 except Exception:
                     pass
-
-                # ── ON_COMPACT hook (legacy; kept for backwards compat) ──
-                try:
-                    if registry._hooks:
-                        registry.run_hooks(
-                            HookEvent.ON_COMPACT,
-                            state,
-                            {
-                                "compacted_message_count": metric.compacted_message_count,
-                                "original_estimated_tokens": metric.original_estimated_tokens,
-                                "compacted_estimated_tokens": metric.compacted_estimated_tokens,
-                                "strategy": strategy.value,
-                                "reference_context_item_id": metric.reference_context_item_id,
-                            },
-                            target="context",
-                        )
-                except Exception:
-                    pass
-
                 # Emit COMPACT stream event with full metric
                 from agent.runtime.query_engine import StreamEvent
                 emitter = getattr(context, '_stream_emitter', None)

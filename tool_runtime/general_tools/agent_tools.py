@@ -130,7 +130,6 @@ def handle_agent_team(inv: ToolInvocation) -> dict:
                 if parsed_json is not None:
                     subtasks = parsed_json
                 else:
-                    # Legacy fallback: numbered list (kept for LLM compatibility).
                     for line in plan_text.split("\n"):
                         stripped = line.strip()
                         if stripped and (stripped[0].isdigit() and (". " in stripped or ") " in stripped or "、".encode() in stripped.encode())):

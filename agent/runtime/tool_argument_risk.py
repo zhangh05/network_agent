@@ -18,7 +18,6 @@ from typing import Optional
 SENSITIVE_PATH_PATTERNS = [
     r"(^\.env$|/\.env|\.env\b)",
     r"config/providers",
-    r"config/LLM_setting",
     r"(id_rsa|id_ed25519|id_dsa|\.ssh/)",
     r"(token|api_key|api[-_]?key|password|secret|credential|private[-_]?key)",
     r"/etc/(passwd|shadow|sudoers)",

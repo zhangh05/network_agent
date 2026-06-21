@@ -16,7 +16,7 @@ def handle_pdf_extract_text(inv: ToolInvocation) -> dict:
 
     # Validate workspace path
     try:
-        target = _validate_workspace_path(ws, filepath)
+        target = _workspace_path(ws, filepath)
     except ValueError as e:
         return _error_inv(inv, str(e))
 

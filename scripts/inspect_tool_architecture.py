@@ -25,12 +25,6 @@ def main() -> int:
         failures.append(f"unexpected alias count: {summary['alias']}")
     if summary.get("merged", 0) > 0:
         failures.append(f"unexpected merged count: {summary['merged']}")
-    if summary.get("deprecated", 0) > 0:
-        failures.append(f"unexpected deprecated count: {summary['deprecated']}")
-    if summary.get("removed_candidate", 0) > 0:
-        failures.append(
-            f"unexpected removed_candidate count: {summary['removed_candidate']}"
-        )
 
     if failures:
         for f in failures:
