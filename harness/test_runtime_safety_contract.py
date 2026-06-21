@@ -131,9 +131,9 @@ class TestRedaction:
         result = redact_dict({"data": "hello", "password": "x"})
         json.dumps(result)  # must not raise
 
-    def test_sanitize_output(self):
-        from runtime.redaction import sanitize_output
-        result = sanitize_output("password secret123")
+    def test_redact_text_output(self):
+        from runtime.redaction import redact_text
+        result = redact_text("password secret123")
         assert "secret123" not in result
 
 

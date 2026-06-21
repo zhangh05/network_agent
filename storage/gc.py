@@ -7,7 +7,7 @@ from pathlib import Path
 from typing import Any
 
 from storage.paths import workspace_root
-from storage.file_store import list_files, _index_path
+from storage.file_store import list_files
 
 
 def find_orphan_files(workspace_id: str) -> list[dict]:

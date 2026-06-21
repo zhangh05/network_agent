@@ -436,58 +436,57 @@ class TestMultiWorkspace:
 
         def write_ws1(i):
             try:
-                with patch("storage.index.workspace_root", side_effect=ws_root_side_effect):
-                    append_file_record("ws1", {
-                        "file_id": f"ws1_file_{i:04d}",
-                        "workspace_id": "ws1",
-                        "logical_type": "user_upload",
-                        "file_kind": "text",
-                        "path": f"ws1/file_{i}.txt",
-                        "original_name": "t.txt",
-                        "mime_type": "text/plain",
-                        "binary": False,
-                        "size_bytes": i,
-                        "sha256": f"h{i}",
-                        "created_at": "2026-06-21T00:00:00Z",
-                        "created_by": "test",
-                        "lifecycle": "active",
-                        "source": "test",
-                        "metadata": {},
-                    })
+                append_file_record("ws1", {
+                    "file_id": f"ws1_file_{i:04d}",
+                    "workspace_id": "ws1",
+                    "logical_type": "user_upload",
+                    "file_kind": "text",
+                    "path": f"ws1/file_{i}.txt",
+                    "original_name": "t.txt",
+                    "mime_type": "text/plain",
+                    "binary": False,
+                    "size_bytes": i,
+                    "sha256": f"h{i}",
+                    "created_at": "2026-06-21T00:00:00Z",
+                    "created_by": "test",
+                    "lifecycle": "active",
+                    "source": "test",
+                    "metadata": {},
+                })
             except Exception as e:
                 errors.append(f"ws1:{e}")
 
         def write_ws2(i):
             try:
-                with patch("storage.index.workspace_root", side_effect=ws_root_side_effect):
-                    append_file_record("ws2", {
-                        "file_id": f"ws2_file_{i:04d}",
-                        "workspace_id": "ws2",
-                        "logical_type": "user_upload",
-                        "file_kind": "text",
-                        "path": f"ws2/file_{i}.txt",
-                        "original_name": "t.txt",
-                        "mime_type": "text/plain",
-                        "binary": False,
-                        "size_bytes": i,
-                        "sha256": f"h{i}",
-                        "created_at": "2026-06-21T00:00:00Z",
-                        "created_by": "test",
-                        "lifecycle": "active",
-                        "source": "test",
-                        "metadata": {},
-                    })
+                append_file_record("ws2", {
+                    "file_id": f"ws2_file_{i:04d}",
+                    "workspace_id": "ws2",
+                    "logical_type": "user_upload",
+                    "file_kind": "text",
+                    "path": f"ws2/file_{i}.txt",
+                    "original_name": "t.txt",
+                    "mime_type": "text/plain",
+                    "binary": False,
+                    "size_bytes": i,
+                    "sha256": f"h{i}",
+                    "created_at": "2026-06-21T00:00:00Z",
+                    "created_by": "test",
+                    "lifecycle": "active",
+                    "source": "test",
+                    "metadata": {},
+                })
             except Exception as e:
                 errors.append(f"ws2:{e}")
 
-        threads = []
-        for i in range(10):
-            threads.append(threading.Thread(target=write_ws1, args=(i,)))
-            threads.append(threading.Thread(target=write_ws2, args=(i,)))
-        for t in threads:
-            t.start()
-        for t in threads:
-            t.join()
+        with patch("storage.index.workspace_root", side_effect=ws_root_side_effect):
+            threads = []
+            for i in range(10):
+                threads.append(threading.Thread(target=write_ws1, args=(i,)))
+                threads.append(threading.Thread(target=write_ws2, args=(i,)))
+            for t in threads:
+                t.start()
+            for t in threads:
+                t.join()
 
         assert not errors, f"Multi-workspace errors: {errors}"
 
