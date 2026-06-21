@@ -11,6 +11,7 @@ import { useSessionStore } from "../../stores/session";
 import type { RuntimeAuditTurn } from "../../types";
 import { IconAlert, IconClock } from "../../components/Icon";
 import { APP_EVENTS } from "../../utils/appEvents";
+import { formatEventTime, formatEventDetail, formatEventLabel } from "../../utils/runEvent";
 
 const STATUS_LABEL: Record<string, string> = {
   ok: "成功",
@@ -201,7 +202,7 @@ export function RuntimeAudit() {
                         const failedEv = trace.state.data.events.find(
                           (ev: any) => ev.event_type === "turn_failed" || ev.type === "turn_failed",
                         );
-                        const failedDetails = failedEv ? eventDetails(failedEv) : {};
+                        const failedDetails = failedEv ? formatEventDetail(failedEv) : {};
                         const error = failedDetails.error || failedEv?.summary || failedDetails || "";
                         // Extract timeout duration if available
                         const timeoutSecs = (() => {
@@ -211,8 +212,8 @@ export function RuntimeAudit() {
                           const modelResp = trace.state.data.events.find(
                             (ev: any) => ev.type === "model_response" || ev.event_type === "model_response",
                           );
-                          const reqTime = modelReq ? eventTime(modelReq) : "";
-                          const respTime = modelResp ? eventTime(modelResp) : "";
+                          const reqTime = modelReq ? formatEventTime(modelReq) : "";
+                          const respTime = modelResp ? formatEventTime(modelResp) : "";
                           if (reqTime && respTime) {
                             const t0 = new Date(reqTime).getTime();
                             const t1 = new Date(respTime).getTime();
@@ -244,8 +245,8 @@ export function RuntimeAudit() {
                       })()}
                       {trace.state.data.events.map((ev) => {
                         const eventType = ev.event_type || ev.type || "unknown";
-                        const details = eventDetails(ev);
-                        const label = _eventLabel(eventType, details, ev);
+                        const details = formatEventDetail(ev);
+                        const label = formatEventLabel(ev);
                         const isOk = eventType !== "turn_failed";
                         return (
                         <div
@@ -258,7 +259,7 @@ export function RuntimeAudit() {
                               <span className={"status-dot " + (isOk ? "ok" : "err")} style={{ width: 8, height: 8 }} />
                               <span className="text-sm">{label}</span>
                             </span>
-                            <span className="muted text-xs mono">{eventTime(ev)}</span>
+                            <span className="muted text-xs mono">{formatEventTime(ev)}</span>
                           </div>
                           <details className="collapse mt-2">
                             <summary style={{ fontSize: 11, color: "var(--ink-mute)" }}>开发诊断 · {eventType}</summary>
@@ -294,43 +295,3 @@ function auditTime(turn: RuntimeAuditTurn): string {
   }
 }
 
-function eventTime(ev: RuntimeAuditTurn["events"][number]): string {
-  const value = ev.occurred_at || ev.timestamp;
-  return value == null ? "—" : String(value);
-}
-
-function eventDetails(ev: RuntimeAuditTurn["events"][number]): Record<string, unknown> {
-  return ev.payload || ev.metadata || {};
-}
-
-function _eventLabel(
-  type: string,
-  payload: Record<string, unknown>,
-  ev?: RuntimeAuditTurn["events"][number],
-): string {
-  const toolId = typeof payload?.canonical_tool_id === "string"
-    ? payload.canonical_tool_id
-    : (typeof payload?.tool_id === "string" ? payload.tool_id : "?");
-  const map: Record<string, string> = {
-    turn_started: "开始处理请求",
-    context_built: "构建上下文",
-    model_request_started: "发起模型请求",
-    model_response_received: "模型返回响应",
-    tool_call_started: `调用工具：${toolId}`,
-    tool_call_finished: `工具完成：${toolId}`,
-    tool_call_failed: `工具失败：${toolId}`,
-    assistant_message: "生成回复",
-    turn_finished: "处理完成",
-    turn_failed: `处理失败：${String(payload?.error || payload || "").slice(0, 60)}`,
-    agent_start: ev?.summary || "开始处理请求",
-    agent_end: ev?.summary || "处理完成",
-    node_start: `开始节点：${ev?.name || "?"}`,
-    node_end: `完成节点：${ev?.name || "?"}`,
-    intent_routed: ev?.summary || "完成意图路由",
-    skill_call_start: `开始技能：${ev?.name || "?"}`,
-    skill_call_end: `完成技能：${ev?.name || "?"}`,
-    module_call_start: `开始模块：${ev?.name || "?"}`,
-    module_call_end: `完成模块：${ev?.name || "?"}`,
-  };
-  return map[type] || ev?.summary || ev?.name || type;
-}

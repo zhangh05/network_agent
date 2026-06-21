@@ -57,7 +57,7 @@ function verdictSummary(res: AnalysisResult): string {
 }
 
 export function PacketAnalysis() {
-  const { currentWorkspaceId } = useSessionStore();
+  const currentWorkspaceId = useSessionStore((s) => s.currentWorkspaceId);
   const wsId = currentWorkspaceId || "default";
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
@@ -106,6 +106,7 @@ export function PacketAnalysis() {
   useEffect(() => {
     if (triedRestore.current) return;
     triedRestore.current = true;
+    const aborted = new AbortController();
 
     // Try URL param first (from FileManager "打开分析" link)
 	    const sidFromUrl = searchParams.get("sid");
@@ -114,6 +115,7 @@ export function PacketAnalysis() {
 	      apiRequest<{ ok: boolean; session_id: string; filename: string; total_packets: number; connections: ConnectionGroup[] }>({
 	        method: "GET", url: `/pcap/session/${sidFromUrl}`, params: { workspace_id: wsId },
 	      }).then(res => {
+        if (aborted.signal.aborted) return;
 	        if (!res.ok) return;
         setSessionId(res.session_id);
         setFilename(res.filename);
@@ -121,7 +123,7 @@ export function PacketAnalysis() {
         setConnections(res.connections || []);
         sessionStorage.setItem("pcap_session", JSON.stringify({ sessionId: res.session_id, filename: res.filename }));
       }).catch(() => {});
-      return;
+      return () => { aborted.abort(); };
     }
 
     // Fallback to localStorage
@@ -133,12 +135,14 @@ export function PacketAnalysis() {
 	    apiRequest<{ ok: boolean; session_id: string; filename: string; total_packets: number; connections: ConnectionGroup[] }>({
 	      method: "GET", url: `/pcap/session/${sid}`, params: { workspace_id: wsId },
 	    }).then(res => {
+        if (aborted.signal.aborted) return;
 	      if (!res.ok) { sessionStorage.removeItem("pcap_session"); return; }
       setSessionId(res.session_id);
       setFilename(res.filename);
       setTotalPackets(res.total_packets);
       setConnections(res.connections || []);
     }).catch(() => sessionStorage.removeItem("pcap_session"));
+    return () => { aborted.abort(); };
   }, []);
 
   const filteredConnections = (connections || []).filter(t => {

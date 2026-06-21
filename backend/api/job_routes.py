@@ -83,7 +83,11 @@ def register_job_routes(app):
             if not rec:
                 return jsonify({"ok": False, "error": "job not found"}), 404
             return jsonify({"ok": True, "job": sanitize_job_record_for_api(rec.as_dict())})
-        for j in list_jobs():
+        try:
+            jobs = list_jobs()
+        except Exception:
+            return jsonify({"ok": False, "error": "failed to list jobs"}), 500
+        for j in jobs:
             if j.get("job_id") == job_id:
                 return jsonify({"ok": True, "job": j})
         return jsonify({"ok": False, "error": "job not found"}), 404

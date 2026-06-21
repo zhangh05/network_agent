@@ -22,8 +22,8 @@ interface MemEntry {
 }
 
 export function MemoryPage() {
-  const store = useSessionStore();
-  const wsId = store.currentWorkspaceId || "default";
+  const currentWorkspaceId = useSessionStore((s) => s.currentWorkspaceId);
+  const wsId = currentWorkspaceId || "default";
   const [entries, setEntries] = useState<MemEntry[]>([]);
   const [loading, setLoading] = useState(true);
   const [searchQ, setSearchQ] = useState("");

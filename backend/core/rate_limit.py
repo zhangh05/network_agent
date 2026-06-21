@@ -102,7 +102,7 @@ def _get_limiter(endpoint: str, client_ip: str) -> _WindowCounter:
 
     with _limiters_lock:
         # Periodic eviction of stale limiters (every ~1000 calls)
-        if len(_limiters) > 100:
+        if len(_limiters) > 50:
             stale = [k for k, (_, t) in _limiters.items() if now - t > _LIMITER_TTL]
             for k in stale:
                 del _limiters[k]

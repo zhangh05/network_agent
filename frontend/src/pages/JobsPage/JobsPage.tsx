@@ -164,7 +164,7 @@ export function JobsPage() {
         const d = await workspacesApi.recentRuns(wsId, sid);
         setRuns((d?.runs ?? []) as RunSummary[]);
       } catch { setRuns([]); }
-      setRunsLoading(false);
+      finally { setRunsLoading(false); }
     } else {
       setRuns([]);
     }

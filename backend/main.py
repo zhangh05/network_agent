@@ -83,11 +83,13 @@ def create_app():
     # ── Health ──
     @app.route("/api/health")
     def api_health():
-        return {
+        from backend.core.responses import ok_response
+        body, _ = ok_response({
             "status": "ok",
             "api_mode": API_MODE,
             "skills_loaded": get_skill_count(),
-        }
+        })
+        return jsonify(body)
 
     # ── Version ──
     @app.route("/api/version")

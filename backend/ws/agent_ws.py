@@ -187,7 +187,7 @@ def _run_agent_thread(user_input, session_id, workspace_id, metadata, event_queu
                 from jobs.manager import create_job, mark_running, update_progress
 
                 job_id = None
-                for j in list_jobs(ws_id=workspace_id, limit=100):
+                for j in list_jobs(ws_id=workspace_id, limit=500):
                     p = j.get("payload", {}) or {}
                     if p.get("session_id") == effective_session_id and j.get("status") in ("created","queued","running","succeeded","failed","paused","cancelled"):
                         job_id = j.get("job_id", "")
@@ -238,7 +238,9 @@ def _run_agent_thread(user_input, session_id, workspace_id, metadata, event_queu
 
         if result_payload.get("final_response"):
             from agent.llm.runtime import sanitize_provider_output
-            result_payload["final_response"], _ = sanitize_provider_output(result_payload["final_response"])
+            result_payload["final_response"], stripped = sanitize_provider_output(result_payload["final_response"])
+            if stripped:
+                result_payload.setdefault("metadata", {})["reasoning_stripped"] = True
 
         # Fallback: if no live events were emitted, replay collected events so
         # older runtime paths still produce observable progress data.

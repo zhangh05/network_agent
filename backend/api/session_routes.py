@@ -213,7 +213,7 @@ def handle_session_restore(session_id):
     # Re-activate the job if it was completed/cancelled
     try:
         from jobs.store import get_job, update_job, list_jobs
-        for j in list_jobs(ws_id=ws_id, limit=100):
+        for j in list_jobs(ws_id=ws_id, limit=500):
             p = j.get("payload", {}) or {}
             if p.get("session_id") == session_id and j.get("status") in ("succeeded", "failed", "cancelled"):
                 job_id = j.get("job_id", "")

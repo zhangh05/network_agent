@@ -60,7 +60,7 @@ def is_public_path(path: str) -> bool:
         return True
     # Prefix matches
     for prefix in _PUBLIC_PREFIXES:
-        if path == prefix or path.startswith(prefix + "/") or path == prefix:
+        if path == prefix or path.startswith(prefix + "/"):
             return True
     # Non-API paths (static frontend resources)
     if not path.startswith("/api/"):

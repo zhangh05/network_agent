@@ -15,7 +15,7 @@ import { IconBook, IconDocument, IconPlus, IconRefresh, IconSearch } from "../..
 import { shortId } from "../../utils/displayText";
 
 export function KnowledgeLibrary() {
-  const { currentWorkspaceId } = useSessionStore();
+  const currentWorkspaceId = useSessionStore((s) => s.currentWorkspaceId);
   const toast = useToastStore((s) => s.show);
   const [query, setQuery] = useState("");
   const [scope, setScope] = useState<"workspace" | "global" | "session">("workspace");
@@ -45,7 +45,7 @@ export function KnowledgeLibrary() {
       currentWorkspaceId && query.trim()
         ? knowledgeApi.search(query, currentWorkspaceId, undefined, s)
         : Promise.resolve(null),
-    [currentWorkspaceId],  // only auto-search on workspace change; manual trigger via Enter/button
+    [currentWorkspaceId, query],  // auto-search on workspace or query change; manual trigger via Enter/button
   );
 
   const artifacts = useAsync<{ artifacts: { artifact_id: string; title?: string }[] }>(

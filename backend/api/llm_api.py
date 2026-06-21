@@ -55,7 +55,7 @@ def handle_llm_config_get():
         result["global"] = True
         return jsonify(result)
     except Exception:
-        pass
+        logging.getLogger(__name__).warning("LLM config read failed", exc_info=True)
 
     return jsonify({
         "enabled": False, "provider": "disabled",
@@ -247,7 +247,7 @@ def handle_llm_activate():
         "ok": True,
         "config": result,
         "active": provider_id,
-        "message": f"已切换到 {PROVIDER_PRESETS[provider_id]['label']}",
+        "message": f"Switched to {PROVIDER_PRESETS[provider_id]['label']}",
     })
 
 

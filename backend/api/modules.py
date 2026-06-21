@@ -29,7 +29,7 @@ def handle_modules():
 def handle_module_status(module_name):
     m = get_module(module_name)
     if not m:
-        return jsonify({"ok": False, "error": "not_found", "message": f"module {module_name} not found", "status": 404}), 404
+        return jsonify({"ok": False, "error": "MODULE_NOT_FOUND", "message": f"module {module_name} not found", "status": 404}), 404
     return jsonify({"ok": True, "data": m.as_dict()})
 
 

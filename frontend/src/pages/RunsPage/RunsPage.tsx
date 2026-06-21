@@ -16,6 +16,7 @@ import { TraceDetailPanel } from "../../components/TraceDetailPanel";
 import { DecisionReportPanel } from "../../components/DecisionReportPanel";
 import { APP_EVENTS } from "../../utils/appEvents";
 import { deriveRunTraceStats } from "../../utils/runTraceStats";
+import { formatEventTime, formatEventDetail, formatEventLabel } from "../../utils/runEvent";
 import type { DecisionReport, RuntimeAuditTurn } from "../../types";
 
 /* ── Status helpers ── */
@@ -41,36 +42,6 @@ function sDot(s: string): "ok" | "err" | "warn" | "idle" {
 }
 
 function sLabel(s: string): string { return STATUS_LABEL[s] || s || "未知"; }
-
-/* ── Event helpers ── */
-
-function evTime(ev: any): string {
-  const v = ev.occurred_at || ev.timestamp;
-  return v == null ? "—" : String(v);
-}
-
-function evDetail(ev: any): Record<string, unknown> {
-  return ev.payload || ev.metadata || {};
-}
-
-function evLabel(type: string, payload: Record<string, unknown>, ev?: any): string {
-  const tId = typeof payload?.canonical_tool_id === "string"
-    ? payload.canonical_tool_id : (typeof payload?.tool_id === "string" ? payload.tool_id : "?");
-  const map: Record<string, string> = {
-    turn_started: "开始处理请求", context_built: "构建上下文",
-    model_request_started: "发起模型请求", model_response_received: "模型返回响应",
-    tool_call_started: `调用工具：${tId}`, tool_call_finished: `工具完成：${tId}`,
-    tool_call_failed: `工具失败：${tId}`, assistant_message: "生成回复",
-    turn_finished: "处理完成",
-    turn_failed: `失败：${String(payload?.error || "").slice(0, 50)}`,
-    agent_start: ev?.summary || "开始", agent_end: ev?.summary || "完成",
-    node_start: `节点：${ev?.name || "?"}`, node_end: `完成：${ev?.name || "?"}`,
-    intent_routed: ev?.summary || "意图路由",
-    skill_call_start: `技能：${ev?.name || "?"}`, skill_call_end: `完成：${ev?.name || "?"}`,
-    module_call_start: `模块：${ev?.name || "?"}`, module_call_end: `完成：${ev?.name || "?"}`,
-  };
-  return map[type] || ev?.summary || ev?.name || type;
-}
 
 /* ── Component ── */
 
@@ -164,14 +135,14 @@ export function RunsPage() {
     if (!trace) return null;
     const fv = trace.find((e: any) => e.event_type === "turn_failed" || e.type === "turn_failed");
     if (!fv) return null;
-    const d = evDetail(fv);
+    const d = formatEventDetail(fv);
     const err = d.error || fv?.summary || String(d);
     let secs: number | null = null;
     const mr = trace.find((e: any) => /model.req/i.test(e.type || e.event_type || ""));
     const mp = trace.find((e: any) => /model.resp/i.test(e.type || e.event_type || ""));
     if (mr && mp) {
-      const t0 = new Date(evTime(mr)).getTime();
-      const t1 = new Date(evTime(mp)).getTime();
+      const t0 = new Date(formatEventTime(mr)).getTime();
+      const t1 = new Date(formatEventTime(mp)).getTime();
       if (t0 && t1) secs = Math.round((t1 - t0) / 1000);
     }
     return { error: String(err).slice(0, 200), timeoutSecs: secs };
@@ -357,8 +328,8 @@ export function RunsPage() {
                       {trace.length === 0 ? <EmptyState text="该运行无事件记录" /> : (
                         trace.map((ev: any, i: number) => {
                           const et = ev.event_type || ev.type || "unknown";
-                          const dt = evDetail(ev);
-                          const lb = evLabel(et, dt, ev);
+                          const dt = formatEventDetail(ev);
+                          const lb = formatEventLabel(ev);
                           const isFail = et === "turn_failed";
                           return (
                             <div key={ev.event_id || i} className="card" style={{ padding: "10px 14px", marginBottom: 8 }}>
@@ -367,7 +338,7 @@ export function RunsPage() {
                                   <span style={{ width: 7, height: 7, borderRadius: "50%", background: isFail ? "var(--danger)" : "var(--ok)", flexShrink: 0 }} />
                                   <span style={{ fontSize: "var(--fs-13)", fontWeight: 650, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{lb}</span>
                                 </div>
-                                <span style={{ color: "var(--text-4)", fontSize: "var(--fs-11)", fontFamily: "var(--font-mono)", flexShrink: 0 }}>{evTime(ev)}</span>
+                                <span style={{ color: "var(--text-4)", fontSize: "var(--fs-11)", fontFamily: "var(--font-mono)", flexShrink: 0 }}>{formatEventTime(ev)}</span>
                               </div>
                               <details style={{ marginTop: 6 }}>
                                 <summary style={{ fontSize: "var(--fs-11)", color: "var(--text-3)", cursor: "pointer" }}>开发诊断 · {et}</summary>

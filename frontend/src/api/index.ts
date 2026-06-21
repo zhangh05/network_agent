@@ -890,7 +890,7 @@ export function openApprovalStream(onEvent: (e: { kind: string; approval_id: str
   return es;
 }
 
-/* ──────────────────────── 12. system status ──────────────────────── */
+/* ──────────────────────── 13. system status ──────────────────────── */
 
 export const systemStatusApi = {
   health: (signal?: AbortSignal): Promise<{ status: string; api_mode: string; skills_loaded: number }> =>
@@ -900,7 +900,7 @@ export const systemStatusApi = {
     apiRequest({ method: "GET", url: "/agent/status" }, signal),
 };
 
-/* ──────────────────────── 12. agent usage ──────────────────────── */
+/* ──────────────────────── 14. agent usage ──────────────────────── */
 
 export const agentUsageApi = {
   /** GET /api/agent/usage — returns flat fields (no .usage wrapper) */
@@ -916,7 +916,7 @@ export const agentUsageApi = {
     }>({ method: "GET", url: "/agent/usage" }, signal),
 };
 
-/* ──────────────────────── 13. agent usage ──────────────────────── */
+/* ──────────────────────── 15. reports ──────────────────────── */
 
 export const reportsApi = {
   /** POST /api/reports/create */
