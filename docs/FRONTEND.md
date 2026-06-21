@@ -1,35 +1,49 @@
-# Frontend Integration
+# Frontend Reference
 
-Frontend should treat RuntimeState metadata as the inspection surface.
+Current frontend architecture (v3.3.3).
 
-## Primary result fields
+## Pages & Routes
 
-Display these fields when present:
+10 navigation items routing to 12 pages (`frontend/src/app/App.tsx`):
 
-- `final_response`: user-facing response plan and rendered content.
-- `artifact_records`: created or registered outputs.
-- `output_summary`: artifact and source summary.
-- `runtime_state_snapshot`: active task, workflow, step and progress.
-- `memory_write_plan`: planned memory candidates and skipped candidates.
-- `turn_trace`: structured event list.
-- `truth_report`: runtime version, config and capability facts.
-- `stability_report`: core runtime checks.
+| Route | Page | Layout | Purpose |
+|-------|------|--------|---------|
+| `/workbench` | AgentWorkbench | 3-col | Chat, session list, inspector |
+| `/packet` | PacketAnalysis | 2-col | PCAP upload and analysis |
+| `/runs` | RunsPage | 2-col | Per-session run trace/decision debug |
+| `/capabilities` | CapabilityCenter | 2-col | Capability manifest catalog |
+| `/jobs` | JobsPage | 2-col | Session-level job tracking (3 tabs: runs, artifacts, stats) |
+| `/knowledge` | KnowledgeLibrary | 2-col | Knowledge source management |
+| `/artifacts` | ArtifactCenter | 2-col | Artifact browse and preview |
+| `/memory` | MemoryPage | 2-col | Memory CRUD |
+| `/diagnostics` | Diagnostics | 1-col | System diagnostics (cached, manual trigger) |
+| `/settings` | Settings | 2-col | LLM provider config |
 
-## Recommended panels
+### Removed routes
+`/files` (FileManager), `/audit` (RuntimeAudit), `/reviews` (ReviewCenter) were removed from navigation. Their page components remain in the codebase but are not routed.
 
-| Panel | Source |
-|---|---|
-| Answer | `final_response.content` |
-| Task state | `runtime_state_snapshot` |
-| Artifacts | `artifact_records` |
-| Trace | `turn_trace.events` |
-| Runtime facts | `truth_report` |
-| Stability | `stability_report` |
+## Data Sources
+
+| Page | Primary API | Key data |
+|------|------------|----------|
+| AgentWorkbench | `POST /api/agent/message`, `WS /ws/agent` | `final_response`, events |
+| PacketAnalysis | `POST /api/pcap/parse`, `GET /api/pcap/session/<id>` | PCAP sessions |
+| RunsPage | `GET /api/runs/recent?session_id=<id>` | `runs[]`, trace events, decision report |
+| JobsPage | `GET /api/jobs?workspace_id=<id>` | `jobs[]`, run_ids, artifacts |
+| Diagnostics | `GET /api/runtime/health`, `/selfcheck`, `/agent/usage` | Health, usage, prompts, retention |
+| ArtifactCenter | `GET /api/workspaces/<ws>/artifacts` | Artifact list |
+| MemoryPage | `GET /api/memory/list`, `POST /api/memory/delete` | Memory records |
+| KnowledgeLibrary | `GET /api/knowledge/*` | Knowledge sources |
+| CapabilityCenter | `GET /api/capabilities` | Capability manifests |
+| Settings | `GET/POST /api/agent/llm/config` | LLM configuration |
 
 ## Streaming
 
-Streaming can continue to show token and event updates. The final result should be normalized around the metadata contract above.
+- HTTP event replay: `POST /api/agent/message` with `stream_mode=event_replay` returns SSE.
+- WebSocket live: `WS /ws/agent` pushes `{type: "token", content: "..."}` in real time.
 
-## No duplicated truth
+## Key Principles
 
-Frontend should not hard-code tool counts, capability counts or runtime stage names. Use `truth_report`, `turn_trace` and `stability_report` from the backend result.
+- `final_response` (string) is the primary UI content source — NOT `final_response.content`.
+- Backend metadata (`truth_report`, `stability_report`, `turn_trace`) lives in `ctx.metadata` but may not be in API response. Use `/api/runs/*/decision` for decision reports.
+- No hard-coded tool counts or capability counts in UI — read from backend truth source.

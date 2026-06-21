@@ -1,203 +1,77 @@
-# Capability-first Architecture
+# Capability-First Architecture
 
-This document defines the execution architecture after the Skill / Module / Tool / Prompt refactor.
+Capability-driven design from `capability_routing/` modules (v3.3.3).
 
-## 1. Execution Chain
+## Execution Chain
 
-The runtime execution chain is:
-
-```text
-UserInput
-  -> TurnContext
-  -> SceneDecision
-  -> RuntimeState / TaskWorkflow
-  -> EvidencePipeline
-  -> CapabilityRouter
-  -> SkillManifest / CapabilityPackage
-  -> ModuleServiceManifest
-  -> ToolBundle
-  -> ToolPlannerV2
-  -> PromptArchitecture
-  -> ActionExecutionKernel
-  -> Output / Response / Memory / Observability / Truth / Stability
+```
+ToolCall -> CapabilityRouter -> CapabilityPackage -> SkillManifest -> ToolBundle -> ToolPlannerV2 -> ToolExecutionPipeline
 ```
 
-## 2. Skill
+## Skill Definitions
 
-A Skill is a user-facing business capability entry.
+- Skills are defined by `SkillManifest` — name, description, tags, tools list, metadata.
+- `SKILL.md` files provide the prompt template body but are NOT embedded in manifests.
+- Skills are discovered from `skills/` directories and grouped by category.
 
-In this architecture, a Skill is backed by a CapabilityPackage-derived SkillManifest.
+## Capability Packages
 
-A Skill:
+Defined in `agent/runtime/capability_routing/manifests.py`:
 
-- selects a business capability;
-- declares related capability_ids;
-- declares related module_ids;
-- declares currently allowed tool_ids;
-- may provide prompt_hints and safety_notes;
-- does not own business logic;
-- does not expose SKILL.md prompt bodies;
-- does not inject long prompt text;
-- does not execute tools directly.
+| Capability | Tools |
+|-----------|-------|
+| `workspace_read` | workspace.file.list, workspace.file.read, workspace.file.preview, workspace.artifact.read |
+| `knowledge_qa` | knowledge.search, knowledge.chunk.read, knowledge.source.read |
+| `memory_lookup` | memory.search, memory.list, memory.profile.get |
+| `config_translation` | workspace.file.list, workspace.file.read, config.analysis.run |
+| `pcap_analysis` | workspace.file.list, pcap.analysis.run |
+| `report_drafting` | report.markdown.render, report.artifact.save, workspace.artifact.save |
+| `runtime_diagnostics` | runtime.health, runtime.diagnostics, runtime.selfcheck |
 
-Current built-in skills are generated from CapabilityPackage manifests.
+## CORE_TOOL_IDS (always available)
 
-## 3. CapabilityPackage
+18 tools in `manifests.py CORE_TOOL_IDS`:
 
-A CapabilityPackage is the internal business capability declaration.
+```
+skill.search, skill.load, workspace.file.list, workspace.file.read,
+workspace.artifact.read, tool.catalog.search,
+host.shell.exec, host.powershell.exec, host.python.exec,
+host.command.slash_run,
+web.search, web.docs.official_search, web.page.summarize,
+web.page.extract_links, web.page.save_artifact,
+web.news.search, web.weather.current, web.weather.forecast
+```
 
-It defines:
+## Module Manifests
 
-- capability_id;
-- display_name;
-- description;
-- intent keywords;
-- module_ids;
-- tool_ids;
-- prompt_hints;
-- safety_notes;
-- output_kinds;
-- priority.
+`capability_routing/manifests.py MODULE_MANIFESTS` defines 8 modules:
 
-CapabilityPackage is selected before tool planning.
+| Module ID | Kind | Handler |
+|-----------|------|---------|
+| workspace | platform | agent.modules.workspace |
+| knowledge | platform | agent.modules.knowledge |
+| memory | platform | agent.modules.memory |
+| config_translation | business | agent.modules.config_translation |
+| config_analysis | business | agent.modules.config_analysis |
+| pcap_analysis | business | agent.modules.pcap |
+| report | platform | agent.modules.report |
+| runtime | platform | agent.modules.runtime |
 
-It limits the active tool set for the current turn.
+Additional module directories exist under `agent/modules/` (artifact, cmdb, inspection, review, topology) for future expansion.
 
-## 4. Module
+## ToolPlannerV2
 
-A Module is an implementation service behind tools.
+- Located in `agent/runtime/tool_planning/planner.py`
+- Default tool_limit: 12
+- Does NOT default to full TOOL_NAMESPACE — narrows by capability routing
+- Produces `ToolPlanningDecision` and `ToolPlanningPolicy`
 
-Modules are not directly callable by the LLM and are not directly selected by the planner.
-
-There are two module classes.
-
-### 4.1 Business Module
-
-Business modules own domain logic.
-
-Current business modules are:
-
-- config_translation
-- config_analysis
-- pcap_analysis
-
-### 4.2 Platform Service
-
-Platform services provide infrastructure for business execution.
-
-Current platform services are:
-
-- workspace
-- knowledge
-- memory
-- artifact
-- runtime
-- report
-- web
-
-Platform services are not business modules.
-
-## 5. Tool
-
-A Tool is a callable adapter exposed to the planner and action execution layer.
-
-Tools do not own business logic.
-
-Tools call module services.
-
-There are two tool classes.
-
-### 5.1 Directory-level Tool
-
-Directory-level tools are preferred LLM-visible business tools.
-
-Current directory-level business tools are:
-
-- config.analysis.run
-- pcap.analysis.run
-
-They dispatch to module-internal operations through an action argument.
-
-## 6. Tool Visibility
-
-ToolPlannerV2 must not default to the full TOOL_NAMESPACE.
-
-The default tool catalog is built by active_tool_catalog().
-
-Each turn receives a small ToolBundle.
-
-The ToolBundle contains:
-
-- core tools;
-- selected capability tools;
-- capability metadata;
-- module metadata;
-- a hard tool limit.
-
-Current tool limit is 12.
-
-## 7. Prompt Architecture
-
-System prompt is capability-first.
-
-The prompt is assembled from:
-
-1. System Contract
-2. Runtime State Block
-3. Capability Context Block
-4. Evidence Context Block
-5. Active Tool Contract Block
-
-The system prompt must not include:
-
-- full tool catalog;
-- SKILL.md bodies;
-- skill_prompt;
-- internal fine-grained tools;
-- raw unfiltered evidence.
-
-The prompt must state:
-
-- Skill = CapabilityPackage manifest / business entry;
-- Business Modules = config_translation, config_analysis, pcap_analysis;
-- Platform Services = workspace, knowledge, memory, artifact, runtime, report, web;
-- Tool = callable adapter;
-- directory-level tools are preferred;
-
-## 8. Registry Boundary
-
-canonical_registry.py must remain a thin adapter layer.
-
-It may contain:
-
-- ToolSpec registration;
-- input schema;
-- handler binding;
-- thin handler adapters.
-
-It must not contain:
-
-- business parsing logic;
-- PCAP analysis logic;
-- config translation logic;
-- prompt assembly logic;
-- capability routing logic.
-
-## 9. Non-goals
-
-The goal is not to expose more tools.
-
-The goal is to expose fewer, better-scoped tools.
-
-## 10. Invariants
-
-These invariants must be protected by tests:
+## Invariants
 
 - SkillManifest contains no prompt body.
 - CapabilityPackage is the source of built-in skills.
-- Business modules are only config_translation, config_analysis, and pcap_analysis.
 - Platform services are not business modules.
-- Directory-level business tools are config.analysis.run and pcap.analysis.run.
+- Directory-level business tools: config.analysis.run, pcap.analysis.run.
 - Prompt does not include full tool catalog.
 - Prompt does not include skill_prompt.
 - ToolPlannerV2 does not default to list(TOOL_NAMESPACE).

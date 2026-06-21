@@ -1,65 +1,91 @@
-# Runtime
+# Runtime Reference
 
-This document describes the current runtime flow.
+Runtime execution model (v3.3.3).
 
-## Turn flow
+## Turn Flow
 
-Input -> TurnContext -> RuntimeState -> Evidence -> Tool planning -> Prompt compilation -> Action processing -> Step update -> Finalization -> Snapshot.
+```
+POST /api/agent/message
+  -> ContextPipeline (13 stages, builds TurnContext)
+    -> TurnRunner.run()
+      -> ContextStage (runtime state init)
+      -> MessageStage (build LLM messages)
+      -> ModelStage (LLM call with tool-call loop)
+      -> ToolExecutionPipeline (9 stages)
+      -> PersistenceStage (save run, trace, decision)
+  -> ResultBuilder (build AgentResult)
+  -> HookRunner (post-turn hooks: output, memory, observability, truth, stability)
+  -> AgentResult.to_dict()
+```
 
-## State preparation
+## ContextPipeline (13 stages)
 
-The context builder creates TurnContext, attaches the session, computes scene decision, prepares runtime state, selects the current task and step, then builds evidence and safe context.
+`agent/runtime/context_pipeline/pipeline.py`
 
-## Action processing
+1. **ContextInitStage** — create initial context
+2. **ModelConfigStage** — configure model parameters
+3. **HistoryStage** — load conversation history
+4. **ToolRouterStage** — route to relevant tool categories
+5. **SkillSelectionStage** — select applicable skills
+6. **SceneDecisionStage** — classify user intent
+7. **RetrievalPolicyStage** — decide retrieval strategy
+8. **RuntimeStateStage** — initialize runtime state
+9. **EvidenceStage** — build evidence bundle (context + memory + knowledge)
+10. **ToolPlanningStage** — plan tool usage (ToolPlannerV2)
+11. **SafeContextStage** — build safe/scrubbed context
+12. **LoadedSkillStage** — load skill manifests
+13. **MetadataWriteStage** — write context metadata
 
-The runtime processes model tool calls through the action kernel. Each tool call is wrapped in a ToolInvocation and dispatched by the ToolRuntime module that owns the tool. The module orchestrates the tool execution through ToolRouter; the agent does not directly call arbitrary tools. A skill does not bypass its owning module. Each execution produces a ToolResult which is recorded into action trace metadata and consumed by the finalization layer. ToolResult content is summarized before inclusion in LLM context to avoid prompt overflow.
+## ToolExecutionPipeline (9 stages)
 
-No ssh, telnet, snmp or nmap tools are registered. Remote device access is not supported by the current tool set. A public tool HTTP API is policy-gated and must go through the approval gate for high-risk actions.
+`agent/runtime/tool_execution/pipeline.py`
 
-## Finalization
+1. **ApprovalStage** — check if approval required
+2. **CatalogStage** — search tool catalog
+3. **RiskStage** — assess tool risk level
+4. **PermissionStage** — check tool permissions
+5. **DispatchStage** — dispatch to tool handler
+6. **UnknownToolStage** — handle unknown tool errors
+7. **ResultStage** — process tool result
+8. **OutputPolicy** — apply output policies
+9. **RetryPolicy** — retry on failure
 
-After action processing, the runtime runs these kernels:
+## Post-turn Hooks
 
-- Output Kernel
-- Response Composer
-- Memory Write Planner
-- Observability Collector
-- Truth Reporter
-- Stability Gate
+Executed by `hook_runner.py` after TurnRunner completes:
 
-Finalization writes:
+| Hook | Module | Writes to ctx.metadata |
+|------|--------|----------------------|
+| Output collection | `output/collector.py` | `output_summary`, `artifact_records` |
+| Response composition | `response/renderer.py` | `final_response` |
+| Memory write planning | `memory_write/planner.py` | `memory_write_plan` |
+| Observability collection | `observability/collector.py` | `turn_trace` |
+| Truth reporting | `truth/report.py` | `truth_report` |
+| Stability gate | `stability/gate.py` | `stability_report` |
 
-- artifact_records
-- output_summary
-- final_response
-- memory_write_plan
-- turn_trace
-- truth_report
-- stability_report
+## API Response Metadata
 
-Runtime state is saved after finalization so task, step and artifact changes are present in the final snapshot.
+`AgentResult.to_dict()` propagates these metadata keys via `enrich_metadata()`:
 
-## Metadata contract
+```
+selected_skills, visible_tools, dynamic_tool_expansions,
+memory_hits_count, knowledge_hits_count, context_sources,
+source_summary, source_count, citations, retrieval_diagnostics
+```
 
-The current runtime inspection surface is metadata-based. Frontend, tests and diagnostics should read structured metadata rather than infer state from natural-language text. The primary entry point is POST /api/agent/message which returns the agent result containing all metadata keys.
+The following keys exist in `ctx.metadata` but are NOT propagated to the API response:
 
-Required keys after an action phase:
+```
+runtime_state_snapshot, task_signal, action_trace, artifact_records,
+output_summary, memory_write_plan, turn_trace, truth_report, stability_report
+```
 
-- runtime_state_snapshot
-- task_signal
-- action_trace
-- artifact_records
-- output_summary
-- final_response
-- memory_write_plan
-- turn_trace
-- truth_report
-- stability_report
+## Entry Points
 
-## Output contract
-
-Safe artifact writes are limited to markdown, txt, json, csv and log. Other artifact kinds are registered only.
-
-## Memory write contract
-
-Memory writing is plan-only in this stage. The runtime produces MemoryWritePlan and filters sensitive candidates, but it does not persist accepted candidates to a memory database.
+| API | Purpose |
+|-----|---------|
+| `POST /api/agent/message` | Main agent entry (sync) |
+| `WS /ws/agent` | WebSocket real-time streaming |
+| `GET /api/runtime/health` | Component health check |
+| `GET /api/runtime/selfcheck` | System self-check |
+| `GET /api/agent/usage` | Token/cost usage stats |
