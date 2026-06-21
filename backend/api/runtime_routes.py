@@ -482,12 +482,12 @@ def register_runtime_routes(app):
         Returns:
             True if admin, False otherwise
         """
-        # Check Admin Token header
+        # Check Admin Token header (constant-time comparison)
         admin_token = request.headers.get("X-Admin-Token", "")
         expected_token = os.environ.get("NETWORK_AGENT_ADMIN_TOKEN", "")
         if expected_token:
-            # If admin token is configured, it MUST be provided
-            if admin_token == expected_token:
+            import hmac
+            if hmac.compare_digest(admin_token, expected_token):
                 return True
             return False
         else:
@@ -626,8 +626,8 @@ def register_runtime_routes(app):
         ws_id, err = _validated_ws_id(ws_id)
         if err:
             return err
-        dry_run = request.json.get("dry_run", True) if request.is_json else True
-        confirm = request.json.get("confirm", False) if request.is_json else False
+        dry_run = (request.json or {}).get("dry_run", True) if request.is_json else True
+        confirm = (request.json or {}).get("confirm", False) if request.is_json else False
         from runtime.retention import apply_retention, default_retention_policy
         preview = apply_retention(ws_id, default_retention_policy(),
                                   dry_run=dry_run, confirm=confirm)
@@ -668,8 +668,8 @@ def register_runtime_routes(app):
         ws_id, err = _validated_ws_id(ws_id)
         if err:
             return err
-        dry_run = request.json.get("dry_run", True) if request.is_json else True
-        confirm = request.json.get("confirm", False) if request.is_json else False
+        dry_run = (request.json or {}).get("dry_run", True) if request.is_json else True
+        confirm = (request.json or {}).get("confirm", False) if request.is_json else False
         from runtime.archive import apply_archive, default_archive_policy
         result = apply_archive(ws_id, default_archive_policy(),
                                dry_run=dry_run, confirm=confirm)

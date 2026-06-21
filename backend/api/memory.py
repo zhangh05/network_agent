@@ -11,6 +11,11 @@ from memory.retriever import search_memory, list_memory
 def handle_memory_status():
     """Return memory system status for the given workspace."""
     ws_id = request.args.get("workspace_id", "default")
+    try:
+        from workspace.ids import validate_workspace_id
+        ws_id = validate_workspace_id(ws_id) or "default"
+    except Exception:
+        return jsonify({"ok": False, "error": "invalid_workspace_id"}), 400
     store = get_store(ws_id)
     return jsonify({
         "ok": True,
@@ -31,6 +36,11 @@ def handle_memory_write():
     confidence = data.get("confidence", "system_generated")
     user_confirmed = data.get("user_confirmed", confidence == "user_confirmed")
     workspace_id = data.get("workspace_id", "")
+    try:
+        from workspace.ids import validate_workspace_id
+        workspace_id = validate_workspace_id(workspace_id) or "default"
+    except Exception:
+        return jsonify({"ok": False, "error": "invalid_workspace_id"}), 400
 
     memory_id = write_memory(
         title=data.get("title", ""),
@@ -70,6 +80,12 @@ def handle_memory_search():
     except ValueError:
         return jsonify({"ok": False, "error": "invalid_limit"}), 400
     workspace_id = data.get("workspace_id", None)
+    if workspace_id:
+        try:
+            from workspace.ids import validate_workspace_id
+            workspace_id = validate_workspace_id(workspace_id) or "default"
+        except Exception:
+            return jsonify({"ok": False, "error": "invalid_workspace_id"}), 400
     memory_type = data.get("memory_type", None)
     scope = data.get("scope", None)
 

@@ -94,7 +94,7 @@ export function Settings() {
 
         if (list.length === 0) {
           // Fallback: build provider list from presets if API returns empty/malformed
-          throw new Error("后端未返回厂商列表，请重启 Flask 后端 (python backend/main.py) 以加载新 /api/agent/llm/providers 路由。");
+          throw new Error("未获取到厂商列表，请检查 LLM 服务是否正常启动");
         }
 
         setProviders(list);

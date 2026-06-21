@@ -31,7 +31,7 @@ export function CapabilityCenter() {
   const list = useAsync<{ capabilities: CapabilityManifest[]; enabled: string[] }>((s) => capabilitiesApi.manifest(s));
   const catalog = useAsync((s) => toolsApi.catalog(s));
   const registry = useAsync<{ moduleCount: number; skillCount: number }>(async (s) => {
-    const [m, sk] = await Promise.all([registryApi.modules(s), registryApi.skills(s), registryApi.status(s)]) as any;
+    const [m, sk] = await Promise.all([registryApi.modules(s), registryApi.skills(s)]) as any;
     return { moduleCount: Array.isArray(m?.modules) ? m.modules.length : 0, skillCount: Array.isArray(sk?.skills) ? sk.skills.length : 0 };
   });
 

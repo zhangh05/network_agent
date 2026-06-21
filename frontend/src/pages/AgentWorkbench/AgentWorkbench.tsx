@@ -71,7 +71,7 @@ export function AgentWorkbench() {
             recentFailure: s.recent_failure?.error_type ? s.recent_failure.error_summary : undefined,
           });
         }).catch(() => {});
-      });
+      }).catch(() => {});
     };
     poll();
     const id = window.setInterval(poll, 30_000);

@@ -120,8 +120,6 @@ def agent_message():
     metadata = normalize_metadata(metadata, transport="http", stream_mode=stream_mode)
 
     try:
-        intent = data.get("intent") or metadata.get("intent") or ""
-
         # All intents flow through LLM agentic loop
         from agent.app.service import get_default_agent_app
         app = get_default_agent_app()
@@ -131,6 +129,8 @@ def agent_message():
             workspace_id=ws_id,
             metadata=metadata,
         )
+        if result is None:
+            return jsonify({"ok": False, "error": "agent_no_result"}), 500
         result_payload = result.to_dict()
         result_payload = _normalize_agent_result(result_payload, ws_id)
         _apply_current_contract_hints(result_payload, user_input, payload)

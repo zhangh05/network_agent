@@ -105,7 +105,10 @@ def register_pcap_routes(app):
 
     @app.route("/api/pcap/filter", methods=["POST"])
     def api_pcap_filter():
-        data = request.get_json(force=True)
+        try:
+            data = request.get_json(silent=True) or {}
+        except Exception:
+            return jsonify({"ok": False, "error": "invalid_json"}), 400
         result = filter_pcap_session(
             data.get("session_id", ""),
             src=data.get("src", ""),
@@ -120,7 +123,10 @@ def register_pcap_routes(app):
 
     @app.route("/api/pcap/align", methods=["POST"])
     def api_pcap_align():
-        data = request.get_json(force=True)
+        try:
+            data = request.get_json(silent=True) or {}
+        except Exception:
+            return jsonify({"ok": False, "error": "invalid_json"}), 400
         result = align_pcap_tcp(
             data.get("session_id", ""),
             src=data.get("src", ""),

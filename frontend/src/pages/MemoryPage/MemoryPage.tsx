@@ -62,11 +62,16 @@ export function MemoryPage() {
 
   const handleCreate = async () => {
     if (!title || !content) return;
-    await memoryApi.create({ title, content, workspace_id: wsId });
-    setTitle("");
-    setContent("");
-    setShowCreate(false);
-    load();
+    setErr("");
+    try {
+      await memoryApi.create({ title, content, workspace_id: wsId });
+      setTitle("");
+      setContent("");
+      setShowCreate(false);
+      load();
+    } catch (e: any) {
+      setErr(e?.message || "创建记忆失败");
+    }
   };
 
   const handleDelete = async (e: MemEntry) => {
