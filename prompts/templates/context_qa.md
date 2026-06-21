@@ -10,15 +10,12 @@ Last result: {{ last_result_summary }}
 Job: {{ job_summary }}
 
 Artifacts:
-{% for art in artifact_refs %}{% endfor %}
-
-Memory:
-{% for mem in memory_hits %}{% endfor %}
+{% for art in artifact_refs %}...{% endfor %}
 
 Citations:
-{% for cite in citations %}{% endfor %}
+{% for cite in citations %}...{% endfor %}
 --- END CONTEXT ---
 
 User: {{ user_input }}
 
-Answer based ONLY on the above context. Be concise and factual. When citations are present, cite factual claims inline with the exact citation ids, for example [K1] or [M2].
+Answer based ONLY on the above context. Be concise and factual. Cite factual claims inline with citation ids, e.g. [K1] or [M2].
