@@ -93,12 +93,17 @@ class TestSafeGenerateWiring:
         def fake_safe_generate(task, state, **kwargs):
             seen["task"] = task
             seen["user_input"] = kwargs.get("user_input")
+            seen["config_override"] = kwargs.get("config_override")
             return SafeLLMOutput(answer="ok")
 
         monkeypatch.setattr("agent.llm.runtime.safe_generate", fake_safe_generate)
-        out = LLMClient().generate("context_qa", NetworkAgentState(), "你是什么模型")
+        client = LLMClient(overrides={"provider": "custom", "model": "draft-model"})
+        out = client.generate("context_qa", NetworkAgentState(), "你是什么模型")
         assert out.answer == "ok"
-        assert seen == {"task": "context_qa", "user_input": "你是什么模型"}
+        assert seen["task"] == "context_qa"
+        assert seen["user_input"] == "你是什么模型"
+        assert seen["config_override"]["provider"] == "custom"
+        assert seen["config_override"]["model"] == "draft-model"
 
     def test_all_prompt_registry_tasks_allowed_by_llm_policy(self):
         from agent.llm.schemas import ALLOWED_TASKS
@@ -112,6 +117,15 @@ class TestSafeGenerateWiring:
         assert stripped is True
         assert "secret reasoning" not in text
         assert text == "最终回答"
+
+    def test_provider_debug_log_never_breaks_llm_result(self, monkeypatch):
+        import agent.llm.provider as provider
+
+        def broken_debug(*args, **kwargs):
+            raise BrokenPipeError(32, "Broken pipe")
+
+        monkeypatch.setattr(provider._LOG, "debug", broken_debug)
+        provider._debug_log("stream finished: %s", "ok")
 
 class TestPolicyBlocking:
     def test_input_block_prevents_provider(self):

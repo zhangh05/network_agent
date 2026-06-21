@@ -5,11 +5,12 @@ Error diagnostics: preserves HTTP status, error type, and non-sensitive details.
 Only masks real tokens/Authorization/Bearer values.
 """
 
-import json, os, urllib.request, urllib.error
+import json, logging, os, urllib.request, urllib.error
 from typing import Optional
 from agent.llm.schemas import LLMRequest, LLMResponse, LLMToolCall
 from agent.llm.key_resolver import mask_secret
 
+_LOG = logging.getLogger(__name__)
 
 # Error type constants (used in metadata and API responses)
 ERROR_TYPE_MISSING_API_KEY = "missing_api_key"
@@ -31,9 +32,9 @@ def get_provider_config() -> dict:
     return resolve_provider_config()
 
 
-def generate(req: LLMRequest) -> LLMResponse:
+def generate(req: LLMRequest, cfg: dict = None) -> LLMResponse:
     """Generate LLM response using unified effective config."""
-    cfg = get_provider_config()
+    cfg = cfg or get_provider_config()
     if not cfg.get("enabled") or cfg.get("provider_type") == "disabled":
         return LLMResponse(error="LLM disabled", metadata={"error_type": ERROR_TYPE_DISABLED_BY_USER})
     if cfg.get("provider_type") == "mock":
@@ -207,13 +208,12 @@ def _api_generate(req: LLMRequest, cfg: dict) -> LLMResponse:
 
         body = json.dumps(body_dict).encode()
         # v3.2.1: log multimodal messages for vision debugging
-        import sys as _sys
         last = body_dict["messages"][-1] if body_dict["messages"] else {}
         cont = last.get("content", "")
         if isinstance(cont, list):
             types = [p.get("type","?") for p in cont]
             imgs = sum(1 for p in cont if p.get("type")=="image_url")
-            print(f"[api] multimodal: {types} -> {imgs} image(s)", file=_sys.stderr)
+            _debug_log("[api] multimodal: %s -> %s image(s)", types, imgs)
         headers = {
             "Content-Type": "application/json",
             "Authorization": "Bearer " + cfg.get("api_key", ""),
@@ -457,17 +457,22 @@ def _api_generate_stream(url: str, body_dict: dict, cfg: dict, req: "LLMRequest"
                 args = {}
             tool_calls.append(_ToolCallRaw(id=tc_acc.get("id", ""), name=tc_acc["name"], arguments=args))
 
-    import sys as _sys
-    print(f"[stream] done: content_len={len(content)}, tool_calls={len(tool_calls)}, finish={finish_reason}", file=_sys.stderr)
+    _debug_log("[stream] done: content_len=%s, tool_calls=%s, finish=%s", len(content), len(tool_calls), finish_reason)
     # Debug: dump last 3 raw chunks with actual values
     if raw_chunks:
-        print(f"[stream] last_chunks ({len(raw_chunks)} total):", file=_sys.stderr)
+        _debug_log("[stream] last_chunks (%s total):", len(raw_chunks))
         for i, rc in enumerate(raw_chunks[-3:]):
             choices = rc.get("choices", [{}])
             delta = choices[0].get("delta", {}) if choices else {}
             tc = delta.get("tool_calls")
             ct = delta.get("content")
-            print(f"[stream]   chunk[{i}]: content={repr(ct)[:80]}, tool_calls={repr(tc)[:200]}, fin={choices[0].get('finish_reason','') if choices else ''}", file=_sys.stderr)
+            _debug_log(
+                "[stream]   chunk[%s]: content=%s, tool_calls=%s, fin=%s",
+                i,
+                repr(ct)[:80],
+                repr(tc)[:200],
+                choices[0].get("finish_reason", "") if choices else "",
+            )
 
     return LLMResponse(
         content=content,
@@ -487,8 +492,15 @@ def _push_stream_token(token: str):
         if cb:
             cb({"type": "token", "content": token, "timestamp": __import__('time').time()})
     except Exception as e:
-        import sys
-        print(f"[stream] push token error: {e}", file=sys.stderr)
+        _debug_log("[stream] push token error: %s", e)
+
+
+def _debug_log(message: str, *args) -> None:
+    """Debug logging must never affect provider success/failure."""
+    try:
+        _LOG.debug(message, *args)
+    except (BrokenPipeError, ConnectionResetError, OSError):
+        pass
 
 
 # Simple internal class for stream-parsed tool calls

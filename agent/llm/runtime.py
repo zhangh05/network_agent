@@ -22,6 +22,7 @@ def invoke_llm(
     safe_context: dict = None,
     user_input: str = "",
     extra: dict = None,
+    config_override: dict = None,
 ) -> LLMResponse:
     """Unified LLM invocation entry point — THE ONLY place that calls generate().
 
@@ -42,7 +43,7 @@ def invoke_llm(
     """
     # ── Resolve config ──
     from agent.llm.config import resolve_provider_config
-    cfg = resolve_provider_config()
+    cfg = config_override or resolve_provider_config()
 
     if not cfg.get("enabled") or cfg.get("provider_type") == "disabled":
         return LLMResponse(
@@ -80,7 +81,7 @@ def invoke_llm(
     max_retries = 3
     for attempt in range(max_retries + 1):
         try:
-            resp = generate(req)
+            resp = generate(req, cfg)
         except Exception as e:
             return LLMResponse(
                 error=_redact(str(e)),
@@ -130,6 +131,7 @@ def safe_generate(
     extra: dict = None,
     messages: List[LLMMessage] = None,
     tools: List[dict] = None,
+    config_override: dict = None,
 ) -> SafeLLMOutput:
     """Safe LLM generation — policy failures NEVER block the provider call.
 
@@ -149,7 +151,7 @@ def safe_generate(
     safe_ctx = safe_context or {}
 
     from agent.llm.config import resolve_provider_config
-    cfg = resolve_provider_config()
+    cfg = config_override or resolve_provider_config()
 
     # ── Prompt Runtime (primary path) ──
     prompt_runtime_used = True
@@ -253,6 +255,7 @@ def safe_generate(
         safe_context=safe_ctx,
         user_input=user_input,
         extra=extra,
+        config_override=cfg,
     )
 
     if resp.error:
