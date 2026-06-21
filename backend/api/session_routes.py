@@ -142,21 +142,37 @@ def handle_session_update(session_id):
 
 
 def _complete_session_job(ws_id, session_id, status="succeeded", hard_delete=False):
-    """Mark the session-level agent_run job as completed/cancelled, or hard-delete it."""
+    """Mark the session-level agent_run job as completed/cancelled, or hard-delete it.
+
+    IMPORTANT: This must NOT use list_jobs(), because list_jobs filters out
+    jobs whose session no longer exists (_session_exists check). After
+    soft/permanent deletion, the session is already gone, so list_jobs
+    would never return the target job — creating orphan jobs.
+
+    Instead, we scan the jobs directory directly.
+    """
     try:
-        from jobs.store import get_job, update_job, list_jobs, delete_job
-        from jobs.manager import mark_succeeded, mark_failed, cancel_job
-        for j in list_jobs(ws_id=ws_id, limit=100):
-            p = j.get("payload", {}) or {}
-            if p.get("session_id") == session_id and j.get("status") in ("created", "queued", "running", "succeeded", "failed", "cancelled"):
-                job_id = j.get("job_id", "")
-                if hard_delete:
-                    delete_job(ws_id, job_id, soft=False)
-                elif status == "succeeded":
-                    mark_succeeded(ws_id, job_id)
-                elif status == "cancelled":
-                    cancel_job(ws_id, job_id)
-                break
+        from jobs.store import get_job, delete_job, _get_ws_root
+        from jobs.manager import mark_succeeded, cancel_job
+
+        jd = _get_ws_root() / ws_id / "jobs"
+        if jd.is_dir():
+            for entry in sorted(jd.iterdir()):
+                if not entry.is_dir():
+                    continue
+                jf = entry / f"{entry.name}.json"
+                if not jf.is_file():
+                    continue
+                j = get_job(ws_id, entry.name)
+                if j and (j.payload or {}).get("session_id") == session_id and \
+                   j.job_type == "agent_run":
+                    if hard_delete:
+                        delete_job(ws_id, j.job_id, soft=False)
+                    elif status == "succeeded" and j.status not in ("succeeded",):
+                        mark_succeeded(ws_id, j.job_id)
+                    elif status == "cancelled" and j.status not in ("cancelled",):
+                        cancel_job(ws_id, j.job_id)
+                    break
     except Exception:
         pass
 

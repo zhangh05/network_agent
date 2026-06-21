@@ -120,7 +120,7 @@ export function Sidebar() {
   async function onRenameSession(sess_id: string) {
     if (!editingSessName.trim() || !currentWorkspaceId) { cancelEditSession(); return; }
     try {
-      await sessionsApi.rename(sess_id, currentWorkspaceId!, editingSessName.trim());
+      await sessionsApi.rename(sess_id, currentWorkspaceId || "default", editingSessName.trim());
       sessList.reload();
       toast({ kind: "success", title: "会话已重命名" });
       cancelEditSession();
@@ -132,7 +132,7 @@ export function Sidebar() {
   async function onDeleteSession(sess: Session) {
     if (!confirm(`⚠️ 永久删除会话「${sess.title || sess.session_id}」？\n\n此操作不可撤销！消息和记录将被彻底清除。`)) return;
     try {
-      await sessionsApi.delete(sess.session_id, currentWorkspaceId!);
+      await sessionsApi.delete(sess.session_id, currentWorkspaceId || "default");
       if (currentSessionId === sess.session_id) setCurrentSession(null);
       sessList.reload();
       recentRuns.reload();
