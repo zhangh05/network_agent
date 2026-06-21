@@ -130,6 +130,14 @@ def handle_llm_test():
             overrides[k] = data[k]
     client = LLMClient(overrides=overrides if overrides else None)
     output = client.generate(task, state, user_question=message)
+    try:
+        from agent.llm.config import record_recent_failure, record_recent_success
+        if output.llm_used:
+            record_recent_success()
+        elif output.fallback_reason:
+            record_recent_failure(output.fallback_reason, "provider_error")
+    except Exception:
+        pass
 
     return jsonify({
         "ok": output.llm_used,

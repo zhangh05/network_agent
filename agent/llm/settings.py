@@ -129,6 +129,21 @@ def resolve_effective_llm_config() -> dict:
     return result
 
 
+def resolve_provider_llm_config(provider_id: str) -> dict:
+    """Resolve one provider's runtime config without switching the active provider."""
+    from agent.llm.key_resolver import resolve_api_key
+    from agent.llm.provider_store import PROVIDER_PRESETS, load_provider_config
+
+    if provider_id not in PROVIDER_PRESETS:
+        provider_id = "custom"
+
+    provider_cfg = dict(load_provider_config(provider_id) or {})
+    api_key = provider_cfg.get("api_key", "")
+    if not api_key:
+        api_key = resolve_api_key(env_name=_provider_env_name(provider_id))
+    return _provider_runtime_config(provider_id, provider_cfg, api_key or "")
+
+
 def _provider_runtime_config(provider_id: str, cfg: dict, api_key: str) -> dict:
     from agent.llm.key_resolver import is_key_loaded
 

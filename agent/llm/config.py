@@ -198,6 +198,11 @@ def record_recent_success() -> None:
     path = WS_ROOT / "_runtime" / "llm_recent_success.json"
     path.parent.mkdir(parents=True, exist_ok=True)
     _atomic_write_json_cfg(path, {"at": time.strftime("%Y-%m-%dT%H:%M:%S")})
+    failure_path = WS_ROOT / "_runtime" / "llm_recent_failure.json"
+    try:
+        failure_path.unlink(missing_ok=True)
+    except Exception:
+        pass
 
 def _read_recent_success() -> dict | None:
     """Return the most recent LLM success record, or None."""

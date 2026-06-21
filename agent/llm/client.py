@@ -8,7 +8,11 @@ from agent.llm.config import resolve_provider_config, get_llm_status
 
 class LLMClient:
     def __init__(self, overrides: dict = None):
-        cfg = resolve_provider_config()
+        if overrides and overrides.get("provider"):
+            from agent.llm.settings import resolve_provider_llm_config
+            cfg = resolve_provider_llm_config(overrides["provider"])
+        else:
+            cfg = resolve_provider_config()
         if overrides:
             cfg = {**cfg}
             for k in ("base_url", "model", "api_key", "provider"):
