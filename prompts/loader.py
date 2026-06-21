@@ -108,44 +108,11 @@ def list_prompts() -> list:
 
 
 def render_prompt(task: str, safe_context: dict = None, user_input: str = "",
-                  citations: list = None, extra: dict = None) -> RenderedPrompt:
-    """Render a prompt template with safe context."""
-    spec = get_prompt_by_task(task)
-    ctx = safe_context or {}
-    citations = citations or []
-
-    # Load template file
-    template_text = ""
-    if spec.template_path:
-        tp = Path(spec.template_path)
-        tpath = ROOT.parent / tp if not tp.is_absolute() else tp
-        if tpath.is_file():
-            template_text = tpath.read_text()
-
-    # Simple variable substitution
-    text = template_text if template_text else _minimal_prompt(task)
-    text = text.replace("{{ intent }}", str(ctx.get("intent", "")))
-    text = text.replace("{{ user_input }}", str(user_input))
-    text = text.replace("{{ last_result_summary }}", str(ctx.get("last_result_summary", "")))
-    text = text.replace("{{ job_summary }}", str(ctx.get("job_summary", "")))
-
-    # Artifact refs
-    art_block = ""
-    for a in ctx.get("artifact_refs", []):
-        art_block += f"- Artifact {a.get('artifact_id','?')} ({a.get('artifact_type','?')}): {a.get('summary','')}\n"
-    text = text.replace("{% for art in artifact_refs %}...{% endfor %}", art_block)
-
-    # Citations
-    cite_block = ""
-    for c in citations:
-        cite_block += f"- Citation [{c.get('citation_id','?')}]: {c.get('source_type','?')} {c.get('source_id','?')}\n"
-    text = text.replace("{% for cite in citations %}...{% endfor %}", cite_block)
-
-    return RenderedPrompt(
-        prompt_id=spec.prompt_id, task=task, version=spec.version,
-        text=text, context_chars=len(str(ctx)),
-        citation_ids=[c.get("citation_id", "") for c in citations],
-    )
+                  citations: list = None, extra: dict = None) -> "RenderedPrompt":
+    """Render a prompt template with safe context — delegates to renderer.py."""
+    from prompts.renderer import render_prompt as _render
+    return _render(task, safe_context=safe_context, user_input=user_input,
+                   citations=citations, extra=extra)
 
 
 def validate_prompt_registry() -> dict:
@@ -158,7 +125,3 @@ def validate_prompt_registry() -> dict:
         if p.input_policy.get("allow_secret") is not False:
             errors.append(f"{p.prompt_id}: allows secrets")
     return {"valid": len(errors) == 0, "errors": errors}
-
-
-def _minimal_prompt(task: str) -> str:
-    return f"You are a Network Agent explanation layer. Task: {task}. Only use provided context. No deployable config. No secrets."
