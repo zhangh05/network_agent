@@ -24,9 +24,15 @@ _log = logging.getLogger("memory_write.llm_gate")
 # Minimum score to keep a candidate
 MIN_KEEP_SCORE = 3
 
+# Quick-gate: skip LLM when total candidates ≤ this and all low-confidence
+QUICK_SKIP_MAX = 2
+QUICK_SKIP_CONFIDENCE = 0.55
+
 # Maximum candidates to send in one LLM batch
-# Larger batches risk exceeding token limits; this keeps input ~400 tokens
-MAX_BATCH_SIZE = 10
+MAX_BATCH_SIZE = 5
+
+# LLM call timeout — fail fast, keep all candidates rather than block
+LLM_GATE_TIMEOUT_S = 2.0
 
 
 class MemoryLLMGate:
@@ -52,6 +58,17 @@ class MemoryLLMGate:
         if not candidates:
             return [], []
 
+        # Quick-gate: skip LLM when candidates are few and low-confidence
+        if (
+            len(candidates) <= QUICK_SKIP_MAX
+            and all(getattr(c, "confidence", 0) <= QUICK_SKIP_CONFIDENCE for c in candidates)
+        ):
+            _log.debug(
+                "MemoryLLMGate: quick-skipping LLM call (%d candidates, all ≤%.2f)",
+                len(candidates), QUICK_SKIP_CONFIDENCE,
+            )
+            return list(candidates), []
+
         # Limit batch size
         batch = candidates[:MAX_BATCH_SIZE]
         if len(candidates) > MAX_BATCH_SIZE:
@@ -68,10 +85,19 @@ class MemoryLLMGate:
             {"role": "user", "content": f"Candidates to evaluate:\n{candidates_json}"},
         ]
 
-        # Call LLM
+        # Call LLM with timeout — fail fast on slow responses
         try:
-            response = self._call_llm(messages)
+            import concurrent.futures
+            with concurrent.futures.ThreadPoolExecutor(max_workers=1) as executor:
+                future = executor.submit(self._call_llm, messages)
+                response = future.result(timeout=LLM_GATE_TIMEOUT_S)
             results = self._parse_response(response, batch)
+        except concurrent.futures.TimeoutError:
+            _log.warning(
+                "MemoryLLMGate: LLM call timed out after %.1fs, keeping all %d candidates",
+                LLM_GATE_TIMEOUT_S, len(batch),
+            )
+            return list(candidates), []
         except Exception as e:
             _log.exception("MemoryLLMGate: LLM call failed, keeping all %d candidates", len(batch))
             # Graceful fallback: keep all
