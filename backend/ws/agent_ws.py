@@ -276,6 +276,13 @@ def _run_agent_thread(user_input, session_id, workspace_id, metadata, event_queu
             "no_tool_reason": result_payload.get("no_tool_reason", ""),
         })
 
+        # v3.3.4: Run deferred finalization AFTER done event — user sees response immediately
+        try:
+            from agent.runtime.result_builder import run_deferred_finalization
+            run_deferred_finalization(result)
+        except Exception:
+            pass
+
     except Exception as e:
         traceback.print_exc()
         error_holder["error"] = str(e)[:500]

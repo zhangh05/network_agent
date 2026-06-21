@@ -135,6 +135,13 @@ def agent_message():
         result_payload = _normalize_agent_result(result_payload, ws_id)
         _apply_current_contract_hints(result_payload, user_input, payload)
 
+        # v3.3.4: Run deferred finalization after result extraction
+        try:
+            from agent.runtime.result_builder import run_deferred_finalization
+            run_deferred_finalization(result)
+        except Exception:
+            pass
+
         # ── Job: one per session, accumulating runs underneath ──
         # Use result's session_id as fallback when frontend sends null (new session)
         effective_session_id = session_id or result_payload.get("session_id", "")

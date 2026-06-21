@@ -24,6 +24,9 @@ class AgentResult:
     tool_decision: dict = field(default_factory=dict)
     no_tool_reason: str = ""
 
+    # v3.3.4: transient finalization context (NOT serialized in to_dict)
+    _finalization_ctx: object = None
+
     def to_dict(self) -> dict:
         return {
             "ok": self.ok,

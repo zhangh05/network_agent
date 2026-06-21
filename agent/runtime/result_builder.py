@@ -72,8 +72,8 @@ def build_success_result(state) -> AgentResult:
     run_post_turn_hooks(state.session, state.turn, state.final_response)
     run_stop_hooks(state.session)
 
-    # ── Finalization kernels (output/memory/observability/truth) ──
-    _run_finalization_safe(state)
+    # v3.3.4: Defer finalization to caller (runs after "done" event)
+    result._finalization_ctx = state.context
 
     return result
 
@@ -98,7 +98,7 @@ def build_error_result(state, final_response, error_type, extra_meta,
     persist_run_record(state.session, state.turn, err, state.context)
     # ── P1-A: Decision report for error results ──
     _write_decision_report(err, state)
-    _run_finalization_safe(state)
+    err._finalization_ctx = state.context
     return err
 
 
@@ -122,7 +122,7 @@ def build_partial_result(state, reason) -> AgentResult:
     persist_run_record(state.session, state.turn, _partial, state.context)
     # ── P1-A: Decision report for partial results ──
     _write_decision_report(_partial, state)
-    _run_finalization_safe(state)
+    _partial._finalization_ctx = state.context
     return _partial
 
 
@@ -145,7 +145,7 @@ def build_blocked_result(state, reason, hook_event="pre_turn") -> AgentResult:
     persist_run_record(state.session, state.turn, result, state.context)
     # ── P1-A: Decision report for blocked results ──
     _write_decision_report(result, state)
-    _run_finalization_safe(state)
+    result._finalization_ctx = state.context
     return result
 
 
@@ -226,31 +226,6 @@ def _backfill_decision_report_path(*, run_id: str, workspace_id: str, report_pat
         pass
 
 
-def _run_finalization_safe(state) -> None:
-    """Run output/memory/observability/truth finalization kernels.
-
-    This is called from every result builder (success/error/partial/blocked)
-    so that memory write, output summarization, observability collection,
-    and truth reporting run on EVERY turn path.
-
-    Ensures ctx.metadata has the required snapshot data before running
-    finalization kernels (the snapshot is normally set by hooks, but
-    result builders skip the hooks path).
-    """
-    try:
-        ctx = getattr(state, "context", None)
-        if ctx is None:
-            return
-        # Ensure snapshot is populated before finalization
-        if "runtime_state_snapshot" not in ctx.metadata:
-            from agent.runtime.state.hooks import _ensure_snapshot
-            _ensure_snapshot(ctx, state)
-        from agent.runtime.state.hooks import _run_finalization_kernels
-        _run_finalization_kernels(ctx)
-    except Exception:
-        pass
-
-
 def _ensure_snapshot(ctx, state) -> None:
     """Ensure ctx.metadata has runtime_state_snapshot for finalization kernels."""
     try:
@@ -258,5 +233,24 @@ def _ensure_snapshot(ctx, state) -> None:
         from agent.runtime.state.resolver import RuntimeStateResolver
         runtime_state = getattr(state, "runtime_state", None) or RuntimeStateResolver().resolve(ctx)
         RuntimeStateSnapshotter().snapshot(ctx, runtime_state)
+    except Exception:
+        pass
+
+
+def run_deferred_finalization(result: AgentResult) -> None:
+    """Run finalization kernels after the result has been returned to the caller.
+
+    v3.3.4: Moved here from build_*_result() so the WS "done" event
+    can be sent before memory/observability/truth kernels block the thread.
+    """
+    try:
+        ctx = getattr(result, "_finalization_ctx", None)
+        if ctx is None:
+            return
+        if "runtime_state_snapshot" not in ctx.metadata:
+            from agent.runtime.state.hooks import _run_finalization_kernels
+            # snapshot will be handled by _run_finalization_kernels internally
+        from agent.runtime.state.hooks import _run_finalization_kernels
+        _run_finalization_kernels(ctx)
     except Exception:
         pass

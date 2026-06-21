@@ -31,9 +31,6 @@ QUICK_SKIP_CONFIDENCE = 0.55
 # Maximum candidates to send in one LLM batch
 MAX_BATCH_SIZE = 5
 
-# LLM call timeout — fail fast, keep all candidates rather than block
-LLM_GATE_TIMEOUT_S = 2.0
-
 
 class MemoryLLMGate:
     """LLM-based memory quality gating.
@@ -85,19 +82,10 @@ class MemoryLLMGate:
             {"role": "user", "content": f"Candidates to evaluate:\n{candidates_json}"},
         ]
 
-        # Call LLM with timeout — fail fast on slow responses
+        # Call LLM
         try:
-            import concurrent.futures
-            with concurrent.futures.ThreadPoolExecutor(max_workers=1) as executor:
-                future = executor.submit(self._call_llm, messages)
-                response = future.result(timeout=LLM_GATE_TIMEOUT_S)
+            response = self._call_llm(messages)
             results = self._parse_response(response, batch)
-        except concurrent.futures.TimeoutError:
-            _log.warning(
-                "MemoryLLMGate: LLM call timed out after %.1fs, keeping all %d candidates",
-                LLM_GATE_TIMEOUT_S, len(batch),
-            )
-            return list(candidates), []
         except Exception as e:
             _log.exception("MemoryLLMGate: LLM call failed, keeping all %d candidates", len(batch))
             # Graceful fallback: keep all
