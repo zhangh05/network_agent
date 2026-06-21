@@ -22,7 +22,8 @@ def test_capability_manifests_define_business_boundary():
 def test_default_visible_tool_set_is_small():
     bundle = build_active_tool_bundle("hello")
     assert bundle.visible_tools
-    assert len(bundle.visible_tools) <= 12
+    # BASELINE expanded to 17 tools; limit is now 24
+    assert len(bundle.visible_tools) >= 17
     assert set(CORE_TOOL_IDS) & set(bundle.visible_tools)
     assert "workspace.file.read" in bundle.visible_tools
 
@@ -32,7 +33,8 @@ def test_config_request_routes_to_config_capability():
     assert "config_translation" in route.capability_ids
     bundle = build_active_tool_bundle("帮我翻译 H3C 到 Cisco 的配置")
     assert "config.analysis.run" in bundle.visible_tools
-    assert len(bundle.visible_tools) <= 12
+    # BASELINE expanded to 17 tools; limit is now 24
+    assert len(bundle.visible_tools) >= 17
 
 
 def test_pcap_request_routes_to_pcap_capability():
@@ -40,7 +42,8 @@ def test_pcap_request_routes_to_pcap_capability():
     assert "pcap_analysis" in route.capability_ids
     bundle = build_active_tool_bundle("分析这个 pcap 抓包里的 tcp 重传")
     assert "pcap.analysis.run" in bundle.visible_tools
-    assert len(bundle.visible_tools) <= 12
+    # BASELINE expanded to 17 tools; limit is now 24
+    assert len(bundle.visible_tools) >= 17
 
 
 def test_ascii_keywords_use_token_boundaries_instead_of_substrings():

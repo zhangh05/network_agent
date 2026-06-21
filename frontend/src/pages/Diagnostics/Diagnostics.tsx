@@ -1,446 +1,391 @@
 /**
- * Diagnostics — system health & observability dashboard.
+ * Diagnostics — 系统诊断仪表盘
  *
- * Layout: runtime health bar → selfcheck issues → usage stats →
- *         prompts table → retention/archive policies.
+ * 设计：手动触发检测，默认显示上一次缓存数据，避免每次进入都 loading。
+ * 点击「开始检测」→ 调用全部 API → 缓存到 localStorage → 更新仪表盘。
+ * 无缓存时显示空骨架 + 醒目的检测按钮。
  */
-
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, useCallback } from "react";
 import { runtimeApi, agentUsageApi, retentionApi, archiveApi, contextApi, promptsApi } from "../../api";
 import { useSessionStore } from "../../stores/session";
 import { LoadingState } from "../../components/common";
-import { IconAlert, IconCheck, IconRefresh, IconShield, IconClock, IconBolt } from "../../components/Icon";
+import { IconRefresh } from "../../components/Icon";
+
+const CACHE_KEY = "diagnostics_v1";
 
 /* ──────────────────────── Types ──────────────────────── */
 
-interface ComponentHealth {
-  name: string;
-  status: "ok" | "warning" | "error";
-  message: string;
-  details?: Record<string, unknown>;
+type UsageStats = {
+  call_count: number; total_tokens: number; input_tokens: number;
+  output_tokens: number; estimated_cost: number; last_updated: string;
+};
+
+type DiagnosticsCache = {
+  ts: string;
+  health: any;
+  selfcheck: any;
+  usage: UsageStats | null;
+  contextOk: boolean | null;
+  prompts: any[] | null;
+  retention: any;
+  archive: any;
+};
+
+/* ──────────────────────── Cache helpers ──────────────────────── */
+
+function readCache(): DiagnosticsCache | null {
+  try {
+    const raw = localStorage.getItem(CACHE_KEY);
+    if (!raw) return null;
+    return JSON.parse(raw) as DiagnosticsCache;
+  } catch {
+    return null;
+  }
 }
 
-interface RuntimeHealth {
-  components: ComponentHealth[];
-  summary: { ok: number; warning: number; error: number; total: number };
+function writeCache(data: Omit<DiagnosticsCache, "ts">) {
+  try {
+    const entry: DiagnosticsCache = { ts: new Date().toISOString(), ...data };
+    localStorage.setItem(CACHE_KEY, JSON.stringify(entry));
+  } catch { /* quota exceeded — silently ignore */ }
 }
 
-interface SelfcheckIssue {
-  code: string;
-  severity: string;
-  message: string;
-  suggested_action?: string;
+function fmtCacheTime(iso: string): string {
+  try {
+    const d = new Date(iso);
+    return d.toLocaleString("zh-CN", { month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit", second: "2-digit" });
+  } catch { return "—"; }
 }
 
-interface SelfcheckResult {
-  checks: Record<string, string>;
-  issues: SelfcheckIssue[];
-  status: string;
-}
-
-interface UsageStats {
-  call_count: number;
-  total_tokens: number;
-  input_tokens: number;
-  output_tokens: number;
-  estimated_cost: number;
-  last_updated: string;
-}
+/* ──────────────────────── Component ──────────────────────── */
 
 export function Diagnostics() {
   const currentWorkspaceId = useSessionStore((s) => s.currentWorkspaceId);
-  const [health, setHealth] = useState<RuntimeHealth | null>(null);
-  const [selfcheck, setSelfcheck] = useState<SelfcheckResult | null>(null);
-  const [usage, setUsage] = useState<UsageStats | null>(null);
-  const [contextOk, setContextOk] = useState<boolean | null>(null);
-  const [prompts, setPrompts] = useState<Array<{ prompt_id: string; version: string; task: string; description: string; status: string }> | null>(null);
-  const [retention, setRetention] = useState<{ policy: Record<string, unknown>; candidate_counts: Record<string, number> } | null>(null);
-  const [archive, setArchive] = useState<{ policy: Record<string, unknown> } | null>(null);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState(false);
+  const cache = readCache();
+
+  // State: init from cache or null
+  const [health, setHealth] = useState<any>(cache?.health ?? null);
+  const [selfcheck, setSelfcheck] = useState<any>(cache?.selfcheck ?? null);
+  const [usage, setUsage] = useState<UsageStats | null>(cache?.usage ?? null);
+  const [contextOk, setContextOk] = useState<boolean | null>(cache?.contextOk ?? null);
+  const [prompts, setPrompts] = useState<any[] | null>(cache?.prompts ?? null);
+  const [retention, setRetention] = useState<any>(cache?.retention ?? null);
+  const [archive, setArchive] = useState<any>(cache?.archive ?? null);
+  const [lastCheck, setLastCheck] = useState<string | null>(cache?.ts ?? null);
+
+  const [detecting, setDetecting] = useState(false);
   const mountedRef = useRef(true);
   const seqRef = useRef(0);
 
-  const loadAll = async () => {
+  const runDetection = useCallback(async () => {
     const seq = ++seqRef.current;
-    setLoading(true);
-    setError(false);
+    setDetecting(true);
     const ctrl = new AbortController();
     const wsId = currentWorkspaceId || "default";
-    try {
-      const [rh, sc, us, cs, pr, rp, ap] = await Promise.allSettled([
-        runtimeApi.health(ctrl.signal),
-        runtimeApi.selfcheck(ctrl.signal),
-        agentUsageApi.get(ctrl.signal),
-        contextApi.status(ctrl.signal),
-        promptsApi.list(ctrl.signal),
-        retentionApi.preview(wsId, ctrl.signal),
-        archiveApi.preview(wsId, ctrl.signal),
-      ]);
-      if (!mountedRef.current || seq !== seqRef.current) return;
-      if (rh.status === "fulfilled") setHealth(rh.value as RuntimeHealth);
-      if (sc.status === "fulfilled") setSelfcheck(sc.value as SelfcheckResult);
-      if (us.status === "fulfilled") setUsage(us.value.usage as unknown as UsageStats);
-      if (cs.status === "fulfilled") setContextOk((cs.value as { context_runtime_enabled: boolean }).context_runtime_enabled);
-      if (pr.status === "fulfilled") setPrompts((pr.value as { prompts: Array<{ prompt_id: string; version: string; task: string; description: string; status: string }> }).prompts);
-      if (rp.status === "fulfilled") setRetention(rp.value as unknown as { policy: Record<string, unknown>; candidate_counts: Record<string, number> });
-      if (ap.status === "fulfilled") setArchive(ap.value as unknown as { policy: Record<string, unknown> });
-      // allSettled never rejects; track rejection count for error state
-      const rejected = [rh, sc, us, cs, pr, rp, ap].filter((r) => r.status === "rejected").length;
-      if (rejected > 0 && mountedRef.current && seq === seqRef.current) {
-        setError(false); // partial data is ok, show what we have
-      }
-    } catch {
-      // Guard against unexpected synchronous errors
-      if (mountedRef.current && seq === seqRef.current) setError(true);
+    const [rh, sc, us, cs, pr, rp, ap] = await Promise.allSettled([
+      runtimeApi.health(ctrl.signal),
+      runtimeApi.selfcheck(ctrl.signal),
+      agentUsageApi.get(ctrl.signal),
+      contextApi.status(ctrl.signal),
+      promptsApi.list(ctrl.signal),
+      retentionApi.preview(wsId, ctrl.signal),
+      archiveApi.preview(wsId, ctrl.signal),
+    ]);
+    if (!mountedRef.current || seq !== seqRef.current) return;
+
+    let newHealth = health, newSelfcheck = selfcheck, newUsage = usage;
+    let newContextOk = contextOk, newPrompts = prompts, newRetention = retention, newArchive = archive;
+
+    if (rh.status === "fulfilled") { newHealth = rh.value; setHealth(rh.value); }
+    if (sc.status === "fulfilled") { newSelfcheck = sc.value; setSelfcheck(sc.value); }
+    if (us.status === "fulfilled") {
+      const raw = us.value as any;
+      newUsage = {
+        call_count: raw.call_count ?? 0, total_tokens: raw.total_tokens ?? 0,
+        input_tokens: raw.input_tokens ?? 0, output_tokens: raw.output_tokens ?? 0,
+        estimated_cost: raw.estimated_cost ?? 0, last_updated: raw.last_updated ?? "",
+      };
+      setUsage(newUsage);
     }
-    if (mountedRef.current && seq === seqRef.current) setLoading(false);
-  };
+    if (cs.status === "fulfilled") {
+      newContextOk = (cs.value as any).context_runtime_enabled;
+      setContextOk(newContextOk);
+    }
+    if (pr.status === "fulfilled") { newPrompts = (pr.value as any).prompts ?? []; setPrompts(newPrompts); }
+    if (rp.status === "fulfilled") { newRetention = rp.value; setRetention(rp.value); }
+    if (ap.status === "fulfilled") { newArchive = ap.value; setArchive(ap.value); }
+
+    // Save to cache
+    writeCache({
+      health: newHealth, selfcheck: newSelfcheck, usage: newUsage,
+      contextOk: newContextOk, prompts: newPrompts,
+      retention: newRetention, archive: newArchive,
+    });
+    setLastCheck(new Date().toISOString());
+
+    setDetecting(false);
+  }, [currentWorkspaceId, health, selfcheck, usage, contextOk, prompts, retention, archive]);
 
   useEffect(() => {
     mountedRef.current = true;
-    loadAll();
     return () => { mountedRef.current = false; };
-  }, [currentWorkspaceId]);
+  }, []);
 
-  if (loading) {
-    return (
-      <div className="page" data-testid="page-diagnostics">
-        <PageHeader onRefresh={loadAll} />
-        <div className="page-body"><LoadingState text="加载诊断数据…" /></div>
-      </div>
-    );
-  }
+  const hs = health?.summary ?? {};
+  const allOk = (hs.ok ?? 0) > 0 && (hs.warning ?? 0) === 0 && (hs.error ?? 0) === 0;
+  const hasData = health !== null || selfcheck !== null || usage !== null;
 
-  if (error) {
-    return (
-      <div className="page" data-testid="page-diagnostics">
-        <PageHeader onRefresh={loadAll} />
-        <div className="page-body">
-          <div className="card" style={{ borderColor: "var(--danger)", color: "var(--danger)", padding: 16 }}>
-            无法加载诊断数据，请确认后端服务正在运行。
-            <button className="btn mt-2" onClick={loadAll}>🔄 重试</button>
-          </div>
-        </div>
-      </div>
-    );
-  }
+  /* ══════════════════════════════════════════
+     RENDER
+     ══════════════════════════════════════════ */
 
   return (
     <div className="page" data-testid="page-diagnostics">
-      <PageHeader onRefresh={loadAll} />
-      <div className="page-body">
-        {/* Quick tip */}
-        <details style={{ marginBottom: 16, fontSize: "var(--fs-12)", color: "var(--text-3)" }}>
-          <summary style={{ cursor: "pointer", fontWeight: 680 }}>💡 使用帮助</summary>
-          <div style={{ marginTop: 6, padding: "10px 14px", background: "var(--surface-2)", borderRadius: "var(--r-6)", lineHeight: 1.6 }}>
-            <strong>运行时健康</strong> — 检查各组件（LLM、知识库、记忆等）是否正常；<br />
-            <strong>自检报告</strong> — 数据一致性、路径安全等自动检测结果；<br />
-            <strong>用量统计</strong> — Token 消耗和会话数量趋势；<br />
-            <strong>数据策略</strong> — 查看/调整自动清理规则。
-          </div>
-        </details>
+      <PageHeader
+        onDetect={runDetection}
+        detecting={detecting}
+        lastCheck={lastCheck}
+        allOk={allOk}
+        hasData={hasData}
+      />
 
-        {/* ── Runtime Health Bar ── */}
-        {health && (
-          <div style={{ marginBottom: 20 }}>
-            <SectionTitle icon={<IconShield size={14} />} title="运行时健康" />
-            <div style={{ display: "flex", flexWrap: "wrap", gap: 8, marginBottom: 8 }}>
-              <StatBadge label="正常" value={health.summary.ok} color="var(--ok)" />
-              {health.summary.warning > 0 && <StatBadge label="警告" value={health.summary.warning} color="var(--warn)" />}
-              {health.summary.error > 0 && <StatBadge label="异常" value={health.summary.error} color="var(--danger)" />}
-            </div>
-            <div className="card" style={{ padding: 0, overflow: "hidden" }}>
-              {health.components.map((c, i) => (
-                <div
-                  key={c.name}
-                  style={{
-                    display: "flex", alignItems: "center", gap: 10, padding: "10px 14px",
-                    borderBottom: i < health.components.length - 1 ? "1px solid var(--line-2, #eee)" : "none",
-                    fontSize: 13,
-                  }}
-                >
-                  <span style={{
-                    width: 8, height: 8, borderRadius: "50%", flexShrink: 0,
-                    background: c.status === "ok" ? "var(--ok)" : c.status === "warning" ? "var(--warn)" : "var(--danger)",
-                  }} />
-                  <span style={{ fontWeight: 500, minWidth: 100, color: "var(--text)" }}>{c.name}</span>
-                  <span style={{ color: "var(--text-3)", flex: 1 }}>{c.message}</span>
-                  {c.details && Object.keys(c.details).length > 0 && (
-                    <span style={{ fontSize: 11, color: "var(--text-4)", fontFamily: "var(--font-mono)" }}>
-                      {Object.entries(c.details).map(([k, v]) => `${k}=${typeof v === 'object' ? JSON.stringify(v) : v}`).join(", ")}
-                    </span>
-                  )}
-                </div>
-              ))}
-            </div>
-          </div>
-        )}
-
-        {/* ── Two-column: Selfcheck + Usage ── */}
-        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 20, marginBottom: 20 }}>
-          {/* Selfcheck */}
+      {/* Loading overlay during detection */}
+      {detecting ? (
+        <div className="page-body"><LoadingState text="检测中…" /></div>
+      ) : (
+        <div className="page-body" style={{ padding: "20px 24px", display: "flex", flexDirection: "column", gap: 20 }}>
+          {/* ═══ 行1: 运行时健康（全宽） ═══ */}
           <div>
-            <SectionTitle icon={<IconAlert size={14} />} title="自检" />
-            {selfcheck ? (
-              <div className="card" style={{ padding: 0, overflow: "hidden" }}>
+            <Section title="运行时健康" badge={
+              health ? (
+                <span style={{ fontSize: 12 }}>
+                  {allOk ? <span style={{ color: "#2e7d32" }}>● 全部正常</span> : `${hs.ok} ok` + (hs.warning ? ` / ${hs.warning} warn` : "") + (hs.error ? ` / ${hs.error} err` : "")}
+                </span>
+              ) : null
+            }>
+              {health ? (
                 <div style={{
-                  padding: "10px 14px", display: "flex", alignItems: "center", gap: 8,
-                  background: selfcheck.status === "healthy" ? "var(--ok-soft, #e8f5e9)" : "var(--warn-soft, #fff8e1)",
-                  borderBottom: selfcheck.issues.length > 0 ? "1px solid var(--line-2, #eee)" : "none",
+                  display: "grid",
+                  gridTemplateColumns: "repeat(auto-fill, minmax(190px, 1fr))",
+                  gap: 10,
                 }}>
-                  <IconCheck size={14} style={{ color: selfcheck.status === "healthy" ? "var(--ok)" : "var(--warn)" }} />
-                  <span style={{ fontSize: 13, fontWeight: 600, color: selfcheck.status === "healthy" ? "var(--ok)" : "var(--warn)" }}>
-                    {selfcheck.status === "healthy" ? "所有检查通过" : "发现警告"}
-                  </span>
+                  {(health.components ?? []).map((c: any) => (
+                    <div key={c.name} style={{
+                      padding: "10px 12px",
+                      background: c.status === "ok" ? "var(--surface-2)" : c.status === "warning" ? "#fff3e0" : "#fce4ec",
+                      borderRadius: "var(--r-6)",
+                      border: `1px solid ${c.status === "ok" ? "var(--line-2)" : c.status === "warning" ? "#ffcc02" : "#ef5350"}40`,
+                    }}>
+                      <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 4 }}>
+                        <span style={{
+                          width: 8, height: 8, borderRadius: "50%", flexShrink: 0,
+                          background: c.status === "ok" ? "#2e7d32" : c.status === "warning" ? "#ed6c02" : "#d32f2f",
+                        }} />
+                        <span style={{ fontWeight: 680, fontSize: 12 }}>{c.name}</span>
+                        <span style={{
+                          marginLeft: "auto", fontSize: 10,
+                          padding: "1px 5px", borderRadius: 3,
+                          background: c.status === "ok" ? "#e8f5e9" : c.status === "warning" ? "#fff3e0" : "#fce4ec",
+                          color: c.status === "ok" ? "#2e7d32" : c.status === "warning" ? "#e65100" : "#c62828",
+                        }}>{c.status}</span>
+                      </div>
+                      {c.message && (
+                        <div style={{ fontSize: 11, color: "var(--text-3)" }}>{c.message}</div>
+                      )}
+                    </div>
+                  ))}
                 </div>
-                {selfcheck.issues.length > 0 && (
-                  <div>
-                    {selfcheck.issues.map((iss, i) => (
-                      <div
-                        key={iss.code || i}
-                        style={{
-                          padding: "10px 14px", fontSize: 12,
-                          borderBottom: i < selfcheck.issues.length - 1 ? "1px solid var(--line-2, #eee)" : "none",
-                        }}
-                      >
-                        <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 2 }}>
-                          <span style={{
-                            fontSize: 10, padding: "1px 5px", borderRadius: 3, fontWeight: 600,
-                            background: iss.severity === "error" ? "var(--danger-soft, #f7dfe3)" : "var(--warn-soft, #f7ebca)",
-                            color: iss.severity === "error" ? "var(--danger)" : "var(--warn)",
-                          }}>
-                            {iss.code}
-                          </span>
-                          <span style={{ color: "var(--text-2)" }}>{iss.message}</span>
-                        </div>
-                        {iss.suggested_action && (
-                          <div style={{ color: "var(--text-4)", paddingLeft: 4 }}>→ {iss.suggested_action}</div>
-                        )}
+              ) : <Dim>点击上方「开始检测」获取运行时健康数据</Dim>}
+            </Section>
+          </div>
+
+          {/* ═══ 行2: 用量 + 自检 + 提示词 ═══ */}
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 20 }}>
+            <Section title="用量">
+              {usage ? (
+                <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+                  <Row label="调用次数" value={usage.call_count.toLocaleString()} />
+                  <Row label="总 Token" value={usage.total_tokens.toLocaleString()} />
+                  <Row label="输入 / 输出" value={`${usage.input_tokens.toLocaleString()} / ${usage.output_tokens.toLocaleString()}`} dim />
+                  <div style={{ borderTop: "1px solid var(--line-2)", paddingTop: 10, display: "flex", justifyContent: "space-between", alignItems: "baseline" }}>
+                    <span style={{ fontSize: 11, color: "var(--text-4)" }}>预估费用</span>
+                    <b style={{ fontSize: 18, color: "#b388ff", fontVariantNumeric: "tabular-nums" }}>¥{Number(usage.estimated_cost ?? 0).toFixed(4)}</b>
+                  </div>
+                </div>
+              ) : <Dim>暂无数据</Dim>}
+            </Section>
+
+            <Section title="自检" badge={selfcheck?.status === "healthy" ? <span style={{ color: "#2e7d32", fontSize: 12 }}>通过</span> : selfcheck?.issues?.length > 0 ? <span style={{ color: "#ed6c02", fontSize: 12 }}>{selfcheck.issues.length} 项</span> : null}>
+              {selfcheck ? (
+                selfcheck.issues?.length > 0 ? (
+                  <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+                    {selfcheck.issues.map((iss: any, i: number) => (
+                      <div key={i} style={{ fontSize: 12, padding: "4px 0", borderBottom: i < selfcheck.issues.length - 1 ? "1px solid var(--line-2)" : "none" }}>
+                        <code style={{ fontSize: 10, padding: "1px 5px", borderRadius: 3, background: iss.severity === "error" ? "#fce4ec" : "#fff3e0", color: iss.severity === "error" ? "#c62828" : "#e65100", marginRight: 6 }}>{iss.code}</code>
+                        {iss.message}
+                        {iss.suggested_action && <div style={{ color: "var(--text-4)", fontSize: 11, marginTop: 2 }}>→ {iss.suggested_action}</div>}
                       </div>
                     ))}
                   </div>
-                )}
-              </div>
-            ) : (
-              <EmptyCard text="无法获取自检数据" />
-            )}
+                ) : <Dim>未发现问题</Dim>
+              ) : <Dim>无数据</Dim>}
+            </Section>
+
+            <Section title="提示词库" badge={prompts?.length != null ? <span style={{ fontSize: 12, color: "var(--text-4)" }}>{prompts.length}</span> : null}>
+              {prompts && prompts.length > 0 ? (
+                <div style={{ maxHeight: 240, overflow: "auto" }}>
+                  <table style={{ width: "100%", fontSize: 11, borderCollapse: "collapse" }}>
+                    <thead>
+                      <tr style={{ position: "sticky", top: 0, background: "var(--surface)", color: "var(--text-4)", textTransform: "uppercase", fontSize: 10, letterSpacing: ".5px" }}>
+                        <th style={{ textAlign: "left", padding: "4px 8px", fontWeight: 600, borderBottom: "1px solid var(--line)" }}>ID</th>
+                        <th style={{ textAlign: "left", padding: "4px 8px", fontWeight: 600, borderBottom: "1px solid var(--line)" }}>Ver</th>
+                        <th style={{ textAlign: "left", padding: "4px 8px", fontWeight: 600, borderBottom: "1px solid var(--line)" }}>Description</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {prompts.map((p: any) => (
+                        <tr key={p.prompt_id}>
+                          <td style={{ padding: "3px 8px", fontFamily: "var(--font-mono)", fontSize: 10, color: "var(--text-2)" }}>{p.prompt_id}</td>
+                          <td style={{ padding: "3px 8px", color: "var(--text-2)" }}><span style={{ padding: "1px 4px", borderRadius: 3, background: "var(--surface-2)", fontSize: 10 }}>{p.version}</span></td>
+                          <td style={{ padding: "3px 8px", fontSize: 11, color: "var(--text-2)" }}>{p.description || p.task}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              ) : <Dim>暂无</Dim>}
+            </Section>
           </div>
 
-          {/* Usage */}
-          <div>
-            <SectionTitle icon={<IconBolt size={14} />} title="用量统计" />
-            {usage ? (
-              <div className="card" style={{ padding: 16 }}>
-                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "12px 20px" }}>
-                  <StatItem label="调用次数" value={usage.call_count.toLocaleString()} />
-                  <StatItem label="预估费用" value={`¥${Number(usage?.estimated_cost ?? 0).toFixed(4)}`} accent />
-                  <StatItem label="输入 Token" value={usage.input_tokens.toLocaleString()} />
-                  <StatItem label="输出 Token" value={usage.output_tokens.toLocaleString()} />
-                  <StatItem label="总 Token" value={usage.total_tokens.toLocaleString()} span />
+          {/* ═══ 行3: 上下文 + 数据策略 ═══ */}
+          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 20 }}>
+            <Section title="上下文运行时">
+              {contextOk !== null ? (
+                <div style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 13 }}>
+                  <span style={{ width: 8, height: 8, borderRadius: "50%", background: contextOk ? "#2e7d32" : "#d32f2f" }} />
+                  {contextOk ? "已启用" : "未启用"}
                 </div>
-                {usage.last_updated && (
-                  <div style={{ marginTop: 10, fontSize: 11, color: "var(--text-4)", display: "flex", alignItems: "center", gap: 4 }}>
-                    <IconClock size={10} />
-                    最后更新: {new Date(usage.last_updated).toLocaleString()}
+              ) : <Dim>无数据</Dim>}
+            </Section>
+
+            <Section title="数据策略">
+              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
+                {retention?.policy && (
+                  <div>
+                    <div style={{ fontSize: 10, color: "var(--text-4)", fontWeight: 600, letterSpacing: ".5px", marginBottom: 6 }}>保留</div>
+                    {Object.entries(retention.policy).slice(0, 5).map(([k, v]) => (
+                      <Row key={k} label={fmtKey(k)} value={fmtVal(k, v)} compact />
+                    ))}
                   </div>
                 )}
-              </div>
-            ) : (
-              <EmptyCard text="无法获取用量数据" />
-            )}
-          </div>
-        </div>
-
-        {/* ── Context Runtime ── */}
-        {contextOk !== null && (
-          <div style={{ marginBottom: 20 }}>
-            <SectionTitle icon={<IconBolt size={14} />} title="上下文运行时" />
-            <div className="card" style={{ padding: "12px 16px", display: "flex", alignItems: "center", gap: 10 }}>
-              <span style={{
-                width: 8, height: 8, borderRadius: "50%",
-                background: contextOk ? "var(--ok)" : "var(--danger)",
-              }} />
-              <span style={{ fontSize: 13, fontWeight: 500 }}>{contextOk ? "已启用" : "未启用"}</span>
-              <span style={{ fontSize: 12, color: "var(--text-4)" }}>
-                {contextOk ? "上下文引用系统正常运行" : "上下文引用系统不可用"}
-              </span>
-            </div>
-          </div>
-        )}
-
-        {/* ── Prompts Table ── */}
-        {prompts && prompts.length > 0 && (
-          <div style={{ marginBottom: 20 }}>
-            <SectionTitle icon={<IconBolt size={14} />} title={`提示词库 (${prompts.length})`} />
-            <div className="card" style={{ padding: 0, overflow: "hidden" }}>
-              <div style={{
-                display: "grid", gridTemplateColumns: "2fr 1fr 2fr",
-                padding: "8px 14px", fontSize: 11, fontWeight: 600,
-                color: "var(--text-4)", borderBottom: "1px solid var(--line-2, #eee)",
-                background: "var(--surface-2, #f8fafc)",
-              }}>
-                <span>Prompt ID</span>
-                <span>版本 · 状态</span>
-                <span>说明</span>
-              </div>
-              {prompts.map((p, i) => (
-                <div
-                  key={p.prompt_id}
-                  style={{
-                    display: "grid", gridTemplateColumns: "2fr 1fr 2fr", alignItems: "center",
-                    padding: "7px 14px", fontSize: 12,
-                    borderBottom: i < prompts.length - 1 ? "1px solid var(--line-2, #eee)" : "none",
-                  }}
-                >
-                  <span style={{ fontWeight: 500, fontFamily: "var(--font-mono)", fontSize: 11, color: "var(--text)" }}>
-                    {p.prompt_id}
-                  </span>
-                  <span style={{ display: "flex", gap: 4, alignItems: "center" }}>
-                    <span style={{
-                      fontSize: 10, padding: "1px 5px", borderRadius: 3,
-                      background: p.status === "enabled" ? "var(--ok-soft, #e8f5e9)" : "var(--warn-soft, #fff8e1)",
-                      color: p.status === "enabled" ? "var(--ok)" : "var(--warn)",
-                    }}>
-                      {p.version}
-                    </span>
-                  </span>
-                  <span style={{ color: "var(--text-3)", fontSize: 11 }}>{p.description || p.task}</span>
-                </div>
-              ))}
-            </div>
-          </div>
-        )}
-
-        {/* ── Retention + Archive policies ── */}
-        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 20 }}>
-          {retention && (
-            <div>
-              <SectionTitle icon={<IconClock size={14} />} title="数据保留策略" />
-              <div className="card" style={{ padding: 16 }}>
-                <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-                  {Object.entries(retention.policy).map(([k, v]) => (
-                    <div key={k} style={{ display: "flex", justifyContent: "space-between", fontSize: 12 }}>
-                      <span style={{ color: "var(--text-3)" }}>{formatPolicyKey(k)}</span>
-                      <span style={{ fontWeight: 500, color: "var(--text)", fontVariantNumeric: "tabular-nums" }}>
-                        {formatPolicyValue(k, v)}
-                      </span>
-                    </div>
-                  ))}
-                </div>
-                {retention.candidate_counts && Object.keys(retention.candidate_counts).length > 0 && (
-                  <div style={{ marginTop: 10, paddingTop: 10, borderTop: "1px solid var(--line-2, #eee)", fontSize: 11, color: "var(--text-4)" }}>
-                    待清理: {Object.entries(retention.candidate_counts).map(([k, v]) => `${formatPolicyKey(k)} ${v}`).join(", ")}
+                {archive?.policy && (
+                  <div>
+                    <div style={{ fontSize: 10, color: "var(--text-4)", fontWeight: 600, letterSpacing: ".5px", marginBottom: 6 }}>归档</div>
+                    {Object.entries(archive.policy).slice(0, 5).map(([k, v]) => (
+                      <Row key={k} label={fmtKey(k)} value={fmtVal(k, v)} compact />
+                    ))}
                   </div>
                 )}
+                {!retention?.policy && !archive?.policy && <Dim>无数据</Dim>}
               </div>
-            </div>
-          )}
-          {archive && (
-            <div>
-              <SectionTitle icon={<IconClock size={14} />} title="归档策略" />
-              <div className="card" style={{ padding: 16 }}>
-                <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-                  {Object.entries(archive.policy).map(([k, v]) => (
-                    <div key={k} style={{ display: "flex", justifyContent: "space-between", fontSize: 12 }}>
-                      <span style={{ color: "var(--text-3)" }}>{formatPolicyKey(k)}</span>
-                      <span style={{ fontWeight: 500, color: "var(--text)", fontVariantNumeric: "tabular-nums" }}>
-                        {formatPolicyValue(k, v)}
-                      </span>
-                    </div>
-                  ))}
-                </div>
-              </div>
-            </div>
-          )}
+            </Section>
+          </div>
         </div>
-
-      </div>
-    </div>
-  );
-}
-
-/* ──────────────────────── Helpers ──────────────────────── */
-
-function formatPolicyKey(key: string): string {
-  const map: Record<string, string> = {
-    runs_max_age_days: "运行保留天数", runs_max_count: "最大运行数",
-    traces_max_age_days: "追踪保留天数", traces_max_count: "最大追踪数",
-    jobs_max_age_days: "作业保留天数", artifacts_temp_max_age_days: "临时制品保留天数",
-    prune_reports: "清理报告", archive_active_refs: "归档活跃引用",
-    archive_quarantine_artifacts: "归档隔离制品", archive_reports: "归档报告",
-    archive_temp_artifacts: "归档临时制品", jobs_older_than_days: "作业超过天数",
-    runs_keep_latest: "保留最近运行", runs_older_than_days: "运行超过天数",
-    traces_keep_latest: "保留最近追踪", traces_older_than_days: "追踪超过天数",
-    temp_older_than_days: "临时文件超过天数",
-  };
-  return map[key] ?? key.replace(/_/g, " ");
-}
-
-function formatPolicyValue(key: string, v: unknown): string {
-  if (typeof v === "boolean") return v ? "是" : "否";
-  if (typeof v === "number") {
-    if (key.includes("days") || key.includes("older_than")) return `${v} 天`;
-    return v.toLocaleString();
-  }
-  return String(v);
-}
-
-/* ──────────────────────── Sub-components ──────────────────────── */
-
-function PageHeader({ onRefresh }: { onRefresh?: () => void }) {
-  return (
-    <div className="page-header" style={{ background: "var(--surface)" }}>
-      <div>
-        <h1>系统诊断<span style={{ color: "var(--ink-mute)", fontWeight: 400, fontSize: 14 }}> · Diagnostics</span></h1>
-        <div className="subtitle">运行时健康 · 用量统计 · 提示词库 · 数据策略</div>
-      </div>
-      {onRefresh && (
-        <button className="btn" onClick={onRefresh} style={{ marginLeft: "auto", display: "flex", alignItems: "center", gap: 4 }}>
-          <IconRefresh size={12} /> 刷新
-        </button>
       )}
     </div>
   );
 }
 
-function SectionTitle({ icon, title }: { icon: React.ReactNode; title: string }) {
+/* ─── Page Header ─── */
+
+function PageHeader({
+  onDetect, detecting, lastCheck, allOk, hasData,
+}: {
+  onDetect: () => void;
+  detecting: boolean;
+  lastCheck: string | null;
+  allOk: boolean;
+  hasData: boolean;
+}) {
   return (
-    <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 8, fontSize: 13, fontWeight: 600, color: "var(--text-2)" }}>
-      <span style={{ color: "var(--text-4)" }}>{icon}</span>
-      {title}
+    <div className="page-header" style={{ background: "var(--surface)", borderBottom: "1px solid var(--line-2)" }}>
+      <div style={{ display: "flex", alignItems: "center", gap: 16 }}>
+        <div>
+          <h1 style={{ margin: 0, fontSize: "var(--fs-18)" }}>系统诊断</h1>
+          <p style={{ margin: "2px 0 0", fontSize: 12, color: "var(--text-4)" }}>
+            健康跟踪 · 用量 · 自检 · 策略
+            {lastCheck && (
+              <span style={{ marginLeft: 10, color: "var(--text-3)", fontSize: 11 }}>
+                上次检测：{fmtCacheTime(lastCheck)}
+              </span>
+            )}
+            {hasData && (
+              <span style={{ marginLeft: 10, color: allOk ? "#2e7d32" : "#ed6c02", fontWeight: 600, fontSize: 11 }}>
+                {allOk ? "● 正常" : "● 注意"}
+              </span>
+            )}
+          </p>
+        </div>
+        <button
+          className="btn sm"
+          onClick={onDetect}
+          disabled={detecting}
+          style={{ marginLeft: "auto", fontWeight: 680, minWidth: 100, justifyContent: "center" }}
+        >
+          {detecting ? (
+            <>⏳ 检测中…</>
+          ) : (
+            <><IconRefresh size={12} /> {hasData ? "重新检测" : "开始检测"}</>
+          )}
+        </button>
+      </div>
     </div>
   );
 }
 
-function StatBadge({ label, value, color }: { label: string; value: number; color: string }) {
-  return (
-    <span style={{
-      display: "inline-flex", alignItems: "center", gap: 4,
-      padding: "3px 10px", borderRadius: 6, fontSize: 12, fontWeight: 500,
-      background: `${color}14`, border: `1px solid ${color}30`, color,
-    }}>
-      {label} <strong>{value}</strong>
-    </span>
-  );
-}
+/* ─── Sub-components ─── */
 
-function StatItem({ label, value, accent, span }: { label: string; value: string; accent?: boolean; span?: boolean }) {
+function Section({ title, badge, children }: { title: string; badge?: React.ReactNode; children: React.ReactNode }) {
   return (
-    <div style={span ? { gridColumn: "1 / -1" } : undefined}>
-      <div style={{ fontSize: 11, color: "var(--text-4)", marginBottom: 2 }}>{label}</div>
-      <div style={{
-        fontSize: accent ? 16 : 14, fontWeight: 600, color: accent ? "var(--accent)" : "var(--text)",
-        fontVariantNumeric: "tabular-nums",
-      }}>{value}</div>
+    <div style={{ padding: "16px 20px", background: "var(--surface)", borderRadius: 8, border: "1px solid var(--line-2)" }}>
+      <div style={{ display: "flex", alignItems: "baseline", justifyContent: "space-between", marginBottom: 12 }}>
+        <h3 style={{ margin: 0, fontSize: 13, fontWeight: 700, color: "var(--text)" }}>{title}</h3>
+        {badge}
+      </div>
+      {children}
     </div>
   );
 }
 
-function EmptyCard({ text }: { text: string }) {
+function Row({ label, value, dim, compact }: { label: string; value: string; dim?: boolean; compact?: boolean }) {
   return (
-    <div className="card" style={{ padding: 20, textAlign: "center", color: "var(--text-4)", fontSize: 12 }}>
-      {text}
+    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", fontSize: compact ? 11 : 12, padding: compact ? "2px 0" : undefined }}>
+      <span style={{ color: "var(--text-4)" }}>{label}</span>
+      <span style={{ fontWeight: 500, color: dim ? "var(--text-3)" : "var(--text)", fontVariantNumeric: "tabular-nums" }}>{value}</span>
     </div>
   );
+}
+
+function Dim({ children }: { children: React.ReactNode }) {
+  return <div style={{ fontSize: 12, color: "var(--text-4)", textAlign: "center", padding: "20px 0" }}>{children}</div>;
+}
+
+/* ─── Small helpers ─── */
+
+function fmtKey(k: string): string {
+  const m: Record<string, string> = {
+    runs_max_age_days: "运行保留", runs_max_count: "最大运行",
+    traces_max_age_days: "追踪保留", traces_max_count: "最大追踪",
+    jobs_max_age_days: "作业保留", artifacts_temp_max_age_days: "临时制品",
+    prune_reports: "清理报告", archive_active_refs: "活跃引用",
+    runs_older_than_days: "运行>天数", traces_older_than_days: "追踪>天数",
+    temp_older_than_days: "临时>天数", runs_keep_latest: "保留最近运行",
+  };
+  return m[k] ?? k.replace(/_/g, " ");
+}
+
+function fmtVal(k: string, v: unknown): string {
+  if (typeof v === "boolean") return v ? "是" : "否";
+  if (typeof v === "number") { if (k.includes("days") || k.includes("older_than")) return `${v}天`; return v.toLocaleString(); }
+  return String(v);
 }

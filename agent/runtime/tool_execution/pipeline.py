@@ -179,6 +179,16 @@ class ToolExecutionPipeline:
         result = action_result_to_tool_result(action_result)
 
         if action_result.status in ("blocked", "approval_pending"):
+            # If approval_pending, wait for the user to approve via popup (ApprovalStore).
+            # The ApprovalGate already created the store record; we block here
+            # until resolved (or timeout), then retry or fail definitively.
+            if action_result.status == "approval_pending":
+                result, stop_now, _ = self._wait_for_approval(
+                    action_result, state, tool_call, tc, step, events,
+                )
+                if stop_now:
+                    return result, stop_now, False
+
             append_tool_result(result, tool_call, tc, state.all_tool_results, state.messages)
             return result, True, False
 
@@ -190,6 +200,73 @@ class ToolExecutionPipeline:
 
         append_tool_result(result, tool_call, tc, state.all_tool_results, state.messages)
         return result, False, False
+
+    def _wait_for_approval(self, action_result, state, tool_call, tc, step, events):
+        """Block until the user approves/denies via the ApprovalStore popup.
+
+        Returns (result, stop_now, continue_main_loop) — same triple as _execute_single.
+        On timeout or deny: return the original failure result.
+        On approve: re-plan and dispatch the tool (bypass approval gate).
+        """
+        from agent.approval import get_approval_store
+        from agent.runtime.loop import _get_approval_timeout
+
+        store = get_approval_store()
+        session_id = getattr(state.session, 'session_id', '')
+        pending_list = store.get_pending(session_id=session_id)
+        apr_id = None
+        for p in pending_list:
+            if p.get("tool_id") == action_result.tool_id:
+                apr_id = p["approval_id"]
+                break
+
+        if not apr_id:
+            # No matching approval record found — fail safe
+            result = action_result_to_tool_result(action_result)
+            append_tool_result(result, tool_call, tc, state.all_tool_results, state.messages)
+            return result, True, False
+
+        is_sub_agent = bool(getattr(state.session, 'is_sub_agent', False))
+        timeout = _get_approval_timeout(is_sub_agent=is_sub_agent)
+        allowed = store.wait(apr_id, timeout=timeout)
+        store.cleanup(apr_id)
+
+        if not allowed:
+            result = action_result_to_tool_result(action_result)
+            result.errors = ["user_rejected"]
+            result.summary = f"Tool {action_result.tool_id} rejected"
+            append_tool_result(result, tool_call, tc, state.all_tool_results, state.messages)
+            return result, True, False
+
+        # User allowed — re-dispatch the tool directly (skip risk/approval gates)
+        # Re-plan the action and dispatch
+        tid = action_result.tool_id
+        call_id = tc.id if hasattr(tc, 'id') else tc.get("id", "")
+        llm_name = tc.name if hasattr(tc, 'name') else tc.get("name", "unknown")
+        turn_id = getattr(state.turn, 'turn_id', '')
+
+        action_plan = self._action_planner.plan(
+            tool_call_id=call_id,
+            tool_name=llm_name,
+            tool_id=tid,
+            arguments=dict(tool_call.arguments),
+            turn_id=turn_id,
+            raw_call=tc,
+            context=getattr(state, 'context', None),
+        )
+
+        dispatched = self._action_executor.dispatcher.dispatch(
+            action_plan, tool_call,
+            ctx=getattr(state, 'context', None),
+            state=state,
+        )
+        # Normalize + scan post-dispatch
+        self._action_executor.normalizer.normalize(dispatched)
+        self._action_executor.scanner.scan(dispatched)
+
+        result = action_result_to_tool_result(dispatched)
+        append_tool_result(result, tool_call, tc, state.all_tool_results, state.messages)
+        return result, not result.ok, False
 
 
 def _complete_runtime_state(state) -> None:

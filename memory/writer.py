@@ -17,7 +17,7 @@ def write_memory(
     scope: str = "short_term",
     memory_type: str = "knowledge_note",
     tags: list = None,
-    project_id: str = "",
+    workspace_id: str = "",
     source: str = "agent",
     confidence: str = "system_generated",
     summary: str = "",
@@ -57,7 +57,7 @@ def write_memory(
             title=title,
             content=content,
             memory_type=memory_type,
-            project_id=project_id,
+            workspace_id=workspace_id,
             tags=tags or [],
         )
         if conflicts:
@@ -67,7 +67,7 @@ def write_memory(
         pass
 
     # Step 4: Write to ContextStore
-    workspace_id = project_id or "default"
+    ws_id = workspace_id or "default"
     memory_id = f"mem_{uuid.uuid4().hex[:12]}"
 
     item = {
@@ -85,12 +85,12 @@ def write_memory(
         "memory_id": memory_id,
         "memory_type": memory_type,
         "confidence": effective_confidence,
-        "project_id": project_id,
+        "workspace_id": workspace_id,
         "metadata": meta,
         "redaction_applied": redaction_applied or policy.redaction_needed,
     }
 
-    store = get_context_store(workspace_id)
+    store = get_context_store(ws_id)
     store.put(item)
 
     return memory_id
@@ -104,7 +104,7 @@ def write_run_summary(
     module: str,
     counts: str = "",
     llm_metadata: dict = None,
-    project_id: str = "default",
+    workspace_id: str = "default",
     artifact_refs: list = None,
 ) -> Optional[str]:
     """Write a run_summary record."""
@@ -125,7 +125,7 @@ def write_run_summary(
         scope="project",
         memory_type="run_summary",
         tags=["agent_run", intent or "unknown", module or "unknown"],
-        project_id=project_id,
+        workspace_id=workspace_id,
         source="agent",
         sensitivity="internal",
         metadata=meta,
@@ -136,13 +136,13 @@ def write_user_confirmed_decision(
     title: str,
     content: str,
     tags: list = None,
-    project_id: str = "",
+    workspace_id: str = "",
 ) -> Optional[str]:
     """Write a user-confirmed decision."""
     return write_memory(
         title=title, content=content,
         scope="long_term", memory_type="decision",
-        tags=tags or [], project_id=project_id,
+        tags=tags or [], workspace_id=workspace_id,
         source="user", confidence="user_confirmed",
         user_confirmed=True,
     )
@@ -152,13 +152,13 @@ def write_translation_rule(
     title: str,
     content: str,
     tags: list = None,
-    project_id: str = "",
+    workspace_id: str = "",
 ) -> Optional[str]:
     """Write a translation rule."""
     return write_memory(
         title=title, content=content,
         scope="long_term", memory_type="translation_rule",
-        tags=tags or ["translation_rule"], project_id=project_id,
+        tags=tags or ["translation_rule"], workspace_id=workspace_id,
         source="user", confidence="user_confirmed",
         user_confirmed=True,
     )
@@ -168,13 +168,13 @@ def write_user_preference(
     title: str,
     content: str,
     tags: list = None,
-    project_id: str = "",
+    workspace_id: str = "",
 ) -> Optional[str]:
     """Write a user preference."""
     return write_memory(
         title=title, content=content,
         scope="long_term", memory_type="user_preference",
-        tags=tags or [], project_id=project_id,
+        tags=tags or [], workspace_id=workspace_id,
         source="user", confidence="user_confirmed",
         user_confirmed=True,
     )
@@ -198,7 +198,7 @@ def write_job_summary(job_record) -> Optional[str]:
         content=content,
         scope="project", memory_type="run_summary",
         tags=["job_summary", safe.get("job_type", ""), safe.get("status", "")],
-        project_id=jd.get("workspace_id", "default"),
+        workspace_id=jd.get("workspace_id", "default"),
         source="agent",
         metadata={"job_summary": safe},
     )

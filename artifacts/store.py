@@ -220,7 +220,7 @@ def _validate_source_path(source_path: str, workspace_id: str = "") -> bool:
 
 def save_artifact(workspace_id: str, content: str = "", source_path: str = "",
                   artifact_type: str = "", title: str = "", scope: str = "workspace",
-                  sensitivity: str = "", run_id: str = "", module: str = "",
+                  sensitivity: str = "", run_id: str = "", session_id: str = "", module: str = "",
                   skill: str = "", capability_id: str = "", metadata: dict = None,
                   tags: list = None, source: str = "module_output") -> Optional[ArtifactRecord]:
     """Save an artifact. Returns ArtifactRecord or None if blocked by policy."""
@@ -290,7 +290,7 @@ def save_artifact(workspace_id: str, content: str = "", source_path: str = "",
     fname = file_rec.path
     title = title or f"{artifact_type}: {art_id}"
     rec = ArtifactRecord(
-        artifact_id=art_id, workspace_id=workspace_id, run_id=run_id,
+        artifact_id=art_id, workspace_id=workspace_id, session_id=session_id, run_id=run_id,
         module=module, skill=skill, capability_id=capability_id,
         artifact_type=artifact_type, title=title,
         scope=scope, sensitivity=sensitivity, lifecycle="active",

@@ -220,6 +220,8 @@ def _handler_pcap_analysis_run(inv: ToolInvocation) -> dict:
         dst=str(args.get("dst", "")),
         dport=_safe_int(args.get("dport", 0)),
         use_filter=bool(args.get("use_filter", False)),
+        run_id=inv.run_id or "",
+        agent_session_id=str(args.get("agent_session_id", "")),
     )
 
 def _schema(properties: dict | None = None, required: list[str] | None = None) -> dict:

@@ -50,7 +50,7 @@ _TYPE_EXTENSIONS: dict[str, frozenset[str]] = {
         "relevance",
         "confidence",
         "tags",
-        "project_id",
+        "workspace_id",
         "expires_at",
     }),
     "knowledge_chunk": frozenset({

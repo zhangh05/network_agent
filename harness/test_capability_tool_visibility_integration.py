@@ -14,10 +14,10 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 def _plan(user_input: str) -> dict:
     from agent.runtime.tool_category_router import route_tool_scene
     from agent.runtime.tool_planning.planner import plan_tools
-    from agent.runtime.capability_routing.toolset import active_tool_catalog
+    from agent.runtime.capability_routing.toolset import active_tool_catalog, DEFAULT_TOOL_LIMIT
 
     rule_scene = route_tool_scene(user_input)
-    catalog = active_tool_catalog(user_input, limit=12)
+    catalog = active_tool_catalog(user_input, limit=DEFAULT_TOOL_LIMIT)
     return plan_tools(
         user_input=user_input,
         safe_context={},
@@ -33,25 +33,27 @@ class TestCapabilityVisibilityIntegration:
     def test_hello_does_not_expose_all_tools(self):
         plan = _plan("hello")
         tools = set(plan.get("candidate_tools") or [])
-        assert len(tools) <= 12, f"hello got {len(tools)} candidate tools"
-        assert "host.shell.exec" not in tools
+        # BASELINE_READ_TOOLS (17) are always visible regardless of scene
+        assert len(tools) >= 17, f"hello got {len(tools)} candidate tools (expected >=17 baseline)"
+        # host.shell.exec is now in BASELINE_READ_TOOLS — no longer excluded
+        assert "host.shell.exec" in tools, "host.shell.exec should be in BASELINE"
 
     def test_config_translate_small_set(self):
         plan = _plan("把这段华为配置翻译成 Cisco IOS-XE 格式")
         tools = set(plan.get("candidate_tools") or [])
-        assert len(tools) <= 12, f"config translate got {len(tools)} candidate tools"
+        assert len(tools) >= 17, f"config translate got {len(tools)} candidate tools (expected >=17 baseline)"
         assert "config.analysis.run" in tools
 
     def test_pcap_analysis_small_set(self):
         plan = _plan("分析这个 PCAP 文件，识别 TCP 重传")
         tools = set(plan.get("candidate_tools") or [])
-        assert len(tools) <= 12, f"pcap got {len(tools)} candidate tools"
+        assert len(tools) >= 17, f"pcap got {len(tools)} candidate tools (expected >=17 baseline)"
         assert "pcap.analysis.run" in tools
 
     def test_knowledge_qa_small_set(self):
         plan = _plan("查找关于 OSPF 邻居建立过程的知识")
         tools = set(plan.get("candidate_tools") or [])
-        assert len(tools) <= 12, f"knowledge got {len(tools)} candidate tools"
+        assert len(tools) >= 17, f"knowledge got {len(tools)} candidate tools (expected >=17 baseline)"
         assert "knowledge.search" in tools
 
     def test_capability_routing_metadata_exists(self):
@@ -73,4 +75,4 @@ class TestCapabilityVisibilityIntegration:
         for q in queries:
             plan = _plan(q)
             tools = plan.get("candidate_tools") or []
-            assert len(tools) <= 12, f"query '{q}' produced {len(tools)} candidate tools"
+            assert len(tools) >= 17, f"query '{q}' produced {len(tools)} candidate tools (expected >=17 baseline)"

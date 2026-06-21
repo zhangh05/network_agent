@@ -44,7 +44,7 @@ class ContextStoreAdapter:
             "memory_id": data.get("memory_id", ""),
             "memory_type": data.get("memory_type", ""),
             "confidence": data.get("confidence", ""),
-            "project_id": data.get("project_id", ""),
+            "workspace_id": data.get("workspace_id", ""),
             "expires_at": data.get("expires_at", ""),
             "metadata": data.get("metadata", {}),
             "redaction_applied": data.get("redaction_applied", False),
@@ -61,27 +61,38 @@ class ContextStoreAdapter:
             return None
         return _DictWithAsDict(item)
 
-    def search(self, query: str = "", tags=None, project_id=None,
+    def search(self, query: str = "", tags=None, workspace_id=None,
                memory_type=None, scope=None, limit=10) -> list:
         """Search memory items."""
         from context.unified_retriever import get_retriever
         retriever = get_retriever(self.workspace_id)
         return retriever.search_memory(query, tags=tags, scope=scope, top_k=limit)
 
-    def list(self, scope=None, memory_type=None, project_id=None,
-             limit=100) -> list:
+    def list(self, scope=None, memory_type=None, workspace_id=None,
+             limit=100, include_deleted=False) -> list:
         """List memory items."""
         return self._store.list_items(
             item_type="memory_hit",
             scope=scope,
             limit=limit,
+            include_deleted=include_deleted,
         )
 
     def delete(self, memory_id: str) -> bool:
-        """Delete a memory item."""
-        return self._store.delete(memory_id)
+        """Delete a memory item. Writes tombstones for both raw and mem_ prefixed ID
+        to handle items that were stored with either ID format."""
+        ok1 = self._store.delete(memory_id)
+        ok2 = self._store.delete(f"mem_{memory_id}")
+        return ok1 or ok2
 
-    def count(self, project_id=None) -> int:
+    def list_deleted(self) -> list:
+        """List tombstoned (soft-deleted) memory items."""
+        return self._store.list_items(
+            item_type="memory_hit",
+            include_deleted=True,
+        )
+
+    def count(self, workspace_id=None) -> int:
         """Count memory items."""
         return self._store.count(item_type="memory_hit")
 

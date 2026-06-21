@@ -58,7 +58,7 @@ def handle_memory_create(inv: ToolInvocation) -> dict:
             scope=str(args.get("scope", "long_term")),
             memory_type=str(args.get("memory_type", "knowledge_note")),
             tags=list(args.get("tags") or []),
-            project_id=ws,
+            workspace_id=ws,
             source="llm_tool",
             confidence=str(args.get("confidence", "system_generated")),
             summary=str(args.get("summary", value_preview)),
@@ -96,7 +96,7 @@ def handle_memory_list(inv: ToolInvocation) -> dict:
         results = store.list(
             scope=args.get("scope"),
             memory_type=args.get("memory_type"),
-            project_id=ws,
+            workspace_id=ws,
             limit=args.get("limit", 20),
         )
         status_filter = args.get("status", "")

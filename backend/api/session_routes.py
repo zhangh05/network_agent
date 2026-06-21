@@ -141,6 +141,26 @@ def handle_session_update(session_id):
     return jsonify({"ok": True, "session": session})
 
 
+def _complete_session_job(ws_id, session_id, status="succeeded", hard_delete=False):
+    """Mark the session-level agent_run job as completed/cancelled, or hard-delete it."""
+    try:
+        from jobs.store import get_job, update_job, list_jobs, delete_job
+        from jobs.manager import mark_succeeded, mark_failed, cancel_job
+        for j in list_jobs(ws_id=ws_id, limit=100):
+            p = j.get("payload", {}) or {}
+            if p.get("session_id") == session_id and j.get("status") in ("created", "queued", "running", "succeeded", "failed", "cancelled"):
+                job_id = j.get("job_id", "")
+                if hard_delete:
+                    delete_job(ws_id, job_id, soft=False)
+                elif status == "succeeded":
+                    mark_succeeded(ws_id, job_id)
+                elif status == "cancelled":
+                    cancel_job(ws_id, job_id)
+                break
+    except Exception:
+        pass
+
+
 def handle_session_archive(session_id):
     """POST /api/sessions/<session_id>/archive — Archive a session."""
     session_id, err = _validated_session_id(session_id)
@@ -154,6 +174,8 @@ def handle_session_archive(session_id):
     session = archive_session(session_id, ws_id)
     if not session:
         return jsonify({"ok": False, "error": "session_not_found"}), 404
+
+    _complete_session_job(ws_id, session_id, "succeeded")
 
     return jsonify({"ok": True, "session": session})
 
@@ -172,6 +194,18 @@ def handle_session_restore(session_id):
     if not session:
         return jsonify({"ok": False, "error": "session_not_found"}), 404
 
+    # Re-activate the job if it was completed/cancelled
+    try:
+        from jobs.store import get_job, update_job, list_jobs
+        for j in list_jobs(ws_id=ws_id, limit=100):
+            p = j.get("payload", {}) or {}
+            if p.get("session_id") == session_id and j.get("status") in ("succeeded", "failed", "cancelled"):
+                job_id = j.get("job_id", "")
+                update_job(ws_id, job_id, {"status": "running", "finished_at": ""})
+                break
+    except Exception:
+        pass
+
     return jsonify({"ok": True, "session": session})
 
 
@@ -188,6 +222,8 @@ def handle_session_soft_delete(session_id):
     session = soft_delete_session(session_id, ws_id)
     if not session:
         return jsonify({"ok": False, "error": "session_not_found"}), 404
+
+    _complete_session_job(ws_id, session_id, "cancelled")
 
     return jsonify({"ok": True, "session": session})
 
@@ -216,6 +252,8 @@ def handle_session_delete_permanently(session_id):
     ok = delete_session_permanently(session_id, ws_id, confirm=True)
     if not ok:
         return jsonify({"ok": False, "error": "session_not_found"}), 404
+
+    _complete_session_job(ws_id, session_id, hard_delete=True)
 
     return jsonify({
         "ok": True,

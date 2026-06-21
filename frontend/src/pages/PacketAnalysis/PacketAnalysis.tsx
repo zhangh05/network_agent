@@ -1,4 +1,4 @@
-import { useState, useRef, useEffect } from "react";
+import { useState, useRef, useEffect, useCallback } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
 import { useSessionStore } from "../../stores/session";
 import { apiRequest } from "../../api/client";
@@ -73,6 +73,34 @@ export function PacketAnalysis() {
   const [filterText, setFilterText] = useState("");
   const [activeKey, setActiveKey] = useState("");
   const [result, setResult] = useState<AnalysisResult | null>(null);
+  const [uploading, setUploading] = useState(false);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+
+  // Upload PCAP file
+  const handleUpload = useCallback(async (file: File) => {
+    if (!file) return;
+    setUploading(true);
+    setError("");
+    try {
+      const formData = new FormData();
+      formData.append("file", file);
+      formData.append("workspace_id", wsId);
+      const res = await apiRequest<{ ok: boolean; session_id?: string; filename?: string; total_packets?: number; connections?: ConnectionGroup[]; error?: string }>({
+        method: "POST", url: "/pcap/parse", data: formData,
+      } as any);
+      if (!res.ok) { setError(res.error || "上传失败"); return; }
+      setSessionId(res.session_id || "");
+      setFilename(res.filename || file.name);
+      setTotalPackets(res.total_packets || 0);
+      setConnections(res.connections || []);
+      setResult(null); setActiveKey("");
+      sessionStorage.setItem("pcap_session", JSON.stringify({ sessionId: res.session_id, filename: res.filename }));
+    } catch (e: any) {
+      setError(e?.message || "上传失败");
+    } finally {
+      setUploading(false);
+    }
+  }, [wsId]);
 
   // Restore session from URL params (from file manager) or localStorage
   useEffect(() => {
@@ -155,9 +183,21 @@ export function PacketAnalysis() {
       <div style={{ padding: "10px 18px", borderBottom: "1px solid var(--line)", background: "var(--surface)", flexShrink: 0 }}>
         <div style={{ display: "flex", alignItems: "center", gap: 12, flexWrap: "wrap" }}>
           <span style={{ fontWeight: 700, fontSize: "var(--fs-15)" }}>Packet Analysis</span>
-          {!filename && (
-            <button className="btn ghost sm" onClick={() => navigate("/files")}>← 返回文件管理</button>
-          )}
+          {/* File upload */}
+          <input
+            ref={fileInputRef}
+            type="file"
+            accept=".pcap,.pcapng,.cap"
+            style={{ display: "none" }}
+            onChange={(e) => { const f = e.target.files?.[0]; if (f) { handleUpload(f); e.target.value = ""; } }}
+          />
+          <button
+            className="btn sm"
+            onClick={() => fileInputRef.current?.click()}
+            disabled={uploading}
+          >
+            {uploading ? (<span className="spinner" />) : "📤"} {uploading ? "上传中…" : "上传 pcap"}
+          </button>
           {filename && <span style={{ color: "var(--text-3)", fontSize: "var(--fs-12)" }}>{filename} · {totalPackets} pkts · {(connections || []).length} flows</span>}
           {loading && <span className="status-pill"><span className="dot loading" />分析中</span>}
           {result && (
@@ -183,10 +223,12 @@ export function PacketAnalysis() {
                   source: "agent",
                 }).catch(() => ({ ok: false, artifact: null } as any));
 
-                // Build prompt with file_id reference for LLM tool use
-                const fileId = saveRes.ok ? saveRes.artifact?.file_id || "" : "";
-                const text = fileId
-                  ? `请分析这份 TCP 报文数据。使用 workspace.file.read 工具，参数 file_id="${fileId}"。`
+                // Build prompt with filepath reference for LLM tool use
+                const filepath = saveRes.ok && saveRes.artifact
+                  ? saveRes.artifact.relative_path || saveRes.artifact.file_id || ""
+                  : "";
+                const text = filepath
+                  ? `请分析这份 TCP 报文数据。使用 workspace.file.read 工具，参数 filepath="${filepath}"。`
                   : `帮我分析这个 TCP 连接：${result.conn}，${result.total_tcp_packets} 个报文，${(result.anomalies||[]).length} 个异常`;
 
                 // 3. Store and navigate
@@ -215,9 +257,23 @@ export function PacketAnalysis() {
           </div>
           <div style={{ flex: 1, overflow: "auto" }}>
             {(connections || []).length === 0 && (
-              <div style={{ padding: 40, textAlign: "center", color: "var(--text-4)" }}>
-                <div style={{ fontSize: "var(--fs-20)", marginBottom: 6 }}>📦</div>
-                <div>{filename ? "Select a flow →" : "请从文件管理页面上传 pcap"}</div>
+              <div
+                style={{ padding: "60px 40px", textAlign: "center", color: "var(--text-4)", cursor: "pointer" }}
+                onClick={() => fileInputRef.current?.click()}
+                onDragOver={(e) => { e.preventDefault(); }}
+                onDrop={(e) => { e.preventDefault(); const f = e.dataTransfer.files?.[0]; if (f) handleUpload(f); }}
+              >
+                <div style={{ fontSize: "var(--fs-28)", marginBottom: 8 }}>
+                  {uploading ? <span className="spinner" /> : "📤"}
+                </div>
+                <div style={{ fontSize: "var(--fs-14)", marginBottom: 4 }}>
+                  {uploading ? "正在上传并解析…" : filename ? "Select a flow →" : "上传 pcap / pcapng 文件"}
+                </div>
+                {!filename && !uploading && (
+                  <div style={{ fontSize: "var(--fs-11)", color: "var(--text-5)", marginTop: 4 }}>
+                    点击选择或拖拽文件到此处
+                  </div>
+                )}
               </div>
             )}
             {filteredConnections.map((t, i) => {

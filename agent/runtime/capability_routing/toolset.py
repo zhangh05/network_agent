@@ -13,7 +13,7 @@ from .models import ToolBundle
 from .router import route_capabilities
 
 
-DEFAULT_TOOL_LIMIT = 12
+DEFAULT_TOOL_LIMIT = 24  # 17 baseline + routing headroom
 
 
 def _valid_tool_ids(tool_ids) -> tuple[str, ...]:

@@ -146,11 +146,15 @@ def _run_agent_thread(user_input, session_id, workspace_id, metadata, event_queu
     def realtime_callback(event):
         try:
             stats["live_events"] = int(stats.get("live_events", 0)) + 1
-            event_queue.put({
-                "type": "event",
-                "name": event.get("type", event.get("name", "event")) if isinstance(event, dict) else "event",
-                "data": event,
-            }, timeout=0.2)
+            if isinstance(event, dict) and event.get("type") == "token":
+                # Pass token events through directly for streaming display
+                event_queue.put(event, timeout=0.2)
+            else:
+                event_queue.put({
+                    "type": "event",
+                    "name": event.get("type", event.get("name", "event")) if isinstance(event, dict) else "event",
+                    "data": event,
+                }, timeout=0.2)
         except Exception:
             pass
 

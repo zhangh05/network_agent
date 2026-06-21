@@ -61,7 +61,7 @@ def seed(workspace_id: str) -> None:
         title="OSPF answer style",
         content="When answering OSPF troubleshooting questions, start with the shortest command sequence.",
         tags=["ospf", "style"],
-        project_id=workspace_id,
+        workspace_id=workspace_id,
     )
     if not mid:
         raise RuntimeError("memory seed failed")

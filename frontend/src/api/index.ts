@@ -891,9 +891,17 @@ export const systemStatusApi = {
 /* ──────────────────────── 12. agent usage ──────────────────────── */
 
 export const agentUsageApi = {
-  /** GET /api/agent/usage */
+  /** GET /api/agent/usage — returns flat fields (no .usage wrapper) */
   get: (signal?: AbortSignal) =>
-    apiRequest<{ usage: Record<string, unknown> }>({ method: "GET", url: "/agent/usage" }, signal),
+    apiRequest<{
+      ok: boolean;
+      input_tokens: number;
+      output_tokens: number;
+      total_tokens: number;
+      estimated_cost: number;
+      call_count: number;
+      last_updated: string;
+    }>({ method: "GET", url: "/agent/usage" }, signal),
 };
 
 /* ──────────────────────── 13. agent usage ──────────────────────── */

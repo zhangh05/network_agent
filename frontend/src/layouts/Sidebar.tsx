@@ -132,17 +132,19 @@ export function Sidebar() {
   async function onDeleteSession(sess: Session) {
     if (!confirm(`⚠️ 永久删除会话「${sess.title || sess.session_id}」？\n\n此操作不可撤销！消息和记录将被彻底清除。`)) return;
     try {
-      const { apiClient } = await import("../api/client");
-      await apiClient.request({
-        method: "DELETE",
-        url: `/sessions/${sess.session_id}`,
-        params: { workspace_id: currentWorkspaceId!, confirm: "true" },
-      });
+      await sessionsApi.delete(sess.session_id, currentWorkspaceId!);
       if (currentSessionId === sess.session_id) setCurrentSession(null);
       sessList.reload();
       recentRuns.reload();
       toast({ kind: "success", title: "已永久删除", body: sess.session_id });
     } catch (e: unknown) {
+      // 404 = already deleted on disk → just reload the list
+      if (isApiError(e) && e.status === 404) {
+        if (currentSessionId === sess.session_id) setCurrentSession(null);
+        sessList.reload();
+        recentRuns.reload();
+        return;
+      }
       toast({ kind: "error", title: "删除失败", body: isApiError(e) ? e.message : String(e) });
     }
   }

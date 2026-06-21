@@ -41,16 +41,14 @@ def build_capability_context_block(ctx) -> PromptBlock | None:
 
     meta = getattr(ctx, "metadata", {}) or {}
     selected_skills = meta.get("selected_skills", [])
-    visible_tools = meta.get("visible_tools", [])
 
     lines = [
         "Current execution model:",
         "- Skill = capability manifest / business entry.",
         "- Module = implementation service, not directly called by the LLM.",
-        "- Tool = callable adapter, preferably directory-level.",
+        "- Tool = callable adapter; see Tool Catalog section for the full visible list.",
         "",
         f"selected_skills: {selected_skills}",
-        f"visible_tools: {visible_tools}",
     ]
 
     contracts = safe.get("loaded_skill_contracts") or []
@@ -104,7 +102,7 @@ def build_evidence_context_block(ctx) -> PromptBlock | None:
 
 
 def build_active_tool_contract_block(ctx) -> PromptBlock | None:
-    """Build a block listing only the currently visible tools."""
+    """Build a block listing visible tools grouped by category."""
     visible_tools = (
         getattr(ctx, "visible_tool_ids", None)
         or (getattr(ctx, "metadata", {}) or {}).get("visible_tools", [])
@@ -112,20 +110,32 @@ def build_active_tool_contract_block(ctx) -> PromptBlock | None:
     if not visible_tools:
         return None
 
-    lines = [
-        "Only the following tools are visible for this turn:",
-        *[f"- {tool_id}" for tool_id in visible_tools],
+    # Group by namespace prefix
+    categories: dict[str, list[str]] = {}
+    for tid in visible_tools:
+        parts = tid.split(".")
+        cat = parts[0] if parts else "other"
+        categories.setdefault(cat, []).append(tid)
+
+    lines = ["Visible tools for this turn (grouped by catalog):", ""]
+    for cat in sorted(categories):
+        tools = categories[cat]
+        lines.append(f"  [{cat}] ({len(tools)})")
+        for tid in sorted(tools):
+            lines.append(f"    - {tid}")
+
+    lines.extend([
         "",
-        "Do not call internal or hidden tools.",
+        "Do not call any tool outside this visible list.",
         "",
-        "Business tool rules:",
-        "- Use config.analysis.run for config parse/translate/interface/route/diff/summarize actions.",
-        "- Use pcap.analysis.run for pcap parse/session/filter/align actions.",
-    ]
+        "Business tools (when present):",
+        "- config.analysis.run → parse/translate/interface/route/diff/summarize configs.",
+        "- pcap.analysis.run → parse/session/filter/align packet captures.",
+    ])
     return PromptBlock(
         block_id="active_tool_contract",
-        title="Active Tool Contract",
+        title="Tool Catalog",
         content="\n".join(lines),
         priority=50,
-        token_budget=700,
+        token_budget=900,
     )

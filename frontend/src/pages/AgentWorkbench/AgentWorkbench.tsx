@@ -7,7 +7,7 @@ import { useToastStore } from "../../stores/toast";
 import { useUIStore } from "../../stores/session";
 import { isApiError } from "../../types";
 import type { AgentResult, ToolCallResult } from "../../types";
-import { sanitizeAssistantText, renderAssistantHtml } from "../../utils/displayText";
+import { sanitizeAssistantText, renderAssistantHtml, toolLabel } from "../../utils/displayText";
 import { beginModelStep, discardToolCallDraft, finalizeStreamText } from "../../utils/agentStream";
 import { agentResultFromWsDone } from "../../utils/wsResult";
 import { notifyRunCompleted } from "../../utils/appEvents";
@@ -679,15 +679,6 @@ function ResultInline({ result, fallbackText }: { result: AgentResult | undefine
       )}
     </div>
   );
-}
-
-function toolLabel(toolId: string): string {
-  if (toolId.startsWith("config_translation.")) return "配置翻译";
-  if (toolId.startsWith("knowledge.")) return "知识检索";
-  if (toolId.startsWith("artifact.")) return "制品操作";
-  if (toolId.startsWith("review.")) return "评审流转";
-  if (toolId.startsWith("runtime.")) return "运行诊断";
-  return "工具调用";
 }
 
 function toolCallSummary(calls: ToolCallResult[]): string {

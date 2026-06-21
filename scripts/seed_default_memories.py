@@ -38,7 +38,7 @@ def seed(workspace_id: str = "default"):
             memory_type=mem.get("memory_type", "knowledge_note"),
             scope=mem.get("scope", "long_term"),
             tags=mem.get("tags", []),
-            project_id=workspace_id,
+            workspace_id=workspace_id,
         )
         print(f"  Seeded: {mid} — {mem['title']}")
 

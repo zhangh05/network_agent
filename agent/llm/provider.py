@@ -391,7 +391,6 @@ def _api_generate_stream(url: str, body_dict: dict, cfg: dict, req: "LLMRequest"
             token = delta.get("content", "")
             if token:
                 content_parts.append(token)
-                # Push token via StreamEmitter realtime callback
                 _push_stream_token(token)
 
             # Tool calls (accumulated across chunks)
@@ -488,7 +487,8 @@ def _push_stream_token(token: str):
     """Push a streaming token via StreamEmitter realtime callback."""
     try:
         from agent.runtime.query_engine import StreamEmitter
-        cb = getattr(StreamEmitter, "_realtime", None)
+        state = StreamEmitter._tls_state()
+        cb = state.realtime if hasattr(state, 'realtime') else None
         if cb:
             cb({"type": "token", "content": token, "timestamp": __import__('time').time()})
     except Exception as e:

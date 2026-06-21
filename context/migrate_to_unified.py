@@ -84,7 +84,7 @@ def migrate_memories(workspace_id: str, dry_run: bool = False) -> dict:
                 "memory_id": mem_id,
                 "memory_type": rec.get("memory_type", ""),
                 "confidence": rec.get("confidence", ""),
-                "project_id": rec.get("project_id", ""),
+                "workspace_id": rec.get("workspace_id", rec.get("project_id", "")),
                 "expires_at": rec.get("expires_at", ""),
                 "priority": 0,
                 "metadata": rec.get("metadata", {}),

@@ -35,7 +35,8 @@ def resolve_workspace_path(workspace_id: str, filepath: str) -> Path:
     return resolved
 
 
-def parse_pcap_file(workspace_id: str, filepath: str = "", file_id: str = "") -> dict:
+def parse_pcap_file(workspace_id: str, filepath: str = "", file_id: str = "",
+                    run_id: str = "", session_id: str = "") -> dict:
     """Parse a workspace PCAP file and create/refresh a PCAP session."""
     path = None
     source_file_id = file_id or ""
@@ -96,7 +97,7 @@ def parse_pcap_file(workspace_id: str, filepath: str = "", file_id: str = "") ->
         session_art = save_artifact(
             workspace_id=workspace_id, content=json.dumps(meta, ensure_ascii=False, indent=2),
             artifact_type="pcap_session", title=f"PCAP session: {path.name}",
-            scope="workspace", sensitivity="internal",
+            scope="workspace", sensitivity="internal", run_id=run_id, session_id=session_id,
             metadata={"source_file_id": source_file_id, "pcap_session_id": sid, "storage_managed": True},
         )
         if session_art:
@@ -105,7 +106,7 @@ def parse_pcap_file(workspace_id: str, filepath: str = "", file_id: str = "") ->
         conn_art = save_artifact(
             workspace_id=workspace_id, content=json.dumps(groups, ensure_ascii=False, indent=2),
             artifact_type="pcap_connections", title=f"PCAP connections: {path.name}",
-            scope="workspace", sensitivity="internal",
+            scope="workspace", sensitivity="internal", run_id=run_id, session_id=session_id,
             metadata={"source_file_id": source_file_id, "pcap_session_id": sid, "storage_managed": True},
         )
         if conn_art:
@@ -221,12 +222,14 @@ def align_pcap_tcp(session_id: str, src: str = "", sport: int = 0,
 def run_pcap_analysis(
     action: str, *, workspace_id: str = "default", filepath: str = "",
     file_id: str = "", session_id: str = "", src: str = "", sport: int = 0,
-    dst: str = "", dport: int = 0, use_filter: bool = False, **kwargs,
+    dst: str = "", dport: int = 0, use_filter: bool = False,
+    run_id: str = "", agent_session_id: str = "", **kwargs,
 ) -> dict:
     """Unified PCAP analysis dispatcher."""
     action = (action or "").strip()
     if action == "parse":
-        return parse_pcap_file(workspace_id, filepath=filepath, file_id=file_id)
+        return parse_pcap_file(workspace_id, filepath=filepath, file_id=file_id,
+                               run_id=run_id, session_id=agent_session_id)
     if action == "session":
         return get_pcap_session(session_id, workspace_id=workspace_id)
     if action == "filter":

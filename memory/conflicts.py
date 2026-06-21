@@ -14,7 +14,7 @@ def detect_memory_conflicts(
     title: str,
     content: str,
     memory_type: str,
-    project_id: str = "",
+    workspace_id: str = "",
     tags: list | None = None,
     limit: int = 5,
 ) -> list[dict]:
@@ -25,9 +25,9 @@ def detect_memory_conflicts(
     """
     try:
         from memory.store import get_store
-        existing = get_store(project_id or "default").list(
+        existing = get_store(workspace_id or "default").list(
             memory_type=memory_type or None,
-            project_id=project_id or None,
+            workspace_id=workspace_id or None,
             limit=500,
         )
     except Exception:

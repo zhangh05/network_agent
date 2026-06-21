@@ -9,11 +9,14 @@ from memory.retriever import search_memory, list_memory
 
 
 def handle_memory_status():
-    """Return memory system status."""
-    store = get_store()
+    """Return memory system status for the given workspace."""
+    ws_id = request.args.get("workspace_id", "default")
+    store = get_store(ws_id)
     return jsonify({
+        "ok": True,
         "enabled": True,
         "backend": "context_store",
+        "workspace_id": ws_id,
         "records": store.count(),
         "data_file": "context/items.jsonl",
     })
@@ -27,6 +30,7 @@ def handle_memory_write():
 
     confidence = data.get("confidence", "system_generated")
     user_confirmed = data.get("user_confirmed", confidence == "user_confirmed")
+    workspace_id = data.get("workspace_id", "")
 
     memory_id = write_memory(
         title=data.get("title", ""),
@@ -34,7 +38,7 @@ def handle_memory_write():
         scope=data.get("scope", "short_term"),
         memory_type=data.get("memory_type", "knowledge_note"),
         tags=data.get("tags", []),
-        project_id=data.get("project_id", ""),
+        workspace_id=workspace_id,
         source=data.get("source", "agent"),
         confidence=confidence,
         summary=data.get("summary", ""),
@@ -65,15 +69,15 @@ def handle_memory_search():
         limit = parse_limit(data, default=10, max_value=100)
     except ValueError:
         return jsonify({"ok": False, "error": "invalid_limit"}), 400
-    project_id = data.get("project_id", None)
+    workspace_id = data.get("workspace_id", None)
     memory_type = data.get("memory_type", None)
     scope = data.get("scope", None)
 
-    if not query and not any([tags, project_id, memory_type, scope]):
+    if not query and not any([tags, workspace_id, memory_type, scope]):
         return jsonify({"ok": False, "error": "query or at least one filter is required"}), 400
 
     results = search_memory(
-        query=query, tags=tags, project_id=project_id,
+        query=query, tags=tags, workspace_id=workspace_id,
         memory_type=memory_type, scope=scope, limit=limit,
     )
     return jsonify({"ok": True, "results": results, "count": len(results)})

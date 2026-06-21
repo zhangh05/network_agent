@@ -13,8 +13,8 @@ ALLOWED_TRANSITIONS = {
     "running": {"succeeded", "failed", "cancelled", "paused"},
     "paused": {"running", "cancelled", "failed"},
     "failed": {"queued", "cancelled"},
-    "succeeded": set(),
-    "cancelled": set(),
+    "succeeded": {"running"},    # allow session jobs to re-activate
+    "cancelled": {"running"},    # allow cancelled jobs to be re-activated
 }
 
 # Planned jobs can transition directly (no actual work)

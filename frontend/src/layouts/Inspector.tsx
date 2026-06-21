@@ -6,10 +6,11 @@ import {
   EmptyState,
   InlineCode,
 } from "../components/common";
-import type { AgentResult, DecisionReport, ToolCallResult } from "../types";
+import type { AgentResult, DecisionReport, ToolCallResult, ToolSceneMeta } from "../types";
 import { IconAlert, IconBolt, IconShield } from "../components/Icon";
 import { DecisionReportPanel } from "../components/DecisionReportPanel";
 import { runtimeAuditApi } from "../api";
+import { toolLabel, toolPlanSteps } from "../utils/displayText";
 
 /**
  * Turn Inspector — shows the latest AgentResult in detail.
@@ -257,12 +258,12 @@ function InspectorBody({ result }: { result: AgentResult }) {
           <div className="col-flex" style={{ gap: 8 }}>
             <div className="row-flex" style={{ gap: 6, flexWrap: "wrap" }}>
               <Badge kind="accent">
-                {metaPath(result.metadata.tool_scene, "primary_category") || "planned"}
+                {(result.metadata.tool_scene as ToolSceneMeta).primary_category || "planned"}
               </Badge>
               <Badge kind="muted">
-                {metaPath(result.metadata.tool_scene, "mode") || "deterministic"}
+                {(result.metadata.tool_scene as ToolSceneMeta).mode || "deterministic"}
               </Badge>
-              {metaPath(result.metadata.tool_planner, "fallback_used") === "true" && (
+              {result.metadata.tool_planner?.fallback_used && (
                 <Badge kind="warn">fallback</Badge>
               )}
             </div>
@@ -270,7 +271,7 @@ function InspectorBody({ result }: { result: AgentResult }) {
               <div key={idx} className="card" style={{ padding: 8, marginBottom: 0 }}>
                 <div className="text-sm"><strong>{String(step.step ?? idx + 1)}.</strong> {String(step.goal ?? step.purpose ?? "")}</div>
                 <div className="row-flex mt-2" style={{ gap: 4, flexWrap: "wrap" }}>
-                  {((step.tool_candidates ?? step.preferred_tools ?? []) as unknown[]).map((tool) => (
+                  {(step.tool_candidates ?? step.preferred_tools ?? []).map((tool) => (
                     <InlineCode key={String(tool)}>{String(tool)}</InlineCode>
                   ))}
                 </div>
@@ -452,23 +453,6 @@ function ToolCallCard({ tc }: { tc: ToolCallResult }) {
   );
 }
 
-function toolLabel(toolId: string): string {
-  if (toolId.startsWith("host.")) return "本机工具";
-  if (toolId.startsWith("workspace.file.")) return "工作区文件";
-  if (toolId.startsWith("workspace.artifact.")) return "工作区制品";
-  if (toolId.startsWith("network.")) return "网络分析";
-  if (toolId.startsWith("web.")) return "外部资料";
-  if (toolId.startsWith("memory.")) return "记忆";
-  if (toolId.startsWith("report.") || toolId.startsWith("data.") || toolId.startsWith("text.")) return "输出处理";
-  if (toolId.startsWith("agent.")) return "多 Agent";
-  if (toolId.startsWith("config_translation.")) return "配置翻译";
-  if (toolId.startsWith("knowledge.")) return "知识检索";
-  if (toolId.startsWith("artifact.")) return "制品操作";
-  if (toolId.startsWith("review.")) return "评审流转";
-  if (toolId.startsWith("runtime.")) return "运行诊断";
-  return "工具调用";
-}
-
 function safeStringify(value: unknown): string {
   try {
     const seen = new WeakSet();
@@ -487,21 +471,6 @@ function safeStringify(value: unknown): string {
 function metaString(metadata: Record<string, unknown> | undefined, key: string): string {
   const value = metadata?.[key];
   return typeof value === "string" ? value : "";
-}
-
-function metaPath(value: unknown, key: string): string {
-  if (!value || typeof value !== "object") return "";
-  const item = (value as Record<string, unknown>)[key];
-  return typeof item === "string" || typeof item === "boolean" ? String(item) : "";
-}
-
-function toolPlanSteps(scene: unknown): Array<Record<string, unknown>> {
-  if (!scene || typeof scene !== "object") return [];
-  const plan = (scene as Record<string, unknown>).tool_plan;
-  const chain = (scene as Record<string, unknown>).tool_chain;
-  if (Array.isArray(plan)) return plan as Array<Record<string, unknown>>;
-  if (Array.isArray(chain)) return chain as Array<Record<string, unknown>>;
-  return [];
 }
 
 function toolCallSummary(calls: ToolCallResult[]): string {

@@ -156,9 +156,38 @@ def register_job_routes(app):
         rec = get_job(ws, job_id)
         if not rec:
             return jsonify({"ok": False, "error": "job not found"}), 404
-        return jsonify({"input_artifacts": rec.input_artifacts,
-                        "output_artifacts": rec.output_artifacts,
-                        "report_artifacts": rec.report_artifacts})
+
+        input_arts = list(rec.input_artifacts or [])
+        output_arts = list(rec.output_artifacts or [])
+        report_arts = list(rec.report_artifacts or [])
+
+        # Also aggregate from per-run artifact indexes
+        try:
+            from artifacts.store import get_run_artifacts
+            for rid in (rec.run_ids or []):
+                ra = get_run_artifacts(ws, rid)
+                for a in ra.get("input_artifacts", []):
+                    art_id = a.get("artifact_id") if isinstance(a, dict) else a
+                    if art_id and art_id not in input_arts:
+                        input_arts.append(art_id)
+                for a in ra.get("output_artifacts", []):
+                    art_id = a.get("artifact_id") if isinstance(a, dict) else a
+                    if art_id and art_id not in output_arts:
+                        output_arts.append(art_id)
+                for a in ra.get("report_artifacts", []):
+                    art_id = a.get("artifact_id") if isinstance(a, dict) else a
+                    if art_id and art_id not in report_arts:
+                        report_arts.append(art_id)
+                for a in ra.get("temp_artifacts", []):
+                    art_id = a.get("artifact_id") if isinstance(a, dict) else a
+                    if art_id and art_id not in output_arts:
+                        output_arts.append(art_id)
+        except Exception:
+            pass
+
+        return jsonify({"input_artifacts": input_arts,
+                        "output_artifacts": output_arts,
+                        "report_artifacts": report_arts})
 
     @app.route("/api/jobs/worker/run-once", methods=["POST"])
     def api_worker_run_once():

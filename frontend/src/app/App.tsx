@@ -9,12 +9,9 @@ import { Settings } from "../pages/Settings/Settings";
 import { Diagnostics } from "../pages/Diagnostics/Diagnostics";
 import { JobsPage } from "../pages/JobsPage/JobsPage";
 import { PacketAnalysis } from "../pages/PacketAnalysis/PacketAnalysis";
-import { FileManager } from "../pages/FileManager/FileManager";
 import { KnowledgeLibrary } from "../pages/KnowledgeLibrary/KnowledgeLibrary";
 import { ArtifactCenter } from "../pages/ArtifactCenter/ArtifactCenter";
-import { ReviewCenter } from "../pages/ReviewCenter/ReviewCenter";
 import { MemoryPage } from "../pages/MemoryPage/MemoryPage";
-import { RuntimeAudit } from "../pages/RuntimeAudit/RuntimeAudit";
 import { ToastHost } from "../components/ToastHost";
 import { useUIStore } from "../stores/session";
 import { systemApi } from "../api";
@@ -34,7 +31,6 @@ import {
 
 const NAV_ITEMS: Array<{ to: string; label: string; testid: string; Icon: typeof IconChat }> = [
   { to: "/workbench", label: "工作台", testid: "nav-workbench", Icon: IconChat },
-  { to: "/files", label: "文件管理", testid: "nav-files", Icon: IconBox },
   { to: "/packet", label: "报文分析", testid: "nav-packet", Icon: IconBolt },
   { to: "/runs", label: "运行", testid: "nav-runs", Icon: IconHistory },
   { to: "/capabilities", label: "能力矩阵", testid: "nav-capabilities", Icon: IconLayers },
@@ -42,8 +38,6 @@ const NAV_ITEMS: Array<{ to: string; label: string; testid: string; Icon: typeof
   { to: "/knowledge", label: "知识库", testid: "nav-knowledge", Icon: IconBox },
   { to: "/artifacts", label: "制品", testid: "nav-artifacts", Icon: IconBox },
   { to: "/memory", label: "记忆", testid: "nav-memory", Icon: IconBox },
-  { to: "/reviews", label: "评审", testid: "nav-reviews", Icon: IconBolt },
-  { to: "/audit", label: "审计", testid: "nav-audit", Icon: IconShield },
   { to: "/diagnostics", label: "系统诊断", testid: "nav-diagnostics", Icon: IconShield },
   { to: "/settings", label: "系统设置", testid: "nav-settings", Icon: IconSettings },
 ];
@@ -159,16 +153,6 @@ export function App() {
                 </ErrorBoundary>
               }
             />
-            <Route
-              path="/files"
-              element={
-                <ErrorBoundary>
-                  <AppLayout cols={2}>
-                    <FileManager />
-                  </AppLayout>
-                </ErrorBoundary>
-              }
-            />
             <Route path="/knowledge" element={
                 <ErrorBoundary><AppLayout cols={2}><KnowledgeLibrary /></AppLayout></ErrorBoundary>
               }
@@ -181,10 +165,6 @@ export function App() {
                 <ErrorBoundary><AppLayout cols={2}><MemoryPage /></AppLayout></ErrorBoundary>
               }
             />
-            <Route path="/reviews" element={
-                <ErrorBoundary><AppLayout cols={2}><ReviewCenter /></AppLayout></ErrorBoundary>
-              }
-            />
             <Route
               path="/capabilities"
               element={
@@ -193,10 +173,6 @@ export function App() {
                     <CapabilityCenter />
                   </AppLayout>
                 </ErrorBoundary>
-              }
-            />
-            <Route path="/audit" element={
-                <ErrorBoundary><AppLayout cols={2}><RuntimeAudit /></AppLayout></ErrorBoundary>
               }
             />
             <Route

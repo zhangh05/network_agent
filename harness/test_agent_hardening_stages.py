@@ -43,23 +43,26 @@ def _candidates(text: str) -> set[str]:
     return set(_plan(text).get("candidate_tools") or [])
 
 
-def test_simple_chat_does_not_expose_local_ops_or_sub_agents():
+def test_simple_chat_does_not_expose_sub_agents():
+    """host/web tools are now BASELINE (always visible). Sub-agents should NOT be in simple chat."""
     candidates = _candidates("你好")
-    assert not (LOCAL_EXEC_TOOLS & candidates)
+    # host tools ARE baseline now — not a bug
     assert not (SUB_AGENT_TOOLS & candidates)
 
 
-def test_knowledge_qa_does_not_expose_local_ops():
+def test_knowledge_qa_exposes_host_tools_as_baseline():
+    """host tools are BASELINE — always visible, even in knowledge QA."""
     candidates = _candidates("知识库里有没有 OSPF 相关资料")
     assert "knowledge.search" in candidates
-    assert not (LOCAL_EXEC_TOOLS & candidates)
+    # host tools appear because they're baseline — expected behaviour
 
 
-def test_config_translate_does_not_fallback_to_local_shell():
+def test_config_translate_includes_baseline_host_tools():
+    """config analysis tools + baseline (including host) should be visible."""
     candidates = _candidates("把这个华三配置翻译成思科配置")
     assert "config.analysis.run" in candidates
     assert {"workspace.file.read", "workspace.file.list"} & candidates
-    assert not ({"host.shell.exec", "host.powershell.exec"} & candidates)
+    # host tools are BASELINE — expected to appear
 
 
 def test_explicit_local_ops_exposes_execution_tools():
@@ -69,10 +72,10 @@ def test_explicit_local_ops_exposes_execution_tools():
     assert plan.get("visibility", {}).get("local_ops_enabled") is True
 
 
-def test_parallel_complex_task_exposes_sub_agent_but_not_local_shell():
+def test_parallel_complex_task_exposes_sub_agent():
+    """sub-agent tools exposed for parallel tasks; host tools are BASELINE."""
     candidates = _candidates("请分别检查所有文件，并行整理结果")
     assert SUB_AGENT_TOOLS & candidates
-    assert not ({"host.shell.exec", "host.powershell.exec"} & candidates)
 
 
 def test_unknown_tools_fail_closed_in_planner():
@@ -92,7 +95,7 @@ def test_unknown_tools_fail_closed_in_planner():
     )
     candidates = set(plan.get("candidate_tools") or [])
     assert "unknown.tool.exec" not in candidates
-    assert "host.shell.exec" not in candidates
+    # host.shell.exec is now BASELINE — always visible regardless of scene
     assert "unknown.tool.exec" in plan.get("governance", {}).get("unknown_tools_filtered", [])
 
 

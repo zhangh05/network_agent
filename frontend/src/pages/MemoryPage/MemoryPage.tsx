@@ -8,7 +8,7 @@ import { useEffect, useState, useCallback } from "react";
 import { memoryApi } from "../../api";
 import { useSessionStore } from "../../stores/session";
 import { Badge, StatusDot } from "../../components/common";
-import { IconSearch, IconPlus, IconRefresh, IconClose } from "../../components/Icon";
+import { IconSearch, IconPlus, IconRefresh, IconClose, IconCheck, IconTrash } from "../../components/Icon";
 
 interface MemEntry {
   memory_id?: string;
@@ -34,6 +34,7 @@ export function MemoryPage() {
   const [content, setContent] = useState("");
   const [sel, setSel] = useState<MemEntry | null>(null);
   const [err, setErr] = useState("");
+  const [deleteConfirm, setDeleteConfirm] = useState<string | null>(null);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -66,6 +67,17 @@ export function MemoryPage() {
     setContent("");
     setShowCreate(false);
     load();
+  };
+
+  const handleDelete = async (e: MemEntry) => {
+    if (!e.memory_id) return;
+    try {
+      await memoryApi.deleteSoft(e.memory_id, wsId);
+      load();
+    } catch (err: any) {
+      setErr(err?.message || "删除失败");
+    }
+    setDeleteConfirm(null);
   };
 
   // ── Empty state ──
@@ -284,10 +296,37 @@ export function MemoryPage() {
                         {e.value_preview || e.content?.substring(0, 150) || "(无内容)"}
                       </div>
                     </div>
+                    {/* Delete button — always visible on header */}
+                    <button
+                      className="btn sm ghost"
+                      title={isDeleted ? "永久删除" : "删除"}
+                      onClick={(ev) => { ev.stopPropagation(); setDeleteConfirm(e.memory_id || null); }}
+                      style={{ flexShrink: 0, padding: "2px 6px", color: "var(--text-4)" }}
+                    >
+                      <IconTrash size={13} />
+                    </button>
                     <span style={{ flexShrink: 0, color: "var(--text-4)", fontSize: "var(--fs-11)", paddingTop: 2 }}>
                       {isSelected ? "▾" : "▸"}
                     </span>
                   </div>
+
+                  {/* Delete confirmation bar */}
+                  {deleteConfirm === e.memory_id && (
+                    <div style={{
+                      padding: "6px 16px 8px", borderTop: "1px solid var(--line-2)",
+                      background: "var(--danger-soft, #fde8e8)", display: "flex", alignItems: "center", gap: 8,
+                    }}>
+                      <span style={{ fontSize: "var(--fs-12)", color: "var(--danger)", flex: 1 }}>
+                        {isDeleted ? "永久删除这条记忆？此操作不可逆。" : "确定删除这条记忆？"}
+                      </span>
+                      <button className="btn sm danger" onClick={() => handleDelete(e)} style={{ background: "var(--danger)", color: "#fff", border: "none" }}>
+                        <IconCheck size={11} /> 确认
+                      </button>
+                      <button className="btn sm ghost" onClick={(ev) => { ev.stopPropagation(); setDeleteConfirm(null); }}>
+                        <IconClose size={11} /> 取消
+                      </button>
+                    </div>
+                  )}
 
                   {/* Expanded detail */}
                   {isSelected && (

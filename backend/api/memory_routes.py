@@ -35,7 +35,7 @@ def handle_memory_confirm():
     title = data.get("title", "")
     content = data.get("content", "")
     tags = data.get("tags", [])
-    project_id = data.get("project_id", "")
+    workspace_id = data.get("workspace_id", "")
 
     if not content and not title:
         return jsonify({"ok": False, "error": "title or content required"}), 400
@@ -51,17 +51,17 @@ def handle_memory_confirm():
     if memory_type == "decision":
         mid = write_user_confirmed_decision(
             title=title, content=content,
-            tags=tags, project_id=project_id,
+            tags=tags, workspace_id=workspace_id,
         )
     elif memory_type == "translation_rule":
         mid = write_translation_rule(
             title=title, content=content,
-            tags=tags, project_id=project_id,
+            tags=tags, workspace_id=workspace_id,
         )
     elif memory_type == "user_preference":
         mid = write_user_preference(
             title=title, content=content,
-            tags=tags, project_id=project_id,
+            tags=tags, workspace_id=workspace_id,
         )
     else:
         # Generic user-confirmed write
@@ -69,7 +69,7 @@ def handle_memory_confirm():
         mid = write_memory(
             title=title, content=content,
             scope="long_term", memory_type=memory_type,
-            tags=tags, project_id=project_id,
+            tags=tags, workspace_id=workspace_id,
             source="user", confidence="user_confirmed",
             sensitivity="internal", user_confirmed=True,
         )
@@ -100,8 +100,9 @@ def handle_memory_delete(memory_id):
     if ok:
         try:
             from memory.indexer import delete_memory_projection
-            workspace_id = record.get("project_id", "") if record else ""
-            projection = delete_memory_projection(str(memory_id), workspace_id=workspace_id or "")
+            # Use workspace_id from query param first, fallback to stored workspace_id
+            ws_id = request.args.get("workspace_id") or record.get("workspace_id", "") if record else ""
+            projection = delete_memory_projection(str(memory_id), workspace_id=ws_id or "")
         except Exception as exc:
             projection = {"ok": False, "error": str(exc)[:160], "deleted_count": 0}
     return jsonify({"ok": ok, "rag_projection": projection})
@@ -115,7 +116,8 @@ def handle_memory_list():
     """
     scope = request.args.get("scope")
     memory_type = request.args.get("memory_type")
-    project_id = request.args.get("project_id")
+    # workspace_id is the canonical field name (was project_id)
+    workspace_id = request.args.get("workspace_id") or None
     include_deleted = request.args.get("include_deleted", "false").lower() == "true"
     try:
         limit = parse_limit(request.args, default=100, max_value=500)
@@ -125,7 +127,7 @@ def handle_memory_list():
     store = get_store()
     records = store.list(
         scope=scope, memory_type=memory_type,
-        project_id=project_id, limit=limit,
+        workspace_id=workspace_id, limit=limit,
     )
 
     # Include tombstoned records if requested

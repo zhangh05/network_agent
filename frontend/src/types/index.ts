@@ -95,6 +95,32 @@ export interface ToolCatalogResponse {
 
 /* ──────────────────────── AgentResult & Tool Calls ──────────────────────── */
 
+/** P1-C: Tool plan step from context pipeline */
+export interface ToolPlanStep {
+  step?: number | string;
+  goal?: string;
+  purpose?: string;
+  tool_candidates?: string[];
+  preferred_tools?: string[];
+  required?: boolean;
+  depends_on?: number[];
+  stop_if_failed?: boolean;
+}
+
+/** P1-C: Tool scene metadata from planner */
+export interface ToolSceneMeta {
+  primary_category?: string;
+  mode?: string;
+  candidate_tools?: string[];
+  tool_plan?: ToolPlanStep[];
+  tool_chain?: ToolPlanStep[];
+  reason?: string;
+  needs_clarification?: boolean;
+  tool_planning_decision?: Record<string, unknown>;
+  visibility?: Record<string, unknown>;
+  [k: string]: unknown;
+}
+
 export interface ToolCallResult {
   call_id: string;
   tool_id: string;
@@ -143,6 +169,17 @@ export interface AgentResult {
     context_sources?: SourceSummary[];
     citations?: Array<Record<string, unknown>>;
     retrieval_diagnostics?: Record<string, unknown>;
+    /** v2.1.2: Tool planning metadata */
+    tool_scene?: ToolSceneMeta;
+    rule_tool_scene?: Record<string, unknown>;
+    tool_planner?: {
+      planner_version?: string;
+      mode?: string;
+      valid?: boolean;
+      fallback_used?: boolean;
+      warnings?: string[];
+      [k: string]: unknown;
+    };
     [k: string]: unknown;
   };
 }

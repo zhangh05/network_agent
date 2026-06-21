@@ -27,6 +27,7 @@ def _utcnow() -> str:
 class ArtifactRecord:
     artifact_id: str = field(default_factory=lambda: str(uuid.uuid4())[:8])
     workspace_id: Optional[str] = None
+    session_id: Optional[str] = None
     run_id: Optional[str] = None
     module: Optional[str] = None
     skill: Optional[str] = None
@@ -60,6 +61,7 @@ class ArtifactRecord:
     def as_dict(self, include_content: bool = False) -> dict:
         d = {
             "artifact_id": self.artifact_id, "workspace_id": self.workspace_id,
+            "session_id": self.session_id,
             "run_id": self.run_id, "module": self.module, "skill": self.skill,
             "capability_id": self.capability_id, "artifact_type": self.artifact_type,
             "title": self.title, "summary": self.summary,

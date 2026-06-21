@@ -121,6 +121,7 @@ def agent_message():
 
     try:
         intent = data.get("intent") or metadata.get("intent") or ""
+
         # All intents flow through LLM agentic loop
         from agent.app.service import get_default_agent_app
         app = get_default_agent_app()
@@ -133,6 +134,63 @@ def agent_message():
         result_payload = result.to_dict()
         result_payload = _normalize_agent_result(result_payload, ws_id)
         _apply_current_contract_hints(result_payload, user_input, payload)
+
+        # ── Job: one per session, accumulating runs underneath ──
+        if session_id:
+            try:
+                from jobs.store import get_job, update_job, list_jobs
+                from jobs.manager import create_job, mark_running, update_progress
+
+                job_id = None
+                for j in list_jobs(ws_id=ws_id, limit=100):
+                    p = j.get("payload", {}) or {}
+                    if p.get("session_id") == session_id and j.get("status") in ("created","queued","running","succeeded"):
+                        job_id = j.get("job_id", "")
+                        break
+
+                if not job_id:
+                    # New job — use session title if available
+                    title = user_input[:40].replace("\n", " ")
+                    try:
+                        from workspace.session_store import get_session
+                        s = get_session(session_id, ws_id)
+                        if s and s.get("title"):
+                            title = s["title"]
+                    except Exception:
+                        pass
+                    j = create_job(workspace_id=ws_id, job_type="agent_run", title=title,
+                                   payload={"session_id": session_id}, created_by="api")
+                    job_id = j.job_id
+
+                rec = get_job(ws_id, job_id)
+                if rec and rec.status in ("created", "queued"):
+                    mark_running(ws_id, job_id)
+
+                run_id = result_payload.get("run_id", "")
+                if run_id and job_id:
+                    rec = get_job(ws_id, job_id)
+                    new_ids = list(getattr(rec, "run_ids", None) or [])
+
+                    # Merge existing session run_ids into job (recovery from orphan cleanup)
+                    try:
+                        from workspace.session_store import get_session
+                        s = get_session(session_id, ws_id)
+                        if s:
+                            for rid in (s.get("run_ids") or []):
+                                if rid not in new_ids:
+                                    new_ids.append(rid)
+                    except Exception:
+                        pass
+
+                    if run_id not in new_ids:
+                        new_ids.append(run_id)
+                    tc = len(result_payload.get("tool_calls", []))
+                    update_job(ws_id, job_id, {"run_ids": new_ids})
+                    update_progress(ws_id, job_id, current=len(new_ids),
+                                    message=f"{len(new_ids)}轮 | {tc}工具调用")
+            except Exception:
+                pass
+
         result_payload.setdefault("metadata", {})["stream_mode"] = stream_mode
         if stream and stream_mode == "event_replay":
             warnings = result_payload.setdefault("warnings", [])

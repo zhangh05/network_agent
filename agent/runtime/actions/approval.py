@@ -1,5 +1,9 @@
 # agent/runtime/actions/approval.py
-"""ApprovalGate — decides approval status based on risk decision."""
+"""ApprovalGate — decides approval status based on risk decision.
+
+When status is "pending", also creates an ApprovalStore record so the
+frontend ApprovalBubble can discover it via /api/agent/approvals/pending.
+"""
 
 from __future__ import annotations
 
@@ -31,6 +35,7 @@ class ApprovalGate:
             decision.reason = risk.reason or "High-risk action requires approval"
             decision.prompt = f"Approve {plan.tool_id}({_summarize_args(plan.arguments)})?"
             self._write_ctx(ctx, decision)
+            self._create_store_record(plan, risk, ctx, decision)
             return decision
 
         # Low/medium → no approval needed
@@ -40,6 +45,28 @@ class ApprovalGate:
         decision.reason = "Low-risk action, no approval needed"
         self._write_ctx(ctx, decision)
         return decision
+
+    @staticmethod
+    def _create_store_record(plan: ActionPlan, risk: RiskDecision,
+                              ctx, decision: ApprovalDecision) -> None:
+        """Create an ApprovalStore record so the frontend can show the popup."""
+        try:
+            from agent.approval import get_approval_store
+            store = get_approval_store()
+            session_id = getattr(ctx, 'session_id', '') if ctx else ''
+            store.create(
+                session_id=session_id,
+                tool_id=plan.tool_id,
+                arguments=dict(plan.arguments) if hasattr(plan, 'arguments') else {},
+                description=getattr(plan, 'description', '') or f"{plan.tool_id}",
+                risk_level=risk.risk_level,
+                metadata={
+                    "action_id": plan.action_id,
+                    "reason": decision.reason,
+                },
+            )
+        except Exception:
+            pass  # ApprovalStore is best-effort; don't block execution
 
     @staticmethod
     def _write_ctx(ctx, decision: ApprovalDecision) -> None:

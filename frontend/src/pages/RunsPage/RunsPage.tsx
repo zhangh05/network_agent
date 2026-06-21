@@ -1,9 +1,13 @@
 /**
- * RunsPage — 运行记录 (v3.3.1 美化)
+ * RunsPage — 运行记录 (v3.3.2 去重)
  *
- * 合并运行记录 + 运行审计，双标签：概览 | 事件时间线。
+ * 定位：单次 Agent 执行的 trace/debug 视图。
+ * 与 JobsPage 的分工：Jobs = 任务全貌（做了什么），Runs = 执行细节（怎么做的）。
+ *
+ * 支持 ?focus=run_id 从作业页面跳转过来直接选中目标 run。
  */
 import { useEffect, useState, useCallback, useMemo } from "react";
+import { useSearchParams } from "react-router-dom";
 import { workspacesApi, runtimeAuditApi } from "../../api";
 import { useSessionStore } from "../../stores/session";
 import { Badge, StatusDot, EmptyState, LoadingState, CodeBlock } from "../../components/common";
@@ -71,8 +75,10 @@ function evLabel(type: string, payload: Record<string, unknown>, ev?: any): stri
 /* ── Component ── */
 
 export function RunsPage() {
-  const { currentWorkspaceId } = useSessionStore();
+  const { currentWorkspaceId, currentSessionId } = useSessionStore();
   const wsId = currentWorkspaceId || "default";
+  const [searchParams] = useSearchParams();
+  const focusRunId = searchParams.get("focus") || null;
   const [runs, setRuns] = useState<RuntimeAuditTurn[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -85,10 +91,13 @@ export function RunsPage() {
 
   const load = useCallback(async () => {
     setLoading(true); setError(null);
-    try { const d = await workspacesApi.recentRuns(wsId); setRuns(d.runs || []); }
+    try {
+      const d = await workspacesApi.recentRuns(wsId, currentSessionId);
+      setRuns(d.runs || []);
+    }
     catch (e: any) { setError(e?.message || "加载失败"); }
     setLoading(false);
-  }, [wsId]);
+  }, [wsId, currentSessionId]);
 
   const loadTrace = async (run: RuntimeAuditTurn) => {
     const rid = run.run_id || run.turn_id;
@@ -119,6 +128,20 @@ export function RunsPage() {
     window.addEventListener(APP_EVENTS.RUN_COMPLETED, h);
     return () => window.removeEventListener(APP_EVENTS.RUN_COMPLETED, h);
   }, [load]);
+
+  // Auto-select run when navigated from Jobs page with ?focus=run_id
+  useEffect(() => {
+    if (!focusRunId || runs.length === 0) return;
+    const target = runs.find((r) => (r.run_id || r.turn_id) === focusRunId);
+    if (target) {
+      pick(target);
+    }
+  }, [focusRunId, runs]);
+
+  // Clear selection when session changes
+  useEffect(() => {
+    setSel(null); setTrace(null); setDecision(null); setDecisionError("");
+  }, [currentSessionId]);
 
   const pick = (run: RuntimeAuditTurn) => {
     if (sel?.run_id === run.run_id) {
@@ -159,14 +182,41 @@ export function RunsPage() {
     [sel, trace],
   );
 
+  // ── No session selected ──
+  if (!currentSessionId) {
+    return (
+      <div className="page">
+        <div className="page-header" style={{ background: "var(--surface)" }}>
+          <div>
+            <h1>运行记录<span style={{ color: "var(--ink-mute)", fontWeight: 400, fontSize: 14, marginLeft: 6 }}>· Runs</span></h1>
+            <p className="subtitle">请先在左侧选择一个会话</p>
+          </div>
+        </div>
+        <div className="page-body">
+          <div className="hero">
+            <div className="hero-mark">
+              <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+                <polyline points="22 12 18 12 15 21 9 3 6 12 2 12" />
+              </svg>
+            </div>
+            <h2 className="hero-title">未选择会话</h2>
+            <p className="hero-sub">请在左侧会话列表中选择一个会话，即可查看该会话内的 Agent 运行记录。</p>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
   // ── Empty ──
   if (!loading && !error && runs.length === 0) {
     return (
       <div className="page">
         <div className="page-header" style={{ background: "var(--surface)" }}>
           <div>
-            <h1>运行记录</h1>
-            <p className="subtitle">查看 Agent 运行状态、详情与事件时间线</p>
+            <h1>运行记录<span style={{ color: "var(--ink-mute)", fontWeight: 400, fontSize: 14, marginLeft: 6 }}>· Runs</span></h1>
+            <p className="subtitle">
+              会话 {currentSessionId.slice(0, 12)} — 暂无运行记录
+            </p>
           </div>
           <button className="btn sm ghost" onClick={load}><IconRefresh size={14} /></button>
         </div>
@@ -178,7 +228,7 @@ export function RunsPage() {
               </svg>
             </div>
             <h2 className="hero-title">暂无运行记录</h2>
-            <p className="hero-sub">在对话区发起一次 Agent 交互后，运行记录将在这里展示。</p>
+            <p className="hero-sub">在该会话中发起对话后，运行记录将在这里展示。</p>
           </div>
         </div>
       </div>
@@ -191,7 +241,11 @@ export function RunsPage() {
       <div className="page-header" style={{ background: "var(--surface)" }}>
         <div>
           <h1>运行记录<span style={{ color: "var(--ink-mute)", fontWeight: 400, fontSize: 14, marginLeft: 6 }}>· Runs</span></h1>
-          <p className="subtitle">运行详情 · Trace 时间线 · 事件诊断</p>
+          <p className="subtitle">
+            {currentSessionId
+              ? `会话 ${currentSessionId.slice(0, 12)} · 运行详情 · Trace 时间线 · 决策报告`
+              : "请先在左侧选择一个会话"}
+          </p>
         </div>
         <div style={{ display: "flex", gap: 8, alignItems: "flex-start" }}>
           <div className="status-pill"><span className="dot" style={{ background: "var(--accent)" }} />{runs.length} 条</div>
@@ -222,7 +276,6 @@ export function RunsPage() {
                   <Badge kind={sBadge(r.status || "")}>{sLabel(r.status || "")}</Badge>
                 </div>
                 <div style={{ display: "flex", gap: 8, marginLeft: 16, fontSize: "var(--fs-10)", color: "var(--text-4)" }}>
-                  <span>{r.session_id?.substring(0, 8) || "-"}</span>
                   <span>{r.created_at ? new Date(r.created_at).toLocaleString("zh-CN", { month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit" }) : "-"}</span>
                   {Number(r.tool_call_count || 0) > 0 && <span>{r.tool_call_count} 工具</span>}
                   {Number(r.warning_count || 0) > 0 && <span>{r.warning_count} 警告</span>}
@@ -243,7 +296,10 @@ export function RunsPage() {
                 </svg>
               </div>
               <div className="empty-text" style={{ fontSize: "var(--fs-13)" }}>选择一条运行记录</div>
-              <p className="empty-hint">点击左侧列表中的记录查看运行详情与事件时间线</p>
+              <p className="empty-hint">点击左侧列表中的记录查看 trace 事件时间线与决策报告</p>
+              <p style={{ fontSize: "var(--fs-11)", color: "var(--text-4)", marginTop: 16 }}>
+                想看任务全貌？去 <a href="/jobs" style={{ color: "var(--accent)" }}>作业管理 →</a>
+              </p>
             </div>
           ) : (
             <div style={{ animation: "surface-in var(--dur-4) var(--ease-out) both" }}>
@@ -263,7 +319,6 @@ export function RunsPage() {
                 <>
                   <div className="card" style={{ padding: "16px 18px", marginBottom: 20 }}>
                     <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(200px, 1fr))", gap: "12px 20px" }}>
-                      <Info label="会话 ID" value={sel.session_id} mono />
                       <Info label="运行 ID" value={sel.turn_id || sel.run_id} mono />
                       <Info label="追踪 ID" value={sel.trace_id} mono />
                       <Info label="意图" value={sel.intent} />

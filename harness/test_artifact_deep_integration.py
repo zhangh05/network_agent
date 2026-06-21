@@ -31,7 +31,7 @@ class TestArtifactMemory:
         if data.get("memory_written"):
             # Search memory for artifact refs
             resp2 = client.post("/api/memory/search", json={
-                "query": "artifact_refs", "project_id": "am_test", "limit": 10,
+                "query": "artifact_refs", "workspace_id": "am_test", "limit": 10,
             })
             assert resp2.status_code == 200
 

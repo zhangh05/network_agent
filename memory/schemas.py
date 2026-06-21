@@ -58,7 +58,7 @@ class MemoryRecord:
     summary: str = ""
     content: str = ""
     tags: list = field(default_factory=list)
-    project_id: Optional[str] = ""
+    workspace_id: Optional[str] = ""
     source: str = ""                 # agent | user | system | user_confirmed
     confidence: str = "system_generated"  # system_generated | user_confirmed | inferred | imported
     sensitivity: str = "internal"    # public | internal | sensitive
@@ -77,7 +77,7 @@ class MemoryRecord:
             "summary": self.summary,
             "content": self.content,
             "tags": self.tags,
-            "project_id": self.project_id,
+            "workspace_id": self.workspace_id,
             "source": self.source,
             "confidence": self.confidence,
             "sensitivity": self.sensitivity,
@@ -99,7 +99,7 @@ class MemoryRecord:
             summary=data.get("summary", ""),
             content=data.get("content", ""),
             tags=data.get("tags", []),
-            project_id=data.get("project_id", ""),
+            workspace_id=data.get("workspace_id", data.get("project_id", "")),
             source=data.get("source", ""),
             confidence=confidence,
             sensitivity=data.get("sensitivity", "internal"),

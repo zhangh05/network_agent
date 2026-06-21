@@ -287,17 +287,20 @@ class TestLocalOpsExposure:
         from agent.runtime.tool_planning.visibility import scene_allows_local_ops
         assert scene_allows_local_ops({}, "翻译这段配置") is False
 
-    def test_baseline_no_shell(self):
+    def test_baseline_includes_host_and_web(self):
+        """host and web tools are universal catalog — always in BASELINE."""
         from agent.runtime.tool_planning.visibility import BASELINE_READ_TOOLS
-        assert "host.shell.exec" not in BASELINE_READ_TOOLS
-        assert "host.powershell.exec" not in BASELINE_READ_TOOLS
-        assert "host.python.exec" not in BASELINE_READ_TOOLS
+        assert "host.shell.exec" in BASELINE_READ_TOOLS
+        assert "host.powershell.exec" in BASELINE_READ_TOOLS
+        assert "web.search" in BASELINE_READ_TOOLS
 
-    def test_local_ops_has_shell(self):
+    def test_local_ops_no_longer_has_host_duplicates(self):
+        """host tools moved from LOCAL_OPS to BASELINE — no duplicates."""
         from agent.runtime.tool_planning.visibility import LOCAL_OPS_TOOLS
-        assert "host.shell.exec" in LOCAL_OPS_TOOLS
-        assert "host.powershell.exec" in LOCAL_OPS_TOOLS
-        assert "host.python.exec" in LOCAL_OPS_TOOLS
+        assert "host.shell.exec" not in LOCAL_OPS_TOOLS
+        assert "host.powershell.exec" not in LOCAL_OPS_TOOLS
+        assert "host.python.exec" not in LOCAL_OPS_TOOLS
+        assert "runtime.health" in LOCAL_OPS_TOOLS
 
     def test_scene_decision_host_signals(self):
         """decide_scene should detect host signals correctly."""

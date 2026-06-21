@@ -83,6 +83,37 @@ def update_job(ws_id, job_id, patch: dict) -> Optional[JobRecord]:
     return rec
 
 
+def _session_exists(ws_id, session_id):
+    """Check if a session still exists and is not soft-deleted.
+    
+    Sessions can exist in two forms:
+    1. {session_id}.json  — session metadata file
+    2. {session_id}/      — session directory with messages/
+    
+    A session is considered alive if either form exists AND it's not marked deleted.
+    """
+    if not session_id:
+        return False
+    base = _get_ws_root() / ws_id / "sessions"
+    meta_file = base / f"{session_id}.json"
+    meta_dir  = base / str(session_id)
+    
+    # Must have at least one form of session storage
+    if not meta_file.is_file() and not meta_dir.is_dir():
+        return False
+    
+    # If metadata file exists, check it's not deleted
+    if meta_file.is_file():
+        try:
+            d = json.loads(meta_file.read_text())
+            if d.get("status", "active") == "deleted":
+                return False
+        except Exception:
+            pass  # corrupt file → treat as exists
+    
+    return True
+
+
 def list_jobs(ws_id=None, status=None, job_type=None, limit=100) -> list:
     results = []
     ws_root = _get_ws_root()
@@ -100,6 +131,11 @@ def list_jobs(ws_id=None, status=None, job_type=None, limit=100) -> list:
                 if ws_id and j.workspace_id != ws_id: continue
                 if status and j.status != status: continue
                 if job_type and j.job_type != job_type: continue
+                # Filter out agent_run jobs whose session no longer exists
+                if j.job_type == "agent_run":
+                    sid = (j.payload or {}).get("session_id", "")
+                    if sid and not _session_exists(wd.name, sid):
+                        continue
                 results.append(sanitize_job_record_for_api(j.as_dict()))
                 if len(results) >= limit: break
     return results

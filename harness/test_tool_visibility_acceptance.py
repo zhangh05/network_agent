@@ -17,7 +17,7 @@ from agent.runtime.tool_category_router import route_tool_scene
 from agent.runtime.tool_planning.planner import deterministic_plan_tools
 from tool_runtime.tool_namespace import TOOL_NAMESPACE
 
-_LOCAL_EXEC_TOOLS = {"host.shell.exec", "host.powershell.exec", "host.python.exec"}
+_LOCAL_EXEC_TOOLS = {"runtime.health", "runtime.diagnostics"}
 _AGENT_TOOLS = {"agent.spawn", "agent.role.list", "agent.result.get"}
 
 
@@ -49,14 +49,17 @@ class TestSimpleChat:
         self.plan = _plan_for("你好")
         self.tools = _candidates(self.plan)
 
-    def test_no_shell(self):
-        assert "host.shell.exec" not in self.tools
+    def test_shell_is_baseline(self):
+        """host.shell.exec is now BASELINE — always visible."""
+        assert "host.shell.exec" in self.tools
 
-    def test_no_powershell(self):
-        assert "host.powershell.exec" not in self.tools
+    def test_powershell_is_baseline(self):
+        """host.powershell.exec is now BASELINE — always visible."""
+        assert "host.powershell.exec" in self.tools
 
-    def test_no_python_exec(self):
-        assert "host.python.exec" not in self.tools
+    def test_python_exec_is_baseline(self):
+        """host.python.exec is now BASELINE — always visible."""
+        assert "host.python.exec" in self.tools
 
     def test_no_agent_spawn(self):
         assert "agent.spawn" not in self.tools
@@ -81,14 +84,17 @@ class TestKnowledgeQA:
     def test_knowledge_search_present(self):
         assert "knowledge.search" in self.tools
 
-    def test_no_shell(self):
-        assert "host.shell.exec" not in self.tools
+    def test_shell_is_baseline(self):
+        """host.shell.exec is now BASELINE — always visible."""
+        assert "host.shell.exec" in self.tools
 
-    def test_no_powershell(self):
-        assert "host.powershell.exec" not in self.tools
+    def test_powershell_is_baseline(self):
+        """host.powershell.exec is now BASELINE — always visible."""
+        assert "host.powershell.exec" in self.tools
 
-    def test_no_python_exec(self):
-        assert "host.python.exec" not in self.tools
+    def test_python_exec_is_baseline(self):
+        """host.python.exec is now BASELINE — always visible."""
+        assert "host.python.exec" in self.tools
 
     def test_local_ops_disabled(self):
         assert not _vis(self.plan).get("local_ops_enabled")
@@ -109,14 +115,17 @@ class TestConfigTranslate:
         file_tools = {"workspace.file.read", "workspace.file.list", "workspace.file.preview"}
         assert file_tools & self.tools, f"Expected file tools, got: {self.tools & file_tools}"
 
-    def test_no_shell(self):
-        assert "host.shell.exec" not in self.tools
+    def test_shell_is_baseline(self):
+        """host.shell.exec is now BASELINE — always visible."""
+        assert "host.shell.exec" in self.tools
 
-    def test_no_powershell(self):
-        assert "host.powershell.exec" not in self.tools
+    def test_powershell_is_baseline(self):
+        """host.powershell.exec is now BASELINE — always visible."""
+        assert "host.powershell.exec" in self.tools
 
-    def test_no_python_exec(self):
-        assert "host.python.exec" not in self.tools
+    def test_python_exec_is_baseline(self):
+        """host.python.exec is now BASELINE — always visible."""
+        assert "host.python.exec" in self.tools
 
     def test_local_ops_disabled(self):
         assert not _vis(self.plan).get("local_ops_enabled")
@@ -161,30 +170,30 @@ class TestSubAgent:
         assert "agent.result.get" in self.tools
 
 
-# ── Cross-cutting: baseline never contains local exec ─────────────
+# ── Cross-cutting: host/web are universal BASELINE catalog ────────
 
 class TestBaselineIntegrity:
-    def test_baseline_no_shell(self):
+    def test_baseline_includes_host(self):
+        """host tools are universal catalog — always in BASELINE."""
         from agent.runtime.tool_planning.visibility import BASELINE_READ_TOOLS
-        assert "host.shell.exec" not in BASELINE_READ_TOOLS
+        assert "host.shell.exec" in BASELINE_READ_TOOLS
+        assert "host.powershell.exec" in BASELINE_READ_TOOLS
+        assert "host.python.exec" in BASELINE_READ_TOOLS
 
-    def test_baseline_no_powershell(self):
+    def test_baseline_includes_web(self):
+        """web tools are universal catalog — always in BASELINE."""
         from agent.runtime.tool_planning.visibility import BASELINE_READ_TOOLS
-        assert "host.powershell.exec" not in BASELINE_READ_TOOLS
-
-    def test_baseline_no_python_exec(self):
-        from agent.runtime.tool_planning.visibility import BASELINE_READ_TOOLS
-        assert "host.python.exec" not in BASELINE_READ_TOOLS
+        assert "web.search" in BASELINE_READ_TOOLS
 
     def test_baseline_no_agent_spawn(self):
         from agent.runtime.tool_planning.visibility import BASELINE_READ_TOOLS
         assert "agent.spawn" not in BASELINE_READ_TOOLS
 
-    def test_local_ops_tools_separate(self):
+    def test_local_ops_no_host_duplicates(self):
+        """host tools moved to BASELINE — no duplicates in LOCAL_OPS."""
         from agent.runtime.tool_planning.visibility import LOCAL_OPS_TOOLS
-        assert "host.shell.exec" in LOCAL_OPS_TOOLS
-        assert "host.powershell.exec" in LOCAL_OPS_TOOLS
-        assert "host.python.exec" in LOCAL_OPS_TOOLS
+        assert "host.shell.exec" not in LOCAL_OPS_TOOLS
+        assert "runtime.health" in LOCAL_OPS_TOOLS
 
 
 # ── Visibility metadata completeness ──────────────────────────────

@@ -72,3 +72,39 @@ export function formatCompactDate(value: string | undefined | null): string {
     minute: "2-digit",
   });
 }
+
+// ───────────────────── Tool display helpers ─────────────────────
+
+/**
+ * Shared tool label mapping — consolidated from AgentWorkbench + Inspector.
+ * Covers all known tool prefixes. Single source of truth for tool display names.
+ */
+export function toolLabel(toolId: string): string {
+  if (toolId.startsWith("host.")) return "本机工具";
+  if (toolId.startsWith("workspace.file.")) return "工作区文件";
+  if (toolId.startsWith("workspace.artifact.")) return "工作区制品";
+  if (toolId.startsWith("network.")) return "网络分析";
+  if (toolId.startsWith("web.")) return "外部资料";
+  if (toolId.startsWith("memory.")) return "记忆";
+  if (toolId.startsWith("report.") || toolId.startsWith("data.") || toolId.startsWith("text.")) return "输出处理";
+  if (toolId.startsWith("agent.")) return "多 Agent";
+  if (toolId.startsWith("config_translation.")) return "配置翻译";
+  if (toolId.startsWith("knowledge.")) return "知识检索";
+  if (toolId.startsWith("artifact.")) return "制品操作";
+  if (toolId.startsWith("review.")) return "评审流转";
+  if (toolId.startsWith("runtime.")) return "运行诊断";
+  return "工具调用";
+}
+
+/**
+ * Extract tool plan steps from scene metadata (tool_plan or tool_chain).
+ * Returns an array of ToolPlanStep objects.
+ */
+export function toolPlanSteps(scene: unknown): Array<Record<string, unknown>> {
+  if (!scene || typeof scene !== "object") return [];
+  const plan = (scene as Record<string, unknown>).tool_plan;
+  const chain = (scene as Record<string, unknown>).tool_chain;
+  if (Array.isArray(plan)) return plan as Array<Record<string, unknown>>;
+  if (Array.isArray(chain)) return chain as Array<Record<string, unknown>>;
+  return [];
+}

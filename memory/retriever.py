@@ -13,15 +13,15 @@ _log = logging.getLogger("memory.retriever")
 def search_memory(
     query: str,
     tags: list = None,
-    project_id: str = None,
+    workspace_id: str = None,
     memory_type: str = None,
     scope: str = None,
     limit: int = 10,
 ) -> list:
     """Search memory via UnifiedRetriever."""
     from context.unified_retriever import get_retriever
-    workspace_id = project_id or "default"
-    retriever = get_retriever(workspace_id)
+    ws_id = workspace_id or "default"
+    retriever = get_retriever(ws_id)
     return retriever.search_memory(
         query=query,
         tags=tags,
@@ -40,13 +40,13 @@ def get_memory(memory_id: str, workspace_id: str = "default") -> Optional[dict]:
 def list_memory(
     scope: str = None,
     memory_type: str = None,
-    project_id: str = None,
+    workspace_id: str = None,
     limit: int = 100,
 ) -> list:
     """List memory records from ContextStore."""
     from context.context_store import get_context_store
-    workspace_id = project_id or "default"
-    store = get_context_store(workspace_id)
+    ws_id = workspace_id or "default"
+    store = get_context_store(ws_id)
     return store.list_items(
         item_type="memory_hit",
         scope=scope,
@@ -56,13 +56,13 @@ def list_memory(
 
 def retrieve_for_context(
     query: str,
-    project_id: str = None,
+    workspace_id: str = None,
     limit: int = 5,
 ) -> list:
     """Retrieve memory hits for agent context via UnifiedRetriever."""
     from context.unified_retriever import get_retriever
-    workspace_id = project_id or "default"
-    retriever = get_retriever(workspace_id)
+    ws_id = workspace_id or "default"
+    retriever = get_retriever(ws_id)
     hits = retriever.search_memory(query, top_k=limit)
     _log.debug("Unified memory search: %d hits for '%s'", len(hits), query[:40])
     return hits

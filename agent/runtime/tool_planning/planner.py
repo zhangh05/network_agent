@@ -40,7 +40,7 @@ from agent.runtime.tool_planning.visibility import (
 
 
 PLANNER_VERSION = "v2.4"
-MAX_CANDIDATE_TOOLS = 12
+MAX_CANDIDATE_TOOLS = 30  # 17 baseline + routing + overhead
 
 
 # ─── Cached lookups ───────────────────────────────────────────────────
@@ -301,7 +301,16 @@ def deterministic_plan_tools(
     # When the catalog came from capability routing, trust its tool selection
     if "capability_routing" in available_catalog:
         candidate_tools = _ordered_unique([*candidate_tools, *[tid for tid in available]])
-    candidate_tools = governance_filtered_tools([tid for tid in candidate_tools if tid in available], filtered)
+
+    # BASELINE_READ_TOOLS must always be visible regardless of catalog
+    # filtering — the catalog is a routing optimization, not a gatekeeper.
+    # Without this, baseline tools (host.shell.exec, web.*, etc.) get
+    # silently dropped because they're absent from the catalog.
+    baseline_set = set(baseline_tools)
+    candidate_tools = governance_filtered_tools(
+        [tid for tid in candidate_tools if tid in available or tid in baseline_set],
+        filtered,
+    )
 
     if not local_ops_enabled:
         _local_ops_set = set(LOCAL_OPS_TOOLS)
