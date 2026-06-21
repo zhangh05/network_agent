@@ -1,15 +1,48 @@
 # backend/api/memory_routes.py
-"""Memory API routes — confirm, list, delete."""
+"""Memory API routes — list, delete, confirm."""
 
 from flask import request, jsonify
 from backend.api.params import parse_limit
 from memory.store import get_store
 from memory.redaction import contains_secret
-from memory.writer import (
-    write_user_confirmed_decision,
-    write_translation_rule,
-    write_user_preference,
-)
+
+
+def handle_memory_confirm():
+    """User-confirmed memory write — used by AgentWorkbench to save conclusions as decisions."""
+    data = request.get_json(silent=True) or {}
+    memory_type = data.get("memory_type", "decision")
+    title = data.get("title", "")
+    content = data.get("content", "")
+    tags = data.get("tags", [])
+    workspace_id = data.get("workspace_id", "")
+
+    if not content and not title:
+        return jsonify({"ok": False, "error": "title or content required"}), 400
+
+    if contains_secret(content):
+        return jsonify({"ok": False, "error": "Content contains secrets; redaction required"}), 400
+
+    from memory.writer import write_memory
+    mid = write_memory(
+        title=title, content=content,
+        scope="long_term", memory_type=memory_type,
+        tags=tags, workspace_id=workspace_id,
+        source="user", confidence="user_confirmed",
+        sensitivity="internal", user_confirmed=True,
+    )
+
+    if not mid:
+        return jsonify({"ok": False, "error": "Blocked by policy"}), 400
+
+    record = get_store().get(mid)
+    meta = (record.get("metadata") or {}) if record else {}
+    return jsonify({
+        "ok": True,
+        "memory_id": mid,
+        "redaction_applied": False,
+        "conflict_detected": bool(meta.get("conflict_detected")),
+        "conflicts": list(meta.get("conflicts") or []),
+    })
 
 
 def _get_deleted_records(store) -> list:
@@ -26,67 +59,6 @@ def _get_deleted_records(store) -> list:
         return deleted
     except Exception:
         return []
-
-
-def handle_memory_confirm():
-    """User-confirmed memory write for decision/rule/preference types."""
-    data = request.get_json(silent=True) or {}
-    memory_type = data.get("memory_type", "decision")
-    title = data.get("title", "")
-    content = data.get("content", "")
-    tags = data.get("tags", [])
-    workspace_id = data.get("workspace_id", "")
-
-    if not content and not title:
-        return jsonify({"ok": False, "error": "title or content required"}), 400
-
-    # Pre-redaction check
-    if contains_secret(content):
-        return jsonify({
-            "ok": False,
-            "error": "Content contains secrets; redaction required",
-        }), 400
-
-    # Use convenience writers based on type
-    if memory_type == "decision":
-        mid = write_user_confirmed_decision(
-            title=title, content=content,
-            tags=tags, workspace_id=workspace_id,
-        )
-    elif memory_type == "translation_rule":
-        mid = write_translation_rule(
-            title=title, content=content,
-            tags=tags, workspace_id=workspace_id,
-        )
-    elif memory_type == "user_preference":
-        mid = write_user_preference(
-            title=title, content=content,
-            tags=tags, workspace_id=workspace_id,
-        )
-    else:
-        # Generic user-confirmed write
-        from memory.writer import write_memory
-        mid = write_memory(
-            title=title, content=content,
-            scope="long_term", memory_type=memory_type,
-            tags=tags, workspace_id=workspace_id,
-            source="user", confidence="user_confirmed",
-            sensitivity="internal", user_confirmed=True,
-        )
-
-    if not mid:
-        return jsonify({"ok": False, "error": "Blocked by policy"}), 400
-
-    from memory.store import get_store
-    record = get_store().get(mid)
-    meta = (record.get("metadata") or {}) if record else {}
-    return jsonify({
-        "ok": True,
-        "memory_id": mid,
-        "redaction_applied": False,
-        "conflict_detected": bool(meta.get("conflict_detected")),
-        "conflicts": list(meta.get("conflicts") or []),
-    })
 
 
 def handle_memory_delete(memory_id):
@@ -145,17 +117,12 @@ def handle_memory_list():
         else:
             d = {"title": str(r), "content": str(r)}
 
-        # v3.1.1: Derive status from confidence
-        confidence = d.get("confidence", "")
+        # Derive status: deleted vs confirmed (v3.2.1: removed pending_confirmation)
         is_deleted = d.pop("_deleted", False) if isinstance(d, dict) else False
         if is_deleted or d.get("_tombstone"):
             d["status"] = "deleted"
-        elif confidence == "user_confirmed" or d.get("user_confirmed"):
-            d["status"] = "confirmed"
-        elif confidence == "imported":
-            d["status"] = "confirmed"
         else:
-            d["status"] = "pending_confirmation"
+            d["status"] = "confirmed"
 
         # v3.1.1: Add value_preview for list display
         d["value_preview"] = d.get("summary", "") or (d.get("content", "") or "")[:100]

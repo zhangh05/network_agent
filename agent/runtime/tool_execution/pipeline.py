@@ -276,6 +276,9 @@ def _complete_runtime_state(state) -> None:
             session=getattr(state, "session", None),
         )
     except Exception:
+        import logging
+        _log = logging.getLogger(__name__)
+        _log.warning("_complete_runtime_state failed", exc_info=True)
         ctx = getattr(state, "context", None)
         if ctx is not None:
             ctx.metadata.setdefault("runtime_state_warnings", []).append("post_action_state_update_failed")

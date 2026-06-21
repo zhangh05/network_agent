@@ -259,8 +259,8 @@ class RetrievalTriggerPolicy:
         if is_simple_chat:
             return RetrievalStatus.SKIPPED.value, False, "simple_chat: no memory retrieval needed"
 
-        # Default: not applicable (no explicit trigger)
-        return RetrievalStatus.SKIPPED.value, False, "no_explicit_memory_trigger"
+        # Default: optional — auto-search memory via BM25, scoring handles relevance
+        return RetrievalStatus.OPTIONAL.value, False, "auto_memory_search_via_bm25"
 
     def _evaluate_knowledge(
         self, lower: str, ctx_meta: dict,

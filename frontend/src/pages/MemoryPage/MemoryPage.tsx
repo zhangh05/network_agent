@@ -264,8 +264,7 @@ export function MemoryPage() {
             {display.map((e, i) => {
               const isSelected = sel?.memory_id === e.memory_id;
               const isDeleted = e.status === "deleted";
-              const isPending = e.status === "pending_confirmation";
-              const dotColor = isDeleted ? "err" : e.status === "confirmed" ? "ok" : "warn";
+              const dotColor = isDeleted ? "err" : "ok";
 
               return (
                 <div key={e.memory_id || i} className="card" style={{ padding: 0, cursor: "pointer", opacity: isDeleted ? 0.55 : 1, transition: "all var(--dur-2) var(--ease)" }}>
@@ -278,12 +277,10 @@ export function MemoryPage() {
                       <div style={{ display: "flex", alignItems: "center", gap: 7, marginBottom: 5 }}>
                         <StatusDot status={dotColor} />
                         <strong style={{ fontSize: "var(--fs-14)", lineHeight: 1.35, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-                          {e.title || "(无标题)"}
+                          {e.title || ""}
                         </strong>
-                        {e.status && e.status !== "confirmed" && (
-                          <Badge kind={isDeleted ? "err" : isPending ? "warn" : "muted"}>
-                            {isDeleted ? "已删除" : isPending ? "待确认" : e.status}
-                          </Badge>
+                        {isDeleted && (
+                          <Badge kind="err">已删除</Badge>
                         )}
                         {e.memory_type && (
                           <Badge kind="info">{e.memory_type}</Badge>
@@ -347,14 +344,6 @@ export function MemoryPage() {
                         </div>
                       )}
                       <div style={{ display: "flex", gap: 6, marginTop: 12 }}>
-                        {isPending && (
-                          <button
-                            className="btn primary sm"
-                            onClick={() => memoryApi.confirm({ title: e.title, content: e.content || "", memory_type: e.memory_type || "knowledge_note", tags: e.tags || [] }).then(() => load())}
-                          >
-                            确认记忆
-                          </button>
-                        )}
                         {e.memory_id && (
                           <button
                             className="btn sm danger-ghost"

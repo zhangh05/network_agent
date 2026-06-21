@@ -72,6 +72,9 @@ def build_success_result(state) -> AgentResult:
     run_post_turn_hooks(state.session, state.turn, state.final_response)
     run_stop_hooks(state.session)
 
+    # ── Finalization kernels (output/memory/observability/truth) ──
+    _run_finalization_safe(state)
+
     return result
 
 
@@ -95,6 +98,7 @@ def build_error_result(state, final_response, error_type, extra_meta,
     persist_run_record(state.session, state.turn, err, state.context)
     # ── P1-A: Decision report for error results ──
     _write_decision_report(err, state)
+    _run_finalization_safe(state)
     return err
 
 
@@ -118,6 +122,7 @@ def build_partial_result(state, reason) -> AgentResult:
     persist_run_record(state.session, state.turn, _partial, state.context)
     # ── P1-A: Decision report for partial results ──
     _write_decision_report(_partial, state)
+    _run_finalization_safe(state)
     return _partial
 
 
@@ -140,6 +145,7 @@ def build_blocked_result(state, reason, hook_event="pre_turn") -> AgentResult:
     persist_run_record(state.session, state.turn, result, state.context)
     # ── P1-A: Decision report for blocked results ──
     _write_decision_report(result, state)
+    _run_finalization_safe(state)
     return result
 
 
@@ -216,5 +222,41 @@ def _backfill_decision_report_path(*, run_id: str, workspace_id: str, report_pat
         tmp = run_file.with_suffix(".tmp")
         tmp.write_text(json.dumps(record, indent=2, ensure_ascii=False), encoding="utf-8")
         tmp.rename(run_file)
+    except Exception:
+        pass
+
+
+def _run_finalization_safe(state) -> None:
+    """Run output/memory/observability/truth finalization kernels.
+
+    This is called from every result builder (success/error/partial/blocked)
+    so that memory write, output summarization, observability collection,
+    and truth reporting run on EVERY turn path.
+
+    Ensures ctx.metadata has the required snapshot data before running
+    finalization kernels (the snapshot is normally set by hooks, but
+    result builders skip the hooks path).
+    """
+    try:
+        ctx = getattr(state, "context", None)
+        if ctx is None:
+            return
+        # Ensure snapshot is populated before finalization
+        if "runtime_state_snapshot" not in ctx.metadata:
+            from agent.runtime.state.hooks import _ensure_snapshot
+            _ensure_snapshot(ctx, state)
+        from agent.runtime.state.hooks import _run_finalization_kernels
+        _run_finalization_kernels(ctx)
+    except Exception:
+        pass
+
+
+def _ensure_snapshot(ctx, state) -> None:
+    """Ensure ctx.metadata has runtime_state_snapshot for finalization kernels."""
+    try:
+        from agent.runtime.state.snapshot import RuntimeStateSnapshotter
+        from agent.runtime.state.resolver import RuntimeStateResolver
+        runtime_state = getattr(state, "runtime_state", None) or RuntimeStateResolver().resolve(ctx)
+        RuntimeStateSnapshotter().snapshot(ctx, runtime_state)
     except Exception:
         pass

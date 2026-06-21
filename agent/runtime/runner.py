@@ -253,6 +253,18 @@ class TurnRunner:
             self.turn.final_response = state.final_response
             events.final(state.final_response)
 
+            # ── Finalization kernels (output/memory/observability/truth) ──
+            try:
+                from agent.runtime.state.hooks import _run_finalization_kernels
+                if "runtime_state_snapshot" not in state.context.metadata:
+                    from agent.runtime.state.snapshot import RuntimeStateSnapshotter
+                    from agent.runtime.state.resolver import RuntimeStateResolver
+                    runtime_state = RuntimeStateResolver().resolve(state.context)
+                    RuntimeStateSnapshotter().snapshot(state.context, runtime_state)
+                _run_finalization_kernels(state.context)
+            except Exception:
+                logger.warning("finalization_kernels_failed (success path)", exc_info=True)
+
             return build_success_result(state)
 
         # Max steps exceeded or tool stop — both use partial result path
@@ -260,5 +272,14 @@ class TurnRunner:
         self.turn.warnings.append(f"max_steps ({state.max_steps}) reached — partial result")
         events.turn_failed("max_steps exceeded")
         events.error("max_steps", f"已达到最大步数 ({state.max_steps})，返回部分结果")
+
+        # ── Finalization kernels for partial/error paths ──
+        from agent.runtime.state.hooks import _run_finalization_kernels
+        if "runtime_state_snapshot" not in state.context.metadata:
+            from agent.runtime.state.snapshot import RuntimeStateSnapshotter
+            from agent.runtime.state.resolver import RuntimeStateResolver
+            runtime_state = RuntimeStateResolver().resolve(state.context)
+            RuntimeStateSnapshotter().snapshot(state.context, runtime_state)
+        _run_finalization_kernels(state.context)
 
         return build_partial_result(state, "max_steps")

@@ -1,23 +1,87 @@
 # agent/runtime/memory_write/writer.py
-"""MemoryWriter — stub writer that records intent without real persistence.
+"""MemoryWriter — persists memory candidates to the real ContextStore.
 
-This module generates MemoryWritePlan only. Real persistence is deferred
-to a future integration with the ContextStore / Memory subsystem.
+Replaces the stub writer with actual persistence via memory/store.py:get_store().put().
 """
 
 from __future__ import annotations
 
+import logging
+
 from agent.runtime.memory_write.models import MemoryWritePlan
+
+_log = logging.getLogger("memory_write.writer")
+
+# Hard cap — never write more than this per turn, regardless of LLM gate output
+MAX_WRITE_PER_TURN = 3
 
 
 class MemoryWriter:
-    """Record memory write intent. Does NOT persist to real storage."""
+    """Write memory candidates to persistent storage.
 
-    def write(self, ctx, plan: MemoryWritePlan) -> dict:
-        """Accept a plan and return a summary. No real DB write."""
+    Delegates to memory/store.py (ContextStoreAdapter) for actual I/O.
+    Handles rate-limiting and error isolation so a single bad write
+    never blocks the turn pipeline.
+    """
+
+    def write(self, ctx, plan: MemoryWritePlan, workspace_id: str = "default") -> dict:
+        """Persist accepted candidates to ContextStore.
+
+        Args:
+            ctx: TurnContext (for workspace_id fallback)
+            plan: MemoryWritePlan with candidates to write
+            workspace_id: Target workspace (defaults to ctx.workspace_id)
+
+        Returns:
+            dict with status, written_ids, skipped count, and any errors
+        """
+        if not plan.candidates:
+            return {"status": "empty", "written_count": 0, "written_ids": [], "errors": []}
+
+        ws_id = workspace_id or getattr(ctx, "workspace_id", "") or "default"
+
+        try:
+            from memory.store import get_store
+            store = get_store(ws_id)
+        except Exception as e:
+            _log.exception("Failed to get memory store for workspace=%s", ws_id)
+            return {
+                "status": "error",
+                "written_count": 0,
+                "written_ids": [],
+                "errors": [f"store_init_failed: {e}"],
+            }
+
+        written_ids: list[str] = []
+        errors: list[str] = []
+        # Apply per-turn cap — take highest-confidence candidates first
+        sorted_candidates = sorted(plan.candidates, key=lambda c: c.confidence, reverse=True)
+
+        for c in sorted_candidates[:MAX_WRITE_PER_TURN]:
+            try:
+                record = {
+                    "memory_id": c.candidate_id,
+                    "memory_type": c.memory_type,
+                    "content": c.content,
+                    "summary": c.metadata.get("summary", c.content[:200]),
+                    "source": c.source,
+                    "confidence": c.confidence,
+                    "scope": "workspace",
+                    "tags": [c.memory_type, c.source],
+                    "task_id": c.task_id,
+                    "metadata": c.metadata,
+                }
+                item_id = store.put(record)
+                written_ids.append(item_id)
+                _log.debug("Wrote memory %s (type=%s, confidence=%.2f)", c.candidate_id, c.memory_type, c.confidence)
+            except Exception as e:
+                _log.exception("Failed to write memory candidate %s", c.candidate_id)
+                errors.append(f"write_failed: {c.candidate_id}: {e}")
+
         return {
-            "status": "planned",
-            "candidate_count": len(plan.candidates),
-            "skipped_count": len(plan.skipped),
-            "message": "Memory write planned but not persisted (deferred to integration phase)",
+            "status": "ok" if not errors else "partial",
+            "written_count": len(written_ids),
+            "written_ids": written_ids,
+            "capped_from": len(plan.candidates),
+            "errors": errors,
         }

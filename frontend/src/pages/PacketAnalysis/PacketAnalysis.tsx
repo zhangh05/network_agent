@@ -223,12 +223,15 @@ export function PacketAnalysis() {
                   source: "agent",
                 }).catch(() => ({ ok: false, artifact: null } as any));
 
-                // Build prompt with filepath reference for LLM tool use
+                // Build prompt: give LLM context to find and read the artifact itself
+                const artifactTitle = saveRes.ok && saveRes.artifact
+                  ? saveRes.artifact.title || ""
+                  : "";
                 const filepath = saveRes.ok && saveRes.artifact
                   ? saveRes.artifact.relative_path || saveRes.artifact.file_id || ""
                   : "";
                 const text = filepath
-                  ? `请分析这份 TCP 报文数据。使用 workspace.file.read 工具，参数 filepath="${filepath}"。`
+                  ? `请分析这份 TCP 报文数据。分析结果已保存为制品 "${artifactTitle}"，文件路径为 "${filepath}"。请先读取该文件内容，然后给出分析结论。`
                   : `帮我分析这个 TCP 连接：${result.conn}，${result.total_tcp_packets} 个报文，${(result.anomalies||[]).length} 个异常`;
 
                 // 3. Store and navigate

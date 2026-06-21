@@ -60,8 +60,8 @@ def complete_runtime_state_after_actions(ctx, session=None):
 
     CompletionEvaluator().evaluate(ctx, state)
 
-    _run_finalization_kernels(ctx)
     _snapshot_and_save(ctx, state, session=session)
+    _run_finalization_kernels(ctx)
     return state
 
 
@@ -146,10 +146,10 @@ def _run_finalization_kernels(ctx) -> None:
     except Exception:
         ctx.metadata.setdefault("runtime_state_warnings", []).append("response_composer_failed")
 
-    # 3. Memory Write Planner
+    # 3. Memory Write Planner (extract → dedupe → filter → persist)
     try:
         from agent.runtime.memory_write.planner import MemoryWritePlanner
-        MemoryWritePlanner().plan(ctx)
+        MemoryWritePlanner().plan(ctx, workspace_id=getattr(ctx, "workspace_id", ""))
     except Exception:
         ctx.metadata.setdefault("runtime_state_warnings", []).append("memory_write_planner_failed")
 

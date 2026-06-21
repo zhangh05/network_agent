@@ -814,6 +814,18 @@ export const settingsApi = {
       { method: "POST", url: "/agent/llm/activate", data: { provider: providerId, ...config } },
       signal,
     ),
+
+  // Workspace-level settings (stored in state.json)
+  workspaceSettings: (wsId: string = "default", signal?: AbortSignal): Promise<{ workspace: Record<string, unknown> }> =>
+    apiRequest<{ workspace: Record<string, unknown> }>({ method: "GET", url: `/workspaces/${wsId}/state` }, signal),
+
+  updateWorkspaceSettings: (
+    patch: Record<string, string>,
+    wsId: string = "default",
+  ): Promise<{ ok: boolean; workspace: Record<string, unknown> }> =>
+    apiRequest<{ ok: boolean; workspace: Record<string, unknown> }>(
+      { method: "PUT", url: `/workspaces/${wsId}/settings`, data: patch },
+    ),
 };
 
 /* ──────────────────────── 11. approval ──────────────────────── */

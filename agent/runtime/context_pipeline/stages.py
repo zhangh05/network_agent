@@ -170,7 +170,7 @@ class RetrievalPolicyStage:
 
     def run(self, ctx: Any, session: Any, **inputs) -> ContextStageResult:
         try:
-            from agent.runtime.retrieval.trigger_policy import RetrievalTriggerPolicy
+            from agent.runtime.retrieval.trigger_policy import RetrievalTriggerPolicy, RetrievalStatus
 
             session_meta = getattr(session, "metadata", None) or {}
             scene_decision = getattr(ctx, "scene_decision", None)
@@ -205,9 +205,9 @@ class RetrievalPolicyStage:
 
             ctx.metadata["retrieval_decision"] = decision.to_dict()
 
-            # Augment scene_decision
+            # Augment scene_decision — trigger memory search for REQUIRED or OPTIONAL
             if scene_decision and hasattr(scene_decision, "needs_memory"):
-                if decision.memory_required and not scene_decision.needs_memory:
+                if decision.memory_status in (RetrievalStatus.REQUIRED.value, RetrievalStatus.OPTIONAL.value) and not scene_decision.needs_memory:
                     scene_decision.needs_memory = True
                     scene_decision.is_memory_task = True
             if scene_decision and hasattr(scene_decision, "needs_knowledge"):
