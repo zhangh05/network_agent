@@ -334,25 +334,6 @@ export function PacketAnalysis() {
                     ))}
                   </div>
                 )}
-                {/* Upload drop zone */}
-                <div
-                style={{ padding: "60px 40px", textAlign: "center", color: "var(--text-4)", cursor: "pointer" }}
-                onClick={() => fileInputRef.current?.click()}
-                onDragOver={(e) => { e.preventDefault(); }}
-                onDrop={(e) => { e.preventDefault(); const f = e.dataTransfer.files?.[0]; if (f) handleUpload(f); }}
-              >
-                <div style={{ fontSize: "var(--fs-28)", marginBottom: 8 }}>
-                  {uploading ? <span className="spinner" /> : "📤"}
-                </div>
-                <div style={{ fontSize: "var(--fs-14)", marginBottom: 4 }}>
-                  {uploading ? "正在上传并解析…" : filename ? "Select a flow →" : "上传 pcap / pcapng 文件"}
-                </div>
-                {!filename && !uploading && (
-                  <div style={{ fontSize: "var(--fs-11)", color: "var(--text-5)", marginTop: 4 }}>
-                    点击选择或拖拽文件到此处
-                  </div>
-                )}
-              </div>
               </div>
             )}
             {filteredConnections.map((t, i) => {
