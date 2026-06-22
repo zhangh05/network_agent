@@ -79,6 +79,8 @@ export function CMDBPage() {
     load();
   };
 
+  const openTerminal = (a: Asset) => { setTermAsset(a); setTermOpen(true); };
+
   const stats = {
     total: assets.length,
     switches: assets.filter(a => a.type === "switch").length,
