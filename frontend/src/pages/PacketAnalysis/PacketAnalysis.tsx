@@ -194,6 +194,10 @@ export function PacketAnalysis() {
 
   const gaps = result ? (result.anomalies || []).filter(a => a.type === "seq_gap") : [];
   const summary = result ? verdictSummary(result) : "";
+  const MAX_VISIBLE = 500;
+  const [showAll, setShowAll] = useState(false);
+  const visibleEvents = result ? (showAll ? result.events : result.events.slice(0, MAX_VISIBLE)) : [];
+  const hasMore = result ? result.events.length > MAX_VISIBLE : false;
 
   return (
     <div style={{ height: "100%", display: "flex", flexDirection: "column" }}>
@@ -421,11 +425,11 @@ export function PacketAnalysis() {
                     </tr>
                   </thead>
                   <tbody>
-                    {result.events.map((evt, i) => {
+                    {visibleEvents.map((evt, i) => {
                       const fl = String(evt.flags);
                       const isSyn = fl.includes("S"), isFin = fl.includes("F"),
                             isRst = fl.includes("R"), isGap = evt.gap;
-                      const dt = i > 0 ? evt.time - result.events[i - 1].time : 0;
+                      const dt = i > 0 ? evt.time - visibleEvents[i - 1].time : 0;
                       const dtStr = dt < 0.000001 ? "0" : dt < 0.01 ? `${(dt * 1000).toFixed(1)}ms` : `${dt.toFixed(3)}s`;
 
                       const bg = isGap ? "#fff3cd" :
@@ -435,7 +439,7 @@ export function PacketAnalysis() {
                                  evt.payload_len > 0 ? "#fff" : "#fafafa";
 
                       const parts: string[] = [];
-                      parts.push(humanEvent(evt, i, result.events));
+                      parts.push(humanEvent(evt, i, visibleEvents));
                       parts.push(`seq ${evt.rel_seq}  (${evt.seq})`);
                       if (evt.payload_len > 0) parts.push(`len ${evt.payload_len}`);
                       if (evt.rel_ack > 0 || isFin || isRst) parts.push(`ack ${evt.rel_ack}  (${evt.ack})`);
@@ -476,6 +480,14 @@ export function PacketAnalysis() {
                       );
                     })}
                   </tbody>
+                  {hasMore && (
+                    <tfoot>
+                      <tr><td colSpan={6} style={{ padding: "8px 12px", textAlign: "center", borderTop: "1px solid var(--line)", background: "var(--surface-2)", cursor: "pointer" }}
+                        onClick={() => setShowAll(true)}>
+                        显示前 {MAX_VISIBLE} / {result.events.length} 个报文 · 点击加载全部
+                      </td></tr>
+                    </tfoot>
+                  )}
                 </table>
               </div>
             </>

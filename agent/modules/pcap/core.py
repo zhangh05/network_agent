@@ -16,29 +16,48 @@ from typing import Any
 
 PCAP_SESSIONS: dict[str, dict] = {}
 
+# Time-window for connection grouping (seconds)
+CONNECTION_IDLE_TIMEOUT = 30.0
+
 
 def safe_name(filename: str) -> str:
     return re.sub(r"[^a-zA-Z0-9_.-]", "_", filename)[:120] or "upload.pcap"
 
 
 def pcap_session_id_for(path) -> str:
-    """Generate a deterministic session ID from the first 1024 bytes of a file."""
+    """Generate a deterministic session ID from file content hash."""
+    h = hashlib.sha256()
     with open(str(path), "rb") as fh:
-        return hashlib.md5(fh.read(1024)).hexdigest()[:12]
+        while True:
+            chunk = fh.read(65536)
+            if not chunk:
+                break
+            h.update(chunk)
+    return h.hexdigest()[:16]
 
 
 # ── Core PCAP functions ──────────────────────────────────────────────
 
 def parse_pcap(filepath: str) -> list[dict]:
-    """Parse pcap file into structured packet list using scapy."""
+    """Parse pcap file into structured packet list using scapy.
+
+    For large files, falls back to streaming reader mode to avoid OOM.
+    """
     try:
-        from scapy.all import rdpcap, IP, TCP, UDP, ICMP, Raw
+        from scapy.all import rdpcap, PcapReader, IP, TCP, UDP, ICMP, Raw
         from scapy.error import Scapy_Exception
     except ImportError:
         return []
 
+    import os
+    file_size = os.path.getsize(filepath)
+
     try:
-        pkts = rdpcap(filepath)
+        # Stream-read for large files (>200MB) to avoid OOM
+        if file_size > 200 * 1024 * 1024:
+            pkts = PcapReader(filepath)
+        else:
+            pkts = rdpcap(filepath)
     except Exception:
         return []
 
@@ -72,35 +91,81 @@ def parse_pcap(filepath: str) -> list[dict]:
 
 
 def get_connection_groups(packets: list[dict]) -> list[dict]:
-    """Merge bidirectional 5-tuples into connection groups."""
-    by_5tuple: dict[tuple, dict] = {}
-    for pkt in packets:
-        if not all(k in pkt for k in ("src", "dst", "proto", "sport", "dport")):
-            continue
-        key = (pkt["src"], pkt["sport"], pkt["dst"], pkt["dport"], pkt["proto"])
-        if key not in by_5tuple:
-            by_5tuple[key] = {"fwd": 0}
-        by_5tuple[key]["fwd"] += 1
+    """Group packets into connections by 5-tuple with time-window separation.
 
-    seen: set[tuple] = set()
-    groups: list[dict] = []
+    Two flows sharing the same 5-tuple but separated by >IDLE_TIMEOUT are
+    treated as distinct connections (common in NAT / short-lived TCP scenarios).
+    """
+    if not packets:
+        return []
+
+    # Sort by time first
+    sorted_pkts = sorted(packets, key=lambda p: p.get("time", 0))
     proto_names = {6: "TCP", 17: "UDP"}
 
-    for (src, sport, dst, dport, proto), info in by_5tuple.items():
-        if (src, sport, dst, dport, proto) in seen:
+    # Group by 5-tuple + time bucket
+    # key: (src, sport, dst, dport, proto, time_bucket)
+    flow_map: dict[str, dict] = {}
+    flow_order: list[str] = []
+
+    for pkt in sorted_pkts:
+        if not all(k in pkt for k in ("src", "dst", "proto", "sport", "dport")):
             continue
-        seen.add((src, sport, dst, dport, proto))
-        rev_key = (dst, dport, src, sport, proto)
-        rev_info = by_5tuple.get(rev_key)
-        fwd_count = info["fwd"]
-        rev_count = rev_info["fwd"] if rev_info else 0
-        if rev_info:
-            seen.add((dst, dport, src, sport, proto))
+        t = pkt.get("time", 0)
+
+        # Create 5-tuple key
+        base = (pkt["src"], pkt["sport"], pkt["dst"], pkt["dport"], pkt["proto"])
+
+        # Find or create flow — check if this packet belongs to an existing flow
+        flow_id = None
+        for fid in reversed(flow_order[-30:]):  # only check recent flows
+            parts = fid.split(":", 1)
+            fbase = tuple(parts[0].split(","))
+            if len(fbase) != 5:
+                continue
+            fsrc, fsport, fdst, fdport, fproto = fbase
+            last_t = flow_map[fid].get("last_time", 0)
+            # Match forward direction
+            if (fsrc, fsport, fdst, fdport, fproto) == base:
+                if t - last_t <= CONNECTION_IDLE_TIMEOUT:
+                    flow_id = fid
+                    break
+            # Match reverse direction
+            if (fdst, fdport, fsrc, fsport, fproto) == base:
+                if t - last_t <= CONNECTION_IDLE_TIMEOUT:
+                    flow_id = fid
+                    break
+
+        if flow_id is None:
+            flow_id = f"{','.join(str(x) for x in base)}:{int(t // CONNECTION_IDLE_TIMEOUT)}"
+            flow_map[flow_id] = {"fwd": 0, "rev": 0, "time": t, "last_time": t}
+            flow_order.append(flow_id)
+        else:
+            flow_map[flow_id]["last_time"] = max(flow_map[flow_id]["last_time"], t)
+
+        # Determine direction: is this packet forward or reverse relative to the flow?
+        parts = flow_id.split(":", 1)
+        fbase = tuple(parts[0].split(","))
+        is_fwd = (pkt["src"], str(pkt["sport"])) == (fbase[0], fbase[1])
+        if is_fwd:
+            flow_map[flow_id]["fwd"] += 1
+        else:
+            flow_map[flow_id]["rev"] += 1
+
+    # Build connection groups
+    groups: list[dict] = []
+    for fid in flow_order:
+        info = flow_map[fid]
+        parts = fid.split(":", 1)
+        fbase = tuple(parts[0].split(","))
+        src, sport, dst, dport, proto = fbase
         groups.append({
-            "src": src, "sport": sport, "dst": dst, "dport": dport,
-            "proto": proto, "proto_name": proto_names.get(proto, str(proto)),
-            "packets_fwd": fwd_count, "packets_rev": rev_count,
-            "total": fwd_count + rev_count, "bidirectional": rev_count > 0,
+            "src": src, "sport": int(sport), "dst": dst, "dport": int(dport),
+            "proto": int(proto), "proto_name": proto_names.get(int(proto), str(proto)),
+            "packets_fwd": info["fwd"], "packets_rev": info["rev"],
+            "total": info["fwd"] + info["rev"],
+            "bidirectional": info["rev"] > 0,
+            "start_time": info["time"],
         })
     return sorted(groups, key=lambda g: -g["total"])
 
@@ -127,7 +192,11 @@ def tcp_stream_align(packets: list[dict]) -> dict:
     if not tcp_pkts:
         return {"events": [], "anomalies": [], "syn_count": 0, "fin_count": 0, "rst_count": 0, "total_tcp_packets": 0}
 
+    # Detect client direction from first SYN
     first = tcp_pkts[0]
+    syn_pkt = next((p for p in tcp_pkts if "S" in str(p.get("tcp_flags", "")) and "A" not in str(p.get("tcp_flags", ""))), None)
+    if syn_pkt:
+        first = syn_pkt
     src = first.get("src")
     dst = first.get("dst")
     src_port = first.get("sport")
@@ -157,10 +226,9 @@ def tcp_stream_align(packets: list[dict]) -> dict:
                 "time": round(pkt.get("time", 0), 6),
                 "payload_len": payload, "index": pkt.get("index"),
             }
-            if next_seq is not None and raw_seq != next_seq:
-                if raw_seq > next_seq:
-                    evt["gap"] = True
-                    evt["gap_size"] = raw_seq - next_seq
+            if next_seq is not None and raw_seq > next_seq:
+                evt["gap"] = True
+                evt["gap_size"] = raw_seq - next_seq
             events.append(evt)
             consumes = payload
             if "S" in str(flags):
