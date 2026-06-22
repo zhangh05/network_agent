@@ -15,17 +15,14 @@ logger = logging.getLogger(__name__)
 # ── Safety helpers ──────────────────────────────────────────────────────
 
 def _is_high_risk_line(stripped: str) -> bool:
-    """Check if a source line is a high-risk line requiring manual review.
+    """Check if a source line requires mandatory manual review.
 
-    Covers: NAT, IPsec, IKE, AAA, security-policy, route-policy/route-map,
-    QoS (traffic classifier/behavior/policy).
+    Only flags genuinely high-risk patterns: security policy entries,
+    NAT policy, IPsec/IKE negotiation — anything that could open or
+    close network access if mistranslated.
     """
     return bool(re.match(
-        r"^(security-policy|policy name|nat-policy|ipsec policy|ike|"
-        r"aaa\b|authentication|authorization|accounting|"
-        r"route-policy|route-map|"
-        r"qos\b|traffic classifier|traffic behavior|traffic policy|"
-        r"nat\b)",
+        r"(?:^security-policy|^policy name|^nat-policy|^ipsec policy|^ike\s)",
         stripped, re.IGNORECASE,
     )) or bool(re.search(
         r"\b(security-policy|nat-policy)\b",

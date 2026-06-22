@@ -69,6 +69,10 @@ _VENDOR_RESIDUE_PATTERNS = {
         "crypto isakmp", "crypto ipsec", "ip http server",
         "line vty", "line con", "enable secret", "enable password",
         "banner motd", "banner login",
+        "interface gigabitethernet", "interface fastethernet",
+        "interface tengigabitethernet",
+        "ip access-list", "ip helper-address",
+        "ip subnet-zero", "classless",
     ],
     # Comware-family tokens that must not appear in Cisco-family output
     "comware_in_cisco": [
@@ -77,6 +81,11 @@ _VENDOR_RESIDUE_PATTERNS = {
         "eth-trunk", "bridge-aggregation", "ip route-static",
         "ospf ", "bgp ", "irf ", "local-user", "domain ",
         "authorization-attribute", "authentication-mode",
+        "port link-aggregation", "mad ", "stack",
+        "info-center", "display ", "reset ", "network-entity",
+        "user-interface", "super password", "user-group",
+        "security-zone", "ip ip-prefix", "http server enable",
+        "ftp server enable", "telnet server enable",
     ],
 }
 
