@@ -63,6 +63,12 @@ MODULE_MANIFESTS: dict[str, ModuleServiceManifest] = {
         service_path="agent.runtime.service",
         operations=("health", "diagnostics", "trace"),
     ),
+    "cmdb": ModuleServiceManifest(
+        module_id="cmdb",
+        package="agent.modules.cmdb",
+        service_path="agent.modules.cmdb.service",
+        operations=("list_assets", "get_asset", "add_asset", "delete_asset"),
+    ),
 }
 
 
