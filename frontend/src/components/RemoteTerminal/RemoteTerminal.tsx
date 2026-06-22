@@ -31,6 +31,7 @@ export function RemoteTerminal({ onClose, initial }: {
 
   // Connection state
   const [sessionId, setSessionId] = useState("");
+  const sessionIdRef = useRef("");
   const [connected, setConnected] = useState(false);
   const [connecting, setConnecting] = useState(false);
   const [error, setError] = useState("");
@@ -82,8 +83,10 @@ export function RemoteTerminal({ onClose, initial }: {
       fitRef.current = fit;
 
       term.onData((data: string) => {
-        if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN && sessionId) {
-          wsRef.current.send(JSON.stringify({ type: "input", session_id: sessionId, data }));
+        const ws = wsRef.current;
+        const sid = sessionIdRef.current;
+        if (ws && ws.readyState === WebSocket.OPEN && sid) {
+          ws.send(JSON.stringify({ type: "input", session_id: sid, data }));
         }
       });
     };
@@ -108,6 +111,7 @@ export function RemoteTerminal({ onClose, initial }: {
     ws.onmessage = (e) => {
       const msg = JSON.parse(e.data);
       if (msg.type === "connected") {
+        sessionIdRef.current = msg.session_id;
         setSessionId(msg.session_id); setConnected(true); setConnecting(false);
         if (term) { term.clear(); }
         // Wait for banner or display "Connected."
@@ -152,6 +156,7 @@ export function RemoteTerminal({ onClose, initial }: {
     }
     wsRef.current = null;
     setConnected(false); setSessionId(""); setError("");
+    sessionIdRef.current = "";
     xtermRef.current?.writeln("\r\n\u23ed Disconnected.");
   };
 
