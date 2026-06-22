@@ -91,74 +91,63 @@ def parse_pcap(filepath: str) -> list[dict]:
 
 
 def get_connection_groups(packets: list[dict]) -> list[dict]:
-    """Group packets into connections by 5-tuple with time-window separation.
+    """Group packets into bidirectional connections.
 
-    Two flows sharing the same 5-tuple but separated by >IDLE_TIMEOUT are
-    treated as distinct connections (common in NAT / short-lived TCP scenarios).
+    Canonical 4-tuple approach (Wireshark/tcpflow standard):
+    - Key = sorted endpoint pair: ((ip_a, port_a), (ip_b, port_b), proto)
+    - Both directions → same key → one bidirectional group
+    - TCP: bare SYN (no ACK) starts new flow, even with same 4-tuple
+    - UDP: canonical 4-tuple only
     """
     if not packets:
         return []
 
-    # Sort by time first
     sorted_pkts = sorted(packets, key=lambda p: p.get("time", 0))
     proto_names = {6: "TCP", 17: "UDP"}
-
-    # Group by 5-tuple + time bucket
-    # key: (src, sport, dst, dport, proto, time_bucket)
-    flow_map: dict[str, dict] = {}
-    flow_order: list[str] = []
+    flows: dict[tuple, dict] = {}
+    flow_order: list[tuple] = []
 
     for pkt in sorted_pkts:
         if not all(k in pkt for k in ("src", "dst", "proto", "sport", "dport")):
             continue
+
         t = pkt.get("time", 0)
+        src, sport = pkt["src"], pkt["sport"]
+        dst, dport = pkt["dst"], pkt["dport"]
+        proto = pkt["proto"]
+        flags = str(pkt.get("tcp_flags", ""))
+        is_tcp = proto == 6
 
-        # Create 5-tuple key
-        base = (pkt["src"], pkt["sport"], pkt["dst"], pkt["dport"], pkt["proto"])
-
-        # Find or create flow — check if this packet belongs to an existing flow
-        flow_id = None
-        for fid in reversed(flow_order[-30:]):  # only check recent flows
-            parts = fid.split(":", 1)
-            fbase = tuple(parts[0].split(","))
-            if len(fbase) != 5:
-                continue
-            fsrc, fsport, fdst, fdport, fproto = fbase
-            last_t = flow_map[fid].get("last_time", 0)
-            # Match forward direction
-            if (fsrc, fsport, fdst, fdport, fproto) == base:
-                if t - last_t <= CONNECTION_IDLE_TIMEOUT:
-                    flow_id = fid
-                    break
-            # Match reverse direction
-            if (fdst, fdport, fsrc, fsport, fproto) == base:
-                if t - last_t <= CONNECTION_IDLE_TIMEOUT:
-                    flow_id = fid
-                    break
-
-        if flow_id is None:
-            flow_id = f"{','.join(str(x) for x in base)}:{int(t // CONNECTION_IDLE_TIMEOUT)}"
-            flow_map[flow_id] = {"fwd": 0, "rev": 0, "time": t, "last_time": t}
-            flow_order.append(flow_id)
+        # Canonical key: sorted endpoint pair
+        if (src, sport) < (dst, dport):
+            ckey = (src, sport, dst, dport, proto)
         else:
-            flow_map[flow_id]["last_time"] = max(flow_map[flow_id]["last_time"], t)
+            ckey = (dst, dport, src, sport, proto)
 
-        # Determine direction: is this packet forward or reverse relative to the flow?
-        parts = flow_id.split(":", 1)
-        fbase = tuple(parts[0].split(","))
-        is_fwd = (pkt["src"], str(pkt["sport"])) == (fbase[0], fbase[1])
-        if is_fwd:
-            flow_map[flow_id]["fwd"] += 1
+        # TCP: bare SYN starts a new flow even with same canonical key
+        is_new_syn = is_tcp and "S" in flags and "A" not in flags
+        existing = flows.get(ckey)
+        reuse = existing is not None and (
+            not is_new_syn or t - existing["last_time"] <= CONNECTION_IDLE_TIMEOUT
+        )
+
+        if not reuse:
+            existing = {"fwd": 0, "rev": 0, "time": t, "last_time": t}
+            flows[ckey] = existing
+            flow_order.append(ckey)
+
+        existing["last_time"] = max(existing["last_time"], t)
+
+        # Direction: is this packet forward relative to canonical key?
+        if (src, sport) == (ckey[0], ckey[1]):
+            existing["fwd"] += 1
         else:
-            flow_map[flow_id]["rev"] += 1
+            existing["rev"] += 1
 
-    # Build connection groups
     groups: list[dict] = []
-    for fid in flow_order:
-        info = flow_map[fid]
-        parts = fid.split(":", 1)
-        fbase = tuple(parts[0].split(","))
-        src, sport, dst, dport, proto = fbase
+    for ckey in flow_order:
+        info = flows[ckey]
+        src, sport, dst, dport, proto = ckey
         groups.append({
             "src": src, "sport": int(sport), "dst": dst, "dport": int(dport),
             "proto": int(proto), "proto_name": proto_names.get(int(proto), str(proto)),
