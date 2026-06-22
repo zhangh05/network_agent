@@ -57,42 +57,48 @@ class DeviceSession:
                         self._chan.send(data)
                     elif hasattr(self._chan, "write"):
                         self._chan.write(data)
+                    else:
+                        self._chan.sendall(data)
                 except Exception:
                     pass
 
     def read_until(self, pattern: bytes, timeout: float = None) -> bytes:
-        """Read until pattern matches or timeout. Returns accumulated bytes."""
+        """Read until pattern matches or timeout."""
         timeout = timeout or READ_TIMEOUT
-        buf = b""
-        deadline = time.time() + timeout
         compiled = re.compile(pattern)
+        chan = self._chan
 
         with self._lock:
+            # _TelnetSocket has its own read_until
+            if isinstance(chan, _TelnetSocket):
+                result = chan.read_until([pattern], timeout=timeout)
+                return result
+
+            buf = b""
+            deadline = time.time() + timeout
             while time.time() < deadline:
                 try:
-                    if hasattr(self._chan, "recv"):
-                        ready = self._chan.recv_ready()
+                    if hasattr(chan, "recv"):
+                        ready = chan.recv_ready()
                         if not ready:
                             time.sleep(0.05)
                             continue
-                        chunk = self._chan.recv(4096)
-                    elif hasattr(self._chan, "read_very_eager"):
-                        chunk = self._chan.read_very_eager()
+                        chunk = chan.recv(4096)
+                    elif hasattr(chan, "read_very_eager"):
+                        chunk = chan.read_very_eager()
                         if not chunk:
                             time.sleep(0.05)
                             continue
                     else:
                         time.sleep(0.05)
                         continue
-                except Exception as e:
-                    _log.debug("read error: %s", e)
-                    break
-
+                except Exception:
+                    time.sleep(0.05)
+                    continue
                 if not chunk:
                     time.sleep(0.05)
                     continue
                 buf += chunk
-
                 if compiled.search(buf):
                     return buf
             return buf
@@ -100,27 +106,32 @@ class DeviceSession:
     def read_all(self, timeout: float = None) -> bytes:
         """Read all available data until silence."""
         timeout = timeout or 2.0
-        buf = b""
-        deadline = time.time() + timeout
+        chan = self._chan
 
         with self._lock:
+            # _TelnetSocket has its own read_all
+            if isinstance(chan, _TelnetSocket):
+                return chan.read_all(timeout=timeout)
+
+            buf = b""
+            deadline = time.time() + timeout
             while time.time() < deadline:
                 try:
-                    if hasattr(self._chan, "recv"):
-                        ready = self._chan.recv_ready()
+                    if hasattr(chan, "recv"):
+                        ready = chan.recv_ready()
                         if not ready:
                             time.sleep(0.05)
                             continue
-                        chunk = self._chan.recv(4096)
-                    elif hasattr(self._chan, "read_very_eager"):
-                        chunk = self._chan.read_very_eager()
+                        chunk = chan.recv(4096)
+                    elif hasattr(chan, "read_very_eager"):
+                        chunk = chan.read_very_eager()
                     else:
                         break
                 except Exception:
                     break
                 if chunk:
                     buf += chunk
-                    deadline = time.time() + timeout  # reset on data
+                    deadline = time.time() + timeout
                 else:
                     time.sleep(0.05)
             return buf
@@ -181,47 +192,143 @@ def ssh_connect(session_id: str, host: str, port: int,
 def telnet_connect(session_id: str, host: str, port: int,
                    username: str, password: str,
                    vendor: str = "generic") -> DeviceSession:
-    """Connect via Telnet using stdlib telnetlib."""
-    import telnetlib
-
+    """Connect via Telnet using raw socket (telnetlib removed in Python 3.13)."""
     profile = get_profile(vendor)
 
+    s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    s.settimeout(CONNECT_TIMEOUT)
+
     try:
-        tn = telnetlib.Telnet(host, port, timeout=CONNECT_TIMEOUT)
+        s.connect((host, port))
+        s.settimeout(READ_TIMEOUT)
     except Exception as e:
+        s.close()
         raise ConnectionError(f"Telnet 连接失败 {host}:{port}: {e}")
 
+    tn = _TelnetSocket(s)
     session = DeviceSession(session_id, "telnet", host, port, profile)
     session._chan = tn
     _SESSIONS[session_id] = session
 
-    # Login sequence
     try:
-        result = tn.read_until(b"Username:", timeout=CONNECT_TIMEOUT)
+        result = tn.read_until([b"Username:", b"login:", b"Login:"], timeout=CONNECT_TIMEOUT)
         session.log.append(result.decode("utf-8", errors="replace"))
-        tn.write(username.encode() + b"\n")
+        tn.write(username.encode() + b"\r\n")
 
-        result = tn.read_until(b"Password:", timeout=CONNECT_TIMEOUT)
+        result = tn.read_until([b"Password:", b"password:"], timeout=CONNECT_TIMEOUT)
         session.log.append(result.decode("utf-8", errors="replace"))
-        tn.write(password.encode() + b"\n")
+        tn.write(password.encode() + b"\r\n")
 
-        time.sleep(1)
-        banner = tn.read_very_eager()
+        time.sleep(1.5)
+        banner = tn.read_all(timeout=2)
         session.log.append(banner.decode("utf-8", errors="replace"))
-    except EOFError:
-        tn.close()
-        raise ConnectionError(f"Telnet 登录失败: 远程关闭连接")
     except Exception as e:
         tn.close()
         raise ConnectionError(f"Telnet 登录失败: {e}")
 
     session.connected = True
 
-    # Send init commands
     for cmd in profile.init_commands:
         _exec_and_wait(session, cmd)
 
     return session
+
+
+class _TelnetSocket:
+    """Lightweight Telnet wrapper (replaces deprecated telnetlib)."""
+
+    def __init__(self, sock):
+        self.sock = sock
+        self._buf = b""
+
+    def close(self):
+        try: self.sock.close()
+        except: pass
+
+    def send(self, data: bytes):
+        self.sock.sendall(data)
+
+    def write(self, data: bytes):
+        self.sock.sendall(data)
+
+    def read_very_eager(self) -> bytes:
+        """Compatible with telnetlib.Telnet interface."""
+        import select
+        buf = self._buf
+        self._buf = b""
+        try:
+            ready = select.select([self.sock], [], [], 0.05)
+            if ready[0]:
+                chunk = self.sock.recv(65536)
+                if chunk:
+                    buf += self._filter_iac(chunk)
+        except Exception:
+            pass
+        return buf
+
+    def read_until(self, patterns: list[bytes], timeout: float = None) -> bytes:
+        import select
+        deadline = time.time() + (timeout or READ_TIMEOUT)
+        while time.time() < deadline:
+            ready = select.select([self.sock], [], [], 0.5)
+            if not ready[0]:
+                continue
+            try:
+                chunk = self.sock.recv(4096)
+            except socket.timeout:
+                continue
+            except Exception:
+                break
+            if not chunk:
+                break
+            self._buf += self._filter_iac(chunk)
+            for pat in patterns:
+                if pat.lower() in self._buf.lower():
+                    return self._buf
+        return self._buf
+
+    def read_all(self, timeout: float = None) -> bytes:
+        import select
+        timeout = timeout or 1.0
+        deadline = time.time() + timeout
+        buf = self._buf
+        self._buf = b""
+        while time.time() < deadline:
+            ready = select.select([self.sock], [], [], 0.3)
+            if not ready[0]:
+                break
+            try:
+                chunk = self.sock.recv(65536)
+            except socket.timeout:
+                break
+            except Exception:
+                break
+            if chunk:
+                buf += self._filter_iac(chunk)
+                deadline = time.time() + timeout
+            else:
+                break
+        return buf
+
+    def _filter_iac(self, data: bytes) -> bytes:
+        """Strip Telnet IAC command sequences."""
+        result = bytearray()
+        i = 0
+        while i < len(data):
+            if data[i] == 255 and i + 1 < len(data):
+                cmd = data[i + 1]
+                if cmd in (251, 252, 253, 254):  # WILL/WONT/DO/DONT
+                    self.sock.sendall(bytes([255, 254 if cmd in (251, 252) else 252, data[i + 2]]))
+                    i += 3
+                elif cmd == 250 and i + 2 < len(data):  # SB
+                    end = data.find(bytes([255, 240]), i + 2)
+                    i = end + 2 if end > 0 else i + 2
+                else:
+                    i += 2
+            else:
+                result.append(data[i])
+                i += 1
+        return bytes(result)
 
 
 def exec_command(session_id: str, command: str) -> dict:
