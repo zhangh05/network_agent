@@ -118,16 +118,31 @@ export function RemoteTerminal({ onClose }: { onClose: () => void }) {
       }
     };
     ws.onclose = () => { setConnected(false); setConnecting(false); };
-    ws.onerror = () => { setError("WebSocket 连接失败"); setConnecting(false); };
+    ws.onerror = () => {
+      setError("WebSocket 连接失败 — 请确认后端已启动 (python backend/main.py)");
+      setConnecting(false);
+      if (term) term.writeln("\r\n\u26a0\ufe0f WebSocket 连接失败");
+    };
+
+    // Connection timeout (15s)
+    setTimeout(() => {
+      if (ws.readyState !== WebSocket.OPEN && connecting) {
+        ws.close();
+        setError("连接超时 — 请检查设备地址和端口是否可达");
+        setConnecting(false);
+      }
+    }, 15000);
   };
 
   const doDisconnect = () => {
-    if (wsRef.current) {
-      wsRef.current.send(JSON.stringify({ type: "disconnect", session_id: sessionId }));
-      wsRef.current.close(); wsRef.current = null;
+    const ws = wsRef.current;
+    if (ws && ws.readyState === WebSocket.OPEN) {
+      ws.send(JSON.stringify({ type: "disconnect", session_id: sessionId }));
+      ws.close();
     }
-    setConnected(false); setSessionId("");
-    xtermRef.current?.writeln("\r\nDisconnected.");
+    wsRef.current = null;
+    setConnected(false); setSessionId(""); setError("");
+    xtermRef.current?.writeln("\r\n\u23ed Disconnected.");
   };
 
   const loadDevice = (d: SavedDevice) => {

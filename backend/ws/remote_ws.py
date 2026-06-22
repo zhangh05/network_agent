@@ -1,123 +1,134 @@
-"""Remote terminal WebSocket — real-time interactive device session."""
+"""Remote terminal WebSocket — real-time interactive device session.
+
+Uses flask_sock (same pattern as agent_ws.py).
+"""
 
 import json
 import logging
 import threading
 
+from flask_sock import Sock
+
+sock = Sock()
 _log = logging.getLogger("ws.remote")
 
 
-def register_remote_ws(ws_manager, app):
-    """Register remote terminal WebSocket routes."""
+def register_remote_ws(app):
+    """Register remote terminal WebSocket routes on the Flask app."""
+    sock.init_app(app)
 
-    @app.route("/ws/remote/terminal", websocket=True)
-    def ws_remote_terminal():
+    @sock.route("/ws/remote/terminal")
+    def ws_remote_terminal(ws):
         """Real-time terminal session over WebSocket.
 
         Client sends:
-          {type:"connect", host, port, protocol, username, password, vendor}
+          {type:"connect", host, port, protocol, username, password, vendor, workspace_id}
           {type:"input", session_id, data}
           {type:"disconnect", session_id}
 
         Server sends:
-          {type:"banner", session_id, text}
+          {type:"connected", session_id, host, vendor, banner}
           {type:"output", session_id, text}
-          {type:"error", session_id, message}
           {type:"disconnected", session_id}
+          {type:"error", message}
         """
-        from flask_sock import Sock
+        sid = None
+        reader_stop = threading.Event()
 
-        ws = ws_manager.get_ws()
-        if ws is None:
-            return
-
-        try:
-            while True:
-                raw = ws.receive()
-                if raw is None:
-                    break
-                msg = json.loads(raw)
-                msg_type = msg.get("type", "")
-
-                if msg_type == "connect":
-                    _handle_ws_connect(ws, msg)
-                elif msg_type == "input":
-                    _handle_ws_input(ws, msg)
-                elif msg_type == "disconnect":
-                    _handle_ws_disconnect(ws, msg)
-                else:
-                    ws.send(json.dumps({"type": "error", "message": f"unknown type: {msg_type}"}))
-
-        except Exception as e:
-            _log.debug("WS remote terminal closed: %s", e)
-
-
-def _handle_ws_connect(ws, msg):
-    from agent.modules.remote.service import connect_device
-
-    result = connect_device(
-        workspace_id=msg.get("workspace_id", "default"),
-        host=msg.get("host", ""),
-        port=int(msg.get("port", 22)),
-        protocol=msg.get("protocol", "ssh"),
-        username=msg.get("username", ""),
-        password=msg.get("password", ""),
-        vendor=msg.get("vendor", ""),
-    )
-
-    if result.get("ok"):
-        sid = result["session_id"]
-        ws.send(json.dumps({
-            "type": "connected",
-            "session_id": sid,
-            "host": result["host"],
-            "vendor": result["vendor"],
-            "banner": result.get("banner", ""),
-        }))
-
-        # Start reading goroutine-like thread
-        def reader():
+        def reader_thread():
             from agent.modules.remote.core import get_session
-            session = get_session(sid)
-            if not session:
-                return
-            import time
-            while session.connected:
+            while not reader_stop.is_set():
+                session = get_session(sid)
+                if not session or not session.connected:
+                    break
                 try:
-                    import time as t
                     buf = session.read_all(timeout=0.5)
                     if buf:
                         text = buf.decode("utf-8", errors="replace")
                         session.log.append(text)
-                        try:
-                            ws.send(json.dumps({"type": "output", "session_id": sid, "text": text}))
-                        except Exception:
-                            break
-                    t.sleep(0.1)
+                        ws.send(json.dumps({
+                            "type": "output", "session_id": sid, "text": text,
+                        }, ensure_ascii=False))
                 except Exception:
                     break
+                reader_stop.wait(0.3)
 
-        threading.Thread(target=reader, daemon=True).start()
-    else:
-        ws.send(json.dumps({"type": "error", "message": result.get("error", "连接失败")}))
+        try:
+            while True:
+                raw = ws.receive(timeout=300)
+                if raw is None:
+                    break
+                try:
+                    msg = json.loads(raw)
+                except Exception:
+                    ws.send(json.dumps({"type": "error", "message": "invalid_json"}))
+                    continue
 
+                msg_type = msg.get("type", "")
 
-def _handle_ws_input(ws, msg):
-    from agent.modules.remote.core import send_interactive
-    sid = msg.get("session_id", "")
-    data = msg.get("data", "")
+                if msg_type == "connect":
+                    from agent.modules.remote.service import connect_device
 
-    if data == "\r" or data == "\n":
-        result = send_interactive(sid, "\r\n")
-    else:
-        result = send_interactive(sid, data)
+                    result = connect_device(
+                        workspace_id=msg.get("workspace_id", "default"),
+                        host=msg.get("host", ""),
+                        port=int(msg.get("port", 22)),
+                        protocol=msg.get("protocol", "ssh"),
+                        username=msg.get("username", ""),
+                        password=msg.get("password", ""),
+                        vendor=msg.get("vendor", ""),
+                    )
 
-    if not result.get("ok"):
-        ws.send(json.dumps({"type": "error", "session_id": sid, "message": result.get("error", "")}))
+                    if result.get("ok"):
+                        sid = result["session_id"]
+                        ws.send(json.dumps({
+                            "type": "connected",
+                            "session_id": sid,
+                            "host": result["host"],
+                            "vendor": result["vendor"],
+                            "banner": result.get("banner", ""),
+                        }, ensure_ascii=False))
 
+                        reader_stop.clear()
+                        th = threading.Thread(target=reader_thread, daemon=True)
+                        th.start()
+                    else:
+                        ws.send(json.dumps({
+                            "type": "error",
+                            "message": result.get("error", "连接失败"),
+                        }, ensure_ascii=False))
 
-def _handle_ws_disconnect(ws, msg):
-    from agent.modules.remote.service import close_session
-    sid = msg.get("session_id", "")
-    close_session(sid)
-    ws.send(json.dumps({"type": "disconnected", "session_id": sid}))
+                elif msg_type == "input":
+                    from agent.modules.remote.core import send_interactive
+                    data = msg.get("data", "")
+                    if data == "\r":
+                        data = "\r\n"
+                    result = send_interactive(msg.get("session_id", ""), data)
+                    if not result.get("ok"):
+                        ws.send(json.dumps({
+                            "type": "error",
+                            "session_id": msg.get("session_id", ""),
+                            "message": result.get("error", "发送失败"),
+                        }, ensure_ascii=False))
+
+                elif msg_type == "disconnect":
+                    from agent.modules.remote.service import close_session
+                    close_session(msg.get("session_id", ""))
+                    ws.send(json.dumps({
+                        "type": "disconnected",
+                        "session_id": msg.get("session_id", ""),
+                    }, ensure_ascii=False))
+
+                else:
+                    ws.send(json.dumps({
+                        "type": "error",
+                        "message": f"unknown message type: {msg_type}",
+                    }, ensure_ascii=False))
+
+        except Exception as e:
+            _log.debug("WS remote closed: %s", e)
+        finally:
+            reader_stop.set()
+            if sid:
+                from agent.modules.remote.service import close_session
+                close_session(sid)

@@ -269,6 +269,8 @@ def create_app():
     # ── WebSocket routes (real-time streaming) ──
     from backend.ws.agent_ws import register_ws_routes
     register_ws_routes(app)
+    from backend.ws.remote_ws import register_remote_ws
+    register_remote_ws(app)
 
     # ── Tool approval routes ──
     from backend.api.approval_routes import register_approval_routes
