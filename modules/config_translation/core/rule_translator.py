@@ -101,24 +101,40 @@ def _guess_module(source_line: str) -> str:
     lower = source_line.strip().lower()
     if not lower:
         return "unknown"
+    # ── Switchport ──
     if lower.startswith(("port link-type", "port trunk", "port default vlan",
-                       "port access vlan", "undo port", "undo shutdown")):
+                       "port access vlan", "undo port", "undo shutdown",
+                       "port hybrid", "port-security")):
         return "switchport"
     if lower.startswith("stp ") or lower.startswith("spanning-tree "):
         return "switchport.stp"
     if lower.startswith(("eth-trunk", "bridge-aggregation", "port-channel",
-                       "link-aggregation", "mode lacp", "mode manual")):
+                       "link-aggregation", "mode lacp", "mode manual",
+                       "channel-group", "interface eth-trunk",
+                       "interface bridge-aggregation")):
         return "lag"
     if lower.startswith("banner "):
         return "management.banner"
+    # ── Management ──
     if lower.startswith(("description ", "name ")):
         return "description"
     if lower.startswith(("snmp-server ", "snmp-agent ")):
         return "management.snmp"
-    if lower.startswith(("ntp ", "ntp-service ")):
+    if lower.startswith(("ntp ", "ntp-service ", "clock timezone", "clock summer-time")):
         return "management.ntp"
-    if lower.startswith(("logging ", "syslog ")):
+    if lower.startswith(("logging ", "syslog ", "info-center ")):
         return "management.logging"
+    if lower.startswith(("enable secret", "enable password", "super password",
+                       "local-user", "line vty", "user-interface vty",
+                       "aaa local-user", "password")):
+        return "management.aaa"
+    if lower.startswith(("ip http server", "ip http secure-server", "ip https server",
+                       "http server enable", "http secure-server enable")):
+        return "management.http"
+    if lower.startswith(("radius-server", "tacacs-server", "radius ", "tacacs ",
+                       "authentication-mode", "authorization-mode")):
+        return "management.aaa"
+    # ── Routing ──
     if lower.startswith(("ip route ", "ip route-static ")):
         return "static_route"
     if lower.startswith(("router ospf", "router bgp", "router isis", "router rip")):
@@ -130,14 +146,19 @@ def _guess_module(source_line: str) -> str:
     if lower.startswith(("ipv4-family ", "ipv6-family ", "address-family ",
                        "exit-address-family", "route-distinguisher ",
                        "vpn-target ", "import-route ", "default-route-advertise",
-                       "no passive-interface")):
+                       "no passive-interface", "undo silent-interface",
+                       "silent-interface", "maximum-prefix", "maximum load-balancing")):
         return "routing.bgp"
-    if lower.startswith(("network-entity ", "cost-style ")):
+    if lower.startswith(("network-entity ", "cost-style ", "is-level", "isis circuit-level")):
         return "routing.isis"
     if lower.startswith(("route-map ", "route-policy ", "match ",
                        "set ", "apply ", "if-match ", "ip prefix-list ",
                        "prefix-list ", "ip ip-prefix ")):
         return "route_policy"
+    if lower.startswith(("ip vrf ", "ip vpn-instance ", "vrf definition",
+                       "rd ", "vpn-target")):
+        return "routing.vrf"
+    # ── Firewall / Security ──
     if lower.startswith(("security-policy", "nat-policy", "ipsec ", "ike ",
                        "crypto ", "encryption ", "hash ", "protocol ",
                        "encapsulation-mode", "transform ",
@@ -155,21 +176,43 @@ def _guess_module(source_line: str) -> str:
     if lower.startswith(("service ",)) and (
         re.search(r"\b(tcp|udp|icmp|http|https|dns|ssh|smtp|ping|snmp)\b", lower)):
         return "firewall"
+    if lower.startswith(("firewall", "undo firewall", "session ")):
+        return "firewall"
+    # ── QoS ──
     if lower.startswith(("class-map", "policy-map", "class ", "service-policy input",
-                       "priority ", "police ", "bandwidth ")):
+                       "priority ", "police ", "bandwidth ",
+                       "traffic classifier", "traffic behavior", "traffic policy",
+                       "queue", "qos ", "wred ")):
         return "routing.qos"
+    # ── ACL ──
     if lower.startswith("permit ") or lower.startswith("deny "):
         return "acl"
     if lower.startswith("rule ") and re.search(r"\b(permit|deny)\b", lower):
         return "acl"
+    if lower.startswith("access-list ") or lower.startswith("ip access-list "):
+        return "acl"
+    # ── VLAN / STP ──
     if lower.startswith("vlan "):
         return "vlan"
     if lower.startswith("switchport "):
         return "switchport"
+    if lower.startswith(("spanning-tree", "stp ", "bpdu")):
+        return "switchport.stp"
+    # ── Interface ──
     if lower.startswith("interface "):
         return "interface"
-    if lower.startswith("ip vrf ") or lower.startswith("ip vpn-instance "):
-        return "routing.vrf"
+    if lower.startswith("interface range ") or lower.startswith("port-group "):
+        return "interface.range"
+    # ── DHCP ──
+    if lower.startswith(("dhcp enable", "dhcp server", "ip dhcp", "dhcp pool")):
+        return "management.dhcp"
+    # ── LLDP ──
+    if lower.startswith(("lldp", "no lldp", "undo lldp")):
+        return "management.lldp"
+    # ── System ──
+    if lower.startswith(("hostname ", "sysname ", "ip tcp synwait-time",
+                       "line ", "user-interface ", "terminal ")):
+        return "system"
     if lower.startswith(("ip binding")):
         return "routing"
     return "unknown"

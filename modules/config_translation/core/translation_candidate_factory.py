@@ -943,10 +943,69 @@ def candidate_l2_semantic(stripped: str, lower: str, from_vendor: str, to_vendor
     return None
 
 
+# ── v0.9.2 expanded factory matchers ──
+
+def candidate_firewall_enable(stripped: str, lower: str, from_vendor: str, to_vendor: str) -> Optional[TranslationCandidate]:
+    if lower == "firewall enable" and to_vendor in ("cisco", "ruijie"):
+        return semantic_near_candidate(stripped, "ip firewall",
+            "firewall enable → Cisco: ip firewall (semantic_near)", from_vendor, to_vendor, module="firewall",
+            confirmation_points=["Verify firewall enable syntax for target vendor"])
+    return None
+
+def candidate_ssh_server(stripped: str, lower: str, from_vendor: str, to_vendor: str) -> Optional[TranslationCandidate]:
+    if lower == "ssh server enable" and to_vendor == "cisco":
+        return exact_candidate(stripped, "ip ssh server enable", from_vendor, to_vendor, module="management.ssh")
+    if lower == "ip ssh server enable" and to_vendor in ("huawei", "h3c", "ruijie"):
+        return exact_candidate(stripped, "ssh server enable", from_vendor, to_vendor, module="management.ssh")
+    return None
+
+def candidate_http_server(stripped: str, lower: str, from_vendor: str, to_vendor: str) -> Optional[TranslationCandidate]:
+    if lower == "ip http server" and to_vendor in ("huawei", "h3c"):
+        return exact_candidate(stripped, "http server enable", from_vendor, to_vendor, module="management.http")
+    if lower == "http server enable" and to_vendor == "cisco":
+        return exact_candidate(stripped, "ip http server", from_vendor, to_vendor, module="management.http")
+    if lower in ("ip http secure-server", "ip https server") and to_vendor in ("huawei", "h3c"):
+        return exact_candidate(stripped, "http secure-server enable", from_vendor, to_vendor, module="management.http")
+    return None
+
+def candidate_vty_interface(stripped: str, lower: str, from_vendor: str, to_vendor: str) -> Optional[TranslationCandidate]:
+    m = re.match(r"user-interface\s+vty\s+(\d+)\s+(\d+)", lower)
+    if m and to_vendor == "cisco":
+        return semantic_near_candidate(stripped, f"line vty {m.group(1)} {m.group(2)}",
+            "user-interface vty → line vty", from_vendor, to_vendor, module="management.vty")
+    m = re.match(r"line\s+vty\s+(\d+)\s+(\d+)", lower)
+    if m and to_vendor in ("huawei", "h3c", "ruijie"):
+        return semantic_near_candidate(stripped, f"user-interface vty {m.group(1)} {m.group(2)}",
+            "line vty → user-interface vty", from_vendor, to_vendor, module="management.vty")
+    return None
+
+def candidate_dhcp(stripped: str, lower: str, from_vendor: str, to_vendor: str) -> Optional[TranslationCandidate]:
+    if lower == "dhcp enable":
+        return exact_candidate(stripped, stripped, from_vendor, to_vendor, module="management.dhcp")
+    if lower.startswith(("dhcp server ", "dhcp relay ")):
+        if from_vendor == to_vendor:
+            return exact_candidate(stripped, stripped, from_vendor, to_vendor, module="management.dhcp")
+        return semantic_near_candidate(stripped, stripped, "DHCP cross-vendor", from_vendor, to_vendor, module="management.dhcp")
+    return None
+
+def candidate_bfd(stripped: str, lower: str, from_vendor: str, to_vendor: str) -> Optional[TranslationCandidate]:
+    if re.match(r"bfd\s+", lower):
+        if from_vendor == to_vendor:
+            return exact_candidate(stripped, stripped, from_vendor, to_vendor, module="routing.bfd")
+        return semantic_near_candidate(stripped, stripped, "BFD cross-vendor", from_vendor, to_vendor, module="routing.bfd")
+    return None
+
+
 # ── Registry with metadata ─────────────────────────────────────────────────
 
 # Internal fast-path list for try_make_candidate
 _MODULE_CANDIDATE_FUNCTIONS = [
+    candidate_firewall_enable,
+    candidate_ssh_server,
+    candidate_http_server,
+    candidate_vty_interface,
+    candidate_dhcp,
+    candidate_bfd,
     candidate_hostname,
     candidate_logging,
     candidate_logging_buffered,
