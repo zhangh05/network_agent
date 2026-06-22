@@ -89,6 +89,20 @@ def register_remote_ws(app):
                             "banner": result.get("banner", ""),
                         }, ensure_ascii=False))
 
+                        # Read any data buffered before starting the reader thread
+                        import time as _t
+                        _t.sleep(0.3)
+                        from agent.modules.remote.core import get_session
+                        s = get_session(sid)
+                        if s:
+                            early = s.recv(timeout=1.0)
+                            if early:
+                                text = early.decode("utf-8", errors="replace")
+                                s.log.append(text)
+                                ws.send(json.dumps({
+                                    "type": "output", "session_id": sid, "text": text,
+                                }, ensure_ascii=False))
+
                         reader_stop.clear()
                         th = threading.Thread(target=reader_thread, daemon=True)
                         th.start()
