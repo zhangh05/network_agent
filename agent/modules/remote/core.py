@@ -190,9 +190,11 @@ def ssh_connect(session_id: str, host: str, port: int,
 
 
 def telnet_connect(session_id: str, host: str, port: int,
-                   username: str, password: str,
+                   username: str = "", password: str = "",
                    vendor: str = "generic") -> DeviceSession:
-    """Connect via Telnet using raw socket (telnetlib removed in Python 3.13)."""
+    """Connect via raw socket — transparent TCP bridge.
+    User enters credentials interactively via terminal.
+    """
     profile = get_profile(vendor)
 
     s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
@@ -208,25 +210,10 @@ def telnet_connect(session_id: str, host: str, port: int,
     tn = _TelnetSocket(s)
     session = DeviceSession(session_id, "telnet", host, port, profile)
     session._chan = tn
+    session.connected = True
     _SESSIONS[session_id] = session
 
-    try:
-        result = tn.read_until([b"Username:", b"login:", b"Login:"], timeout=CONNECT_TIMEOUT)
-        session.log.append(result.decode("utf-8", errors="replace"))
-        tn.write(username.encode() + b"\r\n")
-
-        result = tn.read_until([b"Password:", b"password:"], timeout=CONNECT_TIMEOUT)
-        session.log.append(result.decode("utf-8", errors="replace"))
-        tn.write(password.encode() + b"\r\n")
-
-        time.sleep(1.5)
-        banner = tn.read_all(timeout=2)
-        session.log.append(banner.decode("utf-8", errors="replace"))
-    except Exception as e:
-        tn.close()
-        raise ConnectionError(f"Telnet 登录失败: {e}")
-
-    session.connected = True
+    return session
 
     for cmd in profile.init_commands:
         _exec_and_wait(session, cmd)
