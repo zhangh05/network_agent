@@ -87,14 +87,10 @@ def _remote_dir(workspace_id: str) -> Path:
 
 
 def _ensure_log_dir(workspace_id: str) -> Path:
+    from storage.paths import workspace_root
     d = workspace_root(workspace_id) / "remote" / "logs"
     d.mkdir(parents=True, exist_ok=True)
     return d
-
-
-def _workspace_root(workspace_id: str) -> Path:
-    from storage.paths import workspace_root
-    return workspace_root(workspace_id)
 
 
 def save_device(workspace_id: str, device: dict) -> dict:
