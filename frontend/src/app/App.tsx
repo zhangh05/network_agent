@@ -13,6 +13,7 @@ import { KnowledgeLibrary } from "../pages/KnowledgeLibrary/KnowledgeLibrary";
 import { ArtifactCenter } from "../pages/ArtifactCenter/ArtifactCenter";
 import { MemoryPage } from "../pages/MemoryPage/MemoryPage";
 import { ToastHost } from "../components/ToastHost";
+import { RemoteTerminal } from "../components/RemoteTerminal/RemoteTerminal";
 import { useUIStore } from "../stores/session";
 import { systemApi } from "../api";
 import {
@@ -44,6 +45,7 @@ const NAV_ITEMS: Array<{ to: string; label: string; testid: string; Icon: typeof
 
 export function App() {
   const [version, setVersion] = useState<string | null>(null);
+  const [terminalOpen, setTerminalOpen] = useState(false);
   const theme = useUIStore((s) => s.theme);
   const setTheme = useUIStore((s) => s.setTheme);
   const inspectorOpen = useUIStore((s) => s.inspectorOpen);
@@ -97,6 +99,12 @@ export function App() {
             <span className="dot" />
             <span>本地 · 8010 / 5173</span>
           </span>
+
+          <button type="button" className="collapse-btn" data-tip="远程终端"
+            aria-label="远程终端" onClick={() => setTerminalOpen(true)}
+            style={{ fontSize: "var(--fs-13)", padding: "4px 8px" }}>
+            ⌨️
+          </button>
 
           <button
             type="button"
@@ -234,6 +242,7 @@ export function App() {
         </div>
       </div>
       <ToastHost />
+      {terminalOpen && <RemoteTerminal onClose={() => setTerminalOpen(false)} />}
     </BrowserRouter>
   );
 }
