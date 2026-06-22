@@ -11,7 +11,10 @@ interface VendorDef {
   key: string; vendor: string;
 }
 
-export function RemoteTerminal({ onClose }: { onClose: () => void }) {
+export function RemoteTerminal({ onClose, initial }: {
+  onClose: () => void;
+  initial?: { host: string; port: number; protocol: string; vendor: string; username: string; password?: string };
+}) {
   const wsId = useSessionStore((s) => s.currentWorkspaceId) || "default";
   const termRef = useRef<HTMLDivElement>(null);
   const wsRef = useRef<WebSocket | null>(null);
@@ -19,12 +22,12 @@ export function RemoteTerminal({ onClose }: { onClose: () => void }) {
   const fitRef = useRef<any>(null);
 
   // Form state
-  const [protocol, setProtocol] = useState("ssh");
-  const [host, setHost] = useState("");
-  const [port, setPort] = useState("22");
-  const [vendor, setVendor] = useState("");
-  const [username, setUsername] = useState("");
-  const [password, setPassword] = useState("");
+  const [protocol, setProtocol] = useState(initial?.protocol || "ssh");
+  const [host, setHost] = useState(initial?.host || "");
+  const [port, setPort] = useState(String(initial?.port || "22"));
+  const [vendor, setVendor] = useState(initial?.vendor || "");
+  const [username, setUsername] = useState(initial?.username || "");
+  const [password, setPassword] = useState(initial?.password || "");
 
   // Connection state
   const [sessionId, setSessionId] = useState("");
@@ -106,7 +109,14 @@ export function RemoteTerminal({ onClose }: { onClose: () => void }) {
       const msg = JSON.parse(e.data);
       if (msg.type === "connected") {
         setSessionId(msg.session_id); setConnected(true); setConnecting(false);
-        if (term) { term.clear(); term.writeln(msg.banner || "Connected."); }
+        if (term) { term.clear(); }
+        // Wait for banner or display "Connected."
+        setTimeout(() => {
+          if (term) {
+            term.writeln("\x1b[32m═══ 已连接 " + msg.host + " ═══\x1b[0m");
+            if (msg.banner) term.write(msg.banner);
+          }
+        }, 200);
       } else if (msg.type === "output") {
         if (term) term.write(msg.text);
       } else if (msg.type === "error") {

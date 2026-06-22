@@ -130,6 +130,8 @@ def telnet_connect(session_id: str, host: str, port: int,
     session._chan = tn
     session.connected = True
     _SESSIONS[session_id] = session
+    # Wake console server
+    tn.sendall(b"\r\n")
     return session
 
 

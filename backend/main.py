@@ -50,6 +50,7 @@ from backend.api.reference_routes import register_reference_routes
 from backend.api.workspace_status_routes import register_workspace_status_routes
 from backend.api.decision_routes import register_decision_routes
 from backend.api.remote_routes import register_remote_routes
+from backend.api.cmdb_routes import register_cmdb_routes
 from backend.core.settings import UNIFIED_PORT, API_MODE, BUILD_COMMIT, TRANSLATOR_ENTRY
 from backend.core.paths import FRONTEND_DIR
 from backend.core.rate_limit import rate_limit_middleware
@@ -265,6 +266,7 @@ def create_app():
     register_workspace_status_routes(app)  # /api/workspaces/<ws>/status, /storage/health
     register_decision_routes(app)    # /api/workspaces/<ws>/runs/<run_id>/decision
     register_remote_routes(app)     # /api/remote/* (SSH/Telnet)
+    register_cmdb_routes(app)      # /api/cmdb/* (Device Assets)
 
     # ── WebSocket routes (real-time streaming) ──
     from backend.ws.agent_ws import register_ws_routes

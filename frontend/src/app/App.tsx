@@ -12,6 +12,7 @@ import { PacketAnalysis } from "../pages/PacketAnalysis/PacketAnalysis";
 import { KnowledgeLibrary } from "../pages/KnowledgeLibrary/KnowledgeLibrary";
 import { ArtifactCenter } from "../pages/ArtifactCenter/ArtifactCenter";
 import { MemoryPage } from "../pages/MemoryPage/MemoryPage";
+import { CMDBPage } from "../pages/CMDB/CMDBPage";
 import { ToastHost } from "../components/ToastHost";
 import { RemoteTerminal } from "../components/RemoteTerminal/RemoteTerminal";
 import { useUIStore } from "../stores/session";
@@ -39,6 +40,7 @@ const NAV_ITEMS: Array<{ to: string; label: string; testid: string; Icon: typeof
   { to: "/knowledge", label: "知识库", testid: "nav-knowledge", Icon: IconBox },
   { to: "/artifacts", label: "制品", testid: "nav-artifacts", Icon: IconBox },
   { to: "/memory", label: "记忆", testid: "nav-memory", Icon: IconBox },
+  { to: "/cmdb", label: "设备资产", testid: "nav-cmdb", Icon: IconLayers },
   { to: "/diagnostics", label: "系统诊断", testid: "nav-diagnostics", Icon: IconShield },
   { to: "/settings", label: "系统设置", testid: "nav-settings", Icon: IconSettings },
 ];
@@ -171,6 +173,10 @@ export function App() {
             />
             <Route path="/memory" element={
                 <ErrorBoundary><AppLayout cols={2}><MemoryPage /></AppLayout></ErrorBoundary>
+              }
+            />
+            <Route path="/cmdb" element={
+                <ErrorBoundary><AppLayout cols={2}><CMDBPage /></AppLayout></ErrorBoundary>
               }
             />
             <Route
