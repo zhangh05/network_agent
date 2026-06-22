@@ -130,6 +130,27 @@ def parse_pcap_file(workspace_id: str, filepath: str = "", file_id: str = "",
     return result
 
 
+def delete_pcap_session(session_id: str, workspace_id: str = "default") -> dict:
+    """Remove a PCAP session from memory and persistent index."""
+    # Remove from in-memory cache
+    PCAP_SESSIONS.pop(session_id, None)
+
+    # Mark as deleted in index (tombstone record)
+    try:
+        from storage.paths import workspace_root
+        import json
+        idx_path = workspace_root(workspace_id) / "index" / "pcap_sessions.jsonl"
+        if idx_path.exists():
+            tombstone = {"session_id": session_id, "deleted": True,
+                         "deleted_at": __import__("datetime").datetime.utcnow().isoformat() + "Z"}
+            with open(idx_path, "a", encoding="utf-8") as f:
+                f.write(json.dumps(tombstone, ensure_ascii=False) + "\n")
+    except Exception:
+        pass
+
+    return {"ok": True, "session_id": session_id}
+
+
 def list_pcap_sessions(workspace_id: str = "default", limit: int = 20) -> list[dict]:
     """List recent PCAP sessions from the persistent index."""
     try:
@@ -140,13 +161,20 @@ def list_pcap_sessions(workspace_id: str = "default", limit: int = 20) -> list[d
             return []
         sessions: list[dict] = []
         seen = set()
+        deleted = set()
         for line in reversed(idx_path.read_text(encoding="utf-8").strip().split("\n")):
             if not line.strip():
                 continue
             try:
                 rec = json.loads(line)
                 sid = rec.get("session_id", "")
-                if sid and sid not in seen:
+                if not sid:
+                    continue
+                # Skip tombstoned sessions
+                if rec.get("deleted"):
+                    deleted.add(sid)
+                    continue
+                if sid not in seen and sid not in deleted:
                     seen.add(sid)
                     sessions.append({
                         "session_id": sid,

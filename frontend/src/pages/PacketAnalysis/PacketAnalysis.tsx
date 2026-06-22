@@ -317,6 +317,19 @@ export function PacketAnalysis() {
                             {s.total_packets} pkts · {s.connection_count} flows
                           </div>
                         </div>
+                        <button
+                          className="btn sm ghost"
+                          title="删除"
+                          onClick={async (e: React.MouseEvent) => {
+                            e.stopPropagation();
+                            try {
+                              await apiRequest({ method: "DELETE", url: `/pcap/session/${s.session_id}`, params: { workspace_id: wsId } });
+                              if (s.session_id === sessionId) { setSessionId(""); setFilename(""); setTotalPackets(0); setConnections([]); setResult(null); localStorage.removeItem("pcap_session"); }
+                              loadRecentSessions();
+                            } catch { /* ignore */ }
+                          }}
+                          style={{ flexShrink: 0, padding: "2px 6px", color: "var(--text-4)" }}
+                        >✕</button>
                       </div>
                     ))}
                   </div>
@@ -339,6 +352,7 @@ export function PacketAnalysis() {
                     点击选择或拖拽文件到此处
                   </div>
                 )}
+              </div>
               </div>
             )}
             {filteredConnections.map((t, i) => {

@@ -4,6 +4,7 @@ from flask import jsonify, request
 
 from agent.modules.pcap.service import (
     align_pcap_tcp,
+    delete_pcap_session,
     filter_pcap_session,
     get_pcap_session,
     list_pcap_sessions,
@@ -102,6 +103,12 @@ def register_pcap_routes(app):
         result = get_pcap_session(session_id, workspace_id=ws_id)
         if not result.get("ok"):
             return jsonify({"ok": False, "error": "session not found"}), 404
+        return jsonify(result)
+
+    @app.route("/api/pcap/session/<session_id>", methods=["DELETE"])
+    def api_pcap_session_delete(session_id):
+        ws_id = request.args.get("workspace_id", "default") or "default"
+        result = delete_pcap_session(session_id, workspace_id=ws_id)
         return jsonify(result)
 
     @app.route("/api/pcap/sessions", methods=["GET"])
