@@ -42,16 +42,16 @@ def register_remote_ws(app):
                 if not session or not session.connected:
                     break
                 try:
-                    buf = session.read_all(timeout=0.5)
-                    if buf:
-                        text = buf.decode("utf-8", errors="replace")
+                    chunk = session.recv(timeout=0.5)
+                    if chunk:
+                        text = chunk.decode("utf-8", errors="replace")
                         session.log.append(text)
                         ws.send(json.dumps({
                             "type": "output", "session_id": sid, "text": text,
                         }, ensure_ascii=False))
                 except Exception:
                     break
-                reader_stop.wait(0.3)
+                reader_stop.wait(0.1)
 
         try:
             while True:

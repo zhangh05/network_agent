@@ -1,27 +1,24 @@
 # agent/modules/remote/core.py
-"""SSH/Telnet device connectors with vendor-aware prompt detection.
-
-SSH: paramiko
-Telnet: telnetlib (stdlib)
-"""
+"""SSH/Telnet device connectors with vendor-aware prompt detection."""
 
 from __future__ import annotations
 
 import logging
 import re
+import select
 import socket
 import time
 from threading import Lock
-from typing import Optional
 
 from agent.modules.remote.vendors import VendorProfile, get_profile
 
 _log = logging.getLogger("remote.core")
 
-# Session timeout (seconds) for read operations
 READ_TIMEOUT = 10.0
 CONNECT_TIMEOUT = 8.0
-PAGE_WAIT = 0.3  # wait after sending space for next page
+PAGE_WAIT = 0.3
+
+_SESSIONS: dict[str, "DeviceSession"] = {}
 
 
 class DeviceSession:
@@ -35,17 +32,16 @@ class DeviceSession:
         self.port = port
         self.vendor = vendor_profile
         self.connected = False
-        self._chan = None      # paramiko Channel or telnetlib Telnet
+        self._chan = None
         self._lock = Lock()
         self.log: list[str] = []
+        self._buf = b""
 
     def close(self):
         with self._lock:
             if self._chan:
-                try:
-                    self._chan.close()
-                except Exception:
-                    pass
+                try: self._chan.close()
+                except: pass
                 self._chan = None
             self.connected = False
 
@@ -53,121 +49,51 @@ class DeviceSession:
         with self._lock:
             if self._chan:
                 try:
-                    if hasattr(self._chan, "send"):
+                    if hasattr(self._chan, "sendall"):
+                        self._chan.sendall(data)
+                    elif hasattr(self._chan, "send"):
                         self._chan.send(data)
                     elif hasattr(self._chan, "write"):
                         self._chan.write(data)
-                    else:
-                        self._chan.sendall(data)
                 except Exception:
                     pass
 
-    def read_until(self, pattern: bytes, timeout: float = None) -> bytes:
-        """Read until pattern matches or timeout."""
-        timeout = timeout or READ_TIMEOUT
-        compiled = re.compile(pattern)
-        chan = self._chan
-
+    def recv(self, timeout: float = 0.5) -> bytes:
+        """Read available data. Returns b'' if nothing ready."""
         with self._lock:
-            # _TelnetSocket has its own read_until
-            if isinstance(chan, _TelnetSocket):
-                result = chan.read_until([pattern], timeout=timeout)
-                return result
+            if isinstance(self._chan, _TelnetSocket):
+                return self._chan.recv(4096)
 
-            buf = b""
-            deadline = time.time() + timeout
-            while time.time() < deadline:
+            # paramiko channel
+            if hasattr(self._chan, "recv_ready"):
                 try:
-                    if hasattr(chan, "recv"):
-                        ready = chan.recv_ready()
-                        if not ready:
-                            time.sleep(0.05)
-                            continue
-                        chunk = chan.recv(4096)
-                    elif hasattr(chan, "read_very_eager"):
-                        chunk = chan.read_very_eager()
-                        if not chunk:
-                            time.sleep(0.05)
-                            continue
-                    else:
-                        time.sleep(0.05)
-                        continue
+                    if not self._chan.recv_ready():
+                        return b""
+                    return self._chan.recv(4096)
                 except Exception:
-                    time.sleep(0.05)
-                    continue
-                if not chunk:
-                    time.sleep(0.05)
-                    continue
-                buf += chunk
-                if compiled.search(buf):
-                    return buf
-            return buf
-
-    def read_all(self, timeout: float = None) -> bytes:
-        """Read all available data until silence."""
-        timeout = timeout or 2.0
-        chan = self._chan
-
-        with self._lock:
-            # _TelnetSocket has its own read_all
-            if isinstance(chan, _TelnetSocket):
-                return chan.read_all(timeout=timeout)
-
-            buf = b""
-            deadline = time.time() + timeout
-            while time.time() < deadline:
-                try:
-                    if hasattr(chan, "recv"):
-                        ready = chan.recv_ready()
-                        if not ready:
-                            time.sleep(0.05)
-                            continue
-                        chunk = chan.recv(4096)
-                    elif hasattr(chan, "read_very_eager"):
-                        chunk = chan.read_very_eager()
-                    else:
-                        break
-                except Exception:
-                    break
-                if chunk:
-                    buf += chunk
-                    deadline = time.time() + timeout
-                else:
-                    time.sleep(0.05)
-            return buf
+                    return b""
+            return b""
 
 
 # ═══════════════════════════════════════════════════════════════════════
-# Public API
+# Connection functions
 # ═══════════════════════════════════════════════════════════════════════
-
-_SESSIONS: dict[str, DeviceSession] = {}
-
 
 def ssh_connect(session_id: str, host: str, port: int,
                 username: str, password: str,
                 vendor: str = "generic") -> DeviceSession:
-    """Connect via SSH using paramiko."""
     import paramiko
-
     profile = get_profile(vendor)
     client = paramiko.SSHClient()
     client.set_missing_host_key_policy(paramiko.AutoAddPolicy())
 
     try:
-        client.connect(
-            hostname=host, port=port,
-            username=username, password=password,
-            timeout=CONNECT_TIMEOUT,
-            look_for_keys=False,
-            allow_agent=False,
-        )
+        client.connect(hostname=host, port=port, username=username, password=password,
+                       timeout=CONNECT_TIMEOUT, look_for_keys=False, allow_agent=False)
     except paramiko.AuthenticationException:
         raise ConnectionError(f"SSH 认证失败: {username}@{host}:{port}")
-    except paramiko.SSHException as e:
-        raise ConnectionError(f"SSH 连接错误: {e}")
     except Exception as e:
-        raise ConnectionError(f"连接失败 {host}:{port}: {e}")
+        raise ConnectionError(f"SSH 连接失败: {e}")
 
     chan = client.invoke_shell(term="xterm", width=160, height=40)
     chan.settimeout(1.0)
@@ -177,29 +103,21 @@ def ssh_connect(session_id: str, host: str, port: int,
     session.connected = True
     _SESSIONS[session_id] = session
 
-    # Read initial banner
     time.sleep(0.5)
     banner = _read_until_prompt(session)
     session.log.append(banner.decode("utf-8", errors="replace"))
-
-    # Send init commands (disable paging)
     for cmd in profile.init_commands:
         _exec_and_wait(session, cmd)
-
     return session
 
 
 def telnet_connect(session_id: str, host: str, port: int,
                    username: str = "", password: str = "",
                    vendor: str = "generic") -> DeviceSession:
-    """Connect via raw socket — transparent TCP bridge.
-    User enters credentials interactively via terminal.
-    """
+    """Connect via raw socket — transparent TCP bridge."""
     profile = get_profile(vendor)
-
     s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
     s.settimeout(CONNECT_TIMEOUT)
-
     try:
         s.connect((host, port))
         s.settimeout(READ_TIMEOUT)
@@ -212,114 +130,10 @@ def telnet_connect(session_id: str, host: str, port: int,
     session._chan = tn
     session.connected = True
     _SESSIONS[session_id] = session
-
     return session
-
-    for cmd in profile.init_commands:
-        _exec_and_wait(session, cmd)
-
-    return session
-
-
-class _TelnetSocket:
-    """Lightweight Telnet wrapper (replaces deprecated telnetlib)."""
-
-    def __init__(self, sock):
-        self.sock = sock
-        self._buf = b""
-
-    def close(self):
-        try: self.sock.close()
-        except: pass
-
-    def send(self, data: bytes):
-        self.sock.sendall(data)
-
-    def write(self, data: bytes):
-        self.sock.sendall(data)
-
-    def read_very_eager(self) -> bytes:
-        """Compatible with telnetlib.Telnet interface."""
-        import select
-        buf = self._buf
-        self._buf = b""
-        try:
-            ready = select.select([self.sock], [], [], 0.05)
-            if ready[0]:
-                chunk = self.sock.recv(65536)
-                if chunk:
-                    buf += self._filter_iac(chunk)
-        except Exception:
-            pass
-        return buf
-
-    def read_until(self, patterns: list[bytes], timeout: float = None) -> bytes:
-        import select
-        deadline = time.time() + (timeout or READ_TIMEOUT)
-        while time.time() < deadline:
-            ready = select.select([self.sock], [], [], 0.5)
-            if not ready[0]:
-                continue
-            try:
-                chunk = self.sock.recv(4096)
-            except socket.timeout:
-                continue
-            except Exception:
-                break
-            if not chunk:
-                break
-            self._buf += self._filter_iac(chunk)
-            for pat in patterns:
-                if pat.lower() in self._buf.lower():
-                    return self._buf
-        return self._buf
-
-    def read_all(self, timeout: float = None) -> bytes:
-        import select
-        timeout = timeout or 1.0
-        deadline = time.time() + timeout
-        buf = self._buf
-        self._buf = b""
-        while time.time() < deadline:
-            ready = select.select([self.sock], [], [], 0.3)
-            if not ready[0]:
-                break
-            try:
-                chunk = self.sock.recv(65536)
-            except socket.timeout:
-                break
-            except Exception:
-                break
-            if chunk:
-                buf += self._filter_iac(chunk)
-                deadline = time.time() + timeout
-            else:
-                break
-        return buf
-
-    def _filter_iac(self, data: bytes) -> bytes:
-        """Strip Telnet IAC command sequences."""
-        result = bytearray()
-        i = 0
-        while i < len(data):
-            if data[i] == 255 and i + 1 < len(data):
-                cmd = data[i + 1]
-                if cmd in (251, 252, 253, 254):  # WILL/WONT/DO/DONT
-                    self.sock.sendall(bytes([255, 254 if cmd in (251, 252) else 252, data[i + 2]]))
-                    i += 3
-                elif cmd == 250 and i + 2 < len(data):  # SB
-                    end = data.find(bytes([255, 240]), i + 2)
-                    i = end + 2 if end > 0 else i + 2
-                else:
-                    i += 2
-            else:
-                result.append(data[i])
-                i += 1
-        return bytes(result)
 
 
 def exec_command(session_id: str, command: str) -> dict:
-    """Execute a command on a connected device and return output."""
     session = _SESSIONS.get(session_id)
     if not session or not session.connected:
         return {"ok": False, "error": "session_not_connected"}
@@ -331,24 +145,18 @@ def exec_command(session_id: str, command: str) -> dict:
 
 
 def send_interactive(session_id: str, data: str) -> dict:
-    """Send interactive keystroke data to session, return received output."""
     session = _SESSIONS.get(session_id)
     if not session or not session.connected:
         return {"ok": False, "error": "session_not_connected"}
     try:
         session.send(data.encode("utf-8"))
-        time.sleep(0.1)
-        output = session.read_all(timeout=0.8)
-        text = output.decode("utf-8", errors="replace")
-        if text:
-            session.log.append(text)
-        return {"ok": True, "output": text}
+        time.sleep(0.05)
+        return {"ok": True}
     except Exception as e:
         return {"ok": False, "error": str(e)[:200]}
 
 
 def disconnect(session_id: str) -> dict:
-    """Close a device session."""
     session = _SESSIONS.pop(session_id, None)
     if session:
         session.close()
@@ -361,11 +169,8 @@ def get_session(session_id: str) -> DeviceSession | None:
 
 def list_sessions() -> list[dict]:
     return [{
-        "session_id": s.session_id,
-        "protocol": s.protocol,
-        "host": s.host,
-        "port": s.port,
-        "vendor": s.vendor.vendor,
+        "session_id": s.session_id, "protocol": s.protocol,
+        "host": s.host, "port": s.port, "vendor": s.vendor.vendor,
         "connected": s.connected,
     } for s in _SESSIONS.values()]
 
@@ -375,51 +180,81 @@ def list_sessions() -> list[dict]:
 # ═══════════════════════════════════════════════════════════════════════
 
 def _read_until_prompt(session: DeviceSession) -> bytes:
-    """Read until a known prompt or paging indicator is detected, handling pagination."""
     buf = b""
     deadline = time.time() + READ_TIMEOUT
     profile = session.vendor
-
     while time.time() < deadline:
-        chunk = b""
-        try:
-            if hasattr(session._chan, "recv"):
-                ready = session._chan.recv_ready()
-                if ready:
-                    chunk = session._chan.recv(4096)
-                else:
-                    time.sleep(0.03)
-                    continue
-            elif hasattr(session._chan, "read_very_eager"):
-                chunk = session._chan.read_very_eager()
-        except Exception:
+        chunk = session.recv(timeout=0.3)
+        if chunk:
+            buf += chunk
+            decoded = buf.decode("utf-8", errors="replace")
+            if profile.match_paging(decoded):
+                session.send(profile.paging_response.encode())
+                time.sleep(PAGE_WAIT)
+                continue
+            if profile.match_prompt(decoded):
+                return buf
+            deadline = time.time() + READ_TIMEOUT
+        else:
             time.sleep(0.05)
-            continue
-
-        if not chunk:
-            time.sleep(0.05)
-            continue
-        buf += chunk
-
-        decoded = buf.decode("utf-8", errors="replace")
-        # Check paging first
-        if profile.match_paging(decoded):
-            session.send(profile.paging_response.encode())
-            time.sleep(PAGE_WAIT)
-            continue
-        # Check prompt
-        if profile.match_prompt(decoded):
-            return buf
-
-        deadline = time.time() + READ_TIMEOUT  # reset on data
     return buf
 
 
 def _exec_and_wait(session: DeviceSession, command: str) -> str:
-    """Send command and wait for full output (handle paging)."""
     session.send((command + "\n").encode())
     time.sleep(0.2)
     output = _read_until_prompt(session)
     text = output.decode("utf-8", errors="replace")
     session.log.append(text)
     return text
+
+
+# ═══════════════════════════════════════════════════════════════════════
+# Telnet socket wrapper
+# ═══════════════════════════════════════════════════════════════════════
+
+class _TelnetSocket:
+    """Raw socket + Telnet IAC negotiation filter."""
+
+    def __init__(self, sock):
+        self.sock = sock
+
+    def close(self):
+        try: self.sock.close()
+        except: pass
+
+    def sendall(self, data: bytes):
+        self.sock.sendall(data)
+
+    def recv(self, n: int = 4096) -> bytes:
+        """Non-blocking recv with IAC filtering."""
+        try:
+            ready = select.select([self.sock], [], [], 0.05)
+            if not ready[0]:
+                return b""
+            data = self.sock.recv(n)
+            if data:
+                return self._filter_iac(data)
+        except Exception:
+            pass
+        return b""
+
+    def _filter_iac(self, data: bytes) -> bytes:
+        result = bytearray()
+        i = 0
+        while i < len(data):
+            if data[i] == 255 and i + 1 < len(data):
+                cmd = data[i + 1]
+                if cmd in (251, 252, 253, 254):
+                    # WILL/WONT/DO/DONT -> reply WONT/DONT
+                    self.sock.sendall(bytes([255, 254 if cmd in (251, 252) else 252, data[i + 2]]))
+                    i += 3
+                elif cmd == 250:
+                    end = data.find(bytes([255, 240]), i + 2)
+                    i = end + 2 if end > 0 else i + 2
+                else:
+                    i += 2
+            else:
+                result.append(data[i])
+                i += 1
+        return bytes(result)
