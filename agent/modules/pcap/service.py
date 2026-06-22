@@ -130,6 +130,40 @@ def parse_pcap_file(workspace_id: str, filepath: str = "", file_id: str = "",
     return result
 
 
+def list_pcap_sessions(workspace_id: str = "default", limit: int = 20) -> list[dict]:
+    """List recent PCAP sessions from the persistent index."""
+    try:
+        from storage.paths import workspace_root
+        import json
+        idx_path = workspace_root(workspace_id) / "index" / "pcap_sessions.jsonl"
+        if not idx_path.exists():
+            return []
+        sessions: list[dict] = []
+        seen = set()
+        for line in reversed(idx_path.read_text(encoding="utf-8").strip().split("\n")):
+            if not line.strip():
+                continue
+            try:
+                rec = json.loads(line)
+                sid = rec.get("session_id", "")
+                if sid and sid not in seen:
+                    seen.add(sid)
+                    sessions.append({
+                        "session_id": sid,
+                        "filename": rec.get("filename", ""),
+                        "total_packets": rec.get("total_packets", 0),
+                        "connection_count": rec.get("connection_count", 0),
+                        "connections": rec.get("connections", []),
+                    })
+                if len(sessions) >= limit:
+                    break
+            except json.JSONDecodeError:
+                continue
+        return sessions
+    except Exception:
+        return []
+
+
 def get_pcap_session(session_id: str, workspace_id: str = "default") -> dict:
     """Retrieve an existing PCAP session."""
     session = PCAP_SESSIONS.get(session_id)

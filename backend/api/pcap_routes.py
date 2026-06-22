@@ -6,6 +6,7 @@ from agent.modules.pcap.service import (
     align_pcap_tcp,
     filter_pcap_session,
     get_pcap_session,
+    list_pcap_sessions,
     parse_pcap_file,
 )
 from workspace.ids import validate_workspace_id
@@ -102,6 +103,16 @@ def register_pcap_routes(app):
         if not result.get("ok"):
             return jsonify({"ok": False, "error": "session not found"}), 404
         return jsonify(result)
+
+    @app.route("/api/pcap/sessions", methods=["GET"])
+    def api_pcap_sessions():
+        ws_id = request.args.get("workspace_id", "default") or "default"
+        try:
+            limit = int(request.args.get("limit", "20"))
+        except ValueError:
+            limit = 20
+        sessions = list_pcap_sessions(workspace_id=ws_id, limit=limit)
+        return jsonify({"ok": True, "sessions": sessions, "count": len(sessions)})
 
     @app.route("/api/pcap/filter", methods=["POST"])
     def api_pcap_filter():

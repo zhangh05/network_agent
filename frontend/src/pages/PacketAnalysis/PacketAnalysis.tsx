@@ -74,7 +74,20 @@ export function PacketAnalysis() {
   const [activeKey, setActiveKey] = useState("");
   const [result, setResult] = useState<AnalysisResult | null>(null);
   const [uploading, setUploading] = useState(false);
+  const [recentSessions, setRecentSessions] = useState<{ session_id: string; filename: string; total_packets: number; connection_count: number }[]>([]);
   const fileInputRef = useRef<HTMLInputElement>(null);
+
+  // Load recent sessions from backend (persistent)
+  const loadRecentSessions = useCallback(async () => {
+    try {
+      const res = await apiRequest<{ ok: boolean; sessions: typeof recentSessions }>({
+        method: "GET", url: "/pcap/sessions", params: { workspace_id: wsId, limit: 10 },
+      });
+      if (res.ok) setRecentSessions(res.sessions || []);
+    } catch { /* ignore */ }
+  }, [wsId]);
+
+  useEffect(() => { loadRecentSessions(); }, [loadRecentSessions]);
 
   // Upload PCAP file
   const handleUpload = useCallback(async (file: File) => {
@@ -94,7 +107,8 @@ export function PacketAnalysis() {
       setTotalPackets(res.total_packets || 0);
       setConnections(res.connections || []);
       setResult(null); setActiveKey("");
-      sessionStorage.setItem("pcap_session", JSON.stringify({ sessionId: res.session_id, filename: res.filename }));
+      localStorage.setItem("pcap_session", JSON.stringify({ sessionId: res.session_id, filename: res.filename }));
+      loadRecentSessions();
     } catch (e: any) {
       setError(e?.message || "上传失败");
     } finally {
@@ -111,7 +125,7 @@ export function PacketAnalysis() {
     // Try URL param first (from FileManager "打开分析" link)
 	    const sidFromUrl = searchParams.get("sid");
 	    if (sidFromUrl) {
-	      sessionStorage.removeItem("pcap_session"); // clear stale
+	      localStorage.removeItem("pcap_session"); // clear stale
 	      apiRequest<{ ok: boolean; session_id: string; filename: string; total_packets: number; connections: ConnectionGroup[] }>({
 	        method: "GET", url: `/pcap/session/${sidFromUrl}`, params: { workspace_id: wsId },
 	      }).then(res => {
@@ -121,13 +135,13 @@ export function PacketAnalysis() {
         setFilename(res.filename);
         setTotalPackets(res.total_packets);
         setConnections(res.connections || []);
-        sessionStorage.setItem("pcap_session", JSON.stringify({ sessionId: res.session_id, filename: res.filename }));
+        localStorage.setItem("pcap_session", JSON.stringify({ sessionId: res.session_id, filename: res.filename }));
       }).catch(() => {});
       return () => { aborted.abort(); };
     }
 
     // Fallback to localStorage
-    const saved = sessionStorage.getItem("pcap_session");
+    const saved = localStorage.getItem("pcap_session");
     if (!saved) return;
 	    let sid = "";
 	    try { sid = JSON.parse(saved).sessionId; } catch { return; }
@@ -136,12 +150,12 @@ export function PacketAnalysis() {
 	      method: "GET", url: `/pcap/session/${sid}`, params: { workspace_id: wsId },
 	    }).then(res => {
         if (aborted.signal.aborted) return;
-	      if (!res.ok) { sessionStorage.removeItem("pcap_session"); return; }
+	      if (!res.ok) { localStorage.removeItem("pcap_session"); return; }
       setSessionId(res.session_id);
       setFilename(res.filename);
       setTotalPackets(res.total_packets);
       setConnections(res.connections || []);
-    }).catch(() => sessionStorage.removeItem("pcap_session"));
+    }).catch(() => localStorage.removeItem("pcap_session"));
     return () => { aborted.abort(); };
   }, []);
 
@@ -264,7 +278,51 @@ export function PacketAnalysis() {
           </div>
           <div style={{ flex: 1, overflow: "auto" }}>
             {(connections || []).length === 0 && (
-              <div
+              <div style={{ padding: "20px 16px" }}>
+                {/* Recent sessions */}
+                {recentSessions.length > 0 && (
+                  <div style={{ marginBottom: 16 }}>
+                    <div style={{ fontSize: "var(--fs-12)", fontWeight: 600, color: "var(--text-2)", marginBottom: 8 }}>
+                      最近上传 {recentSessions.length} 个文件
+                    </div>
+                    {recentSessions.map((s) => (
+                      <div key={s.session_id}
+                        onClick={async () => {
+                          setError(""); setLoading(true);
+                          try {
+                            const res = await apiRequest<{ ok: boolean; session_id: string; filename: string; total_packets: number; connections: ConnectionGroup[] }>({
+                              method: "GET", url: `/pcap/session/${s.session_id}`, params: { workspace_id: wsId },
+                            });
+                            if (!res.ok) { setError("加载失败"); return; }
+                            setSessionId(res.session_id);
+                            setFilename(res.filename);
+                            setTotalPackets(res.total_packets);
+                            setConnections(res.connections || []);
+                            setResult(null); setActiveKey("");
+                            localStorage.setItem("pcap_session", JSON.stringify({ sessionId: res.session_id, filename: res.filename }));
+                          } catch { setError("加载失败"); }
+                          finally { setLoading(false); }
+                        }}
+                        style={{
+                          padding: "8px 12px", cursor: "pointer", borderRadius: 6, marginBottom: 4,
+                          border: "1px solid var(--line-2)", background: "var(--surface-2)",
+                          display: "flex", alignItems: "center", gap: 8,
+                        }}>
+                        <span style={{ fontSize: "var(--fs-13)", fontWeight: 500 }}>📦</span>
+                        <div style={{ flex: 1, minWidth: 0 }}>
+                          <div style={{ fontSize: "var(--fs-12)", fontWeight: 500, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                            {s.filename}
+                          </div>
+                          <div style={{ fontSize: "var(--fs-11)", color: "var(--text-4)" }}>
+                            {s.total_packets} pkts · {s.connection_count} flows
+                          </div>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+                {/* Upload drop zone */}
+                <div
                 style={{ padding: "60px 40px", textAlign: "center", color: "var(--text-4)", cursor: "pointer" }}
                 onClick={() => fileInputRef.current?.click()}
                 onDragOver={(e) => { e.preventDefault(); }}
