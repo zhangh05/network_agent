@@ -12,7 +12,7 @@ import {
   isTraceErrorEvent,
   isTraceLlmEvent,
   isTraceNodeEvent,
-  isTraceSkillEvent,
+  isTraceCapabilityEvent,
   isTraceToolEvent,
   isTraceWarningEvent,
   traceEventType,
@@ -27,7 +27,7 @@ interface Props {
 type EventFilter = "all" | "tool" | "skill" | "warning" | "error" | "llm" | "node";
 
 const FILTER_LABELS: Record<EventFilter, string> = {
-  all: "全部", tool: "工具", skill: "Skill", warning: "警告", error: "错误", llm: "LLM", node: "节点",
+  all: "全部", tool: "工具", skill: "能力", warning: "警告", error: "错误", llm: "LLM", node: "节点",
 };
 
 export function TraceDetailPanel({ traceEvents, selectedRun }: Props) {
@@ -44,7 +44,7 @@ export function TraceDetailPanel({ traceEvents, selectedRun }: Props) {
     if (filter !== "all") {
       r = r.filter((e) => {
         if (filter === "tool") return isTraceToolEvent(e);
-        if (filter === "skill") return isTraceSkillEvent(e);
+        if (filter === "skill") return isTraceCapabilityEvent(e);
         if (filter === "warning") return isTraceWarningEvent(e);
         if (filter === "error") return isTraceErrorEvent(e);
         if (filter === "llm") return isTraceLlmEvent(e);
@@ -71,7 +71,7 @@ export function TraceDetailPanel({ traceEvents, selectedRun }: Props) {
     const c: Record<string, number> = { all: traceEvents.length };
     for (const e of traceEvents) {
       if (isTraceToolEvent(e)) c.tool = (c.tool || 0) + 1;
-      if (isTraceSkillEvent(e)) c.skill = (c.skill || 0) + 1;
+      if (isTraceCapabilityEvent(e)) c.skill = (c.skill || 0) + 1;
       if (isTraceWarningEvent(e)) c.warning = (c.warning || 0) + 1;
       if (isTraceErrorEvent(e)) c.error = (c.error || 0) + 1;
       if (isTraceLlmEvent(e)) c.llm = (c.llm || 0) + 1;
@@ -276,8 +276,8 @@ function evTypeLabel(rawType: string, ev: any): string {
   if (t.includes("node_start")) return "节点开始";
   if (t.includes("node_end")) return "节点完成";
   if (t.includes("agent") || t.includes("node")) return "Agent";
-  // Skill/module
-  if (t.includes("skill_call")) return "技能调用";
+  // capability call
+  if (t.includes("capability_call")) return "能力调用";
   if (t.includes("module_call")) return "模块调用";
   // Warning/error
   if (t.includes("warning")) return "警告";

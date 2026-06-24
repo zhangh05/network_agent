@@ -10,13 +10,12 @@ MAX_SAMPLES = 5
 def build_safe_context(state: NetworkAgentState) -> dict:
     """Build a safe context dict for LLM consumption. No raw configs, no secrets."""
 
-    result = state.skill_results or state.tool_results or {}
+    result = state.tool_results or state.skill_results or {}
     verification = state.verification or {}
 
     ctx = {
         "intent": state.intent,
         "active_module": state.active_module,
-        "selected_skill": state.selected_skill,
         "translator_entry": result.get("translator_entry", "unknown"),
         "verification_status": verification.get("status", "unknown"),
     }

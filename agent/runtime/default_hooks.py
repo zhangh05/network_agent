@@ -107,8 +107,9 @@ def _post_tool_use_handler(state: dict, payload: dict) -> HookResult:
         if m:
             _log.warning("PostToolUse: exposed credential detected tool=%s", payload.get("tool_id", "?"))
             return HookResult(
-                feedback=f"[security] Possible {name} in tool output. Redact before sharing.",
+                feedback=f"[security] Possible {name} in tool output. Output blocked.",
                 metadata={"security_flag": name},
+                decision=HookDecision.DENY,
             )
 
     return HookResult()

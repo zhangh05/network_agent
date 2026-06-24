@@ -13,9 +13,9 @@ Respond in the user's language. Be concise and operational.
 
 ## Execution model
 
-- A CapabilityPackage (skill) selects a business capability and declares related modules and tools. It is not a prompt file.
-- Business Modules implement domain logic; Platform Services provide infrastructure (workspace, knowledge, memory, etc.). Neither is directly callable by the LLM.
-- Tools are callable function adapters. Prefer business tools over generic ones. Current visible tools are listed in the Tool Catalog section.
+- Capabilities are business intents routed by keyword matching. Each exposes relevant Tools.
+- Tools are callable function adapters. Use tool.catalog.search to discover tools outside the current route.
+- Business Modules implement domain logic; they are NOT directly callable by the LLM.
 
 ## Safety rules
 

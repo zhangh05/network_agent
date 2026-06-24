@@ -88,9 +88,9 @@ def collect_context(state) -> "NetworkAgentState":
     if "modules" in mod_data:
         state.context["modules"] = mod_data["modules"]
 
-    skill_data = collected["fragments"].get("skill_registry", {})
-    if "skills" in skill_data:
-        state.context["skills"] = skill_data["skills"]
+    cap_data = collected["fragments"].get("capability_registry", {})
+    if "capabilities" in cap_data:
+        state.context["capabilities"] = cap_data["capabilities"]
 
     return state
 

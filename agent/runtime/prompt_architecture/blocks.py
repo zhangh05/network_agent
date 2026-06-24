@@ -30,7 +30,7 @@ def build_runtime_state_block(ctx) -> PromptBlock | None:
 
 
 def build_capability_context_block(ctx) -> PromptBlock | None:
-    """Build a block describing the current capability/skill/module/tool model."""
+    """Build a block describing the current capability/tool model."""
     safe = getattr(ctx, "safe_context", None) or {}
     tool_scene = safe.get("tool_scene") or {}
     capability_routing = (
@@ -39,31 +39,16 @@ def build_capability_context_block(ctx) -> PromptBlock | None:
         or {}
     )
 
-    meta = getattr(ctx, "metadata", {}) or {}
-    selected_skills = meta.get("selected_skills", [])
-
     lines = [
-        "Current execution model:",
-        "- Skill = capability manifest / business entry.",
+        "Current execution model (capability-first):",
+        "- Capability = business intent (routed by keywords) → exposes Tools",
+        "- Tool = callable adapter; use tool.catalog.search to discover outside current route.",
         "- Module = implementation service, not directly called by the LLM.",
-        "- Tool = callable adapter; see Tool Catalog section for the full visible list.",
         "",
-        f"selected_skills: {selected_skills}",
+        "Capability routing for this turn:",
     ]
 
-    contracts = safe.get("loaded_skill_contracts") or []
-    if contracts:
-        clean_contracts = [
-            {k: v for k, v in c.items() if k != "skill_prompt"}
-            for c in contracts if isinstance(c, dict)
-        ]
-        lines.append("")
-        lines.append("loaded_skill_contracts:")
-        lines.append(json.dumps(clean_contracts, ensure_ascii=False, default=str)[:2000])
-
     if capability_routing:
-        lines.append("")
-        lines.append("capability_routing:")
         lines.append(json.dumps(capability_routing, ensure_ascii=False, default=str)[:2000])
 
     return PromptBlock(
@@ -102,7 +87,13 @@ def build_evidence_context_block(ctx) -> PromptBlock | None:
 
 
 def build_active_tool_contract_block(ctx) -> PromptBlock | None:
-    """Build a block listing visible tools grouped by category."""
+    """Build a block listing visible tools with enriched descriptions.
+
+    Uses Anthropic-style tool guidance: each tool gets [use when] + [avoid when]
+    hints to improve selection accuracy and reduce incorrect tool calls.
+    """
+    from tool_runtime.tool_namespace import TOOL_NAMESPACE
+
     visible_tools = (
         getattr(ctx, "visible_tool_ids", None)
         or (getattr(ctx, "metadata", {}) or {}).get("visible_tools", [])
@@ -117,25 +108,35 @@ def build_active_tool_contract_block(ctx) -> PromptBlock | None:
         cat = parts[0] if parts else "other"
         categories.setdefault(cat, []).append(tid)
 
-    lines = ["Visible tools for this turn (grouped by catalog):", ""]
+    lines = [
+        "Visible tools for this turn (grouped by catalog):",
+        "  Use only the tools listed below. Do not call any tool outside this list.",
+        "  [✓ use] = when to use this tool.  [✗ avoid] = when NOT to use this tool.",
+        "",
+    ]
     for cat in sorted(categories):
         tools = categories[cat]
-        lines.append(f"  [{cat}] ({len(tools)})")
+        lines.append(f"[{cat}] ({len(tools)} tools)")
         for tid in sorted(tools):
-            lines.append(f"    - {tid}")
+            entry = TOOL_NAMESPACE.get(tid)
+            if entry:
+                usage = entry.usage_hint or ""
+                not_for = entry.not_for or ""
+                parts = []
+                if usage:
+                    parts.append(f"[✓ use] {usage}")
+                if not_for:
+                    parts.append(f"[✗ avoid] {not_for}")
+                hint = " | ".join(parts) if parts else ""
+                lines.append(f"  - {tid}" + (f": {hint[:300]}" if hint else ""))
+            else:
+                lines.append(f"  - {tid}")
+        lines.append("")
 
-    lines.extend([
-        "",
-        "Do not call any tool outside this visible list.",
-        "",
-        "Business tools (when present):",
-        "- config.analysis.run → parse/translate/interface/route/diff/summarize configs.",
-        "- pcap.analysis.run → parse/session/filter/align packet captures.",
-    ])
     return PromptBlock(
         block_id="active_tool_contract",
         title="Tool Catalog",
         content="\n".join(lines),
         priority=50,
-        token_budget=900,
+        token_budget=1200,
     )

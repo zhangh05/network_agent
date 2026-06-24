@@ -268,7 +268,7 @@ export function AgentWorkbench() {
         ws!.onerror = () => resolve();
       });
 
-      ws.close();
+      try { ws.close(); } catch { /* already closed */ }
       ws = null;
 
       // Handle session resolution
@@ -510,7 +510,7 @@ export function AgentWorkbench() {
             placeholder="输入主机名、IP 或排查目标…"
             value={input}
             onChange={(e) => setInput(e.target.value)}
-            onKeyDown={(e) => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); onSend(); } }}
+            onKeyDown={(e) => { if (e.key === "Enter" && !e.shiftKey && !e.nativeEvent.isComposing) { e.preventDefault(); onSend(); } }}
             disabled={sending}
             rows={1}
             data-testid="chat-input"

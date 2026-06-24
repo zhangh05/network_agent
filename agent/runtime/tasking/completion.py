@@ -20,7 +20,13 @@ class CompletionEvaluator:
             return None
 
         if not wf.steps:
-            return None
+            # Task with no steps — mark completed immediately
+            task.status = "completed"
+            task.progress_percent = 100.0
+            wf.status = "completed"
+            wf.progress_percent = 100.0
+            state.session.last_task_id = task.task_id
+            return task
 
         all_done = all(s.status in ("completed", "skipped") for s in wf.steps)
         any_failed = any(s.status == "failed" for s in wf.steps)

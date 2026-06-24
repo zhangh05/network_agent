@@ -1,77 +1,96 @@
-# Capability-First Architecture
+# Capability-First Architecture (v3.4)
 
-Capability-driven design from `capability_routing/` modules (v3.3.3).
+Capability-driven design: capabilities define what the agent can do with safety contracts. Tool visibility is scene-aware.
 
-## Execution Chain
-
-```
-ToolCall -> CapabilityRouter -> CapabilityPackage -> SkillManifest -> ToolBundle -> ToolPlannerV2 -> ToolExecutionPipeline
-```
-
-## Skill Definitions
-
-- Skills are defined by `SkillManifest` — name, description, tags, tools list, metadata.
-- `SKILL.md` files provide the prompt template body but are NOT embedded in manifests.
-- Skills are discovered from `skills/` directories and grouped by category.
-
-## Capability Packages
-
-Defined in `agent/runtime/capability_routing/manifests.py`:
-
-| Capability | Tools |
-|-----------|-------|
-| `workspace_read` | workspace.file.list, workspace.file.read, workspace.file.preview, workspace.artifact.read |
-| `knowledge_qa` | knowledge.search, knowledge.chunk.read, knowledge.source.read |
-| `memory_lookup` | memory.search, memory.list, memory.profile.get |
-| `config_translation` | workspace.file.list, workspace.file.read, config.analysis.run |
-| `pcap_analysis` | workspace.file.list, pcap.analysis.run |
-| `report_drafting` | report.markdown.render, report.artifact.save, workspace.artifact.save |
-| `runtime_diagnostics` | runtime.health, runtime.diagnostics, runtime.selfcheck |
-
-## CORE_TOOL_IDS (always available)
-
-18 tools in `manifests.py CORE_TOOL_IDS`:
+## Architecture Layers
 
 ```
-skill.search, skill.load, workspace.file.list, workspace.file.read,
-workspace.artifact.read, tool.catalog.search,
+CapabilityRegistry (10 manifests: 8 enabled + 2 planned)
+  → declares: tools + intent_patterns + safety contracts + prompt_summary
+  ↓
+ToolPlannerV2 (deterministic seed + optional LLM refinement)
+  → outputs: candidate tools per scene
+  ↓
+CORE_TOOL_IDS (22 always-visible baseline tools)
+  → union with planner output = final visible tools
+  ↓
+LLM receives: 20-30 tools per turn (not full 102)
+  → calls tools → ActionPlanner → RiskPolicy → ApprovalGate → dispatch
+```
+
+## Capabilities
+
+Defined in `agent/capabilities/builtin.py` and `agent/modules/*/capability.py`:
+
+| Capability | ID | Status | Safety Notes |
+|-----------|-----|--------|--------------|
+| Knowledge / RAG | knowledge | enabled | Search + retrieve + import |
+| Artifact Management | artifact_management | enabled | Save + read + export artifacts |
+| Review Flow | review_flow | enabled | Manual review items |
+| CMDB | cmdb | enabled | Asset CRUD; delete needs approval |
+| Network Device | network_device | enabled | `real_device_access=true`; SSH/Telnet with session reuse |
+| PCAP Analysis | pcap_analysis | enabled | Parse + session + filter + align |
+| Coding | coding | enabled | Git operations; commit/push needs approval |
+| Browser | browser | enabled | Navigate + extract; external URLs only |
+| Topology | topology | planned | Reserved for auto-discovery |
+| Inspection | inspection | planned | Reserved for config audit |
+
+## CORE_TOOL_IDS (v3.4 — 22 tools)
+
+```text
+tool.catalog.search, workspace.file.list, workspace.file.read,
+workspace.artifact.read,
 host.shell.exec, host.powershell.exec, host.python.exec,
 host.command.slash_run,
 web.search, web.docs.official_search, web.page.summarize,
 web.page.extract_links, web.page.save_artifact,
-web.news.search, web.weather.current, web.weather.forecast
+web.news.search, web.weather,
+cmdb.list_assets, cmdb.get_asset, cmdb.add_asset, cmdb.delete_asset,
+network.ssh, network.telnet,
+git.status, git.diff, git.log,
+code.search
 ```
 
-## Module Manifests
+CORE_TOOL_IDS are **unconditionally injected** into every turn. Remaining tools activated by ToolPlannerV2 scene detection.
 
-`capability_routing/manifests.py MODULE_MANIFESTS` defines 8 modules:
+## CapabilityPackage Routing
 
-| Module ID | Kind | Handler |
-|-----------|------|---------|
-| workspace | platform | agent.modules.workspace |
-| knowledge | platform | agent.modules.knowledge |
-| memory | platform | agent.modules.memory |
-| config_translation | business | agent.modules.config_translation |
-| config_analysis | business | agent.modules.config_analysis |
-| pcap_analysis | business | agent.modules.pcap |
-| report | platform | agent.modules.report |
-| runtime | platform | agent.modules.runtime |
+Defined in `agent/runtime/capability_routing/manifests.py`:
 
-Additional module directories exist under `agent/modules/` (artifact, cmdb, inspection, review, topology) for future expansion.
+| Package | Priority | Tools |
+|---------|----------|-------|
+| workspace_read | 10 | workspace.file.* |
+| knowledge_qa | 20 | knowledge.* |
+| memory_lookup | 30 | memory.* |
+| config_translation | 5 | config.analysis.run + workspace.file.* |
+| pcap_analysis | 6 | pcap.analysis.run + workspace.file.* |
+| report_drafting | 40 | report.* + workspace.artifact.* |
+| runtime_diagnostics | 50 | runtime.health, runtime.diagnostics |
+| cmdb | 7 | cmdb.* |
+| network_device | 6 | network.ssh, network.telnet |
 
 ## ToolPlannerV2
 
 - Located in `agent/runtime/tool_planning/planner.py`
-- Default tool_limit: 12
-- Does NOT default to full TOOL_NAMESPACE — narrows by capability routing
+- `MAX_CANDIDATE_TOOLS = 30`
+- Deterministic seed via keyword-based SIGNAL_DISPATCH
+- LLM refinement enabled (v3.3) — refines seed via model when available
+- Does NOT default to full namespace — narrows by scene + capability routing
 - Produces `ToolPlanningDecision` and `ToolPlanningPolicy`
+
+## Tool Categories (13 total, in `tool_namespace_data.py`)
+
+```
+host(4)  workspace(23)  knowledge(12)  network(4)  web(7)
+runtime(13)  memory(8)  report_data(13)  agent(6)  cmdb(4)
+git(5)  code(1)  browser(2)
+```
 
 ## Invariants
 
-- SkillManifest contains no prompt body.
-- CapabilityPackage is the source of built-in skills.
-- Platform services are not business modules.
-- Directory-level business tools: config.analysis.run, pcap.analysis.run.
-- Prompt does not include full tool catalog.
-- Prompt does not include skill_prompt.
-- ToolPlannerV2 does not default to list(TOOL_NAMESPACE).
+- CapabilityManifest contains no skills field (removed v3.3).
+- CapabilityToolRef references canonical handlers — never overrides schemas.
+- CORE_TOOL_IDS are always visible regardless of planner output.
+- LLM never sees full 102-tool catalog (max ~30 per turn).
+- SSH/Telnet sessions support reuse via session_id (v3.3).
+- Dangerous commands (reload/reboot/reset/format/rm -rf/dd if=/mkfs) blocked.

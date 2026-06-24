@@ -31,8 +31,8 @@ export function formatEventLabel(ev: any): string {
     node_start: `开始节点：${ev?.name || "?"}`,
     node_end: `完成节点：${ev?.name || "?"}`,
     intent_routed: ev?.summary || "完成意图路由",
-    skill_call_start: `开始技能：${ev?.name || "?"}`,
-    skill_call_end: `完成技能：${ev?.name || "?"}`,
+    capability_call_start: `开始能力：${ev?.name || "?"}`,
+    capability_call_end: `完成能力：${ev?.name || "?"}`,
     module_call_start: `开始模块：${ev?.name || "?"}`,
     module_call_end: `完成模块：${ev?.name || "?"}`,
   };

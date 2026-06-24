@@ -83,19 +83,19 @@ def build_timeline_summary(state) -> dict:
     if not events:
         return {
             "total_duration_ms": 0, "node_count": 0,
-            "skill_call_count": 0, "module_call_count": 0,
+            "capability_call_count": 0, "module_call_count": 0,
             "llm_call_count": 0, "memory_write_count": 0,
             "warning_count": 0, "error_count": 0,
         }
 
-    # Only count canonical node_end events (excludes skill/module/llm sub-events)
+    # Only count canonical node_end events (excludes capability/module/llm sub-events)
     node_count = sum(
         1 for e in events
         if e.get("event_type") == "node_end"
         and e.get("name") in CANONICAL_NODE_NAMES
     )
 
-    skill_count = sum(1 for e in events if e.get("event_type") == "skill_call_end")
+    cap_count = sum(1 for e in events if e.get("event_type") == "capability_call_end")
     module_count = sum(1 for e in events if e.get("event_type") == "module_call_end")
 
     # llm_call_count: count all llm_call_end events (success, skipped, failed)
@@ -112,7 +112,7 @@ def build_timeline_summary(state) -> dict:
     return {
         "total_duration_ms": round(total_ms, 2),
         "node_count": node_count,
-        "skill_call_count": skill_count,
+        "capability_call_count": cap_count,
         "module_call_count": module_count,
         "llm_call_count": llm_count,
         "memory_write_count": mem_count,

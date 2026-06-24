@@ -78,7 +78,6 @@ class ModuleRegistry:
 
 
 def _module_spec_from_capability(cap: CapabilityManifest) -> ModuleSpec:
-    sk = cap.skills[0] if cap.skills else None
     return ModuleSpec(
         module_id=cap.module.module_id,
         name=cap.name,

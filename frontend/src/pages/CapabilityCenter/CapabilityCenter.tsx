@@ -54,7 +54,7 @@ export function CapabilityCenter() {
           <span className="status-pill"><span className="dot warn" />{counts.pl} 规划中</span>
           {counts.dep > 0 && <span className="status-pill"><IconBolt size={10} />{counts.dep} 涉及产物</span>}
           {registry.state.kind === "success" && (
-            <span className="status-pill">{registry.state.data.moduleCount} 模块 · {registry.state.data.skillCount} 技能</span>
+            <span className="status-pill">{registry.state.data.moduleCount} 模块 · {registry.state.data.skillCount} 能力</span>
           )}
         </div>
       </div>

@@ -49,8 +49,13 @@ class ToolRegistry:
                 except Exception:
                     pass
                 reg._specs[spec.tool_id] = spec
-        except Exception:
-            pass
+        except Exception as exc:
+            import logging
+            logging.getLogger(__name__).exception(
+                "ToolRegistry.from_runtime_client: list_tools() failed — "
+                "core tools (web.*, host.*, workspace.*) will not be registered. "
+                "Error: %s", exc
+            )
         return reg
 
     def list_all(self) -> list:
@@ -85,12 +90,31 @@ class ToolRegistry:
             # v2.3.3: skip non-canonical capability tools that duplicate runtime tools
             if tool_ref.tool_id not in TOOL_NAMESPACE:
                 continue
+            # v3.2.4: Skip tool registration entirely if _tool_client already
+            # has this tool registered in CANONICAL_REGISTRY. Capability tool
+            # refs often have empty input_schemas, which would overwrite the
+            # canonical registry's full schema and cause the LLM to see tools
+            # without parameters (e.g. cmdb.get_asset without asset_id field).
+            # Must check BEFORE resolving handler_ref to avoid failures on
+            # dummy handler_refs (e.g. knowledge.search uses canonical handler).
+            if self._tool_client is not None:
+                try:
+                    existing_handler = self._tool_client._registry.get_handler(tool_ref.tool_id)
+                except Exception:
+                    existing_handler = None
+            else:
+                existing_handler = None
+            
+            if existing_handler is not None:
+                continue  # Already registered in canonical registry — keep original spec
+            
             handler = _resolve_capability_handler(tool_ref.handler_ref)
             if handler is None:
                 raise RuntimeError(
                     f"Failed to resolve handler for capability tool "
                     f"{tool_ref.tool_id!r}: {tool_ref.handler_ref!r}"
                 )
+            
             existing = self._specs.get(tool_ref.tool_id)
             if existing is not None and str(getattr(existing, "source", "")).startswith("capability:"):
                 raise RuntimeError(f"Duplicate capability tool_id: {tool_ref.tool_id!r}")
@@ -114,9 +138,7 @@ class ToolRegistry:
             except Exception:
                 pass
             self._specs[spec.tool_id] = spec
-            # v1.0.3.5: resolve and register capability handler so
-            # dispatch() can find it. handler_ref is a dotted-path
-            # string like "agent.modules.knowledge.tools:tool_handler_search_chunks".
+            # Register capability handler (now only for tools NOT in canonical registry)
             if not hasattr(self, '_handlers'):
                 self._handlers = {}
             self._handlers[spec.tool_id] = handler

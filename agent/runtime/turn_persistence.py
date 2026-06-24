@@ -150,7 +150,7 @@ def _normalize_trace_events(run_id: str, events: list) -> list:
     """Normalize trace events — mark missing required events as synthetic.
 
     Events that are missing from the trace (router, context_loader,
-    skill_call) are marked with synthetic: true + missing: true so
+    capability_call) are marked with synthetic: true + missing: true so
     inspectors can distinguish them from real execution events.
     """
     normalized = []
@@ -167,7 +167,7 @@ def _normalize_trace_events(run_id: str, events: list) -> list:
     required = [
         ("router", "router"),
         ("context_loader", "context"),
-        ("skill_call", "skill"),
+        ("capability_call", "capability"),
     ]
     for name, needle in required:
         if not any(needle in existing for existing in names):
@@ -208,7 +208,7 @@ def _merge_result_projection(run_id: str, ws_id: str, result, context) -> None:
     if context and getattr(context, "metadata", None):
         for key in (
             "tool_scene", "rule_tool_scene", "tool_planner",
-            "tool_planning_decision", "visible_tools", "selected_skills",
+            "tool_planning_decision", "visible_tools", "selected_capabilities", "selected_skills",
             "model_responses", "required_tool_retry_used",
             "visibility_violations", "decision_report_path",
         ):
@@ -289,12 +289,12 @@ def _selected_skill_for_record(context) -> str:
         if value:
             return str(value)
     metadata = getattr(context, "metadata", None) or {}
-    selected = metadata.get("selected_skills") or []
+    selected = metadata.get("selected_capabilities") or metadata.get("selected_skills") or []
     if isinstance(selected, str):
         selected = [selected]
-    for skill in selected:
-        if skill and skill != "assistant_chat":
-            return str(skill)
+    for cap in selected:
+        if cap and cap != "assistant_chat":
+            return str(cap)
     return str(selected[0]) if selected else ""
 
 

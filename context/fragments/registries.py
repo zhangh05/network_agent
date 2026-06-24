@@ -1,5 +1,5 @@
 # context/fragments/registries.py
-"""Module and skill registry fragments — available capabilities context."""
+"""Module and capability registry fragments — available capabilities context."""
 
 import json
 import logging
@@ -43,30 +43,29 @@ class ModuleRegistryFragment(ContextFragment):
 
 
 class SkillRegistryFragment(ContextFragment):
-    """Loads skill availability from skills/registry.json."""
+    """v3.2: Capability registry from CAPABILITY_PACKAGES (was skills/registry.json)."""
 
     priority = FragmentPriority.REGISTRY
     token_budget = 1024
-    fragment_id = "skill_registry"
+    fragment_id = "capability_registry"
 
     def build(self, state) -> dict:
         try:
-            with open(os.path.join(ROOT, "skills", "registry.json"), encoding="utf-8") as f:
-                skills = json.load(f)
+            from agent.runtime.capability_routing.manifests import CAPABILITY_PACKAGES
             return {
                 "ok": True,
-                "skills": {
-                    s["skill_name"]: s.get("enabled", False)
-                    for s in skills.get("skills", [])
+                "capabilities": {
+                    pkg.capability_id: pkg.display_name
+                    for pkg in CAPABILITY_PACKAGES
                 },
             }
         except Exception:
             logger.debug("SkillRegistryFragment: load failed", exc_info=True)
-            return {"ok": True, "skills": {}}
+            return {"ok": True, "capabilities": {}}
 
     def render(self, data: dict) -> str:
-        sk = data.get("skills", {})
-        if not sk:
+        caps = data.get("capabilities", {})
+        if not caps:
             return ""
-        enabled = [k for k, v in sk.items() if v]
-        return self.cap(f"[skills] available={', '.join(enabled[:10])}")
+        names = list(caps.values())[:10]
+        return self.cap(f"[capabilities] {', '.join(names)}")

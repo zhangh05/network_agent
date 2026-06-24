@@ -13,20 +13,20 @@ from tool_runtime.tool_namespace import TOOL_NAMESPACE
 
 
 BASELINE_READ_TOOLS = [
-    # Core — always needed
-    "skill.search", "skill.load",
+    # v3.2: skill.load / skill.search removed.
+    # Use tool.catalog.search for tool discovery.
+    "tool.catalog.search",
     "workspace.file.list", "workspace.file.read",
     "workspace.artifact.read",
-    "tool.catalog.search",
-    # Host — universal local ops catalog
+    # Host
     "host.shell.exec", "host.powershell.exec",
     "host.python.exec", "host.command.slash_run",
-    # Web — universal search / info catalog
+    # Web
     "web.search", "web.docs.official_search",
     "web.page.summarize", "web.page.extract_links",
     "web.page.save_artifact",
     "web.news.search",
-    "web.weather.current", "web.weather.forecast",
+    "web.weather",
 ]
 
 LOCAL_OPS_TOOLS = [

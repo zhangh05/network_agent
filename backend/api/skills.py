@@ -1,27 +1,23 @@
 # backend/api/skills.py
-"""Skills API — data from registry loader."""
+"""Skills API — now backed by CapabilityRegistry (v3.3)."""
 
 from flask import jsonify
-from registry.loader import load_skill_registry
 
 
 def handle_skills():
-    skills = load_skill_registry()
+    from agent.capabilities.builtin import get_default_capability_registry
+    cap_reg = get_default_capability_registry()
     return jsonify({
         "skills": [
             {
-                "skill_name": s.skill_name,
-                "display_name": s.display_name,
-                "status": s.status,
-                "module": s.module,
-                "capabilities": s.capabilities,
-                "enabled": s.is_enabled(),
-                "planned": s.is_planned(),
+                "skill_name": m.capability_id,
+                "display_name": m.name,
+                "status": m.status,
+                "module": m.module.module_id,
+                "capabilities": [t.tool_id for t in m.tools],
+                "enabled": m.status == "enabled",
+                "planned": m.status == "planned",
             }
-            for s in skills
+            for m in cap_reg.list_all()
         ]
     })
-
-
-def get_skill_count() -> int:
-    return len(load_skill_registry())

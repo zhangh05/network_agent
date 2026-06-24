@@ -1,9 +1,11 @@
-"""v2.0 Phase 2: Deterministic context compaction — no LLM summarization.
+"""v2.0 Phase 2 → v3.3 Long-task optimization: Deterministic context compaction.
 
 Strategy:
-- Keep recent 6 messages intact
-- Older messages replaced with deterministic summaries
-- Tool results: keep ok/summary/tool_id/artifacts/source_count/manual_review_count/errors/warnings
+- Keep recent 15 messages intact (was 6)
+- Older messages replaced with structured summaries preserving key fields
+- Tool results: keep ok/summary/tool_id/artifacts/source_count/manual_review_count/
+  errors/warnings, PLUS: output/result/devices/hosts/assets/version/model/status
+  (critical data needed for long-running analytical tasks)
 - Strip secrets/tokens/passwords/api_keys/source_config/raw_config
 - Never compact system prompt or current user message
 - Returns compaction metadata
@@ -11,6 +13,8 @@ Strategy:
 v3.1.1: CompactionStrategy enum + structured metrics
 - fast_eviction: deterministic summary replacement (default, sub-ms)
 - llm_summary: LLM-based summarization (slower, higher quality, optional)
+
+v3.3: PRESERVE_KEYS expanded for long-task data retention.
 """
 
 from __future__ import annotations
@@ -24,6 +28,20 @@ from typing import Any
 FORBIDDEN_KEYS = {
     "secret", "password", "token", "api_key", "private_key",
     "source_config", "raw_config", "ssh_key", "credentials",
+}
+
+# ── v3.3: Keys to always preserve in compacted tool results ──
+# (data critical for long-running analytical/network tasks)
+_PRESERVE_KEYS = {
+    "ok", "summary", "tool_id", "artifacts",
+    "source_count", "manual_review_count",
+    "errors", "warnings",
+    # Long-task data: CMDB, network, pcap, config
+    "output", "result", "devices", "hosts", "assets",
+    "version", "model", "status", "region",
+    "host", "port", "protocol", "device_type",
+    # Workflow / task state
+    "task_id", "workflow_id", "step_id", "progress",
 }
 
 
@@ -139,11 +157,9 @@ def compact_tool_result_content(content: str, max_chars: int = 4000) -> str:
         for k, v in data.items():
             if k in FORBIDDEN_KEYS:
                 safe[k] = "[REDACTED]"
-            elif k in ("ok", "summary", "tool_id", "artifacts",
-                        "source_count", "manual_review_count",
-                        "errors", "warnings"):
+            elif k in _PRESERVE_KEYS:
                 safe[k] = v
-            elif len(safe) < 10:
+            elif len(safe) < 15:
                 sv = str(v)
                 if len(sv) > 200:
                     sv = sv[:197] + "..."
@@ -195,7 +211,7 @@ def _message_content(msg) -> str:
 
 def compact_messages(
     messages: list,
-    keep_recent: int = 6,
+    keep_recent: int = 15,
     strategy: CompactionStrategy = CompactionStrategy.FAST_EVICTION,
     trigger: str = "auto",
     threshold_pct: float = 75.0,

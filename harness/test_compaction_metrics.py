@@ -161,7 +161,6 @@ def test_pre_post_compact_hooks_in_token_manager():
         pass
 
     # Hooks may not be called if no registry is set; just ensure no other crash
-    assert True
 
 
 if __name__ == "__main__":

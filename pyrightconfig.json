@@ -18,7 +18,7 @@
     "harness",
     "frontend"
   ],
-  "pythonVersion": "3.10",
+  "pythonVersion": "3.12",
   "typeCheckingMode": "basic",
   "reportMissingImports": "warning",
   "reportMissingTypeStubs": false,

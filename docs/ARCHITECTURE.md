@@ -46,7 +46,6 @@ UserInput -> ContextPipeline (13 stages) -> TurnRunner -> ToolExecutionPipeline 
 | `stages/` | TurnRunner stages: context, messages, model, persistence |
 | `decision_report/` | Per-turn decision report generation |
 | `retrieval/` | RetrievalTriggerPolicy, UnknownFeedback |
-| `skill_runtime/` | Skill runtime execution |
 
 ### Top-level modules
 | Package | Purpose |

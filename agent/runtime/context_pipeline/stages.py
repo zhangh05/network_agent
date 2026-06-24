@@ -104,33 +104,30 @@ class ToolRouterStage:
         return ContextStageResult.ok_result(StageName.TOOL_ROUTER)
 
 
-class SkillSelectionStage:
-    """Stage 5: Select skills + snapshot services."""
+class CapabilitySelectionStage:
+    """Stage 5: Select capabilities + snapshot services."""
 
     def run(self, ctx: Any, services: Any, **inputs) -> ContextStageResult:
         try:
-            skill_snap = _snapshot_service_wrapper(getattr(services, "skill_service", None))
             module_snap = _snapshot_service_wrapper(getattr(services, "module_service", None))
-            ctx.skill_snapshot = skill_snap
             ctx.module_snapshot = module_snap
 
             cap_reg = getattr(services, "capability_registry", None) if services else None
-            selector = getattr(services, "skill_selector", None) if services else None
-            selected, warnings = _select_skills_wrapper(selector, cap_reg, ctx.user_input, ctx)
+            selected = list(cap_reg.list_all()) if cap_reg else []
+            selected_ids = [m.capability_id for m in selected if m.status == "enabled"]
 
             return ContextStageResult(
-                name=StageName.SKILL_SELECTION,
+                name=StageName.CAPABILITY_SELECTION,
                 ok=True,
-                warnings=warnings,
+                warnings=[],
                 data={
-                    "selected_skills": selected,
-                    "skill_snapshot": skill_snap,
+                    "selected_capabilities": selected_ids,
                     "module_snapshot": module_snap,
                     "capability_registry": cap_reg,
                 },
             )
         except Exception as exc:
-            return ContextStageResult.failed(StageName.SKILL_SELECTION, str(exc))
+            return ContextStageResult.failed(StageName.CAPABILITY_SELECTION, str(exc))
 
 
 class SceneDecisionStage:
@@ -278,8 +275,7 @@ class ToolPlanningStage:
         warnings: list[str] = []
         try:
             cap_reg = getattr(services, "capability_registry", None) if services else None
-            selector = getattr(services, "skill_selector", None) if services else None
-            if selector is None or cap_reg is None or ctx.tool_router is None:
+            if cap_reg is None or ctx.tool_router is None:
                 return ContextStageResult.ok_result(
                     StageName.TOOL_PLANNING,
                     metadata={"tool_planning_skipped": True, "reason": "missing_services"},
@@ -308,11 +304,18 @@ class ToolPlanningStage:
                 )
 
             planner = ToolPlannerV2()
+            # Enrich query with recent conversation history for better
+            # tool matching (pronoun/ellipsis resolution).
+            try:
+                from agent.runtime.tool_planning.conversation import enrich_query_with_history
+                enriched_query = enrich_query_with_history(ctx.user_input, ctx=ctx)
+            except Exception:
+                enriched_query = ctx.user_input
             available_catalog = active_tool_catalog(
-                ctx.user_input,
+                enriched_query,
                 scene=scene_decision,
                 safe_context=getattr(ctx, "safe_context", {}) or {},
-                limit=12,
+                limit=24,
             )
             tool_scene = planner.plan(
                 scene_decision,
@@ -323,6 +326,13 @@ class ToolPlanningStage:
             rule_tool_scene = scene_to_rule_scene(scene_decision)
 
             allowed_tools = list(tool_scene.get("candidate_tools") or [])
+            # v3.2: Always inject CORE_TOOL_IDS so the LLM never loses
+            # baseline tools (web.*, host.*, workspace.*, tool.catalog.search)
+            # regardless of what the planner outputs.
+            from agent.runtime.capability_routing.manifests import CORE_TOOL_IDS
+            for ct in CORE_TOOL_IDS:
+                if ct not in allowed_tools:
+                    allowed_tools.append(ct)
             ctx.tool_router = ToolRouter.for_turn(base_reg, allowed_tool_ids=allowed_tools)
             if services and getattr(services, "tool_service", None) and hasattr(services.tool_service, "dispatch"):
                 ctx.tool_router.dispatch_delegate = services.tool_service.dispatch
@@ -424,34 +434,34 @@ class SafeContextStage:
             return ContextStageResult.failed(StageName.SAFE_CONTEXT, str(exc))
 
 
-class LoadedSkillStage:
-    """Stage 12: Inject loaded skill contracts into safe_context."""
+class LoadedCapabilityStage:
+    """Stage 12: Inject loaded capability contracts into safe_context."""
 
     def run(self, ctx: Any, session: Any, **inputs) -> ContextStageResult:
         try:
             session_loaded = getattr(session, "metadata", {}) or {}
-            loaded_skills = (session_loaded.get("loaded_skills") or ctx.metadata.get("loaded_skills") or {})
-            if not loaded_skills:
-                return ContextStageResult.ok_result(StageName.LOADED_SKILL)
+            loaded = (session_loaded.get("loaded_capabilities") or session_loaded.get("loaded_skills") or ctx.metadata.get("loaded_capabilities") or ctx.metadata.get("loaded_skills") or {})
+            if not loaded:
+                return ContextStageResult.ok_result(StageName.LOADED_CAPABILITY)
 
             contracts = []
-            for skill_id, skill_info in loaded_skills.items():
-                if not isinstance(skill_info, dict):
+            for cap_id, cap_info in loaded.items():
+                if not isinstance(cap_info, dict):
                     continue
                 contracts.append({
-                    "skill_id": skill_id,
-                    "capability_ids": list(skill_info.get("capability_ids") or []),
-                    "module_ids": list(skill_info.get("module_ids") or []),
-                    "tool_ids": list(skill_info.get("tool_ids") or []),
-                    "prompt_hints": list(skill_info.get("prompt_hints") or []),
-                    "safety_notes": list(skill_info.get("safety_notes") or []),
+                    "capability_id": cap_id,
+                    "capability_ids": list(cap_info.get("capability_ids") or []),
+                    "module_ids": list(cap_info.get("module_ids") or []),
+                    "tool_ids": list(cap_info.get("tool_ids") or []),
+                    "prompt_hints": list(cap_info.get("prompt_hints") or []),
+                    "safety_notes": list(cap_info.get("safety_notes") or []),
                 })
             if contracts:
-                ctx.safe_context["loaded_skill_contracts"] = contracts
+                ctx.safe_context["loaded_capability_contracts"] = contracts
 
-            return ContextStageResult.ok_result(StageName.LOADED_SKILL)
+            return ContextStageResult.ok_result(StageName.LOADED_CAPABILITY)
         except Exception as exc:
-            return ContextStageResult.failed(StageName.LOADED_SKILL, str(exc))
+            return ContextStageResult.failed(StageName.LOADED_CAPABILITY, str(exc))
 
 
 class MetadataWriteStage:
@@ -463,7 +473,7 @@ class MetadataWriteStage:
         try:
             from agent.runtime.context_tools import persist_tool_scene_to_session
 
-            ctx.metadata["selected_skills"] = selected_skills
+            ctx.metadata["selected_capabilities"] = selected_skills
             ctx.metadata["visible_tools"] = selected_visible_tools
             ctx.visible_tool_ids = selected_visible_tools
 
@@ -499,26 +509,6 @@ def _snapshot_service_wrapper(service) -> dict:
         return service.snapshot()
     except Exception:
         return {}
-
-
-def _select_skills_wrapper(selector, cap_reg, user_msg: str, ctx=None) -> tuple[list, list]:
-    warnings: list = []
-    if selector is None or cap_reg is None:
-        if ctx is not None:
-            ctx.metadata["selector_status"] = "unavailable"
-        return [], warnings
-    try:
-        selected = list(selector.select(user_msg or "", capability_registry=cap_reg))
-        if ctx is not None:
-            ctx.metadata["selector_status"] = "ok"
-        return selected, warnings
-    except Exception as exc:
-        msg = f"skill_selector_error: {exc!r}"
-        warnings.append(msg)
-        if ctx is not None:
-            ctx.metadata["selector_status"] = "failed"
-            ctx.metadata.setdefault("selector_errors", []).append(str(exc)[:200])
-        return [], warnings
 
 
 def _enrich_retrieval_wrapper(ctx, evidence_bundle) -> None:
@@ -600,17 +590,12 @@ def _tool_counts_wrapper(ctx) -> tuple:
 
 
 def _base_enabled_skills_wrapper(services) -> list:
-    base_enabled = []
-    if services and getattr(services, "skill_service", None):
-        try:
-            base_enabled = [
-                s.skill_id
-                for s in services.skill_service.list_enabled_skills()
-                if s.skill_id == "assistant_chat"
-            ]
-        except Exception:
-            base_enabled = []
-    return base_enabled
+    """Return the base 'assistant_chat' capability id — always enabled.
+    
+    v3.3: Replaces old SkillRegistry call. assistant_chat is always available
+    as the fallback conversational skill; capabilities add domain tools on top.
+    """
+    return ["assistant_chat"]
 
 
 def _llm_safe_tool_scene(tool_scene: dict) -> dict:

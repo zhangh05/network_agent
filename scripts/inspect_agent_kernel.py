@@ -192,13 +192,12 @@ def main():
     except:
         print("  query_engine_connected: ❌")
     
-    # skill_runtime_connected
+    # skill_capability_routing (v3.2: skill_runtime/ removed, skill_tools uses CAPABILITY_PACKAGES)
     try:
-        handle_src = open('agent/runtime/loop.py').read()
-        has_skill_state = 'loaded_skills' in open('tool_runtime/general_tools_base.py').read()
-        print(f"  skill_runtime_connected: {'✅' if has_skill_state else '❌'}")
+        has_cap_routing = 'CAPABILITY_PACKAGES' in open('tool_runtime/general_tools/skill_tools.py').read()
+        print(f"  skill_capability_routing: {'✅' if has_cap_routing else '❌'}")
     except:
-        print("  skill_runtime_connected: ❌")
+        print("  skill_capability_routing: ❌")
     
     # command_effective
     try:

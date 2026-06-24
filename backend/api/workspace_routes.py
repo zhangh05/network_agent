@@ -81,7 +81,7 @@ def _safe_run_trace_summary(run: dict, trace: dict | None) -> dict:
             if isinstance(tool, str) and tool.strip():
                 tool_ids.add(tool.strip())
 
-    selected_skills = run.get("selected_skills")
+    selected_skills = run.get("selected_capabilities") or run.get("selected_skills")
     if not isinstance(selected_skills, list):
         selected_skill = run.get("selected_skill")
         selected_skills = [selected_skill] if isinstance(selected_skill, str) and selected_skill else []
@@ -91,7 +91,7 @@ def _safe_run_trace_summary(run: dict, trace: dict | None) -> dict:
         "turn_id": run.get("turn_id") or run.get("run_id") or "",
         "started_at": run.get("started_at") or (timestamps[0] if timestamps else run.get("created_at", "")),
         "finished_at": run.get("finished_at") or (timestamps[-1] if timestamps else ""),
-        "selected_skills": selected_skills,
+        "selected_capabilities": selected_skills,
         "visible_tools": sorted(tool_ids),
         "tool_call_count": tool_count,
         "warning_count": max(int(run.get("warning_count") or 0), warning_count),
@@ -321,10 +321,10 @@ def register_workspace_routes(app):
         # Whitelist of safe fields for public run history (never expose secrets, configs, or prompts)
         _SAFE_RUN_KEYS = frozenset({
             "run_id", "workspace_id", "session_id", "intent",
-            "active_module", "selected_skill", "status", "error",
+            "active_module", "selected_capability", "status", "error",
             "warnings", "quality_summary", "elapsed_ms", "created_at",
             "node_timings", "trace_id", "user_input_summary", "final_response",
-            "turn_id", "started_at", "finished_at", "selected_skills",
+            "turn_id", "started_at", "finished_at", "selected_capabilities", "selected_skills",
             "visible_tools", "tool_call_count", "warning_count", "error_count",
             "tool_decision", "no_tool_reason",
         })

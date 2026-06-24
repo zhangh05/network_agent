@@ -136,20 +136,34 @@ export async function apiRequest<T = unknown>(
   signal?: AbortSignal,
   timeoutMs?: number,
 ): Promise<T> {
-  try {
-    const combined: AxiosRequestConfig = {
-      ...config,
-      timeout: timeoutMs ?? TIMEOUTS.default,
-    };
-    if (signal) {
-      combined.signal = signal;
+  const maxRetries = 3;
+  let lastError: ApiError | null = null;
+
+  for (let attempt = 0; attempt < maxRetries; attempt++) {
+    try {
+      const combined: AxiosRequestConfig = {
+        ...config,
+        timeout: timeoutMs ?? TIMEOUTS.default,
+      };
+      if (signal) {
+        combined.signal = signal;
+      }
+      const res = await apiClient.request<T>(combined);
+      return res.data;
+    } catch (err) {
+      const ae = toApiError(err, (err as AxiosError)?.config?.url);
+      const retryable = ae.code === "network" || ae.code === "timeout" ||
+                        (ae.status >= 500 && ae.status < 600);
+      if (!retryable || signal?.aborted || attempt === maxRetries - 1) {
+        throw ae;
+      }
+      lastError = ae;
+      // Exponential backoff: 500ms, 1000ms, 2000ms
+      const delay = Math.min(500 * (2 ** attempt), 3000);
+      await new Promise(r => setTimeout(r, delay));
     }
-    const res = await apiClient.request<T>(combined);
-    return res.data;
-  } catch (err) {
-    const url = (err as AxiosError)?.config?.url;
-    throw toApiError(err, url);
   }
+  throw lastError!;
 }
 
 export const apiBaseURL = baseURL;

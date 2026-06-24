@@ -19,14 +19,14 @@ from agent.runtime.context_pipeline.stages import (
     ModelConfigStage,
     HistoryStage,
     ToolRouterStage,
-    SkillSelectionStage,
+    CapabilitySelectionStage,
     SceneDecisionStage,
     RetrievalPolicyStage,
     RuntimeStateStage,
     EvidenceStage,
     ToolPlanningStage,
     SafeContextStage,
-    LoadedSkillStage,
+    LoadedCapabilityStage,
     MetadataWriteStage,
 )
 
@@ -44,14 +44,14 @@ class ContextPipeline:
         self._model_config = ModelConfigStage()
         self._history = HistoryStage()
         self._tool_router = ToolRouterStage()
-        self._skill = SkillSelectionStage()
+        self._capability_selection = CapabilitySelectionStage()
         self._scene = SceneDecisionStage()
         self._retrieval = RetrievalPolicyStage()
         self._runtime = RuntimeStateStage()
         self._evidence = EvidenceStage()
         self._tool_planning = ToolPlanningStage()
         self._safe_context = SafeContextStage()
-        self._loaded_skill = LoadedSkillStage()
+        self._loaded_capability = LoadedCapabilityStage()
         self._metadata_write = MetadataWriteStage()
 
     def run(self, session, turn, services):
@@ -95,11 +95,11 @@ class ContextPipeline:
         _record_stage(meta, sr)
 
         # ── Stage 5: Skill Selection ────────────────────────────────
-        sr = self._skill.run(ctx=ctx, services=services)
+        sr = self._capability_selection.run(ctx=ctx, services=services)
         stage_results.append(sr)
         _record_stage(meta, sr)
-        selected_skills = sr.data.get("selected_skills", [])
-        skill_snapshot = sr.data.get("skill_snapshot", {})
+        selected_skills = sr.data.get("selected_capabilities", [])
+        skill_snapshot = sr.data.get("capability_snapshot", {})
         module_snapshot = sr.data.get("module_snapshot", {})
         capability_registry = sr.data.get("capability_registry")
 
@@ -148,7 +148,7 @@ class ContextPipeline:
         _record_stage(meta, sr)
 
         # ── Stage 12: Loaded Skills ─────────────────────────────────
-        sr = self._loaded_skill.run(ctx=ctx, session=session)
+        sr = self._loaded_capability.run(ctx=ctx, session=session)
         stage_results.append(sr)
         _record_stage(meta, sr)
 

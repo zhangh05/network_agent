@@ -429,6 +429,24 @@ tool_handler_delete = _build_handler(
     passthrough_keys=("workspace_id", "source_id"),
 )
 
+# Merged source management handler (disable/delete/reindex)
+def _tool_handler_manage_source(**kwargs):
+    action = (kwargs.get("action") or "").strip().lower()
+    workspace_id = kwargs.get("workspace_id", "default")
+    source_id = kwargs.get("source_id", "")
+    if action == "disable":
+        return _knowledge_service.disable_source(
+            workspace_id=workspace_id, source_id=source_id, disabled=True)
+    elif action == "delete":
+        return _knowledge_service.delete_source(
+            workspace_id=workspace_id, source_id=source_id)
+    elif action == "reindex":
+        return _knowledge_service.reindex_source(
+            workspace_id=workspace_id, source_id=source_id)
+    else:
+        return {"ok": False, "error": f"unknown action: {action}"}
+tool_handler_manage_source = _tool_handler_manage_source
+
 tool_handler_import_file = _build_handler(
     _knowledge_service.import_file, "knowledge.import.file",
     passthrough_keys=("workspace_id", "source", "title", "author",

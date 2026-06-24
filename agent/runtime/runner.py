@@ -26,6 +26,7 @@ from agent.runtime.tool_execution.retry_policy import (
     detect_repeated_tool_failure,
     should_retry_for_required_tools,
     required_tool_retry_prompt,
+    TurnRetryPolicy,
 )
 from agent.runtime.tool_execution.output_policy import check_output_policy
 from agent.runtime.result_builder import (
@@ -97,6 +98,13 @@ class TurnRunner:
 
         # ── Messages stage ──
         MessageStage().run(state)
+
+        # ── v3.3: Auto-checkpoint before agentic loop ──
+        try:
+            from agent.runtime.auto_checkpoint import apply_checkpoint_guard
+            apply_checkpoint_guard(self.session, self.turn, 0, state.context)
+        except Exception:
+            pass
 
         # ── Resolve max steps ──
         _is_sub_agent_turn = bool(getattr(self.session, 'is_sub_agent', False))
@@ -253,6 +261,9 @@ class TurnRunner:
             self.turn.final_response = state.final_response
             events.final(state.final_response)
 
+            # Record tool co-occurrence graph after successful turn
+            _record_tool_graph(state)
+
             return build_success_result(state)
 
         # Max steps exceeded or tool stop — both use partial result path
@@ -262,3 +273,15 @@ class TurnRunner:
         events.error("max_steps", f"已达到最大步数 ({state.max_steps})，返回部分结果")
 
         return build_partial_result(state, "max_steps")
+
+
+def _record_tool_graph(state) -> None:
+    """Record tool co-occurrence data from the completed turn."""
+    try:
+        tool_ids = [tc.get("tool_id", "") for tc in (state.all_tool_results or []) if tc.get("ok")]
+        if tool_ids:
+            from agent.runtime.tool_planning.graph import record_tool_sequence
+            record_tool_sequence(tool_ids)
+    except Exception:
+        pass
+

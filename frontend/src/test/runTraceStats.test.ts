@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { deriveRunTraceStats, isTraceSkillEvent, isTraceToolEvent } from "../utils/runTraceStats";
+import { deriveRunTraceStats, isTraceCapabilityEvent, isTraceToolEvent } from "../utils/runTraceStats";
 
 describe("deriveRunTraceStats", () => {
   it("derives real counters from trace events when run summary is stale", () => {
@@ -46,7 +46,7 @@ describe("deriveRunTraceStats", () => {
   });
 
   it("recognizes skill events for the trace filter", () => {
-    expect(isTraceSkillEvent({ event_id: "skill-1", event_type: "", name: "skill_call" })).toBe(true);
-    expect(isTraceSkillEvent({ event_id: "skill-2", event_type: "skill_call_start" })).toBe(true);
+    expect(isTraceCapabilityEvent({ event_id: "cap-1", event_type: "", name: "capability_call" })).toBe(true);
+    expect(isTraceCapabilityEvent({ event_id: "cap-2", event_type: "capability_call_start" })).toBe(true);
   });
 });

@@ -4,7 +4,6 @@
 from agent.capabilities.schemas import (
     CapabilityManifest,
     CapabilityModuleSpec,
-    CapabilitySkillSpec,
     CapabilityToolRef,
     CapabilityOutputSpec,
     CapabilitySafetySpec,
@@ -16,41 +15,22 @@ CAPABILITY_CMDB = CapabilityManifest(
     name="CMDB",
     status="enabled",
     description="设备资产清单管理。可查询、添加、删除网络设备资产，每个资产可一键连接终端。",
+    intent_patterns=[
+        "CMDB", "资产列表", "设备资产", "设备清单",
+        "添加设备", "删除设备", "编辑设备", "查看资产",
+        "network asset", "device inventory",
+    ],
+    prompt_summary=(
+        "CMDB 设备资产管理。列出所有网络设备（含主机/IP/端口/型号/区域/凭据），"
+        "支持添加、删除、按区域或类型筛选。凭据仅用于连接，不输出到回复中。"
+    ),
     module=CapabilityModuleSpec(
         module_id="cmdb",
         status="enabled",
         service_path="agent.modules.cmdb.service",
-        operations=["list_assets", "get_asset", "add_asset", "delete_asset"],
-        description="设备资产 CRUD 操作。",
+        operations=["list_assets", "get_asset", "save_asset", "delete_asset"],
+        description="CMDB 设备资产管理与统计。",
     ),
-    skills=[
-        CapabilitySkillSpec(
-            skill_id="cmdb",
-            status="enabled",
-            related_tools=[
-                "cmdb.list_assets",
-                "cmdb.get_asset",
-                "cmdb.add_asset",
-            ],
-            intent_patterns=[
-                "查资产", "列出设备", "设备列表", "资产管理",
-                "cmdb", "asset list", "有哪些设备", "设备清单",
-                "添加设备", "录入设备", "新增设备",
-            ],
-            required_inputs=[],
-            prompt_summary=(
-                "查询 CMDB 中的设备资产。列出/获取设备信息（名称、类型、厂商、型号、IP、连接方式）。"
-                "添加设备需提供主机地址。不可伪造资产记录。"
-            ),
-            preconditions=["workspace 已初始化。"],
-            postconditions=["返回的设备信息来自持久化存储。"],
-            safety_rules=[
-                "不可声明 CMDB 中存在未从工具返回的设备。",
-                "不可伪造或推断资产信息。",
-                "添加设备 API 走审批流（可能需人工确认）。",
-            ],
-        ),
-    ],
     tools=[
         CapabilityToolRef(
             tool_id="cmdb.list_assets",
@@ -59,8 +39,8 @@ CAPABILITY_CMDB = CapabilityManifest(
             risk_level="low",
             requires_approval=False,
             forbidden=False,
-            handler_ref="agent.modules.cmdb.tools:tool_list_assets",
-            description="列出当前 workspace 中所有设备资产（名称/类型/厂商/型号/IP/协议/端口/用户）。",
+            handler_ref="tool_runtime.canonical_registry:_handler_cmdb_list_assets",
+            description="列出所有设备资产，支持按类型/厂商/区域筛选和模糊搜索。",
         ),
         CapabilityToolRef(
             tool_id="cmdb.get_asset",
@@ -69,26 +49,36 @@ CAPABILITY_CMDB = CapabilityManifest(
             risk_level="low",
             requires_approval=False,
             forbidden=False,
-            handler_ref="agent.modules.cmdb.tools:tool_get_asset",
-            description="获取指定设备资产的完整信息。",
+            handler_ref="tool_runtime.canonical_registry:_handler_cmdb_get_asset",
+            description="获取单个设备资产详情，含主机/IP/端口/协议/用户名/密码/区域/位置。",
         ),
         CapabilityToolRef(
             tool_id="cmdb.add_asset",
             status="enabled",
             callable_by_llm=True,
+            risk_level="low",
+            requires_approval=False,
+            forbidden=False,
+            handler_ref="tool_runtime.canonical_registry:_handler_cmdb_add_asset",
+            description="添加新设备资产。需提供名称、主机地址、类型、厂商、协议等。",
+        ),
+        CapabilityToolRef(
+            tool_id="cmdb.delete_asset",
+            status="enabled",
+            callable_by_llm=True,
             risk_level="medium",
             requires_approval=True,
             forbidden=False,
-            handler_ref="agent.modules.cmdb.tools:tool_add_asset",
-            description="添加设备资产到 CMDB（需审批）。提供设备名/主机/端口/协议/厂商/用户名/密码。",
+            handler_ref="tool_runtime.canonical_registry:_handler_cmdb_delete_asset",
+            description="删除设备资产（软删除，可恢复）。需确认后执行。",
         ),
     ],
     outputs=[
         CapabilityOutputSpec(
-            output_id="asset_records",
-            output_type="asset_records",
-            description="设备资产记录列表。",
-            artifact_type="cmdb_assets",
+            output_id="cmdb_asset_list",
+            output_type="cmdb_asset_list",
+            description="设备资产列表或详细信息的结构化输出。",
+            artifact_type="cmdb_result",
             visible_to_user=True,
             sensitivity="internal",
             authoritative=True,
@@ -100,7 +90,7 @@ CAPABILITY_CMDB = CapabilityManifest(
         produces_deployable_config=False,
         may_fabricate_sources=False,
         requires_human_review=False,
-        notes="读操作无风险。添加操作需审批。",
+        notes="仅资产元数据管理，不涉及设备操作。删除需用户确认。",
     ),
     dependencies=[],
     metadata={"version": "1.0.0", "owners": ["agent_backend"]},

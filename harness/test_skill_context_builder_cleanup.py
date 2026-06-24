@@ -1,5 +1,6 @@
 # harness/test_skill_context_builder_cleanup.py
-"""Verify context_builder no longer injects skill prompts or uses full tool catalog."""
+"""Verify context_builder no longer injects skill prompts or uses full tool catalog.
+v3.4 update: 'loaded_capabilities' replaces 'loaded_skill_contracts'."""
 
 import os
 import sys
@@ -17,7 +18,7 @@ class DummyCtx:
 class DummySession:
     def __init__(self):
         self.metadata = {
-            "loaded_skills": {
+            "loaded_capabilities": {
                 "config_translation": {
                     "skill_prompt": "SHOULD_NOT_APPEAR",
                     "capability_ids": ["config_translation"],
@@ -30,7 +31,7 @@ class DummySession:
         }
 
 
-def test_loaded_skills_do_not_inject_prompt_text():
+def test_loaded_capabilities_do_not_inject_prompt_text():
     from agent.runtime.context_builder import _inject_loaded_skills
 
     ctx = DummyCtx()
@@ -41,8 +42,8 @@ def test_loaded_skills_do_not_inject_prompt_text():
     dumped = str(ctx.safe_context)
     assert "SHOULD_NOT_APPEAR" not in dumped
     assert "skill_prompt" not in dumped
-    assert "loaded_skill_contracts" in ctx.safe_context
-    assert ctx.safe_context["loaded_skill_contracts"][0]["capability_ids"] == ["config_translation"]
+    assert "loaded_capabilities" in ctx.safe_context
+    assert ctx.safe_context["loaded_capabilities"][0]["capability_ids"] == ["config_translation"]
 
 
 def test_context_builder_does_not_use_full_tool_namespace_catalog():

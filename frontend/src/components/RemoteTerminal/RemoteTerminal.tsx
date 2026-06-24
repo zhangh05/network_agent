@@ -94,13 +94,24 @@ export function RemoteTerminal({ onClose, initial }: {
     return () => { disposed = true; xtermRef.current?.dispose(); };
   }, []);
 
+  // Cleanup WebSocket on unmount
+  useEffect(() => {
+    return () => {
+      const ws = wsRef.current;
+      if (ws && ws.readyState === WebSocket.OPEN) {
+        ws.close();
+      }
+      wsRef.current = null;
+    };
+  }, []);
+
   const doConnect = async () => {
     if (!host) { setError("请输入主机地址"); return; }
     setError(""); setConnecting(true);
     const term = xtermRef.current;
     if (term) { term.clear(); term.writeln(`Connecting to ${host}:${port}...`); }
 
-    const wsUrl = `ws://${window.location.hostname}:8010/ws/remote/terminal`;
+    const wsUrl = `ws://${window.location.host}/ws/remote/terminal`;
     const ws = new WebSocket(wsUrl);
     wsRef.current = ws;
 

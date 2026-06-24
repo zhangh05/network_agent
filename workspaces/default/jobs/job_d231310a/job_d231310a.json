@@ -1,0 +1,43 @@
+{
+  "job_id": "job_d231310a",
+  "workspace_id": "default",
+  "job_type": "agent_run",
+  "title": "E2E测试",
+  "description": "",
+  "status": "running",
+  "progress": {
+    "current": 1,
+    "total": 0,
+    "percent": 0,
+    "message": "1轮 | 0工具调用",
+    "current_step": "",
+    "updated_at": "2026-06-21T20:49:32"
+  },
+  "payload": {
+    "session_id": "dca0999117db4eaf"
+  },
+  "input_artifacts": [],
+  "output_artifacts": [],
+  "report_artifacts": [],
+  "artifact_refs": [],
+  "run_ids": [
+    "eab4efe2-e724-451a-bcf1-ac55e9095aad"
+  ],
+  "trace_ids": [],
+  "capability_id": "",
+  "skill": "",
+  "module": "",
+  "created_by": "api",
+  "created_at": "2026-06-21T20:49:32",
+  "updated_at": "2026-06-21T20:49:32",
+  "started_at": "2026-06-21T20:49:32",
+  "finished_at": "",
+  "cancel_requested": false,
+  "retry_count": 0,
+  "max_retries": 3,
+  "error": "",
+  "warnings": [],
+  "result_summary": {},
+  "metadata": {},
+  "redaction_applied": false
+}

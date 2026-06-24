@@ -134,7 +134,15 @@ def _keyword_matches(text: str, keyword: str) -> bool:
         return False
     if any("\u4e00" <= char <= "\u9fff" for char in needle):
         return needle in text
-    return re.search(rf"(?<![\w]){re.escape(needle)}(?![\w])", text) is not None
+    # ASCII keyword: use CJK-aware word boundary.
+    # \w matches CJK chars in Python 3, so (?<!\w) would reject
+    # keywords adjacent to Chinese text (e.g. "pcap" in "分析这个pcap文件").
+    # Treat CJK chars as natural word delimiters.
+    cjk_range = r"\u4e00-\u9fff"
+    return re.search(
+        rf"(?:^|[{cjk_range}\W]){re.escape(needle)}(?:[{cjk_range}\W]|$)",
+        text,
+    ) is not None
 
 
 def _keyword_weight(keyword: str) -> float:

@@ -1,0 +1,43 @@
+{
+  "job_id": "job_4b8ad5af",
+  "workspace_id": "default",
+  "job_type": "agent_run",
+  "title": "查看华南区域的设备资产，并登录查看版本号",
+  "description": "",
+  "status": "running",
+  "progress": {
+    "current": 1,
+    "total": 0,
+    "percent": 0,
+    "message": "1轮 | 4工具调用",
+    "current_step": "",
+    "updated_at": "2026-06-24T20:02:33"
+  },
+  "payload": {
+    "session_id": "region-test"
+  },
+  "input_artifacts": [],
+  "output_artifacts": [],
+  "report_artifacts": [],
+  "artifact_refs": [],
+  "run_ids": [
+    "689b9a05-5214-4816-88b3-4cb69479cf6e"
+  ],
+  "trace_ids": [],
+  "capability_id": "",
+  "skill": "",
+  "module": "",
+  "created_by": "api",
+  "created_at": "2026-06-24T20:02:33",
+  "updated_at": "2026-06-24T20:02:33",
+  "started_at": "2026-06-24T20:02:33",
+  "finished_at": "",
+  "cancel_requested": false,
+  "retry_count": 0,
+  "max_retries": 3,
+  "error": "",
+  "warnings": [],
+  "result_summary": {},
+  "metadata": {},
+  "redaction_applied": false
+}

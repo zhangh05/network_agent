@@ -116,7 +116,7 @@ class SkillSpec:
     adapter_required: bool = True
     red_lines: list = field(default_factory=list)
     requires_adapter: bool = True
-    trace_record_skill_call: bool = True
+    trace_record_capability_call: bool = True
     trace_record_module_call: bool = True
     memory_write_run_summary: bool = True
     test_contracts: list = field(default_factory=list)

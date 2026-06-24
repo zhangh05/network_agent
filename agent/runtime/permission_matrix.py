@@ -150,7 +150,7 @@ class PermissionMatrix:
             "session.summary.get", "run.list", "run.summary.get",
             "workspace.file.list", "workspace.file.exists", "workspace.file.read",
             "workspace.file.preview", "workspace.metadata.get",
-            "skill.list", "skill.search", "skill.get",
+            "skill.list", "skill.find_skills", "skill.inspect",
             "session.snapshot.list", "session.snapshot.create",
             "runtime.health", "runtime.diagnostics",
             "text.redact", "text.diff", "text.keywords.extract",

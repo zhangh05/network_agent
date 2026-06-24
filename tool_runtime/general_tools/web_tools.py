@@ -8,6 +8,32 @@ _fetch_summary_cache_lock = threading.Lock()
 _fetch_summary_cache: dict[str, tuple[float, dict]] = {}
 
 
+def _ddgs_to_results(raw: list, domains: list, limit: int) -> list:
+    """Convert ddgs raw results to standard web-result format."""
+    seen = set()
+    out = []
+    for item in raw:
+        url = (item.get("href") or item.get("url") or "").strip()
+        if not url or url in seen:
+            continue
+        if domains:
+            from urllib.parse import urlparse
+            host = urlparse(url).netloc.lower()
+            if not any(d in host for d in domains):
+                continue
+        seen.add(url)
+        out.append({
+            "title": (item.get("title") or "").strip(),
+            "url": url,
+            "snippet": (item.get("body") or "").strip(),
+            "source": item.get("source", ""),
+            "rank": len(out) + 1,
+        })
+        if len(out) >= limit:
+            break
+    return out
+
+
 def handle_web_search(inv: ToolInvocation) -> dict:
     args = inv.arguments
     query = (args.get("query") or "").strip()
@@ -19,11 +45,48 @@ def handle_web_search(inv: ToolInvocation) -> dict:
     if not query:
         return _error_inv(inv, "query is required")
     search_query = _build_web_search_query(query, domains)
+
+    # ── v3.2.1 Primary: ddgs multi-backend search (Google → Bing → DDG → Brave) ──
+    try:
+        from ddgs import DDGS
+        timelimit_map = {"day": "d", "week": "w", "month": "m", "year": "y"}
+        backends = "google,bing,duckduckgo,brave"
+        with DDGS(timeout=10) as ddgs:
+            raw = ddgs.text(
+                query=search_query,
+                region="cn-zh" if language.startswith("zh") else "us-en",
+                safesearch=safe_search,
+                timelimit=timelimit_map.get(recency),
+                max_results=min(limit * 3, 15),
+                backend=backends,
+            )
+        if raw:
+            results = _ddgs_to_results(raw, domains, limit)
+            if results:
+                guidance = _web_search_guidance(query, results, domains)
+                return _ok(inv, "", {
+                    "ok": True, "status": "succeeded",
+                    "query": query, "search_query": search_query,
+                    "results": results, "count": len(results),
+                    "answer_hint": guidance["answer_hint"],
+                    "results_markdown": _web_results_markdown(results),
+                    "next_actions": guidance["next_actions"],
+                    "summary": f"Found {len(results)} public web result(s) for '{query}'",
+                    "provider": "ddgs",
+                    "filters": {
+                        "domains": domains, "recency": recency or "any",
+                        "language": language, "safe_search": safe_search,
+                    },
+                })
+    except Exception:
+        pass  # Fall through to DuckDuckGo
+
+    # ── Fallback: DuckDuckGo HTML scraping ──
     try:
         import requests
         results = []
 
-        # ── Try DuckDuckGo HTML search (most reliable free path) ──
+        # ── DuckDuckGo HTML search (fallback when ddgs unavailable) ──
         html_resp = requests.get(
             "https://html.duckduckgo.com/html/",
             params=_duckduckgo_search_params(search_query, recency, language, safe_search),

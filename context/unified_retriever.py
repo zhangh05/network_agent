@@ -41,8 +41,12 @@ from context.context_store import get_context_store
 _CJK_RE = re.compile(r"[\u4e00-\u9fff\u3400-\u4dbf]")
 _WORD_RE = re.compile(r"[a-zA-Z0-9_\-\.]+|[\u4e00-\u9fff\u3400-\u4dbf]")
 
-def tokenize(text: str, cjk_ngram_ns: tuple[int, ...] = (2, 3)) -> list[str]:
-    """Tokenize text into terms. CJK uses n-gram; Latin uses word split."""
+def tokenize(text: str, cjk_ngram_ns: tuple[int, ...] = (1, 2)) -> list[str]:
+    """Tokenize text into terms. CJK uses n-gram with stopword filter; Latin uses word split.
+
+    v3.2: Added unigram to improve short-query recall. Added CJK stopword filter
+    to remove semantically meaningless n-grams (particles, punctuation fragments).
+    """
     if not text:
         return []
     text = text.lower()
@@ -54,14 +58,33 @@ def tokenize(text: str, cjk_ngram_ns: tuple[int, ...] = (2, 3)) -> list[str]:
         if len(w) > 1 or not _CJK_RE.match(w):
             tokens.append(w)
 
-    # CJK n-grams
+    # CJK n-grams with stopword filter
     cjk_chars = _CJK_RE.findall(text)
     cjk_str = "".join(cjk_chars)
     for n in cjk_ngram_ns:
         for i in range(len(cjk_str) - n + 1):
-            tokens.append(cjk_str[i:i + n])
+            token = cjk_str[i:i + n]
+            if token not in _CJK_STOPWORDS:
+                tokens.append(token)
 
     return tokens
+
+
+# CJK stopwords — meaningless n-grams that add noise
+_CJK_STOPWORDS: set[str] = {
+    # Common function particles (bigrams)
+    "的是", "了这", "在那", "的一", "了不", "了个", "是这",
+    "之的", "为的", "所这", "和其", "于这", "被那",
+    "这个", "那个", "一个", "这种", "那种", "一些", "这些",
+    "我们", "他们", "你们", "它一", "自一",
+    # Single characters that appear as unigrams (too short/generic)
+    "的", "了", "是", "在", "和", "与", "之", "为",
+    "所", "以", "这", "那", "一", "不", "也", "有",
+    "人", "要", "会", "就", "能", "对", "说", "向",
+    "用", "被", "当", "但", "从", "而", "去",
+    # Punctuation-near CJK (common noise)
+    "由一", "因这", "如此", "因此",
+}
 
 
 # ---------------------------------------------------------------------------
@@ -69,21 +92,78 @@ def tokenize(text: str, cjk_ngram_ns: tuple[int, ...] = (2, 3)) -> list[str]:
 # ---------------------------------------------------------------------------
 
 _NET_SYNONYMS: dict[str, list[str]] = {
-    "ip": ["ip地址", "地址", "address", "ipv4", "ipv6"],
+    # ── IP / address ──
+    "ip": ["ip地址", "address", "ipv4", "ipv6"],
     "ip地址": ["ip", "address"],
-    "交换机": ["switch", "三层交换"],
-    "switch": ["交换机"],
-    "路由器": ["router", "路由"],
-    "router": ["路由器"],
-    "防火墙": ["firewall"],
-    "firewall": ["防火墙"],
-    "vlan": ["虚拟局域网"],
-    "bgp": ["边界网关"],
-    "ospf": ["开放最短路径"],
+    "地址": ["address", "ip"],
+    "address": ["ip", "地址"],
+    # ── 交换机 ──
+    "交换机": ["switch", "三层交换", "l2", "l3", "二层", "三层", "交换"],
+    "switch": ["交换机", "交换"],
+    "交换": ["switch", "交换机"],
+    "二层": ["l2", "layer2", "交换机"],
+    "三层": ["l3", "layer3", "路由", "交换机"],
+    # ── 路由器 ──
+    "路由器": ["router", "路由", "gateway", "网关"],
+    "router": ["路由器", "路由"],
+    "路由": ["router", "route", "路由器", "ospf", "bgp"],
+    # ── 防火墙 / 安全 ──
+    "防火墙": ["firewall", "security", "安全"],
+    "firewall": ["防火墙", "安全"],
+    "安全": ["security", "firewall", "防火墙"],
+    "acl": ["access-list", "access list", "访问控制", "访问控制列表"],
+    "访问控制": ["acl", "access-list"],
+    # ── VLAN ──
+    "vlan": ["虚拟局域网", "virtual lan"],
+    "虚拟局域网": ["vlan"],
+    # ── 路由协议 ──
+    "bgp": ["边界网关", "border gateway"],
+    "边界网关": ["bgp"],
+    "ospf": ["开放最短路径", "link state", "链路状态"],
+    "开放最短路径": ["ospf"],
+    "rip": ["路由信息协议", "distance vector"],
+    "static": ["静态", "静态路由"],
+    "静态路由": ["static", "static route"],
+    # ── 接口 / 端口 ──
     "接口": ["interface", "端口", "port"],
-    "interface": ["接口", "端口"],
-    "配置": ["config", "configuration", "设置"],
+    "interface": ["接口", "端口", "port"],
+    "端口": ["port", "interface", "接口"],
+    "port": ["端口", "接口"],
+    # ── 配置 ──
+    "配置": ["config", "configuration", "设置", "configure"],
     "config": ["配置", "configuration"],
+    "configuration": ["配置", "config"],
+    # ── 常见设备 ──
+    "huawei": ["华为"],
+    "华为": ["huawei"],
+    "cisco": ["思科"],
+    "思科": ["cisco"],
+    "h3c": ["华三"],
+    "华三": ["h3c"],
+    # ── 协议 ──
+    "ssh": ["secure shell", "安全外壳"],
+    "telnet": ["远程登录"],
+    "snmp": ["simple network management", "网络管理"],
+    "tcp": ["传输控制", "transmission control"],
+    "udp": ["用户数据报", "user datagram"],
+    # ── 排查 / 运维 ──
+    "排查": ["troubleshoot", "debug", "诊断", "排错", "troubleshooting"],
+    "诊断": ["diagnose", "排查", "troubleshoot"],
+    "监控": ["monitor", "monitoring", "watch", "观察"],
+    "备份": ["backup", "save", "保存"],
+    "恢复": ["restore", "recovery", "还原"],
+    "升级": ["upgrade", "update", "更新"],
+    # ── 网络概念 ──
+    "nat": ["network address translation", "网络地址转换", "地址转换"],
+    "dhcp": ["dynamic host configuration", "动态主机配置"],
+    "dns": ["domain name system", "域名解析", "域名"],
+    "qos": ["quality of service", "服务质量", "流量控制"],
+    "stp": ["spanning tree", "生成树"],
+    "生成树": ["stp", "spanning tree"],
+    "链路聚合": ["lacp", "link aggregation", "eth-trunk"],
+    "eth-trunk": ["链路聚合", "lacp"],
+    "隧道": ["tunnel", "gre", "vpn"],
+    "vpn": ["虚拟专用网", "隧道", "tunnel"],
 }
 
 def expand_query(query: str) -> str:

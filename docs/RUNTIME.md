@@ -1,56 +1,51 @@
 # Runtime Reference
 
-Runtime execution model (v3.3.3).
+Runtime execution model (v3.4).
 
 ## Turn Flow
 
 ```
 POST /api/agent/message
   -> ContextPipeline (13 stages, builds TurnContext)
-    -> TurnRunner.run()
-      -> ContextStage (runtime state init)
-      -> MessageStage (build LLM messages)
-      -> ModelStage (LLM call with tool-call loop)
-      -> ToolExecutionPipeline (9 stages)
-      -> PersistenceStage (save run, trace, decision)
+  -> TurnRunner: LLM ↔ ToolExecutionPipeline loop (max 8 steps)
   -> ResultBuilder (build AgentResult)
-  -> HookRunner (post-turn hooks: output, memory, observability, truth, stability)
-  -> AgentResult.to_dict()
+  -> Post-turn Hooks (output, memory, observability, truth, stability)
+  -> FinalResponse
 ```
 
 ## ContextPipeline (13 stages)
 
-`agent/runtime/context_pipeline/pipeline.py`
-
-1. **ContextInitStage** — create initial context
+1. **ContextInitStage** — create initial TurnContext
 2. **ModelConfigStage** — configure model parameters
-3. **HistoryStage** — load conversation history
+3. **HistoryStage** — load conversation history (k=30)
 4. **ToolRouterStage** — route to relevant tool categories
-5. **SkillSelectionStage** — select applicable skills
+5. **CapabilitySelectionStage** — select enabled capabilities
 6. **SceneDecisionStage** — classify user intent
 7. **RetrievalPolicyStage** — decide retrieval strategy
-8. **RuntimeStateStage** — initialize runtime state
+8. **RuntimeStateStage** — initialize runtime state / task workflow hooks
 9. **EvidenceStage** — build evidence bundle (context + memory + knowledge)
-10. **ToolPlanningStage** — plan tool usage (ToolPlannerV2)
-11. **SafeContextStage** — build safe/scrubbed context
-12. **LoadedSkillStage** — load skill manifests
+10. **ToolPlanningStage** — ToolPlannerV2: deterministic seed + LLM refine (v3.3)
+11. **SafeContextStage** — build safe/scrubbed context + runtime snapshot
+12. **LoadedCapabilityStage** — inject capability contracts
 13. **MetadataWriteStage** — write context metadata
 
-## ToolExecutionPipeline (9 stages)
+## Tool Execution
 
-`agent/runtime/tool_execution/pipeline.py`
+Tools are dispatched via `ToolInvocation` through the canonical registry.
+Each call goes through: RiskPolicy → ApprovalGate → Dispatch → ResultNormalizer.
 
-1. **ApprovalStage** — check if approval required
-2. **CatalogStage** — search tool catalog
-3. **RiskStage** — assess tool risk level
-4. **PermissionStage** — check tool permissions
-5. **DispatchStage** — dispatch to tool handler
-6. **UnknownToolStage** — handle unknown tool errors
-7. **ResultStage** — process tool result
-8. **OutputPolicy** — apply output policies
-9. **RetryPolicy** — retry on failure
+SSH/Telnet tools use `network.ssh` / `network.telnet` with persistent session reuse (session_id).
+Dangerous commands (reload, reboot, reset, format, rm -rf, dd if=, mkfs) are blocked.
 
 ## Post-turn Hooks
+
+| Hook | Purpose |
+|------|---------|
+| Output Hooks | Artifact planning, writing, registration |
+| Memory Hooks | Memory candidate extraction, filtering, write |
+| Observability Hooks | TurnTrace generation |
+| Truth Hooks | Version, config, capability reporting |
+| Stability Hooks | Required output presence verification |
 
 Executed by `hook_runner.py` after TurnRunner completes:
 

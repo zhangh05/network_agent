@@ -1,0 +1,41 @@
+{
+  "job_id": "job_eed6e50c",
+  "workspace_id": "default",
+  "job_type": "agent_run",
+  "title": "调用ssh工具，尝试连接192.168....",
+  "description": "",
+  "status": "running",
+  "progress": {
+    "current": 0,
+    "total": 0,
+    "percent": 0,
+    "message": "",
+    "current_step": "",
+    "updated_at": "2026-06-24T20:43:00"
+  },
+  "payload": {
+    "session_id": "63dbcbd95e2645cf"
+  },
+  "input_artifacts": [],
+  "output_artifacts": [],
+  "report_artifacts": [],
+  "artifact_refs": [],
+  "run_ids": [],
+  "trace_ids": [],
+  "capability_id": "",
+  "skill": "",
+  "module": "",
+  "created_by": "api",
+  "created_at": "2026-06-24T20:43:00",
+  "updated_at": "2026-06-24T20:43:00",
+  "started_at": "2026-06-24T20:43:00",
+  "finished_at": "",
+  "cancel_requested": false,
+  "retry_count": 0,
+  "max_retries": 3,
+  "error": "",
+  "warnings": [],
+  "result_summary": {},
+  "metadata": {},
+  "redaction_applied": false
+}

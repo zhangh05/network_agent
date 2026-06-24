@@ -72,39 +72,18 @@ class CapabilityRegistry:
             })
         return out
 
-    def enabled_skills(self) -> List[dict]:
+    def enabled_capability_specs(self) -> List[dict]:
+        """Return enabled capability specs with intent patterns and prompt summaries."""
         out: list[dict] = []
         for m in self.list_enabled():
-            for s in m.skills:
-                if s.status != "enabled":
-                    continue
-                out.append({
-                    "skill_id": s.skill_id,
-                    "name": m.name,
-                    "capability_id": m.capability_id,
-                    "related_tools": list(s.related_tools),
-                    "prompt_summary": s.prompt_summary,
-                    "intent_patterns": list(s.intent_patterns),
-                    "required_inputs": list(s.required_inputs),
-                    "preconditions": list(s.preconditions),
-                    "postconditions": list(s.postconditions),
-                    "safety_rules": list(s.safety_rules),
-                })
-        return out
-
-    def planned_skills(self) -> List[dict]:
-        out: list[dict] = []
-        for m in self.list_planned():
-            for s in m.skills:
-                if s.status != "planned":
-                    continue
-                out.append({
-                    "skill_id": s.skill_id,
-                    "name": m.name,
-                    "capability_id": m.capability_id,
-                    "related_tools": list(s.related_tools),
-                    "prompt_summary": s.prompt_summary,
-                })
+            out.append({
+                "capability_id": m.capability_id,
+                "name": m.name,
+                "description": m.description,
+                "prompt_summary": m.prompt_summary,
+                "intent_patterns": list(m.intent_patterns),
+                "related_tools": [t.tool_id for t in m.tools if t.status == "enabled"],
+            })
         return out
 
     def enabled_tools(self) -> List[CapabilityToolRef]:
@@ -218,7 +197,6 @@ class CapabilityRegistry:
                     "capability_id": m.capability_id,
                     "name": m.name,
                     "module_id": m.module.module_id,
-                    "skills": [s.skill_id for s in m.skills if s.status == "enabled"],
                     "visible_tools": [t.tool_id for t in m.tools
                                        if t.status == "enabled"
                                        and t.callable_by_llm
@@ -232,7 +210,6 @@ class CapabilityRegistry:
                     "capability_id": m.capability_id,
                     "name": m.name,
                     "module_id": m.module.module_id,
-                    "skills": [s.skill_id for s in m.skills if s.status == "planned"],
                 }
                 for m in self.list_planned()
             ],

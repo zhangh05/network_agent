@@ -20,6 +20,13 @@ class TaskPlanner:
         ctx=None,
         state: Optional[RuntimeState] = None,
     ) -> Optional[TaskPlan]:
+        if signal.kind == "cancel_task":
+            return TaskPlan(
+                task_id=signal.referenced_task_id or "",
+                title="Task Cancelled",
+                steps=[],
+                metadata={"cancelled": True},
+            )
         if signal.kind != "new_task":
             return None
 

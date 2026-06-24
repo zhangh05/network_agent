@@ -51,12 +51,6 @@ MODULE_MANIFESTS: dict[str, ModuleServiceManifest] = {
         operations=("parse", "session", "filter", "align"),
         kind="business",
     ),
-    "report": ModuleServiceManifest(
-        module_id="report",
-        package="agent.modules.report",
-        service_path="agent.modules.report.service",
-        operations=("draft", "render", "save"),
-    ),
     "runtime": ModuleServiceManifest(
         module_id="runtime",
         package="agent.runtime",
@@ -130,7 +124,7 @@ CAPABILITY_PACKAGES: tuple[CapabilityPackage, ...] = (
         display_name="Report Drafting",
         description="Render reports and save report artifacts.",
         intent_keywords=("report", "markdown", "总结", "报告", "整理", "导出"),
-        module_ids=("report", "workspace"),
+        module_ids=("workspace",),
         tool_ids=("report.markdown.render", "report.artifact.save", "workspace.artifact.save"),
         output_kinds=("markdown", "artifact"),
         priority=40,
@@ -141,27 +135,62 @@ CAPABILITY_PACKAGES: tuple[CapabilityPackage, ...] = (
         description="Inspect runtime health and diagnostics.",
         intent_keywords=("runtime", "diagnostic", "health", "运行", "诊断", "健康", "自检"),
         module_ids=("runtime",),
-        tool_ids=("runtime.health", "runtime.diagnostics", "runtime.selfcheck"),
+        tool_ids=("runtime.health", "runtime.diagnostics"),
         priority=50,
+    ),
+    CapabilityPackage(
+        capability_id="cmdb",
+        display_name="CMDB 设备资产",
+        description="查询、添加、删除网络设备资产。每个资产记录名称、类型、厂商、型号、IP、连接方式。",
+        intent_keywords=("cmdb", "设备", "资产", "添加设备", "录入设备", "新增设备",
+                         "删除设备", "有哪些设备", "查设备", "看设备", "设备资产",
+                         "资产管理", "设备清单", "设备列表", "设备名",
+                         "多少设备", "几个设备", "添加", "新增", "录入", "asset"),
+        module_ids=("cmdb",),
+        tool_ids=("cmdb.list_assets", "cmdb.get_asset", "cmdb.add_asset", "cmdb.delete_asset"),
+        output_kinds=("table", "summary"),
+        safety_notes=("不可声明 CMDB 中存在未从工具返回的设备。", "添加/删除操作需确认。"),
+        priority=7,
+    ),
+    CapabilityPackage(
+        capability_id="network_device",
+        display_name="Network 设备 SSH/Telnet",
+        description="SSH / Telnet 连接网络设备并执行命令。先通过 CMDB 获取设备信息，再调用连接工具。",
+        intent_keywords=("ssh", "telnet", "连接", "登录设备", "display", "show run",
+                         "执行命令", "show version", "display version"),
+        module_ids=("remote",),
+        tool_ids=("network.ssh", "network.telnet"),
+        output_kinds=("text",),
+        safety_notes=("真实设备访问，需审批。", "危险命令（reload/erase/format）自动拦截。"),
+        priority=6,
     ),
 )
 
 
 CORE_TOOL_IDS: tuple[str, ...] = (
-    # Core — always needed
-    "skill.search", "skill.load",
+    # ── Tool discovery ──
+    "tool.catalog.search",
+    # ── Workspace ──
     "workspace.file.list", "workspace.file.read",
     "workspace.artifact.read",
-    "tool.catalog.search",
-    # Host — universal local ops catalog
+    # ── Host — universal local ops ──
     "host.shell.exec", "host.powershell.exec",
     "host.python.exec", "host.command.slash_run",
-    # Web — universal search / info catalog
+    # ── Web / info ──
     "web.search", "web.docs.official_search",
     "web.page.summarize", "web.page.extract_links",
     "web.page.save_artifact",
     "web.news.search",
-    "web.weather.current", "web.weather.forecast",
+    "web.weather",
+    # ── CMDB ──
+    "cmdb.list_assets", "cmdb.get_asset",
+    "cmdb.add_asset", "cmdb.delete_asset",
+    # ── Network device access ──
+    "network.ssh", "network.telnet",
+    # ── v3.4: Git ──
+    "git.status", "git.diff", "git.log",
+    # ── v3.4: Code search ──
+    "code.search",
 )
 
 

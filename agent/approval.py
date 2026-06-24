@@ -285,12 +285,38 @@ class ApprovalStore:
             return req.allowed
 
     def get_pending(self, session_id: str = "") -> list[dict]:
-        """Get pending approvals, optionally filtered by session."""
+        """Get pending approvals, optionally filtered by session.
+
+        Stale approvals (older than 120s) are auto-cleaned up during this call
+        to prevent orphaned approvals from flashing the frontend bubble.
+        """
         with self._lock:
+            now = time.time()
+            stale_ids = []
+            for aid, req in list(self._pending.items()):
+                if req.resolved:
+                    stale_ids.append(aid)
+                    continue
+                # Auto-expire approvals older than 120 seconds that never
+                # reached the wait/resolve path (orphaned by turn failure).
+                if now - req.created_at > 120:
+                    req.resolved = True
+                    req.allowed = False
+                    req.resolved_at = now
+                    req.resolver = "system_expired"
+                    req._event.set()
+                    self._append_record(req)
+                    _event_bus.publish(ApprovalEvent(
+                        kind="resolved", approval_id=aid,
+                        session_id=req.session_id, tool_id=req.tool_id,
+                        allowed=False, payload={"resolver": "system_expired"},
+                    ))
+                    stale_ids.append(aid)
+            for aid in stale_ids:
+                self._pending.pop(aid, None)
+
             result = []
             for req in self._pending.values():
-                if req.resolved:
-                    continue
                 if session_id and req.session_id != session_id:
                     continue
                 result.append(self._to_dict(req))

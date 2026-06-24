@@ -10,11 +10,16 @@ from agent.runtime.tasking.models import TaskSignal
 from agent.runtime.state.models import RuntimeState
 
 # Keywords that suggest a multi-step task
+# v3.3 expanded: adds operational verbs (check/clean/start/fix/connect/monitor/test/scan/etc.)
 _NEW_TASK_VERBS = re.compile(
-    r"(整理|生成|分析|对比|输出|制作|汇总|规划|改造|排查|重构|迁移|部署|构建|搭建|实现|开发|设计)"
+    r"(整理|生成|分析|对比|输出|制作|汇总|规划|改造|排查|重构|迁移|部署|构建|搭建|实现|开发|设计"
+    r"|检查|查看|清理|启动|修复|连接|登录|监控|重置|测试|扫描|导出|导入|备份|还原|更新"
+    r"|安装|卸载|配置|切换|停止|重启|运行|执行|验证|排查|诊断|检测|采集)"
 )
 _MULTI_STEP_INDICATORS = re.compile(
-    r"(并且|然后|同时|接着|最后|首先|第一步|分步|依次|逐一|步骤|流程|方案|计划|多个|批量|全部|所有)"
+    r"(并且|然后|同时|接着|最后|首先|第一步|分步|依次|逐一|步骤|流程|方案|计划|多个|批量|全部|所有"
+    r"|如果|要是|否则|假如|；|先|再|之后|随后|紧接着|与此同时|另外|此外"
+    r"|并|及|以及)"
 )
 
 # Continue-task keywords

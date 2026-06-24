@@ -51,8 +51,6 @@ def handle_capabilities():
 
     def _project(m) -> dict:
         """Project CapabilityManifest → frontend-expected wire shape."""
-        has_skills = bool(m.skills)
-        first_skill = m.skills[0] if has_skills else None
         return {
             "capability_id": m.capability_id,
             "enabled": m.status == "enabled",
@@ -61,7 +59,6 @@ def handle_capabilities():
             "category": _cap_category(m.capability_id),
             "intent": m.capability_id.replace("_", "."),
             "module": m.module.module_id if m.module else "",
-            "skill": first_skill.skill_id if first_skill else "",
             "risk_level": m.tools[0].risk_level if m.tools else "low",
             "can_generate_deployable": m.safety.produces_deployable_config if m.safety else False,
             "requires_verification": m.safety.requires_human_review if m.safety else False,
@@ -79,10 +76,14 @@ def _cap_category(capability_id: str) -> str:
     _map = {
         "config_translation": "translation",
         "knowledge": "knowledge",
-        "artifact": "artifact",
-        "review": "review",
+        "artifact_management": "artifact",
+        "review_flow": "review",
         "topology": "topology",
         "inspection": "inspection",
         "cmdb": "cmdb",
+        "network_device": "network",
+        "pcap_analysis": "network",
+        "coding": "coding",
+        "browser": "browser",
     }
     return _map.get(capability_id, capability_id)

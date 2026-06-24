@@ -6,10 +6,11 @@ This module defines the dataclass contracts for a Capability:
     CapabilityManifest
         capability_id, name, status, description
         module: CapabilityModuleSpec
-        skills: list[CapabilitySkillSpec]
         tools:  list[CapabilityToolRef]
         outputs: list[CapabilityOutputSpec]
         safety: CapabilitySafetySpec
+        intent_patterns: list[str]
+        prompt_summary: str
         dependencies: list[str]
         metadata: dict
 
@@ -83,46 +84,6 @@ class CapabilityModuleSpec:
             "service_path": self.service_path,
             "operations": list(self.operations),
             "description": self.description,
-        }
-
-
-@dataclass
-class CapabilitySkillSpec:
-    """Skill layer of a capability.
-
-    A Skill tells the LLM when to use the capability (intent_patterns),
-    what it needs (required_inputs), preconditions / postconditions, and
-    safety_rules. Skills do NOT execute code.
-    """
-
-    skill_id: str = ""
-    status: str = "disabled"
-    related_tools: List[str] = field(default_factory=list)
-    intent_patterns: List[str] = field(default_factory=list)
-    required_inputs: List[str] = field(default_factory=list)
-    prompt_summary: str = ""
-    preconditions: List[str] = field(default_factory=list)
-    postconditions: List[str] = field(default_factory=list)
-    safety_rules: List[str] = field(default_factory=list)
-
-    def __post_init__(self):
-        if self.status not in VALID_CAPABILITY_STATUSES:
-            raise ValueError(
-                f"Invalid skill status: {self.status!r}; "
-                f"must be one of {sorted(VALID_CAPABILITY_STATUSES)}"
-            )
-
-    def as_dict(self) -> dict:
-        return {
-            "skill_id": self.skill_id,
-            "status": self.status,
-            "related_tools": list(self.related_tools),
-            "intent_patterns": list(self.intent_patterns),
-            "required_inputs": list(self.required_inputs),
-            "prompt_summary": self.prompt_summary,
-            "preconditions": list(self.preconditions),
-            "postconditions": list(self.postconditions),
-            "safety_rules": list(self.safety_rules),
         }
 
 
@@ -259,7 +220,8 @@ class CapabilityManifest:
     status: str = "disabled"            # enabled | planned | disabled
     description: str = ""
     module: CapabilityModuleSpec = field(default_factory=CapabilityModuleSpec)
-    skills: List[CapabilitySkillSpec] = field(default_factory=list)
+    intent_patterns: List[str] = field(default_factory=list)
+    prompt_summary: str = ""
     tools: List[CapabilityToolRef] = field(default_factory=list)
     outputs: List[CapabilityOutputSpec] = field(default_factory=list)
     safety: CapabilitySafetySpec = field(default_factory=CapabilitySafetySpec)
@@ -302,7 +264,8 @@ class CapabilityManifest:
             "status": self.status,
             "description": self.description,
             "module": self.module.as_dict(),
-            "skills": [s.as_dict() for s in self.skills],
+            "intent_patterns": list(self.intent_patterns),
+            "prompt_summary": self.prompt_summary,
             "tools": [t.as_dict() for t in self.tools],
             "outputs": [o.as_dict() for o in self.outputs],
             "safety": self.safety.as_dict(),

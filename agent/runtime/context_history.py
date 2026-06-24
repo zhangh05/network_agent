@@ -12,12 +12,17 @@ from agent.protocol.message import UserMessage, AssistantMessage, ToolResultMess
 _log = logging.getLogger(__name__)
 
 
-def initial_history_window(session: Any, k: int = 8) -> list:
+DEFAULT_HISTORY_WINDOW = 30
+
+def initial_history_window(session: Any, k: int = DEFAULT_HISTORY_WINDOW) -> list:
     """Return the in-memory session history window.
 
     This is intentionally lightweight and side-effect free. Disk hydration is
     handled by `hydrate_history_from_store()` when the runtime has a complete
     context object.
+
+    v3.3 (long-task optimization): default window raised from 8→30 to preserve
+    context across 20+ turn sessions without loss.
     """
     try:
         history = getattr(session, "history", None) or []
@@ -26,7 +31,7 @@ def initial_history_window(session: Any, k: int = 8) -> list:
         return []
 
 
-def hydrate_history_from_store(session: Any, context: Any, k: int = 8) -> None:
+def hydrate_history_from_store(session: Any, context: Any, k: int = DEFAULT_HISTORY_WINDOW) -> None:
     """Merge disk-persisted messages into `context.history_window`.
 
     The SessionMessageStore is the durable source of truth, while

@@ -1,179 +1,161 @@
 # agent/skills/registry.py
-"""SkillRegistry — thin view over CapabilityRegistry.
-
-SkillRegistry is not a parallel source of truth. It must be constructed with a
-CapabilityRegistry and reads everything through it.
-"""
+"""SkillRegistry — load, search, and manage skill definitions."""
 
 from __future__ import annotations
 
-from typing import List, Optional
+import logging
+from pathlib import Path
+from typing import Optional
 
-from agent.capabilities.schemas import CapabilityManifest
+from agent.skills.schemas import SkillSpec
+
+_log = logging.getLogger(__name__)
 
 
 class SkillRegistry:
-    """Read-only view of capability skills, projected from CapabilityRegistry.
+    """Registry of reusable skill workflows."""
 
-    The base/system skill `assistant_chat` is the only skill NOT carried
-    by a Capability; we keep it in the view as an always-enabled base
-    (so the LLM can always reply, even on a no-capability message).
+    def __init__(self):
+        self._skills: dict[str, SkillSpec] = {}
+        self._by_category: dict[str, list[str]] = {}
+
+    # ── Registration ──
+
+    def register(self, spec: SkillSpec) -> None:
+        self._skills[spec.skill_id] = spec
+        self._by_category.setdefault(spec.category, []).append(spec.skill_id)
+
+    def unregister(self, skill_id: str) -> None:
+        spec = self._skills.pop(skill_id, None)
+        if spec:
+            cat_list = self._by_category.get(spec.category, [])
+            if skill_id in cat_list:
+                cat_list.remove(skill_id)
+
+    # ── Query ──
+
+    def get(self, skill_id: str) -> Optional[SkillSpec]:
+        return self._skills.get(skill_id)
+
+    def list_all(self) -> list[SkillSpec]:
+        return list(self._skills.values())
+
+    def list_enabled(self) -> list[SkillSpec]:
+        return [s for s in self._skills.values() if s.enabled]
+
+    def search(self, query: str) -> list[SkillSpec]:
+        lower = query.lower()
+        results = []
+        for s in self._skills.values():
+            if not s.enabled:
+                continue
+            score = 0
+            if lower in s.name.lower():
+                score += 10
+            if lower in s.description.lower():
+                score += 5
+            for kw in lower.split():
+                if kw in s.name.lower():
+                    score += 3
+                for tool in s.tools_required:
+                    if kw in tool.lower():
+                        score += 2
+            if score > 0:
+                results.append((s, score))
+        results.sort(key=lambda x: -x[1])
+        return [r[0] for r in results[:10]]
+
+    def count(self) -> int:
+        return len(self._skills)
+
+    def to_prompt_text(self) -> str:
+        """Render all enabled skills as LLM prompt fragment."""
+        skills = self.list_enabled()
+        if not skills:
+            return ""
+        lines = ["--- SKILLS ---", f"{len(skills)} skills loaded:"]
+        for s in sorted(skills, key=lambda x: x.category):
+            lines.append(f"  [{s.category}] {s.name}: {s.description}")
+        return "\n".join(lines)
+
+
+# ── Loader ──
+
+
+def load_skills_from_dir(
+    registry: SkillRegistry,
+    skills_dir: str,
+) -> int:
+    """Load all SKILL.md files from a directory into the registry.
+
+    Returns number of skills loaded.
     """
+    import re
+    path = Path(skills_dir)
+    if not path.exists():
+        _log.info("Skills directory not found: %s", skills_dir)
+        return 0
 
-    BASE_SKILLS: tuple[str, ...] = ("assistant_chat",)
+    loaded = 0
+    for md_file in sorted(path.rglob("SKILL.md")):
+        try:
+            content = md_file.read_text(encoding="utf-8")
+            spec = _parse_skill_md(content, str(md_file))
+            if spec:
+                registry.register(spec)
+                loaded += 1
+                _log.info("Loaded skill: %s from %s", spec.skill_id, md_file)
+        except Exception as e:
+            _log.warning("Failed to load skill from %s: %s", md_file, e)
 
-    def __init__(self, capability_registry):
-        if capability_registry is None:
-            raise ValueError(
-                "SkillRegistry requires a CapabilityRegistry; "
-                "there is no default. Construct via "
-                "SkillRegistry(get_default_capability_registry()) or "
-                "SkillRegistry.from_capabilities(cap_reg)."
-            )
-        self._cap_reg = capability_registry
-        # Cache the base skill spec objects (if present) so
-        # list_enabled_skills() / get_skill() can return them.
-        self._base_skill_specs: dict[str, object] = {}
-        for cap in capability_registry.list_all():
-            for sk in cap.skills:
-                if sk.skill_id in self.BASE_SKILLS:
-                    # Capture the spec; later wins if duplicates.
-                    self._base_skill_specs[sk.skill_id] = _skill_spec_from_capability(cap)
-        # v1.0.3: ensure BASE_SKILLS that are NOT from any capability
-        # (e.g. assistant_chat) are always available as enabled.
-        for bs in self.BASE_SKILLS:
-            if bs not in self._base_skill_specs:
-                self._base_skill_specs[bs] = _base_skill_spec(bs)
+    return loaded
 
-    # ── Read ──
 
-    def list_enabled_skills(self) -> list:
-        """Return enabled skills. Order: base skills first, then capability skills."""
-        out: list = []
-        seen: set[str] = set()
-        # 1. Base skills
-        for s in self.BASE_SKILLS:
-            spec = self._base_skill_specs.get(s)
-            if spec and getattr(spec, "status", "disabled") == "enabled":
-                out.append(spec)
-                seen.add(s)
-        # 2. Capability skills (status == enabled)
-        for cap in self._cap_reg.list_enabled():
-            for sk in cap.skills:
-                if sk.status != "enabled":
-                    continue
-                if sk.skill_id in seen:
-                    continue
-                out.append(_skill_spec_from_capability(cap))
-                seen.add(sk.skill_id)
-        return out
+def _parse_skill_md(content: str, path: str) -> Optional[SkillSpec]:
+    """Parse SKILL.md content into a SkillSpec."""
+    import re
+    import yaml
 
-    def list_planned_skills(self) -> list:
-        out: list = []
-        for cap in self._cap_reg.list_planned():
-            for sk in cap.skills:
-                if sk.status != "planned":
-                    continue
-                out.append(_skill_spec_from_capability(cap))
-        return out
-
-    def get_skill(self, skill_id: str):
-        # Base skill lookup
-        if skill_id in self._base_skill_specs:
-            return self._base_skill_specs[skill_id]
-        # Capability skill lookup (first match wins)
-        for cap in self._cap_reg.list_all():
-            for sk in cap.skills:
-                if sk.skill_id == skill_id:
-                    return _skill_spec_from_capability(cap)
+    # Extract YAML frontmatter
+    fm_match = re.match(r"^---\s*\n(.*?)\n---\s*\n", content, re.DOTALL)
+    if not fm_match:
         return None
 
-    def snapshot(self) -> dict:
-        return {
-            "enabled": [
-                {"skill_id": s.skill_id, "name": s.name, "prompt_summary": s.prompt_summary}
-                for s in self.list_enabled_skills()
-            ],
-            "planned": [
-                {"skill_id": s.skill_id, "name": s.name}
-                for s in self.list_planned_skills()
-            ],
-        }
+    try:
+        fm = yaml.safe_load(fm_match.group(1))
+    except Exception:
+        return None
 
-    # ── Construction helpers ──
+    if not isinstance(fm, dict):
+        return None
 
-    @classmethod
-    def from_capabilities(cls, capability_registry) -> "SkillRegistry":
-        """Build a SkillRegistry from a CapabilityRegistry."""
-        return cls(capability_registry)
+    body = content[fm_match.end():].strip()
 
-    @property
-    def capability_registry(self):
-        return self._cap_reg
+    # Parse steps from body
+    steps = []
+    step_pattern = re.compile(r"^##\s*Step\s*(\d+)\s*\n(.*?)(?=\n##|\Z)", re.DOTALL | re.MULTILINE)
+    for m in step_pattern.finditer(body):
+        step_num = m.group(1)
+        step_body = m.group(2).strip()
+        goal = ""
+        tools = []
+        for line in step_body.split("\n"):
+            line = line.strip()
+            if line.startswith("Goal:"):
+                goal = line[5:].strip()
+            elif line.startswith("Tools:"):
+                tools = [t.strip() for t in line[6:].split(",") if t.strip()]
+        steps.append({"step": int(step_num), "goal": goal, "tools": tools})
 
-
-def _skill_spec_from_capability(cap: CapabilityManifest):
-    """Return a SkillSpec-shaped object for a CapabilityManifest.
-
-    CapabilityManifest may carry multiple skills; we expose a tiny
-    shim with the first matching skill's data. Compatibility callers
-    read .skill_id / .name / .prompt_summary / .status / .related_tools
-    / .module_id, all of which we populate from the capability.
-    """
-    sk = cap.skills[0] if cap.skills else None
-    return _SkillSpecShim(
-        skill_id=sk.skill_id if sk else cap.capability_id,
-        name=cap.name,
-        description=cap.description,
-        status=sk.status if sk else cap.module.status,
-        related_tools=list(sk.related_tools) if sk else [t.tool_id for t in cap.tools],
-        prompt_summary=sk.prompt_summary if sk else cap.description,
-        module_id=cap.module.module_id,
-    )
-
-
-class _SkillSpecShim:
-    __slots__ = ("skill_id", "name", "description", "status",
-                 "related_tools", "prompt_summary", "module_id")
-
-    def __init__(self, *, skill_id, name, description, status,
-                 related_tools, prompt_summary, module_id):
-        self.skill_id = skill_id
-        self.name = name
-        self.description = description
-        self.status = status
-        self.related_tools = related_tools
-        self.prompt_summary = prompt_summary
-        self.module_id = module_id
-
-
-def _base_skill_spec(skill_id: str) -> "_SkillSpecShim":
-    """Create a SkillSpecShim for a base skill (e.g. assistant_chat)
-    that does NOT come from any CapabilityManifest.
-    """
-    base_specs = {
-        "assistant_chat": {
-            "name": "Assistant Chat",
-            "description": "General-purpose chat without capability tools.",
-            "prompt_summary": "General assistant chat — no specific capability",
-        },
-        "capability_discovery": {
-            "name": "Capability Discovery",
-            "description": "Help users discover and understand available capabilities.",
-            "prompt_summary": "Capability discovery and explanation",
-        },
-    }
-    info = base_specs.get(skill_id, {
-        "name": skill_id,
-        "description": f"Base skill: {skill_id}",
-        "prompt_summary": f"Base skill: {skill_id}",
-    })
-    return _SkillSpecShim(
-        skill_id=skill_id,
-        name=info["name"],
-        description=info["description"],
-        status="enabled",
-        related_tools=[],
-        prompt_summary=info["prompt_summary"],
-        module_id="",
+    return SkillSpec(
+        skill_id=fm.get("id", fm.get("name", "unnamed").lower().replace(" ", "_")),
+        name=fm.get("name", "Unnamed Skill"),
+        description=fm.get("description", ""),
+        version=str(fm.get("version", "1.0")),
+        author=str(fm.get("author", "")),
+        category=str(fm.get("category", "general")),
+        tools_required=fm.get("tools", fm.get("tools_required", [])),
+        steps=steps,
+        example=str(fm.get("example", "")),
+        markdown_path=path,
     )

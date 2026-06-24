@@ -1,70 +1,65 @@
 # harness/test_skill_runtime_refactor.py
-"""Tests for the capability-first skill runtime."""
+"""v3.2: Tests for skill_tools using CapabilityPackage directly.
+
+The old skill_runtime/ directory has been removed. All skill
+tool handlers now read CAPABILITY_PACKAGES directly via
+tool_runtime/general_tools/skill_tools.py.
+"""
 
 import os
 import sys
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
-from agent.runtime.skill_runtime.registry import (
-    list_skill_manifests,
-    get_skill_manifest,
-    search_skill_manifests,
+from tool_runtime.schemas import ToolInvocation
+from tool_runtime.general_tools.skill_tools import (
+    handle_skill_list,
+    handle_skill_load,
+    handle_skill_find,
+    handle_skill_inspect,
 )
-from agent.runtime.skill_runtime.loader import load_skill
-from agent.runtime.skill_runtime.session import skill_session_record
 
 
-def test_builtin_skills_are_capability_packages():
-    manifests = list_skill_manifests()
-    assert manifests
-    ids = {m.skill_id for m in manifests}
+def _inv(tool_id: str = "skill.load", **args) -> ToolInvocation:
+    return ToolInvocation(tool_id=tool_id, arguments=args, workspace_id="default")
+
+
+def test_skill_list_returns_capability_packages():
+    result = handle_skill_list(_inv("skill.list"))
+    assert result.get("ok")
+    assert result["count"] > 0
+    ids = {r["skill_id"] for r in result["results"]}
     assert "config_translation" in ids
     assert "pcap_analysis" in ids
-    for manifest in manifests:
-        assert manifest.capability_ids
-        assert manifest.module_ids
-        assert manifest.tool_ids
-        assert manifest.source == "capability_package"
+    assert "cmdb" in ids
 
 
-def test_skill_load_returns_capability_contract_not_prompt():
-    result = load_skill("config_translation")
-    assert result.ok
-    assert "config_translation" in result.capability_ids
-    assert "config.analysis.run" in result.tool_ids
-    assert not hasattr(result, "skill_prompt")
+def test_skill_load_returns_capability_contract():
+    result = handle_skill_load(_inv(skill_name="config_translation"))
+    assert result.get("ok")
+    assert "config_translation" in result["capability_ids"]
+    assert "config.analysis.run" in result["tool_ids"]
 
 
-def test_skill_search_finds_business_capability():
-    results = search_skill_manifests("pcap")
-    ids = {r.skill_id for r in results}
+def test_skill_find_finds_by_keyword():
+    result = handle_skill_find(_inv("skill.search", query="pcap"))
+    assert result.get("ok")
+    ids = {r["skill_id"] for r in result["results"]}
     assert "pcap_analysis" in ids
 
 
 def test_unknown_skill_fails_closed():
-    result = load_skill("does_not_exist")
-    assert not result.ok
-    assert result.status == "not_found"
+    result = handle_skill_load(_inv(skill_name="does_not_exist"))
+    assert not result.get("ok")
 
 
-def test_skill_session_record_has_capability_contract():
-    result = load_skill("pcap_analysis")
-    assert result.ok
-    record = skill_session_record(result)
-    assert record["skill_id"] == "pcap_analysis"
-    assert "pcap_analysis" in record["capability_ids"]
-    assert "pcap.analysis.run" in record["tool_ids"]
-    assert "skill_prompt" not in record
+def test_skill_inspect_returns_details():
+    result = handle_skill_inspect(_inv("skill.get", skill_name="workspace_read"))
+    assert result.get("ok")
+    assert result.get("skill_id") == "workspace_read"
+    assert result.get("source") == "capability_package"
 
 
-def test_get_skill_manifest_returns_manifest():
-    m = get_skill_manifest("workspace_read")
-    assert m is not None
-    assert m.skill_id == "workspace_read"
-    assert m.source == "capability_package"
-
-
-def test_get_skill_manifest_unknown_returns_none():
-    m = get_skill_manifest("nonexistent")
-    assert m is None
+def test_skill_inspect_unknown_returns_error():
+    result = handle_skill_inspect(_inv("skill.get", skill_name="nonexistent"))
+    assert not result.get("ok")

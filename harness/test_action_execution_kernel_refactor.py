@@ -408,7 +408,6 @@ def test_all_action_modules_importable():
     import agent.runtime.actions.retry
     import agent.runtime.actions.audit
     import agent.runtime.actions.evidence_update
-    assert True
 
 
 # ══════════════════════════════════════════════════════════════════════════

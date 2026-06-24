@@ -16,9 +16,12 @@ _log = logging.getLogger("remote.core")
 
 READ_TIMEOUT = 10.0
 CONNECT_TIMEOUT = 8.0
+MAX_SESSION_LOG_LINES = 1000
 PAGE_WAIT = 0.3
 
+import threading as _threading
 _SESSIONS: dict[str, "DeviceSession"] = {}
+_SESSIONS_LOCK = _threading.Lock()
 
 
 class DeviceSession:
@@ -41,7 +44,7 @@ class DeviceSession:
         with self._lock:
             if self._chan:
                 try: self._chan.close()
-                except: pass
+                except Exception: pass
                 self._chan = None
             self.connected = False
 
@@ -91,17 +94,24 @@ def ssh_connect(session_id: str, host: str, port: int,
         client.connect(hostname=host, port=port, username=username, password=password,
                        timeout=CONNECT_TIMEOUT, look_for_keys=False, allow_agent=False)
     except paramiko.AuthenticationException:
+        client.close()
         raise ConnectionError(f"SSH 认证失败: {username}@{host}:{port}")
     except Exception as e:
+        client.close()
         raise ConnectionError(f"SSH 连接失败: {e}")
 
-    chan = client.invoke_shell(term="xterm", width=160, height=40)
-    chan.settimeout(1.0)
+    try:
+        chan = client.invoke_shell(term="xterm", width=160, height=40)
+        chan.settimeout(1.0)
+    except Exception as e:
+        client.close()
+        raise ConnectionError(f"SSH shell 失败: {e}")
 
     session = DeviceSession(session_id, "ssh", host, port, profile)
     session._chan = chan
     session.connected = True
-    _SESSIONS[session_id] = session
+    with _SESSIONS_LOCK:
+        _SESSIONS[session_id] = session
 
     time.sleep(0.5)
     banner = _read_until_prompt(session)
@@ -129,7 +139,8 @@ def telnet_connect(session_id: str, host: str, port: int,
     session = DeviceSession(session_id, "telnet", host, port, profile)
     session._chan = tn
     session.connected = True
-    _SESSIONS[session_id] = session
+    with _SESSIONS_LOCK:
+        _SESSIONS[session_id] = session
     # Wake console server
     tn.sendall(b"\r\n")
     return session
@@ -159,14 +170,16 @@ def send_interactive(session_id: str, data: str) -> dict:
 
 
 def disconnect(session_id: str) -> dict:
-    session = _SESSIONS.pop(session_id, None)
+    with _SESSIONS_LOCK:
+        session = _SESSIONS.pop(session_id, None)
     if session:
         session.close()
     return {"ok": True}
 
 
 def get_session(session_id: str) -> DeviceSession | None:
-    return _SESSIONS.get(session_id)
+    with _SESSIONS_LOCK:
+        return _SESSIONS.get(session_id)
 
 
 def list_sessions() -> list[dict]:
@@ -207,7 +220,10 @@ def _exec_and_wait(session: DeviceSession, command: str) -> str:
     time.sleep(0.2)
     output = _read_until_prompt(session)
     text = output.decode("utf-8", errors="replace")
-    session.log.append(text)
+    if len(session.log) < MAX_SESSION_LOG_LINES:
+        session.log.append(text)
+    else:
+        session.log[-1] = text  # rotate last entry
     return text
 
 
@@ -223,7 +239,7 @@ class _TelnetSocket:
 
     def close(self):
         try: self.sock.close()
-        except: pass
+        except Exception: pass
 
     def sendall(self, data: bytes):
         self.sock.sendall(data)
@@ -247,10 +263,13 @@ class _TelnetSocket:
         while i < len(data):
             if data[i] == 255 and i + 1 < len(data):
                 cmd = data[i + 1]
-                if cmd in (251, 252, 253, 254):
+                if cmd in (251, 252, 253, 254) and i + 2 < len(data):
                     # WILL/WONT/DO/DONT -> reply WONT/DONT
                     self.sock.sendall(bytes([255, 254 if cmd in (251, 252) else 252, data[i + 2]]))
                     i += 3
+                elif cmd in (251, 252, 253, 254):
+                    # Truncated IAC — skip
+                    i = len(data)
                 elif cmd == 250:
                     end = data.find(bytes([255, 240]), i + 2)
                     i = end + 2 if end > 0 else i + 2

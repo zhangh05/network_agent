@@ -25,7 +25,9 @@ VALID_TOOL_CATEGORIES = {
     "host", "agent", "data", "diagram", "document",
     "report_data",
     "review", "slash", "team", "frontend", "general", "ops", "config_translation",
-    "weather", "news",
+    "weather", "news", "cmdb", "run", "tool", "config", "pcap",
+    # v3.4: new general agent categories
+    "git", "code", "browser",
 }
 # v0.2 — expanded categories for general agent tools
 V02_ALLOWED_CATEGORIES = {
@@ -36,7 +38,9 @@ V02_ALLOWED_CATEGORIES = {
     # v3.0 categories (canonical)
     "host", "agent", "data", "diagram", "document", "report_data",
     "review", "slash", "team", "frontend", "general", "ops",
-    "config_translation", "weather", "news",
+    "config_translation", "weather", "news", "cmdb",
+    "run", "tool", "config", "pcap",
+    "git", "code", "browser",
 }
 
 

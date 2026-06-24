@@ -59,7 +59,7 @@ def check_token_limit(messages, context, session, turn, step):
 
             compacted, meta = compact_messages(
                 messages,
-                keep_recent=6,
+                keep_recent=15,
                 strategy=strategy,
                 trigger="auto",
                 threshold_pct=75.0,

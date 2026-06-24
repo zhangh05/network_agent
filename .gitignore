@@ -9,12 +9,14 @@ apikey
 api_key
 minimax_apikey
 minimax_api_key
+# Runtime ephemera
 *.log
-.DS_Store
 .backend.pid
 .frontend.pid
-memory/data/
 data/
+artifacts/
+logs/
+memory/data/
 reports/*secret*
 reports/*apikey*
 reports/*key*
@@ -55,3 +57,6 @@ node_modules/**/*.results.json
 .superpowers/
 # Runtime-created sample skills
 skills/sample/
+# Embeddings cache
+workspaces/.tool_embeddings_cache.json
+node_modules/

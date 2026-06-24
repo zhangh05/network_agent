@@ -300,8 +300,7 @@ def _plan_tools_v2(ctx, evidence_bundle, session, services, selected_skills: lis
         "warnings": [],
     }
     cap_reg = getattr(services, "capability_registry", None) if services else None
-    selector = getattr(services, "skill_selector", None) if services else None
-    if selector is None or cap_reg is None or ctx.tool_router is None:
+    if cap_reg is None or ctx.tool_router is None:
         return result
 
     scene_decision = getattr(ctx, "scene_decision", None)
@@ -374,40 +373,38 @@ def _tool_counts(ctx) -> tuple[list, int]:
 
 
 def _base_enabled_skills(services) -> list[str]:
-    base_enabled = []
-    if services and getattr(services, "skill_service", None):
-        try:
-            base_enabled = [
-                s.skill_id
-                for s in services.skill_service.list_enabled_skills()
-                if s.skill_id == "assistant_chat"
-            ]
-        except Exception:
-            base_enabled = []
-    return base_enabled
+    """Return 'assistant_chat' — always available as base conversational capability."""
+    return ["assistant_chat"]
 
 
 def _inject_loaded_skills(ctx, session) -> None:
-    """Inject loaded skill contracts into safe_context (no prompt injection)."""
+    """Inject loaded capability contracts into safe_context.
+    
+    v3.3: Renamed from 'loaded skills' to 'loaded capabilities'.
+    Uses the session's loaded_capabilities metadata to expose tool/contract info.
+    """
     session_loaded = getattr(session, "metadata", {}) or {}
-    loaded_skills = (session_loaded.get("loaded_skills") or ctx.metadata.get("loaded_skills") or {})
-    if not loaded_skills:
+    loaded = (session_loaded.get("loaded_capabilities") or 
+              session_loaded.get("loaded_skills") or 
+              ctx.metadata.get("loaded_capabilities") or 
+              ctx.metadata.get("loaded_skills") or {})
+    if not loaded:
         return
 
     contracts = []
-    for skill_id, skill_info in loaded_skills.items():
-        if not isinstance(skill_info, dict):
+    for cap_id, cap_info in loaded.items():
+        if not isinstance(cap_info, dict):
             continue
         contracts.append({
-            "skill_id": skill_id,
-            "capability_ids": list(skill_info.get("capability_ids") or []),
-            "module_ids": list(skill_info.get("module_ids") or []),
-            "tool_ids": list(skill_info.get("tool_ids") or []),
-            "prompt_hints": list(skill_info.get("prompt_hints") or []),
-            "safety_notes": list(skill_info.get("safety_notes") or []),
+            "capability_id": cap_id,
+            "capability_ids": list(cap_info.get("capability_ids") or []),
+            "module_ids": list(cap_info.get("module_ids") or []),
+            "tool_ids": list(cap_info.get("tool_ids") or []),
+            "prompt_hints": list(cap_info.get("prompt_hints") or []),
+            "safety_notes": list(cap_info.get("safety_notes") or []),
         })
     if contracts:
-        ctx.safe_context["loaded_skill_contracts"] = contracts
+        ctx.safe_context["loaded_capabilities"] = contracts
 
 
 def _write_context_metadata(

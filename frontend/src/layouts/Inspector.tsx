@@ -106,16 +106,16 @@ function InspectorBody({ result }: { result: AgentResult }) {
       </div>
 
       <Collapsible
-        title="已选技能"
-        count={result.metadata?.selected_skills?.length ?? 0}
-        testid="inspector-skills-section"
+        title="已选能力"
+        count={(result.metadata?.selected_capabilities ?? result.metadata?.selected_skills)?.length ?? 0}
+        testid="inspector-capabilities-section"
       >
-        <div className="col-flex" data-testid="inspector-skills" style={{ gap: 4 }}>
-          {(result.metadata?.selected_skills ?? []).length === 0 ? (
+        <div className="col-flex" data-testid="inspector-capabilities" style={{ gap: 4 }}>
+          {(result.metadata?.selected_capabilities ?? result.metadata?.selected_skills ?? []).length === 0 ? (
             <span className="text-sm muted">无</span>
           ) : (
             <div className="row-flex" style={{ flexWrap: "wrap", gap: 4 }}>
-              {(result.metadata?.selected_skills ?? []).map((s) => (
+              {(result.metadata?.selected_capabilities ?? result.metadata?.selected_skills ?? []).map((s) => (
                 <Badge key={s} kind="accent">
                   {s}
                 </Badge>

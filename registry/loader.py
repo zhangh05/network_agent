@@ -248,7 +248,7 @@ def _parse_skill_yaml(data: dict, name: str, path: str) -> SkillSpec:
         calls_llm=data.get("execution", {}).get("calls_llm", False),
         calls_http_self=data.get("execution", {}).get("calls_http_self", False),
         red_lines=data.get("red_lines", []),
-        trace_record_skill_call=data.get("trace", {}).get("record_skill_call", True),
+        trace_record_capability_call=data.get("trace", {}).get("record_capability_call", True),
         trace_record_module_call=data.get("trace", {}).get("record_module_call", True),
         memory_write_run_summary=data.get("memory", {}).get("write_run_summary", True),
         test_contracts=data.get("tests", {}).get("required_contract_tests", []),
@@ -381,38 +381,39 @@ def _project_runtime_modules() -> list:
 
 
 def _project_runtime_skills() -> list:
+    """Project CapabilityManifest tools as skill specs (v3.3: .skills removed, use .tools directly)."""
     reg = _runtime_capability_registry()
     if reg is None:
         return []
     skills = []
     for cap in reg.list_all():
-        for sk in cap.skills:
+        for tool in cap.tools:
             skills.append(SkillSpec(
-                skill_name=sk.skill_id,
+                skill_name=tool.tool_id,
                 display_name=cap.name,
-                description=sk.prompt_summary or cap.description,
+                description=tool.description or cap.description,
                 category=cap.capability_id,
-                status=sk.status,
-                skill_type=_skill_type(sk.skill_id),
+                status=cap.status,
+                skill_type="runtime_capability",
                 module=cap.module.module_id,
                 module_api=_module_primary_endpoint(cap.module.module_id, cap.module.operations),
-                adapter_path=_skill_adapter_path(sk.skill_id),
-                entrypoint_type="python" if _skill_adapter_path(sk.skill_id) else "runtime_capability",
-                entrypoint_function=_skill_entrypoint(sk.skill_id),
+                adapter_path="",
+                entrypoint_type="runtime_capability",
+                entrypoint_function="",
                 capabilities=[{
                     "capability_id": cap.capability_id,
-                    "intent": sk.skill_id,
-                    "function": _skill_entrypoint(sk.skill_id),
+                    "intent": tool.tool_id,
+                    "function": tool.handler_ref or "",
                     "description": cap.description,
-                    "risk_level": _highest_tool_risk(cap.tools),
+                    "risk_level": tool.risk_level,
                 }],
                 calls_module=True,
                 calls_llm=False,
                 calls_http_self=False,
-                adapter_required=bool(_skill_adapter_path(sk.skill_id)),
-                requires_adapter=bool(_skill_adapter_path(sk.skill_id)),
-                red_lines=_skill_red_lines(sk.safety_rules),
-                trace_record_skill_call=True,
+                adapter_required=False,
+                requires_adapter=False,
+                red_lines=[],
+                trace_record_capability_call=True,
                 trace_record_module_call=True,
                 memory_write_run_summary=True,
             ))
@@ -420,18 +421,19 @@ def _project_runtime_skills() -> list:
 
 
 def _project_runtime_capabilities() -> list:
+    """Project CapabilityManifest as CapabilitySpec (v3.3: .skills removed)."""
     reg = _runtime_capability_registry()
     if reg is None:
         return []
     caps = []
     for cap in reg.list_all():
-        sk = cap.skills[0] if cap.skills else None
+        first_tool = cap.tools[0].tool_id if cap.tools else ""
         risk = _highest_tool_risk(cap.tools)
         caps.append(CapabilitySpec(
             capability_id=cap.capability_id,
-            intent=_capability_intent(cap.capability_id, sk.skill_id if sk else cap.capability_id),
+            intent=_capability_intent(cap.capability_id, first_tool or cap.capability_id),
             module=cap.module.module_id,
-            skill=sk.skill_id if sk else "",
+            skill=first_tool,
             status=cap.status,
             description=cap.description,
             category=cap.capability_id,
@@ -445,7 +447,7 @@ def _project_runtime_capabilities() -> list:
             ui_module_route=f"/capabilities/{cap.capability_id}",
             ui_action_label=cap.name,
             required_module=cap.module.module_id,
-            required_skill=sk.skill_id if sk else "",
+            required_skill=first_tool,
             input_schema={
                 t.tool_id: t.input_schema
                 for t in cap.tools

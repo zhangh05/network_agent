@@ -190,6 +190,61 @@ def _safe_int(value, default: int = 0) -> int:
 
 # ── Directory-level tool handlers ────────────────────────────────────
 
+# ── v3.4: Git / Code / Browser handlers ──
+
+def _handler_git_status(inv: ToolInvocation) -> dict:
+    from agent.modules.git.core import git_status
+    args = inv.arguments or {}
+    return git_status(str(args.get("repo_path", ".")))
+
+def _handler_git_diff(inv: ToolInvocation) -> dict:
+    from agent.modules.git.core import git_diff
+    args = inv.arguments or {}
+    return git_diff(str(args.get("repo_path", ".")), bool(args.get("staged", False)), str(args.get("file_path", "")))
+
+def _handler_git_log(inv: ToolInvocation) -> dict:
+    from agent.modules.git.core import git_log
+    args = inv.arguments or {}
+    return git_log(str(args.get("repo_path", ".")), _safe_int(args.get("n", 10)), str(args.get("file_path", "")))
+
+def _handler_git_commit(inv: ToolInvocation) -> dict:
+    from agent.modules.git.core import git_commit
+    args = inv.arguments or {}
+    msg = str(args.get("message", ""))
+    if not msg:
+        return {"ok": False, "error": "message is required"}
+    files = args.get("files")
+    files = args.get("files")
+    if isinstance(files, list):
+        return git_commit(str(args.get("repo_path", ".")), msg, files)
+    return git_commit(str(args.get("repo_path", ".")), msg, None)
+
+def _handler_git_push(inv: ToolInvocation) -> dict:
+    from agent.modules.git.core import git_push
+    args = inv.arguments or {}
+    return git_push(str(args.get("repo_path", ".")), str(args.get("remote", "origin")), str(args.get("branch", "")))
+
+def _handler_code_search(inv: ToolInvocation) -> dict:
+    from agent.modules.code.core import search_code
+    args = inv.arguments or {}
+    return search_code(
+        str(args.get("pattern", "")),
+        str(args.get("directory", ".")),
+        str(args.get("file_type", "")),
+        _safe_int(args.get("max_results"), 50),
+    )
+
+def _handler_browser_navigate(inv: ToolInvocation) -> dict:
+    from agent.modules.browser.core import browser_navigate
+    args = inv.arguments or {}
+    return browser_navigate(str(args.get("url", "")), str(args.get("wait_selector", "")))
+
+def _handler_browser_extract(inv: ToolInvocation) -> dict:
+    from agent.modules.browser.core import browser_extract
+    args = inv.arguments or {}
+    return browser_extract(str(args.get("url", "")), str(args.get("selector", "body")))
+
+
 def _handler_config_analysis_run(inv: ToolInvocation) -> dict:
     """Unified config analysis entrypoint — delegates to config_analysis service."""
     from agent.modules.config_analysis.service import run_config_analysis
@@ -223,6 +278,273 @@ def _handler_pcap_analysis_run(inv: ToolInvocation) -> dict:
         run_id=inv.run_id or "",
         agent_session_id=str(args.get("agent_session_id", "")),
     )
+
+
+def _handler_cmdb_list_assets(inv: ToolInvocation) -> dict:
+    """List CMDB device assets with optional filtering."""
+    from agent.modules.cmdb.tools import tool_list_assets
+    args = inv.arguments or {}
+    workspace_id = inv.workspace_id or args.get("workspace_id", "default")
+    return tool_list_assets(
+        workspace_id=workspace_id,
+        filter=str(args.get("filter", "")),
+        search=str(args.get("search", "")),
+        sort_by=str(args.get("sort_by", "name")),
+    )
+
+
+def _handler_cmdb_get_asset(inv: ToolInvocation) -> dict:
+    """Get a single CMDB asset by ID."""
+    from agent.modules.cmdb.tools import tool_get_asset
+    args = inv.arguments or {}
+    workspace_id = inv.workspace_id or args.get("workspace_id", "default")
+    asset_id = str(args.get("asset_id", "")).strip()
+    if not asset_id:
+        return {"ok": False, "error": "asset_id is required"}
+    return tool_get_asset(workspace_id=workspace_id, asset_id=asset_id)
+
+
+def _handler_cmdb_add_asset(inv: ToolInvocation) -> dict:
+    """Add a CMDB asset (requires approval)."""
+    from agent.modules.cmdb.tools import tool_add_asset
+    args = inv.arguments or {}
+    workspace_id = inv.workspace_id or args.get("workspace_id", "default")
+    name = str(args.get("name", "")).strip()
+    host = str(args.get("host", "")).strip()
+    if not name:
+        return {"ok": False, "error": "name is required"}
+    if not host:
+        return {"ok": False, "error": "host is required"}
+    return tool_add_asset(
+        workspace_id=workspace_id,
+        name=name, host=host,
+        type=str(args.get("type", "switch")),
+        vendor=str(args.get("vendor", "")),
+        protocol=str(args.get("protocol", "ssh")),
+        port=_safe_int(args.get("port", 22)),
+        username=str(args.get("username", "")),
+        password=str(args.get("password", "")),
+    )
+
+
+def _handler_cmdb_delete_asset(inv: ToolInvocation) -> dict:
+    """Soft-delete a CMDB asset."""
+    from agent.modules.cmdb.tools import tool_delete_asset
+    args = inv.arguments or {}
+    workspace_id = inv.workspace_id or args.get("workspace_id", "default")
+    asset_id = str(args.get("asset_id", "")).strip()
+    if not asset_id:
+        return {"ok": False, "error": "asset_id is required"}
+    return tool_delete_asset(workspace_id=workspace_id, asset_id=asset_id)
+
+
+# ── Network device access (SSH / Telnet) ──
+
+# Dangerous command patterns — block destructive operations
+_DANGEROUS_COMMAND_PATTERNS = [
+    r"(?i)\breload\b", r"(?i)\breboot\b", r"(?i)\breset\b",
+    r"(?i)\bformat\b", r"(?i)\bdelete\s+flash", r"(?i)\berase\s+startup",
+    r"(?i)\bwrite\s+erase\b", r"(?i)\brm\s+-rf\b",
+    r"(?i)\bdd\s+if=", r"(?i)\bmkfs\b",
+]
+
+# Config command patterns — require approval
+_CONFIG_COMMAND_PATTERNS = [
+    r"(?i)^conf(igure)?\s*(terminal|t)?$",
+    r"(?i)^system-view$", r"(?i)^config$",
+    r"(?i)^interface\s+\S", r"(?i)^router\s+\S",
+    r"(?i)^no\s+", r"(?i)^undo\s+", r"(?i)^set\s+",
+    r"(?i)^vlan\s+\d", r"(?i)^ip\s+route",
+    r"(?i)^access-list", r"(?i)^snmp-server",
+    r"(?i)^aaa\s+", r"(?i)^username\s+\S+\s+password",
+]
+
+
+def _is_dangerous_command(command: str) -> tuple[bool, str]:
+    """Check if a command is dangerous. Returns (is_dangerous, reason)."""
+    import re
+    for pattern in _DANGEROUS_COMMAND_PATTERNS:
+        if re.search(pattern, command):
+            return True, f"dangerous command blocked (policy violation)"
+    return False, ""
+
+
+def _is_config_command(command: str) -> bool:
+    """Check if a command requires config-mode (approval needed)."""
+    import re
+    for pattern in _CONFIG_COMMAND_PATTERNS:
+        if re.search(pattern, command):
+            return True
+    return False
+
+
+def _handler_network_ssh(inv: ToolInvocation) -> dict:
+    """SSH into a device, execute a command, return output.
+
+    v3.3: Supports persistent sessions via session_id.
+    - First call without session_id: creates session, returns session_id.
+    - Subsequent calls with session_id: reuses existing session (fast).
+    - Set close_session=true or omit command to close.
+    """
+    from agent.modules.remote.core import ssh_connect, exec_command, disconnect, get_session
+
+    args = inv.arguments or {}
+    host = str(args.get("host", "")).strip()
+    port = _safe_int(args.get("port"), 22)
+    username = str(args.get("username", "")).strip()
+    password = str(args.get("password", "")).strip()
+    command = str(args.get("command", "")).strip()
+    vendor = str(args.get("vendor", "generic")).strip()
+    session_id = str(args.get("session_id", "")).strip()
+    close_session = bool(args.get("close_session", False))
+    sudo = bool(args.get("sudo", False))
+
+    # Close session request
+    if session_id and (close_session or not command):
+        try:
+            disconnect(session_id)
+        except Exception:
+            pass
+        return {"ok": True, "session_closed": True, "session_id": session_id}
+
+    # Reuse existing session
+    if session_id:
+        try:
+            existing = get_session(session_id)
+            if existing and getattr(existing, "connected", False):
+                if not command:
+                    return {"ok": True, "session_id": session_id, "session_active": True}
+                if sudo and not command.startswith("sudo "):
+                    command = f"sudo {command}"
+                exec_result = exec_command(session_id, command)
+                output_text = _extract_output(exec_result)
+                return {
+                    "ok": True, "host": getattr(existing, "host", host), "command": command,
+                    "output": output_text[:8000], "session_id": session_id,
+                }
+            # Session expired — auto-reconnect using stored info
+            if existing and not host:
+                host = getattr(existing, "host", "")
+                port = getattr(existing, "port", 22)
+                username = getattr(existing, "username", "")
+                password = getattr(existing, "password", "")
+                # Remove stale session entry
+                try:
+                    disconnect(session_id)
+                except Exception:
+                    pass
+        except Exception:
+            pass
+
+    # New session
+    if not host:
+        return {"ok": False, "error": "host is required"}
+    if not username:
+        return {"ok": False, "error": "username is required"}
+    if not command:
+        return {"ok": False, "error": "command is required"}
+
+    # Safety: block dangerous commands
+    is_dangerous, reason = _is_dangerous_command(command)
+    if is_dangerous:
+        return {"ok": False, "error": reason}
+
+    is_config = _is_config_command(command)
+
+    try:
+        new_sid = session_id or f"ssh_{int(__import__('time').time())}_{host.replace('.', '_')}"
+        if sudo and not command.startswith("sudo "):
+            command = f"sudo {command}"
+        session = ssh_connect(new_sid, host, port, username, password, vendor)
+        exec_result = exec_command(new_sid, command)
+        if isinstance(exec_result, dict) and not exec_result.get("ok"):
+            # Command failed — clean up session
+            try:
+                disconnect(new_sid)
+            except Exception:
+                pass
+            return {"ok": False, "error": f"Command failed: {exec_result.get('error', '')}"}
+        output_text = _extract_output(exec_result)
+        return {
+            "ok": True, "host": host, "command": command,
+            "output": output_text[:8000], "session_id": new_sid,
+            "is_config": is_config,
+        }
+    except Exception as e:
+        # Clean up on connection failure
+        if 'new_sid' in dir():
+            try:
+                disconnect(new_sid)
+            except Exception:
+                pass
+        return {"ok": False, "error": f"SSH failed: {e}"}
+
+
+def _extract_output(exec_result) -> str:
+    if isinstance(exec_result, dict):
+        if not exec_result.get("ok"):
+            return f"ERROR: {exec_result.get('error', '')}"
+        return str(exec_result.get("output", ""))
+    return str(exec_result)
+
+
+def _handler_network_telnet(inv: ToolInvocation) -> dict:
+    """Telnet into a device, execute a command, return output. v3.3: session reuse."""
+    from agent.modules.remote.core import telnet_connect, exec_command, disconnect, get_session
+
+    args = inv.arguments or {}
+    host = str(args.get("host", "")).strip()
+    port = _safe_int(args.get("port"), 23)
+    username = str(args.get("username", "")).strip()
+    password = str(args.get("password", "")).strip()
+    command = str(args.get("command", "")).strip()
+    vendor = str(args.get("vendor", "generic")).strip()
+    session_id = str(args.get("session_id", "")).strip()
+    close_session = bool(args.get("close_session", False))
+
+    # Close session
+    if session_id and (close_session or not command):
+        try:
+            disconnect(session_id)
+        except Exception:
+            pass
+        return {"ok": True, "session_closed": True, "session_id": session_id}
+
+    # Reuse existing session
+    if session_id:
+        try:
+            existing = get_session(session_id)
+            if existing and getattr(existing, "connected", False):
+                exec_result = exec_command(session_id, command)
+                return {
+                    "ok": True, "host": host, "command": command,
+                    "output": _extract_output(exec_result)[:8000],
+                    "session_id": session_id,
+                }
+        except Exception:
+            pass
+
+    if not host:
+        return {"ok": False, "error": "host is required"}
+    if not command:
+        return {"ok": False, "error": "command is required"}
+
+    is_dangerous, reason = _is_dangerous_command(command)
+    if is_dangerous:
+        return {"ok": False, "error": reason}
+
+    try:
+        new_sid = session_id or f"telnet_{int(__import__('time').time())}_{host.replace('.', '_')}"
+        telnet_connect(new_sid, host, port, username, password, vendor)
+        exec_result = exec_command(new_sid, command)
+        return {
+            "ok": True, "host": host, "command": command,
+            "output": _extract_output(exec_result)[:8000],
+            "session_id": new_sid,
+        }
+    except Exception as e:
+        return {"ok": False, "error": f"Telnet failed: {e}"}
+
 
 def _schema(properties: dict | None = None, required: list[str] | None = None) -> dict:
     return {
@@ -386,6 +708,11 @@ def _catalog_query_tokens(text: str) -> list[str]:
         "事件": ["event"], "会话": ["session"], "网页": ["web"], "官方": ["official"],
         "新闻": ["news"], "天气": ["weather"], "表格": ["table"], "json": ["json"],
         "yaml": ["yaml"], "csv": ["csv"], "报告": ["report"],
+        "设备": ["cmdb", "asset"], "资产": ["cmdb", "asset"], "cmdb": ["cmdb"],
+        # SSH / Telnet
+        "ssh": ["ssh", "network"], "telnet": ["telnet", "network"],
+        "远程": ["network", "ssh"], "连接": ["network"],
+        "登录设备": ["ssh", "network"],
     }
     expanded = list(base)
     for phrase, additions in phrases.items():
@@ -416,10 +743,6 @@ def _catalog_score(tool_id: str, category: str, group: str, haystack: str, token
         elif token in haystack:
             score += 8
     intent_boosts = [
-        (("skill", "技能"), "skill.", 35),
-        (("load", "加载"), "skill.load", 45),
-        (("create", "创建"), "skill.create", 45),
-        (("install", "安装"), "skill.install", 45),
         (("pcap", "报文", "抓包", "packet"), "pcap.analysis.run", 40),
         (("retransmission", "重传", "sequence", "序列", "tcp"), "pcap.analysis.run", 42),
         (("config", "配置", "翻译", "translate"), "config.analysis.run", 40),
@@ -438,6 +761,10 @@ def _catalog_score(tool_id: str, category: str, group: str, haystack: str, token
         (("yaml",), "data.yaml.validate", 34),
         (("csv",), "data.csv.summarize", 34),
         (("report", "报告"), "report.", 26),
+        (("cmdb", "设备", "资产", "资产管理"), "cmdb.", 40),
+        # Network device SSH / Telnet
+        (("ssh", "network"), "network.ssh", 42),
+        (("telnet",), "network.telnet", 42),
     ]
     for needles, prefix, boost in intent_boosts:
         if any(n in lowered or n in tokens for n in needles):
@@ -455,6 +782,131 @@ def _catalog_reason(tool_id: str, display_name: str, score: int, tokens: list[st
     if matched:
         return f"{display_name} 与关键词 {', '.join(matched)} 匹配。"
     return f"{display_name} 与当前需求相关，匹配分 {score}。"
+
+
+# ── Knowledge module adapters (v3.2.1: replace placeholder handlers) ──
+
+def _k_source_list(inv: ToolInvocation) -> dict:
+    from agent.modules.knowledge.tools import tool_handler_list
+    r = tool_handler_list({"workspace_id": inv.workspace_id or "default"}, {})
+    return _module_result_to_dict(r)
+
+def _k_chunk_list(inv: ToolInvocation) -> dict:
+    from agent.modules.knowledge.tools import tool_handler_list_chunks
+    args = inv.arguments or {}
+    r = tool_handler_list_chunks({"workspace_id": inv.workspace_id or "default", "source_id": str(args.get("source_id", ""))}, {})
+    return _module_result_to_dict(r)
+
+def _k_parent_read(inv: ToolInvocation) -> dict:
+    from agent.modules.knowledge.tools import tool_handler_read_parent
+    args = inv.arguments or {}
+    r = tool_handler_read_parent({
+        "workspace_id": inv.workspace_id or "default",
+        "child_chunk_id": str(args.get("chunk_id", ""))}, {})
+    return _module_result_to_dict(r)
+
+def _k_import(inv: ToolInvocation) -> dict:
+    """Merged import: delegates to import_file (handles most file types)."""
+    from agent.modules.knowledge.tools import tool_handler_import_file
+    args = inv.arguments or {}
+    fp = str(args.get("filepath", "")).strip()
+    if not fp:
+        fp = str(args.get("source", "")).strip()
+    if not fp:
+        return {"ok": False, "error": "filepath or source is required", "status": "failed"}
+    r = tool_handler_import_file({
+        "workspace_id": inv.workspace_id or "default",
+        "source": fp,
+        "title": str(args.get("title", fp.split("/")[-1] if "/" in fp else "imported")),
+        "author": str(args.get("author", "")),
+        "edition": str(args.get("edition", "")),
+    }, {})
+    return _module_result_to_dict(r)
+
+def _k_source_manage(inv: ToolInvocation) -> dict:
+    """Merged: disable, delete, or reindex a knowledge source."""
+    from agent.modules.knowledge.tools import tool_handler_disable, tool_handler_delete, tool_handler_reindex
+    args = inv.arguments or {}
+    action = str(args.get("action", "disable")).strip().lower()
+    ws = inv.workspace_id or "default"
+    sid = str(args.get("source_id", ""))
+    if action == "delete":
+        r = tool_handler_delete({"workspace_id": ws, "source_id": sid}, {})
+    elif action == "reindex":
+        r = tool_handler_reindex({"workspace_id": ws, "source_id": sid}, {})
+    else:
+        r = tool_handler_disable({"workspace_id": ws, "source_id": sid}, {})
+    return _module_result_to_dict(r)
+
+def _review_item_list(inv: ToolInvocation) -> dict:
+    """List review items. Returns items attached to a specific artifact."""
+    try:
+        from agent.modules.review.tools import tool_handler_list
+        args = inv.arguments or {}
+        ws = inv.workspace_id or str(args.get("workspace_id", "default"))
+        r = tool_handler_list({"workspace_id": ws, "limit": int(args.get("limit", 10)),
+                               "artifact_id": str(args.get("artifact_id", ""))}, {})
+        return _module_result_to_dict(r)
+    except Exception as e:
+        return {"ok": False, "tool_id": "review.item.list", "status": "failed",
+                "summary": f"Review service unavailable: {str(e)[:120]}"}
+
+
+def _review_item_update(inv: ToolInvocation) -> dict:
+    """Update review item status. Falls back if unavailable."""
+    try:
+        from agent.modules.review.tools import tool_handler_update
+        args = inv.arguments or {}
+        ws = inv.workspace_id or str(args.get("workspace_id", "default"))
+        r = tool_handler_update({
+            "workspace_id": ws,
+            "artifact_id": str(args.get("artifact_id", args.get("review_id", ""))),
+            "item_id": str(args.get("item_id", args.get("review_id", ""))),
+            "status": str(args.get("status", "")),
+            "user_note": str(args.get("user_note", "")),
+        }, {})
+        return _module_result_to_dict(r)
+    except Exception as e:
+        return {"ok": False, "tool_id": "review.item.update", "status": "failed",
+                "summary": f"Review service unavailable: {str(e)[:120]}"}
+
+def _weather_merged(inv: ToolInvocation) -> dict:
+    """Merged weather tool: days=1 → current, days>1 → forecast."""
+    from tool_runtime.general_tools.web_tools import handle_weather_current, handle_weather_forecast
+    args = inv.arguments or {}
+    days = _safe_int(args.get("days"), 1)
+    if days <= 1:
+        new_inv = ToolInvocation(tool_id=inv.tool_id, arguments={
+            **args, "language": args.get("language", "zh-CN"),
+            "units": args.get("units", "metric"),
+        })
+        return handle_weather_current(new_inv)
+    else:
+        new_inv = ToolInvocation(tool_id=inv.tool_id, arguments={
+            **args, "days": str(days),
+            "language": args.get("language", "zh-CN"),
+            "units": args.get("units", "metric"),
+        })
+        return handle_weather_forecast(new_inv)
+
+def _module_result_to_dict(r: dict) -> dict:
+    """Convert module handler result dict to canonical tool output."""
+    if not isinstance(r, dict):
+        return {"ok": False, "error": "unexpected result type"}
+    ok = bool(r.get("ok", False))
+    content = r.get("content", "")
+    if isinstance(content, str):
+        import json
+        try:
+            content = json.loads(content)
+        except Exception:
+            pass
+    return {
+        "ok": ok, "tool_id": r.get("tool_id", ""),
+        "status": "succeeded" if ok else "failed",
+        "summary": str(r.get("summary", "")),
+        "errors": r.get("errors", []), "content": content,
+    }
 
 
 # canonical_tool_id -> CanonicalToolEntry
@@ -660,18 +1112,12 @@ _RAW_REGISTRY: list[CanonicalToolEntry] = [
         }, ["chunk_id"]),
     ),
     CanonicalToolEntry(
-        canonical_tool_id="knowledge.chunk.summary",
-        handler=_adapt(handle_knowledge_get_chunk_summary),
-        input_schema=_schema({
-            "workspace_id": _S["workspace_id"], "chunk_id": _S["chunk_id"],
-        }, ["chunk_id"]),
-    ),
-    CanonicalToolEntry(
         canonical_tool_id="knowledge.parent.read",
-        handler=_adapt(handle_knowledge_get_source),
+        handler=_adapt(_k_parent_read),
         input_schema=_schema({
             "workspace_id": _S["workspace_id"], "chunk_id": _S["chunk_id"],
         }, ["chunk_id"]),
+        description="Read the parent document/section that contains a specific chunk. Useful when a search chunk is too short and you need full context.",
     ),
     CanonicalToolEntry(
         canonical_tool_id="knowledge.source.read",
@@ -681,39 +1127,26 @@ _RAW_REGISTRY: list[CanonicalToolEntry] = [
         }, ["source_id"]),
     ),
     CanonicalToolEntry(
-        canonical_tool_id="knowledge.source.get",
-        handler=_adapt(handle_knowledge_get_source),
-        input_schema=_schema({
-            "workspace_id": _S["workspace_id"], "source_id": _S["source_id"],
-        }, ["source_id"]),
-    ),
-    CanonicalToolEntry(
         canonical_tool_id="knowledge.source.list",
-        handler=_adapt(handle_knowledge_get_source),
+        handler=_adapt(_k_source_list),
         input_schema=_schema({"workspace_id": _S["workspace_id"]}),
     ),
     CanonicalToolEntry(
         canonical_tool_id="knowledge.chunk.list",
-        handler=_adapt(handle_knowledge_get_source),
+        handler=_adapt(_k_chunk_list),
         input_schema=_schema({
             "workspace_id": _S["workspace_id"], "source_id": _S["source_id"],
         }),
     ),
     CanonicalToolEntry(
-        canonical_tool_id="knowledge.import.file",
-        handler=_adapt(handle_knowledge_search),  # placeholder — real impl in agent.modules.knowledge.tools
+        canonical_tool_id="knowledge.import",
+        handler=_adapt(_k_import),
         input_schema=_schema({
             "workspace_id": _S["workspace_id"],
             "filepath": _S["filepath"],
+            "title": {"type": "string", "description": "Document title."},
         }, ["filepath"]),
-    ),
-    CanonicalToolEntry(
-        canonical_tool_id="knowledge.import.document",
-        handler=_adapt(handle_knowledge_search),  # placeholder — real impl in agent.modules.knowledge.tools
-        input_schema=_schema({
-            "workspace_id": _S["workspace_id"],
-            "filepath": _S["filepath"],
-        }, ["filepath"]),
+        description="Import a file or document into the knowledge base. Accepts workspace file paths (files/ or inbox/). Auto-detects format.",
     ),
     CanonicalToolEntry(
         canonical_tool_id="knowledge.import.artifact",
@@ -735,18 +1168,13 @@ _RAW_REGISTRY: list[CanonicalToolEntry] = [
         input_schema=_schema({"workspace_id": _S["workspace_id"]}),
     ),
     CanonicalToolEntry(
-        canonical_tool_id="knowledge.source.disable",
-        handler=_adapt(handle_knowledge_search),  # placeholder — real impl in agent.modules.knowledge.tools
+        canonical_tool_id="knowledge.source.manage",
+        handler=_adapt(_k_source_manage),
         input_schema=_schema({
             "workspace_id": _S["workspace_id"], "source_id": _S["source_id"],
-        }, ["source_id"]),
-    ),
-    CanonicalToolEntry(
-        canonical_tool_id="knowledge.source.delete",
-        handler=_adapt(handle_knowledge_search),  # placeholder — real impl in agent.modules.knowledge.tools
-        input_schema=_schema({
-            "workspace_id": _S["workspace_id"], "source_id": _S["source_id"],
-        }, ["source_id"]),
+            "action": {"type": "string", "description": "Action: disable, delete, or reindex.", "enum": ["disable", "delete", "reindex"]},
+        }, ["source_id", "action"]),
+        description="Manage a knowledge source: disable (hide from search), delete (permanently remove), or reindex (rebuild index).",
     ),
     CanonicalToolEntry(
         canonical_tool_id="knowledge.not_found.explain",
@@ -799,20 +1227,14 @@ _RAW_REGISTRY: list[CanonicalToolEntry] = [
         }, ["query"]),
     ),
     CanonicalToolEntry(
-        canonical_tool_id="web.weather.current",
-        handler=_adapt(handle_weather_current),
+        canonical_tool_id="web.weather",
+        handler=_adapt(_weather_merged),
         input_schema=_schema({
-            "location": _S["location"], "units": _S["units"],
-            "language": _S["language"],
-        }, ["location"]),
-    ),
-    CanonicalToolEntry(
-        canonical_tool_id="web.weather.forecast",
-        handler=_adapt(handle_weather_forecast),
-        input_schema=_schema({
-            "location": _S["location"], "days": _S["days"],
+            "location": _S["location"],
+            "days": {"type": "integer", "description": "Days: 1=current weather, 2-10=forecast.", "default": 1},
             "units": _S["units"], "language": _S["language"],
         }, ["location"]),
+        description="Get weather for a location. days=1 returns current conditions; days=2-10 returns daily forecast. Uses Open-Meteo structured API with web search fallback.",
     ),
 
     # Runtime / Run / Session
@@ -826,21 +1248,7 @@ _RAW_REGISTRY: list[CanonicalToolEntry] = [
         handler=_adapt(handle_runtime_diagnostics),
         input_schema=_schema({"workspace_id": _S["workspace_id"]}),
     ),
-    CanonicalToolEntry(
-        canonical_tool_id="runtime.selfcheck",
-        handler=_adapt(handle_runtime_selfcheck),
-        input_schema=_schema({"workspace_id": _S["workspace_id"]}),
-    ),
-    CanonicalToolEntry(
-        canonical_tool_id="runtime.retention.preview",
-        handler=_adapt(handle_runtime_retention_preview),
-        input_schema=_schema({"workspace_id": _S["workspace_id"]}),
-    ),
-    CanonicalToolEntry(
-        canonical_tool_id="runtime.archive.preview",
-        handler=_adapt(handle_runtime_archive_preview),
-        input_schema=_schema({"workspace_id": _S["workspace_id"]}),
-    ),
+    # v3.2: stub tools removed — use runtime.diagnostics for all health checks
     CanonicalToolEntry(
         canonical_tool_id="run.list",
         handler=_adapt(handle_run_list_recent),
@@ -907,12 +1315,12 @@ _RAW_REGISTRY: list[CanonicalToolEntry] = [
     ),
     CanonicalToolEntry(
         canonical_tool_id="review.item.list",
-        handler=_adapt(handle_session_list_snapshots),  # placeholder — real impl in agent.modules.review
+        handler=_adapt(_review_item_list),
         input_schema=_schema({"workspace_id": _S["workspace_id"], "limit": _S["limit"]}),
     ),
     CanonicalToolEntry(
         canonical_tool_id="review.item.update",
-        handler=_adapt(handle_session_snapshot),  # placeholder — real impl in agent.modules.review
+        handler=_adapt(_review_item_update),
         input_schema=_schema({
             "workspace_id": _S["workspace_id"],
             "review_id": {"type": "string"},
@@ -1114,66 +1522,9 @@ _RAW_REGISTRY: list[CanonicalToolEntry] = [
         }, ["query"]),
         description="Search the full tool catalog and return loadable specialized tool_ids for the current turn.",
     ),
-    CanonicalToolEntry(
-        canonical_tool_id="skill.list",
-        handler=_adapt(handle_skill_list),
-        input_schema=_schema({"workspace_id": _S["workspace_id"]}),
-    ),
-    CanonicalToolEntry(
-        canonical_tool_id="skill.load",
-        handler=_adapt(handle_skill_load),
-        input_schema=_schema({
-            "workspace_id": _S["workspace_id"],
-            "skill_name": _S["skill_name"], "session_id": _S["session_id"],
-        }, ["skill_name"]),
-    ),
-    CanonicalToolEntry(
-        canonical_tool_id="skill.unload",
-        handler=_adapt(handle_skill_load),
-        input_schema=_schema({
-            "workspace_id": _S["workspace_id"],
-            "skill_name": _S["skill_name"], "session_id": _S["session_id"],
-            "unload": {"type": "boolean", "default": True},
-        }, ["skill_name"]),
-    ),
-    CanonicalToolEntry(
-        canonical_tool_id="skill.search",
-        handler=_adapt(handle_skill_find),
-        input_schema=_schema({
-            "workspace_id": _S["workspace_id"],
-            "query": _S["query"], "limit": _S["limit"],
-        }, ["query"]),
-    ),
-    CanonicalToolEntry(
-        canonical_tool_id="skill.get",
-        handler=_adapt(handle_skill_inspect),
-        input_schema=_schema({
-            "workspace_id": _S["workspace_id"],
-            "skill_name": _S["skill_name"],
-        }, ["skill_name"]),
-    ),
-    CanonicalToolEntry(
-        canonical_tool_id="skill.create",
-        handler=_adapt(handle_skill_create),
-        input_schema=_schema({
-            "name": {"type": "string", "description": "Skill name (alphanumeric, hyphens, underscores)"},
-            "description": {"type": "string", "description": "What this skill does"},
-            "capabilities": {"type": "array", "items": {"type": "string"}, "description": "List of capability IDs"},
-        }, ["name"]),
-    ),
-    CanonicalToolEntry(
-        canonical_tool_id="skill.install",
-        handler=_adapt(handle_skill_install),
-        input_schema=_schema({
-            "source": {"type": "string", "description": "Local dir path, archive URL (.zip/.tar.gz), or SKILL.md markdown content"},
-            "skill_name": {"type": "string", "description": "Skill directory name (auto-detected if omitted)"},
-        }, ["source"]),
-    ),
-    CanonicalToolEntry(
-        canonical_tool_id="slash.command.list",
-        handler=_adapt(handle_skill_list),
-        input_schema=_schema({"workspace_id": _S["workspace_id"]}),
-    ),
+    # v3.2：skill.* tools removed — capability-first routing replaces them.
+    # Use tool.catalog.search for capability discovery.
+    # Slash command tools removed — use host.command.slash_run for slash execution.
     CanonicalToolEntry(
         canonical_tool_id="slash.command.run",
         handler=_adapt(handle_slash_run),
@@ -1211,6 +1562,168 @@ _RAW_REGISTRY: list[CanonicalToolEntry] = [
             "dport": {"type": "integer", "description": "Destination port for filter."},
         }, ["action"]),
         description="Unified PCAP analysis: parse, session, filter, align.",
+    ),
+    # ── v3.4: Git tools ──
+    CanonicalToolEntry(
+        canonical_tool_id="git.status",
+        handler=_handler_git_status,
+        input_schema=_schema({
+            "repo_path": {"type": "string", "description": "Path to git repository. Default: current directory.", "default": "."},
+        }),
+        description="Check git status — shows modified, staged, and untracked files with branch info.",
+    ),
+    CanonicalToolEntry(
+        canonical_tool_id="git.diff",
+        handler=_handler_git_diff,
+        input_schema=_schema({
+            "repo_path": {"type": "string", "description": "Path to git repository.", "default": "."},
+            "staged": {"type": "boolean", "description": "Show staged changes only.", "default": False},
+            "file_path": {"type": "string", "description": "Limit diff to specific file.", "default": ""},
+        }),
+        description="Show git diff — unstaged or staged changes, optionally scoped to a file.",
+    ),
+    CanonicalToolEntry(
+        canonical_tool_id="git.log",
+        handler=_handler_git_log,
+        input_schema=_schema({
+            "repo_path": {"type": "string", "description": "Path to git repository.", "default": "."},
+            "n": {"type": "integer", "description": "Number of recent commits.", "default": 10},
+            "file_path": {"type": "string", "description": "Limit log to specific file.", "default": ""},
+        }),
+        description="View git commit history with one-line summaries.",
+    ),
+    CanonicalToolEntry(
+        canonical_tool_id="git.commit",
+        handler=_handler_git_commit,
+        input_schema=_schema({
+            "repo_path": {"type": "string", "description": "Path to git repository.", "default": "."},
+            "message": {"type": "string", "description": "Commit message."},
+            "files": {"type": "array", "items": {"type": "string"}, "description": "Specific files to stage and commit. Omit to stage all (-A)."},
+        }, ["message"]),
+        risk_level="medium", requires_approval=True,
+        description="Stage changes and create a commit. Requires approval. Use git.status and git.diff first to review what will be committed.",
+    ),
+    CanonicalToolEntry(
+        canonical_tool_id="git.push",
+        handler=_handler_git_push,
+        input_schema=_schema({
+            "repo_path": {"type": "string", "description": "Path to git repository.", "default": "."},
+            "remote": {"type": "string", "description": "Remote name.", "default": "origin"},
+            "branch": {"type": "string", "description": "Branch to push.", "default": ""},
+        }),
+        risk_level="medium", requires_approval=True,
+        description="Push commits to remote. Requires approval.",
+    ),
+    # ── v3.4: Code search ──
+    CanonicalToolEntry(
+        canonical_tool_id="code.search",
+        handler=_handler_code_search,
+        input_schema=_schema({
+            "pattern": {"type": "string", "description": "Search pattern (regex or literal). Example: 'import.*paramiko', 'class DeviceSession'."},
+            "directory": {"type": "string", "description": "Directory to search. Default: current project root.", "default": "."},
+            "file_type": {"type": "string", "description": "File type filter: py, ts, js, yaml, json, md, etc.", "default": ""},
+            "max_results": {"type": "integer", "description": "Max matching lines.", "default": 50},
+        }, ["pattern"]),
+        description="Search the codebase using ripgrep (fast) or Python fallback. Returns matching lines with file paths and line numbers. Use for finding functions, classes, imports, patterns across the codebase.",
+    ),
+    # ── v3.4: Browser tools ──
+    CanonicalToolEntry(
+        canonical_tool_id="browser.navigate",
+        handler=_handler_browser_navigate,
+        input_schema=_schema({
+            "url": {"type": "string", "description": "Full URL to navigate to (https://...)."},
+            "wait_selector": {"type": "string", "description": "Optional CSS selector to wait for.", "default": ""},
+        }, ["url"]),
+        description="Open a browser, navigate to a URL, and return page title + visible text content. Use for reading documentation, inspecting web apps, or scraping public pages.",
+    ),
+    CanonicalToolEntry(
+        canonical_tool_id="browser.extract",
+        handler=_handler_browser_extract,
+        input_schema=_schema({
+            "url": {"type": "string", "description": "Full URL to open."},
+            "selector": {"type": "string", "description": "CSS selector for element to extract. Default: body.", "default": "body"},
+        }, ["url"]),
+        description="Extract text content from a specific element on a web page. Use for targeted scraping or reading specific sections of documentation.",
+    ),
+    # ── CMDB device asset tools ──
+    CanonicalToolEntry(
+        canonical_tool_id="cmdb.list_assets",
+        handler=_handler_cmdb_list_assets,
+        input_schema=_schema({
+            "workspace_id": _S["workspace_id"],
+            "search": {"type": "string", "description": "Fuzzy search by name, vendor, host, or model. Example: 'AR1' or 'huawei'."},
+            "filter": {"type": "string", "description": "JSON filter string. Example: '{\"type\": \"switch\"}' or '{\"vendor\": \"cisco\"}'."},
+            "sort_by": {"type": "string", "description": "Sort field: name (default), type, vendor, host, updated_at."},
+        }),
+        description="List and search CMDB device assets. Supports fuzzy text search and JSON filtering by type/vendor. Returns asset list plus overall statistics (total count, breakdown by type/vendor/protocol).",
+    ),
+    CanonicalToolEntry(
+        canonical_tool_id="cmdb.get_asset",
+        handler=_handler_cmdb_get_asset,
+        input_schema=_schema({
+            "workspace_id": _S["workspace_id"],
+            "asset_id": {"type": "string", "description": "Asset ID to look up."},
+        }, ["asset_id"]),
+        description="Get full detail for a single CMDB asset by asset_id.",
+    ),
+    CanonicalToolEntry(
+        canonical_tool_id="cmdb.add_asset",
+        handler=_handler_cmdb_add_asset,
+        input_schema=_schema({
+            "workspace_id": _S["workspace_id"],
+            "name": {"type": "string", "description": "Device name."},
+            "host": {"type": "string", "description": "Management IP or hostname."},
+            "type": {"type": "string", "description": "Device type: switch, router, firewall.", "enum": ["switch", "router", "firewall", "server", "other"], "default": "switch"},
+            "vendor": {"type": "string", "description": "Vendor: h3c, huawei, cisco, etc."},
+            "protocol": {"type": "string", "description": "Connection protocol: ssh, telnet.", "enum": ["ssh", "telnet"], "default": "ssh"},
+            "port": {"type": "integer", "description": "Connection port.", "default": 22},
+            "username": {"type": "string", "description": "Login username."},
+            "password": {"type": "string", "description": "Login password (base64-obfuscated in storage)."},
+        }, ["name", "host"]),
+        risk_level="medium", requires_approval=True,
+        description="Add a new device asset to the CMDB. Requires approval.",
+    ),
+    CanonicalToolEntry(
+        canonical_tool_id="cmdb.delete_asset",
+        handler=_handler_cmdb_delete_asset,
+        input_schema=_schema({
+            "workspace_id": _S["workspace_id"],
+            "asset_id": {"type": "string", "description": "Asset ID to delete."},
+        }, ["asset_id"]),
+        risk_level="medium", requires_approval=True,
+        description="Soft-delete a CMDB asset (tombstone, recoverable). Requires approval.",
+    ),
+    # ── Network device SSH / Telnet ──
+    CanonicalToolEntry(
+        canonical_tool_id="network.ssh",
+        handler=_handler_network_ssh,
+        input_schema=_schema({
+            "host": {"type": "string", "description": "Target host IP or hostname. Required for first call; optional if reusing session_id."},
+            "port": {"type": "integer", "description": "SSH port. Default: 22.", "default": 22},
+            "username": {"type": "string", "description": "SSH login username."},
+            "password": {"type": "string", "description": "SSH login password."},
+            "command": {"type": "string", "description": "Shell command to execute (e.g. ps aux, free -h, systemctl start nginx). Use && to chain: 'ps aux && free -h'. Omit to keep session alive or close a session."},
+            "vendor": {"type": "string", "description": "Vendor: huawei/cisco/h3c/generic.", "default": "generic"},
+            "session_id": {"type": "string", "description": "Reuse an existing SSH session for fast consecutive commands. Omit for new session."},
+            "sudo": {"type": "boolean", "description": "Auto-prefix command with sudo. Default: false.", "default": False},
+            "close_session": {"type": "boolean", "description": "Close the session after this call. Set true to clean up.", "default": False},
+        }, ["host", "username", "command"]),
+        risk_level="medium", requires_approval=False,
+        description="SSH into any host (network device, Linux server, etc.), execute commands, return output. Session reuse with session_id for fast consecutive commands. Dangerous commands (reload/erase/format/rm -rf) are blocked automatically. Use sudo=true for privileged operations.",
+    ),
+    CanonicalToolEntry(
+        canonical_tool_id="network.telnet",
+        handler=_handler_network_telnet,
+        input_schema=_schema({
+            "host": {"type": "string", "description": "Device IP or hostname."},
+            "port": {"type": "integer", "description": "Telnet port. Default: 23.", "default": 23},
+            "username": {"type": "string", "description": "Telnet login username."},
+            "password": {"type": "string", "description": "Telnet login password."},
+            "command": {"type": "string", "description": "Command to execute."},
+            "vendor": {"type": "string", "description": "Vendor slug (huawei/cisco/generic).", "default": "generic"},
+        }, ["host", "command"]),
+        risk_level="medium", requires_approval=False,
+        description="Telnet into any host (network device, Linux server, console server, etc.), execute ONE command, return output, and disconnect. Stateless one-shot. Prefer network.ssh when available. Dangerous commands are blocked automatically. Telnet is unencrypted.",
     ),
     # ── FileStore tools ──
     CanonicalToolEntry(
@@ -1278,8 +1791,10 @@ def get_entry(canonical_tool_id: str) -> CanonicalToolEntry:
 
 
 def dispatch(canonical_tool_id: str, **kwargs) -> Any:
+    from tool_runtime.schemas import ToolInvocation
     entry = get_entry(canonical_tool_id)
-    return entry.handler(**kwargs)
+    inv = ToolInvocation(tool_id=canonical_tool_id, arguments=kwargs)
+    return entry.handler(inv)
 
 
 def to_tool_specs() -> list[tuple]:

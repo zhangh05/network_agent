@@ -57,9 +57,9 @@ export function isTraceNodeEvent(ev: RuntimeEvent): boolean {
   return type.includes("node") || type.includes("agent") || ["router", "context_loader"].includes(type);
 }
 
-export function isTraceSkillEvent(ev: RuntimeEvent): boolean {
+export function isTraceCapabilityEvent(ev: RuntimeEvent): boolean {
   const type = traceEventType(ev);
-  return type.includes("skill") || type === "skill_call";
+  return type.includes("capability") || type.includes("skill") || type === "capability_call";
 }
 
 export function deriveRunTraceStats(

@@ -192,8 +192,8 @@ EXPLICIT_CAPABILITY_ACTIONS: dict[str, CapabilityAction] = {
     "agent.skill.manage": CapabilityAction(
         capability_action="agent.skill.manage",
         category="agent", group="skill",
-        preferred_tools=("skill.list", "skill.search", "skill.get",
-                         "skill.load", "skill.unload"),
+        preferred_tools=("skill.list", "skill.find_skills", "skill.inspect",
+                         "skill.load"),
         reason="Discover, inspect, load and unload skills."),
     "agent.team.coordinate": CapabilityAction(
         capability_action="agent.team.coordinate",

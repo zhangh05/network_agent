@@ -202,6 +202,28 @@ class ToolRouter:
         """Return OpenAI-format tool definitions for LLM."""
         return [s.to_openai_function() for s in self.model_visible_specs]
 
+    def model_visible_tools_compact(
+        self,
+        core_tool_ids: set[str] | None = None,
+    ) -> list:
+        """Return OpenAI-format tool defs with defer_loading.
+        
+        Core tools (always needed) get full schema. Non-core tools get
+        compact name+one-liner to save tokens. The LLM can request full
+        schema via tool.catalog.search.
+
+        Uses Anthropic-style optimization: core tools with full schemas,
+        catalog tools with minimal schemas.
+        """
+        core = core_tool_ids or set()
+        result = []
+        for spec in self.model_visible_specs:
+            if spec.real_tool_id in core:
+                result.append(spec.to_openai_function())
+            else:
+                result.append(spec.to_openai_function_compact())
+        return result
+
     @staticmethod
     def resolve_tool_id(tool_id: str) -> str:
         """Return the canonical id for a tool reference.

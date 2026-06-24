@@ -11,7 +11,7 @@ EVENT_TYPES = {
     "agent_start", "agent_end",
     "node_start", "node_end",
     "intent_routed", "context_loaded", "plan_created",
-    "skill_call_start", "skill_call_end",
+    "capability_call_start", "capability_call_end",
     "module_call_start", "module_call_end",
     "verification",
     "llm_call_start", "llm_call_end",
@@ -89,7 +89,7 @@ class TraceRecord:
     total_duration_ms: float = 0.0
     events: list = field(default_factory=list)
     node_count: int = 0
-    skill_call_count: int = 0
+    capability_call_count: int = 0
     module_call_count: int = 0
     llm_call_count: int = 0
     memory_write_count: int = 0
@@ -109,7 +109,7 @@ class TraceRecord:
             "total_duration_ms": self.total_duration_ms,
             "events": [e.as_dict() if hasattr(e, "as_dict") else e for e in self.events],
             "node_count": self.node_count,
-            "skill_call_count": self.skill_call_count,
+            "capability_call_count": self.capability_call_count,
             "module_call_count": self.module_call_count,
             "llm_call_count": self.llm_call_count,
             "memory_write_count": self.memory_write_count,
@@ -122,7 +122,7 @@ class TraceRecord:
         return {
             "total_duration_ms": self.total_duration_ms,
             "node_count": self.node_count,
-            "skill_call_count": self.skill_call_count,
+            "capability_call_count": self.capability_call_count,
             "module_call_count": self.module_call_count,
             "llm_call_count": self.llm_call_count,
             "memory_write_count": self.memory_write_count,

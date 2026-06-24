@@ -74,6 +74,23 @@ def temp_dirs(monkeypatch):
         "base": _temp_base,
     }
 
+    # Reset all cached singletons to prevent test isolation issues
+    try:
+        from agent.capabilities.builtin import reset_default_capability_registry_cache
+        reset_default_capability_registry_cache()
+    except Exception:
+        pass
+    try:
+        from agent.runtime.capability_routing.toolset import _active_tool_catalog_cache
+        _active_tool_catalog_cache.clear()
+    except Exception:
+        pass
+    try:
+        from tool_runtime.tool_namespace import _cached_entries
+        _cached_entries.clear()
+    except Exception:
+        pass
+
     # Cleanup test-generated files but keep dirs
     for f in mem_dir.glob("*"):
         try:

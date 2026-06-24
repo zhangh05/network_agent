@@ -1,6 +1,6 @@
 # Network Agent
 
-AI-powered network analysis agent. Analyzes PCAPs, translates configs, builds topologies, and performs network diagnostics through conversational interface.
+AI-powered network analysis agent with general coding capabilities. Analyzes PCAPs, translates configs, builds topologies, manages CMDB, operates remote devices via SSH/Telnet, and supports Git/code search/browser automation — through a conversational interface.
 
 ## Quick Start
 
@@ -14,38 +14,41 @@ cd frontend && npm run dev
 
 ## Architecture
 
-See [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) for full architecture reference.
+See [STRUCTURE.md](STRUCTURE.md) for complete directory reference and [DESIGN.md](DESIGN.md) for pipeline design.
 
-Key modules:
-- `agent/` — Core agent loop, LLM provider, app service
-- `agent/runtime/` — Turn pipeline: ContextPipeline (13 stages) → TurnRunner → ToolExecutionPipeline (9 stages) → hooks
-- `backend/` — Flask API with 50+ endpoints, WebSocket streaming
-- `frontend/` — React/TS + Vite, 10 nav items, 12 pages
-- `tools/` — Tool runtime with canonical registry
-- `memory/` — Memory store with JSONL-backed CRUD
-- `jobs/` — Session-level job tracking with run accumulation
-- `artifacts/` — Artifact storage with per-run indexing
+### Key capabilities (10 total, 8 enabled)
+
+| Capability | Status | Tools |
+|-----------|--------|-------|
+| knowledge | enabled | knowledge.search, knowledge.chunk.*, knowledge.source.* |
+| artifact_management | enabled | workspace.artifact.* |
+| review_flow | enabled | review.item.* |
+| cmdb | enabled | cmdb.list_assets, cmdb.get_asset, cmdb.add_asset, cmdb.delete_asset |
+| network_device | enabled | network.ssh, network.telnet |
+| pcap_analysis | enabled | pcap.analysis.run |
+| coding | enabled | git.status/diff/log/commit/push, code.search |
+| browser | enabled | browser.navigate, browser.extract |
+| topology | planned | — |
+| inspection | planned | — |
+
+### Tool system (102 tools, 13 categories)
+
+```text
+host(4) workspace(23) knowledge(12) web(7) network(4)
+runtime(13) memory(8) report_data(13) agent(6) cmdb(4)
+git(5) code(1) browser(2)
+```
+
+20 core tools always visible via CORE_TOOL_IDS. Remaining tools activated by scene-aware ToolPlannerV2.
 
 ## API
-
-See [docs/API.md](docs/API.md) for complete API reference.
 
 Core endpoints:
 - `POST /api/agent/message` — Main agent entry
 - `WS /ws/agent` — Real-time streaming
-- `GET/POST /api/sessions` — Session management
-- `GET /api/jobs` — Job management
-- `GET /api/runs/recent` — Run history
-
-## Frontend
-
-See [docs/FRONTEND.md](docs/FRONTEND.md) for frontend reference.
-
-Pages: Workbench, PacketAnalysis, Runs, Capabilities, Jobs, Knowledge, Artifacts, Memory, Diagnostics, Settings.
-
-## Runtime
-
-See [docs/RUNTIME.md](docs/RUNTIME.md) for runtime execution model.
+- `GET /api/tools/invoke` — Execute any tool
+- `GET /api/capabilities` — List capabilities
+- `GET /api/health` — Health check
 
 ## Tech Stack
 
@@ -56,3 +59,4 @@ See [docs/RUNTIME.md](docs/RUNTIME.md) for runtime execution model.
 | LLM | MiniMax M3 (245K context) |
 | Retrieval | BM25 + CJK bigram/trigram |
 | Storage | JSONL (append + tombstone + GC) |
+| Term | xterm.js (SSH/Telnet) |

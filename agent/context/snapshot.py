@@ -59,7 +59,7 @@ class RuntimeSnapshot:
                 lines.append("  Note: planned capabilities are NOT callable.")
             lines.append("")
 
-            lines.append("Enabled skills:")
+            lines.append("Enabled capabilities:")
             for s in self.enabled_skills:
                 lines.append(f"  - {s}")
             lines.append("")
@@ -77,8 +77,14 @@ class RuntimeSnapshot:
 
             if self.safety_baseline:
                 lines.append("Safety:")
-                lines.append("  - No real device access")
-                lines.append("  - config.push forbidden")
+                if self.safety_baseline.get("real_device_access"):
+                    lines.append("  - Real device access ENABLED (SSH/Telnet allowed; dangerous commands blocked)")
+                else:
+                    lines.append("  - No real device access")
+                if self.safety_baseline.get("allows_config_push"):
+                    lines.append("  - Config push ALLOWED (requires approval)")
+                else:
+                    lines.append("  - Config push forbidden")
                 lines.append("  - translated_config is not deployable_config")
                 lines.append("  - knowledge sources must not be fabricated")
 
@@ -109,11 +115,11 @@ class RuntimeSnapshot:
                          f"{self.visible_tool_count} visible to LLM")
             lines.append("")
 
-            lines.append("Enabled Skills:")
+            lines.append("Enabled Capabilities:")
             for s in self.enabled_skills:
                 lines.append(f"  ✅ {s}")
             if self.planned_skills:
-                lines.append("Planned Skills (NOT yet available):")
+                lines.append("Planned Capabilities (NOT yet available):")
                 for s in self.planned_skills:
                     lines.append(f"  🔧 {s} — planned, not callable")
 
@@ -132,8 +138,8 @@ class RuntimeSnapshot:
         return {
             "tool_count": self.tool_count,
             "visible_tool_count": self.visible_tool_count,
-            "enabled_skills": self.enabled_skills,
-            "planned_skills": self.planned_skills,
+            "enabled_capabilities": self.enabled_skills,
+            "planned_capabilities": self.planned_skills,
             "enabled_modules": self.enabled_modules,
             "planned_modules": self.planned_modules,
             "workspace_id": self.workspace_id,
@@ -144,7 +150,7 @@ class RuntimeSnapshot:
             "visible_business_tools": self.visible_business_tools,
             "safety_baseline": self.safety_baseline,
             "metadata": self.metadata,
-            "selected_skills": self.selected_skills,
+            "selected_capabilities": self.selected_skills,
             "selected_visible_tools": self.selected_visible_tools,
             "dynamic_tool_visibility": self.dynamic_tool_visibility,
         }

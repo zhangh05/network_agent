@@ -370,10 +370,100 @@ def llm_plan_tools(
     available_catalog: dict,
     model_config: dict | None = None,
 ) -> dict | None:
-    """Optional LLM planner hook — fail-closed until dedicated adapter is wired."""
+    """Optional LLM planner — refines the deterministic seed plan.
+
+    v3.3: Enabled. Lightweight refinement: uses LLM to adjust candidate tools
+    and reorder capability steps based on conversation nuance that deterministic
+    keyword matching cannot capture.
+    """
     if not model_config or not model_config.get("enabled"):
         return None
-    return None
+
+    try:
+        from agent.llm.runtime import get_runtime
+        runtime = get_runtime()
+        if not runtime:
+            return None
+
+        available = available_canonical_tools(available_catalog)
+        seed_tools = seed_plan.get("candidate_tools", [])
+        seed_steps = seed_plan.get("tool_plan", [])
+
+        # Build a compact prompt for LLM refinement
+        tool_list = "\n".join(
+            f"- {tid}" for tid in (seed_tools[:20] or available[:20])
+        )
+        steps_desc = "\n".join(
+            f"  Step {s.get('step','?')}: {s.get('goal','?')} → tools:{s.get('tool_candidates',[])[:3]}"
+            for s in seed_steps[:5]
+        )
+
+        prompt = (
+            f"Refine this tool plan for the user request.\n"
+            f"User: {user_input[:300]}\n\n"
+            f"Available tools:\n{tool_list}\n\n"
+            f"Current plan:\n{steps_desc}\n\n"
+            f"Return a JSON with keys: 'candidate_tools' (list of tool IDs, no more than 15), "
+            f"and optionally 'reorder_steps' (list of step numbers). "
+            f"Only add tools that are in the available list. Only respond with valid JSON."
+        )
+
+        resp = runtime.chat(prompt, temperature=0.3, max_tokens=512)
+        if not resp:
+            return None
+
+        import json as _json
+        content = resp.content if hasattr(resp, "content") else str(resp)
+        # Extract JSON from response
+        content = content.strip()
+        if content.startswith("```"):
+            content = content.split("\n", 1)[-1].rsplit("\n```", 1)[0]
+        try:
+            refined = _json.loads(content)
+        except _json.JSONDecodeError:
+            return None
+
+        if not isinstance(refined, dict):
+            return None
+
+        new_tools = refined.get("candidate_tools", [])
+        if not isinstance(new_tools, list) or not new_tools:
+            return None
+
+        # Validate: only keep tools that are in available
+        valid_tools = [tid for tid in new_tools if isinstance(tid, str) and tid in available]
+        if not valid_tools:
+            return None
+
+        # Build refined plan
+        refined_plan = dict(seed_plan)
+        refined_plan["candidate_tools"] = _ordered_unique([*valid_tools, *seed_tools])[:MAX_CANDIDATE_TOOLS]
+
+        # Update capability steps if reorder requested
+        reorder = refined.get("reorder_steps", [])
+        if isinstance(reorder, list) and len(reorder) == len(seed_steps):
+            new_steps = [seed_steps[i - 1] for i in reorder if 1 <= i <= len(seed_steps)]
+            if len(new_steps) == len(seed_steps):
+                for j, s in enumerate(new_steps):
+                    s = dict(s)
+                    s["step"] = j + 1
+                    new_steps[j] = s
+                refined_plan["tool_plan"] = new_steps
+
+        refined_plan["tool_planner"] = {
+            "planner_version": PLANNER_VERSION,
+            "mode": "llm_refined",
+            "valid": True,
+            "fallback_used": False,
+            "warnings": [],
+        }
+        if "capability_routing" in available_catalog:
+            refined_plan["capability_routing"] = available_catalog["capability_routing"]
+
+        return refined_plan
+
+    except Exception:
+        return None
 
 
 # ─── Capability steps from rule scene ──────────────────────────────────

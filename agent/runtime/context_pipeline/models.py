@@ -12,14 +12,14 @@ class StageName(str, Enum):
     MODEL_CONFIG = "model_config"
     HISTORY = "history"
     TOOL_ROUTER = "tool_router"
-    SKILL_SELECTION = "skill_selection"
+    CAPABILITY_SELECTION = "capability_selection"
     SCENE_DECISION = "scene_decision"
     RETRIEVAL_POLICY = "retrieval_policy"
     RUNTIME_STATE = "runtime_state"
     EVIDENCE = "evidence"
     TOOL_PLANNING = "tool_planning"
     SAFE_CONTEXT = "safe_context"
-    LOADED_SKILL = "loaded_skill"
+    LOADED_CAPABILITY = "loaded_capability"
     METADATA_WRITE = "metadata_write"
 
 

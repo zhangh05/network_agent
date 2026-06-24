@@ -44,3 +44,29 @@ class LLMToolSpec:
                 "parameters": parameters,
             },
         }
+
+    def to_openai_function_compact(self) -> dict:
+        """Compact version for defer_loading — name + one-liner only.
+
+        Minimizes token usage for non-core tools. The LLM can request
+        the full schema via tool.catalog.search when needed.
+        """
+        parameters = dict(self.parameters or {})
+        # Only include required params in compact mode — save tokens
+        required = parameters.get("required", [])
+        compact_params = {
+            "type": "object",
+            "properties": {k: parameters["properties"][k]
+                          for k in required
+                          if k in parameters.get("properties", {})},
+        }
+        if required:
+            compact_params["required"] = required
+        return {
+            "type": "function",
+            "function": {
+                "name": self.name,
+                "description": self.description,
+                "parameters": compact_params,
+            },
+        }

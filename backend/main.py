@@ -26,7 +26,7 @@ from backend.api.llm_api import (
     handle_providers_list, handle_provider_get, handle_provider_save,
     handle_provider_delete, handle_llm_activate,
 )
-from backend.api.skills import handle_skills, get_skill_count
+from backend.api.skills import handle_skills
 from backend.api.modules import handle_modules, handle_module_status, handle_registry_status, handle_capabilities
 from backend.api.memory import handle_memory_status, handle_memory_write, handle_memory_search
 from backend.api.memory_routes import handle_memory_confirm, handle_memory_delete, handle_memory_list
@@ -86,10 +86,11 @@ def create_app():
     @app.route("/api/health")
     def api_health():
         from backend.core.responses import ok_response
+        from agent.capabilities.builtin import get_default_capability_registry
         body, _ = ok_response({
             "status": "ok",
             "api_mode": API_MODE,
-            "skills_loaded": get_skill_count(),
+            "capabilities_loaded": len(get_default_capability_registry().list_all()),
         })
         return jsonify(body)
 
@@ -340,6 +341,29 @@ def main():
     print(f"  API mode: {API_MODE}")
     print(f"  Build: {BUILD_COMMIT}")
     print(f"  Translator entry: {TRANSLATOR_ENTRY}")
+
+    # Signal handler: cleanup SSH/browser sessions on shutdown
+    import signal
+    def _graceful_shutdown(signum, frame):
+        print("Shutting down gracefully...")
+        try:
+            from agent.modules.remote.core import _SESSIONS, _SESSIONS_LOCK
+            with _SESSIONS_LOCK:
+                for sid in list(_SESSIONS.keys()):
+                    try:
+                        _SESSIONS[sid].close()
+                    except Exception:
+                        pass
+                _SESSIONS.clear()
+            print(f"All remote sessions closed.")
+        except Exception as e:
+            print(f"Cleanup warning: {e}")
+        import sys
+        sys.exit(0)
+
+    signal.signal(signal.SIGTERM, _graceful_shutdown)
+    signal.signal(signal.SIGINT, _graceful_shutdown)
+
     app.run(host=args.host, port=port, debug=False)
 
 

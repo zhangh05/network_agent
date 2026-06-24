@@ -74,12 +74,26 @@ export function ApprovalBubble({ onResolved }: { onResolved?: () => void }) {
         if (cancelled) return;
         if (data.ok && data.pending?.length > 0) {
           const p = data.pending[0] as PendingApproval;
-          _globalPending = p;
           // created_at is a Python time.time() float (seconds since epoch),
           // but JS Date expects milliseconds. Multiply by 1000.
           const created = new Date(p.created_at * 1000).getTime();
           const elapsed = (Date.now() - created) / 1000;
-          _globalSecondsLeft = Math.max(0, Math.ceil(60 - elapsed));
+          const secondsLeft = Math.max(0, Math.ceil(60 - elapsed));
+
+          // Skip stale approvals: if already expired or older than 120s,
+          // silently auto-deny on the backend and don't flash the bubble.
+          if (secondsLeft <= 0 || elapsed > 120) {
+            try { await approvalApi.resolve(p.approval_id, false); } catch { /* ignore */ }
+            if (!_globalResolving) {
+              _globalPending = null;
+              _globalSecondsLeft = 60;
+            }
+            _notifyListeners();
+            return;
+          }
+
+          _globalPending = p;
+          _globalSecondsLeft = secondsLeft;
         } else {
           // Only clear if not currently resolving
           if (!_globalResolving) {

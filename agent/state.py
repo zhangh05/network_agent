@@ -49,10 +49,10 @@ class NetworkAgentState:
 
     plan: List[str] = field(default_factory=list)
 
-    # ── Skill / Capability execution records ──
-    # skill_calls / skill_results are the PRIMARY fields for skill/capability
-    # execution records. They hold skill adapter invocation metadata and results.
-    skill_calls: List[Dict[str, Any]] = field(default_factory=list)
+    # ── Capability execution records ──
+    # capability_calls / skill_results (legacy) are the PRIMARY fields for capability
+    # execution records. They hold capability adapter invocation metadata and results.
+    capability_calls: List[Dict[str, Any]] = field(default_factory=list)
     skill_results: Dict[str, Any] = field(default_factory=dict)
 
     # Tool audit projection used by traces, run records, and UI contracts.

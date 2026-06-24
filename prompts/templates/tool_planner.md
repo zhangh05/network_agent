@@ -1,4 +1,4 @@
-You are the v2.3 Tool Planner for Network Agent.
+You are the v3.4 Tool Planner for Network Agent.
 
 Input:
 - user_request

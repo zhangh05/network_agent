@@ -2,27 +2,24 @@
 """Capability Layer v0.8 — unified CapabilityManifest / CapabilityRegistry.
 
 A Capability is the canonical, truth-source definition of a business
-capability: a Module + Tool(s) + Skill(s) + Output Contract + Safety
-Contract. RuntimeSnapshot / ModuleRegistry / SkillRegistry / ToolRegistry
+capability: a Module + Tool(s) + Output Contract + Safety
+Contract. RuntimeSnapshot / ModuleRegistry / ToolRegistry
 all derive from this single source.
 
 Design contract:
 - Module: business implementation, structured in/out, may write artifacts,
-  does NOT know about LLM / Skill / ToolRouter.
+  does NOT know about LLM / ToolRouter.
 - Tool: LLM-callable entry. Defines tool_id / schema / risk / approval /
   callable_by_llm. Lightweight argument validation, dispatches to Module,
   wraps ToolResult.
-- Skill: tells the LLM when to use the capability, its pre/post conditions
-  and safety rules. Does NOT execute code.
-- Capability: a Capability bundles Module + Tool(s) + Skill(s) + Output
-  Contract + Safety Contract.
+- Capability: a Capability bundles Module + Tool(s) + intent routing
+  (intent_patterns / prompt_summary) + Output Contract + Safety Contract.
 """
 
 from agent.capabilities.schemas import (
     CapabilityStatus,
     CapabilityManifest,
     CapabilityModuleSpec,
-    CapabilitySkillSpec,
     CapabilityToolRef,
     CapabilityOutputSpec,
     CapabilitySafetySpec,
@@ -39,7 +36,6 @@ __all__ = [
     "CapabilityStatus",
     "CapabilityManifest",
     "CapabilityModuleSpec",
-    "CapabilitySkillSpec",
     "CapabilityToolRef",
     "CapabilityOutputSpec",
     "CapabilitySafetySpec",

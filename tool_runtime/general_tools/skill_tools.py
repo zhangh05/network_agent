@@ -1,99 +1,136 @@
-"""Skill tool handlers — capability-first implementation.
+"""Skill tool handlers — thin CapabilityPackage lookup.
 
-All handlers delegate to agent.runtime.skill_runtime.
-Skills are CapabilityPackage manifests, not filesystem prompt files.
+Skills ARE CapabilityPackages. These handlers exist for backward compat
+with the skill.load / skill.search / skill.list tool surface.  New code
+should use the CapabilityRouter + ToolBundle (capability-first routing).
+
+v3.2: Removed agent/runtime/skill_runtime/ dependency. All logic now
+reads CAPABILITY_PACKAGES directly from capability_routing/manifests.py.
 """
 from tool_runtime.general_tools.shared import *
 
-from agent.runtime.skill_runtime.registry import (
-    list_skill_manifests,
-    get_skill_manifest,
-    search_skill_manifests,
-)
-from agent.runtime.skill_runtime.loader import load_skill
-from agent.runtime.skill_runtime.session import skill_session_record
+from agent.runtime.capability_routing.manifests import CAPABILITY_PACKAGES
 
+
+# ── internal helpers (was agent/runtime/skill_runtime/) ──
+
+def _pkg_as_dict(pkg) -> dict:
+    """CapabilityPackage → dict (replaces SkillManifest mirror)."""
+    return {
+        "skill_id": pkg.capability_id,
+        "display_name": pkg.display_name,
+        "description": pkg.description,
+        "status": "active",
+        "capability_ids": (pkg.capability_id,),
+        "module_ids": tuple(pkg.module_ids),
+        "tool_ids": tuple(pkg.tool_ids),
+        "prompt_hints": tuple(pkg.prompt_hints),
+        "safety_notes": tuple(pkg.safety_notes),
+        "output_kinds": tuple(pkg.output_kinds),
+        "source": "capability_package",
+    }
+
+
+def _search_packages(query: str, limit: int = 10) -> list[dict]:
+    """Keyword search in CAPABILITY_PACKAGES."""
+    q = (query or "").lower().strip()
+    if not q:
+        return []
+    matches = []
+    for pkg in CAPABILITY_PACKAGES:
+        haystack = " ".join([
+            pkg.capability_id, pkg.display_name, pkg.description,
+            " ".join(pkg.intent_keywords),
+            " ".join(pkg.module_ids), " ".join(pkg.tool_ids),
+        ]).lower()
+        if q in haystack:
+            matches.append(_pkg_as_dict(pkg))
+    return matches[:max(1, min(limit, 20))]
+
+
+# ── tool handlers ──
 
 def handle_skill_list(inv: ToolInvocation) -> dict:
-    """List skills as capability manifests."""
+    """List all capability packages as 'skills'."""
     try:
-        manifests = list_skill_manifests()
-        results = [
-            {
-                "skill_id": m.skill_id,
-                "display_name": m.display_name,
-                "description": m.description,
-                "status": m.status,
-                "capability_ids": list(m.capability_ids),
-                "module_ids": list(m.module_ids),
-                "tool_ids": list(m.tool_ids),
-                "source": m.source,
-            }
-            for m in manifests
-        ]
+        results = [_pkg_as_dict(p) for p in CAPABILITY_PACKAGES]
         return _ok(inv, "", {"results": results, "count": len(results)})
     except Exception as e:
         return _error_inv(inv, str(e)[:200])
 
 
 def handle_skill_request_load(inv: ToolInvocation) -> dict:
-    """Request loading a skill — delegates to handle_skill_load."""
     return handle_skill_load(inv)
 
 
 def handle_skill_load(inv: ToolInvocation) -> dict:
-    """Load a skill by ID and return its capability contract.
+    """Load a skill (CapabilityPackage lookup) by capability_id.
 
-    Returns capability_ids, module_ids, tool_ids, prompt_hints, safety_notes.
-    Does NOT return skill_prompt or SKILL.md content.
+    Returns tool_ids, module_ids, prompt_hints — the LLM uses these
+    to call tool.catalog.load or the actual business tools directly.
     """
     args = inv.arguments or {}
     skill_name = str(args.get("skill_name", "")).strip()
     if not skill_name:
         return _error_inv(inv, "skill_name is required")
 
-    result = load_skill(skill_name)
-    if not result.ok:
-        return _error_inv(inv, result.message)
+    # Direct lookup in CAPABILITY_PACKAGES by capability_id
+    for pkg in CAPABILITY_PACKAGES:
+        if pkg.capability_id == skill_name:
+            return _ok(inv, "", {
+                "skill_id": pkg.capability_id,
+                "status": "active",
+                "capability_ids": [pkg.capability_id],
+                "module_ids": list(pkg.module_ids),
+                "tool_ids": list(pkg.tool_ids),
+                "prompt_hints": list(pkg.prompt_hints),
+                "safety_notes": list(pkg.safety_notes),
+                "message": "skill loaded as capability package",
+                "skill_record": {
+                    "skill_id": pkg.capability_id,
+                    "status": "active",
+                    "capability_ids": [pkg.capability_id],
+                    "module_ids": list(pkg.module_ids),
+                    "tool_ids": list(pkg.tool_ids),
+                    "prompt_hints": list(pkg.prompt_hints),
+                    "safety_notes": list(pkg.safety_notes),
+                },
+            })
 
-    record = skill_session_record(result)
-    return _ok(inv, "", {
-        "skill_id": result.skill_id,
-        "status": result.status,
-        "capability_ids": list(result.capability_ids),
-        "module_ids": list(result.module_ids),
-        "tool_ids": list(result.tool_ids),
-        "prompt_hints": list(result.prompt_hints),
-        "safety_notes": list(result.safety_notes),
-        "message": result.message,
-        "skill_record": record,
-    })
+    # Fuzzy match: try substring in capability_id or display_name
+    lower = skill_name.lower()
+    for pkg in CAPABILITY_PACKAGES:
+        if lower in pkg.capability_id.lower() or lower in pkg.display_name.lower():
+            return _ok(inv, "", {
+                "skill_id": pkg.capability_id,
+                "status": "active",
+                "capability_ids": [pkg.capability_id],
+                "module_ids": list(pkg.module_ids),
+                "tool_ids": list(pkg.tool_ids),
+                "prompt_hints": list(pkg.prompt_hints),
+                "safety_notes": list(pkg.safety_notes),
+                "message": "skill loaded as capability package (fuzzy match)",
+                "skill_record": {
+                    "skill_id": pkg.capability_id,
+                    "status": "active",
+                    "capability_ids": [pkg.capability_id],
+                    "module_ids": list(pkg.module_ids),
+                    "tool_ids": list(pkg.tool_ids),
+                },
+            })
+
+    return _error_inv(inv, f"skill '{skill_name}' not found. Available: {[p.capability_id for p in CAPABILITY_PACKAGES]}")
 
 
 def handle_skill_find(inv: ToolInvocation) -> dict:
-    """Search for skills by keyword in capability manifests."""
+    """Search skills (CapabilityPackages) by keyword."""
     args = inv.arguments or {}
     query = str(args.get("query", "")).strip()
     limit = int(args.get("limit", 10))
-
     if not query:
         return _error_inv(inv, "query is required")
-
     try:
-        matches = search_skill_manifests(query, limit=limit)
-        results = [
-            {
-                "skill_id": m.skill_id,
-                "display_name": m.display_name,
-                "description": m.description,
-                "status": m.status,
-                "capability_ids": list(m.capability_ids),
-                "module_ids": list(m.module_ids),
-                "tool_ids": list(m.tool_ids),
-                "source": m.source,
-            }
-            for m in matches
-        ]
+        results = _search_packages(query, limit=limit)
         return _ok(inv, "", {"results": results, "count": len(results), "query": query})
     except Exception as e:
         return _error_inv(inv, str(e)[:200])
@@ -111,40 +148,27 @@ def handle_skill_create(inv: ToolInvocation) -> dict:
 
 
 def handle_skill_install(inv: ToolInvocation) -> dict:
-    """Skill installation is disabled. External skills require reviewed CapabilityPackage."""
     return {
         "ok": False,
         "tool_id": inv.tool_id,
         "status": "blocked",
-        "summary": "Skill installation is disabled; external skills require reviewed CapabilityPackage registration.",
+        "summary": "Skill installation is disabled; define CapabilityPackage instead.",
         "errors": ["skill_install_disabled"],
     }
 
 
 def handle_skill_inspect(inv: ToolInvocation) -> dict:
-    """Return skill manifest details (not SKILL.md content)."""
+    """Return skill (CapabilityPackage) details."""
     args = inv.arguments or {}
     skill_name = str(args.get("skill_name", "")).strip()
     if not skill_name:
         return _error_inv(inv, "skill_name is required")
 
-    manifest = get_skill_manifest(skill_name)
-    if manifest is None:
-        return _error_inv(inv, f"skill '{skill_name}' not found")
+    for pkg in CAPABILITY_PACKAGES:
+        if pkg.capability_id == skill_name:
+            return _ok(inv, "", _pkg_as_dict(pkg))
 
-    return _ok(inv, "", {
-        "skill_id": manifest.skill_id,
-        "display_name": manifest.display_name,
-        "description": manifest.description,
-        "status": manifest.status,
-        "capability_ids": list(manifest.capability_ids),
-        "module_ids": list(manifest.module_ids),
-        "tool_ids": list(manifest.tool_ids),
-        "prompt_hints": list(manifest.prompt_hints),
-        "safety_notes": list(manifest.safety_notes),
-        "output_kinds": list(manifest.output_kinds),
-        "source": manifest.source,
-    })
+    return _error_inv(inv, f"skill '{skill_name}' not found")
 
 
 __all__ = [

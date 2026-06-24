@@ -159,6 +159,7 @@ export interface AgentResult {
   /** v2.1.2: Human-readable reason when no tools called */
   no_tool_reason?: string;
   metadata: {
+    selected_capabilities?: string[];
     selected_skills?: string[];
     visible_tools?: string[];
     source_count?: number;
@@ -561,6 +562,7 @@ export interface RuntimeAuditTurn {
   started_at: string;
   finished_at: string;
   status: string;
+  selected_capabilities: string[];
   selected_skills: string[];
   visible_tools: string[];
   tool_call_count: number;

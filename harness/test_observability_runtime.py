@@ -40,7 +40,7 @@ class TestTraceSchema:
     def test_event_type_valid(self):
         from observability.schemas import EVENT_TYPES
         assert "node_start" in EVENT_TYPES
-        assert "skill_call_start" in EVENT_TYPES
+        assert "capability_call_start" in EVENT_TYPES
         assert "llm_call_start" in EVENT_TYPES
 
     def test_status_values(self):
