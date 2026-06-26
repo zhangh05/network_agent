@@ -51,9 +51,7 @@ export function App() {
   const [version, setVersion] = useState<string | null>(null);
   const theme = useUIStore((s) => s.theme);
   const setTheme = useUIStore((s) => s.setTheme);
-  const inspectorOpen = useUIStore((s) => s.inspectorOpen);
   const sidebarOpen = useUIStore((s) => s.sidebarOpen);
-  const toggleInspector = useUIStore((s) => s.toggleInspector);
   const toggleSidebar = useUIStore((s) => s.toggleSidebar);
 
   useEffect(() => {
@@ -118,17 +116,6 @@ export function App() {
           >
             {theme === "dark" ? <IconSun size={14} /> : <IconMoon size={14} />}
           </button>
-
-          <button
-            type="button"
-            className="collapse-btn"
-            data-tip="切换检查器"
-            data-testid={inspectorOpen ? "btn-toggle-inspector" : "btn-open-inspector"}
-            aria-label="切换检查器"
-            onClick={toggleInspector}
-          >
-            {inspectorOpen ? <IconChevronRight size={14} /> : <IconChevronLeft size={14} />}
-          </button>
         </header>
 
         <div className="app-main">
@@ -137,7 +124,7 @@ export function App() {
               path="/workbench"
               element={
                 <ErrorBoundary>
-                  <AppLayout cols={3}>
+                  <AppLayout>
                     <TaskWorkbench />
                   </AppLayout>
                 </ErrorBoundary>
@@ -147,33 +134,33 @@ export function App() {
               path="/packet"
               element={
                 <ErrorBoundary>
-                  <AppLayout cols={2}>
+                  <AppLayout>
                     <PacketAnalysis />
                   </AppLayout>
                 </ErrorBoundary>
               }
             />
             <Route path="/knowledge" element={
-                <ErrorBoundary><AppLayout cols={2}><KnowledgeLibrary /></AppLayout></ErrorBoundary>
+                <ErrorBoundary><AppLayout><KnowledgeLibrary /></AppLayout></ErrorBoundary>
               }
             />
             <Route path="/artifacts" element={
-                <ErrorBoundary><AppLayout cols={2}><ArtifactCenter /></AppLayout></ErrorBoundary>
+                <ErrorBoundary><AppLayout><ArtifactCenter /></AppLayout></ErrorBoundary>
               }
             />
             <Route path="/memory" element={
-                <ErrorBoundary><AppLayout cols={2}><MemoryPage /></AppLayout></ErrorBoundary>
+                <ErrorBoundary><AppLayout><MemoryPage /></AppLayout></ErrorBoundary>
               }
             />
             <Route path="/cmdb" element={
-                <ErrorBoundary><AppLayout cols={2}><CMDBPage /></AppLayout></ErrorBoundary>
+                <ErrorBoundary><AppLayout><CMDBPage /></AppLayout></ErrorBoundary>
               }
             />
             <Route
               path="/capabilities"
               element={
                 <ErrorBoundary>
-                  <AppLayout cols={2}>
+                  <AppLayout>
                     <CapabilityCenter />
                   </AppLayout>
                 </ErrorBoundary>
@@ -183,7 +170,7 @@ export function App() {
               path="/jobs"
               element={
                 <ErrorBoundary>
-                  <AppLayout cols={2}>
+                  <AppLayout>
                     <JobsPage />
                   </AppLayout>
                 </ErrorBoundary>
@@ -193,7 +180,7 @@ export function App() {
               path="/diagnostics"
               element={
                 <ErrorBoundary>
-                  <AppLayout cols={1}>
+                  <AppLayout>
                     <Diagnostics />
                   </AppLayout>
                 </ErrorBoundary>
@@ -203,7 +190,7 @@ export function App() {
               path="/settings"
               element={
                 <ErrorBoundary>
-                  <AppLayout cols={2}>
+                  <AppLayout>
                     <Settings />
                   </AppLayout>
                 </ErrorBoundary>
@@ -213,22 +200,22 @@ export function App() {
               path="/runs"
               element={
                 <ErrorBoundary>
-                  <AppLayout cols={3}>
+                  <AppLayout>
                     <RunsPage />
                   </AppLayout>
                 </ErrorBoundary>
               }
             />
             <Route path="/audit" element={
-                <ErrorBoundary><AppLayout cols={2}><RuntimeAudit /></AppLayout></ErrorBoundary>
+                <ErrorBoundary><AppLayout><RuntimeAudit /></AppLayout></ErrorBoundary>
               }
             />
             <Route path="/reviews" element={
-                <ErrorBoundary><AppLayout cols={2}><ReviewCenter /></AppLayout></ErrorBoundary>
+                <ErrorBoundary><AppLayout><ReviewCenter /></AppLayout></ErrorBoundary>
               }
             />
             <Route path="/files" element={
-                <ErrorBoundary><AppLayout cols={2}><FileManager /></AppLayout></ErrorBoundary>
+                <ErrorBoundary><AppLayout><FileManager /></AppLayout></ErrorBoundary>
               }
             />
             <Route path="/" element={<Navigate to="/workbench" replace />} />
@@ -236,7 +223,7 @@ export function App() {
               path="*"
               element={
                 <ErrorBoundary>
-                  <AppLayout cols={1}>
+                  <AppLayout>
                     <div className="hero">
                       <div className="hero-mark">404</div>
                       <h1 className="hero-title">页面不存在</h1>

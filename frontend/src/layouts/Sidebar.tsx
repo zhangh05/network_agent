@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { useAsync, AsyncView } from "../components/common";
 import { sessionsApi, workspacesApi, runtimeAuditApi } from "../api";
-import { useSessionStore, useUIStore } from "../stores/session";
+import { useSessionStore } from "../stores/session";
 import { useWorkbenchStore } from "../stores/workbench";
 import { useToastStore } from "../stores/toast";
 import { isApiError, AgentResult } from "../types";
@@ -31,13 +31,10 @@ export function Sidebar() {
   const setCurrentSession = useSessionStore((s) => s.setCurrentSession);
   const setSessions = useSessionStore((s) => s.setSessions);
   const toast = useToastStore((s) => s.show);
-  const setLatestResult = useWorkbenchStore((s) => s.setLatestResult);
-  const inspectorOpen = useUIStore((s) => s.inspectorOpen);
-  const toggleInspector = useUIStore((s) => s.toggleInspector);
   const [editingSessId, setEditingSessId] = useState<string | null>(null);
   const [editingSessName, setEditingSessName] = useState("");
 
-  // Click handler: fetch full run, convert, show in Inspector
+  // Click handler: fetch full run and update latestResult for Timeline.
   const inspectRun = async (r: RecentRunSummary) => {
     const rid = r.run_id;
     if (!rid || !currentWorkspaceId) return;
@@ -65,8 +62,7 @@ export function Sidebar() {
           tool_scene: runData.tool_scene,
         },
       };
-      setLatestResult(result);
-      if (!inspectorOpen) toggleInspector();
+      useWorkbenchStore.getState().setLatestResult(result);
     } catch {
       // Minimal fallback from summary
       const result: AgentResult = {
@@ -87,8 +83,7 @@ export function Sidebar() {
           workspace_id: currentWorkspaceId || "default",
         },
       };
-      setLatestResult(result);
-      if (!inspectorOpen) toggleInspector();
+      useWorkbenchStore.getState().setLatestResult(result);
     }
   };
 

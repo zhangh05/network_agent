@@ -122,7 +122,8 @@ describe("Agent Workbench — source_summary rendering", () => {
 
     await userEvent.click(await screen.findByText("记住结论"));
     await userEvent.click(await screen.findByText("存为知识"));
-    expect(screen.getByText("查看运行详情")).toBeInTheDocument();
+    expect(screen.getByText("记住结论")).toBeInTheDocument();
+    expect(screen.getByText("存为知识")).toBeInTheDocument();
   });
 
   it("hides model reasoning tags from assistant chat bubbles", async () => {

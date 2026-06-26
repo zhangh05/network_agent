@@ -47,11 +47,9 @@ export const useSessionStore = create<SessionState>()(
 );
 
 interface UIState {
-  inspectorOpen: boolean;
   sidebarOpen: boolean;
   theme: "light" | "dark";
 
-  toggleInspector: () => void;
   toggleSidebar: () => void;
   setTheme: (t: "light" | "dark") => void;
 }
@@ -59,17 +57,14 @@ interface UIState {
 export const useUIStore = create<UIState>()(
   persist(
     (set, get) => ({
-      inspectorOpen: true,
       sidebarOpen: true,
       theme: "light",
-      toggleInspector: () => set({ inspectorOpen: !get().inspectorOpen }),
       toggleSidebar: () => set({ sidebarOpen: !get().sidebarOpen }),
       setTheme: (theme) => set({ theme }),
     }),
     {
       name: "na_ui",
       partialize: (s) => ({
-        inspectorOpen: s.inspectorOpen,
         sidebarOpen: s.sidebarOpen,
         theme: s.theme,
       }),

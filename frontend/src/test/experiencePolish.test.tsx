@@ -14,7 +14,7 @@ describe("Experience polish", () => {
     installMockApi();
     useSessionStore.getState().reset();
     useWorkbenchStore.setState({ bySession: {}, currentSessionId: null });
-    useUIStore.setState({ inspectorOpen: true, sidebarOpen: true, theme: "light" });
+    useUIStore.setState({ sidebarOpen: true, theme: "light" });
   });
 
   it("prefers the default workspace instead of the first test workspace", async () => {

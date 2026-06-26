@@ -1155,7 +1155,7 @@ export const referenceApi = {
       { method: "GET", url: `/workspaces/${workspace_id}/reference-graph` }, signal),
 };
 
-/* ──────────────────────── v3.8: Agent Graph & Breakpoints ──────────────────────── */
+/* ──────────────────────── Agent Graph & Breakpoints ──────────────────────── */
 
 import type {
   AgentGraphState,

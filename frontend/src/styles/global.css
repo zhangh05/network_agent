@@ -78,7 +78,6 @@ body,
   --h-header: 56px;
   --w-sidebar: 280px;
   --w-sidebar-collapsed: 0px;
-  --w-inspector: 380px;
 
   --ease: cubic-bezier(0.2, 0, 0, 1);
   --ease-out: cubic-bezier(0.16, 1, 0.3, 1);
@@ -319,9 +318,6 @@ pre code {
   overflow: hidden;
 }
 
-.app-root.with-inspector {
-  grid-template-columns: var(--w-sidebar) minmax(0, 1fr) var(--w-inspector);
-}
 
 .app-root.no-sidebar {
   grid-template-columns: 0 minmax(0, 1fr);
@@ -344,24 +340,6 @@ pre code {
   min-height: 0;
   overflow: hidden;
   background: var(--bg);
-}
-
-.app-inspector {
-  display: none;
-  min-width: 0;
-  overflow: auto;
-  background: var(--surface);
-  border-left: 1px solid var(--line);
-}
-
-.app-inspector.open {
-  display: block;
-  animation: inspectorIn var(--dur-4) var(--ease-out);
-}
-
-@keyframes inspectorIn {
-  from { opacity: 0; transform: translate3d(10px, 0, 0); }
-  to { opacity: 1; transform: translate3d(0, 0, 0); }
 }
 
 .brand {
@@ -3128,13 +3106,11 @@ details.collapse[open] summary::before {
   }
 
   .app-root,
-  .app-root.with-inspector,
   .app-root.no-sidebar {
     grid-template-columns: minmax(0, 1fr);
   }
 
-  .app-sidebar,
-  .app-inspector {
+  .app-sidebar {
     display: none;
   }
 
@@ -3289,7 +3265,6 @@ details.collapse[open] summary::before {
 @media print {
   .app-header,
   .app-sidebar,
-  .app-inspector,
   .toast-host {
     display: none;
   }
@@ -3465,7 +3440,7 @@ details.collapse[open] summary::before {
 }
 
 /* ══════════════════════════════════════════════════
-   v3.8 Chat UI Enhancements
+   Chat UI Enhancements
    ══════════════════════════════════════════════════ */
 
 /* ── Code block syntax highlighting ── */

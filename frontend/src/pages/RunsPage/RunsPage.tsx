@@ -9,7 +9,7 @@
 import { useEffect, useState, useCallback, useMemo } from "react";
 import { Link, useSearchParams } from "react-router-dom";
 import { workspacesApi, runtimeAuditApi } from "../../api";
-import { useSessionStore, useUIStore } from "../../stores/session";
+import { useSessionStore } from "../../stores/session";
 import { useWorkbenchStore } from "../../stores/workbench";
 import { Badge, StatusDot, EmptyState, LoadingState, CodeBlock } from "../../components/common";
 import { IconRefresh, IconAlert } from "../../components/Icon";
@@ -49,12 +49,9 @@ function sLabel(s: string): string { return STATUS_LABEL[s] || s || "未知"; }
 export function RunsPage() {
   const { currentWorkspaceId, currentSessionId } = useSessionStore();
   const setLatestResult = useWorkbenchStore((s) => s.setLatestResult);
-  const inspectorOpen = useUIStore((s) => s.inspectorOpen);
-  const toggleInspector = useUIStore((s) => s.toggleInspector);
   const wsId = currentWorkspaceId || "default";
   const [searchParams] = useSearchParams();
   const focusRunId = searchParams.get("focus") || null;
-  const inspectorRunId = searchParams.get("inspector") || null;
   const [runs, setRuns] = useState<RuntimeAuditTurn[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -106,9 +103,9 @@ export function RunsPage() {
   }, [load]);
 
   // Auto-select run when navigated from Jobs page with ?focus=run_id
-  //     or when F5 restores ?inspector=<run_id>
+  //     or when F5 restores ?focus=<run_id>
   useEffect(() => {
-    const targetId = focusRunId || inspectorRunId;
+    const targetId = focusRunId;
     if (!targetId || runs.length === 0) return;
     if (sel?.run_id === targetId) return; // already selected
     const target = runs.find((r) => (r.run_id || r.turn_id) === targetId);
@@ -122,7 +119,7 @@ export function RunsPage() {
       void loadDecision(target);
       setLatestResult(buildAgentResult(target));
     }
-  }, [focusRunId, inspectorRunId, runs]);
+  }, [focusRunId, runs]);
 
   // Clear selection when session changes
   useEffect(() => {
@@ -144,10 +141,9 @@ export function RunsPage() {
       void loadTrace(run);
       void loadDecision(run);
       setLatestResult(buildAgentResult(run));
-      if (!inspectorOpen) toggleInspector();
       // Persist via URL for F5 survival
       const url = new URL(window.location.href);
-      url.searchParams.set("inspector", run.run_id || run.turn_id || "");
+      url.searchParams.set("focus", run.run_id || run.turn_id || "");
       window.history.replaceState(null, "", url.toString());
     }
   };

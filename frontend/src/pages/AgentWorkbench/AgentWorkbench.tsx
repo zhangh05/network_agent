@@ -1,7 +1,7 @@
 import React, { useState, useRef, useEffect, useCallback } from "react";
 import { agentApi, knowledgeApi, memoryApi, sessionsApi, settingsApi } from "../../api";
 import { apiRequest } from "../../api/client";
-import { useSessionStore, useUIStore } from "../../stores/session";
+import { useSessionStore } from "../../stores/session";
 import { useWorkbenchStore } from "../../stores/workbench";
 import { useToastStore } from "../../stores/toast";
 import { isApiError } from "../../types";
@@ -383,9 +383,7 @@ export function TaskWorkbench() {
           useWorkbenchStore.getState().switchSession(resolvedSid);
         }
         appendAssistant(sanitizeAssistantText(res.final_response ?? ""), res, resolvedSid);
-        // v3.0.0+: HTTP fallback path must also update latestResult, so
-        // the right-hand Inspector panel refreshes (previously only the
-        // WebSocket path wrote it).
+        // Update latestResult so Timeline refreshes
         setLatestResult(res);
         notifyRunCompleted();
         if (res.ok) {
@@ -718,7 +716,6 @@ function ThinkingBlock({ content, defaultOpen }: { content: string; defaultOpen?
    ============================================================== */
 
 const ResultInline = React.memo(function ResultInline({ result, fallbackText }: { result: AgentResult | undefined; fallbackText: string }) {
-  const toggleInspector = useUIStore((s) => s.toggleInspector);
   const { currentWorkspaceId } = useSessionStore();
   const toast = useToastStore((s) => s.show);
   const [saving, setSaving] = useState<"" | "memory" | "knowledge">("");
@@ -832,9 +829,6 @@ const ResultInline = React.memo(function ResultInline({ result, fallbackText }: 
       )}
 
       <div className="result-actions">
-          <button type="button" className="run-detail-button" onClick={toggleInspector}>
-            查看运行详情
-          </button>
           <button type="button" className="run-detail-button" onClick={() => void rememberAnswer()} disabled={!!saving}>
             {saving === "memory" ? "记录中…" : "记住结论"}
           </button>
@@ -842,7 +836,7 @@ const ResultInline = React.memo(function ResultInline({ result, fallbackText }: 
             {saving === "knowledge" ? "保存中…" : "存为知识"}
           </button>
           {Array.isArray(summaries) && summaries.length > 0 && (
-            <button type="button" className="run-detail-button" onClick={toggleInspector}>来源 ({summaries.length})</button>
+            <span className="run-detail-info">来源 ({summaries.length})</span>
           )}
         </div>
 

@@ -791,7 +791,7 @@ export interface ReferenceEdge {
   edge_type: string;
 }
 
-/* ──────────────────────────── v3.8: Agent Graph & Breakpoints ──────────────────────────── */
+/* ──────────────────────────── Agent Graph & Breakpoints ──────────────────────────── */
 
 export interface AgentGraphState {
   ok: boolean;

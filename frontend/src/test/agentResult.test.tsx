@@ -1,12 +1,10 @@
 /**
- * Test 1 — AgentResult 正常渲染
- * 验证 Inspector 能正确展示 turn_id / trace_id / final_response / tool_calls。
+ * Test 1 — RuntimeEventTimeline rendering
+ * Verifies the Timeline correctly displays turn_id / trace_id / tool_calls / errors.
  */
-
 import { describe, it, expect, beforeEach } from "vitest";
-import { render, screen, waitFor } from "@testing-library/react";
-import { Inspector } from "../layouts/Inspector";
-import { useWorkbenchStore } from "../stores/workbench";
+import { render, screen } from "@testing-library/react";
+import { RuntimeEventTimeline } from "../components/RuntimeEventTimeline";
 import { installMockApi, resetMocks } from "./mockServer";
 import type { AgentResult } from "../types";
 
@@ -14,104 +12,89 @@ const sampleResult: AgentResult = {
   ok: true,
   final_response: "OSPF 是一种链路状态路由协议。",
   events: [
-    {
-      event_id: "ev-1",
-      event_type: "tool_call.start",
-      occurred_at: "2026-06-11T10:00:00Z",
-      payload: { tool_id: "knowledge.search" },
-    },
+    { event_id: "evt-1", event_type: "turn_started", summary: "Turn started" },
+    { event_id: "evt-2", event_type: "tool_call", tool_id: "web.search", summary: "Searching..." },
+    { event_id: "evt-3", event_type: "tool_result", tool_id: "web.search", summary: "Found 3 results" },
   ],
-  trace_id: "trace-abc",
-  session_id: "sess-1",
-  turn_id: "turn-1",
+  trace_id: "trace_abc123",
+  session_id: "sess_xyz",
+  turn_id: "turn_001",
   tool_calls: [
-    {
-      call_id: "call-1",
-      tool_id: "knowledge.search",
-      ok: true,
-      duration_ms: 142,
-      result: { source_count: 3 },
-    },
+    { call_id: "call-1", tool_id: "web.search", ok: true, duration_ms: 450, summary: "Found 3 results about OSPF" },
   ],
-  warnings: ["knowledge scope fallback"],
+  warnings: [],
   errors: [],
   metadata: {
-    selected_skills: ["knowledge_query"],
-    visible_tools: ["knowledge.search"],
+    selected_capabilities: ["knowledge"],
+    workspace_id: "default",
+    planner_mode: "deterministic",
     source_count: 3,
-    retrieval_backend: "local_bm25",
-    scope: "workspace",
+    retrieval_backend: "bm25",
   },
 };
 
-describe("Inspector — AgentResult normal rendering", () => {
+const failedResult: AgentResult = {
+  ok: false,
+  final_response: "",
+  events: [
+    { event_id: "evt-err", event_type: "error", summary: "Connection refused" },
+  ],
+  trace_id: "trace_fail",
+  session_id: "sess_xyz",
+  turn_id: "turn_002",
+  tool_calls: [],
+  warnings: ["Retry limit exceeded"],
+  errors: ["SSH connection refused: port 22"],
+  metadata: {
+    workspace_id: "default",
+  },
+};
+
+describe("RuntimeEventTimeline", () => {
   beforeEach(() => {
     resetMocks();
     installMockApi();
-    useWorkbenchStore.getState().clear();
   });
 
-  async function waitForInspectorEffects() {
-    await waitFor(() => {
-      expect(screen.queryByText("Loading...")).not.toBeInTheDocument();
-    });
-  }
-
-  it("renders empty state when no result", () => {
-    useWorkbenchStore.setState({ latestResult: null });
-    render(<Inspector />);
-    expect(screen.getByText(/尚无 turn 结果/i)).toBeInTheDocument();
+  it("renders turn header with turn_id", () => {
+    render(<RuntimeEventTimeline result={sampleResult} />);
+    expect(screen.getByTestId("runtime-timeline")).toBeInTheDocument();
+    expect(screen.getByText(/turn_001/)).toBeInTheDocument();
   });
 
-  it("renders turn_id, trace_id, final_response", async () => {
-    useWorkbenchStore.setState({ latestResult: sampleResult });
-    render(<Inspector />);
-    expect(screen.getByTestId("inspector-turn-id")).toHaveTextContent("turn-1");
-    expect(screen.getByTestId("inspector-trace-id")).toHaveTextContent("trace-abc");
-    expect(screen.getByTestId("inspector-body")).toBeInTheDocument();
-    await waitForInspectorEffects();
+  it("shows event cards from events array", () => {
+    render(<RuntimeEventTimeline result={sampleResult} />);
+    expect(screen.getByTestId("event-0")).toBeInTheDocument();
+    expect(screen.getByTestId("event-1")).toBeInTheDocument();
+    expect(screen.getByTestId("event-2")).toBeInTheDocument();
   });
 
-  it("renders the badge for the ok status", async () => {
-    useWorkbenchStore.setState({ latestResult: sampleResult });
-    render(<Inspector />);
-    const okBadges = screen.getAllByTestId("badge-ok");
-    expect(okBadges.length).toBeGreaterThan(0);
-    await waitForInspectorEffects();
+  it("shows tool calls panel", () => {
+    render(<RuntimeEventTimeline result={sampleResult} />);
+    expect(screen.getByTestId("tool-panel")).toBeInTheDocument();
+    expect(screen.getByTestId("tool-call-call-1")).toBeInTheDocument();
   });
 
-  it("derives knowledge sources from knowledge tool calls when metadata is sparse", async () => {
-    useWorkbenchStore.setState({
-      latestResult: {
-        ...sampleResult,
-        metadata: {
-          selected_skills: ["assistant_chat"],
-          visible_tools: ["knowledge.search"],
-        },
-        tool_calls: [
-          {
-            call_id: "call-knowledge",
-            tool_id: "knowledge.search",
-            ok: true,
-            source_count: 1,
-            result: {
-              source_summary: [
-                {
-                  source_id: "src-ifconfig",
-                  title: "ifconfig 输出知识",
-                  snippet: "en1 是当前 Wi-Fi 主接口。",
-                  score: 1,
-                },
-              ],
-            },
-          },
-        ],
-      },
-    });
+  it("shows diagnostics banner for errors", () => {
+    render(<RuntimeEventTimeline result={failedResult} />);
+    expect(screen.getByTestId("diag-banner")).toBeInTheDocument();
+    expect(screen.getByText(/SSH connection refused/)).toBeInTheDocument();
+  });
 
-    render(<Inspector />);
-    expect(screen.getByTestId("inspector-sources")).toHaveTextContent("ifconfig 输出知识");
-    expect(screen.queryByText("本 turn 未命中 knowledge")).not.toBeInTheDocument();
-    await waitForInspectorEffects();
+  it("shows workspace and planner metadata", () => {
+    render(<RuntimeEventTimeline result={sampleResult} />);
+    expect(screen.getByText(/default/)).toBeInTheDocument();
+    expect(screen.getByText(/deterministic/)).toBeInTheDocument();
+  });
+
+  it("shows empty state when result is undefined", () => {
+    render(<RuntimeEventTimeline result={undefined} />);
+    expect(screen.getByTestId("timeline-empty")).toBeInTheDocument();
+  });
+
+  it("shows source panel when source_count > 0", () => {
+    render(<RuntimeEventTimeline result={sampleResult} />);
+    expect(screen.getByTestId("source-panel")).toBeInTheDocument();
+    expect(screen.getByText(/3 个/)).toBeInTheDocument();
   });
 });
