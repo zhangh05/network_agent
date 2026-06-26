@@ -154,54 +154,47 @@ class ToolRegistry:
         return self._specs.get(tool_id)
 
     def dispatch(self, tool_id: str, args: dict, context=None) -> dict:
-        """Execute tool via handler (direct call, no policy for agent-internal use)."""
-        try:
-            from tool_runtime.tool_governance import resolve_governed_tool_id
-            tool_id = resolve_governed_tool_id(tool_id).handler_id
-        except Exception:
-            pass
-        # Check capability-layer handlers first
-        if not hasattr(self, '_handlers'):
-            self._handlers = {}
-        if tool_id in self._handlers:
-            try:
-                return self._handlers[tool_id](args, context)
-            except Exception as e:
-                return {"ok": False, "status": "failed", "summary": str(e)[:200], "errors": [str(e)[:200]]}
+        """Execute tool through ToolRuntimeClient.invoke() — no direct handler call.
 
-        # For general tools: dispatch through runtime client's handler directly,
-        # bypassing ToolPolicy (agent-internal dispatch is already gated by LLM
-        # tool selection and risk-level visibility). The handler provides its
-        # own safety enforcement (e.g. command allowlists).
+        v3.10: All tool execution MUST go through the full safety pipeline:
+        schema→manifest→caller→policy→interrupt→executor→redaction→audit→ToolResult.
+        Direct handler calls and registry dispatch bypasses are forbidden.
+        """
         if self._tool_client is None:
             return {"ok": False, "status": "failed", "summary": "No tool client", "errors": ["no tool client"]}
         try:
-            handler = self._tool_client._registry.get_handler(tool_id)
-            if handler is None:
-                return {"ok": False, "status": "failed", "summary": f"Tool not found: {tool_id}",
-                        "errors": [f"tool_not_found: {tool_id}"]}
-            from tool_runtime.schemas import ToolInvocation
-            # Extract real workspace context — no more hardcoded defaults
-            ws_id = "default"
+            # Extract caller context — no hardcoded defaults
+            ws_id = ""
             run_id = ""
             job_id = ""
-            session_id = ""
-            requested_by = "agent"
+            requested_by = ""
             if context:
-                ws_id = getattr(context, 'workspace_id', 'default') or 'default'
+                ws_id = getattr(context, 'workspace_id', '') or ''
                 run_id = getattr(context, 'turn_id', '') or getattr(context, 'run_id', '') or ''
                 job_id = getattr(context, 'job_id', '') or ''
-                session_id = getattr(context, 'session_id', '') or ''
-                requested_by = getattr(context, 'requested_by', 'agent') or 'agent'
-            inv = ToolInvocation(
-                tool_id=tool_id, arguments=args,
+                requested_by = getattr(context, 'requested_by', 'turn_runner') or 'turn_runner'
+
+            # v3.10: Block if caller identity is missing
+            if not requested_by:
+                return {"ok": False, "status": "blocked",
+                        "summary": "Tool dispatch blocked: caller identity (requested_by) is required",
+                        "errors": ["caller_missing"]}
+
+            from tool_runtime.context import ToolRuntimeContext
+            ctx = ToolRuntimeContext(
                 workspace_id=ws_id, run_id=run_id, job_id=job_id,
-                dry_run=False, requested_by=requested_by,
+                requested_by=requested_by,
             )
-            raw = handler(inv)
-            if isinstance(raw, dict):
-                return raw
-            return raw.to_dict() if hasattr(raw, 'to_dict') else {"ok": False, "error": "unknown handler result"}
+            result = self._tool_client.invoke(tool_id, args, context=ctx)
+            return {
+                "ok": result.status == "succeeded",
+                "status": result.status,
+                "summary": result.summary or "",
+                "output": result.output or {},
+                "errors": list(result.errors or []),
+                "warnings": list(result.warnings or []),
+                "artifacts": list(result.artifact_ids or []),
+            }
         except Exception as e:
             return {"ok": False, "status": "failed", "summary": str(e)[:200], "errors": [str(e)[:200]]}
 

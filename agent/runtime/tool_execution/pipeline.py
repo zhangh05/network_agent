@@ -373,11 +373,10 @@ class ToolExecutionPipeline:
         """Block until the user approves/denies via the ApprovalStore popup.
 
         Returns (result, stop_now, continue_main_loop) — same triple as _execute_single.
-        On timeout or deny: return the original failure result.
-        On approve: re-plan and dispatch the tool (bypass approval gate).
+        v3.10: Non-blocking interrupt flow. Returns pending result immediately.
+        Resume happens via resume_after_approval(), not blocking wait.
         """
         from agent.approval import get_approval_store
-        from agent.runtime.loop import _get_approval_timeout
 
         store = get_approval_store()
         session_id = getattr(state.session, 'session_id', '')
@@ -394,43 +393,85 @@ class ToolExecutionPipeline:
             append_tool_result(result, tool_call, tc, state.all_tool_results, state.messages)
             return result, True, False
 
-        is_sub_agent = bool(getattr(state.session, 'is_sub_agent', False))
-        timeout = _get_approval_timeout(is_sub_agent=is_sub_agent)
-        allowed = store.wait(apr_id, timeout=timeout)
-        store.cleanup(apr_id)
+        # v3.10: Non-blocking — approval is now handled by interrupt_before_tool
+        # which was already called in ApprovalStage. Here we just check if the
+        # approval was resolved by resume_after_approval.
+        # Check if approval was resolved (poll, non-blocking)
+        req = store.get(apr_id) if hasattr(store, 'get') else None
+        if req is None:
+            # Still pending — return pending result, let caller retry
+            from agent.protocol.tool_result import ToolResult
+            result = ToolResult(
+                ok=False,
+                summary=f"Waiting for approval: {action_result.tool_id} (id={apr_id})",
+                errors=["approval_pending"],
+                metadata={"approval_id": apr_id, "status": "pending"},
+            )
+            append_tool_result(result, tool_call, tc, state.all_tool_results, state.messages)
+            return result, True, False
 
-        if not allowed:
+        # Check if resolved and what the decision was
+        is_allowed = getattr(req, 'allowed', None)
+        if is_allowed is None:
+            # Not yet resolved — still pending
+            from agent.protocol.tool_result import ToolResult
+            result = ToolResult(
+                ok=False,
+                summary=f"Waiting for approval: {action_result.tool_id} (id={apr_id})",
+                errors=["approval_pending"],
+                metadata={"approval_id": apr_id, "status": "pending"},
+            )
+            append_tool_result(result, tool_call, tc, state.all_tool_results, state.messages)
+            return result, True, False
+
+        if not is_allowed:
+            # User rejected
             result = action_result_to_tool_result(action_result)
             result.errors = ["user_rejected"]
             result.summary = f"Tool {action_result.tool_id} rejected"
             append_tool_result(result, tool_call, tc, state.all_tool_results, state.messages)
+            store.cleanup(apr_id)
             return result, True, False
 
-        # User allowed — re-dispatch the tool directly (skip risk/approval gates)
-        # Re-plan the action and dispatch
+        # User approved — re-execute through ToolRuntimeClient (not direct dispatch)
+        store.cleanup(apr_id)
         tid = action_result.tool_id
-        call_id = tc.id if hasattr(tc, 'id') else tc.get("id", "")
-        llm_name = tc.name if hasattr(tc, 'name') else tc.get("name", "unknown")
-        turn_id = getattr(state.turn, 'turn_id', '')
-
-        action_plan = self._action_planner.plan(
-            tool_call_id=call_id,
-            tool_name=llm_name,
-            tool_id=tid,
-            arguments=dict(tool_call.arguments),
-            turn_id=turn_id,
-            raw_call=tc,
-            context=getattr(state, 'context', None),
-        )
-
-        dispatched = self._action_executor.dispatcher.dispatch(
-            action_plan, tool_call,
-            ctx=getattr(state, 'context', None),
-            state=state,
-        )
-        # Normalize + scan post-dispatch
-        self._action_executor.normalizer.normalize(dispatched)
-        self._action_executor.scanner.scan(dispatched)
+        try:
+            from tool_runtime.integration import get_default_tool_runtime_client
+            client = get_default_tool_runtime_client()
+            from tool_runtime.context import ToolRuntimeContext
+            ws_id = getattr(state, 'workspace_id', '') or getattr(state.session, 'workspace_id', '')
+            run_id = getattr(state.turn, 'turn_id', '') or getattr(state, 'run_id', '')
+            ctx = ToolRuntimeContext(
+                workspace_id=ws_id, run_id=run_id,
+                requested_by="turn_runner",
+            )
+            dispatched = client.invoke(tid, dict(tool_call.arguments), context=ctx)
+            # Convert ToolResult to ActionResult
+            from agent.runtime.actions.models import ActionResult
+            action_result = ActionResult(
+                action_id=tid,
+                tool_call_id=getattr(tc, 'id', '') or '',
+                tool_name=getattr(tc, 'name', tid) or tid,
+                tool_id=tid,
+                ok=dispatched.status == "succeeded",
+                status=dispatched.status,
+                summary=dispatched.summary or "",
+                output=dispatched.output or {},
+                errors=list(dispatched.errors or []),
+                warnings=list(dispatched.warnings or []),
+                artifacts=list(dispatched.artifact_ids or []),
+            )
+        except Exception as e:
+            from agent.runtime.actions.models import ActionResult
+            action_result = ActionResult(
+                action_id=tid,
+                tool_call_id=getattr(tc, 'id', '') or '',
+                tool_name=tid, tool_id=tid,
+                ok=False, status="error",
+                summary=str(e)[:200],
+                errors=[str(e)[:200]],
+            )
 
         result = action_result_to_tool_result(dispatched)
         append_tool_result(result, tool_call, tc, state.all_tool_results, state.messages)

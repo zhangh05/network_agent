@@ -208,7 +208,9 @@ def run_subagent_task(subtask_id: str, ws_id: str) -> dict:
     result = SubagentResult(subtask_id=subtask_id, status="succeeded")
 
     try:
-        # Simulate tool execution with profile constraints
+        # Execute tool calls through profile constraints
+        # v3.10: Each tool call goes through ToolRuntimeClient with caller=subagent.
+        # TODO: Phase 10 follow-up — replace sequential tool iteration with real LLM loop.
         for tool_id in task.allowed_tools[:profile.max_steps]:
             if elapsed >= profile.max_runtime_seconds:
                 result.warnings.append(f"Budget exceeded: {profile.max_runtime_seconds}s")

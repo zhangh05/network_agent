@@ -6,8 +6,17 @@ Validation gates enforce: no unvalidated success, no destructive without rollbac
 """
 
 from __future__ import annotations
-import json, uuid, time as _time
+import json, uuid, time as _time, os
 from dataclasses import dataclass, field, asdict
+from pathlib import Path
+
+
+def _resolve_repo_dir(ws_id: str) -> str:
+    """Resolve the git repo directory for a workspace. Falls back to CWD."""
+    workspaces_dir = Path("workspaces") / (ws_id or "default")
+    if workspaces_dir.is_dir():
+        return str(workspaces_dir.resolve())
+    return os.getcwd()
 from typing import Optional, Literal
 from workspace.run_store import WS_ROOT
 from workspace.atomic_io import atomic_write_json
@@ -112,7 +121,8 @@ def build_audit_report(task_id: str, ws_id: str) -> dict:
         traj = build_trajectory(task_id, ws_id)
         if traj:
             report["trajectory"] = {"score": evaluate_trajectory(traj.to_dict() if hasattr(traj,'to_dict') else {})}
-    except: pass
+    except Exception as e:
+        report["error"] = f"Failed to build audit report: {str(e)[:200]}"
     return report
 
 
@@ -139,46 +149,135 @@ def export_audit_report_markdown(task_id: str, ws_id: str) -> str:
 # ── GitOps Safety ──
 
 def git_status_check(ws_id: str) -> dict:
-    """Check git status for current workspace. Returns metadata only — no auto stage/commit."""
+    """Check real git status for the workspace directory.
+
+    v3.10: Uses subprocess to run `git status --porcelain` for actual repo state.
+    Falls back to unknown if git is not available or directory is not a repo.
+    """
+    result = {"ok": True, "workspace": ws_id, "dirty": False, "branch": "unknown",
+              "changed_files": [], "untracked": []}
     try:
-        from agent.runtime.durable import RuntimeEvent
-        from agent.runtime.durable.store import append_event
-        append_event(RuntimeEvent(
-            event_id=f"evt-git-{uuid.uuid4().hex[:8]}",
-            task_id="", workspace_id=ws_id, session_id="", run_id="",
-            type="git_status_checked", status="ok",
-            title="Git status checked",
-        ))
-    except: pass
-    return {"ok": True, "workspace": ws_id, "dirty": False, "branch": "main", "message": "git status inspected — no auto stage"}
+        import subprocess, os
+        repo_dir = _resolve_repo_dir(ws_id)
+        # Check if it's a git repo
+        r = subprocess.run(
+            ["git", "rev-parse", "--is-inside-work-tree"],
+            capture_output=True, text=True, timeout=10, cwd=repo_dir,
+        )
+        if r.returncode != 0:
+            result["status"] = "not_a_repo"
+            return result
+
+        # Get branch
+        r2 = subprocess.run(
+            ["git", "rev-parse", "--abbrev-ref", "HEAD"],
+            capture_output=True, text=True, timeout=10, cwd=repo_dir,
+        )
+        result["branch"] = r2.stdout.strip()
+
+        # Get porcelain status
+        r3 = subprocess.run(
+            ["git", "status", "--porcelain"],
+            capture_output=True, text=True, timeout=10, cwd=repo_dir,
+        )
+        lines = [l for l in r3.stdout.split("\n") if l.strip()]
+        result["dirty"] = len(lines) > 0
+        result["changed_files"] = [l[3:] for l in lines if l[:2].strip()]
+        result["untracked"] = [l[3:] for l in lines if l.startswith("??")]
+
+        # Event
+        try:
+            import uuid
+            from agent.runtime.durable import RuntimeEvent
+            from agent.runtime.durable.store import append_event
+            append_event(RuntimeEvent(
+                event_id=f"evt-git-{uuid.uuid4().hex[:8]}",
+                task_id="", workspace_id=ws_id, session_id="", run_id="",
+                type="git_status_checked", status="ok",
+                title=f"Git status: {result['branch']}, dirty={result['dirty']}",
+            ))
+        except Exception:
+            pass
+    except FileNotFoundError:
+        result["status"] = "git_not_available"
+    except Exception as e:
+        result["status"] = "error"
+        result["error"] = str(e)[:200]
+    return result
 
 
 def git_commit(ws_id: str, message: str = "", confirm: bool = False) -> dict:
-    if not confirm: return {"ok": False, "error": "confirm=true required to commit"}
-    if not message: return {"ok": False, "error": "commit message required"}
+    """Real git commit (subprocess). Requires confirm=true."""
+    if not confirm:
+        return {"ok": False, "error": "confirm=true required to commit"}
+    if not message:
+        return {"ok": False, "error": "commit message required"}
     try:
-        from agent.runtime.durable import RuntimeEvent
-        from agent.runtime.durable.store import append_event
-        append_event(RuntimeEvent(
-            event_id=f"evt-git-{uuid.uuid4().hex[:8]}",
-            task_id="", workspace_id=ws_id, session_id="", run_id="",
-            type="git_committed", status="ok",
-            title=f"Git commit: {message[:80]}",
-        ))
-    except: pass
-    return {"ok": True, "message": "committed", "commit_message": message[:200]}
+        import subprocess, uuid
+        repo_dir = _resolve_repo_dir(ws_id)
+        r = subprocess.run(
+            ["git", "add", "-A"],
+            capture_output=True, text=True, timeout=30, cwd=repo_dir,
+        )
+        r2 = subprocess.run(
+            ["git", "commit", "-m", message],
+            capture_output=True, text=True, timeout=30, cwd=repo_dir,
+        )
+        if r2.returncode != 0:
+            return {"ok": False, "error": r2.stderr.strip()[:500] or "commit failed"}
+        try:
+            from agent.runtime.durable import RuntimeEvent
+            from agent.runtime.durable.store import append_event
+            append_event(RuntimeEvent(
+                event_id=f"evt-git-{uuid.uuid4().hex[:8]}",
+                task_id="", workspace_id=ws_id, session_id="", run_id="",
+                type="git_committed", status="ok",
+                title=f"Git commit: {message[:80]}",
+            ))
+        except Exception:
+            pass
+        return {"ok": True, "message": "committed", "commit_message": message[:200],
+                "output": r2.stdout.strip()[:500]}
+    except FileNotFoundError:
+        return {"ok": False, "error": "git not available"}
+    except Exception as e:
+        return {"ok": False, "error": str(e)[:200]}
 
 
 def git_push(ws_id: str, remote: str = "origin", confirm: bool = False) -> dict:
-    if not confirm: return {"ok": False, "error": "confirm=true required to push"}
+    """Real git push (subprocess). Requires confirm=true and will NOT force-push."""
+    if not confirm:
+        return {"ok": False, "error": "confirm=true required to push"}
     try:
-        from agent.runtime.durable import RuntimeEvent
-        from agent.runtime.durable.store import append_event
-        append_event(RuntimeEvent(
-            event_id=f"evt-git-{uuid.uuid4().hex[:8]}",
-            task_id="", workspace_id=ws_id, session_id="", run_id="",
-            type="git_pushed", status="ok",
-            title=f"Git push to {remote}",
-        ))
-    except: pass
-    return {"ok": True, "remote": remote, "message": "pushed"}
+        import subprocess, uuid
+        repo_dir = _resolve_repo_dir(ws_id)
+        # Get current branch
+        r = subprocess.run(
+            ["git", "rev-parse", "--abbrev-ref", "HEAD"],
+            capture_output=True, text=True, timeout=10, cwd=repo_dir,
+        )
+        branch = r.stdout.strip()
+        # Push (no force)
+        r2 = subprocess.run(
+            ["git", "push", remote, branch],
+            capture_output=True, text=True, timeout=60, cwd=repo_dir,
+        )
+        if r2.returncode != 0:
+            return {"ok": False, "error": r2.stderr.strip()[:500] or "push failed"}
+        try:
+            from agent.runtime.durable import RuntimeEvent
+            from agent.runtime.durable.store import append_event
+            append_event(RuntimeEvent(
+                event_id=f"evt-git-{uuid.uuid4().hex[:8]}",
+                task_id="", workspace_id=ws_id, session_id="", run_id="",
+                type="git_pushed", status="ok",
+                title=f"Git push {remote}/{branch}",
+            ))
+        except Exception:
+            pass
+        return {"ok": True, "remote": remote, "branch": branch,
+                "message": "pushed", "output": r2.stdout.strip()[:500]}
+    except FileNotFoundError:
+        return {"ok": False, "error": "git not available"}
+    except Exception as e:
+        return {"ok": False, "error": str(e)[:200]}

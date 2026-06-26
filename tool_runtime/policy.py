@@ -51,7 +51,14 @@ V02_FORBIDDEN_PATTERNS = [
 # v0.3: handlers accept arbitrary commands, allowlists removed.
 # Policy still enforces: high risk → requires approval_id,
 # argument safety checks (no chaining/injection patterns).
+# v3.10: All policy decisions derived from CapabilityManifest (not ToolSpec).
 
+import logging
+_log = logging.getLogger(__name__)
+
+
+def _warn(msg: str):
+    _log.warning(msg)
 from tool_runtime.schemas import V02_ALLOWED_CATEGORIES
 
 
@@ -118,6 +125,34 @@ class ToolPolicy:
         blocked = []
         reason_parts = []
 
+        # ── 0. v3.10: CapabilityManifest is the single truth source ──
+        # All policy decisions (risk, approval, idempotency, timeout, etc.)
+        # must derive from CapabilityManifest, not ToolSpec alone.
+        manifest = None
+        if spec.tool_id:
+            try:
+                from tool_runtime.manifest_registry import get_manifest
+                manifest = get_manifest(spec.tool_id)
+            except Exception:
+                pass
+
+        # Override ToolSpec fields with manifest values (manifest is authoritative)
+        if manifest:
+            # If ToolSpec disagrees with manifest, log a warning
+            if spec.risk_level and manifest.risk_level and spec.risk_level != manifest.risk_level:
+                _warn(f"Tool {spec.tool_id}: ToolSpec risk={spec.risk_level} != manifest risk={manifest.risk_level}")
+            effective_risk = manifest.risk_level or spec.risk_level or "low"
+            effective_approval = manifest.requires_approval
+            effective_destructive = manifest.destructive
+            effective_idempotency = manifest.idempotency or "safe_to_retry"
+            effective_timeout = manifest.timeout_seconds or spec.timeout_seconds or 30
+        else:
+            effective_risk = spec.risk_level or "low"
+            effective_approval = spec.requires_approval
+            effective_destructive = spec.destructive if hasattr(spec, 'destructive') else False
+            effective_idempotency = "unknown"
+            effective_timeout = spec.timeout_seconds or 30
+
         # ── 1. Tool exists ──
         if not spec.tool_id:
             return PolicyDecision(
@@ -142,15 +177,15 @@ class ToolPolicy:
             reason_parts.append(f"Category '{spec.category}' not allowed in v0.2")
 
         # ── 5. Risk level gate ──
-        if spec.risk_level not in V02_ALLOWED_RISK_LEVELS:
+        if effective_risk not in V02_ALLOWED_RISK_LEVELS:
             blocked.append("risk_level_not_allowed")
             reason_parts.append(
-                f"Tool '{spec.tool_id}' risk_level={spec.risk_level} not allowed"
+                f"Tool '{spec.tool_id}' risk_level={effective_risk} not allowed"
             )
 
         # ── 6. HIGH risk: approval enforcement ──
-        if spec.risk_level == "high" and not blocked:
-            if not spec.requires_approval:
+        if effective_risk == "high" and not blocked:
+            if not effective_approval:
                 blocked.append("high_risk_no_approval_required")
                 reason_parts.append(
                     f"Tool '{spec.tool_id}' risk=high but requires_approval=false"
@@ -171,11 +206,11 @@ class ToolPolicy:
             reason_parts.append(f"Tool '{spec.tool_id}' does not support dry_run")
 
         # ── 9. Timeout ──
-        max_timeout = 120 if spec.risk_level in ("medium", "high") else 60
-        if spec.timeout_seconds > max_timeout:
+        max_timeout = 120 if effective_risk in ("medium", "high") else 60
+        if effective_timeout > max_timeout:
             blocked.append("timeout_too_high")
             reason_parts.append(
-                f"Tool '{spec.tool_id}' timeout {spec.timeout_seconds}s > {max_timeout}s limit"
+                f"Tool '{spec.tool_id}' timeout {effective_timeout}s > {max_timeout}s limit"
             )
 
         # ── 10. Argument safety check ──
@@ -185,13 +220,13 @@ class ToolPolicy:
             reason_parts.append(f"Unsafe arguments: {arg_check}")
 
         # ── Decision ──
-        requires_approval = spec.risk_level == "high" and spec.requires_approval
+        requires_approval = effective_risk == "high" and effective_approval
 
         if blocked:
             return PolicyDecision(
                 allowed=False,
                 reason="; ".join(reason_parts),
-                risk_level=spec.risk_level,
+                risk_level=effective_risk,
                 blocked_rules=blocked,
                 requires_approval=requires_approval,
             )
@@ -199,7 +234,7 @@ class ToolPolicy:
         return PolicyDecision(
             allowed=True,
             reason="ok",
-            risk_level=spec.risk_level,
+            risk_level=effective_risk,
             blocked_rules=[],
             requires_approval=requires_approval,
         )
