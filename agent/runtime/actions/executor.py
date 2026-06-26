@@ -75,8 +75,42 @@ class ActionExecutor:
             self.audit.record_result(result, metadata, ctx=ctx)
             return result
 
-        # If approval pending → return without dispatching
+        # If approval pending → interrupt (Phase 4: never block, always checkpoint)
         if approval.status == "pending":
+            # v3.10 Phase 4: interrupt_before_tool
+            try:
+                from agent.runtime.durable.models import RuntimeStep as DStep
+                from agent.runtime.durable.interrupt import interrupt_before_tool
+                ws = ""
+                sid = ""
+                rid = ""
+                if state is not None:
+                    ws = getattr(getattr(state, 'session', None), 'workspace_id', '') or \
+                         getattr(getattr(state, 'context', None), 'workspace_id', '') or ''
+                    sid = getattr(getattr(state, 'session', None), 'session_id', '') or ''
+                    rid = getattr(getattr(state, 'turn', None), 'turn_id', '') or ''
+                if ws and sid:
+                    dstep = DStep(
+                        step_id=f"step-{plan.tool_id}-{step}",
+                        task_id="", kind="tool",
+                        title=f"Tool: {plan.tool_id}",
+                        tool_id=plan.tool_id,
+                    )
+                    interrupt_before_tool(
+                        ws_id=ws, session_id=sid, run_id=rid,
+                        step=dstep,
+                        tool_invocation={
+                            "tool_id": plan.tool_id,
+                            "arguments": dict(plan.arguments) if hasattr(plan, 'arguments') else {},
+                        },
+                        risk_decision={
+                            "risk_level": risk.risk_level,
+                            "reason": risk.reason or "High-risk action requires approval",
+                        },
+                    )
+            except Exception:
+                pass
+
             result = ActionResult(
                 action_id=plan.action_id,
                 tool_call_id=plan.tool_call_id,

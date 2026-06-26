@@ -67,6 +67,26 @@ def register_approval_routes(app) -> None:
         req = store.resolve(approval_id, allowed, resolver=resolver, reason=reason)
         if req is None:
             return jsonify({"ok": False, "error": "approval not found or already resolved"}), 404
+
+        # v3.10 Phase 4: wire into durable runtime interrupt/resume
+        runtime_result = None
+        try:
+            meta = getattr(req, 'metadata', None) or {}
+            task_id = meta.get("task_id", "")
+            ws_id = req.workspace_id if hasattr(req, 'workspace_id') else ""
+            if task_id and ws_id:
+                decision = data.get("decision", "approve" if allowed else "reject")
+                from agent.runtime.durable.interrupt import resume_after_approval
+                runtime_result = resume_after_approval(
+                    task_id=task_id, ws_id=ws_id, approval_id=approval_id,
+                    decision=decision,
+                    edited_args=data.get("edited_args"),
+                    feedback=data.get("feedback", ""),
+                    reason=reason,
+                )
+        except Exception:
+            pass
+
         return jsonify({
             "ok": True,
             "approval_id": approval_id,

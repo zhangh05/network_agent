@@ -48,6 +48,7 @@ class TaskState:
     run_id: str = ""; job_id: str = ""; trace_id: str = ""; user_goal: str = ""
     status: TaskStatus = "pending"; current_step_id: str = ""
     steps: list = field(default_factory=list); pending_approval_id: Optional[str] = None
+    pending_action_id: str = ""; interrupted_at: str = ""
     tool_results: list = field(default_factory=list); artifact_ids: list = field(default_factory=list)
     warnings: list = field(default_factory=list); errors: list = field(default_factory=list)
     created_at: str = ""; updated_at: str = ""
