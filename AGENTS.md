@@ -64,7 +64,7 @@ ToolExecutionPipeline:
 - Dangerous commands (`reload`, `reboot`, `reset`, `rm -rf`, `format`) are blocked.
 - Auto-retry: 3 attempts with exponential backoff on transient errors.
 
-## Capability Routing (v3.8)
+## Capability Routing (v3.9)
 
 12 capability domains with keyword-based matching + semantic embedding fallback:
 
@@ -85,7 +85,7 @@ ToolExecutionPipeline:
 
 ## Agent Modes
 
-- **TurnRunner**: Legacy while-loop (max 24 steps by default), used by default.
+- **TurnRunner**: Primary while-loop runtime (max 24 steps by default), used by default.
 - **GraphRunner**: LangGraph StateGraph with checkpoint support. Enable via `AGENT_RUNTIME=langgraph`.
 
 ## Dynamic Breakpoints

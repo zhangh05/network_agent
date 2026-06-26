@@ -21,23 +21,23 @@ UserInput
   → 13-Stage Context Pipeline
   → SceneDecision
   → RuntimeStateResolver
-  → TaskDetector (new_task / continue / cancel, expanded v3.8 verbs)
-  → TaskPlanner → WorkflowPlanner (dynamic steps v3.8)
+  → TaskDetector (new_task / continue / cancel, expanded v3.9 verbs)
+  → TaskPlanner → WorkflowPlanner (dynamic steps v3.9)
   → StepExecutor.prepare_current_step
   → EvidencePipeline (Context + Memory + Knowledge layers)
-  → ToolPlannerV2 (deterministic seed + LLM refinement v3.8)
+  → ToolPlannerV2 (deterministic seed + LLM refinement v3.9)
   → PromptCompiler
   → LLM tool calls (Max 8 step loops per turn, configurable)
   → ToolExecutionPipeline
       → ActionPlanner → RiskPolicy → ApprovalGate → Dispatch
-      → CircuitBreaker (v3.8) + Exponential Retry (v3.8)
+      → CircuitBreaker (v3.9) + Exponential Retry (v3.9)
   → StepExecutor.apply_action_results
   → RuntimeStateTransition
   → CompletionEvaluator
   → ResultCollector → ArtifactPlanner → ArtifactWriter → ArtifactRegistry
   → OutputSummarizer → ResponseComposer
   → MemoryWritePlanner (extract + filter + dedupe + write, max 3/turn)
-  → Auto-Checkpoint Guard (v3.8, every 5 turns)
+  → Auto-Checkpoint Guard (v3.9, every 5 turns)
   → ObservabilityCollector
   → TruthReporter
   → StabilityGate
@@ -52,7 +52,7 @@ RuntimeState
   ├── SessionState (session_id, workspace_id, turn_count)
   ├── WorkspaceState (memory_gating, artifact_policy)
   ├── TaskState (pending/running/completed/failed/blocked/approval_pending)
-  ├── WorkflowState (ordered StepState list, dynamic insert/remove v3.8)
+  ├── WorkflowState (ordered StepState list, dynamic insert/remove v3.9)
   ├── StepState (pending/running/completed/failed/blocked/approval_pending/skipped)
   ├── ActionState (planned/executing/completed/failed/blocked)
   └── ArtifactState (registered/exported/deleted)
@@ -104,9 +104,9 @@ CapabilityManifest
   └── safety (CapabilitySafetySpec — real_device_access, config_push, human_review)
 ```
 
-No legacy "skill" concept since v3.8. Replaced by:
+No legacy "skill" concept since v3.9. Replaced by:
 - **Capability** = what the agent can do (safety contract)
-- **Skill (SKILL.md)** = reusable workflow recipe (v3.8, agentskills.io standard)
+- **Skill (SKILL.md)** = reusable workflow recipe (v3.9, agentskills.io standard)
 
 ## Safety Boundaries
 

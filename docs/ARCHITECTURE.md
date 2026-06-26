@@ -1,6 +1,6 @@
 # Architecture
 
-Current source architecture reference (v3.8).
+Current source architecture reference (v3.9).
 
 ## Turn Pipeline
 

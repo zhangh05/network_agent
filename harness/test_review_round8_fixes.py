@@ -219,24 +219,28 @@ def test_agent_approval_resolve_requires_admin_token_when_configured(monkeypatch
     assert allowed.get_json()["allowed"] is True
 
 
-def test_runtime_tool_approval_routes_use_agent_store(app):
+def test_unified_approval_store_redacts_sensitive_args(app, monkeypatch):
+    """Unified ApprovalStore redacts sensitive args in pending/history API."""
+    monkeypatch.delenv("NETWORK_AGENT_ADMIN_TOKEN", raising=False)
     client = app.test_client()
 
-    created = client.post(
-        "/api/tools/approvals",
-        json={
-            "workspace_id": "default",
-            "tool_id": "exec.run",
-            "reason": "run approved command",
-            "arguments": {"password": "secret-password"},
-        },
+    from agent.approval import get_approval_store
+    store = get_approval_store()
+    req = store.create(
+        session_id="sess-redact", tool_id="exec.run",
+        arguments={"password": "secret-password", "user": "admin"},
+        risk_level="high", workspace_id="default",
     )
-    approval_id = created.get_json()["approval_id"]
-    pending = client.get("/api/tools/approvals?workspace_id=default").get_json()
-    approved = client.put(f"/api/tools/approvals/{approval_id}/approve")
 
-    assert created.status_code == 200
+    # Pending API should NOT leak secret-password
+    pending = client.get("/api/agent/approvals/pending?session_id=sess-redact").get_json()
     assert pending["count"] >= 1
     assert "secret-password" not in json.dumps(pending, ensure_ascii=False)
+
+    # Resolve via unified endpoint
+    approved = client.post(
+        f"/api/agent/approvals/{req.approval_id}/resolve",
+        json={"allowed": True, "resolver": "test"},
+    )
     assert approved.status_code == 200
-    assert approved.get_json()["status"] == "approved"
+    assert approved.get_json()["ok"] is True

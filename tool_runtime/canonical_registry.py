@@ -1036,23 +1036,35 @@ def _review_item_update(inv: ToolInvocation) -> dict:
                 "summary": f"Review service unavailable: {str(e)[:120]}"}
 
 def _weather_merged(inv: ToolInvocation) -> dict:
-    """Merged weather tool: days=1 → current, days>1 → forecast."""
-    from tool_runtime.general_tools.web_tools import handle_weather_current, handle_weather_forecast
+    """Merged weather tool: days=1 → current, days>1 → forecast.
+    v3.9: Routes sub-calls through unified ToolRuntimeClient (no direct handler bypass)."""
+    from tool_runtime.integration import get_default_tool_runtime_client
+    from tool_runtime.context import ToolRuntimeContext
+
+    client = get_default_tool_runtime_client()
+    ctx = ToolRuntimeContext(
+        workspace_id=inv.workspace_id,
+        requested_by=inv.requested_by,
+        approval_id=inv.approval_id,
+    )
     args = inv.arguments or {}
     days = _safe_int(args.get("days"), 1)
     if days <= 1:
-        new_inv = ToolInvocation(tool_id=inv.tool_id, arguments={
+        result = client.invoke("web.weather.current", {
             **args, "language": args.get("language", "zh-CN"),
             "units": args.get("units", "metric"),
-        })
-        return handle_weather_current(new_inv)
+        }, context=ctx)
     else:
-        new_inv = ToolInvocation(tool_id=inv.tool_id, arguments={
+        result = client.invoke("web.weather.forecast", {
             **args, "days": str(days),
             "language": args.get("language", "zh-CN"),
             "units": args.get("units", "metric"),
-        })
-        return handle_weather_forecast(new_inv)
+        }, context=ctx)
+    return {"ok": result.status == "succeeded",
+            "summary": result.summary or "",
+            "output": result.output or {},
+            "errors": list(result.errors or [])[:5],
+            "warnings": list(result.warnings or [])[:5]}
 
 def _module_result_to_dict(r: dict) -> dict:
     """Convert module handler result dict to canonical tool output."""
@@ -1824,13 +1836,6 @@ def get_entry(canonical_tool_id: str) -> CanonicalToolEntry:
     if canonical_tool_id not in CANONICAL_REGISTRY:
         raise KeyError(f"unknown canonical_tool_id: {canonical_tool_id}")
     return CANONICAL_REGISTRY[canonical_tool_id]
-
-
-def dispatch(canonical_tool_id: str, **kwargs) -> Any:
-    from tool_runtime.schemas import ToolInvocation
-    entry = get_entry(canonical_tool_id)
-    inv = ToolInvocation(tool_id=canonical_tool_id, arguments=kwargs)
-    return entry.handler(inv)
 
 
 def to_tool_specs() -> list[tuple]:

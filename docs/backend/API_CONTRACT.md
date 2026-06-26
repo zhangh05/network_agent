@@ -1,6 +1,6 @@
 # Backend API Contract
 
-Current backend contract (v3.8). This page is the backend-facing companion to
+Current backend contract (v3.9). This page is the backend-facing companion to
 `docs/API.md`; keep endpoint names and response shapes aligned with
 `backend/main.py` and `backend/api/*_routes.py`.
 

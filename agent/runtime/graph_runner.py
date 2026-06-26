@@ -246,7 +246,7 @@ class GraphRunner:
             }
 
     async def _execute_tools_node(self, state: dict) -> dict:
-        """Execute tool calls with parallel dispatch + retry."""
+        """Execute tool calls via unified ToolRuntimeClient (full safety pipeline)."""
         resp = state.get("llm_response")
         if resp is None:
             return {"should_continue": False}
@@ -259,34 +259,36 @@ class GraphRunner:
         if not tool_calls:
             return {"should_continue": False, "all_tool_results": tool_results}
 
-        # v3.8: Parallel dispatch for independent tool calls
-        import concurrent.futures
+        # v3.9: Route ALL tool execution through unified ToolRuntimeClient
+        # No direct handler calls — RiskPolicy, ApprovalGate, Policy, Redaction apply.
+        from tool_runtime.integration import get_default_tool_runtime_client
+        from tool_runtime.context import ToolRuntimeContext
+        import time
+
+        client = get_default_tool_runtime_client()
+        ws_id = state.get("workspace_id", "")
+        session_id = state.get("session_id", "")
 
         def _exec_one(tc):
-            """Execute one tool call with retry."""
+            """Execute one tool call via unified pipeline."""
             try:
                 name = tc.name if hasattr(tc, 'name') else tc.get("name", "unknown")
                 args = tc.arguments if hasattr(tc, 'arguments') else tc.get("arguments", {})
-                from tool_runtime.canonical_registry import CANONICAL_REGISTRY
-                from tool_runtime.schemas import ToolInvocation
-                import time
 
-                entry = CANONICAL_REGISTRY.get(name)
-                if not entry:
-                    return {"ok": False, "error": f"Tool not found: {name}", "tool_id": name}
-
-                for attempt in range(3):
-                    try:
-                        inv = ToolInvocation(tool_id=name, arguments=args)
-                        result = entry.handler(inv)
-                        return {"ok": result.get("ok", True), "tool_id": name, **result}
-                    except Exception as e:
-                        err = str(e).lower()
-                        if attempt < 2 and any(k in err for k in ("timeout", "connection", "network", "429", "503")):
-                            time.sleep(2 ** (attempt + 1))
-                            continue
-                        return {"ok": False, "error": str(e)[:200], "tool_id": name}
-                return {"ok": False, "error": "max retries", "tool_id": name}
+                ctx = ToolRuntimeContext(
+                    workspace_id=ws_id,
+                    requested_by="graph_runner",
+                    session_id=session_id,
+                )
+                result = client.invoke(name, args, context=ctx)
+                return {
+                    "ok": result.status == "succeeded",
+                    "tool_id": name,
+                    "summary": result.summary or "",
+                    "errors": list(result.errors or [])[:5],
+                    "warnings": list(result.warnings or [])[:5],
+                    "output": result.output or {},
+                }
             except Exception as e:
                 return {"ok": False, "error": str(e)[:200], "tool_id": "unknown"}
 

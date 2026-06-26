@@ -216,22 +216,27 @@ def handle_weather_current(inv: ToolInvocation) -> dict:
         )
 
     query = f"{location} current weather temperature humidity wind"
-    out = handle_web_search(ToolInvocation(
-        tool_id="web.search",
-        arguments={
-            "query": query,
-            "top_k": _coerce_int(args.get("top_k", 5), default=5, min_value=1, max_value=10),
-            "recency": args.get("recency", "day"),
-            "language": language,
-            "safe_search": args.get("safe_search", "moderate"),
-        },
+    # v3.9: Route sub-call through unified ToolRuntimeClient (no direct handler bypass)
+    from tool_runtime.integration import get_default_tool_runtime_client
+    from tool_runtime.context import ToolRuntimeContext
+    client = get_default_tool_runtime_client()
+    ctx = ToolRuntimeContext(
         workspace_id=inv.workspace_id,
-        run_id=inv.run_id,
-        job_id=inv.job_id,
-        dry_run=inv.dry_run,
         requested_by=inv.requested_by,
         approval_id=inv.approval_id,
-    ))
+    )
+    result = client.invoke("web.search", {
+        "query": query,
+        "top_k": _coerce_int(args.get("top_k", 5), default=5, min_value=1, max_value=10),
+        "recency": args.get("recency", "day"),
+        "language": language,
+        "safe_search": args.get("safe_search", "moderate"),
+    }, context=ctx)
+    out = {"ok": result.status == "succeeded",
+           "summary": result.summary or "",
+           "results": result.output.get("results", []),
+           "errors": list(result.errors or [])[:5],
+           "warnings": list(result.warnings or [])[:5]}
     return _decorate_realtime_search_result(
         out,
         tool_id="web.weather.current",
@@ -266,22 +271,27 @@ def handle_weather_forecast(inv: ToolInvocation) -> dict:
         )
 
     query = f"{location} {days} day weather forecast"
-    out = handle_web_search(ToolInvocation(
-        tool_id="web.search",
-        arguments={
-            "query": query,
-            "top_k": _coerce_int(args.get("top_k", 5), default=5, min_value=1, max_value=10),
-            "recency": args.get("recency", "day"),
-            "language": language,
-            "safe_search": args.get("safe_search", "moderate"),
-        },
+    # v3.9: Route sub-call through unified ToolRuntimeClient
+    from tool_runtime.integration import get_default_tool_runtime_client
+    from tool_runtime.context import ToolRuntimeContext
+    client = get_default_tool_runtime_client()
+    ctx = ToolRuntimeContext(
         workspace_id=inv.workspace_id,
-        run_id=inv.run_id,
-        job_id=inv.job_id,
-        dry_run=inv.dry_run,
         requested_by=inv.requested_by,
         approval_id=inv.approval_id,
-    ))
+    )
+    result = client.invoke("web.search", {
+        "query": query,
+        "top_k": _coerce_int(args.get("top_k", 5), default=5, min_value=1, max_value=10),
+        "recency": args.get("recency", "day"),
+        "language": language,
+        "safe_search": args.get("safe_search", "moderate"),
+    }, context=ctx)
+    out = {"ok": result.status == "succeeded",
+           "summary": result.summary or "",
+           "results": result.output.get("results", []),
+           "errors": list(result.errors or [])[:5],
+           "warnings": list(result.warnings or [])[:5]}
     return _decorate_realtime_search_result(
         out,
         tool_id="web.weather.forecast",
@@ -298,24 +308,29 @@ def handle_news_search(inv: ToolInvocation) -> dict:
         return _error_inv(inv, "query is required")
     recency = (args.get("recency") or "day").strip().lower()
     language = (args.get("language") or "zh-CN").strip() or "zh-CN"
-    out = handle_web_search(ToolInvocation(
-        tool_id="web.search",
-        arguments={
-            "query": query,
-            "top_k": _coerce_int(args.get("top_k", args.get("limit", 5)), default=5, min_value=1, max_value=10),
-            "site": args.get("site", ""),
-            "domains": args.get("domains", []),
-            "recency": recency,
-            "language": language,
-            "safe_search": args.get("safe_search", "moderate"),
-        },
+    # v3.9: Route sub-call through unified ToolRuntimeClient
+    from tool_runtime.integration import get_default_tool_runtime_client
+    from tool_runtime.context import ToolRuntimeContext
+    client = get_default_tool_runtime_client()
+    ctx = ToolRuntimeContext(
         workspace_id=inv.workspace_id,
-        run_id=inv.run_id,
-        job_id=inv.job_id,
-        dry_run=inv.dry_run,
         requested_by=inv.requested_by,
         approval_id=inv.approval_id,
-    ))
+    )
+    result = client.invoke("web.search", {
+        "query": query,
+        "top_k": _coerce_int(args.get("top_k", args.get("limit", 5)), default=5, min_value=1, max_value=10),
+        "site": args.get("site", ""),
+        "domains": args.get("domains", []),
+        "recency": recency,
+        "language": language,
+        "safe_search": args.get("safe_search", "moderate"),
+    }, context=ctx)
+    out = {"ok": result.status == "succeeded",
+           "summary": result.summary or "",
+           "results": result.output.get("results", []),
+           "errors": list(result.errors or [])[:5],
+           "warnings": list(result.warnings or [])[:5]}
     return _decorate_realtime_search_result(
         out,
         tool_id="web.search",
@@ -448,23 +463,28 @@ def handle_web_official_doc_search(inv: ToolInvocation) -> dict:
     if vendor in doc_targets:
         domain, base = doc_targets[vendor]
         domains = [domain]
-    out = handle_web_search(ToolInvocation(
-        tool_id="web.search",
-        arguments={
-            "query": query,
-            "domains": domains,
-            "top_k": _coerce_int(args.get("top_k", 5), default=5, min_value=1, max_value=10),
-            "language": args.get("language", "zh-CN"),
-            "safe_search": args.get("safe_search", "moderate"),
-        },
+    # v3.9: Route sub-call through unified ToolRuntimeClient
+    from tool_runtime.integration import get_default_tool_runtime_client
+    from tool_runtime.context import ToolRuntimeContext
+    client = get_default_tool_runtime_client()
+    ctx = ToolRuntimeContext(
         workspace_id=inv.workspace_id,
-        run_id=inv.run_id,
-        job_id=inv.job_id,
-        dry_run=inv.dry_run,
         requested_by=inv.requested_by,
         approval_id=inv.approval_id,
-    ))
-    result = dict(out or {})
+    )
+    result = client.invoke("web.search", {
+        "query": query,
+        "domains": domains,
+        "top_k": _coerce_int(args.get("top_k", 5), default=5, min_value=1, max_value=10),
+        "language": args.get("language", "zh-CN"),
+        "safe_search": args.get("safe_search", "moderate"),
+    }, context=ctx)
+    out = {"ok": result.status == "succeeded",
+           "summary": result.summary or "",
+           "results": result.output.get("results", []),
+           "errors": list(result.errors or [])[:5],
+           "warnings": list(result.warnings or [])[:5]}
+    result = dict(out)
     result["tool_id"] = "web.search"
     result["source_type"] = "official_doc_search"
     result["vendor"] = vendor
