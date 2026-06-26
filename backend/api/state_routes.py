@@ -88,3 +88,64 @@ def register_state_routes(app):
             return jsonify({"ok": True, "checkpoints": checkpoints, "count": len(checkpoints)})
         except Exception as e:
             return jsonify({"ok": False, "error": str(e)[:200]}), 500
+
+    # ── Phase 3: Control endpoints (POST) ──
+
+    @app.route("/api/runtime/tasks/<task_id>/checkpoint", methods=["POST"])
+    def api_task_checkpoint(task_id):
+        from flask import request, jsonify
+        ws_id = (request.args.get("workspace_id", "") or
+                 (request.get_json(silent=True) or {}).get("workspace_id", ""))
+        if not ws_id:
+            return jsonify({"ok": False, "error": "workspace_id is required"}), 400
+        try:
+            from agent.runtime.durable.control import checkpoint_task
+            reason = (request.get_json(silent=True) or {}).get("reason", "manual")
+            cp = checkpoint_task(task_id, ws_id, reason=reason)
+            if not cp:
+                return jsonify({"ok": False, "error": "task not found"}), 404
+            return jsonify({"ok": True, "checkpoint_id": cp.checkpoint_id})
+        except Exception as e:
+            return jsonify({"ok": False, "error": str(e)[:200]}), 500
+
+    @app.route("/api/runtime/tasks/<task_id>/cancel", methods=["POST"])
+    def api_task_cancel(task_id):
+        from flask import request, jsonify
+        ws_id = request.args.get("workspace_id", "")
+        if not ws_id:
+            return jsonify({"ok": False, "error": "workspace_id is required"}), 400
+        try:
+            from agent.runtime.durable.control import cancel_task
+            result = cancel_task(task_id, ws_id)
+            code = 200 if result["ok"] else (404 if "not found" in result.get("error","") else 400)
+            return jsonify(result), code
+        except Exception as e:
+            return jsonify({"ok": False, "error": str(e)[:200]}), 500
+
+    @app.route("/api/runtime/tasks/<task_id>/resume", methods=["POST"])
+    def api_task_resume(task_id):
+        from flask import request, jsonify
+        ws_id = request.args.get("workspace_id", "")
+        if not ws_id:
+            return jsonify({"ok": False, "error": "workspace_id is required"}), 400
+        try:
+            from agent.runtime.durable.control import resume_task
+            result = resume_task(task_id, ws_id)
+            code = 200 if result["ok"] else (404 if "not found" in result.get("error","") else 400)
+            return jsonify(result), code
+        except Exception as e:
+            return jsonify({"ok": False, "error": str(e)[:200]}), 500
+
+    @app.route("/api/runtime/tasks/<task_id>/steps/<step_id>/retry", methods=["POST"])
+    def api_task_retry_step(task_id, step_id):
+        from flask import request, jsonify
+        ws_id = request.args.get("workspace_id", "")
+        if not ws_id:
+            return jsonify({"ok": False, "error": "workspace_id is required"}), 400
+        try:
+            from agent.runtime.durable.control import retry_step
+            result = retry_step(task_id, step_id, ws_id)
+            code = 200 if result["ok"] else (404 if "not found" in result.get("error","") else 400)
+            return jsonify(result), code
+        except Exception as e:
+            return jsonify({"ok": False, "error": str(e)[:200]}), 500

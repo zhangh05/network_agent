@@ -63,3 +63,4 @@ node_modules/**/*.results.json
 # Runtime-created sample skills
 skills/sample/
 node_modules/
+workspaces/test_*/

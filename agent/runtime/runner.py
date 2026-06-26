@@ -87,28 +87,34 @@ class TurnRunner:
         ws_id = getattr(self.session, 'workspace_id', '') or ''
         sid = getattr(self.session, 'session_id', '')
         run_id = getattr(state.turn, 'turn_id', '')
+        _save_mid = None  # mid-execution save function
         try:
             from agent.runtime.durable import TaskState, RuntimeStep, RuntimeEvent as RTEvent
             from agent.runtime.durable.store import save_task, append_event as _append_rt_event
+            from agent.runtime.durable.control import checkpoint_task, create_checkpoint_from_state
+            def _save_mid():
+                try: save_task(_task)
+                except: pass
             _task = TaskState.new(
                 workspace_id=ws_id, session_id=sid, run_id=run_id,
                 user_goal=self.turn.op.user_input if self.turn.op else "",
             )
             _task.update_status("running")
-            _task_run_id = run_id  # capture for later use
-            # Emit task_started event
+            _task_run_id = run_id
             _append_rt_event(RTEvent(
                 event_id=f"evt-{_task.task_id}-start",
                 task_id=_task.task_id, workspace_id=ws_id, session_id=sid, run_id=run_id,
                 type="task_started", status="ok",
                 title="Task started", summary=_task.user_goal[:200],
             ))
-            # Context step
             _ctx_step = _task.add_step(RuntimeStep(
                 step_id=f"step-{_task.task_id}-ctx",
                 task_id=_task.task_id, kind="message", title="Context built",
             ))
             _ctx_step.mark_started()
+            _save_mid()
+            # v3.10 Phase 3: checkpoint at task start
+            checkpoint_task(_task.task_id, ws_id, reason="task_started")
         except Exception:
             _task = None
             _task_run_id = ""
@@ -124,8 +130,10 @@ class TurnRunner:
         ContextStage().run(state)
 
         # v3.10: mark context step done
-        if _task and '_ctx_step' in dir():
+        if _task:
             _ctx_step.mark_finished(ok=True, summary="Context built")
+            _save_mid()
+            checkpoint_task(_task.task_id, ws_id, reason="context_built")
 
         if not getattr(state.context, 'trace_id', None):
             state.context.trace_id = fallback_trace_id
@@ -167,7 +175,7 @@ class TurnRunner:
             _trim_messages_if_needed(state)
 
             # Model invocation
-            # v3.10: model step
+            # v3.10: model step + checkpoint
             _model_step = None
             if _task:
                 try:
@@ -177,6 +185,8 @@ class TurnRunner:
                     )
                     _task.add_step(_model_step)
                     _model_step.mark_started()
+                    _save_mid()
+                    checkpoint_task(_task.task_id, ws_id, reason=f"model_step_{state.step}")
                 except Exception:
                     pass
             try:
@@ -190,6 +200,14 @@ class TurnRunner:
                 self.turn.status = "failed"
                 self.turn.warnings.append(f"token_limit_exceeded: {e}")
                 events.turn_failed("token_limit_exceeded")
+                # v3.10: persist on failure
+                if _task:
+                    try:
+                        _task.update_status("failed")
+                        _task.errors.append(str(e)[:200])
+                        checkpoint_task(_task.task_id, ws_id, reason="token_limit_failure")
+                        save_task(_task)
+                    except: pass
                 return build_error_result(
                     state,
                     "上下文超过模型限制，请压缩上下文或开启 compact 后重试。",
@@ -265,11 +283,35 @@ class TurnRunner:
 
             # Handle tool calls
             if resp.has_tool_calls():
-                # v3.10: mark model step (tools ahead)
+                # v3.10: mark model step + checkpoint
                 if _model_step:
                     _model_step.mark_finished(ok=True, summary="Produced tool calls")
+                    _save_mid()
+
+                # v3.10: tool steps
+                if _task:
+                    for tc in resp.tool_calls:
+                        try:
+                            tname = tc.name if hasattr(tc, 'name') else str(tc)
+                            _ts = _task.add_step(RuntimeStep(
+                                step_id=f"step-{_task.task_id}-tool-{state.step}",
+                                task_id=_task.task_id, kind="tool",
+                                title=f"Tool: {tname[:40]}",
+                            ))
+                            _ts.mark_started()
+                            _save_mid()
+                            checkpoint_task(_task.task_id, ws_id, reason="tool_start")
+                        except Exception:
+                            pass
 
                 tool_stop = pipeline.run(state, resp, events)
+
+                # v3.10: mark tool steps done
+                if _task:
+                    for ts in _task.steps:
+                        if ts.kind == "tool" and ts.status == "running":
+                            ts.mark_finished(ok=True, summary="Tool completed")
+                    _save_mid()
 
                 if tool_stop:
                     _tool_stop_requested = True
@@ -319,7 +361,7 @@ class TurnRunner:
             self.turn.final_response = state.final_response
             events.final(state.final_response)
 
-            # v3.10: final step + persist TaskState
+            # v3.10: final step + checkpoint + persist
             if _task:
                 try:
                     _task.add_step(RuntimeStep(
@@ -334,6 +376,7 @@ class TurnRunner:
                         type="task_finished", status="succeeded",
                         title="Task finished", summary=state.final_response[:200],
                     ))
+                    checkpoint_task(_task.task_id, ws_id, reason="task_finished")
                     save_task(_task)
                 except Exception:
                     pass
