@@ -100,7 +100,7 @@ class TestRetrieval:
                            scope="workspace")
         store.save(rec)
         results = store.list_retrievable(ws)
-        assert not any(r.memory_id == rec.memory_id for r in results)
+        assert not any(r["memory_id"] == rec.memory_id for r in results)
 
     def test_active_retrievable(self):
         ws = f"ws_ra_{uuid.uuid4().hex[:8]}"
@@ -109,7 +109,7 @@ class TestRetrieval:
                            scope="workspace")
         store.save(rec)
         results = store.list_retrievable(ws)
-        assert any(r.memory_id == rec.memory_id for r in results)
+        assert any(r["memory_id"] == rec.memory_id for r in results)
 
     def test_cross_workspace_not_visible(self):
         ws_a = f"ws_ma_{uuid.uuid4().hex[:8]}"
@@ -118,7 +118,7 @@ class TestRetrieval:
         rec = MemoryRecord(workspace_id=ws_a, status="active", scope="workspace")
         store.save(rec)
         results = store.list_retrievable(ws_b)
-        assert not any(r.memory_id == rec.memory_id for r in results)
+        assert not any(r["memory_id"] == rec.memory_id for r in results)
 
     def test_expired_not_retrievable(self):
         ws = f"ws_ret_{uuid.uuid4().hex[:8]}"
@@ -130,7 +130,7 @@ class TestRetrieval:
                                                     time.localtime(time.time() - 3600)))
         store.save(rec)
         results = store.list_retrievable(ws)
-        assert not any(r.memory_id == rec.memory_id for r in results)
+        assert not any(r["memory_id"] == rec.memory_id for r in results)
 
 
 class TestConflict:

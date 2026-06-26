@@ -13,7 +13,7 @@ from pathlib import Path
 
 def _resolve_repo_dir(ws_id: str) -> str:
     """Resolve the git repo directory for a workspace. Falls back to CWD."""
-    workspaces_dir = Path("workspaces") / (ws_id or "default")
+    workspaces_dir = Path("workspaces") / (ws_id if ws_id else "_invalid")
     if workspaces_dir.is_dir():
         return str(workspaces_dir.resolve())
     return os.getcwd()

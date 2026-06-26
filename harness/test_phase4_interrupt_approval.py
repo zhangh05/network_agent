@@ -15,9 +15,9 @@ class TestInterrupt:
         task.update_status("running"); save_task(task)
 
         result = interrupt_before_tool(
+            task_id=task.task_id,
             ws_id=ws, session_id=sid, run_id="r1",
-            step=RuntimeStep(step_id="s1", task_id=task.task_id, kind="tool",
-                             title="Run rm", tool_id="exec.run"),
+            step_id="s1",
             tool_invocation={"tool_id": "exec.run", "arguments": {"cmd": "rm -rf /tmp/test"}},
             risk_decision={"risk_level": "high", "reason": "Destructive command"},
         )
@@ -38,9 +38,9 @@ class TestInterrupt:
         task.update_status("running"); save_task(task)
 
         interrupt_before_tool(
+            task_id=task.task_id,
             ws_id=ws, session_id=sid, run_id="r1",
-            step=RuntimeStep(step_id="s-x", task_id=task.task_id, kind="tool",
-                             tool_id="exec.run"),
+            step_id="s-x",
             tool_invocation={"tool_id": "exec.run", "arguments": {"cmd": "rm /tmp/x"}},
             risk_decision={"risk_level": "critical", "reason": "dangerous"},
         )
@@ -57,9 +57,9 @@ class TestInterrupt:
         task.update_status("running"); save_task(task)
 
         interrupt_before_tool(
+            task_id=task.task_id,
             ws_id=ws, session_id=sid, run_id="r1",
-            step=RuntimeStep(step_id="s-e", task_id=task.task_id, kind="tool",
-                             tool_id="exec.run"),
+            step_id="s-e",
             tool_invocation={"tool_id": "exec.run", "arguments": {"cmd": "rm /tmp/x"}},
             risk_decision={"risk_level": "high", "reason": "dangerous"},
         )
@@ -76,9 +76,9 @@ class TestResumeAfterApproval:
         task.update_status("running"); save_task(task)
 
         ir = interrupt_before_tool(
+            task_id=task.task_id,
             ws_id=ws, session_id=sid, run_id="r1",
-            step=RuntimeStep(step_id="s-app", task_id=task.task_id, kind="tool",
-                             tool_id="exec.run"),
+            step_id="s-app",
             tool_invocation={"tool_id": "exec.run", "arguments": {"cmd": "rm /tmp/x"}},
             risk_decision={"risk_level": "high", "reason": "dangerous"},
         )
@@ -98,9 +98,9 @@ class TestResumeAfterApproval:
         task.update_status("running"); save_task(task)
 
         ir = interrupt_before_tool(
+            task_id=task.task_id,
             ws_id=ws, session_id=sid, run_id="r1",
-            step=RuntimeStep(step_id="s-rej", task_id=task.task_id, kind="tool",
-                             tool_id="exec.run"),
+            step_id="s-rej",
             tool_invocation={"tool_id": "exec.run", "arguments": {"cmd": "rm /tmp/x"}},
             risk_decision={"risk_level": "high", "reason": "dangerous"},
         )
@@ -121,9 +121,9 @@ class TestResumeAfterApproval:
         task.update_status("running"); save_task(task)
 
         ir = interrupt_before_tool(
+            task_id=task.task_id,
             ws_id=ws, session_id=sid, run_id="r1",
-            step=RuntimeStep(step_id="s-ed", task_id=task.task_id, kind="tool",
-                             tool_id="exec.run"),
+            step_id="s-ed",
             tool_invocation={"tool_id": "exec.run", "arguments": {"cmd": "rm /tmp/x"}},
             risk_decision={"risk_level": "high", "reason": "dangerous"},
         )
@@ -144,9 +144,9 @@ class TestResumeAfterApproval:
         task.update_status("running"); save_task(task)
 
         ir = interrupt_before_tool(
+            task_id=task.task_id,
             ws_id=ws, session_id=sid, run_id="r1",
-            step=RuntimeStep(step_id="s-nr", task_id=task.task_id, kind="tool",
-                             tool_id="exec.run"),
+            step_id="s-nr",
             tool_invocation={"tool_id": "exec.run", "arguments": {"cmd": "rm /tmp/x"}},
             risk_decision={"risk_level": "high", "reason": "dangerous"},
         )
@@ -178,9 +178,9 @@ class TestRedaction:
         task.update_status("running"); save_task(task)
 
         interrupt_before_tool(
+            task_id=task.task_id,
             ws_id=ws, session_id=sid, run_id="r1",
-            step=RuntimeStep(step_id="s-red", task_id=task.task_id, kind="tool",
-                             tool_id="exec.run"),
+            step_id="s-red",
             tool_invocation={"tool_id": "exec.run",
                              "arguments": {"cmd": "ls", "api_key": "sk-abc", "password": "pwd"}},
             risk_decision={"risk_level": "high", "reason": "test"},

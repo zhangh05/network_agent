@@ -102,6 +102,8 @@ class TurnRunner:
             )
             _task.update_status("running")
             _task_run_id = run_id
+            # v3.10: Write task_id back to state so approval/callers can find it
+            state.task_id = _task.task_id
             _append_rt_event(RTEvent(
                 event_id=f"evt-{_task.task_id}-start",
                 task_id=_task.task_id, workspace_id=ws_id, session_id=sid, run_id=run_id,
@@ -240,6 +242,14 @@ class TurnRunner:
                 events.turn_failed(error_str)
                 self.turn.status = "failed"
                 self.turn.errors.append(error_str)
+                # v3.10: persist provider error
+                if _task:
+                    try:
+                        _task.update_status("failed")
+                        _task.errors.append(f"provider_error: {error_str[:180]}")
+                        save_task(_task)
+                    except Exception:
+                        pass
                 user_msg = ("LLM 服务请求超时，请稍后重试。" if is_timeout
                             else "LLM 服务暂不可用，请稍后重试。")
                 try:
@@ -267,6 +277,15 @@ class TurnRunner:
                 events.turn_failed(f"Provider error ({error_type}): {resp.error}")
                 self.turn.status = "failed"
                 self.turn.errors.append(resp.error)
+
+                # v3.10: persist resp.error
+                if _task:
+                    try:
+                        _task.update_status("failed")
+                        _task.errors.append(f"provider_response_error: {resp.error[:180]}")
+                        save_task(_task)
+                    except Exception:
+                        pass
 
                 user_msg = ("LLM 服务请求超时，请稍后重试。系统已保留本轮事件记录。" if is_timeout
                             else f"LLM 服务暂不可用：{resp.error[:200]}")
@@ -441,16 +460,18 @@ def _build_and_eval_trajectory(task, ws_id: str, state) -> None:
         traj = build_trajectory(task.task_id, ws_id)
         if not traj:
             return
+        # Convert to dict
+        traj_dict = traj.to_dict() if hasattr(traj, 'to_dict') else {}
         persist_trajectory(traj)
-        score = evaluate_trajectory(traj.to_dict() if hasattr(traj, 'to_dict') else {})
+        score = evaluate_trajectory(traj_dict)
         if isinstance(score, dict) and score.get("issues"):
-            task.warnings = (task.warnings or []) + [
-                f"trajectory_issue: {i.get('rule','')}: {i.get('detail','')}"
-                for i in score["issues"][:5]
-            ]
+            for issue in score["issues"]:
+                rule = issue.get("rule", "") if isinstance(issue, dict) else str(issue)
+                detail = issue.get("detail", "") if isinstance(issue, dict) else ""
+                task.warnings = (task.warnings or []) + [f"trajectory: {rule}: {detail}"]
             task.tool_results.append({
                 "__trajectory_score__": score.get("score", 0),
-                "__trajectory_issues__": [i.get("rule") for i in score.get("issues", [])],
+                "__trajectory_issues__": [i.get("rule","") if isinstance(i,dict) else str(i) for i in score.get("issues",[])],
             })
         if state and hasattr(state, 'context') and score.get("issues"):
             ctx = getattr(state, 'context', None)

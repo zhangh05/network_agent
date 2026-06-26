@@ -91,7 +91,14 @@ class ToolRuntimeClient:
             )
 
         caller = invocation.requested_by or ""
-        if caller and caller not in manifest.allowed_callers:
+        # v3.10: Empty/missing caller is blocked — no fail-open
+        if not caller:
+            return ToolResult(
+                tool_id=tool_id, status="blocked",
+                summary="Caller identity (requested_by) is required — missing or empty",
+                redacted=True,
+            )
+        if caller not in manifest.allowed_callers:
             return ToolResult(
                 tool_id=tool_id, status="blocked",
                 summary=f"Caller '{caller}' not allowed for {tool_id}",

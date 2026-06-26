@@ -69,6 +69,11 @@ class TrajectoryRecord:
     def __post_init__(self):
         if not self.created_at: self.created_at = _now()
 
+    def to_dict(self) -> dict:
+        """Convert to dict for serialization."""
+        from dataclasses import asdict as _asdict
+        return _asdict(self)
+
 
 # ── Builder ──
 
@@ -164,18 +169,22 @@ def list_trajectories(ws_id: str, limit=50) -> list[dict]:
 # ── Eval rules ──
 
 def evaluate_trajectory(traj: dict) -> dict:
+    # v3.10: reject empty/undefined trajectory
+    if not traj or not traj.get("task_id"):
+        return {"ok": False, "severity": "critical", "issues": ["invalid_trajectory"],
+                "score": 0, "detail": "Empty or invalid trajectory — cannot evaluate"}
     m = traj.get("metrics", {})
     issues = []
-    if m.get("task_success") is False: issues.append("task_failed")
-    if m.get("unverified_completion"): issues.append("unverified_completion")
-    if m.get("tool_failure_count", 0) > 0: issues.append("tool_failures")
-    if m.get("retry_count", 0) > 2: issues.append("retry_loop")
-    if m.get("approval_reject_count", 0) > 0: issues.append("approval_friction")
-    if m.get("memory_conflict_count", 0) > 0: issues.append("memory_conflict")
-    if m.get("workspace_boundary_violation_count", 0) > 0: issues.append("boundary_violation")
-    if m.get("duration_ms", 0) > 300_000: issues.append("long_running")
+    if m.get("task_success") is False: issues.append({"rule": "task_failed", "detail": "Task did not succeed"})
+    if m.get("unverified_completion"): issues.append({"rule": "unverified_completion", "detail": "Task marked succeeded but no verification"})
+    if m.get("tool_failure_count", 0) > 0: issues.append({"rule": "tool_failures", "detail": f"{m['tool_failure_count']} tool(s) failed"})
+    if m.get("retry_count", 0) > 2: issues.append({"rule": "retry_loop", "detail": f"{m['retry_count']} retries"})
+    if m.get("approval_reject_count", 0) > 0: issues.append({"rule": "approval_friction", "detail": f"{m['approval_reject_count']} rejections"})
+    if m.get("memory_conflict_count", 0) > 0: issues.append({"rule": "memory_conflict", "detail": f"{m['memory_conflict_count']} conflicts"})
+    if m.get("workspace_boundary_violation_count", 0) > 0: issues.append({"rule": "boundary_violation", "detail": f"{m['workspace_boundary_violation_count']} violations"})
+    if m.get("duration_ms", 0) > 300_000: issues.append({"rule": "long_running", "detail": f"Duration {m['duration_ms']}ms > 300s"})
     if m.get("subagent_count", 0) > 0 and m.get("task_success") and not traj.get("subagents"):
-        issues.append("subagent_no_result")  # subagent spawned but no result in trajectory
+        issues.append({"rule": "subagent_no_result", "detail": "Subagent spawned but no result in trajectory"})
     sev = "ok" if len(issues) == 0 else ("warning" if len(issues) <= 2 else "critical")
     return {"ok": len(issues) == 0, "severity": sev, "issues": issues, "score": max(0, 10 - len(issues) * 2)}
 

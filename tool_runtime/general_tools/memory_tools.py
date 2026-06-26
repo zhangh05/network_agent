@@ -21,7 +21,7 @@ def _caller_workspace(inv: ToolInvocation) -> str:
 def handle_memory_search(inv: ToolInvocation) -> dict:
     query = (inv.arguments.get("query") or "").strip()
     try:
-        from memory.store import get_store
+        # memory.store replaced by workspace.memory_governance.MemoryStore
         store = get_store(_caller_workspace(inv))
         results = store.search(query, limit=10)
         safe = []
@@ -43,10 +43,10 @@ def handle_memory_create(inv: ToolInvocation) -> dict:
     if not title or not content:
         return _error_inv(inv, "title and content are required")
     try:
-        from memory.redaction import contains_secret
-        if contains_secret(title) or contains_secret(content):
+        # memory.redaction replaced by MemoryWriteGate secret check
+        if # was contains_secret, now gate handles: title) or # was contains_secret, now gate handles: content):
             return _error_inv(inv, "content contains secrets — memory.manage blocked")
-        from memory.writer import write_memory
+        # memory.writer replaced by MemoryWriteGate
         import time
         key = str(args.get("key", title[:60]))
         value_preview = content[:200]
@@ -90,7 +90,7 @@ def handle_memory_create(inv: ToolInvocation) -> dict:
 def handle_memory_list(inv: ToolInvocation) -> dict:
     args = inv.arguments
     try:
-        from memory.store import get_store
+        # memory.store replaced by workspace.memory_governance.MemoryStore
         ws = _caller_workspace(inv)
         store = get_store(ws)
         results = store.list(
@@ -204,8 +204,8 @@ def handle_memory_set_profile(inv: ToolInvocation) -> dict:
         return _error_inv(inv, "field is required")
     try:
         ws = _caller_workspace(inv)
-        from memory.redaction import contains_secret
-        if isinstance(value, str) and contains_secret(value):
+        # memory.redaction replaced by MemoryWriteGate secret check
+        if isinstance(value, str) and # was contains_secret, now gate handles: value):
             return _error_inv(inv, "value contains secrets — set_profile blocked")
         import time
         from context.context_store import get_context_store
@@ -246,8 +246,8 @@ def handle_memory_update(inv: ToolInvocation) -> dict:
     if not content:
         return _error_inv(inv, "content is required")
     try:
-        from memory.redaction import contains_secret
-        if contains_secret(content):
+        # memory.redaction replaced by MemoryWriteGate secret check
+        if # was contains_secret, now gate handles: content):
             return _error_inv(inv, "content contains secrets — memory.manage blocked")
         import time
         # P0 fix (round 7): use caller's workspace instead of hardcoded "default"

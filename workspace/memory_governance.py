@@ -96,7 +96,8 @@ class MemoryStore:
         return [r for r in self.list_all(ws_id) if r.status == status]
 
     def list_retrievable(self, ws_id: str, scope: Scope = "workspace",
-                         session_id: str = "", memory_type: str = "") -> list[MemoryRecord]:
+                         session_id: str = "", memory_type: str = "",
+                         limit: int = 100) -> list[dict]:
         all_recs = self.list_all(ws_id)
         results = []
         for r in all_recs:
@@ -105,11 +106,12 @@ class MemoryStore:
             elif r.scope == "workspace" and r.workspace_id != ws_id: continue
             elif r.scope == "session" and r.session_id != session_id: continue
             elif r.scope == "task":
-                # task-scoped memory only visible within same session
                 if session_id and r.session_id != session_id: continue
             if memory_type and r.memory_type != memory_type: continue
             results.append(r)
-        return results
+            if len(results) >= limit:
+                break
+        return [r.to_dict() for r in results]
 
     def find_conflicts(self, record: MemoryRecord) -> list[MemoryRecord]:
         """Find conflicting records with same scope+type+similar content."""
