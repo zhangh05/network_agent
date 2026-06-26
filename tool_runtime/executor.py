@@ -58,7 +58,7 @@ class ToolExecutor:
                 summary=f"Schema validation failed: {', '.join(schema_errors)}",
                 errors=schema_errors,
                 duration_ms=int((time.time() - start_time) * 1000),
-                redacted=False,
+                redacted=True,
                 policy_decision=PolicyDecision(allowed=False, reason="schema_validation_failed",
                                                risk_level=spec.risk_level,
                                                blocked_rules=["schema_validation"]),
@@ -74,7 +74,7 @@ class ToolExecutor:
                 summary=f"Blocked by policy: {decision.reason}",
                 errors=[decision.reason],
                 duration_ms=int((time.time() - start_time) * 1000),
-                redacted=False,
+                redacted=True,
                 policy_decision=decision,
             )
 

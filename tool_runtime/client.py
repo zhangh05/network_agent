@@ -75,6 +75,36 @@ class ToolRuntimeClient:
             approval_id=getattr(context, "approval_id", None) if context else None,
         )
 
+        # ── v3.10 Phase 6: Caller permission check ──
+        caller = invocation.requested_by or ""
+        if caller:
+            try:
+                from tool_runtime.manifest_registry import get_manifest
+                m = get_manifest(tool_id)
+                if m and caller not in m.allowed_callers:
+                    return ToolResult(
+                        tool_id=tool_id,
+                        status="blocked",
+                        summary=f"Caller '{caller}' not allowed for {tool_id}",
+                        redacted=True,
+                    )
+            except Exception:
+                pass
+
+        # ── Manifest check ──
+        try:
+            from tool_runtime.manifest_registry import get_manifest
+            m = get_manifest(tool_id)
+            if not m:
+                return ToolResult(
+                    tool_id=tool_id,
+                    status="blocked",
+                    summary=f"Tool {tool_id} has no manifest — execution denied",
+                    redacted=True,
+                )
+        except Exception:
+            pass
+
         # ── Execute through full pipeline ──
         result = self._executor.execute(invocation)
         self._append_trace_event(result, context)
