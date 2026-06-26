@@ -1,4 +1,4 @@
-# Capability-First Architecture (v3.4)
+# Capability-First Architecture (v3.8)
 
 Capability-driven design: capabilities define what the agent can do with safety contracts. Tool visibility is scene-aware.
 
@@ -35,23 +35,19 @@ Defined in `agent/capabilities/builtin.py` and `agent/modules/*/capability.py`:
 | Topology | topology | planned | Reserved for auto-discovery |
 | Inspection | inspection | planned | Reserved for config audit |
 
-## CORE_TOOL_IDS (v3.4 — 22 tools)
+## CORE_TOOL_IDS (v3.8 — 16 tools)
 
 ```text
-tool.catalog.search, workspace.file.list, workspace.file.read,
-workspace.artifact.read,
-host.shell.exec, host.powershell.exec, host.python.exec,
-host.command.slash_run,
-web.search, web.docs.official_search, web.page.summarize,
-web.page.extract_links, web.page.save_artifact,
-web.news.search, web.weather,
-cmdb.list_assets, cmdb.get_asset, cmdb.add_asset, cmdb.delete_asset,
-network.ssh, network.telnet,
-git.status, git.diff, git.log,
-code.search
+exec.run, exec.python, exec.slash,
+workspace.file.list, workspace.file.read,
+workspace.artifact.list, workspace.artifact.read,
+web.search, web.weather,
+git.status, git.log, git.diff,
+code.search, system.diagnostics,
+tool.catalog.search, device.list
 ```
 
-CORE_TOOL_IDS are **unconditionally injected** into every turn. Remaining tools activated by ToolPlannerV2 scene detection.
+CORE_TOOL_IDS are **unconditionally injected** into every turn. Remaining tools activated by capability routing.
 
 ## CapabilityPackage Routing
 
@@ -65,16 +61,16 @@ Defined in `agent/runtime/capability_routing/manifests.py`:
 | config_translation | 5 | config.analysis.run + workspace.file.* |
 | pcap_analysis | 6 | pcap.analysis.run + workspace.file.* |
 | report_drafting | 40 | report.* + workspace.artifact.* |
-| runtime_diagnostics | 50 | runtime.health, runtime.diagnostics |
-| cmdb | 7 | cmdb.* |
-| network_device | 6 | network.ssh, network.telnet |
+| system_diagnostics | 50 | system.diagnostics |
+| device | 7 | device.* |
+| exec | 6 | exec.run, exec.python, exec.slash |
 
 ## ToolPlannerV2
 
 - Located in `agent/runtime/tool_planning/planner.py`
 - `MAX_CANDIDATE_TOOLS = 30`
 - Deterministic seed via keyword-based SIGNAL_DISPATCH
-- LLM refinement enabled (v3.3) — refines seed via model when available
+- LLM refinement enabled (v3.8) — refines seed via model when available
 - Does NOT default to full namespace — narrows by scene + capability routing
 - Produces `ToolPlanningDecision` and `ToolPlanningPolicy`
 
@@ -88,9 +84,9 @@ git(5)  code(1)  browser(2)
 
 ## Invariants
 
-- CapabilityManifest contains no skills field (removed v3.3).
+- CapabilityManifest contains no skills field (removed v3.8).
 - CapabilityToolRef references canonical handlers — never overrides schemas.
 - CORE_TOOL_IDS are always visible regardless of planner output.
 - LLM never sees full 102-tool catalog (max ~30 per turn).
-- SSH/Telnet sessions support reuse via session_id (v3.3).
+- SSH/Telnet sessions support reuse via session_id (v3.8).
 - Dangerous commands (reload/reboot/reset/format/rm -rf/dd if=/mkfs) blocked.

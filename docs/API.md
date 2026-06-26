@@ -1,6 +1,6 @@
 # API Reference
 
-Current API endpoints (v3.3.3).
+Current API endpoints (v3.8).
 
 ## Canonical Response Envelope
 

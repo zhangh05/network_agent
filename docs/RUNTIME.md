@@ -1,6 +1,6 @@
 # Runtime Reference
 
-Runtime execution model (v3.4).
+Runtime execution model (v3.8).
 
 ## Turn Flow
 
@@ -24,7 +24,7 @@ POST /api/agent/message
 7. **RetrievalPolicyStage** — decide retrieval strategy
 8. **RuntimeStateStage** — initialize runtime state / task workflow hooks
 9. **EvidenceStage** — build evidence bundle (context + memory + knowledge)
-10. **ToolPlanningStage** — ToolPlannerV2: deterministic seed + LLM refine (v3.3)
+10. **ToolPlanningStage** — ToolPlannerV2: deterministic seed + LLM refine (v3.8)
 11. **SafeContextStage** — build safe/scrubbed context + runtime snapshot
 12. **LoadedCapabilityStage** — inject capability contracts
 13. **MetadataWriteStage** — write context metadata
@@ -34,7 +34,7 @@ POST /api/agent/message
 Tools are dispatched via `ToolInvocation` through the canonical registry.
 Each call goes through: RiskPolicy → ApprovalGate → Dispatch → ResultNormalizer.
 
-SSH/Telnet tools use `network.ssh` / `network.telnet` with persistent session reuse (session_id).
+SSH/Telnet tools use `exec.run` (target=ssh / target=telnet) with persistent session reuse (session_id).
 Dangerous commands (reload, reboot, reset, format, rm -rf, dd if=, mkfs) are blocked.
 
 ## Post-turn Hooks

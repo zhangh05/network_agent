@@ -1,4 +1,4 @@
-# Current Runtime Design (v3.4)
+# Current Runtime Design (v3.8)
 
 This document describes the current source architecture only.
 
@@ -21,23 +21,23 @@ UserInput
   → 13-Stage Context Pipeline
   → SceneDecision
   → RuntimeStateResolver
-  → TaskDetector (new_task / continue / cancel, expanded v3.3 verbs)
-  → TaskPlanner → WorkflowPlanner (dynamic steps v3.3)
+  → TaskDetector (new_task / continue / cancel, expanded v3.8 verbs)
+  → TaskPlanner → WorkflowPlanner (dynamic steps v3.8)
   → StepExecutor.prepare_current_step
   → EvidencePipeline (Context + Memory + Knowledge layers)
-  → ToolPlannerV2 (deterministic seed + LLM refinement v3.3)
+  → ToolPlannerV2 (deterministic seed + LLM refinement v3.8)
   → PromptCompiler
   → LLM tool calls (Max 8 step loops per turn, configurable)
   → ToolExecutionPipeline
       → ActionPlanner → RiskPolicy → ApprovalGate → Dispatch
-      → CircuitBreaker (v3.3) + Exponential Retry (v3.3)
+      → CircuitBreaker (v3.8) + Exponential Retry (v3.8)
   → StepExecutor.apply_action_results
   → RuntimeStateTransition
   → CompletionEvaluator
   → ResultCollector → ArtifactPlanner → ArtifactWriter → ArtifactRegistry
   → OutputSummarizer → ResponseComposer
   → MemoryWritePlanner (extract + filter + dedupe + write, max 3/turn)
-  → Auto-Checkpoint Guard (v3.3, every 5 turns)
+  → Auto-Checkpoint Guard (v3.8, every 5 turns)
   → ObservabilityCollector
   → TruthReporter
   → StabilityGate
@@ -52,48 +52,43 @@ RuntimeState
   ├── SessionState (session_id, workspace_id, turn_count)
   ├── WorkspaceState (memory_gating, artifact_policy)
   ├── TaskState (pending/running/completed/failed/blocked/approval_pending)
-  ├── WorkflowState (ordered StepState list, dynamic insert/remove v3.3)
+  ├── WorkflowState (ordered StepState list, dynamic insert/remove v3.8)
   ├── StepState (pending/running/completed/failed/blocked/approval_pending/skipped)
   ├── ActionState (planned/executing/completed/failed/blocked)
   └── ArtifactState (registered/exported/deleted)
 ```
 
-## Tool System Architecture (v3.4)
+## Tool System Architecture (v3.8)
 
 ```
-CanonicalRegistry (102 tools, single truth source)
-  ↓ to_tool_specs() — skips forbidden entries
+CanonicalRegistry (73 tools, single truth source)
   ↓
 Namespace filter (tool_namespace_data.py, 13 categories)
   ↓
-CapabilityRegistry filter (10 manifests, 8 enabled)
+Capability routing (keyword-based + semantic fallback)
   ↓
-Model visible filter (enabled + callable_by_llm + non-forbidden)
-  ↓
-ToolPlannerV2 (deterministic + LLM refine) → CORE_TOOL_IDS union
-  ↓
-Final: 20-30 tools visible to LLM per turn
+Core tools (16) + capability-matched → max ~24 visible to LLM
 ```
 
 ### Tool Categories (13)
 
-| Category | Tools | Examples |
-|----------|-------|----------|
-| host | 4 | shell.exec, powershell.exec, python.exec, slash_run |
-| workspace | 23 | file.*, artifact.*, metadata.get |
-| knowledge | 12 | search, chunk.*, source.*, import |
-| network | 4 | ssh, telnet, config.analysis.run, pcap.analysis.run |
-| web | 7 | search, docs, page.*, news, weather |
-| runtime | 13 | health, diagnostics, run.*, session.* |
-| memory | 8 | search, create, confirm, profile.* |
-| report_data | 13 | report.*, data.*, text.*, diagram.* |
-| agent | 6 | role.list, spawn, team.run, tool.catalog.search |
-| cmdb | 4 | list_assets, get_asset, add_asset, delete_asset |
-| git | 5 | status, diff, log, commit, push |
-| code | 1 | search |
-| browser | 2 | navigate, extract |
+| Category | Count | Tools |
+|----------|-------|-------|
+| exec | 3 | exec.run, exec.python, exec.slash |
+| device | 4 | device.add, device.get, device.list, device.delete |
+| workspace | 17 | workspace.file.*, workspace.artifact.* |
+| knowledge | 8 | knowledge.search, knowledge.import, knowledge.* |
+| web | 3 | web.search, web.page.process, web.weather |
+| system | 9 | system.diagnostics, system.session.*, system.review.* |
+| memory | 3 | memory.manage, memory.profile, memory.search |
+| data | 9 | data.*, text.analyze, report.* |
+| agent | 5 | agent.spawn, agent.team.run, tool.catalog.search |
+| git | 5 | git.status, git.diff, git.log, git.commit, git.push |
+| code | 1 | code.search |
+| config | 2 | config.analysis.run, pcap.analysis.run |
+| browser | 4 | browser.navigate, browser.extract, browser.screenshot, browser.click |
 
-## Capability-first Architecture (v3.4)
+## Capability-first Architecture (v3.8)
 
 Capabilities are safety-tagged agent abilities. Each capability declares tools + risk levels + safety contracts.
 
@@ -109,14 +104,14 @@ CapabilityManifest
   └── safety (CapabilitySafetySpec — real_device_access, config_push, human_review)
 ```
 
-No legacy "skill" concept since v3.3. Replaced by:
+No legacy "skill" concept since v3.8. Replaced by:
 - **Capability** = what the agent can do (safety contract)
-- **Skill (SKILL.md)** = reusable workflow recipe (v3.4, agentskills.io standard)
+- **Skill (SKILL.md)** = reusable workflow recipe (v3.8, agentskills.io standard)
 
 ## Safety Boundaries
 
-- High-risk actions (`host.shell.exec`, `host.powershell.exec`, `host.python.exec`) → approval gate
-- Medium-risk actions (`cmdb.add_asset`, `cmdb.delete_asset`, `git.commit`, `git.push`) → approval gate
+- High-risk actions (`exec.run`, `exec.python`, `exec.slash`) → approval gate
+- Medium-risk actions (`device.add`, `device.delete`, `git.commit`, `git.push`) → approval gate
 - Dangerous commands (`reload`, `reboot`, `reset`, `format`, `rm -rf`, `dd if=`, `mkfs`) → blocked
 - SSH/Telnet session reuse → same-session commands skip repeat authentication
 - Memory candidates filtered before write plan (risk + dedupe + count cap)

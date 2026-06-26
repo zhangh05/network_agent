@@ -1,6 +1,6 @@
 # Architecture
 
-Current source architecture reference (v3.3.3).
+Current source architecture reference (v3.8).
 
 ## Turn Pipeline
 
@@ -9,9 +9,9 @@ UserInput -> ContextPipeline (13 stages) -> TurnRunner -> ToolExecutionPipeline 
 ```
 
 ### ContextPipeline Stages (`agent/runtime/context_pipeline/`)
-1. ContextInitStage → ModelConfigStage → HistoryStage → ToolRouterStage → SkillSelectionStage
+1. ContextInitStage → ModelConfigStage → HistoryStage → ToolRouterStage → CapabilitySelectionStage
 2. SceneDecisionStage → RetrievalPolicyStage → RuntimeStateStage → EvidenceStage
-3. ToolPlanningStage → SafeContextStage → LoadedSkillStage → MetadataWriteStage
+3. ToolPlanningStage → SafeContextStage → LoadedCapabilityStage → MetadataWriteStage
 
 ### TurnRunner (`agent/runtime/runner.py`)
 4 execution stages: ContextStage → MessageStage → ModelStage → PersistenceStage, with embedded LLM tool-call loop.

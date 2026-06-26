@@ -23,15 +23,15 @@ See [STRUCTURE.md](STRUCTURE.md) for complete directory reference and [DESIGN.md
 | knowledge | enabled | knowledge.search, knowledge.chunk.*, knowledge.source.* |
 | artifact_management | enabled | workspace.artifact.* |
 | review_flow | enabled | review.item.* |
-| cmdb | enabled | cmdb.list_assets, cmdb.get_asset, cmdb.add_asset, cmdb.delete_asset |
-| network_device | enabled | network.ssh, network.telnet |
+| device | enabled | device.add, device.get, device.list, device.delete |
+| exec | enabled | exec.run (ssh/telnet/local), exec.python, exec.slash |
 | pcap_analysis | enabled | pcap.analysis.run |
 | coding | enabled | git.status/diff/log/commit/push, code.search |
 | browser | enabled | browser.navigate, browser.extract |
 | topology | planned | — |
 | inspection | planned | — |
 
-### Tool system (102 tools, 13 categories)
+### Tool system (73 tools, 13 categories)
 
 ```text
 host(4) workspace(23) knowledge(12) web(7) network(4)

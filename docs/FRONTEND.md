@@ -1,6 +1,6 @@
 # Frontend Reference
 
-Current frontend architecture (v3.3.3).
+Current frontend architecture (v3.8).
 
 ## Pages & Routes
 

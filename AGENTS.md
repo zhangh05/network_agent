@@ -1,4 +1,4 @@
-# Agent Runtime (v3.4)
+# Agent Runtime (v3.8)
 
 ## Turn Lifecycle
 
@@ -6,30 +6,25 @@
 UserInput
   → TurnContext
   → SceneDecision
-  → RuntimeState / TaskWorkflow
-  → Context / Memory / Knowledge (EvidencePipeline)
+  → RuntimeState
+  → Context / Memory / Knowledge
+  → CapabilityRouter (semantic + keyword)
   → ToolPlannerV2
   → PromptCompiler
   → LLM sampling
-  → ActionPlanner → ActionExecutor (RiskPolicy → ApprovalGate → Dispatch)
-  → ResultCollector → ArtifactPlanner → ArtifactWriter → ArtifactRegistry
-  → OutputSummarizer
-  → ResponseComposer
+  → ToolExecutionPipeline (RiskPolicy → ApprovalGate → Dispatch → Retry)
+  → ArtifactWrite → OutputSummarize
   → MemoryWritePlanner
   → ObservabilityCollector
-  → TruthReporter
-  → StabilityGate
-  → RuntimeStateSnapshot
   → FinalResponse
 ```
 
-## 13-Stage Context Pipeline
+## Context Pipeline
 
-```
 1. ContextInitStage       — create TurnContext
 2. ModelConfigStage       — resolve LLM model config
 3. HistoryStage           — load history window (k=30)
-4. ToolRouterStage        — build base tool router
+4. ToolRouterStage        — build active tool bundle
 5. CapabilitySelectionStage — select capabilities, snapshot services
 6. SceneDecisionStage     — compute scene decision
 7. RetrievalPolicyStage   — evaluate retrieval triggers
@@ -39,55 +34,64 @@ UserInput
 11. SafeContextStage       — build LLM-visible context + snapshot
 12. LoadedCapabilityStage — inject capability contracts
 13. MetadataWriteStage     — finalize metadata
-```
 
 ## Tool Visibility
 
-Tools flow through 4 filter layers before reaching LLM:
+Tools flow through 3 filter layers before reaching LLM:
 
-1. **Namespace filter** — only canonical tool_ids pass
-2. **Model visible filter** — enabled + non-forbidden + callable_by_llm
-3. **CORE_TOOL_IDS** (22 tools) — always injected regardless of planner output
-4. **Scene-aware ToolPlannerV2** — activates remaining tools by scenario
+1. **Canonical filter** — only 73 canonical tool_ids pass
+2. **Capability routing** — selects domains by user intent (keyword + semantic)
+3. **Core tools** (16 tools) — always visible regardless of capability match
 
-Final: `model_visible ∩ (CORE_TOOL_IDS ∪ planner_candidates)` → 20-30 tools visible per turn.
+Final: `core_tools ∪ capability_matched` → max ~24 tools visible per turn.
 
-## Capability Registry (v3.3+)
+### Core Tools (16)
 
-Capabilities define what the agent can do + safety contracts. No legacy "skills" concept.
-
-| Capability | ID | Status | Safety |
-|-----------|-----|--------|--------|
-| Knowledge | knowledge | enabled | read only |
-| Artifact Management | artifact_management | enabled | write (sandboxed) |
-| Review Flow | review_flow | enabled | read |
-| CMDB | cmdb | enabled | write (delete needs approval) |
-| Network Device | network_device | enabled | real_device_access=true |
-| PCAP Analysis | pcap_analysis | enabled | read |
-| Coding | coding | enabled | commit/push needs approval |
-| Browser | browser | enabled | read (external URLs) |
-| Topology | topology | planned | — |
-| Inspection | inspection | planned | — |
+exec.run, exec.python, exec.slash, workspace.file.list, workspace.file.read,
+workspace.artifact.list, workspace.artifact.read, web.search, web.weather,
+git.status, git.log, git.diff, code.search, system.diagnostics,
+tool.catalog.search, device.list
 
 ## Tool Execution
 
 ```
-ActionPlanner → RiskPolicy → ApprovalGate → ToolDispatcher
-  → ResultNormalizer → ResultScanner → ActionAuditTrail
+ToolExecutionPipeline:
+  risk → approval → dispatch → normalize → scan → retry → audit → evidence
 ```
 
-Medium-risk tools (cmdb.add_asset, cmdb.delete_asset, git.commit, git.push) trigger approval gates.
-High-risk tools (host.shell.exec, host.powershell.exec, host.python.exec) require manual approval.
+- Medium-risk tools (`device.add`, `device.delete`, `git.commit`, `git.push`) require approval.
+- High-risk tools (`exec.run`, `exec.python`, `exec.slash`) require manual approval.
+- Dangerous commands (`reload`, `reboot`, `reset`, `rm -rf`, `format`) are blocked.
+- Auto-retry: 3 attempts with exponential backoff on transient errors.
 
-## Session & Long-Task Support (v3.3)
+## Capability Routing (v3.8)
 
-- History window: 30 messages (was 8)
-- Context compaction: 15 recent messages preserved + 25 key data fields
-- Auto-checkpoint: every 5 turns (configurable)
-- Exponential retry + circuit breaker (3 consecutive failures → 30s cooldown)
-- Dynamic workflow steps (insert/remove/reorder mid-task)
-- LLM tool planner enabled (refines deterministic seed via model)
-- SSH session reuse (session_id for consecutive commands, sudo support)
+12 capability domains with keyword-based matching + semantic embedding fallback:
+
+| Domain | Matches | Tools |
+|--------|---------|-------|
+| exec | 运行,ssh,telnet,cmd | exec.* |
+| device | cmdb,设备,device | device.* |
+| workspace | 文件,编辑,save | workspace.* |
+| knowledge | 知识,文档,docs | knowledge.* |
+| web | 搜索,browser,weather | web.* |
+| memory | 记忆,remember | memory.* |
+| git | commit,push,diff | git.* |
+| code | 代码,search | code.* |
+| config | 配置,analysis | config.* |
+| data | csv,table,report | data.* |
+| system | 审计,checkpoint | system.* |
+| agent | team,spawn | agent.* |
+
+## Agent Modes
+
+- **TurnRunner**: Legacy while-loop (step < 8), used by default.
+- **GraphRunner**: LangGraph StateGraph with checkpoint support. Enable via `AGENT_RUNTIME=langgraph`.
+
+## Dynamic Breakpoints
+
+- `AGENT_BREAKPOINT_TOOLS` env var pauses execution before specified tools.
+- UI management via Inspector panel (`/api/agent/breakpoints`).
 
 ## Sub-Agents
 
@@ -108,4 +112,3 @@ Each turn produces in `ctx.metadata`:
 | `memory_write_plan` | MemoryWritePlanner |
 | `turn_trace` | ObservabilityCollector |
 | `truth_report` | TruthReporter |
-| `stability_report` | StabilityGate |
