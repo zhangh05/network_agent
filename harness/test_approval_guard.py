@@ -62,13 +62,13 @@ class TestAdminTokenAuth:
 
         resp = client.post(
             f"/api/agent/approvals/{req.approval_id}/resolve",
-            json={"allowed": True, "resolver": "admin"},
+            json={"decision": "approve", "resolver": "admin"},
             headers={"X-Admin-Token": "secret-admin-token"},
         )
         assert resp.status_code == 200
         data = resp.get_json()
         assert data["ok"] is True
-        assert data["allowed"] is True
+        assert data["decision"] == "approve"
 
     def test_wrong_token_returns_403(self, client, reset_approvals, monkeypatch):
         """Wrong token should return 403."""
@@ -84,7 +84,7 @@ class TestAdminTokenAuth:
 
         resp = client.post(
             f"/api/agent/approvals/{req.approval_id}/resolve",
-            json={"allowed": True},
+            json={"decision": "approve"},
             headers={"X-Admin-Token": "wrong-token"},
         )
         assert resp.status_code == 403
@@ -103,7 +103,7 @@ class TestAdminTokenAuth:
 
         resp = client.post(
             f"/api/agent/approvals/{req.approval_id}/resolve",
-            json={"allowed": True},
+            json={"decision": "approve"},
         )
         assert resp.status_code == 403
 

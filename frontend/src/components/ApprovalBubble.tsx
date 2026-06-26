@@ -108,7 +108,7 @@ export function ApprovalBubble({ onResolved }: { onResolved?: () => void }) {
       setSecondsLeft((prev) => {
         const next = prev - 1;
         if (next <= 0) {
-          if (!resolvingRef.current) resolveApproval(false);
+          if (!resolvingRef.current) resolveApproval("reject");
           return 0;
         }
         return next;
@@ -119,12 +119,12 @@ export function ApprovalBubble({ onResolved }: { onResolved?: () => void }) {
     return () => clearInterval(timer);
   }, [pending?.approval_id]);
 
-  const resolveApproval = useCallback(async (allowed: boolean) => {
+  const resolveApproval = useCallback(async (decision: "approve" | "reject") => {
     const p = pending;
     if (!p || resolvingRef.current) return;
     resolvingRef.current = true;
     try {
-      await approvalApi.resolve(p.approval_id, allowed);
+      await approvalApi.resolve(p.approval_id, { decision });
     } catch {
       /* ignore */
     }
@@ -179,7 +179,7 @@ export function ApprovalBubble({ onResolved }: { onResolved?: () => void }) {
         <div className="abp-actions">
           <button
             className="btn sm ghost"
-            onClick={() => resolveApproval(false)}
+            onClick={() => resolveApproval("reject")}
             disabled={resolving}
             type="button"
           >
@@ -187,7 +187,7 @@ export function ApprovalBubble({ onResolved }: { onResolved?: () => void }) {
           </button>
           <button
             className="btn sm primary"
-            onClick={() => resolveApproval(true)}
+            onClick={() => resolveApproval("approve")}
             disabled={resolving}
             type="button"
             autoFocus

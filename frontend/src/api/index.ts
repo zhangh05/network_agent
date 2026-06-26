@@ -866,12 +866,12 @@ export const approvalApi = {
 
   resolve: (
     approvalId: string,
-    allowed: boolean,
-  ): Promise<{ ok: boolean; approval_id: string; allowed: boolean }> =>
+    body: { decision: string; edited_args?: Record<string, unknown>; feedback?: string; reason?: string },
+  ): Promise<{ ok: boolean; approval_id: string; decision: string }> =>
     apiRequest({
       method: "POST",
       url: `/agent/approvals/${approvalId}/resolve`,
-      data: { allowed },
+      data: body,
     }),
 
   history: (params: { sessionId?: string; toolId?: string; limit?: number } = {}): Promise<{

@@ -55,15 +55,22 @@ def register_approval_routes(app) -> None:
 
     @app.route("/api/agent/approvals/<approval_id>/resolve", methods=["POST"])
     def api_approval_resolve(approval_id):
-        """POST resolve an approval — body: {"allowed": true/false}."""
+        """POST resolve an approval — body: {decision: approve|reject|edit_args|respond}."""
         if not _admin_token_allowed():
             return jsonify({"ok": False, "error": "admin_access_required"}), 403
         from agent.approval import get_approval_store
         store = get_approval_store()
         data = request.get_json(silent=True) or {}
-        allowed = bool(data.get("allowed", False))
+
+        # Require decision field (no legacy allowed fallback)
+        decision = str(data.get("decision", "")).strip()
+        if decision not in ("approve", "reject", "edit_args", "respond", "respond_with_feedback"):
+            return jsonify({"ok": False, "error": "decision required: approve|reject|edit_args|respond"}), 400
+
         resolver = str(data.get("resolver") or "user")
         reason = str(data.get("reason") or "")
+        allowed = decision == "approve" or decision == "edit_args"
+
         req = store.resolve(approval_id, allowed, resolver=resolver, reason=reason)
         if req is None:
             return jsonify({"ok": False, "error": "approval not found or already resolved"}), 404
@@ -75,7 +82,6 @@ def register_approval_routes(app) -> None:
             task_id = meta.get("task_id", "")
             ws_id = req.workspace_id if hasattr(req, 'workspace_id') else ""
             if task_id and ws_id:
-                decision = data.get("decision", "approve" if allowed else "reject")
                 from agent.runtime.durable.interrupt import resume_after_approval
                 runtime_result = resume_after_approval(
                     task_id=task_id, ws_id=ws_id, approval_id=approval_id,
@@ -90,7 +96,8 @@ def register_approval_routes(app) -> None:
         return jsonify({
             "ok": True,
             "approval_id": approval_id,
-            "allowed": allowed,
+            "decision": decision,
+            "runtime_result": runtime_result,
         })
 
     @app.route("/api/agent/approvals/history")

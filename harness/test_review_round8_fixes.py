@@ -205,18 +205,18 @@ def test_agent_approval_resolve_requires_admin_token_when_configured(monkeypatch
 
     denied = app.test_client().post(
         f"/api/agent/approvals/{req.approval_id}/resolve",
-        json={"allowed": True},
+        json={"decision": "approve"},
     )
     allowed = app.test_client().post(
         f"/api/agent/approvals/{req.approval_id}/resolve",
-        json={"allowed": True},
+        json={"decision": "approve"},
         headers={"X-Admin-Token": "admin-secret"},
     )
 
     assert denied.status_code == 403
     assert denied.get_json()["error"] == "admin_access_required"
     assert allowed.status_code == 200
-    assert allowed.get_json()["allowed"] is True
+    assert allowed.get_json()["decision"] == "approve"
 
 
 def test_unified_approval_store_redacts_sensitive_args(app, monkeypatch):
@@ -240,7 +240,7 @@ def test_unified_approval_store_redacts_sensitive_args(app, monkeypatch):
     # Resolve via unified endpoint
     approved = client.post(
         f"/api/agent/approvals/{req.approval_id}/resolve",
-        json={"allowed": True, "resolver": "test"},
+        json={"decision": "approve", "resolver": "test"},
     )
     assert approved.status_code == 200
     assert approved.get_json()["ok"] is True

@@ -64,3 +64,4 @@ node_modules/**/*.results.json
 skills/sample/
 node_modules/
 workspaces/test_*/
+workspaces/ws_*/
