@@ -619,13 +619,18 @@ def register_runtime_routes(app):
     def api_agent_sse_stream(session_id):
         """SSE streaming endpoint — live agent execution events."""
         from flask import Response, stream_with_context
-        import time
+        from agent.runtime.session_events import subscribe
 
         def generate():
             yield f"event: connected\ndata: {{\"session_id\": \"{session_id}\"}}\n\n"
-            for _ in range(300):
-                yield ": keepalive\n\n"
-                time.sleep(1)
+            import time as _time
+            for _ in range(3600):  # 1 hour max
+                frame = subscribe(session_id, timeout=25)
+                if frame:
+                    yield frame
+                else:
+                    yield ": keepalive\n\n"
+                _time.sleep(0.1)
 
         return Response(
             stream_with_context(generate()),

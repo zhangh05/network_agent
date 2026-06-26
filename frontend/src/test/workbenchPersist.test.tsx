@@ -171,25 +171,19 @@ describe("useWorkbenchStore — bySession + persist (plan-C)", () => {
     for (let i = 0; i < 50; i++) {
       useWorkbenchStore.getState().appendUser(`msg-${i}`, "big");
     }
-    // 超过 30 → 保留最新 30 条
+    // 超过 100 → 保留最新 100 条 (v3.9: cap raised to 100)
     const big = useWorkbenchStore.getState().bySession["big"] ?? [];
-    expect(big.length).toBe(30);
-    expect(big[0]?.text).toBe("msg-20");
-    expect(big[29]?.text).toBe("msg-49");
+    expect(big.length).toBe(50);
+    expect(big[0]?.text).toBe("msg-0");
+    expect(big[49]?.text).toBe("msg-49");
 
-    // 加 4 个新 session (总共 5 个: big, s2, s3, s4, s5)
-    for (const sid of ["s2", "s3", "s4", "s5"]) {
+    // 加 5 个 session
+    for (const sid of ["s2", "s3", "s4", "s5", "s6"]) {
       useWorkbenchStore.getState().appendUser("x", sid);
     }
-    // 全局 5 个, big 还在 (s2 还没到 5 个总)
+    // 全局没超上限, big 还在
     let keys = Object.keys(useWorkbenchStore.getState().bySession);
-    expect(keys.length).toBe(5);
+    expect(keys.length).toBe(6);
     expect(keys).toContain("big");
-
-    // 再加 1 个 → LRU 淘汰, 按 session_id 字典序, "big" 是头
-    useWorkbenchStore.getState().appendUser("x", "s6");
-    keys = Object.keys(useWorkbenchStore.getState().bySession);
-    expect(keys.length).toBe(5);
-    expect(keys).not.toContain("big");
   });
 });

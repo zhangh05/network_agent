@@ -1691,6 +1691,13 @@ details.collapse[open] summary::before {
   font-size: var(--fs-12);
   font-weight: 650;
 }
+.wb-export-btn {
+  display: inline-flex; align-items: center; gap: 4px; padding: 3px 10px;
+  font-size: var(--fs-11); color: var(--text-3); background: transparent;
+  border: 1px solid var(--line); border-radius: 4px; cursor: pointer;
+  transition: all var(--dur-2);
+}
+.wb-export-btn:hover { color: var(--accent); border-color: var(--accent); }
 
 /* ── View tabs (v3.9: fixed grid row, not sticky) ── */
 .wb-view-tabs {
@@ -3437,5 +3444,60 @@ details.collapse[open] summary::before {
 .tool-call-running {
   animation: tool-call-pulse 1.5s ease-in-out infinite;
   border-color: var(--accent) !important;
+}
+
+/* ─── Mobile responsive ─── */
+
+@media (max-width: 768px) {
+  :root { --h-header: 44px; }
+
+  /* Sidebar: overlay drawer */
+  .app-root {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .app-sidebar {
+    position: fixed; top: 44px; left: 0; bottom: 0; z-index: 50;
+    width: 280px; max-width: 85vw;
+    background: var(--surface); border-right: 1px solid var(--line);
+    transform: translateX(-100%); transition: transform 0.2s ease;
+  }
+  .app-sidebar:not(.collapsed) {
+    transform: translateX(0);
+  }
+  .app-sidebar.collapsed {
+    transform: translateX(-100%);
+  }
+
+  /* Workbench shell — compact */
+  .wb-shell {
+    grid-template-rows: 44px 38px minmax(0, 1fr) auto;
+  }
+  .wb-view-tabs { padding: 0 12px; }
+  .wb-view-tab { padding: 0 12px; font-size: 12px; height: 38px; }
+  .wb-header { padding: 0 12px; }
+  .wb-input-bar { padding: 6px 12px; }
+  .wb-input-prompt { display: none; }
+
+  /* Chat bubbles full-width */
+  .chat-bubble, .chat-bubble.user, .chat-bubble.assistant {
+    max-width: 100%;
+  }
+  .chat-result-inline {
+    width: 100%;
+  }
+
+  /* Timeline cards */
+  .rt-run-header { flex-direction: column; align-items: flex-start; gap: 6px; }
+  .rt-run-snippet { max-width: 200px; }
+  .rt-card-snippet { max-width: 150px; }
+
+  /* Page layouts */
+  .page-header { min-height: auto; padding: 12px 14px; }
+  .page-body { padding: 12px 14px 20px; }
+  .settings-layout { grid-template-columns: minmax(0, 1fr); }
+  .settings-layout > .provider-sidebar { max-height: 200px; }
+
+  /* Sidebar backdrop */
+  .app-root.no-sidebar .app-sidebar { display: none; }
 }
 

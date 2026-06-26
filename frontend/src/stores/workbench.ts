@@ -30,8 +30,8 @@ export interface ChatMsg {
   run_id?: string;
 }
 
-const MAX_MSGS_PER_SESSION = 30;
-const MAX_SESSIONS = 5;
+const MAX_MSGS_PER_SESSION = 100;
+const MAX_SESSIONS = 20;
 
 let msgSeq = 0;
 function nextId(): string {
@@ -147,7 +147,7 @@ export const useWorkbenchStore = create<WorkbenchState>()(
           const next = capHistory({ ...s.bySession, [sid]: [...cur, msg] }, sid);
           // Append run result to session's results array
           const sessResults = s.results[sid] ?? [];
-          const maxResults = 20;
+          const maxResults = 50;
           const nextResults = cleanResult
             ? { ...s.results, [sid]: [...sessResults, cleanResult].slice(-maxResults) }
             : s.results;
@@ -165,7 +165,7 @@ export const useWorkbenchStore = create<WorkbenchState>()(
         if (!sid) return;
         set((s) => {
           const sessResults = s.results[sid] ?? [];
-          const maxResults = 20;
+          const maxResults = 50;
           return {
             results: { ...s.results, [sid]: [...sessResults, r].slice(-maxResults) },
           };

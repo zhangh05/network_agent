@@ -1,5 +1,5 @@
 import React, { useState, useRef, useEffect, useCallback } from "react";
-import { agentApi, knowledgeApi, memoryApi, sessionsApi, settingsApi } from "../../api";
+import { agentApi, knowledgeApi, memoryApi, sessionsApi, settingsApi, sseApi } from "../../api";
 import { apiRequest } from "../../api/client";
 import { useSessionStore } from "../../stores/session";
 import { useWorkbenchStore } from "../../stores/workbench";
@@ -187,6 +187,24 @@ export function TaskWorkbench() {
       .then((res) => { if (res.messages?.length) mergeFromBackend(currentSessionId, res.messages); })
       .catch(() => {});
     return () => ctrl.abort();
+  }, [currentSessionId, currentWorkspaceId]);
+
+  // v3.9: SSE real-time timeline updates
+  useEffect(() => {
+    if (!currentSessionId || typeof EventSource === "undefined") return;
+    const es = sseApi.connect(currentSessionId);
+    es.onmessage = (e) => {
+      try {
+        const msg = JSON.parse(e.data);
+        if (msg.event === "turn_completed") {
+          sessionsApi.messages(currentSessionId, currentWorkspaceId || "", undefined as any)
+            .then((res) => { if (res.messages?.length) mergeFromBackend(currentSessionId, res.messages); })
+            .catch(() => {});
+        }
+      } catch { /* ignore */ }
+    };
+    es.onerror = () => { es.close(); };
+    return () => es.close();
   }, [currentSessionId, currentWorkspaceId]);
 
   async function onSend(textOverride?: string) {
@@ -479,6 +497,19 @@ export function TaskWorkbench() {
           <span className={"dot " + (llmHealth.connected ? (llmHealth.recentFailure ? "warn" : "ok") : "err")} />
           <span>{llmStatusLabel}</span>
         </div>
+        {/* v3.9: Export session as Markdown */}
+        {currentSessionId && visibleHistory && visibleHistory.length > 0 && (
+          <button className="wb-export-btn" title="导出对话" onClick={() => {
+            const md = visibleHistory.map((m) =>
+              `## ${m.role === "user" ? "🙋 用户" : "🤖 AI"}\n\n${m.text}\n\n---\n`
+            ).join("\n");
+            const blob = new Blob([md], { type: "text/markdown" });
+            const a = document.createElement("a");
+            a.href = URL.createObjectURL(blob);
+            a.download = `session-${currentSessionId.slice(0, 8)}-${new Date().toISOString().slice(0, 10)}.md`;
+            a.click();
+          }}>📥 导出</button>
+        )}
       </div>
 
       {/* ── View mode toggle ── */}

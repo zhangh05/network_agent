@@ -89,8 +89,28 @@ class ToolExecutionPipeline:
             events.tool_call_started(tool_call.real_tool_id, state.step)
             events.record_tool_call(state.step, tool_call.real_tool_id, str(tool_call.arguments)[:100])
 
+            # v3.9: SSE real-time push
+            try:
+                from agent.runtime.session_events import push_tool_start
+                sid = getattr(state.session, 'session_id', '')
+                if sid:
+                    push_tool_start(sid, tool_call.real_tool_id, state.step)
+            except Exception:
+                pass
+
             result, should_skip, should_stop = self._execute_single_with_retry(
                 state, tool_call, tc, events, state.step)
+
+            # v3.9: SSE push tool result
+            try:
+                from agent.runtime.session_events import push_tool_done
+                sid = getattr(state.session, 'session_id', '')
+                if sid:
+                    push_tool_done(sid, tool_call.real_tool_id,
+                                   result.ok if result else False,
+                                   result.summary if result else "")
+            except Exception:
+                pass
 
             if should_stop:
                 tool_stop_requested = True
@@ -111,6 +131,17 @@ class ToolExecutionPipeline:
 
         self._finalize_expanded(state, expanded_tools_this_step)
         _complete_runtime_state(state)
+
+        # v3.9: SSE push turn completed
+        try:
+            from agent.runtime.session_events import push_turn_done
+            sid = getattr(state.session, 'session_id', '')
+            turn_id = getattr(state.turn, 'turn_id', '')
+            if sid:
+                push_turn_done(sid, turn_id, resp.content if resp.content else "")
+        except Exception:
+            pass
+
         return tool_stop_requested
 
     def _are_independent(self, tool_calls) -> bool:
