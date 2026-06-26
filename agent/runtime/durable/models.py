@@ -27,7 +27,8 @@ class RuntimeStep:
             try:
                 st = _time.mktime(_time.strptime(self.started_at,"%Y-%m-%dT%H:%M:%S"))
                 self.duration_ms = (_time.time()-st)*1000
-            except: pass
+            except Exception:
+                pass  # non-critical idempotent update
 
 @dataclass
 class RuntimeEvent:

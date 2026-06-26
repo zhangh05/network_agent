@@ -26,7 +26,7 @@ def persist_run_record(session, turn, result, context) -> None:
     try:
         user_input = (turn.op.user_input if turn.op else "") or ""
         final_response = (result.final_response if result else "") or ""
-        ws_id = session.workspace_id or "default"
+        ws_id = session.workspace_id or ""
         run_id = turn.turn_id
         created_at = _created_at_for_turn(turn, context)
 

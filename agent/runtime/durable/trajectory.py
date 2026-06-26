@@ -100,7 +100,8 @@ def build_trajectory(task_id: str, ws_id: str) -> Optional[TrajectoryRecord]:
             st = datetime.strptime(task.created_at, "%Y-%m-%dT%H:%M:%S")
             ft = datetime.strptime(task.updated_at, "%Y-%m-%dT%H:%M:%S")
             traj.duration_ms = (ft - st).total_seconds() * 1000
-        except: pass
+        except Exception as e:
+            traj.warnings.append(f"duration calc failed: {str(e)[:100]}")
 
     # ── Compute metrics ──
     m = traj.metrics
@@ -205,7 +206,9 @@ def save_feedback(traj_id: str, ws_id: str, feedback: dict) -> dict:
             citations=[{"trajectory_id": traj_id}],
         )
         gate.write(rec)
-    except: pass
+    except Exception as e:
+        # Feedback memory write is best-effort, not critical
+        pass
     return {"ok": True}
 
 

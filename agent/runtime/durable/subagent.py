@@ -340,4 +340,5 @@ def _emit_event(ws_id: str, parent_task_id: str, session_id: str, event_type: st
             type=event_type, status="ok",
             title=event_type, summary=summary[:200],
         ))
-    except: pass
+    except Exception as e:
+        result.warnings.append(f"subagent event emit failed: {str(e)[:100]}")

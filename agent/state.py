@@ -39,7 +39,7 @@ class NetworkAgentState:
     user_input: str = ""
     intent: Optional[str] = None
     active_module: Optional[str] = None
-    workspace_id: str = "default"
+    workspace_id: str = ""  # v3.10: must be set explicitly, no default fallback
     session_id: Optional[str] = None
 
     selected_skill: Optional[str] = None

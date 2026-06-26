@@ -94,7 +94,8 @@ class TurnRunner:
             from agent.runtime.durable.control import checkpoint_task, create_checkpoint_from_state
             def _save_mid():
                 try: save_task(_task)
-                except: pass
+                except Exception as e:
+                    state.context.warnings.append(f"durable_task_creation_failed: {str(e)[:100]}")
             _task = TaskState.new(
                 workspace_id=ws_id, session_id=sid, run_id=run_id,
                 user_goal=self.turn.op.user_input if self.turn.op else "",
@@ -207,7 +208,8 @@ class TurnRunner:
                         _task.errors.append(str(e)[:200])
                         checkpoint_task(_task.task_id, ws_id, reason="token_limit_failure")
                         save_task(_task)
-                    except: pass
+                    except Exception as e:
+                    state.context.warnings.append(f"durable_task_creation_failed: {str(e)[:100]}")
                 return build_error_result(
                     state,
                     "上下文超过模型限制，请压缩上下文或开启 compact 后重试。",

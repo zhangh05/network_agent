@@ -167,13 +167,43 @@ class ToolExecutionPipeline:
         
         # Prepare all tool_call objects first (build_tool_call must be serial)
         prepared = []
+        blocked_parallel_tools = []
         for tc in tool_calls:
             llm_name = tc.name if hasattr(tc, 'name') else tc.get("name", "unknown")
             try:
                 tool_call = state.context.tool_router.build_tool_call(tc)
+                # v3.10: Manifest safety check for parallel execution
+                tid = getattr(tool_call, 'real_tool_id', '')
+                if tid:
+                    try:
+                        from tool_runtime.manifest_registry import get_manifest
+                        m = get_manifest(tid)
+                        if m:
+                            unsafe_parallel = (
+                                m.destructive or
+                                m.side_effects not in ("none", "read") or
+                                m.idempotency != "safe_to_retry"
+                            )
+                            if unsafe_parallel and len(tool_calls) > 1:
+                                blocked_parallel_tools.append(
+                                    f"{tid}: destructive={m.destructive}, side_effects={m.side_effects}, idempotency={m.idempotency}"
+                                )
+                                prepared.append((tc, None, llm_name,
+                                    ValueError(f"Tool {tid} not allowed in parallel: unsafe for concurrent execution")))
+                                continue
+                    except Exception:
+                        pass
                 prepared.append((tc, tool_call, llm_name, None))
             except Exception as e:
                 prepared.append((tc, None, llm_name, e))
+
+        # If any tools blocked from parallel, warn but continue with remaining tools
+        if blocked_parallel_tools:
+            state.warnings.extend(blocked_parallel_tools)
+            # If all tools blocked, skip parallel entirely
+            if len([p for p in prepared if p[3] is None and p[1] is not None]) == 0:
+                _complete_runtime_state(state)
+                return False
 
         def _exec_one(state_copy, tc, tool_call, llm_name, error):
             if error:
@@ -208,6 +238,12 @@ class ToolExecutionPipeline:
                     tool_stop_requested = True
                 if r["should_skip"]:
                     continue
+                # v3.10: Merge parallel results back into main state
+                if r.get("result"):
+                    append_tool_result(
+                        r["result"], r.get("tool_call"), r.get("tc"),
+                        state.all_tool_results, state.messages,
+                    )
                 added = expand_tools_from_catalog_result(
                     r["result"], state.context, state.session, state.turn, state.step,
                     state.audit_events, state.emitter)
@@ -232,18 +268,36 @@ class ToolExecutionPipeline:
             )).to_llm_message())
 
     def _execute_single_with_retry(self, state, tool_call, tc, events, step):
-        """Execute with retry for transient errors. v3.8."""
-        for attempt in range(MAX_RETRIES + 1):
+        """Execute with retry for transient errors. v3.10: manifest-driven retry policy."""
+        tid = tool_call.real_tool_id
+        if not tid:
+            tid = ""
+
+        # v3.10: Check manifest for retry permission
+        can_retry = False
+        max_manifest_retries = 0
+        try:
+            from tool_runtime.manifest_registry import get_manifest
+            m = get_manifest(tid)
+            if m:
+                can_retry = (m.idempotency == "safe_to_retry" and not m.destructive)
+                if can_retry and m.retry_policy:
+                    max_manifest_retries = getattr(m.retry_policy, 'max_attempts', 1) - 1
+        except Exception:
+            can_retry = False
+
+        effective_max_retries = min(MAX_RETRIES, max_manifest_retries) if can_retry else 0
+
+        for attempt in range(effective_max_retries + 1):
             result, should_skip, should_stop = self._execute_single(
                 state, tool_call, tc, events, step)
             
-            if not result.ok and attempt < MAX_RETRIES:
+            if not result.ok and attempt < effective_max_retries:
                 error_str = str(result.errors).lower() if result.errors else ""
                 if any(k in error_str for k in RETRYABLE_ERRORS):
                     wait = RETRY_BACKOFF_BASE ** (attempt + 1)
-                    tid = tool_call.real_tool_id
                     events.record_tool_result(step, tid, False,
-                        f"retry {attempt+1}/{MAX_RETRIES} in {wait:.0f}s")
+                        f"retry {attempt+1}/{effective_max_retries} in {wait:.0f}s")
                     time.sleep(wait)
                     continue
             return result, should_skip, should_stop
@@ -375,17 +429,34 @@ class ToolExecutionPipeline:
         Returns (result, stop_now, continue_main_loop) — same triple as _execute_single.
         v3.10: Non-blocking interrupt flow. Returns pending result immediately.
         Resume happens via resume_after_approval(), not blocking wait.
+        Uses TaskState.pending_approval_id to bind, not session+tool_id guessing.
         """
         from agent.approval import get_approval_store
 
+        # v3.10: Bind approval by task_id from TaskState, not by session+tool_id
+        task_id = getattr(state, 'task_id', '') or ''
         store = get_approval_store()
-        session_id = getattr(state.session, 'session_id', '')
-        pending_list = store.get_pending(session_id=session_id)
+        
+        # Try to find approval from task state first
         apr_id = None
-        for p in pending_list:
-            if p.get("tool_id") == action_result.tool_id:
-                apr_id = p["approval_id"]
-                break
+        if task_id:
+            try:
+                from agent.runtime.durable.store import get_task
+                ws_id = getattr(state, 'workspace_id', '') or getattr(state.session, 'workspace_id', '')
+                task = get_task(ws_id, task_id)
+                if task and task.pending_approval_id:
+                    apr_id = task.pending_approval_id
+            except Exception:
+                pass
+        
+        # Fallback: find by session+tool_id (deprecated path)
+        if not apr_id:
+            session_id = getattr(state.session, 'session_id', '')
+            pending_list = store.get_pending(session_id=session_id)
+            for p in pending_list:
+                if p.get("tool_id") == action_result.tool_id:
+                    apr_id = p["approval_id"]
+                    break
 
         if not apr_id:
             # No matching approval record found — fail safe

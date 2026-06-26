@@ -50,7 +50,7 @@ class Task:
         self,
         intent: str = "",
         user_input: str = "",
-        workspace_id: str = "default",
+        workspace_id: str = "",  # v3.10: no default fallback
         session_id: str = "",
     ) -> None:
         self.task_id: str = f"task_{int(time.time_ns())}"

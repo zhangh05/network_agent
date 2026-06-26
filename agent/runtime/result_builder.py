@@ -178,7 +178,7 @@ def _write_decision_report(result, state) -> None:
         report = build_decision_report(
             run_id=run_id,
             session_id=getattr(state.session, "session_id", ""),
-            workspace_id=getattr(ctx, "workspace_id", "default"),
+            workspace_id=getattr(ctx, "workspace_id", "") or "",
             context=ctx,
             result=result,
             result_dict=result_dict,
@@ -192,7 +192,7 @@ def _write_decision_report(result, state) -> None:
             ctx.metadata.setdefault("decision_report_path", report_path)
             _backfill_decision_report_path(
                 run_id=run_id,
-                workspace_id=getattr(ctx, "workspace_id", "default"),
+                workspace_id=getattr(ctx, "workspace_id", "") or "",
                 report_path=report_path,
             )
 

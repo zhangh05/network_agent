@@ -55,7 +55,9 @@ def append_event(evt: RuntimeEvent):
     p = _events_path(evt.workspace_id, evt.task_id); p.parent.mkdir(parents=True, exist_ok=True)
     try:
         with p.open("a") as fh: fh.write(json.dumps(evt.__dict__, ensure_ascii=False, default=str) + "\n")
-    except: pass
+    except Exception as e:
+        # Best-effort load — missing/corrupt file is not critical
+        pass
 
 def get_events(ws_id, task_id, limit=100) -> list[dict]:
     p = _events_path(ws_id, task_id)

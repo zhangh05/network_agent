@@ -164,10 +164,11 @@ def resume_after_approval(
         task.update_status("running")
         task.pending_approval_id = None
         task.pending_action_id = ""
-        # Mark step ready to execute
+        # Mark step ready to execute with edited args
         try:
             task.tool_results.append({"__edited_args__": edited_args, "step_id": task.current_step_id})
-        except: pass
+        except Exception as e:
+            task.warnings.append(f"Failed to store edited_args: {str(e)[:100]}")
         for s in task.steps:
             if s.step_id == task.current_step_id and s.status == "waiting_approval":
                 s.status = "running"
@@ -191,9 +192,7 @@ def resume_after_approval(
         task.update_status("failed")
         task.pending_approval_id = None
         task.pending_action_id = ""
-        try:
-            task.tool_results.append({"__edited_args__": edited_args, "step_id": task.current_step_id})
-        except: pass
+        # Record rejection reason in task state
         for s in task.steps:
             if s.step_id == task.current_step_id:
                 s.status = "failed"
@@ -222,7 +221,8 @@ def resume_after_approval(
         task.pending_action_id = ""
         try:
             task.tool_results.append({"__edited_args__": edited_args, "step_id": task.current_step_id})
-        except: pass
+        except Exception as e:
+            task.warnings.append(f"Failed to store edited_args: {str(e)[:100]}")
         for s in task.steps:
             if s.step_id == task.current_step_id:
                 s.status = "running"
