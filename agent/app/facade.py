@@ -52,8 +52,8 @@ class AgentApp:
     def submit_user_message(
         self,
         user_input: str,
+        workspace_id: str,
         session_id: str = None,
-        workspace_id: str = "default",
         metadata: dict = None,
     ) -> "AgentResult":
         """Submit a user message and return AgentResult.

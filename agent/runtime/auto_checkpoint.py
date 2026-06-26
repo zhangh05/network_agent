@@ -96,7 +96,7 @@ def create_auto_checkpoint(
     """
     try:
         sid = getattr(session, "session_id", "") or ""
-        wsid = getattr(session, "workspace_id", "default") or "default"
+        wsid = getattr(session, "workspace_id", "") or ""
         if not sid:
             return None
 
@@ -154,7 +154,7 @@ def list_auto_checkpoints(session: Any) -> list[dict]:
     """List auto-checkpoints for a session."""
     try:
         sid = getattr(session, "session_id", "") or ""
-        wsid = getattr(session, "workspace_id", "default") or "default"
+        wsid = getattr(session, "workspace_id", "") or ""
         if not sid:
             return []
         

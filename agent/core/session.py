@@ -12,7 +12,7 @@ if TYPE_CHECKING:
 @dataclass
 class AgentSession:
     session_id: str = field(default_factory=lambda: str(uuid.uuid4()))
-    workspace_id: str = "default"
+    workspace_id: str = ""
     history: list = field(default_factory=list)
     services: object = None
     active_turn: object = None
