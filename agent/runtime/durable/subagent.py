@@ -221,7 +221,11 @@ def run_subagent_task(subtask_id: str, ws_id: str) -> dict:
 
             # Profile action_class check
             m = _get_manifest(tool_id)
-            if m and m.action_class not in profile.allowed_action_classes:
+            if not m:
+                result.status = "failed"
+                result.errors.append(f"Tool {tool_id} has no manifest — blocked by subagent")
+                break
+            if m.action_class not in profile.allowed_action_classes:
                 result.status = "failed"
                 result.errors.append(f"Tool {tool_id} action_class={m.action_class} not allowed for {profile.profile_id}")
                 break

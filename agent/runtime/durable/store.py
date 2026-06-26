@@ -37,7 +37,7 @@ def get_task(ws_id: str, task_id: str) -> Optional[TaskState]:
 
 def list_tasks(ws_id: str, session_id="", limit=50) -> list[TaskState]:
     d = _task_dir(ws_id)
-    if not d.exists(): return []
+    if not d.exists() or limit <= 0: return []
     tasks = []
     for f in sorted(d.glob("*.json"), key=lambda x: x.stat().st_mtime, reverse=True):
         try:

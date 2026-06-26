@@ -108,8 +108,22 @@ class ActionExecutor:
                             "reason": risk.reason or "High-risk action requires approval",
                         },
                     )
-            except Exception:
-                pass
+            except Exception as _irq_exc:
+                msg = str(_irq_exc)[:200]
+                result = ActionResult(
+                    action_id=plan.action_id,
+                    tool_call_id=plan.tool_call_id,
+                    tool_name=plan.tool_name,
+                    tool_id=plan.tool_id,
+                    ok=False,
+                    status="error",
+                    error=f"interrupt setup failed: {msg}",
+                    error_type="interrupt_error",
+                )
+                if events is not None:
+                    _emit_events(events, plan.tool_id, step, result)
+                self.audit.record_result(result, metadata, ctx=ctx)
+                return result
 
             result = ActionResult(
                 action_id=plan.action_id,

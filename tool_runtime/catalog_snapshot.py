@@ -54,6 +54,10 @@ def build_catalog_snapshot() -> dict:
             "action_class": manifest.action_class if manifest else "read",
             "approval_reason": manifest.approval_reason_template if manifest else "",
             "rollback_strategy": manifest.rollback_strategy if manifest else "none",
+            "allowed_callers": manifest.allowed_callers if manifest else ["turn_runner"],
+            "reads_artifact": manifest.reads_artifact if manifest else False,
+            "writes_artifact": manifest.writes_artifact if manifest else False,
+            "secret_fields": manifest.secret_fields if manifest else [],
         }
         tools.append(item)
     tools.sort(key=lambda item: item["canonical_tool_id"])

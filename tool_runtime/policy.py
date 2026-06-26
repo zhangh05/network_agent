@@ -46,9 +46,7 @@ V02_FORBIDDEN_PATTERNS = [
 ]
 
 # v0.3 high-risk approved_exec tools — need approval_id but accept arbitrary commands
-V02_APPROVED_EXEC_TOOLS = {
-    "exec.run",
-}
+# V02_APPROVED_EXEC_TOOLS removed (manifest-driven)
 
 # v0.3: handlers accept arbitrary commands, allowlists removed.
 # Policy still enforces: high risk → requires approval_id,

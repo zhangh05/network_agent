@@ -95,7 +95,9 @@ class EcoRegistry:
 
     def delete_provider(self, ws_id: str, pid: str):
         p = self._prov_path(ws_id, pid)
-        if p.exists(): p.unlink()
+        if p.exists():
+            p.unlink()
+            _audit(ws_id, pid, "provider_deleted")
 
     def enable(self, ws_id: str, pid: str) -> bool:
         prov = self.get_provider(ws_id, pid)

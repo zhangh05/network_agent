@@ -68,6 +68,9 @@ def register_approval_routes(app) -> None:
             return jsonify({"ok": False, "error": "decision required: approve|reject|edit_args|respond"}), 400
 
         resolver = str(data.get("resolver") or "user")
+        if decision in ("respond", "respond_with_feedback"):
+            feedback = data.get("feedback", data.get("reason", ""))
+            return jsonify({"ok": True, "decision": decision, "feedback_recorded": True, "feedback": feedback[:500]})
         reason = str(data.get("reason") or "")
         allowed = decision == "approve" or decision == "edit_args"
 
