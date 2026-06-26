@@ -149,3 +149,107 @@ def register_state_routes(app):
             return jsonify(result), code
         except Exception as e:
             return jsonify({"ok": False, "error": str(e)[:200]}), 500
+
+    # ── Phase 10: Trajectory endpoints ──
+
+    @app.route("/api/runtime/trajectories")
+    def api_trajectories():
+        from flask import request, jsonify
+        ws_id = request.args.get("workspace_id", "")
+        if not ws_id:
+            return jsonify({"ok": False, "error": "workspace_id is required"}), 400
+        try:
+            from agent.runtime.durable.trajectory import list_trajectories
+            items = list_trajectories(ws_id)
+            return jsonify({"ok": True, "trajectories": items, "count": len(items)})
+        except Exception as e:
+            return jsonify({"ok": False, "error": str(e)[:200]}), 500
+
+    @app.route("/api/runtime/trajectories/<traj_id>")
+    def api_trajectory_detail(traj_id):
+        from flask import request, jsonify
+        ws_id = request.args.get("workspace_id", "")
+        if not ws_id:
+            return jsonify({"ok": False, "error": "workspace_id is required"}), 400
+        try:
+            from agent.runtime.durable.trajectory import get_trajectory
+            traj = get_trajectory(traj_id, ws_id)
+            if not traj:
+                return jsonify({"ok": False, "error": "trajectory not found"}), 404
+            return jsonify({"ok": True, "trajectory": traj})
+        except Exception as e:
+            return jsonify({"ok": False, "error": str(e)[:200]}), 500
+
+    # ── Phase 11: Ecosystem endpoints ──
+
+    @app.route("/api/ecosystem/providers")
+    def api_ecosystem_providers():
+        from flask import request, jsonify
+        ws_id = request.args.get("workspace_id", "")
+        if not ws_id:
+            return jsonify({"ok": False, "error": "workspace_id is required"}), 400
+        try:
+            from tool_runtime.ecosystem import EcoRegistry
+            reg = EcoRegistry()
+            provs = [p.to_dict() for p in reg.list_providers(ws_id)]
+            return jsonify({"ok": True, "providers": provs, "count": len(provs)})
+        except Exception as e:
+            return jsonify({"ok": False, "error": str(e)[:200]}), 500
+
+    @app.route("/api/ecosystem/import/preview", methods=["POST"])
+    def api_ecosystem_import_preview():
+        from flask import request, jsonify
+        ws_id = request.args.get("workspace_id", "")
+        if not ws_id:
+            return jsonify({"ok": False, "error": "workspace_id is required"}), 400
+        try:
+            from tool_runtime.ecosystem import preview_import
+            data = request.get_json(silent=True) or {}
+            result = preview_import(data)
+            return jsonify(result)
+        except Exception as e:
+            return jsonify({"ok": False, "error": str(e)[:200]}), 500
+
+    @app.route("/api/ecosystem/import/apply", methods=["POST"])
+    def api_ecosystem_import_apply():
+        from flask import request, jsonify
+        ws_id = request.args.get("workspace_id", "")
+        if not ws_id:
+            return jsonify({"ok": False, "error": "workspace_id is required"}), 400
+        try:
+            from tool_runtime.ecosystem import apply_import
+            data = request.get_json(silent=True) or {}
+            confirm = str(request.args.get("confirm", data.get("confirm", "false"))).lower() == "true"
+            result = apply_import(data, ws_id, confirm=confirm)
+            code = 200 if result.get("ok") else 400
+            return jsonify(result), code
+        except Exception as e:
+            return jsonify({"ok": False, "error": str(e)[:200]}), 500
+
+    # ── Phase 12: Audit report ──
+
+    @app.route("/api/runtime/tasks/<task_id>/audit-report", methods=["POST"])
+    def api_audit_report_generate(task_id):
+        from flask import request, jsonify
+        ws_id = request.args.get("workspace_id", "")
+        if not ws_id:
+            return jsonify({"ok": False, "error": "workspace_id is required"}), 400
+        try:
+            from agent.runtime.durable.delivery import build_audit_report
+            report = build_audit_report(task_id, ws_id)
+            return jsonify({"ok": True, "report": report})
+        except Exception as e:
+            return jsonify({"ok": False, "error": str(e)[:200]}), 500
+
+    @app.route("/api/runtime/tasks/<task_id>/audit-report", methods=["GET"])
+    def api_audit_report_get(task_id):
+        from flask import request, jsonify
+        ws_id = request.args.get("workspace_id", "")
+        if not ws_id:
+            return jsonify({"ok": False, "error": "workspace_id is required"}), 400
+        try:
+            from agent.runtime.durable.delivery import export_audit_report_markdown
+            md = export_audit_report_markdown(task_id, ws_id)
+            return jsonify({"ok": True, "markdown": md})
+        except Exception as e:
+            return jsonify({"ok": False, "error": str(e)[:200]}), 500

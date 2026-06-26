@@ -12,13 +12,13 @@
 | Document | Phase | Content |
 |----------|-------|---------|
 | [Runtime Call Graph](runtime-callgraph-v3.10.md) | 1 | Full call chain: 4 entry points → 1 main path |
-| [Capability Manifest](capability-manifest-v3.10.md) | 5 | 74 tool manifests, 25 fields per tool |
-| [Workspace Boundary](workspace-boundary-v3.10.md) | 7 | Zero default fallback, cross-workspace isolation |
-| [Memory Governance](memory-governance-v3.10.md) | 8 | Write gate, pending/active/conflict, retrieval filters |
-| [Subagent Runtime](subagent-runtime-v3.10.md) | 9 | 7 profiles, isolated execution, tool allowlists |
-| [Trajectory Eval](trajectory-eval-v3.10.md) | 10 | 10 eval rules, offline scoring, feedback |
-| [Ecosystem Interfaces](ecosystem-interfaces-v3.10.md) | 11 | MCP/Skill/Plugin registry, import safety |
-| [Delivery & GitOps](delivery-gitops-v3.10.md) | 12 | Validation gates, rollback plans, audit reports |
+| Capability Manifest | 5 | 73 tool manifests, 22 fields per tool |
+| Workspace Boundary | 7 | Zero default fallback, cross-workspace isolation |
+| Memory Governance | 8 | Write gate, pending/active/conflict, retrieval filters |
+| Subagent Runtime | 9 | 7 profiles, isolated execution, tool allowlists |
+| Trajectory Eval | 10 | 9 eval rules, offline scoring, feedback |
+| Ecosystem Interfaces | 11 | MCP/Skill/Plugin registry, import safety |
+| Delivery & GitOps | 12 | Validation gates, rollback plans, audit reports |
 
 ## Module Map
 
@@ -48,9 +48,9 @@ workspace/
 
 agent/
 ├── approval.py              — ApprovalStore (single store, no legacy)
-├── actions/risk.py          — RiskPolicy (manifest-driven)
-├── actions/approval.py      — ApprovalGate (manifest reason template)
-└── actions/executor.py      — ActionExecutor (interrupt injection)
+├── runtime/actions/risk.py  — RiskPolicy (manifest-driven)
+├── runtime/actions/approval.py — ApprovalGate (manifest reason template)
+└── runtime/actions/executor.py — ActionExecutor (interrupt injection)
 ```
 
 ## Key APIs

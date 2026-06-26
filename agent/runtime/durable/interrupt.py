@@ -59,18 +59,6 @@ def interrupt_before_tool(
         "created_at": _now(),
     }
 
-    # 1. Build pending_action (redacted)
-    pending_action = {
-        "action_id": _next_id("act"),
-        "type": "tool_call",
-        "tool_id": tool_invocation.get("tool_id", ""),
-        "step_id": step.step_id,
-        "input_args_redacted": _redact_args(tool_invocation.get("arguments", {})),
-        "input_args_hash": _hash_args(tool_invocation.get("arguments", {})),
-        "risk_level": risk_decision.get("risk_level", "high"),
-        "created_at": _now(),
-    }
-
     # 2. Create RuntimeCheckpoint with pending_action
     cp = RuntimeCheckpoint(
         checkpoint_id=_next_id("cp-int"),
