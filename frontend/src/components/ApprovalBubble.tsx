@@ -74,7 +74,7 @@ export function ApprovalBubble({ onResolved }: { onResolved?: () => void }) {
 
           // Skip stale approvals
           if (secs <= 0 || elapsed > 120) {
-            try { await approvalApi.resolve(p.approval_id, false); } catch { /* ignore */ }
+            try { await approvalApi.resolve(p.approval_id, { decision: "reject" }); } catch { /* ignore */ }
             if (!resolvingRef.current) {
               setPending(null);
               setSecondsLeft(60);
