@@ -19,7 +19,7 @@ def _invalid_ws():
 
 def _validated_ws_id(raw="default"):
     try:
-        return validate_workspace_id(raw or "default"), None
+        return validate_workspace_id(raw), None
     except ValueError:
         return None, _invalid_ws()
 
@@ -37,7 +37,7 @@ def register_pcap_routes(app):
 
     @app.route("/api/pcap/parse", methods=["POST"])
     def api_pcap_parse():
-        ws_id, err = _validated_ws_id(request.form.get("workspace_id", "default"))
+        ws_id, err = _validated_ws_id(request.form.get("workspace_id", ""))
         if err:
             return err
 
@@ -88,7 +88,7 @@ def register_pcap_routes(app):
     @app.route("/api/pcap/parse-file", methods=["POST"])
     def api_pcap_parse_file():
         data = request.get_json(force=True) or {}
-        ws_id, err = _validated_ws_id(data.get("workspace_id", "default"))
+        ws_id, err = _validated_ws_id(data.get("workspace_id", ""))
         if err:
             return err
         file_id = str(data.get("file_id", "") or "")
@@ -116,7 +116,7 @@ def register_pcap_routes(app):
 
     @app.route("/api/pcap/session/<session_id>", methods=["GET"])
     def api_pcap_session(session_id):
-        ws_id, err = _validated_ws_id(request.args.get("workspace_id", "default"))
+        ws_id, err = _validated_ws_id(request.args.get("workspace_id", ""))
         if err:
             return err
         result = get_pcap_session(session_id, workspace_id=ws_id)
@@ -126,7 +126,7 @@ def register_pcap_routes(app):
 
     @app.route("/api/pcap/session/<session_id>", methods=["DELETE"])
     def api_pcap_session_delete(session_id):
-        ws_id, err = _validated_ws_id(request.args.get("workspace_id", "default"))
+        ws_id, err = _validated_ws_id(request.args.get("workspace_id", ""))
         if err:
             return err
         if request.args.get("confirm", "") != "true":
@@ -136,7 +136,7 @@ def register_pcap_routes(app):
 
     @app.route("/api/pcap/sessions", methods=["GET"])
     def api_pcap_sessions():
-        ws_id, err = _validated_ws_id(request.args.get("workspace_id", "default"))
+        ws_id, err = _validated_ws_id(request.args.get("workspace_id", ""))
         if err:
             return err
         try:
@@ -152,7 +152,7 @@ def register_pcap_routes(app):
             data = request.get_json(silent=True) or {}
         except Exception:
             return jsonify({"ok": False, "error": "invalid_json"}), 400
-        ws_id, err = _validated_ws_id(data.get("workspace_id", "default"))
+        ws_id, err = _validated_ws_id(data.get("workspace_id", ""))
         if err:
             return err
         result = filter_pcap_session(
@@ -173,7 +173,7 @@ def register_pcap_routes(app):
             data = request.get_json(silent=True) or {}
         except Exception:
             return jsonify({"ok": False, "error": "invalid_json"}), 400
-        ws_id, err = _validated_ws_id(data.get("workspace_id", "default"))
+        ws_id, err = _validated_ws_id(data.get("workspace_id", ""))
         if err:
             return err
         result = align_pcap_tcp(

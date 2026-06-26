@@ -27,7 +27,7 @@ def _invalid_ws():
 
 def _validated_ws_id(raw="default"):
     try:
-        return validate_workspace_id(raw or "default"), None
+        return validate_workspace_id(raw), None
     except ValueError:
         return None, _invalid_ws()
 
@@ -87,7 +87,7 @@ def register_review_routes(app):
     @app.route("/api/review-items/<item_id>", methods=["PUT"])
     def api_review_item_update(item_id):
         """Update a single review item. Requires ?workspace_id and ?artifact_id."""
-        ws_id = request.args.get("workspace_id", "default")
+        ws_id = request.args.get("workspace_id", "")
         artifact_id = request.args.get("artifact_id", "")
         ws_id, err = _validated_ws_id(ws_id)
         if err:

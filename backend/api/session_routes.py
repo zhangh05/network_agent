@@ -34,7 +34,7 @@ def _invalid_sid():
 
 def _validated_ws_id(raw="default"):
     try:
-        return validate_workspace_id(raw or "default"), None
+        return validate_workspace_id(raw), None
     except ValueError:
         return None, _invalid_ws()
 
@@ -52,7 +52,7 @@ def _validated_session_id(sid):
 def handle_session_create():
     """POST /api/sessions — Create a new session."""
     data = request.get_json(silent=True) or {}
-    ws_id = data.get("workspace_id", "default")
+    ws_id = data.get("workspace_id", "")
     ws_id, err = _validated_ws_id(ws_id)
     if err:
         return err
@@ -66,7 +66,7 @@ def handle_session_create():
 
 def handle_session_list():
     """GET /api/sessions — List sessions for a workspace."""
-    ws_id = request.args.get("workspace_id", "default")
+    ws_id = request.args.get("workspace_id", "")
     ws_id, err = _validated_ws_id(ws_id)
     if err:
         return err
@@ -96,7 +96,7 @@ def handle_session_detail(session_id):
     session_id, err = _validated_session_id(session_id)
     if err:
         return err
-    ws_id = request.args.get("workspace_id", "default")
+    ws_id = request.args.get("workspace_id", "")
     ws_id, err = _validated_ws_id(ws_id)
     if err:
         return err
@@ -119,7 +119,7 @@ def handle_session_update(session_id):
     session_id, err = _validated_session_id(session_id)
     if err:
         return err
-    ws_id = request.args.get("workspace_id", "default")
+    ws_id = request.args.get("workspace_id", "")
     ws_id, err = _validated_ws_id(ws_id)
     if err:
         return err
@@ -182,7 +182,7 @@ def handle_session_archive(session_id):
     session_id, err = _validated_session_id(session_id)
     if err:
         return err
-    ws_id = request.args.get("workspace_id", "default")
+    ws_id = request.args.get("workspace_id", "")
     ws_id, err = _validated_ws_id(ws_id)
     if err:
         return err
@@ -201,7 +201,7 @@ def handle_session_restore(session_id):
     session_id, err = _validated_session_id(session_id)
     if err:
         return err
-    ws_id = request.args.get("workspace_id", "default")
+    ws_id = request.args.get("workspace_id", "")
     ws_id, err = _validated_ws_id(ws_id)
     if err:
         return err
@@ -230,7 +230,7 @@ def handle_session_soft_delete(session_id):
     session_id, err = _validated_session_id(session_id)
     if err:
         return err
-    ws_id = request.args.get("workspace_id", "default")
+    ws_id = request.args.get("workspace_id", "")
     ws_id, err = _validated_ws_id(ws_id)
     if err:
         return err
@@ -252,7 +252,7 @@ def handle_session_delete_permanently(session_id):
     session_id, err = _validated_session_id(session_id)
     if err:
         return err
-    ws_id = request.args.get("workspace_id", "default")
+    ws_id = request.args.get("workspace_id", "")
     ws_id, err = _validated_ws_id(ws_id)
     if err:
         return err
@@ -282,7 +282,7 @@ def handle_session_messages(session_id):
     session_id, err = _validated_session_id(session_id)
     if err:
         return err
-    ws_id = request.args.get("workspace_id", "default")
+    ws_id = request.args.get("workspace_id", "")
     ws_id, err = _validated_ws_id(ws_id)
     if err:
         return err
@@ -293,7 +293,7 @@ def handle_session_messages(session_id):
 
 def handle_session_default():
     """GET /api/sessions/default — Get or create the default active session."""
-    ws_id = request.args.get("workspace_id", "default")
+    ws_id = request.args.get("workspace_id", "")
     ws_id, err = _validated_ws_id(ws_id)
     if err:
         return err

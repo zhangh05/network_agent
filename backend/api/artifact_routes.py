@@ -21,7 +21,7 @@ def _invalid_limit():
 
 def _validated_ws_id(raw="default"):
     try:
-        return validate_workspace_id(raw or "default"), None
+        return validate_workspace_id(raw), None
     except ValueError:
         return None, _invalid_ws()
 

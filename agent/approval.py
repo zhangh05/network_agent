@@ -1,17 +1,13 @@
-"""Tool approval system — pauses agent on high-risk tool calls.
+"""Unified tool approval system — single source of truth for all approvals.
 
-The agent loop creates an ApprovalRequest for high-risk tools and
-waits.  The frontend polls /api/agent/approvals/pending, shows an
-Allow/Deny dialog, and resolves via /api/agent/approvals/{id}/resolve.
+ALL approval flows MUST go through ApprovalStore. There is no legacy
+alternative, no dual-store pattern, no bypass.
 
-v3.1.0: Added async/non-blocking support. The wait() method now supports
-a non-blocking mode that returns immediately with a pending status.
-The caller can check resolved status later via check().
-
-v3.2.0 (Guardian): Persisted approvals + audit history.
-- Pending requests are persisted to data/tool_approvals.jsonl
-- Resolved requests are kept for 90 days as audit history
-- ApprovalRouter.publish() emits events to in-process subscribers (SSE bridge)
+Key guarantees:
+- Every approval is bound to workspace_id + session_id (+ run_id/job_id if present)
+- resolve() enforces admin token boundary when NETWORK_AGENT_ADMIN_TOKEN is set
+- Arguments are redacted by default in persisted records and API responses
+- SSE events are published on create/resolve for real-time frontend updates
 """
 
 from __future__ import annotations
@@ -109,6 +105,9 @@ class ApprovalRequest:
     arguments: dict
     description: str
     risk_level: str
+    workspace_id: str = ""
+    run_id: str = ""
+    job_id: str = ""
     metadata: dict = field(default_factory=dict)
     created_at: float = field(default_factory=time.time)
     resolved: bool = False
@@ -185,6 +184,9 @@ class ApprovalStore:
                 "arguments": redact_tool_output(req.arguments or {}),
                 "description": req.description,
                 "risk_level": req.risk_level,
+                "workspace_id": req.workspace_id,
+                "run_id": req.run_id,
+                "job_id": req.job_id,
                 "metadata": redact_tool_output(req.metadata or {}),
                 "created_at": req.created_at,
                 "resolved": req.resolved,
@@ -228,8 +230,17 @@ class ApprovalStore:
 
     def create(self, session_id: str, tool_id: str,
                arguments: dict, description: str = "",
-               risk_level: str = "high", metadata: dict = None) -> ApprovalRequest:
-        """Create a pending approval, persist it, and notify subscribers."""
+               risk_level: str = "high",
+               workspace_id: str = "",
+               run_id: str = "",
+               job_id: str = "",
+               metadata: dict = None) -> ApprovalRequest:
+        """Create a pending approval, persist it, and notify subscribers.
+
+        All approval records MUST be bound to workspace_id + session_id.
+        Optional run_id/job_id provide traceability when the approval
+        originates from a specific agent run or job.
+        """
         approval_id = f"apr_{uuid.uuid4().hex[:12]}"
         req = ApprovalRequest(
             approval_id=approval_id,
@@ -238,6 +249,9 @@ class ApprovalStore:
             arguments=arguments,
             description=description,
             risk_level=risk_level,
+            workspace_id=workspace_id,
+            run_id=run_id,
+            job_id=job_id,
             metadata=metadata or {},
         )
         with self._lock:
@@ -418,6 +432,9 @@ class ApprovalStore:
             "approval_id": req.approval_id,
             "session_id": req.session_id,
             "tool_id": req.tool_id,
+            "workspace_id": req.workspace_id,
+            "run_id": req.run_id,
+            "job_id": req.job_id,
             "description": req.description,
             "risk_level": req.risk_level,
             "status": "resolved" if req.resolved else "pending",
@@ -425,10 +442,6 @@ class ApprovalStore:
             "arguments_preview": safe_arguments,
             "created_at": req.created_at,
             "created_at_iso": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(req.created_at)),
-            "argument_source": req.metadata.get("argument_source", ""),
-            "argument_risk": req.metadata.get("argument_risk", ""),
-            "reason": req.metadata.get("reason", ""),
-            "recommendation": req.metadata.get("recommendation", ""),
         }
 
 

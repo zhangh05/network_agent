@@ -125,7 +125,6 @@ def run_turn(session, turn, services=None, restricted_tool_router=None) -> Agent
                 turn_id=turn.turn_id if hasattr(turn, 'turn_id') else "",
             )
         except Exception as e:
-            _os.environ["AGENT_RUNTIME"] = "legacy"  # auto-fallback
             import logging
             logging.getLogger(__name__).warning("GraphRunner failed, falling back to TurnRunner: %s", e)
     

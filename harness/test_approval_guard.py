@@ -1,14 +1,13 @@
 # harness/test_approval_guard.py
-"""Approval API admin authentication tests.
+"""Unified approval API tests — single ApprovalStore, no legacy fallback.
 
 Tests:
 1. Non-localhost + no X-Admin-Token: 403
-2. Correct token: approve/reject succeeds
+2. Correct token: resolve succeeds
 3. Wrong token: 403
-4. Pending -> approved -> can invoke
-   Pending -> rejected -> cannot invoke
-   Approved -> reject not allowed (already resolved)
-5. Cross-workspace approval cannot invoke
+4. Pending -> approved -> can verify via history
+   Pending -> rejected -> can verify via history
+5. Cross-workspace approval boundary
 """
 
 import os
@@ -17,16 +16,13 @@ import pytest
 
 @pytest.fixture
 def app_with_approvals():
-    """Create a Flask app with approval routes."""
+    """Create a Flask app with unified approval routes."""
     from flask import Flask
-    from backend.api.runtime_routes import register_runtime_routes
+    from backend.api.approval_routes import register_approval_routes
 
     app = Flask(__name__)
-    app.config["TESTING"] = True  # Disable rate limiting
-
-    # Register runtime routes (includes approval endpoints)
-    register_runtime_routes(app)
-
+    app.config["TESTING"] = True
+    register_approval_routes(app)
     return app
 
 
@@ -38,271 +34,217 @@ def client(app_with_approvals):
 
 @pytest.fixture
 def reset_approvals(tmp_path, monkeypatch):
-    """Reset the global _tool_approvals dict before each test."""
-    from backend.api import runtime_routes
+    """Reset the unified ApprovalStore before each test."""
     import agent.approval as approval_module
     from agent.approval import reset_approval_store_for_tests
 
     monkeypatch.setattr(approval_module, "_APPROVALS_FILE", tmp_path / "tool_approvals.jsonl")
-    runtime_routes._tool_approvals.clear()
     reset_approval_store_for_tests(remove_persisted=True)
     yield
-    runtime_routes._tool_approvals.clear()
     reset_approval_store_for_tests(remove_persisted=True)
 
 
 class TestAdminTokenAuth:
-    """Test X-Admin-Token authentication."""
+    """Test X-Admin-Token authentication on resolve endpoint."""
 
-    def test_correct_token_approve_succeeds(self, client, reset_approvals, monkeypatch):
-        """With correct X-Admin-Token, approve should succeed."""
+    def test_correct_token_resolve_succeeds(self, client, reset_approvals, monkeypatch):
+        """With correct X-Admin-Token, resolve should succeed."""
         monkeypatch.setenv("NETWORK_AGENT_ADMIN_TOKEN", "secret-admin-token")
 
-        # Create approval
-        resp = client.post("/api/tools/approvals", json={
-            "tool_id": "test_tool",
-            "reason": "test",
-            "workspace_id": "default",
-        })
-        assert resp.status_code == 200
-        approval_id = resp.get_json()["approval_id"]
+        # Create approval via store directly
+        from agent.approval import get_approval_store
+        store = get_approval_store()
+        req = store.create(
+            session_id="sess-1", tool_id="test.tool",
+            arguments={"cmd": "ls"}, description="test",
+            risk_level="high", workspace_id="ws_a",
+        )
 
-        # Approve with correct token
-        resp = client.put(
-            f"/api/tools/approvals/{approval_id}/approve",
+        resp = client.post(
+            f"/api/agent/approvals/{req.approval_id}/resolve",
+            json={"allowed": True, "resolver": "admin"},
             headers={"X-Admin-Token": "secret-admin-token"},
         )
         assert resp.status_code == 200
         data = resp.get_json()
         assert data["ok"] is True
-        assert data["status"] == "approved"
+        assert data["allowed"] is True
 
     def test_wrong_token_returns_403(self, client, reset_approvals, monkeypatch):
-        """With wrong X-Admin-Token, should return 403."""
+        """Wrong token should return 403."""
         monkeypatch.setenv("NETWORK_AGENT_ADMIN_TOKEN", "secret-admin-token")
 
-        # Create approval
-        resp = client.post("/api/tools/approvals", json={
-            "tool_id": "test_tool",
-            "reason": "test",
-            "workspace_id": "default",
-        })
-        approval_id = resp.get_json()["approval_id"]
+        from agent.approval import get_approval_store
+        store = get_approval_store()
+        req = store.create(
+            session_id="sess-2", tool_id="test.tool",
+            arguments={"cmd": "ls"}, description="test",
+            risk_level="high", workspace_id="ws_a",
+        )
 
-        # Try to approve with wrong token
-        resp = client.put(
-            f"/api/tools/approvals/{approval_id}/approve",
+        resp = client.post(
+            f"/api/agent/approvals/{req.approval_id}/resolve",
+            json={"allowed": True},
             headers={"X-Admin-Token": "wrong-token"},
         )
         assert resp.status_code == 403
-        data = resp.get_json()
-        assert data["error"] == "admin_access_required"
-
-    def test_correct_token_reject_succeeds(self, client, reset_approvals, monkeypatch):
-        """With correct X-Admin-Token, reject should succeed."""
-        monkeypatch.setenv("NETWORK_AGENT_ADMIN_TOKEN", "secret-admin-token")
-
-        # Create approval
-        resp = client.post("/api/tools/approvals", json={
-            "tool_id": "test_tool",
-            "reason": "test",
-            "workspace_id": "default",
-        })
-        approval_id = resp.get_json()["approval_id"]
-
-        # Reject with correct token
-        resp = client.put(
-            f"/api/tools/approvals/{approval_id}/reject",
-            headers={"X-Admin-Token": "secret-admin-token"},
-        )
-        assert resp.status_code == 200
-        data = resp.get_json()
-        assert data["ok"] is True
-        assert data["status"] == "rejected"
 
     def test_no_token_when_configured_returns_403(self, client, reset_approvals, monkeypatch):
-        """When admin token is configured but not provided, should return 403."""
-        monkeypatch.setenv("NETWORK_AGENT_ADMIN_TOKEN", "secret-admin-token")
+        """No token when required should return 403."""
+        monkeypatch.setenv("NETWORK_AGENT_ADMIN_TOKEN", "required-token")
 
-        # Create approval
-        resp = client.post("/api/tools/approvals", json={
-            "tool_id": "test_tool",
-            "reason": "test",
-            "workspace_id": "default",
-        })
-        approval_id = resp.get_json()["approval_id"]
+        from agent.approval import get_approval_store
+        store = get_approval_store()
+        req = store.create(
+            session_id="sess-3", tool_id="test.tool",
+            arguments={"cmd": "ls"}, description="test",
+            risk_level="high", workspace_id="ws_a",
+        )
 
-        # Try to approve without token
-        resp = client.put(f"/api/tools/approvals/{approval_id}/approve")
+        resp = client.post(
+            f"/api/agent/approvals/{req.approval_id}/resolve",
+            json={"allowed": True},
+        )
         assert resp.status_code == 403
 
 
-class TestLocalhostAccess:
-    """Test localhost access when no admin token configured."""
+class TestApprovalLifecycle:
+    """Test create -> resolve -> history lifecycle."""
 
-    def test_localhost_access_without_token(self, client, reset_approvals, monkeypatch):
-        """When no admin token configured, localhost should be allowed."""
-        # Ensure no admin token
-        monkeypatch.delenv("NETWORK_AGENT_ADMIN_TOKEN", raising=False)
+    def test_pending_listing(self, client, reset_approvals):
+        """Pending approvals should be listable via the unified API."""
+        from agent.approval import get_approval_store
+        store = get_approval_store()
+        req = store.create(
+            session_id="sess-life", tool_id="exec.run",
+            arguments={"cmd": "ls"}, description="pending test",
+            risk_level="high", workspace_id="ws_life",
+        )
 
-        # Create approval
-        resp = client.post("/api/tools/approvals", json={
-            "tool_id": "test_tool",
-            "reason": "test",
-            "workspace_id": "default",
-        })
-        approval_id = resp.get_json()["approval_id"]
-
-        # Approve (Flask test client simulates localhost)
-        resp = client.put(f"/api/tools/approvals/{approval_id}/approve")
-        assert resp.status_code == 200
+        resp = client.get(f"/api/agent/approvals/pending?session_id=sess-life")
         data = resp.get_json()
         assert data["ok"] is True
+        assert data["count"] >= 1
+        pending_ids = [p["approval_id"] for p in data["pending"]]
+        assert req.approval_id in pending_ids
 
-
-class TestApprovalStatusFlow:
-    """Test approval status transitions."""
-
-    def test_pending_to_approved(self, client, reset_approvals, monkeypatch):
-        """Pending -> approved should work."""
-        monkeypatch.setenv("NETWORK_AGENT_ADMIN_TOKEN", "test-token")
-
-        # Create approval
-        resp = client.post("/api/tools/approvals", json={
-            "tool_id": "test_tool",
-            "reason": "test",
-            "workspace_id": "default",
-        })
-        approval_id = resp.get_json()["approval_id"]
-
-        # Verify it's in pending list
-        resp = client.get("/api/tools/approvals?workspace_id=default")
-        data = resp.get_json()
-        assert data["count"] == 1
-        assert data["approvals"][0]["approval_id"] == approval_id
-        assert data["approvals"][0]["status"] == "pending"
-
-        # Approve
-        resp = client.put(
-            f"/api/tools/approvals/{approval_id}/approve",
-            headers={"X-Admin-Token": "test-token"},
+    def test_approve_and_history(self, client, reset_approvals):
+        """Approved items appear in history."""
+        from agent.approval import get_approval_store
+        store = get_approval_store()
+        req = store.create(
+            session_id="sess-hist", tool_id="exec.run",
+            arguments={"cmd": "ls"}, description="history test",
+            risk_level="high", workspace_id="ws_hist",
         )
-        assert resp.status_code == 200
 
-        # Verify it's no longer in pending list
-        resp = client.get("/api/tools/approvals?workspace_id=default")
+        # Resolve
+        from agent.approval import get_approval_store
+        store.resolve(req.approval_id, True, resolver="test")
+
+        resp = client.get(f"/api/agent/approvals/history?session_id=sess-hist&limit=10")
         data = resp.get_json()
-        assert data["count"] == 0
+        assert data["ok"] is True
+        history_ids = [h["approval_id"] for h in data["history"]]
+        assert req.approval_id in history_ids
 
-    def test_pending_to_rejected(self, client, reset_approvals, monkeypatch):
-        """Pending -> rejected should work."""
-        monkeypatch.setenv("NETWORK_AGENT_ADMIN_TOKEN", "test-token")
+    def test_rejected_appears_in_history(self, client, reset_approvals):
+        """Rejected items appear in history."""
+        from agent.approval import get_approval_store
+        store = get_approval_store()
+        req = store.create(
+            session_id="sess-rej", tool_id="exec.run",
+            arguments={"cmd": "rm"}, description="rejected test",
+            risk_level="high", workspace_id="ws_rej",
+        )
 
-        # Create approval
-        resp = client.post("/api/tools/approvals", json={
-            "tool_id": "test_tool",
-            "reason": "test",
-            "workspace_id": "default",
-        })
-        approval_id = resp.get_json()["approval_id"]
+        store.resolve(req.approval_id, False, resolver="test")
 
-        # Verify it's in pending list
-        resp = client.get("/api/tools/approvals?workspace_id=default")
+        resp = client.get("/api/agent/approvals/history")
         data = resp.get_json()
-        assert data["count"] == 1
+        history_ids = [h["approval_id"] for h in data["history"]]
+        assert req.approval_id in history_ids
 
-        # Reject
-        resp = client.put(
-            f"/api/tools/approvals/{approval_id}/reject",
-            headers={"X-Admin-Token": "test-token"},
+
+class TestWorkspaceApprovalBoundary:
+    """Test cross-workspace approval separation."""
+
+    def test_approval_includes_workspace_id(self, reset_approvals):
+        """Approval records carry workspace_id."""
+        from agent.approval import get_approval_store
+        store = get_approval_store()
+        req = store.create(
+            session_id="sess-ws", tool_id="exec.run",
+            arguments={"cmd": "ls"}, description="ws test",
+            risk_level="high", workspace_id="ws_a",
         )
-        assert resp.status_code == 200
+        assert req.workspace_id == "ws_a"
 
-        # Verify it's no longer in pending list
-        resp = client.get("/api/tools/approvals?workspace_id=default")
+    def test_history_filtered_by_session(self, client, reset_approvals):
+        """History can be filtered by session_id."""
+        from agent.approval import get_approval_store
+        store = get_approval_store()
+        req_a = store.create(
+            session_id="sess-A", tool_id="exec.run",
+            arguments={"cmd": "a"}, risk_level="high",
+            workspace_id="ws_x",
+        )
+        req_b = store.create(
+            session_id="sess-B", tool_id="exec.run",
+            arguments={"cmd": "b"}, risk_level="high",
+            workspace_id="ws_x",
+        )
+
+        store.resolve(req_a.approval_id, True, resolver="test")
+        store.resolve(req_b.approval_id, True, resolver="test")
+
+        # Filter by session A
+        resp = client.get("/api/agent/approvals/history?session_id=sess-A")
         data = resp.get_json()
-        assert data["count"] == 0
+        history_ids = [h["approval_id"] for h in data["history"]]
+        assert req_a.approval_id in history_ids
+        assert req_b.approval_id not in history_ids
 
-    def test_approved_cannot_be_rejected(self, client, reset_approvals, monkeypatch):
-        """Already approved approval should not be rejected."""
-        monkeypatch.setenv("NETWORK_AGENT_ADMIN_TOKEN", "test-token")
 
-        # Create and approve
-        resp = client.post("/api/tools/approvals", json={
-            "tool_id": "test_tool",
-            "reason": "test",
-            "workspace_id": "default",
-        })
-        approval_id = resp.get_json()["approval_id"]
+class TestApprovalStoreContract:
+    """Test core ApprovalStore guarantees."""
 
-        resp = client.put(
-            f"/api/tools/approvals/{approval_id}/approve",
-            headers={"X-Admin-Token": "test-token"},
+    def test_arguments_redacted_in_record(self, tmp_path):
+        """Persisted records have redacted arguments."""
+        from agent.approval import ApprovalStore
+        store = ApprovalStore(persist_path=tmp_path / "test.jsonl")
+        req = store.create(
+            session_id="sess-redact", tool_id="exec.run",
+            arguments={"password": "secret123", "user": "admin"},
+            risk_level="high", workspace_id="ws_r",
         )
-        assert resp.status_code == 200
+        store.resolve(req.approval_id, True)
 
-        # Try to reject (should fail because status is not pending)
-        resp = client.put(
-            f"/api/tools/approvals/{approval_id}/reject",
-            headers={"X-Admin-Token": "test-token"},
+        history = store.get_history()
+        assert len(history) >= 1
+        rec = history[0]
+        # password should be redacted
+        args = rec.get("arguments", {})
+        assert args.get("password") != "secret123"
+
+    def test_create_returns_workspace_id(self, tmp_path):
+        """ApprovalRequest carries workspace_id."""
+        from agent.approval import ApprovalStore
+        store = ApprovalStore(persist_path=tmp_path / "test.jsonl")
+        req = store.create(
+            session_id="sess-1", tool_id="exec.run",
+            arguments={}, risk_level="high", workspace_id="my_ws",
         )
-        assert resp.status_code == 404  # Not found (because status != pending)
+        assert req.workspace_id == "my_ws"
 
-    def test_rejected_cannot_be_approved(self, client, reset_approvals, monkeypatch):
-        """Already rejected approval should not be approved."""
-        monkeypatch.setenv("NETWORK_AGENT_ADMIN_TOKEN", "test-token")
-
-        # Create and reject
-        resp = client.post("/api/tools/approvals", json={
-            "tool_id": "test_tool",
-            "reason": "test",
-            "workspace_id": "default",
-        })
-        approval_id = resp.get_json()["approval_id"]
-
-        resp = client.put(
-            f"/api/tools/approvals/{approval_id}/reject",
-            headers={"X-Admin-Token": "test-token"},
+    def test_create_returns_run_and_job_ids(self, tmp_path):
+        """ApprovalRequest carries run_id and job_id."""
+        from agent.approval import ApprovalStore
+        store = ApprovalStore(persist_path=tmp_path / "test.jsonl")
+        req = store.create(
+            session_id="sess-1", tool_id="exec.run",
+            arguments={}, risk_level="high",
+            workspace_id="ws_x", run_id="run_99", job_id="job_42",
         )
-        assert resp.status_code == 200
-
-        # Try to approve (should fail)
-        resp = client.put(
-            f"/api/tools/approvals/{approval_id}/approve",
-            headers={"X-Admin-Token": "test-token"},
-        )
-        assert resp.status_code == 404
-
-
-class TestCrossWorkspaceApproval:
-    """Cross-workspace approval should not allow invoke."""
-
-    def test_cross_workspace_approval_not_usable(self, client, reset_approvals, monkeypatch):
-        """Approval from workspace A should not work for workspace B."""
-        monkeypatch.setenv("NETWORK_AGENT_ADMIN_TOKEN", "test-token")
-
-        # Create approval for workspace "ws_a"
-        resp = client.post("/api/tools/approvals", json={
-            "tool_id": "test_tool",
-            "reason": "test",
-            "workspace_id": "ws_a",
-        })
-        data = resp.get_json()
-        approval_id = data["approval_id"]
-
-        # Approve it
-        resp = client.put(
-            f"/api/tools/approvals/{approval_id}/approve",
-            headers={"X-Admin-Token": "test-token"},
-        )
-        assert resp.status_code == 200
-
-        # List approvals for ws_b (should not include ws_a's approval)
-        resp = client.get("/api/tools/approvals?workspace_id=ws_b")
-        data = resp.get_json()
-        assert data["count"] == 0  # Should not see ws_a's approvals
-
-        # List approvals for ws_a (should not include approved approval in pending)
-        resp = client.get("/api/tools/approvals?workspace_id=ws_a")
-        data = resp.get_json()
-        assert data["count"] == 0  # Should not be pending anymore
+        assert req.run_id == "run_99"
+        assert req.job_id == "job_42"

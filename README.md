@@ -2,19 +2,17 @@
 
 AI-powered network analysis agent with general coding capabilities. Analyzes PCAPs, translates configs, builds topologies, manages CMDB, operates remote devices via SSH/Telnet, and supports Git/code search/browser automation — through a conversational interface.
 
-## Quick Start
-
-```bash
-# Backend (port 8010)
-python3 backend/main.py --host 0.0.0.0 --port 8010
-
-# Frontend (port 5173)
-cd frontend && npm run dev
-```
-
-## Architecture
+## Architecture (v3.9)
 
 See [STRUCTURE.md](STRUCTURE.md) for complete directory reference and [DESIGN.md](DESIGN.md) for pipeline design.
+
+### Security boundaries
+
+- **Unified ApprovalStore** (`agent/approval.py`) — single source of truth for all tool approval. No dual-store or legacy fallback.
+- **Unified tool execution** — all tool dispatch goes through `ActionExecutor` → `ToolDispatcher` → `ToolRouter`. No bypass or direct handler dispatch.
+- **Workspace isolation** — empty/invalid workspace_id returns 400; no implicit "default" fallback.
+- **Admin boundary** — approval resolve requires `X-Admin-Token` when `NETWORK_AGENT_ADMIN_TOKEN` is set; otherwise localhost only.
+- **Confirm requirement** — all destructive operations (archive/retention apply) require server-side `confirm=True`.
 
 ### Key capabilities (10 total, 8 enabled)
 

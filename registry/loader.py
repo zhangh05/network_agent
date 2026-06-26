@@ -16,14 +16,6 @@ SKILLS_DIR = ROOT / "skills"
 # Cache
 _cache = {"modules": None, "skills": None, "capabilities": None}
 
-_COMPAT_CAPABILITY_ALIASES = {
-    "config.translate": "config_translation",
-    "config.review": "review",
-    "knowledge.search": "knowledge",
-    "topology.draw": "topology",
-    "inspection.analyze": "inspection",
-}
-
 
 def _read_yaml(path: Path) -> dict:
     try:
@@ -559,14 +551,6 @@ def get_skill(name: str) -> Optional[SkillSpec]:
     for s in load_skill_registry():
         if s.skill_name == name:
             return s
-    return None
-
-
-def get_capability(capability_id: str) -> Optional[CapabilitySpec]:
-    capability_id = _COMPAT_CAPABILITY_ALIASES.get(capability_id, capability_id)
-    for c in load_capabilities():
-        if c.capability_id == capability_id:
-            return c
     return None
 
 

@@ -1,4 +1,4 @@
-# Network Agent 项目目录结构 (v3.8)
+# Network Agent 项目目录结构 (v3.9)
 
 ```
 network_agent/

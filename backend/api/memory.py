@@ -10,7 +10,7 @@ from memory.retriever import search_memory, list_memory
 
 def handle_memory_status():
     """Return memory system status for the given workspace."""
-    ws_id = request.args.get("workspace_id", "default")
+    ws_id = request.args.get("workspace_id", "")
     try:
         from workspace.ids import validate_workspace_id
         ws_id = validate_workspace_id(ws_id) or "default"

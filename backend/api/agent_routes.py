@@ -74,7 +74,7 @@ def agent_message():
     stream, stream_mode = _resolve_stream_mode(data)
 
     # Validate workspace_id
-    workspace_id = data.get("workspace_id", "default")
+    workspace_id = data.get("workspace_id", "")
     ws_id, ws_err = _validated_ws_id(workspace_id)
     if ws_err:
         return ws_err

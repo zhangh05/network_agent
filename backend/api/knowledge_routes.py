@@ -17,7 +17,7 @@ def _invalid_ws():
 
 def _validated_ws_id(raw="default"):
     try:
-        return validate_workspace_id(raw or "default"), None
+        return validate_workspace_id(raw), None
     except ValueError:
         return None, _invalid_ws()
 
@@ -45,7 +45,7 @@ def register_knowledge_routes(app):
 
     @app.route("/api/knowledge/upload", methods=["POST"])
     def api_knowledge_upload():
-        ws_id = request.form.get("workspace_id", "default")
+        ws_id = request.form.get("workspace_id", "")
         ws_id, err = _validated_ws_id(ws_id)
         if err:
             return err
@@ -152,7 +152,7 @@ def register_knowledge_routes(app):
     # ── Source Management ──
     @app.route("/api/knowledge/sources")
     def api_knowledge_sources():
-        ws_id = request.args.get("workspace_id", "default")
+        ws_id = request.args.get("workspace_id", "")
         ws_id, err = _validated_ws_id(ws_id)
         if err:
             return err
@@ -176,7 +176,7 @@ def register_knowledge_routes(app):
     @app.route("/api/knowledge/sources/from-artifact", methods=["POST"])
     def api_knowledge_from_artifact():
         data = request.get_json(silent=True) or {}
-        ws_id = data.get("workspace_id", "default")
+        ws_id = data.get("workspace_id", "")
         ws_id, err = _validated_ws_id(ws_id)
         if err:
             return err
@@ -192,7 +192,7 @@ def register_knowledge_routes(app):
 
     @app.route("/api/knowledge/sources/<source_id>/reindex", methods=["POST"])
     def api_knowledge_reindex(source_id):
-        ws_id = request.args.get("workspace_id", "default")
+        ws_id = request.args.get("workspace_id", "")
         if request.is_json:
             ws_id = (request.get_json(silent=True) or {}).get("workspace_id", ws_id)
         ws_id, err = _validated_ws_id(ws_id)
@@ -213,7 +213,7 @@ def register_knowledge_routes(app):
     # ── Delete ──
     @app.route("/api/knowledge/sources/<source_id>", methods=["DELETE"])
     def api_knowledge_delete_source(source_id):
-        ws_id = request.args.get("workspace_id", "default")
+        ws_id = request.args.get("workspace_id", "")
         if request.is_json:
             ws_id = (request.get_json(silent=True) or {}).get("workspace_id", ws_id)
         ws_id, err = _validated_ws_id(ws_id)
@@ -229,7 +229,7 @@ def register_knowledge_routes(app):
     @app.route("/api/knowledge/sources/<source_id>", methods=["PATCH"])
     def api_knowledge_rename_source(source_id):
         data = request.get_json(silent=True) or {}
-        ws_id = data.get("workspace_id", "default")
+        ws_id = data.get("workspace_id", "")
         ws_id, err = _validated_ws_id(ws_id)
         if err:
             return err
@@ -245,7 +245,7 @@ def register_knowledge_routes(app):
     # ── Detail ──
     @app.route("/api/knowledge/sources/<source_id>", methods=["GET"])
     def api_knowledge_get_source(source_id):
-        ws_id = request.args.get("workspace_id", "default")
+        ws_id = request.args.get("workspace_id", "")
         ws_id, err = _validated_ws_id(ws_id)
         if err:
             return err
@@ -273,7 +273,7 @@ def register_knowledge_routes(app):
                 "invalid_params": unknown_params,
                 "message": "知识库搜索只支持 q、workspace_id、limit、source_id。",
             }), 400
-        ws_id = request.args.get("workspace_id", "default")
+        ws_id = request.args.get("workspace_id", "")
         ws_id, err = _validated_ws_id(ws_id)
         if err:
             return err
@@ -301,7 +301,7 @@ def register_knowledge_routes(app):
     # ── Chunk Detail ──
     @app.route("/api/knowledge/chunks/<chunk_id>")
     def api_knowledge_chunk(chunk_id):
-        ws_id = request.args.get("workspace_id", "default")
+        ws_id = request.args.get("workspace_id", "")
         ws_id, err = _validated_ws_id(ws_id)
         if err:
             return err

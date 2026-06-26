@@ -15,13 +15,13 @@ from typing import Any, Optional
 VALID_RISK_LEVELS = {"low", "medium", "high", "forbidden"}
 VALID_TOOL_STATUSES = {"succeeded", "failed", "blocked", "dry_run"}
 VALID_TOOL_CATEGORIES = {
-    # v3.6 categories (canonical 12-domain framework)
+    # core categories
     "exec", "device", "workspace", "knowledge", "memory", "system",
     "web", "browser", "git", "agent", "config", "code", "data",
-    # legacy aliases (kept for backward compat with older specs/registries)
+    # domain-specific categories
     "artifact", "host", "cmdb", "network", "runtime", "report_data",
     "shell", "powershell", "python", "ssh", "telnet", "session", "text",
-    "skill", "run", "file", "device", "snmp", "nmap", "diagram", "document",
+    "skill", "run", "file", "snmp", "nmap", "diagram", "document",
     "review", "slash", "team", "frontend", "general", "ops", "config_translation",
     "weather", "news", "tool", "pcap", "parser", "report", "command", "query",
     "capability",

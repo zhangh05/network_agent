@@ -13,7 +13,7 @@ def _invalid_ws():
 
 def _validated_ws_id(raw="default"):
     try:
-        return validate_workspace_id(raw or "default"), None
+        return validate_workspace_id(raw), None
     except ValueError:
         return None, _invalid_ws()
 
@@ -21,7 +21,7 @@ def _validated_ws_id(raw="default"):
 def register_cmdb_routes(app):
     @app.route("/api/cmdb/assets", methods=["GET"])
     def api_cmdb_list():
-        ws_id, err = _validated_ws_id(request.args.get("workspace_id", "default"))
+        ws_id, err = _validated_ws_id(request.args.get("workspace_id", ""))
         if err:
             return err
         return jsonify({"ok": True, "assets": list_assets(ws_id)})
@@ -37,7 +37,7 @@ def register_cmdb_routes(app):
 
     @app.route("/api/cmdb/assets/<asset_id>", methods=["GET"])
     def api_cmdb_get(asset_id):
-        ws_id, err = _validated_ws_id(request.args.get("workspace_id", "default"))
+        ws_id, err = _validated_ws_id(request.args.get("workspace_id", ""))
         if err:
             return err
         asset = get_asset(ws_id, asset_id)
@@ -47,7 +47,7 @@ def register_cmdb_routes(app):
 
     @app.route("/api/cmdb/assets/<asset_id>", methods=["DELETE"])
     def api_cmdb_delete(asset_id):
-        ws_id, err = _validated_ws_id(request.args.get("workspace_id", "default"))
+        ws_id, err = _validated_ws_id(request.args.get("workspace_id", ""))
         if err:
             return err
         result = delete_asset(ws_id, asset_id)

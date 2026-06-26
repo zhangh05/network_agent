@@ -143,7 +143,7 @@ def _invalid_limit():
 
 def _validated_ws_id(raw="default"):
     try:
-        return validate_workspace_id(raw or "default"), None
+        return validate_workspace_id(raw), None
     except ValueError:
         return None, _invalid_ws()
 
@@ -275,7 +275,7 @@ def register_workspace_routes(app):
           session_id    (optional: exact session scope for sidebar)
           session_status (default: "active", set to "" for all sessions)
         """
-        ws_id = request.args.get("workspace_id", "default")
+        ws_id = request.args.get("workspace_id", "")
         ws_id, err = _validated_ws_id(ws_id)
         if err:
             return err
@@ -358,7 +358,7 @@ def register_workspace_routes(app):
 
     @app.route("/api/runs/<run_id>")
     def api_run_detail(run_id):
-        ws_id = request.args.get("workspace_id", "default")
+        ws_id = request.args.get("workspace_id", "")
         ws_id, err = _validated_ws_id(ws_id)
         if err:
             return err
@@ -432,7 +432,7 @@ def register_workspace_routes(app):
     @app.route("/api/reports/create", methods=["POST"])
     def api_report_create():
         data = request.get_json(silent=True) or {}
-        workspace_id, err = _validated_ws_id(data.get("workspace_id", "default"))
+        workspace_id, err = _validated_ws_id(data.get("workspace_id", ""))
         if err:
             return err
         from reports_engine.schemas import ReportRequest

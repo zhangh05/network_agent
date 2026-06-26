@@ -1,4 +1,4 @@
-# Current Runtime Design (v3.8)
+# Current Runtime Design (v3.9)
 
 This document describes the current source architecture only.
 
@@ -58,7 +58,7 @@ RuntimeState
   └── ArtifactState (registered/exported/deleted)
 ```
 
-## Tool System Architecture (v3.8)
+## Tool System Architecture (v3.9)
 
 ```
 CanonicalRegistry (73 tools, single truth source)
@@ -88,7 +88,7 @@ Core tools (16) + capability-matched → max ~24 visible to LLM
 | config | 2 | config.analysis.run, pcap.analysis.run |
 | browser | 4 | browser.navigate, browser.extract, browser.screenshot, browser.click |
 
-## Capability-first Architecture (v3.8)
+## Capability-first Architecture (v3.9)
 
 Capabilities are safety-tagged agent abilities. Each capability declares tools + risk levels + safety contracts.
 
@@ -110,9 +110,29 @@ No legacy "skill" concept since v3.8. Replaced by:
 
 ## Safety Boundaries
 
+- **Unified ApprovalStore** (`agent/approval.py`) — single source of truth, JSONL-persisted, no dual-store.
 - High-risk actions (`exec.run`, `exec.python`, `exec.slash`) → approval gate
 - Medium-risk actions (`device.add`, `device.delete`, `git.commit`, `git.push`) → approval gate
 - Dangerous commands (`reload`, `reboot`, `reset`, `format`, `rm -rf`, `dd if=`, `mkfs`) → blocked
+- **Admin boundary**: approval resolve requires `X-Admin-Token` when `NETWORK_AGENT_ADMIN_TOKEN` is set; otherwise localhost only
+- **Workspace isolation**: empty/invalid workspace_id → 400; no implicit default fallback
 - SSH/Telnet session reuse → same-session commands skip repeat authentication
 - Memory candidates filtered before write plan (risk + dedupe + count cap)
 - StabilityGate verifies required runtime outputs presence
+
+## Approval Architecture (v3.9)
+
+```
+ApprovalStore (agent/approval.py) — single source of truth
+  ├── create(session_id, tool_id, arguments, risk_level, workspace_id, run_id, job_id)
+  ├── resolve(approval_id, allowed, resolver, reason) [admin-gated]
+  ├── get_pending(session_id) → SSE-bridged to frontend
+  ├── get_history(session_id, tool_id, limit) → audit trail
+  └── wait(approval_id, timeout, blocking) → used by agent loop
+
+API (backend/api/approval_routes.py):
+  GET  /api/agent/approvals/pending              → list pending
+  POST /api/agent/approvals/<id>/resolve         → resolve (admin-gated)
+  GET  /api/agent/approvals/history              → audit history
+  GET  /api/agent/approvals/sse                  → real-time event stream
+```

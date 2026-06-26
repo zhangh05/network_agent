@@ -14,7 +14,7 @@ def _invalid_ws():
 
 def _validated_ws_id(raw="default"):
     try:
-        return validate_workspace_id(raw or "default"), None
+        return validate_workspace_id(raw), None
     except ValueError:
         return None, _invalid_ws()
 
@@ -35,7 +35,7 @@ def register_remote_routes(app):
     @app.route("/api/remote/connect", methods=["POST"])
     def api_remote_connect():
         data = request.get_json(silent=True) or {}
-        ws_id, err = _validated_ws_id(data.get("workspace_id", "default"))
+        ws_id, err = _validated_ws_id(data.get("workspace_id", ""))
         if err:
             return err
         port, err = _parse_port(data.get("port", 22), default=22)
@@ -80,7 +80,7 @@ def register_remote_routes(app):
 
     @app.route("/api/remote/devices", methods=["GET"])
     def api_remote_devices():
-        ws_id, err = _validated_ws_id(request.args.get("workspace_id", "default"))
+        ws_id, err = _validated_ws_id(request.args.get("workspace_id", ""))
         if err:
             return err
         return jsonify({"ok": True, "devices": list_devices(ws_id)})
@@ -96,7 +96,7 @@ def register_remote_routes(app):
 
     @app.route("/api/remote/devices/<device_id>", methods=["DELETE"])
     def api_remote_devices_delete(device_id):
-        ws_id, err = _validated_ws_id(request.args.get("workspace_id", "default"))
+        ws_id, err = _validated_ws_id(request.args.get("workspace_id", ""))
         if err:
             return err
         result = delete_device(ws_id, device_id)

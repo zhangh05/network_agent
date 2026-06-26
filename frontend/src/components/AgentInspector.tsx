@@ -289,7 +289,7 @@ export const AgentInspector: React.FC<{ onClose: () => void }> = ({ onClose }) =
         <div style={section}>
           <div style={sectionTitle}>Runtime</div>
           <div style={{ fontSize: 12, color: "#888" }}>
-            {localStorage.getItem("agentRuntime") || "legacy"} mode
+            {localStorage.getItem("agentRuntime") || "turn_runner"} mode
             <span style={{ marginLeft: 8, fontSize: 11, color: "#1D9E75" }}>
               (set AGENT_RUNTIME env to switch)
             </span>

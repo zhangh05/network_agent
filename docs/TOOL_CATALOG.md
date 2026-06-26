@@ -1,4 +1,4 @@
-# Network Agent Tool Catalog (v3.8)
+# Network Agent Tool Catalog (v3.9)
 
 > Source of truth: `tool_runtime/tool_namespace_data.py` + `tool_runtime/tool_governance.py` + `tool_runtime/canonical_registry.py`.
 > Machine-readable mirror: `reports/tool_catalog.json`.

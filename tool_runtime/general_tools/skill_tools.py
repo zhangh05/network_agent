@@ -1,11 +1,8 @@
-"""Skill tool handlers — thin CapabilityPackage lookup.
+"""Skill tool handlers — CapabilityPackage lookup.
 
-Skills ARE CapabilityPackages. These handlers exist for backward compat
-with the skill.load / skill.search / skill.list tool surface.  New code
-should use the CapabilityRouter + ToolBundle (capability-first routing).
-
-v3.2: Removed agent/runtime/skill_runtime/ dependency. All logic now
-reads CAPABILITY_PACKAGES directly from capability_routing/manifests.py.
+Skills ARE CapabilityPackages. These handlers provide the skill.load /
+skill.search / skill.list / skill.find / skill.inspect tool surface.
+All logic reads CAPABILITY_PACKAGES directly from capability_routing/manifests.py.
 """
 from tool_runtime.general_tools.shared import *
 

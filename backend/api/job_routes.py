@@ -16,7 +16,7 @@ def _invalid_limit():
 
 def _validated_ws_id(raw="default"):
     try:
-        return validate_workspace_id(raw or "default"), None
+        return validate_workspace_id(raw), None
     except ValueError:
         return None, _invalid_ws()
 
@@ -35,7 +35,7 @@ def register_job_routes(app):
     @app.route("/api/jobs", methods=["POST"])
     def api_job_create():
         data = request.get_json(silent=True) or {}
-        workspace_id, err = _validated_ws_id(data.get("workspace_id", "default"))
+        workspace_id, err = _validated_ws_id(data.get("workspace_id", ""))
         if err:
             return err
         from jobs.manager import create_job
@@ -113,7 +113,7 @@ def register_job_routes(app):
 
     @app.route("/api/jobs/<job_id>/cancel", methods=["POST"])
     def api_job_cancel(job_id):
-        ws, err = _validated_ws_id((request.get_json(silent=True) or {}).get("workspace_id", "default"))
+        ws, err = _validated_ws_id((request.get_json(silent=True) or {}).get("workspace_id", ""))
         if err:
             return err
         from jobs.manager import cancel_job
@@ -125,7 +125,7 @@ def register_job_routes(app):
 
     @app.route("/api/jobs/<job_id>/retry", methods=["POST"])
     def api_job_retry(job_id):
-        ws, err = _validated_ws_id((request.get_json(silent=True) or {}).get("workspace_id", "default"))
+        ws, err = _validated_ws_id((request.get_json(silent=True) or {}).get("workspace_id", ""))
         if err:
             return err
         from jobs.manager import retry_job
@@ -137,7 +137,7 @@ def register_job_routes(app):
 
     @app.route("/api/jobs/<job_id>/events")
     def api_job_events(job_id):
-        ws, err = _validated_ws_id(request.args.get("workspace_id", "default"))
+        ws, err = _validated_ws_id(request.args.get("workspace_id", ""))
         if err:
             return err
         from jobs.store import list_events
@@ -145,7 +145,7 @@ def register_job_routes(app):
 
     @app.route("/api/jobs/<job_id>/logs")
     def api_job_logs(job_id):
-        ws, err = _validated_ws_id(request.args.get("workspace_id", "default"))
+        ws, err = _validated_ws_id(request.args.get("workspace_id", ""))
         if err:
             return err
         from jobs.store import list_logs
@@ -153,7 +153,7 @@ def register_job_routes(app):
 
     @app.route("/api/jobs/<job_id>/artifacts")
     def api_job_artifacts(job_id):
-        ws, err = _validated_ws_id(request.args.get("workspace_id", "default"))
+        ws, err = _validated_ws_id(request.args.get("workspace_id", ""))
         if err:
             return err
         from jobs.store import get_job

@@ -19,7 +19,7 @@ def register_decision_routes(app):
         Returns the full (redacted) decision report for a run.
         """
         try:
-            ws_id = validate_workspace_id(ws_id or "default")
+            ws_id = validate_workspace_id(ws_id)
         except ValueError:
             body, code = error_response("INVALID_WORKSPACE_ID", "invalid workspace_id", 400)
             return jsonify(body), code

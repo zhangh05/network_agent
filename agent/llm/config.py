@@ -136,8 +136,7 @@ def get_llm_status() -> dict:
         "last_success": _read_recent_success(),
         "red_lines": [
             "no_generate_deployable_config", "no_modify_deployable_config",
-            "no_approve_manual_review", "no_bypass_translate_bundle",
-            "no_bypass_skill_executor", "no_call_module_directly",
+            "no_approve_manual_review", "no_call_module_directly",
             "no_fake_planned_module_result",
         ],
     }

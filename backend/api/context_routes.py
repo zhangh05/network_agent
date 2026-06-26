@@ -11,7 +11,7 @@ def _invalid_ws():
 
 def _validated_ws_id(raw="default"):
     try:
-        return validate_workspace_id(raw or "default"), None
+        return validate_workspace_id(raw), None
     except ValueError:
         return None, _invalid_ws()
 
@@ -32,7 +32,7 @@ def register_context_routes(app):
     @app.route("/api/context/resolve", methods=["POST"])
     def api_context_resolve():
         data = request.get_json(silent=True) or {}
-        workspace_id, err = _validated_ws_id(data.get("workspace_id", "default"))
+        workspace_id, err = _validated_ws_id(data.get("workspace_id", ""))
         if err:
             return err
         from context.resolver import resolve_context_ref
@@ -48,7 +48,7 @@ def register_context_routes(app):
     @app.route("/api/context/build", methods=["POST"])
     def api_context_build():
         data = request.get_json(silent=True) or {}
-        workspace_id, err = _validated_ws_id(data.get("workspace_id", "default"))
+        workspace_id, err = _validated_ws_id(data.get("workspace_id", ""))
         if err:
             return err
         from context.builder import build_context_bundle
@@ -79,7 +79,7 @@ def register_context_routes(app):
     @app.route("/api/prompts/render", methods=["POST"])
     def api_prompts_render():
         data = request.get_json(silent=True) or {}
-        workspace_id, err = _validated_ws_id(data.get("workspace_id", "default"))
+        workspace_id, err = _validated_ws_id(data.get("workspace_id", ""))
         if err:
             return err
         from prompts.loader import render_prompt

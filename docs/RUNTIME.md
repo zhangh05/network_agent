@@ -1,6 +1,6 @@
 # Runtime Reference
 
-Runtime execution model (v3.8).
+Runtime execution model (v3.9).
 
 ## Turn Flow
 
@@ -24,7 +24,7 @@ POST /api/agent/message
 7. **RetrievalPolicyStage** — decide retrieval strategy
 8. **RuntimeStateStage** — initialize runtime state / task workflow hooks
 9. **EvidenceStage** — build evidence bundle (context + memory + knowledge)
-10. **ToolPlanningStage** — ToolPlannerV2: deterministic seed + LLM refine (v3.8)
+10. **ToolPlanningStage** — ToolPlannerV2: deterministic seed + LLM refine (v3.9)
 11. **SafeContextStage** — build safe/scrubbed context + runtime snapshot
 12. **LoadedCapabilityStage** — inject capability contracts
 13. **MetadataWriteStage** — write context metadata

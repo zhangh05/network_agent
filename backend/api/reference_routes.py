@@ -11,7 +11,7 @@ from flask import jsonify, request
 def _validated_ws_id(raw: str = "default") -> tuple:
     from workspace.ids import validate_workspace_id
     try:
-        return validate_workspace_id(raw or "default"), None
+        return validate_workspace_id(raw), None
     except ValueError:
         return None, jsonify({"ok": False, "error": "invalid_workspace_id"}), 400
 

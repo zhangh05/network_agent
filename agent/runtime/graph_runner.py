@@ -349,7 +349,7 @@ class GraphRunner:
             dict with keys: answer, all_tool_results, sse_events, error, step, metadata
         """
         if self._graph is None:
-            # Fallback: use legacy TurnRunner
+            # Fallback to TurnRunner when graph build fails
             from agent.runtime.runner import TurnRunner
             runner = TurnRunner(
                 session=getattr(turn_state, 'session', None),

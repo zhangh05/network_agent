@@ -127,7 +127,7 @@ export const sessionsApi = {
    */
   messages: (
     session_id: string,
-    workspace_id: string = "default",
+    workspace_id: string = "",
     signal?: AbortSignal,
   ): Promise<{ ok: boolean; messages: SessionMessage[]; count: number }> =>
     apiRequest<{ ok: boolean; messages: SessionMessage[]; count: number }>(
@@ -266,11 +266,11 @@ export const jobsApi = {
 
   /** POST /api/jobs/:id/cancel */
   cancel: (job_id: string, workspace_id?: string) =>
-    apiRequest<{ ok: boolean }>({ method: "POST", url: `/jobs/${job_id}/cancel`, data: { workspace_id: workspace_id || "default" } }),
+    apiRequest<{ ok: boolean }>({ method: "POST", url: `/jobs/${job_id}/cancel`, data: { workspace_id: workspace_id || "" } }),
 
   /** POST /api/jobs/:id/retry */
   retry: (job_id: string, workspace_id?: string) =>
-    apiRequest<{ ok: boolean }>({ method: "POST", url: `/jobs/${job_id}/retry`, data: { workspace_id: workspace_id || "default" } }),
+    apiRequest<{ ok: boolean }>({ method: "POST", url: `/jobs/${job_id}/retry`, data: { workspace_id: workspace_id || "" } }),
 
   /** GET /api/jobs/:id/events */
   events: (job_id: string, signal?: AbortSignal) =>

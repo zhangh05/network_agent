@@ -26,8 +26,6 @@ BLOCKED_TASKS = {
     "generate_deployable_config",
     "modify_deployable_config",
     "approve_manual_review",
-    "bypass_translate_bundle",
-    "bypass_skill_executor",
     "call_module_directly",
     "fake_planned_module_result",
 }

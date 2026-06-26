@@ -1,4 +1,4 @@
-# Capability-First Architecture (v3.8)
+# Capability-First Architecture (v3.9)
 
 Capability-driven design: capabilities define what the agent can do with safety contracts. Tool visibility is scene-aware.
 
@@ -35,7 +35,7 @@ Defined in `agent/capabilities/builtin.py` and `agent/modules/*/capability.py`:
 | Topology | topology | planned | Reserved for auto-discovery |
 | Inspection | inspection | planned | Reserved for config audit |
 
-## CORE_TOOL_IDS (v3.8 — 16 tools)
+## CORE_TOOL_IDS (v3.9 — 16 tools)
 
 ```text
 exec.run, exec.python, exec.slash,
@@ -70,7 +70,7 @@ Defined in `agent/runtime/capability_routing/manifests.py`:
 - Located in `agent/runtime/tool_planning/planner.py`
 - `MAX_CANDIDATE_TOOLS = 30`
 - Deterministic seed via keyword-based SIGNAL_DISPATCH
-- LLM refinement enabled (v3.8) — refines seed via model when available
+- LLM refinement enabled (v3.9) — refines seed via model when available
 - Does NOT default to full namespace — narrows by scene + capability routing
 - Produces `ToolPlanningDecision` and `ToolPlanningPolicy`
 
@@ -84,9 +84,9 @@ git(5)  code(1)  browser(2)
 
 ## Invariants
 
-- CapabilityManifest contains no skills field (removed v3.8).
+- CapabilityManifest contains no skills field (removed v3.9).
 - CapabilityToolRef references canonical handlers — never overrides schemas.
 - CORE_TOOL_IDS are always visible regardless of planner output.
 - LLM never sees full 102-tool catalog (max ~30 per turn).
-- SSH/Telnet sessions support reuse via session_id (v3.8).
+- SSH/Telnet sessions support reuse via session_id (v3.9).
 - Dangerous commands (reload/reboot/reset/format/rm -rf/dd if=/mkfs) blocked.

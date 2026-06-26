@@ -12,14 +12,12 @@ from flask import jsonify, request
 from workspace.ids import validate_workspace_id
 
 
-# ── In-memory state for execution history and approvals ──
+# ── In-memory state for execution history ──
 _TOOL_HISTORY_MAX = 200
 _tool_exec_history = OrderedDict()
-_tool_approvals = OrderedDict()
 _lock = threading.Lock()
 
 _HISTORY_FILE = Path(__file__).resolve().parent.parent.parent / 'data' / 'tool_history.json'
-_APPROVALS_FILE = Path(__file__).resolve().parent.parent.parent / 'data' / 'tool_approvals.json'
 
 
 def _persist_history():
@@ -35,16 +33,6 @@ def _persist_history():
         pass
 
 
-def _persist_approvals():
-    with _lock:
-        snapshot = list(_tool_approvals.values())
-    try:
-        from workspace.atomic_io import atomic_write_json
-        atomic_write_json(_APPROVALS_FILE, snapshot, indent=2)
-    except Exception:
-        pass
-
-
 def _load_persisted():
     from workspace.atomic_io import safe_read_json
     items = safe_read_json(_HISTORY_FILE, default=[]) or []
@@ -52,13 +40,6 @@ def _load_persisted():
         for item in items:
             if isinstance(item, dict):
                 _tool_exec_history[item.get('invocation_id', '')] = item
-    items = safe_read_json(_APPROVALS_FILE, default=[]) or []
-    if isinstance(items, list):
-        for item in items:
-            if isinstance(item, dict):
-                approval_id = item.get('approval_id', '')
-                if approval_id:
-                    _tool_approvals[approval_id] = item
 
 
 _load_persisted()
@@ -68,9 +49,15 @@ def _invalid_ws():
     return jsonify({"ok": False, "error": "invalid_workspace_id"}), 400
 
 
-def _validated_ws_id(raw="default"):
+def _validated_ws_id(raw=None):
+    """Validate workspace_id. Returns (ws_id, None) or (None, error_response).
+    
+    No implicit default — caller must provide a valid workspace_id.
+    """
+    if not raw:
+        return None, _invalid_ws()
     try:
-        return validate_workspace_id(raw or "default"), None
+        return validate_workspace_id(raw), None
     except ValueError:
         return None, _invalid_ws()
 
@@ -84,34 +71,24 @@ def _get_tool_risk_level(client, tool_id: str) -> str:
         return "unknown"
 
 
-def _requires_runtime_approval(spec) -> bool:
-    return bool(spec and (spec.risk_level == "high" or spec.requires_approval))
-
-
 def _validate_approved_tool_invocation(approval_id: str, tool_id: str, workspace_id: str) -> bool:
-    """Return True only for an approved ID that matches tool and workspace."""
+    """Return True only for an approved ID that matches tool and workspace.
+
+    Uses the UNIFIED ApprovalStore — no legacy fallback.
+    """
     if not approval_id:
         return False
-    with _lock:
-        approval = dict(_tool_approvals.get(approval_id, {}))
-    runtime_ok = (
-        approval.get("status") == "approved"
-        and approval.get("tool_id") == tool_id
-        and approval.get("workspace_id") == workspace_id
-    )
-    if runtime_ok:
-        return True
     try:
         from agent.approval import get_approval_store
 
         history = get_approval_store().get_history(tool_id=tool_id, limit=500)
         for rec in history:
-            metadata = rec.get("metadata") or {}
+            rec_ws = rec.get("workspace_id", "")
             if (
                 rec.get("approval_id") == approval_id
                 and rec.get("allowed") is True
                 and rec.get("tool_id") == tool_id
-                and (metadata.get("workspace_id") in ("", None, workspace_id))
+                and (not rec_ws or rec_ws == workspace_id)
             ):
                 return True
     except Exception:
@@ -224,7 +201,7 @@ def register_runtime_routes(app):
     @app.route("/api/runtime/health")
     def api_runtime_health():
         from runtime.diagnostics import get_diagnostics
-        ws_id = request.args.get("workspace_id", "default")
+        ws_id = request.args.get("workspace_id", "")
         ws_id, err = _validated_ws_id(ws_id)
         if err:
             return err
@@ -233,7 +210,7 @@ def register_runtime_routes(app):
 
     @app.route("/api/runtime/selfcheck")
     def api_runtime_selfcheck():
-        ws_id = request.args.get("workspace_id", "default")
+        ws_id = request.args.get("workspace_id", "")
         ws_id, err = _validated_ws_id(ws_id)
         if err:
             return err
@@ -264,7 +241,7 @@ def register_runtime_routes(app):
         failure it is `{}` and the error string lives in
         `errors[0]`.
         """
-        ws_id = request.args.get("workspace_id", "default")
+        ws_id = request.args.get("workspace_id", "")
         ws_id, err = _validated_ws_id(ws_id)
         if err:
             return err
@@ -315,7 +292,8 @@ def register_runtime_routes(app):
             approval_id=approval_id,
         )
 
-        if _requires_runtime_approval(spec) and not _validate_approved_tool_invocation(approval_id, requested_tool_id, ws_id):
+        spec_high_risk = spec and (spec.risk_level == "high" or spec.requires_approval)
+        if spec_high_risk and not _validate_approved_tool_invocation(approval_id, requested_tool_id, ws_id):
             return _blocked_tool_response(
                 invocation, ws_id, _get_tool_risk_level(client, requested_tool_id),
                 "invalid_or_unapproved_approval_id",
@@ -438,7 +416,7 @@ def register_runtime_routes(app):
     @app.route("/api/tools/history")
     def api_tools_history():
         """Return execution history for the current workspace."""
-        ws_id = request.args.get("workspace_id", "default")
+        ws_id = request.args.get("workspace_id", "")
         status_filter = request.args.get("status", None)
         try:
             limit = int(request.args.get("limit", 50))
@@ -461,116 +439,11 @@ def register_runtime_routes(app):
             "workspace_id": ws_id,
         })
 
-    # ── Approvals ──
-    @app.route("/api/tools/approvals")
-    def api_tools_approvals():
-        """Return pending approval requests."""
-        ws_id, err = _validated_ws_id(request.args.get("workspace_id", "default"))
-        if err:
-            return err
-        from agent.approval import get_approval_store
-
-        records = []
-        for rec in get_approval_store().get_pending():
-            metadata = rec.get("metadata") or {}
-            if metadata.get("workspace_id") in ("", None, ws_id):
-                records.append(rec)
-        return jsonify({
-            "approvals": records,
-            "count": len(records),
-            "workspace_id": ws_id,
-        })
-
-    def _require_admin():
-        """Check if request has admin privileges for approval operations.
-
-        Admin authentication methods (in order of priority):
-        1. X-Admin-Token header matching NETWORK_AGENT_ADMIN_TOKEN env var
-        2. localhost access (127.0.0.1 or ::1) if no admin token is configured
-
-        Returns:
-            True if admin, False otherwise
-        """
-        # Check Admin Token header (constant-time comparison)
-        admin_token = request.headers.get("X-Admin-Token", "")
-        expected_token = os.environ.get("NETWORK_AGENT_ADMIN_TOKEN", "")
-        if expected_token:
-            import hmac
-            if hmac.compare_digest(admin_token, expected_token):
-                return True
-            return False
-        else:
-            # If no admin token configured, allow localhost access only
-            client_ip = request.remote_addr
-            if client_ip in ("127.0.0.1", "::1"):
-                return True
-            return False
-
-    @app.route("/api/tools/approvals/<approval_id>/approve", methods=["PUT"])
-    def api_tools_approve(approval_id):
-        """Approve a pending tool approval."""
-        # Admin authentication required
-        if not _require_admin():
-            return jsonify({"ok": False, "error": "admin_access_required"}), 403
-
-        from agent.approval import get_approval_store
-
-        req = get_approval_store().resolve(approval_id, True, resolver="runtime_admin")
-        if req is None:
-            return jsonify({"ok": False, "error": "approval not found"}), 404
-
-        return jsonify({"ok": True, "approval_id": approval_id, "status": "approved",
-                        "note": "Approved. The tool can now be invoked with this approval_id."})
-
-    @app.route("/api/tools/approvals/<approval_id>/reject", methods=["PUT"])
-    def api_tools_reject(approval_id):
-        """Reject a pending tool approval."""
-        # Admin authentication required
-        if not _require_admin():
-            return jsonify({"ok": False, "error": "admin_access_required"}), 403
-
-        from agent.approval import get_approval_store
-
-        req = get_approval_store().resolve(approval_id, False, resolver="runtime_admin")
-        if req is None:
-            return jsonify({"ok": False, "error": "approval not found"}), 404
-
-        return jsonify({"ok": True, "approval_id": approval_id, "status": "rejected"})
-
-    @app.route("/api/tools/approvals", methods=["POST"])
-    def api_tools_request_approval():
-        """Request approval for a high-risk tool."""
-        body = request.get_json(silent=True) or {}
-        tool_id = body.get("tool_id", "")
-        reason = body.get("reason", "")
-        ws_id = body.get("workspace_id", "default")
-        user = body.get("user", "ui_user")
-
-        if not tool_id or not reason:
-            return jsonify({"ok": False, "error": "tool_id and reason are required"}), 400
-        ws_id, err = _validated_ws_id(ws_id)
-        if err:
-            return err
-
-        from agent.approval import get_approval_store
-
-        req = get_approval_store().create(
-            session_id=str(body.get("session_id") or ""),
-            tool_id=tool_id,
-            arguments=body.get("arguments") or {},
-            description=reason,
-            risk_level=str(body.get("risk_level") or "high"),
-            metadata={"workspace_id": ws_id, "user": user, "reason": reason},
-        )
-
-        return jsonify({"ok": True, "approval_id": req.approval_id, "status": "pending",
-                        "note": "Approval request submitted. Waiting for admin confirmation."})
-
     # ── Permissions ──
     @app.route("/api/tools/permissions")
     def api_tools_permissions():
         """Get workspace-level tool permissions."""
-        ws_id = request.args.get("workspace_id", "default")
+        ws_id = request.args.get("workspace_id", "")
         try:
             ws_id = validate_workspace_id(ws_id)
         except ValueError:
@@ -733,7 +606,7 @@ def register_runtime_routes(app):
 
     @app.route("/api/agent/runtime-mode")
     def api_agent_runtime_mode():
-        mode = os.environ.get("AGENT_RUNTIME", "legacy")
+        mode = os.environ.get("AGENT_RUNTIME", "turn_runner")
         graph_ok = False
         try:
             from langgraph.graph import StateGraph

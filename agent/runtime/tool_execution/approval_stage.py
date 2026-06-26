@@ -33,6 +33,9 @@ class ApprovalStage:
             arguments=tool_call.arguments,
             description=getattr(spec, 'description', '')[:200],
             risk_level=risk_level,
+            workspace_id=getattr(state, 'workspace_id', '') or getattr(state.session, 'workspace_id', ''),
+            run_id=getattr(state, 'run_id', ''),
+            job_id=getattr(state, 'job_id', ''),
             metadata={
                 "argument_source": arg_source,
                 "argument_risk": arg_risk.risk_level,

@@ -20,15 +20,21 @@ from flask import Response, jsonify, request, stream_with_context
 
 
 def _admin_token_allowed() -> bool:
-    expected = os.environ.get("NETWORK_AGENT_ADMIN_TOKEN", "")
-    if not expected:
-        return True
-    supplied = request.headers.get("X-Admin-Token", "")
-    if not supplied:
-        return False
-    import hmac
+    """Check admin permission for approval resolution.
 
-    return hmac.compare_digest(supplied, expected)
+    - If NETWORK_AGENT_ADMIN_TOKEN is configured, MUST provide X-Admin-Token.
+    - Otherwise, only localhost (127.0.0.1 / ::1) is allowed.
+    """
+    expected = os.environ.get("NETWORK_AGENT_ADMIN_TOKEN", "")
+    if expected:
+        supplied = request.headers.get("X-Admin-Token", "")
+        if not supplied:
+            return False
+        import hmac
+        return hmac.compare_digest(supplied, expected)
+    else:
+        client_ip = request.remote_addr
+        return client_ip in ("127.0.0.1", "::1")
 
 
 def register_approval_routes(app) -> None:

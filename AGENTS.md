@@ -1,4 +1,4 @@
-# Agent Runtime (v3.8)
+# Agent Runtime (v3.9)
 
 ## Turn Lifecycle
 

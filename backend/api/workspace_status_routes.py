@@ -15,7 +15,7 @@ def register_workspace_status_routes(app):
     @app.route("/api/workspaces/<ws_id>/status")
     def api_workspace_status(ws_id: str):
         try:
-            ws_id = validate_workspace_id(ws_id or "default")
+            ws_id = validate_workspace_id(ws_id)
         except ValueError:
             body, code = error_response("INVALID_WORKSPACE_ID", "invalid workspace_id", 400)
             return jsonify(body), code
@@ -85,7 +85,7 @@ def register_workspace_status_routes(app):
     @app.route("/api/workspaces/<ws_id>/storage/health")
     def api_storage_health(ws_id: str):
         try:
-            ws_id = validate_workspace_id(ws_id or "default")
+            ws_id = validate_workspace_id(ws_id)
         except ValueError:
             body, code = error_response("INVALID_WORKSPACE_ID", "invalid workspace_id", 400)
             return jsonify(body), code

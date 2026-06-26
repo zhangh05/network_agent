@@ -54,12 +54,18 @@ class ApprovalGate:
             from agent.approval import get_approval_store
             store = get_approval_store()
             session_id = getattr(ctx, 'session_id', '') if ctx else ''
+            workspace_id = getattr(ctx, 'workspace_id', '') if ctx else ''
+            run_id = getattr(ctx, 'run_id', '') if ctx else ''
+            job_id = getattr(ctx, 'job_id', '') if ctx else ''
             store.create(
                 session_id=session_id,
                 tool_id=plan.tool_id,
                 arguments=dict(plan.arguments) if hasattr(plan, 'arguments') else {},
                 description=getattr(plan, 'description', '') or f"{plan.tool_id}",
                 risk_level=risk.risk_level,
+                workspace_id=workspace_id,
+                run_id=run_id,
+                job_id=job_id,
                 metadata={
                     "action_id": plan.action_id,
                     "reason": decision.reason,

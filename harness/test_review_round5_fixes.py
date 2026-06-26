@@ -335,11 +335,11 @@ class TestRegistryDedup:
 
 
 # ─────────────────────────────────────────────────────────────────────
-# backend/api/runtime_routes.py — atomic write for tool history/approvals
+# backend/api/runtime_routes.py — atomic write for tool history
 # ─────────────────────────────────────────────────────────────────────
 
 class TestRuntimeRoutesAtomicWrite:
-    """_persist_history / _persist_approvals must use atomic_write_json."""
+    """_persist_history must use atomic_write_json."""
 
     def test_persist_history_uses_atomic_write(self, monkeypatch, tmp_path):
         # Patch atomic_write_json and confirm it's invoked by _persist_history.
@@ -358,50 +358,22 @@ class TestRuntimeRoutesAtomicWrite:
         assert len(captured["obj"]) == 1
         assert captured["obj"][0]["invocation_id"] == "inv-1"
 
-    def test_persist_approvals_uses_atomic_write(self, monkeypatch, tmp_path):
-        from backend.api import runtime_routes
-        captured = {}
-        def fake_atomic_write_json(path, obj, indent=None):
-            captured["path"] = path
-            captured["obj"] = obj
-        monkeypatch.setattr("workspace.atomic_io.atomic_write_json", fake_atomic_write_json)
-        runtime_routes._tool_approvals.clear()
-        runtime_routes._tool_approvals["apr-1"] = {"approval_id": "apr-1", "status": "pending"}
-        runtime_routes._persist_approvals()
-        assert len(captured["obj"]) == 1
-        assert captured["obj"][0]["approval_id"] == "apr-1"
-
     def test_load_persisted_uses_safe_read_json(self, monkeypatch, tmp_path):
         from backend.api import runtime_routes
-        # Setup fake files
         hist_path = tmp_path / "tool_history.json"
-        appr_path = tmp_path / "tool_approvals.json"
         hist_path.write_text(json.dumps([{"invocation_id": "inv-99"}]))
-        appr_path.write_text(json.dumps([{"approval_id": "apr-99", "status": "pending"}]))
 
-        # Patch _HISTORY_FILE / _APPROVALS_FILE to tmp paths
         monkeypatch.setattr(runtime_routes, "_HISTORY_FILE", hist_path)
-        monkeypatch.setattr(runtime_routes, "_APPROVALS_FILE", appr_path)
-
-        # Reset state then re-load
         runtime_routes._tool_exec_history.clear()
-        runtime_routes._tool_approvals.clear()
         runtime_routes._load_persisted()
-
         assert "inv-99" in runtime_routes._tool_exec_history
-        assert "apr-99" in runtime_routes._tool_approvals
 
     def test_load_persisted_handles_missing_file(self, monkeypatch, tmp_path):
         from backend.api import runtime_routes
-        # Both files absent
         monkeypatch.setattr(runtime_routes, "_HISTORY_FILE", tmp_path / "missing1.json")
-        monkeypatch.setattr(runtime_routes, "_APPROVALS_FILE", tmp_path / "missing2.json")
         runtime_routes._tool_exec_history.clear()
-        runtime_routes._tool_approvals.clear()
         runtime_routes._load_persisted()
-        # Should not raise; both empty
         assert len(runtime_routes._tool_exec_history) == 0
-        assert len(runtime_routes._tool_approvals) == 0
 
     def test_load_persisted_handles_corrupt_json(self, monkeypatch, tmp_path):
         from backend.api import runtime_routes
