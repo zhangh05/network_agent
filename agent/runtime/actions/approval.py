@@ -32,7 +32,16 @@ class ApprovalGate:
             decision.required = True
             decision.approved = False
             decision.status = "pending"
-            decision.reason = risk.reason or "High-risk action requires approval"
+            # v3.10 Phase 5: read reason from Capability Manifest
+            manifest_reason = risk.reason or ""
+            try:
+                from tool_runtime.manifest_registry import get_manifest
+                m = get_manifest(plan.tool_id)
+                if m and m.approval_reason_template:
+                    manifest_reason = m.approval_reason_template
+            except Exception:
+                pass
+            decision.reason = manifest_reason or risk.reason or "High-risk action requires approval"
             decision.prompt = f"Approve {plan.tool_id}({_summarize_args(plan.arguments)})?"
             self._write_ctx(ctx, decision)
             self._create_store_record(plan, risk, ctx, decision)

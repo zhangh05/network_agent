@@ -98,6 +98,31 @@ class RiskPolicy:
             action_class=plan.action_class,
         )
 
+        # v3.10 Phase 5: Read risk from Capability Manifest as primary source
+        manifest = None
+        try:
+            from tool_runtime.manifest_registry import get_manifest
+            manifest = get_manifest(plan.tool_id)
+        except Exception:
+            pass
+
+        # If manifest exists, use its declared risk level and approval requirement
+        if manifest:
+            # Check dangerous args FIRST — they override manifest risk_level
+            dangerous_match = _check_dangerous_commands(plan.arguments)
+            if dangerous_match:
+                decision.risk_level = "critical"
+                decision.approval_required = True
+                decision.reason = f"Dangerous command pattern detected: {dangerous_match}"
+                decision.warnings.append("dangerous_command_requires_approval")
+            else:
+                decision.risk_level = manifest.risk_level
+                decision.approval_required = manifest.requires_approval
+                decision.reason = manifest.approval_reason_template or f"{manifest.action_class} action: {manifest.display_name}"
+            plan.risk_level = decision.risk_level
+            _apply_conflict_risk(decision, plan, evidence_bundle)
+            return decision
+
         # 1. Check for dangerous commands in arguments → critical, needs approval
         dangerous_match = _check_dangerous_commands(plan.arguments)
         if dangerous_match:

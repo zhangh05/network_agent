@@ -17,30 +17,29 @@ from .models import (
 )
 from .store import save_task, append_event, save_checkpoint, get_task, get_events, get_checkpoints
 
-# ── Idempotency / Destructive classification ──
-
-_NON_IDEMPOTENT_PATTERNS = {"rm ", "rm\t", "delete", "remove", "drop", "destroy",
-                              "purge", "truncate", "format", "mkfs", "shred",
-                              "dd ", "unlink", "mv ", ">", "|"}
-_IDEMPOTENT_READ_KINDS = {"message", "model", "validation", "checkpoint"}
+# ── Idempotency / Destructive — derived from Capability Manifest ──
 
 
-def _is_destructive(step: RuntimeStep) -> bool:
-    """Check if a step's summary/tool_id indicates a destructive action."""
-    combined = f"{step.tool_id or ''} {step.summary or ''} {step.title or ''}".lower()
-    return any(p in combined for p in _NON_IDEMPOTENT_PATTERNS)
+def _get_manifest(tool_id: str | None):
+    """Look up manifest for a tool_id. Returns None if not found."""
+    if not tool_id:
+        return None
+    try:
+        from tool_runtime.manifest_registry import get_manifest as gm
+        return gm(tool_id)
+    except Exception:
+        return None
 
 
-def _is_idempotent(step: RuntimeStep) -> bool:
-    """A step is retry-safe if it's read-only or explicitly idempotent."""
-    if step.kind in _IDEMPOTENT_READ_KINDS:
-        return True
-    if _is_destructive(step):
+def _is_retryable(step: RuntimeStep) -> bool:
+    """Check if a step can be safely retried, based on manifest idempotency."""
+    m = _get_manifest(step.tool_id)
+    if m and m.destructive:
         return False
-    # Default: tool steps are non-idempotent unless proven otherwise
-    if step.kind == "tool":
-        return False
-    return False
+    if m:
+        return m.idempotency == "safe_to_retry"
+    # Fallback for non-tool steps: model/message/checkpoint are safe
+    return step.kind in ("message", "model", "validation", "checkpoint")
 
 
 # ── Checkpoint ──
@@ -154,8 +153,8 @@ def retry_step(task_id: str, step_id: str, ws_id: str) -> dict:
     if target.status not in ("failed", "cancelled"):
         return {"ok": False, "error": f"step status is {target.status}, can only retry failed/cancelled"}
 
-    # Safety: disallow destructive/non-idempotent retry
-    if not _is_idempotent(target):
+    # Safety: disallow destructive/non-idempotent retry (from manifest)
+    if not _is_retryable(target):
         return {
             "ok": False,
             "error": f"Cannot retry non-idempotent/destructive step: {target.kind}",
