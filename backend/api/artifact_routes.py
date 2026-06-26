@@ -34,6 +34,22 @@ def _validated_limit(default=100, max_value=500):
         return None, _invalid_limit()
 
 
+def _confirm_required():
+    return jsonify({
+        "ok": False,
+        "error": "confirm_required",
+        "message": "Set confirm=true to delete artifacts.",
+    }), 400
+
+
+def _confirmed(data: dict | None = None) -> bool:
+    if request.args.get("confirm", "") == "true":
+        return True
+    if isinstance(data, dict) and data.get("confirm") is True:
+        return True
+    return False
+
+
 def _guess_upload_kind(filename: str, artifact_type: str = "") -> tuple:
     """Return (file_kind, binary) for uploaded file."""
     name = (filename or "").lower()
@@ -207,6 +223,8 @@ def register_artifact_routes(app):
         if err:
             return err
         data = request.get_json(silent=True) or {}
+        if not _confirmed(data):
+            return _confirm_required()
         ids = data.get("artifact_ids", [])
         if not ids or not isinstance(ids, list):
             return jsonify({"ok": False, "error": "artifact_ids (list) required"}), 400
@@ -255,6 +273,8 @@ def register_artifact_routes(app):
         ws_id, err = _validated_ws_id(ws_id)
         if err:
             return err
+        if not _confirmed():
+            return _confirm_required()
         ok = delete_artifact(ws_id, artifact_id)
         return jsonify({"ok": ok})
 

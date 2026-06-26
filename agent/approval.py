@@ -175,15 +175,17 @@ class ApprovalStore:
     def _append_record(self, req: ApprovalRequest) -> None:
         """Append a record (pending or resolved) to the JSONL audit log."""
         try:
+            from tool_runtime.redaction import redact_tool_output
+
             self._persist_path.parent.mkdir(parents=True, exist_ok=True)
             rec = {
                 "approval_id": req.approval_id,
                 "session_id": req.session_id,
                 "tool_id": req.tool_id,
-                "arguments": req.arguments,
+                "arguments": redact_tool_output(req.arguments or {}),
                 "description": req.description,
                 "risk_level": req.risk_level,
-                "metadata": req.metadata,
+                "metadata": redact_tool_output(req.metadata or {}),
                 "created_at": req.created_at,
                 "resolved": req.resolved,
                 "allowed": req.allowed if req.resolved else None,
@@ -409,14 +411,18 @@ class ApprovalStore:
 
     @staticmethod
     def _to_dict(req: ApprovalRequest) -> dict:
+        from tool_runtime.redaction import redact_tool_output
+
+        safe_arguments = redact_tool_output(req.arguments or {})
         return {
             "approval_id": req.approval_id,
             "session_id": req.session_id,
             "tool_id": req.tool_id,
             "description": req.description,
             "risk_level": req.risk_level,
-            "arguments_summary": _summarize_args(req.arguments),
-            "arguments_preview": req.arguments,
+            "status": "resolved" if req.resolved else "pending",
+            "arguments_summary": _summarize_args(safe_arguments),
+            "arguments_preview": safe_arguments,
             "created_at": req.created_at,
             "created_at_iso": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(req.created_at)),
             "argument_source": req.metadata.get("argument_source", ""),
@@ -428,8 +434,10 @@ class ApprovalStore:
 
 def _summarize_args(args: dict) -> str:
     """Summarize tool arguments for display."""
+    from tool_runtime.redaction import redact_tool_output
+
     items = []
-    for k, v in (args or {}).items():
+    for k, v in (redact_tool_output(args or {}) or {}).items():
         s = str(v)
         if len(s) > 80:
             s = s[:77] + "..."
@@ -446,3 +454,17 @@ def get_approval_store() -> ApprovalStore:
     if _approval_store is None:
         _approval_store = ApprovalStore()
     return _approval_store
+
+
+def reset_approval_store_for_tests(remove_persisted: bool = False) -> None:
+    """Reset the module-level approval store for isolated tests."""
+    global _approval_store
+    if _approval_store is not None:
+        with _approval_store._lock:
+            _approval_store._pending.clear()
+    if remove_persisted:
+        try:
+            (_approval_store._persist_path if _approval_store else _APPROVALS_FILE).unlink(missing_ok=True)
+        except Exception:
+            pass
+    _approval_store = None

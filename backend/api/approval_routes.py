@@ -10,12 +10,25 @@ v3.2.0 (Guardian): Expanded the approval API surface.
 from __future__ import annotations
 
 import json
+import os
 import queue
 import threading
 import time
 from typing import Iterator
 
 from flask import Response, jsonify, request, stream_with_context
+
+
+def _admin_token_allowed() -> bool:
+    expected = os.environ.get("NETWORK_AGENT_ADMIN_TOKEN", "")
+    if not expected:
+        return True
+    supplied = request.headers.get("X-Admin-Token", "")
+    if not supplied:
+        return False
+    import hmac
+
+    return hmac.compare_digest(supplied, expected)
 
 
 def register_approval_routes(app) -> None:
@@ -37,6 +50,8 @@ def register_approval_routes(app) -> None:
     @app.route("/api/agent/approvals/<approval_id>/resolve", methods=["POST"])
     def api_approval_resolve(approval_id):
         """POST resolve an approval — body: {"allowed": true/false}."""
+        if not _admin_token_allowed():
+            return jsonify({"ok": False, "error": "admin_access_required"}), 403
         from agent.approval import get_approval_store
         store = get_approval_store()
         data = request.get_json(silent=True) or {}

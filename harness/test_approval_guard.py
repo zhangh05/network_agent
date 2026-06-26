@@ -37,12 +37,18 @@ def client(app_with_approvals):
 
 
 @pytest.fixture
-def reset_approvals():
+def reset_approvals(tmp_path, monkeypatch):
     """Reset the global _tool_approvals dict before each test."""
     from backend.api import runtime_routes
+    import agent.approval as approval_module
+    from agent.approval import reset_approval_store_for_tests
+
+    monkeypatch.setattr(approval_module, "_APPROVALS_FILE", tmp_path / "tool_approvals.jsonl")
     runtime_routes._tool_approvals.clear()
+    reset_approval_store_for_tests(remove_persisted=True)
     yield
     runtime_routes._tool_approvals.clear()
+    reset_approval_store_for_tests(remove_persisted=True)
 
 
 class TestAdminTokenAuth:

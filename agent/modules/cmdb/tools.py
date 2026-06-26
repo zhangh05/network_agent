@@ -61,20 +61,9 @@ def tool_get_asset(workspace_id: str = "default", asset_id: str = "", **kwargs) 
     try:
         if not asset_id.strip():
             return {"ok": False, "error": "asset_id is required"}
-        asset = get_asset(workspace_id, asset_id, safe=False)
+        asset = get_asset(workspace_id, asset_id, safe=True)
         if not asset:
             return {"ok": False, "error": f"asset '{asset_id}' not found"}
-        # Decode legacy base64-obfuscated password if present
-        raw_pw = asset.get("password", "")
-        if raw_pw:
-            import base64
-            try:
-                decoded = base64.b64decode(raw_pw).decode("utf-8")
-                # Only treat as base64 if it looks like decoded ASCII
-                if decoded.isascii() and len(decoded) >= 1:
-                    raw_pw = decoded
-            except Exception:
-                pass  # not base64, use as-is
         return {"ok": True, "asset": {
             "asset_id": asset.get("asset_id", ""),
             "name": asset.get("name", ""),
@@ -85,7 +74,6 @@ def tool_get_asset(workspace_id: str = "default", asset_id: str = "", **kwargs) 
             "protocol": asset.get("protocol", ""),
             "port": asset.get("port", 22),
             "username": asset.get("username", ""),
-            "password": raw_pw,
             "region": asset.get("region", ""),
             "location": asset.get("location", ""),
             "description": asset.get("description", ""),
@@ -110,7 +98,7 @@ def tool_add_asset(workspace_id: str = "default", name: str = "", host: str = ""
             "name": name.strip(), "host": host.strip(), "type": type,
             "vendor": vendor.strip(), "model": model.strip(),
             "protocol": protocol, "port": port, "username": username,
-            "password": password, "location": location.strip(),
+            "location": location.strip(),
             "description": description.strip(),
         })
         return result

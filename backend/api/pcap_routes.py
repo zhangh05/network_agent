@@ -13,15 +13,33 @@ from agent.modules.pcap.service import (
 from workspace.ids import validate_workspace_id
 
 
+def _invalid_ws():
+    return jsonify({"ok": False, "error": "invalid_workspace_id"}), 400
+
+
+def _validated_ws_id(raw="default"):
+    try:
+        return validate_workspace_id(raw or "default"), None
+    except ValueError:
+        return None, _invalid_ws()
+
+
+def _confirm_required():
+    return jsonify({
+        "ok": False,
+        "error": "confirm_required",
+        "message": "Set confirm=true to delete this PCAP session.",
+    }), 400
+
+
 def register_pcap_routes(app):
     """Register PCAP analysis API routes."""
 
     @app.route("/api/pcap/parse", methods=["POST"])
     def api_pcap_parse():
-        try:
-            ws_id = validate_workspace_id(request.form.get("workspace_id", "default") or "default")
-        except ValueError:
-            return jsonify({"ok": False, "error": "invalid_workspace_id"}), 400
+        ws_id, err = _validated_ws_id(request.form.get("workspace_id", "default"))
+        if err:
+            return err
 
         if "file" not in request.files:
             return jsonify({"ok": False, "error": "no file"}), 400
@@ -70,10 +88,9 @@ def register_pcap_routes(app):
     @app.route("/api/pcap/parse-file", methods=["POST"])
     def api_pcap_parse_file():
         data = request.get_json(force=True) or {}
-        try:
-            ws_id = validate_workspace_id(data.get("workspace_id", "default") or "default")
-        except ValueError:
-            return jsonify({"ok": False, "error": "invalid_workspace_id"}), 400
+        ws_id, err = _validated_ws_id(data.get("workspace_id", "default"))
+        if err:
+            return err
         file_id = str(data.get("file_id", "") or "")
         if not file_id:
             return jsonify({"ok": False, "error": "missing_file_id"}), 400
@@ -99,7 +116,9 @@ def register_pcap_routes(app):
 
     @app.route("/api/pcap/session/<session_id>", methods=["GET"])
     def api_pcap_session(session_id):
-        ws_id = request.args.get("workspace_id", "default") or "default"
+        ws_id, err = _validated_ws_id(request.args.get("workspace_id", "default"))
+        if err:
+            return err
         result = get_pcap_session(session_id, workspace_id=ws_id)
         if not result.get("ok"):
             return jsonify({"ok": False, "error": "session not found"}), 404
@@ -107,13 +126,19 @@ def register_pcap_routes(app):
 
     @app.route("/api/pcap/session/<session_id>", methods=["DELETE"])
     def api_pcap_session_delete(session_id):
-        ws_id = request.args.get("workspace_id", "default") or "default"
+        ws_id, err = _validated_ws_id(request.args.get("workspace_id", "default"))
+        if err:
+            return err
+        if request.args.get("confirm", "") != "true":
+            return _confirm_required()
         result = delete_pcap_session(session_id, workspace_id=ws_id)
         return jsonify(result)
 
     @app.route("/api/pcap/sessions", methods=["GET"])
     def api_pcap_sessions():
-        ws_id = request.args.get("workspace_id", "default") or "default"
+        ws_id, err = _validated_ws_id(request.args.get("workspace_id", "default"))
+        if err:
+            return err
         try:
             limit = int(request.args.get("limit", "20"))
         except ValueError:
@@ -127,13 +152,16 @@ def register_pcap_routes(app):
             data = request.get_json(silent=True) or {}
         except Exception:
             return jsonify({"ok": False, "error": "invalid_json"}), 400
+        ws_id, err = _validated_ws_id(data.get("workspace_id", "default"))
+        if err:
+            return err
         result = filter_pcap_session(
             data.get("session_id", ""),
             src=data.get("src", ""),
             sport=data.get("sport", 0),
             dst=data.get("dst", ""),
             dport=data.get("dport", 0),
-            workspace_id=data.get("workspace_id", "default") or "default",
+            workspace_id=ws_id,
         )
         if not result.get("ok"):
             return jsonify({"ok": False, "error": "session not found"}), 404
@@ -145,6 +173,9 @@ def register_pcap_routes(app):
             data = request.get_json(silent=True) or {}
         except Exception:
             return jsonify({"ok": False, "error": "invalid_json"}), 400
+        ws_id, err = _validated_ws_id(data.get("workspace_id", "default"))
+        if err:
+            return err
         result = align_pcap_tcp(
             data.get("session_id", ""),
             src=data.get("src", ""),
@@ -152,7 +183,7 @@ def register_pcap_routes(app):
             dst=data.get("dst", ""),
             dport=data.get("dport", 0),
             use_filter=all(k in data for k in ("src", "sport", "dst", "dport")),
-            workspace_id=data.get("workspace_id", "default") or "default",
+            workspace_id=ws_id,
         )
         if not result.get("ok"):
             return jsonify({"ok": False, "error": "session not found"}), 404

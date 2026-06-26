@@ -46,4 +46,42 @@ describe("API review fixes", () => {
       "/api/agent/sse/stream/sid123",
     ]);
   });
+
+  it("adds the configured API token to EventSource URLs", () => {
+    localStorage.setItem("NA_API_TOKEN", "secret token");
+    const sources: string[] = [];
+    class FakeEventSource {
+      constructor(url: string) {
+        sources.push(url);
+      }
+      close() {}
+    }
+    vi.stubGlobal("EventSource", FakeEventSource as any);
+
+    openApprovalStream(() => {});
+    sseApi.connect("sid123");
+
+    expect(sources).toEqual([
+      "/api/agent/approvals/sse?access_token=secret+token",
+      "/api/agent/sse/stream/sid123?access_token=secret+token",
+    ]);
+  });
+
+  it("sends explicit confirm flags for retention and archive apply", async () => {
+    const { retentionApi, archiveApi } = await import("../api");
+
+    await retentionApi.apply("default");
+    await archiveApi.apply("default");
+
+    expect(apiClient.request).toHaveBeenCalledWith(expect.objectContaining({
+      method: "POST",
+      url: "/workspaces/default/retention/apply",
+      data: { dry_run: false, confirm: true },
+    }));
+    expect(apiClient.request).toHaveBeenCalledWith(expect.objectContaining({
+      method: "POST",
+      url: "/workspaces/default/archive/apply",
+      data: { dry_run: false, confirm: true },
+    }));
+  });
 });

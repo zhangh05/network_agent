@@ -1707,10 +1707,9 @@ _RAW_REGISTRY: list[CanonicalToolEntry] = [
             "protocol": {"type": "string", "description": "Connection protocol: ssh, telnet.", "enum": ["ssh", "telnet"], "default": "ssh"},
             "port": {"type": "integer", "description": "Connection port.", "default": 22},
             "username": {"type": "string", "description": "Login username."},
-            "password": {"type": "string", "description": "Login password (base64-obfuscated in storage)."},
         }, ["name", "host"]),
         risk_level="medium", requires_approval=True,
-        description="Add a new device asset to the CMDB. Requires approval.",
+        description="Add a new device asset to the CMDB. Passwords are not persisted. Requires approval.",
     ),
     CanonicalToolEntry(
         canonical_tool_id="device.delete",

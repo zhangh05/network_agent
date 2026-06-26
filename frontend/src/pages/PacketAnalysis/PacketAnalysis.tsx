@@ -327,7 +327,7 @@ export function PacketAnalysis() {
                           onClick={async (e: React.MouseEvent) => {
                             e.stopPropagation();
                             try {
-                              await apiRequest({ method: "DELETE", url: `/pcap/session/${s.session_id}`, params: { workspace_id: wsId } });
+                              await apiRequest({ method: "DELETE", url: `/pcap/session/${s.session_id}`, params: { workspace_id: wsId, confirm: "true" } });
                               if (s.session_id === sessionId) { setSessionId(""); setFilename(""); setTotalPackets(0); setConnections([]); setResult(null); localStorage.removeItem("pcap_session"); }
                               loadRecentSessions();
                             } catch { /* ignore */ }

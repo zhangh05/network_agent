@@ -664,7 +664,7 @@ export const artifactsApi = {
       {
         method: "POST",
         url: `/workspaces/${workspace_id}/artifacts/batch-delete`,
-        data: { artifact_ids },
+        data: { artifact_ids, confirm: true },
       },
       signal,
     ),
@@ -894,7 +894,7 @@ export const approvalApi = {
 
 /** Open the Guardian SSE stream. Returns an EventSource that the caller must close. */
 export function openApprovalStream(onEvent: (e: { kind: string; approval_id: string; session_id: string; tool_id: string; allowed: boolean; ts: number }) => void, onError?: (err: Event) => void): EventSource {
-  const es = new EventSource(apiUrl("/agent/approvals/sse"));
+  const es = new EventSource(apiUrlWithAuth("/agent/approvals/sse"));
   es.onmessage = (ev) => {
     try {
       onEvent(JSON.parse(ev.data));
@@ -1025,7 +1025,11 @@ export const retentionApi = {
     ),
 
   apply: (workspace_id: string) =>
-    apiRequest<{ ok: boolean }>({ method: "POST", url: `/workspaces/${workspace_id}/retention/apply` }),
+    apiRequest<{ ok: boolean }>({
+      method: "POST",
+      url: `/workspaces/${workspace_id}/retention/apply`,
+      data: { dry_run: false, confirm: true },
+    }),
 
   audits: (workspace_id: string, signal?: AbortSignal) =>
     apiRequest<{ audits: unknown[] }>(
@@ -1048,7 +1052,11 @@ export const archiveApi = {
     ),
 
   apply: (workspace_id: string) =>
-    apiRequest<{ ok: boolean }>({ method: "POST", url: `/workspaces/${workspace_id}/archive/apply` }),
+    apiRequest<{ ok: boolean }>({
+      method: "POST",
+      url: `/workspaces/${workspace_id}/archive/apply`,
+      data: { dry_run: false, confirm: true },
+    }),
 
   audits: (workspace_id: string, signal?: AbortSignal) =>
     apiRequest<{ audits: unknown[] }>(
@@ -1186,9 +1194,19 @@ export const breakpointApi = {
 export const sseApi = {
   /** Create EventSource for agent streaming */
   connect: (sessionId: string): EventSource =>
-    new EventSource(apiUrl(`/agent/sse/stream/${encodeURIComponent(sessionId)}`)),
+    new EventSource(apiUrlWithAuth(`/agent/sse/stream/${encodeURIComponent(sessionId)}`)),
 };
 
 function apiUrl(path: string): string {
   return `${apiBaseURL}${path.startsWith("/") ? path : `/${path}`}`;
+}
+
+function apiUrlWithAuth(path: string): string {
+  const raw = apiUrl(path);
+  const token = import.meta.env.VITE_API_TOKEN
+    || (typeof window !== "undefined" ? window.localStorage.getItem("NA_API_TOKEN") : null);
+  if (!token) return raw;
+  const separator = raw.includes("?") ? "&" : "?";
+  const params = new URLSearchParams({ access_token: token });
+  return `${raw}${separator}${params.toString()}`;
 }

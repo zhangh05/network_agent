@@ -126,7 +126,7 @@ def list_devices(workspace_id: str) -> list[dict]:
             did = d.get("device_id", "")
             if did and did not in seen:
                 seen.add(did)
-                d["password"] = "***"  # never expose
+                d.pop("password", None)
                 devices.append(d)
         except json.JSONDecodeError:
             continue

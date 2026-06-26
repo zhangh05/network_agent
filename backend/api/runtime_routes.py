@@ -3,10 +3,8 @@
 
 import json
 import os
-import uuid
 import threading
 from collections import OrderedDict
-from datetime import datetime, timezone
 from pathlib import Path
 
 from flask import jsonify, request
@@ -96,11 +94,29 @@ def _validate_approved_tool_invocation(approval_id: str, tool_id: str, workspace
         return False
     with _lock:
         approval = dict(_tool_approvals.get(approval_id, {}))
-    return (
+    runtime_ok = (
         approval.get("status") == "approved"
         and approval.get("tool_id") == tool_id
         and approval.get("workspace_id") == workspace_id
     )
+    if runtime_ok:
+        return True
+    try:
+        from agent.approval import get_approval_store
+
+        history = get_approval_store().get_history(tool_id=tool_id, limit=500)
+        for rec in history:
+            metadata = rec.get("metadata") or {}
+            if (
+                rec.get("approval_id") == approval_id
+                and rec.get("allowed") is True
+                and rec.get("tool_id") == tool_id
+                and (metadata.get("workspace_id") in ("", None, workspace_id))
+            ):
+                return True
+    except Exception:
+        pass
+    return False
 
 
 def _blocked_tool_response(invocation, ws_id: str, risk_level: str, reason: str):
@@ -150,6 +166,9 @@ def _blocked_tool_response(invocation, ws_id: str, risk_level: str, reason: str)
 
 def _safe_output(output: dict) -> dict:
     """Return a sanitized version of tool output for API responses."""
+    from tool_runtime.redaction import redact_tool_output
+
+    output = redact_tool_output(output or {})
     if not output:
         return {}
     safe = {}
@@ -205,12 +224,10 @@ def register_runtime_routes(app):
     @app.route("/api/runtime/health")
     def api_runtime_health():
         from runtime.diagnostics import get_diagnostics
-        from workspace.ids import validate_workspace_id
         ws_id = request.args.get("workspace_id", "default")
-        try:
-            ws_id = validate_workspace_id(ws_id)
-        except ValueError:
-            ws_id = "default"
+        ws_id, err = _validated_ws_id(ws_id)
+        if err:
+            return err
         report = get_diagnostics(ws_id)
         return jsonify(report.as_dict())
 
@@ -261,12 +278,11 @@ def register_runtime_routes(app):
         if not requested_tool_id:
             return jsonify({"ok": False, "error": "tool_id is required"}), 400
 
-        from tool_runtime.canonical_registry import (
-            CANONICAL_REGISTRY, dispatch,
-        )
+        from tool_runtime.canonical_registry import CANONICAL_REGISTRY
         from tool_runtime.tool_governance import TOOL_GOVERNANCE
         from tool_runtime.integration import get_default_tool_runtime_client
         from tool_runtime.schemas import ToolInvocation
+        from tool_runtime.context import ToolRuntimeContext
 
         if requested_tool_id not in CANONICAL_REGISTRY:
             return jsonify({
@@ -323,39 +339,28 @@ def register_runtime_routes(app):
                 policy_decision.reason or "policy_blocked",
             )
 
-        # Dispatch via canonical registry. `dispatch` returns the raw
-        # handler dict. We only consume it as the new variables:
-        # requested_tool_id, gov, result_payload, ok, error.
-        try:
-            result_payload = dispatch(requested_tool_id, **arguments)
-            if not isinstance(result_payload, dict):
-                result_payload = {"value": result_payload}
-            ok = True
-            error = ""
-        except Exception as exc:
-            result_payload = {}
-            ok = False
-            error = str(exc)[:200]
-
         governance_status = gov.status if gov else "active"
-        if ok:
-            status = "succeeded"
-            summary = (result_payload.get("summary") or "").strip()[:500]
-            if not summary:
-                summary = f"Invoked {requested_tool_id}."
-            output = _safe_output(result_payload)
-            errors = []
-            warnings = list(result_payload.get("warnings") or [])[:20]
-        else:
-            status = "failed"
-            summary = error
-            output = {}
-            errors = [error] if error else ["tool_invocation_failed"]
-            warnings = []
+        context = ToolRuntimeContext(
+            workspace_id=ws_id,
+            requested_by="ui:tool_catalog",
+            approval_id=approval_id,
+        )
+        result = client.invoke(
+            requested_tool_id,
+            arguments,
+            dry_run=dry_run,
+            context=context,
+        )
+        ok = result.status in ("succeeded", "dry_run")
+        status = result.status
+        summary = result.summary or (f"Invoked {requested_tool_id}." if ok else "tool_invocation_failed")
+        output = _safe_output(result.output)
+        errors = list(result.errors or [])[:20]
+        warnings = list(result.warnings or [])[:20]
 
         return jsonify({
             "ok": ok,
-            "invocation_id": invocation.invocation_id,
+            "invocation_id": result.invocation_id,
             "tool_id": requested_tool_id,
             "canonical_tool_id": requested_tool_id,
             "governance_status": governance_status,
@@ -364,6 +369,9 @@ def register_runtime_routes(app):
             "output": output,
             "errors": errors,
             "warnings": warnings,
+            "duration_ms": result.duration_ms,
+            "redacted": result.redacted,
+            "policy_decision": result.policy_decision.__dict__ if result.policy_decision else None,
         })
 
     @app.route("/api/tools/dry-run", methods=["POST"])
@@ -457,15 +465,16 @@ def register_runtime_routes(app):
     @app.route("/api/tools/approvals")
     def api_tools_approvals():
         """Return pending approval requests."""
-        ws_id = request.args.get("workspace_id", "default")
+        ws_id, err = _validated_ws_id(request.args.get("workspace_id", "default"))
+        if err:
+            return err
+        from agent.approval import get_approval_store
 
-        with _lock:
-            all_approvals = list(_tool_approvals.values())
-
-        records = [
-            r for r in all_approvals
-            if r.get("workspace_id", "") == ws_id and r.get("status") == "pending"
-        ]
+        records = []
+        for rec in get_approval_store().get_pending():
+            metadata = rec.get("metadata") or {}
+            if metadata.get("workspace_id") in ("", None, ws_id):
+                records.append(rec)
         return jsonify({
             "approvals": records,
             "count": len(records),
@@ -504,13 +513,11 @@ def register_runtime_routes(app):
         if not _require_admin():
             return jsonify({"ok": False, "error": "admin_access_required"}), 403
 
-        with _lock:
-            approval = _tool_approvals.get(approval_id)
-            if not approval or approval.get("status") != "pending":
-                return jsonify({"ok": False, "error": "approval not found"}), 404
-            approval["status"] = "approved"
-            approval["resolved_at"] = datetime.now(timezone.utc).isoformat()
-        _persist_approvals()
+        from agent.approval import get_approval_store
+
+        req = get_approval_store().resolve(approval_id, True, resolver="runtime_admin")
+        if req is None:
+            return jsonify({"ok": False, "error": "approval not found"}), 404
 
         return jsonify({"ok": True, "approval_id": approval_id, "status": "approved",
                         "note": "Approved. The tool can now be invoked with this approval_id."})
@@ -522,13 +529,11 @@ def register_runtime_routes(app):
         if not _require_admin():
             return jsonify({"ok": False, "error": "admin_access_required"}), 403
 
-        with _lock:
-            approval = _tool_approvals.get(approval_id)
-            if not approval or approval.get("status") != "pending":
-                return jsonify({"ok": False, "error": "approval not found"}), 404
-            approval["status"] = "rejected"
-            approval["resolved_at"] = datetime.now(timezone.utc).isoformat()
-        _persist_approvals()
+        from agent.approval import get_approval_store
+
+        req = get_approval_store().resolve(approval_id, False, resolver="runtime_admin")
+        if req is None:
+            return jsonify({"ok": False, "error": "approval not found"}), 404
 
         return jsonify({"ok": True, "approval_id": approval_id, "status": "rejected"})
 
@@ -547,21 +552,18 @@ def register_runtime_routes(app):
         if err:
             return err
 
-        approval_id = "APR-" + uuid.uuid4().hex[:8].upper()
-        entry = {
-            "approval_id": approval_id,
-            "tool_id": tool_id,
-            "reason": reason,
-            "workspace_id": ws_id,
-            "user": user,
-            "status": "pending",
-            "created_at": datetime.now(timezone.utc).isoformat(),
-        }
-        with _lock:
-            _tool_approvals[approval_id] = entry
-        _persist_approvals()
+        from agent.approval import get_approval_store
 
-        return jsonify({"ok": True, "approval_id": approval_id, "status": "pending",
+        req = get_approval_store().create(
+            session_id=str(body.get("session_id") or ""),
+            tool_id=tool_id,
+            arguments=body.get("arguments") or {},
+            description=reason,
+            risk_level=str(body.get("risk_level") or "high"),
+            metadata={"workspace_id": ws_id, "user": user, "reason": reason},
+        )
+
+        return jsonify({"ok": True, "approval_id": req.approval_id, "status": "pending",
                         "note": "Approval request submitted. Waiting for admin confirmation."})
 
     # ── Permissions ──

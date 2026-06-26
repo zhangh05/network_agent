@@ -209,11 +209,7 @@ class ToolPolicy:
 
 def _check_argument_safety(arguments: dict, tool_id: str = "") -> str:
     """Check arguments for injection or unsafe patterns."""
-    args_str = str(arguments).lower()
-
     FORBIDDEN_ARGS = [
-        ("ssh", "SSH execution not allowed"),
-        ("telnet", "Telnet execution not allowed"),
         ("snmp", "SNMP not allowed"),
         ("nmap", "Nmap not allowed"),
         ("ping sweep", "Ping sweep not allowed"),
@@ -221,8 +217,6 @@ def _check_argument_safety(arguments: dict, tool_id: str = "") -> str:
         ("/etc/passwd", "Sensitive path detected"),
         ("/etc/shadow", "Sensitive path detected"),
         ("../", "Path traversal detected"),
-        ("curl", "curl download not allowed in arguments"),
-        ("wget", "wget download not allowed in arguments"),
         ("remove-item", "Destructive PowerShell command detected"),
         ("new-item", "File creation outside workspace detected"),
         ("set-executionpolicy", "Execution policy change not allowed"),
@@ -230,6 +224,7 @@ def _check_argument_safety(arguments: dict, tool_id: str = "") -> str:
 
     # Shell/PowerShell specific checks
     if tool_id in ("exec.run"):
+        command = str((arguments or {}).get("command", "")).lower()
         extra_checks = [
             ("&&", "Command chaining detected"),
             ("||", "Command chaining detected"),
@@ -240,7 +235,11 @@ def _check_argument_safety(arguments: dict, tool_id: str = "") -> str:
             (">", "Redirection detected"),
             ("<", "Input redirection detected"),
         ]
-        FORBIDDEN_ARGS = FORBIDDEN_ARGS + extra_checks
+        for pattern, reason in extra_checks:
+            if pattern in command:
+                return reason
+    else:
+        command = str(arguments or {}).lower()
 
     # PowerShell forbidden patterns (built-in, not configurable)
     POWERSHELL_FORBIDDEN_PATTERNS = [
@@ -249,9 +248,10 @@ def _check_argument_safety(arguments: dict, tool_id: str = "") -> str:
     ]
     if tool_id == "exec.run":
         for pat in POWERSHELL_FORBIDDEN_PATTERNS:
-            if pat.lower() in args_str:
+            if pat.lower() in command:
                 return f"PowerShell forbidden pattern: {pat}"
 
+    args_str = str(arguments).lower()
     for pattern, reason in FORBIDDEN_ARGS:
         if pattern in args_str:
             return reason
