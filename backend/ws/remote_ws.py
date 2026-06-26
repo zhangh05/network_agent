@@ -6,7 +6,9 @@ Uses flask_sock (same pattern as agent_ws.py).
 import json
 import logging
 import threading
+from urllib.parse import urlparse
 
+from flask import request
 from flask_sock import Sock
 
 sock = Sock()
@@ -32,6 +34,10 @@ def register_remote_ws(app):
           {type:"disconnected", session_id}
           {type:"error", message}
         """
+        if not _same_origin_ws_request():
+            ws.send(json.dumps({"type": "error", "message": "csrf_origin_denied"}))
+            return
+
         sid = None
         reader_stop = threading.Event()
 
@@ -68,11 +74,19 @@ def register_remote_ws(app):
 
                 if msg_type == "connect":
                     from agent.modules.remote.service import connect_device
+                    from workspace.ids import validate_workspace_id
+
+                    try:
+                        workspace_id = validate_workspace_id(msg.get("workspace_id", "default") or "default")
+                        port = _parse_port(msg.get("port", 22))
+                    except ValueError as exc:
+                        ws.send(json.dumps({"type": "error", "message": str(exc)}))
+                        continue
 
                     result = connect_device(
-                        workspace_id=msg.get("workspace_id", "default"),
+                        workspace_id=workspace_id,
                         host=msg.get("host", ""),
-                        port=int(msg.get("port", 22)),
+                        port=port,
                         protocol=msg.get("protocol", "ssh"),
                         username=msg.get("username", ""),
                         password=msg.get("password", ""),
@@ -146,3 +160,23 @@ def register_remote_ws(app):
             if sid:
                 from agent.modules.remote.service import close_session
                 close_session(sid)
+
+
+def _parse_port(value) -> int:
+    try:
+        port = int(value if value not in (None, "") else 22)
+    except (TypeError, ValueError) as exc:
+        raise ValueError("invalid_port") from exc
+    if port < 1 or port > 65535:
+        raise ValueError("invalid_port")
+    return port
+
+
+def _same_origin_ws_request() -> bool:
+    origin = request.headers.get("Origin")
+    if not origin:
+        return True
+    try:
+        return urlparse(origin).netloc == request.host.split("@")[-1]
+    except Exception:
+        return False

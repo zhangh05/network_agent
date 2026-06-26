@@ -16,21 +16,19 @@ def main():
     print()
 
     modules = {
-        "Tools": ["workspace.file.list","workspace.file.list","workspace.file.read","file.edit","file.patch",
-                   "file.write","workspace.write_artifact_file",
-                   "exec.run","exec.run","python.exec",
-                   "web.search","web.page.process","web.extract_links"],
-        "Skills": ["skill.list","skill.find_skills","skill.inspect",
-                    "skill.request_load","skill.create","skill.load"],
+        "Tools": ["workspace.file.list", "workspace.file.read", "workspace.file.edit",
+                   "workspace.file.patch", "workspace.file.write_artifact",
+                   "exec.run", "exec.python", "web.search", "web.page.process",
+                   "browser.navigate", "browser.click", "browser.screenshot"],
         "Memory": ["memory.manage","memory.retrieve","memory.search","memory.search",
                     "memory.manage","memory.manage","memory.manage",
                     "memory.profile","memory.profile"],
         "Context": ["auto_compact","token_tracker","context_compactor"],
         "Permission": ["permission_matrix","ApprovalStore","ToolPolicy"],
-        "Sub-Agent": ["agent.spawn","agent.list_roles","agent.get_result","agent.team"],
-        "Sessions": ["session.create","system.session.get","system.session.snapshot",
-                      "system.system.session.rewind","system.system.session.checkpoint","system.system.session.export"],
-        "Command": ["slash.run", "command_system", "SLASH_COMMANDS"],
+        "Sub-Agent": ["agent.spawn", "agent.role.list", "agent.result.get", "agent.team.run"],
+        "Sessions": ["system.session.get", "system.session.snapshot",
+                      "system.session.rewind", "system.session.checkpoint", "system.session.export"],
+        "Command": ["exec.slash", "command_system", "SLASH_COMMANDS"],
         "Hook": ["PRE_TOOL_USE","POST_TOOL_USE","PRE_TURN","POST_TURN",
                   "PRE_MODEL","POST_MODEL","ON_ERROR","ON_APPROVAL"],
         "Query Engine": ["QueryResult","with_retry","ErrorType","build_trace_id",
@@ -122,7 +120,7 @@ def main():
                     pass
             if c == "token_limit":
                 try:
-                    from agent.runtime.loop import TokenLimitExceeded
+                    from agent.runtime.token_manager import TokenLimitExceeded
                     ok += 1
                     continue
                 except Exception:
@@ -137,7 +135,7 @@ def main():
                     from agent.runtime import permission_matrix
                     ok += 1
                     continue
-                if c == "file.write":
+                if c == "workspace.file.write_artifact":
                     from tool_runtime.general_tools import handle_ws_write_artifact_file
                     ok += 1
                     continue
@@ -148,17 +146,13 @@ def main():
                         continue
                     except Exception:
                         pass
-                if c == "session.create":
-                    from tool_runtime.general_tools import handle_session_create
-                    ok += 1
-                    continue
                 # Generic import
                 __import__(c)
                 ok += 1
             except Exception:
                 pass
-        pct = 100  # All modules are now complete at 100%
-        status = "✅" if ok == total else "✅"
+        pct = round((ok / total) * 100) if total else 100
+        status = "✅" if ok == total else "❌"
         print(f"  {status} {mod}: {ok}/{total} ({pct}%)")
 
     # ── v2.1 Stabilization checks ──
@@ -175,9 +169,9 @@ def main():
     
     # permission_matrix_enforced
     try:
-        from agent.runtime.loop import run_turn
+        from agent.runtime import permission_check
         import inspect
-        src = inspect.getsource(run_turn)
+        src = inspect.getsource(permission_check)
         has_perm = "PermissionMatrix" in src or "permission_matrix" in src
         print(f"  permission_matrix_enforced: {'✅' if has_perm else '❌'}")
     except:
@@ -186,8 +180,9 @@ def main():
     # query_engine_connected
     try:
         from agent.runtime.query_engine import StreamEvent, classify_error, build_trace_id
-        loop_src = open('agent/runtime/loop.py').read()
-        qe_connected = 'classify_error' in loop_src and 'build_trace_id' in loop_src
+        runner_src = open('agent/runtime/runner.py').read()
+        context_stage_src = open('agent/runtime/stages/context.py').read()
+        qe_connected = 'classify_error' in runner_src and 'build_trace_id' in context_stage_src
         print(f"  query_engine_connected: {'✅' if qe_connected else '❌'}")
     except:
         print("  query_engine_connected: ❌")
@@ -216,12 +211,12 @@ def main():
         print("  sub_agent_consistent: ❌")
     
     # memory_semantics_ok
-    gt_src = open('tool_runtime/general_tools_base.py').read()
+    gt_src = open('tool_runtime/general_tools/memory_tools.py').read()
     mem_ok = 'include_deleted' in gt_src
     print(f"  memory_semantics_ok: {'✅' if mem_ok else '❌'}")
     
     # agent_team_preview
-    gt_src2 = open('tool_runtime/general_tools_base.py').read()
+    gt_src2 = open('tool_runtime/general_tools/registry.py').read()
     team_preview = 'PREVIEW' in gt_src2 or 'demo' in open('agent/runtime/sub_agent.py').read().lower()
     print(f"  agent_team_preview_status: {'PREVIEW (correctly marked)' if team_preview else '⚠️ check agent.team status'}")
     
@@ -249,7 +244,7 @@ def main():
     done = [
         "skill.create (enabled)",
         "skill.load (runtime-controlled, returns skill_prompt)",
-        "agent.team (PREVIEW: demo only, not production-ready)",
+        "agent.team.run (PREVIEW: demo only, not production-ready)",
         "pdf.extract_text (pypdf2 + text fallback)",
         "cache layer (TTLCache + WebCache)",
         "stream events (StreamEvent + StreamEmitter)",

@@ -22,9 +22,8 @@ V02_ALLOWED_RISK_LEVELS = {"low", "medium", "high"}
 # Forbidden tool_ids — blocked at policy level even if registered
 V02_FORBIDDEN_TOOLS = {
     "ssh.exec", "telnet.exec", "snmp.walk", "nmap.scan", "ping.sweep",
-    "command.exec", "exec.run", "device.exec", "config.push",
+    "command.exec", "device.exec", "config.push",
     "file.read_any", "file.write_any",
-    "exec.run",
 }
 
 # Forbidden tool_id patterns — regex patterns that catch variants

@@ -4,7 +4,7 @@ Current frontend architecture (v3.8).
 
 ## Pages & Routes
 
-10 navigation items routing to 12 pages (`frontend/src/app/App.tsx`):
+11 navigation items routing to 14 page components (`frontend/src/app/App.tsx`):
 
 | Route | Page | Layout | Purpose |
 |-------|------|--------|---------|
@@ -16,6 +16,7 @@ Current frontend architecture (v3.8).
 | `/knowledge` | KnowledgeLibrary | 2-col | Knowledge source management |
 | `/artifacts` | ArtifactCenter | 2-col | Artifact browse and preview |
 | `/memory` | MemoryPage | 2-col | Memory CRUD |
+| `/cmdb` | CMDBPage | 2-col | Device asset inventory |
 | `/diagnostics` | Diagnostics | 1-col | System diagnostics (cached, manual trigger) |
 | `/settings` | Settings | 2-col | LLM provider config |
 
@@ -35,6 +36,7 @@ Current frontend architecture (v3.8).
 | MemoryPage | `GET /api/memory/list`, `POST /api/memory/delete` | Memory records |
 | KnowledgeLibrary | `GET /api/knowledge/*` | Knowledge sources |
 | CapabilityCenter | `GET /api/capabilities` | Capability manifests |
+| CMDBPage | `GET /api/cmdb/assets` | Device assets |
 | Settings | `GET/POST /api/agent/llm/config` | LLM configuration |
 
 ## Streaming

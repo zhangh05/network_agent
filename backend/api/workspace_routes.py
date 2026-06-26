@@ -155,6 +155,12 @@ def _validated_session_id(raw):
         return None, (jsonify({"ok": False, "error": "invalid_session_id"}), 400)
 
 
+def _confirmed():
+    data = request.get_json(silent=True) or {} if request.is_json else {}
+    raw = request.args.get("confirm", data.get("confirm", False))
+    return str(raw).strip().lower() in {"1", "true", "yes", "on"}
+
+
 def _validated_limit(default=100, max_value=500):
     from backend.api.params import parse_limit
     try:
@@ -227,6 +233,8 @@ def register_workspace_routes(app):
         ws_id, err = _validated_ws_id(ws_id)
         if err:
             return err
+        if not _confirmed():
+            return jsonify({"ok": False, "error": "confirm_required"}), 400
         from workspace.manager import delete_workspace
         return jsonify(delete_workspace(ws_id))
 
@@ -236,6 +244,8 @@ def register_workspace_routes(app):
         ws_ids = data.get("workspace_ids", [])
         if not isinstance(ws_ids, list) or len(ws_ids) == 0:
             return jsonify({"ok": False, "error": "workspace_ids must be a non-empty list"}), 400
+        if not _confirmed():
+            return jsonify({"ok": False, "error": "confirm_required"}), 400
         from workspace.manager import batch_delete_workspaces
         return jsonify(batch_delete_workspaces(ws_ids))
 

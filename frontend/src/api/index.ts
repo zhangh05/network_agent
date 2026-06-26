@@ -10,7 +10,7 @@
  * /knowledge/search, /knowledge/chunks, /review-items, etc.
  */
 
-import { apiRequest, TIMEOUTS } from "./client";
+import { apiBaseURL, apiRequest, TIMEOUTS } from "./client";
 import type {
   AgentResult,
   Artifact,
@@ -894,7 +894,7 @@ export const approvalApi = {
 
 /** Open the Guardian SSE stream. Returns an EventSource that the caller must close. */
 export function openApprovalStream(onEvent: (e: { kind: string; approval_id: string; session_id: string; tool_id: string; allowed: boolean; ts: number }) => void, onError?: (err: Event) => void): EventSource {
-  const es = new EventSource("/api/agent/approvals/sse");
+  const es = new EventSource(apiUrl("/agent/approvals/sse"));
   es.onmessage = (ev) => {
     try {
       onEvent(JSON.parse(ev.data));
@@ -986,10 +986,20 @@ export const promptsApi = {
 
 export const toolsInvokeApi = {
   invoke: (data: { tool_id: string; params: Record<string, unknown>; workspace_id: string }) =>
-    apiRequest<{ ok: boolean; result?: unknown }>({ method: "POST", url: "/tools/invoke", data }),
+    apiRequest<{ ok: boolean; result?: unknown }>({
+      method: "POST",
+      url: "/tools/invoke",
+      params: { workspace_id: data.workspace_id },
+      data: { tool_id: data.tool_id, arguments: data.params },
+    }),
 
   dryRun: (data: { tool_id: string; params: Record<string, unknown>; workspace_id: string }) =>
-    apiRequest<{ ok: boolean; requires_approval?: boolean }>({ method: "POST", url: "/tools/dry-run", data }),
+    apiRequest<{ ok: boolean; requires_approval?: boolean }>({
+      method: "POST",
+      url: "/tools/dry-run",
+      params: { workspace_id: data.workspace_id },
+      data: { tool_id: data.tool_id, arguments: data.params },
+    }),
 
   history: (workspace_id: string, signal?: AbortSignal) =>
     apiRequest<{ records: unknown[]; count: number; workspace_id: string }>(
@@ -1176,5 +1186,9 @@ export const breakpointApi = {
 export const sseApi = {
   /** Create EventSource for agent streaming */
   connect: (sessionId: string): EventSource =>
-    new EventSource(`/api/agent/sse/stream/${sessionId}`),
+    new EventSource(apiUrl(`/agent/sse/stream/${encodeURIComponent(sessionId)}`)),
 };
+
+function apiUrl(path: string): string {
+  return `${apiBaseURL}${path.startsWith("/") ? path : `/${path}`}`;
+}

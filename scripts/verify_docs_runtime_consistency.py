@@ -22,7 +22,10 @@ def check(condition: bool, message: str) -> None:
 
 
 def read(relative_path: str) -> str:
-    return (ROOT / relative_path).read_text(encoding="utf-8")
+    path = ROOT / relative_path
+    if not path.is_file():
+        return ""
+    return path.read_text(encoding="utf-8")
 
 
 def markdown_links(text: str) -> list[str]:

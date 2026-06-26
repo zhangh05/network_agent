@@ -103,7 +103,6 @@ def save_device(workspace_id: str, device: dict) -> dict:
         "protocol": device.get("protocol", "ssh"),
         "vendor": device.get("vendor", ""),
         "username": device.get("username", ""),
-        "password": _obfuscate(device.get("password", "")),
         "created_at": device.get("created_at", time.strftime("%Y-%m-%dT%H:%M:%S")),
     }
     path = _remote_dir(workspace_id) / "connections.jsonl"

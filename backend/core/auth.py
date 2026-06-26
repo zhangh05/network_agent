@@ -21,6 +21,7 @@ import os
 import logging
 import hmac
 from functools import wraps
+from urllib.parse import urlparse
 
 import flask
 
@@ -96,37 +97,63 @@ def _extract_token_from_request() -> str | None:
     return None
 
 
+def _same_origin_api_request() -> bool:
+    """Reject browser cross-site writes when token auth is disabled."""
+    if flask.request.method in {"GET", "HEAD", "OPTIONS"}:
+        return True
+    origin = flask.request.headers.get("Origin") or flask.request.headers.get("Referer")
+    if not origin:
+        return True
+    try:
+        origin_url = urlparse(origin)
+        request_host = flask.request.host.split("@")[-1]
+        return origin_url.netloc == request_host
+    except Exception:
+        return False
+
+
+def _csrf_response() -> flask.Response:
+    return flask.jsonify({
+        "ok": False,
+        "error": "csrf_origin_denied",
+        "message": "Cross-origin API writes are denied.",
+        "status": 403,
+    }), 403
+
+
 def register_auth_middleware(app: flask.Flask) -> None:
     """Register before_request auth middleware on a Flask app.
 
     Call after all routes are defined but before first request.
     """
     if not _AUTH_ENABLED:
-        logger.info("API authentication disabled (NETWORK_AGENT_AUTH_ENABLED=false)")
-        return
-
-    if not _API_TOKEN:
+        logger.info("API token authentication disabled; CSRF origin checks remain enabled")
+    elif not _API_TOKEN:
         logger.warning(
             "NETWORK_AGENT_AUTH_ENABLED=true but NETWORK_AGENT_API_TOKEN is empty! "
             "All protected endpoints will reject requests."
         )
-
-    logger.info(
-        "API authentication enabled — %d public prefixes, %d public exact paths",
-        len(_PUBLIC_PREFIXES), len(_PUBLIC_EXACT),
-    )
+    else:
+        logger.info(
+            "API authentication enabled — %d public prefixes, %d public exact paths",
+            len(_PUBLIC_PREFIXES), len(_PUBLIC_EXACT),
+        )
 
     @app.before_request
     def _auth_before_request():
-        # Re-evaluate env vars each request (for test monkeypatching)
-        if not _is_auth_enabled():
-            return None
-
         # OPTIONS preflight — always allow
         if flask.request.method == "OPTIONS":
             return None
 
         path = flask.request.path
+
+        if path.startswith("/api/") and not _same_origin_api_request():
+            logger.warning("csrf_denied: path=%s origin=%s", path, flask.request.headers.get("Origin", ""))
+            return _csrf_response()
+
+        # Re-evaluate env vars each request (for test monkeypatching)
+        if not _is_auth_enabled():
+            return None
 
         # Public endpoints — no auth
         if is_public_path(path):

@@ -32,7 +32,12 @@ workspaces/*/archives/
 workspaces/*/reviews/
 workspaces/*/upload/
 workspaces/*/indexes/
+workspaces/*/cmdb/
+workspaces/*/context/
+workspaces/*/index/
+workspaces/*/jobs/
 workspaces/_runtime/
+workspaces/.tool_embeddings_cache.json
 workspaces/*/test.txt
 # Exclude test workspaces entirely
 workspaces/test/
@@ -57,6 +62,4 @@ node_modules/**/*.results.json
 .superpowers/
 # Runtime-created sample skills
 skills/sample/
-# Embeddings cache
-workspaces/.tool_embeddings_cache.json
 node_modules/

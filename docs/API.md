@@ -92,7 +92,8 @@ Error:
 | `GET` | `/api/knowledge/sources/<id>` | Get source |
 | `GET` | `/api/knowledge/chunks/<id>` | Get chunk |
 | `GET` | `/api/knowledge/search?q=<query>` | Search knowledge |
-| `POST` | `/api/knowledge/import` | Import document |
+| `POST` | `/api/knowledge/upload` | Upload and index a knowledge document |
+| `POST` | `/api/knowledge/sources/from-artifact` | Create a knowledge source from an artifact |
 
 ## PCAP
 
@@ -108,8 +109,10 @@ Error:
 |--------|------|---------|
 | `GET` | `/api/runtime/health` | Component health: `{components[], summary{ok,warning,error}}` |
 | `GET` | `/api/runtime/selfcheck` | System self-check: `{status, issues[]}` |
-| `GET` | `/api/runtime/retention/preview` | Retention policy preview |
-| `GET` | `/api/runtime/archive/preview` | Archive policy preview |
+| `GET` | `/api/workspaces/<ws>/retention/preview` | Retention policy preview |
+| `POST` | `/api/workspaces/<ws>/retention/apply` | Apply retention policy |
+| `GET` | `/api/workspaces/<ws>/archive/preview` | Archive policy preview |
+| `POST` | `/api/workspaces/<ws>/archive/apply` | Apply archive policy |
 
 ## LLM Configuration
 
@@ -148,8 +151,8 @@ Error:
 
 | Method | Path | Purpose |
 |--------|------|---------|
-| `GET` | `/api/review-items` | List review items |
-| `PATCH` | `/api/review-items/<id>` | Update review item |
+| `GET` | `/api/workspaces/<ws>/review-items` | List workspace review items |
+| `PUT` | `/api/review-items/<id>` | Update review item |
 
 ## Approvals
 
@@ -168,6 +171,13 @@ Error:
 | `POST` | `/api/workspaces` | Create workspace |
 | `GET` | `/api/workspaces/<ws>/state` | Workspace state |
 | `GET` | `/api/workspaces/<ws>/status` | Workspace status |
+| `DELETE` | `/api/workspaces/<ws>?confirm=true` | Delete non-default workspace |
+
+## Security Notes
+
+- Token auth is controlled by `NETWORK_AGENT_AUTH_ENABLED` and `NETWORK_AGENT_API_TOKEN`.
+- Even when token auth is disabled for local desktop use, unsafe `/api/*` writes reject cross-origin browser requests.
+- CMDB and Remote saved-device records do not persist plaintext device passwords.
 
 ## Misc
 
@@ -176,4 +186,4 @@ Error:
 | `GET` | `/api/health` | Basic health check |
 | `GET` | `/api/version` | Version info |
 | `GET` | `/api/skills` | List skills |
-| `POST` | `/api/harness/run` | Run test harness |
+| `GET` | `/api/harness/status` | Harness status |

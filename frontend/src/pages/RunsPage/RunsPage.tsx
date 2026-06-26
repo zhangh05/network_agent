@@ -7,7 +7,7 @@
  * 支持 ?focus=run_id 从作业页面跳转过来直接选中目标 run。
  */
 import { useEffect, useState, useCallback, useMemo } from "react";
-import { useSearchParams } from "react-router-dom";
+import { Link, useSearchParams } from "react-router-dom";
 import { workspacesApi, runtimeAuditApi } from "../../api";
 import { useSessionStore, useUIStore } from "../../stores/session";
 import { useWorkbenchStore } from "../../stores/workbench";
@@ -290,7 +290,7 @@ export function RunsPage() {
               <div className="empty-text" style={{ fontSize: "var(--fs-13)" }}>选择一条运行记录</div>
               <p className="empty-hint">点击左侧列表中的记录查看 trace 事件时间线与决策报告</p>
               <p style={{ fontSize: "var(--fs-11)", color: "var(--text-4)", marginTop: 16 }}>
-                想看任务全貌？去 <a href="/jobs" style={{ color: "var(--accent)" }}>作业管理 →</a>
+                想看任务全貌？去 <Link to="/jobs" style={{ color: "var(--accent)" }}>作业管理 →</Link>
               </p>
             </div>
           ) : (

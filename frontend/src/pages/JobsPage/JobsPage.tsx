@@ -8,7 +8,7 @@
  * 与 RunsPage 的区分：RunsPage 聚焦单次执行的 trace/decision 调试
  */
 import { useEffect, useState, useCallback, useMemo } from "react";
-import { useNavigate } from "react-router-dom";
+import { Link, useNavigate } from "react-router-dom";
 import { jobsApi, workspacesApi } from "../../api";
 import { useSessionStore } from "../../stores/session";
 import { useToastStore } from "../../stores/toast";
@@ -612,7 +612,7 @@ function TabArtifacts({
         />
       )}
       <div style={{ fontSize: "var(--fs-11)", color: "var(--text-4)", marginTop: 12 }}>
-        制品详情请前往 <a href="/artifacts" style={{ color: "var(--accent)" }}>制品中心</a> 查看
+        制品详情请前往 <Link to="/artifacts" style={{ color: "var(--accent)" }}>制品中心</Link> 查看
       </div>
     </div>
   );

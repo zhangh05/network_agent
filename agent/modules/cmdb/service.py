@@ -4,6 +4,8 @@
 from __future__ import annotations
 
 import json
+import csv
+import io
 import threading
 import time
 import uuid
@@ -50,14 +52,17 @@ def save_asset(workspace_id: str, asset: dict) -> dict:
         return {"ok": False, "error": f"invalid protocol '{protocol}', must be one of {sorted(_VALID_PROTOCOLS)}"}
 
     host = str(asset.get("host", "")).strip()
-    port = int(asset.get("port", 22))
+    port, port_error = _parse_port(asset.get("port", 22))
+    if port_error:
+        return {"ok": False, "error": port_error}
     if not host:
         return {"ok": False, "error": "host is required"}
 
     # 冲突检测：IP + 端口一致则拒绝添加
     incoming_asset_id = str(asset.get("asset_id") or "")
     for existing in _load_all(workspace_id):
-        if str(existing.get("host", "")).strip() == host and int(existing.get("port", 22)) == port:
+        existing_port, _ = _parse_port(existing.get("port", 22))
+        if str(existing.get("host", "")).strip() == host and existing_port == port:
             if incoming_asset_id and existing.get("asset_id") == incoming_asset_id:
                 continue  # 编辑自己，不冲突
             return {"ok": False, "error": f"资产冲突：{host}:{port} 已存在 ({existing.get('name', 'unknown')})"}
@@ -69,10 +74,9 @@ def save_asset(workspace_id: str, asset: dict) -> dict:
         "vendor": str(asset.get("vendor", "")).strip(),
         "model": str(asset.get("model", "")).strip(),
         "host": str(asset.get("host", "")).strip(),
-        "port": int(asset.get("port", 22)),
+        "port": port,
         "protocol": protocol,
         "username": str(asset.get("username", "")).strip(),
-        "password": str(asset.get("password", "")).strip(),
         "region": str(asset.get("region", "")).strip(),
         "location": str(asset.get("location", "")).strip(),
         "description": str(asset.get("description", "")).strip(),
@@ -185,15 +189,15 @@ def get_stats(workspace_id: str) -> dict:
 def export_assets(workspace_id: str) -> str:
     """Export all assets as CSV string."""
     assets = _load_all(workspace_id)
-    if not assets:
-        return "name,type,vendor,model,host,port,protocol,region,location,description\n"
     headers = ["name", "type", "vendor", "model", "host", "port", "protocol", "region", "location", "description", "tags", "created_at", "updated_at"]
-    lines = [",".join(headers)]
+    out = io.StringIO()
+    writer = csv.DictWriter(out, fieldnames=headers, lineterminator="\n")
+    writer.writeheader()
     for a in assets:
-        row = [str(a.get(h, "")) for h in headers[:-1]]
-        row.append(";".join(a.get("tags", [])))
-        lines.append(",".join(row))
-    return "\n".join(lines)
+        row = {h: _csv_safe(str(a.get(h, ""))) for h in headers}
+        row["tags"] = _csv_safe(";".join(a.get("tags", [])))
+        writer.writerow(row)
+    return out.getvalue()
 
 
 # ── internal ──
@@ -224,6 +228,20 @@ def _load_all(workspace_id: str) -> list[dict]:
         except json.JSONDecodeError:
             continue
     return list(assets.values())
+
+
+def _parse_port(raw) -> tuple[int | None, str]:
+    try:
+        port = int(raw if raw not in (None, "") else 22)
+    except (TypeError, ValueError):
+        return None, "invalid_port"
+    if port < 1 or port > 65535:
+        return None, "invalid_port"
+    return port, ""
+
+
+def _csv_safe(value: str) -> str:
+    return "'" + value if value.startswith(("=", "+", "-", "@")) else value
 
 
 def _apply_filter(assets: list[dict], f: dict) -> list[dict]:

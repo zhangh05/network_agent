@@ -529,7 +529,7 @@ export function AgentWorkbench() {
                           if (!html) return <span className="muted">(空消息)</span>;
                           // Post-process for code highlighting
                           const highlighted = highlightCode(html);
-                          return <div className="chat-bubble assistant markdown-body" dangerouslySetInnerHTML={{ __html: highlighted }} />;
+                          return <div className="chat-bubble assistant markdown-body" onClick={handleCodeCopyClick} dangerouslySetInnerHTML={{ __html: highlighted }} />;
                         })()}
                       </>
                     );
@@ -652,11 +652,23 @@ function highlightCode(html: string): string {
       const decoded = new DOMParser().parseFromString(code, "text/html").body.textContent || "";
       const langClass = lang && hljs.getLanguage(lang) ? lang : "plaintext";
       const result = hljs.highlight(decoded, { language: langClass }).value;
-      return `<div class="code-block-wrap"><div class="code-block-header"><span>${lang || "code"}</span><button class="code-copy-btn" onclick="navigator.clipboard.writeText(this.closest('.code-block-wrap').querySelector('code').textContent);this.textContent='✓ 已复制';setTimeout(()=>this.textContent='复制',2000)">复制</button></div><pre><code class="hljs language-${langClass}">${result}</code></pre></div>`;
+      return `<div class="code-block-wrap"><div class="code-block-header"><span>${lang || "code"}</span><button class="code-copy-btn" type="button" data-code-copy="1">复制</button></div><pre><code class="hljs language-${langClass}">${result}</code></pre></div>`;
     } catch {
       return `<pre><code>${code}</code></pre>`;
     }
   });
+}
+
+function handleCodeCopyClick(event: React.MouseEvent<HTMLDivElement>) {
+  const target = event.target as HTMLElement | null;
+  const button = target?.closest("[data-code-copy]") as HTMLButtonElement | null;
+  if (!button) return;
+  const code = button.closest(".code-block-wrap")?.querySelector("code")?.textContent || "";
+  void navigator.clipboard?.writeText(code);
+  button.textContent = "已复制";
+  window.setTimeout(() => {
+    button.textContent = "复制";
+  }, 2000);
 }
 
 /** Streaming content with live thinking block support */

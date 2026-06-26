@@ -111,15 +111,17 @@ export function CMDBPage() {
     ufv("err", "");
     const vendor = customVendor ? (customVendorVal.trim() || "") : fv.vendor;
     const region = customRegion ? (customRegionVal.trim() || "") : fv.region;
+    const payload: Record<string, unknown> = {
+      workspace_id: wsId, asset_id: editingAsset?.asset_id || undefined,
+      name: fv.name || fv.host, type: fv.type, vendor, model: fv.model,
+      host: fv.host, port: parseInt(fv.port) || 22, protocol: fv.protocol,
+      username: fv.username,
+      region, location: fv.location, description: fv.description,
+    };
+    if (!editingAsset && fv.password) payload.password = fv.password;
     await apiRequest({
       method: "POST", url: "/cmdb/assets",
-      data: {
-        workspace_id: wsId, asset_id: editingAsset?.asset_id || undefined,
-        name: fv.name || fv.host, type: fv.type, vendor, model: fv.model,
-        host: fv.host, port: parseInt(fv.port) || 22, protocol: fv.protocol,
-        username: fv.username, password: fv.password,
-        region, location: fv.location, description: fv.description,
-      },
+      data: payload,
     });
     setShowForm(false); load();
   };
