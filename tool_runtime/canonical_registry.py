@@ -221,6 +221,7 @@ class CanonicalToolEntry:
     requires_approval: bool = False
     permission_action: str = ""
     description: str = ""
+    callable_by_llm: bool = True  # v3.10: mark internal sub-tools False
 
     @property
     def handler_id(self) -> str:
@@ -1037,34 +1038,29 @@ def _review_item_update(inv: ToolInvocation) -> dict:
 
 def _weather_merged(inv: ToolInvocation) -> dict:
     """Merged weather tool: days=1 → current, days>1 → forecast.
-    v3.9: Routes sub-calls through unified ToolRuntimeClient (no direct handler bypass)."""
-    from tool_runtime.integration import get_default_tool_runtime_client
-    from tool_runtime.context import ToolRuntimeContext
-
-    client = get_default_tool_runtime_client()
-    ctx = ToolRuntimeContext(
-        workspace_id=inv.workspace_id,
-        requested_by=inv.requested_by,
-        approval_id=inv.approval_id,
-    )
+    v3.10: Calls internal handlers directly (not through client.invoke) since
+    web.weather.current/forecast are implementation details of this merged handler.
+    The client.invoke path would require unused tool namespace entries and manifests
+    just for internal routing."""
     args = inv.arguments or {}
     days = _safe_int(args.get("days"), 1)
     if days <= 1:
-        result = client.invoke("web.weather.current", {
-            **args, "language": args.get("language", "zh-CN"),
-            "units": args.get("units", "metric"),
-        }, context=ctx)
+        result = handle_weather_current(ToolInvocation(
+            tool_id="web.weather.current",
+            arguments={**args, "language": args.get("language", "zh-CN"), "units": args.get("units", "metric")},
+            workspace_id=inv.workspace_id, requested_by=inv.requested_by, approval_id=inv.approval_id,
+        ))
     else:
-        result = client.invoke("web.weather.forecast", {
-            **args, "days": str(days),
-            "language": args.get("language", "zh-CN"),
-            "units": args.get("units", "metric"),
-        }, context=ctx)
-    return {"ok": result.status == "succeeded",
-            "summary": result.summary or "",
-            "output": result.output or {},
-            "errors": list(result.errors or [])[:5],
-            "warnings": list(result.warnings or [])[:5]}
+        result = handle_weather_forecast(ToolInvocation(
+            tool_id="web.weather.forecast",
+            arguments={**args, "days": str(days), "language": args.get("language", "zh-CN"), "units": args.get("units", "metric")},
+            workspace_id=inv.workspace_id, requested_by=inv.requested_by, approval_id=inv.approval_id,
+        ))
+    return {"ok": result.get("ok", False),
+            "summary": result.get("summary") or "",
+            "output": result.get("output", {}) if isinstance(result, dict) else {},
+            "errors": list(result.get("errors", []))[:5] if isinstance(result, dict) else [],
+            "warnings": list(result.get("warnings", []))[:5] if isinstance(result, dict) else []}
 
 def _module_result_to_dict(r: dict) -> dict:
     """Convert module handler result dict to canonical tool output."""
@@ -1881,7 +1877,7 @@ def to_tool_specs() -> list[tuple]:
             risk_level=entry.risk_level,
             requires_approval=entry.requires_approval,
             permission_action=perm_action,
-            callable_by_llm=True,
+            callable_by_llm=getattr(entry, 'callable_by_llm', True),
             enabled=True,
             input_schema=entry.input_schema,
         )
