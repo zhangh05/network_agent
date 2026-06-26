@@ -27,7 +27,7 @@ CONFIDENCE_FLOOR: dict[str, float] = {
 }
 
 
-def get_gate_mode(workspace_id: str = "default") -> MemoryGateMode:
+def get_gate_mode(workspace_id: str = "") -> MemoryGateMode:
     """Read memory_gating setting from workspace state.
 
     Falls back to RULE_ONLY if the setting is absent or invalid.

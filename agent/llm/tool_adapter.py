@@ -127,7 +127,7 @@ def list_tools_for_orchestrator() -> List[dict]:
     return build_tool_registry_for_llm(raw)
 
 
-def build_system_prompt_with_tools(workspace_id: str = "default") -> str:
+def build_system_prompt_with_tools(workspace_id: str = ""  # validated by caller) -> str:
     """Build the system prompt that tells the LLM about available tools.
 
     Uses LLM-safe tool names (with __ instead of .).

@@ -72,7 +72,7 @@ class ContextPipeline:
         if not sr.data.get("ctx"):
             # Fatal: no context object to work with
             from agent.core.turn_context import TurnContext
-            ctx = TurnContext(turn_id="", session_id="", workspace_id="default", trace_id="", user_input="")
+            ctx = TurnContext(turn_id="", session_id="", workspace_id="", trace_id="", user_input="")
             ctx.metadata["context_status"] = "degraded"
             ctx.metadata["context_pipeline_meta"] = meta.to_dict()
             ctx.metadata["context_pipeline_results"] = [r.to_dict() for r in stage_results]

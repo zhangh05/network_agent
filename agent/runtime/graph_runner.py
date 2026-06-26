@@ -479,7 +479,7 @@ class TeamGraphRunner:
         """Aggregate results."""
         return state
 
-    def run(self, instruction: str, workspace_id: str = "default", thread_id: str = "default") -> dict:
+    def run(self, instruction: str, workspace_id: str = "", thread_id: str = "default") -> dict:
         try:
             final = self._team_graph.invoke(
                 {"instruction": instruction, "workspace_id": workspace_id},

@@ -10,7 +10,7 @@ def build_hook_state(session, context=None):
     """Build a minimal state dict for hook integration."""
     return {
         "intent": "assistant_chat",
-        "workspace_id": getattr(session, 'workspace_id', 'default') or 'default',
+        "workspace_id": getattr(session, 'workspace_id', '') or '',
         "session_id": getattr(session, 'session_id', ''),
         "active_module": "",
         "context": {},

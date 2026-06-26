@@ -24,7 +24,7 @@ class MemoryWriter:
     never blocks the turn pipeline.
     """
 
-    def write(self, ctx, plan: MemoryWritePlan, workspace_id: str = "default") -> dict:
+    def write(self, ctx, plan: MemoryWritePlan, workspace_id: str = "") -> dict:
         """Persist accepted candidates to ContextStore.
 
         Args:
@@ -38,7 +38,7 @@ class MemoryWriter:
         if not plan.candidates:
             return {"status": "empty", "written_count": 0, "written_ids": [], "errors": []}
 
-        ws_id = workspace_id or getattr(ctx, "workspace_id", "") or "default"
+        ws_id = workspace_id or getattr(ctx, "workspace_id", "") or ""
 
         try:
             from memory.store import get_store

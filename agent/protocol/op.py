@@ -12,14 +12,14 @@ class AgentOp:
     op_id: str = field(default_factory=lambda: str(uuid.uuid4()))
     type: str = "user_message"  # user_message | cancel_turn | system_event
     session_id: Optional[str] = None
-    workspace_id: str = "default"
+    workspace_id: str = ""
     user_input: str = ""
     payload: dict = field(default_factory=dict)
     metadata: dict = field(default_factory=dict)
     created_at: str = field(default_factory=lambda: datetime.now(timezone.utc).isoformat())
 
     @classmethod
-    def user_message(cls, user_input: str, session_id: str = None, workspace_id: str = "default", metadata: dict = None) -> "AgentOp":
+    def user_message(cls, user_input: str, session_id: str = None, workspace_id: str = "", metadata: dict = None) -> "AgentOp":
         # session_id is intentionally NOT auto-generated. Previously we
         # minted a UUID here when no session_id was supplied, which
         # produced orphan sessions that were never persisted or

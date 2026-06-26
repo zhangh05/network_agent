@@ -44,7 +44,7 @@ def hydrate_history_from_store(session: Any, context: Any, k: int = DEFAULT_HIST
 
         store = SessionMessageStore(
             session_id=session.session_id,
-            ws_id=session.workspace_id or "default",
+            ws_id=session.workspace_id or "",
         )
         memory_msgs = initial_history_window(session, k=k)
         memory_ids = {

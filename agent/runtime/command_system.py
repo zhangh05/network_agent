@@ -179,7 +179,7 @@ def _cmd_skills(args: str, session_id: Optional[str], context: Optional[dict]) -
 
 def _cmd_memory(args: str, session_id: Optional[str], context: Optional[dict]) -> str:
     """List memories."""
-    ws_id = (context or {}).get("workspace_id", "default")
+    ws_id = (context or {}).get("workspace_id", "")
     try:
         from workspace.memory_store import list_memories
         memories = list_memories(ws_id, limit=20)
@@ -229,7 +229,7 @@ def _cmd_context(args: str, session_id: Optional[str], context: Optional[dict]) 
 
 def _cmd_sessions(args: str, session_id: Optional[str], context: Optional[dict]) -> str:
     """List sessions."""
-    ws_id = (context or {}).get("workspace_id", "default")
+    ws_id = (context or {}).get("workspace_id", "")
     try:
         from workspace.session_store import list_sessions
         sessions = list_sessions(ws_id)
@@ -251,7 +251,7 @@ def _cmd_compact(args: str, session_id: Optional[str], context: Optional[dict]) 
     from agent.core.session import AgentSession
     # Handle both string session_id and object session_id
     sid = ""
-    ws = "default"
+    ws = ""
     if isinstance(session_id, str):
         sid = session_id or ""
     elif hasattr(session_id, 'session_id'):
@@ -259,7 +259,7 @@ def _cmd_compact(args: str, session_id: Optional[str], context: Optional[dict]) 
         ws = getattr(session_id, 'workspace_id', 'default') or 'default'
     
     if context:
-        ws = context.get("workspace_id", ws) or "default"
+        ws = context.get("workspace_id", ws) or ""
     
     # Set flag on session object if mutable
     if hasattr(session_id, 'metadata'):
@@ -321,7 +321,7 @@ def _cmd_usage(args: str, session_id: Optional[str], context: Optional[dict]) ->
     """Show token usage stats."""
     try:
         from agent.runtime.token_tracker import estimate_messages
-        ws_id = (context or {}).get("workspace_id", "default")
+        ws_id = (context or {}).get("workspace_id", "")
         # Try to get real usage from token tracker
         usage_stats = {}
         try:
@@ -385,7 +385,7 @@ def _cmd_reset(args: str, session_id: Optional[str], context: Optional[dict]) ->
         from workspace.session_store import AgentSessionStore
         store = AgentSessionStore()
         sid = session_id or ""
-        wid = (context or {}).get("workspace_id", "default") or "default"
+        wid = (context or {}).get("workspace_id", "") or ""
         
         # Try archive
         if hasattr(store, 'archive_session'):
@@ -429,14 +429,14 @@ def _cmd_export(args, session_id: Optional[str], context: Optional[dict]) -> str
     except (ValueError, TypeError):
         limit = 200
     sid = ""
-    wid = "default"
+    wid = ""
     if isinstance(session_id, str):
         sid = session_id or ""
     elif hasattr(session_id, 'session_id'):
         sid = getattr(session_id, 'session_id', '') or ""
         wid = getattr(session_id, 'workspace_id', 'default') or 'default'
     if context:
-        wid = context.get("workspace_id", wid) or "default"
+        wid = context.get("workspace_id", wid) or ""
 
     source = "empty"
     messages = []

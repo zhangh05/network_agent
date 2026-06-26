@@ -43,7 +43,7 @@ class ContextInitStage:
             ctx = TurnContext(
                 turn_id=turn.turn_id,
                 session_id=session.session_id,
-                workspace_id=getattr(session, "workspace_id", "default") or "default",
+                workspace_id=getattr(session, "workspace_id", "") or "",
                 trace_id=str(uuid.uuid4()),
                 user_input=turn.op.user_input if turn.op else "",
             )

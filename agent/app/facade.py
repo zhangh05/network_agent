@@ -20,7 +20,7 @@ def _restore_session_history(session, session_id: str, workspace_id: str):
     try:
         from workspace.message_store import SessionMessageStore
         from agent.protocol.message import UserMessage, AssistantMessage
-        store = SessionMessageStore(session_id=session_id, ws_id=workspace_id or "default")
+        store = SessionMessageStore(session_id=session_id, ws_id=workspace_id)  # workspace_id validated by caller
         msgs = store.get_messages()
         if msgs:
             history = []

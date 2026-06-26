@@ -22,7 +22,7 @@ def write_decision_report(
     """
     try:
         run_id = str(report.get("run_id", ""))
-        ws_id = str(report.get("workspace_id", "default"))
+        ws_id = str(report.get("workspace_id", ""))
 
         if not run_id:
             return None

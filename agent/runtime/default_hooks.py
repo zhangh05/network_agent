@@ -156,7 +156,7 @@ def _post_tool_cleanup_handler(state: dict, payload: dict) -> HookResult:
         return HookResult()
     _LAST_CLEANUP_TS = now
 
-    workspace_id = (state or {}).get("workspace_id") or payload.get("workspace_id", "default")
+    workspace_id = (state or {}).get("workspace_id") or payload.get("workspace_id", "")
     cleaned = 0
 
     try:

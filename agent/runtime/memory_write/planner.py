@@ -51,7 +51,7 @@ class MemoryWritePlanner:
         Returns:
             MemoryWritePlan for downstream consumers
         """
-        ws_id = workspace_id or getattr(ctx, "workspace_id", "") or "default"
+        ws_id = workspace_id or getattr(ctx, "workspace_id", "") or ""
         gate_mode = get_gate_mode(ws_id)
 
         # 1. Extract
