@@ -30,21 +30,31 @@ export function Sidebar() {
   const currentSessionId = useSessionStore((s) => s.currentSessionId);
   const setCurrentSession = useSessionStore((s) => s.setCurrentSession);
   const setSessions = useSessionStore((s) => s.setSessions);
+  const switchWbSession = useWorkbenchStore((s) => s.switchSession);
   const toast = useToastStore((s) => s.show);
   const [editingSessId, setEditingSessId] = useState<string | null>(null);
   const [editingSessName, setEditingSessName] = useState("");
 
-  // Click handler: fetch full run and update latestResult for Timeline.
+  // Click handler: switch to the run's session and load its data into Timeline.
   const inspectRun = async (r: RecentRunSummary) => {
     const rid = r.run_id;
     if (!rid || !currentWorkspaceId) return;
+    const targetSessionId = r.session_id;
+    // Switch to the run's owning session so Timeline shows the right data
+    if (targetSessionId && targetSessionId !== currentSessionId) {
+      setCurrentSession(targetSessionId);
+      switchWbSession(targetSessionId);
+    }
+    // Dedup: skip if this turn_id already exists in the session's results
+    const existing = useWorkbenchStore.getState().results[targetSessionId ?? "_scratch"] ?? [];
+    if (existing.some((x) => x.turn_id === rid)) return;
     try {
       const raw = await runtimeAuditApi.run(rid);
       const runData = (raw as any)?.run || raw as any;
       const result: AgentResult = {
         ok: /ok|completed|success/i.test(runData.status || r.status || ""),
-        final_response: "",
-        events: [],
+        final_response: runData.final_response || "",
+        events: runData.events || [],
         trace_id: runData.trace_id || "",
         session_id: runData.session_id || r.session_id || "",
         turn_id: rid,

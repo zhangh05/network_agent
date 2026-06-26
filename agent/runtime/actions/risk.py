@@ -98,23 +98,22 @@ class RiskPolicy:
             action_class=plan.action_class,
         )
 
-        # 1. Check for dangerous commands in arguments → critical, blocked
+        # 1. Check for dangerous commands in arguments → critical, needs approval
         dangerous_match = _check_dangerous_commands(plan.arguments)
         if dangerous_match:
             decision.risk_level = "critical"
-            decision.blocked = True
             decision.approval_required = True
             decision.reason = f"Dangerous command pattern detected: {dangerous_match}"
-            decision.warnings.append("critical_command_blocked")
+            decision.warnings.append("dangerous_command_requires_approval")
             _apply_conflict_risk(decision, plan, evidence_bundle)
             plan.risk_level = decision.risk_level
             return decision
 
-        # 2. Shell/python/powershell execute → high
+        # 2. Shell/python/powershell execute → low (no restriction)
+        #    Approval only triggers for dangerous patterns caught above.
         if _is_execute_tool(plan.tool_id) or plan.action_class == "execute":
-            decision.risk_level = "high"
-            decision.approval_required = True
-            decision.reason = "Execute-class tool requires approval"
+            decision.risk_level = "low"
+            decision.reason = "Execute-class tool — risk assessed per-command"
             _apply_conflict_risk(decision, plan, evidence_bundle)
             plan.risk_level = decision.risk_level
             return decision

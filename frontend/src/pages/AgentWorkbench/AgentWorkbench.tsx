@@ -388,7 +388,7 @@ export function TaskWorkbench() {
         setLatestResult(res);
         notifyRunCompleted();
         if (res.ok) {
-          toast({ kind: "success", title: "回答完成", body: "可在右侧检查器查看详情" });
+          toast({ kind: "success", title: "回答完成", body: "可切换到时间线视图查看执行详情" });
         } else {
           toast({ kind: "error", title: "请求失败", body: _humanFailure(res.errors?.[0] ?? "") });
         }
@@ -481,28 +481,28 @@ export function TaskWorkbench() {
         </div>
       </div>
 
-      {/* ── View mode toggle & content ── */}
-      <div className="wb-chat" ref={chatRef} data-testid="chat-stream">
-        {/* View mode toggle */}
-        <div className="wb-view-tabs">
-          <button
-            type="button"
-            className={`wb-view-tab ${viewMode === "chat" ? "active" : ""}`}
-            onClick={() => setViewMode("chat")}
-            data-testid="view-chat"
-          >
-            💬 对话
-          </button>
-          <button
-            type="button"
-            className={`wb-view-tab ${viewMode === "timeline" ? "active" : ""}`}
-            onClick={() => setViewMode("timeline")}
-            data-testid="view-timeline"
-          >
-            📋 时间线
-          </button>
-        </div>
+      {/* ── View mode toggle ── */}
+      <div className="wb-view-tabs">
+        <button
+          type="button"
+          className={`wb-view-tab ${viewMode === "chat" ? "active" : ""}`}
+          onClick={() => setViewMode("chat")}
+          data-testid="view-chat"
+        >
+          💬 对话
+        </button>
+        <button
+          type="button"
+          className={`wb-view-tab ${viewMode === "timeline" ? "active" : ""}`}
+          onClick={() => setViewMode("timeline")}
+          data-testid="view-timeline"
+        >
+          📋 时间线
+        </button>
+      </div>
 
+      {/* ── Content area ── */}
+      <div className="wb-chat" ref={chatRef} data-testid="chat-stream">
         {viewMode === "timeline" ? (
           /* ── Timeline view ── */
           <RuntimeEventTimeline results={sessionResults} />

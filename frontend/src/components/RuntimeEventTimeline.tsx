@@ -1,99 +1,156 @@
 /**
- * RuntimeEventTimeline — unified task execution timeline.
+ * RuntimeEventTimeline — collapsible run cards.
  *
- * Renders the event stream from AgentResult.events as a vertical
- * timeline with type-specific cards.  Integrates tool calls, approvals,
- * diagnostics inline — no separate page views needed.
- *
- * v3.9: Single source of truth — only reads from the unified
- * workbench store (AgentResult.events / tool_calls / metadata).
+ * Each run = one card. Collapsed shows run_id + snippet.
+ * Expand to see the full event timeline inside.
  */
 import React, { useState } from "react";
 import type { AgentResult, RuntimeEvent, ToolCallResult } from "../types";
 
-/* ── event type → semantic colour (border only) ── */
-
-interface EventConfig {
-  icon: string;
-  label: string;
-  border: string;
-}
-
-const EVENT_CONFIG: Record<string, EventConfig> = {
-  turn_started:     { icon: "▶",  label: "轮次开始",  border: "var(--text-4)" },
-  context_built:    { icon: "📋", label: "上下文",    border: "var(--text-4)" },
-  model_started:    { icon: "🧠", label: "模型推理",  border: "var(--accent)" },
-  model_completed:  { icon: "✅", label: "模型完成",  border: "var(--ok)" },
-  tool_call:        { icon: "🔧", label: "工具调用",  border: "var(--warn)" },
-  tool_result:      { icon: "📊", label: "工具结果",  border: "var(--info)" },
-  approval_required:{ icon: "🛡️", label: "等待审批",  border: "var(--danger)" },
-  approval_granted: { icon: "🔓", label: "审批通过",  border: "var(--ok)" },
-  approval_denied:  { icon: "🚫", label: "审批拒绝",  border: "var(--danger)" },
-  final_response:   { icon: "💬", label: "最终回复",  border: "var(--accent)" },
-  compact:          { icon: "🗜️", label: "上下文压缩", border: "var(--warn)" },
-  error:            { icon: "❌", label: "错误",      border: "var(--danger)" },
-  warning:          { icon: "⚠️",  label: "警告",      border: "var(--warn)" },
-  checkpoint:       { icon: "💾", label: "检查点",    border: "var(--info)" },
-};
-
-function getEventConfig(evt: RuntimeEvent): EventConfig {
-  const type = evt.event_type?.toLowerCase() || "";
-  if (type.startsWith("tool_call") || evt.tool_id) return EVENT_CONFIG.tool_call;
-  if (type.includes("approval") && (type.includes("required") || type.includes("pending"))) return EVENT_CONFIG.approval_required;
-  if (type.includes("approval") && type.includes("grant")) return EVENT_CONFIG.approval_granted;
-  if (type.includes("approval") && type.includes("den")) return EVENT_CONFIG.approval_denied;
-  if (type.includes("final") || type.includes("response")) return EVENT_CONFIG.final_response;
-  if (type.includes("checkpoint")) return EVENT_CONFIG.checkpoint;
-  return EVENT_CONFIG[type] ?? EVENT_CONFIG.turn_started;
-}
-
-function toolLabel(toolId: string): string {
-  const parts = toolId.split(".");
-  return parts.length > 1 ? parts[parts.length - 1] : toolId;
-}
+/* ── helpers ── */
 
 function formatMs(ms?: number | null): string {
   if (ms == null) return "";
   if (ms < 1000) return `${ms}ms`;
   return `${(ms / 1000).toFixed(1)}s`;
 }
+function toolLabel(s: string): string {
+  const p = s.split(".");
+  return p.length > 1 ? p[p.length - 1] : s;
+}
+function timeStr(evt: RuntimeEvent): string {
+  const s = evt.occurred_at || evt.started_at || "";
+  return s.slice(11, 19) || s.slice(0, 10);
+}
 
-/* ── Tool Call Card (expandable) ── */
+/* ── step label & colour ── */
 
-const ToolCallCard: React.FC<{ tc: ToolCallResult }> = React.memo(({ tc }) => {
-  const [expanded, setExpanded] = useState(false);
-  const hasDetails = (tc.errors?.length ?? 0) > 0 || (tc.artifacts?.length ?? 0) > 0;
+function stepLabel(evt: RuntimeEvent): string {
+  return evt.name || evt.event_type || evt.type || "步骤";
+}
+function stepColor(evt: RuntimeEvent): string {
+  const t = (evt.event_type || evt.type || "").toLowerCase();
+  if (t.includes("error")) return "var(--danger)";
+  if (t.includes("warn"))  return "var(--warn)";
+  if (t.includes("tool"))  return "var(--warn)";
+  if (t.includes("model")) return "var(--accent)";
+  if (t.includes("final") || t.includes("response")) return "var(--accent)";
+  if (t.includes("complete") || t.includes("ok")) return "var(--ok)";
+  return "var(--text-4)";
+}
+
+/* ── tiny tool chip ── */
+
+const ToolChip: React.FC<{ tc: ToolCallResult }> = React.memo(({ tc }) => {
+  const [open, setOpen] = useState(false);
+  const hasBody = !!(tc.summary || tc.errors?.length || tc.artifacts?.length);
+  return (
+    <div className="rt-step rt-step-tool">
+      <span className="rt-dot" style={{ background: "var(--warn)" }} />
+      <div className="rt-step-body">
+        <div className="rt-step-head" onClick={() => hasBody && setOpen(!open)} style={{ cursor: hasBody ? "pointer" : "default" }}>
+          <span className="rt-step-ok">{tc.ok ? "✓" : "✗"}</span>
+          <code className="rt-step-name">{toolLabel(tc.tool_id)}</code>
+          <span className="rt-tag">{tc.ok ? "完成" : "失败"}</span>
+          {tc.duration_ms != null && <span className="rt-dur">{formatMs(tc.duration_ms)}</span>}
+          {hasBody && <span className="rt-chev">{open ? "▲" : "▼"}</span>}
+        </div>
+        {open && tc.summary && <div className="rt-step-detail">{tc.summary}</div>}
+        {open && tc.errors?.map((e, i) => <div key={i} className="rt-step-err">{e}</div>)}
+        {open && tc.artifacts?.length ? (
+          <div className="rt-chips">
+            {tc.artifacts.map((a) => <span key={a.artifact_id} className="rt-chip">{a.title || a.artifact_id.slice(0, 8)}</span>)}
+          </div>
+        ) : null}
+      </div>
+    </div>
+  );
+});
+
+/* ── step row ── */
+
+const StepRow: React.FC<{ evt: RuntimeEvent }> = React.memo(({ evt }) => {
+  const color = stepColor(evt);
+  const label = stepLabel(evt);
+  const msg = evt.summary || evt.message || evt.error || "";
+  return (
+    <div className="rt-step">
+      <span className="rt-dot" style={{ background: color }} />
+      <div className="rt-step-body">
+        <div className="rt-step-line">
+          <span className="rt-step-label">{label}</span>
+          <span className="rt-step-ts">{timeStr(evt)}</span>
+        </div>
+        {msg && <div className="rt-step-msg">{msg}</div>}
+      </div>
+    </div>
+  );
+});
+
+/* ── run card ── */
+
+const RunCard: React.FC<{ result: AgentResult; runIdx: number }> = React.memo(({ result, runIdx }) => {
+  const [open, setOpen] = useState(false);
+  const events = result.events ?? [];
+  const tools = result.tool_calls ?? [];
+  const meta = result.metadata ?? {};
+  const snippet = result.final_response || result.turn_id?.slice(0, 8) || `#${runIdx + 1}`;
+  const hasDiag = !!(result.errors?.length) || !!(result.warnings?.length);
+  const allArtifacts = tools.flatMap((t) => t.artifacts ?? []);
+
+  // Merge tool calls into events
+  const toolMap = new Map<string, ToolCallResult>();
+  for (const tc of tools) { if (tc.call_id) toolMap.set(tc.call_id, tc); }
 
   return (
-    <div className="ret-tool-card" data-testid={`tool-call-${tc.call_id}`}>
-      <div
-        className="ret-tool-header"
-        onClick={() => hasDetails && setExpanded(!expanded)}
-        style={{ cursor: hasDetails ? "pointer" : "default" }}
-      >
-        <span className={`ret-tool-ok ${tc.ok ? "" : "err"}`}>{tc.ok ? "✓" : "✗"}</span>
-        <code className="ret-tool-id">{toolLabel(tc.tool_id)}</code>
-        <span className={`ret-tool-status ${tc.ok ? "ok" : "err"}`}>
-          {tc.ok ? "完成" : "失败"}
-        </span>
-        {tc.duration_ms != null && <span className="ret-tool-dur">{formatMs(tc.duration_ms)}</span>}
-        {hasDetails && <span className="ret-tool-toggle">{expanded ? "▲" : "▼"}</span>}
+    <div className="rt-card">
+      {/* ── collapsed header ── */}
+      <div className="rt-card-bar" onClick={() => setOpen(!open)}>
+        <span className={`rt-card-dot ${result.ok ? "ok" : "err"}`} />
+        <span className="rt-card-id">{result.turn_id?.slice(0, 8) || `#${runIdx + 1}`}</span>
+        {meta.workspace_id && <span className="rt-card-ws">{meta.workspace_id}</span>}
+        <span className="rt-card-snippet">{result.final_response?.slice(0, 50) || ""}{result.final_response && result.final_response.length > 50 ? "…" : ""}</span>
+        <span className="rt-card-chev">{open ? "▲ 收起" : "▼ 展开"}</span>
       </div>
-      {tc.summary && <div className="ret-tool-summary">{tc.summary}"</div>}
-      {expanded && (
-        <div className="ret-tool-detail">
-          {tc.errors && tc.errors.length > 0 && (
-            <div className="ret-tool-errors">
-              {tc.errors.map((e, i) => <span key={i} className="ret-tool-err">{e}</span>)}
+
+      {/* ── expanded body ── */}
+      {open && (
+        <div className="rt-card-body">
+
+          {/* diagnostics */}
+          {hasDiag && (
+            <div className="rt-diag">
+              {result.errors?.map((e, i) => <div key={`e-${i}`} className="rt-diag-e">{e}</div>)}
+              {result.warnings?.map((w, i) => <div key={`w-${i}`} className="rt-diag-w">{w}</div>)}
             </div>
           )}
-          {tc.artifacts && tc.artifacts.length > 0 && (
-            <div className="ret-tool-artifacts">
-              {tc.artifacts.map((a) => (
-                <span key={a.artifact_id} className="ret-artifact-chip">
-                  📄 {a.title || a.artifact_id.slice(0, 8)}
-                </span>
-              ))}
+
+          {/* steps */}
+          <div className="rt-timeline">
+            {events.map((evt, i) => {
+              const t = (evt.event_type || evt.type || "").toLowerCase();
+              const isTool = t.startsWith("tool_call") || evt.tool_id;
+              if (isTool) {
+                const match = toolMap.get(evt.tool_id || "") || toolMap.get(evt.event_id || "");
+                if (match) return <ToolChip key={`tc-${i}`} tc={match} />;
+              }
+              return <StepRow key={`ev-${i}`} evt={evt} />;
+            })}
+            {/* tools without matching events */}
+            {tools.filter((tc) => !events.some((e) => e.event_id === tc.call_id || e.tool_id === tc.call_id)).map((tc) => (
+              <ToolChip key={`tc-orphan-${tc.call_id}`} tc={tc} />
+            ))}
+          </div>
+
+          {/* artifacts */}
+          {allArtifacts.length > 0 && (
+            <div className="rt-artifacts">
+              <span className="rt-art-label">产物 · {allArtifacts.length}</span>
+              <div className="rt-chips">
+                {allArtifacts.slice(0, 8).map((a) => (
+                  <span key={a.artifact_id} className="rt-chip">{a.title || a.artifact_id.slice(0, 12)}</span>
+                ))}
+              </div>
             </div>
           )}
         </div>
@@ -102,157 +159,24 @@ const ToolCallCard: React.FC<{ tc: ToolCallResult }> = React.memo(({ tc }) => {
   );
 });
 
-/* ── Event Card (expandable) ── */
+/* ── main ── */
 
-const EventCard: React.FC<{ evt: RuntimeEvent; idx: number }> = React.memo(({ evt, idx }) => {
-  const [expanded, setExpanded] = useState(false);
-  const cfg = getEventConfig(evt);
-  const ts = evt.occurred_at || evt.started_at || "";
-  const hasDetail = !!(evt.error || evt.tool_id);
-
-  return (
-    <div
-      className="ret-event-card"
-      style={{ borderLeftColor: cfg.border }}
-      data-testid={`event-${idx}`}
-    >
-      <div
-        className="ret-event-header"
-        onClick={() => hasDetail && setExpanded(!expanded)}
-        style={{ cursor: hasDetail ? "pointer" : "default" }}
-      >
-        <span className="ret-event-icon">{cfg.icon}</span>
-        <span className="ret-event-type">{cfg.label}</span>
-        {evt.duration_ms != null && <span className="ret-event-dur">{formatMs(evt.duration_ms)}</span>}
-        {ts && <span className="ret-event-time">{ts.slice(11, 19) || ts.slice(0, 10)}</span>}
-        {hasDetail && <span className="ret-event-toggle">{expanded ? "▲" : "▼"}</span>}
-      </div>
-      {evt.summary && <div className="ret-event-summary">{evt.summary}</div>}
-      {evt.message && !evt.summary && <div className="ret-event-summary">{evt.message}</div>}
-      {expanded && (
-        <div className="ret-event-detail">
-          {evt.error && <div className="ret-event-error">{evt.error}</div>}
-          {evt.tool_id && (
-            <div className="ret-event-meta">
-              <code>{evt.tool_id}</code>
-              {evt.approval_id && <span className="ret-approval-chip">{evt.approval_id.slice(0, 10)}</span>}
-            </div>
-          )}
+export const RuntimeEventTimeline: React.FC<{ results: AgentResult[] }> = React.memo(
+  function RuntimeEventTimeline({ results }) {
+    if (!results || results.length === 0) {
+      return (
+        <div className="rt-empty" data-testid="timeline-empty">
+          <p>准备就绪</p>
+          <p className="rt-empty-hint">发送消息后，执行记录将在此展示</p>
         </div>
-      )}
-    </div>
-  );
-});
-
-/* ── Timeline ── */
-
-export const RuntimeEventTimeline: React.FC<{
-  results: AgentResult[];
-}> = React.memo(function RuntimeEventTimeline({ results }) {
-  if (!results || results.length === 0) {
+      );
+    }
     return (
-      <div className="ret-empty" data-testid="timeline-empty">
-        <div className="ret-empty-icon">⚡</div>
-        <p>准备就绪</p>
-        <p className="ret-empty-hint">发送消息后，执行事件将在此展示</p>
+      <div className="rt-list" data-testid="runtime-timeline">
+        {results.map((r, i) => <RunCard key={r.turn_id || `run-${i}`} result={r} runIdx={i} />)}
       </div>
     );
-  }
-
-  return (
-    <div className="ret-timeline" data-testid="runtime-timeline">
-      {results.map((result, runIdx) => {
-        const events = result.events ?? [];
-        const toolCalls = result.tool_calls ?? [];
-        const metadata = result.metadata ?? {};
-        const hasDiagnostics = !!(result.errors?.length) || !!(result.warnings?.length);
-
-        return (
-          <div key={result.turn_id || `run-${runIdx}`} className="ret-run-block">
-            {/* Turn header */}
-            <div className="ret-turn-header">
-              <div className="ret-turn-title">
-                <span className={`ret-turn-ok ${result.ok ? "ok" : "err"}`}>
-                  {result.ok ? "✓" : "✗"}
-                </span>
-                <span className="ret-turn-label">运行 {result.turn_id?.slice(0, 8) || `#${runIdx + 1}`}</span>
-              </div>
-              <div className="ret-turn-meta">
-                {metadata.workspace_id && <span className="ret-meta-chip">{metadata.workspace_id}</span>}
-                {metadata.planner_mode && <span className="ret-meta-chip">{metadata.planner_mode}</span>}
-                {result.tool_decision?.selected_tools?.length ? (
-                  <span className="ret-meta-chip">{result.tool_decision.selected_tools.length} 工具</span>
-                ) : null}
-              </div>
-            </div>
-
-            {/* Diagnostics */}
-            {hasDiagnostics && (
-              <div className="ret-diag-banner" data-testid="diag-banner">
-                {result.errors?.map((e, i) => (
-                  <div key={`err-${i}`} className="ret-diag-item err">{e}</div>
-                ))}
-                {result.warnings?.map((w, i) => (
-                  <div key={`warn-${i}`} className="ret-diag-item warn">{w}</div>
-                ))}
-              </div>
-            )}
-
-            {/* Event stream */}
-            {events.length > 0 ? (
-              <div className="ret-events" data-testid="event-list">
-                {events.map((evt, idx) => (
-                  <EventCard key={evt.event_id || `${idx}`} evt={evt} idx={idx} />
-                ))}
-              </div>
-            ) : (
-              <div className="ret-no-events">无运行时事件</div>
-            )}
-
-            {/* Tool calls */}
-            {toolCalls.length > 0 && (
-              <div className="ret-tool-panel" data-testid="tool-panel">
-                <div className="ret-section-title">工具调用 ({toolCalls.length})</div>
-                <div className="ret-tool-list">
-                  {toolCalls.map((tc) => <ToolCallCard key={tc.call_id} tc={tc} />)}
-                </div>
-              </div>
-            )}
-
-            {/* Sources */}
-            {metadata.source_count ? (
-              <div className="ret-source-panel" data-testid="source-panel">
-                <div className="ret-section-title">
-                  参考来源 · {metadata.source_count} 个
-                  {metadata.retrieval_backend && (
-                    <span className="ret-meta-chip">{metadata.retrieval_backend}</span>
-                  )}
-                </div>
-              </div>
-            ) : null}
-
-            {/* Artifacts */}
-            {(() => {
-              const artifacts = toolCalls.flatMap((tc) => tc.artifacts ?? []);
-              if (artifacts.length === 0) return null;
-              return (
-                <div className="ret-artifact-panel" data-testid="artifact-panel">
-                  <div className="ret-section-title">产物 ({artifacts.length})</div>
-                  <div className="ret-artifact-list">
-                    {artifacts.slice(0, 8).map((a) => (
-                      <span key={a.artifact_id} className="ret-artifact-chip" title={a.artifact_id}>
-                        {a.artifact_type ? `${a.artifact_type}: ` : ""}{a.title || a.artifact_id.slice(0, 12)}
-                      </span>
-                    ))}
-                  </div>
-                </div>
-              );
-            })()}
-          </div>
-        );
-      })}
-    </div>
-  );
-});
+  },
+);
 
 export default RuntimeEventTimeline;
