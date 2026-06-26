@@ -84,8 +84,7 @@ export function formatCompactDate(value: string | undefined | null): string {
 // ───────────────────── Tool display helpers ─────────────────────
 
 /**
- * Shared tool label mapping — consolidated from TaskWorkbench + Inspector.
- * Covers all known tool prefixes. Single source of truth for tool display names.
+ * Shared tool label mapping.  Single source of truth for tool display names.
  */
 export function toolLabel(toolId: string): string {
   if (toolId.startsWith("host.")) return "本机工具";

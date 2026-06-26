@@ -1,73 +1,75 @@
-/* RuntimeEventTimeline — v3.9 task execution timeline */
+/* RuntimeEventTimeline — v3.9 ops-workbench style
+   Uses global :root / [data-theme="dark"] CSS vars from global.css.
+   Only scoped overrides for Timeline-specific tokens. */
 
-/* ── View mode tabs ── */
+/* ── dark mode overrides for timeline-specific colours ── */
+[data-theme="dark"] .ret-diag-banner { background: #3d2e0a; border-color: #ca8a04; }
+[data-theme="dark"] .ret-approval-chip { background: #7f1d1d; color: #f87171; }
+[data-theme="dark"] .ret-artifact-chip { background: #064e3b; color: #34d399; }
 
-.wb-view-tabs {
+/* ── Layout ── */
+.ret-timeline {
   display: flex;
-  gap: 4px;
-  padding: 8px 12px;
-  border-bottom: 1px solid #e2e8f0;
-  background: #f8fafc;
-  position: sticky;
-  top: 0;
-  z-index: 5;
-}
-.wb-view-tab {
-  padding: 6px 16px;
-  border: 1px solid #e2e8f0;
-  border-radius: 6px;
-  background: #fff;
-  color: #64748b;
+  flex-direction: column;
+  gap: 8px;
+  padding: 12px 0;
   font-size: 13px;
-  font-weight: 500;
-  cursor: pointer;
-  transition: all 0.15s;
+  color: var(--text-2);
+  line-height: 1.5;
 }
-.wb-view-tab:hover {
-  background: #f1f5f9;
-  color: #334155;
-}
-.wb-view-tab.active {
-  background: #6366f1;
-  color: #fff;
-  border-color: #6366f1;
-}
-
-/* ── Timeline — rest of the file ── */
 
 .ret-empty {
   display: flex;
   flex-direction: column;
   align-items: center;
   justify-content: center;
-  padding: 60px 20px;
-  color: #94a3b8;
+  padding: 80px 20px;
+  color: var(--text-4);
   text-align: center;
   min-height: 200px;
 }
-.ret-empty-icon { font-size: 40px; margin-bottom: 12px; opacity: 0.5; }
-.ret-empty p { margin: 4px 0; font-size: 14px; }
-.ret-empty-hint { font-size: 12px; color: #cbd5e1; }
+.ret-empty-icon { font-size: 32px; margin-bottom: 12px; opacity: 0.35; }
+.ret-empty p { margin: 2px 0; font-size: 14px; }
+.ret-empty-hint { font-size: 12px; color: var(--text-4); opacity: 0.8; }
 
-/* ── Timeline container ── */
-
-.ret-timeline {
+/* ── View tabs ── */
+.wb-view-tabs {
   display: flex;
-  flex-direction: column;
-  gap: 8px;
-  padding: 12px 0;
+  gap: 0;
+  border-bottom: 2px solid var(--line);
+  background: transparent;
+  position: sticky;
+  top: 0;
+  z-index: 5;
+}
+.wb-view-tab {
+  padding: 7px 18px;
+  border: none;
+  border-bottom: 2px solid transparent;
+  margin-bottom: -2px;
+  background: transparent;
+  color: var(--text-3);
+  font-size: 13px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.15s;
+  letter-spacing: 0;
+}
+.wb-view-tab:hover { color: var(--text-2); }
+.wb-view-tab.active {
+  color: var(--accent);
+  border-bottom-color: var(--accent);
 }
 
 /* ── Turn header ── */
-
 .ret-turn-header {
   display: flex;
   justify-content: space-between;
   align-items: center;
-  padding: 8px 12px;
-  background: #f8fafc;
-  border: 1px solid #e2e8f0;
-  border-radius: 8px;
+  padding: 10px 14px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: var(--surface);
 }
 .ret-turn-title {
   display: flex;
@@ -75,10 +77,12 @@
   gap: 8px;
   font-weight: 600;
   font-size: 14px;
+  color: var(--text-2);
 }
-.ret-turn-ok { font-size: 16px; }
-.ret-turn-ok.ok { color: #10b981; }
-.ret-turn-ok.err { color: #ef4444; }
+.ret-turn-ok { font-size: 14px; }
+.ret-turn-ok.ok { color: var(--ok); }
+.ret-turn-ok.err { color: var(--danger); }
+.ret-turn-label { color: var(--text-2); }
 .ret-turn-meta {
   display: flex;
   gap: 6px;
@@ -88,193 +92,210 @@
   font-size: 11px;
   padding: 2px 8px;
   border-radius: 4px;
-  background: #f1f5f9;
-  color: #475569;
-  border: 1px solid #e2e8f0;
-  white-space: nowrap;
+  background: var(--surface-2);
+  color: var(--text-3);
+  border: 1px solid var(--line);
 }
 
 /* ── Diagnostics banner ── */
-
 .ret-diag-banner {
   display: flex;
   flex-direction: column;
   gap: 4px;
-  padding: 8px 12px;
+  padding: 10px 14px;
   border-radius: 6px;
-  background: #fffbeb;
-  border: 1px solid #fde68a;
+  border: 1px solid var(--warn);
+  background: var(--warn-soft);
 }
 .ret-diag-item {
   font-size: 12px;
-  font-family: monospace;
-  line-height: 1.4;
+  font-family: "SF Mono", Menlo, monospace;
+  line-height: 1.5;
 }
-.ret-diag-item.err { color: #dc2626; }
-.ret-diag-item.warn { color: #d97706; }
+.ret-diag-item.err { color: var(--danger); }
+.ret-diag-item.warn { color: var(--warn); }
 
 /* ── Event stream ── */
-
 .ret-events {
   display: flex;
   flex-direction: column;
-  gap: 6px;
+  gap: 4px;
 }
 .ret-no-events {
-  padding: 16px;
+  padding: 20px;
   text-align: center;
   font-size: 13px;
-  color: #94a3b8;
+  color: var(--text-4);
 }
 
 /* ── Event card ── */
-
 .ret-event-card {
-  border-left: 3px solid #94a3b8;
-  border-radius: 4px;
-  padding: 8px 10px;
-  font-size: 13px;
+  border-left: 2px solid var(--line);
+  border-radius: 0 4px 4px 0;
+  padding: 8px 12px;
+  background: var(--surface);
+  border-bottom: 1px solid var(--line);
+  border-top: 1px solid transparent;
+  border-right: 1px solid transparent;
 }
 .ret-event-header {
   display: flex;
   align-items: center;
-  gap: 6px;
+  gap: 8px;
 }
-.ret-event-icon { font-size: 14px; }
+.ret-event-icon { font-size: 13px; width: 18px; text-align: center; flex-shrink: 0; }
 .ret-event-type {
   font-weight: 600;
   font-size: 12px;
-  text-transform: uppercase;
-  letter-spacing: 0.3px;
+  color: var(--text-3);
+  text-transform: none;
+  letter-spacing: 0;
 }
-.ret-event-duration {
+.ret-event-dur {
   font-size: 11px;
-  color: #94a3b8;
-  font-family: monospace;
-  margin-left: auto;
+  color: var(--text-4);
+  font-family: "SF Mono", Menlo, monospace;
 }
 .ret-event-time {
   font-size: 11px;
-  color: #94a3b8;
-  font-family: monospace;
+  color: var(--text-4);
+  font-family: "SF Mono", Menlo, monospace;
+}
+.ret-event-toggle {
+  font-size: 10px;
+  color: var(--text-4);
+  margin-left: auto;
 }
 .ret-event-summary {
   margin-top: 4px;
   font-size: 12px;
-  color: #334155;
-  line-height: 1.4;
+  color: var(--text-2);
+  line-height: 1.5;
+  padding-left: 26px;
+}
+.ret-event-detail {
+  margin-top: 6px;
+  padding: 8px 10px;
+  border-radius: 4px;
+  background: var(--surface-2);
+  border: 1px solid var(--line);
+  margin-left: 26px;
 }
 .ret-event-error {
-  margin-top: 4px;
   font-size: 12px;
-  color: #dc2626;
-  font-family: monospace;
-  background: #fef2f2;
-  padding: 4px 8px;
-  border-radius: 4px;
+  color: var(--danger);
+  font-family: "SF Mono", Menlo, monospace;
 }
-.ret-event-tool-ref {
+.ret-event-meta {
   margin-top: 4px;
   display: flex;
   align-items: center;
   gap: 8px;
 }
-.ret-event-tool-ref code {
+.ret-event-meta code {
   font-size: 11px;
-  background: #f1f5f9;
-  padding: 2px 6px;
+  background: var(--surface-2);
+  padding: 1px 6px;
   border-radius: 3px;
-  color: #475569;
+  color: var(--text-3);
 }
 .ret-approval-chip {
   font-size: 10px;
   padding: 1px 6px;
   border-radius: 3px;
-  background: #fef2f2;
-  color: #dc2626;
-  border: 1px solid #fecaca;
+  background: var(--danger-soft);
+  color: var(--danger);
+  font-weight: 500;
 }
 
-/* ── Section titles ── */
-
+/* ── Section title ── */
 .ret-section-title {
-  font-size: 13px;
+  font-size: 12px;
   font-weight: 600;
-  color: #334155;
+  color: var(--text-3);
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
   margin-bottom: 8px;
   display: flex;
   align-items: center;
   gap: 6px;
 }
 
-/* ── Tool calls panel ── */
-
-.ret-tool-panel {
-  margin-top: 4px;
-  padding: 12px;
-  background: #f8fafc;
-  border: 1px solid #e2e8f0;
-  border-radius: 8px;
+/* ── Tool panel ── */
+.ret-tool-panel,
+.ret-source-panel,
+.ret-artifact-panel {
+  padding: 12px 14px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: var(--surface);
 }
 .ret-tool-list {
   display: flex;
   flex-direction: column;
-  gap: 6px;
+  gap: 4px;
 }
 
-/* ── Tool call card ── */
-
+/* ── Tool card ── */
 .ret-tool-card {
   padding: 8px 10px;
-  border: 1px solid #e2e8f0;
-  border-radius: 6px;
-  background: #fff;
-  font-size: 12px;
+  border: 1px solid var(--line);
+  border-radius: 5px;
+  background: var(--surface-2);
 }
 .ret-tool-header {
   display: flex;
   align-items: center;
-  gap: 6px;
+  gap: 8px;
 }
-.ret-tool-icon {
-  font-size: 13px;
-  width: 18px;
-  text-align: center;
-}
+.ret-tool-ok { font-size: 12px; color: var(--ok); }
+.ret-tool-ok.err { color: var(--danger); }
 .ret-tool-id {
   font-weight: 600;
-  color: #6366f1;
+  font-size: 12px;
+  color: var(--text-2);
 }
 .ret-tool-status {
-  font-size: 11px;
+  font-size: 10px;
   padding: 1px 6px;
   border-radius: 3px;
   font-weight: 500;
 }
-.ret-tool-status.ok { background: #ecfdf5; color: #059669; }
-.ret-tool-status.err { background: #fef2f2; color: #dc2626; }
-.ret-tool-duration {
-  margin-left: auto;
+.ret-tool-status.ok { color: var(--ok); }
+.ret-tool-status.err { color: var(--danger); }
+.ret-tool-dur {
   font-size: 11px;
-  color: #94a3b8;
-  font-family: monospace;
+  color: var(--text-4);
+  font-family: "SF Mono", Menlo, monospace;
+}
+.ret-tool-toggle {
+  font-size: 10px;
+  color: var(--text-4);
+  margin-left: auto;
 }
 .ret-tool-summary {
   margin-top: 4px;
   font-size: 12px;
-  color: #475569;
-  line-height: 1.4;
+  color: var(--text-2);
+  line-height: 1.5;
+  padding-left: 20px;
+}
+.ret-tool-detail {
+  margin-top: 6px;
+  padding: 8px 10px;
+  border-radius: 4px;
+  background: var(--surface);
+  border: 1px solid var(--line);
 }
 .ret-tool-errors {
-  margin-top: 4px;
   display: flex;
   flex-direction: column;
-  gap: 2px;
+  gap: 3px;
 }
 .ret-tool-err {
   font-size: 11px;
-  color: #dc2626;
-  font-family: monospace;
+  color: var(--danger);
+  font-family: "SF Mono", Menlo, monospace;
 }
 .ret-tool-artifacts {
   margin-top: 6px;
@@ -286,21 +307,8 @@
   font-size: 11px;
   padding: 2px 8px;
   border-radius: 4px;
-  background: #f0fdf4;
-  color: #166534;
-  border: 1px solid #bbf7d0;
-  cursor: pointer;
-}
-
-/* ── Source & artifact panels ── */
-
-.ret-source-panel,
-.ret-artifact-panel {
-  margin-top: 4px;
-  padding: 12px;
-  background: #f8fafc;
-  border: 1px solid #e2e8f0;
-  border-radius: 8px;
+  background: var(--ok-soft);
+  color: var(--ok);
 }
 .ret-artifact-list {
   display: flex;
@@ -308,9 +316,11 @@
   gap: 4px;
 }
 
-/* ── Responsive tweaks ── */
-
+/* ── Responsive ── */
 @media (max-width: 768px) {
-  .ret-turn-header { flex-direction: column; align-items: flex-start; gap: 6px; }
+  .ret-turn-header { flex-direction: column; align-items: flex-start; gap: 8px; }
   .ret-turn-meta { flex-wrap: wrap; }
+  .ret-event-summary,
+  .ret-event-detail,
+  .ret-tool-summary { padding-left: 0; }
 }
