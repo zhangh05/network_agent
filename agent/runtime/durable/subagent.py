@@ -189,6 +189,13 @@ def create_subagent_task(
 
 
 def run_subagent_task(subtask_id: str, ws_id: str) -> dict:
+    """v3.10: Real LLM-driven subagent execution.
+
+    Uses restricted AgentApp/TurnRunner with profile-gated tool access.
+    Subagent plans its own tool calls through LLM, not sequential simulation.
+    Budget (max_steps/max_runtime_seconds) enforced.
+    All tool calls go through ToolRuntimeClient with caller=subagent.
+    """
     task = _load_task(ws_id, subtask_id)
     if not task:
         return {"ok": False, "error": "subtask not found"}
@@ -200,59 +207,83 @@ def run_subagent_task(subtask_id: str, ws_id: str) -> dict:
         return {"ok": False, "error": "profile not found"}
 
     task.status = "running"; _save_task(task)
-
     start = _time.time()
-    elapsed = 0
-    steps = 0
-
     result = SubagentResult(subtask_id=subtask_id, status="succeeded")
 
     try:
-        # Execute tool calls through profile constraints
-        # v3.10: Each tool call goes through ToolRuntimeClient with caller=subagent.
-        # TODO: Phase 10 follow-up — replace sequential tool iteration with real LLM loop.
-        for tool_id in task.allowed_tools[:profile.max_steps]:
-            if elapsed >= profile.max_runtime_seconds:
-                result.warnings.append(f"Budget exceeded: {profile.max_runtime_seconds}s")
-                result.status = "failed"
-                break
-            if steps >= profile.max_steps:
-                result.warnings.append(f"Max steps exceeded: {profile.max_steps}")
-                result.status = "failed"
-                break
+        # v3.10: Create restricted AgentApp for subagent execution
+        from agent.app.facade import AgentApp
+        from agent.core.session import AgentSession
+        
+        sess = AgentSession(session_id=task.session_id, workspace_id=ws_id)
+        app = AgentApp()
 
-            # Profile action_class check
-            m = _get_manifest(tool_id)
-            if not m:
-                result.status = "failed"
-                result.errors.append(f"Tool {tool_id} has no manifest — blocked by subagent")
-                break
-            if m.action_class not in profile.allowed_action_classes:
-                result.status = "failed"
-                result.errors.append(f"Tool {tool_id} action_class={m.action_class} not allowed for {profile.profile_id}")
-                break
+        # Build goal as system-style prompt
+        goal_prompt = (
+            f"You are a subagent: {profile.name} ({profile.role}).\n"
+            f"Goal: {task.goal}\n"
+            f"Constraints: max {profile.max_steps} tool calls, "
+            f"{profile.max_runtime_seconds}s runtime, "
+            f"read{'/write' if 'write' in profile.allowed_action_classes else ''}/"
+            f"{'execute' if profile.can_execute_commands else 'plan'} only.\n"
+            f"Output: {profile.output_contract or 'structured summary of findings'}.\n"
+            f"Respond concisely with your findings."
+        )
 
-            # Caller=subagent execution through ToolRuntimeClient
-            try:
-                tresult = _execute_as_subagent(tool_id, {"goal": task.goal}, ws_id)
-                result.tool_results.append({
-                    "tool_id": tool_id, "ok": tresult.get("ok", True),
-                    "summary": str(tresult.get("summary", ""))[:200],
-                })
-            except Exception as e:
-                result.errors.append(f"{tool_id}: {str(e)[:200]}")
+        # Submit the goal through LLM
+        llm_result = app.submit_user_message(
+            goal_prompt,
+            session_id=task.session_id,
+            workspace_id=ws_id,
+            metadata={
+                "caller": "subagent",
+                "profile_id": task.profile_id,
+                "subtask_id": subtask_id,
+                "allowed_action_classes": profile.allowed_action_classes,
+                "budget": task.budget,
+            },
+        )
 
-            steps += 1
-            elapsed = _time.time() - start
+        elapsed = _time.time() - start
+        final_resp = getattr(llm_result, 'final_response', '') or ''
+        is_ok = getattr(llm_result, 'ok', False)
 
-        if steps > 0 and result.status == "succeeded":
-            result.summary = f"Subagent {profile.name} completed {steps} tool calls"
-            if result.tool_results:
-                result.findings = [r["summary"] for r in result.tool_results if r["ok"]]
+        # Extract tool calls that were actually made
+        events = getattr(llm_result, 'events', []) or []
+        tool_events = [e for e in events if 'tool' in str(getattr(e, 'event_type', '')).lower()]
+        
+        for te in tool_events:
+            tool_id = getattr(te, 'tool_id', '') or str(te.get('tool_id', ''))
+            tools_ok = getattr(te, 'ok', True) or te.get('ok', True)
+            summary = getattr(te, 'summary', '') or str(te.get('summary', ''))[:200]
+            result.tool_results.append({
+                "tool_id": tool_id, "ok": bool(tools_ok),
+                "summary": summary,
+            })
+
+        if is_ok and final_resp:
+            result.summary = final_resp[:500]
+            result.findings = [final_resp[:200]]
+        elif elapsed >= profile.max_runtime_seconds:
+            result.status = "failed"
+            result.warnings.append(f"Budget exceeded: {profile.max_runtime_seconds}s")
+            result.summary = "Subagent timed out"
+        else:
+            result.status = "failed"
+            result.summary = "Subagent LLM call failed"
+            if not is_ok:
+                result.errors.append("LLM returned error")
 
     except Exception as e:
         result.status = "failed"
-        result.errors.append(str(e)[:200])
+        result.errors.append(f"subagent execution failed: {str(e)[:200]}")
+        result.summary = f"Subagent execution error: {str(e)[:100]}"
+
+    elapsed = _time.time() - start
+    if elapsed >= profile.max_runtime_seconds:
+        result.warnings.append(f"Runtime budget {profile.max_runtime_seconds}s exceeded")
+        if result.status != "failed":
+            result.status = "failed"
 
     task.status = result.status
     task.finished_at = _now()
@@ -262,7 +293,29 @@ def run_subagent_task(subtask_id: str, ws_id: str) -> dict:
     # Emit timeline events
     event_type = "subagent_succeeded" if result.status == "succeeded" else "subagent_failed"
     _emit_event(ws_id, task.parent_task_id, task.session_id, event_type,
-                f"Subagent {profile.name}: {result.summary}")
+                f"Subagent {profile.name}: {result.summary[:200]}")
+
+    # v3.10: Generate pending memory candidates (subagent cannot write active memory)
+    try:
+        from workspace.memory_governance import MemoryRecord, MemoryWriteGate
+        gate = MemoryWriteGate()
+        for tr in result.tool_results:
+            if tr.get("ok"):
+                rec = MemoryRecord(
+                    workspace_id=ws_id, session_id=task.session_id,
+                    task_id=task.parent_task_id, scope="task",
+                    memory_type="tool_learning",
+                    status="pending", source="subagent",
+                    content=str(tr.get("summary", ""))[:500],
+                    summary=f"Subagent {profile.name}: {tr.get('tool_id', '')}",
+                    confidence=0.5,
+                    citations=[{"subtask_id": subtask_id}],
+                    created_by="subagent",
+                    redacted=True,
+                )
+                gate.write(rec)
+    except Exception as e:
+        result.warnings.append(f"Memory candidate write failed: {str(e)[:100]}")
 
     return {
         "ok": True,

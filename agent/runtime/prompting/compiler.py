@@ -20,8 +20,8 @@ class PromptCompiler:
     def compile(self, context: Any, services: Any) -> list:
         """Build the initial message list.
 
-        Non-simple-chat turns use capability-first prompt blocks.
-        Safe context is rendered as untrusted evidence only.
+        v3.10: Always injects runtime contract + TaskState summary when available.
+        Even simple-chat turns get runtime context if a task is active.
         """
         from agent.protocol.message import UserMessage, SystemMessage, RuntimeContextMessage
         from agent.context.snapshot import RuntimeSnapshot
@@ -49,9 +49,12 @@ class PromptCompiler:
 
         from agent.runtime.cognition.scene_decision import is_pure_greeting, looks_like_tool_query
 
+        # v3.10: Check for active task state — don't skip runtime context if task is active
+        has_active_task = _has_active_task(context)
         is_simple_chat = (
             not has_tool_scene
             and not has_context_data
+            and not has_active_task  # v3.10: don't skip runtime if task is active
             and (not intent or intent in ('assistant_chat', 'capability_discovery'))
             and (not skill or skill in ('assistant_chat', 'capability_discovery'))
             and not looks_like_tool_query(user_input)
@@ -81,6 +84,17 @@ class PromptCompiler:
             snap.model = context.model_config.get("model", "")
             messages.append(RuntimeContextMessage(content=snap.to_prompt_text()).to_llm_message())
 
+        # ── Runtime contract (v3.10: injected for all non-trivial turns) ──
+        if not is_simple_chat or has_active_task:
+            contract = _build_runtime_contract(context)
+            messages.append(RuntimeContextMessage(content=contract).to_llm_message())
+
+        # ── TaskState summary (v3.10: visible context from durable runtime) ──
+        if has_active_task:
+            task_summary = _build_task_summary(context)
+            if task_summary:
+                messages.append(RuntimeContextMessage(content=task_summary).to_llm_message())
+
         # ── Safe context ──────────────────────────────────────────
         safe_context_text = render_safe_context(getattr(context, "safe_context", None))
         if safe_context_text and not is_simple_chat:
@@ -100,3 +114,67 @@ class PromptCompiler:
         messages.append(UserMessage(content=user_content).to_llm_message())
 
         return messages
+
+
+# ── v3.10: Runtime contract helpers ──
+
+def _has_active_task(context: Any) -> bool:
+    """Check if there's an active TaskState for this session."""
+    try:
+        ws_id = getattr(context, 'workspace_id', '') or ''
+        sess_id = getattr(context, 'session_id', '') or ''
+        if not ws_id or not sess_id:
+            return False
+        from agent.runtime.durable.store import list_tasks
+        tasks = list_tasks(ws_id, session_id=sess_id, limit=1)
+        if tasks:
+            t = tasks[0]
+            return t.status in ('running', 'waiting_approval', 'interrupted')
+    except Exception:
+        pass
+    return False
+
+
+def _build_runtime_contract(context: Any) -> str:
+    """Build minimal runtime contract for LLM context."""
+    ws_id = getattr(context, 'workspace_id', '') or ''
+    parts = [
+        "## Runtime Contract v3.10",
+        f"- Workspace: {ws_id or 'unspecified'}",
+        f"- Session: {getattr(context, 'session_id', '')[:12] or 'unspecified'}",
+        "- Approval: high-risk tools require approval before execution",
+        "- Verification: unverified tasks cannot be marked complete",
+        "- Tool boundary: all tools execute through safety pipeline",
+        "- Caller identity: enforced (missing caller → blocked)",
+    ]
+    return '\n'.join(parts)
+
+
+def _build_task_summary(context: Any) -> str:
+    """Build TaskState summary for LLM context."""
+    try:
+        ws_id = getattr(context, 'workspace_id', '') or ''
+        sess_id = getattr(context, 'session_id', '') or ''
+        from agent.runtime.durable.store import list_tasks
+        tasks = list_tasks(ws_id, session_id=sess_id, limit=1)
+        if not tasks:
+            return ""
+        t = tasks[0]
+        parts = [
+            "## Active Task",
+            f"Task: {t.task_id[:12]}...",
+            f"Status: {t.status}",
+            f"Goal: {t.user_goal[:200]}" if t.user_goal else "",
+            f"Steps: {len(t.steps or [])}",
+        ]
+        warnings = getattr(t, 'warnings', []) or []
+        errors = getattr(t, 'errors', []) or []
+        if warnings:
+            parts.append(f"Warnings: {', '.join(warnings[:5])}")
+        if errors:
+            parts.append(f"Errors: {', '.join(errors[:5])}")
+        if hasattr(t, 'delivery_mode') and t.delivery_mode:
+            parts.append(f"Delivery mode: {t.delivery_mode}")
+        return '\n'.join(p for p in parts if p)
+    except Exception:
+        return ""

@@ -209,7 +209,7 @@ class TurnRunner:
                         checkpoint_task(_task.task_id, ws_id, reason="token_limit_failure")
                         save_task(_task)
                     except Exception as e:
-                    state.context.warnings.append(f"durable_task_creation_failed: {str(e)[:100]}")
+                        state.context.warnings.append(f"durable_task_creation_failed: {str(e)[:100]}")
                 return build_error_result(
                     state,
                     "上下文超过模型限制，请压缩上下文或开启 compact 后重试。",
@@ -383,6 +383,9 @@ class TurnRunner:
                 except Exception:
                     pass
 
+            # v3.10: Build trajectory + eval after successful turn
+            _build_and_eval_trajectory(_task, ws_id, state)
+
             # Record tool co-occurrence graph after successful turn
             _record_tool_graph(state)
 
@@ -428,3 +431,32 @@ def _trim_messages_if_needed(state) -> None:
             f"Earlier messages trimmed to last {MAX_MESSAGE_TURNS} turns to stay within context window."
         )).to_llm_message())
 
+
+# ── v3.10: Trajectory build + eval hooked into turn completion ──
+
+def _build_and_eval_trajectory(task, ws_id: str, state) -> None:
+    """Build trajectory from task state and evaluate. Writes issues back to TaskState."""
+    try:
+        from agent.runtime.durable.trajectory import build_trajectory, evaluate_trajectory, persist_trajectory
+        traj = build_trajectory(task.task_id, ws_id)
+        if not traj:
+            return
+        persist_trajectory(traj)
+        score = evaluate_trajectory(traj.to_dict() if hasattr(traj, 'to_dict') else {})
+        if isinstance(score, dict) and score.get("issues"):
+            task.warnings = (task.warnings or []) + [
+                f"trajectory_issue: {i.get('rule','')}: {i.get('detail','')}"
+                for i in score["issues"][:5]
+            ]
+            task.tool_results.append({
+                "__trajectory_score__": score.get("score", 0),
+                "__trajectory_issues__": [i.get("rule") for i in score.get("issues", [])],
+            })
+        if state and hasattr(state, 'context') and score.get("issues"):
+            ctx = getattr(state, 'context', None)
+            if ctx and hasattr(ctx, 'warnings'):
+                ctx.warnings.append(
+                    f"Trajectory eval: score={score.get('score',0)} issues={len(score.get('issues',[]))}"
+                )
+    except Exception:
+        pass  # best-effort: trajectory eval is non-blocking
