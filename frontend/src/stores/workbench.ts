@@ -116,14 +116,19 @@ export const useWorkbenchStore = create<WorkbenchState>()(
         // session was just created server-side and not yet synced), seed
         // the slot with an empty list so the UI doesn't render the empty
         // workspace state mid-transition.
+        // v3.9: clear latestResult so Timeline doesn't stick to old session.
         set((s) => {
           if (session_id && !s.bySession[session_id]) {
             return {
               currentSessionId: session_id,
               bySession: { ...s.bySession, [session_id]: [] },
+              latestResult: s.currentSessionId !== session_id ? null : s.latestResult,
             };
           }
-          return { currentSessionId: session_id };
+          return {
+            currentSessionId: session_id,
+            latestResult: s.currentSessionId !== session_id ? null : s.latestResult,
+          };
         });
       },
 

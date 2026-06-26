@@ -1,8 +1,8 @@
 /**
  * Test 4 — knowledge source_summary
  *
- * v1.0.1 plan-C: AgentWorkbench 现在要求 currentSessionId 有值才能把消息
- * 落到 bySession map (否则 appendUser 静默 no-op). 测试里显式设 session.
+ * v1.0.1 plan-C: TaskWorkbench requires currentSessionId to be set for messages
+ * to land in bySession map (otherwise appendUser silently no-ops). Tests explicitly set session.
  */
 
 import { describe, it, expect, beforeEach } from "vitest";
