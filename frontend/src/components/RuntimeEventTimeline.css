@@ -17,6 +17,14 @@
   color: var(--text-2);
   line-height: 1.5;
 }
+.ret-run-block {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding-bottom: 16px;
+  border-bottom: 1px solid var(--line);
+}
+.ret-run-block:last-child { border-bottom: none; padding-bottom: 0; }
 
 .ret-empty {
   display: flex;

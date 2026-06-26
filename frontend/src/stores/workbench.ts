@@ -1,11 +1,11 @@
 /**
- * Workbench store — chat history keyed by session_id, persisted to
- * localStorage so F5 不会丢历史 (plan-C 方案).
+ * Workbench store — chat history + run results keyed by session_id,
+ * persisted to localStorage so F5 不会丢历史 (plan-C 方案).
  *
  * 状态:
  *  - bySession: Record<session_id, ChatMsg[]> 持久化到 localStorage
+ *  - results:  Record<session_id, AgentResult[]>  各 session 的运行记录
  *  - currentSessionId: 镜像 useSessionStore.currentSessionId
- *  - latestResult: 右侧检查器 (Inspector) 用
  *  - sending: 是否在等后端
  *
  * 持久化策略:
@@ -13,11 +13,6 @@
  *  - 最多保留 5 个最近会话
  *  - 超出 LRU 淘汰 (按会话 ID 字典序简化)
  *  - localStorage key: "na_workbench"
- *
- * 后台同步:
- *  - 切会话时, 先从 local 立即渲染, 再背景拉 /api/sessions/<id>/messages
- *  - merge 模式: 不覆盖本地, 只追加新消息 (避免丢失用户刚发的 turn)
- *  - 后端修复了 run_ids bug 后, 跨设备/跨 tab 刷新会自动同步
  */
 import { create } from "zustand";
 import { persist } from "zustand/middleware";
@@ -79,9 +74,9 @@ function capHistory(
 interface WorkbenchState {
   bySession: Record<string, ChatMsg[]>;
   currentSessionId: string | null;
-  latestResult: AgentResult | null;
+  /** Per-session run results (v3.9: persisted, survives session switch) */
+  results: Record<string, AgentResult[]>;
   sending: boolean;
-  /** v1.0.3.3: last user input for retry */
   lastUserInput: string;
 
   switchSession: (session_id: string | null) => void;
@@ -95,10 +90,6 @@ interface WorkbenchState {
   setLatestResult: (r: AgentResult) => void;
   /** Drop local history for current (or specified) session. */
   clear: (session_id?: string) => void;
-  /**
-   * Merge backend messages into the bySession map. Never deletes local
-   * entries; only adds new ones. Dedup by message id.
-   */
   mergeFromBackend: (session_id: string, serverMsgs: SessionMessage[]) => void;
 }
 
@@ -107,33 +98,23 @@ export const useWorkbenchStore = create<WorkbenchState>()(
     (set, get) => ({
       bySession: {},
       currentSessionId: null,
-      latestResult: null,
+      results: {},
       sending: false,
       lastUserInput: "",
 
       switchSession: (session_id) => {
-        // If session_id is set but bySession has no record (e.g.
-        // session was just created server-side and not yet synced), seed
-        // the slot with an empty list so the UI doesn't render the empty
-        // workspace state mid-transition.
-        // v3.9: clear latestResult so Timeline doesn't stick to old session.
         set((s) => {
           if (session_id && !s.bySession[session_id]) {
             return {
               currentSessionId: session_id,
               bySession: { ...s.bySession, [session_id]: [] },
-              latestResult: s.currentSessionId !== session_id ? null : s.latestResult,
             };
           }
-          return {
-            currentSessionId: session_id,
-            latestResult: s.currentSessionId !== session_id ? null : s.latestResult,
-          };
+          return { currentSessionId: session_id };
         });
       },
 
       appendUser: (text, session_id) => {
-        // null/undefined → _scratch 池 (等后端返回 session_id 后由页面层迁过去)
         const sid = session_id ?? get().currentSessionId ?? "_scratch";
         const msg: ChatMsg = {
           id: nextId(),
@@ -144,10 +125,7 @@ export const useWorkbenchStore = create<WorkbenchState>()(
         set((s) => {
           const cur = s.bySession[sid] ?? [];
           const next = capHistory({ ...s.bySession, [sid]: [...cur, msg] }, sid);
-          return {
-            bySession: next,
-            lastUserInput: text,
-          };
+          return { bySession: next, lastUserInput: text };
         });
       },
 
@@ -167,29 +145,42 @@ export const useWorkbenchStore = create<WorkbenchState>()(
         set((s) => {
           const cur = s.bySession[sid] ?? [];
           const next = capHistory({ ...s.bySession, [sid]: [...cur, msg] }, sid);
+          // Append run result to session's results array
+          const sessResults = s.results[sid] ?? [];
+          const maxResults = 20;
+          const nextResults = cleanResult
+            ? { ...s.results, [sid]: [...sessResults, cleanResult].slice(-maxResults) }
+            : s.results;
           return {
             bySession: next,
-            latestResult: cleanResult ?? s.latestResult,
+            results: nextResults,
           };
         });
       },
 
       setSending: (v) => set({ sending: v }),
-      setLatestResult: (r) => set({ latestResult: r }),
+      // v3.9: setLatestResult appends to current session's results
+      setLatestResult: (r) => {
+        const sid = get().currentSessionId;
+        if (!sid) return;
+        set((s) => {
+          const sessResults = s.results[sid] ?? [];
+          const maxResults = 20;
+          return {
+            results: { ...s.results, [sid]: [...sessResults, r].slice(-maxResults) },
+          };
+        });
+      },
 
       clear: (session_id) => {
         const sid = session_id ?? get().currentSessionId;
-        if (!sid) {
-          set({ latestResult: null });
-          return;
-        }
+        if (!sid) return;
         set((s) => {
-          const next = { ...s.bySession };
-          delete next[sid];
-          return {
-            bySession: next,
-            latestResult: s.currentSessionId === sid ? null : s.latestResult,
-          };
+          const nextBySession = { ...s.bySession };
+          delete nextBySession[sid];
+          const nextResults = { ...s.results };
+          delete nextResults[sid];
+          return { bySession: nextBySession, results: nextResults };
         });
       },
 
@@ -251,14 +242,21 @@ export const useWorkbenchStore = create<WorkbenchState>()(
       version: 2,
       partialize: (s) => ({
         bySession: s.bySession,
+        results: s.results,
         lastUserInput: s.lastUserInput,
       }),
       merge: (persisted: unknown, current: WorkbenchState): WorkbenchState => {
-        const safe = (persisted as Record<string, unknown> | null | undefined)?.bySession;
+        const p = persisted as Record<string, unknown> | null | undefined;
+        const safe = p?.bySession;
+        const safeResults = p?.results;
+        const merged: Partial<WorkbenchState> = {};
         if (safe && typeof safe === "object" && !Array.isArray(safe)) {
-          return { ...current, bySession: safe as Record<string, ChatMsg[]> };
+          merged.bySession = safe as Record<string, ChatMsg[]>;
         }
-        return current;
+        if (safeResults && typeof safeResults === "object" && !Array.isArray(safeResults)) {
+          merged.results = safeResults as Record<string, AgentResult[]>;
+        }
+        return { ...current, ...merged };
       },
     },
   ),

@@ -296,10 +296,8 @@ pre code {
   gap: 14px;
   min-width: 0;
   padding: 0 20px;
-  background: color-mix(in srgb, var(--surface) 96%, transparent);
+  background: var(--surface);
   border-bottom: 1px solid var(--line);
-  backdrop-filter: blur(12px) saturate(130%);
-  -webkit-backdrop-filter: blur(12px) saturate(130%);
 }
 
 .app-main {

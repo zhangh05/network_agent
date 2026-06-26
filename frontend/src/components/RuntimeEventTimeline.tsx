@@ -147,9 +147,9 @@ const EventCard: React.FC<{ evt: RuntimeEvent; idx: number }> = React.memo(({ ev
 /* ── Timeline ── */
 
 export const RuntimeEventTimeline: React.FC<{
-  result: AgentResult | undefined;
-}> = React.memo(function RuntimeEventTimeline({ result }) {
-  if (!result) {
+  results: AgentResult[];
+}> = React.memo(function RuntimeEventTimeline({ results }) {
+  if (!results || results.length === 0) {
     return (
       <div className="ret-empty" data-testid="timeline-empty">
         <div className="ret-empty-icon">⚡</div>
@@ -159,92 +159,98 @@ export const RuntimeEventTimeline: React.FC<{
     );
   }
 
-  const events = result.events ?? [];
-  const toolCalls = result.tool_calls ?? [];
-  const metadata = result.metadata ?? {};
-  const hasDiagnostics = !!(result.errors?.length) || !!(result.warnings?.length);
-
   return (
     <div className="ret-timeline" data-testid="runtime-timeline">
-      {/* Turn header */}
-      <div className="ret-turn-header">
-        <div className="ret-turn-title">
-          <span className={`ret-turn-ok ${result.ok ? "ok" : "err"}`}>
-            {result.ok ? "✓" : "✗"}
-          </span>
-          <span className="ret-turn-label">运行 {result.turn_id?.slice(0, 8) || ""}</span>
-        </div>
-        <div className="ret-turn-meta">
-          {metadata.workspace_id && <span className="ret-meta-chip">{metadata.workspace_id}</span>}
-          {metadata.planner_mode && <span className="ret-meta-chip">{metadata.planner_mode}</span>}
-          {result.tool_decision?.selected_tools?.length ? (
-            <span className="ret-meta-chip">{result.tool_decision.selected_tools.length} 工具</span>
-          ) : null}
-        </div>
-      </div>
+      {results.map((result, runIdx) => {
+        const events = result.events ?? [];
+        const toolCalls = result.tool_calls ?? [];
+        const metadata = result.metadata ?? {};
+        const hasDiagnostics = !!(result.errors?.length) || !!(result.warnings?.length);
 
-      {/* Diagnostics */}
-      {hasDiagnostics && (
-        <div className="ret-diag-banner" data-testid="diag-banner">
-          {result.errors?.map((e, i) => (
-            <div key={`err-${i}`} className="ret-diag-item err">{e}</div>
-          ))}
-          {result.warnings?.map((w, i) => (
-            <div key={`warn-${i}`} className="ret-diag-item warn">{w}</div>
-          ))}
-        </div>
-      )}
-
-      {/* Event stream */}
-      {events.length > 0 ? (
-        <div className="ret-events" data-testid="event-list">
-          {events.map((evt, idx) => (
-            <EventCard key={evt.event_id || `${idx}`} evt={evt} idx={idx} />
-          ))}
-        </div>
-      ) : (
-        <div className="ret-no-events">无运行时事件</div>
-      )}
-
-      {/* Tool calls */}
-      {toolCalls.length > 0 && (
-        <div className="ret-tool-panel" data-testid="tool-panel">
-          <div className="ret-section-title">工具调用 ({toolCalls.length})</div>
-          <div className="ret-tool-list">
-            {toolCalls.map((tc) => <ToolCallCard key={tc.call_id} tc={tc} />)}
-          </div>
-        </div>
-      )}
-
-      {/* Sources */}
-      {metadata.source_count ? (
-        <div className="ret-source-panel" data-testid="source-panel">
-          <div className="ret-section-title">
-            参考来源 · {metadata.source_count} 个
-            {metadata.retrieval_backend && (
-              <span className="ret-meta-chip">{metadata.retrieval_backend}</span>
-            )}
-          </div>
-        </div>
-      ) : null}
-
-      {/* Artifacts */}
-      {(() => {
-        const artifacts = toolCalls.flatMap((tc) => tc.artifacts ?? []);
-        if (artifacts.length === 0) return null;
         return (
-          <div className="ret-artifact-panel" data-testid="artifact-panel">
-            <div className="ret-section-title">产物 ({artifacts.length})</div>
-            <div className="ret-artifact-list">
-              {artifacts.slice(0, 8).map((a) => (
-                <span key={a.artifact_id} className="ret-artifact-chip" title={a.artifact_id}>
-                  {a.artifact_type ? `${a.artifact_type}: ` : ""}{a.title || a.artifact_id.slice(0, 12)}
+          <div key={result.turn_id || `run-${runIdx}`} className="ret-run-block">
+            {/* Turn header */}
+            <div className="ret-turn-header">
+              <div className="ret-turn-title">
+                <span className={`ret-turn-ok ${result.ok ? "ok" : "err"}`}>
+                  {result.ok ? "✓" : "✗"}
                 </span>
-              ))}
+                <span className="ret-turn-label">运行 {result.turn_id?.slice(0, 8) || `#${runIdx + 1}`}</span>
+              </div>
+              <div className="ret-turn-meta">
+                {metadata.workspace_id && <span className="ret-meta-chip">{metadata.workspace_id}</span>}
+                {metadata.planner_mode && <span className="ret-meta-chip">{metadata.planner_mode}</span>}
+                {result.tool_decision?.selected_tools?.length ? (
+                  <span className="ret-meta-chip">{result.tool_decision.selected_tools.length} 工具</span>
+                ) : null}
+              </div>
             </div>
+
+            {/* Diagnostics */}
+            {hasDiagnostics && (
+              <div className="ret-diag-banner" data-testid="diag-banner">
+                {result.errors?.map((e, i) => (
+                  <div key={`err-${i}`} className="ret-diag-item err">{e}</div>
+                ))}
+                {result.warnings?.map((w, i) => (
+                  <div key={`warn-${i}`} className="ret-diag-item warn">{w}</div>
+                ))}
+              </div>
+            )}
+
+            {/* Event stream */}
+            {events.length > 0 ? (
+              <div className="ret-events" data-testid="event-list">
+                {events.map((evt, idx) => (
+                  <EventCard key={evt.event_id || `${idx}`} evt={evt} idx={idx} />
+                ))}
+              </div>
+            ) : (
+              <div className="ret-no-events">无运行时事件</div>
+            )}
+
+            {/* Tool calls */}
+            {toolCalls.length > 0 && (
+              <div className="ret-tool-panel" data-testid="tool-panel">
+                <div className="ret-section-title">工具调用 ({toolCalls.length})</div>
+                <div className="ret-tool-list">
+                  {toolCalls.map((tc) => <ToolCallCard key={tc.call_id} tc={tc} />)}
+                </div>
+              </div>
+            )}
+
+            {/* Sources */}
+            {metadata.source_count ? (
+              <div className="ret-source-panel" data-testid="source-panel">
+                <div className="ret-section-title">
+                  参考来源 · {metadata.source_count} 个
+                  {metadata.retrieval_backend && (
+                    <span className="ret-meta-chip">{metadata.retrieval_backend}</span>
+                  )}
+                </div>
+              </div>
+            ) : null}
+
+            {/* Artifacts */}
+            {(() => {
+              const artifacts = toolCalls.flatMap((tc) => tc.artifacts ?? []);
+              if (artifacts.length === 0) return null;
+              return (
+                <div className="ret-artifact-panel" data-testid="artifact-panel">
+                  <div className="ret-section-title">产物 ({artifacts.length})</div>
+                  <div className="ret-artifact-list">
+                    {artifacts.slice(0, 8).map((a) => (
+                      <span key={a.artifact_id} className="ret-artifact-chip" title={a.artifact_id}>
+                        {a.artifact_type ? `${a.artifact_type}: ` : ""}{a.title || a.artifact_id.slice(0, 12)}
+                      </span>
+                    ))}
+                  </div>
+                </div>
+              );
+            })()}
           </div>
         );
-      })()}
+      })}
     </div>
   );
 });

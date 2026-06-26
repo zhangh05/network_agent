@@ -57,43 +57,43 @@ describe("RuntimeEventTimeline", () => {
   });
 
   it("renders turn header with turn_id", () => {
-    render(<RuntimeEventTimeline result={sampleResult} />);
+    render(<RuntimeEventTimeline results={[sampleResult]} />);
     expect(screen.getByTestId("runtime-timeline")).toBeInTheDocument();
     expect(screen.getByText(/turn_001/)).toBeInTheDocument();
   });
 
   it("shows event cards from events array", () => {
-    render(<RuntimeEventTimeline result={sampleResult} />);
+    render(<RuntimeEventTimeline results={[sampleResult]} />);
     expect(screen.getByTestId("event-0")).toBeInTheDocument();
     expect(screen.getByTestId("event-1")).toBeInTheDocument();
     expect(screen.getByTestId("event-2")).toBeInTheDocument();
   });
 
   it("shows tool calls panel", () => {
-    render(<RuntimeEventTimeline result={sampleResult} />);
+    render(<RuntimeEventTimeline results={[sampleResult]} />);
     expect(screen.getByTestId("tool-panel")).toBeInTheDocument();
     expect(screen.getByTestId("tool-call-call-1")).toBeInTheDocument();
   });
 
   it("shows diagnostics banner for errors", () => {
-    render(<RuntimeEventTimeline result={failedResult} />);
+    render(<RuntimeEventTimeline results={[failedResult]} />);
     expect(screen.getByTestId("diag-banner")).toBeInTheDocument();
     expect(screen.getByText(/SSH connection refused/)).toBeInTheDocument();
   });
 
   it("shows workspace and planner metadata", () => {
-    render(<RuntimeEventTimeline result={sampleResult} />);
+    render(<RuntimeEventTimeline results={[sampleResult]} />);
     expect(screen.getByText(/default/)).toBeInTheDocument();
     expect(screen.getByText(/deterministic/)).toBeInTheDocument();
   });
 
   it("shows empty state when result is undefined", () => {
-    render(<RuntimeEventTimeline result={undefined} />);
+    render(<RuntimeEventTimeline results={[]} />);
     expect(screen.getByTestId("timeline-empty")).toBeInTheDocument();
   });
 
   it("shows source panel when source_count > 0", () => {
-    render(<RuntimeEventTimeline result={sampleResult} />);
+    render(<RuntimeEventTimeline results={[sampleResult]} />);
     expect(screen.getByTestId("source-panel")).toBeInTheDocument();
     expect(screen.getByText(/3 个/)).toBeInTheDocument();
   });

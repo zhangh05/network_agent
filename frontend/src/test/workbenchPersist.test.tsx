@@ -44,7 +44,7 @@ describe("useWorkbenchStore — bySession + persist (plan-C)", () => {
     expect(s.bySession["s-a"]?.[1]?.text).toBe("你好, 有什么可以帮您?");
     expect(s.bySession["s-a"]?.[1]?.role).toBe("assistant");
     expect(s.bySession["s-a"]?.[1]?.result?.trace_id).toBe("trace-1");
-    expect(s.latestResult?.trace_id).toBe("trace-1");
+    expect(s.results["s-a"]?.[0]?.trace_id).toBe("trace-1");
   });
 
   it("null session_id → _scratch 池 (等后端 resolve 后由页面层迁移)", () => {

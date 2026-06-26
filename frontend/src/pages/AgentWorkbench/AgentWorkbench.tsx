@@ -99,7 +99,8 @@ export function TaskWorkbench() {
   const { currentWorkspaceId, currentSessionId } = useSessionStore();
   const sending = useWorkbenchStore((s) => s.sending);
   const lastUserInput = useWorkbenchStore((s) => s.lastUserInput);
-  const latestResult = useWorkbenchStore((s) => s.latestResult);
+  const results = useWorkbenchStore((s) => s.results);
+  const sessionResults = results[currentSessionId ?? "_scratch"] ?? [];
   const bySession = useWorkbenchStore((s) => s.bySession);
   const appendUser = useWorkbenchStore((s) => s.appendUser);
   const appendAssistant = useWorkbenchStore((s) => s.appendAssistant);
@@ -504,7 +505,7 @@ export function TaskWorkbench() {
 
         {viewMode === "timeline" ? (
           /* ── Timeline view ── */
-          <RuntimeEventTimeline result={latestResult ?? undefined} />
+          <RuntimeEventTimeline results={sessionResults} />
         ) : (visibleHistory?.length ?? 0) === 0 && !sending ? (
           /* ── Chat empty state ── */
           <div className="wb-empty" data-testid="workbench-empty">
@@ -578,10 +579,10 @@ export function TaskWorkbench() {
       </div>
 
       {/* ── Retry bar ── */}
-      {!sending && latestResult && !latestResult.ok && lastUserInput && (
+      {!sending && sessionResults.length > 0 && !sessionResults[sessionResults.length - 1].ok && lastUserInput && (
         <div className="wb-retry-bar">
           <IconAlert size={11} />
-          <span>{_humanFailure(latestResult.errors?.[0] ?? "请求失败")}</span>
+          <span>{_humanFailure(sessionResults[sessionResults.length - 1].errors?.[0] ?? "请求失败")}</span>
           <button type="button" onClick={() => onSend(lastUserInput)} data-testid="retry-btn">
             自动重试
           </button>
