@@ -122,7 +122,7 @@ def build_trajectory(task_id: str, ws_id: str) -> Optional[TrajectoryRecord]:
             if "reject" in t: m.approval_reject_count += 1
             if "edit" in t: m.approval_edit_count += 1
         if "subagent" in t: m.subagent_count += 1
-        if "cancelled" in t: m.cancellations.append(e)
+        if "cancelled" in t: traj.cancellations.append(e)
         if "conflict" in t: m.memory_conflict_count += 1
         if "violation" in t: m.workspace_boundary_violation_count += 1
 

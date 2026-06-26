@@ -93,7 +93,7 @@ class ToolExecutor:
             try:
                 raw = handler(invocation)
                 # Redact output
-                raw_safe = redact_tool_output(raw) if isinstance(raw, dict) else {"output": str(raw)}
+                raw_safe = redact_tool_output(raw) if isinstance(raw, dict) else redact_tool_output({"output": str(raw)})
                 duration = int((time.time() - start_time) * 1000)
                 result = ToolResult(
                     invocation_id=invocation.invocation_id,

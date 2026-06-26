@@ -115,6 +115,10 @@ def register_state_routes(app):
         if not ws_id:
             return jsonify({"ok": False, "error": "workspace_id is required"}), 400
         try:
+            from agent.runtime.durable.store import get_task
+            task = get_task(ws_id, task_id)
+            if not task or task.workspace_id != ws_id:
+                return jsonify({"ok": False, "error": "task not found in workspace"}), 404
             from agent.runtime.durable.control import cancel_task
             result = cancel_task(task_id, ws_id)
             code = 200 if result["ok"] else (404 if "not found" in result.get("error","") else 400)
@@ -129,6 +133,10 @@ def register_state_routes(app):
         if not ws_id:
             return jsonify({"ok": False, "error": "workspace_id is required"}), 400
         try:
+            from agent.runtime.durable.store import get_task
+            task = get_task(ws_id, task_id)
+            if not task or task.workspace_id != ws_id:
+                return jsonify({"ok": False, "error": "task not found in workspace"}), 404
             from agent.runtime.durable.control import resume_task
             result = resume_task(task_id, ws_id)
             code = 200 if result["ok"] else (404 if "not found" in result.get("error","") else 400)
@@ -143,6 +151,10 @@ def register_state_routes(app):
         if not ws_id:
             return jsonify({"ok": False, "error": "workspace_id is required"}), 400
         try:
+            from agent.runtime.durable.store import get_task
+            task = get_task(ws_id, task_id)
+            if not task or task.workspace_id != ws_id:
+                return jsonify({"ok": False, "error": "task not found in workspace"}), 404
             from agent.runtime.durable.control import retry_step
             result = retry_step(task_id, step_id, ws_id)
             code = 200 if result["ok"] else (404 if "not found" in result.get("error","") else 400)

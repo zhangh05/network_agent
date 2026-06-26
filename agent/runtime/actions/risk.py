@@ -119,6 +119,10 @@ class RiskPolicy:
                 decision.risk_level = manifest.risk_level
                 decision.approval_required = manifest.requires_approval
                 decision.reason = manifest.approval_reason_template or f"{manifest.action_class} action: {manifest.display_name}"
+                # Safety floor: manifest can only tighten, not relax. Force approval for mutate/delete.
+                if plan.action_class in ("mutate", "delete") and not decision.approval_required:
+                    decision.approval_required = True
+                    decision.warnings.append("safety_floor_mutate_requires_approval")
             plan.risk_level = decision.risk_level
             _apply_conflict_risk(decision, plan, evidence_bundle)
             return decision

@@ -69,7 +69,9 @@ DESTRUCTIVE_MODES = {"network_change", "code"}
 
 def validate_delivery(mode: DeliveryMode, checks: dict) -> tuple[bool, list[str]]:
     """Validate delivery readiness. Returns (ok, missing_checks)."""
-    required = VALIDATION_REQUIREMENTS.get(mode, [])
+    if mode not in VALIDATION_REQUIREMENTS:
+        return False, ["unknown_delivery_mode"]
+    required = VALIDATION_REQUIREMENTS[mode]
     missing = [c for c in required if not checks.get(c)]
     return len(missing) == 0, missing
 

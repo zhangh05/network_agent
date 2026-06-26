@@ -461,12 +461,21 @@ def _summarize_args(args: dict) -> str:
 # Singleton
 _approval_store: Optional[ApprovalStore] = None
 
-
 def get_approval_store() -> ApprovalStore:
     global _approval_store
     if _approval_store is None:
-        _approval_store = ApprovalStore()
+        with _get_lock():
+            if _approval_store is None:
+                _approval_store = ApprovalStore()
     return _approval_store
+
+_appr_lock = None
+def _get_lock():
+    global _appr_lock
+    if _appr_lock is None:
+        import threading
+        _appr_lock = threading.Lock()
+    return _appr_lock
 
 
 def reset_approval_store_for_tests(remove_persisted: bool = False) -> None:

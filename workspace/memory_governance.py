@@ -104,7 +104,9 @@ class MemoryStore:
             if r.scope == "global": pass
             elif r.scope == "workspace" and r.workspace_id != ws_id: continue
             elif r.scope == "session" and r.session_id != session_id: continue
-            # task scope: include if session matches
+            elif r.scope == "task":
+                # task-scoped memory only visible within same session
+                if session_id and r.session_id != session_id: continue
             if memory_type and r.memory_type != memory_type: continue
             results.append(r)
         return results

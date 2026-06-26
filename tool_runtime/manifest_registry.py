@@ -34,7 +34,7 @@ MANIFESTS: dict[str, CapabilityManifest] = {
     "exec.run": CapabilityManifest(
         tool_id="exec.run", category="exec", display_name="Shell Execute",
         description="Execute shell command", action_class="execute",
-        risk_level="low", side_effects="remote_exec",
+        risk_level="medium", side_effects="remote_exec",
         idempotency="unsafe_to_retry", rollback_strategy="none",
         secret_fields=["cmd"], output_sensitivity="secret",
         timeout_seconds=120,
@@ -43,7 +43,7 @@ MANIFESTS: dict[str, CapabilityManifest] = {
     "exec.python": CapabilityManifest(
         tool_id="exec.python", category="exec", display_name="Python Execute",
         description="Execute Python code", action_class="execute",
-        risk_level="low", side_effects="remote_exec",
+        risk_level="medium", side_effects="remote_exec",
         idempotency="unsafe_to_retry",
         secret_fields=["code"], output_sensitivity="sensitive",
         timeout_seconds=60,
@@ -51,7 +51,7 @@ MANIFESTS: dict[str, CapabilityManifest] = {
     "exec.slash": CapabilityManifest(
         tool_id="exec.slash", category="exec", display_name="Shell Command (direct)",
         description="Direct shell command", action_class="execute",
-        risk_level="low", side_effects="remote_exec",
+        risk_level="medium", side_effects="remote_exec",
         idempotency="unsafe_to_retry",
         output_sensitivity="sensitive", timeout_seconds=120,
     ),
