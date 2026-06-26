@@ -212,5 +212,5 @@ def _failed_result(invocation_id: str, tool_id: str, error: str, duration_ms: in
         summary=error[:200],
         errors=[error[:200]],
         duration_ms=duration_ms,
-        redacted=False,
+        redacted=True,
     )
