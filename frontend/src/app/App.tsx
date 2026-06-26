@@ -2,7 +2,7 @@ import { BrowserRouter, Navigate, NavLink, Route, Routes } from "react-router-do
 import { useEffect, useState } from "react";
 import { ErrorBoundary } from "../components/ErrorBoundary";
 import { AppLayout } from "../layouts/AppLayout";
-import { AgentWorkbench } from "../pages/AgentWorkbench/AgentWorkbench";
+import { TaskWorkbench } from "../pages/AgentWorkbench/AgentWorkbench";
 import { CapabilityCenter } from "../pages/CapabilityCenter/CapabilityCenter";
 import { RunsPage } from "../pages/RunsPage/RunsPage";
 import { Settings } from "../pages/Settings/Settings";
@@ -138,7 +138,7 @@ export function App() {
               element={
                 <ErrorBoundary>
                   <AppLayout cols={3}>
-                    <AgentWorkbench />
+                    <TaskWorkbench />
                   </AppLayout>
                 </ErrorBoundary>
               }

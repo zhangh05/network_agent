@@ -8,7 +8,7 @@
 import { describe, it, expect, beforeEach } from "vitest";
 import { render, screen, fireEvent } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { AgentWorkbench } from "../pages/AgentWorkbench/AgentWorkbench";
+import { TaskWorkbench } from "../pages/AgentWorkbench/AgentWorkbench";
 import { enqueue, installMockApi, resetMocks } from "./mockServer";
 import { useSessionStore } from "../stores/session";
 import { useWorkbenchStore } from "../stores/workbench";
@@ -57,7 +57,7 @@ describe("Agent Workbench — source_summary rendering", () => {
     enqueue("/runs/recent", { status: 200, data: { runs: [] } });
     // plan-C: background fetch on session switch + on turn complete
     enqueue("/sessions/s-1/messages", { status: 200, data: { ok: true, messages: [], count: 0 } });
-    render(<AgentWorkbench />);
+    render(<TaskWorkbench />);
     const input = await screen.findByTestId("chat-input");
     fireEvent.change(input, { target: { value: "什么是 OSPF?" } });
     const sendButton = screen.getByTestId("btn-send");
@@ -110,7 +110,7 @@ describe("Agent Workbench — source_summary rendering", () => {
     enqueue("/memory/confirm", { status: 200, data: { ok: true, memory_id: "mem-1" } });
     enqueue("/knowledge/upload", { status: 200, data: { ok: true, source: { source_id: "ksrc-new", workspace_id: "ws-1", title: "对话结论", tags: [], enabled: true, chunk_count: 1, created_at: "" } } });
 
-    render(<AgentWorkbench />);
+    render(<TaskWorkbench />);
     const input = await screen.findByTestId("chat-input");
     fireEvent.change(input, { target: { value: "OSPF FULL 变 INIT" } });
     fireEvent.click(screen.getByTestId("btn-send"));
@@ -144,7 +144,7 @@ describe("Agent Workbench — source_summary rendering", () => {
     enqueue("/agent/message", { status: 200, data: resp });
     enqueue("/sessions/s-1/messages", { status: 200, data: { ok: true, messages: [], count: 0 } });
 
-    render(<AgentWorkbench />);
+    render(<TaskWorkbench />);
     const input = await screen.findByTestId("chat-input");
     fireEvent.change(input, { target: { value: "一句话说明能力" } });
     fireEvent.click(screen.getByTestId("btn-send"));
@@ -189,7 +189,7 @@ describe("Agent Workbench — source_summary rendering", () => {
     enqueue("/agent/message", { status: 200, data: resp });
     enqueue("/sessions/s-1/messages", { status: 200, data: { ok: true, messages: [], count: 0 } });
 
-    render(<AgentWorkbench />);
+    render(<TaskWorkbench />);
     const input = await screen.findByTestId("chat-input");
     fireEvent.change(input, { target: { value: "翻译这段配置" } });
     fireEvent.click(screen.getByTestId("btn-send"));

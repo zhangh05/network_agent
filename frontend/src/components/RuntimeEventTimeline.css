@@ -1,0 +1,316 @@
+/* RuntimeEventTimeline — v3.9 task execution timeline */
+
+/* ── View mode tabs ── */
+
+.wb-view-tabs {
+  display: flex;
+  gap: 4px;
+  padding: 8px 12px;
+  border-bottom: 1px solid #e2e8f0;
+  background: #f8fafc;
+  position: sticky;
+  top: 0;
+  z-index: 5;
+}
+.wb-view-tab {
+  padding: 6px 16px;
+  border: 1px solid #e2e8f0;
+  border-radius: 6px;
+  background: #fff;
+  color: #64748b;
+  font-size: 13px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.15s;
+}
+.wb-view-tab:hover {
+  background: #f1f5f9;
+  color: #334155;
+}
+.wb-view-tab.active {
+  background: #6366f1;
+  color: #fff;
+  border-color: #6366f1;
+}
+
+/* ── Timeline — rest of the file ── */
+
+.ret-empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 60px 20px;
+  color: #94a3b8;
+  text-align: center;
+  min-height: 200px;
+}
+.ret-empty-icon { font-size: 40px; margin-bottom: 12px; opacity: 0.5; }
+.ret-empty p { margin: 4px 0; font-size: 14px; }
+.ret-empty-hint { font-size: 12px; color: #cbd5e1; }
+
+/* ── Timeline container ── */
+
+.ret-timeline {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 12px 0;
+}
+
+/* ── Turn header ── */
+
+.ret-turn-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 8px 12px;
+  background: #f8fafc;
+  border: 1px solid #e2e8f0;
+  border-radius: 8px;
+}
+.ret-turn-title {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-weight: 600;
+  font-size: 14px;
+}
+.ret-turn-ok { font-size: 16px; }
+.ret-turn-ok.ok { color: #10b981; }
+.ret-turn-ok.err { color: #ef4444; }
+.ret-turn-meta {
+  display: flex;
+  gap: 6px;
+  align-items: center;
+}
+.ret-meta-chip {
+  font-size: 11px;
+  padding: 2px 8px;
+  border-radius: 4px;
+  background: #f1f5f9;
+  color: #475569;
+  border: 1px solid #e2e8f0;
+  white-space: nowrap;
+}
+
+/* ── Diagnostics banner ── */
+
+.ret-diag-banner {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 8px 12px;
+  border-radius: 6px;
+  background: #fffbeb;
+  border: 1px solid #fde68a;
+}
+.ret-diag-item {
+  font-size: 12px;
+  font-family: monospace;
+  line-height: 1.4;
+}
+.ret-diag-item.err { color: #dc2626; }
+.ret-diag-item.warn { color: #d97706; }
+
+/* ── Event stream ── */
+
+.ret-events {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.ret-no-events {
+  padding: 16px;
+  text-align: center;
+  font-size: 13px;
+  color: #94a3b8;
+}
+
+/* ── Event card ── */
+
+.ret-event-card {
+  border-left: 3px solid #94a3b8;
+  border-radius: 4px;
+  padding: 8px 10px;
+  font-size: 13px;
+}
+.ret-event-header {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.ret-event-icon { font-size: 14px; }
+.ret-event-type {
+  font-weight: 600;
+  font-size: 12px;
+  text-transform: uppercase;
+  letter-spacing: 0.3px;
+}
+.ret-event-duration {
+  font-size: 11px;
+  color: #94a3b8;
+  font-family: monospace;
+  margin-left: auto;
+}
+.ret-event-time {
+  font-size: 11px;
+  color: #94a3b8;
+  font-family: monospace;
+}
+.ret-event-summary {
+  margin-top: 4px;
+  font-size: 12px;
+  color: #334155;
+  line-height: 1.4;
+}
+.ret-event-error {
+  margin-top: 4px;
+  font-size: 12px;
+  color: #dc2626;
+  font-family: monospace;
+  background: #fef2f2;
+  padding: 4px 8px;
+  border-radius: 4px;
+}
+.ret-event-tool-ref {
+  margin-top: 4px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.ret-event-tool-ref code {
+  font-size: 11px;
+  background: #f1f5f9;
+  padding: 2px 6px;
+  border-radius: 3px;
+  color: #475569;
+}
+.ret-approval-chip {
+  font-size: 10px;
+  padding: 1px 6px;
+  border-radius: 3px;
+  background: #fef2f2;
+  color: #dc2626;
+  border: 1px solid #fecaca;
+}
+
+/* ── Section titles ── */
+
+.ret-section-title {
+  font-size: 13px;
+  font-weight: 600;
+  color: #334155;
+  margin-bottom: 8px;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+/* ── Tool calls panel ── */
+
+.ret-tool-panel {
+  margin-top: 4px;
+  padding: 12px;
+  background: #f8fafc;
+  border: 1px solid #e2e8f0;
+  border-radius: 8px;
+}
+.ret-tool-list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+/* ── Tool call card ── */
+
+.ret-tool-card {
+  padding: 8px 10px;
+  border: 1px solid #e2e8f0;
+  border-radius: 6px;
+  background: #fff;
+  font-size: 12px;
+}
+.ret-tool-header {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.ret-tool-icon {
+  font-size: 13px;
+  width: 18px;
+  text-align: center;
+}
+.ret-tool-id {
+  font-weight: 600;
+  color: #6366f1;
+}
+.ret-tool-status {
+  font-size: 11px;
+  padding: 1px 6px;
+  border-radius: 3px;
+  font-weight: 500;
+}
+.ret-tool-status.ok { background: #ecfdf5; color: #059669; }
+.ret-tool-status.err { background: #fef2f2; color: #dc2626; }
+.ret-tool-duration {
+  margin-left: auto;
+  font-size: 11px;
+  color: #94a3b8;
+  font-family: monospace;
+}
+.ret-tool-summary {
+  margin-top: 4px;
+  font-size: 12px;
+  color: #475569;
+  line-height: 1.4;
+}
+.ret-tool-errors {
+  margin-top: 4px;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.ret-tool-err {
+  font-size: 11px;
+  color: #dc2626;
+  font-family: monospace;
+}
+.ret-tool-artifacts {
+  margin-top: 6px;
+  display: flex;
+  gap: 4px;
+  flex-wrap: wrap;
+}
+.ret-artifact-chip {
+  font-size: 11px;
+  padding: 2px 8px;
+  border-radius: 4px;
+  background: #f0fdf4;
+  color: #166534;
+  border: 1px solid #bbf7d0;
+  cursor: pointer;
+}
+
+/* ── Source & artifact panels ── */
+
+.ret-source-panel,
+.ret-artifact-panel {
+  margin-top: 4px;
+  padding: 12px;
+  background: #f8fafc;
+  border: 1px solid #e2e8f0;
+  border-radius: 8px;
+}
+.ret-artifact-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+
+/* ── Responsive tweaks ── */
+
+@media (max-width: 768px) {
+  .ret-turn-header { flex-direction: column; align-items: flex-start; gap: 6px; }
+  .ret-turn-meta { flex-wrap: wrap; }
+}

@@ -2,7 +2,7 @@ import { describe, it, expect, beforeEach, vi } from "vitest";
 import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { App } from "../app/App";
 import { Sidebar } from "../layouts/Sidebar";
-import { AgentWorkbench } from "../pages/AgentWorkbench/AgentWorkbench";
+import { TaskWorkbench } from "../pages/AgentWorkbench/AgentWorkbench";
 import { RuntimeAudit } from "../pages/RuntimeAudit/RuntimeAudit";
 import { enqueue, installMockApi, resetMocks } from "./mockServer";
 import { useSessionStore, useUIStore } from "../stores/session";
@@ -82,7 +82,7 @@ describe("Experience polish", () => {
       },
     });
 
-    render(<AgentWorkbench />);
+    render(<TaskWorkbench />);
 
     // v2 workbench: empty state is shown; runtime summary moved to header status line
     expect(await screen.findByTestId("workbench-empty")).toBeInTheDocument();
@@ -94,7 +94,7 @@ describe("Experience polish", () => {
       status: 200,
       data: { ok: true, messages: [], count: 0 },
     });
-    render(<AgentWorkbench />);
+    render(<TaskWorkbench />);
 
     act(() => {
       useWorkbenchStore.setState({
@@ -114,7 +114,7 @@ describe("Experience polish", () => {
   });
 
   it("fills a clear prompt from a quick chip", async () => {
-    render(<AgentWorkbench />);
+    render(<TaskWorkbench />);
 
     fireEvent.click((await screen.findAllByText("出口策略放通检查"))[0]);
 

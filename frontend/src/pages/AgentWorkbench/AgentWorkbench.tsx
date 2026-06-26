@@ -33,7 +33,12 @@ import { agentResultFromWsDone } from "../../utils/wsResult";
 import { notifyRunCompleted } from "../../utils/appEvents";
 import { IconAlert, IconBolt, IconSend } from "../../components/Icon";
 import { ApprovalBubble } from "../../components/ApprovalBubble";
+import { RuntimeEventTimeline } from "../../components/RuntimeEventTimeline";
+import "../../components/RuntimeEventTimeline.css";
 import { formatFileSize } from "../../utils/format";
+
+/* ── v3.9 View mode ── */
+type ViewMode = "chat" | "timeline";
 
 const QUICK_CHIPS = [
   {
@@ -90,7 +95,7 @@ function _humanFailure(text: string): string {
   return text;
 }
 
-export function AgentWorkbench() {
+export function TaskWorkbench() {
   const { currentWorkspaceId, currentSessionId } = useSessionStore();
   const sending = useWorkbenchStore((s) => s.sending);
   const lastUserInput = useWorkbenchStore((s) => s.lastUserInput);
@@ -105,6 +110,7 @@ export function AgentWorkbench() {
 
   const activeHistoryKey = currentSessionId ?? "_scratch";
   const visibleHistory = bySession?.[activeHistoryKey] ?? [];
+  const [viewMode, setViewMode] = useState<ViewMode>("chat");
   const [input, setInput] = useState("");
   const [attachments, setAttachments] = useState<Array<{ id: string; name: string; size: string; file: File; uploading?: boolean }>>([]);
   const [streamingText, setStreamingText] = useState("");
@@ -476,33 +482,41 @@ export function AgentWorkbench() {
         </div>
       </div>
 
-      {/* ── Chat area ── */}
+      {/* ── View mode toggle & content ── */}
       <div className="wb-chat" ref={chatRef} data-testid="chat-stream">
-        {(visibleHistory?.length ?? 0) === 0 && !sending ? (
-          <div className="wb-empty wb-empty-enhanced" data-testid="workbench-empty">
-            <h2>网络任务工作区</h2>
-            <p>输入故障现象、配置片段或排查目标，AI Agent 会按会话记录、知识证据和工具结果组织输出。</p>
+        {/* View mode toggle */}
+        <div className="wb-view-tabs">
+          <button
+            type="button"
+            className={`wb-view-tab ${viewMode === "chat" ? "active" : ""}`}
+            onClick={() => setViewMode("chat")}
+            data-testid="view-chat"
+          >
+            💬 对话
+          </button>
+          <button
+            type="button"
+            className={`wb-view-tab ${viewMode === "timeline" ? "active" : ""}`}
+            onClick={() => setViewMode("timeline")}
+            data-testid="view-timeline"
+          >
+            📋 时间线
+          </button>
+        </div>
+
+        {viewMode === "timeline" ? (
+          /* ── Timeline view ── */
+          <RuntimeEventTimeline result={latestResult ?? undefined} />
+        ) : (visibleHistory?.length ?? 0) === 0 && !sending ? (
+          /* ── Chat empty state ── */
+          <div className="wb-empty" data-testid="workbench-empty">
+            <h2>任务工作台</h2>
+            <p>输入故障现象、配置片段或排查目标，AI Agent 按事件时间线组织执行过程。</p>
             <div className="wb-empty-chips">
               {QUICK_CHIPS.map((c) => (
                 <button key={c.label} className="wb-input-chip" type="button" onClick={() => pickChip(c.prompt)} title={c.prompt}>
                   {c.label}
                 </button>
-              ))}
-            </div>
-            <div className="wb-empty-features">
-              {[
-                { icon: "🔍", title: "知识检索", desc: "自动搜索知识库和文档" },
-                { icon: "🔧", title: "设备管控", desc: "SSH/SNMP 远程操作和配置" },
-                { icon: "📊", title: "数据分析", desc: "PCAP 解析、报表生成" },
-                { icon: "💾", title: "记忆持久", desc: "跨会话记住重要结论" },
-                { icon: "📂", title: "文件管理", desc: "上传配置文件、导出报告" },
-                { icon: "🤖", title: "多人协作", desc: "子 Agent 并行执行任务" },
-              ].map((feat) => (
-                <div key={feat.title} className="wb-empty-feature">
-                  <div className="wb-empty-feature-icon">{feat.icon}</div>
-                  <h4>{feat.title}</h4>
-                  <p>{feat.desc}</p>
-                </div>
               ))}
             </div>
           </div>
@@ -541,6 +555,7 @@ export function AgentWorkbench() {
           )
         )}
 
+        {/* ── Streaming indicator ── */}
         {sending && (
           <div className="message-row assistant" data-testid="chat-sending">
             <div className="message-avatar agent">网</div>
