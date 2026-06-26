@@ -179,3 +179,74 @@ git grep -rn "AgentInspector" frontend/src/                          # Should be
 # Verify workspace validation
 git grep -n "default.*workspace_id\|workspace_id.*default" backend/api/*routes.py | grep -v "#"
 ```
+
+---
+
+## Phase 2: Durable Runtime State (新增)
+
+### Data Models (`agent/runtime/durable/models.py`)
+
+```
+TaskState
+├── task_id, workspace_id, session_id, run_id, job_id, trace_id
+├── user_goal, status (pending/running/waiting_approval/succeeded/failed/cancelled)
+├── current_step_id, steps: RuntimeStep[], pending_approval_id
+├── tool_results, artifact_ids, warnings, errors
+└── created_at, updated_at
+
+RuntimeStep
+├── step_id, task_id, kind (message/model/tool/approval/checkpoint/validation/final/error)
+├── status (pending/running/succeeded/failed/skipped/cancelled)
+├── title, summary, tool_id, approval_id
+├── input_ref, output_ref (pointers to redacted records)
+└── started_at, finished_at, duration_ms
+
+RuntimeEvent
+├── event_id, task_id, workspace_id, session_id, run_id, step_id
+├── type, status, title, summary, payload_redacted
+└── created_at
+
+RuntimeCheckpoint
+├── checkpoint_id, task_id, workspace_id, session_id, run_id, step_id
+├── state_snapshot (redacted), pending_action (redacted), artifact_refs
+└── created_at
+```
+
+### Storage Layout
+
+```
+workspaces/<ws_id>/durable/
+├── tasks/<task_id>.json         (atomic JSON)
+├── events/<task_id>.events.json (append-only JSONL)
+└── checkpoints/<task_id>/<checkpoint_id>.json (atomic JSON)
+```
+
+### API Endpoints
+
+| Method | Path | Description |
+|--------|------|-------------|
+| GET | `/api/runtime/tasks?workspace_id=&session_id=` | List tasks |
+| GET | `/api/runtime/tasks/<task_id>?workspace_id=` | Task detail |
+| GET | `/api/runtime/tasks/<task_id>/events?workspace_id=` | Task events |
+| GET | `/api/runtime/tasks/<task_id>/checkpoints?workspace_id=` | Task checkpoints |
+
+### Runtime Injection (TurnRunner)
+
+TaskState is created at turn start, updated during execution:
+1. `task_started` event → context step → model step(s) → tool steps → final step → `task_finished` event
+2. TaskState persisted on completion via `save_task()`
+3. RuntimeEvents appended via `append_event()`
+
+### Redaction
+
+`password`, `token`, `api_key`, `secret`, `credential`, `private_key`, `access_key`,
+`auth`, `authorization`, `x-api-token`, `x-admin-token` → `[REDACTED]`.
+String values > 256 chars truncated.
+
+### Relationship to v3.9 run/message/trace
+
+| v3.9 | v3.10 | Relationship |
+|------|-------|-------------|
+| `run_store.write_run_record()` | `durable.store.save_task()` | TaskState is primary; run record is audit derivative |
+| `message_store.write_message()` | TaskState.user_goal + steps | Messages persist alongside but TaskState is the canonical event source |
+| `trace.json` | `durable.store.append_event()` | RuntimeEvents are the new canonical trace; old trace is historical audit |

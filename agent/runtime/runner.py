@@ -83,6 +83,36 @@ class TurnRunner:
 
         events = RuntimeEventBus(state)
 
+        # ── v3.10: Durable TaskState ──
+        ws_id = getattr(self.session, 'workspace_id', '') or ''
+        sid = getattr(self.session, 'session_id', '')
+        run_id = getattr(state.turn, 'turn_id', '')
+        try:
+            from agent.runtime.durable import TaskState, RuntimeStep, RuntimeEvent as RTEvent
+            from agent.runtime.durable.store import save_task, append_event as _append_rt_event
+            _task = TaskState.new(
+                workspace_id=ws_id, session_id=sid, run_id=run_id,
+                user_goal=self.turn.op.user_input if self.turn.op else "",
+            )
+            _task.update_status("running")
+            _task_run_id = run_id  # capture for later use
+            # Emit task_started event
+            _append_rt_event(RTEvent(
+                event_id=f"evt-{_task.task_id}-start",
+                task_id=_task.task_id, workspace_id=ws_id, session_id=sid, run_id=run_id,
+                type="task_started", status="ok",
+                title="Task started", summary=_task.user_goal[:200],
+            ))
+            # Context step
+            _ctx_step = _task.add_step(RuntimeStep(
+                step_id=f"step-{_task.task_id}-ctx",
+                task_id=_task.task_id, kind="message", title="Context built",
+            ))
+            _ctx_step.mark_started()
+        except Exception:
+            _task = None
+            _task_run_id = ""
+
         # ── Turn started ──
         events.turn_started(
             trace_id=fallback_trace_id,
@@ -92,6 +122,10 @@ class TurnRunner:
 
         # ── Context stage ──
         ContextStage().run(state)
+
+        # v3.10: mark context step done
+        if _task and '_ctx_step' in dir():
+            _ctx_step.mark_finished(ok=True, summary="Context built")
 
         if not getattr(state.context, 'trace_id', None):
             state.context.trace_id = fallback_trace_id
@@ -133,6 +167,18 @@ class TurnRunner:
             _trim_messages_if_needed(state)
 
             # Model invocation
+            # v3.10: model step
+            _model_step = None
+            if _task:
+                try:
+                    _model_step = RuntimeStep(
+                        step_id=f"step-{_task.task_id}-model-{state.step}",
+                        task_id=_task.task_id, kind="model", title=f"Model call #{state.step}",
+                    )
+                    _task.add_step(_model_step)
+                    _model_step.mark_started()
+                except Exception:
+                    pass
             try:
                 resp = model_stage.run(state, events)
             except TokenLimitExceeded as e:
@@ -219,6 +265,10 @@ class TurnRunner:
 
             # Handle tool calls
             if resp.has_tool_calls():
+                # v3.10: mark model step (tools ahead)
+                if _model_step:
+                    _model_step.mark_finished(ok=True, summary="Produced tool calls")
+
                 tool_stop = pipeline.run(state, resp, events)
 
                 if tool_stop:
@@ -268,6 +318,25 @@ class TurnRunner:
             self.turn.status = "finished"
             self.turn.final_response = state.final_response
             events.final(state.final_response)
+
+            # v3.10: final step + persist TaskState
+            if _task:
+                try:
+                    _task.add_step(RuntimeStep(
+                        step_id=f"step-{_task.task_id}-final", task_id=_task.task_id,
+                        kind="final", title="Answer delivered",
+                        summary=state.final_response[:200],
+                    )).mark_finished(ok=True, summary=state.final_response[:200])
+                    _task.update_status("succeeded")
+                    _append_rt_event(RTEvent(
+                        event_id=f"evt-{_task.task_id}-done",
+                        task_id=_task.task_id, workspace_id=ws_id, session_id=sid, run_id=_task_run_id,
+                        type="task_finished", status="succeeded",
+                        title="Task finished", summary=state.final_response[:200],
+                    ))
+                    save_task(_task)
+                except Exception:
+                    pass
 
             # Record tool co-occurrence graph after successful turn
             _record_tool_graph(state)
