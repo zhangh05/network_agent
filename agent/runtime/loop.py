@@ -26,7 +26,9 @@ import os as _os
 
 from agent.runtime.result import AgentResult
 
-MAX_STEPS = 24  # default; v3.8: raised from 8 for long multi-step tasks
+MAX_STEPS = 24  # v3.10: raised from 8 for long multi-step tasks
+
+# ── approval timeout ──
 
 # MAX_STEPS is configurable through three layers (highest wins):
 #   1. env var AGENT_MAX_STEPS               — operator-level ops override
@@ -98,7 +100,7 @@ def run_turn(session, turn, services=None, restricted_tool_router=None) -> Agent
 
     Phase 3: restricted_tool_router is used by sub-agents to limit tool access.
     
-    v3.8: Supports runtime_mode switching via AGENT_RUNTIME env var:
+    v3.10: Supports runtime_mode switching via AGENT_RUNTIME env var:
       - "langgraph" → uses GraphRunner (StateGraph + checkpoint + streaming)
       - default → uses TurnRunner (while loop, stable)
     """

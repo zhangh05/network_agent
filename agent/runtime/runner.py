@@ -1,7 +1,7 @@
 # agent/runtime/runner.py
 """TurnRunner — the core turn execution engine, stage-pipeline architecture.
 
-v3.8: Message trimming to prevent token explosion in long multi-step turns.
+v3.10: Message trimming to prevent token explosion in long multi-step turns.
 
 Delegates phases to:
   - ContextStage      (agent.runtime.stages.context)
