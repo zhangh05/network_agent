@@ -57,6 +57,8 @@ function mockApi(overrides: Partial<{
   providerDelete: ReturnType<typeof vi.fn>;
   llmActivate: ReturnType<typeof vi.fn>;
   llmTest: ReturnType<typeof vi.fn>;
+  workspaceSettings: ReturnType<typeof vi.fn>;
+  updateWorkspaceSettings: ReturnType<typeof vi.fn>;
 }> = {}) {
   const providers = overrides.providersList ?? makeProviders("minimax");
   const spy = {
@@ -66,6 +68,8 @@ function mockApi(overrides: Partial<{
     providerDelete: overrides.providerDelete ?? vi.fn().mockResolvedValue({ ok: true, deleted: true }),
     llmActivate: overrides.llmActivate ?? vi.fn().mockResolvedValue({ ok: true, config: { ...providers.providers[0], is_active: true }, active: "minimax", message: "已切换到 MiniMax" }),
     llmTest: overrides.llmTest ?? vi.fn().mockResolvedValue({} as LlmTestResult),
+    workspaceSettings: overrides.workspaceSettings ?? vi.fn().mockResolvedValue({ workspace: { memory_gating: "rule_only" } }),
+    updateWorkspaceSettings: overrides.updateWorkspaceSettings ?? vi.fn().mockResolvedValue({ ok: true, workspace: { memory_gating: "llm_first" } }),
   };
   vi.spyOn(settingsApi, "providersList").mockImplementation(spy.providersList);
   vi.spyOn(settingsApi, "providerSave").mockImplementation(spy.providerSave);
@@ -73,6 +77,8 @@ function mockApi(overrides: Partial<{
   vi.spyOn(settingsApi, "providerDelete").mockImplementation(spy.providerDelete);
   vi.spyOn(settingsApi, "llmActivate").mockImplementation(spy.llmActivate);
   vi.spyOn(settingsApi, "llmTest").mockImplementation(spy.llmTest);
+  vi.spyOn(settingsApi, "workspaceSettings").mockImplementation(spy.workspaceSettings);
+  vi.spyOn(settingsApi, "updateWorkspaceSettings").mockImplementation(spy.updateWorkspaceSettings);
   return spy;
 }
 
@@ -254,6 +260,7 @@ describe("Settings — LLM Provider configuration v2", () => {
   });
 
   it("加载失败时显示 error card", async () => {
+    vi.spyOn(settingsApi, "workspaceSettings").mockResolvedValue({ workspace: { memory_gating: "rule_only" } });
     vi.spyOn(settingsApi, "providersList").mockRejectedValue(new Error("boom"));
     render(<Settings />);
     await waitFor(() => {

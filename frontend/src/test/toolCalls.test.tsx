@@ -3,17 +3,26 @@
  */
 
 import { describe, it, expect, beforeEach } from "vitest";
-import { render, screen } from "@testing-library/react";
+import { render, screen, waitFor } from "@testing-library/react";
 import { Inspector } from "../layouts/Inspector";
 import { useWorkbenchStore } from "../stores/workbench";
+import { installMockApi, resetMocks } from "./mockServer";
 import type { AgentResult } from "../types";
 
 describe("Inspector — tool_calls card", () => {
   beforeEach(() => {
+    resetMocks();
+    installMockApi();
     useWorkbenchStore.getState().clear();
   });
 
-  it("renders a card per tool call with status", () => {
+  async function waitForInspectorEffects() {
+    await waitFor(() => {
+      expect(screen.queryByText("Loading...")).not.toBeInTheDocument();
+    });
+  }
+
+  it("renders a card per tool call with status", async () => {
     const result: AgentResult = {
       ok: true,
       final_response: "",
@@ -59,9 +68,10 @@ describe("Inspector — tool_calls card", () => {
     expect(calls.textContent).toContain("知识检索");
     expect(calls.textContent).toContain("需要关注");
     expect(calls.textContent).toContain("timeout");
+    await waitForInspectorEffects();
   });
 
-  it("summarizes recovered tool retries before raw technical details", () => {
+  it("summarizes recovered tool retries before raw technical details", async () => {
     const result: AgentResult = {
       ok: true,
       final_response: "",
@@ -105,5 +115,6 @@ describe("Inspector — tool_calls card", () => {
     expect(screen.getByTestId("inspector-tool-summary")).toHaveTextContent(
       "配置翻译已完成，1 次内部重试已自动恢复",
     );
+    await waitForInspectorEffects();
   });
 });

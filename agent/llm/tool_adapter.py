@@ -18,7 +18,7 @@ def to_llm_tool_name(tool_id: str) -> str:
     """Convert tool_id to LLM-safe function name.
 
     Examples:
-        "runtime.health" -> "runtime__health"
+        "system.diagnostics" -> "runtime__health"
         "web.search" -> "web__search"
         "artifact_list" -> "artifact_list"  (no dots, no change)
     """
@@ -29,7 +29,7 @@ def from_llm_tool_name(llm_name: str) -> str:
     """Convert LLM-safe function name back to real tool_id.
 
     Examples:
-        "runtime__health" -> "runtime.health"
+        "runtime__health" -> "system.diagnostics"
         "web__search" -> "web.search"
         "artifact_list" -> "artifact_list"  (no double underscore, no change)
     """
@@ -202,10 +202,10 @@ Examples: agent__spawn, agent__role__list, agent__team__run.
 
 ## Approval Behavior (v3.0 — Popup Bubble)
 
-- High-risk tools (host.shell.exec, host.powershell.exec, host.python.exec, etc.)
+- High-risk tools (exec.run, exec.run, exec.python, etc.)
   require user approval, BUT the system handles this automatically with a popup bubble.
 - You should call the tool directly. Briefly explain what you're about to do (1 sentence).
-  Example: "我将查询本机 IP 地址。" then call host.shell.exec.
+  Example: "我将查询本机 IP 地址。" then call exec.run.
 - Do NOT say "请回复批准执行", "请回复批准删除", or any approval request text.
 - The user clicks Allow/Deny in the bubble; you do not need to manage this flow.
 

@@ -67,7 +67,7 @@ BUILTIN_TOOLS = [
         ToolSpec(
             tool_id="workspace.artifact.list",
             name="List Artifacts",
-            description="List artifact metadata summaries for a workspace. Use when: user wants to browse available artifacts before reading one. Read-only. No full content returned — use workspace.artifact.read_content_safe for previews. Returns artifact_id, title, type for each entry.",
+            description="List artifact metadata summaries for a workspace. Use when: user wants to browse available artifacts before reading one. Read-only. No full content returned — use workspace.workspace.artifact.read for previews. Returns artifact_id, title, type for each entry.",
             category="artifact",
             risk_level="low",
             reads_artifact=True,

@@ -17,9 +17,9 @@ from tool_runtime.tool_namespace import TOOL_NAMESPACE
 
 
 LOCAL_EXEC_TOOLS = {
-    "host.shell.exec",
-    "host.powershell.exec",
-    "host.python.exec",
+    "exec.run",
+    "exec.run",
+    "exec.python",
 }
 SUB_AGENT_TOOLS = {
     "agent.spawn",
@@ -83,19 +83,19 @@ def test_unknown_tools_fail_closed_in_planner():
         "primary_category": "web",
         "category": "web",
         "groups": {},
-        "candidate_tools": ["host.shell.exec", "unknown.tool.exec"],
+        "candidate_tools": ["exec.run", "unknown.tool.exec"],
         "signals": {},
     }
     plan = plan_tools(
         user_input="普通问题",
         safe_context={},
         rule_scene=rule_scene,
-        available_catalog={"tools": ["host.shell.exec", "unknown.tool.exec"]},
+        available_catalog={"tools": ["exec.run", "unknown.tool.exec"]},
         model_config={"enabled": False},
     )
     candidates = set(plan.get("candidate_tools") or [])
     assert "unknown.tool.exec" not in candidates
-    # host.shell.exec is now BASELINE — always visible regardless of scene
+    # exec.run is now BASELINE — always visible regardless of scene
     assert "unknown.tool.exec" in plan.get("governance", {}).get("unknown_tools_filtered", [])
 
 

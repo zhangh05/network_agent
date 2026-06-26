@@ -25,14 +25,14 @@ CAPABILITY_REVIEW = CapabilityManifest(
     ),
     tools=[
         CapabilityToolRef(
-            tool_id="review.item.list",
+            tool_id="system.system.review.item.list",
             status="enabled", callable_by_llm=True, risk_level="low",
             requires_approval=False, forbidden=False,
             handler_ref="tool_runtime.canonical_registry:_handler_review_list",
             description="列出待审核项。",
         ),
         CapabilityToolRef(
-            tool_id="review.item.update",
+            tool_id="system.system.review.item.update",
             status="enabled", callable_by_llm=True, risk_level="medium",
             requires_approval=True, forbidden=False,
             handler_ref="tool_runtime.canonical_registry:_handler_review_update",

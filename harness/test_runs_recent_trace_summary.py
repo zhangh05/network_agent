@@ -65,7 +65,7 @@ def test_recent_runs_enriches_counts_from_trace(client, temp_dirs):
                 trace_id=trace_id,
                 run_id=run_id,
                 event_type="tool_call_started",
-                metadata={"canonical_tool_id": "host.shell.exec"},
+                metadata={"canonical_tool_id": "exec.run"},
                 timestamp="2026-06-19T01:00:02",
             ).as_dict(),
             TraceEvent(
@@ -78,7 +78,7 @@ def test_recent_runs_enriches_counts_from_trace(client, temp_dirs):
                 trace_id=trace_id,
                 run_id=run_id,
                 event_type="tool_call_failed",
-                metadata={"canonical_tool_id": "host.shell.exec"},
+                metadata={"canonical_tool_id": "exec.run"},
                 timestamp="2026-06-19T01:00:04",
             ).as_dict(),
         ],
@@ -94,5 +94,5 @@ def test_recent_runs_enriches_counts_from_trace(client, temp_dirs):
     assert run["error_count"] == 1
     assert run["started_at"] == "2026-06-19T01:00:00"
     assert run["finished_at"] == "2026-06-19T01:00:04"
-    assert run["visible_tools"] == ["host.shell.exec"]
+    assert run["visible_tools"] == ["exec.run"]
     assert run["event_count"] == 4

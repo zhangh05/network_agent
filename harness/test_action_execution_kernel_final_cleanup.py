@@ -69,7 +69,7 @@ def test_risk_policy_conflict_keeps_execute_high_risk():
         evidence_bundle=SimpleNamespace(conflicts=[object()]),
     )
     plan = ActionPlan(
-        tool_id="host.shell.exec",
+        tool_id="exec.run",
         action_class="execute",
         arguments={"command": "show version"},
     )

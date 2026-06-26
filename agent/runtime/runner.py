@@ -1,6 +1,8 @@
 # agent/runtime/runner.py
 """TurnRunner — the core turn execution engine, stage-pipeline architecture.
 
+v3.8: Message trimming to prevent token explosion in long multi-step turns.
+
 Delegates phases to:
   - ContextStage      (agent.runtime.stages.context)
   - MessageStage      (agent.runtime.stages.messages)
@@ -9,6 +11,9 @@ Delegates phases to:
   - result_builder    (agent.runtime.result_builder)
   - RuntimeEventBus   (agent.runtime.runtime_events)
 """
+
+# v3.8: Message trimming constants
+MAX_MESSAGE_TURNS = 12  # keep last N user+assistant+tool turn groups
 
 import json
 import logging
@@ -123,6 +128,9 @@ class TurnRunner:
 
         while state.step < state.max_steps:
             state.step += 1
+
+            # v3.8: Message trimming — keep last N user+assistant turns to prevent token explosion
+            _trim_messages_if_needed(state)
 
             # Model invocation
             try:
@@ -284,4 +292,25 @@ def _record_tool_graph(state) -> None:
             record_tool_sequence(tool_ids)
     except Exception:
         pass
+
+
+def _trim_messages_if_needed(state) -> None:
+    """Trim old messages to prevent token explosion. Keeps last MAX_MESSAGE_TURNS turn groups.
+    
+    v3.8: System message + last N user/assistant/tool groups preserved.
+    """
+    if not hasattr(state, 'messages') or len(state.messages) <= MAX_MESSAGE_TURNS * 3:
+        return
+    
+    # Keep system message + last N*3 messages (user+assistant+tool per turn)
+    system_msgs = [m for m in state.messages if m.get("role") == "system"]
+    non_system = [m for m in state.messages if m.get("role") != "system"]
+    
+    if len(non_system) > MAX_MESSAGE_TURNS * 3:
+        trimmed = non_system[-(MAX_MESSAGE_TURNS * 3):]
+        state.messages = system_msgs + trimmed
+        from agent.protocol.message import RuntimeContextMessage
+        state.messages.append(RuntimeContextMessage(content=(
+            f"Earlier messages trimmed to last {MAX_MESSAGE_TURNS} turns to stay within context window."
+        )).to_llm_message())
 

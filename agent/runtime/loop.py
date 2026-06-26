@@ -26,13 +26,13 @@ import os as _os
 
 from agent.runtime.result import AgentResult
 
-MAX_STEPS = 8  # default; per-turn / per-session / env override via _resolve_max_steps()
+MAX_STEPS = 24  # default; v3.8: raised from 8 for long multi-step tasks
 
-# v5.0.0: MAX_STEPS is now configurable through three layers (highest wins):
+# MAX_STEPS is configurable through three layers (highest wins):
 #   1. env var AGENT_MAX_STEPS               — operator-level ops override
 #   2. turn.metadata["max_steps"]            — per-turn override (e.g. agent.team spawns)
 #   3. session.metadata["max_steps"]         — per-session override
-#   4. MAX_STEPS module constant (8)         — default fallback
+#   4. MAX_STEPS module constant (24)        — default fallback
 # Sub-agents get a stricter upper bound (32) regardless of override to keep
 # recursion depth bounded.
 
@@ -85,7 +85,7 @@ def _resolve_max_steps(session=None, turn=None, *, is_sub_agent: bool = False) -
 # approval waits across turns. Env vars override the defaults.
 
 _APPROVAL_TIMEOUT_DEFAULT_S = float(_os.getenv("APPROVAL_TIMEOUT_DEFAULT_S", "120"))
-_APPROVAL_TIMEOUT_SUBAGENT_S = float(_os.getenv("APPROVAL_TIMEOUT_SUBAGENT_S", "30"))
+_APPROVAL_TIMEOUT_SUBAGENT_S = float(_os.getenv("APPROVAL_TIMEOUT_SUBAGENT_S", "60"))
 
 
 def _get_approval_timeout(is_sub_agent: bool = False) -> float:
@@ -97,8 +97,38 @@ def run_turn(session, turn, services=None, restricted_tool_router=None) -> Agent
     """Execute a single turn: user message -> LLM -> tools -> LLM -> ... -> final answer.
 
     Phase 3: restricted_tool_router is used by sub-agents to limit tool access.
-    Delegates entirely to TurnRunner for the stage-pipeline execution.
+    
+    v3.8: Supports runtime_mode switching via AGENT_RUNTIME env var:
+      - "langgraph" → uses GraphRunner (StateGraph + checkpoint + streaming)
+      - default → uses TurnRunner (while loop, stable)
     """
+    runtime_mode = _os.getenv("AGENT_RUNTIME", "").lower()
+    
+    if runtime_mode == "langgraph":
+        try:
+            from agent.runtime.graph_runner import GraphRunner
+            max_steps = _resolve_max_steps(
+                session=session, turn=turn,
+                is_sub_agent=bool(getattr(session, 'is_sub_agent', False))
+            )
+            runner = GraphRunner(max_steps=max_steps)
+            # Build state from session/turn
+            from agent.runtime.turn_state import TurnRuntimeState
+            state = TurnRuntimeState(session=session, turn=turn, services=services)
+            result = runner.run(state, thread_id=session.session_id if hasattr(session, 'session_id') else "default")
+            # Convert dict result to AgentResult
+            from agent.runtime.result import AgentResult
+            return AgentResult(
+                final_response=result.get("answer", ""),
+                ok="error" not in result or result.get("error") is None,
+                error=result.get("error"),
+                turn_id=turn.turn_id if hasattr(turn, 'turn_id') else "",
+            )
+        except Exception as e:
+            _os.environ["AGENT_RUNTIME"] = "legacy"  # auto-fallback
+            import logging
+            logging.getLogger(__name__).warning("GraphRunner failed, falling back to TurnRunner: %s", e)
+    
     from agent.runtime.runner import TurnRunner
     return TurnRunner(
         session=session,

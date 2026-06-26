@@ -6,7 +6,7 @@ AI-powered network analysis agent with general coding capabilities. Analyzes PCA
 
 ```bash
 # Backend (port 8010)
-python backend/main.py --host 0.0.0.0 --port 8010
+python3 backend/main.py --host 0.0.0.0 --port 8010
 
 # Frontend (port 5173)
 cd frontend && npm run dev
@@ -46,7 +46,7 @@ git(5) code(1) browser(2)
 Core endpoints:
 - `POST /api/agent/message` — Main agent entry
 - `WS /ws/agent` — Real-time streaming
-- `GET /api/tools/invoke` — Execute any tool
+- `POST /api/tools/invoke` — Execute any tool
 - `GET /api/capabilities` — List capabilities
 - `GET /api/health` — Health check
 
@@ -54,7 +54,7 @@ Core endpoints:
 
 | Layer | Technology |
 |-------|-----------|
-| Backend | Flask + Python 3.13 |
+| Backend | Flask + Python 3.12+ |
 | Frontend | React + TypeScript + Vite |
 | LLM | MiniMax M3 (245K context) |
 | Retrieval | BM25 + CJK bigram/trigram |

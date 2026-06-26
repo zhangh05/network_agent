@@ -31,10 +31,10 @@ def test_canonical_registry_registers_file_tools():
     """canonical_registry MUST register all 5 FileStore tools."""
     from tool_runtime.canonical_registry import CANONICAL_REGISTRY
     required = [
-        "file.get",
-        "file.preview",
+        "workspace.file.read",
+        "workspace.file.read",
         "file.references",
-        "file.write_agent_output",
+        "workspace.file.write_artifact",
         "file.import_workspace_path",
     ]
     for tid in required:
@@ -48,7 +48,7 @@ def test_canonical_registry_imports_registry_helpers():
 
 
 def test_filestore_tools_read_real_file(final_ws):
-    """file.get handler MUST read text content from FileStore."""
+    """workspace.file.read handler MUST read text content from FileStore."""
     from storage.file_store import write_agent_output
     from tool_runtime.general_tools.filestore_tools import handle_file_get, handle_file_preview
 
@@ -67,7 +67,7 @@ def test_filestore_tools_read_real_file(final_ws):
 
 
 def test_filestore_tools_write_agent_output(final_ws):
-    """file.write_agent_output handler MUST create FileRecord."""
+    """workspace.file.write_artifact handler MUST create FileRecord."""
     from tool_runtime.general_tools.filestore_tools import handle_file_write_agent_output
 
     class FakeInv:

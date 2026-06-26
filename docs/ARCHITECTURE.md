@@ -73,7 +73,7 @@ Note: Not all metadata keys are propagated to API responses. `enrich_metadata()`
 
 ## Tech Stack
 
-- Backend: Flask + Python 3.13, port 8010
+- Backend: Flask + Python 3.12+, port 8010
 - Frontend: React/TS + Vite, port 5173
 - LLM: MiniMax M3 (245K context window)
 - Retrieval: BM25 + CJK bigram/trigram

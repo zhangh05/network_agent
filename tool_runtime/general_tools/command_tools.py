@@ -5,17 +5,25 @@ def handle_command_approved_exec(inv: ToolInvocation) -> dict:
     """Shell command execution on Linux/macOS.
 
     Accepts a shell command string, executes via /bin/bash -c.
-    Safety limits: 30s timeout, 10000 chars output, workspace-root cwd.
+    Safety limits: configurable timeout, 10000 chars output.
     Requires approval_id (high risk). Policy blocks destructive patterns.
     """
     import platform
     if platform.system() == "Windows":
-        return _unavailable(inv, "Shell execution only available on Linux/macOS. Use host.powershell.exec on Windows.")
+        return _unavailable(inv, "Shell execution only available on Linux/macOS. Use exec.run on Windows.")
     # Only accept `command`; alternate identifiers are never executed as shell.
     command = (inv.arguments.get("command") or "").strip()
     if not command:
         return _unavailable(inv, "command is required")
-    result = _run_shell(command)
+
+    # v3.7: pass through cwd, env_vars, timeout
+    cwd = (inv.arguments.get("working_dir") or "").strip() or None
+    env_vars = inv.arguments.get("env_vars")
+    timeout = inv.arguments.get("timeout")
+    if timeout is not None:
+        timeout = int(timeout)
+
+    result = _run_shell(command, cwd=cwd, env=env_vars, timeout=timeout)
     return _result(inv, result.pop("ok", False), result)
 
 def handle_powershell_approved_script(inv: ToolInvocation) -> dict:
@@ -27,7 +35,7 @@ def handle_powershell_approved_script(inv: ToolInvocation) -> dict:
     """
     import platform
     if platform.system() != "Windows":
-        return _unavailable(inv, "PowerShell execution only available on Windows. Use host.shell.exec on Linux/macOS.")
+        return _unavailable(inv, "PowerShell execution only available on Windows. Use exec.run on Linux/macOS.")
     command = (inv.arguments.get("command") or "").strip()
     if not command:
         return _unavailable(inv, "command is required")
@@ -79,7 +87,7 @@ def handle_python_exec(inv: ToolInvocation) -> dict:
     workspace_id = inv.arguments.get("workspace_id", "default")
     run_id = inv.arguments.get("run_id", "")
     code = str(inv.arguments.get("code", "")).strip()
-    timeout = min(int(inv.arguments.get("timeout", 10) or 10), 10)
+    timeout = min(int(inv.arguments.get("timeout", 30) or 30), 60)  # v3.7: max 60s
 
     if not code:
         return _error_inv(inv, "code is required")

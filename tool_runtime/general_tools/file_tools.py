@@ -68,10 +68,14 @@ def handle_file_exists(inv: ToolInvocation) -> dict:
 
 
 def handle_file_read(inv: ToolInvocation) -> dict:
-    """Read workspace text file up to 50000 chars. Rejects binary files."""
+    """Read workspace text file up to 50000 chars. Rejects binary files.
+    
+    v3.7: Added offset for pagination — read from line N onwards.
+    """
     ws = inv.arguments.get("workspace_id", "default")
     filepath = inv.arguments.get("filepath", "")
     limit = min(int(inv.arguments.get("limit", 50000)), 50000)
+    offset = int(inv.arguments.get("offset", 0) or 0)
     try:
         target = _workspace_path(ws, filepath)
         if not target.is_file():
@@ -87,10 +91,15 @@ def handle_file_read(inv: ToolInvocation) -> dict:
                 "file_size": target.stat().st_size,
             })
         content = target.read_text(encoding="utf-8", errors="replace")
+        if offset > 0:
+            lines = content.split('\n')
+            content = '\n'.join(lines[offset:])
         preview = content[:limit]
         return _ok(inv, "", {
             "preview": preview,
             "size": len(content),
+            "total_lines": len(content.split('\n')),
+            "offset": offset,
             "truncated": len(content) > limit,
         })
     except Exception as e:
@@ -98,12 +107,16 @@ def handle_file_read(inv: ToolInvocation) -> dict:
 
 
 def handle_file_edit(inv: ToolInvocation) -> dict:
-    """Edit a current workspace-managed text file by string replacement."""
+    """Edit a current workspace-managed text file by string replacement.
+    
+    v3.7: dry_run=True returns preview diff without writing to file.
+    """
     ws = inv.arguments.get("workspace_id", "default")
     filepath = inv.arguments.get("filepath", "")
     old_string = inv.arguments.get("old_string", "")
     new_string = inv.arguments.get("new_string", "")
     replace_all = bool(inv.arguments.get("replace_all", False))
+    dry_run = bool(inv.arguments.get("dry_run", False))
     try:
         target = _workspace_path(ws, filepath)
         if not _is_current_workspace_write_path(ws, target):
@@ -122,6 +135,13 @@ def handle_file_edit(inv: ToolInvocation) -> dict:
         if new_content == content:
             return _ok(inv, "", {"lines_changed": 0, "note": "no changes made"})
         diff_preview = _generate_diff_preview(old_string, new_string)
+        if dry_run:
+            return _ok(inv, "dry_run: preview only, file NOT modified", {
+                "dry_run": True,
+                "replacements": count,
+                "diff": diff_preview,
+                "diff_lines": abs(new_content.count("\n") - content.count("\n")),
+            })
         from workspace.atomic_io import atomic_write_text
         atomic_write_text(target, new_content)
         lines_changed = abs(new_content.count("\n") - content.count("\n")) or count

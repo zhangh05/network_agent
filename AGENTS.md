@@ -85,7 +85,7 @@ ToolExecutionPipeline:
 
 ## Agent Modes
 
-- **TurnRunner**: Legacy while-loop (step < 8), used by default.
+- **TurnRunner**: Legacy while-loop (max 24 steps by default), used by default.
 - **GraphRunner**: LangGraph StateGraph with checkpoint support. Enable via `AGENT_RUNTIME=langgraph`.
 
 ## Dynamic Breakpoints

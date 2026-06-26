@@ -33,8 +33,8 @@ class TestMaxStepsResolve:
     def test_default_when_no_overrides(self, monkeypatch):
         monkeypatch.delenv("AGENT_MAX_STEPS", raising=False)
         from agent.runtime import loop
-        # Default is 8 (loop.MAX_STEPS)
-        assert loop._resolve_max_steps() == 8
+        # Default follows loop.MAX_STEPS.
+        assert loop._resolve_max_steps() == loop.MAX_STEPS
 
     def test_env_var_overrides_default(self, monkeypatch):
         monkeypatch.setenv("AGENT_MAX_STEPS", "12")
@@ -97,20 +97,20 @@ class TestMaxStepsResolve:
         session = types_simple(metadata={"max_steps": "not-a-number"})
         turn = types_simple(metadata={"max_steps": -7})  # negative also invalid
         result = loop._resolve_max_steps(session=session, turn=turn)
-        assert result == 8  # falls all the way through to default
+        assert result == loop.MAX_STEPS  # falls all the way through to default
 
     def test_oversized_metadata_clamped_to_default(self):
         from agent.runtime import loop
         # >1024 should be rejected by _coerce_int_steps
         session = types_simple(metadata={"max_steps": 9999})
         result = loop._resolve_max_steps(session=session)
-        assert result == 8
+        assert result == loop.MAX_STEPS
 
     def test_none_metadata_safe(self):
         from agent.runtime import loop
         session = types_simple(metadata=None)
         result = loop._resolve_max_steps(session=session)
-        assert result == 8
+        assert result == loop.MAX_STEPS
 
 
 def types_simple(**kwargs):

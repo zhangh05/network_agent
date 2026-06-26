@@ -61,7 +61,7 @@ describe("Agent Workbench — source_summary rendering", () => {
     const input = await screen.findByTestId("chat-input");
     fireEvent.change(input, { target: { value: "什么是 OSPF?" } });
     const sendButton = screen.getByTestId("btn-send");
-    expect(sendButton).toHaveAttribute("title", "发送");
+    expect(sendButton).toHaveAttribute("title", "Enter 发送");
     fireEvent.click(sendButton);
     const summary = await screen.findByTestId("inline-source-summary");
     expect(summary).toBeInTheDocument();

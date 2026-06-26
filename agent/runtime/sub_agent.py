@@ -17,73 +17,73 @@ ROOT = Path(__file__).resolve().parent.parent.parent
 
 DEFAULT_ALLOWED_TOOLS = [
     # text / data validation (read-only)
-    "text.redact",
-    "text.diff",
-    "text.keywords.extract",
-    "text.classify",
-    "data.json.validate",
-    "data.yaml.validate",
-    "data.csv.summarize",
-    "data.table.extract",
+    "text.analyze",
+    "text.analyze",
+    "text.analyze",
+    "text.analyze",
+    "data.validate",
+    "data.validate",
+    "data.data.csv.summarize",
+    "data.data.table.extract",
     # knowledge (read-only)
     "knowledge.source.list",
     "knowledge.search",
-    "knowledge.chunk.read",
-    "knowledge.parent.read",
+    "knowledge.read",
+    "knowledge.read",
     # artifacts (read-only)
     "workspace.artifact.list",
     "workspace.artifact.read",
     # memory (read-only)
     "memory.search",
-    "memory.list",
-    "memory.profile.get",
+    "memory.search",
+    "memory.proworkspace.file.read",
     # web (read-only)
     "web.search",
-    "web.page.summarize",
-    "web.page.extract_links",
-    "web.docs.official_search",
+    "web.page.process",
+    "web.page.process",
+    "web.search",
     # weather/news (read-only)
-    "web.weather.current",
-    "web.weather.forecast",
-    "web.news.search",
+    "web.weather",
+    "web.weather",
+    "web.search",
     # runtime (read-only)
-    "runtime.health",
-    "runtime.diagnostics",
+    "system.diagnostics",
+    "system.diagnostics",
     # workspace (read-only)
     "workspace.file.list",
-    "workspace.file.preview",
-    "workspace.file.exists",
+    "workspace.file.read",
+    "workspace.file.list",
     "workspace.metadata.get",
     # sessions (read-only)
-    "session.list",
-    "session.summary.get",
-    "run.list",
-    "run.summary.get",
+    "system.session.get",
+    "system.session.get",
+    "system.run.get",
+    "system.run.get",
     "skill.list",
 ]
 
 FORBIDDEN_FOR_SUB_AGENT = [
-    "host.shell.exec",
-    "host.powershell.exec",
-    "host.python.exec",
+    "exec.run",
+    "exec.run",
+    "exec.python",
     "agent.spawn",
     "workspace.artifact.tag",
     "workspace.artifact.delete_soft",
     "workspace.artifact.save",
     "workspace.file.write_artifact",
     "report.artifact.save",
-    "memory.create",
-    "memory.profile.set",
-    "memory.confirm",
-    "session.checkpoint",
-    "session.export",
-    "session.snapshot.create",
-    "session.rewind",
-    "knowledge.import.artifact",
+    "memory.manage",
+    "memory.profile",
+    "memory.manage",
+    "system.system.session.checkpoint",
+    "system.system.session.export",
+    "system.session.snapshot",
+    "system.system.session.rewind",
+    "knowledge.import",
     "knowledge.source.reindex",
     "knowledge.import.document",
     "knowledge.import.file",
-    "web.page.save_artifact",
+    "web.page.process",
 ]
 
 MAX_SUB_AGENT_TURNS = 3
@@ -92,7 +92,7 @@ MAX_SUB_AGENT_TURNS = 3
 def run_sub_agent(instruction: str, workspace_id: str,
                   parent_session_id: str,
                   allowed_tools: list = None,
-                  max_turns: int = 1) -> dict:
+                  max_turns: int = 3) -> dict:
     """Run a minimal sub-agent with restricted tool access.
 
     Args:
@@ -100,7 +100,7 @@ def run_sub_agent(instruction: str, workspace_id: str,
         workspace_id: Workspace identifier.
         parent_session_id: The parent agent's session ID.
         allowed_tools: Tool allowlist. Defaults to DEFAULT_ALLOWED_TOOLS.
-        max_turns: Maximum LLM turns (1-3). Defaults to 1.
+        max_turns: Maximum LLM turns (1-3). Defaults to 3 (v3.8: raised from 1).
 
     Returns:
         dict with keys: ok, final_response, tool_calls_count, steps,
@@ -160,6 +160,12 @@ def run_sub_agent(instruction: str, workspace_id: str,
         # Reuse the full registry and copy specs + handlers for allowed tools only
         full_reg = default_runtime_services().tool_service.registry
         agent_registry = AgentToolRegistry()
+        # v3.8.1: Copy _tool_client from parent registry so that
+        # canonical tools (web.weather, web.search, workspace.file.read, …)
+        # can dispatch through the shared tool client instead of returning
+        # "No tool client".
+        if hasattr(full_reg, '_tool_client') and full_reg._tool_client is not None:
+            agent_registry._tool_client = full_reg._tool_client
 
         for t in full_reg.list_all():
             tid = t.tool_id
@@ -172,6 +178,12 @@ def run_sub_agent(instruction: str, workspace_id: str,
                     agent_registry._handlers[tid] = full_reg._handlers[tid]
 
         tool_router = ToolRouter.for_turn(agent_registry, allowed_tool_ids=list(tool_allowlist))
+        # v3.8.1: Wire dispatch_delegate so the sub-agent's ToolRouter
+        # can use the parent ToolService's dispatcher for canonical tools
+        # (the same path that context_tools.build_base_tool_router uses).
+        parent_tool_service = default_runtime_services().tool_service
+        if isinstance(parent_tool_service, ToolRouter):
+            tool_router.dispatch_delegate = parent_tool_service.dispatch
 
     except Exception as e:
         return {
@@ -182,7 +194,14 @@ def run_sub_agent(instruction: str, workspace_id: str,
         }
 
     visible_tools = list(tool_router.model_visible_tools()) if tool_router else []
-    visible_tool_ids = [t.tool_id if hasattr(t, 'tool_id') else t.get('tool_id', '') for t in visible_tools]
+    # v3.8.1: model_visible_tools() returns LLMToolSpec objects (OpenAI-format
+    # dicts with "type":"function"/"function":{...}), not ToolSpec.
+    # Extract real_tool_id via the router's llm_name_map.
+    visible_tool_ids = [
+        tool_router.llm_name_map.get(t.name, "") if hasattr(t, 'name')
+        else tool_router.llm_name_map.get(t.get("function", {}).get("name", ""), "")
+        for t in visible_tools
+    ]
 
     # ── Run sub-agent loop ──
     tool_calls_count = 0

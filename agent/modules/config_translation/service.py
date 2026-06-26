@@ -185,8 +185,8 @@ def _save_translation_artifact(
     """Save translated_config as an artifact. Never blocks translation.
 
     v0.9.1: Stores manual_review_items in artifact metadata so
-    review.item.list can find them. Without this the LLM would
-    see manual_review_count > 0 but review.item.list returns 0.
+    system.system.review.item.list can find them. Without this the LLM would
+    see manual_review_count > 0 but system.system.review.item.list returns 0.
     """
     try:
         from artifacts.store import save_artifact
@@ -215,7 +215,7 @@ def _save_translation_artifact(
             },
         )
         if rec:
-            # v0.9.1: initialize review sidecar so review.item.list
+            # v0.9.1: initialize review sidecar so system.system.review.item.list
             # works immediately — no need to wait for deferred creation.
             try:
                 from agent.modules.review.service import init_review_sidecar

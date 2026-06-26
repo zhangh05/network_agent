@@ -37,10 +37,10 @@ def _make_filestore_handler(tool_id: str, param_names: list[str]):
             handle_file_write_agent_output, handle_file_import_workspace_path,
         )
         handlers = {
-            "file.get": handle_file_get,
-            "file.preview": handle_file_preview,
+            "workspace.file.read": handle_file_get,
+            "workspace.file.preview": handle_file_preview,
             "file.references": handle_file_references,
-            "file.write_agent_output": handle_file_write_agent_output,
+            "workspace.file.write_artifact": handle_file_write_agent_output,
             "file.import_workspace_path": handle_file_import_workspace_path,
         }
         return handlers[tool_id](inv, **kwargs)
@@ -55,6 +55,161 @@ def _adapt(handler: Callable[[ToolInvocation], dict]) -> Callable[..., Any]:
         inv = ToolInvocation(arguments=dict(kwargs), tool_id="")
         return handler(inv)
     return _callable
+
+
+# ── v3.5 Merged tool routing wrappers ──
+
+def _handle_web_search_merged(inv: ToolInvocation) -> dict:
+    args = inv.arguments or {}
+    source = str(args.get("source", "")).lower()
+    if source == "docs":
+        return handle_web_official_doc_search(inv)
+    elif source == "news":
+        return handle_news_search(inv)
+    else:
+        return handle_web_search(inv)
+
+
+def _handle_web_page_merged(inv: ToolInvocation) -> dict:
+    args = inv.arguments or {}
+    action = str(args.get("action", "")).lower()
+    if action == "extract_links":
+        return handle_web_extract_links(inv)
+    elif action == "save_artifact":
+        return handle_web_save_to_artifact(inv)
+    else:
+        return handle_web_fetch_summary(inv)
+
+
+def _handle_data_validate_merged(inv: ToolInvocation) -> dict:
+    args = inv.arguments or {}
+    fmt = str(args.get("format", "")).lower()
+    if fmt == "yaml":
+        return handle_yaml_validate(inv)
+    else:
+        return handle_json_validate(inv)
+
+
+def _handle_knowledge_read_merged(inv: ToolInvocation) -> dict:
+    args = inv.arguments or {}
+    level = str(args.get("level", "")).lower()
+    if level == "source":
+        return handle_knowledge_get_source(inv)
+    elif level == "parent":
+        return _k_parent_read(inv)
+    else:
+        return handle_knowledge_get_chunk_summary(inv)
+
+
+def _handle_memory_manage_merged(inv: ToolInvocation) -> dict:
+    args = inv.arguments or {}
+    action = str(args.get("action", "")).lower()
+    if action == "update":
+        return handle_memory_update(inv)
+    elif action == "confirm":
+        return handle_memory_confirm(inv)
+    elif action == "delete":
+        return handle_memory_delete_soft(inv)
+    else:
+        return handle_memory_create(inv)
+
+
+def _handle_text_analyze_merged(inv: ToolInvocation) -> dict:
+    args = inv.arguments or {}
+    action = str(args.get("action", "")).lower()
+    if action == "diff":
+        return handle_text_diff(inv)
+    elif action == "keywords":
+        return handle_text_extract_keywords(inv)
+    elif action == "classify":
+        return handle_text_classify(inv)
+    else:
+        return handle_text_redact(inv)
+
+
+def _handle_session_snapshot_merged(inv: ToolInvocation) -> dict:
+    args = inv.arguments or {}
+    action = str(args.get("action", "")).lower()
+    if action == "list":
+        return handle_session_list_snapshots(inv)
+    else:
+        return handle_session_snapshot(inv)
+
+
+# ── v3.6 Merged tool routing wrappers ──
+
+def _handle_exec_run_merged(inv: ToolInvocation) -> dict:
+    """Route exec.run(target=X/ shell=X) to the right sub-handler."""
+    args = inv.arguments or {}
+    target = str(args.get("target", "")).lower()
+
+    if target == "ssh":
+        return _handler_network_ssh(inv)
+    elif target == "telnet":
+        return _handler_network_telnet(inv)
+    else:
+        # local: route to shell or powershell
+        shell = str(args.get("shell", "")).lower()
+        if shell == "powershell":
+            return handle_powershell_approved_script(inv)
+        else:
+            return handle_command_approved_exec(inv)
+
+
+def _handle_system_run_get_merged(inv: ToolInvocation) -> dict:
+    """Route system.run.get(list=true|false) to list or summary handler."""
+    args = inv.arguments or {}
+    if args.get("list"):
+        return handle_run_list_recent(inv)
+    else:
+        return handle_run_get_summary(inv)
+
+
+def _handle_system_session_get_merged(inv: ToolInvocation) -> dict:
+    """Route system.session.get(list=true|false) to list or summary handler."""
+    args = inv.arguments or {}
+    if args.get("list"):
+        return handle_session_list(inv)
+    else:
+        return handle_session_get_summary(inv)
+
+
+def _handle_memory_profile_merged(inv: ToolInvocation) -> dict:
+    """Route memory.profile(action=get|set) to the right handler."""
+    args = inv.arguments or {}
+    action = str(args.get("action", "")).lower()
+    if action == "set":
+        return handle_memory_set_profile(inv)
+    else:
+        return handle_memory_get_profile(inv)
+
+
+def _handle_memory_search_merged(inv: ToolInvocation) -> dict:
+    """Route memory.search(list=true|false) to search or list handler."""
+    args = inv.arguments or {}
+    if args.get("list"):
+        return handle_memory_list(inv)
+    else:
+        return handle_memory_search(inv)
+
+
+def _handle_knowledge_reindex_merged(inv: ToolInvocation) -> dict:
+    """Route knowledge.source.reindex(source_id=ALL) to reindex_all handler."""
+    args = inv.arguments or {}
+    sid = str(args.get("source_id", "")).upper()
+    if sid == "ALL":
+        return handle_knowledge_reindex_all(inv)
+    else:
+        return handle_knowledge_source_reindex(inv)
+
+
+def _handle_knowledge_import_merged(inv: ToolInvocation) -> dict:
+    """Route knowledge.import with artifact_id to artifact import handler."""
+    args = inv.arguments or {}
+    if args.get("artifact_id"):
+        return handle_knowledge_import_artifact(inv)
+    else:
+        return handle_knowledge_import(inv)
 
 
 @dataclass(frozen=True)
@@ -243,6 +398,16 @@ def _handler_browser_extract(inv: ToolInvocation) -> dict:
     from agent.modules.browser.core import browser_extract
     args = inv.arguments or {}
     return browser_extract(str(args.get("url", "")), str(args.get("selector", "body")))
+
+def _handler_browser_screenshot(inv: ToolInvocation) -> dict:
+    from agent.modules.browser.core import browser_screenshot
+    args = inv.arguments or {}
+    return browser_screenshot(str(args.get("url", "")), bool(args.get("full_page", False)))
+
+def _handler_browser_click(inv: ToolInvocation) -> dict:
+    from agent.modules.browser.core import browser_click
+    args = inv.arguments or {}
+    return browser_click(str(args.get("selector", "")))
 
 
 def _handler_config_analysis_run(inv: ToolInvocation) -> dict:
@@ -757,14 +922,14 @@ def _catalog_score(tool_id: str, category: str, group: str, haystack: str, token
         (("session", "会话"), "session.", 25),
         (("web", "网页", "官方", "新闻", "天气"), "web.", 25),
         (("table", "表格"), "data.table.", 28),
-        (("json",), "data.json.validate", 34),
-        (("yaml",), "data.yaml.validate", 34),
+        (("json",), "data.validate", 34),
+        (("yaml",), "data.validate", 34),
         (("csv",), "data.csv.summarize", 34),
         (("report", "报告"), "report.", 26),
         (("cmdb", "设备", "资产", "资产管理"), "cmdb.", 40),
         # Network device SSH / Telnet
-        (("ssh", "network"), "network.ssh", 42),
-        (("telnet",), "network.telnet", 42),
+        (("ssh", "network"), "exec.run", 42),
+        (("telnet",), "exec.run", 42),
     ]
     for needles, prefix, boost in intent_boosts:
         if any(n in lowered or n in tokens for n in needles):
@@ -848,7 +1013,7 @@ def _review_item_list(inv: ToolInvocation) -> dict:
                                "artifact_id": str(args.get("artifact_id", ""))}, {})
         return _module_result_to_dict(r)
     except Exception as e:
-        return {"ok": False, "tool_id": "review.item.list", "status": "failed",
+        return {"ok": False, "tool_id": "system.review.item.list", "status": "failed",
                 "summary": f"Review service unavailable: {str(e)[:120]}"}
 
 
@@ -867,7 +1032,7 @@ def _review_item_update(inv: ToolInvocation) -> dict:
         }, {})
         return _module_result_to_dict(r)
     except Exception as e:
-        return {"ok": False, "tool_id": "review.item.update", "status": "failed",
+        return {"ok": False, "tool_id": "system.review.item.update", "status": "failed",
                 "summary": f"Review service unavailable: {str(e)[:120]}"}
 
 def _weather_merged(inv: ToolInvocation) -> dict:
@@ -911,37 +1076,43 @@ def _module_result_to_dict(r: dict) -> dict:
 
 # canonical_tool_id -> CanonicalToolEntry
 _RAW_REGISTRY: list[CanonicalToolEntry] = [
-    # Host
+    # Exec — unified command execution
     CanonicalToolEntry(
-        canonical_tool_id="host.shell.exec",
-        handler=_adapt(handle_command_approved_exec),
-        input_schema=_schema({"command": _S["command"]}, ["command"]),
+        canonical_tool_id="exec.run",
+        handler=_adapt(_handle_exec_run_merged),
+        input_schema=_schema({
+            "target": {"type": "string", "enum": ["local", "ssh", "telnet"],
+                       "description": "Target: local (default, this host), ssh, or telnet.", "default": "local"},
+            "shell": {"type": "string", "enum": ["cmd", "powershell"],
+                      "description": "Shell type for local target.", "default": "cmd"},
+            "command": {"type": "string", "description": "Command to execute."},
+            "host": {"type": "string", "description": "Remote host IP/hostname (ssh/telnet)."},
+            "port": {"type": "integer", "description": "Remote port (ssh default 22, telnet default 23)."},
+            "username": {"type": "string", "description": "Login username (ssh/telnet)."},
+            "password": {"type": "string", "description": "Login password (ssh/telnet)."},
+            "vendor": {"type": "string", "description": "Device vendor (ssh/telnet).", "default": "generic"},
+            "working_dir": {"type": "string", "description": "Working directory for local commands.", "default": ""},
+            "env_vars": {"type": "object", "description": "Extra environment variables for the command.", "default": {}},
+            "timeout": {"type": "integer", "description": "Timeout seconds (default 30, max 120).", "default": 30},
+            "workspace_id": _S["workspace_id"],
+        }, ["command"]),
         risk_level="high", requires_approval=True,
         permission_action="exec",
-        description="Run a shell command on the local host. Requires approval.",
+        description="Execute command on target machine: local shell (with working_dir/env_vars), SSH remote, or Telnet remote. Dangerous commands blocked automatically.",
     ),
     CanonicalToolEntry(
-        canonical_tool_id="host.powershell.exec",
-        handler=_adapt(handle_powershell_approved_script),
-        input_schema=_schema({"command": _S["command"]}, ["command"]),
-        risk_level="high", requires_approval=True,
-        permission_action="exec",
-        description="Run a PowerShell command on the local host. Requires approval.",
-    ),
-    CanonicalToolEntry(
-        canonical_tool_id="host.python.exec",
+        canonical_tool_id="exec.python",
         handler=_adapt(handle_python_exec),
         input_schema=_schema({
             "workspace_id": _S["workspace_id"], "code": _S["code"],
-            "run_id": _S["run_id"],
-            "timeout": {"type": "integer", "description": "Max execution seconds (1-10).", "default": 10},
+            "timeout": {"type": "integer", "description": "Max execution seconds (1-60, default 30).", "default": 30},
         }, ["code"]),
         risk_level="high", requires_approval=True,
         permission_action="exec",
         description="Run a Python snippet on the local host. AST-sandboxed.",
     ),
     CanonicalToolEntry(
-        canonical_tool_id="host.command.slash_run",
+        canonical_tool_id="exec.slash",
         handler=_adapt(handle_slash_run),
         input_schema=_schema({
             "command": {"type": "string", "description": "Slash command name."},
@@ -960,7 +1131,7 @@ _RAW_REGISTRY: list[CanonicalToolEntry] = [
         }),
     ),
     CanonicalToolEntry(
-        canonical_tool_id="workspace.file.exists",
+        canonical_tool_id="workspace.file.list",
         handler=_adapt(handle_file_exists),
         input_schema=_schema({
             "workspace_id": _S["workspace_id"], "filepath": _S["filepath"],
@@ -971,19 +1142,14 @@ _RAW_REGISTRY: list[CanonicalToolEntry] = [
         handler=_adapt(handle_file_read),
         input_schema=_schema({
             "workspace_id": _S["workspace_id"], "filepath": _S["filepath"],
-            "limit": {"type": "integer", "default": 50000},
+            "limit": {"type": "integer", "default": 50000, "description": "Max chars to return."},
+            "offset": {"type": "integer", "default": 0, "description": "Start reading from line N (0-based pagination)."},
         }, ["filepath"]),
+        description="Read a workspace file with optional line offset and char limit.",
     ),
     CanonicalToolEntry(
         canonical_tool_id="workspace.file.read_image",
         handler=_adapt(handle_file_read_image),
-        input_schema=_schema({
-            "workspace_id": _S["workspace_id"], "filepath": _S["filepath"],
-        }, ["filepath"]),
-    ),
-    CanonicalToolEntry(
-        canonical_tool_id="workspace.file.preview",
-        handler=_adapt(handle_ws_read_text_preview),
         input_schema=_schema({
             "workspace_id": _S["workspace_id"], "filepath": _S["filepath"],
         }, ["filepath"]),
@@ -995,6 +1161,8 @@ _RAW_REGISTRY: list[CanonicalToolEntry] = [
             "workspace_id": _S["workspace_id"], "filepath": _S["filepath"],
             "old_string": _S["old_string"], "new_string": _S["new_string"],
             "replace_all": {"type": "boolean", "default": False},
+            "dry_run": {"type": "boolean", "default": False,
+                        "description": "Preview diff without writing to file."},
         }, ["filepath", "old_string", "new_string"]),
     ),
     CanonicalToolEntry(
@@ -1048,7 +1216,7 @@ _RAW_REGISTRY: list[CanonicalToolEntry] = [
         }, ["content"]),
     ),
     CanonicalToolEntry(
-        canonical_tool_id="workspace.artifact.search",
+        canonical_tool_id="workspace.artifact.list",
         handler=_adapt(handle_artifact_search),
         input_schema=_schema({
             "workspace_id": _S["workspace_id"], "query": _S["query"], "limit": _S["limit"],
@@ -1105,28 +1273,6 @@ _RAW_REGISTRY: list[CanonicalToolEntry] = [
         }, ["query"]),
     ),
     CanonicalToolEntry(
-        canonical_tool_id="knowledge.chunk.read",
-        handler=_adapt(handle_knowledge_get_chunk_summary),
-        input_schema=_schema({
-            "workspace_id": _S["workspace_id"], "chunk_id": _S["chunk_id"],
-        }, ["chunk_id"]),
-    ),
-    CanonicalToolEntry(
-        canonical_tool_id="knowledge.parent.read",
-        handler=_adapt(_k_parent_read),
-        input_schema=_schema({
-            "workspace_id": _S["workspace_id"], "chunk_id": _S["chunk_id"],
-        }, ["chunk_id"]),
-        description="Read the parent document/section that contains a specific chunk. Useful when a search chunk is too short and you need full context.",
-    ),
-    CanonicalToolEntry(
-        canonical_tool_id="knowledge.source.read",
-        handler=_adapt(handle_knowledge_get_source),
-        input_schema=_schema({
-            "workspace_id": _S["workspace_id"], "source_id": _S["source_id"],
-        }, ["source_id"]),
-    ),
-    CanonicalToolEntry(
         canonical_tool_id="knowledge.source.list",
         handler=_adapt(_k_source_list),
         input_schema=_schema({"workspace_id": _S["workspace_id"]}),
@@ -1149,7 +1295,7 @@ _RAW_REGISTRY: list[CanonicalToolEntry] = [
         description="Import a file or document into the knowledge base. Accepts workspace file paths (files/ or inbox/). Auto-detects format.",
     ),
     CanonicalToolEntry(
-        canonical_tool_id="knowledge.import.artifact",
+        canonical_tool_id="knowledge.import",
         handler=_adapt(handle_knowledge_index_artifact),
         input_schema=_schema({
             "workspace_id": _S["workspace_id"], "artifact_id": _S["artifact_id"],
@@ -1163,7 +1309,7 @@ _RAW_REGISTRY: list[CanonicalToolEntry] = [
         }),
     ),
     CanonicalToolEntry(
-        canonical_tool_id="knowledge.source.reindex_all",
+        canonical_tool_id="knowledge.source.reindex",
         handler=_adapt(handle_knowledge_reindex),
         input_schema=_schema({"workspace_id": _S["workspace_id"]}),
     ),
@@ -1192,41 +1338,6 @@ _RAW_REGISTRY: list[CanonicalToolEntry] = [
         }, ["query"]),
     ),
     CanonicalToolEntry(
-        canonical_tool_id="web.docs.official_search",
-        handler=_adapt(handle_web_official_doc_search),
-        input_schema=_schema({
-            "query": _S["query"],
-            "vendor": {"type": "string", "description": "Vendor slug."},
-        }, ["query"]),
-    ),
-    CanonicalToolEntry(
-        canonical_tool_id="web.page.summarize",
-        handler=_adapt(handle_web_fetch_summary),
-        input_schema=_schema({"url": _S["url"]}, ["url"]),
-    ),
-    CanonicalToolEntry(
-        canonical_tool_id="web.page.extract_links",
-        handler=_adapt(handle_web_extract_links),
-        input_schema=_schema({"url": _S["url"]}, ["url"]),
-    ),
-    CanonicalToolEntry(
-        canonical_tool_id="web.page.save_artifact",
-        handler=_adapt(handle_web_save_to_artifact),
-        input_schema=_schema({
-            "workspace_id": _S["workspace_id"], "url": _S["url"], "title": _S["title"],
-        }, ["url"]),
-    ),
-    CanonicalToolEntry(
-        canonical_tool_id="web.news.search",
-        handler=_adapt(handle_news_search),
-        input_schema=_schema({
-            "query": _S["query"],
-            "top_k": _S["limit"],
-            "recency": _S["recency"],
-            "language": _S["language"],
-        }, ["query"]),
-    ),
-    CanonicalToolEntry(
         canonical_tool_id="web.weather",
         handler=_adapt(_weather_merged),
         input_schema=_schema({
@@ -1239,66 +1350,46 @@ _RAW_REGISTRY: list[CanonicalToolEntry] = [
 
     # Runtime / Run / Session
     CanonicalToolEntry(
-        canonical_tool_id="runtime.health",
-        handler=_adapt(handle_runtime_health),
-        input_schema=_schema({"workspace_id": _S["workspace_id"]}),
-    ),
-    CanonicalToolEntry(
-        canonical_tool_id="runtime.diagnostics",
+        canonical_tool_id="system.diagnostics",
         handler=_adapt(handle_runtime_diagnostics),
         input_schema=_schema({"workspace_id": _S["workspace_id"]}),
     ),
-    # v3.2: stub tools removed — use runtime.diagnostics for all health checks
+    # v3.2: stub tools removed — use system.diagnostics for all health checks
     CanonicalToolEntry(
-        canonical_tool_id="run.list",
+        canonical_tool_id="system.run.get",
         handler=_adapt(handle_run_list_recent),
         input_schema=_schema({"workspace_id": _S["workspace_id"], "limit": _S["limit"]}),
     ),
     CanonicalToolEntry(
-        canonical_tool_id="run.summary.get",
+        canonical_tool_id="system.run.get",
         handler=_adapt(handle_run_get_summary),
         input_schema=_schema({
             "workspace_id": _S["workspace_id"], "run_id": _S["run_id"],
         }, ["run_id"]),
     ),
     CanonicalToolEntry(
-        canonical_tool_id="session.list",
+        canonical_tool_id="system.session.get",
         handler=_adapt(handle_session_list),
         input_schema=_schema({
             "workspace_id": _S["workspace_id"], "status": _S["status"], "limit": _S["limit"],
         }),
     ),
     CanonicalToolEntry(
-        canonical_tool_id="session.summary.get",
+        canonical_tool_id="system.session.get",
         handler=_adapt(handle_session_get_summary),
         input_schema=_schema({
             "workspace_id": _S["workspace_id"], "session_id": _S["session_id"],
         }, ["session_id"]),
     ),
     CanonicalToolEntry(
-        canonical_tool_id="session.snapshot.create",
-        handler=_adapt(handle_session_snapshot),
-        input_schema=_schema({
-            "workspace_id": _S["workspace_id"], "session_id": _S["session_id"],
-            "reason": _S["reason"],
-        }, ["session_id"]),
-    ),
-    CanonicalToolEntry(
-        canonical_tool_id="session.snapshot.list",
-        handler=_adapt(handle_session_list_snapshots),
-        input_schema=_schema({
-            "workspace_id": _S["workspace_id"], "session_id": _S["session_id"],
-        }, ["session_id"]),
-    ),
-    CanonicalToolEntry(
-        canonical_tool_id="session.checkpoint",
+        canonical_tool_id="system.session.checkpoint",
         handler=_adapt(handle_session_checkpoint),
         input_schema=_schema({
             "workspace_id": _S["workspace_id"], "session_id": _S["session_id"],
         }, ["session_id"]),
     ),
     CanonicalToolEntry(
-        canonical_tool_id="session.rewind",
+        canonical_tool_id="system.session.rewind",
         handler=_adapt(handle_session_rewind),
         input_schema=_schema({
             "workspace_id": _S["workspace_id"], "session_id": _S["session_id"],
@@ -1306,7 +1397,7 @@ _RAW_REGISTRY: list[CanonicalToolEntry] = [
         }, ["session_id", "snapshot_id"]),
     ),
     CanonicalToolEntry(
-        canonical_tool_id="session.export",
+        canonical_tool_id="system.session.export",
         handler=_adapt(handle_session_export),
         input_schema=_schema({
             "workspace_id": _S["workspace_id"], "session_id": _S["session_id"],
@@ -1314,12 +1405,12 @@ _RAW_REGISTRY: list[CanonicalToolEntry] = [
         }, ["session_id"]),
     ),
     CanonicalToolEntry(
-        canonical_tool_id="review.item.list",
+        canonical_tool_id="system.review.item.list",
         handler=_adapt(_review_item_list),
         input_schema=_schema({"workspace_id": _S["workspace_id"], "limit": _S["limit"]}),
     ),
     CanonicalToolEntry(
-        canonical_tool_id="review.item.update",
+        canonical_tool_id="system.review.item.update",
         handler=_adapt(_review_item_update),
         input_schema=_schema({
             "workspace_id": _S["workspace_id"],
@@ -1335,7 +1426,7 @@ _RAW_REGISTRY: list[CanonicalToolEntry] = [
         input_schema=_schema({"query": _S["query"], "limit": _S["limit"]}, ["query"]),
     ),
     CanonicalToolEntry(
-        canonical_tool_id="memory.list",
+        canonical_tool_id="memory.search",
         handler=_adapt(handle_memory_list),
         input_schema=_schema({
             "workspace_id": _S["workspace_id"], "scope": {"type": "string"},
@@ -1344,51 +1435,12 @@ _RAW_REGISTRY: list[CanonicalToolEntry] = [
         }),
     ),
     CanonicalToolEntry(
-        canonical_tool_id="memory.create",
-        handler=_adapt(handle_memory_create),
-        input_schema=_schema({
-            "workspace_id": _S["workspace_id"],
-            "title": _S["title"], "content": _S["content"],
-            "scope": {"type": "string", "enum": ["short_term", "project", "long_term"], "default": "long_term"},
-            "memory_type": {"type": "string", "default": "knowledge_note"},
-            "tags": {"type": "array", "items": {"type": "string"}},
-            "source": {"type": "string", "default": "agent"},
-            "confidence": {"type": "string", "enum": ["system_generated", "user_confirmed", "inferred"], "default": "system_generated"},
-            "summary": {"type": "string"},
-            "sensitivity": {"type": "string", "enum": ["internal", "sensitive"]},
-            "metadata": {"type": "object"},
-            "user_confirmed": {"type": "boolean", "default": False},
-        }, ["title", "content"]),
-    ),
-    CanonicalToolEntry(
-        canonical_tool_id="memory.confirm",
-        handler=_adapt(handle_memory_confirm),
-        input_schema=_schema({
-            "workspace_id": _S["workspace_id"], "memory_id": _S["memory_id"],
-        }, ["memory_id"]),
-    ),
-    CanonicalToolEntry(
-        canonical_tool_id="memory.update",
-        handler=_adapt(handle_memory_update),
-        input_schema=_schema({
-            "workspace_id": _S["workspace_id"], "memory_id": _S["memory_id"],
-            "content": _S["content"],
-        }, ["memory_id"]),
-    ),
-    CanonicalToolEntry(
-        canonical_tool_id="memory.delete_soft",
-        handler=_adapt(handle_memory_delete_soft),
-        input_schema=_schema({
-            "workspace_id": _S["workspace_id"], "memory_id": _S["memory_id"],
-        }, ["memory_id"]),
-    ),
-    CanonicalToolEntry(
-        canonical_tool_id="memory.profile.get",
+        canonical_tool_id="memory.profile",
         handler=_adapt(handle_memory_get_profile),
         input_schema=_schema({"workspace_id": _S["workspace_id"]}),
     ),
     CanonicalToolEntry(
-        canonical_tool_id="memory.profile.set",
+        canonical_tool_id="memory.profile",
         handler=_adapt(handle_memory_set_profile),
         input_schema=_schema({
             "workspace_id": _S["workspace_id"],
@@ -1439,43 +1491,10 @@ _RAW_REGISTRY: list[CanonicalToolEntry] = [
         input_schema=_schema({"text": _S["text"]}, ["text"]),
     ),
     CanonicalToolEntry(
-        canonical_tool_id="data.json.validate",
-        handler=_adapt(handle_json_validate),
-        input_schema=_schema({"text": _S["text"]}, ["text"]),
-    ),
-    CanonicalToolEntry(
-        canonical_tool_id="data.yaml.validate",
-        handler=_adapt(handle_yaml_validate),
-        input_schema=_schema({"text": _S["text"]}, ["text"]),
-    ),
-    CanonicalToolEntry(
         canonical_tool_id="data.csv.summarize",
         handler=_adapt(handle_csv_summarize),
         input_schema=_schema({"text": _S["text"]}, ["text"]),
     ),
-    CanonicalToolEntry(
-        canonical_tool_id="text.redact",
-        handler=_adapt(handle_text_redact),
-        input_schema=_schema({"text": _S["text"]}, ["text"]),
-    ),
-    CanonicalToolEntry(
-        canonical_tool_id="text.diff",
-        handler=_adapt(handle_text_diff),
-        input_schema=_schema({
-            "text_a": {"type": "string"}, "text_b": {"type": "string"},
-        }, ["text_a", "text_b"]),
-    ),
-    CanonicalToolEntry(
-        canonical_tool_id="text.keywords.extract",
-        handler=_adapt(handle_text_extract_keywords),
-        input_schema=_schema({"text": _S["text"], "limit": _S["limit"]}, ["text"]),
-    ),
-    CanonicalToolEntry(
-        canonical_tool_id="text.classify",
-        handler=_adapt(handle_text_classify),
-        input_schema=_schema({"text": _S["text"]}, ["text"]),
-    ),
-
     # Agent / Skill / Slash
     CanonicalToolEntry(
         canonical_tool_id="agent.role.list",
@@ -1524,15 +1543,7 @@ _RAW_REGISTRY: list[CanonicalToolEntry] = [
     ),
     # v3.2：skill.* tools removed — capability-first routing replaces them.
     # Use tool.catalog.search for capability discovery.
-    # Slash command tools removed — use host.command.slash_run for slash execution.
-    CanonicalToolEntry(
-        canonical_tool_id="slash.command.run",
-        handler=_adapt(handle_slash_run),
-        input_schema=_schema({
-            "command": {"type": "string"},
-            "args": {"type": "string"},
-        }, ["command"]),
-    ),
+    # Slash command tools removed — use exec.slash for slash execution.
     # ── Directory-level business tools ──
     CanonicalToolEntry(
         canonical_tool_id="config.analysis.run",
@@ -1645,9 +1656,27 @@ _RAW_REGISTRY: list[CanonicalToolEntry] = [
         }, ["url"]),
         description="Extract text content from a specific element on a web page. Use for targeted scraping or reading specific sections of documentation.",
     ),
+    # ── v3.7: Browser screenshot & click ──
+    CanonicalToolEntry(
+        canonical_tool_id="browser.screenshot",
+        handler=_handler_browser_screenshot,
+        input_schema=_schema({
+            "url": {"type": "string", "description": "Full URL to screenshot."},
+            "full_page": {"type": "boolean", "description": "Capture full page or just viewport.", "default": False},
+        }, ["url"]),
+        description="Take a screenshot of a web page and return a base64-encoded PNG image. Use to visually inspect a page.",
+    ),
+    CanonicalToolEntry(
+        canonical_tool_id="browser.click",
+        handler=_handler_browser_click,
+        input_schema=_schema({
+            "selector": {"type": "string", "description": "CSS selector of the element to click."},
+        }, ["selector"]),
+        description="Click an element on the currently loaded browser page. Navigate to a URL first using browser.navigate.",
+    ),
     # ── CMDB device asset tools ──
     CanonicalToolEntry(
-        canonical_tool_id="cmdb.list_assets",
+        canonical_tool_id="device.list",
         handler=_handler_cmdb_list_assets,
         input_schema=_schema({
             "workspace_id": _S["workspace_id"],
@@ -1658,7 +1687,7 @@ _RAW_REGISTRY: list[CanonicalToolEntry] = [
         description="List and search CMDB device assets. Supports fuzzy text search and JSON filtering by type/vendor. Returns asset list plus overall statistics (total count, breakdown by type/vendor/protocol).",
     ),
     CanonicalToolEntry(
-        canonical_tool_id="cmdb.get_asset",
+        canonical_tool_id="device.get",
         handler=_handler_cmdb_get_asset,
         input_schema=_schema({
             "workspace_id": _S["workspace_id"],
@@ -1667,7 +1696,7 @@ _RAW_REGISTRY: list[CanonicalToolEntry] = [
         description="Get full detail for a single CMDB asset by asset_id.",
     ),
     CanonicalToolEntry(
-        canonical_tool_id="cmdb.add_asset",
+        canonical_tool_id="device.add",
         handler=_handler_cmdb_add_asset,
         input_schema=_schema({
             "workspace_id": _S["workspace_id"],
@@ -1684,7 +1713,7 @@ _RAW_REGISTRY: list[CanonicalToolEntry] = [
         description="Add a new device asset to the CMDB. Requires approval.",
     ),
     CanonicalToolEntry(
-        canonical_tool_id="cmdb.delete_asset",
+        canonical_tool_id="device.delete",
         handler=_handler_cmdb_delete_asset,
         input_schema=_schema({
             "workspace_id": _S["workspace_id"],
@@ -1693,57 +1722,7 @@ _RAW_REGISTRY: list[CanonicalToolEntry] = [
         risk_level="medium", requires_approval=True,
         description="Soft-delete a CMDB asset (tombstone, recoverable). Requires approval.",
     ),
-    # ── Network device SSH / Telnet ──
-    CanonicalToolEntry(
-        canonical_tool_id="network.ssh",
-        handler=_handler_network_ssh,
-        input_schema=_schema({
-            "host": {"type": "string", "description": "Target host IP or hostname. Required for first call; optional if reusing session_id."},
-            "port": {"type": "integer", "description": "SSH port. Default: 22.", "default": 22},
-            "username": {"type": "string", "description": "SSH login username."},
-            "password": {"type": "string", "description": "SSH login password."},
-            "command": {"type": "string", "description": "Shell command to execute (e.g. ps aux, free -h, systemctl start nginx). Use && to chain: 'ps aux && free -h'. Omit to keep session alive or close a session."},
-            "vendor": {"type": "string", "description": "Vendor: huawei/cisco/h3c/generic.", "default": "generic"},
-            "session_id": {"type": "string", "description": "Reuse an existing SSH session for fast consecutive commands. Omit for new session."},
-            "sudo": {"type": "boolean", "description": "Auto-prefix command with sudo. Default: false.", "default": False},
-            "close_session": {"type": "boolean", "description": "Close the session after this call. Set true to clean up.", "default": False},
-        }, ["host", "username", "command"]),
-        risk_level="medium", requires_approval=False,
-        description="SSH into any host (network device, Linux server, etc.), execute commands, return output. Session reuse with session_id for fast consecutive commands. Dangerous commands (reload/erase/format/rm -rf) are blocked automatically. Use sudo=true for privileged operations.",
-    ),
-    CanonicalToolEntry(
-        canonical_tool_id="network.telnet",
-        handler=_handler_network_telnet,
-        input_schema=_schema({
-            "host": {"type": "string", "description": "Device IP or hostname."},
-            "port": {"type": "integer", "description": "Telnet port. Default: 23.", "default": 23},
-            "username": {"type": "string", "description": "Telnet login username."},
-            "password": {"type": "string", "description": "Telnet login password."},
-            "command": {"type": "string", "description": "Command to execute."},
-            "vendor": {"type": "string", "description": "Vendor slug (huawei/cisco/generic).", "default": "generic"},
-        }, ["host", "command"]),
-        risk_level="medium", requires_approval=False,
-        description="Telnet into any host (network device, Linux server, console server, etc.), execute ONE command, return output, and disconnect. Stateless one-shot. Prefer network.ssh when available. Dangerous commands are blocked automatically. Telnet is unencrypted.",
-    ),
     # ── FileStore tools ──
-    CanonicalToolEntry(
-        canonical_tool_id="file.get",
-        handler=_make_filestore_handler("file.get", ["file_id", "limit"]),
-        input_schema=_schema({
-            "file_id": {"type": "string", "description": "FileStore file_id to read."},
-            "limit": {"type": "integer", "description": "Max chars to return.", "default": 2000},
-        }, ["file_id"]),
-        description="Read text content of a FileStore-managed file by file_id.",
-    ),
-    CanonicalToolEntry(
-        canonical_tool_id="file.preview",
-        handler=_make_filestore_handler("file.preview", ["file_id", "limit"]),
-        input_schema=_schema({
-            "file_id": {"type": "string", "description": "FileStore file_id to preview."},
-            "limit": {"type": "integer", "description": "Preview length.", "default": 500},
-        }, ["file_id"]),
-        description="Preview a FileStore file: metadata + text preview.",
-    ),
     CanonicalToolEntry(
         canonical_tool_id="file.references",
         handler=_make_filestore_handler("file.references", ["file_id"]),
@@ -1753,24 +1732,82 @@ _RAW_REGISTRY: list[CanonicalToolEntry] = [
         description="Query cross-references for a FileStore file.",
     ),
     CanonicalToolEntry(
-        canonical_tool_id="file.write_agent_output",
-        handler=_make_filestore_handler("file.write_agent_output", ["content", "logical_type", "file_kind", "title", "ext"]),
-        input_schema=_schema({
-            "content": {"type": "string", "description": "Content to write."},
-            "logical_type": {"type": "string", "description": "Logical type.", "default": "artifact_output"},
-            "file_kind": {"type": "string", "description": "File kind.", "default": "text"},
-            "title": {"type": "string", "description": "Title for the artifact."},
-            "ext": {"type": "string", "description": "File extension.", "default": "txt"},
-        }, ["content"]),
-        description="Write output through FileStore and get file_id.",
-    ),
-    CanonicalToolEntry(
         canonical_tool_id="file.import_workspace_path",
         handler=_make_filestore_handler("file.import_workspace_path", ["filepath"]),
         input_schema=_schema({
             "filepath": {"type": "string", "description": "Workspace-relative path to import."},
         }, ["filepath"]),
         description="Import a workspace file into FileStore and get file_id.",
+    ),
+    # ── v3.5 Merged tools ──
+    CanonicalToolEntry(
+        canonical_tool_id="web.page.process",
+        handler=_adapt(_handle_web_page_merged),
+        input_schema=_schema({
+            "url": _S["url"],
+            "action": {"type": "string", "enum": ["summarize", "extract_links", "save_artifact"],
+                       "description": "summarize (default), extract_links, or save_artifact.", "default": "summarize"},
+            "workspace_id": _S["workspace_id"], "title": _S["title"],
+        }, ["url"]),
+        description="Process a web page: summarize, extract links, or save as artifact.",
+    ),
+    CanonicalToolEntry(
+        canonical_tool_id="data.validate",
+        handler=_adapt(_handle_data_validate_merged),
+        input_schema=_schema({
+            "text": _S["text"],
+            "format": {"type": "string", "enum": ["json", "yaml"], "description": "Data format.", "default": "json"},
+        }, ["text"]),
+        description="Validate JSON or YAML data structure.",
+    ),
+    CanonicalToolEntry(
+        canonical_tool_id="knowledge.read",
+        handler=_adapt(_handle_knowledge_read_merged),
+        input_schema=_schema({
+            "workspace_id": _S["workspace_id"],
+            "level": {"type": "string", "enum": ["chunk", "source", "parent"],
+                      "description": "chunk (default), source, or parent.", "default": "chunk"},
+            "chunk_id": _S["chunk_id"], "source_id": _S["source_id"],
+        }, ["workspace_id"]),
+        description="Read knowledge: chunk, source, or parent document.",
+    ),
+    CanonicalToolEntry(
+        canonical_tool_id="memory.manage",
+        handler=_adapt(_handle_memory_manage_merged),
+        input_schema=_schema({
+            "workspace_id": _S["workspace_id"],
+            "action": {"type": "string", "enum": ["create", "update", "confirm", "delete"],
+                       "description": "create (default), update, confirm, or delete.", "default": "create"},
+            "title": _S["title"], "content": _S["content"], "memory_id": _S["memory_id"],
+            "scope": {"type": "string", "enum": ["short_term", "project", "long_term"], "default": "long_term"},
+            "memory_type": {"type": "string", "default": "knowledge_note"},
+            "tags": {"type": "array", "items": {"type": "string"}},
+            "summary": {"type": "string"}, "metadata": {"type": "object"},
+        }, ["action"]),
+        description="Manage memory: create, update, confirm, or delete records.",
+    ),
+    CanonicalToolEntry(
+        canonical_tool_id="text.analyze",
+        handler=_adapt(_handle_text_analyze_merged),
+        input_schema=_schema({
+            "text": _S["text"],
+            "action": {"type": "string", "enum": ["redact", "diff", "keywords", "classify"],
+                       "description": "redact (default), diff (needs text_b), keywords, or classify.", "default": "redact"},
+            "text_b": {"type": "string", "description": "Second text for diff action."},
+            "limit": _S["limit"],
+        }, ["text"]),
+        description="Analyze text: redact, diff, extract keywords, or classify.",
+    ),
+    CanonicalToolEntry(
+        canonical_tool_id="system.session.snapshot",
+        handler=_adapt(_handle_session_snapshot_merged),
+        input_schema=_schema({
+            "workspace_id": _S["workspace_id"], "session_id": _S["session_id"],
+            "action": {"type": "string", "enum": ["create", "list"],
+                       "description": "create (default) or list.", "default": "create"},
+            "reason": _S["reason"],
+        }, ["session_id"]),
+        description="Create or list session snapshots for audit.",
     ),
 ]
 

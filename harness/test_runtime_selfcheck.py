@@ -55,6 +55,18 @@ class TestSelfcheck:
         if forbidden_list:
             assert "ssh.exec" in forbidden_list
 
+    def test_selfcheck_reports_current_tool_runtime_contract(self):
+        from tool_runtime.canonical_registry import CANONICAL_REGISTRY
+        from tool_runtime.policy import V02_FORBIDDEN_TOOLS
+        from tool_runtime.tool_governance import governance_summary
+
+        result = run_selfcheck("default")
+
+        assert result.checks.get("tool_runtime") == "ok"
+        assert result.checks.get("tool_registered_count") == len(CANONICAL_REGISTRY)
+        assert result.checks.get("tool_forbidden_count") == len(V02_FORBIDDEN_TOOLS)
+        assert result.checks.get("tool_governance") == governance_summary()
+
 
 class TestRetention:
     def test_preview_dry_run_default(self):

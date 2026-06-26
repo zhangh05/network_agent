@@ -221,7 +221,7 @@ class TestPromptCompiler:
 
     def test_blocks_importable(self):
         from agent.runtime.prompting.blocks import (
-            CORE_PROMPT, ANTI_HALLUCINATION, RUNTIME_CONTRACT,
+            CORE_PROMPT, ANTI_HALLUCINATION,
             TOOL_CATEGORY_GUIDE, SUB_AGENT_PREAMBLE,
         )
         assert "Network Agent" in CORE_PROMPT
@@ -247,7 +247,7 @@ class TestPromptCompiler:
         d = decide_scene("查看本机端口")
         context = SimpleNamespace(
             metadata={"scene_decision": d.__dict__},
-            visible_tool_ids=["host.shell.exec"],
+            visible_tool_ids=["exec.run"],
             safe_context={},
         )
         assembly = compile_runtime_prompt(context)
@@ -290,17 +290,15 @@ class TestLocalOpsExposure:
     def test_baseline_includes_host_and_web(self):
         """host and web tools are universal catalog — always in BASELINE."""
         from agent.runtime.tool_planning.visibility import BASELINE_READ_TOOLS
-        assert "host.shell.exec" in BASELINE_READ_TOOLS
-        assert "host.powershell.exec" in BASELINE_READ_TOOLS
+        assert "exec.run" in BASELINE_READ_TOOLS
         assert "web.search" in BASELINE_READ_TOOLS
 
     def test_local_ops_no_longer_has_host_duplicates(self):
         """host tools moved from LOCAL_OPS to BASELINE — no duplicates."""
         from agent.runtime.tool_planning.visibility import LOCAL_OPS_TOOLS
-        assert "host.shell.exec" not in LOCAL_OPS_TOOLS
-        assert "host.powershell.exec" not in LOCAL_OPS_TOOLS
-        assert "host.python.exec" not in LOCAL_OPS_TOOLS
-        assert "runtime.health" in LOCAL_OPS_TOOLS
+        assert "exec.run" not in LOCAL_OPS_TOOLS
+        assert "exec.python" not in LOCAL_OPS_TOOLS
+        assert "system.diagnostics" in LOCAL_OPS_TOOLS
 
     def test_scene_decision_host_signals(self):
         """decide_scene should detect host signals correctly."""

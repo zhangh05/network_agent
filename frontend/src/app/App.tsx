@@ -13,6 +13,9 @@ import { KnowledgeLibrary } from "../pages/KnowledgeLibrary/KnowledgeLibrary";
 import { ArtifactCenter } from "../pages/ArtifactCenter/ArtifactCenter";
 import { MemoryPage } from "../pages/MemoryPage/MemoryPage";
 import { CMDBPage } from "../pages/CMDB/CMDBPage";
+import { ReviewCenter } from "../pages/ReviewCenter/ReviewCenter";
+import { RuntimeAudit } from "../pages/RuntimeAudit/RuntimeAudit";
+import { FileManager } from "../pages/FileManager/FileManager";
 import { ToastHost } from "../components/ToastHost";
 import { useUIStore } from "../stores/session";
 import { systemApi } from "../api";
@@ -210,10 +213,22 @@ export function App() {
               path="/runs"
               element={
                 <ErrorBoundary>
-                  <AppLayout cols={2}>
+                  <AppLayout cols={3}>
                     <RunsPage />
                   </AppLayout>
                 </ErrorBoundary>
+              }
+            />
+            <Route path="/audit" element={
+                <ErrorBoundary><AppLayout cols={2}><RuntimeAudit /></AppLayout></ErrorBoundary>
+              }
+            />
+            <Route path="/reviews" element={
+                <ErrorBoundary><AppLayout cols={2}><ReviewCenter /></AppLayout></ErrorBoundary>
+              }
+            />
+            <Route path="/files" element={
+                <ErrorBoundary><AppLayout cols={2}><FileManager /></AppLayout></ErrorBoundary>
               }
             />
             <Route path="/" element={<Navigate to="/workbench" replace />} />

@@ -1,7 +1,7 @@
 """Round 7 review fixes — regression tests.
 
 Covers:
-- P0-1 memory.confirm/update/delete_soft use caller's workspace (not hardcoded
+- P0-1 memory.manage/update/delete_soft use caller's workspace (not hardcoded
   "default"), enforcing workspace isolation.
 - P0-5 is_sub_agent trust marker is immutable; LLM cannot spoof via session.metadata.
 - P1-1 agent/app/service.py singleton protected by threading.Lock.
@@ -31,14 +31,14 @@ import pytest
 # ---------------------------------------------------------------------------
 
 class TestMemoryWorkspaceIsolation:
-    """memory.confirm / update / delete_soft must read inv.workspace_id,
+    """memory.manage / update / delete_soft must read inv.workspace_id,
     not the hardcoded 'default'. This is a privilege boundary: an LLM in
     workspace A must not be able to mutate memory in workspace B."""
 
     def _make_inv(self, workspace_id="default", **kwargs):
         from tool_runtime.schemas import ToolInvocation
         return ToolInvocation(
-            tool_id="memory.confirm",
+            tool_id="memory.manage",
             arguments={"memory_id": "m1", **kwargs},
             workspace_id=workspace_id,
         )
@@ -83,7 +83,7 @@ class TestMemoryWorkspaceIsolation:
 
             # Caller in workspaceA tries to delete mid_b
             inv = ToolInvocation(
-                tool_id="memory.delete_soft",
+                tool_id="memory.manage",
                 arguments={"memory_id": mid_b},
                 workspace_id="workspaceA",
             )
@@ -128,7 +128,7 @@ class TestMemoryWorkspaceIsolation:
         from tool_runtime.general_tools import memory_tools
 
         inv = self._make_inv(workspace_id="workspaceA")
-        inv.tool_id = "memory.create"
+        inv.tool_id = "memory.manage"
         inv.arguments = {
             "workspace_id": "workspaceB",
             "title": "cross workspace",
@@ -147,7 +147,7 @@ class TestMemoryWorkspaceIsolation:
 
 class TestSubAgentTrustMarker:
     """session._is_sub_agent must only be writable through mark_sub_agent()
-    so an LLM cannot set it via memory.update to spoof sub-agent privileges."""
+    so an LLM cannot set it via memory.manage to spoof sub-agent privileges."""
 
     def test_sub_agent_default_false(self):
         from agent.core.session import AgentSession
@@ -162,7 +162,7 @@ class TestSubAgentTrustMarker:
 
     def test_sub_agent_marker_cannot_be_spoofed_via_metadata(self):
         """P0-5: prior code read `session.metadata['is_sub_agent']`, which
-        the LLM could write via memory.update. The new marker is read from
+        the LLM could write via memory.manage. The new marker is read from
         `_is_sub_agent`, a dedicated field set only via mark_sub_agent()."""
         from agent.core.session import AgentSession
         s = AgentSession(session_id="s1", workspace_id="default")
@@ -362,7 +362,7 @@ class TestWebFetchCacheLock:
 
 class TestSessionCheckpointAtomic:
     def test_atomic_write_json_used_for_checkpoint(self, monkeypatch, tmp_path):
-        """P1 fix (round 7): session.checkpoint now writes via workspace.atomic_io
+        """P1 fix (round 7): system.session.checkpoint now writes via workspace.atomic_io
         (atomic_write_json) rather than direct path.write_text. Verify the
         import path is wired up — atomic_write_json is referenced inside
         the handler module so a crash mid-write no longer leaves a

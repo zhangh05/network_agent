@@ -37,7 +37,7 @@ def test_create_and_resolve_persists_to_jsonl(tmp_path):
     unsubscribe = get_event_bus().subscribe(_on_event)
     try:
         req = store.create(
-            session_id="sess-1", tool_id="host.shell.exec",
+            session_id="sess-1", tool_id="exec.run",
             arguments={"cmd": "ls -la"},
             description="run ls", risk_level="high",
             metadata={"argument_source": "user"},
@@ -68,7 +68,7 @@ def test_timeout_auto_denies_and_writes_audit(tmp_path):
     from agent.approval import ApprovalStore
 
     store = ApprovalStore(persist_path=tmp_path / "approvals.jsonl")
-    req = store.create("sess-2", "host.shell.exec", {"cmd": "x"})
+    req = store.create("sess-2", "exec.run", {"cmd": "x"})
 
     # Short timeout → wait() should auto-deny
     allowed = store.wait(req.approval_id, timeout=1.0)
@@ -82,17 +82,17 @@ def test_history_filters_by_tool_and_session(tmp_path):
     from agent.approval import ApprovalStore
 
     store = ApprovalStore(persist_path=tmp_path / "approvals.jsonl")
-    r1 = store.create("sA", "host.shell.exec", {"cmd": "a"})
-    r2 = store.create("sA", "host.powershell.exec", {"cmd": "b"})
-    r3 = store.create("sB", "host.shell.exec", {"cmd": "c"})
+    r1 = store.create("sA", "exec.run", {"cmd": "a"})
+    r2 = store.create("sA", "exec.run", {"cmd": "b"})
+    r3 = store.create("sB", "exec.run", {"cmd": "c"})
     for r in (r1, r2, r3):
         store.resolve(r.approval_id, allowed=True)
 
     by_session = store.get_history(session_id="sA")
     assert {h["approval_id"] for h in by_session} == {r1.approval_id, r2.approval_id}
 
-    by_tool = store.get_history(tool_id="host.shell.exec")
-    assert {h["approval_id"] for h in by_tool} == {r1.approval_id, r3.approval_id}
+    by_tool = store.get_history(tool_id="exec.run")
+    assert {h["approval_id"] for h in by_tool} == {r1.approval_id, r2.approval_id, r3.approval_id}
 
 
 # ─────────────────────────────── 2. Reload on startup ───────────────────────────────
@@ -104,7 +104,7 @@ def test_reload_unresolved_on_startup(tmp_path):
     path = tmp_path / "approvals.jsonl"
 
     s1 = ApprovalStore(persist_path=path)
-    req = s1.create("sess-reload", "host.shell.exec", {"cmd": "echo"})
+    req = s1.create("sess-reload", "exec.run", {"cmd": "echo"})
     assert req.approval_id
 
     # Simulate restart — fresh store reads JSONL
@@ -172,7 +172,7 @@ def test_sub_agent_run_record_written(tmp_path, monkeypatch):
         final_response="It says hello.",
         tool_calls_count=2,
         steps=3,
-        visible_tool_ids=["web.search", "text.classify"],
+        visible_tool_ids=["web.search", "text.analyze"],
     )
     assert rid == "run_parent_001"
 
@@ -184,7 +184,7 @@ def test_sub_agent_run_record_written(tmp_path, monkeypatch):
     assert rec["child_run_id"] == "run_child_002"
     assert rec["child_session_id"] == "sub_child_123"
     assert rec["tool_calls_count"] == 2
-    assert rec["visible_tool_ids"] == ["web.search", "text.classify"]
+    assert rec["visible_tool_ids"] == ["web.search", "text.analyze"]
 
 
 # ─────────────────────────────── 5. Approval timeout configurability ───────────────────────────────

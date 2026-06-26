@@ -8,6 +8,7 @@ import {
 } from "../../components/common";
 import { knowledgeApi, artifactsApi } from "../../api";
 import { useSessionStore } from "../../stores/session";
+import { formatDate } from "../../utils/format";
 import { useToastStore } from "../../stores/toast";
 import { isApiError } from "../../types";
 import type { KnowledgeSource } from "../../types";
@@ -421,7 +422,7 @@ export function KnowledgeLibrary() {
                         </Badge>
                       </td>
                       <td className="text-xs muted">
-                        {formatKnowledgeDate(s.updated_at || s.created_at)}
+                        {formatDate(s.updated_at || s.created_at, "compact")}
                       </td>
                       <td>
                         <button
@@ -618,18 +619,4 @@ function sourceTypeLabel(type?: string): string {
 
 function isSearchableSource(source: KnowledgeSource): boolean {
   return source.status === "indexed" || source.enabled === true || (source.chunk_count ?? 0) > 0;
-}
-
-function formatKnowledgeDate(value?: string): string {
-  if (!value) return "—";
-  try {
-    return new Date(value).toLocaleString(undefined, {
-      month: "2-digit",
-      day: "2-digit",
-      hour: "2-digit",
-      minute: "2-digit",
-    });
-  } catch {
-    return value;
-  }
 }

@@ -10,6 +10,7 @@ import { isApiError } from "../../types";
 import type { Artifact } from "../../types";
 import { IconDocument, IconPlus } from "../../components/Icon";
 import { formatCompactDate } from "../../utils/displayText";
+import { formatFileSize } from "../../utils/format";
 
 const SENS_LABEL: Record<string, string> = { public: "公开", internal: "内部", sensitive: "敏感", secret: "机密" };
 const LC_KIND: Record<string, "ok" | "warn" | "muted"> = { active: "ok", archived: "warn", deleted: "muted" };
@@ -156,7 +157,7 @@ function Detail({ artifact: a, tab, onTab, onDel }: { artifact: Artifact; tab: s
           <Info label="类型">{typeLabel(a)}</Info>
           <Info label="来源">{SRC_LABEL[a.source] || a.source}</Info>
           <Info label="MIME">{a.mime_type || "—"}</Info>
-          <Info label="大小">{fmtSize(a.size_bytes)}</Info>
+          <Info label="大小">{formatFileSize(a.size_bytes)}</Info>
           {a.sha256_short && <Info label="SHA-256" mono>{a.sha256_short}</Info>}
           {a.capability_id && <Info label="能力">{a.capability_id}</Info>}
           {a.run_id && <Info label="Run" mono>{a.run_id}</Info>}
@@ -275,13 +276,6 @@ function typeLabel(a: Artifact): string {
 
 function isAuthoritative(a: Artifact): boolean {
   return Boolean(a.capability_id || a.module || a.skill);
-}
-
-function fmtSize(n: number): string {
-  if (!n || n <= 0) return "—";
-  if (n < 1024) return `${n} B`;
-  if (n < 1048576) return `${(n / 1024).toFixed(1)} KB`;
-  return `${(n / 1048576).toFixed(2)} MB`;
 }
 
 /* ── Report section ── */

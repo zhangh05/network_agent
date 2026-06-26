@@ -22,7 +22,7 @@ class TurnRuntimeState:
 
     # Agentic loop counters
     step: int = 0
-    max_steps: int = 8
+    max_steps: int = 24
 
     # Accumulated results
     all_tool_results: list = field(default_factory=list)

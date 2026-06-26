@@ -14,7 +14,7 @@ def test_build_tool_chain_routes_config_to_directory_tool():
     from agent.runtime.tool_planning.chain_builder import build_tool_chain
 
     candidates = {
-        "workspace.file.read", "workspace.file.list", "workspace.file.preview",
+        "workspace.file.read", "workspace.file.list", "workspace.file.read",
         "config.analysis.run",
     }
     chain = build_tool_chain({"mentions_network_config": True}, candidates)
@@ -27,7 +27,7 @@ def test_build_tool_chain_routes_translate_to_directory_tool():
     from agent.runtime.tool_planning.chain_builder import build_tool_chain
 
     candidates = {
-        "workspace.file.read", "workspace.file.list", "workspace.file.preview",
+        "workspace.file.read", "workspace.file.list", "workspace.file.read",
         "config.analysis.run",
     }
     chain = build_tool_chain({"mentions_config_translate": True}, candidates)

@@ -22,9 +22,9 @@ V02_ALLOWED_RISK_LEVELS = {"low", "medium", "high"}
 # Forbidden tool_ids — blocked at policy level even if registered
 V02_FORBIDDEN_TOOLS = {
     "ssh.exec", "telnet.exec", "snmp.walk", "nmap.scan", "ping.sweep",
-    "command.exec", "host.shell.exec", "device.exec", "config.push",
+    "command.exec", "exec.run", "device.exec", "config.push",
     "file.read_any", "file.write_any",
-    "host.powershell.exec",
+    "exec.run",
 }
 
 # Forbidden tool_id patterns — regex patterns that catch variants
@@ -48,8 +48,7 @@ V02_FORBIDDEN_PATTERNS = [
 
 # v0.3 high-risk approved_exec tools — need approval_id but accept arbitrary commands
 V02_APPROVED_EXEC_TOOLS = {
-    "host.shell.exec",
-    "host.powershell.exec",
+    "exec.run",
 }
 
 # v0.3: handlers accept arbitrary commands, allowlists removed.
@@ -231,7 +230,7 @@ def _check_argument_safety(arguments: dict, tool_id: str = "") -> str:
     ]
 
     # Shell/PowerShell specific checks
-    if tool_id in ("host.shell.exec", "host.powershell.exec"):
+    if tool_id in ("exec.run"):
         extra_checks = [
             ("&&", "Command chaining detected"),
             ("||", "Command chaining detected"),
@@ -249,7 +248,7 @@ def _check_argument_safety(arguments: dict, tool_id: str = "") -> str:
         "Invoke-Expression", "Start-Process", "DownloadString",
         "Invoke-WebRequest", "Set-ExecutionPolicy", "Invoke-RestMethod",
     ]
-    if tool_id == "host.powershell.exec":
+    if tool_id == "exec.run":
         for pat in POWERSHELL_FORBIDDEN_PATTERNS:
             if pat.lower() in args_str:
                 return f"PowerShell forbidden pattern: {pat}"

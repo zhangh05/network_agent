@@ -1,18 +1,39 @@
-import { useState, useRef, useEffect, useCallback } from "react";
-import { agentApi, knowledgeApi, memoryApi, sessionsApi } from "../../api";
+import React, { useState, useRef, useEffect, useCallback } from "react";
+import { agentApi, knowledgeApi, memoryApi, sessionsApi, settingsApi } from "../../api";
 import { apiRequest } from "../../api/client";
-import { useSessionStore } from "../../stores/session";
+import { useSessionStore, useUIStore } from "../../stores/session";
 import { useWorkbenchStore } from "../../stores/workbench";
 import { useToastStore } from "../../stores/toast";
-import { useUIStore } from "../../stores/session";
 import { isApiError } from "../../types";
 import type { AgentResult, ToolCallResult } from "../../types";
 import { sanitizeAssistantText, renderAssistantHtml, toolLabel } from "../../utils/displayText";
 import { beginModelStep, discardToolCallDraft, finalizeStreamText } from "../../utils/agentStream";
+import hljs from "highlight.js/lib/core";
+import accesslog from "highlight.js/lib/languages/accesslog";
+import bash from "highlight.js/lib/languages/bash";
+import css from "highlight.js/lib/languages/css";
+import diff from "highlight.js/lib/languages/diff";
+import dos from "highlight.js/lib/languages/dos";
+import http from "highlight.js/lib/languages/http";
+import ini from "highlight.js/lib/languages/ini";
+import javascript from "highlight.js/lib/languages/javascript";
+import json from "highlight.js/lib/languages/json";
+import nginx from "highlight.js/lib/languages/nginx";
+import plaintext from "highlight.js/lib/languages/plaintext";
+import powershell from "highlight.js/lib/languages/powershell";
+import python from "highlight.js/lib/languages/python";
+import routeros from "highlight.js/lib/languages/routeros";
+import shell from "highlight.js/lib/languages/shell";
+import sql from "highlight.js/lib/languages/sql";
+import typescript from "highlight.js/lib/languages/typescript";
+import xml from "highlight.js/lib/languages/xml";
+import yaml from "highlight.js/lib/languages/yaml";
+import "highlight.js/styles/github.min.css";
 import { agentResultFromWsDone } from "../../utils/wsResult";
 import { notifyRunCompleted } from "../../utils/appEvents";
 import { IconAlert, IconBolt, IconSend } from "../../components/Icon";
 import { ApprovalBubble } from "../../components/ApprovalBubble";
+import { formatFileSize } from "../../utils/format";
 
 const QUICK_CHIPS = [
   {
@@ -29,6 +50,36 @@ const QUICK_CHIPS = [
   },
 ];
 
+for (const [name, language] of Object.entries({
+  accesslog,
+  bash,
+  css,
+  diff,
+  dos,
+  http,
+  ini,
+  javascript,
+  js: javascript,
+  json,
+  nginx,
+  plaintext,
+  powershell,
+  ps1: powershell,
+  python,
+  py: python,
+  routeros,
+  shell,
+  sh: shell,
+  sql,
+  typescript,
+  ts: typescript,
+  xml,
+  yaml,
+  yml: yaml,
+})) {
+  hljs.registerLanguage(name, language);
+}
+
 function _humanFailure(text: string): string {
   if (text.includes("provider_timeout") || text.includes("timed out") || text.includes("超时"))
     return "模型请求超过 30 秒未返回，可能是供应商响应慢或网络抖动。可以稍后重试，或缩短问题再试。";
@@ -41,11 +92,16 @@ function _humanFailure(text: string): string {
 
 export function AgentWorkbench() {
   const { currentWorkspaceId, currentSessionId } = useSessionStore();
-  const {
-    sending, lastUserInput, latestResult, bySession,
-    appendUser, appendAssistant, setSending, switchSession, mergeFromBackend,
-    setLatestResult,
-  } = useWorkbenchStore();
+  const sending = useWorkbenchStore((s) => s.sending);
+  const lastUserInput = useWorkbenchStore((s) => s.lastUserInput);
+  const latestResult = useWorkbenchStore((s) => s.latestResult);
+  const bySession = useWorkbenchStore((s) => s.bySession);
+  const appendUser = useWorkbenchStore((s) => s.appendUser);
+  const appendAssistant = useWorkbenchStore((s) => s.appendAssistant);
+  const setSending = useWorkbenchStore((s) => s.setSending);
+  const switchSession = useWorkbenchStore((s) => s.switchSession);
+  const mergeFromBackend = useWorkbenchStore((s) => s.mergeFromBackend);
+  const setLatestResult = useWorkbenchStore((s) => s.setLatestResult);
 
   const activeHistoryKey = currentSessionId ?? "_scratch";
   const visibleHistory = bySession?.[activeHistoryKey] ?? [];
@@ -57,20 +113,32 @@ export function AgentWorkbench() {
   const chatRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
   const toast = useToastStore((s) => s.show);
+  const abortRef = useRef<AbortController | null>(null);
+
+  // Stop generation
+  const stopGeneration = useCallback(() => {
+    if (abortRef.current) {
+      abortRef.current.abort();
+      abortRef.current = null;
+    }
+    setSending(false);
+    setStreamingText("");
+  }, [setSending]);
+
+  // Clean up abort controller on unmount
+  useEffect(() => () => { abortRef.current?.abort(); }, []);
 
   // LLM health poll
   useEffect(() => {
     const poll = () => {
-      import("../../api").then(({ settingsApi }) => {
-        settingsApi.llmStatus().then((s) => {
-          if (!s) return;
-          setLlmHealth({
-            connected: s.connected,
-            provider: s.provider || s.provider_type || "",
-            model: s.model || "",
-            recentFailure: s.recent_failure?.error_type ? s.recent_failure.error_summary : undefined,
-          });
-        }).catch(() => {});
+      settingsApi.llmStatus().then((s) => {
+        if (!s) return;
+        setLlmHealth({
+          connected: s.connected,
+          provider: s.provider || s.provider_type || "",
+          model: s.model || "",
+          recentFailure: s.recent_failure?.error_type ? s.recent_failure.error_summary : undefined,
+        });
       }).catch(() => {});
     };
     poll();
@@ -171,6 +239,7 @@ export function AgentWorkbench() {
     const wsHost = window.location.host; // Includes port (5173 in dev, 8010 in prod)
     const wsUrl = `${protocol}//${wsHost}/ws/agent`;
     let ws: WebSocket | null = null;
+    abortRef.current = new AbortController();
 
     try {
       ws = new WebSocket(wsUrl);
@@ -321,7 +390,7 @@ export function AgentWorkbench() {
         if (resolvedSid && currentWorkspaceId) {
           sessionsApi.messages(resolvedSid, currentWorkspaceId)
             .then((r) => { if (r.messages?.length) mergeFromBackend(resolvedSid, r.messages); })
-            .catch((e) => console.warn("背景同步未命中:", e?.message ?? "未知错误"));
+            .catch(() => { /* 背景同步为 best-effort，静默失败 */ });
         }
       } catch (err: unknown) {
         const msg = isApiError(err) ? err.message : String(err);
@@ -352,12 +421,6 @@ export function AgentWorkbench() {
   }
 
   // ── File upload ──
-
-  function formatFileSize(bytes: number) {
-    if (bytes < 1024) return `${bytes} B`;
-    if (bytes < 1048576) return `${(bytes / 1024).toFixed(1)} KB`;
-    return `${(bytes / 1048576).toFixed(1)} MB`;
-  }
 
   function addFiles(files: FileList | File[]) {
     const list = Array.from(files).filter((f) => f.size < 50 * 1024 * 1024);
@@ -416,14 +479,30 @@ export function AgentWorkbench() {
       {/* ── Chat area ── */}
       <div className="wb-chat" ref={chatRef} data-testid="chat-stream">
         {(visibleHistory?.length ?? 0) === 0 && !sending ? (
-          <div className="wb-empty" data-testid="workbench-empty">
+          <div className="wb-empty wb-empty-enhanced" data-testid="workbench-empty">
             <h2>网络任务工作区</h2>
-            <p>输入故障现象、配置片段或排查目标，系统会按会话记录、知识证据和工具结果组织输出。</p>
+            <p>输入故障现象、配置片段或排查目标，AI Agent 会按会话记录、知识证据和工具结果组织输出。</p>
             <div className="wb-empty-chips">
               {QUICK_CHIPS.map((c) => (
                 <button key={c.label} className="wb-input-chip" type="button" onClick={() => pickChip(c.prompt)} title={c.prompt}>
                   {c.label}
                 </button>
+              ))}
+            </div>
+            <div className="wb-empty-features">
+              {[
+                { icon: "🔍", title: "知识检索", desc: "自动搜索知识库和文档" },
+                { icon: "🔧", title: "设备管控", desc: "SSH/SNMP 远程操作和配置" },
+                { icon: "📊", title: "数据分析", desc: "PCAP 解析、报表生成" },
+                { icon: "💾", title: "记忆持久", desc: "跨会话记住重要结论" },
+                { icon: "📂", title: "文件管理", desc: "上传配置文件、导出报告" },
+                { icon: "🤖", title: "多人协作", desc: "子 Agent 并行执行任务" },
+              ].map((feat) => (
+                <div key={feat.title} className="wb-empty-feature">
+                  <div className="wb-empty-feature-icon">{feat.icon}</div>
+                  <h4>{feat.title}</h4>
+                  <p>{feat.desc}</p>
+                </div>
               ))}
             </div>
           </div>
@@ -441,9 +520,19 @@ export function AgentWorkbench() {
                 <div className="message-avatar agent">网</div>
                 <div className="message-stack">
                   {(() => {
-                    const html = renderAssistantHtml(m.text);
-                    if (!html) return <span className="muted">(空消息)</span>;
-                    return <div className="chat-bubble assistant markdown-body" dangerouslySetInnerHTML={{ __html: html }} />;
+                    const { thinking, body } = parseThinking(m.text);
+                    return (
+                      <>
+                        {thinking && <ThinkingBlock content={thinking} />}
+                        {(() => {
+                          const html = renderAssistantHtml(body);
+                          if (!html) return <span className="muted">(空消息)</span>;
+                          // Post-process for code highlighting
+                          const highlighted = highlightCode(html);
+                          return <div className="chat-bubble assistant markdown-body" dangerouslySetInnerHTML={{ __html: highlighted }} />;
+                        })()}
+                      </>
+                    );
                   })()}
                   <ResultInline result={m.result} fallbackText={sanitizeAssistantText(m.text)} />
                 </div>
@@ -458,7 +547,7 @@ export function AgentWorkbench() {
             <div className="message-stack">
               <div className="chat-bubble assistant sending-line">
                 {streamingText ? (
-                  <span className="text-sm">{streamingText}</span>
+                  <StreamingContent text={streamingText} />
                 ) : (
                   <>
                     <span className="typing-indicator">
@@ -507,7 +596,7 @@ export function AgentWorkbench() {
           <textarea
             ref={inputRef}
             className="wb-input"
-            placeholder="输入主机名、IP 或排查目标…"
+            placeholder="输入主机名、IP 或排查目标… (Enter 发送, Shift+Enter 换行)"
             value={input}
             onChange={(e) => setInput(e.target.value)}
             onKeyDown={(e) => { if (e.key === "Enter" && !e.shiftKey && !e.nativeEvent.isComposing) { e.preventDefault(); onSend(); } }}
@@ -515,18 +604,25 @@ export function AgentWorkbench() {
             rows={1}
             data-testid="chat-input"
             spellCheck={false}
+            style={{ fieldSizing: "content" }}
           />
-          <button
-            className="wb-send"
-            onClick={() => onSend()}
-            disabled={sending || (!input.trim() && attachments.length === 0)}
-            data-testid="btn-send"
-            type="button"
-            aria-label="发送"
-            title="发送"
-          >
-            <IconSend size={14} />
-          </button>
+          {sending ? (
+            <button className="wb-stop" onClick={stopGeneration} title="停止生成" type="button" data-testid="btn-stop">
+              <span style={{ display: "inline-block", width: 10, height: 10, background: "var(--danger)", borderRadius: 2 }} />
+            </button>
+          ) : (
+            <button
+              className="wb-send"
+              onClick={() => onSend()}
+              disabled={!input.trim() && attachments.length === 0}
+              data-testid="btn-send"
+              type="button"
+              aria-label="发送"
+              title="Enter 发送"
+            >
+              <IconSend size={14} />
+            </button>
+          )}
         </div>
       </div>
 
@@ -537,10 +633,64 @@ export function AgentWorkbench() {
 }
 
 /* ==============================================================
+   Helpers
+   ============================================================== */
+
+/** Parse <thinking>...</thinking> blocks from markdown content */
+function parseThinking(text: string): { thinking: string; body: string } {
+  const match = text.match(/<thinking>([\s\S]*?)<\/thinking>/i);
+  if (match) {
+    return { thinking: match[1].trim(), body: text.replace(match[0], "").trim() };
+  }
+  return { thinking: "", body: text };
+}
+
+/** Highlight code blocks in rendered HTML */
+function highlightCode(html: string): string {
+  return html.replace(/<pre><code class="language-(\w+)?">([\s\S]*?)<\/code><\/pre>/g, (_, lang, code) => {
+    try {
+      const decoded = new DOMParser().parseFromString(code, "text/html").body.textContent || "";
+      const langClass = lang && hljs.getLanguage(lang) ? lang : "plaintext";
+      const result = hljs.highlight(decoded, { language: langClass }).value;
+      return `<div class="code-block-wrap"><div class="code-block-header"><span>${lang || "code"}</span><button class="code-copy-btn" onclick="navigator.clipboard.writeText(this.closest('.code-block-wrap').querySelector('code').textContent);this.textContent='✓ 已复制';setTimeout(()=>this.textContent='复制',2000)">复制</button></div><pre><code class="hljs language-${langClass}">${result}</code></pre></div>`;
+    } catch {
+      return `<pre><code>${code}</code></pre>`;
+    }
+  });
+}
+
+/** Streaming content with live thinking block support */
+function StreamingContent({ text }: { text: string }) {
+  const { thinking, body } = parseThinking(text);
+  return (
+    <>
+      {thinking && <ThinkingBlock content={thinking} defaultOpen />}
+      {body && <span className="text-sm">{body}</span>}
+      {!body && !thinking && <span className="text-sm">{text}</span>}
+    </>
+  );
+}
+
+/** Collapsible thinking/reasoning block */
+function ThinkingBlock({ content, defaultOpen }: { content: string; defaultOpen?: boolean }) {
+  const [open, setOpen] = useState(defaultOpen ?? false);
+  return (
+    <div className="thinking-block">
+      <div className={`thinking-header ${open ? "open" : ""}`} onClick={() => setOpen(!open)}>
+        <span className="chev">▸</span>
+        <span>💭 思考过程</span>
+        <span style={{ fontSize: 9, color: "var(--text-4)", marginLeft: "auto" }}>点击{open ? "收起" : "展开"}</span>
+      </div>
+      {open && <div className="thinking-body">{content}</div>}
+    </div>
+  );
+}
+
+/* ==============================================================
    Sub-components
    ============================================================== */
 
-function ResultInline({ result, fallbackText }: { result: AgentResult | undefined; fallbackText: string }) {
+const ResultInline = React.memo(function ResultInline({ result, fallbackText }: { result: AgentResult | undefined; fallbackText: string }) {
   const toggleInspector = useUIStore((s) => s.toggleInspector);
   const { currentWorkspaceId } = useSessionStore();
   const toast = useToastStore((s) => s.show);
@@ -679,7 +829,7 @@ function ResultInline({ result, fallbackText }: { result: AgentResult | undefine
       )}
     </div>
   );
-}
+});
 
 function toolCallSummary(calls: ToolCallResult[]): string {
   const failed = calls.filter((tc) => !tc.ok).length;

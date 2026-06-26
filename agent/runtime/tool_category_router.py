@@ -14,35 +14,35 @@ from tool_runtime.tool_namespace import TOOL_NAMESPACE
 
 _CHAIN_ORDER = {
     "workspace.file.read": 10,
-    "workspace.file.preview": 11,
+    "workspace.file.read": 11,
     "workspace.file.list": 12,
-    "workspace.file.exists": 13,
-    "web.docs.official_search": 20,
+    "workspace.file.list": 13,
+    "web.search": 20,
     "web.search": 21,
-    "web.page.summarize": 22,
-    "web.page.extract_links": 23,
+    "web.page.process": 22,
+    "web.page.process": 23,
     "config.analysis.run": 30,
     "pcap.analysis.run": 34,
     "knowledge.search": 41,
-    "knowledge.chunk.read": 42,
-    "knowledge.source.read": 43,
-    "host.shell.exec": 50,
-    "host.powershell.exec": 51,
-    "host.python.exec": 52,
-    "runtime.health": 60,
-    "runtime.diagnostics": 61,
-    "run.list": 62,
-    "run.summary.get": 63,
-    "session.list": 64,
-    "session.summary.get": 65,
+    "knowledge.read": 42,
+    "knowledge.read": 43,
+    "exec.run": 50,
+    "exec.run": 51,
+    "exec.python": 52,
+    "system.diagnostics": 60,
+    "system.diagnostics": 61,
+    "system.run.get": 62,
+    "system.run.get": 63,
+    "system.session.get": 64,
+    "system.session.get": 65,
     "memory.search": 70,
-    "memory.profile.get": 71,
-    "memory.profile.set": 72,
+    "memory.proworkspace.file.read": 71,
+    "memory.profile": 72,
     "report.markdown.render": 80,
     "data.table.render": 81,
     "diagram.mermaid.render": 82,
     "workspace.artifact.save": 90,
-    "workspace.artifact.search": 91,
+    "workspace.artifact.list": 91,
 }
 
 
@@ -167,8 +167,8 @@ def route_tool_scene(
             _add_group(groups, category, group_id)
 
     if signals["mentions_host"]:
-        include("host", "shell", "powershell", "python")
-        include("runtime", "health")
+        include("exec", "shell", "python")
+        include("system", "health")
         reasons.append("用户明确请求查看或操作当前本机环境")
 
     if signals["has_uploaded_files"] or signals["mentions_file"]:
@@ -176,17 +176,17 @@ def route_tool_scene(
         reasons.append("用户涉及上传文件或 workspace 文件")
 
     if signals["mentions_network_config"] and not signals["mentions_knowledge"]:
-        include("network", "config", "interface", "route")
+        include("config", "config_analysis")
         include("workspace", "file")
         reasons.append("用户请求离线网络配置分析")
 
     if signals["mentions_config_translate"] and not signals["mentions_knowledge"]:
-        include("network", "config")
+        include("config", "config_analysis")
         include("workspace", "file")
         reasons.append("用户请求离线网络配置翻译")
 
     if signals["mentions_packet"] and not signals["mentions_knowledge"]:
-        include("network", "pcap")
+        include("config", "pcap_analysis")
         include("workspace", "file")
         reasons.append("用户请求离线报文/PCAP 分析")
 
@@ -203,15 +203,15 @@ def route_tool_scene(
         reasons.append("用户请求知识库资料")
 
     if signals["mentions_runtime"]:
-        include("runtime", "run", "session", "diagnostics")
+        include("system", "run", "session", "health")
         reasons.append("用户请求运行审计或 session/run 信息")
 
     if signals["mentions_memory"]:
-        include("memory", "memory", "profile")
+        include("memory", "record", "profile")
         reasons.append("用户请求记忆或 profile")
 
     if signals["mentions_report"]:
-        include("report_data", "report", "table", "diagram")
+        include("data", "report", "table", "diagram")
         include("workspace", "artifact")
         reasons.append("用户请求整理输出、报告或保存制品")
 
@@ -247,32 +247,32 @@ def route_tool_scene(
 def _primary_category(signals: dict[str, bool], categories: list[str]) -> str:
     if signals.get("mentions_knowledge") and "knowledge" in categories:
         return "knowledge"
-    if (signals.get("mentions_packet") or signals.get("mentions_config_translate")) and "network" in categories:
-        return "network"
-    if signals.get("mentions_network_config") and "network" in categories:
-        return "network"
-    if signals.get("mentions_host") and "host" in categories:
-        return "host"
-    if signals.get("mentions_runtime") and "runtime" in categories:
-        return "runtime"
+    if (signals.get("mentions_packet") or signals.get("mentions_config_translate")) and "config" in categories:
+        return "config"
+    if signals.get("mentions_network_config") and "config" in categories:
+        return "config"
+    if signals.get("mentions_host") and "exec" in categories:
+        return "exec"
+    if signals.get("mentions_runtime") and "system" in categories:
+        return "system"
     if signals.get("mentions_memory") and "memory" in categories:
         return "memory"
-    if signals.get("mentions_report") and "report_data" in categories:
-        return "report_data"
+    if signals.get("mentions_report") and "data" in categories:
+        return "data"
     return categories[0] if categories else "web"
 
 
 def _primary_group(primary_category: str, groups: dict[str, list[str]]) -> str:
     preferred = {
-        "host": "shell",
+        "exec": "shell",
         "workspace": "file",
-        "network": "config",
-        "web": "docs",
-        "knowledge": "query",
-        "runtime": "run",
+        "config": "config_analysis",
+        "web": "search",
+        "knowledge": "search",
+        "system": "run",
         "memory": "profile",
-        "report_data": "report",
-        "agent": "agent",
+        "data": "report",
+        "agent": "subagent",
     }
     group_ids = groups.get(primary_category, [])
     pref = preferred.get(primary_category)
@@ -297,7 +297,7 @@ def _build_tool_chain(signals: dict[str, bool], candidates: set[str]) -> list[di
         add("读取用户上传或 workspace 中的文件", [
             "workspace.file.read",
             "workspace.file.read_image",
-            "workspace.file.preview",
+            "workspace.file.read",
             "workspace.file.list",
         ])
 
@@ -309,9 +309,9 @@ def _build_tool_chain(signals: dict[str, bool], candidates: set[str]) -> list[di
 
     if signals.get("mentions_web"):
         add("检索官方文档或外部资料", [
-            "web.docs.official_search",
             "web.search",
-            "web.page.summarize",
+            "web.search",
+            "web.page.process",
         ])
 
     if signals.get("mentions_weather"):
@@ -323,14 +323,14 @@ def _build_tool_chain(signals: dict[str, bool], candidates: set[str]) -> list[di
     if signals.get("mentions_knowledge"):
         add("查询知识库资料", [
             "knowledge.search",
-            "knowledge.chunk.read",
+            "knowledge.read",
         ])
 
     if signals.get("mentions_network_config"):
         add("读取配置文件内容", [
             "workspace.file.read",
             "workspace.file.list",
-            "workspace.file.preview",
+            "workspace.file.read",
         ])
         add("离线分析网络配置", ["config.analysis.run"])
 
@@ -338,7 +338,7 @@ def _build_tool_chain(signals: dict[str, bool], candidates: set[str]) -> list[di
         add("读取待翻译配置文件内容", [
             "workspace.file.read",
             "workspace.file.list",
-            "workspace.file.preview",
+            "workspace.file.read",
         ])
         add("离线翻译网络配置", ["config.analysis.run"])
 
@@ -351,26 +351,26 @@ def _build_tool_chain(signals: dict[str, bool], candidates: set[str]) -> list[di
 
     if signals.get("mentions_host"):
         add("查询或操作当前本机环境", [
-            "host.shell.exec",
-            "host.powershell.exec",
-            "host.python.exec",
-            "runtime.health",
-            "runtime.diagnostics",
+            "exec.run",
+            "exec.run",
+            "exec.python",
+            "system.diagnostics",
+            "system.diagnostics",
         ])
 
     if signals.get("mentions_runtime"):
         add("读取运行审计、run 或 session 信息", [
-            "run.summary.get",
-            "run.list",
-            "runtime.diagnostics",
-            "session.summary.get",
+            "system.run.get",
+            "system.run.get",
+            "system.diagnostics",
+            "system.session.get",
         ])
 
     if signals.get("mentions_memory"):
         add("查询或更新记忆/profile", [
             "memory.search",
-            "memory.profile.get",
-            "memory.profile.set",
+            "memory.proworkspace.file.read",
+            "memory.profile",
         ])
 
     if signals.get("mentions_report"):

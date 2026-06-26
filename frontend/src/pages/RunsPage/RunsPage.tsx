@@ -9,7 +9,8 @@
 import { useEffect, useState, useCallback, useMemo } from "react";
 import { useSearchParams } from "react-router-dom";
 import { workspacesApi, runtimeAuditApi } from "../../api";
-import { useSessionStore } from "../../stores/session";
+import { useSessionStore, useUIStore } from "../../stores/session";
+import { useWorkbenchStore } from "../../stores/workbench";
 import { Badge, StatusDot, EmptyState, LoadingState, CodeBlock } from "../../components/common";
 import { IconRefresh, IconAlert } from "../../components/Icon";
 import { TraceDetailPanel } from "../../components/TraceDetailPanel";
@@ -17,7 +18,7 @@ import { DecisionReportPanel } from "../../components/DecisionReportPanel";
 import { APP_EVENTS } from "../../utils/appEvents";
 import { deriveRunTraceStats } from "../../utils/runTraceStats";
 import { formatEventTime, formatEventDetail, formatEventLabel } from "../../utils/runEvent";
-import type { DecisionReport, RuntimeAuditTurn } from "../../types";
+import type { DecisionReport, RuntimeAuditTurn, AgentResult } from "../../types";
 
 /* ── Status helpers ── */
 
@@ -47,9 +48,13 @@ function sLabel(s: string): string { return STATUS_LABEL[s] || s || "未知"; }
 
 export function RunsPage() {
   const { currentWorkspaceId, currentSessionId } = useSessionStore();
+  const setLatestResult = useWorkbenchStore((s) => s.setLatestResult);
+  const inspectorOpen = useUIStore((s) => s.inspectorOpen);
+  const toggleInspector = useUIStore((s) => s.toggleInspector);
   const wsId = currentWorkspaceId || "default";
   const [searchParams] = useSearchParams();
   const focusRunId = searchParams.get("focus") || null;
+  const inspectorRunId = searchParams.get("inspector") || null;
   const [runs, setRuns] = useState<RuntimeAuditTurn[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -101,13 +106,23 @@ export function RunsPage() {
   }, [load]);
 
   // Auto-select run when navigated from Jobs page with ?focus=run_id
+  //     or when F5 restores ?inspector=<run_id>
   useEffect(() => {
-    if (!focusRunId || runs.length === 0) return;
-    const target = runs.find((r) => (r.run_id || r.turn_id) === focusRunId);
+    const targetId = focusRunId || inspectorRunId;
+    if (!targetId || runs.length === 0) return;
+    if (sel?.run_id === targetId) return; // already selected
+    const target = runs.find((r) => (r.run_id || r.turn_id) === targetId);
     if (target) {
-      pick(target);
+      setSel(target);
+      setTrace(null);
+      setDecision(null);
+      setDecisionError("");
+      setTab("overview");
+      void loadTrace(target);
+      void loadDecision(target);
+      setLatestResult(buildAgentResult(target));
     }
-  }, [focusRunId, runs]);
+  }, [focusRunId, inspectorRunId, runs]);
 
   // Clear selection when session changes
   useEffect(() => {
@@ -128,6 +143,12 @@ export function RunsPage() {
       setTab("overview");
       void loadTrace(run);
       void loadDecision(run);
+      setLatestResult(buildAgentResult(run));
+      if (!inspectorOpen) toggleInspector();
+      // Persist via URL for F5 survival
+      const url = new URL(window.location.href);
+      url.searchParams.set("inspector", run.run_id || run.turn_id || "");
+      window.history.replaceState(null, "", url.toString());
     }
   };
 
@@ -289,15 +310,23 @@ export function RunsPage() {
               {tab === "overview" && (
                 <>
                   <div className="card" style={{ padding: "16px 18px", marginBottom: 20 }}>
-                    <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(200px, 1fr))", gap: "12px 20px" }}>
-                      <Info label="运行 ID" value={sel.turn_id || sel.run_id} mono />
-                      <Info label="追踪 ID" value={sel.trace_id} mono />
-                      <Info label="意图" value={sel.intent} />
-                      <Info label="开始" value={selectedStats.startedAt} />
-                      <Info label="结束" value={selectedStats.finishedAt} />
-                      <Info label="工具调用" value={selectedStats.toolCallCount ? String(selectedStats.toolCallCount) : "-"} />
-                      <Info label="错误" value={String(selectedStats.errorCount)} />
-                      <Info label="警告" value={String(selectedStats.warningCount)} />
+                    <div style={{ display: "grid", gridTemplateColumns: "120px 1fr 120px 1fr", gap: "6px 20px", alignItems: "center" }}>
+                      <span style={{ fontSize: 11, color: "var(--text-4)", fontWeight: 680 }}>运行 ID</span>
+                      <span style={{ fontFamily: "var(--font-mono)", fontSize: 12, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{sel.turn_id || sel.run_id || "—"}</span>
+                      <span style={{ fontSize: 11, color: "var(--text-4)", fontWeight: 680 }}>追踪 ID</span>
+                      <span style={{ fontFamily: "var(--font-mono)", fontSize: 12, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{sel.trace_id || "—"}</span>
+                      <span style={{ fontSize: 11, color: "var(--text-4)", fontWeight: 680 }}>意图</span>
+                      <span style={{ fontSize: 13, overflow: "hidden", textOverflow: "ellipsis" }}>{sel.intent || "—"}</span>
+                      <span style={{ fontSize: 11, color: "var(--text-4)", fontWeight: 680 }}>能力</span>
+                      <span style={{ fontSize: 13 }}>{sel.capability || "—"}</span>
+                      <span style={{ fontSize: 11, color: "var(--text-4)", fontWeight: 680 }}>开始</span>
+                      <span style={{ fontSize: 13 }}>{selectedStats.startedAt || "—"}</span>
+                      <span style={{ fontSize: 11, color: "var(--text-4)", fontWeight: 680 }}>结束</span>
+                      <span style={{ fontSize: 13 }}>{selectedStats.finishedAt || "—"}</span>
+                      <span style={{ fontSize: 11, color: "var(--text-4)", fontWeight: 680 }}>工具调用</span>
+                      <span style={{ fontSize: 13 }}>{selectedStats.toolCallCount || 0}</span>
+                      <span style={{ fontSize: 11, color: "var(--text-4)", fontWeight: 680 }}>状态</span>
+                      <span>{sel.ok ? <Badge kind="ok" withDot>ok</Badge> : <Badge kind="err" withDot>failed</Badge>}</span>
                     </div>
                   </div>
 
@@ -368,11 +397,26 @@ export function RunsPage() {
   );
 }
 
-function Info({ label, value, mono }: { label: string; value?: string | null; mono?: boolean }) {
-  return (
-    <div style={{ minWidth: 0 }}>
-      <div style={{ fontSize: "var(--fs-10)", color: "var(--text-4)", textTransform: "uppercase", letterSpacing: "0.05em", fontWeight: 680, marginBottom: 4 }}>{label}</div>
-      <div style={{ fontSize: "var(--fs-13)", color: "var(--text)", fontWeight: 620, fontFamily: mono ? "var(--font-mono)" : undefined, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{value || "—"}</div>
-    </div>
-  );
+/** Convert RuntimeAuditTurn → AgentResult so Inspector can display it. */
+function buildAgentResult(run: RuntimeAuditTurn): AgentResult {
+  return {
+    ok: /ok|completed|success/i.test(run.status || ""),
+    final_response: "",
+    events: (run.events || []) as any[],
+    trace_id: run.trace_id || "",
+    session_id: run.session_id || "",
+    turn_id: run.turn_id || "",
+    tool_calls: [],
+    warnings: [],
+    errors: [],
+    tool_decision: run.tool_decision,
+    no_tool_reason: run.no_tool_reason,
+    metadata: {
+      selected_capabilities: run.selected_capabilities,
+      selected_skills: run.selected_skills,
+      visible_tools: run.visible_tools,
+      source_count: 0,
+      workspace_id: "default",
+    },
+  };
 }

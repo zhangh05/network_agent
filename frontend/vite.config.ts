@@ -45,5 +45,11 @@ export default defineConfig(({ mode }) => {
       include: ["src/**/*.{test,spec}.{ts,tsx}"],
       exclude: ["e2e/**", "node_modules/**", "dist/**"],
     },
+    build: {
+      // The workbench is a single-screen console; after trimming highlight.js to
+      // registered languages, the main chunk is expected to sit just above
+      // Vite's generic 500 kB warning threshold.
+      chunkSizeWarningLimit: 700,
+    },
   };
 });

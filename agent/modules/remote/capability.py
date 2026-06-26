@@ -34,7 +34,7 @@ CAPABILITY_REMOTE = CapabilityManifest(
     ),
     tools=[
         CapabilityToolRef(
-            tool_id="network.ssh",
+            tool_id="exec.run",
             status="enabled",
             callable_by_llm=True,
             risk_level="medium",
@@ -44,7 +44,7 @@ CAPABILITY_REMOTE = CapabilityManifest(
             description="SSH 登录设备，执行一条命令后立即断开。危险命令自动拦截，无需审批。",
         ),
         CapabilityToolRef(
-            tool_id="network.telnet",
+            tool_id="exec.run",
             status="enabled",
             callable_by_llm=True,
             risk_level="medium",

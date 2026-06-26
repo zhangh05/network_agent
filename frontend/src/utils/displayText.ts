@@ -1,4 +1,5 @@
 import { renderMarkdown } from './markdown';
+import type { ToolPlanStep } from '../types';
 
 export function sanitizeAssistantText(text: string): string {
   const raw = text ?? "";
@@ -11,9 +12,16 @@ export function sanitizeAssistantText(text: string): string {
       "拓扑、巡检和 CMDB 仍在规划中，未上线的能力不会假装可用。",
     ].join("\n");
   }
-  return _stripThinkTags(raw)
+  // Strip tool-call JSON blocks that accidentally leak into display text.
+  // These appear as lines containing only tool call invocations:
+  //   exec.run:{"command":"...",...}
+  const cleaned = raw
+    .replace(/^\s*(exec|device|knowledge|workspace|web|git|code|memory|agent|browser|system|data|config)\.\w+\s*:\s*\{.*\}\s*$/gm, "")
+    .replace(/^\{[\s\S]*"canonical_tool_id"[\s\S]*\}$\s*/gm, "")
+    .replace(/^\s*<function_calls>[\s\S]*?<\/function_calls>\s*$/gm, "");
+  return _stripThinkTags(cleaned)
     .replace(/^\s*(reasoning|思考过程)\s*[:：][\s\S]*?(?=\n\s*(answer|回答|结论)\s*[:：]|\s*$)/gim, "")
-    .replace(/\n{3,}/g, "\n\n")
+    .replace(/\n{4,}/g, "\n\n")
     .trim();
 }
 
@@ -100,11 +108,11 @@ export function toolLabel(toolId: string): string {
  * Extract tool plan steps from scene metadata (tool_plan or tool_chain).
  * Returns an array of ToolPlanStep objects.
  */
-export function toolPlanSteps(scene: unknown): Array<Record<string, unknown>> {
+export function toolPlanSteps(scene: unknown): ToolPlanStep[] {
   if (!scene || typeof scene !== "object") return [];
   const plan = (scene as Record<string, unknown>).tool_plan;
   const chain = (scene as Record<string, unknown>).tool_chain;
-  if (Array.isArray(plan)) return plan as Array<Record<string, unknown>>;
-  if (Array.isArray(chain)) return chain as Array<Record<string, unknown>>;
+  if (Array.isArray(plan)) return plan as ToolPlanStep[];
+  if (Array.isArray(chain)) return chain as ToolPlanStep[];
   return [];
 }

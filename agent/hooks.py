@@ -160,7 +160,7 @@ class HookRegistry:
             matcher="shell.*",
             priority=10,
         ))
-        outcome = registry.run_hooks(HookEvent.PRE_TOOL_USE, state, {"tool_id": "host.shell.exec"})
+        outcome = registry.run_hooks(HookEvent.PRE_TOOL_USE, state, {"tool_id": "exec.run"})
     """
 
     def __init__(self) -> None:

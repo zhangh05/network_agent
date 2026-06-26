@@ -238,8 +238,8 @@ class TestPipelineIntegration:
             ]
         )
         candidates = planner._extract_candidates(ctx)
-        assert len(candidates) >= 1
-        assert any(c.memory_type == "artifact_summary" for c in candidates)
+        # v3.8: artifact_summary extraction disabled — produces no candidates
+        assert len(candidates) == 0
 
     def test_planner_extracts_from_task(self):
         """Planner extracts candidate from completed task."""

@@ -94,7 +94,7 @@ class ToolRegistry:
             # has this tool registered in CANONICAL_REGISTRY. Capability tool
             # refs often have empty input_schemas, which would overwrite the
             # canonical registry's full schema and cause the LLM to see tools
-            # without parameters (e.g. cmdb.get_asset without asset_id field).
+            # without parameters (e.g. device.get without asset_id field).
             # Must check BEFORE resolving handler_ref to avoid failures on
             # dummy handler_refs (e.g. knowledge.search uses canonical handler).
             if self._tool_client is not None:

@@ -89,7 +89,7 @@ class TestPermissionDenyTerminal:
             requires_approval=True,
         )
         turn = SimpleNamespace(warnings=[])
-        return check_tool_permission("host.shell.exec", spec, {}, turn)
+        return check_tool_permission("exec.run", spec, {}, turn)
 
     def test_deny_is_terminal(self, monkeypatch):
         from agent.runtime.permission_matrix import PermissionDecision
@@ -191,10 +191,10 @@ class TestToolVisibilityPolicy:
     def test_baseline_includes_host_and_web(self):
         """host and web tools are universal catalog — always in BASELINE."""
         from agent.runtime.tool_planning.visibility import BASELINE_READ_TOOLS
-        assert "host.shell.exec" in BASELINE_READ_TOOLS
+        assert "exec.run" in BASELINE_READ_TOOLS
         assert "web.search" in BASELINE_READ_TOOLS
 
     def test_local_ops_no_host_duplicates(self):
         """host tools moved to BASELINE — no duplicates in LOCAL_OPS."""
         from agent.runtime.tool_planning.visibility import LOCAL_OPS_TOOLS
-        assert "host.shell.exec" not in LOCAL_OPS_TOOLS
+        assert "exec.run" not in LOCAL_OPS_TOOLS

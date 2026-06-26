@@ -17,6 +17,17 @@ function escapeHtml(text: string): string {
     .replace(/"/g, '&quot;');
 }
 
+/** Block javascript:, data:, and other dangerous URL schemes. */
+const DANGEROUS_URL_RE = /^(javascript|data|vbscript):/i;
+function safeUrl(url: string): string {
+  const trimmed = url.trim();
+  return DANGEROUS_URL_RE.test(trimmed) ? "#blocked" : trimmed;
+}
+
+function safeHref(url: string, label: string): string {
+  return `<a href="${escapeHtml(url)}" target="_blank" rel="noopener noreferrer">${label}</a>`;
+}
+
 function normalizeMarkdown(text: string): string {
   return text
     .replace(/\r\n?/g, '\n')
@@ -60,9 +71,10 @@ function renderInline(raw: string): string {
   // Strikethrough
   text = text.replace(/~~(.+?)~~/g, '<s>$1</s>');
 
-  // Links [text](url)
+  // Links [text](url) — URL is sanitized to block javascript:/data: schemes
   text = text.replace(/\[([^\]]+)\]\(([^)]+)\)/g,
-    '<a href="$2" target="_blank" rel="noopener">$1</a>'
+    (_: string, label: string, url: string) =>
+      safeHref(safeUrl(url), label)
   );
 
   return text;

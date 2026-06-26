@@ -4,16 +4,18 @@ import { App } from "./app/App";
 import { ErrorBoundary } from "./components/ErrorBoundary";
 import "./styles/global.css";
 
-// Theme initialization — read from localStorage or fall back to
-// prefers-color-scheme. We do this BEFORE React mounts so the first
-// paint uses the correct tokens and we don't get a flash of unstyled
-// (or wrong-themed) content.
+// Theme initialization — read from Zustand persist store (na_ui) or
+// fall back to prefers-color-scheme. We do this BEFORE React mounts so
+// the first paint uses the correct tokens and there's no flash.
 (function initTheme() {
   try {
-    const stored = localStorage.getItem("ui.theme");
-    if (stored === "light" || stored === "dark") {
-      document.documentElement.setAttribute("data-theme", stored);
-      return;
+    const raw = localStorage.getItem("na_ui");
+    if (raw) {
+      const ui = JSON.parse(raw);
+      if (ui.state?.theme === "light" || ui.state?.theme === "dark") {
+        document.documentElement.setAttribute("data-theme", ui.state.theme);
+        return;
+      }
     }
   } catch {
     /* ignore */

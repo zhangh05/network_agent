@@ -23,14 +23,6 @@ SUB_AGENT_PREAMBLE = (
     "- Do NOT ask follow-up questions. Complete the task independently.\n"
 )
 
-# ── Legacy constants (used by test harness, replaced by prompt_architecture in production) ──
-
-RUNTIME_CONTRACT = (
-    "\n## Runtime Contract\n"
-    "Use only currently visible tools. Capability-aware turns use prompt_architecture.\n"
-    "Dots in tool IDs become double underscores in function calls: web.search → web__search.\n"
-)
-
 APPROVAL_NOTE = (
     "\n## Approval\n"
     "High-risk tools open an approval popup. Just call them — the system handles it.\n"

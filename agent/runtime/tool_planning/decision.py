@@ -52,7 +52,7 @@ class ToolPlanningDecision:
 
     # ── Safety flags ──
 
-    # Whether local ops (host.shell.exec, host.powershell.exec) are
+    # Whether local ops (exec.run, exec.run) are
     # permitted in this turn. Requires explicit scene signal.
     local_ops_allowed: bool = False
 

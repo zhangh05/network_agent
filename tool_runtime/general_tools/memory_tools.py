@@ -45,7 +45,7 @@ def handle_memory_create(inv: ToolInvocation) -> dict:
     try:
         from memory.redaction import contains_secret
         if contains_secret(title) or contains_secret(content):
-            return _error_inv(inv, "content contains secrets — memory.create blocked")
+            return _error_inv(inv, "content contains secrets — memory.manage blocked")
         from memory.writer import write_memory
         import time
         key = str(args.get("key", title[:60]))
@@ -248,7 +248,7 @@ def handle_memory_update(inv: ToolInvocation) -> dict:
     try:
         from memory.redaction import contains_secret
         if contains_secret(content):
-            return _error_inv(inv, "content contains secrets — memory.update blocked")
+            return _error_inv(inv, "content contains secrets — memory.manage blocked")
         import time
         # P0 fix (round 7): use caller's workspace instead of hardcoded "default"
         # to enforce workspace isolation.

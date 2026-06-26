@@ -27,6 +27,22 @@ import type {
   ToolCatalogResponse,
   Workspace,
   AppVersion,
+  LlmConfig,
+  LlmStatus,
+  LlmTestResult,
+  LlmTestRequest,
+  ProviderConfig,
+  ProviderListResponse,
+  ProviderSaveResponse,
+  ProviderActivateResponse,
+  JobItem,
+  JobEvent,
+  MemoryRecord,
+  ModuleEntry,
+  SkillEntry,
+  ToolPermission,
+  ReferenceNode,
+  ReferenceEdge,
 } from "../types";
 
 /* ──────────────────────── 0. system ──────────────────────── */
@@ -216,7 +232,9 @@ export const workspacesApi = {
       {
         method: "GET",
         url: "/runs/recent",
-        params: session_id ? { workspace_id, session_id } : { workspace_id },
+        params: session_id
+          ? { workspace_id, session_id }
+          : { workspace_id, session_status: "" },
       },
       signal,
     ),
@@ -228,10 +246,10 @@ export const runtimeApi = {
   summary: (signal?: AbortSignal): Promise<RuntimeSummary> =>
     apiRequest<RuntimeSummary>({ method: "GET", url: "/runtime/summary" }, signal),
   health: (signal?: AbortSignal) =>
-    apiRequest<{ components: unknown[]; summary: Record<string, number> }>(
+    apiRequest<Record<string, unknown>>(
       { method: "GET", url: "/runtime/health" }, signal),
   selfcheck: (signal?: AbortSignal) =>
-    apiRequest<{ status: string; issues: unknown[]; checks: Record<string, unknown> }>(
+    apiRequest<Record<string, unknown>>(
       { method: "GET", url: "/runtime/selfcheck" }, signal),
 };
 
@@ -240,11 +258,11 @@ export const runtimeApi = {
 export const jobsApi = {
   /** GET /api/jobs */
   list: (workspace_id: string, signal?: AbortSignal) =>
-    apiRequest<{ jobs: unknown[] }>({ method: "GET", url: "/jobs", params: { workspace_id } }, signal),
+    apiRequest<{ jobs: JobItem[] }>({ method: "GET", url: "/jobs", params: { workspace_id } }, signal),
 
   /** GET /api/jobs/:id */
   get: (job_id: string, signal?: AbortSignal) =>
-    apiRequest<{ job: unknown }>({ method: "GET", url: `/jobs/${job_id}` }, signal),
+    apiRequest<{ job: JobItem }>({ method: "GET", url: `/jobs/${job_id}` }, signal),
 
   /** POST /api/jobs/:id/cancel */
   cancel: (job_id: string, workspace_id?: string) =>
@@ -256,7 +274,7 @@ export const jobsApi = {
 
   /** GET /api/jobs/:id/events */
   events: (job_id: string, signal?: AbortSignal) =>
-    apiRequest<{ events: unknown[] }>({ method: "GET", url: `/jobs/${job_id}/events` }, signal),
+    apiRequest<{ events: JobEvent[] }>({ method: "GET", url: `/jobs/${job_id}/events` }, signal),
 
   /** GET /api/jobs/:id/logs */
   logs: (job_id: string, signal?: AbortSignal) =>
@@ -285,10 +303,10 @@ export const capabilitiesApi = {
 };
 
 export const registryApi = {
-  modules: (signal?: AbortSignal): Promise<{ modules: unknown[] }> =>
-    apiRequest<{ modules: unknown[] }>({ method: "GET", url: "/modules" }, signal),
-  skills: (signal?: AbortSignal): Promise<{ skills: unknown[] }> =>
-    apiRequest<{ skills: unknown[] }>({ method: "GET", url: "/skills" }, signal),
+  modules: (signal?: AbortSignal): Promise<{ modules: ModuleEntry[] }> =>
+    apiRequest<{ modules: ModuleEntry[] }>({ method: "GET", url: "/modules" }, signal),
+  skills: (signal?: AbortSignal): Promise<{ skills: SkillEntry[] }> =>
+    apiRequest<{ skills: SkillEntry[] }>({ method: "GET", url: "/skills" }, signal),
   status: (signal?: AbortSignal): Promise<Record<string, unknown>> =>
     apiRequest<Record<string, unknown>>({ method: "GET", url: "/registry/status" }, signal),
 };
@@ -446,8 +464,8 @@ export const memoryApi = {
   list: (
     params: { workspace_id: string; include_deleted?: boolean; limit?: number },
     signal?: AbortSignal,
-  ): Promise<{ ok: boolean; records: unknown[]; count?: number }> =>
-    apiRequest<{ ok: boolean; records: unknown[]; count?: number }>(
+  ): Promise<{ ok: boolean; records: MemoryRecord[]; count?: number }> =>
+    apiRequest<{ ok: boolean; records: MemoryRecord[]; count?: number }>(
       { method: "GET", url: "/memory/list", params },
       signal,
     ),
@@ -455,8 +473,8 @@ export const memoryApi = {
   search: (
     data: { query: string; workspace_id: string; limit?: number },
     signal?: AbortSignal,
-  ): Promise<{ ok: boolean; results: unknown[]; count?: number }> =>
-    apiRequest<{ ok: boolean; results: unknown[]; count?: number }>(
+  ): Promise<{ ok: boolean; results: MemoryRecord[]; count?: number }> =>
+    apiRequest<{ ok: boolean; results: MemoryRecord[]; count?: number }>(
       { method: "POST", url: "/memory/search", data },
       signal,
     ),
@@ -739,8 +757,6 @@ export const runtimeAuditApi = {
 
 /* ──────────────────────── 10. settings ──────────────────────── */
 
-import type { LlmConfig, LlmStatus, LlmTestResult, LlmTestRequest, ProviderConfig, ProviderListResponse, ProviderSaveResponse, ProviderActivateResponse } from "../types";
-
 export const settingsApi = {
   llmConfig: (signal?: AbortSignal): Promise<LlmConfig> =>
     apiRequest<LlmConfig>({ method: "GET", url: "/agent/llm/config" }, signal),
@@ -896,8 +912,11 @@ export const systemStatusApi = {
   health: (signal?: AbortSignal): Promise<{ status: string; api_mode: string; skills_loaded: number }> =>
     apiRequest({ method: "GET", url: "/health" }, signal),
 
+  /** GET /api/runtime/summary — tool counts from runtime summary */
   toolCount: (signal?: AbortSignal): Promise<{ registered: number; model_visible: number }> =>
-    apiRequest({ method: "GET", url: "/agent/status" }, signal),
+    apiRequest<{ tools: { registered: number; model_visible: number } }>(
+      { method: "GET", url: "/runtime/summary" }, signal,
+    ).then((res) => ({ registered: res.tools.registered, model_visible: res.tools.model_visible })),
 };
 
 /* ──────────────────────── 14. agent usage ──────────────────────── */
@@ -970,7 +989,7 @@ export const toolsInvokeApi = {
     apiRequest<{ ok: boolean; result?: unknown }>({ method: "POST", url: "/tools/invoke", data }),
 
   dryRun: (data: { tool_id: string; params: Record<string, unknown>; workspace_id: string }) =>
-    apiRequest<{ ok: boolean; approval_required?: boolean }>({ method: "POST", url: "/tools/dry-run", data }),
+    apiRequest<{ ok: boolean; requires_approval?: boolean }>({ method: "POST", url: "/tools/dry-run", data }),
 
   history: (workspace_id: string, signal?: AbortSignal) =>
     apiRequest<{ records: unknown[]; count: number; workspace_id: string }>(
@@ -979,7 +998,7 @@ export const toolsInvokeApi = {
   permissions: (signal?: AbortSignal) =>
     apiRequest<{
       workspace_id: string;
-      tools: unknown[];
+      tools: ToolPermission[];
       forbidden_count: number;
       high_risk_count: number;
       approval_required_count: number;
@@ -1081,9 +1100,19 @@ export const modulesExtApi = {
 
 /** Workspace status API — added with FileStore stabilization. */
 export const workspaceStatusApi = {
-  /** GET /api/workspaces/<ws>/status */
+  /** GET /api/workspaces/<ws>/status — returns workspace health snapshot */
   status: (workspace_id: string, signal?: AbortSignal) =>
-    apiRequest<{ ok: boolean; status: string; data: Record<string, unknown>; errors: string[] }>({ method: "GET", url: `/workspaces/${workspace_id}/status` }, signal),
+    apiRequest<{
+      ok: boolean;
+      workspace_id: string;
+      workspace_exists: boolean;
+      file_count: number;
+      artifact_count: number;
+      knowledge_source_count: number;
+      pcap_session_count: number;
+      storage_health: string;
+      index_health: string;
+    }>({ method: "GET", url: `/workspaces/${workspace_id}/status` }, signal),
 
   /** GET /api/workspaces/<ws>/storage/health */
   storageHealth: (workspace_id: string, signal?: AbortSignal) =>
@@ -1094,13 +1123,58 @@ export const workspaceStatusApi = {
 export const referenceApi = {
   /** GET /api/workspaces/<ws>/files/<file_id>/references */
   fileRefs: (workspace_id: string, file_id: string, signal?: AbortSignal) =>
-    apiRequest<{ ok: boolean; references: unknown[]; count: number }>({ method: "GET", url: `/workspaces/${workspace_id}/files/${file_id}/references` }, signal),
+    apiRequest<{ ok: boolean; references: ReferenceNode[]; count: number }>(
+      { method: "GET", url: `/workspaces/${workspace_id}/files/${file_id}/references` }, signal),
 
   /** GET /api/workspaces/<ws>/artifacts/<artifact_id>/references */
   artifactRefs: (workspace_id: string, artifact_id: string, signal?: AbortSignal) =>
-    apiRequest<{ ok: boolean; references: unknown[]; count: number }>({ method: "GET", url: `/workspaces/${workspace_id}/artifacts/${artifact_id}/references` }, signal),
+    apiRequest<{ ok: boolean; references: ReferenceNode[]; count: number }>(
+      { method: "GET", url: `/workspaces/${workspace_id}/artifacts/${artifact_id}/references` }, signal),
 
   /** GET /api/workspaces/<ws>/reference-graph */
   graph: (workspace_id: string, signal?: AbortSignal) =>
-    apiRequest<{ ok: boolean; nodes: unknown[]; edges: unknown[]; count: number }>({ method: "GET", url: `/workspaces/${workspace_id}/reference-graph` }, signal),
+    apiRequest<{ ok: boolean; nodes: ReferenceNode[]; edges: ReferenceEdge[]; count: number }>(
+      { method: "GET", url: `/workspaces/${workspace_id}/reference-graph` }, signal),
+};
+
+/* ──────────────────────── v3.8: Agent Graph & Breakpoints ──────────────────────── */
+
+import type {
+  AgentGraphState,
+  BreakpointList,
+  BreakpointSetResponse,
+  RuntimeModeResponse,
+} from "../types";
+
+export const graphApi = {
+  /** GET /api/agent/graph — current agent state for inspection */
+  state: (signal?: AbortSignal): Promise<AgentGraphState> =>
+    apiRequest<AgentGraphState>({ method: "GET", url: "/agent/graph" }, signal),
+
+  /** GET /api/agent/runtime-mode */
+  mode: (signal?: AbortSignal): Promise<RuntimeModeResponse> =>
+    apiRequest<RuntimeModeResponse>({ method: "GET", url: "/agent/runtime-mode" }, signal),
+};
+
+export const breakpointApi = {
+  /** GET /api/agent/breakpoints — list active breakpoints */
+  list: (signal?: AbortSignal): Promise<BreakpointList> =>
+    apiRequest<BreakpointList>({ method: "GET", url: "/agent/breakpoints" }, signal),
+
+  /** POST /api/agent/breakpoints — set breakpoints */
+  set: (tools: string[], signal?: AbortSignal): Promise<BreakpointSetResponse> =>
+    apiRequest<BreakpointSetResponse>(
+      { method: "POST", url: "/agent/breakpoints", data: { tools: tools.join(",") } },
+      signal,
+    ),
+
+  /** DELETE /api/agent/breakpoints — clear all */
+  clear: (signal?: AbortSignal): Promise<BreakpointList> =>
+    apiRequest<BreakpointList>({ method: "DELETE", url: "/agent/breakpoints" }, signal),
+};
+
+export const sseApi = {
+  /** Create EventSource for agent streaming */
+  connect: (sessionId: string): EventSource =>
+    new EventSource(`/api/agent/sse/stream/${sessionId}`),
 };

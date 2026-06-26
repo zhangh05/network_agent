@@ -105,28 +105,9 @@ class MemoryWritePlanner:
 
     def _extract_candidates(self, ctx) -> list[MemoryCandidate]:
         candidates: list[MemoryCandidate] = []
-        candidates.extend(self._from_artifact_summary(ctx))
         candidates.extend(self._from_task_completion(ctx))
         candidates.extend(self._from_error_lessons(ctx))
         return candidates
-
-    def _from_artifact_summary(self, ctx) -> list[MemoryCandidate]:
-        out: list[MemoryCandidate] = []
-        records = ctx.metadata.get("artifact_records") or []
-        for rec in records:
-            if not isinstance(rec, dict):
-                continue
-            if rec.get("status") not in ("created", "registered"):
-                continue
-            out.append(MemoryCandidate(
-                candidate_id=f"mc_{uuid.uuid4().hex[:8]}",
-                memory_type="artifact_summary",
-                content=f"Artifact: {rec.get('title', '')} [{rec.get('kind', '')}] - {rec.get('summary', '')}",
-                source="artifact",
-                task_id=rec.get("task_id", ""),
-                confidence=0.6,
-            ))
-        return out
 
     def _from_task_completion(self, ctx) -> list[MemoryCandidate]:
         out: list[MemoryCandidate] = []

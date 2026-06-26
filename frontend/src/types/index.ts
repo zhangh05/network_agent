@@ -118,7 +118,6 @@ export interface ToolSceneMeta {
   needs_clarification?: boolean;
   tool_planning_decision?: Record<string, unknown>;
   visibility?: Record<string, unknown>;
-  [k: string]: unknown;
 }
 
 export interface ToolCallResult {
@@ -162,7 +161,9 @@ export interface AgentResult {
     selected_capabilities?: string[];
     selected_skills?: string[];
     visible_tools?: string[];
+    planner_mode?: string;
     source_count?: number;
+    source_summary?: SourceSummary[];
     manual_review_count?: number;
     retrieval_backend?: string;
     scope?: string;
@@ -179,9 +180,7 @@ export interface AgentResult {
       valid?: boolean;
       fallback_used?: boolean;
       warnings?: string[];
-      [k: string]: unknown;
     };
-    [k: string]: unknown;
   };
 }
 
@@ -562,6 +561,8 @@ export interface RuntimeAuditTurn {
   started_at: string;
   finished_at: string;
   status: string;
+  ok?: boolean;
+  capability?: string;
   selected_capabilities: string[];
   selected_skills: string[];
   visible_tools: string[];
@@ -706,4 +707,121 @@ export function isError<T>(s: AsyncState<T>): s is { kind: "error"; error: ApiEr
 }
 export function isLoading<T>(s: AsyncState<T>): s is { kind: "loading" } {
   return s.kind === "loading";
+}
+
+/* ── API response types (v3.4 — frontend-backend alignment) ── */
+
+export interface JobItem {
+  job_id: string;
+  job_type: string;
+  title: string;
+  status: string;
+  workspace_id: string;
+  created_at: string;
+  updated_at?: string;
+  finished_at?: string;
+  error?: string;
+  progress?: number;
+  input_artifacts?: string[];
+  output_artifacts?: string[];
+}
+
+export interface JobEvent {
+  event_id: string;
+  event_type: string;
+  timestamp: string;
+  data: Record<string, unknown>;
+}
+
+export interface MemoryRecord {
+  memory_id: string;
+  title: string;
+  content: string;
+  memory_type: string;
+  scope: string;
+  tags: string[];
+  status: string;
+  value_preview?: string;
+  created_at: string;
+  updated_at?: string;
+}
+
+export interface ModuleEntry {
+  module_name: string;
+  display_name: string;
+  status: string;
+  maturity: string;
+  category: string;
+  ui_route?: string;
+  api_base?: string;
+  enabled: boolean;
+  planned: boolean;
+  risk_level?: string;
+}
+
+export interface SkillEntry {
+  skill_name: string;
+  display_name: string;
+  status: string;
+  module: string;
+  capabilities: string[];
+  enabled: boolean;
+  planned: boolean;
+}
+
+export interface ToolPermission {
+  tool_id: string;
+  enabled: boolean;
+  risk_level: string;
+  requires_approval: boolean;
+}
+
+export interface ReferenceNode {
+  node_id: string;
+  node_type: string;
+  title: string;
+  artifact_id?: string;
+  file_id?: string;
+}
+
+export interface ReferenceEdge {
+  edge_id: string;
+  source_id: string;
+  target_id: string;
+  edge_type: string;
+}
+
+/* ──────────────────────────── v3.8: Agent Graph & Breakpoints ──────────────────────────── */
+
+export interface AgentGraphState {
+  ok: boolean;
+  total_tools: number;
+  visible_tools?: number;
+  core_tools: number;
+  capability_packages?: number;
+  categories: string[];
+  breakpoints?: string[];
+  checkpoint_backend?: string;
+  baseline_read_tools?: number;
+}
+
+export interface BreakpointList {
+  ok: boolean;
+  breakpoints: string[];
+}
+
+export interface BreakpointSetResponse {
+  ok: boolean;
+  tools: string[];
+}
+
+export interface SseEvent {
+  type: "tool_call_started" | "tool_call_completed" | "tool_call_failed" | "turn_completed" | "error" | "token";
+  data: Record<string, unknown>;
+}
+
+export interface RuntimeModeResponse {
+  ok: boolean;
+  mode: string;
+  graph_runner_available: boolean;
 }

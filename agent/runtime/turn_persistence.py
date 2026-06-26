@@ -162,24 +162,11 @@ def _normalize_trace_events(run_id: str, events: list) -> list:
         item.setdefault("run_id", run_id)
         normalized.append(item)
 
-    names = {str(e.get("name", "")) for e in normalized}
-    trace_id = normalized[0].get("trace_id", run_id) if normalized else run_id
-    required = [
-        ("router", "router"),
-        ("context_loader", "context"),
-        ("capability_call", "capability"),
-    ]
-    for name, needle in required:
-        if not any(needle in existing for existing in names):
-            normalized.append({
-                "name": name,
-                "run_id": run_id,
-                "trace_id": trace_id,
-                "synthetic": True,
-                "missing": True,
-                "reason": f"required_trace_node_{name}_absent",
-            })
-            names.add(name)
+    # v3.8: Removed phantom "required" trace nodes (router, context_loader,
+    # capability_call). These are pipeline-internal concepts, not user-facing
+    # trace events. The real trace covers model/tool/final events only.
+    # Previously every run would show "缺失 3" because the runner never emits
+    # these internal nodes as trace events.
     return normalized
 
 

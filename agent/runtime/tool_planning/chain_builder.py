@@ -97,7 +97,7 @@ def build_tool_chain(signals: dict[str, bool], candidates: set[str]) -> list[dic
     if signals.get("has_uploaded_files") or signals.get("mentions_file"):
         add("读取用户上传或 workspace 中的文件", [
             "workspace.file.read", "workspace.file.read_image",
-            "workspace.file.preview", "workspace.file.list",
+            "workspace.file.read", "workspace.file.list",
         ])
 
     if signals.get("mentions_image"):
@@ -107,7 +107,7 @@ def build_tool_chain(signals: dict[str, bool], candidates: set[str]) -> list[dic
 
     if signals.get("mentions_web"):
         add("检索官方文档或外部资料", [
-            "web.docs.official_search", "web.search", "web.page.summarize",
+            "web.search", "web.page.process",
         ])
 
     if signals.get("mentions_weather"):
@@ -117,18 +117,18 @@ def build_tool_chain(signals: dict[str, bool], candidates: set[str]) -> list[dic
 
     if signals.get("mentions_knowledge"):
         add("查询知识库资料", [
-            "knowledge.search", "knowledge.chunk.read",
+            "knowledge.search", "knowledge.read",
         ])
 
     if signals.get("mentions_network_config"):
         add("读取配置文件内容", [
-            "workspace.file.read", "workspace.file.list", "workspace.file.preview",
+            "workspace.file.read", "workspace.file.list", "workspace.file.read",
         ])
         add("离线分析网络配置", ["config.analysis.run"])
 
     if signals.get("mentions_config_translate"):
         add("读取待翻译配置文件内容", [
-            "workspace.file.read", "workspace.file.list", "workspace.file.preview",
+            "workspace.file.read", "workspace.file.list", "workspace.file.read",
         ])
         add("离线翻译网络配置", ["config.analysis.run"])
 
@@ -140,19 +140,19 @@ def build_tool_chain(signals: dict[str, bool], candidates: set[str]) -> list[dic
 
     if signals.get("mentions_host"):
         add("查询或操作当前本机环境", [
-            "host.shell.exec", "host.powershell.exec", "host.python.exec",
-            "runtime.health", "runtime.diagnostics",
+            "exec.run", "exec.python",
+            "system.diagnostics",
         ])
 
     if signals.get("mentions_runtime"):
         add("读取运行审计、run 或 session 信息", [
-            "run.summary.get", "run.list",
-            "runtime.diagnostics", "session.summary.get",
+            "system.run.get", "system.run.get",
+            "system.diagnostics", "system.session.get",
         ])
 
     if signals.get("mentions_memory"):
         add("查询或更新记忆/profile", [
-            "memory.search", "memory.profile.get", "memory.profile.set",
+            "memory.search", "memory.proworkspace.file.read", "memory.profile",
         ])
 
     if signals.get("mentions_report"):

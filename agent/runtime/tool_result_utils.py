@@ -258,9 +258,9 @@ def _auto_summary(result) -> str:
         return f"Read artifact {raw.get('artifact_id', '?')}"
     if "search" in tool_id or "query" in tool_id:
         return f"Found {raw.get('count', '?')} results"
-    if "session.list" in tool_id:
+    if "system.session.get" in tool_id:
         return f"Listed {raw.get('count', '?')} sessions"
-    if "run.list" in tool_id:
+    if "system.run.get" in tool_id:
         return f"Listed {raw.get('count', '?')} runs"
     ok = bool(_safe_get(result, "ok", False))
     return "Completed" if ok else "Failed"

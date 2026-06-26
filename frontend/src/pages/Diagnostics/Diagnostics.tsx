@@ -10,6 +10,7 @@ import { runtimeApi, agentUsageApi, retentionApi, archiveApi, contextApi, prompt
 import { useSessionStore } from "../../stores/session";
 import { LoadingState } from "../../components/common";
 import { IconRefresh } from "../../components/Icon";
+import { formatDate } from "../../utils/format";
 
 const CACHE_KEY = "diagnostics_v1";
 
@@ -48,13 +49,6 @@ function writeCache(data: Omit<DiagnosticsCache, "ts">) {
     const entry: DiagnosticsCache = { ts: new Date().toISOString(), ...data };
     localStorage.setItem(CACHE_KEY, JSON.stringify(entry));
   } catch { /* quota exceeded — silently ignore */ }
-}
-
-function fmtCacheTime(iso: string): string {
-  try {
-    const d = new Date(iso);
-    return d.toLocaleString("zh-CN", { month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit", second: "2-digit" });
-  } catch { return "—"; }
 }
 
 /* ──────────────────────── Component ──────────────────────── */
@@ -316,7 +310,7 @@ function PageHeader({
             健康跟踪 · 用量 · 自检 · 策略
             {lastCheck && (
               <span style={{ marginLeft: 10, color: "var(--text-3)", fontSize: 11 }}>
-                上次检测：{fmtCacheTime(lastCheck)}
+                上次检测：{formatDate(lastCheck, "compact")}
               </span>
             )}
             {hasData && (

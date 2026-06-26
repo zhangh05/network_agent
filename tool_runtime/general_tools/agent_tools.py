@@ -8,7 +8,11 @@ def handle_agent_spawn(inv: ToolInvocation) -> dict:
     with only read-only, low-risk tools. Returns compressed results.
     """
     instruction = str(inv.arguments.get("instruction", "")).strip()
-    workspace_id = inv.arguments.get("workspace_id", "default")
+    # v3.8.2: Fall back to "default" if workspace_id is missing, empty, or whitespace-only
+    workspace_id_arg = inv.arguments.get("workspace_id", "default")
+    workspace_id = str(workspace_id_arg).strip() if workspace_id_arg is not None else ""
+    if not workspace_id:
+        workspace_id = "default"
     parent_session_id = str(inv.arguments.get("session_id", ""))
     allowed_tools = list(inv.arguments.get("allowed_tools") or [])
     max_turns = int(inv.arguments.get("max_turns", 1))
@@ -38,17 +42,17 @@ def handle_agent_list_roles(inv: ToolInvocation) -> dict:
         {
             "name": "planner",
             "description": "Plans high-level task decomposition. Breaks complex tasks into subtasks and assigns to workers.",
-            "default_tools": ["agent.spawn", "skill.list", "memory.search", "memory.list", "web.search"],
+            "default_tools": ["agent.spawn", "skill.list", "memory.search", "memory.search", "web.search"],
         },
         {
             "name": "worker",
             "description": "Executes assigned subtasks. Has access to read-only research, validation, and data tools.",
-            "default_tools": ["web.search", "web.fetch_summary", "knowledge.search", "text.classify", "json.validate", "yaml.validate"],
+            "default_tools": ["web.search", "web.page.process", "knowledge.search", "text.analyze", "data.validate"],
         },
         {
             "name": "reviewer",
             "description": "Reviews worker outputs for quality, correctness, and completeness. Can request rework.",
-            "default_tools": ["text.diff", "text.classify", "memory.search", "artifact.search", "workspace.file.read"],
+            "default_tools": ["text.analyze", "memory.search", "workspace.artifact.list", "workspace.file.read"],
         },
     ]
     return _ok(inv, "", {"roles": roles, "count": len(roles)})
@@ -67,7 +71,11 @@ def handle_agent_team(inv: ToolInvocation) -> dict:
     import json as _json
     import concurrent.futures
     args = inv.arguments
-    workspace_id = args.get("workspace_id", "default")
+    # v3.8.2: Fall back to "default" if workspace_id is missing, empty, or whitespace-only
+    workspace_id_arg = args.get("workspace_id", "default")
+    workspace_id = str(workspace_id_arg).strip() if workspace_id_arg is not None else ""
+    if not workspace_id:
+        workspace_id = "default"
     instruction = str(args.get("instruction", "")).strip()
     roles = list(args.get("roles") or ["planner", "worker"])
     parallel = bool(args.get("parallel", False))
@@ -81,25 +89,17 @@ def handle_agent_team(inv: ToolInvocation) -> dict:
 
         # Low-risk read-only tools only for all roles
         _low_risk_read_tools = [
-            "web.search", "web.fetch_summary", "knowledge.search",
-            "knowledge.get_source", "knowledge.get_chunk_summary",
-            "artifact.search", "artifact.read_content_safe",
-            "skill.list", "skill.inspect", "skill.find_skills",
-            "memory.search", "memory.list", "memory.get_profile",
-            "text.classify", "text.diff", "text.extract_keywords",
-            "json.validate", "yaml.validate", "csv.summarize",
-            "workspace.file.list", "workspace.file.preview",
-            "workspace.file.exists", "workspace.get_metadata",
-            "workspace.file.list", "workspace.file.exists", "workspace.file.read",
-            "session.list", "session.summary.get",
-            "run.list", "run.summary.get",
+            "web.search", "web.page.process", "knowledge.search",
+            "knowledge.read", "workspace.artifact.list", "workspace.artifact.read",
+            "workspace.file.list", "workspace.file.read",
+            "memory.search", "memory.profile",
+            "text.analyze", "data.validate", "data.csv.summarize",
+            "system.session.get", "system.run.get",
         ]
         _text_data_tools = [
-            "web.search", "web.fetch_summary",
-            "text.classify", "text.diff", "text.extract_keywords",
-            "json.validate", "yaml.validate", "csv.summarize",
-            "table.extract", "workspace.file.preview",
-            "workspace.file.read",
+            "web.search", "web.page.process",
+            "text.analyze", "data.validate", "data.csv.summarize",
+            "data.table.extract", "workspace.file.read",
         ]
 
         result = {"ok": True, "instruction": instruction, "roles_used": [], "plan": "", "worker_result": None, "reviewer_result": None}
@@ -250,7 +250,11 @@ def handle_agent_get_result(inv: ToolInvocation) -> dict:
     Looks up child session and returns summary from run records or message store.
     """
     args = inv.arguments
-    ws = args.get("workspace_id", "default")
+    # v3.8.2: Fall back to "default" if workspace_id is missing, empty, or whitespace-only
+    ws_arg = args.get("workspace_id", "default")
+    ws = str(ws_arg).strip() if ws_arg is not None else ""
+    if not ws:
+        ws = "default"
     child_session_id = str(args.get("child_session_id", "")).strip()
 
     if not child_session_id:

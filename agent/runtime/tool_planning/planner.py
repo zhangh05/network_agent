@@ -159,7 +159,7 @@ class ToolPlannerV2:
         artifact_layer = getattr(evidence_bundle, "artifact_layer", None)
         if artifact_layer and getattr(artifact_layer, "items", None):
             candidates = plan.get("candidate_tools", [])
-            file_tools = ["workspace.file.read", "workspace.file.list", "workspace.file.preview"]
+            file_tools = ["workspace.file.read", "workspace.file.list", "workspace.file.read"]
             for ft in file_tools:
                 if ft not in candidates:
                     candidates.append(ft)
@@ -304,7 +304,7 @@ def deterministic_plan_tools(
 
     # BASELINE_READ_TOOLS must always be visible regardless of catalog
     # filtering — the catalog is a routing optimization, not a gatekeeper.
-    # Without this, baseline tools (host.shell.exec, web.*, etc.) get
+    # Without this, baseline tools (exec.run, web.*, etc.) get
     # silently dropped because they're absent from the catalog.
     baseline_set = set(baseline_tools)
     candidate_tools = governance_filtered_tools(
@@ -322,14 +322,14 @@ def deterministic_plan_tools(
             filtered["local_ops_filtered"] = _ordered_unique(filtered["local_ops_filtered"])
 
     _has_config_tools = {"config.analysis.run"} & set(candidate_tools)
-    _has_file_tools = {"workspace.file.read", "workspace.file.preview",
+    _has_file_tools = {"workspace.file.read", "workspace.file.read",
                        "workspace.file.list"} & set(candidate_tools)
     if _has_config_tools and not _has_file_tools:
         candidate_tools = _ordered_unique(["workspace.file.list", "workspace.file.read", *candidate_tools])
 
     needs_clarification = _needs_file_clarification(user_input, safe_context, rule_scene)
 
-    if needs_clarification and not {"workspace.file.read", "workspace.file.preview"} & set(candidate_tools):
+    if needs_clarification and not {"workspace.file.read", "workspace.file.read"} & set(candidate_tools):
         candidate_tools = _ordered_unique(["workspace.file.list", *candidate_tools])
 
     categories, groups = categories_groups_from_tools(candidate_tools, rule_scene)

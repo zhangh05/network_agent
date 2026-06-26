@@ -33,7 +33,7 @@ CAPABILITY_CMDB = CapabilityManifest(
     ),
     tools=[
         CapabilityToolRef(
-            tool_id="cmdb.list_assets",
+            tool_id="device.list",
             status="enabled",
             callable_by_llm=True,
             risk_level="low",
@@ -43,7 +43,7 @@ CAPABILITY_CMDB = CapabilityManifest(
             description="列出所有设备资产，支持按类型/厂商/区域筛选和模糊搜索。",
         ),
         CapabilityToolRef(
-            tool_id="cmdb.get_asset",
+            tool_id="device.get",
             status="enabled",
             callable_by_llm=True,
             risk_level="low",
@@ -53,7 +53,7 @@ CAPABILITY_CMDB = CapabilityManifest(
             description="获取单个设备资产详情，含主机/IP/端口/协议/用户名/密码/区域/位置。",
         ),
         CapabilityToolRef(
-            tool_id="cmdb.add_asset",
+            tool_id="device.add",
             status="enabled",
             callable_by_llm=True,
             risk_level="low",
@@ -63,7 +63,7 @@ CAPABILITY_CMDB = CapabilityManifest(
             description="添加新设备资产。需提供名称、主机地址、类型、厂商、协议等。",
         ),
         CapabilityToolRef(
-            tool_id="cmdb.delete_asset",
+            tool_id="device.delete",
             status="enabled",
             callable_by_llm=True,
             risk_level="medium",

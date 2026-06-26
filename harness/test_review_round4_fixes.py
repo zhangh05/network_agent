@@ -92,8 +92,8 @@ class TestToolArgumentParseError:
         # Build a tiny registry containing one canonical tool.
         reg = ToolRegistry()
         from agent.tools.schemas import ToolSpec
-        if "host.shell.exec" in TOOL_NAMESPACE:
-            tid = "host.shell.exec"
+        if "exec.run" in TOOL_NAMESPACE:
+            tid = "exec.run"
         else:
             tid = next(iter(TOOL_NAMESPACE))
         spec = ToolSpec(

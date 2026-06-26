@@ -73,7 +73,7 @@ CAPABILITY_PACKAGES: tuple[CapabilityPackage, ...] = (
         description="Read or inspect workspace files and artifacts.",
         intent_keywords=("file", "workspace", "artifact", "文件", "制品", "读取", "查看"),
         module_ids=("workspace",),
-        tool_ids=("workspace.file.list", "workspace.file.read", "workspace.file.preview", "workspace.artifact.read"),
+        tool_ids=("workspace.file.list", "workspace.file.read", "workspace.artifact.read"),
         prompt_hints=("Read workspace files before parsing domain content.",),
         output_kinds=("text",),
         priority=10,
@@ -84,7 +84,7 @@ CAPABILITY_PACKAGES: tuple[CapabilityPackage, ...] = (
         description="Search and read indexed knowledge.",
         intent_keywords=("knowledge", "docs", "文档", "知识", "资料", "手册", "查询"),
         module_ids=("knowledge",),
-        tool_ids=("knowledge.search", "knowledge.chunk.read", "knowledge.source.read"),
+        tool_ids=("knowledge.search", "knowledge.read"),
         output_kinds=("summary",),
         priority=20,
     ),
@@ -94,7 +94,7 @@ CAPABILITY_PACKAGES: tuple[CapabilityPackage, ...] = (
         description="Search or inspect memory and profile facts.",
         intent_keywords=("memory", "remember", "记忆", "偏好", "画像", "之前"),
         module_ids=("memory",),
-        tool_ids=("memory.search", "memory.list", "memory.profile.get"),
+        tool_ids=("memory.search", "memory.profile"),
         priority=30,
     ),
     CapabilityPackage(
@@ -135,7 +135,7 @@ CAPABILITY_PACKAGES: tuple[CapabilityPackage, ...] = (
         description="Inspect runtime health and diagnostics.",
         intent_keywords=("runtime", "diagnostic", "health", "运行", "诊断", "健康", "自检"),
         module_ids=("runtime",),
-        tool_ids=("runtime.health", "runtime.diagnostics"),
+        tool_ids=("system.diagnostics",),
         priority=50,
     ),
     CapabilityPackage(
@@ -147,7 +147,7 @@ CAPABILITY_PACKAGES: tuple[CapabilityPackage, ...] = (
                          "资产管理", "设备清单", "设备列表", "设备名",
                          "多少设备", "几个设备", "添加", "新增", "录入", "asset"),
         module_ids=("cmdb",),
-        tool_ids=("cmdb.list_assets", "cmdb.get_asset", "cmdb.add_asset", "cmdb.delete_asset"),
+        tool_ids=("device.list", "device.get", "device.add", "device.delete"),
         output_kinds=("table", "summary"),
         safety_notes=("不可声明 CMDB 中存在未从工具返回的设备。", "添加/删除操作需确认。"),
         priority=7,
@@ -159,7 +159,7 @@ CAPABILITY_PACKAGES: tuple[CapabilityPackage, ...] = (
         intent_keywords=("ssh", "telnet", "连接", "登录设备", "display", "show run",
                          "执行命令", "show version", "display version"),
         module_ids=("remote",),
-        tool_ids=("network.ssh", "network.telnet"),
+        tool_ids=("exec.run",),
         output_kinds=("text",),
         safety_notes=("真实设备访问，需审批。", "危险命令（reload/erase/format）自动拦截。"),
         priority=6,
@@ -173,23 +173,18 @@ CORE_TOOL_IDS: tuple[str, ...] = (
     # ── Workspace ──
     "workspace.file.list", "workspace.file.read",
     "workspace.artifact.read",
-    # ── Host — universal local ops ──
-    "host.shell.exec", "host.powershell.exec",
-    "host.python.exec", "host.command.slash_run",
+    # ── Exec — unified command execution ──
+    "exec.run",
     # ── Web / info ──
-    "web.search", "web.docs.official_search",
-    "web.page.summarize", "web.page.extract_links",
-    "web.page.save_artifact",
-    "web.news.search",
+    "web.search",
+    "web.page.process",
     "web.weather",
-    # ── CMDB ──
-    "cmdb.list_assets", "cmdb.get_asset",
-    "cmdb.add_asset", "cmdb.delete_asset",
-    # ── Network device access ──
-    "network.ssh", "network.telnet",
-    # ── v3.4: Git ──
+    # ── Device assets ──
+    "device.list", "device.get",
+    "device.add", "device.delete",
+    # ── Git ──
     "git.status", "git.diff", "git.log",
-    # ── v3.4: Code search ──
+    # ── Code search ──
     "code.search",
 )
 

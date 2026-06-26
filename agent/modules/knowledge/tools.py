@@ -4,7 +4,7 @@
 Source tools:
   - knowledge.import.document
   - knowledge.source.list
-  - knowledge.source.read
+  - knowledge.read
   - knowledge.source.disable
   - knowledge.source.delete
 
@@ -12,8 +12,8 @@ Retrieval tools:
   - knowledge.import.file
   - knowledge.chunk.list
   - knowledge.search
-  - knowledge.chunk.read
-  - knowledge.parent.read
+  - knowledge.read
+  - knowledge.read
   - knowledge.source.reindex
 
 All handlers use the v0.8.2 ToolResult.from_module_result projection.
@@ -77,7 +77,7 @@ TOOL_KNOWLEDGE_LIST = ToolSpec(
 
 
 TOOL_KNOWLEDGE_READ = ToolSpec(
-    tool_id="knowledge.source.read",
+    tool_id="knowledge.read",
     name="read_source",
     category="knowledge",
     description=(
@@ -234,8 +234,8 @@ TOOL_KNOWLEDGE_SEARCH_CHUNKS = ToolSpec(
     description=(
         "BM25 lexical search over child chunks. Returns hits with "
         "score / lexical_score / semantic_score / final_score / scope. "
-        "Does NOT return full content; use knowledge.chunk.read or "
-        "knowledge.parent.read for that."
+        "Does NOT return full content; use knowledge.read or "
+        "knowledge.read for that."
     ),
     risk_level="low",
     enabled=True,
@@ -268,7 +268,7 @@ TOOL_KNOWLEDGE_SEARCH_CHUNKS = ToolSpec(
 
 
 TOOL_KNOWLEDGE_READ_CHUNK = ToolSpec(
-    tool_id="knowledge.chunk.read",
+    tool_id="knowledge.read",
     name="read_chunk",
     category="knowledge",
     description=(
@@ -293,7 +293,7 @@ TOOL_KNOWLEDGE_READ_CHUNK = ToolSpec(
 
 
 TOOL_KNOWLEDGE_READ_PARENT = ToolSpec(
-    tool_id="knowledge.parent.read",
+    tool_id="knowledge.read",
     name="read_parent",
     category="knowledge",
     description=(
@@ -417,7 +417,7 @@ tool_handler_list = _build_handler(
     passthrough_keys=("workspace_id", "include_disabled", "include_deleted"),
 )
 tool_handler_read = _build_handler(
-    _knowledge_service.read_source, "knowledge.source.read",
+    _knowledge_service.read_source, "knowledge.read",
     passthrough_keys=("workspace_id", "source_id"),
 )
 tool_handler_disable = _build_handler(
@@ -464,11 +464,11 @@ tool_handler_search_chunks = _build_handler(
                        "source_id", "source_type", "tags", "chapter"),
 )
 tool_handler_read_chunk = _build_handler(
-    _knowledge_service.read_chunk, "knowledge.chunk.read",
+    _knowledge_service.read_chunk, "knowledge.read",
     passthrough_keys=("workspace_id", "chunk_id"),
 )
 tool_handler_read_parent = _build_handler(
-    _knowledge_service.read_parent, "knowledge.parent.read",
+    _knowledge_service.read_parent, "knowledge.read",
     passthrough_keys=("workspace_id", "child_chunk_id"),
 )
 tool_handler_reindex = _build_handler(

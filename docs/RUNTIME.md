@@ -7,7 +7,7 @@ Runtime execution model (v3.8).
 ```
 POST /api/agent/message
   -> ContextPipeline (13 stages, builds TurnContext)
-  -> TurnRunner: LLM ↔ ToolExecutionPipeline loop (max 8 steps)
+  -> TurnRunner: LLM ↔ ToolExecutionPipeline loop (max 24 steps)
   -> ResultBuilder (build AgentResult)
   -> Post-turn Hooks (output, memory, observability, truth, stability)
   -> FinalResponse
@@ -17,7 +17,7 @@ POST /api/agent/message
 
 1. **ContextInitStage** — create initial TurnContext
 2. **ModelConfigStage** — configure model parameters
-3. **HistoryStage** — load conversation history (k=30)
+3. **HistoryStage** — load history window (k=30)
 4. **ToolRouterStage** — route to relevant tool categories
 5. **CapabilitySelectionStage** — select enabled capabilities
 6. **SceneDecisionStage** — classify user intent

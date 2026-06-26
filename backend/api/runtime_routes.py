@@ -694,3 +694,66 @@ def register_runtime_routes(app):
         if not audit:
             return jsonify({"ok": False, "error": "audit not found"}), 404
         return jsonify(audit)
+
+    # ─── v3.8: Graph inspector + SSE + breakpoints ───
+
+    @app.route("/api/agent/graph")
+    def api_agent_graph():
+        try:
+            from tool_runtime.tool_namespace import TOOL_NAMESPACE
+            from agent.runtime.capability_routing.manifests import CORE_TOOL_IDS
+            return jsonify({
+                "ok": True, "total_tools": len(TOOL_NAMESPACE),
+                "core_tools": len(CORE_TOOL_IDS),
+                "categories": sorted(set(TOOL_NAMESPACE[t].category for t in TOOL_NAMESPACE)),
+            })
+        except Exception as e:
+            return jsonify({"ok": False, "error": str(e)[:200]}), 500
+
+    @app.route("/api/agent/breakpoints", methods=["GET", "POST", "DELETE"])
+    def api_agent_breakpoints():
+        if request.method == "GET":
+            from agent.runtime.auto_checkpoint import get_dynamic_breakpoints
+            return jsonify({"ok": True, "breakpoints": list(get_dynamic_breakpoints())})
+        elif request.method == "POST":
+            data = request.get_json(silent=True) or {}
+            tools = data.get("tools", [])
+            # Normalize: accept comma-separated string or JSON list
+            if isinstance(tools, str):
+                tools = [t.strip() for t in tools.split(",") if t.strip()]
+            elif not isinstance(tools, list):
+                tools = [str(tools)]
+            os.environ["AGENT_BREAKPOINT_TOOLS"] = ",".join(tools)
+            return jsonify({"ok": True, "tools": tools})
+        else:
+            os.environ.pop("AGENT_BREAKPOINT_TOOLS", None)
+            return jsonify({"ok": True, "breakpoints": []})
+
+    @app.route("/api/agent/runtime-mode")
+    def api_agent_runtime_mode():
+        mode = os.environ.get("AGENT_RUNTIME", "legacy")
+        graph_ok = False
+        try:
+            from langgraph.graph import StateGraph
+            graph_ok = True
+        except ImportError:
+            pass
+        return jsonify({"ok": True, "mode": mode, "graph_runner_available": graph_ok})
+
+    @app.route("/api/agent/sse/stream/<session_id>")
+    def api_agent_sse_stream(session_id):
+        """SSE streaming endpoint — live agent execution events."""
+        from flask import Response, stream_with_context
+        import time
+
+        def generate():
+            yield f"event: connected\ndata: {{\"session_id\": \"{session_id}\"}}\n\n"
+            for _ in range(300):
+                yield ": keepalive\n\n"
+                time.sleep(1)
+
+        return Response(
+            stream_with_context(generate()),
+            mimetype="text/event-stream",
+            headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
+        )

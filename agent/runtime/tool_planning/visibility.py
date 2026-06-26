@@ -19,18 +19,17 @@ BASELINE_READ_TOOLS = [
     "workspace.file.list", "workspace.file.read",
     "workspace.artifact.read",
     # Host
-    "host.shell.exec", "host.powershell.exec",
-    "host.python.exec", "host.command.slash_run",
+    "exec.run",
+    "exec.python", "exec.slash",
     # Web
-    "web.search", "web.docs.official_search",
-    "web.page.summarize", "web.page.extract_links",
-    "web.page.save_artifact",
-    "web.news.search",
+    "web.search",
+    "web.page.process",
+    "web.search",
     "web.weather",
 ]
 
 LOCAL_OPS_TOOLS = [
-    "runtime.health", "runtime.diagnostics",
+    "system.diagnostics",
 ]
 
 

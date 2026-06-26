@@ -60,4 +60,4 @@ def test_registry_catalog_unchanged(monkeypatch, tmp_path):
     elif isinstance(catalog, dict):
         tool_ids = list(catalog.keys())
     # New FileStore tools should be present
-    assert any("file.get" in tid or "file" in str(tid).lower() for tid in tool_ids) or True
+    assert any("workspace.file.read" in tid or "file" in str(tid).lower() for tid in tool_ids) or True

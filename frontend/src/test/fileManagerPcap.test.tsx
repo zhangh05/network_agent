@@ -7,7 +7,7 @@ import { useSessionStore } from "../stores/session";
 
 function renderFileManager() {
   render(
-    <MemoryRouter>
+    <MemoryRouter future={{ v7_relativeSplatPath: true, v7_startTransition: true }}>
       <FileManager />
     </MemoryRouter>,
   );
@@ -65,6 +65,8 @@ describe("FileManager pcap analysis entry", () => {
     const rawPcapItem = screen.getByText("capture.pcapng").closest(".card");
     expect(rawPcapItem).not.toBeNull();
     fireEvent.click(rawPcapItem!);
-    expect(screen.getByRole("button", { name: "打开分析" })).toBeInTheDocument();
+    await waitFor(() => {
+      expect(screen.getByRole("button", { name: "打开分析" })).toBeInTheDocument();
+    });
   });
 });

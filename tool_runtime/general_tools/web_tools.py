@@ -318,7 +318,7 @@ def handle_news_search(inv: ToolInvocation) -> dict:
     ))
     return _decorate_realtime_search_result(
         out,
-        tool_id="web.news.search",
+        tool_id="web.search",
         query=query,
         tool_fallback="web.search",
         extra={"recency": recency, "language": language},
@@ -465,14 +465,14 @@ def handle_web_official_doc_search(inv: ToolInvocation) -> dict:
         approval_id=inv.approval_id,
     ))
     result = dict(out or {})
-    result["tool_id"] = "web.docs.official_search"
+    result["tool_id"] = "web.search"
     result["source_type"] = "official_doc_search"
     result["vendor"] = vendor
     result["official_domains"] = domains
     result["doc_base_url"] = base
     result.setdefault("next_actions", [])
     result["next_actions"] = list(result["next_actions"]) + [
-        "优先引用 official_or_primary 结果；如需要正文细节，再调用 web.fetch_summary。",
+        "优先引用 official_or_primary 结果；如需要正文细节，再调用 web.page.process。",
     ]
     if not result.get("ok") and base:
         result["status"] = "fallback_doc_index"

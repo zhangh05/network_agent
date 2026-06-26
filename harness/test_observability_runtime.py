@@ -219,8 +219,10 @@ class TestAgentTrace:
             trace = resp2.get_json()["trace"]
             events = trace.get("events", [])
             names = [e.get("name", "") for e in events]
-            # Should have router, context_loader, etc.
-            assert any("router" in n or "context" in n for n in names)
+            # Current trace contract records real runtime events, not phantom
+            # router/context_loader nodes.
+            assert trace.get("real_event_count", 0) > 0
+            assert any("model" in n or "tool" in n or n == "final" for n in names)
 
 
 class TestTraceAPI:

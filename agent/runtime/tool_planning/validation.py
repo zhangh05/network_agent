@@ -128,14 +128,14 @@ def _semantic_checks(user_input: str, candidate_set: set[str]) -> list[str]:
                                                  "ospf", "bgp", "配置", "running-config", "network config"))
     explicit_host = any(k in lower for k in ("本机", "localhost", "shell", "powershell",
                                               "python", "ifconfig", "ipconfig", "netstat"))
-    if network_request and not explicit_host and {"host.shell.exec", "host.powershell.exec"} & candidate_set:
+    if network_request and not explicit_host and {"exec.run", "exec.run"} & candidate_set:
         errors.append("network_plan_must_not_use_host_shell")
 
     file_analysis = any(k in lower for k in ("上传", "配置文件", "文件", "workspace", "pcap", "pdf",
                                               "这个配置", "这份配置", "帮我看", "帮我分析"))
     analysis_keywords = any(k in lower for k in ("分析", "解析", "检查", "提取", "看看", "review", "analyze"))
     if (file_analysis and analysis_keywords and "config.analysis.run" in candidate_set):
-        if not {"workspace.file.read", "workspace.file.preview"} & candidate_set:
+        if not {"workspace.file.read", "workspace.file.read"} & candidate_set:
             errors.append("file_analysis_requires_workspace_read_or_preview")
 
     packet_request = any(k in lower for k in ("pcap", "pcapng", "报文", "抓包", "五元组", "tcp流", "tcp 流", "重传", "乱序", "seq gap"))

@@ -44,19 +44,18 @@ class ToolGovernanceEntry:
 # valid governance entry.
 # ----------------------------------------------------------------------
 
-_OVERRIDES: dict[str, tuple[str, str]] = {}
+# v3.8: All tools default to "active". Previously _OVERRIDES held deprecated
+# tool IDs; all have been cleaned — no override mechanism needed.
 
 
 def _build_governance() -> dict[str, ToolGovernanceEntry]:
     entries: dict[str, ToolGovernanceEntry] = {}
     for canonical_id in TOOL_NAMESPACE:
-        status, reason = _OVERRIDES.get(canonical_id, ("active", "default active canonical tool."))
-        planner_visible = status == "active"
         entries[canonical_id] = ToolGovernanceEntry(
             canonical_tool_id=canonical_id,
-            status=status,
-            reason=reason,
-            planner_visible=planner_visible,
+            status="active",
+            reason="default active canonical tool.",
+            planner_visible=True,
         )
     return entries
 

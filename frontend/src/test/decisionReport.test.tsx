@@ -1,5 +1,6 @@
 import { beforeEach, describe, expect, it } from "vitest";
 import { fireEvent, render, screen } from "@testing-library/react";
+import { MemoryRouter } from "react-router-dom";
 import { DecisionReportPanel } from "../components/DecisionReportPanel";
 import { RunsPage } from "../pages/RunsPage/RunsPage";
 import { runtimeAuditApi } from "../api";
@@ -78,6 +79,10 @@ describe("DecisionReportPanel", () => {
   });
 
   it("loads the selected run decision into the decision tab", async () => {
+    useSessionStore.setState({
+      currentWorkspaceId: "default",
+      currentSessionId: "session-1",
+    });
     enqueue("/runs/recent", {
       status: 200,
       data: {
@@ -108,7 +113,11 @@ describe("DecisionReportPanel", () => {
       data: { ok: true, item: report, workspace_id: "default" },
     });
 
-    render(<RunsPage />);
+    render(
+      <MemoryRouter future={{ v7_relativeSplatPath: true, v7_startTransition: true }}>
+        <RunsPage />
+      </MemoryRouter>,
+    );
     fireEvent.click(await screen.findByText("分析报文"));
     fireEvent.click(await screen.findByRole("button", { name: "决策" }));
     expect(await screen.findByText("pcap_analysis")).toBeInTheDocument();

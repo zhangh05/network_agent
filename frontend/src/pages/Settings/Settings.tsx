@@ -68,7 +68,7 @@ export function Settings() {
     settingsApi.workspaceSettings("default")
       .then((res) => {
         if (!alive) return;
-        const mode = String(res?.memory_gating ?? "rule_only");
+        const mode = String(res?.workspace?.memory_gating ?? "rule_only");
         setMemoryGating(mode === "llm_first");
         setMemoryGatingLoaded(true);
       })

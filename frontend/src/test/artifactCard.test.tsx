@@ -24,6 +24,7 @@ const sampleArtifact: Artifact = {
   mime_type: "text/plain",
   file_ext: ".txt",
   sha256_short: "abc12345",
+  file_id: "file-1",
   relative_path: "translated/ospf1.txt",
   lifecycle: "active",
   scope: "workspace",

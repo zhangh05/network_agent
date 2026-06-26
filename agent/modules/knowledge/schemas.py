@@ -18,7 +18,7 @@ Three primary data classes:
     A single chunk of text derived from a source. Two types: parent
     (chapter / section, 1200–3000 chars) and child (400–800 chars with
     overlap). Children are what retrieval returns; parents can be
-    fetched on demand via knowledge.parent.read.
+    fetched on demand via knowledge.read.
 
 The chunk store is unified ContextStore (items.jsonl) under the workspace context dir
 as the v1.0 source store. Scope (global / workspace / session) is

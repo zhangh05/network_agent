@@ -43,6 +43,24 @@ def build_active_tool_bundle(
     for package in route.packages:
         capability_tools.extend(package.tool_ids)
 
+    # v3.8: Semantic routing boost — pick capabilities by embedding similarity
+    semantic_id = None
+    try:
+        from agent.runtime.capability_routing.semantic_router import semantic_route
+        from .manifests import CAPABILITY_PACKAGES
+        cap_map = {p.capability_id: p.description for p in CAPABILITY_PACKAGES}
+        semantic_id = semantic_route(user_input, cap_map)
+    except Exception:
+        pass
+
+    # If semantic matched a different capability, add its tools too
+    if semantic_id and semantic_id not in route.capability_ids:
+        for package in CAPABILITY_PACKAGES:
+            if package.capability_id == semantic_id:
+                capability_tools.extend(package.tool_ids)
+                route.capability_ids.add(semantic_id)
+                break
+
     core_tools = _valid_tool_ids(CORE_TOOL_IDS)
     scoped_tools = _valid_tool_ids(capability_tools)
 

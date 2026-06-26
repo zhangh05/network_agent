@@ -55,7 +55,7 @@ def main():
     print()
 
     # shell/powershell detail
-    for tid in ("host.shell.exec", "host.powershell.exec"):
+    for tid in ("exec.run", "exec.run"):
         t = reg.get(tid)
         if t:
             print(f"=== {tid} ===")
@@ -93,8 +93,8 @@ def main():
 
     # Phase 2: memory tools
     print("=== memory tools ===")
-    for tid in ("memory.create", "memory.list", "memory.confirm",
-                "memory.get_profile", "memory.set_profile"):
+    for tid in ("memory.manage", "memory.search", "memory.manage",
+                "memory.profile", "memory.profile"):
         t = reg.get(tid)
         status = "✅" if t else "❌"
         print(f"  {status} {tid}")

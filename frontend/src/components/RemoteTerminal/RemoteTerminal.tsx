@@ -34,6 +34,7 @@ export function RemoteTerminal({ onClose, initial }: {
   const sessionIdRef = useRef("");
   const [connected, setConnected] = useState(false);
   const [connecting, setConnecting] = useState(false);
+  const connectingRef = useRef(false);
   const [error, setError] = useState("");
   const [devices, setDevices] = useState<SavedDevice[]>([]);
   const [vendors, setVendors] = useState<VendorDef[]>([]);
@@ -107,11 +108,12 @@ export function RemoteTerminal({ onClose, initial }: {
 
   const doConnect = async () => {
     if (!host) { setError("请输入主机地址"); return; }
-    setError(""); setConnecting(true);
+    setError(""); setConnecting(true); connectingRef.current = true;
     const term = xtermRef.current;
     if (term) { term.clear(); term.writeln(`Connecting to ${host}:${port}...`); }
 
-    const wsUrl = `ws://${window.location.host}/ws/remote/terminal`;
+    const wsProto = window.location.protocol === "https:" ? "wss:" : "ws:";
+    const wsUrl = `${wsProto}//${window.location.host}/ws/remote/terminal`;
     const ws = new WebSocket(wsUrl);
     wsRef.current = ws;
 
@@ -123,7 +125,7 @@ export function RemoteTerminal({ onClose, initial }: {
       const msg = JSON.parse(e.data);
       if (msg.type === "connected") {
         sessionIdRef.current = msg.session_id;
-        setSessionId(msg.session_id); setConnected(true); setConnecting(false);
+        setSessionId(msg.session_id); setConnected(true); setConnecting(false); connectingRef.current = false;
         if (term) { term.clear(); }
         // Wait for banner or display "Connected."
         setTimeout(() => {
@@ -135,26 +137,26 @@ export function RemoteTerminal({ onClose, initial }: {
       } else if (msg.type === "output") {
         if (term) term.write(msg.text);
       } else if (msg.type === "error") {
-        setError(msg.message || "连接失败"); setConnecting(false);
+        setError(msg.message || "连接失败"); setConnecting(false); connectingRef.current = false;
         if (term) term.writeln(`\r\nError: ${msg.message}`);
       } else if (msg.type === "disconnected") {
         setConnected(false); setSessionId("");
         if (term) term.writeln("\r\nDisconnected.");
       }
     };
-    ws.onclose = () => { setConnected(false); setConnecting(false); };
+    ws.onclose = () => { setConnected(false); setConnecting(false); connectingRef.current = false; };
     ws.onerror = () => {
-      setError("WebSocket 连接失败 — 请确认后端已启动 (python backend/main.py)");
-      setConnecting(false);
+      setError("WebSocket 连接失败 — 请确认后端已启动 (python3 backend/main.py)");
+      setConnecting(false); connectingRef.current = false;
       if (term) term.writeln("\r\n\u26a0\ufe0f WebSocket 连接失败");
     };
 
     // Connection timeout (15s)
     setTimeout(() => {
-      if (ws.readyState !== WebSocket.OPEN && connecting) {
+      if (ws.readyState !== WebSocket.OPEN && connectingRef.current) {
         ws.close();
         setError("连接超时 — 请检查设备地址和端口是否可达");
-        setConnecting(false);
+        setConnecting(false); connectingRef.current = false;
       }
     }, 15000);
   };
@@ -178,15 +180,19 @@ export function RemoteTerminal({ onClose, initial }: {
   };
 
   const doSaveDevice = async () => {
-    await apiRequest({ method: "POST", url: "/remote/devices",
-      data: { workspace_id: wsId, name: deviceName || host, host,
-        port: parseInt(port) || 22, protocol, vendor, username, password } });
-    setShowSave(false); loadDevices();
+    try {
+      await apiRequest({ method: "POST", url: "/remote/devices",
+        data: { workspace_id: wsId, name: deviceName || host, host,
+          port: parseInt(port) || 22, protocol, vendor, username, password } });
+      setShowSave(false); loadDevices();
+    } catch { setError("设备保存失败"); }
   };
 
   const doDeleteDevice = async (did: string) => {
-    await apiRequest({ method: "DELETE", url: `/remote/devices/${did}`, params: { workspace_id: wsId } });
-    loadDevices();
+    try {
+      await apiRequest({ method: "DELETE", url: `/remote/devices/${did}`, params: { workspace_id: wsId } });
+      loadDevices();
+    } catch { setError("设备删除失败"); }
   };
 
   const inputStyle: React.CSSProperties = {
@@ -236,6 +242,11 @@ export function RemoteTerminal({ onClose, initial }: {
 
         {/* Connection form — 2 rows */}
         <div style={{ padding: "10px 20px", borderBottom: "1px solid var(--line-2)", flexShrink: 0 }}>
+          {error && (
+            <div style={{ color: "var(--danger)", fontSize: "var(--fs-12)", marginBottom: 8 }}>
+              {error}
+            </div>
+          )}
           {/* Row 1: Protocol + Host + Port + Vendor + Connect */}
           <div style={{ display: "flex", gap: 8, alignItems: "flex-end", marginBottom: 8 }}>
             <div style={{ display: "flex", flexDirection: "column", gap: 3, width: 72 }}>

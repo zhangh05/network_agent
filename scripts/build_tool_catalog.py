@@ -64,7 +64,7 @@ CATEGORY_NOT_FOR = {
     "web": "不抓私网 / 本地 / 登录墙 URL；weather 仅在明确天气需求时使用。",
     "runtime": "不读取 trace 全量；不跨 workspace 泄露；review.update 不修改原产物。",
     "memory": "不保存 secret；profile 更新需要边界说明；confirm 用于重要记忆确认。",
-    "report_data": "不包含原始敏感配置作为最终输出；text.redact 用于脱敏；validate 不执行代码。",
+    "report_data": "不包含原始敏感配置作为最终输出；text.analyze 用于脱敏；validate 不执行代码。",
     "agent": "agent.spawn 受 max_turns≤3 限制；skill.load 不加载未经审查的技能。",
 }
 

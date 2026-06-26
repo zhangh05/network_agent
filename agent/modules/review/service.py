@@ -39,7 +39,7 @@ def init_review_sidecar(
 ) -> dict:
     """Create/overwrite the review sidecar with initial items.
 
-    Called at translation time so review.item.list works immediately.
+    Called at translation time so system.system.review.item.list works immediately.
     Each item starts as "pending".  Existing sidecar data is preserved
     for items that already have a status set.
     """

@@ -3,6 +3,7 @@ import { useNavigate } from "react-router-dom";
 import { useSessionStore } from "../../stores/session";
 import { apiRequest } from "../../api/client";
 import { artifactsApi } from "../../api";
+import { formatFileSize, formatDate } from "../../utils/format";
 
 interface FileItem {
   artifact_id: string;
@@ -36,17 +37,6 @@ function isRawPacketCapture(f: FileItem): boolean {
   if (!["pcap", "pcap_input"].includes(f.artifact_type)) return false;
   const suffix = String(f.file_ext || f.title || "").toLowerCase();
   return suffix.endsWith(".pcap") || suffix.endsWith(".pcapng");
-}
-
-function fmtSize(bytes: number): string {
-  if (!bytes) return "0B";
-  if (bytes < 1024) return `${bytes}B`;
-  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)}KB`;
-  return `${(bytes / (1024 * 1024)).toFixed(1)}MB`;
-}
-
-function fmtTime(iso: string): string {
-  try { return new Date(iso).toLocaleDateString("zh-CN"); } catch { return (iso || "").slice(0, 10); }
 }
 
 export function FileManager() {
@@ -159,9 +149,15 @@ export function FileManager() {
           <div className="card-title">上传文件</div>
           <div style={{ display: "flex", gap: 8, alignItems: "center", marginTop: 8 }}>
             <input ref={fileRef} type="file" style={{ display: "none" }}
-              onChange={e => { const f = e.target.files?.[0]; if (f) handleUpload(f); e.target.value = ""; }} />
-            <button className="btn primary sm" onClick={() => fileRef.current?.click()} disabled={uploading}>
-              {uploading ? "上传中…" : "选择文件"}
+              onChange={e => {
+                const f = e.target.files?.[0];
+                if (f) {
+                  activeType === "pcap" ? handlePcapUpload(f) : handleUpload(f);
+                }
+                e.target.value = "";
+              }} />
+            <button className="btn primary sm" onClick={() => fileRef.current?.click()} disabled={uploading || pcapUploading}>
+              {uploading || pcapUploading ? "上传中…" : "选择文件"}
             </button>
             <button className="btn ghost sm" onClick={() => setShowUpload(false)}>取消</button>
           </div>
@@ -199,8 +195,8 @@ export function FileManager() {
                   <div style={{ fontSize: "var(--fs-13)", fontWeight: 680, wordBreak: "break-all" }}>{f.title}</div>
                   <div style={{ display: "flex", gap: 6, marginTop: 4, fontSize: "var(--fs-10)", color: "var(--text-4)" }}>
                     <span>{f.artifact_type}</span>
-                    <span>{fmtSize(f.size_bytes)}</span>
-                    <span>{fmtTime(f.created_at)}</span>
+                    <span>{formatFileSize(f.size_bytes)}</span>
+                    <span>{formatDate(f.created_at, "short")}</span>
                   </div>
                 </div>
               );
@@ -222,8 +218,8 @@ export function FileManager() {
 	                    <div style={{ display: "flex", gap: 8, marginTop: 6, fontSize: "var(--fs-11)", color: "var(--text-3)" }}>
 	                      <span>{selected.artifact_type}</span>
 	                      <span style={{ fontFamily: "var(--font-mono)" }}>{selected.file_id}</span>
-	                      <span>{fmtSize(selected.size_bytes)}</span>
-	                      <span>{fmtTime(selected.created_at)}</span>
+                        <span>{formatFileSize(selected.size_bytes)}</span>
+                        <span>{formatDate(selected.created_at, "short")}</span>
 	                    </div>
 	                  </div>
 	                  <div style={{ display: "flex", gap: 6, alignItems: "flex-start", flexShrink: 0 }}>

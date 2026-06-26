@@ -56,7 +56,6 @@ export function CMDBPage() {
   const ufv = (k: string, v: string) => setFv((p: any) => ({ ...p, [k]: v }));
 
   // ── custom input state ──
-  type CustomKey = "vendor" | "region";
   const [customVendor, setCustomVendor] = useState(false);
   const [customRegion, setCustomRegion] = useState(false);
   const [customVendorVal, setCustomVendorVal] = useState("");

@@ -4,9 +4,10 @@
  */
 
 import { describe, it, expect, beforeEach } from "vitest";
-import { render, screen } from "@testing-library/react";
+import { render, screen, waitFor } from "@testing-library/react";
 import { Inspector } from "../layouts/Inspector";
 import { useWorkbenchStore } from "../stores/workbench";
+import { installMockApi, resetMocks } from "./mockServer";
 import type { AgentResult } from "../types";
 
 const sampleResult: AgentResult = {
@@ -45,8 +46,16 @@ const sampleResult: AgentResult = {
 
 describe("Inspector — AgentResult normal rendering", () => {
   beforeEach(() => {
+    resetMocks();
+    installMockApi();
     useWorkbenchStore.getState().clear();
   });
+
+  async function waitForInspectorEffects() {
+    await waitFor(() => {
+      expect(screen.queryByText("Loading...")).not.toBeInTheDocument();
+    });
+  }
 
   it("renders empty state when no result", () => {
     useWorkbenchStore.setState({ latestResult: null });
@@ -54,22 +63,24 @@ describe("Inspector — AgentResult normal rendering", () => {
     expect(screen.getByText(/尚无 turn 结果/i)).toBeInTheDocument();
   });
 
-  it("renders turn_id, trace_id, final_response", () => {
+  it("renders turn_id, trace_id, final_response", async () => {
     useWorkbenchStore.setState({ latestResult: sampleResult });
     render(<Inspector />);
     expect(screen.getByTestId("inspector-turn-id")).toHaveTextContent("turn-1");
     expect(screen.getByTestId("inspector-trace-id")).toHaveTextContent("trace-abc");
     expect(screen.getByTestId("inspector-body")).toBeInTheDocument();
+    await waitForInspectorEffects();
   });
 
-  it("renders the badge for the ok status", () => {
+  it("renders the badge for the ok status", async () => {
     useWorkbenchStore.setState({ latestResult: sampleResult });
     render(<Inspector />);
     const okBadges = screen.getAllByTestId("badge-ok");
     expect(okBadges.length).toBeGreaterThan(0);
+    await waitForInspectorEffects();
   });
 
-  it("derives knowledge sources from knowledge tool calls when metadata is sparse", () => {
+  it("derives knowledge sources from knowledge tool calls when metadata is sparse", async () => {
     useWorkbenchStore.setState({
       latestResult: {
         ...sampleResult,
@@ -101,5 +112,6 @@ describe("Inspector — AgentResult normal rendering", () => {
     render(<Inspector />);
     expect(screen.getByTestId("inspector-sources")).toHaveTextContent("ifconfig 输出知识");
     expect(screen.queryByText("本 turn 未命中 knowledge")).not.toBeInTheDocument();
+    await waitForInspectorEffects();
   });
 });

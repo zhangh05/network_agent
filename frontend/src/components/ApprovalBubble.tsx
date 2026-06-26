@@ -19,47 +19,41 @@ interface PendingApproval {
   recommendation?: string;
 }
 
-// ── Module-level persistent state (survives re-renders) ──
-let _globalPending: PendingApproval | null = null;
-let _globalSecondsLeft = 60;
-let _globalResolving = false;
-const _listeners = new Set<() => void>();
-
-function _notifyListeners() {
-  _listeners.forEach((fn) => fn());
-}
-
 /**
  * ApprovalBubble — small popup above the input bar for high-risk tool approval.
  *
- * Polls /api/agent/approvals/pending every 500ms.  State is module-level
- * so the bubble persists across parent re-renders (e.g., during SSE streaming).
+ * Polls /api/agent/approvals/pending every 5s. refs hold the mutable
+ * approval state across re-renders; useState triggers re-renders.
  * Auto-denies after 60s.
  */
 export function ApprovalBubble({ onResolved }: { onResolved?: () => void }) {
   const { currentSessionId } = useSessionStore();
-  const [, setTick] = useState(0);
+  const [pending, setPending] = useState<PendingApproval | null>(null);
+  const [secondsLeft, setSecondsLeft] = useState(60);
   const onResolvedRef = useRef(onResolved);
   onResolvedRef.current = onResolved;
   const mountedRef = useRef(true);
+  const resolvingRef = useRef(false);
 
   useEffect(() => {
     mountedRef.current = true;
-    return () => { mountedRef.current = false; };
-  }, []);
-
-  // Reset module-level state when component unmounts (session change)
-  useEffect(() => {
     return () => {
-      _globalPending = null;
-      _globalResolving = false;
-      _globalSecondsLeft = 60;
+      mountedRef.current = false;
+      setPending(null);
+      resolvingRef.current = false;
+      setSecondsLeft(60);
     };
   }, []);
+
+  // Inject component styles on mount
   useEffect(() => {
-    const listener = () => { if (mountedRef.current) setTick((n) => n + 1); };
-    _listeners.add(listener);
-    return () => { _listeners.delete(listener); };
+    const elId = "abp-style";
+    if (!document.getElementById(elId)) {
+      const el = document.createElement("style");
+      el.id = elId;
+      el.textContent = STYLE;
+      document.head.appendChild(el);
+    }
   }, []);
 
   // Poll for pending approvals
@@ -74,34 +68,28 @@ export function ApprovalBubble({ onResolved }: { onResolved?: () => void }) {
         if (cancelled) return;
         if (data.ok && data.pending?.length > 0) {
           const p = data.pending[0] as PendingApproval;
-          // created_at is a Python time.time() float (seconds since epoch),
-          // but JS Date expects milliseconds. Multiply by 1000.
           const created = new Date(p.created_at * 1000).getTime();
           const elapsed = (Date.now() - created) / 1000;
-          const secondsLeft = Math.max(0, Math.ceil(60 - elapsed));
+          const secs = Math.max(0, Math.ceil(60 - elapsed));
 
-          // Skip stale approvals: if already expired or older than 120s,
-          // silently auto-deny on the backend and don't flash the bubble.
-          if (secondsLeft <= 0 || elapsed > 120) {
+          // Skip stale approvals
+          if (secs <= 0 || elapsed > 120) {
             try { await approvalApi.resolve(p.approval_id, false); } catch { /* ignore */ }
-            if (!_globalResolving) {
-              _globalPending = null;
-              _globalSecondsLeft = 60;
+            if (!resolvingRef.current) {
+              setPending(null);
+              setSecondsLeft(60);
             }
-            _notifyListeners();
             return;
           }
 
-          _globalPending = p;
-          _globalSecondsLeft = secondsLeft;
+          setPending(p);
+          setSecondsLeft(secs);
         } else {
-          // Only clear if not currently resolving
-          if (!_globalResolving) {
-            _globalPending = null;
-            _globalSecondsLeft = 60;
+          if (!resolvingRef.current) {
+            setPending(null);
+            setSecondsLeft(60);
           }
         }
-        _notifyListeners();
       } catch {
         /* ignore */
       }
@@ -109,51 +97,44 @@ export function ApprovalBubble({ onResolved }: { onResolved?: () => void }) {
 
     poll();
     const interval = setInterval(poll, 5000);
-    return () => {
-      cancelled = true;
-      clearInterval(interval);
-    };
+    return () => { cancelled = true; clearInterval(interval); };
   }, [currentSessionId]);
 
-  // Countdown timer
+  // Countdown timer — uses state for re-renders
   useEffect(() => {
-    if (!_globalPending) return;
+    if (!pending) return;
 
-    const timer = setInterval(() => {
-      _globalSecondsLeft -= 1;
-      if (_globalSecondsLeft <= 0) {
-        _globalSecondsLeft = 0;
-        // Auto-deny
-        if (!_globalResolving && _globalPending) {
-          resolveApproval(false);
+    const tick = () => {
+      setSecondsLeft((prev) => {
+        const next = prev - 1;
+        if (next <= 0) {
+          if (!resolvingRef.current) resolveApproval(false);
+          return 0;
         }
-      }
-      _notifyListeners();
-    }, 1000);
+        return next;
+      });
+    };
 
+    const timer = setInterval(tick, 1000);
     return () => clearInterval(timer);
-  }, [_globalPending?.approval_id]);
+  }, [pending?.approval_id]);
 
   const resolveApproval = useCallback(async (allowed: boolean) => {
-    const p = _globalPending;
-    if (!p || _globalResolving) return;
-    _globalResolving = true;
-    _notifyListeners();
+    const p = pending;
+    if (!p || resolvingRef.current) return;
+    resolvingRef.current = true;
     try {
       await approvalApi.resolve(p.approval_id, allowed);
     } catch {
       /* ignore */
     }
-    _globalPending = null;
-    _globalSecondsLeft = 60;
-    _globalResolving = false;
-    _notifyListeners();
+    setPending(null);
+    setSecondsLeft(60);
+    resolvingRef.current = false;
     onResolvedRef.current?.();
-  }, []);
+  }, [pending]);
 
-  const pending = _globalPending;
-  const secondsLeft = _globalSecondsLeft;
-  const resolving = _globalResolving;
+  const resolving = resolvingRef.current;
 
   if (!pending) return null;
 
@@ -356,9 +337,3 @@ const STYLE = `
   color: var(--danger, #c0392b);
 }
 `;
-if (typeof document !== "undefined" && !document.getElementById("abp-style")) {
-  const el = document.createElement("style");
-  el.id = "abp-style";
-  el.textContent = STYLE;
-  document.head.appendChild(el);
-}

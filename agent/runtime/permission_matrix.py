@@ -63,7 +63,7 @@ class PermissionMatrix:
         """Check whether a tool/action is permitted.
 
         Args:
-            tool_id: The tool identifier (e.g. 'host.shell.exec', 'workspace.file.read').
+            tool_id: The tool identifier (e.g. 'exec.run', 'workspace.file.read').
             action: The action type (READ, WRITE, EXEC, NETWORK).
             context: Optional context dict with workspace_id, session_id, etc.
             spec: Optional ToolSpec for richer policy checking.
@@ -79,7 +79,7 @@ class PermissionMatrix:
         # 2. Check action-specific rules
         if action == PermissionAction.EXEC:
             # Shell/PowerShell/Python always need approval
-            if tool_id in ("host.shell.exec", "host.powershell.exec", "host.python.exec"):
+            if tool_id in ("exec.run", "exec.python"):
                 return PermissionDecision.REQUIRE_APPROVAL
             # Unknown exec tools are denied
             return PermissionDecision.DENY
@@ -139,23 +139,22 @@ class PermissionMatrix:
         Returns:
             PermissionAction category (READ, WRITE, EXEC, NETWORK).
         """
-        if tool_id in ("host.shell.exec", "host.powershell.exec", "host.python.exec"):
+        if tool_id in ("exec.run", "exec.python"):
             return PermissionAction.EXEC
         if tool_id.startswith(("web.",)):
             return PermissionAction.NETWORK
         read_tools = (
-            "workspace.artifact.search", "workspace.artifact.read",
+            "workspace.artifact.list", "workspace.artifact.read",
             "knowledge.search", "knowledge.source.get", "knowledge.chunk.summary",
-            "memory.search", "memory.list", "memory.profile.get",
-            "session.summary.get", "run.list", "run.summary.get",
-            "workspace.file.list", "workspace.file.exists", "workspace.file.read",
-            "workspace.file.preview", "workspace.metadata.get",
+            "memory.search", "memory.search", "memory.proworkspace.file.read",
+            "system.session.get", "system.run.get", "system.run.get",
+            "workspace.file.list", "workspace.file.list", "workspace.file.read",
+            "workspace.file.read", "workspace.metadata.get",
             "skill.list", "skill.find_skills", "skill.inspect",
-            "session.snapshot.list", "session.snapshot.create",
-            "runtime.health", "runtime.diagnostics",
-            "text.redact", "text.diff", "text.keywords.extract",
-            "text.classify", "data.json.validate", "data.yaml.validate",
-            "data.csv.summarize", "data.table.extract", "data.table.render",
+            "system.session.snapshot",
+            "system.diagnostics",
+            "text.analyze", "data.validate",
+            "data.data.csv.summarize", "data.data.table.extract", "data.table.render",
             "diagram.mermaid.render",
         )
         if tool_id in read_tools:

@@ -216,10 +216,16 @@ def run_checks(result: SelfcheckResult, ws_id: str):
                         f"Trace record {tf.stem} contains absolute path", tf.stem[:12],
                         "Redact absolute paths from trace metadata"))
 
-    # 13. Tool Runtime forbidden list
+    # 13. Tool Runtime current policy/governance summary
     try:
-        from tool_runtime.policy import V01_FORBIDDEN_TOOLS
-        result.checks["tool_forbidden_count"] = len(V01_FORBIDDEN_TOOLS)
-        result.checks["tool_forbidden_list"] = list(V01_FORBIDDEN_TOOLS)
+        from tool_runtime.canonical_registry import CANONICAL_REGISTRY
+        from tool_runtime.policy import V02_FORBIDDEN_TOOLS
+        from tool_runtime.tool_governance import governance_summary
+
+        result.checks["tool_runtime"] = "ok"
+        result.checks["tool_registered_count"] = len(CANONICAL_REGISTRY)
+        result.checks["tool_forbidden_count"] = len(V02_FORBIDDEN_TOOLS)
+        result.checks["tool_forbidden_list"] = sorted(V02_FORBIDDEN_TOOLS)
+        result.checks["tool_governance"] = governance_summary()
     except Exception:
         result.checks["tool_runtime"] = "unavailable"

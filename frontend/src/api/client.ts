@@ -32,8 +32,7 @@ export const TIMEOUTS = {
   summarize: 60_000,
 } as const;
 
-const envBase =
-  (import.meta as unknown as { env?: Record<string, string> }).env?.VITE_API_BASE ?? "";
+const envBase = import.meta.env.VITE_API_BASE ?? "";
 const baseURL = envBase
   ? envBase.replace(/\/+$/, "") + "/api"
   : "/api";
@@ -56,7 +55,7 @@ apiClient.interceptors.request.use((config) => {
   config.headers = config.headers ?? {};
   (config.headers as Record<string, string>)["X-Request-Id"] = nextRequestId();
   // Inject auth header if token is configured
-  const token = (import.meta as unknown as { env?: Record<string, string> }).env?.VITE_API_TOKEN
+  const token = import.meta.env.VITE_API_TOKEN
     || (typeof window !== 'undefined' ? window.localStorage.getItem('NA_API_TOKEN') : null);
   if (token) {
     (config.headers as Record<string, string>)["Authorization"] = `Bearer ${token}`;

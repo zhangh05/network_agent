@@ -67,14 +67,14 @@ class TestLoopIsThin:
 
     def test_loop_still_has_max_steps(self):
         from agent.runtime.loop import MAX_STEPS, MAX_STEPS_ENV, MAX_STEPS_SUBAGENT_CEILING
-        assert MAX_STEPS == 8
+        assert MAX_STEPS == 24
         assert isinstance(MAX_STEPS_ENV, int)
         assert isinstance(MAX_STEPS_SUBAGENT_CEILING, int)
 
     def test_loop_still_has_resolve_max_steps(self):
         from agent.runtime.loop import _resolve_max_steps
         assert callable(_resolve_max_steps)
-        assert _resolve_max_steps() == 8
+        assert _resolve_max_steps() == 24
 
     def test_loop_still_has_approval_timeout(self):
         from agent.runtime.loop import (
@@ -97,8 +97,39 @@ class TestNewModulesImportable:
         from agent.runtime.turn_state import TurnRuntimeState
         state = TurnRuntimeState()
         assert state.step == 0
-        assert state.max_steps == 8
+        assert state.max_steps == 24
         assert state.final_response == ""
+
+    def test_context_stage_uses_default_history_window(self, monkeypatch):
+        import agent.runtime.stages.context as context_stage
+        from agent.runtime.context_history import DEFAULT_HISTORY_WINDOW
+
+        observed = {}
+
+        class FakeContext:
+            trace_id = "trace-1"
+            metadata = {}
+
+        def fake_hydrate(_session, _context, k):
+            observed["k"] = k
+
+        monkeypatch.setattr(context_stage, "build_turn_context", lambda *_args: FakeContext())
+        monkeypatch.setattr(context_stage, "hydrate_history_from_store", fake_hydrate)
+        monkeypatch.setattr(context_stage, "run_user_prompt_submit_hook", lambda *_args: None)
+
+        state = types.SimpleNamespace(
+            session=types.SimpleNamespace(session_id="s-1", workspace_id="default"),
+            turn=types.SimpleNamespace(turn_id="t-1"),
+            services=None,
+            restricted_tool_router=None,
+            emitter=None,
+            audit_events=None,
+            audit_trace=None,
+        )
+
+        context_stage.ContextStage().run(state)
+
+        assert observed["k"] == DEFAULT_HISTORY_WINDOW
 
     def test_result_builder(self):
         from agent.runtime.result_builder import (
@@ -205,9 +236,9 @@ class TestDenyIsTerminal:
             requires_approval=True,
         )
         # Shell must require approval via needs_approval
-        assert needs_approval("host.shell.exec", spec, 'high', True) is True
+        assert needs_approval("exec.run", spec, 'high', True) is True
         # PowerShell too
-        assert needs_approval("host.powershell.exec", spec, 'high', True) is True
+        assert needs_approval("exec.run", spec, 'high', True) is True
 
 
 # ---------------------------------------------------------------------------
@@ -222,17 +253,17 @@ class TestShellRequiresApproval:
             risk_level='high',
             requires_approval=True,
         )
-        assert needs_approval("host.shell.exec", spec, 'high', True)
+        assert needs_approval("exec.run", spec, 'high', True)
 
     def test_shell_unsafe_command_denied(self):
         from agent.runtime.permission_check import check_shell_safety
-        safe, word = check_shell_safety("host.shell.exec", {"command": "rm -rf /"})
+        safe, word = check_shell_safety("exec.run", {"command": "rm -rf /"})
         assert not safe
         assert word == "destructive_delete"
 
     def test_shell_safe_command_allowed(self):
         from agent.runtime.permission_check import check_shell_safety
-        safe, word = check_shell_safety("host.shell.exec", {"command": "ls -la"})
+        safe, word = check_shell_safety("exec.run", {"command": "ls -la"})
         assert safe
         assert word == ""
 
@@ -376,4 +407,3 @@ class TestToolExecutionPipelineOrder:
         result = preserve_tool_payload_edges(long_text, 100)
         assert len(result) <= 200  # truncated with marker
         assert "truncated middle" in result
-

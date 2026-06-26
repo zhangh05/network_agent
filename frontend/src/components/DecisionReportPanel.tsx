@@ -19,80 +19,83 @@ export function DecisionReportPanel({ report, loading = false, error = "" }: Pro
 
   const route = report.capability_route || {};
   const planning = report.tool_planning_decision || {};
+  const blockedTools = planning.blocked_tools ?? [];
   const retrieval = report.retrieval_decision || {};
-  const execution = report.tool_execution_summary || {
-    called: [], blocked: [], failed: [], succeeded: [],
-  };
-  const trace = report.trace_summary || {
-    real_event_count: 0, synthetic_event_count: 0, missing_event_count: 0,
-  };
+  const execution = report.tool_execution_summary || { called: [], blocked: [], failed: [], succeeded: [] };
+  const trace = report.trace_summary || { real_event_count: 0, synthetic_event_count: 0, missing_event_count: 0 };
   const capabilityIds = route.capability_ids || [];
-  const visibleTools = planning.visible_tools || [];
-  const requiredTools = planning.required_tools || [];
-  const blockedTools = planning.blocked_tools || [];
 
   return (
-    <div data-testid="decision-report" className="col-flex" style={{ gap: 16 }}>
+    <div data-testid="decision-report" className="col-flex" style={{ gap: 10 }}>
+
+      {/* Status row */}
       <div className="row-flex" style={{ gap: 6, flexWrap: "wrap" }}>
         <Badge kind={report.decision_status === "complete" ? "ok" : "warn"}>
           {report.decision_status === "complete" ? "决策完整" : "决策降级"}
         </Badge>
-        {route.ambiguous && <Badge kind="warn">意图模糊</Badge>}
-        {route.fallback_used && <Badge kind="warn">使用安全回退</Badge>}
-        <Badge kind="muted">{report.schema_version}</Badge>
+        {route.fallback_used && <Badge kind="warn">安全回退</Badge>}
+        {trace.missing_event_count > 0 && <Badge kind="err">缺失 {trace.missing_event_count}</Badge>}
       </div>
 
-      <DecisionSection title="能力路由">
-        <ChipList values={capabilityIds} empty="未选择业务能力" kind="accent" />
-        <div className="text-xs muted mt-2">
-          {route.route_version ? `路由 ${route.route_version}` : "路由版本未知"}
-          {typeof route.latency_ms === "number" ? ` · ${route.latency_ms.toFixed(2)} ms` : ""}
+      {/* Capability Route */}
+      <CompactRow label="路由">
+        <div className="row-flex" style={{ gap: 4, flexWrap: "wrap" }}>
+          {capabilityIds.length > 0
+            ? capabilityIds.map((id) => <Badge key={id} kind="accent">{id}</Badge>)
+            : <span className="text-xs muted">未命中</span>}
         </div>
-      </DecisionSection>
+        {typeof route.latency_ms === "number" && (
+          <span className="text-xs muted" style={{ marginLeft: 4 }}>{route.latency_ms.toFixed(1)}ms</span>
+        )}
+      </CompactRow>
 
-      <DecisionSection title="工具边界">
-        <div className="text-xs muted">可见 {visibleTools.length} · 必需 {requiredTools.length} · 调用 {execution.called?.length ?? 0}</div>
-        <ChipList values={visibleTools} empty="本 turn 无可见工具" />
+      {/* Tool Boundary — summary only, no full list */}
+      <CompactRow label="工具边界">
+        <div className="row-flex" style={{ gap: 6 }}>
+          <span className="text-xs" style={{ color: "var(--ink-soft)" }}>可见 {planning.visible_tools?.length ?? 0}</span>
+          <span className="text-xs" style={{ color: "var(--ink-soft)" }}>必需 {planning.required_tools?.length ?? 0}</span>
+          <span className="text-xs" style={{ color: "var(--ink-soft)" }}>调用 {execution.called?.length ?? 0}</span>
+        </div>
+        {(planning.required_tools ?? planning.visible_tools ?? []).length > 0 && (
+          <div className="row-flex mt-1" style={{ gap: 4, flexWrap: "wrap" }}>
+            {(planning.required_tools ?? planning.visible_tools ?? []).map((tool) => (
+              <Badge key={tool} kind="muted">{tool}</Badge>
+            ))}
+          </div>
+        )}
         {blockedTools.length > 0 && (
-          <div className="text-xs mt-2" style={{ color: "var(--ink-warning)" }}>
+          <div className="text-xs mt-1" style={{ color: "var(--warning)" }}>
             阻止：{blockedTools.map((item) => item.tool_id || "unknown").join("、")}
           </div>
         )}
-      </DecisionSection>
+      </CompactRow>
 
-      <DecisionSection title="上下文检索">
-        <div className="row-flex" style={{ gap: 6, flexWrap: "wrap" }}>
-          {Object.entries(retrieval).map(([name, value]) => (
-            <Badge key={name} kind={retrievalKind(String(value?.status || ""))}>
-              {retrievalLabel(name)}：{statusLabel(String(value?.status || "unknown"))}
-            </Badge>
-          ))}
-          {Object.keys(retrieval).length === 0 && <span className="text-sm muted">无检索决策</span>}
-        </div>
-      </DecisionSection>
-
-      <DecisionSection title="Trace 真实性">
-        <div className="row-flex" style={{ gap: 6, flexWrap: "wrap" }}>
-          <Badge kind="ok">真实 {trace.real_event_count}</Badge>
-          <Badge kind={trace.synthetic_event_count ? "warn" : "muted"}>合成 {trace.synthetic_event_count}</Badge>
-          <Badge kind={trace.missing_event_count ? "err" : "muted"}>缺失 {trace.missing_event_count}</Badge>
-        </div>
-      </DecisionSection>
-
-      {(report.catalog_expansions?.length ?? 0) > 0 && (
-        <DecisionSection title="目录扩展">
-          {report.catalog_expansions.map((entry, index) => (
-            <div key={index} className="text-xs">
-              第 {String(entry.step || index + 1)} 步追加 {String(entry.added_count ?? 0)} 个工具
-              {entry.truncated ? "（已截断）" : ""}
-            </div>
-          ))}
-        </DecisionSection>
+      {/* Context Retrieval */}
+      {Object.keys(retrieval).length > 0 && (
+        <CompactRow label="检索">
+          <div className="row-flex" style={{ gap: 4, flexWrap: "wrap" }}>
+            {Object.entries(retrieval).map(([name, value]) => (
+              <Badge key={name} kind={retrievalKind(String((value as any)?.status || ""))}>
+                {retrievalLabel(name)}：{statusLabel(String((value as any)?.status || "unknown"))}
+              </Badge>
+            ))}
+          </div>
+        </CompactRow>
       )}
 
+      {/* Trace integrity — compact */}
+      <CompactRow label="Trace">
+        <div className="row-flex" style={{ gap: 8 }}>
+          <span className="text-xs" style={{ color: "var(--ok)" }}>真实 {trace.real_event_count}</span>
+          <span className="text-xs" style={{ color: trace.synthetic_event_count ? "var(--warn)" : "var(--ink-mute)" }}>合成 {trace.synthetic_event_count}</span>
+          <span className="text-xs" style={{ color: trace.missing_event_count ? "var(--danger)" : "var(--ink-mute)" }}>缺失 {trace.missing_event_count}</span>
+        </div>
+      </CompactRow>
+
+      {/* Raw JSON collapsed */}
       <details>
-        <summary className="text-xs muted" style={{ cursor: "pointer" }}>技术详情</summary>
-        <pre className="text-xs" style={{ maxHeight: 320, overflow: "auto" }}>
+        <summary className="text-xs muted" style={{ cursor: "pointer" }}>原始数据</summary>
+        <pre className="text-xs" style={{ maxHeight: 280, overflow: "auto", marginTop: 4 }}>
           {JSON.stringify(report, null, 2)}
         </pre>
       </details>
@@ -100,28 +103,11 @@ export function DecisionReportPanel({ report, loading = false, error = "" }: Pro
   );
 }
 
-function DecisionSection({ title, children }: { title: string; children: React.ReactNode }) {
+function CompactRow({ label, children }: { label: string; children: React.ReactNode }) {
   return (
-    <section style={{ borderTop: "1px solid var(--line-2)", paddingTop: 10 }}>
-      <div className="text-sm" style={{ fontWeight: 700, marginBottom: 8 }}>{title}</div>
+    <div style={{ borderTop: "1px solid var(--line-2)", paddingTop: 6 }}>
+      <div style={{ fontSize: 10, fontWeight: 700, color: "var(--ink-mute)", textTransform: "uppercase", marginBottom: 4 }}>{label}</div>
       {children}
-    </section>
-  );
-}
-
-function ChipList({
-  values,
-  empty,
-  kind = "muted",
-}: {
-  values: string[];
-  empty: string;
-  kind?: "accent" | "muted";
-}) {
-  if (!values.length) return <span className="text-sm muted">{empty}</span>;
-  return (
-    <div className="row-flex" style={{ gap: 4, flexWrap: "wrap" }}>
-      {values.map((value) => <Badge key={value} kind={kind}>{value}</Badge>)}
     </div>
   );
 }
@@ -132,13 +118,8 @@ function retrievalLabel(name: string): string {
 
 function statusLabel(status: string): string {
   return ({
-    hit: "命中",
-    miss: "未命中",
-    skipped: "跳过",
-    not_applicable: "不适用",
-    required: "需要",
-    optional: "可选",
-    error: "错误",
+    hit: "命中", miss: "未命中", skipped: "跳过",
+    not_applicable: "不适用", required: "需要", optional: "可选", error: "错误",
   } as Record<string, string>)[status] || status;
 }
 

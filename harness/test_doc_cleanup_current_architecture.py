@@ -39,3 +39,18 @@ def test_docs_reference_current_runtime_reports():
     combined = "\n".join(_read(path) for path in DOCS)
     for term in REQUIRED_TERMS:
         assert term in combined
+
+
+def test_docs_match_current_runtime_constants_and_api_methods():
+    combined = "\n".join(_read(path) for path in DOCS)
+
+    assert "Python 3.13" not in combined
+    assert "`GET` | `/api/tools/invoke`" not in combined
+    assert "`GET /api/tools/invoke`" not in combined
+    assert "max 8 steps" not in combined
+    assert "history window (k=8)" not in combined
+
+    assert "Python 3.12+" in combined
+    assert "`POST /api/tools/invoke`" in combined
+    assert "max 24 steps" in combined
+    assert "history window (k=30)" in combined

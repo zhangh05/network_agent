@@ -15,33 +15,19 @@ from typing import Any, Optional
 VALID_RISK_LEVELS = {"low", "medium", "high", "forbidden"}
 VALID_TOOL_STATUSES = {"succeeded", "failed", "blocked", "dry_run"}
 VALID_TOOL_CATEGORIES = {
-    # v0.2 categories (older aliases still in policy)
-    "artifact", "parser", "report", "command",
-    "knowledge", "web", "session", "runtime", "text", "workspace",
-    "shell", "powershell", "python",
-    "network", "device", "ssh", "telnet", "snmp", "nmap", "file",
-    "skill", "memory",
-    # v3.0 categories
-    "host", "agent", "data", "diagram", "document",
-    "report_data",
+    # v3.6 categories (canonical 12-domain framework)
+    "exec", "device", "workspace", "knowledge", "memory", "system",
+    "web", "browser", "git", "agent", "config", "code", "data",
+    # legacy aliases (kept for backward compat with older specs/registries)
+    "artifact", "host", "cmdb", "network", "runtime", "report_data",
+    "shell", "powershell", "python", "ssh", "telnet", "session", "text",
+    "skill", "run", "file", "device", "snmp", "nmap", "diagram", "document",
     "review", "slash", "team", "frontend", "general", "ops", "config_translation",
-    "weather", "news", "cmdb", "run", "tool", "config", "pcap",
-    # v3.4: new general agent categories
-    "git", "code", "browser",
+    "weather", "news", "tool", "pcap", "parser", "report", "command", "query",
+    "capability",
 }
 # v0.2 — expanded categories for general agent tools
-V02_ALLOWED_CATEGORIES = {
-    "artifact", "parser", "report", "command",
-    "knowledge", "web", "session", "runtime", "text", "workspace",
-    "shell", "powershell",  # high-risk: only approved_exec allowed
-    "skill", "memory", "file", "network",
-    # v3.0 categories (canonical)
-    "host", "agent", "data", "diagram", "document", "report_data",
-    "review", "slash", "team", "frontend", "general", "ops",
-    "config_translation", "weather", "news", "cmdb",
-    "run", "tool", "config", "pcap",
-    "git", "code", "browser",
-}
+V02_ALLOWED_CATEGORIES = VALID_TOOL_CATEGORIES
 
 
 @dataclass

@@ -1,9 +1,10 @@
 import { useEffect, useRef, useState } from "react";
 import { useAsync, AsyncView } from "../components/common";
-import { sessionsApi, workspacesApi } from "../api";
-import { useSessionStore } from "../stores/session";
+import { sessionsApi, workspacesApi, runtimeAuditApi } from "../api";
+import { useSessionStore, useUIStore } from "../stores/session";
+import { useWorkbenchStore } from "../stores/workbench";
 import { useToastStore } from "../stores/toast";
-import { isApiError } from "../types";
+import { isApiError, AgentResult } from "../types";
 import type { Session } from "../types";
 import { IconArchive, IconBolt, IconChat, IconEdit, IconPlus, IconTrash, IconWorkspace } from "../components/Icon";
 import { APP_EVENTS } from "../utils/appEvents";
@@ -25,15 +26,71 @@ interface RecentRunSummary {
  * from the real backend; no mocks, no fallback.
  */
 export function Sidebar() {
-  const {
-    currentWorkspaceId,
-    currentSessionId,
-    setCurrentSession,
-    setSessions,
-  } = useSessionStore();
+  const currentWorkspaceId = useSessionStore((s) => s.currentWorkspaceId);
+  const currentSessionId = useSessionStore((s) => s.currentSessionId);
+  const setCurrentSession = useSessionStore((s) => s.setCurrentSession);
+  const setSessions = useSessionStore((s) => s.setSessions);
   const toast = useToastStore((s) => s.show);
+  const setLatestResult = useWorkbenchStore((s) => s.setLatestResult);
+  const inspectorOpen = useUIStore((s) => s.inspectorOpen);
+  const toggleInspector = useUIStore((s) => s.toggleInspector);
   const [editingSessId, setEditingSessId] = useState<string | null>(null);
   const [editingSessName, setEditingSessName] = useState("");
+
+  // Click handler: fetch full run, convert, show in Inspector
+  const inspectRun = async (r: RecentRunSummary) => {
+    const rid = r.run_id;
+    if (!rid || !currentWorkspaceId) return;
+    try {
+      const raw = await runtimeAuditApi.run(rid);
+      const runData = (raw as any)?.run || raw as any;
+      const result: AgentResult = {
+        ok: /ok|completed|success/i.test(runData.status || r.status || ""),
+        final_response: "",
+        events: [],
+        trace_id: runData.trace_id || "",
+        session_id: runData.session_id || r.session_id || "",
+        turn_id: rid,
+        tool_calls: (runData.tool_calls || []) as any[],
+        warnings: runData.warnings || [],
+        errors: runData.error ? [String(runData.error)] : [],
+        tool_decision: runData.tool_decision,
+        no_tool_reason: runData.no_tool_reason,
+        metadata: {
+          selected_capabilities: runData.selected_capabilities || runData.selected_skills || [],
+          selected_skills: runData.selected_skills || [],
+          visible_tools: runData.visible_tools || [],
+          source_count: 0,
+          workspace_id: currentWorkspaceId,
+          tool_scene: runData.tool_scene,
+        },
+      };
+      setLatestResult(result);
+      if (!inspectorOpen) toggleInspector();
+    } catch {
+      // Minimal fallback from summary
+      const result: AgentResult = {
+        ok: /ok|completed|success/i.test(r.status || ""),
+        final_response: "",
+        events: [],
+        trace_id: "",
+        session_id: r.session_id || "",
+        turn_id: rid,
+        tool_calls: [],
+        warnings: [],
+        errors: [],
+        metadata: {
+          selected_capabilities: [],
+          selected_skills: [],
+          visible_tools: [],
+          source_count: 0,
+          workspace_id: currentWorkspaceId || "default",
+        },
+      };
+      setLatestResult(result);
+      if (!inspectorOpen) toggleInspector();
+    }
+  };
 
   const sessList = useAsync<{ sessions: Session[] }>(
     (s) => sessionsApi.list(currentWorkspaceId, "active", s),
@@ -317,6 +374,8 @@ export function Sidebar() {
                     className="list-item run-item"
                     key={runId}
                     title={`${summary || runId}\nstatus: ${r.status || "?"}\ntime: ${r.created_at || "?"}`}
+                    onClick={() => inspectRun(r)}
+                    style={{ cursor: "pointer" }}
                   >
                     <div className="run-title-row">
                       <span

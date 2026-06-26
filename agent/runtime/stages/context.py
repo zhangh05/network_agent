@@ -2,7 +2,7 @@
 """ContextStage — build turn context, hydrate history, run prompt hook."""
 
 from agent.runtime.context_builder import build_turn_context
-from agent.runtime.context_history import hydrate_history_from_store
+from agent.runtime.context_history import DEFAULT_HISTORY_WINDOW, hydrate_history_from_store
 from agent.runtime.hook_runner import run_user_prompt_submit_hook
 
 
@@ -24,7 +24,7 @@ class ContextStage:
             state.context.tool_router = state.restricted_tool_router
 
         # 4. Hydrate history
-        hydrate_history_from_store(state.session, state.context, k=8)
+        hydrate_history_from_store(state.session, state.context, k=DEFAULT_HISTORY_WINDOW)
 
         # 5. Emit context_built (via events bus)
         from agent.runtime.runtime_events import RuntimeEventBus

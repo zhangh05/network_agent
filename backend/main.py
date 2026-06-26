@@ -3,7 +3,7 @@
 Network Agent — unified backend entry point.
 
 Start:
-    python backend/main.py --port 8010
+    python3 backend/main.py --port 8010
 or:
     python -m backend.main --port 8010
 """

@@ -23,7 +23,7 @@ class ToolPlanningPolicy:
     Core invariants:
       1. LLM can ONLY see tools in visible_tools (enforced by router)
       2. LLM cannot call tools in blocked_tools (enforced by executor)
-      3. Local ops require explicit scene signal (host.shell.exec etc.)
+      3. Local ops require explicit scene signal (exec.run etc.)
       4. Catalog expansion adds tools to visible set but does NOT auto-execute
       5. User overrides go through governance before execution
     """
@@ -40,7 +40,7 @@ class ToolPlanningPolicy:
     # Each entry must have a mandatory reason.
     enforce_blocked_set: bool = True
 
-    # If True, local ops tools (host.shell.exec, host.powershell.exec)
+    # If True, local ops tools (exec.run, exec.run)
     # can only appear in visible_tools when the scene explicitly requires
     # local operations. Even then they still go through approval.
     local_ops_require_scene: bool = True

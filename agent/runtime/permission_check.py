@@ -67,7 +67,7 @@ def check_shell_safety(tool_id: str, arguments: dict) -> tuple[bool, str]:
 
     Returns (safe: bool, denied_word: str).
     """
-    if tool_id not in ('host.shell.exec', 'host.powershell.exec'):
+    if tool_id not in ('exec.run', 'exec.run'):
         return True, ""
 
     cmd = str(arguments.get('command', '')).strip().lower()

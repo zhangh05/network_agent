@@ -3463,3 +3463,94 @@ details.collapse[open] summary::before {
   white-space: nowrap;
   border: 0;
 }
+
+/* ══════════════════════════════════════════════════
+   v3.8 Chat UI Enhancements
+   ══════════════════════════════════════════════════ */
+
+/* ── Code block syntax highlighting ── */
+.hljs { background: var(--surface-2) !important; border: 1px solid var(--line); border-radius: var(--r-6); }
+.hljs-built_in, .hljs-keyword, .hljs-selector-tag, .hljs-literal, .hljs-section { color: var(--accent-2) !important; }
+.hljs-string, .hljs-regexp, .hljs-addition, .hljs-attribute, .hljs-meta-string { color: var(--ok) !important; }
+.hljs-number, .hljs-literal, .hljs-variable, .hljs-template-variable, .hljs-tag .hljs-attr { color: #cf6a4c !important; }
+.hljs-comment, .hljs-quote { color: var(--text-4) !important; font-style: italic; }
+.hljs-title, .hljs-name, .hljs-selector-id, .hljs-selector-class, .hljs-function > .hljs-title { color: #4671d5 !important; }
+[data-theme="dark"] .hljs { background: var(--surface-2) !important; }
+
+.code-block-wrap { position: relative; margin: 8px 0; }
+.code-block-wrap pre { margin: 0; }
+.code-block-header {
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 3px 10px; font-size: var(--fs-10); color: var(--text-3);
+  background: var(--surface-3); border: 1px solid var(--line);
+  border-bottom: 0; border-radius: var(--r-6) var(--r-6) 0 0;
+}
+.code-block-header + pre, .code-block-header + pre > code {
+  border-radius: 0 0 var(--r-6) var(--r-6) !important;
+}
+.code-copy-btn {
+  padding: 1px 6px; cursor: pointer; font-size: 10px; color: var(--text-3);
+  background: none; border: none; border-radius: 3px; transition: all var(--dur-2);
+}
+.code-copy-btn:hover { color: var(--text); background: var(--surface-2); }
+
+/* ── Thinking / Reasoning block ── */
+.thinking-block {
+  margin: 6px 0; border: 1px solid var(--line-2); border-radius: var(--r-6);
+  background: var(--surface-2); overflow: hidden;
+}
+.thinking-header {
+  display: flex; align-items: center; gap: 6px; padding: 6px 10px;
+  cursor: pointer; user-select: none; font-size: var(--fs-11);
+  color: var(--text-3); transition: background var(--dur-2);
+}
+.thinking-header:hover { background: var(--surface-3); }
+.thinking-header .chev { transition: transform var(--dur-2); }
+.thinking-header.open .chev { transform: rotate(90deg); }
+.thinking-body {
+  padding: 8px 12px; border-top: 1px solid var(--line-2);
+  font-size: var(--fs-11); color: var(--text-3); line-height: 1.55;
+  white-space: pre-wrap; max-height: 300px; overflow: auto;
+}
+
+/* ── Stop button ── */
+.wb-stop {
+  display: inline-flex; align-items: center; justify-content: center;
+  width: 28px; height: 28px; padding: 0; cursor: pointer;
+  color: var(--text-2); background: var(--danger-soft);
+  border: 1px solid var(--danger); border-radius: var(--r-6);
+  transition: all var(--dur-2);
+}
+.wb-stop:hover { background: var(--danger); color: #fff; }
+.wb-stop:active { transform: scale(0.94); }
+
+/* ── Tool call card animation ── */
+@keyframes tool-call-pulse {
+  0% { box-shadow: 0 0 0 0 var(--accent-soft); }
+  70% { box-shadow: 0 0 0 4px transparent; }
+  100% { box-shadow: 0 0 0 0 transparent; }
+}
+.tool-call-running {
+  animation: tool-call-pulse 1.5s ease-in-out infinite;
+  border-color: var(--accent) !important;
+}
+
+/* ── Empty state enhancement ── */
+.wb-empty-enhanced { padding: 60px 72px !important; }
+.wb-empty-enhanced h2 { font-size: var(--fs-24) !important; margin-bottom: 10px !important; }
+.wb-empty-features {
+  display: grid; grid-template-columns: repeat(3, 1fr);
+  gap: 12px; margin-top: 30px; max-width: 680px;
+}
+.wb-empty-feature {
+  padding: 14px; background: var(--surface); border: 1px solid var(--line-2);
+  border-radius: var(--r-8); text-align: left; transition: all var(--dur-2);
+}
+.wb-empty-feature:hover { border-color: var(--line-3); transform: translateY(-2px); }
+.wb-empty-feature-icon {
+  display: grid; width: 28px; height: 28px; place-items: center;
+  background: var(--accent-soft); border-radius: var(--r-6);
+  color: var(--accent); font-size: 13px; margin-bottom: 8px;
+}
+.wb-empty-feature h4 { font-size: var(--fs-13); margin-bottom: 3px; }
+.wb-empty-feature p { font-size: var(--fs-11); color: var(--text-3); line-height: 1.4; }

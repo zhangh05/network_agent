@@ -453,7 +453,7 @@ def _web_search_guidance(query: str, results: list[dict], domains: list[str]) ->
     )
     next_actions = [
         "用结果的 title/snippet 先回答用户问题，不要编造网页未给出的细节。",
-        "如果需要精确引用或正文细节，再调用 web.fetch_summary 读取具体 URL。",
+        "如果需要精确引用或正文细节，再调用 web.page.process 读取具体 URL。",
     ]
     if not domains:
         next_actions.append("如用户要求厂商文档，下一次搜索加 domains/site 限定官方站点。")
@@ -747,7 +747,7 @@ def _weather_structured_result(*, tool_id: str, location: str, units: str,
     result["answer_hint"] = "直接使用 current/forecast_daily 里的结构化天气字段回答；引用 [1] open-meteo.com，并说明天气预报会变化。"
     result["next_actions"] = [
         "用 current 或 forecast_daily 的温度、降水概率/降水量、风速字段直接回答用户。",
-        "如果用户要求官方气象台口径，再用 web.search 或 web.fetch_summary 交叉验证气象局页面。",
+        "如果用户要求官方气象台口径，再用 web.search 或 web.page.process 交叉验证气象局页面。",
     ]
     return _result(_DummyInv(tool_id), True, result)
 
@@ -993,7 +993,7 @@ _SHELL_TIMEOUT = 30
 _SHELL_MAX_OUTPUT = 10000
 
 def _run_shell(command: str, cwd: str = None, shell: str = "/bin/bash",
-               env: dict = None) -> dict:
+               env: dict = None, timeout: int = None) -> dict:
     """Execute a shell command with safety limits. Returns result dict."""
     import subprocess, shlex
     if not command or not command.strip():
@@ -1002,21 +1002,23 @@ def _run_shell(command: str, cwd: str = None, shell: str = "/bin/bash",
         result = subprocess.run(
             command if isinstance(command, list) else [shell, "-c", command],
             capture_output=True, text=True,
-            timeout=_SHELL_TIMEOUT,
+            timeout=timeout or _SHELL_TIMEOUT,
             cwd=cwd or str(ROOT),
             env=env,
         )
         stdout = (result.stdout or "")[:_SHELL_MAX_OUTPUT]
         stderr = (result.stderr or "")[:_SHELL_MAX_OUTPUT]
+        actual_timeout = timeout or _SHELL_TIMEOUT
         return {
             "ok": True,
             "exit_code": result.returncode,
             "stdout": stdout,
             "stderr": stderr,
-            "timeout_seconds": _SHELL_TIMEOUT,
+            "timeout_seconds": actual_timeout,
         }
     except subprocess.TimeoutExpired:
-        return {"ok": False, "error": f"command timed out after {_SHELL_TIMEOUT}s"}
+        actual_timeout = timeout or _SHELL_TIMEOUT
+        return {"ok": False, "error": f"command timed out after {actual_timeout}s"}
     except FileNotFoundError as e:
         return {"ok": False, "error": f"command not found: {e}"}
     except Exception as e:

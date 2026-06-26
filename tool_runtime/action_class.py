@@ -18,7 +18,7 @@ from typing import Optional
 READ_ACTIONS = {
     "list", "read", "get", "search", "query", "summary", "preview",
     "exists", "validate", "diff", "status", "extract", "classify",
-    "keywords.extract", "explain", "profile.get",
+    "keywords.extract", "explain", "proworkspace.file.read",
 }
 
 WRITE_ACTIONS = {
@@ -47,8 +47,8 @@ CATEGORY_EXECUTE = {"host"}
 CATEGORY_EXTERNAL = {"web"}
 
 # Tools that are safe even when in MUTATE/WRITE/EXEC classes
-SAFE_EXECUTE = {"runtime.selfcheck", "runtime.diagnostics", "runtime.health"}
-SAFE_WRITE = {"workspace.file.preview"}  # not actually destructive
+SAFE_EXECUTE = {"runtime.selfcheck", "system.diagnostics", "system.diagnostics"}
+SAFE_WRITE = {"workspace.file.read"}  # not actually destructive
 
 
 # ─── Classification ──────────────────────────────────────────────────────

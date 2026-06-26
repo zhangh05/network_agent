@@ -127,13 +127,15 @@ export function Badge({
   kind = "muted",
   children,
   withDot = false,
+  style,
 }: {
   kind?: BadgeKind;
   children: ReactNode;
   withDot?: boolean;
+  style?: React.CSSProperties;
 }) {
   return (
-    <span className={`badge ${kind}`} data-testid={`badge-${kind}`}>
+    <span className={`badge ${kind}`} data-testid={`badge-${kind}`} style={style}>
       {withDot && <span className="dot" />}
       {children}
     </span>
