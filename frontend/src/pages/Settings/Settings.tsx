@@ -513,69 +513,12 @@ export function Settings() {
             )}
 
             {/* ── Memory Gating settings ── */}
-            <div className="card" style={{ marginTop: 16, padding: "20px 24px" }}>
-              <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", gap: 16, marginBottom: 16 }}>
-                <div style={{ flex: 1 }}>
-                  <div style={{ fontSize: 15, fontWeight: 680, marginBottom: 2 }}>记忆门控 Memory Gating</div>
-                  <div className="muted" style={{ fontSize: 12, lineHeight: 1.5 }}>
-                    控制每轮对话后，系统如何判断哪些信息值得长期记忆
-                  </div>
-                </div>
-                <div style={{ display: "flex", alignItems: "center", gap: 10, flexShrink: 0 }}>
-                  <span style={{
-                    fontSize: 12, fontWeight: 600,
-                    color: memoryGating ? "var(--ok)" : "var(--ink-mute)",
-                  }}>
-                    {memoryGating ? "LLM" : "规则"}
-                  </span>
-                  <button
-                    type="button"
-                    className={"toggle" + (memoryGating ? " on" : "")}
-                    onClick={() => onMemoryGatingToggle(!memoryGating)}
-                    disabled={memoryGatingLoading}
-                    role="switch"
-                    aria-checked={memoryGating}
-                    data-testid="toggle-memory-gating"
-                  >
-                    <span className="toggle-knob" />
-                  </button>
-                </div>
-              </div>
-
-              {memoryGatingLoaded && (
-                <div style={{
-                  background: memoryGating ? "rgba(52, 199, 89, 0.06)" : "var(--surface-2)",
-                  border: "1px solid " + (memoryGating ? "rgba(52, 199, 89, 0.2)" : "var(--border-2)"),
-                  borderRadius: 8, padding: "14px 16px", fontSize: 12, lineHeight: 1.7,
-                }}>
-                  <div style={{ fontWeight: 680, marginBottom: 6, fontSize: 13 }}>
-                    <span style={{ marginRight: 8 }}>{memoryGating ? "🔮" : "🔧"}</span>
-                    当前：{memoryGating ? "LLM 优先 + 规则兜底" : "纯规则模式"}
-                  </div>
-                  <div style={{ color: "var(--text-2)", lineHeight: 1.7 }}>
-                    {memoryGating
-                      ? "每轮对话结束后，LLM 会批量评估候选记忆的质量（1-5分），标记语义重复，生成可检索摘要。"
-                      : "使用确定性算法：前缀去重 + 类型感知阈值 + 安全过滤。"}
-                  </div>
-                  <div style={{ color: "var(--text-2)", lineHeight: 1.7, marginTop: 2 }}>
-                    {memoryGating
-                      ? "规则作为硬性安全门：过滤敏感信息（密码、IP、Key）、限制每类记忆数量上限。"
-                      : "不会调用额外的 LLM，零额外 Token 开销。"}
-                  </div>
-                  <div style={{
-                    marginTop: 8, padding: "6px 10px",
-                    background: "var(--bg-soft, #f5f5f5)", borderRadius: 5,
-                    fontSize: 11, color: "var(--text-3)",
-                    display: "flex", alignItems: "center", gap: 6,
-                  }}>
-                    <span style={{ opacity: 0.6 }}>⏱</span>
-                    {memoryGating
-                      ? "额外延迟 ≈ 0.3-0.5s（淹没在主 LLM 调用的 2-8s 内，用户无感知）"
-                      : "每轮最多写入 3 条记忆 · 全局上限 500 条 · 同类型上限自动淘汰"}
-                  </div>
-                </div>
-              )}
-            </div>
+            <MemoryGatingCard
+              enabled={memoryGating}
+              loading={memoryGatingLoading}
+              loaded={memoryGatingLoaded}
+              onToggle={onMemoryGatingToggle}
+            />
           </section>
         </div>
       </div>
@@ -694,6 +637,62 @@ function ApiKeyField({
           </label>
         )}
       </div>
+    </div>
+  );
+}
+
+/* ──────────────────────── Memory Gating Card ──────────────────────── */
+
+function MemoryGatingCard({
+  enabled, loading, loaded, onToggle,
+}: {
+  enabled: boolean; loading: boolean; loaded: boolean; onToggle: (v: boolean) => void;
+}) {
+  return (
+    <div className="card" style={{ marginTop: 16, padding: "20px 24px" }}>
+      <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", gap: 16, marginBottom: 16 }}>
+        <div style={{ flex: 1 }}>
+          <div style={{ fontSize: 15, fontWeight: 680, marginBottom: 2 }}>记忆门控 Memory Gating</div>
+          <div className="muted" style={{ fontSize: 12, lineHeight: 1.5 }}>
+            控制每轮对话后，系统如何判断哪些信息值得长期记忆
+          </div>
+        </div>
+        <div style={{ display: "flex", alignItems: "center", gap: 10, flexShrink: 0 }}>
+          <span style={{ fontSize: 12, fontWeight: 600, color: enabled ? "var(--ok)" : "var(--ink-mute)" }}>
+            {enabled ? "LLM" : "规则"}
+          </span>
+          <button type="button" className={"toggle" + (enabled ? " on" : "")} onClick={() => onToggle(!enabled)}
+            disabled={loading} role="switch" aria-checked={enabled} data-testid="toggle-memory-gating">
+            <span className="toggle-knob" />
+          </button>
+        </div>
+      </div>
+      {loaded && (
+        <div style={{
+          background: enabled ? "rgba(52, 199, 89, 0.06)" : "var(--surface-2)",
+          border: "1px solid " + (enabled ? "rgba(52, 199, 89, 0.2)" : "var(--border-2)"),
+          borderRadius: 8, padding: "14px 16px", fontSize: 12, lineHeight: 1.7,
+        }}>
+          <div style={{ fontWeight: 680, marginBottom: 6, fontSize: 13 }}>
+            <span style={{ marginRight: 8 }}>{enabled ? "🔮" : "🔧"}</span>
+            当前：{enabled ? "LLM 优先 + 规则兜底" : "纯规则模式"}
+          </div>
+          <div style={{ color: "var(--text-2)", lineHeight: 1.7 }}>
+            {enabled ? "每轮对话结束后，LLM 会批量评估候选记忆的质量（1-5分），标记语义重复，生成可检索摘要。"
+              : "使用确定性算法：前缀去重 + 类型感知阈值 + 安全过滤。"}
+          </div>
+          <div style={{ color: "var(--text-2)", lineHeight: 1.7, marginTop: 2 }}>
+            {enabled ? "规则作为硬性安全门：过滤敏感信息（密码、IP、Key）、限制每类记忆数量上限。"
+              : "不会调用额外的 LLM，零额外 Token 开销。"}
+          </div>
+          <div style={{ marginTop: 8, padding: "6px 10px", background: "var(--bg-soft, #f5f5f5)", borderRadius: 5,
+            fontSize: 11, color: "var(--text-3)", display: "flex", alignItems: "center", gap: 6 }}>
+            <span style={{ opacity: 0.6 }}>⏱</span>
+            {enabled ? "额外延迟 ≈ 0.3-0.5s（淹没在主 LLM 调用的 2-8s 内，用户无感知）"
+              : "每轮最多写入 3 条记忆 · 全局上限 500 条 · 同类型上限自动淘汰"}
+          </div>
+        </div>
+      )}
     </div>
   );
 }

@@ -1699,7 +1699,7 @@ details.collapse[open] summary::before {
 }
 .wb-export-btn:hover { color: var(--accent); border-color: var(--accent); }
 
-/* ── View tabs (v3.9: fixed grid row, not sticky) ── */
+/* ── View tabs  ── */
 .wb-view-tabs {
   display: flex;
   align-items: center;
@@ -3556,9 +3556,7 @@ details.collapse[open] summary::before {
   border-radius: 2px;
 }
 
-/* ============================================================
-   v3.10: Tool call cards, error display, streaming transitions
-   ============================================================ */
+
 
 /* ── Inline tool call cards ── */
 .tool-calls-inline {
