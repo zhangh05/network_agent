@@ -39,19 +39,13 @@ class MemoryWriter:
             return {"status": "empty", "written_count": 0, "written_ids": [], "errors": []}
 
         ws_id = workspace_id or getattr(ctx, "workspace_id", "") or ""
+        if not ws_id:
+            return {"status": "error", "written_count": 0, "written_ids": [],
+                    "errors": ["workspace_id is required"]}
 
-        try:
-            from memory.store import get_store
-            store = get_store(ws_id)
-        except Exception as e:
-            _log.exception("Failed to get memory store for workspace=%s", ws_id)
-            return {
-                "status": "error",
-                "written_count": 0,
-                "written_ids": [],
-                "errors": [f"store_init_failed: {e}"],
-            }
+        from workspace.memory_governance import MemoryRecord, MemoryWriteGate
 
+        gate = MemoryWriteGate()
         written_ids: list[str] = []
         errors: list[str] = []
         # Apply per-turn cap — take highest-confidence candidates first
@@ -59,21 +53,27 @@ class MemoryWriter:
 
         for c in sorted_candidates[:MAX_WRITE_PER_TURN]:
             try:
-                record = {
-                    "memory_id": c.candidate_id,
-                    "memory_type": c.memory_type,
-                    "content": c.content,
-                    "summary": c.metadata.get("summary", c.content[:200]),
-                    "source": c.source,
-                    "confidence": c.confidence,
-                    "scope": "workspace",
-                    "tags": [c.memory_type, c.source],
-                    "task_id": c.task_id,
-                    "metadata": c.metadata,
-                }
-                item_id = store.put(record)
-                written_ids.append(item_id)
-                _log.debug("Wrote memory %s (type=%s, confidence=%.2f)", c.candidate_id, c.memory_type, c.confidence)
+                rec = MemoryRecord(
+                    workspace_id=ws_id,
+                    session_id=getattr(ctx, "session_id", ""),
+                    task_id=c.task_id,
+                    scope="workspace",
+                    memory_type=c.memory_type,
+                    status="active" if c.confidence >= 0.8 else "pending",
+                    source="agent_suggestion",
+                    content=c.content[:2000],
+                    summary=c.metadata.get("summary", c.content[:200]),
+                    confidence=c.confidence,
+                    citations=[],
+                    created_by="agent_suggestion",
+                    redacted=True,
+                )
+                result = gate.write(rec)
+                if result.get("ok"):
+                    written_ids.append(result.get("memory_id", c.candidate_id))
+                else:
+                    errors.append(f"gate_rejected: {c.candidate_id}: {result.get('error', 'unknown')}")
+                _log.debug("Memory gate write %s (type=%s, confidence=%.2f)", c.candidate_id, c.memory_type, c.confidence)
             except Exception as e:
                 _log.exception("Failed to write memory candidate %s", c.candidate_id)
                 errors.append(f"write_failed: {c.candidate_id}: {e}")

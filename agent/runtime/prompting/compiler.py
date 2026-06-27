@@ -51,6 +51,7 @@ class PromptCompiler:
 
         # v3.10: Check for active task state — don't skip runtime context if task is active
         has_active_task = _has_active_task(context)
+        is_pure = is_pure_greeting(user_input)
         is_simple_chat = (
             not has_tool_scene
             and not has_context_data
@@ -58,7 +59,8 @@ class PromptCompiler:
             and (not intent or intent in ('assistant_chat', 'capability_discovery'))
             and (not skill or skill in ('assistant_chat', 'capability_discovery'))
             and not looks_like_tool_query(user_input)
-        ) or is_pure_greeting(user_input)
+            and is_pure  # v3.10: only truly standalone pure greetings skip context, NOT 'ok/continue/next'
+        )
 
         # ── System prompt ─────────────────────────────────────────
         if is_simple_chat:

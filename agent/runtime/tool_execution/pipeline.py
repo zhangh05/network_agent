@@ -199,7 +199,7 @@ class ToolExecutionPipeline:
 
         # If any tools blocked from parallel, warn but continue with remaining tools
         if blocked_parallel_tools:
-            state.warnings.extend(blocked_parallel_tools)
+            state.turn.warnings.extend(blocked_parallel_tools)
             # If all tools blocked, skip parallel entirely
             if len([p for p in prepared if p[3] is None and p[1] is not None]) == 0:
                 _complete_runtime_state(state)
@@ -424,23 +424,11 @@ class ToolExecutionPipeline:
         return result, False, False
 
     def _wait_for_approval(self, action_result, state, tool_call, tc, step, events):
-        """Block until the user approves/denies via the ApprovalStore popup.
-
-        Returns (result, stop_now, continue_main_loop) — same triple as _execute_single.
-        v3.10: Non-blocking interrupt flow.
-        ApprovalState now returns 'approval_pending' result directly from ApprovalStage.
-        Pipeline just passes through — no blocking wait, no store.get().
-        Resume happens via resume_after_approval() → TaskState → pipeline re-reads on next turn.
-        """
-        # Just pass the pending result through — approval was already created
-        # by ApprovalStage which called interrupt_before_tool.
+        """v3.10: Non-blocking interrupt — pass pending result through.
+        Approval was already created by ApprovalStage via interrupt_before_tool."""
         result = action_result_to_tool_result(action_result)
         append_tool_result(result, tool_call, tc, state.all_tool_results, state.messages)
         return result, True, False  # stop this tool, marked as pending
-
-        result = action_result_to_tool_result(dispatched)
-        append_tool_result(result, tool_call, tc, state.all_tool_results, state.messages)
-        return result, not result.ok, False
 
 
 def _complete_runtime_state(state) -> None:

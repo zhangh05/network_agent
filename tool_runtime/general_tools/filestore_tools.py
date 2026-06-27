@@ -28,7 +28,7 @@ def handle_file_get(inv, *, file_id: str = "", limit: int = 2000) -> dict[str, A
     """Read text content of a managed file by file_id."""
     from storage.file_store import get_file_record, read_file_content
 
-    ws = getattr(inv, "workspace_id", None) or "default"
+    ws = getattr(inv, "workspace_id", None) or ""
     rec = get_file_record(ws, file_id)
     if not rec:
         return _fail("workspace.file.read", "file_not_found", file_id=file_id)
@@ -51,7 +51,7 @@ def handle_file_preview(inv, *, file_id: str = "", limit: int = 500) -> dict[str
     """Preview a managed file's metadata and text preview."""
     from storage.file_store import get_file_record, read_file_content
 
-    ws = getattr(inv, "workspace_id", None) or "default"
+    ws = getattr(inv, "workspace_id", None) or ""
     rec = get_file_record(ws, file_id)
     if not rec:
         return _fail("workspace.file.read", "file_not_found", file_id=file_id)
@@ -75,7 +75,7 @@ def handle_file_references(inv, *, file_id: str = "") -> dict[str, Any]:
     """Query ReferenceIndex for a file."""
     from storage.reference_index import list_references_for_file
 
-    ws = getattr(inv, "workspace_id", None) or "default"
+    ws = getattr(inv, "workspace_id", None) or ""
     refs = list_references_for_file(ws, file_id)
     return _ok("file.references", references=refs, count=len(refs), file_id=file_id)
 
@@ -90,7 +90,7 @@ def handle_file_write_agent_output(
     if not content:
         return _fail("workspace.file.write_artifact", "content_required")
 
-    ws = getattr(inv, "workspace_id", None) or "default"
+    ws = getattr(inv, "workspace_id", None) or ""
     run_id = getattr(inv, "run_id", "")
     rec = write_agent_output(
         workspace_id=ws, content=content, logical_type=logical_type,
@@ -110,7 +110,7 @@ def handle_file_import_workspace_path(inv, *, filepath: str = "") -> dict[str, A
     if not filepath:
         return _fail("file.import_workspace_path", "filepath_required")
 
-    ws = getattr(inv, "workspace_id", None) or "default"
+    ws = getattr(inv, "workspace_id", None) or ""
     root = workspace_root(ws)
     target = (root / filepath).resolve()
     try:

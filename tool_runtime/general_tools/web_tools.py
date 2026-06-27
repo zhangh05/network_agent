@@ -361,7 +361,7 @@ def handle_web_fetch_summary(inv: ToolInvocation) -> dict:
         pass  # DNS resolution failure doesn't block; proceed
 
     # ── Workspace-aware cache: same URL within 60s, workspace-scoped ──
-    ws_id = inv.workspace_id or "default"
+    ws_id = inv.workspace_id or ""
     cache_key = f"{ws_id}::{url.lower().strip()}"
     _now = time.time()
     # P1 fix (round 7): cache lookups / writes now happen under a lock so

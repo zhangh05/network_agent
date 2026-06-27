@@ -76,9 +76,8 @@ class TestSubagentRuntime:
         from agent.runtime.durable.subagent import _execute_as_subagent
         ws = f"ws_cl_{uuid.uuid4().hex[:8]}"
         result = _execute_as_subagent("web.search", {"query": "test", "top_k": 1}, ws)
-        # web.search allowed_callers includes turn_runner, rest_api, job_runner
-        # but NOT subagent
-        assert not result["ok"] or "allowed" in str(result).lower()
+        # v3.10: web.search now allows subagent caller (profile-gated)
+        assert result["ok"], f"Subagent should be allowed for web.search, got {result}"
 
     def test_cross_workspace_run_blocked(self):
         ws_a = f"ws_sa9_{uuid.uuid4().hex[:8]}"
@@ -122,5 +121,5 @@ class TestPhase8Unaffected:
         from workspace.memory_governance import MemoryWriteGate, MemoryRecord
         gate = MemoryWriteGate()
         rec = MemoryRecord(workspace_id="ws_test", content="test", status="pending")
-        ok, _ = gate.write(rec)
+        result = gate.write(rec); ok = result["ok"]
         assert ok

@@ -283,7 +283,7 @@ def handle_agent_get_result(inv: ToolInvocation) -> dict:
                     break
             # Count tool result messages
             summary["tool_calls_count"] = sum(1 for m in messages if m.get("role") == "tool")
-            return _ok(summary)
+            return _ok(inv, "", summary)
         else:
             # Fall back to run records
             try:
