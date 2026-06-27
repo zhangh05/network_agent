@@ -70,3 +70,4 @@ skills/sample/
 node_modules/
 workspaces/test_*/
 workspaces/ws_*/
+workspaces/
