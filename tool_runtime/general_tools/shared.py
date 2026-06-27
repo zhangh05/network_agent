@@ -1012,16 +1012,30 @@ _SHELL_MAX_OUTPUT = 10000
 def _run_shell(command: str, cwd: str = None, shell: str = "/bin/bash",
                env: dict = None, timeout: int = None) -> dict:
     """Execute a shell command with safety limits. Returns result dict."""
-    import subprocess, shlex
+    import subprocess, shlex, os as _os
     if not command or not command.strip():
         return {"ok": False, "error": "empty command"}
+
+    # Build safe subprocess environment: inherit parent PATH and ensure
+    # python3 is resolvable (required by exec.run-based analysis tools).
+    sub_env = dict(_os.environ)  # inherit full parent environment
+    # Prepend sys.executable dir to PATH so python3 is always found
+    import sys as _sys
+    _python_bin = str(_os.path.dirname(_sys.executable))
+    existing_path = sub_env.get("PATH", "")
+    if _python_bin and _python_bin not in existing_path.split(_os.pathsep):
+        sub_env["PATH"] = _python_bin + _os.pathsep + existing_path
+    # Apply caller-provided overrides on top
+    if env:
+        sub_env.update(env)
+
     try:
         result = subprocess.run(
             command if isinstance(command, list) else [shell, "-c", command],
             capture_output=True, text=True,
             timeout=timeout or _SHELL_TIMEOUT,
             cwd=cwd or str(ROOT),
-            env=env,
+            env=sub_env,
         )
         stdout = (result.stdout or "")[:_SHELL_MAX_OUTPUT]
         stderr = (result.stderr or "")[:_SHELL_MAX_OUTPUT]
