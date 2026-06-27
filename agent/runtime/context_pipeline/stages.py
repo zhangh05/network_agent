@@ -86,8 +86,8 @@ class HistoryStage:
 
     @staticmethod
     def _do_run(ctx, session):
-        from agent.runtime.context_history import initial_history_window
-        ctx.history_window = initial_history_window(session, k=8)
+        from agent.runtime.context_history import DEFAULT_HISTORY_WINDOW, initial_history_window
+        ctx.history_window = initial_history_window(session, k=DEFAULT_HISTORY_WINDOW)
         return ContextStageResult.ok_result(StageName.HISTORY)
 
 

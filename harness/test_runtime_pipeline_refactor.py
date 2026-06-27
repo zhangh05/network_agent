@@ -132,6 +132,26 @@ class TestNewModulesImportable:
 
         assert observed["k"] == DEFAULT_HISTORY_WINDOW
 
+    def test_context_pipeline_history_stage_uses_default_history_window(self, monkeypatch):
+        import agent.runtime.context_history as context_history
+        from agent.runtime.context_history import DEFAULT_HISTORY_WINDOW
+        from agent.runtime.context_pipeline.stages import HistoryStage
+
+        observed = {}
+
+        def fake_initial_history_window(_session, k):
+            observed["k"] = k
+            return []
+
+        monkeypatch.setattr(context_history, "initial_history_window", fake_initial_history_window)
+
+        ctx = types.SimpleNamespace(history_window=[])
+        session = types.SimpleNamespace(history=[])
+        result = HistoryStage().run(ctx, session)
+
+        assert result.ok is True
+        assert observed["k"] == DEFAULT_HISTORY_WINDOW
+
     def test_result_builder(self):
         from agent.runtime.result_builder import (
             build_success_result,

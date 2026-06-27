@@ -215,10 +215,7 @@ def safe_generate(
         except Exception:
             pass
 
-        messages = messages or [
-            LLMMessage(role="system", content="You are Network Agent explanation layer. Follow prompt exactly."),
-            LLMMessage(role="user", content=rendered.text),
-        ]
+        messages = messages or _messages_from_rendered_prompt(rendered.text, user_input, task)
 
     except Exception:
         # Prompt runtime unavailable — fallback
@@ -356,10 +353,7 @@ def _build_prompt_messages(
         spec = get_prompt_by_task(task)
         citations = (safe_context or {}).get("citations", []) if isinstance(safe_context, dict) else []
         rendered = render_prompt(task, safe_context or {}, user_input, citations, extra)
-        return [
-            LLMMessage(role="system", content="You are Network Agent explanation layer. Follow prompt exactly."),
-            LLMMessage(role="user", content=rendered.text),
-        ]
+        return _messages_from_rendered_prompt(rendered.text, user_input, task)
     except Exception:
         # Fallback
         safe_ctx = safe_context or {}
@@ -401,6 +395,15 @@ def _build_metadata(
         "output_accepted": output_accepted,
         "reasoning_stripped": reasoning_stripped,
     }
+
+
+def _messages_from_rendered_prompt(rendered_text: str, user_input: str, task: str) -> List[LLMMessage]:
+    """Use the rendered template as the authoritative system instruction."""
+    user_content = (user_input or "").strip() or f"Task: {task}"
+    return [
+        LLMMessage(role="system", content=rendered_text),
+        LLMMessage(role="user", content=user_content),
+    ]
 
 
 def _get_system_prompt(task: str) -> str:

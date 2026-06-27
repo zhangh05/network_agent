@@ -26,6 +26,11 @@ def render_prompt(task: str, safe_context: dict = None, user_input: str = "",
 
     spec = get_prompt_by_task(task)
     ctx = safe_context or {}
+    extra = extra or {}
+    vars_ctx = dict(ctx)
+    vars_ctx.update(extra)
+    vars_ctx["user_input"] = user_input
+    vars_ctx["citations"] = citations
     citations = citations or []
 
     # Load template file
@@ -45,6 +50,8 @@ def render_prompt(task: str, safe_context: dict = None, user_input: str = "",
     cite_str = _safe_json(list(citations))
 
     text = template_text
+    text = _replace_conditionals(text, vars_ctx)
+    text = _replace_filters(text, vars_ctx)
     text = text.replace("{{ intent }}", str(ctx.get("intent", "")))
     text = text.replace("{{ user_input }}", str(user_input))
     text = text.replace("{{ last_result_summary }}", str(ctx.get("last_result_summary", "")))
@@ -59,6 +66,65 @@ def render_prompt(task: str, safe_context: dict = None, user_input: str = "",
         text=text, context_chars=len(str(ctx)),
         citation_ids=[c.get("citation_id", "") for c in citations],
     )
+
+
+def _replace_conditionals(text: str, values: dict) -> str:
+    """Resolve the small subset of template conditionals used in prompt files."""
+    import re
+
+    pattern = re.compile(r'\{%\s*if\s+([a-zA-Z_][\w.]*)\s*%\}([\s\S]*?)\{%\s*endif\s*%\}')
+    previous = None
+    while previous != text:
+        previous = text
+
+        def repl(match):
+            val = _resolve_path(values, match.group(1))
+            return match.group(2) if val else ""
+
+        text = pattern.sub(repl, text)
+    return text
+
+
+def _replace_filters(text: str, values: dict) -> str:
+    """Resolve supported `{{ var | filter }}` expressions."""
+    import re
+
+    def repl(match):
+        var_name = match.group(1).strip()
+        filter_name = match.group(2).strip()
+        val = _resolve_path(values, var_name)
+        if filter_name == "summary_only":
+            return _summary_only(val)
+        return ""
+
+    return re.sub(r'\{\{\s*([a-zA-Z_][\w.]*)\s*\|\s*([a-zA-Z_][\w]*)\s*\}\}', repl, text)
+
+
+def _resolve_path(values: dict, path: str):
+    cur = values
+    for part in path.split("."):
+        if isinstance(cur, dict):
+            cur = cur.get(part)
+        else:
+            cur = getattr(cur, part, None)
+        if cur is None:
+            return None
+    return cur
+
+
+def _summary_only(value) -> str:
+    if not value:
+        return ""
+    if isinstance(value, dict):
+        safe = {
+            str(k): v for k, v in value.items()
+            if str(k).lower() not in {"secret", "password", "token", "api_key", "key", "credential"}
+        }
+        for key in ("summary", "status", "title", "message"):
+            if safe.get(key):
+                return str(safe.get(key))[:500]
+        return _safe_json(safe)[:500]
+    return str(value)[:500]
 
 
 def _replace_template_loops(text: str, ctx: dict, citations: list) -> str:

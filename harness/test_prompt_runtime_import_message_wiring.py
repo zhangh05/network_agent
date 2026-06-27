@@ -56,6 +56,33 @@ class TestRenderer:
         r = render_prompt("response_compose", {}, "t", cite)
         assert "c1" in r.text
 
+    def test_renderer_resolves_if_blocks_and_filters(self):
+        from prompts.renderer import render_prompt
+
+        r = render_prompt(
+            "assistant_chat",
+            {"result": {"status": "ok", "summary": "done", "secret": "hidden"}},
+            "你好",
+        )
+
+        assert "{% if" not in r.text
+        assert "{% endif" not in r.text
+        assert "| summary_only" not in r.text
+        assert "User said: 你好" in r.text
+        assert "Context from last run:" in r.text
+        assert "hidden" not in r.text
+
+    def test_build_prompt_messages_uses_template_as_system_message(self):
+        from agent.llm.runtime import _build_prompt_messages
+
+        messages = _build_prompt_messages("assistant_chat", safe_context={}, user_input="你好")
+
+        assert messages[0].role == "system"
+        assert "You are **Network Agent**" in messages[0].content
+        assert "Network Agent explanation layer. Follow prompt exactly" not in messages[0].content
+        assert messages[1].role == "user"
+        assert messages[1].content == "你好"
+
 class TestSafeGenerateWiring:
     def test_safe_gen_imports_renderer(self):
         content = (PROJECT_ROOT / "agent" / "llm" / "runtime.py").read_text()

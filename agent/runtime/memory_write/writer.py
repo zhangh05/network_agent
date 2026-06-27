@@ -40,6 +40,9 @@ class MemoryWriter:
         gate = MemoryWriteGate()
         written_ids: list[str] = []
         errors: list[str] = []
+        gate_mode = str((plan.metadata or {}).get("gate_mode") or "rule_only")
+        if gate_mode not in ("rule_only", "llm_first"):
+            gate_mode = "rule_only"
         # Apply per-turn cap — take highest-confidence candidates first
         sorted_candidates = sorted(plan.candidates, key=lambda c: c.confidence, reverse=True)
 
@@ -61,7 +64,7 @@ class MemoryWriter:
                     redacted=True,
                     metadata=dict(c.metadata),  # Preserve planner metadata (llm_score etc.)
                 )
-                result = gate.write(rec)
+                result = gate.write(rec, gate_mode=gate_mode)
                 if result.get("ok"):
                     written_ids.append(result.get("memory_id", c.candidate_id))
                 else:

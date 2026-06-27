@@ -175,12 +175,7 @@ class MemoryLLMGate:
                 return result.text
         except Exception:
             pass
-        # Fallback: hardcoded prompt
-        try:
-            from agent.llm.tasks.prompts import PROMPTS
-            return PROMPTS.get("memory_gating", "")
-        except Exception:
-            return ""
+        return ""
 
     @staticmethod
     def _call_llm(messages: list[dict]) -> str:

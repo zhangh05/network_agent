@@ -44,7 +44,7 @@ class TestWriter:
         from agent.runtime.memory_write.models import MemoryCandidate, MemoryWritePlan
 
         written = []
-        def fake_gate_write(self, record):
+        def fake_gate_write(self, record, gate_mode="rule_only"):
             written.append(record)
             return {"ok": True, "status": record.status, "memory_id": record.memory_id}
         monkeypatch.setattr("workspace.memory_governance.MemoryWriteGate.write", fake_gate_write)
@@ -76,7 +76,7 @@ class TestWriter:
         from agent.runtime.memory_write.models import MemoryCandidate, MemoryWritePlan
 
         written = []
-        def fake_gate_write(self, record):
+        def fake_gate_write(self, record, gate_mode="rule_only"):
             written.append(record)
             return {"ok": True, "status": record.status, "memory_id": record.memory_id}
         monkeypatch.setattr("workspace.memory_governance.MemoryWriteGate.write", fake_gate_write)
@@ -94,6 +94,36 @@ class TestWriter:
         assert written[0].content == "high"
         # sorted by confidence descending
         assert written[0].confidence == 1.0
+
+    def test_writer_passes_plan_gate_mode_to_governance(self, monkeypatch):
+        """Writer must preserve the planner-selected memory gate mode."""
+        from agent.runtime.memory_write.writer import MemoryWriter
+        from agent.runtime.memory_write.models import MemoryCandidate, MemoryWritePlan
+
+        seen_gate_modes = []
+
+        def fake_gate_write(self, record, gate_mode="rule_only"):
+            seen_gate_modes.append(gate_mode)
+            return {"ok": True, "status": record.status, "memory_id": record.memory_id}
+
+        monkeypatch.setattr("workspace.memory_governance.MemoryWriteGate.write", fake_gate_write)
+
+        plan = MemoryWritePlan(
+            candidates=[
+                MemoryCandidate(
+                    candidate_id="mc_llm",
+                    memory_type="task_pattern",
+                    content="specific reusable network diagnostic pattern",
+                    confidence=0.9,
+                )
+            ],
+            metadata={"gate_mode": "llm_first"},
+        )
+
+        result = MemoryWriter().write(make_ctx(), plan, workspace_id="test_w")
+
+        assert result["written_count"] == 1
+        assert seen_gate_modes == ["llm_first"]
 
 
 # ── Test: Dedupe ────────────────────────────────────────────────────────
