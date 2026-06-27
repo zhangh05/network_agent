@@ -77,7 +77,7 @@ def handle_memory_write():
         )
         # v3.10: Read memory gating mode from workspace state
         from workspace.memory_governance import get_memory_gate_mode
-        gate_mode = get_memory_gate_mode(ws_id or "default")
+        gate_mode = get_memory_gate_mode(ws_id)
         result = gate.write(rec, gate_mode=gate_mode)
         return jsonify(result)
     except Exception as e:

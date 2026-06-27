@@ -152,6 +152,6 @@ class ToolRuntimeClient:
                 "summary": f"tool:{result.tool_id}: {result.status}",
                 "metadata": meta,
                 "redaction_applied": True,
-            }, ws_id=context.workspace_id or "default")
+            }, ws_id=context.workspace_id or "")
         except Exception:
             return

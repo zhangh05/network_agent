@@ -31,7 +31,7 @@ def _enrich_result(invocation, d):
 
 def _handler_artifact_list(invocation: ToolInvocation) -> dict:
     """List artifact summaries for a workspace. Returns metadata only."""
-    workspace_id = invocation.arguments.get("workspace_id", invocation.workspace_id or "default")
+    workspace_id = invocation.arguments.get("workspace_id", invocation.workspace_id or "")
     try:
         from workspace.manager import get_workspace_state
         state = get_workspace_state(workspace_id)

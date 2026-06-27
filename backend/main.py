@@ -62,9 +62,11 @@ def _invalid_workspace_response():
     return jsonify({"ok": False, "error": "invalid_workspace_id"}), 400
 
 
-def _validated_workspace_id(raw="default"):
+def _validated_workspace_id(raw=""):
     try:
-        return validate_workspace_id(raw or "default"), None
+        if not raw:
+            return None, _invalid_workspace_response()
+        return validate_workspace_id(raw), None
     except ValueError:
         return None, _invalid_workspace_response()
 

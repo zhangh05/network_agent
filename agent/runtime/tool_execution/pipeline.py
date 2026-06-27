@@ -401,11 +401,9 @@ class ToolExecutionPipeline:
         result = action_result_to_tool_result(action_result)
 
         if action_result.status in ("blocked", "approval_pending"):
-            # If approval_pending, wait for the user to approve via popup (ApprovalStore).
-            # The ApprovalGate already created the store record; we block here
-            # until resolved (or timeout), then retry or fail definitively.
+            # v3.10: approval_pending → pass through, resume via interrupt/resume
             if action_result.status == "approval_pending":
-                result, stop_now, _ = self._wait_for_approval(
+                result, stop_now, _ = self._handle_approval_pending(
                     action_result, state, tool_call, tc, step, events,
                 )
                 if stop_now:
@@ -423,9 +421,8 @@ class ToolExecutionPipeline:
         append_tool_result(result, tool_call, tc, state.all_tool_results, state.messages)
         return result, False, False
 
-    def _wait_for_approval(self, action_result, state, tool_call, tc, step, events):
-        """v3.10: Non-blocking interrupt — pass pending result through.
-        Approval was already created by ApprovalStage via interrupt_before_tool."""
+    def _handle_approval_pending(self, action_result, state, tool_call, tc, step, events):
+        """v3.10: Non-blocking interrupt — pass pending result through."""
         result = action_result_to_tool_result(action_result)
         append_tool_result(result, tool_call, tc, state.all_tool_results, state.messages)
         return result, True, False  # stop this tool, marked as pending
