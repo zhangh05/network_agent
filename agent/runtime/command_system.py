@@ -181,14 +181,14 @@ def _cmd_memory(args: str, session_id: Optional[str], context: Optional[dict]) -
     """List memories."""
     ws_id = (context or {}).get("workspace_id", "")
     try:
-        from workspace.memory_store import list_memories
-        memories = list_memories(ws_id, limit=20)
+        from workspace.memory_governance import MemoryStore
+        memories = MemoryStore().list_retrievable(ws_id, session_id=session_id or "", limit=20)
     except Exception:
         return "Memory store not available."
 
     lines = ["# Memories\n"]
     for m in memories:
-        title = m.get("title", "?")[:60]
+        title = (m.get("summary") or m.get("content") or "?")[:60]
         scope = m.get("scope", "?")
         status = m.get("status", "?")
         lines.append(f"  [{scope}/{status}] {title}")

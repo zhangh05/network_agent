@@ -2,13 +2,18 @@
 """Phase 8: Memory Governance tests."""
 
 import pytest, uuid
+from typing import get_args
 from workspace.memory_governance import (
-    MemoryRecord, MemoryStore, MemoryWriteGate,
+    MemoryRecord, MemorySource, MemoryStore, MemoryType, MemoryWriteGate,
     confirm_memory, reject_memory, expire_memory,
 )
 
 
 class TestMemoryWriteGate:
+    def test_schema_includes_runtime_memory_types_and_sources(self):
+        assert {"profile", "knowledge_note"}.issubset(set(get_args(MemoryType)))
+        assert {"subagent", "llm_tool", "task", "action", "user_signal"}.issubset(set(get_args(MemorySource)))
+
     def test_agent_suggestion_default_pending(self):
         gate = MemoryWriteGate()
         rec = MemoryRecord(
@@ -62,6 +67,30 @@ class TestMemoryWriteGate:
         assert result["ok"] is False
         assert result["rejected"] is True
 
+    def test_llm_first_fallback_surfaces_warning(self, tmp_path, monkeypatch):
+        import workspace.memory_governance as mg
+
+        monkeypatch.setattr(mg, "WS_ROOT", tmp_path)
+
+        def boom(self, candidates):
+            raise RuntimeError("provider leaked prompt should not appear")
+
+        monkeypatch.setattr("agent.runtime.memory_write.llm_gate.MemoryLLMGate.gate", boom)
+        result = MemoryWriteGate().write(
+            MemoryRecord(
+                workspace_id="ws_llm_fb",
+                source="agent_suggestion",
+                confidence=0.9,
+                content="keep this operational lesson",
+                summary="operational lesson",
+            ),
+            gate_mode="llm_first",
+        )
+
+        assert result["ok"] is True
+        assert result["warnings"] == [{"reason": "llm_gate_unavailable_fallback"}]
+        assert "provider leaked prompt" not in str(result)
+
 
 class TestPromotion:
     def test_confirm_makes_active(self):
@@ -111,6 +140,17 @@ class TestRetrieval:
         store.save(rec)
         results = store.list_retrievable(ws)
         assert any(r["memory_id"] == rec.memory_id for r in results)
+
+    def test_store_rejects_invalid_workspace_id(self, tmp_path, monkeypatch):
+        import workspace.memory_governance as mg
+
+        monkeypatch.setattr(mg, "WS_ROOT", tmp_path)
+        store = MemoryStore()
+
+        with pytest.raises(ValueError):
+            store.save(MemoryRecord(workspace_id="../x", status="active", content="bad"))
+
+        assert not (tmp_path.parent / "x").exists()
 
     def test_cross_workspace_not_visible(self):
         ws_a = f"ws_ma_{uuid.uuid4().hex[:8]}"

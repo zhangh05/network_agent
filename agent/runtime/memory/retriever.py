@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+import time as _time
 from typing import Any
 
 from agent.runtime.memory.models import MemoryItem, MemoryQueryPlan
@@ -32,6 +33,8 @@ class MemoryRetriever:
 
         items: list[MemoryItem] = []
         for hit in hits:
+            if not _hit_is_retrievable(hit):
+                continue
             items.append(_hit_to_memory_item(hit))
 
         return items
@@ -43,6 +46,17 @@ def _safe_float(val: Any, default: float = 1.0) -> float:
         return float(val) if val is not None else default
     except (ValueError, TypeError):
         return default
+
+
+def _hit_is_retrievable(hit: dict[str, Any]) -> bool:
+    """Honor governance status when UnifiedRetriever returns memory docs."""
+    status = str(hit.get("status") or hit.get("memory_status") or "active")
+    if status != "active":
+        return False
+    expires_at = str(hit.get("expires_at") or "")
+    if expires_at and expires_at < _time.strftime("%Y-%m-%dT%H:%M:%S", _time.localtime()):
+        return False
+    return True
 
 
 def _hit_to_memory_item(hit: dict[str, Any]) -> MemoryItem:

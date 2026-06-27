@@ -55,6 +55,80 @@ def test_memory_rest_contracts_are_governed_and_validated(tmp_path, monkeypatch)
     assert reject_missing.get_json()["error"] == "memory_id required"
 
 
+def test_memory_delete_uses_reject_transition_not_write_gate(tmp_path, monkeypatch):
+    import workspace.memory_governance as mg
+    from workspace.memory_governance import MemoryRecord, MemoryStore
+    from backend.main import create_app
+
+    monkeypatch.setattr(mg, "WS_ROOT", tmp_path)
+    store = MemoryStore()
+    rec = MemoryRecord(
+        workspace_id="delete_ws",
+        status="active",
+        source="user",
+        confidence=1.0,
+        content="delete me",
+        summary="delete me",
+    )
+    store.save(rec)
+
+    def fail_write(self, candidate, gate_mode="rule_only"):
+        raise AssertionError("delete must not re-enter MemoryWriteGate.write")
+
+    monkeypatch.setattr(mg.MemoryWriteGate, "write", fail_write)
+    client = create_app().test_client()
+
+    resp = client.delete(f"/api/memory/{rec.memory_id}?workspace_id=delete_ws")
+
+    assert resp.status_code == 200
+    assert resp.get_json()["ok"] is True
+    assert MemoryStore().get("delete_ws", rec.memory_id).status == "rejected"
+
+
+def test_memory_retriever_filters_non_active_hits(monkeypatch):
+    from agent.runtime.memory.models import MemoryQueryPlan
+    from agent.runtime.memory.retriever import MemoryRetriever
+    import context.unified_retriever as unified
+
+    class FakeRetriever:
+        def search_memory(self, query, top_k):
+            return [
+                {"memory_id": "m_pending", "status": "pending", "content": "pending memory"},
+                {"memory_id": "m_rejected", "status": "rejected", "content": "rejected memory"},
+                {"memory_id": "m_active", "status": "active", "content": "active memory"},
+            ]
+
+    monkeypatch.setattr(unified, "get_retriever", lambda workspace_id: FakeRetriever())
+
+    items = MemoryRetriever().retrieve(
+        "ws_mem_retrieve",
+        MemoryQueryPlan(should_search=True, query_text="memory", top_k=5),
+    )
+
+    assert [item.memory_id for item in items] == ["m_active"]
+
+
+def test_slash_memory_uses_governed_store(tmp_path, monkeypatch):
+    import workspace.memory_governance as mg
+    from workspace.memory_governance import MemoryRecord, MemoryStore
+    from agent.runtime.command_system import execute_command
+
+    monkeypatch.setattr(mg, "WS_ROOT", tmp_path)
+    MemoryStore().save(MemoryRecord(
+        workspace_id="slash_ws",
+        status="active",
+        source="user",
+        confidence=1.0,
+        content="Slash memory content",
+        summary="Slash memory summary",
+    ))
+
+    result = execute_command("memory", workspace_id="slash_ws")
+
+    assert "Memory store not available" not in result
+    assert "Slash memory summary" in result
+
+
 def test_usage_requires_valid_workspace_id():
     from backend.main import create_app
 

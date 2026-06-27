@@ -10,9 +10,15 @@ from workspace.run_store import WS_ROOT
 from workspace.atomic_io import atomic_write_json
 
 Scope = Literal["global","workspace","session","task"]
-MemoryType = Literal["user_preference","task_pattern","tool_learning","error_lesson","artifact_summary","operational_fact"]
+MemoryType = Literal[
+    "user_preference","task_pattern","tool_learning","error_lesson",
+    "artifact_summary","operational_fact","profile","knowledge_note",
+]
 MemoryStatus = Literal["pending","active","rejected","expired","conflict"]
-MemorySource = Literal["user","tool","file","manual_confirm","agent_suggestion"]
+MemorySource = Literal[
+    "user","tool","file","manual_confirm","agent_suggestion","subagent",
+    "llm_tool","task","action","user_signal",
+]
 
 _REDACT_KEYS = {"password","token","api_key","secret","credential","key","auth"}
 
@@ -68,13 +74,18 @@ class MemoryStore:
     def __init__(self):
         pass
 
+    def _validated_ws_id(self, ws_id: str) -> str:
+        from workspace.ids import validate_workspace_id
+        return validate_workspace_id(ws_id)
+
     def _dir(self, ws_id: str) -> Path:
-        return WS_ROOT / ws_id / "memory"
+        return WS_ROOT / self._validated_ws_id(ws_id) / "memory"
 
     def _path(self, ws_id: str, memory_id: str) -> Path:
         return self._dir(ws_id) / f"{memory_id}.json"
 
     def save(self, record: MemoryRecord):
+        record.workspace_id = self._validated_ws_id(record.workspace_id)
         d = self._dir(record.workspace_id); d.mkdir(parents=True, exist_ok=True)
         atomic_write_json(self._path(record.workspace_id, record.memory_id), record.to_dict())
 
@@ -179,6 +190,8 @@ class MemoryWriteGate:
         if candidate.confidence < 0.3:
             candidate.status = "pending"
 
+        warnings: list[dict] = []
+
         # 7. LLM-first quality gate for agent-generated memories.
         # User-confirmed/manual memories are explicit user intent and must not
         # be rejected by an LLM classifier.
@@ -188,6 +201,7 @@ class MemoryWriteGate:
                 reason = skipped[0].get("reason", "llm_gate_rejected") if skipped else "llm_gate_rejected"
                 return {"ok": False, "status": "rejected", "memory_id": candidate.memory_id,
                         "rejected": True, "error": reason, "gate_mode": gate_mode}
+            warnings.extend(skipped)
 
         # 8. Conflict detection
         conflicts = self.store.find_conflicts(candidate)
@@ -200,9 +214,12 @@ class MemoryWriteGate:
         # 9. Persist
         candidate.redacted = True
         self.store.save(candidate)
-        return {"ok": True, "status": candidate.status, "memory_id": candidate.memory_id,
-                "rejected": False, "conflict": candidate.status == "conflict",
-                "gate_mode": gate_mode}
+        result = {"ok": True, "status": candidate.status, "memory_id": candidate.memory_id,
+                  "rejected": False, "conflict": candidate.status == "conflict",
+                  "gate_mode": gate_mode}
+        if warnings:
+            result["warnings"] = warnings
+        return result
 
 
 # ── Promotion ──
