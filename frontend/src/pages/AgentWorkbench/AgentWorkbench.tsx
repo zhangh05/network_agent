@@ -10,6 +10,7 @@ import type { AgentResult, ToolCallResult, InlineToolCall } from "../../types";
 import { sanitizeAssistantText, renderAssistantHtml, toolLabel, filterStreamingThink } from "../../utils/displayText";
 import { beginModelStep, discardToolCallDraft, finalizeStreamText } from "../../utils/agentStream";
 import "./WorkbenchHighlight";
+import hljs from "highlight.js/lib/core";
 import { agentResultFromWsDone } from "../../utils/wsResult";
 import { notifyRunCompleted } from "../../utils/appEvents";
 import { IconAlert, IconBolt, IconSend } from "../../components/Icon";
@@ -199,7 +200,7 @@ export function TaskWorkbench() {
         .then((res) => { if (res.messages?.length) mergeFromBackend(currentSessionId, res.messages); })
         .catch(() => {});
     };
-    es.onmessage = (e) => {
+    es.onmessage = (e: MessageEvent) => {
       try {
         const msg = JSON.parse(e.data);
         if (msg.event === "message_appended") refreshMessages();

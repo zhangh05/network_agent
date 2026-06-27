@@ -17,7 +17,7 @@
 import { create } from "zustand";
 import { persist } from "zustand/middleware";
 import type { AgentResult, SessionMessage, MessageStatus, InlineToolCall } from "../types";
-import { sanitizeAssistantText, toolLabel } from "../utils/displayText";
+import { sanitizeAssistantText } from "../utils/displayText";
 
 export interface ChatMsg {
   id: string;
@@ -168,51 +168,6 @@ export const useWorkbenchStore = create<WorkbenchState>()(
         return msgId;
       },
 
-      appendAssistant: (text, result, session_id) => {
-        const sid = session_id ?? get().currentSessionId ?? "_scratch";
-        const cleanText = sanitizeAssistantText(text);
-        const cleanResult = result
-          ? { ...result, final_response: sanitizeAssistantText(result.final_response ?? "") }
-          : undefined;
-        // Build inline tool calls from result
-        const toolCalls: InlineToolCall[] = (cleanResult?.tool_calls ?? []).map((tc) => ({
-          tool_id: tc.tool_id,
-          tool_name: toolLabel(tc.tool_id),
-          ok: tc.ok,
-          summary: tc.summary,
-          duration_ms: tc.duration_ms ?? undefined,
-          errors: tc.errors,
-          artifacts: tc.artifacts,
-        }));
-        const msg: ChatMsg = {
-          id: nextId(),
-          role: "assistant",
-          text: cleanText,
-          status: cleanResult?.ok === false && !cleanText ? "error" : "ready",
-          created_at: new Date().toISOString(),
-          result: cleanResult,
-          toolCalls: toolCalls.length > 0 ? toolCalls : undefined,
-          error: !cleanResult?.ok && cleanResult?.errors?.length
-            ? cleanResult.errors[0] : undefined,
-          trace_id: cleanResult?.trace_id,
-          run_id: cleanResult?.turn_id,
-        };
-        set((s) => {
-          const cur = s.bySession[sid] ?? [];
-          const next = capHistory({ ...s.bySession, [sid]: [...cur, msg] }, sid);
-          // Append run result to session's results array
-          const sessResults = s.results[sid] ?? [];
-          const maxResults = 50;
-          const nextResults = cleanResult
-            ? { ...s.results, [sid]: [...sessResults, cleanResult].slice(-maxResults) }
-            : s.results;
-          return {
-            bySession: next,
-            results: nextResults,
-          };
-        });
-      },
-
       updateAssistant: (msgId, patch, session_id) => {
         const sid = session_id ?? get().currentSessionId ?? "_scratch";
         set((s) => {
@@ -279,18 +234,13 @@ export const useWorkbenchStore = create<WorkbenchState>()(
                   ["user", "assistant", "system"].includes(message.role),
               )
             : [];
-          // v1.0.3.2: triple dedup strategy
-          // (a) by run_id — most reliable, catches exact duplicates
-          // (b) by message_id — catches server-side self-duplicates
-          // (c) by content+role — fallback catch for edge cases
+          // v1.0.3.2: run_id dedup
           const runIdSeen = new Set(cur.filter(m => m.run_id).map(m => m.run_id));
           const combined = [...cur];
           for (const m of converted) {
-            if (idSeen.has(m.id)) continue;
-            const ck = `${m.role}:${m.text.slice(0, 200)}`;
-            if (contentSeen.has(ck)) continue;
-            idSeen.add(m.id);
-            contentSeen.add(ck);
+            // skip already-seen runs (most reliable dedup)
+            if (m.run_id && runIdSeen.has(m.run_id)) continue;
+            if (m.run_id) runIdSeen.add(m.run_id);
             combined.push(m);
           }
           // 按 created_at 升序

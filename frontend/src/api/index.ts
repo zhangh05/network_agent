@@ -1061,6 +1061,12 @@ export const workspaceStatusApi = {
     apiRequest<{ ok: boolean; data: Record<string, unknown> }>({ method: "GET", url: `/workspaces/${workspace_id}/storage/health` }, signal),
 };
 
+export const sseApi = {
+  /** Create EventSource for agent streaming */
+  connect: (sessionId: string, workspaceId: string): EventSource =>
+    new EventSource(apiUrlWithAuth(`/agent/sse/stream/${encodeURIComponent(sessionId)}?workspace_id=${encodeURIComponent(workspaceId)}`)),
+};
+
 function apiUrl(path: string): string {
   return `${apiBaseURL}${path.startsWith("/") ? path : `/${path}`}`;
 }

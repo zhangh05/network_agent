@@ -151,7 +151,7 @@ export function CMDBPage() {
     padding: "7px 10px", fontSize: 13, borderRadius: 6, border: "1px solid var(--line)",
     background: "var(--surface)", color: "var(--text)", outline: "none",
     fontFamily: mono ? "var(--font-mono)" : "var(--font-sans)",
-    width: suffix ? "136px" : "100%", boxSizing: "border-box",
+    width: suffix ? "136px" : "100%", boxSizing: "border-box" as const,
     transition: "border-color .15s",
     ...w,
   });
@@ -165,11 +165,11 @@ export function CMDBPage() {
   );
   const sel = (key: string, opts: [string, string][], onChange?: (v: string) => void) => (
     <select
-      value={(fv as any)[key]} onChange={e => { ufv(key, e.target.value); onChange?.(e.target.value); }}
+      value={fv[key] || ""} onChange={e => { ufv(key, e.target.value); onChange?.(e.target.value); }}
       style={{
         padding: "7px 10px", fontSize: 13, borderRadius: 6, border: "1px solid var(--line)",
         background: "var(--surface)", color: "var(--text)", outline: "none",
-        width: "100%", boxSizing: "border-box", cursor: "pointer",
+        width: "100%", boxSizing: "border-box" as const, cursor: "pointer",
       }}>
       {opts.map(([k, v]) => <option key={k} value={k}>{v}</option>)}
     </select>
