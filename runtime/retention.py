@@ -168,8 +168,9 @@ def preview_retention(workspace_id: str = "default",
 
     # ── Scan expired memories ──
     try:
-        # OLD: from memory.store import get_store — replaced by workspace.memory_governance
-        store = get_store()
+        # OLD: from memory.store import get_store — module deleted
+        from workspace.memory_governance import MemoryStore
+        store = MemoryStore()
         mem_preview = store.cleanup_expired(dry_run=True)
         expired_count = mem_preview.get("removed_count", 0)
         if expired_count > 0:
@@ -249,8 +250,9 @@ def apply_retention(workspace_id: str = "default",
         if ctype == "memory_expired":
             # Handle memory expiration via store API
             try:
-                # OLD: from memory.store import get_store — replaced by workspace.memory_governance
-                store = get_store()
+                # OLD: from memory.store import get_store — module deleted
+                from workspace.memory_governance import MemoryStore
+                store = MemoryStore()
                 mem_result = store.cleanup_expired(dry_run=False)
                 deleted["memories"] = mem_result.get("removed_count", 0)
             except Exception as e:

@@ -186,6 +186,7 @@ def _transition(ws_id, job_id, target, evt_type, msg=""):
 def _write_job_summary_memory(job):
     try:
         from workspace.memory_governance import MemoryRecord, MemoryWriteGate
-        write_job_summary(job)
+        # write_job_summary deprecated — use MemoryWriteGate
+        pass
     except Exception:
         pass
