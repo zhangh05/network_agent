@@ -1,3 +1,6 @@
+from __future__ import annotations
+
+from tool_runtime.general_tools.shared import _caller_workspace, _contract, _error, _error_inv, _ok, _result, _unavailable, _workspace_path
 """Skill tool handlers — CapabilityPackage lookup.
 
 Skills ARE CapabilityPackages. These handlers provide the skill.load /

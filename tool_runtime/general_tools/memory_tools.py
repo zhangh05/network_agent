@@ -2,6 +2,8 @@
 
 from tool_runtime.schemas import ToolInvocation
 
+from tool_runtime.general_tools.shared import _caller_workspace, _contract, _error, _error_inv, _ok, _result, _unavailable, _workspace_path
+
 
 def _caller_workspace(inv: ToolInvocation) -> str:
     """Extract validated workspace_id from caller context. No default fallback."""

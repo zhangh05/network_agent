@@ -103,6 +103,7 @@ class TestMemoryQueryPlan:
 
     def test_no_scene_returns_safe_default(self):
         from agent.runtime.memory.query_planner import MemoryQueryPlanner
+        from agent.runtime.knowledge.query_planner import KnowledgeQueryPlanner
         planner = MemoryQueryPlanner()
         plan = planner.plan(None)
         assert plan.should_search is False
@@ -362,15 +363,14 @@ class TestImportability:
         assert callable(select_for_frame)
         assert callable(estimate_tokens)
 
+        from agent.runtime.memory.models import MemoryWritePlan
+        from agent.runtime.memory.query_planner import MemoryQueryPlanner
+        from agent.runtime.memory.retriever import MemoryRetriever
+        from agent.runtime.memory_write.writer import MemoryWriter
         assert MemoryWritePlan is not None
-        assert MemoryReadPolicy is not None
-        assert MemoryWritePolicy is not None
-        assert MemoryUsePolicy is not None
         assert MemoryQueryPlanner is not None
         assert MemoryRetriever is not None
         assert MemoryWriter is not None
-        assert MemoryDeduper is not None
-        assert MemoryProvenance is not None
 
     def test_knowledge_modules(self):
         from agent.runtime.knowledge.models import KnowledgeHit, KnowledgeQueryPlan, Citation

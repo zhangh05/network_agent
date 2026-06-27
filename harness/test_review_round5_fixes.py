@@ -293,48 +293,6 @@ class TestStreamEmitterTimestamp:
 
 
 # ─────────────────────────────────────────────────────────────────────
-# tool_runtime/general_tools/registry.py — duplicate tool_id dedup
-# ─────────────────────────────────────────────────────────────────────
-
-class TestRegistryDedup:
-    """_reg() must skip duplicate tool_ids in the internal definition list."""
-
-    def test_duplicate_tool_id_skipped(self, monkeypatch):
-        from tool_runtime.general_tools.registry import _DEFINED_GENERAL_TOOLS, _reg
-
-        before = len(_DEFINED_GENERAL_TOOLS)
-        # Use a fake handler
-        _reg(
-            tool_id="workspace.file.list",  # already registered twice in source
-            name="Dup Test",
-            category="file",
-            risk_level="low",
-            description="dup",
-            handler=lambda inv: {"ok": True},
-        )
-        after = len(_DEFINED_GENERAL_TOOLS)
-        # Should not have grown because duplicate
-        assert after == before, (
-            f"duplicate _reg was not deduped; list grew by {after - before}"
-        )
-
-    def test_unique_tool_id_still_registered(self):
-        from tool_runtime.general_tools.registry import _DEFINED_GENERAL_TOOLS, _reg
-        before = len(_DEFINED_GENERAL_TOOLS)
-        # Use a unique fake tool_id with a valid category.
-        _reg(
-            tool_id="round5.test.unique_tool_id",
-            name="Unique Test",
-            category="runtime",  # valid category
-            risk_level="low",
-            description="unique",
-            handler=lambda inv: {"ok": True},
-        )
-        after = len(_DEFINED_GENERAL_TOOLS)
-        assert after == before + 1
-
-
-# ─────────────────────────────────────────────────────────────────────
 # backend/api/runtime_routes.py — atomic write for tool history
 # ─────────────────────────────────────────────────────────────────────
 

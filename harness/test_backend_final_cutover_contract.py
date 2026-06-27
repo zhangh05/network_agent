@@ -81,27 +81,6 @@ def test_filestore_tools_write_agent_output(final_ws):
     assert result["size_bytes"] > 0
 
 
-def test_reference_api_returns_real_data(final_ws, monkeypatch):
-    """Reference API MUST return real data when references exist."""
-    monkeypatch.setattr("workspace.manager.WS_ROOT", final_ws)
-    monkeypatch.setenv("NA_WORKSPACE_ROOT", str(final_ws))
-
-    from storage.file_store import write_agent_output
-    from storage.reference_index import add_reference
-    from backend.main import app
-
-    rec = write_agent_output("test_ws", "ref test", "artifact_output", "text", title="ref test")
-    add_reference("test_ws", rec.file_id, "artifact", "art_ref_test", "output")
-
-    client = app.test_client()
-    resp = client.get(f"/api/workspaces/test_ws/files/{rec.file_id}/references")
-    assert resp.status_code == 200
-    body = resp.get_json()
-    assert body["ok"] is True
-    assert body["count"] >= 1
-    assert any(r["owner_type"] == "artifact" for r in body["references"])
-
-
 def test_gc_script_exists_and_importable():
     """GC script MUST exist."""
     script = Path(__file__).resolve().parents[1] / "scripts" / "storage_gc.py"

@@ -26,7 +26,7 @@ class ContextInitStage:
     """Stage 1: Create TurnContext with basic identity fields."""
 
     def run(self, session, turn, **inputs) -> ContextStageResult:
-        return _safe_except('StageName.INIT', self._do_run, session, turn)
+        return _safe_except(StageName.INIT, self._do_run, session, turn)
 
     @staticmethod
     def _do_run(session, turn):
@@ -81,7 +81,7 @@ class CapabilitySelectionStage:
     """Stage 5: Select capabilities + snapshot services."""
 
     def run(self, ctx, services, **inputs) -> ContextStageResult:
-        return _safe_except('StageName.CAPABILITY_SELECTION', self._do_run, ctx, services)
+        return _safe_except(StageName.CAPABILITY_SELECTION, self._do_run, ctx, services)
 
     @staticmethod
     def _do_run(ctx, services):
@@ -96,7 +96,7 @@ class SceneDecisionStage:
     """Stage 6: Compute SceneDecision."""
 
     def run(self, ctx, session, **inputs) -> ContextStageResult:
-        return _safe_except('StageName.SCENE_DECISION', self._do_run, ctx, session)
+        return _safe_except(StageName.SCENE_DECISION, self._do_run, ctx, session)
 
     @staticmethod
     def _do_run(ctx, session):
@@ -113,7 +113,7 @@ class RetrievalPolicyStage:
     """Stage 7: Evaluate RetrievalTriggerPolicy (P1-B)."""
 
     def run(self, ctx, session, **inputs) -> ContextStageResult:
-        return _safe_except('StageName.RETRIEVAL_POLICY', self._do_run, ctx, session)
+        return _safe_except(StageName.RETRIEVAL_POLICY, self._do_run, ctx, session)
 
     @staticmethod
     def _do_run(ctx, session):
@@ -162,7 +162,7 @@ class RuntimeStateStage:
     """Stage 8: Prepare runtime state / task workflow hooks."""
 
     def run(self, ctx, session, **inputs) -> ContextStageResult:
-        return _safe_except('StageName.RUNTIME_STATE', self._do_run, ctx, session)
+        return _safe_except(StageName.RUNTIME_STATE, self._do_run, ctx, session)
 
     @staticmethod
     def _do_run(ctx, session):
@@ -175,7 +175,7 @@ class EvidenceStage:
     """Stage 9: Run EvidencePipeline → EvidenceBundle."""
 
     def run(self, ctx, turn, selected_skills, services, **inputs) -> ContextStageResult:
-        return _safe_except('StageName.EVIDENCE', self._do_run, ctx, turn, selected_skills, services)
+        return _safe_except(StageName.EVIDENCE, self._do_run, ctx, turn, selected_skills, services)
 
     @staticmethod
     def _do_run(ctx, turn, selected_skills, services):
@@ -189,7 +189,7 @@ class ToolPlanningStage:
     """Stage 10: ToolPlannerV2 — plan tools from SceneDecision + EvidenceBundle."""
 
     def run(self, ctx, evidence_bundle, session, services, selected_skills, **inputs) -> ContextStageResult:
-        return _safe_except('StageName.TOOL_PLANNING', self._do_run, ctx, evidence_bundle, session, services, selected_skills)
+        return _safe_except(StageName.TOOL_PLANNING, self._do_run, ctx, evidence_bundle, session, services, selected_skills)
 
     @staticmethod
     def _do_run(ctx, evidence_bundle, session, services, selected_skills):
@@ -231,7 +231,7 @@ class SafeContextStage:
     """Stage 11: Build safe_context (LLM-visible) + runtime snapshot."""
 
     def run(self, ctx, evidence_bundle, services, tool_scene, rule_tool_scene, selected_visible_tools, selected_skills, skill_snapshot, module_snapshot, capability_registry, **inputs) -> ContextStageResult:
-        return _safe_except('StageName.SAFE_CONTEXT', self._do_run, ctx, evidence_bundle, services, tool_scene, rule_tool_scene, selected_visible_tools, selected_skills, skill_snapshot, module_snapshot, capability_registry)
+        return _safe_except(StageName.SAFE_CONTEXT, self._do_run, ctx, evidence_bundle, services, tool_scene, rule_tool_scene, selected_visible_tools, selected_skills, skill_snapshot, module_snapshot, capability_registry)
 
     @staticmethod
     def _do_run(ctx, evidence_bundle, services, tool_scene, rule_tool_scene, selected_visible_tools, selected_skills, skill_snapshot, module_snapshot, capability_registry):
@@ -266,7 +266,7 @@ class LoadedCapabilityStage:
     """Stage 12: Inject loaded capability contracts into safe_context."""
 
     def run(self, ctx, session, **inputs) -> ContextStageResult:
-        return _safe_except('StageName.LOADED_CAPABILITY', self._do_run, ctx, session)
+        return _safe_except(StageName.LOADED_CAPABILITY, self._do_run, ctx, session)
 
     @staticmethod
     def _do_run(ctx, session):
@@ -287,7 +287,7 @@ class MetadataWriteStage:
     """Stage 13: Write final context metadata (P0/P1-A/P1-B fields)."""
 
     def run(self, ctx, session, selected_skills, selected_visible_tools, tool_scene, rule_tool_scene, **inputs) -> ContextStageResult:
-        return _safe_except('StageName.METADATA_WRITE', self._do_run, ctx, session, selected_skills, selected_visible_tools, tool_scene, rule_tool_scene)
+        return _safe_except(StageName.METADATA_WRITE, self._do_run, ctx, session, selected_skills, selected_visible_tools, tool_scene, rule_tool_scene)
 
     @staticmethod
     def _do_run(ctx, session, selected_skills, selected_visible_tools, tool_scene, rule_tool_scene):
