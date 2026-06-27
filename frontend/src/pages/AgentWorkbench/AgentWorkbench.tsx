@@ -143,28 +143,21 @@ export function TaskWorkbench() {
   const inputRef = useRef<HTMLTextAreaElement>(null);
   const toast = useToastStore((s) => s.show);
   const abortRef = useRef<AbortController | null>(null);
+  const streamingMsgRef = useRef<string>("");
 
-  // Stop generation
+  // Stop generation: abort + finalize streaming placeholder
   const stopGeneration = useCallback(() => {
     if (abortRef.current) {
       abortRef.current.abort();
       abortRef.current = null;
     }
+    if (streamingMsgRef.current) {
+      updateAssistant(streamingMsgRef.current, { status: "ready" });
+      streamingMsgRef.current = "";
+    }
     setSending(false);
     setStreamingText("");
-  }, [setSending]);
-
-  // Scroll position memory: restore on session switch
-  const scrollPositions = useRef<Record<string, number>>({});
-  useEffect(() => {
-    const key = currentSessionId ?? "_scratch";
-    const pos = scrollPositions.current[key];
-    if (pos && chatRef.current) {
-      requestAnimationFrame(() => {
-        chatRef.current?.scrollTo({ top: pos, behavior: "auto" });
-      });
-    }
-  }, [currentSessionId]);
+  }, [setSending]);  // eslint-disable-line
 
   // Save scroll position on session switch
   const prevSessionId = useRef(currentSessionId);
@@ -337,6 +330,7 @@ export function TaskWorkbench() {
     const scratch = currentSessionId;
     appendUser(fullText, scratch);
     const streamingMsgId = appendAssistantStreaming(scratch);
+    streamingMsgRef.current = streamingMsgId;
     setSending(true);
     setStreamingText("");  // Clear previous streaming text
     setStreamingToolCalls([]);  // Reset live tool calls
@@ -567,8 +561,8 @@ export function TaskWorkbench() {
         toast({ kind: "error", title: "请求失败", body: msg });
       }
     } finally {
-      // Defer one frame so that appendAssistant's history message
-      // renders BEFORE the streaming bubble disappears — seamless transition.
+      // Clear streaming state
+      streamingMsgRef.current = "";
       requestAnimationFrame(() => {
         setSending(false);
         setStreamingText("");
