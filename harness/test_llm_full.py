@@ -99,7 +99,7 @@ class TestRuntime:
         s=NetworkAgentState(intent="translate_config")
         try:
             safe_generate("response_compose",s)
-        except:
+        except Exception:
             pytest.fail("safe_generate raised an exception")
 
 # ═══ Policy ═══

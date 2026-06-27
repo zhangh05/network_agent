@@ -75,7 +75,7 @@ def get_session(session_id: str, ws_id: str = "default") -> Optional[Dict[str, A
         try:
             return json.loads(path.read_text(encoding="utf-8"))
         except Exception:
-            pass
+            _LOG.warning("session_store: silent exception", exc_info=True)
     return None
 
 
@@ -109,7 +109,7 @@ def list_sessions(
             sessions.append(s)
             seen_ids.add(s.get("session_id", f.stem))
         except Exception:
-            pass
+            _LOG.warning("session_store: silent exception", exc_info=True)
 
     # v3.1.1: Auto-repair orphaned sessions (directories with messages but no .json)
     for item in sdir.iterdir():
@@ -137,7 +137,7 @@ def list_sessions(
                             title = content[:60].replace("\n", " ")
                         first_ts = data.get("timestamp", first_ts)
                     except Exception:
-                        pass
+                        _LOG.warning("session_store: silent exception", exc_info=True)
                     break
             session_data = {
                 "session_id": sid, "workspace_id": ws_id,
@@ -149,7 +149,7 @@ def list_sessions(
             sessions.append(session_data)
             seen_ids.add(sid)
         except Exception:
-            pass
+            _LOG.warning("session_store: silent exception", exc_info=True)
 
     # Default filter: exclude deleted
     if status is None:
@@ -273,7 +273,7 @@ def delete_session_permanently(
             path.unlink()
             deleted = True
         except Exception:
-            pass
+            _LOG.warning("session_store: silent exception", exc_info=True)
 
     # Also remove the messages directory to prevent auto-repair resurrection
     if msg_dir.is_dir():
@@ -281,7 +281,7 @@ def delete_session_permanently(
             shutil.rmtree(msg_dir)
             deleted = True
         except Exception:
-            pass
+            _LOG.warning("session_store: silent exception", exc_info=True)
 
     return deleted
 
@@ -322,7 +322,7 @@ def _auto_title_from_run(run_id: str, ws_id: str) -> str:
             if text and len(text) > 3:
                 return text[:40] + ("..." if len(text) > 40 else "")
     except Exception:
-        pass
+        _LOG.warning("session_store: silent exception", exc_info=True)
     return ""
 
 
@@ -461,7 +461,7 @@ def list_sessions_by_status(ws_id: str = "default") -> Dict[str, List[Dict[str, 
             try:
                 all_sessions.append(json.loads(f.read_text(encoding="utf-8")))
             except Exception:
-                pass
+                _LOG.warning("session_store: silent exception", exc_info=True)
 
     return {
         "active": [s for s in all_sessions if s.get("status") == "active"],

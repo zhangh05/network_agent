@@ -645,13 +645,13 @@ def register_runtime_routes(app):
             connected = {"session_id": sid, "workspace_id": ws_id}
             yield f"event: connected\ndata: {_json.dumps(connected, ensure_ascii=False)}\n\n"
             import time as _time
-            for _ in range(3600):  # 1 hour max
-                frame = subscribe(sid, timeout=25)
+            deadline = _time.time() + 3600  # 1 hour max
+            while _time.time() < deadline:
+                frame = subscribe(sid, timeout=30)
                 if frame:
                     yield frame
                 else:
                     yield ": keepalive\n\n"
-                _time.sleep(0.1)
 
         return Response(
             stream_with_context(generate()),

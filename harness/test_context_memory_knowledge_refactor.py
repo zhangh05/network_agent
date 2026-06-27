@@ -108,46 +108,6 @@ class TestMemoryQueryPlan:
         assert plan.should_search is False
 
 
-# ── 4. MemoryWritePolicy ───────────────────────────────────────────
-
-class TestMemoryWritePolicy:
-    @pytest.mark.skip(reason="old policy removed")
-    def test_requires_explicit_intent(self):
-        """Write should be rejected without explicit intent keywords."""
-        from agent.runtime.memory.policy import MemoryWritePolicy
-
-        policy = MemoryWritePolicy(require_explicit_intent=True)
-        assert policy.allows_write("帮我查一下OSPF", "fact", "ospf info") is False
-
-    @pytest.mark.skip(reason="old policy removed")
-    def test_allows_with_explicit_intent(self):
-        """Write should be allowed with explicit '记住' keyword."""
-        from agent.runtime.memory.policy import MemoryWritePolicy
-
-        policy = MemoryWritePolicy(require_explicit_intent=True)
-        assert policy.allows_write("记住我的偏好是华为设备", "preference", "华为") is True
-
-    @pytest.mark.skip(reason="old policy removed")
-    def test_allows_remember_keyword(self):
-        from agent.runtime.memory.policy import MemoryWritePolicy
-
-        policy = MemoryWritePolicy(require_explicit_intent=True)
-        assert policy.allows_write("please remember my name", "profile", "name") is True
-
-    @pytest.mark.skip(reason="old policy removed")
-    def test_rejects_disallowed_type(self):
-        from agent.runtime.memory.policy import MemoryWritePolicy
-
-        policy = MemoryWritePolicy(allowed_types=("profile",))
-        assert policy.allows_write("记住这个事件", "event", "some event") is False
-
-
-# ── 5. KnowledgeQueryPlan ──────────────────────────────────────────
-
-class TestKnowledgeQueryPlan:
-    def test_rewrites_query_strips_filler(self):
-        """Query planner should strip filler words."""
-        from agent.runtime.knowledge.query_planner import KnowledgeQueryPlanner
         from agent.runtime.cognition.scene_decision import SceneDecision
 
         scene = SceneDecision(
@@ -402,17 +362,6 @@ class TestImportability:
         assert callable(select_for_frame)
         assert callable(estimate_tokens)
 
-    @pytest.mark.skip(reason="old stubs removed — only query_planner + retriever remain")
-    def test_memory_modules(self):
-        from agent.runtime.memory.models import MemoryItem, MemoryQueryPlan, MemoryWritePlan
-        from agent.runtime.memory.policy import MemoryReadPolicy, MemoryWritePolicy, MemoryUsePolicy
-        from agent.runtime.memory.query_planner import MemoryQueryPlanner
-        from agent.runtime.memory.retriever import MemoryRetriever
-        from agent.runtime.memory.writer import MemoryWriter
-        from agent.runtime.memory.deduper import MemoryDeduper
-        from agent.runtime.memory.provenance import MemoryProvenance
-        assert MemoryItem is not None
-        assert MemoryQueryPlan is not None
         assert MemoryWritePlan is not None
         assert MemoryReadPolicy is not None
         assert MemoryWritePolicy is not None

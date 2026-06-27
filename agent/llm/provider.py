@@ -43,20 +43,14 @@ def generate(req: LLMRequest, cfg: dict = None) -> LLMResponse:
 
 
 def health(cfg: dict = None) -> dict:
-    """Check provider health with multi-dimensional checks.
+    """Check provider health with multi-dimensional checks (concurrent).
     
-    Returns dict with:
-    - configured: bool (API key present or mock)
-    - key_loaded: bool
-    - base_url_reachable: bool (lightweight ping)
-    - models_endpoint_ok: bool (/models endpoint)
-    - chat_completion_ok: bool (lightweight chat/completions ping)
-    - provider: str
-    - model: str
-    - last_error: str (redacted)
-    - last_error_type: str
-    - http_status: int or None
+    Three checks run in parallel via threading: base_url HEAD, /models GET,
+    and chat/completions POST. Total worst-case time is reduced from ~40s
+    (serial) to ~15s (max individual timeout).
     """
+    import threading as _threading
+
     if cfg is None:
         cfg = get_provider_config()
     provider_type = cfg.get("provider_type", "disabled")
@@ -91,80 +85,102 @@ def health(cfg: dict = None) -> dict:
         result["last_error_type"] = ERROR_TYPE_MISSING_API_KEY
         return result
 
-    # Check 1: base_url reachable (lightweight HEAD or GET)
-    try:
-        base = cfg.get("base_url", "").rstrip("/")
-        ping_req = urllib.request.Request(base, headers={"Authorization": "Bearer " + cfg.get("api_key", "")})
-        ping_req.get_method = lambda: "HEAD"
-        with urllib.request.urlopen(ping_req, timeout=10) as resp:
-            result["base_url_reachable"] = 200 <= resp.status < 400
-    except urllib.error.HTTPError as e:
-        # HTTP error still means the server is reachable
-        result["base_url_reachable"] = True
-        result["last_error"] = _redact_error_detail(str(e))
-        result["last_error_type"] = f"provider_http_{e.code}"
-        result["http_status"] = e.code
-    except Exception:
-        pass  # network unreachable
+    _health_errors = []
+    _health_lock = _threading.Lock()
+    base = cfg.get("base_url", "").rstrip("/")
+    api_key = cfg.get("api_key", "")
 
-    # Check 2: /models endpoint
-    try:
-        url = cfg.get("base_url", "").rstrip("/") + "/models"
-        headers = {"Authorization": "Bearer " + cfg.get("api_key", "")}
-        r = urllib.request.Request(url, headers=headers)
-        with urllib.request.urlopen(r, timeout=15) as resp:
-            result["models_endpoint_ok"] = resp.status == 200
-    except urllib.error.HTTPError as e:
-        result["models_endpoint_ok"] = e.code == 200
-        if not result["last_error"]:
-            result["last_error"] = _redact_error_detail(str(e))
-            result["last_error_type"] = f"provider_http_{e.code}"
-            result["http_status"] = e.code
-    except Exception as e:
-        if not result["last_error"]:
-            result["last_error"] = _redact_error_detail(str(e))
-            result["last_error_type"] = ERROR_TYPE_PROVIDER_NETWORK_ERROR
+    def _check_base_url():
+        try:
+            ping_req = urllib.request.Request(
+                base, headers={"Authorization": "Bearer " + api_key}
+            )
+            ping_req.get_method = lambda: "HEAD"
+            with urllib.request.urlopen(ping_req, timeout=10) as resp:
+                result["base_url_reachable"] = 200 <= resp.status < 400
+        except urllib.error.HTTPError as e:
+            result["base_url_reachable"] = True
+            with _health_lock:
+                if not result["last_error"]:
+                    result["last_error"] = _redact_error_detail(str(e))
+                    result["last_error_type"] = f"provider_http_{e.code}"
+                    result["http_status"] = e.code
+        except Exception:
+            pass
 
-    # Check 3: chat/completions ping (lightweight, max_tokens=1)
-    try:
-        url = cfg.get("base_url", "").rstrip("/") + "/chat/completions"
-        body_dict = {
-            "model": cfg.get("model", ""),
-            "messages": [{"role": "user", "content": "ping"}],
-            "max_tokens": 1,
-        }
-        body = json.dumps(body_dict).encode()
-        headers = {
-            "Content-Type": "application/json",
-            "Authorization": "Bearer " + cfg.get("api_key", ""),
-        }
-        r = urllib.request.Request(url, data=body, headers=headers, method="POST")
-        with urllib.request.urlopen(r, timeout=15) as resp:
-            result["chat_completion_ok"] = 200 <= resp.status < 400
+    def _check_models():
+        try:
+            url = base + "/models"
+            r = urllib.request.Request(
+                url, headers={"Authorization": "Bearer " + api_key}
+            )
+            with urllib.request.urlopen(r, timeout=15) as resp:
+                result["models_endpoint_ok"] = resp.status == 200
+        except urllib.error.HTTPError as e:
+            result["models_endpoint_ok"] = e.code == 200
+            with _health_lock:
+                if not result["last_error"]:
+                    result["last_error"] = _redact_error_detail(str(e))
+                    result["last_error_type"] = f"provider_http_{e.code}"
+                    result["http_status"] = e.code
+        except Exception as e:
+            with _health_lock:
+                if not result["last_error"]:
+                    result["last_error"] = _redact_error_detail(str(e))
+                    result["last_error_type"] = ERROR_TYPE_PROVIDER_NETWORK_ERROR
+
+    def _check_chat():
+        try:
+            url = base + "/chat/completions"
+            body_dict = {
+                "model": cfg.get("model", ""),
+                "messages": [{"role": "user", "content": "ping"}],
+                "max_tokens": 1,
+            }
+            body = json.dumps(body_dict).encode()
+            r = urllib.request.Request(
+                url, data=body,
+                headers={
+                    "Content-Type": "application/json",
+                    "Authorization": "Bearer " + api_key,
+                },
+                method="POST",
+            )
+            with urllib.request.urlopen(r, timeout=15) as resp:
+                chat_ok = 200 <= resp.status < 400
+                result["chat_completion_ok"] = chat_ok
+                result["chat_completion_endpoint_reachable"] = True
+                result["connected"] = chat_ok
+                if chat_ok:
+                    result["http_status"] = resp.status
+                    result["last_error"] = None
+                    result["last_error_type"] = None
+        except urllib.error.HTTPError as e:
             result["chat_completion_endpoint_reachable"] = True
-            result["connected"] = result["chat_completion_ok"]
-            if result["chat_completion_ok"]:
-                result["http_status"] = resp.status
-                result["last_error"] = None
-                result["last_error_type"] = None
-    except urllib.error.HTTPError as e:
-        # HTTP error means endpoint responded but with error
-        result["chat_completion_endpoint_reachable"] = True
-        if 200 <= e.code < 300:
-            result["chat_completion_ok"] = True
-            result["connected"] = True
-        else:
-            # HTTP 400/401/403/429 etc — endpoint reachable but request/token invalid
-            result["chat_completion_ok"] = False
-            result["connected"] = False
-        if not result["last_error"]:
-            result["last_error"] = _redact_error_detail(str(e))
-            result["last_error_type"] = f"provider_http_{e.code}"
-            result["http_status"] = e.code
-    except Exception as e:
-        if not result["last_error"]:
-            result["last_error"] = _redact_error_detail(str(e))
-            result["last_error_type"] = ERROR_TYPE_PROVIDER_NETWORK_ERROR
+            chat_ok = 200 <= e.code < 300
+            result["chat_completion_ok"] = chat_ok
+            result["connected"] = chat_ok
+            with _health_lock:
+                if not result["last_error"]:
+                    result["last_error"] = _redact_error_detail(str(e))
+                    result["last_error_type"] = f"provider_http_{e.code}"
+                    result["http_status"] = e.code
+        except Exception as e:
+            with _health_lock:
+                if not result["last_error"]:
+                    result["last_error"] = _redact_error_detail(str(e))
+                    result["last_error_type"] = ERROR_TYPE_PROVIDER_NETWORK_ERROR
+
+    # Run all three checks in parallel
+    threads = [
+        _threading.Thread(target=_check_base_url, daemon=True),
+        _threading.Thread(target=_check_models, daemon=True),
+        _threading.Thread(target=_check_chat, daemon=True),
+    ]
+    for t in threads:
+        t.start()
+    for t in threads:
+        t.join(timeout=20)
 
     return result
 
@@ -362,6 +378,7 @@ def _api_generate_stream(url: str, body_dict: dict, cfg: dict, req: "LLMRequest"
 
         # Parse SSE stream
         raw_chunks = []
+        raw_chunk_count = 0
         for line in resp.iter_lines(decode_unicode=True):
             if not line:
                 continue
@@ -377,7 +394,12 @@ def _api_generate_stream(url: str, body_dict: dict, cfg: dict, req: "LLMRequest"
             except json.JSONDecodeError:
                 continue
 
-            raw_chunks.append(chunk)  # debug: capture all chunks
+            # Keep only last 5 chunks for debug logging to prevent OOM on
+            # very large responses (e.g. 100K+ token streaming).
+            raw_chunks.append(chunk)
+            if len(raw_chunks) > 5:
+                raw_chunks.pop(0)
+            raw_chunk_count += 1
 
             choices = chunk.get("choices", [])
             if not choices:

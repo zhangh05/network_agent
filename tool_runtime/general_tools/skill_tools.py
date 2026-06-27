@@ -4,7 +4,6 @@ Skills ARE CapabilityPackages. These handlers provide the skill.load /
 skill.search / skill.list / skill.find / skill.inspect tool surface.
 All logic reads CAPABILITY_PACKAGES directly from capability_routing/manifests.py.
 """
-from tool_runtime.general_tools.shared import *
 
 from agent.runtime.capability_routing.manifests import CAPABILITY_PACKAGES
 

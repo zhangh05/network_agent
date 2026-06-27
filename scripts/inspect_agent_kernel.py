@@ -164,7 +164,7 @@ def main():
     try:
         from agent.runtime.context_builder import build_turn_context
         print("  context_bundle_connected: ✅")
-    except:
+    except Exception:
         print("  context_bundle_connected: ❌")
     
     # permission_matrix_enforced
@@ -174,7 +174,7 @@ def main():
         src = inspect.getsource(permission_check)
         has_perm = "PermissionMatrix" in src or "permission_matrix" in src
         print(f"  permission_matrix_enforced: {'✅' if has_perm else '❌'}")
-    except:
+    except Exception:
         print("  permission_matrix_enforced: ❌")
     
     # query_engine_connected
@@ -184,14 +184,14 @@ def main():
         context_stage_src = open('agent/runtime/stages/context.py').read()
         qe_connected = 'classify_error' in runner_src and 'build_trace_id' in context_stage_src
         print(f"  query_engine_connected: {'✅' if qe_connected else '❌'}")
-    except:
+    except Exception:
         print("  query_engine_connected: ❌")
     
     # skill_capability_routing (v3.2: skill_runtime/ removed, skill_tools uses CAPABILITY_PACKAGES)
     try:
         has_cap_routing = 'CAPABILITY_PACKAGES' in open('tool_runtime/general_tools/skill_tools.py').read()
         print(f"  skill_capability_routing: {'✅' if has_cap_routing else '❌'}")
-    except:
+    except Exception:
         print("  skill_capability_routing: ❌")
     
     # command_effective
@@ -199,7 +199,7 @@ def main():
         from agent.runtime.command_system import SLASH_COMMANDS, execute_command
         effective = len(SLASH_COMMANDS) >= 11
         print(f"  command_effective: {'✅' if effective else '❌'} ({len(SLASH_COMMANDS)} commands)")
-    except:
+    except Exception:
         print("  command_effective: ❌")
     
     # sub_agent_consistent
@@ -207,7 +207,7 @@ def main():
         sa_src = open('agent/runtime/sub_agent.py').read()
         sa_ok = 'visible_tool_ids' in sa_src and '"ok": False' in sa_src
         print(f"  sub_agent_consistent: {'✅' if sa_ok else '❌'}")
-    except:
+    except Exception:
         print("  sub_agent_consistent: ❌")
     
     # memory_semantics_ok

@@ -18,6 +18,8 @@ from typing import Optional
 from artifacts.schemas import ArtifactRecord, ArtifactIndex, RunArtifactIndex
 from artifacts.redaction import redact_artifact_content, contains_secret, redact_metadata
 from artifacts.classifier import classify_file
+import logging
+_LOG = logging.getLogger(__name__)
 
 ROOT = Path(__file__).resolve().parent.parent
 WS_ROOT = ROOT / "workspaces"
@@ -103,7 +105,7 @@ def _load_index(ws_id: str) -> ArtifactIndex:
                                 artifact_count=d.get("artifact_count", 0),
                                 updated_at=d.get("updated_at", ""))
         except Exception:
-            pass
+            _LOG.warning("artifacts.store: silent exception", exc_info=True)
 
     # Fallback to the metadata JSONL if the lightweight sys index is absent.
     records = _read_artifact_record_dicts(ws_id)
@@ -323,7 +325,7 @@ def save_artifact(workspace_id: str, content: str = "", source_path: str = "",
             add_reference(workspace_id, src_file, "artifact", art_id, "source",
                           metadata={"artifact_type": artifact_type, "run_id": run_id})
     except Exception:
-        pass
+        _LOG.warning("artifacts.store: silent exception", exc_info=True)
 
     return rec
 
@@ -360,7 +362,7 @@ def read_artifact_content(workspace_id: str, artifact_id: str,
             from storage.file_store import read_file_content
             return read_file_content(workspace_id, file_id)
         except Exception:
-            pass
+            _LOG.warning("artifacts.store: silent exception", exc_info=True)
 
     return None
 
@@ -464,7 +466,7 @@ def get_run_artifacts(workspace_id: str, run_id: str) -> dict:
         try:
             return json.loads(p.read_text())
         except Exception:
-            pass
+            _LOG.warning("artifacts.store: silent exception", exc_info=True)
     return {"workspace_id": workspace_id, "run_id": run_id,
             "input_artifacts": [], "output_artifacts": [], "report_artifacts": [], "temp_artifacts": []}
 

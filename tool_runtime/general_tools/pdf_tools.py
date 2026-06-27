@@ -1,5 +1,4 @@
 """Split general tool handlers."""
-from tool_runtime.general_tools.shared import *
 
 def handle_pdf_extract_text(inv: ToolInvocation) -> dict:
     """Extract text from a workspace PDF file.

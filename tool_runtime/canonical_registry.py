@@ -1112,25 +1112,6 @@ def _ws_artifact_list_merged(inv: ToolInvocation) -> dict:
     return {"ok": False, "error": "unexpected result type"}
 
 
-def _knowledge_import_merged(inv: ToolInvocation) -> dict:
-    """Merged handler for knowledge.import — dispatches to file import or artifact index."""
-    if inv.arguments.get("artifact_id", "").strip():
-        result = handle_knowledge_index_artifact(inv)
-    else:
-        result = _k_import(inv)
-    if isinstance(result, dict):
-        return result
-    return {"ok": False, "error": "unexpected result type"}
-
-
-def _knowledge_reindex_merged(inv: ToolInvocation) -> dict:
-    """Merged handler for knowledge.source.reindex — dispatches to specific or all."""
-    result = handle_knowledge_reindex(inv)
-    if isinstance(result, dict):
-        return result
-    return {"ok": False, "error": "unexpected result type"}
-
-
 # canonical_tool_id -> CanonicalToolEntry
 _RAW_REGISTRY: list[CanonicalToolEntry] = [
     # Exec — unified command execution
@@ -1333,7 +1314,7 @@ _RAW_REGISTRY: list[CanonicalToolEntry] = [
     ),
     CanonicalToolEntry(
         canonical_tool_id="knowledge.import",
-        handler=_adapt(_knowledge_import_merged),
+        handler=_adapt(_handle_knowledge_import_merged),
         input_schema=_schema({
             "workspace_id": _S["workspace_id"],
             "filepath": _S["filepath"],
@@ -1344,7 +1325,7 @@ _RAW_REGISTRY: list[CanonicalToolEntry] = [
     ),
     CanonicalToolEntry(
         canonical_tool_id="knowledge.source.reindex",
-        handler=_adapt(_knowledge_reindex_merged),
+        handler=_adapt(_handle_knowledge_reindex_merged),
         input_schema=_schema({
             "workspace_id": _S["workspace_id"],
             "source_id": _S["source_id"],

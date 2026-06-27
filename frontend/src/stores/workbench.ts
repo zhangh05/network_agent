@@ -67,12 +67,20 @@ function capHistory(
       capped[k] = v;
     }
   }
-  // Global cap (LRU: drop keys with lexicographically smallest id)
+  // Global cap (LRU: drop sessions with oldest most-recent message)
   const keys = Object.keys(capped);
   if (keys.length > MAX_SESSIONS) {
+    // Get timestamp of newest message per session
+    const latestTs: Record<string, number> = {};
+    for (const k of keys) {
+      const msgs = capped[k];
+      if (msgs.length === 0) { latestTs[k] = 0; continue; }
+      const newest = msgs[msgs.length - 1];
+      latestTs[k] = new Date(newest.created_at || 0).getTime();
+    }
     const sorted = [...keys]
       .filter((key) => key !== keepSessionId)
-      .sort();
+      .sort((a, b) => latestTs[a] - latestTs[b]);
     const toDelete = sorted.slice(0, keys.length - MAX_SESSIONS);
     for (const k of toDelete) delete capped[k];
   }
@@ -91,12 +99,6 @@ interface WorkbenchState {
   appendUser: (text: string, session_id: string | null) => void;
   /** Create a streaming assistant placeholder before response arrives */
   appendAssistantStreaming: (session_id: string | null) => string;
-  /** Finalize a streaming message with full result */
-  appendAssistant: (
-    text: string,
-    result: AgentResult | undefined,
-    session_id: string | null,
-  ) => void;
   /** Update an existing message (streaming→ready/error, append tool calls) */
   updateAssistant: (
     msgId: string,
@@ -277,11 +279,11 @@ export const useWorkbenchStore = create<WorkbenchState>()(
                   ["user", "assistant", "system"].includes(message.role),
               )
             : [];
-          // v1.0.3.2: dual dedup strategy
-          // (a) by content+role — catches local vs backend duplicates
+          // v1.0.3.2: triple dedup strategy
+          // (a) by run_id — most reliable, catches exact duplicates
           // (b) by message_id — catches server-side self-duplicates
-          const contentSeen = new Set(cur.map((m) => `${m.role}:${m.text.slice(0, 200)}`));
-          const idSeen = new Set(cur.map((m) => m.id));
+          // (c) by content+role — fallback catch for edge cases
+          const runIdSeen = new Set(cur.filter(m => m.run_id).map(m => m.run_id));
           const combined = [...cur];
           for (const m of converted) {
             if (idSeen.has(m.id)) continue;

@@ -216,15 +216,6 @@ class TestNewModulesImportable:
         from agent.runtime.tool_execution.pipeline import ToolExecutionPipeline
         assert hasattr(ToolExecutionPipeline, 'run')
 
-    @pytest.mark.skip(reason="module agent.runtime.tool_execution.dispatch_stage was removed")
-    def test_tool_execution_stages(self):
-        from agent.runtime.tool_execution.permission_stage import PermissionStage
-        from agent.runtime.tool_execution.risk_stage import RiskStage
-        from agent.runtime.tool_execution.approval_stage import ApprovalStage
-        from agent.runtime.tool_execution.dispatch_stage import DispatchStage
-        from agent.runtime.tool_execution.result_stage import ResultStage
-        for cls in (PermissionStage, RiskStage, ApprovalStage, DispatchStage, ResultStage):
-            assert hasattr(cls, 'run')
 
     def test_runner(self):
         from agent.runtime.runner import TurnRunner

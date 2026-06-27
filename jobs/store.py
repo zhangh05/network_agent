@@ -175,7 +175,7 @@ def list_events(ws_id, job_id, limit=200) -> list:
         try:
             events.append(json.loads(line))
         except Exception:
-            pass
+            _LOG.warning("jobs.store: silent exception", exc_info=True)
     return events[-limit:]
 
 
@@ -199,7 +199,7 @@ def list_logs(ws_id, job_id, limit=200) -> list:
         try:
             logs.append(json.loads(line))
         except Exception:
-            pass
+            _LOG.warning("jobs.store: silent exception", exc_info=True)
     return logs[-limit:]
 
 
@@ -225,7 +225,7 @@ def _update_index(ws_id, rec):
         try:
             idx = json.loads(p.read_text())
         except Exception:
-            pass
+            _LOG.warning("jobs.store: silent exception", exc_info=True)
     if rec.job_id not in idx.setdefault("job_ids", []):
         idx["job_ids"].append(rec.job_id)
     idx["updated_at"] = time.strftime("%Y-%m-%dT%H:%M:%S")
@@ -260,4 +260,4 @@ def _update_workspace_stats(ws_id):
         }
         update_workspace_state(ws_id, {"job_stats": counts})
     except Exception:
-        pass
+        _LOG.warning("jobs.store: silent exception", exc_info=True)

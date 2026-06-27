@@ -6,6 +6,8 @@ runtime/knowledge modules. Loader handles workspace/artifact/job/report only.
 """
 
 from context.schemas import ContextItem, ContextRef
+import logging
+_LOG = logging.getLogger(__name__)
 
 
 def load_context_items(workspace_id: str, context_ref=None, intent: str = "",
@@ -50,7 +52,7 @@ def load_context_items(workspace_id: str, context_ref=None, intent: str = "",
                 token_estimate=len(str(safe_ws)) // 4,
             ))
         except Exception:
-            pass
+            _LOG.warning("context.loader: silent exception", exc_info=True)
 
     # 6. Artifact refs (P4 or P2 if explicit)
     if include_artifacts:
@@ -69,7 +71,7 @@ def load_context_items(workspace_id: str, context_ref=None, intent: str = "",
                     token_estimate=len(str(a)) // 4,
                 ))
         except Exception:
-            pass
+            _LOG.warning("context.loader: silent exception", exc_info=True)
 
     # 7. Job summary (P4 or P2)
     if include_jobs:
@@ -88,7 +90,7 @@ def load_context_items(workspace_id: str, context_ref=None, intent: str = "",
                     token_estimate=len(str(j)) // 4,
                 ))
         except Exception:
-            pass
+            _LOG.warning("context.loader: silent exception", exc_info=True)
 
     # 8. Report summary (P4)
     if include_reports:
@@ -105,6 +107,6 @@ def load_context_items(workspace_id: str, context_ref=None, intent: str = "",
                     token_estimate=len(str(r)) // 4,
                 ))
         except Exception:
-            pass
+            _LOG.warning("context.loader: silent exception", exc_info=True)
 
     return items

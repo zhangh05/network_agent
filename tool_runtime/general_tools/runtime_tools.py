@@ -1,5 +1,4 @@
 """Split general tool handlers."""
-from tool_runtime.general_tools.shared import *
 
 def handle_knowledge_index_artifact(inv: ToolInvocation) -> dict:
     args = inv.arguments

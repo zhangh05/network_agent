@@ -1,6 +1,7 @@
 """Workspace manager — CRUD for workspaces, state, runs, and artifact counts."""
 
 import json
+import logging
 import time
 from typing import Optional
 from pathlib import Path
@@ -10,6 +11,7 @@ from workspace.atomic_io import atomic_write_text, atomic_write_json, safe_read_
 
 ROOT = Path(__file__).resolve().parent.parent
 WS_ROOT = ROOT / "workspaces"
+_LOG = logging.getLogger(__name__)
 
 def ensure_workspace(ws_id: str = "default") -> str:
     """Ensure workspace dirs exist. Creates sys/workspace.yaml + sys/state.json if missing."""
@@ -28,7 +30,7 @@ def ensure_workspace(ws_id: str = "default") -> str:
         from storage.paths import ensure_workspace_storage_dirs
         ensure_workspace_storage_dirs(ws_id)
     except Exception:
-        pass
+        _LOG.warning("ensure_workspace_storage_dirs failed for ws=%s", ws_id, exc_info=True)
 
     # workspace.yaml
     yaml_path = ws / "sys" / "workspace.yaml"
@@ -42,7 +44,7 @@ def ensure_workspace(ws_id: str = "default") -> str:
             )
             yaml_path.write_text(yaml_text)
         except Exception:
-            pass
+            _LOG.warning("failed to write workspace.yaml for ws=%s", ws_id, exc_info=True)
 
     # state.json
     state_path = ws / "sys" / "state.json"
@@ -71,7 +73,7 @@ def ensure_workspace(ws_id: str = "default") -> str:
             state_text = json.dumps(default_state, indent=2, ensure_ascii=False)
             state_path.write_text(state_text)
         except Exception:
-            pass
+            _LOG.warning("failed to write state.json for ws=%s", ws_id, exc_info=True)
 
     return ws_id
 
@@ -112,7 +114,7 @@ def update_workspace_state(ws_id: str, patch: dict) -> dict:
         state_text = json.dumps(s, indent=2, ensure_ascii=False)
         atomic_write_text(WS_ROOT / ws_id / "sys" / "state.json", state_text)
     except Exception:
-        pass
+        _LOG.warning("failed to persist state for ws=%s", ws_id, exc_info=True)
     return s
 
 
@@ -245,7 +247,7 @@ def get_workspace_runs(ws_id: str = "default") -> list:
             try:
                 runs.append(json.loads(f.read_text()))
             except Exception:
-                pass
+                _LOG.debug("corrupt run file: %s", f, exc_info=True)
     return runs
 
 
@@ -257,7 +259,7 @@ def get_run(run_id: str, ws_id: str = "default") -> Optional[dict]:
         try:
             return json.loads(path.read_text())
         except Exception:
-            pass
+            _LOG.debug("corrupt run file: %s", path, exc_info=True)
     return None
 
 
