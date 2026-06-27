@@ -18,6 +18,7 @@ interface SessionState {
   currentSessionId: string | null;
   sessions: Session[];
 
+  setCurrentWorkspace: (id: string) => void;
   setCurrentSession: (id: string | null) => void;
   setSessions: (s: Session[]) => void;
   reset: () => void;
@@ -29,6 +30,7 @@ export const useSessionStore = create<SessionState>()(
       currentWorkspaceId: "default",
       currentSessionId: null,
       sessions: [],
+      setCurrentWorkspace: (id) => set({ currentWorkspaceId: id, currentSessionId: null, sessions: [] }),
       setCurrentSession: (id) => set({ currentSessionId: id }),
       setSessions: (sessions) => set({ sessions }),
       reset: () =>
@@ -40,6 +42,7 @@ export const useSessionStore = create<SessionState>()(
     {
       name: "na_session",
       partialize: (s) => ({
+        currentWorkspaceId: s.currentWorkspaceId,
         currentSessionId: s.currentSessionId,
       }),
     },

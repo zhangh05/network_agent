@@ -40,6 +40,7 @@ def test_create_and_resolve_persists_to_jsonl(tmp_path):
             session_id="sess-1", tool_id="exec.run",
             arguments={"cmd": "ls -la"},
             description="run ls", risk_level="high",
+            workspace_id="ws_guard",
             metadata={"argument_source": "user"},
         )
         # pending record should be in JSONL
@@ -48,7 +49,7 @@ def test_create_and_resolve_persists_to_jsonl(tmp_path):
         assert '"resolved": false' in text or '"resolved": null' in text or '"resolved":' in text
 
         # resolve
-        resolved = store.resolve(req.approval_id, allowed=True, resolver="user", reason="ok")
+        resolved = store.resolve(req.approval_id, allowed=True, workspace_id="ws_guard", resolver="user", reason="ok")
         assert resolved is not None
         assert resolved.allowed is True
 
@@ -68,7 +69,7 @@ def test_timeout_auto_denies_and_writes_audit(tmp_path):
     from agent.approval import ApprovalStore
 
     store = ApprovalStore(persist_path=tmp_path / "approvals.jsonl")
-    req = store.create("sess-2", "exec.run", {"cmd": "x"})
+    req = store.create("sess-2", "exec.run", {"cmd": "x"}, workspace_id="ws_timeout")
 
     # Short timeout → wait() should auto-deny
     allowed = store.wait(req.approval_id, timeout=1.0)
@@ -82,11 +83,11 @@ def test_history_filters_by_tool_and_session(tmp_path):
     from agent.approval import ApprovalStore
 
     store = ApprovalStore(persist_path=tmp_path / "approvals.jsonl")
-    r1 = store.create("sA", "exec.run", {"cmd": "a"})
-    r2 = store.create("sA", "exec.run", {"cmd": "b"})
-    r3 = store.create("sB", "exec.run", {"cmd": "c"})
+    r1 = store.create("sA", "exec.run", {"cmd": "a"}, workspace_id="ws_hist")
+    r2 = store.create("sA", "exec.run", {"cmd": "b"}, workspace_id="ws_hist")
+    r3 = store.create("sB", "exec.run", {"cmd": "c"}, workspace_id="ws_hist")
     for r in (r1, r2, r3):
-        store.resolve(r.approval_id, allowed=True)
+        store.resolve(r.approval_id, allowed=True, workspace_id="ws_hist")
 
     by_session = store.get_history(session_id="sA")
     assert {h["approval_id"] for h in by_session} == {r1.approval_id, r2.approval_id}
@@ -104,7 +105,7 @@ def test_reload_unresolved_on_startup(tmp_path):
     path = tmp_path / "approvals.jsonl"
 
     s1 = ApprovalStore(persist_path=path)
-    req = s1.create("sess-reload", "exec.run", {"cmd": "echo"})
+    req = s1.create("sess-reload", "exec.run", {"cmd": "echo"}, workspace_id="ws_reload")
     assert req.approval_id
 
     # Simulate restart — fresh store reads JSONL

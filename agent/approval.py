@@ -242,6 +242,13 @@ class ApprovalStore:
         Optional run_id/job_id provide traceability when the approval
         originates from a specific agent run or job.
         """
+        if not workspace_id:
+            raise ValueError("workspace_id is required")
+        try:
+            from workspace.ids import validate_workspace_id
+            workspace_id = validate_workspace_id(workspace_id)
+        except Exception as exc:
+            raise ValueError("invalid_workspace_id") from exc
         approval_id = f"apr_{uuid.uuid4().hex[:12]}"
         req = ApprovalRequest(
             approval_id=approval_id,
@@ -266,11 +273,20 @@ class ApprovalStore:
         ))
         return req
 
-    def resolve(self, approval_id: str, allowed: bool,
+    def resolve(self, approval_id: str, allowed: bool, workspace_id: str,
                 resolver: str = "user", reason: str = "") -> Optional[ApprovalRequest]:
-        """Resolve an approval and notify subscribers."""
+        """Resolve an approval only when approval_id belongs to workspace_id."""
+        if not workspace_id:
+            return None
+        try:
+            from workspace.ids import validate_workspace_id
+            workspace_id = validate_workspace_id(workspace_id)
+        except Exception:
+            return None
         with self._lock:
             req = self._pending.get(approval_id)
+            if req and req.workspace_id != workspace_id:
+                return None
             if req and not req.resolved:
                 req.resolved = True
                 req.allowed = allowed

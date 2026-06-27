@@ -201,6 +201,7 @@ def test_agent_approval_resolve_requires_admin_token_when_configured(monkeypatch
         arguments={"password": "secret"},
         description="approve",
         risk_level="high",
+        workspace_id="ws_round8",
     )
 
     denied = app.test_client().post(
@@ -209,7 +210,7 @@ def test_agent_approval_resolve_requires_admin_token_when_configured(monkeypatch
     )
     allowed = app.test_client().post(
         f"/api/agent/approvals/{req.approval_id}/resolve",
-        json={"decision": "approve"},
+        json={"decision": "approve", "workspace_id": "ws_round8"},
         headers={"X-Admin-Token": "admin-secret"},
     )
 
@@ -233,14 +234,14 @@ def test_unified_approval_store_redacts_sensitive_args(app, monkeypatch):
     )
 
     # Pending API should NOT leak secret-password
-    pending = client.get("/api/agent/approvals/pending?session_id=sess-redact").get_json()
+    pending = client.get("/api/agent/approvals/pending?workspace_id=default&session_id=sess-redact").get_json()
     assert pending["count"] >= 1
     assert "secret-password" not in json.dumps(pending, ensure_ascii=False)
 
     # Resolve via unified endpoint
     approved = client.post(
         f"/api/agent/approvals/{req.approval_id}/resolve",
-        json={"decision": "approve", "resolver": "test"},
+        json={"decision": "approve", "workspace_id": "default", "resolver": "test"},
     )
     assert approved.status_code == 200
     assert approved.get_json()["ok"] is True

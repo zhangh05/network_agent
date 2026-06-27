@@ -68,6 +68,21 @@ def test_usage_requires_valid_workspace_id():
     assert invalid.get_json()["error"] == "invalid_workspace_id"
 
 
+def test_runtime_sse_requires_workspace_and_valid_session_id():
+    from backend.main import create_app
+
+    client = create_app().test_client()
+    missing = client.get("/api/agent/sse/stream/sess-1")
+    invalid_ws = client.get("/api/agent/sse/stream/sess-1?workspace_id=../x")
+    invalid_sid = client.get("/api/agent/sse/stream/_bad?workspace_id=default")
+
+    assert missing.status_code == 400
+    assert missing.get_json()["error"] == "workspace_id is required"
+    assert invalid_ws.status_code == 400
+    assert invalid_ws.get_json()["error"] == "invalid_workspace_id"
+    assert invalid_sid.status_code in (400, 404)
+
+
 def test_approval_pending_is_workspace_scoped(tmp_path):
     from agent.approval import ApprovalStore
 
@@ -121,6 +136,38 @@ def test_memory_llm_first_gate_can_reject_agent_suggestion(tmp_path, monkeypatch
     assert result["error"] == "llm_score_too_low: 1"
 
 
+def test_memory_gate_rejects_invalid_workspace_id(tmp_path, monkeypatch):
+    import workspace.memory_governance as mg
+    from workspace.memory_governance import MemoryRecord, MemoryWriteGate
+
+    monkeypatch.setattr(mg, "WS_ROOT", tmp_path)
+    result = MemoryWriteGate().write(
+        MemoryRecord(workspace_id="../x", content="bad", summary="bad"),
+    )
+
+    assert result["ok"] is False
+    assert result["error"] == "invalid_workspace_id"
+    assert not (tmp_path.parent / "x").exists()
+
+
+def test_task_scope_memory_requires_session_filter(tmp_path, monkeypatch):
+    import workspace.memory_governance as mg
+    from workspace.memory_governance import MemoryRecord, MemoryStore
+
+    monkeypatch.setattr(mg, "WS_ROOT", tmp_path)
+    store = MemoryStore()
+    store.save(MemoryRecord(
+        workspace_id="ws_a",
+        session_id="sess_a",
+        scope="task",
+        status="active",
+        content="task scoped",
+    ))
+
+    assert store.list_retrievable("ws_a", session_id="") == []
+    assert len(store.list_retrievable("ws_a", session_id="sess_a")) == 1
+
+
 def test_network_ips_are_not_filtered_as_memory_secrets():
     from agent.runtime.memory_write.filter import MemoryRiskFilter
     from agent.runtime.memory_write.models import MemoryCandidate
@@ -144,3 +191,14 @@ def test_git_commit_requires_explicit_files(tmp_path):
 
     assert result["ok"] is False
     assert "files are required" in result["error"]
+
+
+def test_policy_does_not_scan_descriptive_text_as_path_argument():
+    from tool_runtime.policy import _check_argument_safety
+
+    result = _check_argument_safety(
+        {"description": "The user asked whether /etc/passwd should be inspected."},
+        tool_id="text.analyze",
+    )
+
+    assert result == ""

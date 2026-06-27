@@ -191,20 +191,25 @@ export function TaskWorkbench() {
 
   // v3.9: SSE real-time timeline updates
   useEffect(() => {
-    if (!currentSessionId || typeof EventSource === "undefined") return;
-    const es = sseApi.connect(currentSessionId);
+    if (!currentSessionId || !currentWorkspaceId || typeof EventSource === "undefined") return;
+    const es = sseApi.connect(currentSessionId, currentWorkspaceId);
+    const refreshMessages = () => {
+      sessionsApi.messages(currentSessionId, currentWorkspaceId)
+        .then((res) => { if (res.messages?.length) mergeFromBackend(currentSessionId, res.messages); })
+        .catch(() => {});
+    };
     es.onmessage = (e) => {
       try {
         const msg = JSON.parse(e.data);
-        if (msg.event === "turn_completed") {
-          sessionsApi.messages(currentSessionId, currentWorkspaceId || "", undefined as any)
-            .then((res) => { if (res.messages?.length) mergeFromBackend(currentSessionId, res.messages); })
-            .catch(() => {});
-        }
+        if (msg.event === "message_appended") refreshMessages();
       } catch { /* ignore */ }
     };
+    es.addEventListener("turn_completed", refreshMessages);
     es.onerror = () => { es.close(); };
-    return () => es.close();
+    return () => {
+      es.removeEventListener("turn_completed", refreshMessages);
+      es.close();
+    };
   }, [currentSessionId, currentWorkspaceId]);
 
   async function onSend(textOverride?: string) {

@@ -340,8 +340,10 @@ def register_workspace_routes(app):
         })
         from observability.store import get_trace
         from agent.runtime.decision_report.writer import read_decision_report
+        from tool_runtime.redaction import redact_tool_output
         for r in recent:
             safe_run = {k: v for k, v in r.items() if k in _SAFE_RUN_KEYS}
+            safe_run = redact_tool_output(safe_run)
             rid = safe_run.get("run_id") or safe_run.get("turn_id")
             trace = get_trace(rid, ws_id) if rid else None
             safe_run.update(_safe_run_trace_summary(r, trace))

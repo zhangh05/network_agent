@@ -62,13 +62,53 @@ class TestAdminTokenAuth:
 
         resp = client.post(
             f"/api/agent/approvals/{req.approval_id}/resolve",
-            json={"decision": "approve", "resolver": "admin"},
+            json={"decision": "approve", "workspace_id": "ws_a", "resolver": "admin"},
             headers={"X-Admin-Token": "secret-admin-token"},
         )
         assert resp.status_code == 200
         data = resp.get_json()
         assert data["ok"] is True
         assert data["decision"] == "approve"
+
+    def test_resolve_requires_workspace_id(self, client, reset_approvals, monkeypatch):
+        """Resolve must be scoped to the approval workspace."""
+        monkeypatch.setenv("NETWORK_AGENT_ADMIN_TOKEN", "secret-admin-token")
+
+        from agent.approval import get_approval_store
+        store = get_approval_store()
+        req = store.create(
+            session_id="sess-scope", tool_id="test.tool",
+            arguments={"cmd": "ls"}, description="test",
+            risk_level="high", workspace_id="ws_scope",
+        )
+
+        resp = client.post(
+            f"/api/agent/approvals/{req.approval_id}/resolve",
+            json={"decision": "approve"},
+            headers={"X-Admin-Token": "secret-admin-token"},
+        )
+        assert resp.status_code == 400
+        assert resp.get_json()["error"] == "workspace_id is required"
+
+    def test_resolve_rejects_wrong_workspace(self, client, reset_approvals, monkeypatch):
+        """Approval ids cannot be resolved from another workspace."""
+        monkeypatch.setenv("NETWORK_AGENT_ADMIN_TOKEN", "secret-admin-token")
+
+        from agent.approval import get_approval_store
+        store = get_approval_store()
+        req = store.create(
+            session_id="sess-scope", tool_id="test.tool",
+            arguments={"cmd": "ls"}, description="test",
+            risk_level="high", workspace_id="ws_scope",
+        )
+
+        resp = client.post(
+            f"/api/agent/approvals/{req.approval_id}/resolve",
+            json={"decision": "approve", "workspace_id": "ws_other"},
+            headers={"X-Admin-Token": "secret-admin-token"},
+        )
+        assert resp.status_code == 404
+        assert store.get_pending(workspace_id="ws_scope")[0]["approval_id"] == req.approval_id
 
     def test_wrong_token_returns_403(self, client, reset_approvals, monkeypatch):
         """Wrong token should return 403."""
@@ -84,7 +124,7 @@ class TestAdminTokenAuth:
 
         resp = client.post(
             f"/api/agent/approvals/{req.approval_id}/resolve",
-            json={"decision": "approve"},
+            json={"decision": "approve", "workspace_id": "ws_a"},
             headers={"X-Admin-Token": "wrong-token"},
         )
         assert resp.status_code == 403
@@ -103,7 +143,7 @@ class TestAdminTokenAuth:
 
         resp = client.post(
             f"/api/agent/approvals/{req.approval_id}/resolve",
-            json={"decision": "approve"},
+            json={"decision": "approve", "workspace_id": "ws_a"},
         )
         assert resp.status_code == 403
 
@@ -140,7 +180,7 @@ class TestApprovalLifecycle:
 
         # Resolve
         from agent.approval import get_approval_store
-        store.resolve(req.approval_id, True, resolver="test")
+        store.resolve(req.approval_id, True, workspace_id="ws_hist", resolver="test")
 
         resp = client.get("/api/agent/approvals/history?workspace_id=ws_hist&session_id=sess-hist&limit=10")
         data = resp.get_json()
@@ -158,7 +198,7 @@ class TestApprovalLifecycle:
             risk_level="high", workspace_id="ws_rej",
         )
 
-        store.resolve(req.approval_id, False, resolver="test")
+        store.resolve(req.approval_id, False, workspace_id="ws_rej", resolver="test")
 
         resp = client.get("/api/agent/approvals/history?workspace_id=ws_rej")
         data = resp.get_json()
@@ -195,8 +235,8 @@ class TestWorkspaceApprovalBoundary:
             workspace_id="ws_x",
         )
 
-        store.resolve(req_a.approval_id, True, resolver="test")
-        store.resolve(req_b.approval_id, True, resolver="test")
+        store.resolve(req_a.approval_id, True, workspace_id="ws_x", resolver="test")
+        store.resolve(req_b.approval_id, True, workspace_id="ws_x", resolver="test")
 
         # Filter by session A
         resp = client.get("/api/agent/approvals/history?workspace_id=ws_x&session_id=sess-A")
@@ -218,7 +258,7 @@ class TestApprovalStoreContract:
             arguments={"password": "secret123", "user": "admin"},
             risk_level="high", workspace_id="ws_r",
         )
-        store.resolve(req.approval_id, True)
+        store.resolve(req.approval_id, True, workspace_id="ws_r")
 
         history = store.get_history()
         assert len(history) >= 1
@@ -236,6 +276,17 @@ class TestApprovalStoreContract:
             arguments={}, risk_level="high", workspace_id="my_ws",
         )
         assert req.workspace_id == "my_ws"
+
+    def test_create_rejects_invalid_workspace_id(self, tmp_path):
+        """ApprovalStore is not allowed to persist malformed workspace ids."""
+        from agent.approval import ApprovalStore
+        store = ApprovalStore(persist_path=tmp_path / "test.jsonl")
+
+        with pytest.raises(ValueError):
+            store.create(
+                session_id="sess-1", tool_id="exec.run",
+                arguments={}, risk_level="high", workspace_id="../../etc",
+            )
 
     def test_create_returns_run_and_job_ids(self, tmp_path):
         """ApprovalRequest carries run_id and job_id."""

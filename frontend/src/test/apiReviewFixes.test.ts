@@ -1,6 +1,6 @@
 import { describe, expect, it, vi, beforeEach, afterEach } from "vitest";
 import { apiClient } from "../api/client";
-import { toolsInvokeApi, openApprovalStream, sseApi } from "../api";
+import { toolsInvokeApi, openApprovalStream, sseApi, sessionExtApi, approvalApi } from "../api";
 
 describe("API review fixes", () => {
   beforeEach(() => {
@@ -39,11 +39,11 @@ describe("API review fixes", () => {
     vi.stubGlobal("EventSource", FakeEventSource as any);
 
     openApprovalStream("default", () => {});
-    sseApi.connect("sid123");
+    sseApi.connect("sid123", "default");
 
     expect(sources).toEqual([
       "/api/agent/approvals/sse?workspace_id=default",
-      "/api/agent/sse/stream/sid123",
+      "/api/agent/sse/stream/sid123?workspace_id=default",
     ]);
   });
 
@@ -59,11 +59,11 @@ describe("API review fixes", () => {
     vi.stubGlobal("EventSource", FakeEventSource as any);
 
     openApprovalStream("default", () => {});
-    sseApi.connect("sid123");
+    sseApi.connect("sid123", "default");
 
     expect(sources).toEqual([
       "/api/agent/approvals/sse?workspace_id=default&access_token=secret+token",
-      "/api/agent/sse/stream/sid123?access_token=secret+token",
+      "/api/agent/sse/stream/sid123?workspace_id=default&access_token=secret+token",
     ]);
   });
 
@@ -82,6 +82,26 @@ describe("API review fixes", () => {
       method: "POST",
       url: "/workspaces/default/archive/apply",
       data: { dry_run: false, confirm: true },
+    }));
+  });
+
+  it("restores sessions with workspace_id as query params", async () => {
+    await sessionExtApi.restore("sess-1", "default");
+
+    expect(apiClient.request).toHaveBeenCalledWith(expect.objectContaining({
+      method: "POST",
+      url: "/sessions/sess-1/restore",
+      params: { workspace_id: "default" },
+    }));
+  });
+
+  it("resolves approvals with explicit workspace_id", async () => {
+    await approvalApi.resolve("apr-1", { decision: "approve", workspace_id: "default" });
+
+    expect(apiClient.request).toHaveBeenCalledWith(expect.objectContaining({
+      method: "POST",
+      url: "/agent/approvals/apr-1/resolve",
+      data: { decision: "approve", workspace_id: "default" },
     }));
   });
 });

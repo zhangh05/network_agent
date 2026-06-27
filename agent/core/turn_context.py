@@ -10,6 +10,7 @@ class TurnContext:
     session_id: str = ""
     workspace_id: str = ""
     trace_id: str = ""
+    requested_by: str = "turn_runner"
     user_input: str = ""
     model_config: dict = field(default_factory=dict)
     runtime_snapshot: dict = field(default_factory=dict)

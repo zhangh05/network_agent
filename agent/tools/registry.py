@@ -172,7 +172,7 @@ class ToolRegistry:
                 ws_id = getattr(context, 'workspace_id', '') or ''
                 run_id = getattr(context, 'turn_id', '') or getattr(context, 'run_id', '') or ''
                 job_id = getattr(context, 'job_id', '') or ''
-                requested_by = getattr(context, 'requested_by', 'turn_runner') or 'turn_runner'
+                requested_by = getattr(context, 'requested_by', '') or ''
 
             # v3.10: Block if caller identity is missing
             if not requested_by:
@@ -215,33 +215,6 @@ def _resolve_capability_handler(handler_ref: str):
     except Exception:
         return None
 
-
-def _adapt_context_for_tool_runtime(ctx):
-    """Project an Agent Runtime TurnContext (or similar) into a
-    ToolRuntimeContext so the tool execution layer never receives
-    an object it doesn't understand."""
-    from tool_runtime.context import ToolRuntimeContext
-    if isinstance(ctx, ToolRuntimeContext):
-        return ctx
-    if ctx is None:
-        return ToolRuntimeContext()
-    if isinstance(ctx, (str, bytes, int, float, bool, dict)):
-        return ctx
-    return ToolRuntimeContext(
-        workspace_id=getattr(ctx, "workspace_id", ""),
-        run_id=getattr(ctx, "turn_id", getattr(ctx, "run_id", "")),
-        trace_id=getattr(ctx, "trace_id", ""),
-        job_id=getattr(ctx, "job_id", ""),
-        capability=getattr(ctx, "metadata", {}).get("capability_id", "") if hasattr(ctx, "metadata") else "",
-        skill=_first(getattr(ctx, "metadata", {}).get("selected_skills", [])) if hasattr(ctx, "metadata") else "",
-        module=getattr(ctx, "metadata", {}).get("active_module", "") if hasattr(ctx, "metadata") else "",
-        requested_by="agent:runtime_loop",
-        dry_run_default=False,
-    )
-
-
-def _first(lst):
-    return lst[0] if lst else ""
 
 
 def _tool_runtime_result_to_dict(result) -> dict:

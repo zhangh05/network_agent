@@ -255,8 +255,10 @@ def _check_argument_safety(arguments: dict, tool_id: str = "") -> str:
         ("set-executionpolicy", "Execution policy change not allowed"),
     ]
 
-    # Shell/PowerShell specific checks
-    if tool_id in ("exec.run"):
+    # Shell/PowerShell specific checks. Only command-like fields are checked;
+    # do not stringify the entire arguments dict, because user text may contain
+    # examples such as "/etc/passwd" without being a path argument.
+    if tool_id == "exec.run":
         command = str((arguments or {}).get("command", "")).lower()
         extra_checks = [
             ("&&", "Command chaining detected"),
@@ -271,8 +273,11 @@ def _check_argument_safety(arguments: dict, tool_id: str = "") -> str:
         for pattern, reason in extra_checks:
             if pattern in command:
                 return reason
+        for pattern, reason in FORBIDDEN_ARGS:
+            if pattern in command:
+                return reason
     else:
-        command = str(arguments or {}).lower()
+        command = ""
 
     # PowerShell forbidden patterns (built-in, not configurable)
     POWERSHELL_FORBIDDEN_PATTERNS = [
@@ -284,12 +289,32 @@ def _check_argument_safety(arguments: dict, tool_id: str = "") -> str:
             if pat.lower() in command:
                 return f"PowerShell forbidden pattern: {pat}"
 
-    args_str = str(arguments).lower()
-    for pattern, reason in FORBIDDEN_ARGS:
-        if pattern in args_str:
-            return reason
+    for value in _iter_safety_relevant_values(arguments or {}):
+        text = str(value).lower()
+        for pattern, reason in FORBIDDEN_ARGS:
+            if pattern in text:
+                return reason
 
     return ""
+
+
+def _iter_safety_relevant_values(arguments: dict):
+    relevant_names = {
+        "command", "cmd", "shell", "args", "path", "filepath", "file_path",
+        "repo_path", "target_dir", "working_dir", "source", "destination",
+    }
+    for key, value in (arguments or {}).items():
+        key_l = str(key).lower()
+        if isinstance(value, dict):
+            yield from _iter_safety_relevant_values(value)
+        elif isinstance(value, list):
+            for item in value:
+                if isinstance(item, dict):
+                    yield from _iter_safety_relevant_values(item)
+                elif any(name in key_l for name in relevant_names):
+                    yield item
+        elif any(name in key_l for name in relevant_names):
+            yield value
 
 
 def validate_tool_id(tool_id: str) -> bool:

@@ -619,12 +619,34 @@ def register_runtime_routes(app):
         """SSE streaming endpoint — live agent execution events."""
         from flask import Response, stream_with_context
         from agent.runtime.session_events import subscribe
+        import json as _json
+
+        try:
+            from workspace.ids import validate_session_id
+            sid = validate_session_id(session_id)
+        except Exception:
+            return jsonify({"ok": False, "error": "invalid_session_id"}), 400
+
+        raw_ws_id = request.args.get("workspace_id", "")
+        if not raw_ws_id:
+            return jsonify({"ok": False, "error": "workspace_id is required"}), 400
+        ws_id, err = _validated_ws_id(raw_ws_id)
+        if err:
+            return err
+
+        try:
+            from workspace.session_store import get_session
+            if not get_session(sid, ws_id):
+                return jsonify({"ok": False, "error": "session_not_found"}), 404
+        except Exception:
+            return jsonify({"ok": False, "error": "session_lookup_failed"}), 500
 
         def generate():
-            yield f"event: connected\ndata: {{\"session_id\": \"{session_id}\"}}\n\n"
+            connected = {"session_id": sid, "workspace_id": ws_id}
+            yield f"event: connected\ndata: {_json.dumps(connected, ensure_ascii=False)}\n\n"
             import time as _time
             for _ in range(3600):  # 1 hour max
-                frame = subscribe(session_id, timeout=25)
+                frame = subscribe(sid, timeout=25)
                 if frame:
                     yield frame
                 else:

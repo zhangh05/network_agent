@@ -871,7 +871,7 @@ export const approvalApi = {
 
   resolve: (
     approvalId: string,
-    body: { decision: string; edited_args?: Record<string, unknown>; feedback?: string; reason?: string },
+    body: { decision: string; workspace_id: string; edited_args?: Record<string, unknown>; feedback?: string; reason?: string },
   ): Promise<{ ok: boolean; approval_id: string; decision: string }> =>
     apiRequest({
       method: "POST",
@@ -1107,7 +1107,7 @@ export const sessionExtApi = {
 
   /** POST /api/sessions/:id/restore */
   restore: (session_id: string, workspace_id: string) =>
-    apiRequest<{ ok: boolean }>({ method: "POST", url: `/sessions/${session_id}/restore`, data: { workspace_id } }),
+    apiRequest<{ ok: boolean }>({ method: "POST", url: `/sessions/${session_id}/restore`, params: { workspace_id } }),
 };
 
 /* ──────────────────────── 21. modules ──────────────────────── */
@@ -1199,8 +1199,8 @@ export const breakpointApi = {
 
 export const sseApi = {
   /** Create EventSource for agent streaming */
-  connect: (sessionId: string): EventSource =>
-    new EventSource(apiUrlWithAuth(`/agent/sse/stream/${encodeURIComponent(sessionId)}`)),
+  connect: (sessionId: string, workspaceId: string): EventSource =>
+    new EventSource(apiUrlWithAuth(`/agent/sse/stream/${encodeURIComponent(sessionId)}?workspace_id=${encodeURIComponent(workspaceId)}`)),
 };
 
 function apiUrl(path: string): string {

@@ -106,7 +106,7 @@ class MemoryStore:
             elif r.scope == "workspace" and r.workspace_id != ws_id: continue
             elif r.scope == "session" and r.session_id != session_id: continue
             elif r.scope == "task":
-                if session_id and r.session_id != session_id: continue
+                if not session_id or r.session_id != session_id: continue
             if memory_type and r.memory_type != memory_type: continue
             results.append(r)
             if len(results) >= limit:
@@ -147,16 +147,24 @@ class MemoryWriteGate:
             return {"ok": False, "status": "rejected", "memory_id": "",
                     "rejected": True, "error": "workspace_id is required",
                     "gate_mode": gate_mode}
+        try:
+            from workspace.ids import validate_workspace_id
+            candidate.workspace_id = validate_workspace_id(candidate.workspace_id)
+        except Exception:
+            return {"ok": False, "status": "rejected", "memory_id": candidate.memory_id,
+                    "rejected": True, "error": "invalid_workspace_id",
+                    "gate_mode": gate_mode}
 
-        # 2. Redaction
-        candidate.content = _redact(candidate.content)
-        candidate.summary = _redact(candidate.summary)
-
-        # 3. Secret rejection
+        # 2. Secret rejection on original content before redaction; otherwise
+        # redaction can hide the exact pattern from the detector.
         if _contains_secret_pattern(candidate.content):
             return {"ok": False, "status": "rejected", "memory_id": candidate.memory_id,
                     "rejected": True, "error": "content contains secret-like patterns, rejected",
                     "gate_mode": gate_mode}
+
+        # 3. Redaction
+        candidate.content = _redact(candidate.content)
+        candidate.summary = _redact(candidate.summary)
 
         # 4. Subagent can only create pending
         if candidate.created_by == "subagent" and candidate.status != "pending":
@@ -236,21 +244,29 @@ def expire_memory(ws_id: str, memory_id: str) -> dict:
 # ── Helpers ──
 
 def _redact(text: str) -> str:
-    for kw in _REDACT_KEYS:
-        text = _obfuscate_kv(text, kw)
-    return text
+    try:
+        from tool_runtime.redaction import redact_string
+        return redact_string(text)
+    except Exception:
+        for kw in _REDACT_KEYS:
+            text = _obfuscate_kv(text, kw)
+        return text
 
 def _obfuscate_kv(text: str, key: str) -> str:
     import re
     return re.sub(rf'({key}\s*[=:]\s*)(\S+)', r'\1[REDACTED]', text, flags=re.I)
 
 def _contains_secret_pattern(text: str) -> bool:
-    import re
-    patterns = [r'sk-[a-zA-Z0-9]{20,}', r'Bearer\s+[a-zA-Z0-9\-_\.]{20,}',
-                r'AKIA[A-Z0-9]{16}', r'ghp_[a-zA-Z0-9]{36}']
-    for p in patterns:
-        if re.search(p, text): return True
-    return False
+    try:
+        from tool_runtime.redaction import contains_secret
+        return contains_secret(text)
+    except Exception:
+        import re
+        patterns = [r'sk-[a-zA-Z0-9]{20,}', r'Bearer\s+[a-zA-Z0-9\-_\.]{20,}',
+                    r'AKIA[A-Z0-9]{16}', r'ghp_[a-zA-Z0-9]{36}']
+        for p in patterns:
+            if re.search(p, text): return True
+        return False
 
 def _llm_gate_record(record: MemoryRecord) -> tuple[bool, list[dict]]:
     try:
@@ -272,8 +288,8 @@ def _llm_gate_record(record: MemoryRecord) -> tuple[bool, list[dict]]:
                 record.summary = str(summary)[:200]
             return True, skipped
         return False, skipped
-    except Exception as exc:
-        return True, [{"reason": f"llm_gate_unavailable_fallback: {str(exc)[:100]}"}]
+    except Exception:
+        return True, [{"reason": "llm_gate_unavailable_fallback"}]
 
 def _text_similarity(a: str, b: str) -> float:
     a_words = set(a.lower().split())

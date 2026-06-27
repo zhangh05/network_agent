@@ -85,8 +85,11 @@ def register_approval_routes(app) -> None:
             return jsonify({"ok": True, "decision": decision, "feedback_recorded": True, "feedback": feedback[:500]})
         reason = str(data.get("reason") or "")
         allowed = decision == "approve" or decision == "edit_args"
+        ws_id, err = _validated_ws_id(str(data.get("workspace_id", "")))
+        if err:
+            return err
 
-        req = store.resolve(approval_id, allowed, resolver=resolver, reason=reason)
+        req = store.resolve(approval_id, allowed, workspace_id=ws_id, resolver=resolver, reason=reason)
         if req is None:
             return jsonify({"ok": False, "error": "approval not found or already resolved"}), 404
 
