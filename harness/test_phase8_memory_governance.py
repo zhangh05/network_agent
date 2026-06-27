@@ -17,9 +17,9 @@ class TestMemoryWriteGate:
             content="User prefers short answers",
             summary="Preference: short answers",
         )
-        ok, status = gate.write(rec)
-        assert ok
-        assert status == "pending"
+        result = gate.write(rec)
+        assert result["ok"]
+        assert result["status"] == "pending"
 
     def test_user_explicit_can_be_active(self):
         gate = MemoryWriteGate()
@@ -29,8 +29,8 @@ class TestMemoryWriteGate:
             content="User set preferred language to zh-CN",
             summary="Language preference: zh-CN",
         )
-        ok, status = gate.write(rec)
-        assert ok
+        result = gate.write(rec)
+        assert result["ok"]
 
     def test_subagent_forced_pending(self):
         gate = MemoryWriteGate()
@@ -40,9 +40,9 @@ class TestMemoryWriteGate:
             content="Found pattern: OSPF config fix",
             summary="Pattern: OSPF fix",
         )
-        ok, status = gate.write(rec)
-        assert ok
-        assert status == "pending"
+        result = gate.write(rec)
+        assert result["ok"]
+        assert result["status"] == "pending"
 
     def test_secret_rejected(self):
         gate = MemoryWriteGate()
@@ -51,15 +51,16 @@ class TestMemoryWriteGate:
             content="API key is sk-abcdefghijklmnopqrstuvwxyz12345",
             summary="API key storage",
         )
-        ok, status = gate.write(rec)
-        assert ok is False
-        assert "secret" in status.lower()
+        result = gate.write(rec)
+        assert result["ok"] is False
+        assert result["rejected"] is True
 
     def test_workspace_required(self):
         gate = MemoryWriteGate()
         rec = MemoryRecord(workspace_id="", content="test")
-        ok, _ = gate.write(rec)
-        assert ok is False
+        result = gate.write(rec)
+        assert result["ok"] is False
+        assert result["rejected"] is True
 
 
 class TestPromotion:
@@ -145,10 +146,10 @@ class TestConflict:
                           memory_type="user_preference",
                           content="user likes short concise answers",
                           summary="short concise answers")
-        ok, status = gate.write(r2)
-        assert ok
+        result = gate.write(r2)
+        assert result["ok"]
         # Should be conflict since similar to active
-        assert status in ("conflict", "pending")
+        assert result["status"] in ("conflict", "pending")
 
     def test_active_not_overwritten_by_conflict(self):
         ws = f"ws_ao_{uuid.uuid4().hex[:8]}"

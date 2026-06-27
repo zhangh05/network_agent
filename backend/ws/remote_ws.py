@@ -77,7 +77,11 @@ def register_remote_ws(app):
                     from workspace.ids import validate_workspace_id
 
                     try:
-                        workspace_id = validate_workspace_id(msg.get("workspace_id", "default") or "default")
+                        raw_ws = msg.get("workspace_id", "") or ""
+                        if not raw_ws:
+                            ws.send(json.dumps({"type": "error", "message": "workspace_id is required"}))
+                            continue
+                        workspace_id = validate_workspace_id(raw_ws)
                         port = _parse_port(msg.get("port", 22))
                     except ValueError as exc:
                         ws.send(json.dumps({"type": "error", "message": str(exc)}))

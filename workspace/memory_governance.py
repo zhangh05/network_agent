@@ -136,11 +136,15 @@ class MemoryWriteGate:
     def __init__(self, store: MemoryStore = None):
         self.store = store or MemoryStore()
 
-    def write(self, candidate: MemoryRecord) -> tuple[bool, str]:
-        """Gate a memory write. Returns (ok, reason)."""
+    def write(self, candidate: MemoryRecord) -> dict:
+        """Gate a memory write. Returns dict with ok, status, memory_id, rejected, error.
+
+        v3.10: Returns unified dict for all callers.
+        """
         # 1. Workspace required
         if not candidate.workspace_id:
-            return False, "workspace_id is required"
+            return {"ok": False, "status": "rejected", "memory_id": "",
+                    "rejected": True, "error": "workspace_id is required"}
 
         # 2. Redaction
         candidate.content = _redact(candidate.content)
@@ -148,7 +152,8 @@ class MemoryWriteGate:
 
         # 3. Secret rejection
         if _contains_secret_pattern(candidate.content):
-            return False, "content contains secret-like patterns, rejected"
+            return {"ok": False, "status": "rejected", "memory_id": candidate.memory_id,
+                    "rejected": True, "error": "content contains secret-like patterns, rejected"}
 
         # 4. Subagent can only create pending
         if candidate.created_by == "subagent" and candidate.status != "pending":
@@ -173,7 +178,8 @@ class MemoryWriteGate:
         # 8. Persist
         candidate.redacted = True
         self.store.save(candidate)
-        return True, candidate.status
+        return {"ok": True, "status": candidate.status, "memory_id": candidate.memory_id,
+                "rejected": False, "conflict": candidate.status == "conflict"}
 
 
 # ── Promotion ──
