@@ -69,6 +69,11 @@ class TestContextHistoryHelper:
         text = Path("agent/runtime/loop.py").read_text(encoding="utf-8")
         assert "from workspace.message_store import SessionMessageStore" not in text
 
+    def test_tool_adapter_has_no_system_prompt_tool_catalog(self):
+        text = Path("agent/llm/tool_adapter.py").read_text(encoding="utf-8")
+        assert "build_system_prompt_with_tools" not in text
+        assert "Tool Usage Rules" not in text
+
 
 # ── C. Permission DENY terminal ──────────────────────────────────────
 

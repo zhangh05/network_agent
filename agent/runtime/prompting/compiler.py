@@ -110,6 +110,9 @@ class PromptCompiler:
         for h in context.history_window:
             if hasattr(h, 'to_llm_message'):
                 messages.append(h.to_llm_message())
+            elif isinstance(h, dict) and h.get("role") and h.get("content") is not None:
+                from agent.llm.schemas import LLMMessage
+                messages.append(LLMMessage(role=str(h.get("role")), content=str(h.get("content"))))
 
         # ── Current user input ────────────────────────────────────
         user_content = build_user_content_with_images(context, user_input)

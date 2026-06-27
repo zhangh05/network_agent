@@ -54,32 +54,18 @@ def hydrate_history_from_store(session: Any, context: Any, k: int = DEFAULT_HIST
         }
 
         if store.exists():
-            window = store.get_history_window(k=k)
-            if window:
-                msgs = []
-                seen = set()
-                for m in window:
-                    mid = m.get("message_id") or m.get("id") or m.get("content", "")[:40]
-                    if mid and mid in seen:
-                        continue
-                    seen.add(mid)
-                    role = m.get("role", "")
-                    content = m.get("content", "")
-                    if role == "user":
-                        msgs.append(UserMessage(content=content))
-                    elif role == "assistant":
-                        msgs.append(AssistantMessage(content=content))
-                    elif role == "tool":
-                        msgs.append(ToolResultMessage(
-                            content=json.dumps({"ok": m.get("ok", False), "summary": content[:500]}, ensure_ascii=False),
-                            tool_call_id=m.get("tool_call_id", m.get("id", "")),
-                        ))
-
+            raw_messages = _read_store_messages(store, k)
+            if raw_messages:
+                msgs = _project_store_messages(raw_messages)
+                seen = {
+                    m.get("message_id") or m.get("id") or m.get("content", "")[:40]
+                    for m in raw_messages if isinstance(m, dict)
+                }
                 for mm in memory_msgs:
                     mid = getattr(mm, "id", getattr(mm, "message_id", None))
                     if mid and mid in memory_ids and mid not in seen:
                         msgs.append(mm)
-                context.history_window = msgs[-k:]
+                context.history_window = _compact_history_window(msgs, k, context)
         elif memory_msgs:
             context.history_window = memory_msgs
     except Exception as e:
@@ -88,3 +74,62 @@ def hydrate_history_from_store(session: Any, context: Any, k: int = DEFAULT_HIST
             getattr(session, "session_id", ""),
             e,
         )
+
+
+def _read_store_messages(store: Any, k: int) -> list[dict]:
+    """Read full history when available so old turns can be compacted."""
+    try:
+        all_messages = store.get_messages()
+        if len(all_messages) > k:
+            return all_messages
+    except Exception:
+        pass
+    try:
+        return store.get_history_window(k=k)
+    except Exception:
+        return []
+
+
+def _project_store_messages(raw_messages: list[dict]) -> list:
+    msgs = []
+    seen = set()
+    for m in raw_messages:
+        if not isinstance(m, dict):
+            continue
+        mid = m.get("message_id") or m.get("id") or m.get("content", "")[:40]
+        if mid and mid in seen:
+            continue
+        seen.add(mid)
+        role = m.get("role", "")
+        content = m.get("content", "")
+        if role == "user":
+            msgs.append(UserMessage(content=content))
+        elif role == "assistant":
+            msgs.append(AssistantMessage(content=content))
+        elif role == "tool":
+            msgs.append(ToolResultMessage(
+                content=json.dumps({"ok": m.get("ok", False), "summary": content[:500]}, ensure_ascii=False),
+                tool_call_id=m.get("tool_call_id", m.get("id", "")),
+            ))
+    return msgs
+
+
+def _compact_history_window(messages: list, k: int, context: Any) -> list:
+    if len(messages) <= k:
+        return messages[-k:]
+    try:
+        from agent.runtime.context_compactor import CompactionStrategy, compact_messages
+        compacted, meta = compact_messages(
+            messages,
+            keep_recent=max(2, k // 2),
+            strategy=CompactionStrategy.FAST_EVICTION,
+            trigger="auto",
+            threshold_pct=0.0,
+        )
+        if hasattr(context, "metadata") and isinstance(context.metadata, dict):
+            context.metadata["history_compaction"] = meta
+        return compacted[-k:]
+    except Exception as exc:
+        if hasattr(context, "metadata") and isinstance(context.metadata, dict):
+            context.metadata["history_compaction"] = {"compacted": False, "error": str(exc)[:120]}
+        return messages[-k:]

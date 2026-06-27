@@ -152,6 +152,33 @@ class TestNewModulesImportable:
         assert result.ok is True
         assert observed["k"] == DEFAULT_HISTORY_WINDOW
 
+    def test_hydrate_history_compacts_long_history(self, monkeypatch):
+        from agent.runtime.context_history import DEFAULT_HISTORY_WINDOW, hydrate_history_from_store
+
+        class FakeStore:
+            def __init__(self, *args, **kwargs):
+                pass
+
+            def exists(self):
+                return True
+
+            def get_messages(self):
+                return [
+                    {"role": "user" if i % 2 == 0 else "assistant", "content": f"message {i}", "message_id": f"m{i}"}
+                    for i in range(DEFAULT_HISTORY_WINDOW + 12)
+                ]
+
+        monkeypatch.setattr("workspace.message_store.SessionMessageStore", FakeStore)
+
+        session = types.SimpleNamespace(session_id="s-1", workspace_id="default", history=[])
+        ctx = types.SimpleNamespace(history_window=[], metadata={})
+
+        hydrate_history_from_store(session, ctx, k=DEFAULT_HISTORY_WINDOW)
+
+        assert len(ctx.history_window) == DEFAULT_HISTORY_WINDOW
+        assert any(isinstance(m, dict) and str(m.get("content", "")).startswith("[compacted") for m in ctx.history_window)
+        assert ctx.metadata["history_compaction"]["compacted"] is True
+
     def test_result_builder(self):
         from agent.runtime.result_builder import (
             build_success_result,
