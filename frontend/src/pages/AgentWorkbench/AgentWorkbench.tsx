@@ -56,7 +56,11 @@ export function TaskWorkbench() {
   const lastUserInput = useWorkbenchStore((s) => s.lastUserInput);
   const results = useWorkbenchStore((s) => s.results);
   const sessionResults = results[currentSessionId ?? "_scratch"] ?? [];
-  const bySession = useWorkbenchStore((s) => s.bySession);
+  // Granular selector: only re-render when THIS session's messages change
+  const visibleHistory = useWorkbenchStore((s) => {
+    const msgs = s.bySession?.[currentSessionId ?? "_scratch"];
+    return Array.isArray(msgs) ? msgs : [];
+  });
   const appendUser = useWorkbenchStore((s) => s.appendUser);
   const appendAssistantStreaming = useWorkbenchStore((s) => s.appendAssistantStreaming);
   const updateAssistant = useWorkbenchStore((s) => s.updateAssistant);
@@ -65,39 +69,61 @@ export function TaskWorkbench() {
   const mergeFromBackend = useWorkbenchStore((s) => s.mergeFromBackend);
   const setLatestResult = useWorkbenchStore((s) => s.setLatestResult);
 
-  const activeHistoryKey = currentSessionId ?? "_scratch";
-  const visibleHistory = bySession?.[activeHistoryKey] ?? [];
   const [viewMode, setViewMode] = useState<ViewMode>("chat");
   const [input, setInput] = useState("");
   const [attachments, setAttachments] = useState<Array<{ id: string; name: string; size: string; file: File; uploading?: boolean }>>([]);
-  const [userScrolledUp, setUserScrolledUp] = useState(false);
+
+  // ── Scroll architecture (v4.0) ──
+  // Refs break the state→effect→scroll→state feedback loop.
+  // Virtuoso owns the real scroll position; we only nudge it.
+  const [showScrollBtn, setShowScrollBtn] = useState(false);
+  const userScrolledUpRef = useRef(false);    // true = user intentionally scrolled up
+  const atBottomRef = useRef(true);           // true = Virtuoso is at bottom
+
+  const chatRef = useRef<VirtuosoHandle>(null);
+  const inputRef = useRef<HTMLTextAreaElement>(null);
+
+  // atBottomStateChange: ALWAYS tracks real position (no sending gate).
+  // We update the button UI, but the ref tracks actual user intent.
+  const handleAtBottomStateChange = useCallback((atBottom: boolean) => {
+    atBottomRef.current = atBottom;
+    setShowScrollBtn(!atBottom);
+    // Mark "user scrolled up" only when they move AWAY from bottom
+    // and we're not in the middle of an auto-scroll we initiated
+    if (!atBottom) userScrolledUpRef.current = true;
+  }, []);
+
+  // Thin scroll helper — single source of truth for nudging to bottom.
+  // Only acts when user hasn't intentionally scrolled up.
+  const keepAtBottom = useCallback(() => {
+    if (!userScrolledUpRef.current) {
+      chatRef.current?.scrollToIndex({ index: "LAST", behavior: "auto", align: "end" });
+    }
+  }, []);
+
+  // Scroll-to-bottom button click: reset intent + smooth scroll
+  const handleScrollBtnClick = useCallback(() => {
+    userScrolledUpRef.current = false;
+    chatRef.current?.scrollToIndex({ index: "LAST", behavior: "smooth", align: "end" });
+  }, []);
+
   const thinkFilter = useRef<{ mode: import("../../utils/displayText").ThinkFilterState }>({ mode: "idle" });
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [llmHealth, setLlmHealth] = useState<{ connected: boolean; provider?: string; model?: string; recentFailure?: string }>({ connected: false });
-  const chatRef = useRef<VirtuosoHandle>(null);
-  const inputRef = useRef<HTMLTextAreaElement>(null);
   const toast = useToastStore((s) => s.show);
   const abortRef = useRef<AbortController | null>(null);
   const wsRef = useRef<WebSocket | null>(null);
 
   // Stop generation: abort active request + close WebSocket
   const stopGeneration = useCallback(() => {
-    if (abortRef.current) {
-      abortRef.current.abort();
-      abortRef.current = null;
-    }
-    if (wsRef.current) {
-      try { wsRef.current.close(); } catch {}
-      wsRef.current = null;
-    }
+    if (abortRef.current) { abortRef.current.abort(); abortRef.current = null; }
+    if (wsRef.current) { try { wsRef.current.close(); } catch {} wsRef.current = null; }
     setSending(false);
   }, []);  // eslint-disable-line
 
-  // Save scroll position on session switch
+  // Preserve current session id ref for cleanup
   const prevSessionId = useRef(currentSessionId);
-  useEffect(() => {
-    prevSessionId.current = currentSessionId;
-  });
+  useEffect(() => { prevSessionId.current = currentSessionId; });
 
   // Clean up abort controller on unmount
   useEffect(() => () => { abortRef.current?.abort(); }, []);
@@ -108,10 +134,8 @@ export function TaskWorkbench() {
       settingsApi.llmStatus().then((s) => {
         if (!s) return;
         setLlmHealth({
-          connected: s.connected,
-          provider: s.provider || s.provider_type || "",
-          model: s.model || "",
-          recentFailure: s.recent_failure?.error_type ? s.recent_failure.error_summary : undefined,
+          connected: s.connected, provider: s.provider || s.provider_type || "",
+          model: s.model || "", recentFailure: s.recent_failure?.error_type ? s.recent_failure.error_summary : undefined,
         });
       }).catch(() => {});
     };
@@ -119,30 +143,6 @@ export function TaskWorkbench() {
     const id = window.setInterval(poll, 30_000);
     return () => window.clearInterval(id);
   }, []);
-
-  // Scroll on new messages / streaming tokens.
-  // During sending, always scroll (ignore userScrolledUp — streaming text
-  // changes don't trigger followOutput or useEffect since item count is same).
-  const scrollToBottom = useCallback(() => {
-    if (sending || !userScrolledUp) {
-      requestAnimationFrame(() => {
-        chatRef.current?.scrollToIndex({ index: "LAST", behavior: "auto", align: "end" });
-      });
-    }
-  }, [userScrolledUp, sending]);
-
-  useEffect(() => {
-    scrollToBottom();
-  }, [(visibleHistory ?? []).length, sending, scrollToBottom]);
-
-  // Track user scroll via Virtuoso atBottomStateChange.
-  // During streaming (sending=true), ignore transient position changes
-  // caused by dynamic content resizing — only respect genuine user scroll.
-  const handleAtBottomStateChange = useCallback((atBottom: boolean) => {
-    if (!sending) {
-      setUserScrolledUp(!atBottom);
-    }
-  }, [sending]);
 
   // Input draft persistence: save to localStorage debounced, restore on mount
   const draftKey = `draft-${currentSessionId ?? "_scratch"}`;
@@ -270,8 +270,10 @@ export function TaskWorkbench() {
     const scratch = currentSessionId ?? "_scratch";
     appendUser(fullText, scratch);
     const streamingMsgId = appendAssistantStreaming(scratch);
-    setUserScrolledUp(false); // reset scroll state when sending a new message
+    userScrolledUpRef.current = false; // reset scroll state when sending a new message
     setSending(true);
+    // Force initial scroll to bottom so user sees the streaming bubble appear
+    requestAnimationFrame(() => keepAtBottom());
 
     // Try WebSocket streaming first, fall back to HTTP
     // Dev: proxied through Vite (port 5173). Prod: same-origin.
@@ -334,9 +336,7 @@ export function TaskWorkbench() {
                 streamedText = streamState.draft;
                 useWorkbenchStore.getState().updateAssistant(streamingMsgId, { text: streamedText }, scratch);
                 // Stream tokens don't change item count, so manually keep at bottom
-                requestAnimationFrame(() => {
-                  chatRef.current?.scrollToIndex({ index: "LAST", behavior: "auto", align: "end" });
-                });
+                keepAtBottom();
                 break;
               case "event":
                 if (msg.data) {
@@ -376,9 +376,7 @@ export function TaskWorkbench() {
                   useWorkbenchStore.getState().updateAssistant(streamingMsgId, { text: "" }, scratch);
                 }
                 // Keep scrolled to bottom after any event that changes content height
-                requestAnimationFrame(() => {
-                  chatRef.current?.scrollToIndex({ index: "LAST", behavior: "auto", align: "end" });
-                });
+                keepAtBottom();
                 break;
               case "done":
                 resolvedSid = msg.session_id || currentSessionId;
@@ -446,10 +444,7 @@ export function TaskWorkbench() {
       }, resolvedSid);
       setLatestResult(wsResult);
       notifyRunCompleted();
-      // Scroll to bottom after final result renders
-      requestAnimationFrame(() => {
-        chatRef.current?.scrollToIndex({ index: "LAST", behavior: "auto", align: "end" });
-      });
+      keepAtBottom();
 
       if (resolvedSid && currentWorkspaceId) {
         sessionsApi.messages(resolvedSid, currentWorkspaceId)
@@ -487,9 +482,7 @@ export function TaskWorkbench() {
         }, resolvedSid);
         setLatestResult(res);
         notifyRunCompleted();
-        requestAnimationFrame(() => {
-          chatRef.current?.scrollToIndex({ index: "LAST", behavior: "auto", align: "end" });
-        });
+        keepAtBottom();
         if (res.ok) {
           toast({ kind: "success", title: "回答完成", body: "可切换到时间线视图查看执行详情" });
         } else {
@@ -725,8 +718,8 @@ export function TaskWorkbench() {
         )}
 
         {/* ── Scroll-to-bottom floating bubble ── */}
-        {userScrolledUp && (
-          <button className="scroll-bottom-btn" onClick={() => { setUserScrolledUp(false); scrollToBottom(); }} title="回到底部" type="button">
+        {showScrollBtn && (
+          <button className="scroll-bottom-btn" onClick={handleScrollBtnClick} title="回到底部" type="button">
             <svg width="14" height="14" viewBox="0 0 16 16"><path d="M4 6l4 4 4-4" stroke="currentColor" strokeWidth="1.5" fill="none" strokeLinecap="round" strokeLinejoin="round"/></svg>
           </button>
         )}
