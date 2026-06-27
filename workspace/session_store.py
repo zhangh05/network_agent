@@ -226,7 +226,7 @@ def delete_session_permanently(
     # Also scan runs dir for any runs with this session_id (recovery)
     try:
         from workspace.run_store import list_runs
-        for run in list_runs(ws_id, limit=500):
+        for run in list_runs(ws_id, limit=5000):
             if run.get("session_id") == session_id:
                 rid = run.get("run_id") or run.get("turn_id") or ""
                 if rid and rid not in run_ids:

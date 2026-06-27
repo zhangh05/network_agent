@@ -121,7 +121,6 @@ export function TaskWorkbench() {
   const sessionResults = results[currentSessionId ?? "_scratch"] ?? [];
   const bySession = useWorkbenchStore((s) => s.bySession);
   const appendUser = useWorkbenchStore((s) => s.appendUser);
-  const appendAssistant = useWorkbenchStore((s) => s.appendAssistant);
   const appendAssistantStreaming = useWorkbenchStore((s) => s.appendAssistantStreaming);
   const updateAssistant = useWorkbenchStore((s) => s.updateAssistant);
   const setSending = useWorkbenchStore((s) => s.setSending);
@@ -513,7 +512,7 @@ export function TaskWorkbench() {
       if (ws) { try { ws.close(); } catch {} }
       try {
         const res = await agentApi.run({ message: fullText, workspace_id: currentWorkspaceId, session_id: currentSessionId });
-        const resolvedSid = res.session_id && res.session_id !== "—" ? res.session_id : currentSessionId;
+        const resolvedSid = (res.session_id && res.session_id !== "—" ? res.session_id : currentSessionId) ?? undefined;
         if (!currentSessionId && resolvedSid) {
           useSessionStore.getState().setCurrentSession(resolvedSid);
           useWorkbenchStore.setState((prev) => {
@@ -523,8 +522,13 @@ export function TaskWorkbench() {
           });
           useWorkbenchStore.getState().switchSession(resolvedSid);
         }
-        appendAssistant(sanitizeAssistantText(res.final_response ?? ""), res, resolvedSid);
-        // Update latestResult so Timeline refreshes
+        updateAssistant(streamingMsgId, {
+          status: res.ok ? "ready" : "error",
+          text: sanitizeAssistantText(res.final_response ?? ""),
+          result: res,
+          error: !res.ok ? res.errors?.[0] : undefined,
+          trace_id: res.trace_id,
+        }, resolvedSid);
         setLatestResult(res);
         notifyRunCompleted();
         if (res.ok) {
@@ -544,10 +548,16 @@ export function TaskWorkbench() {
           ok: false, final_response: sanitizeAssistantText(`(error) ${msg}`),
           events: [], trace_id: isApiError(err) ? err.request_id ?? "—" : "—",
           session_id: fallbackSid ?? "—", turn_id: `turn-${Date.now()}`,
-          tool_calls: [], warnings: [], errors: [msg],
+          tool_calls: [], warnings: [], errors: [msg], error_type: "network",
           metadata: { source_count: 0, source_summary: [] },
         };
-        appendAssistant(stubResult.final_response, stubResult, fallbackSid);
+        updateAssistant(streamingMsgId, {
+          status: "error",
+          text: stubResult.final_response,
+          result: stubResult,
+          error: msg,
+        }, fallbackSid);
+        setLatestResult(stubResult);
         toast({ kind: "error", title: "请求失败", body: msg });
       }
     } finally {

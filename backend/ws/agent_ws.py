@@ -152,6 +152,8 @@ def _run_agent_thread(user_input, session_id, workspace_id, metadata, event_queu
 
     def realtime_callback(event):
         try:
+            live_count = int(stats.get("live_events", 0)) + 1
+            stats["live_events"] = live_count
             seq = int(stats.get("event_seq", 0)) + 1
             stats["event_seq"] = seq
             if isinstance(event, dict) and event.get("type") == "token":
