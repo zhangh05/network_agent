@@ -1775,7 +1775,7 @@ details.collapse[open] summary::before {
 .wb-chat {
   position: relative;
   min-height: 0;
-  padding: 22px 32px 28px;
+  padding: 22px 32px 12px;
   overflow: hidden;
   background: linear-gradient(180deg, #fbfdff 0%, #f7fafc 100%);
 }
@@ -3548,12 +3548,13 @@ details.collapse[open] summary::before {
   background: var(--surface-3);
 }
 
-/* ── Chat scrollbar on hover ── */
-.wb-chat::-webkit-scrollbar-thumb {
-  visibility: hidden;
+/* ── Hide scrollbar track (Virtuoso owns scroll, .wb-chat overflow:hidden) ── */
+.wb-chat div[data-testid="virtuoso-scroller"]::-webkit-scrollbar {
+  width: 4px;
 }
-.wb-chat:hover::-webkit-scrollbar-thumb {
-  visibility: visible;
+.wb-chat div[data-testid="virtuoso-scroller"]::-webkit-scrollbar-thumb {
+  background: var(--border-2);
+  border-radius: 2px;
 }
 
 /* ============================================================
