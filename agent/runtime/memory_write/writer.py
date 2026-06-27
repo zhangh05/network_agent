@@ -59,6 +59,7 @@ class MemoryWriter:
                     citations=[],
                     created_by="agent_suggestion",
                     redacted=True,
+                    metadata=dict(c.metadata),  # Preserve planner metadata (llm_score etc.)
                 )
                 result = gate.write(rec)
                 if result.get("ok"):

@@ -42,6 +42,7 @@ class MemoryRecord:
     updated_at: str = ""
     last_used_at: str = ""
     redacted: bool = True
+    metadata: dict = field(default_factory=dict)
 
     def __post_init__(self):
         n = _now()
@@ -269,9 +270,28 @@ def _contains_secret_pattern(text: str) -> bool:
         return False
 
 def _llm_gate_record(record: MemoryRecord) -> tuple[bool, list[dict]]:
+    """Run LLM quality gate on a single memory record.
+
+    If the record already has an llm_score from the planner's batch
+    evaluation (stored in candidate.metadata during planning), reuse it
+    instead of calling the LLM again.
+    """
     try:
         from agent.runtime.memory_write.llm_gate import MemoryLLMGate
         from agent.runtime.memory_write.models import MemoryCandidate
+
+        # If planner already evaluated this candidate via batch LLM,
+        # use the cached score — avoid double LLM call
+        if record.metadata and isinstance(record.metadata, dict):
+            cached_score = record.metadata.get("llm_score")
+            if cached_score is not None:
+                if cached_score >= 3:
+                    cached_summary = record.metadata.get("llm_summary", "")
+                    if cached_summary:
+                        record.summary = str(cached_summary)[:200]
+                    return True, []
+                return False, [{"reason": f"llm_score_too_low ({cached_score})"}]
+
         candidate = MemoryCandidate(
             candidate_id=record.memory_id,
             memory_type=record.memory_type,

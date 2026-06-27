@@ -157,3 +157,14 @@ prompts:
     context_policy:
       require_safe_llm_context: true
       max_artifact_refs: 0
+
+  - prompt_id: memory.gating.v1
+    task: memory_gating
+    version: v1
+    status: enabled
+    template_path: prompts/templates/memory_gating.md
+    description: "LLM evaluation of memory candidates — score, dedupe, and summarize"
+    output_policy:
+      forbid_secret_output: true
+    context_policy:
+      require_safe_llm_context: false

@@ -166,7 +166,16 @@ class MemoryLLMGate:
 
     @staticmethod
     def _load_prompt() -> str:
-        """Load the memory_gating system prompt."""
+        """Load the memory_gating system prompt — template first, hardcoded fallback."""
+        # Try template system first
+        try:
+            from prompts.loader import render_prompt
+            result = render_prompt("memory_gating", {}, "")
+            if result and result.text:
+                return result.text
+        except Exception:
+            pass
+        # Fallback: hardcoded prompt
         try:
             from agent.llm.tasks.prompts import PROMPTS
             return PROMPTS.get("memory_gating", "")

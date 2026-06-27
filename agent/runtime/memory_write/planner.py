@@ -107,6 +107,8 @@ class MemoryWritePlanner:
         candidates: list[MemoryCandidate] = []
         candidates.extend(self._from_task_completion(ctx))
         candidates.extend(self._from_error_lessons(ctx))
+        candidates.extend(self._from_user_preferences(ctx))
+        candidates.extend(self._from_tool_learnings(ctx))
         return candidates
 
     def _from_task_completion(self, ctx) -> list[MemoryCandidate]:
@@ -142,6 +144,46 @@ class MemoryWritePlanner:
                 candidate_id=f"mc_{uuid.uuid4().hex[:8]}",
                 memory_type="error_lesson",
                 content=f"Action {entry.get('action_id', '')} failed: {err_msg[:200]}",
+                source="action",
+                confidence=0.5,
+            ))
+        return out
+
+    def _from_user_preferences(self, ctx) -> list[MemoryCandidate]:
+        """Extract candidate memories from user-preference signals in metadata."""
+        out: list[MemoryCandidate] = []
+        signals = ctx.metadata.get("user_preference_signals", [])
+        for sig in signals:
+            if not isinstance(sig, dict):
+                continue
+            content = sig.get("content", "")
+            if not content or len(content) < 10:
+                continue
+            out.append(MemoryCandidate(
+                candidate_id=f"mc_{uuid.uuid4().hex[:8]}",
+                memory_type="user_preference",
+                content=content[:500],
+                source="user_signal",
+                confidence=0.6,
+            ))
+        return out
+
+    def _from_tool_learnings(self, ctx) -> list[MemoryCandidate]:
+        """Extract candidate memories from successful tool executions."""
+        out: list[MemoryCandidate] = []
+        trace = ctx.metadata.get("action_trace", [])
+        for entry in trace:
+            if not isinstance(entry, dict):
+                continue
+            if entry.get("status") != "success":
+                continue
+            summary = entry.get("summary", "")
+            if not summary or len(summary) < 10:
+                continue
+            out.append(MemoryCandidate(
+                candidate_id=f"mc_{uuid.uuid4().hex[:8]}",
+                memory_type="tool_learning",
+                content=f"Tool {entry.get('action_id', '')}: {summary[:200]}",
                 source="action",
                 confidence=0.5,
             ))
