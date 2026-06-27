@@ -85,14 +85,31 @@ for (const [name, language] of Object.entries({
   hljs.registerLanguage(name, language);
 }
 
-function _humanFailure(text: string): string {
-  if (text.includes("provider_timeout") || text.includes("timed out") || text.includes("超时"))
-    return "模型请求超过 30 秒未返回，可能是供应商响应慢或网络抖动。可以稍后重试，或缩短问题再试。";
-  if (text.includes("disabled") || text.includes("LLM is disabled"))
-    return "LLM 功能未启用，请前往系统设置开启并配置 API Key。";
+/** Enhanced error classification with recovery hints.
+ *  Now uses error_type from AgentResult for precise messaging. */
+function _humanFailure(errorType: string | undefined, errorText: string): { msg: string; retryable: boolean } {
+  const et = (errorType ?? "").toLowerCase();
+  const text = (errorText ?? "").toLowerCase();
+  // Provider errors
+  if (et.includes("provider_timeout") || text.includes("timed out") || text.includes("超时"))
+    return { msg: "模型请求超时，可能是供应商响应慢或网络抖动。可重试或缩短问题。", retryable: true };
+  if (et.includes("provider_error") || text.includes("provider"))
+    return { msg: "模型服务异常，请稍后重试。", retryable: true };
+  // Auth/permission
+  if (text.includes("disabled") || text.includes("llm is disabled"))
+    return { msg: "LLM 未启用，请前往系统设置开启并配置 API Key。", retryable: false };
   if (text.includes("api_key") || text.includes("authentication"))
-    return "API 密钥未配置或已失效，请前往系统设置重新设置。";
-  return text;
+    return { msg: "API 密钥未配置或已失效，请重新设置。", retryable: false };
+  // Tool sandbox
+  if (text.includes("forbidden function") || text.includes("forbidden_import"))
+    return { msg: "Agent 尝试使用被限制的操作，系统自动拦截。可重新提问让 Agent 换一种方式。", retryable: true };
+  if (text.includes("syntax error") || text.includes("unterminated"))
+    return { msg: "Agent 生成的代码有语法错误，重新生成通常可解决。", retryable: true };
+  // Caller identity
+  if (text.includes("caller_identity") || text.includes("requested_by"))
+    return { msg: "系统调用链身份缺失，请刷新页面后重试。", retryable: false };
+  // Default
+  return { msg: text, retryable: true };
 }
 
 export function TaskWorkbench() {
@@ -503,7 +520,7 @@ export function TaskWorkbench() {
         if (res.ok) {
           toast({ kind: "success", title: "回答完成", body: "可切换到时间线视图查看执行详情" });
         } else {
-          toast({ kind: "error", title: "请求失败", body: _humanFailure(res.errors?.[0] ?? "") });
+          toast({ kind: "error", title: "请求失败", body: _humanFailure(res.error_type ?? "", res.errors?.[0] ?? "").msg });
         }
         if (resolvedSid && currentWorkspaceId) {
           sessionsApi.messages(resolvedSid, currentWorkspaceId)
@@ -689,8 +706,10 @@ export function TaskWorkbench() {
                   {/* Per-message error display */}
                   {m.status === "error" && m.error && (
                     <div className="msg-error-box">
-                      <span>⚠️ {_humanFailure(m.error)}</span>
-                      <button onClick={retryLast}>🔄 重试</button>
+                      <span>⚠️ {_humanFailure(m.result?.error_type, m.error ?? "").msg}</span>
+                      {_humanFailure(m.result?.error_type, m.error ?? "").retryable && (
+                        <button onClick={retryLast}>🔄 重试</button>
+                      )}
                     </div>
                   )}
                   {/* Streaming indicator */}
@@ -763,10 +782,12 @@ export function TaskWorkbench() {
       {!sending && sessionResults.length > 0 && !sessionResults[sessionResults.length - 1].ok && lastUserInput && (
         <div className="wb-retry-bar">
           <IconAlert size={11} />
-          <span>{_humanFailure(sessionResults[sessionResults.length - 1].errors?.[0] ?? "请求失败")}</span>
-          <button type="button" onClick={() => onSend(lastUserInput)} data-testid="retry-btn">
-            自动重试
-          </button>
+          <span>{_humanFailure(sessionResults[sessionResults.length - 1].error_type, sessionResults[sessionResults.length - 1].errors?.[0] ?? "请求失败").msg}</span>
+          {_humanFailure(sessionResults[sessionResults.length - 1].error_type, sessionResults[sessionResults.length - 1].errors?.[0] ?? "").retryable && (
+            <button type="button" onClick={() => onSend(lastUserInput)} data-testid="retry-btn">
+              自动重试
+            </button>
+          )}
         </div>
       )}
 
