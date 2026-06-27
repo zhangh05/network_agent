@@ -16,18 +16,26 @@
  */
 import { create } from "zustand";
 import { persist } from "zustand/middleware";
-import type { AgentResult, SessionMessage } from "../types";
-import { sanitizeAssistantText } from "../utils/displayText";
+import type { AgentResult, SessionMessage, MessageStatus, InlineToolCall } from "../types";
+import { sanitizeAssistantText, toolLabel } from "../utils/displayText";
 
 export interface ChatMsg {
   id: string;
   role: "user" | "assistant" | "system";
   text: string;
   created_at: string;
+  /** Message lifecycle status */
+  status: MessageStatus;
   /** attached to assistant msgs only */
   result?: AgentResult;
   /** v1.0.3.2: run_id from the backend, used for dedup in mergeFromBackend */
   run_id?: string;
+  /** Inline tool calls for structured rendering */
+  toolCalls?: InlineToolCall[];
+  /** Error message when status === "error" */
+  error?: string;
+  /** Trace ID for context linking */
+  trace_id?: string;
 }
 
 const MAX_MSGS_PER_SESSION = 100;
@@ -81,10 +89,19 @@ interface WorkbenchState {
 
   switchSession: (session_id: string | null) => void;
   appendUser: (text: string, session_id: string | null) => void;
+  /** Create a streaming assistant placeholder before response arrives */
+  appendAssistantStreaming: (session_id: string | null) => string;
+  /** Finalize a streaming message with full result */
   appendAssistant: (
     text: string,
     result: AgentResult | undefined,
     session_id: string | null,
+  ) => void;
+  /** Update an existing message (streaming→ready/error, append tool calls) */
+  updateAssistant: (
+    msgId: string,
+    patch: Partial<Pick<ChatMsg, "status" | "text" | "error" | "toolCalls" | "trace_id" | "result">>,
+    session_id?: string,
   ) => void;
   setSending: (v: boolean) => void;
   setLatestResult: (r: AgentResult) => void;
@@ -120,6 +137,7 @@ export const useWorkbenchStore = create<WorkbenchState>()(
           id: nextId(),
           role: "user",
           text,
+          status: "ready",
           created_at: new Date().toISOString(),
         };
         set((s) => {
@@ -129,18 +147,53 @@ export const useWorkbenchStore = create<WorkbenchState>()(
         });
       },
 
+      appendAssistantStreaming: (session_id) => {
+        const sid = session_id ?? get().currentSessionId ?? "_scratch";
+        const msgId = nextId();
+        const msg: ChatMsg = {
+          id: msgId,
+          role: "assistant",
+          text: "",
+          status: "streaming",
+          created_at: new Date().toISOString(),
+          toolCalls: [],
+        };
+        set((s) => {
+          const cur = s.bySession[sid] ?? [];
+          const next = capHistory({ ...s.bySession, [sid]: [...cur, msg] }, sid);
+          return { bySession: next };
+        });
+        return msgId;
+      },
+
       appendAssistant: (text, result, session_id) => {
         const sid = session_id ?? get().currentSessionId ?? "_scratch";
         const cleanText = sanitizeAssistantText(text);
         const cleanResult = result
           ? { ...result, final_response: sanitizeAssistantText(result.final_response ?? "") }
           : undefined;
+        // Build inline tool calls from result
+        const toolCalls: InlineToolCall[] = (cleanResult?.tool_calls ?? []).map((tc) => ({
+          tool_id: tc.tool_id,
+          tool_name: toolLabel(tc.tool_id),
+          ok: tc.ok,
+          summary: tc.summary,
+          duration_ms: tc.duration_ms ?? undefined,
+          errors: tc.errors,
+          artifacts: tc.artifacts,
+        }));
         const msg: ChatMsg = {
           id: nextId(),
           role: "assistant",
           text: cleanText,
+          status: cleanResult?.ok === false && !cleanText ? "error" : "ready",
           created_at: new Date().toISOString(),
           result: cleanResult,
+          toolCalls: toolCalls.length > 0 ? toolCalls : undefined,
+          error: !cleanResult?.ok && cleanResult?.errors?.length
+            ? cleanResult.errors[0] : undefined,
+          trace_id: cleanResult?.trace_id,
+          run_id: cleanResult?.turn_id,
         };
         set((s) => {
           const cur = s.bySession[sid] ?? [];
@@ -155,6 +208,21 @@ export const useWorkbenchStore = create<WorkbenchState>()(
             bySession: next,
             results: nextResults,
           };
+        });
+      },
+
+      updateAssistant: (msgId, patch, session_id) => {
+        const sid = session_id ?? get().currentSessionId ?? "_scratch";
+        set((s) => {
+          const cur = s.bySession[sid] ?? [];
+          const idx = cur.findIndex((m) => m.id === msgId);
+          if (idx < 0) return s;
+          const updated = { ...cur[idx], ...patch };
+          const next = capHistory(
+            { ...s.bySession, [sid]: [...cur.slice(0, idx), updated, ...cur.slice(idx + 1)] },
+            sid,
+          );
+          return { bySession: next };
         });
       },
 
@@ -192,6 +260,7 @@ export const useWorkbenchStore = create<WorkbenchState>()(
             `srv-${m.run_id ?? m.created_at}-${Math.random().toString(36).slice(2, 8)}`,
           role: m.role,
           text: m.role === "assistant" ? sanitizeAssistantText(m.content) : m.content,
+          status: "ready",
           created_at: m.created_at,
           run_id: m.run_id,
           // `result` 不可从后端还原, 渲染为纯文本气泡 (无 inline 工具调用)

@@ -118,7 +118,7 @@ describe("useWorkbenchStore — bySession + persist (plan-C)", () => {
       bySession: Object.fromEntries(
         ["session_28", "session_21", "session_29", "session_3", "session_4"].map((id) => [
           id,
-          [{ id: `${id}-1`, role: "user", text: id, created_at: "2026-06-18T00:00:00Z" }],
+          [{ id: `${id}-1`, role: "user", text: id, status: "ready", created_at: "2026-06-18T00:00:00Z" }],
         ]),
       ),
       currentSessionId: "f07f3f4731b8495c",

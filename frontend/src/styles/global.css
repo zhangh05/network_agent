@@ -3576,3 +3576,106 @@ details.collapse[open] summary::before {
   visibility: visible;
 }
 
+/* ============================================================
+   v3.10: Tool call cards, error display, streaming transitions
+   ============================================================ */
+
+/* ── Inline tool call cards ── */
+.tool-calls-inline {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  margin-bottom: 6px;
+}
+
+.tool-call-card {
+  border: 1px solid var(--border-2);
+  border-radius: 6px;
+  padding: 4px 8px;
+  cursor: pointer;
+  font-size: var(--fs-11);
+  background: var(--surface-2);
+  transition: border-color var(--dur-1);
+  user-select: none;
+}
+.tool-call-card.ok { border-left: 3px solid var(--ok); }
+.tool-call-card.fail { border-left: 3px solid var(--danger); }
+.tool-call-card:hover { border-color: var(--brand); }
+
+.tool-call-card-header {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+.tc-seq { color: var(--text-4); font-size: 10px; min-width: 18px; }
+.tc-icon { font-size: 12px; }
+.tc-name { color: var(--text-2); font-weight: 500; }
+.tc-chev { color: var(--text-4); margin-left: auto; font-size: 10px; }
+
+.tool-call-card-body {
+  margin-top: 4px;
+  padding-top: 4px;
+  border-top: 1px solid var(--border-1);
+}
+.tc-summary { color: var(--text-2); font-size: var(--fs-11); margin-bottom: 2px; }
+.tc-error { color: var(--danger); font-size: 10px; margin-bottom: 2px; }
+.tc-duration { color: var(--text-4); font-size: 10px; }
+.tc-artifacts { display: flex; flex-wrap: wrap; gap: 3px; margin-top: 3px; }
+.tc-artifact-tag {
+  background: var(--surface-3);
+  border-radius: 3px;
+  padding: 1px 5px;
+  font-size: 10px;
+  color: var(--text-3);
+}
+
+/* ── Per-message error box ── */
+.msg-error-box {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 10px;
+  border: 1px solid var(--danger);
+  border-radius: 6px;
+  background: var(--danger-soft);
+  font-size: var(--fs-11);
+  color: var(--danger);
+  margin-top: 6px;
+}
+.msg-error-box button {
+  background: var(--danger);
+  color: #fff;
+  border: none;
+  border-radius: 4px;
+  padding: 2px 8px;
+  font-size: var(--fs-11);
+  cursor: pointer;
+  white-space: nowrap;
+}
+.msg-error-box button:hover { opacity: 0.85; }
+
+/* ── Inline streaming indicator (inside message bubble) ── */
+.streaming-indicator-inline {
+  display: flex;
+  align-items: center;
+  padding: 2px 0;
+  margin-top: 4px;
+}
+
+/* ── Streaming text during message generation ── */
+.streaming-text {
+  display: block;
+  white-space: pre-wrap;
+  word-break: break-word;
+  opacity: 0.85;
+  animation: fadeInStream var(--dur-4) ease-out;
+}
+@keyframes fadeInStream {
+  from { opacity: 0.6; }
+  to { opacity: 0.85; }
+}
+
+/* ── Message row status modifiers ── */
+.message-row.assistant.error { border-left: 2px solid var(--danger); padding-left: 8px; }
+.message-row.assistant.streaming .chat-bubble { opacity: 0.9; }
+

@@ -825,3 +825,18 @@ export interface RuntimeModeResponse {
   mode: string;
   graph_runner_available: boolean;
 }
+
+/* ──────────────────────────── Message Status ──────────────────────────── */
+
+export type MessageStatus = "streaming" | "ready" | "error";
+
+/** Inline tool call data for structured rendering within messages */
+export interface InlineToolCall {
+  tool_id: string;
+  tool_name: string;
+  ok: boolean;
+  summary?: string;
+  duration_ms?: number;
+  errors?: string[];
+  artifacts?: Array<{ artifact_id: string; artifact_type: string; title: string }>;
+}

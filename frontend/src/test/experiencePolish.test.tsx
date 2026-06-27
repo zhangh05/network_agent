@@ -100,8 +100,8 @@ describe("Experience polish", () => {
       useWorkbenchStore.setState({
         bySession: {
           "sess-restored": [
-            { id: "u1", role: "user", text: "你好", created_at: "2026-06-18T06:38:23Z" },
-            { id: "a1", role: "assistant", text: "你好，我在。", created_at: "2026-06-18T06:38:24Z" },
+            { id: "u1", role: "user", text: "你好", status: "ready", created_at: "2026-06-18T06:38:23Z" },
+            { id: "a1", role: "assistant", text: "你好，我在。", status: "ready", created_at: "2026-06-18T06:38:24Z" },
           ],
         },
         currentSessionId: "sess-restored",

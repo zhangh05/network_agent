@@ -5,7 +5,7 @@ import { useSessionStore } from "../../stores/session";
 import { useWorkbenchStore } from "../../stores/workbench";
 import { useToastStore } from "../../stores/toast";
 import { isApiError } from "../../types";
-import type { AgentResult, ToolCallResult } from "../../types";
+import type { AgentResult, ToolCallResult, InlineToolCall } from "../../types";
 import { sanitizeAssistantText, renderAssistantHtml, toolLabel, filterStreamingThink } from "../../utils/displayText";
 import { beginModelStep, discardToolCallDraft, finalizeStreamText } from "../../utils/agentStream";
 import hljs from "highlight.js/lib/core";
@@ -104,6 +104,8 @@ export function TaskWorkbench() {
   const bySession = useWorkbenchStore((s) => s.bySession);
   const appendUser = useWorkbenchStore((s) => s.appendUser);
   const appendAssistant = useWorkbenchStore((s) => s.appendAssistant);
+  const appendAssistantStreaming = useWorkbenchStore((s) => s.appendAssistantStreaming);
+  const updateAssistant = useWorkbenchStore((s) => s.updateAssistant);
   const setSending = useWorkbenchStore((s) => s.setSending);
   const switchSession = useWorkbenchStore((s) => s.switchSession);
   const mergeFromBackend = useWorkbenchStore((s) => s.mergeFromBackend);
@@ -133,6 +135,27 @@ export function TaskWorkbench() {
     setSending(false);
     setStreamingText("");
   }, [setSending]);
+
+  // Scroll position memory: restore on session switch
+  const scrollPositions = useRef<Record<string, number>>({});
+  useEffect(() => {
+    const key = currentSessionId ?? "_scratch";
+    const pos = scrollPositions.current[key];
+    if (pos && chatRef.current) {
+      requestAnimationFrame(() => {
+        chatRef.current?.scrollTo({ top: pos, behavior: "auto" });
+      });
+    }
+  }, [currentSessionId]);
+
+  // Save scroll position on session switch
+  useEffect(() => {
+    const key = currentSessionId ?? "_scratch";
+    const el = chatRef.current;
+    if (el) {
+      scrollPositions.current[key] = el.scrollTop;
+    }
+  });
 
   // Clean up abort controller on unmount
   useEffect(() => () => { abortRef.current?.abort(); }, []);
@@ -226,6 +249,11 @@ export function TaskWorkbench() {
     return () => ctrl.abort();
   }, [currentSessionId, currentWorkspaceId]);
 
+  // Retry: resend last user input (used by error inline retry and regenerate)
+  const retryLast = useCallback(() => {
+    if (lastUserInput && !sending) onSend(lastUserInput);
+  }, [lastUserInput, sending]);  // eslint-disable-line
+
   // v3.9: SSE real-time timeline updates
   useEffect(() => {
     if (!currentSessionId || !currentWorkspaceId || typeof EventSource === "undefined") return;
@@ -298,6 +326,7 @@ export function TaskWorkbench() {
 
     const scratch = currentSessionId;
     appendUser(fullText, scratch);
+    const streamingMsgId = appendAssistantStreaming(scratch);
     setSending(true);
     setStreamingText("");  // Clear previous streaming text
 
@@ -423,7 +452,27 @@ export function TaskWorkbench() {
       }
 
       const wsResult = agentResultFromWsDone(streamingResult, streamedText, resolvedSid);
-      appendAssistant(wsResult.final_response, wsResult, resolvedSid);
+      // Finalize the optimistic streaming message
+      const cleanText = sanitizeAssistantText(wsResult.final_response);
+      const cleanResult = { ...wsResult, final_response: sanitizeAssistantText(wsResult.final_response ?? "") };
+      const toolCalls: InlineToolCall[] = (cleanResult.tool_calls ?? []).map((tc) => ({
+        tool_id: tc.tool_id,
+        tool_name: toolLabel(tc.tool_id),
+        ok: tc.ok,
+        summary: tc.summary,
+        duration_ms: tc.duration_ms ?? undefined,
+        errors: tc.errors,
+        artifacts: tc.artifacts as InlineToolCall["artifacts"],
+      }));
+      updateAssistant(streamingMsgId, {
+        status: wsResult.errors?.length ? "error" : "ready",
+        text: cleanText,
+        result: cleanResult,
+        toolCalls: toolCalls.length > 0 ? toolCalls : undefined,
+        error: wsResult.errors?.[0],
+        trace_id: wsResult.trace_id,
+      }, resolvedSid);
+      setLatestResult(wsResult);
       notifyRunCompleted();
 
       if (resolvedSid && currentWorkspaceId) {
@@ -606,25 +655,54 @@ export function TaskWorkbench() {
                 <div className="message-avatar user">我</div>
               </div>
             ) : (
-              <div key={m.id} className="message-row assistant" data-testid="chat-assistant">
+              <div key={m.id} className={`message-row assistant${m.status === "error" ? " error" : ""}${m.status === "streaming" ? " streaming" : ""}`} data-testid="chat-assistant">
                 <div className="message-avatar agent">网</div>
                 <div className="message-stack">
+                  {/* Inline tool calls */}
+                  {m.toolCalls && m.toolCalls.length > 0 && (
+                    <div className="tool-calls-inline">
+                      {m.toolCalls.map((tc, tci) => (
+                        <InlineToolCallCard key={`${tc.tool_id}-${tci}`} toolCall={tc} seq={tci + 1} />
+                      ))}
+                    </div>
+                  )}
+                  {/* Message body */}
                   {(() => {
                     const { thinking, body } = parseThinking(m.text);
+                    const html = body ? renderAssistantHtml(body) : "";
+                    // During streaming, show plain text if no HTML
+                    if (m.status === "streaming" && !html && m.text) {
+                      return <span className="text-sm streaming-text">{m.text}</span>;
+                    }
                     return (
                       <>
                         {thinking && <ThinkingBlock content={thinking} />}
-                        {(() => {
-                          const html = renderAssistantHtml(body);
-                          if (!html) return <span className="muted">(空消息)</span>;
-                          // Post-process for code highlighting
-                          const highlighted = highlightCode(html);
-                          return <div className="chat-bubble assistant markdown-body" onClick={handleCodeCopyClick} dangerouslySetInnerHTML={{ __html: highlighted }} />;
-                        })()}
+                        {html ? (
+                          <div className="chat-bubble assistant markdown-body" onClick={handleCodeCopyClick} dangerouslySetInnerHTML={{ __html: highlightCode(html) }} />
+                        ) : (!m.text && m.status !== "streaming") ? (
+                          <span className="muted">(空消息)</span>
+                        ) : null}
                       </>
                     );
                   })()}
                   <ResultInline result={m.result} fallbackText={sanitizeAssistantText(m.text)} />
+                  {/* Per-message error display */}
+                  {m.status === "error" && m.error && (
+                    <div className="msg-error-box">
+                      <span>⚠️ {_humanFailure(m.error)}</span>
+                      <button onClick={retryLast}>🔄 重试</button>
+                    </div>
+                  )}
+                  {/* Streaming indicator */}
+                  {m.status === "streaming" && (
+                    <div className="streaming-indicator-inline">
+                      <span className="typing-indicator">
+                        <span className="typing-dot" />
+                        <span className="typing-dot" />
+                        <span className="typing-dot" />
+                      </span>
+                    </div>
+                  )}
                   {/* Regenerate: only on last assistant message */}
                   {!sending && idx === visibleHistory.length - 1 && lastUserInput && (
                     <button
@@ -750,12 +828,48 @@ export function TaskWorkbench() {
 }
 
 /* ==============================================================
+   Inline tool call card
+   ============================================================== */
+
+function InlineToolCallCard({ toolCall, seq }: { toolCall: InlineToolCall; seq: number }) {
+  const [open, setOpen] = useState(false);
+  const errText = toolCall.errors?.join(", ");
+  return (
+    <div className={`tool-call-card ${toolCall.ok ? "ok" : "fail"}`} onClick={() => setOpen(!open)}>
+      <div className="tool-call-card-header">
+        <span className="tc-seq">#{seq}</span>
+        <span className="tc-icon">{toolCall.ok ? "✅" : "❌"}</span>
+        <span className="tc-name">{toolCall.tool_name}</span>
+        <span className="tc-chev">{open ? "▾" : "▸"}</span>
+      </div>
+      {open && (
+        <div className="tool-call-card-body">
+          {toolCall.summary && <div className="tc-summary">{toolCall.summary}</div>}
+          {errText && <div className="tc-error">{errText}</div>}
+          {toolCall.duration_ms != null && (
+            <div className="tc-duration">{(toolCall.duration_ms / 1000).toFixed(1)}s</div>
+          )}
+          {toolCall.artifacts && toolCall.artifacts.length > 0 && (
+            <div className="tc-artifacts">
+              {toolCall.artifacts.map((a) => (
+                <span key={a.artifact_id} className="tc-artifact-tag">📄 {a.title || a.artifact_id}</span>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
+/* ==============================================================
    Helpers
    ============================================================== */
 
-/** Parse <thinking>...</thinking> blocks from markdown content */
+/** Parse <think>...</think> and <thinking>...</thinking> blocks from content */
 function parseThinking(text: string): { thinking: string; body: string } {
-  const match = text.match(/<thinking>([\s\S]*?)<\/thinking>/i);
+  const pat = /<(?:think|thinking)>([\s\S]*?)<\/(?:think|thinking)>/i;
+  const match = text.match(pat);
   if (match) {
     return { thinking: match[1].trim(), body: text.replace(match[0], "").trim() };
   }
