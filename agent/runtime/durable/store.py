@@ -33,7 +33,7 @@ def get_task(ws_id: str, task_id: str) -> Optional[TaskState]:
     p = _task_dir(ws_id) / f"{task_id}.json"
     if not p.exists(): return None
     try: return TaskState.from_dict(json.loads(p.read_text()))
-    except: return None
+    except Exception: return None
 
 def list_tasks(ws_id: str, session_id="", limit=50) -> list[TaskState]:
     d = _task_dir(ws_id)
@@ -45,7 +45,7 @@ def list_tasks(ws_id: str, session_id="", limit=50) -> list[TaskState]:
             if session_id and t.session_id != session_id: continue
             tasks.append(t)
             if len(tasks) >= limit: break
-        except: continue
+        except Exception: continue
     return tasks
 
 # ── Events ──
@@ -67,7 +67,7 @@ def get_events(ws_id, task_id, limit=100) -> list[dict]:
         for line in p.read_text().splitlines():
             if line.strip(): evts.append(json.loads(line))
         return evts[-limit:]
-    except: return evts
+    except Exception: return evts
 
 # ── Checkpoints ──
 def save_checkpoint(cp: RuntimeCheckpoint):
@@ -83,5 +83,5 @@ def get_checkpoints(ws_id, task_id) -> list[dict]:
     cps = []
     for f in sorted(d.glob("*.json"), key=lambda x: x.stat().st_mtime):
         try: cps.append(json.loads(f.read_text()))
-        except: continue
+        except Exception: continue
     return cps

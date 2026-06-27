@@ -380,13 +380,13 @@ def _load_task(ws_id: str, subtask_id: str) -> Optional[SubagentTask]:
     try:
         raw = json.loads(p.read_text())
         return SubagentTask(**{k:v for k,v in raw.items() if k in SubagentTask.__dataclass_fields__})
-    except: return None
+    except Exception: return None
 
 def _get_manifest(tool_id: str):
     try:
         from tool_runtime.manifest_registry import get_manifest as gm
         return gm(tool_id)
-    except: return None
+    except Exception: return None
 
 def _execute_as_subagent(tool_id: str, args: dict, ws_id: str) -> dict:
     try:

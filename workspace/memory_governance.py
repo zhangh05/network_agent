@@ -81,7 +81,7 @@ class MemoryStore:
         p = self._path(ws_id, memory_id)
         if not p.exists(): return None
         try: return MemoryRecord.from_dict(json.loads(p.read_text()))
-        except: return None
+        except Exception: return None
 
     def list_all(self, ws_id: str) -> list[MemoryRecord]:
         d = self._dir(ws_id)
@@ -89,7 +89,7 @@ class MemoryStore:
         recs = []
         for f in sorted(d.glob("*.json"), key=lambda x: x.stat().st_mtime, reverse=True):
             try: recs.append(MemoryRecord.from_dict(json.loads(f.read_text())))
-            except: continue
+            except Exception: continue
         return recs
 
     def list_by_status(self, ws_id: str, status: MemoryStatus) -> list[MemoryRecord]:

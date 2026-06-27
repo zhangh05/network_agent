@@ -109,9 +109,9 @@ def agent_message():
     metadata = data.get("metadata") or {}
     # Cap metadata size to prevent abuse
     try:
-            meta_json = jsonify(metadata).get_data(as_text=True) if metadata else "{}"
-            if len(meta_json) > 16384:
-                return _json_error("PAYLOAD_TOO_LARGE", "metadata too large (max 16KB)", 413)
+        meta_json = jsonify(metadata).get_data(as_text=True) if metadata else "{}"
+        if len(meta_json) > 16384:
+            return _json_error("PAYLOAD_TOO_LARGE", "metadata too large (max 16KB)", 413)
     except Exception:
         metadata = {}
     if not isinstance(metadata, dict):
@@ -143,60 +143,17 @@ def agent_message():
             pass
 
         # ── Job: one per session, accumulating runs underneath ──
-        # Use result's session_id as fallback when frontend sends null (new session)
         effective_session_id = session_id or result_payload.get("session_id", "")
         if effective_session_id:
             try:
-                from jobs.store import get_job, update_job, list_jobs
-                from jobs.manager import create_job, mark_running, update_progress
-
-                job_id = None
-                for j in list_jobs(ws_id=ws_id, limit=100):
-                    p = j.get("payload", {}) or {}
-                    if p.get("session_id") == effective_session_id and j.get("status") in ("created","queued","running","succeeded","failed","paused","cancelled"):
-                        job_id = j.get("job_id", "")
-                        break
-
-                if not job_id:
-                    # New job — use session title if available
-                    title = user_input[:40].replace("\n", " ")
-                    try:
-                        from workspace.session_store import get_session
-                        s = get_session(effective_session_id, ws_id)
-                        if s and s.get("title"):
-                            title = s["title"]
-                    except Exception:
-                        _log.warning("session title lookup failed session=%s ws=%s", effective_session_id, ws_id)
-                    j = create_job(workspace_id=ws_id, job_type="agent_run", title=title,
-                                   payload={"session_id": effective_session_id}, created_by="api")
-                    job_id = j.job_id
-
-                rec = get_job(ws_id, job_id)
-                if rec and rec.status in ("created", "queued"):
-                    mark_running(ws_id, job_id)
-
-                run_id = result_payload.get("run_id", "")
-                if run_id and job_id:
-                    rec = get_job(ws_id, job_id)
-                    new_ids = list(getattr(rec, "run_ids", None) or [])
-
-                    # Merge existing session run_ids into job (recovery from orphan cleanup)
-                    try:
-                        from workspace.session_store import get_session
-                        s = get_session(effective_session_id, ws_id)
-                        if s:
-                            for rid in (s.get("run_ids") or []):
-                                if rid not in new_ids:
-                                    new_ids.append(rid)
-                    except Exception:
-                        _log.warning("run_ids merge failed session=%s ws=%s", effective_session_id, ws_id)
-
-                    if run_id not in new_ids:
-                        new_ids.append(run_id)
-                    tc = len(result_payload.get("tool_calls", []))
-                    update_job(ws_id, job_id, {"run_ids": new_ids})
-                    update_progress(ws_id, job_id, current=len(new_ids),
-                                    message=f"{len(new_ids)}轮 | {tc}工具调用")
+                from jobs.lifecycle import attach_run_to_session_job
+                attach_run_to_session_job(
+                    ws_id=ws_id,
+                    session_id=effective_session_id,
+                    run_id=result_payload.get("run_id", ""),
+                    tool_call_count=len(result_payload.get("tool_calls", [])),
+                    user_input=user_input,
+                )
             except Exception:
                 _log.exception(
                     "Job lifecycle error for session=%s ws=%s user_input=%.80s",

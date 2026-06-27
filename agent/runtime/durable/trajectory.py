@@ -152,7 +152,7 @@ def get_trajectory(traj_id: str, ws_id: str) -> Optional[dict]:
     p = WS_ROOT / ws_id / "trajectories" / f"{traj_id}.json"
     if not p.exists(): return None
     try: return json.loads(p.read_text())
-    except: return None
+    except Exception: return None
 
 
 def list_trajectories(ws_id: str, limit=50) -> list[dict]:
@@ -161,7 +161,7 @@ def list_trajectories(ws_id: str, limit=50) -> list[dict]:
     results = []
     for f in sorted(d.glob("*.json"), key=lambda x: x.stat().st_mtime, reverse=True):
         try: results.append(json.loads(f.read_text()))
-        except: continue
+        except Exception: continue
         if len(results) >= limit: break
     return results
 

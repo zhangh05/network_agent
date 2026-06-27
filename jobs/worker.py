@@ -1,7 +1,15 @@
 # jobs/worker.py
-"""Local worker — poll queued jobs and execute them."""
+"""Local worker — poll queued jobs and execute them.
 
-import json, time, os
+Locking: fcntl.flock is used for cross-process advisory locking.
+It releases automatically when the process exits or unlocks the fd,
+providing crash-safe mutual exclusion without stale lock detection.
+"""
+
+import fcntl
+import json
+import os
+import time
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -34,16 +42,17 @@ def run_once() -> dict:
     from jobs.store import get_next_queued_job
     from jobs.runner import run_job
 
-    # Acquire lock
+    # Acquire lock via fcntl.flock (crash-safe: released on process exit)
     RUNTIME.mkdir(parents=True, exist_ok=True)
-    if LOCK_PATH.exists():
-        # Check if stale (>30s)
-        age = time.time() - LOCK_PATH.stat().st_mtime
-        if age < 30:
+    try:
+        lock_fd = os.open(LOCK_PATH, os.O_CREAT | os.O_RDWR)
+        try:
+            fcntl.flock(lock_fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except BlockingIOError:
+            os.close(lock_fd)
             return {"status": "locked", "message": "Another worker is running"}
-        LOCK_PATH.unlink()
-
-    LOCK_PATH.write_text(str(os.getpid()))
+    except OSError:
+        return {"status": "error", "message": "Failed to acquire lock"}
 
     try:
         job = get_next_queued_job()
@@ -56,8 +65,13 @@ def run_once() -> dict:
         _write_state({"status": "completed", "job_id": job.job_id, "job_type": job.job_type})
         return {"status": "completed", "job_id": job.job_id}
     finally:
-        if LOCK_PATH.exists():
-            LOCK_PATH.unlink()
+        fcntl.flock(lock_fd, fcntl.LOCK_UN)
+        os.close(lock_fd)
+        # Clean up lock file
+        try:
+            LOCK_PATH.unlink(missing_ok=True)
+        except Exception:
+            pass
 
 
 def get_worker_state() -> dict:

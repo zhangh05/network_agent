@@ -82,7 +82,7 @@ class EcoRegistry:
         p = self._prov_path(ws_id, pid)
         if not p.exists(): return None
         try: return ExternalProvider.from_dict(json.loads(p.read_text()))
-        except: return None
+        except Exception: return None
 
     def list_providers(self, ws_id: str) -> list[ExternalProvider]:
         d = self._dir(ws_id) / "providers"
@@ -90,7 +90,7 @@ class EcoRegistry:
         provs = []
         for f in sorted(d.glob("*.json")):
             try: provs.append(ExternalProvider.from_dict(json.loads(f.read_text())))
-            except: continue
+            except Exception: continue
         return provs
 
     def delete_provider(self, ws_id: str, pid: str):
@@ -181,7 +181,7 @@ def apply_import(data: dict, ws_id: str, confirm: bool = False) -> dict:
                 )
                 gate.write(rec)
                 results["memories_imported"] += 1
-            except: pass
+            except Exception: pass
     # Import providers
     reg = EcoRegistry()
     if "providers" in data:
@@ -195,7 +195,7 @@ def apply_import(data: dict, ws_id: str, confirm: bool = False) -> dict:
                 )
                 reg.save_provider(ws_id, prov)
                 results["providers_imported"] += 1
-            except: pass
+            except Exception: pass
     return {"ok": True, **results}
 
 
@@ -212,4 +212,4 @@ def _audit(ws_id: str, pid: str, event_type: str):
             title=f"Ecosystem: {event_type}",
             summary=f"Provider {pid}: {event_type}",
         ))
-    except: pass
+    except Exception: pass

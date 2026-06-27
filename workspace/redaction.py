@@ -2,21 +2,33 @@
 
 import re
 
-SECRET_PATTERNS = [
-    r'(password\s+\S+)', r'(secret\s+\S+)', r'(community\s+\S+)',
-    r'(key\s+\S+)', r'(pre-shared-key\s+\S+)', r'(tacacs.*key\s+\S+)',
-    r'(radius.*key\s+\S+)', r'sk-[A-Za-z0-9]{20,}', r'(api[_-]?key[=:]\s*\S+)',
-    r'(authorization\s+\S+)', r'(token[=:]\s*\S+)', r'(private[_-]?key)',
-    r'(OPENAI_API_KEY[=:]\s*\S+)', r'(DEEPSEEK_API_KEY[=:]\s*\S+)',
-    r'(MINIMAX_API_KEY[=:]\s*\S+)', r'(ipsec\s+\S+\s+\S+)',
+# Patterns are split into two groups:
+# 1. KEYWORD patterns — keep the keyword (e.g. "password") but mask the value
+# 2. FULL patterns — mask the entire match (e.g. "sk-abc123...")
+_KEYWORD_PATTERNS = [
+    r'(password)\s+\S+', r'(secret)\s+\S+', r'(community)\s+\S+',
+    r'(key)\s+\S+', r'(pre-shared-key)\s+\S+', r'(tacacs.*key)\s+\S+',
+    r'(radius.*key)\s+\S+', r'(api[_-]?key[=:]\s*)\S+',
+    r'(authorization)\s+\S+', r'(token[=:]\s*)\S+',
+    r'(OPENAI_API_KEY[=:]\s*)\S+', r'(DEEPSEEK_API_KEY[=:]\s*)\S+',
+    r'(MINIMAX_API_KEY[=:]\s*)\S+', r'(ipsec)\s+\S+\s+\S+',
+]
+
+_FULL_MASK_PATTERNS = [
+    r'sk-[A-Za-z0-9]{20,}',
+    r'private[_-]?key',
 ]
 
 MASK = "[REDACTED_SECRET]"
 
 def redact_text(text: str) -> str:
     if not text: return text
-    for pat in SECRET_PATTERNS:
-        text = re.sub(pat, lambda m: m.group(0)[:2]+MASK, text, flags=re.IGNORECASE)
+    # Keyword patterns: keep the keyword, mask the secret value
+    for pat in _KEYWORD_PATTERNS:
+        text = re.sub(pat, lambda m: m.group(1) + " " + MASK, text, flags=re.IGNORECASE)
+    # Full-mask patterns: replace entire match
+    for pat in _FULL_MASK_PATTERNS:
+        text = re.sub(pat, MASK, text, flags=re.IGNORECASE)
     return text
 
 def redact_dict(data: dict) -> dict:
@@ -37,7 +49,7 @@ def redact_dict(data: dict) -> dict:
 
 def contains_secret(text: str) -> bool:
     if not text: return False
-    for pat in SECRET_PATTERNS:
+    for pat in _KEYWORD_PATTERNS + _FULL_MASK_PATTERNS:
         if re.search(pat, text, re.IGNORECASE):
             return True
     return False

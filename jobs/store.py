@@ -57,12 +57,20 @@ def create_job(rec: JobRecord) -> JobRecord:
 
 
 def get_job(ws_id, job_id) -> Optional[JobRecord]:
+    if not job_id:
+        return None
     path = _job_dir(ws_id, job_id) / f"{job_id}.json"
     if not path.is_file(): return None
     try:
         d = json.loads(path.read_text())
         return JobRecord(**{k: v for k, v in d.items() if k in JobRecord.__dataclass_fields__})
+    except json.JSONDecodeError:
+        import logging
+        logging.getLogger("jobs.store").error("corrupt job file: %s", path)
+        return None
     except Exception:
+        import logging
+        logging.getLogger("jobs.store").exception("unexpected error reading job: %s", path)
         return None
 
 
@@ -142,6 +150,8 @@ def list_jobs(ws_id=None, status=None, job_type=None, limit=100) -> list:
 
 
 def delete_job(ws_id, job_id, soft=True) -> bool:
+    if not job_id:
+        raise ValueError("job_id is required for delete_job")
     if soft:
         return bool(update_job(ws_id, job_id, {"status": "cancelled", "cancel_requested": True}))
     shutil.rmtree(_job_dir(ws_id, job_id), ignore_errors=True)
@@ -251,9 +261,3 @@ def _update_workspace_stats(ws_id):
         update_workspace_state(ws_id, {"job_stats": counts})
     except Exception:
         pass
-
-def _write_atomic(path, content):
-    tmp = str(path) + ".tmp." + str(int(time.time()))
-    with open(tmp, "w", encoding="utf-8") as f:
-        f.write(content)
-    os.replace(tmp, str(path))

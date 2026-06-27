@@ -151,6 +151,8 @@ def _complete_session_job(ws_id, session_id, status="succeeded", hard_delete=Fal
 
     Instead, we scan the jobs directory directly.
     """
+    import logging
+    _log = logging.getLogger("session_routes.job_cleanup")
     try:
         from jobs.store import get_job, delete_job, _get_ws_root
         from jobs.manager import mark_succeeded, cancel_job
@@ -174,7 +176,10 @@ def _complete_session_job(ws_id, session_id, status="succeeded", hard_delete=Fal
                         cancel_job(ws_id, j.job_id)
                     break
     except Exception:
-        pass
+        _log.exception(
+            "Failed to complete session job: ws=%s session=%s status=%s hard_delete=%s",
+            ws_id, session_id, status, hard_delete,
+        )
 
 
 def handle_session_archive(session_id):
@@ -211,16 +216,32 @@ def handle_session_restore(session_id):
         return jsonify({"ok": False, "error": "session_not_found"}), 404
 
     # Re-activate the job if it was completed/cancelled
+    import logging
+    _log = logging.getLogger("session_routes.restore")
     try:
-        from jobs.store import get_job, update_job, list_jobs
+        from jobs.store import get_job, list_jobs
+        from jobs.manager import mark_running
         for j in list_jobs(ws_id=ws_id, limit=500):
             p = j.get("payload", {}) or {}
             if p.get("session_id") == session_id and j.get("status") in ("succeeded", "failed", "cancelled"):
                 job_id = j.get("job_id", "")
-                update_job(ws_id, job_id, {"status": "running", "finished_at": ""})
+                # Use state machine: mark_running handles succeeded→running
+                # and cancelled→running transitions.
+                # For failed jobs, retry_job→queued then mark_running.
+                try:
+                    rec = get_job(ws_id, job_id)
+                    if rec and rec.status == "failed":
+                        from jobs.manager import retry_job
+                        retry_job(ws_id, job_id)
+                    mark_running(ws_id, job_id)
+                    # Clear finished_at to indicate active execution
+                    from jobs.store import update_job
+                    update_job(ws_id, job_id, {"finished_at": ""})
+                except ValueError as e:
+                    _log.warning("job reactivation failed job=%s status=%s: %s", job_id, j.get("status"), e)
                 break
     except Exception:
-        pass
+        _log.exception("session restore job reactivation failed ws=%s session=%s", ws_id, session_id)
 
     return jsonify({"ok": True, "session": session})
 
@@ -273,7 +294,7 @@ def handle_session_delete_permanently(session_id):
 
     return jsonify({
         "ok": True,
-        "message": "Session metadata deleted. Run records and artifacts remain intact.",
+        "message": "Session deleted. Run records and traces cleaned up. Artifacts retained for audit.",
     })
 
 

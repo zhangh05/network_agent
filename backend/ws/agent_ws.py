@@ -182,60 +182,18 @@ def _run_agent_thread(user_input, session_id, workspace_id, metadata, event_queu
 
         result_payload = result.to_dict()
 
-        # ── Job lifecycle (mirrors agent_routes.py) ──
+        # ── Job lifecycle (unified via jobs.lifecycle) ──
         effective_session_id = session_id or result_payload.get("session_id", "")
         if effective_session_id:
             try:
-                from jobs.store import get_job, update_job, list_jobs
-                from jobs.manager import create_job, mark_running, update_progress
-
-                job_id = None
-                for j in list_jobs(ws_id=workspace_id, limit=500):
-                    p = j.get("payload", {}) or {}
-                    if p.get("session_id") == effective_session_id and j.get("status") in ("created","queued","running","succeeded","failed","paused","cancelled"):
-                        job_id = j.get("job_id", "")
-                        _log.debug("WS job found: %s for session=%s", job_id, effective_session_id)
-                        break
-
-                if not job_id:
-                    title = user_input[:40].replace("\n", " ")
-                    try:
-                        from workspace.session_store import get_session
-                        s = get_session(effective_session_id, workspace_id)
-                        if s and s.get("title"):
-                            title = s["title"]
-                    except Exception:
-                        pass
-                    j = create_job(workspace_id=workspace_id, job_type="agent_run", title=title,
-                                   payload={"session_id": effective_session_id}, created_by="api")
-                    job_id = j.job_id
-                    _log.info("WS job created: %s for session=%s title=%.40s", job_id, effective_session_id, title)
-
-                rec = get_job(workspace_id, job_id)
-                if rec and rec.status in ("created", "queued"):
-                    mark_running(workspace_id, job_id)
-                    _log.debug("WS job marked running: %s", job_id)
-
-                run_id = result_payload.get("run_id", "")
-                if run_id and job_id:
-                    rec = get_job(workspace_id, job_id)
-                    new_ids = list(getattr(rec, "run_ids", None) or [])
-                    try:
-                        from workspace.session_store import get_session
-                        s = get_session(effective_session_id, workspace_id)
-                        if s:
-                            for rid in (s.get("run_ids") or []):
-                                if rid not in new_ids:
-                                    new_ids.append(rid)
-                    except Exception:
-                        pass
-                    if run_id not in new_ids:
-                        new_ids.append(run_id)
-                    tc = len(result_payload.get("tool_calls", []))
-                    update_job(workspace_id, job_id, {"run_ids": new_ids})
-                    update_progress(workspace_id, job_id, current=len(new_ids),
-                                    message=f"{len(new_ids)}轮 | {tc}工具调用")
-                    _log.info("WS job updated: %s runs=%d tools=%d", job_id, len(new_ids), tc)
+                from jobs.lifecycle import attach_run_to_session_job
+                attach_run_to_session_job(
+                    ws_id=workspace_id,
+                    session_id=effective_session_id,
+                    run_id=result_payload.get("run_id", ""),
+                    tool_call_count=len(result_payload.get("tool_calls", [])),
+                    user_input=user_input,
+                )
             except Exception:
                 _log.exception("WS job lifecycle error session=%s ws=%s", effective_session_id, workspace_id)
 

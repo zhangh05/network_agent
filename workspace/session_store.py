@@ -206,12 +206,64 @@ def delete_session_permanently(
     Removes both the JSON metadata file and the messages/ directory
     so that list_sessions' auto-repair does not resurrect the session.
 
+    Also cascades to clean up associated run records and trace files
+    to prevent orphan data. Artifacts are left intact for audit purposes
+    (they are workspace-scoped, not session-scoped).
+
     Requires confirm=True as a safety guard.
     """
     if not confirm:
         return False
     import shutil
+    import logging
+    _log = logging.getLogger("session_store.delete")
     ws_id = validate_workspace_id(ws_id)
+
+    # ── Collect run_ids before deletion ──
+    session = get_session(session_id, ws_id)
+    run_ids = list((session or {}).get("run_ids", []))
+
+    # Also scan runs dir for any runs with this session_id (recovery)
+    try:
+        from workspace.run_store import list_runs
+        for run in list_runs(ws_id, limit=500):
+            if run.get("session_id") == session_id:
+                rid = run.get("run_id") or run.get("turn_id") or ""
+                if rid and rid not in run_ids:
+                    run_ids.append(rid)
+    except Exception:
+        _log.debug("run scan failed for session=%s ws=%s", session_id, ws_id)
+
+    # ── Delete run records and trace files ──
+    runs_dir = WS_ROOT / ws_id / "runs"
+    for rid in run_ids:
+        # Delete run record
+        run_file = runs_dir / f"{rid}.json"
+        if run_file.is_file():
+            try:
+                run_file.unlink()
+            except Exception:
+                _log.debug("failed to delete run file: %s", run_file)
+
+        # Delete trace sidecar
+        trace_file = runs_dir / f"{rid}.trace.json"
+        if trace_file.is_file():
+            try:
+                trace_file.unlink()
+            except Exception:
+                _log.debug("failed to delete trace file: %s", trace_file)
+
+        # Delete decision sidecar
+        decision_file = runs_dir / f"{rid}.decision.json"
+        if decision_file.is_file():
+            try:
+                decision_file.unlink()
+            except Exception:
+                _log.debug("failed to delete decision file: %s", decision_file)
+
+    _log.info("cascaded delete: session=%s ws=%s runs_deleted=%d", session_id, ws_id, len(run_ids))
+
+    # ── Delete session metadata and messages ──
     path = _session_path(session_id, ws_id)
     msg_dir = _session_dir(ws_id) / str(session_id)
 
