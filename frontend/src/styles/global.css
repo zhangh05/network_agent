@@ -3504,29 +3504,31 @@ details.collapse[open] summary::before {
 }
 
 /* ============================================================
-   v3.9: Stream stop, scroll-bottom, regenerate
+   Scroll-to-bottom, regenerate
    ============================================================ */
 
 /* ── Scroll-to-bottom floating button ── */
 .scroll-bottom-btn {
   position: sticky;
-  bottom: 4px;
+  bottom: 12px;
   left: 50%;
   transform: translateX(-50%);
-  background: var(--brand);
-  color: var(--text-0);
-  border: none;
-  border-radius: 20px;
-  padding: 6px 16px;
-  font-size: var(--fs-12);
+  display: inline-flex; align-items: center; justify-content: center;
+  width: 32px; height: 32px;
+  background: var(--surface-2);
+  color: var(--text-2);
+  border: 1px solid var(--border-2);
+  border-radius: 50%;
   cursor: pointer;
-  box-shadow: 0 2px 12px rgba(0,0,0,0.18);
+  box-shadow: 0 2px 8px rgba(0,0,0,0.12);
   z-index: 10;
-  transition: opacity var(--dur-2);
-  opacity: 0.92;
+  transition: all var(--dur-2);
 }
 .scroll-bottom-btn:hover {
-  opacity: 1;
+  background: var(--brand);
+  color: #fff;
+  border-color: var(--brand);
+  box-shadow: 0 4px 14px rgba(0,0,0,0.18);
 }
 
 /* ── Regenerate button ── */
