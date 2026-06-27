@@ -2,6 +2,7 @@
 """AgentResult — final output of a turn execution.
 
 v2.1.2: Added tool_decision field for tool-use transparency.
+v3.10: Added content_parts for structured inline rendering.
 """
 
 from dataclasses import dataclass, field
@@ -24,6 +25,11 @@ class AgentResult:
     tool_decision: dict = field(default_factory=dict)
     no_tool_reason: str = ""
 
+    # v3.10: Structured content parts for inline rendering.
+    # Each part: {"type":"text","text":"..."} or
+    #            {"type":"tool_call","tool_id":"...","ok":true,"summary":"..."}
+    content_parts: list = field(default_factory=list)
+
     # v3.3.4: transient finalization context (NOT serialized in to_dict)
     _finalization_ctx: object = None
 
@@ -43,4 +49,5 @@ class AgentResult:
             "tool_decision": self.tool_decision,
             "no_tool_reason": self.no_tool_reason,
             "timeline_summary": self.metadata.get("timeline_summary", {}),
+            "content_parts": self.content_parts,
         }

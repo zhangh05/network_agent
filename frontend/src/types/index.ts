@@ -146,6 +146,8 @@ export interface AgentResult {
   warnings: string[];
   errors: string[];
   error_type?: string;
+  /** v3.10: Structured content parts for sequenced inline rendering */
+  content_parts?: ContentPart[];
   /** v2.1.2: Tool decision transparency */
   tool_decision?: {
     needed: boolean;
@@ -829,6 +831,11 @@ export interface RuntimeModeResponse {
 /* ──────────────────────────── Message Status ──────────────────────────── */
 
 export type MessageStatus = "streaming" | "ready" | "error";
+
+/** Structured content part for inline sequenced rendering */
+export type ContentPart =
+  | { type: "text"; text: string }
+  | { type: "tool_call"; tool_id: string; ok: boolean; summary: string; duration_ms?: number };
 
 /** Inline tool call data for structured rendering within messages */
 export interface InlineToolCall {
