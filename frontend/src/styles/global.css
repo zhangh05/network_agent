@@ -1775,7 +1775,7 @@ details.collapse[open] summary::before {
 .wb-chat {
   position: relative;
   min-height: 0;
-  padding: 20px 0 0;
+  padding: 20px 32px 0;
   overflow: hidden;
   background: linear-gradient(180deg, #fbfdff 0%, #f7fafc 100%);
 }
@@ -2502,7 +2502,6 @@ details.collapse[open] summary::before {
 .wb-input-bar {
   padding: 8px 20px 10px;
   background: var(--surface);
-  border-top: 1px solid var(--line);
 }
 
 .wb-input-row {
