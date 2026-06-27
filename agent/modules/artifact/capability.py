@@ -28,7 +28,7 @@ CAPABILITY_ARTIFACT = CapabilityManifest(
             tool_id="workspace.artifact.save",
             status="enabled", callable_by_llm=True, risk_level="medium",
             requires_approval=False, forbidden=False,
-            handler_ref="tool_runtime.canonical_registry:_handler_artifact_save",
+            handler_ref="tool_runtime.canonical_registry:handle_artifact_save_result",
             description="将分析结果/报告保存为 workspace artifact。",
         ),
     ],

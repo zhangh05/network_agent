@@ -206,7 +206,7 @@ class ToolPolicy:
             reason_parts.append(f"Tool '{spec.tool_id}' does not support dry_run")
 
         # ── 9. Timeout ──
-        max_timeout = 120 if effective_risk in ("medium", "high") else 60
+        max_timeout = 600 if effective_risk == "high" else (300 if effective_risk == "medium" else 120)
         if effective_timeout > max_timeout:
             blocked.append("timeout_too_high")
             reason_parts.append(

@@ -46,6 +46,20 @@ CAPABILITY_BROWSER = CapabilityManifest(
             handler_ref="tool_runtime.canonical_registry:_handler_browser_extract",
             description="通过 CSS 选择器提取网页元素的文本内容。",
         ),
+        CapabilityToolRef(
+            tool_id="browser.screenshot",
+            status="enabled", callable_by_llm=True,
+            risk_level="low", requires_approval=False, forbidden=False,
+            handler_ref="tool_runtime.canonical_registry:_handler_browser_screenshot",
+            description="对网页进行全页或视口截图，返回 base64 图片。",
+        ),
+        CapabilityToolRef(
+            tool_id="browser.click",
+            status="enabled", callable_by_llm=True,
+            risk_level="low", requires_approval=False, forbidden=False,
+            handler_ref="tool_runtime.canonical_registry:_handler_browser_click",
+            description="点击当前页面上的元素（CSS 选择器）。",
+        ),
     ],
     outputs=[
         CapabilityOutputSpec(

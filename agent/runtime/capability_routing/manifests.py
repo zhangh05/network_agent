@@ -30,6 +30,13 @@ MODULE_MANIFESTS: dict[str, ModuleServiceManifest] = {
         service_path="workspace.memory_governance",
         operations=("search", "list", "profile"),
     ),
+    "browser": ModuleServiceManifest(
+        module_id="browser",
+        package="agent.modules.browser",
+        service_path="agent.modules.browser.core",
+        operations=("browser_navigate", "browser_extract", "browser_screenshot", "browser_close"),
+        kind="business",
+    ),
     "config_translation": ModuleServiceManifest(
         module_id="config_translation",
         package="agent.modules.config_translation",
@@ -44,17 +51,42 @@ MODULE_MANIFESTS: dict[str, ModuleServiceManifest] = {
         operations=("parse", "translate", "extract_interfaces", "extract_routes", "diff", "summarize"),
         kind="business",
     ),
-    "pcap_analysis": ModuleServiceManifest(
-        module_id="pcap_analysis",
+    "pcap": ModuleServiceManifest(
+        module_id="pcap",
         package="agent.modules.pcap",
         service_path="agent.modules.pcap.service",
         operations=("parse", "session", "filter", "align"),
         kind="business",
     ),
+    "artifact": ModuleServiceManifest(
+        module_id="artifact",
+        package="agent.modules.artifact",
+        service_path="agent.modules.artifact.service",
+        operations=("list", "read"),
+    ),
+    "review": ModuleServiceManifest(
+        module_id="review",
+        package="agent.modules.review",
+        service_path="agent.modules.review.service",
+        operations=("list", "update"),
+    ),
+    "coding": ModuleServiceManifest(
+        module_id="coding",
+        package="agent.modules.git",
+        service_path="agent.modules.git.core",
+        operations=("status", "diff", "log", "commit", "push", "search"),
+    ),
+    "remote": ModuleServiceManifest(
+        module_id="remote",
+        package="agent.modules.remote",
+        service_path="agent.modules.remote.service",
+        operations=("connect_device", "ssh_connect", "telnet_connect"),
+        kind="business",
+    ),
     "runtime": ModuleServiceManifest(
         module_id="runtime",
         package="agent.runtime",
-        service_path="agent.runtime.service",
+        service_path="agent.runtime.services",
         operations=("health", "diagnostics", "trace"),
     ),
     "cmdb": ModuleServiceManifest(
@@ -114,7 +146,7 @@ CAPABILITY_PACKAGES: tuple[CapabilityPackage, ...] = (
         display_name="PCAP Analysis",
         description="Parse and inspect packet capture files.",
         intent_keywords=("pcap", "pcapng", "packet", "抓包", "报文", "五元组", "tcp", "重传"),
-        module_ids=("pcap_analysis", "workspace"),
+        module_ids=("pcap", "workspace"),
         tool_ids=("workspace.file.list", "pcap.analysis.run"),
         output_kinds=("summary", "table"),
         priority=6,
@@ -164,6 +196,20 @@ CAPABILITY_PACKAGES: tuple[CapabilityPackage, ...] = (
         safety_notes=("真实设备访问，需审批。", "危险命令（reload/erase/format）自动拦截。"),
         priority=6,
     ),
+    CapabilityPackage(
+        capability_id="browser",
+        display_name="Browser 浏览器自动化",
+        description="使用 Playwright 浏览器导航网页、提取内容、截图、点击交互。",
+        intent_keywords=("browser", "浏览器", "网页", "打开链接", "截图", "提取内容",
+                         "navigate", "screenshot", "scrape", "访问网站", "查看网页",
+                         "打开网页", "页面内容", "抓取"),
+        module_ids=("browser",),
+        tool_ids=("browser.navigate", "browser.extract", "browser.screenshot", "browser.click"),
+        prompt_hints=("Browser provides real-time web page content. Always prefer browser over web.page.process when interactive browsing is needed.",),
+        output_kinds=("text", "image"),
+        safety_notes=("浏览器内容来自外部网站，可能不准确。禁止访问内网/需登录页面。",),
+        priority=8,
+    ),
 )
 
 
@@ -175,6 +221,9 @@ CORE_TOOL_IDS: tuple[str, ...] = (
     "workspace.artifact.read",
     # ── Exec — unified command execution ──
     "exec.run",
+    # ── Browser automation ──
+    "browser.navigate", "browser.extract",
+    "browser.screenshot", "browser.click",
     # ── Web / info ──
     "web.search",
     "web.page.process",
