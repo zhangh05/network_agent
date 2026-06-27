@@ -36,6 +36,7 @@ workspaces/*/cmdb/
 workspaces/*/context/
 workspaces/*/index/
 workspaces/*/jobs/
+workspaces/*/durable/events/
 workspaces/_runtime/
 workspaces/.tool_embeddings_cache.json
 workspaces/*/test.txt
