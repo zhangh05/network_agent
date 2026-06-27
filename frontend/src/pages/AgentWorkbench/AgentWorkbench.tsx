@@ -410,13 +410,18 @@ export function TaskWorkbench() {
       ws = null;
       wsRef.current = null;
 
-      // Handle session resolution
+      // Handle session resolution — migrate _scratch to real session
+      // v4.0.1: dedup by content+role before concatenating to avoid duplicates
       if (!currentSessionId && resolvedSid) {
         useSessionStore.getState().setCurrentSession(resolvedSid);
         useWorkbenchStore.setState((prev) => {
           const scratchMsgs = prev.bySession["_scratch"] ?? [];
           const existing = prev.bySession[resolvedSid] ?? [];
-          return { bySession: { ...prev.bySession, [resolvedSid]: [...existing, ...scratchMsgs], _scratch: [] } };
+          // Filter out scratch messages that already exist in the real session
+          const newOnly = scratchMsgs.filter((sm) =>
+            !existing.some((em) => em.role === sm.role && em.text === sm.text),
+          );
+          return { bySession: { ...prev.bySession, [resolvedSid]: [...existing, ...newOnly], _scratch: [] } };
         });
         useWorkbenchStore.getState().switchSession(resolvedSid);
       }
@@ -463,7 +468,10 @@ export function TaskWorkbench() {
           useWorkbenchStore.setState((prev) => {
             const scratchMsgs = prev.bySession["_scratch"] ?? [];
             const existing = prev.bySession[resolvedSid] ?? [];
-            return { bySession: { ...prev.bySession, [resolvedSid]: [...existing, ...scratchMsgs], _scratch: [] } };
+            const newOnly = scratchMsgs.filter((sm) =>
+              !existing.some((em) => em.role === sm.role && em.text === sm.text),
+            );
+            return { bySession: { ...prev.bySession, [resolvedSid]: [...existing, ...newOnly], _scratch: [] } };
           });
           useWorkbenchStore.getState().switchSession(resolvedSid);
         }
