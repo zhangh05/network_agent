@@ -6,7 +6,7 @@
  *  - No business logic.
  *  - No API calls inside stores (callers do API then setState).
  *  - Persisted state stays minimal (workspace + UI prefs only).
- *  - Workspace is fixed to "default" — no workspace switching.
+ *  - currentWorkspaceId is explicit UI state; API callers must pass it through.
  */
 
 import { create } from "zustand";

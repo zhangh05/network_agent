@@ -94,7 +94,6 @@ const RunCard: React.FC<{ result: AgentResult; runIdx: number }> = React.memo(({
   const events = result.events ?? [];
   const tools = result.tool_calls ?? [];
   const meta = result.metadata ?? {};
-  const snippet = result.final_response || result.turn_id?.slice(0, 8) || `#${runIdx + 1}`;
   const hasDiag = !!(result.errors?.length) || !!(result.warnings?.length);
   const allArtifacts = tools.flatMap((t) => t.artifacts ?? []);
 

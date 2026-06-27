@@ -127,7 +127,7 @@ export const sessionsApi = {
    */
   messages: (
     session_id: string,
-    workspace_id: string = "",
+    workspace_id: string,
     signal?: AbortSignal,
   ): Promise<{ ok: boolean; messages: SessionMessage[]; count: number }> =>
     apiRequest<{ ok: boolean; messages: SessionMessage[]; count: number }>(
@@ -265,12 +265,12 @@ export const jobsApi = {
     apiRequest<{ job: JobItem }>({ method: "GET", url: `/jobs/${job_id}` }, signal),
 
   /** POST /api/jobs/:id/cancel */
-  cancel: (job_id: string, workspace_id?: string) =>
-    apiRequest<{ ok: boolean }>({ method: "POST", url: `/jobs/${job_id}/cancel`, data: { workspace_id: workspace_id || "" } }),
+  cancel: (job_id: string, workspace_id: string) =>
+    apiRequest<{ ok: boolean }>({ method: "POST", url: `/jobs/${job_id}/cancel`, data: { workspace_id } }),
 
   /** POST /api/jobs/:id/retry */
-  retry: (job_id: string, workspace_id?: string) =>
-    apiRequest<{ ok: boolean }>({ method: "POST", url: `/jobs/${job_id}/retry`, data: { workspace_id: workspace_id || "" } }),
+  retry: (job_id: string, workspace_id: string) =>
+    apiRequest<{ ok: boolean }>({ method: "POST", url: `/jobs/${job_id}/retry`, data: { workspace_id } }),
 
   /** GET /api/jobs/:id/events */
   events: (job_id: string, signal?: AbortSignal) =>
@@ -480,7 +480,7 @@ export const memoryApi = {
     ),
 
   create: (
-    data: { title: string; content: string; workspace_id?: string; scope?: string; tags?: string[] },
+    data: { title: string; content: string; workspace_id: string; scope?: string; tags?: string[] },
     signal?: AbortSignal,
   ): Promise<{ ok: boolean; memory_id: string }> =>
     apiRequest<{ ok: boolean; memory_id: string }>(
@@ -832,12 +832,12 @@ export const settingsApi = {
     ),
 
   // Workspace-level settings (stored in state.json)
-  workspaceSettings: (wsId: string = "default", signal?: AbortSignal): Promise<{ workspace: Record<string, unknown> }> =>
+  workspaceSettings: (wsId: string, signal?: AbortSignal): Promise<{ workspace: Record<string, unknown> }> =>
     apiRequest<{ workspace: Record<string, unknown> }>({ method: "GET", url: `/workspaces/${wsId}/state` }, signal),
 
   updateWorkspaceSettings: (
     patch: Record<string, string>,
-    wsId: string = "default",
+    wsId: string,
   ): Promise<{ ok: boolean; workspace: Record<string, unknown> }> =>
     apiRequest<{ ok: boolean; workspace: Record<string, unknown> }>(
       { method: "PUT", url: `/workspaces/${wsId}/settings`, data: patch },

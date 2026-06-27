@@ -40,7 +40,7 @@ function Stat({ label, value, color }: { label: string; value: number; color: st
 }
 
 export function CMDBPage() {
-  const wsId = useSessionStore((s) => s.currentWorkspaceId) || "default";
+  const wsId = useSessionStore((s) => s.currentWorkspaceId);
   const [assets, setAssets] = useState<Asset[]>([]);
   const [showForm, setShowForm] = useState(false);
   const [editingAsset, setEditingAsset] = useState<Asset | null>(null);
@@ -64,6 +64,7 @@ export function CMDBPage() {
   const [savedRegions, setSavedRegions] = useState<string[]>([]);
 
   const load = useCallback(async () => {
+    if (!wsId) return;
     try {
       const r = await apiRequest<{ ok: boolean; assets: Asset[] }>(
         { method: "GET", url: "/cmdb/assets", params: { workspace_id: wsId } });

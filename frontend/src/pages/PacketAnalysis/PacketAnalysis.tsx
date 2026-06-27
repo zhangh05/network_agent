@@ -58,7 +58,7 @@ function verdictSummary(res: AnalysisResult): string {
 
 export function PacketAnalysis() {
   const currentWorkspaceId = useSessionStore((s) => s.currentWorkspaceId);
-  const wsId = currentWorkspaceId || "default";
+  const wsId = currentWorkspaceId;
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
   const [error, setError] = useState("");

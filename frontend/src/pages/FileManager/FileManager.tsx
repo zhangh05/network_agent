@@ -42,7 +42,7 @@ function isRawPacketCapture(f: FileItem): boolean {
 export function FileManager() {
   const { currentWorkspaceId } = useSessionStore();
   const navigate = useNavigate();
-  const ws = currentWorkspaceId || "default";
+  const ws = currentWorkspaceId;
 
   const [activeType, setActiveType] = useState("all");
   const [allFiles, setAllFiles] = useState<FileItem[]>([]);

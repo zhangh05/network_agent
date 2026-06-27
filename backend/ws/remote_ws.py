@@ -6,10 +6,10 @@ Uses flask_sock (same pattern as agent_ws.py).
 import json
 import logging
 import threading
-from urllib.parse import urlparse
 
 from flask import request
 from flask_sock import Sock
+from backend.core.auth import is_allowed_browser_origin
 
 sock = Sock()
 _log = logging.getLogger("ws.remote")
@@ -178,9 +178,4 @@ def _parse_port(value) -> int:
 
 def _same_origin_ws_request() -> bool:
     origin = request.headers.get("Origin")
-    if not origin:
-        return True
-    try:
-        return urlparse(origin).netloc == request.host.split("@")[-1]
-    except Exception:
-        return False
+    return is_allowed_browser_origin(origin, request.host)

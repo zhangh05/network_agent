@@ -9,6 +9,7 @@ import { describe, it, expect, beforeEach, vi, afterEach } from "vitest";
 import { render, screen, waitFor, act, fireEvent } from "@testing-library/react";
 import { Settings } from "../pages/Settings/Settings";
 import { settingsApi } from "../api";
+import { useSessionStore } from "../stores/session";
 import type { ProviderConfig, ProviderListResponse, LlmTestResult } from "../types";
 
 const baseProvider: ProviderConfig = {
@@ -85,6 +86,7 @@ function mockApi(overrides: Partial<{
 beforeEach(() => {
   vi.restoreAllMocks();
   window.confirm = vi.fn().mockReturnValue(true);
+  useSessionStore.setState({ currentWorkspaceId: "ws-settings", currentSessionId: null, sessions: [] });
 });
 
 afterEach(() => {
@@ -257,6 +259,22 @@ describe("Settings — LLM Provider configuration v2", () => {
 
     fireEvent.click(toggle);
     expect(toggle.getAttribute("aria-checked")).toBe("false");
+  });
+
+  it("记忆门控读取并写入当前 workspace", async () => {
+    const spy = mockApi();
+    render(<Settings />);
+    await waitFor(() => screen.getByTestId("toggle-memory-gating"));
+
+    await act(async () => {
+      fireEvent.click(screen.getByTestId("toggle-memory-gating"));
+    });
+
+    expect(spy.workspaceSettings).toHaveBeenCalledWith("ws-settings");
+    expect(spy.updateWorkspaceSettings).toHaveBeenCalledWith(
+      { memory_gating: "llm_first" },
+      "ws-settings",
+    );
   });
 
   it("加载失败时显示 error card", async () => {

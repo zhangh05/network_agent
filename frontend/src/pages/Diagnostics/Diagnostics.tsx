@@ -75,15 +75,15 @@ export function Diagnostics() {
     const seq = ++seqRef.current;
     setDetecting(true);
     const ctrl = new AbortController();
-    const wsId = currentWorkspaceId || "default";
+    const wsId = currentWorkspaceId;
     const [rh, sc, us, cs, pr, rp, ap] = await Promise.allSettled([
       runtimeApi.health(ctrl.signal),
       runtimeApi.selfcheck(ctrl.signal),
       agentUsageApi.get(ctrl.signal),
       contextApi.status(ctrl.signal),
       promptsApi.list(ctrl.signal),
-      retentionApi.preview(wsId, ctrl.signal),
-      archiveApi.preview(wsId, ctrl.signal),
+      wsId ? retentionApi.preview(wsId, ctrl.signal) : Promise.resolve(null),
+      wsId ? archiveApi.preview(wsId, ctrl.signal) : Promise.resolve(null),
     ]);
     if (!mountedRef.current || seq !== seqRef.current) return;
 

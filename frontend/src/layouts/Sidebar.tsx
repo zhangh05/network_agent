@@ -90,7 +90,7 @@ export function Sidebar() {
           selected_skills: [],
           visible_tools: [],
           source_count: 0,
-          workspace_id: currentWorkspaceId || "default",
+          workspace_id: currentWorkspaceId,
         },
       };
       useWorkbenchStore.getState().setLatestResult(result);
@@ -182,7 +182,7 @@ export function Sidebar() {
   async function onRenameSession(sess_id: string) {
     if (!editingSessName.trim() || !currentWorkspaceId) { cancelEditSession(); return; }
     try {
-      await sessionsApi.rename(sess_id, currentWorkspaceId || "default", editingSessName.trim());
+      await sessionsApi.rename(sess_id, currentWorkspaceId, editingSessName.trim());
       sessList.reload();
       toast({ kind: "success", title: "会话已重命名" });
       cancelEditSession();
@@ -192,9 +192,10 @@ export function Sidebar() {
   }
 
   async function onDeleteSession(sess: Session) {
+    if (!currentWorkspaceId) return;
     if (!confirm(`⚠️ 永久删除会话「${sess.title || sess.session_id}」？\n\n此操作不可撤销！消息和记录将被彻底清除。`)) return;
     try {
-      await sessionsApi.delete(sess.session_id, currentWorkspaceId || "default");
+      await sessionsApi.delete(sess.session_id, currentWorkspaceId);
       if (currentSessionId === sess.session_id) setCurrentSession(null);
       sessList.reload();
       recentRuns.reload();

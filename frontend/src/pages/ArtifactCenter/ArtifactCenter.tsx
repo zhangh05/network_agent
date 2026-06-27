@@ -291,16 +291,16 @@ function ReportSection() {
 
   const load = useCallback(async () => {
     if (!wsId) return; setLoading(true);
-    try { const d = await reportsApi.list(wsId || "default"); setReports(d.reports ?? []); } catch { }
+    try { const d = await reportsApi.list(wsId); setReports(d.reports ?? []); } catch { }
     setLoading(false);
   }, [wsId]);
 
   useEffect(() => { load(); }, [load]);
 
   const create = async () => {
-    if (!title.trim()) return;
+    if (!wsId || !title.trim()) return;
     try {
-      await reportsApi.create({ workspace_id: wsId || "default", title: title.trim(), content: content.trim() || undefined });
+      await reportsApi.create({ workspace_id: wsId, title: title.trim(), content: content.trim() || undefined });
       toast({ kind: "success", title: "报告已创建" }); setTitle(""); setContent(""); setShow(false); load();
     } catch (e: any) { toast({ kind: "error", title: "创建失败", body: isApiError(e) ? e.message : String(e) }); }
   };
@@ -333,7 +333,7 @@ function ReportSection() {
               }}
               onMouseOver={(e) => (e.currentTarget.style.background = "var(--surface-2)")}
               onMouseOut={(e) => (e.currentTarget.style.background = "")}
-              onClick={() => { reportsApi.content(wsId || "default", r.artifact_id).then((d) => toast({ kind: "success", title: "报告内容", body: (d.content ?? "").slice(0, 200) + "…" })).catch(() => {}); }}>
+              onClick={() => { if (!wsId) return; reportsApi.content(wsId, r.artifact_id).then((d) => toast({ kind: "success", title: "报告内容", body: (d.content ?? "").slice(0, 200) + "…" })).catch(() => {}); }}>
               <span style={{ fontSize: "var(--fs-13)", fontWeight: 650 }}>{r.title || r.artifact_id || `#${i + 1}`}</span>
               <span style={{ fontSize: "var(--fs-11)", color: "var(--text-4)" }}>{r.created_at ? formatCompactDate(r.created_at) : ""}</span>
             </div>

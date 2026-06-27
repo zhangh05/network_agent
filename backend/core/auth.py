@@ -103,19 +103,36 @@ def _extract_token_from_request() -> str | None:
     return None
 
 
+def _configured_dev_origins() -> set[str]:
+    raw = os.environ.get("NETWORK_AGENT_ALLOWED_ORIGINS", "")
+    origins = {item.strip().rstrip("/") for item in raw.split(",") if item.strip()}
+    origins.update({
+        "http://localhost:5173",
+        "http://127.0.0.1:5173",
+        "http://[::1]:5173",
+    })
+    return origins
+
+
+def is_allowed_browser_origin(origin: str | None, request_host: str) -> bool:
+    """Return True when a browser write comes from this API host or the local workbench."""
+    if not origin:
+        return True
+    try:
+        origin_url = urlparse(origin)
+        origin_root = f"{origin_url.scheme}://{origin_url.netloc}".rstrip("/")
+        host = request_host.split("@")[-1]
+        return origin_url.netloc == host or origin_root in _configured_dev_origins()
+    except Exception:
+        return False
+
+
 def _same_origin_api_request() -> bool:
     """Reject browser cross-site writes when token auth is disabled."""
     if flask.request.method in {"GET", "HEAD", "OPTIONS"}:
         return True
     origin = flask.request.headers.get("Origin") or flask.request.headers.get("Referer")
-    if not origin:
-        return True
-    try:
-        origin_url = urlparse(origin)
-        request_host = flask.request.host.split("@")[-1]
-        return origin_url.netloc == request_host
-    except Exception:
-        return False
+    return is_allowed_browser_origin(origin, flask.request.host)
 
 
 def _csrf_response() -> flask.Response:

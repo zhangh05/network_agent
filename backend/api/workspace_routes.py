@@ -201,7 +201,7 @@ def register_workspace_routes(app):
         if err:
             return err
         from workspace.manager import get_workspace_state
-        return jsonify(get_workspace_state(ws_id))
+        return jsonify({"ok": True, "workspace": get_workspace_state(ws_id)})
 
     @app.route("/api/workspaces/<ws_id>/settings", methods=["PUT"])
     def api_workspace_settings_update(ws_id):

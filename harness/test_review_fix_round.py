@@ -26,6 +26,28 @@ def test_unsafe_api_methods_reject_foreign_origin(app):
     assert response.get_json()["error"] == "csrf_origin_denied"
 
 
+def test_unsafe_api_methods_allow_local_workbench_origin(app):
+    client = app.test_client()
+    response = client.put(
+        "/api/workspaces/pytest_csrf_dev/settings",
+        json={"unknown": "ignored"},
+        headers={"Origin": "http://localhost:5173"},
+    )
+
+    assert response.status_code == 400
+    assert response.get_json()["error"] == "no_valid_settings"
+
+
+def test_workspace_state_endpoint_matches_frontend_contract(app):
+    client = app.test_client()
+    response = client.get("/api/workspaces/default/state")
+
+    assert response.status_code == 200
+    body = response.get_json()
+    assert body["ok"] is True
+    assert isinstance(body["workspace"], dict)
+
+
 def test_cmdb_invalid_workspace_and_port_return_400(app):
     client = app.test_client()
 

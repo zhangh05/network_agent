@@ -8,6 +8,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { settingsApi } from "../../api";
 import { EmptyState, LoadingState } from "../../components/common";
+import { useSessionStore } from "../../stores/session";
 import { useToastStore } from "../../stores/toast";
 import { isApiError } from "../../types";
 import type { ProviderConfig, LlmTestResult } from "../../types";
@@ -39,6 +40,7 @@ const presetMap = new Map(PROVIDER_PRESETS.map((p) => [p.id, p]));
 
 export function Settings() {
   const toast = useToastStore((s) => s.show);
+  const currentWorkspaceId = useSessionStore((s) => s.currentWorkspaceId);
 
   // ── State ──
   const [providers, setProviders] = useState<ProviderConfig[]>([]);
@@ -65,7 +67,12 @@ export function Settings() {
   // ── Load workspace settings on mount ──
   useEffect(() => {
     let alive = true;
-    settingsApi.workspaceSettings("default")
+    if (!currentWorkspaceId) {
+      setMemoryGatingLoaded(true);
+      return () => { alive = false; };
+    }
+    setMemoryGatingLoaded(false);
+    settingsApi.workspaceSettings(currentWorkspaceId)
       .then((res) => {
         if (!alive) return;
         const mode = String(res?.workspace?.memory_gating ?? "rule_only");
@@ -77,7 +84,7 @@ export function Settings() {
         if (alive) setMemoryGatingLoaded(true);
       });
     return () => { alive = false; };
-  }, []);
+  }, [currentWorkspaceId]);
 
   // ── Load on mount ──
   useEffect(() => {
@@ -279,10 +286,14 @@ export function Settings() {
 
   // ── Memory gating toggle ──
   async function onMemoryGatingToggle(enabled: boolean) {
+    if (!currentWorkspaceId) {
+      toast({ kind: "warning", title: "未选择工作区", body: "请先在左侧选择工作区" });
+      return;
+    }
     setMemoryGatingLoading(true);
     const newMode = enabled ? "llm_first" : "rule_only";
     try {
-      await settingsApi.updateWorkspaceSettings({ memory_gating: newMode }, "default");
+      await settingsApi.updateWorkspaceSettings({ memory_gating: newMode }, currentWorkspaceId);
       setMemoryGating(enabled);
       toast({
         kind: "success",

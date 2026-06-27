@@ -49,7 +49,7 @@ function sLabel(s: string): string { return STATUS_LABEL[s] || s || "未知"; }
 export function RunsPage() {
   const { currentWorkspaceId, currentSessionId } = useSessionStore();
   const setLatestResult = useWorkbenchStore((s) => s.setLatestResult);
-  const wsId = currentWorkspaceId || "default";
+  const wsId = currentWorkspaceId;
   const [searchParams] = useSearchParams();
   const focusRunId = searchParams.get("focus") || null;
   const [runs, setRuns] = useState<RuntimeAuditTurn[]>([]);
@@ -63,6 +63,11 @@ export function RunsPage() {
   const [tab, setTab] = useState<"overview" | "events" | "decision">("overview");
 
   const load = useCallback(async () => {
+    if (!wsId) {
+      setRuns([]);
+      setLoading(false);
+      return;
+    }
     setLoading(true); setError(null);
     try {
       const d = await workspacesApi.recentRuns(wsId, currentSessionId);
@@ -117,7 +122,7 @@ export function RunsPage() {
       setTab("overview");
       void loadTrace(target);
       void loadDecision(target);
-      setLatestResult(buildAgentResult(target));
+      setLatestResult(buildAgentResult(target, wsId));
     }
   }, [focusRunId, runs]);
 
@@ -140,7 +145,7 @@ export function RunsPage() {
       setTab("overview");
       void loadTrace(run);
       void loadDecision(run);
-      setLatestResult(buildAgentResult(run));
+      setLatestResult(buildAgentResult(run, wsId));
       // Persist via URL for F5 survival
       const url = new URL(window.location.href);
       url.searchParams.set("focus", run.run_id || run.turn_id || "");
@@ -394,7 +399,7 @@ export function RunsPage() {
 }
 
 /** Convert RuntimeAuditTurn → AgentResult so Inspector can display it. */
-function buildAgentResult(run: RuntimeAuditTurn): AgentResult {
+function buildAgentResult(run: RuntimeAuditTurn, workspaceId: string): AgentResult {
   return {
     ok: /ok|completed|success/i.test(run.status || ""),
     final_response: "",
@@ -412,7 +417,7 @@ function buildAgentResult(run: RuntimeAuditTurn): AgentResult {
       selected_skills: run.selected_skills,
       visible_tools: run.visible_tools,
       source_count: 0,
-      workspace_id: "default",
+      workspace_id: workspaceId,
     },
   };
 }

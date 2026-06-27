@@ -119,7 +119,7 @@ function calcDuration(start?: string, end?: string): string | null {
 export function JobsPage() {
   const navigate = useNavigate();
   const { currentWorkspaceId } = useSessionStore();
-  const wsId = currentWorkspaceId || "default";
+  const wsId = currentWorkspaceId;
   const toast = useToastStore((s) => s.show);
 
   const [jobs, setJobs] = useState<JobItem[]>([]);
@@ -136,6 +136,11 @@ export function JobsPage() {
   const [artsLoading, setArtsLoading] = useState(false);
 
   const loadJobs = useCallback(async () => {
+    if (!wsId) {
+      setJobs([]);
+      setLoading(false);
+      return;
+    }
     setLoading(true); setError(null);
     try {
       const data = await jobsApi.list(wsId);

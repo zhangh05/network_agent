@@ -15,7 +15,7 @@ export function RemoteTerminal({ onClose, initial }: {
   onClose: () => void;
   initial?: { host: string; port: number; protocol: string; vendor: string; username: string; password?: string };
 }) {
-  const wsId = useSessionStore((s) => s.currentWorkspaceId) || "default";
+  const wsId = useSessionStore((s) => s.currentWorkspaceId);
   const termRef = useRef<HTMLDivElement>(null);
   const wsRef = useRef<WebSocket | null>(null);
   const xtermRef = useRef<any>(null);
@@ -107,6 +107,7 @@ export function RemoteTerminal({ onClose, initial }: {
   }, []);
 
   const doConnect = async () => {
+    if (!wsId) { setError("未选择工作区"); return; }
     if (!host) { setError("请输入主机地址"); return; }
     setError(""); setConnecting(true); connectingRef.current = true;
     const term = xtermRef.current;
