@@ -129,7 +129,7 @@ def audit():
             })
 
     # 7. Check skill isolation — no skill should import agent.llm
-    for py_file in PROJECT_ROOT.glob("skills/**/*.py"):
+    for py_file in PROJECT_ROOT.glob("agent/skills/**/*.py"):
         content = py_file.read_text()
         if "agent.llm" in content or "from agent.llm" in content:
             critical.append({

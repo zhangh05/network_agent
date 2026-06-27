@@ -65,8 +65,6 @@ reports/
 node_modules/.vite/
 node_modules/**/*.results.json
 .superpowers/
-# Runtime-created sample skills
-skills/sample/
 node_modules/
 workspaces/test_*/
 workspaces/ws_*/

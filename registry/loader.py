@@ -522,7 +522,7 @@ def _skill_red_lines(safety_rules: list) -> list:
 
 def _skill_adapter_path(skill_id: str) -> str:
     return {
-        "config_translation": "skills/config_translation/adapter.py",
+        "config_translation": "modules/config_translation/backend/service.py",
     }.get(skill_id, "")
 
 
