@@ -76,6 +76,11 @@ class ToolRegistry:
 
     def is_enabled(self, tool_id: str) -> bool:
         """Check if a tool is registered and enabled."""
+        try:
+            from tool_runtime.tool_namespace import resolve_tool_id
+            tool_id = resolve_tool_id(tool_id)
+        except Exception:
+            pass
         spec = self._specs.get(tool_id)
         return spec is not None and spec.enabled
 

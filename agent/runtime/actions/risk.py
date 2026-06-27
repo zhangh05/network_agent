@@ -138,10 +138,10 @@ class RiskPolicy:
             plan.risk_level = decision.risk_level
             return decision
 
-        # 2. Shell/python/powershell execute → low (no restriction)
+        # 2. Shell/python/powershell execute → medium (default: assume moderate risk)
         #    Approval only triggers for dangerous patterns caught above.
         if _is_execute_tool(plan.tool_id) or plan.action_class == "execute":
-            decision.risk_level = "low"
+            decision.risk_level = "medium"
             decision.reason = "Execute-class tool — risk assessed per-command"
             _apply_conflict_risk(decision, plan, evidence_bundle)
             plan.risk_level = decision.risk_level

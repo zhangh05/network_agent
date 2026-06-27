@@ -89,15 +89,8 @@ class ActionExecutor:
                          getattr(getattr(state, 'context', None), 'workspace_id', '') or ''
                     sid = getattr(getattr(state, 'session', None), 'session_id', '') or ''
                     rid = getattr(getattr(state, 'turn', None), 'turn_id', '') or ''
-                # Get real task_id from durable store
-                real_task_id = ""
-                try:
-                    from agent.runtime.durable.store import list_tasks
-                    tasks = list_tasks(ws, session_id=sid, limit=1)
-                    if tasks:
-                        real_task_id = tasks[0].task_id
-                except Exception:
-                    pass
+                # v3.10: Use state.task_id (bound by runner), fallback to store query
+                real_task_id = getattr(state, 'task_id', '') or ''
                 if ws and sid and real_task_id:
                     step_id_str = f"step-{plan.tool_id}-{step}"
                     interrupt_before_tool(

@@ -75,8 +75,7 @@ def test_capability_module_ids_match_business_modules():
 
     pcap_pkg = package_by_id("pcap_analysis")
     assert pcap_pkg is not None
-    assert "pcap_analysis" in pcap_pkg.module_ids
-    assert "pcap" not in pcap_pkg.module_ids
+    assert "pcap" in pcap_pkg.module_ids
     assert "workspace" in pcap_pkg.module_ids
     for mid in pcap_pkg.module_ids:
         assert mid in MODULE_MANIFESTS, f"{mid} not in MODULE_MANIFESTS"

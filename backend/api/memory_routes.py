@@ -50,13 +50,16 @@ def handle_memory_delete(memory_id):
     ws_id = request.args.get("workspace_id", "")
     if not ws_id:
         return jsonify({"ok": False, "error": "workspace_id required"}), 400
-    from workspace.memory_governance import MemoryStore
+    from workspace.memory_governance import MemoryStore, MemoryWriteGate
     store = MemoryStore()
     rec = store.get(ws_id, memory_id)
     if not rec:
         return jsonify({"ok": False, "error": "memory_not_found"})
     rec.status = "rejected"
-    store.save(rec)
+    gate = MemoryWriteGate()
+    result = gate.write(rec)
+    if not result.get("ok", False):
+        return jsonify(result)
     return jsonify({"ok": True, "deleted_count": 1})
 
 

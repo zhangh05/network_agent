@@ -218,9 +218,10 @@ CORE_TOOL_IDS: tuple[str, ...] = (
     "tool.catalog.search",
     # ── Workspace ──
     "workspace.file.list", "workspace.file.read",
+    "workspace.file.edit", "workspace.file.patch",
     "workspace.artifact.read",
     # ── Exec — unified command execution ──
-    "exec.run",
+    "exec.run", "exec.python",
     # ── Browser automation ──
     "browser.navigate", "browser.extract",
     "browser.screenshot", "browser.click",
@@ -233,8 +234,13 @@ CORE_TOOL_IDS: tuple[str, ...] = (
     "device.add", "device.delete",
     # ── Git ──
     "git.status", "git.diff", "git.log",
+    "git.commit", "git.push",
     # ── Code search ──
     "code.search",
+    # ── Data rendering ──
+    "data.table.render",
+    "report.markdown.render",
+    "memory.search",
 )
 
 

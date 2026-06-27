@@ -228,7 +228,11 @@ def handle_memory_update(inv: ToolInvocation) -> dict:
         rec.content = content[:2000]
         import time
         rec.updated_at = time.strftime("%Y-%m-%dT%H:%M:%S")
-        store.save(rec)
+        from workspace.memory_governance import MemoryWriteGate
+        gate = MemoryWriteGate()
+        result = gate.write(rec)
+        if not result.get("ok", False):
+            return _error_inv(inv, result.get("rejected") or result.get("error", "gate rejected update"))
         return _ok(inv, "", {"memory_id": memory_id, "updated": True})
     except Exception as e:
         return _error_inv(inv, str(e)[:200])

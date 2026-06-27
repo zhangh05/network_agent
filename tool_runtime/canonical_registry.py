@@ -1576,7 +1576,7 @@ _RAW_REGISTRY: list[CanonicalToolEntry] = [
     # ── Directory-level business tools ──
     CanonicalToolEntry(
         canonical_tool_id="config.analysis.run",
-        handler=_handler_config_analysis_run,
+        handler=_adapt(_handler_config_analysis_run),
         input_schema=_schema({
             "action": {"type": "string", "description": "Action: parse, translate, extract_interfaces, extract_routes, diff, summarize.", "enum": ["parse", "translate", "extract_interfaces", "extract_routes", "diff", "summarize"]},
             "workspace_id": _S["workspace_id"],
@@ -1590,7 +1590,7 @@ _RAW_REGISTRY: list[CanonicalToolEntry] = [
     ),
     CanonicalToolEntry(
         canonical_tool_id="pcap.analysis.run",
-        handler=_handler_pcap_analysis_run,
+        handler=_adapt(_handler_pcap_analysis_run),
         input_schema=_schema({
             "action": {"type": "string", "description": "Action: parse, session, filter, align.", "enum": ["parse", "session", "filter", "align"]},
             "workspace_id": _S["workspace_id"],
@@ -1606,7 +1606,7 @@ _RAW_REGISTRY: list[CanonicalToolEntry] = [
     # ── v3.4: Git tools ──
     CanonicalToolEntry(
         canonical_tool_id="git.status",
-        handler=_handler_git_status,
+        handler=_adapt(_handler_git_status),
         input_schema=_schema({
             "repo_path": {"type": "string", "description": "Path to git repository. Default: current directory.", "default": "."},
         }),
@@ -1614,7 +1614,7 @@ _RAW_REGISTRY: list[CanonicalToolEntry] = [
     ),
     CanonicalToolEntry(
         canonical_tool_id="git.diff",
-        handler=_handler_git_diff,
+        handler=_adapt(_handler_git_diff),
         input_schema=_schema({
             "repo_path": {"type": "string", "description": "Path to git repository.", "default": "."},
             "staged": {"type": "boolean", "description": "Show staged changes only.", "default": False},
@@ -1624,7 +1624,7 @@ _RAW_REGISTRY: list[CanonicalToolEntry] = [
     ),
     CanonicalToolEntry(
         canonical_tool_id="git.log",
-        handler=_handler_git_log,
+        handler=_adapt(_handler_git_log),
         input_schema=_schema({
             "repo_path": {"type": "string", "description": "Path to git repository.", "default": "."},
             "n": {"type": "integer", "description": "Number of recent commits.", "default": 10},
@@ -1634,7 +1634,7 @@ _RAW_REGISTRY: list[CanonicalToolEntry] = [
     ),
     CanonicalToolEntry(
         canonical_tool_id="git.commit",
-        handler=_handler_git_commit,
+        handler=_adapt(_handler_git_commit),
         input_schema=_schema({
             "repo_path": {"type": "string", "description": "Path to git repository.", "default": "."},
             "message": {"type": "string", "description": "Commit message."},
@@ -1645,7 +1645,7 @@ _RAW_REGISTRY: list[CanonicalToolEntry] = [
     ),
     CanonicalToolEntry(
         canonical_tool_id="git.push",
-        handler=_handler_git_push,
+        handler=_adapt(_handler_git_push),
         input_schema=_schema({
             "repo_path": {"type": "string", "description": "Path to git repository.", "default": "."},
             "remote": {"type": "string", "description": "Remote name.", "default": "origin"},
@@ -1657,7 +1657,7 @@ _RAW_REGISTRY: list[CanonicalToolEntry] = [
     # ── v3.4: Code search ──
     CanonicalToolEntry(
         canonical_tool_id="code.search",
-        handler=_handler_code_search,
+        handler=_adapt(_handler_code_search),
         input_schema=_schema({
             "pattern": {"type": "string", "description": "Search pattern (regex or literal). Example: 'import.*paramiko', 'class DeviceSession'."},
             "directory": {"type": "string", "description": "Directory to search. Default: current project root.", "default": "."},
@@ -1669,7 +1669,7 @@ _RAW_REGISTRY: list[CanonicalToolEntry] = [
     # ── v3.4: Browser tools ──
     CanonicalToolEntry(
         canonical_tool_id="browser.navigate",
-        handler=_handler_browser_navigate,
+        handler=_adapt(_handler_browser_navigate),
         input_schema=_schema({
             "url": {"type": "string", "description": "Full URL to navigate to (https://...)."},
             "wait_selector": {"type": "string", "description": "Optional CSS selector to wait for.", "default": ""},
@@ -1678,7 +1678,7 @@ _RAW_REGISTRY: list[CanonicalToolEntry] = [
     ),
     CanonicalToolEntry(
         canonical_tool_id="browser.extract",
-        handler=_handler_browser_extract,
+        handler=_adapt(_handler_browser_extract),
         input_schema=_schema({
             "url": {"type": "string", "description": "Full URL to open."},
             "selector": {"type": "string", "description": "CSS selector for element to extract. Default: body.", "default": "body"},
@@ -1688,7 +1688,7 @@ _RAW_REGISTRY: list[CanonicalToolEntry] = [
     # ── v3.7: Browser screenshot & click ──
     CanonicalToolEntry(
         canonical_tool_id="browser.screenshot",
-        handler=_handler_browser_screenshot,
+        handler=_adapt(_handler_browser_screenshot),
         input_schema=_schema({
             "url": {"type": "string", "description": "Full URL to screenshot."},
             "full_page": {"type": "boolean", "description": "Capture full page or just viewport.", "default": False},
@@ -1697,7 +1697,7 @@ _RAW_REGISTRY: list[CanonicalToolEntry] = [
     ),
     CanonicalToolEntry(
         canonical_tool_id="browser.click",
-        handler=_handler_browser_click,
+        handler=_adapt(_handler_browser_click),
         input_schema=_schema({
             "selector": {"type": "string", "description": "CSS selector of the element to click."},
         }, ["selector"]),
@@ -1706,7 +1706,7 @@ _RAW_REGISTRY: list[CanonicalToolEntry] = [
     # ── CMDB device asset tools ──
     CanonicalToolEntry(
         canonical_tool_id="device.list",
-        handler=_handler_cmdb_list_assets,
+        handler=_adapt(_handler_cmdb_list_assets),
         input_schema=_schema({
             "workspace_id": _S["workspace_id"],
             "search": {"type": "string", "description": "Fuzzy search by name, vendor, host, or model. Example: 'AR1' or 'huawei'."},
@@ -1717,7 +1717,7 @@ _RAW_REGISTRY: list[CanonicalToolEntry] = [
     ),
     CanonicalToolEntry(
         canonical_tool_id="device.get",
-        handler=_handler_cmdb_get_asset,
+        handler=_adapt(_handler_cmdb_get_asset),
         input_schema=_schema({
             "workspace_id": _S["workspace_id"],
             "asset_id": {"type": "string", "description": "Asset ID to look up."},
@@ -1726,7 +1726,7 @@ _RAW_REGISTRY: list[CanonicalToolEntry] = [
     ),
     CanonicalToolEntry(
         canonical_tool_id="device.add",
-        handler=_handler_cmdb_add_asset,
+        handler=_adapt(_handler_cmdb_add_asset),
         input_schema=_schema({
             "workspace_id": _S["workspace_id"],
             "name": {"type": "string", "description": "Device name."},
@@ -1742,7 +1742,7 @@ _RAW_REGISTRY: list[CanonicalToolEntry] = [
     ),
     CanonicalToolEntry(
         canonical_tool_id="device.delete",
-        handler=_handler_cmdb_delete_asset,
+        handler=_adapt(_handler_cmdb_delete_asset),
         input_schema=_schema({
             "workspace_id": _S["workspace_id"],
             "asset_id": {"type": "string", "description": "Asset ID to delete."},
