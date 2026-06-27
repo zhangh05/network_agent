@@ -39,7 +39,7 @@ MANIFESTS: dict[str, CapabilityManifest] = {
         secret_fields=["cmd"], output_sensitivity="secret",
         timeout_seconds=120,
         approval_reason_template="Shell command execution: requires confirmation for destructive patterns",
-        allowed_callers=["turn_runner", "rest_api", "job_runner", "subagent"],
+        allowed_callers=["turn_runner", "rest_api", "job_runner", "subagent", "graph_runner"],
     ),
     "exec.python": CapabilityManifest(
         tool_id="exec.python", category="exec", display_name="Python Execute",
@@ -48,7 +48,7 @@ MANIFESTS: dict[str, CapabilityManifest] = {
         idempotency="unsafe_to_retry",
         secret_fields=["code"], output_sensitivity="sensitive",
         timeout_seconds=60,
-        allowed_callers=["turn_runner", "rest_api", "job_runner", "subagent"],
+        allowed_callers=["turn_runner", "rest_api", "job_runner", "subagent", "graph_runner"],
     ),
     "exec.slash": CapabilityManifest(
         tool_id="exec.slash", category="exec", display_name="Shell Command (direct)",
@@ -119,14 +119,14 @@ MANIFESTS: dict[str, CapabilityManifest] = {
         tool_id="workspace.file.list", category="workspace", display_name="List Files",
         description="List workspace files", action_class="read",
         risk_level="low", side_effects="none", idempotency="safe_to_retry", timeout_seconds=20,
-        allowed_callers=["turn_runner", "rest_api", "job_runner", "subagent"],
+        allowed_callers=["turn_runner", "rest_api", "job_runner", "subagent", "graph_runner"],
     ),
     "workspace.file.read": CapabilityManifest(
         tool_id="workspace.file.read", category="workspace", display_name="Read File",
         description="Read file content", action_class="read",
         risk_level="low", reads_artifact=True, side_effects="none",
         idempotency="safe_to_retry", timeout_seconds=30,
-        allowed_callers=["turn_runner", "rest_api", "job_runner", "subagent"],
+        allowed_callers=["turn_runner", "rest_api", "job_runner", "subagent", "graph_runner"],
     ),
     "workspace.file.read_image": CapabilityManifest(
         tool_id="workspace.file.read_image", category="workspace", display_name="Read Image",
@@ -139,21 +139,21 @@ MANIFESTS: dict[str, CapabilityManifest] = {
         description="Edit workspace file", action_class="write",
         risk_level="medium", side_effects="write", writes_artifact=True,
         idempotency="unsafe_to_retry", timeout_seconds=30,
-        allowed_callers=["turn_runner", "rest_api", "job_runner", "subagent"],
+        allowed_callers=["turn_runner", "rest_api", "job_runner", "subagent", "graph_runner"],
     ),
     "workspace.file.patch": CapabilityManifest(
         tool_id="workspace.file.patch", category="workspace", display_name="Patch File",
         description="Apply patch to file", action_class="write",
         risk_level="medium", side_effects="write", idempotency="unsafe_to_retry",
         timeout_seconds=30,
-        allowed_callers=["turn_runner", "rest_api", "job_runner", "subagent"],
+        allowed_callers=["turn_runner", "rest_api", "job_runner", "subagent", "graph_runner"],
     ),
     "workspace.file.write_artifact": CapabilityManifest(
         tool_id="workspace.file.write_artifact", category="workspace", display_name="Write Artifact",
         description="Write file artifact", action_class="write",
         risk_level="low", writes_artifact=True, side_effects="write",
         idempotency="safe_to_retry", timeout_seconds=30,
-        allowed_callers=["turn_runner", "rest_api", "job_runner", "subagent"],
+        allowed_callers=["turn_runner", "rest_api", "job_runner", "subagent", "graph_runner"],
     ),
     "workspace.document.pdf.extract_text": CapabilityManifest(
         tool_id="workspace.document.pdf.extract_text", category="workspace", display_name="PDF Extract",
@@ -188,21 +188,21 @@ MANIFESTS: dict[str, CapabilityManifest] = {
         description="Show working tree diff", action_class="read",
         risk_level="low", side_effects="none", idempotency="safe_to_retry",
         timeout_seconds=30,
-        allowed_callers=["turn_runner", "rest_api", "job_runner", "subagent"],
+        allowed_callers=["turn_runner", "rest_api", "job_runner", "subagent", "graph_runner"],
     ),
     "git.log": CapabilityManifest(
         tool_id="git.log", category="git", display_name="Git Log",
         description="Show commit history", action_class="read",
         risk_level="low", side_effects="none", idempotency="safe_to_retry",
         timeout_seconds=30,
-        allowed_callers=["turn_runner", "rest_api", "job_runner", "subagent"],
+        allowed_callers=["turn_runner", "rest_api", "job_runner", "subagent", "graph_runner"],
     ),
     "git.status": CapabilityManifest(
         tool_id="git.status", category="git", display_name="Git Status",
         description="Show working tree status", action_class="read",
         risk_level="low", side_effects="none", idempotency="safe_to_retry",
         timeout_seconds=20,
-        allowed_callers=["turn_runner", "rest_api", "job_runner", "subagent"],
+        allowed_callers=["turn_runner", "rest_api", "job_runner", "subagent", "graph_runner"],
     ),
 
     # ═══ code ═══
@@ -211,7 +211,7 @@ MANIFESTS: dict[str, CapabilityManifest] = {
         description="Search codebase", action_class="read",
         risk_level="low", side_effects="none", idempotency="safe_to_retry",
         timeout_seconds=60,
-        allowed_callers=["turn_runner", "rest_api", "job_runner", "subagent"],
+        allowed_callers=["turn_runner", "rest_api", "job_runner", "subagent", "graph_runner"],
     ),
 
     # ═══ data ═══
@@ -254,7 +254,7 @@ MANIFESTS: dict[str, CapabilityManifest] = {
         description="Render safe document summary", action_class="read",
         risk_level="low", side_effects="none", idempotency="safe_to_retry",
         timeout_seconds=60,
-        allowed_callers=["turn_runner", "rest_api", "job_runner", "subagent"],
+        allowed_callers=["turn_runner", "rest_api", "job_runner", "subagent", "graph_runner"],
     ),
 
     # ═══ text ═══
@@ -271,14 +271,14 @@ MANIFESTS: dict[str, CapabilityManifest] = {
         description="Search the web", action_class="network",
         risk_level="low", side_effects="none", idempotency="safe_to_retry",
         timeout_seconds=60,
-        allowed_callers=["turn_runner", "rest_api", "job_runner", "subagent"],
+        allowed_callers=["turn_runner", "rest_api", "job_runner", "subagent", "graph_runner"],
     ),
     "web.page.process": CapabilityManifest(
         tool_id="web.page.process", category="web", display_name="Web Page Process",
         description="Fetch and process web page", action_class="network",
         risk_level="low", side_effects="none", idempotency="safe_to_retry",
         timeout_seconds=90,
-        allowed_callers=["turn_runner", "rest_api", "job_runner", "subagent"],
+        allowed_callers=["turn_runner", "rest_api", "job_runner", "subagent", "graph_runner"],
     ),
     "web.weather": CapabilityManifest(
         tool_id="web.weather", category="web", display_name="Weather",
@@ -293,14 +293,14 @@ MANIFESTS: dict[str, CapabilityManifest] = {
         description="Search knowledge base", action_class="read",
         risk_level="low", side_effects="none", idempotency="safe_to_retry",
         timeout_seconds=30,
-        allowed_callers=["turn_runner", "rest_api", "job_runner", "subagent"],
+        allowed_callers=["turn_runner", "rest_api", "job_runner", "subagent", "graph_runner"],
     ),
     "knowledge.read": CapabilityManifest(
         tool_id="knowledge.read", category="knowledge", display_name="Knowledge Read",
         description="Read knowledge entry", action_class="read",
         risk_level="low", side_effects="none", idempotency="safe_to_retry",
         timeout_seconds=20,
-        allowed_callers=["turn_runner", "rest_api", "job_runner", "subagent"],
+        allowed_callers=["turn_runner", "rest_api", "job_runner", "subagent", "graph_runner"],
     ),
     "knowledge.import": CapabilityManifest(
         tool_id="knowledge.import", category="knowledge", display_name="Knowledge Import",
@@ -345,7 +345,7 @@ MANIFESTS: dict[str, CapabilityManifest] = {
         description="Search agent memory", action_class="read",
         risk_level="low", side_effects="none", idempotency="safe_to_retry",
         output_sensitivity="sensitive", timeout_seconds=30,
-        allowed_callers=["turn_runner", "rest_api", "job_runner", "subagent"],
+        allowed_callers=["turn_runner", "rest_api", "job_runner", "subagent", "graph_runner"],
     ),
     "memory.manage": CapabilityManifest(
         tool_id="memory.manage", category="memory", display_name="Memory Manage",
@@ -366,14 +366,14 @@ MANIFESTS: dict[str, CapabilityManifest] = {
         description="List managed devices", action_class="read",
         risk_level="low", side_effects="none", idempotency="safe_to_retry",
         timeout_seconds=30,
-        allowed_callers=["turn_runner", "rest_api", "job_runner", "subagent"],
+        allowed_callers=["turn_runner", "rest_api", "job_runner", "subagent", "graph_runner"],
     ),
     "device.get": CapabilityManifest(
         tool_id="device.get", category="device", display_name="Get Device",
         description="Get device details", action_class="read",
         risk_level="low", side_effects="none", idempotency="safe_to_retry",
         timeout_seconds=20,
-        allowed_callers=["turn_runner", "rest_api", "job_runner", "subagent"],
+        allowed_callers=["turn_runner", "rest_api", "job_runner", "subagent", "graph_runner"],
     ),
     "device.add": CapabilityManifest(
         tool_id="device.add", category="device", display_name="Add Device",
@@ -426,7 +426,7 @@ MANIFESTS: dict[str, CapabilityManifest] = {
         description="Analyze network config", action_class="read",
         risk_level="low", side_effects="none", idempotency="safe_to_retry",
         timeout_seconds=120,
-        allowed_callers=["turn_runner", "rest_api", "job_runner", "subagent"],
+        allowed_callers=["turn_runner", "rest_api", "job_runner", "subagent", "graph_runner"],
     ),
 
     # ═══ report ═══
@@ -449,14 +449,14 @@ MANIFESTS: dict[str, CapabilityManifest] = {
         description="Run system diagnostics", action_class="admin",
         risk_level="medium", side_effects="read", idempotency="safe_to_retry",
         timeout_seconds=120,
-        allowed_callers=["turn_runner", "rest_api", "job_runner", "subagent"],
+        allowed_callers=["turn_runner", "rest_api", "job_runner", "subagent", "graph_runner"],
     ),
     "system.review.item.list": CapabilityManifest(
         tool_id="system.review.item.list", category="system", display_name="Review Items",
         description="List review items", action_class="read",
         risk_level="low", side_effects="none", idempotency="safe_to_retry",
         timeout_seconds=20,
-        allowed_callers=["turn_runner", "rest_api", "job_runner", "subagent"],
+        allowed_callers=["turn_runner", "rest_api", "job_runner", "subagent", "graph_runner"],
     ),
     "system.review.item.update": CapabilityManifest(
         tool_id="system.review.item.update", category="system", display_name="Update Review",
@@ -509,7 +509,7 @@ MANIFESTS: dict[str, CapabilityManifest] = {
         description="Analyze packet capture", action_class="read",
         risk_level="low", side_effects="none", idempotency="safe_to_retry",
         timeout_seconds=120,
-        allowed_callers=["turn_runner", "rest_api", "job_runner", "subagent"],
+        allowed_callers=["turn_runner", "rest_api", "job_runner", "subagent", "graph_runner"],
     ),
 
     # ═══ tool ═══
@@ -518,7 +518,7 @@ MANIFESTS: dict[str, CapabilityManifest] = {
         description="Search tool catalog", action_class="read",
         risk_level="low", side_effects="none", idempotency="safe_to_retry",
         timeout_seconds=20,
-        allowed_callers=["turn_runner", "rest_api", "job_runner", "subagent"],
+        allowed_callers=["turn_runner", "rest_api", "job_runner", "subagent", "graph_runner"],
     ),
 }
 

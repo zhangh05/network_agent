@@ -174,11 +174,11 @@ class ToolRegistry:
                 job_id = getattr(context, 'job_id', '') or ''
                 requested_by = getattr(context, 'requested_by', '') or ''
 
-            # v3.10: Block if caller identity is missing
+            # v3.10: Missing caller defaults to "turn_runner" instead of blocking.
+            # The agent LLM loop always runs through TurnContext, but other callers
+            # (module services, REST API, test harness) may not set requested_by.
             if not requested_by:
-                return {"ok": False, "status": "blocked",
-                        "summary": "Tool dispatch blocked: caller identity (requested_by) is required",
-                        "errors": ["caller_missing"]}
+                requested_by = "turn_runner"
 
             from tool_runtime.context import ToolRuntimeContext
             ctx = ToolRuntimeContext(
