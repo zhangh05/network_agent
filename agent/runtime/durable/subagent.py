@@ -229,14 +229,19 @@ def run_subagent_task(subtask_id: str, ws_id: str) -> dict:
         from agent.core.session import AgentSession
         import agent.runtime.loop as _runtime_loop
         from agent.tools.router import ToolRouter
+        from agent.runtime.services import default_runtime_services
 
         sess = AgentSession(session_id=task.session_id, workspace_id=ws_id)
         sess.mark_sub_agent()
 
-        # Build restricted ToolRouter
-        tool_router = ToolRouter()
-        if profile.allowed_tools:
-            tool_router = ToolRouter(allowed_tool_ids=profile.allowed_tools)
+        # Build restricted ToolRouter from the real runtime registry. A bare
+        # ToolRouter has an empty registry, which hides every subagent tool.
+        base_services = default_runtime_services()
+        base_router = base_services.tool_service
+        tool_router = ToolRouter.for_turn(
+            base_router.registry,
+            allowed_tool_ids=profile.allowed_tools or None,
+        )
 
         # Submit via run_turn with restricted tools
         from agent.core.turn import AgentTurn

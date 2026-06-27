@@ -480,10 +480,18 @@ export const memoryApi = {
     ),
 
   create: (
-    data: { title: string; content: string; workspace_id: string; scope?: string; tags?: string[] },
+    data: {
+      title: string;
+      content: string;
+      workspace_id: string;
+      scope?: string;
+      tags?: string[];
+      memory_type?: "decision" | "translation_rule" | "user_preference" | string;
+      user_confirmed?: boolean;
+    },
     signal?: AbortSignal,
-  ): Promise<{ ok: boolean; memory_id: string }> =>
-    apiRequest<{ ok: boolean; memory_id: string }>(
+  ): Promise<{ ok: boolean; memory_id: string; status?: string; conflict?: boolean }> =>
+    apiRequest<{ ok: boolean; memory_id: string; status?: string; conflict?: boolean }>(
       { method: "POST", url: "/memory/write", data },
       signal,
     ),
@@ -518,15 +526,12 @@ export const memoryApi = {
 
   confirm: (
     data: {
-      title: string;
-      content: string;
-      memory_type?: "decision" | "translation_rule" | "user_preference" | string;
-      tags?: string[];
-      workspace_id?: string;  // v3.10: was project_id
+      workspace_id: string;
+      memory_id: string;
     },
     signal?: AbortSignal,
-  ): Promise<{ ok: boolean; memory_id: string; redaction_applied?: boolean; conflict_detected?: boolean; conflicts?: unknown[] }> =>
-    apiRequest<{ ok: boolean; memory_id: string; redaction_applied?: boolean; conflict_detected?: boolean; conflicts?: unknown[] }>(
+  ): Promise<{ ok: boolean; status?: string; error?: string }> =>
+    apiRequest<{ ok: boolean; status?: string; error?: string }>(
       {
         method: "POST",
         url: "/memory/confirm",

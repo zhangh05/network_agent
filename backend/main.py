@@ -28,8 +28,8 @@ from backend.api.llm_api import (
 )
 from backend.api.skills import handle_skills
 from backend.api.modules import handle_modules, handle_module_status, handle_registry_status, handle_capabilities
-from backend.api.memory import handle_memory_status, handle_memory_write, handle_memory_search
-from backend.api.memory_routes import handle_memory_confirm, handle_memory_delete, handle_memory_list
+from backend.api.memory import handle_memory_status, handle_memory_write, handle_memory_search, handle_memory_confirm
+from backend.api.memory_routes import handle_memory_delete, handle_memory_list
 from backend.api.session_routes import (
     handle_session_create, handle_session_list,
     handle_session_detail, handle_session_update,

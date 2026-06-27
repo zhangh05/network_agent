@@ -13,14 +13,25 @@ from __future__ import annotations
 def register_state_routes(app):
     """Register runtime state API routes on the Flask app."""
 
+    def _validated_ws_id(raw: str) -> tuple[str, tuple | None]:
+        from flask import jsonify
+        if not raw:
+            return "", (jsonify({"ok": False, "error": "workspace_id is required"}), 400)
+        try:
+            from workspace.ids import validate_workspace_id
+            return validate_workspace_id(raw), None
+        except Exception:
+            return "", (jsonify({"ok": False, "error": "invalid_workspace_id"}), 400)
+
     @app.route("/api/runtime/tasks")
     def api_runtime_tasks():
         from flask import request, jsonify
         ws_id = request.args.get("workspace_id", "")
         session_id = request.args.get("session_id", "")
 
-        if not ws_id:
-            return jsonify({"ok": False, "error": "workspace_id is required"}), 400
+        ws_id, err = _validated_ws_id(ws_id)
+        if err:
+            return err
 
         try:
             from agent.runtime.durable.store import list_tasks
@@ -114,8 +125,9 @@ def register_state_routes(app):
         from flask import request, jsonify
         ws_id = (request.args.get("workspace_id", "") or
                  (request.get_json(silent=True) or {}).get("workspace_id", ""))
-        if not ws_id:
-            return jsonify({"ok": False, "error": "workspace_id is required"}), 400
+        ws_id, err = _validated_ws_id(ws_id)
+        if err:
+            return err
         try:
             from agent.runtime.durable.control import checkpoint_task
             reason = (request.get_json(silent=True) or {}).get("reason", "manual")

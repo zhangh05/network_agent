@@ -91,21 +91,22 @@ class ActionExecutor:
                     rid = getattr(getattr(state, 'turn', None), 'turn_id', '') or ''
                 # v3.10: Use state.task_id (bound by runner), fallback to store query
                 real_task_id = getattr(state, 'task_id', '') or ''
-                if ws and sid and real_task_id:
-                    step_id_str = f"step-{plan.tool_id}-{step}"
-                    interrupt_before_tool(
-                        task_id=real_task_id,
-                        ws_id=ws, session_id=sid, run_id=rid,
-                        step_id=step_id_str,
-                        tool_invocation={
-                            "tool_id": plan.tool_id,
-                            "arguments": dict(plan.arguments) if hasattr(plan, 'arguments') else {},
-                        },
-                        risk_decision={
-                            "risk_level": risk.risk_level,
-                            "reason": risk.reason or "High-risk action requires approval",
-                        },
-                    )
+                if not (ws and sid and real_task_id):
+                    raise RuntimeError("approval interrupt requires workspace_id, session_id, and task_id")
+                step_id_str = f"step-{plan.tool_id}-{step}"
+                interrupt_before_tool(
+                    task_id=real_task_id,
+                    ws_id=ws, session_id=sid, run_id=rid,
+                    step_id=step_id_str,
+                    tool_invocation={
+                        "tool_id": plan.tool_id,
+                        "arguments": dict(plan.arguments) if hasattr(plan, 'arguments') else {},
+                    },
+                    risk_decision={
+                        "risk_level": risk.risk_level,
+                        "reason": risk.reason or "High-risk action requires approval",
+                    },
+                )
             except Exception as _irq_exc:
                 msg = str(_irq_exc)[:200]
                 result = ActionResult(

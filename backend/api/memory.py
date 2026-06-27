@@ -11,15 +11,26 @@ def _validated_ws_id(raw: str) -> str:
     """Validate and return workspace_id. Empty → 400."""
     if not raw or not raw.strip():
         return ""
-    return raw.strip()
+    from workspace.ids import validate_workspace_id
+    return validate_workspace_id(raw.strip())
+
+
+def _read_ws_id(raw: str):
+    try:
+        ws_id = _validated_ws_id(raw)
+    except Exception:
+        return "", "invalid_workspace_id"
+    if not ws_id:
+        return "", "workspace_id is required"
+    return ws_id, ""
 
 
 def handle_memory_status():
     """Return memory system status for the given workspace."""
     ws_id = request.args.get("workspace_id", "")
-    ws_id = _validated_ws_id(ws_id)
-    if not ws_id:
-        return jsonify({"ok": False, "error": "workspace_id is required"}), 400
+    ws_id, err = _read_ws_id(ws_id)
+    if err:
+        return jsonify({"ok": False, "error": err}), 400
     try:
         from workspace.memory_governance import MemoryStore, MemoryWriteGate
         store = MemoryStore()
@@ -46,9 +57,9 @@ def handle_memory_write():
         return jsonify({"ok": False, "error": "title or content required"}), 400
 
     workspace_id = data.get("workspace_id", "")
-    ws_id = _validated_ws_id(workspace_id)
-    if not ws_id:
-        return jsonify({"ok": False, "error": "workspace_id is required"}), 400
+    ws_id, err = _read_ws_id(workspace_id)
+    if err:
+        return jsonify({"ok": False, "error": err}), 400
 
     source = data.get("source", "agent")
     confidence = float(data.get("confidence", 0.5))
@@ -66,7 +77,7 @@ def handle_memory_write():
             task_id=data.get("task_id", ""),
             scope=data.get("scope", "workspace"),
             memory_type=data.get("memory_type", "operational_fact"),
-            status="pending",
+            status="active" if user_confirmed else "pending",
             source="user" if user_confirmed else ("subagent" if is_subagent else "agent_suggestion"),
             content=content[:2000],
             summary=title[:200],
@@ -89,9 +100,9 @@ def handle_memory_search():
     data = request.get_json(silent=True) or {}
     query = data.get("query", "")
     workspace_id = data.get("workspace_id", "")
-    ws_id = _validated_ws_id(workspace_id)
-    if not ws_id:
-        return jsonify({"ok": False, "error": "workspace_id is required"}), 400
+    ws_id, err = _read_ws_id(workspace_id)
+    if err:
+        return jsonify({"ok": False, "error": err}), 400
 
     try:
         limit = min(int(data.get("limit", 10)), 100)
@@ -116,10 +127,12 @@ def handle_memory_search():
 def handle_memory_confirm():
     """Confirm a pending memory record."""
     data = request.get_json(silent=True) or {}
-    ws_id = _validated_ws_id(data.get("workspace_id", ""))
+    ws_id, err = _read_ws_id(data.get("workspace_id", ""))
     memory_id = data.get("memory_id", "")
-    if not ws_id or not memory_id:
-        return jsonify({"ok": False, "error": "workspace_id and memory_id required"}), 400
+    if err:
+        return jsonify({"ok": False, "error": err}), 400
+    if not memory_id:
+        return jsonify({"ok": False, "error": "memory_id required"}), 400
 
     try:
         from workspace.memory_governance import confirm_memory

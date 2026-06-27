@@ -761,12 +761,13 @@ const ResultInline = React.memo(function ResultInline({ result, fallbackText }: 
     if (saving) return;
     setSaving("memory");
     try {
-      const res = await memoryApi.confirm({
+      const res = await memoryApi.create({
         workspace_id: currentWorkspaceId,
         title: finalText.slice(0, 42) || "本次结论",
         content: finalText,
         memory_type: "decision",
         tags: ["agent_answer", "confirmed"],
+        user_confirmed: true,
       });
       // Also save to unified files for File Manager visibility
       try {
@@ -778,7 +779,7 @@ const ResultInline = React.memo(function ResultInline({ result, fallbackText }: 
         form.append("workspace_id", currentWorkspaceId);
         await apiRequest({ method: "POST", url: `/workspaces/${currentWorkspaceId}/artifacts/upload`, data: form });
       } catch {}
-      if (res.conflict_detected) {
+      if (res.conflict) {
         toast({ kind: "warning", title: "已记录，但发现冲突", body: "这条记忆和已有记忆可能不一致，请稍后在记忆列表核对。" });
       } else {
         toast({ kind: "success", title: "已记住", body: "后续对话会通过 RAG 召回这条结论" });
