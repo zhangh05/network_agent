@@ -1776,9 +1776,8 @@ details.collapse[open] summary::before {
   position: relative;
   min-height: 0;
   padding: 22px 32px 28px;
-  overflow: auto;
+  overflow: hidden;
   background: linear-gradient(180deg, #fbfdff 0%, #f7fafc 100%);
-  scroll-behavior: smooth;
 }
 
 [data-theme="dark"] .wb-chat {
