@@ -1,7 +1,4 @@
-"""Memory tool handlers — v3.10: governed via workspace/memory_governance.py.
-All operations route through MemoryWriteGate and MemoryStore.
-Old memory.store / memory.writer / context.context_store are deprecated.
-"""
+"""Memory tool handlers — v3.10 governed MemoryWriteGate/MemoryStore path."""
 
 from tool_runtime.general_tools.shared import *
 from tool_runtime.schemas import ToolInvocation
