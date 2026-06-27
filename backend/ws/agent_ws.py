@@ -63,7 +63,10 @@ def register_ws_routes(app):
                     continue
 
                 session_id = msg.get("session_id", "") or ""
-                workspace_id = msg.get("workspace_id", "default") or "default"
+                workspace_id = msg.get("workspace_id", "") or ""
+                if not workspace_id:
+                    ws.send(json.dumps({"type": "error", "message": "workspace_id is required"}, ensure_ascii=True))
+                    continue
                 try:
                     from workspace.ids import validate_workspace_id, validate_session_id
                     workspace_id = validate_workspace_id(workspace_id)

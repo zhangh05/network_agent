@@ -171,8 +171,9 @@ def list_trajectories(ws_id: str, limit=50) -> list[dict]:
 def evaluate_trajectory(traj: dict) -> dict:
     # v3.10: reject empty/undefined trajectory
     if not traj or not traj.get("task_id"):
-        return {"ok": False, "severity": "critical", "issues": ["invalid_trajectory"],
-                "score": 0, "detail": "Empty or invalid trajectory — cannot evaluate"}
+        return {"ok": False, "severity": "critical",
+                "issues": [{"rule": "invalid_trajectory", "detail": "Empty or invalid trajectory — cannot evaluate"}],
+                "score": 0}
     m = traj.get("metrics", {})
     issues = []
     if m.get("task_success") is False: issues.append({"rule": "task_failed", "detail": "Task did not succeed"})

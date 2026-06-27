@@ -1,36 +1,64 @@
-"""Memory tool handlers — uses unified ContextStore.
-
-All operations go through memory.store (ContextStoreAdapter)
-and context.context_store (ContextStore).
+"""Memory tool handlers — v3.10: governed via workspace/memory_governance.py.
+All operations route through MemoryWriteGate and MemoryStore.
+Old memory.store / memory.writer / context.context_store are deprecated.
 """
+
 from tool_runtime.general_tools.shared import *
+from tool_runtime.schemas import ToolInvocation
 
 
 def _caller_workspace(inv: ToolInvocation) -> str:
+    """Extract validated workspace_id from caller context. No default fallback."""
     requested = str(inv.arguments.get("workspace_id") or "").strip()
     caller = str(inv.workspace_id or "").strip()
     if caller and requested and caller != requested:
-        raise ValueError(
-            f"workspace_id mismatch: caller={caller!r}, requested={requested!r}"
-        )
-    workspace_id = caller or requested or "default"
+        raise ValueError(f"workspace_id mismatch: caller={caller!r}, requested={requested!r}")
+    workspace_id = caller or requested or ""
+    if not workspace_id:
+        raise ValueError("workspace_id is required — no default fallback")
     validate_workspace_id(workspace_id)
     return workspace_id
+
+
+def _get_store(ws_id: str):
+    from workspace.memory_governance import MemoryStore
+    return MemoryStore()
+
+
+def _via_gate(title: str, content: str, ws_id: str, source: str = "llm_tool",
+              memory_type: str = "knowledge_note", scope: str = "workspace",
+              session_id: str = "", task_id: str = "", user_confirmed: bool = False,
+              citations: list = None, tags: list = None) -> dict:
+    """Write memory through MemoryWriteGate (governed path only)."""
+    from workspace.memory_governance import MemoryRecord, MemoryWriteGate
+    rec = MemoryRecord(
+        workspace_id=ws_id, session_id=session_id, task_id=task_id,
+        scope=scope, memory_type=memory_type,
+        status="active" if user_confirmed else "pending",
+        source="user" if user_confirmed else ("subagent" if source == "subagent" else "agent_suggestion"),
+        content=content[:2000], summary=title[:200],
+        confidence=1.0 if user_confirmed else 0.5,
+        citations=citations or [], created_by=source,
+        redacted=True,
+    )
+    gate = MemoryWriteGate()
+    return gate.write(rec)
 
 
 def handle_memory_search(inv: ToolInvocation) -> dict:
     query = (inv.arguments.get("query") or "").strip()
     try:
-        # memory.store replaced by workspace.memory_governance.MemoryStore
-        store = get_store(_caller_workspace(inv))
-        results = store.search(query, limit=10)
-        safe = []
-        for r in results:
-            safe.append({
-                "memory_id": r.get("memory_id", r.get("item_id", "")),
-                "title": r.get("title", ""),
-                "summary": (r.get("content", "") or "")[:200],
-            })
+        ws = _caller_workspace(inv)
+        store = _get_store(ws)
+        results = store.list_retrievable(ws, limit=10)
+        if query:
+            q = query.lower()
+            results = [r for r in results if q in (r.get("content", "") + r.get("summary", "")).lower()]
+        safe = [{
+            "memory_id": r.get("memory_id", ""),
+            "title": r.get("title", ""),
+            "summary": r.get("summary", "")[:200],
+        } for r in results]
         return _ok(inv, "", {"results": safe, "count": len(safe)})
     except Exception as e:
         return _error_inv(inv, str(e)[:200])
@@ -43,45 +71,27 @@ def handle_memory_create(inv: ToolInvocation) -> dict:
     if not title or not content:
         return _error_inv(inv, "title and content are required")
     try:
-        # memory.redaction replaced by MemoryWriteGate secret check
-        if # was contains_secret, now gate handles: title) or # was contains_secret, now gate handles: content):
-            return _error_inv(inv, "content contains secrets — memory.manage blocked")
-        # memory.writer replaced by MemoryWriteGate
-        import time
-        key = str(args.get("key", title[:60]))
-        value_preview = content[:200]
         ws = _caller_workspace(inv)
         sid = str(args.get("session_id", ""))
-        memory_id = write_memory(
-            title=title,
-            content=content,
-            scope=str(args.get("scope", "long_term")),
+        is_sub = bool(args.get("is_subagent", False))
+        source = "subagent" if is_sub else "llm_tool"
+        result = _via_gate(
+            title=title, content=content, ws_id=ws,
+            source=source,
             memory_type=str(args.get("memory_type", "knowledge_note")),
+            scope=str(args.get("scope", "workspace")),
+            session_id=sid,
+            user_confirmed=bool(args.get("user_confirmed", False)),
             tags=list(args.get("tags") or []),
-            workspace_id=ws,
-            source="llm_tool",
-            confidence=str(args.get("confidence", "system_generated")),
-            summary=str(args.get("summary", value_preview)),
-            sensitivity=str(args.get("sensitivity", "internal")),
-            metadata={
-                **(args.get("metadata") or {}),
-                "key": key,
-                "value_preview": value_preview,
-                "status": "pending_confirmation",
-                "session_id": sid,
-                "workspace_id": ws,
-                "source": "llm_tool",
-                "created_at": time.strftime("%Y-%m-%dT%H:%M:%S"),
-            },
-            user_confirmed=False,
         )
+        memory_id = result.get("memory_id", "")
         if not memory_id:
             return _error_inv(inv, "memory write blocked by policy")
+        if result.get("rejected"):
+            return _error_inv(inv, f"memory rejected: {result.get('summary', 'secret content')}")
         return _ok(inv, "", {
             "memory_id": memory_id,
-            "status": "pending_confirmation",
-            "key": key,
-            "value_preview": value_preview,
+            "status": result.get("status", "pending"),
         })
     except Exception as e:
         return _error_inv(inv, str(e)[:200])
@@ -90,36 +100,19 @@ def handle_memory_create(inv: ToolInvocation) -> dict:
 def handle_memory_list(inv: ToolInvocation) -> dict:
     args = inv.arguments
     try:
-        # memory.store replaced by workspace.memory_governance.MemoryStore
         ws = _caller_workspace(inv)
-        store = get_store(ws)
-        results = store.list(
-            scope=args.get("scope"),
-            memory_type=args.get("memory_type"),
-            workspace_id=ws,
-            limit=args.get("limit", 20),
-        )
-        status_filter = args.get("status", "")
+        store = _get_store(ws)
+        results = store.list_retrievable(ws, limit=int(args.get("limit", 20)))
         session_filter = args.get("session_id", "")
-        include_deleted = bool(args.get("include_deleted", False))
         summaries = []
         for r in results:
-            meta = (r.get("metadata") or {})
-            mem_status = meta.get("status", "confirmed") if isinstance(meta, dict) else "confirmed"
-            mem_sid = meta.get("session_id", "") if isinstance(meta, dict) else ""
-            if mem_status == "deleted" and not include_deleted:
-                continue
-            if status_filter and mem_status != status_filter:
-                continue
-            if session_filter and mem_sid != session_filter:
+            if session_filter and r.get("session_id", "") != session_filter:
                 continue
             summaries.append({
-                "memory_id": r.get("memory_id", r.get("item_id", "")),
+                "memory_id": r.get("memory_id", ""),
                 "title": r.get("title", ""),
-                "summary": (r.get("summary", "") or r.get("content", ""))[:200],
-                "key": meta.get("key", "") if isinstance(meta, dict) else "",
-                "value_preview": meta.get("value_preview", "") if isinstance(meta, dict) else "",
-                "status": mem_status,
+                "summary": r.get("summary", "")[:200],
+                "status": r.get("status", "confirmed"),
                 "memory_type": r.get("memory_type", ""),
                 "scope": r.get("scope", ""),
                 "created_at": r.get("created_at", ""),
@@ -136,28 +129,10 @@ def handle_memory_confirm(inv: ToolInvocation) -> dict:
     if not memory_id:
         return _error_inv(inv, "memory_id is required")
     try:
-        # P0 fix (round 7): use the caller's workspace, not hardcoded "default".
-        # Cross-workspace data access is a privilege boundary.
-        from context.context_store import get_context_store
         ws = _caller_workspace(inv)
-        store = get_context_store(ws)
-        entry = store.get(memory_id)
-        if not entry:
-            return _error_inv(inv, f"memory_id not found: {memory_id}")
-
-        meta = entry.get("metadata") or {}
-        status = meta.get("status", "confirmed") if isinstance(meta, dict) else "confirmed"
-        if status == "confirmed":
-            return _ok(inv, "", {"memory_id": memory_id, "already_confirmed": True, "status": "confirmed"})
-
-        if isinstance(meta, dict):
-            meta["status"] = "confirmed"
-        else:
-            meta = {"status": "confirmed"}
-        entry["metadata"] = meta
-        store.put(entry)
-
-        return _ok(inv, "", {"memory_id": memory_id, "status": "confirmed", "already_confirmed": False})
+        from workspace.memory_governance import confirm_memory
+        result = confirm_memory(ws, memory_id)
+        return _ok(inv, "", {"memory_id": memory_id, **result})
     except Exception as e:
         return _error_inv(inv, str(e)[:200])
 
@@ -165,33 +140,23 @@ def handle_memory_confirm(inv: ToolInvocation) -> dict:
 def handle_memory_get_profile(inv: ToolInvocation) -> dict:
     try:
         ws = _caller_workspace(inv)
-        from context.context_store import get_context_store
-        store = get_context_store(ws)
-        items = store.list_items(item_type="profile", limit=1)
-        if not items:
-            return _ok(inv, "No profile found; returning empty default.", {
+        store = _get_store(ws)
+        results = store.list_retrievable(ws, memory_type="profile", limit=1)
+        if not results:
+            return _ok(inv, "No profile found", {
                 "explicit_preferences": {},
                 "inferred_preferences": {},
                 "tool_usage_stats": {},
                 "updated_at": "",
                 "warnings": ["tool_returned_no_payload"],
             })
-        data = items[0].get("content", {})
-        if isinstance(data, str):
-            import json
-            try:
-                data = json.loads(data)
-            except Exception:
-                data = {}
-        payload = {
+        data = results[0]
+        return _ok(inv, "Profile loaded.", {
             "explicit_preferences": data.get("explicit_preferences", {}),
             "inferred_preferences": data.get("inferred_preferences", {}),
             "tool_usage_stats": data.get("tool_usage_stats", {}),
             "updated_at": data.get("updated_at", ""),
-        }
-        if not any(v not in (None, "", [], {}) for v in payload.values()):
-            payload["warnings"] = ["tool_returned_no_payload"]
-        return _ok(inv, "Profile loaded.", payload)
+        })
     except Exception as e:
         return _error_inv(inv, str(e)[:200])
 
@@ -204,34 +169,30 @@ def handle_memory_set_profile(inv: ToolInvocation) -> dict:
         return _error_inv(inv, "field is required")
     try:
         ws = _caller_workspace(inv)
-        # memory.redaction replaced by MemoryWriteGate secret check
-        if isinstance(value, str) and # was contains_secret, now gate handles: value):
-            return _error_inv(inv, "value contains secrets — set_profile blocked")
         import time
-        from context.context_store import get_context_store
-        store = get_context_store(ws)
-        items = store.list_items(item_type="profile", limit=1)
-        profile = {"explicit_preferences": {}, "inferred_preferences": {}, "tool_usage_stats": {}, "updated_at": ""}
-        if items:
-            existing = items[0].get("content", {})
-            if isinstance(existing, dict):
-                profile.update(existing)
-        if merge:
-            profile.setdefault("explicit_preferences", {})[field] = value
+        # Build profile content as memory record
+        from workspace.memory_governance import MemoryRecord, MemoryWriteGate
+        existing = {}
+        store = _get_store(ws)
+        results = store.list_retrievable(ws, memory_type="profile", limit=1)
+        if results:
+            existing = results[0]
+        profile = existing if existing else {"explicit_preferences": {}, "inferred_preferences": {}, "updated_at": ""}
+        if merge and isinstance(profile.get("explicit_preferences"), dict):
+            profile["explicit_preferences"][field] = value
         else:
-            profile["explicit_preferences"] = {field: value} if value is not None else {}
+            profile["explicit_preferences"] = {field: value}
         profile["updated_at"] = time.strftime("%Y-%m-%dT%H:%M:%S")
 
-        item = {
-            "item_id": f"profile_{ws}",
-            "item_type": "profile",
-            "source": "user_tool",
-            "title": "User Profile",
-            "summary": f"Updated: {field}",
-            "content": profile,
-            "scope": "workspace",
-        }
-        store.put(item)
+        rec = MemoryRecord(
+            workspace_id=ws, scope="workspace",
+            memory_type="profile", status="active",
+            source="user", content=str(profile)[:2000],
+            summary=f"Profile updated: {field}",
+            confidence=1.0, created_by="user", redacted=True,
+        )
+        gate = MemoryWriteGate()
+        gate.write(rec)
         return _ok(inv, "", {"field": field, "saved": True})
     except Exception as e:
         return _error_inv(inv, str(e)[:200])
@@ -246,26 +207,15 @@ def handle_memory_update(inv: ToolInvocation) -> dict:
     if not content:
         return _error_inv(inv, "content is required")
     try:
-        # memory.redaction replaced by MemoryWriteGate secret check
-        if # was contains_secret, now gate handles: content):
-            return _error_inv(inv, "content contains secrets — memory.manage blocked")
-        import time
-        # P0 fix (round 7): use caller's workspace instead of hardcoded "default"
-        # to enforce workspace isolation.
-        from context.context_store import get_context_store
         ws = _caller_workspace(inv)
-        store = get_context_store(ws)
-        entry = store.get(memory_id)
-        if not entry:
+        store = _get_store(ws)
+        rec = store.get(ws, memory_id)
+        if not rec:
             return _error_inv(inv, f"memory_id not found: {memory_id}")
-        entry["content"] = content
-        meta = entry.get("metadata") or {}
-        if not isinstance(meta, dict):
-            meta = {}
-        meta["updated_at"] = time.strftime("%Y-%m-%dT%H:%M:%S")
-        meta["status"] = "updated"
-        entry["metadata"] = meta
-        store.put(entry)
+        rec.content = content[:2000]
+        import time
+        rec.updated_at = time.strftime("%Y-%m-%dT%H:%M:%S")
+        store.save(rec)
         return _ok(inv, "", {"memory_id": memory_id, "updated": True})
     except Exception as e:
         return _error_inv(inv, str(e)[:200])
@@ -277,20 +227,9 @@ def handle_memory_delete_soft(inv: ToolInvocation) -> dict:
     if not memory_id:
         return _error_inv(inv, "memory_id is required")
     try:
-        # P0 fix (round 7): enforce workspace isolation; do not let one
-        # workspace's LLM delete another workspace's memory.
-        from context.context_store import get_context_store
         ws = _caller_workspace(inv)
-        store = get_context_store(ws)
-        entry = store.get(memory_id)
-        if not entry:
-            return _error_inv(inv, f"memory_id not found: {memory_id}")
-        store.delete(memory_id)
-        return _ok(inv, "", {"memory_id": memory_id, "deleted": True})
+        from workspace.memory_governance import reject_memory
+        result = reject_memory(ws, memory_id)
+        return _ok(inv, "", {"memory_id": memory_id, "deleted": True, **result})
     except Exception as e:
         return _error_inv(inv, str(e)[:200])
-
-
-__all__ = ['handle_memory_search', 'handle_memory_create', 'handle_memory_list',
-           'handle_memory_confirm', 'handle_memory_get_profile', 'handle_memory_set_profile',
-           'handle_memory_update', 'handle_memory_delete_soft']
