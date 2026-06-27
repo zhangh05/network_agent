@@ -44,7 +44,8 @@ class ApprovalGate:
             decision.reason = manifest_reason or risk.reason or "High-risk action requires approval"
             decision.prompt = f"Approve {plan.tool_id}({_summarize_args(plan.arguments)})?"
             self._write_ctx(ctx, decision)
-            self._create_store_record(plan, risk, ctx, decision)
+            # v3.10: ApprovalStore record is now created by interrupt_before_tool() in durable/interrupt.py.
+            # No duplicate store.create() here.
             return decision
 
         # Low/medium → no approval needed

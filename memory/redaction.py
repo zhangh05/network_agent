@@ -1,4 +1,4 @@
-"""Memory redaction — strip secrets before persisting."""
+"""Memory redaction — strip secrets before persisting. Standalone utility, not deprecated."""
 
 import re
 
