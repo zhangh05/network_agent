@@ -103,11 +103,5 @@ def _get_embedding(text: str) -> Optional[list[float]]:
     except ImportError:
         pass
 
-    try:
-        # Fallback: use LLM to get embedding-like representation
-        import hashlib
-        # Simple hash-based pseudo-embedding as ultimate fallback
-        h = hashlib.sha256(text.encode()).digest()
-        return [float(b) / 255.0 for b in h[:64]]
-    except Exception:
-        return None
+    # No synthetic embeddings: hash vectors make routing effectively random.
+    return None

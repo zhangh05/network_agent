@@ -170,7 +170,17 @@ class MemoryWriteGate:
         if candidate.confidence < 0.3:
             candidate.status = "pending"
 
-        # 7. Conflict detection
+        # 7. LLM-first quality gate for agent-generated memories.
+        # User-confirmed/manual memories are explicit user intent and must not
+        # be rejected by an LLM classifier.
+        if gate_mode == "llm_first" and candidate.source in ("agent_suggestion", "subagent"):
+            accepted, skipped = _llm_gate_record(candidate)
+            if not accepted:
+                reason = skipped[0].get("reason", "llm_gate_rejected") if skipped else "llm_gate_rejected"
+                return {"ok": False, "status": "rejected", "memory_id": candidate.memory_id,
+                        "rejected": True, "error": reason, "gate_mode": gate_mode}
+
+        # 8. Conflict detection
         conflicts = self.store.find_conflicts(candidate)
         if conflicts:
             for c in conflicts:
@@ -178,7 +188,7 @@ class MemoryWriteGate:
                     candidate.status = "conflict"
                     candidate.conflict_group = f"cg-{_time.time():.0f}"
 
-        # 8. Persist
+        # 9. Persist
         candidate.redacted = True
         self.store.save(candidate)
         return {"ok": True, "status": candidate.status, "memory_id": candidate.memory_id,
@@ -241,6 +251,29 @@ def _contains_secret_pattern(text: str) -> bool:
     for p in patterns:
         if re.search(p, text): return True
     return False
+
+def _llm_gate_record(record: MemoryRecord) -> tuple[bool, list[dict]]:
+    try:
+        from agent.runtime.memory_write.llm_gate import MemoryLLMGate
+        from agent.runtime.memory_write.models import MemoryCandidate
+        candidate = MemoryCandidate(
+            candidate_id=record.memory_id,
+            memory_type=record.memory_type,
+            content=record.content,
+            source=record.source,
+            task_id=record.task_id,
+            confidence=record.confidence,
+        )
+        accepted, skipped = MemoryLLMGate().gate([candidate])
+        if accepted:
+            meta = accepted[0].metadata or {}
+            summary = meta.get("summary") or meta.get("llm_summary")
+            if summary:
+                record.summary = str(summary)[:200]
+            return True, skipped
+        return False, skipped
+    except Exception as exc:
+        return True, [{"reason": f"llm_gate_unavailable_fallback: {str(exc)[:100]}"}]
 
 def _text_similarity(a: str, b: str) -> float:
     a_words = set(a.lower().split())

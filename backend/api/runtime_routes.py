@@ -81,14 +81,13 @@ def _validate_approved_tool_invocation(approval_id: str, tool_id: str, workspace
     try:
         from agent.approval import get_approval_store
 
-        history = get_approval_store().get_history(tool_id=tool_id, limit=500)
+        history = get_approval_store().get_history(tool_id=tool_id, workspace_id=workspace_id, limit=500)
         for rec in history:
-            rec_ws = rec.get("workspace_id", "")
             if (
                 rec.get("approval_id") == approval_id
                 and rec.get("allowed") is True
                 and rec.get("tool_id") == tool_id
-                and (not rec_ws or rec_ws == workspace_id)
+                and rec.get("workspace_id", "") == workspace_id
             ):
                 return True
     except Exception:

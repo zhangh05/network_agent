@@ -40,13 +40,25 @@ def _admin_token_allowed() -> bool:
 def register_approval_routes(app) -> None:
     """Register approval endpoints on the Flask app."""
 
+    def _validated_ws_id(raw: str):
+        if not raw:
+            return "", (jsonify({"ok": False, "error": "workspace_id is required"}), 400)
+        try:
+            from workspace.ids import validate_workspace_id
+            return validate_workspace_id(raw), None
+        except Exception:
+            return "", (jsonify({"ok": False, "error": "invalid_workspace_id"}), 400)
+
     @app.route("/api/agent/approvals/pending")
     def api_approvals_pending():
-        """GET pending approvals, optionally filtered by session_id."""
+        """GET pending approvals, filtered by workspace and optionally session."""
         from agent.approval import get_approval_store
         store = get_approval_store()
+        ws_id, err = _validated_ws_id(request.args.get("workspace_id", ""))
+        if err:
+            return err
         session_id = request.args.get("session_id", "")
-        pending = store.get_pending(session_id)
+        pending = store.get_pending(session_id, workspace_id=ws_id)
         return jsonify({
             "ok": True,
             "pending": pending,
@@ -108,6 +120,9 @@ def register_approval_routes(app) -> None:
         """GET resolved approval history (Guardian audit)."""
         from agent.approval import get_approval_store
         store = get_approval_store()
+        ws_id, err = _validated_ws_id(request.args.get("workspace_id", ""))
+        if err:
+            return err
         session_id = request.args.get("session_id", "")
         tool_id = request.args.get("tool_id", "")
         try:
@@ -120,6 +135,7 @@ def register_approval_routes(app) -> None:
             since = 0.0
         records = store.get_history(
             session_id=session_id, tool_id=tool_id,
+            workspace_id=ws_id,
             limit=limit, since_ts=since,
         )
         return jsonify({
@@ -137,6 +153,9 @@ def register_approval_routes(app) -> None:
         """
         from agent.approval import get_event_bus
         bus = get_event_bus()
+        ws_id, err = _validated_ws_id(request.args.get("workspace_id", ""))
+        if err:
+            return err
 
         # Per-connection queue: the bus puts events here, the SSE generator
         # yields them. A keepalive ping is emitted every 25s so proxies and
@@ -145,10 +164,13 @@ def register_approval_routes(app) -> None:
 
         def _on_event(event) -> None:
             try:
+                if event.workspace_id != ws_id:
+                    return
                 q.put_nowait({
                     "kind": event.kind,
                     "approval_id": event.approval_id,
                     "session_id": event.session_id,
+                    "workspace_id": event.workspace_id,
                     "tool_id": event.tool_id,
                     "allowed": event.allowed,
                     "payload": event.payload,

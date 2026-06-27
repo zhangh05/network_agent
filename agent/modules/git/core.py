@@ -86,9 +86,7 @@ def git_commit(repo_path: str, message: str, files: list[str] | None = None) -> 
         if code != 0:
             return {"ok": False, "error": f"git add failed: {err}"}
     else:
-        code, _, err = _run_git(["add", "-A"], cwd=repo_path)
-        if code != 0:
-            return {"ok": False, "error": f"git add -A failed: {err}"}
+        return {"ok": False, "error": "files are required; refusing implicit git add -A"}
     # Commit
     code, out, err = _run_git(["commit", "-m", message], cwd=repo_path)
     if code != 0:

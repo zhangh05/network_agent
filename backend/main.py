@@ -253,6 +253,11 @@ def create_app():
     def api_memory_confirm():
         return handle_memory_confirm()
 
+    @app.route("/api/memory/reject", methods=["POST"])
+    def api_memory_reject():
+        from backend.api.memory import handle_memory_reject
+        return handle_memory_reject()
+
     @app.route("/api/memory/<memory_id>", methods=["DELETE"])
     def api_memory_delete(memory_id):
         return handle_memory_delete(memory_id)
@@ -288,7 +293,14 @@ def create_app():
     def api_agent_usage():
         from flask import request, jsonify
         from agent.runtime.token_tracker import get_usage
-        ws_id = request.args.get("workspace_id", "default")
+        raw_ws = request.args.get("workspace_id", "")
+        if not raw_ws:
+            return jsonify({"ok": False, "error": "workspace_id is required"}), 400
+        try:
+            from workspace.ids import validate_workspace_id
+            ws_id = validate_workspace_id(raw_ws)
+        except Exception:
+            return jsonify({"ok": False, "error": "invalid_workspace_id"}), 400
         sid = request.args.get("session_id", "")
         return jsonify(get_usage(ws_id, sid))
 

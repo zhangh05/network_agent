@@ -852,7 +852,7 @@ export const settingsApi = {
 /* ──────────────────────── 11. approval ──────────────────────── */
 
 export const approvalApi = {
-  pending: (sessionId: string, signal?: AbortSignal): Promise<{
+  pending: (sessionId: string, workspaceId: string, signal?: AbortSignal): Promise<{
     ok: boolean;
     pending: Array<{
       approval_id: string;
@@ -866,7 +866,7 @@ export const approvalApi = {
   }> =>
     apiRequest({
       method: "GET",
-      url: `/agent/approvals/pending?session_id=${encodeURIComponent(sessionId)}`,
+      url: `/agent/approvals/pending?session_id=${encodeURIComponent(sessionId)}&workspace_id=${encodeURIComponent(workspaceId)}`,
     }, signal),
 
   resolve: (
@@ -879,12 +879,13 @@ export const approvalApi = {
       data: body,
     }),
 
-  history: (params: { sessionId?: string; toolId?: string; limit?: number } = {}): Promise<{
+  history: (params: { workspaceId: string; sessionId?: string; toolId?: string; limit?: number }): Promise<{
     ok: boolean;
     history: Array<Record<string, unknown>>;
     count: number;
   }> => {
     const q = new URLSearchParams();
+    q.set("workspace_id", params.workspaceId);
     if (params.sessionId) q.set("session_id", params.sessionId);
     if (params.toolId) q.set("tool_id", params.toolId);
     if (params.limit) q.set("limit", String(params.limit));
@@ -898,8 +899,8 @@ export const approvalApi = {
 };
 
 /** Open the Guardian SSE stream. Returns an EventSource that the caller must close. */
-export function openApprovalStream(onEvent: (e: { kind: string; approval_id: string; session_id: string; tool_id: string; allowed: boolean; ts: number }) => void, onError?: (err: Event) => void): EventSource {
-  const es = new EventSource(apiUrlWithAuth("/agent/approvals/sse"));
+export function openApprovalStream(workspaceId: string, onEvent: (e: { kind: string; approval_id: string; session_id: string; workspace_id: string; tool_id: string; allowed: boolean; ts: number }) => void, onError?: (err: Event) => void): EventSource {
+  const es = new EventSource(apiUrlWithAuth(`/agent/approvals/sse?workspace_id=${encodeURIComponent(workspaceId)}`));
   es.onmessage = (ev) => {
     try {
       onEvent(JSON.parse(ev.data));

@@ -10,7 +10,6 @@ from agent.runtime.memory_write.models import MemoryCandidate
 
 _SENSITIVE_PATTERNS = [
     (re.compile(r"(password|passwd|secret|token|api[_-]?key|private[_-]?key|credential)", re.IGNORECASE), "credential_pattern"),
-    (re.compile(r"\b\d{1,3}(?:\.\d{1,3}){3}\b"), "ip_pattern"),
     (re.compile(r"[A-Za-z0-9+/]{40,}={0,2}"), "long_secret_pattern"),
     (re.compile(r"(sk-|pk-|ghp_|gho_|Bearer\s)[A-Za-z0-9_-]{20,}", re.IGNORECASE), "api_key_pattern"),
 ]

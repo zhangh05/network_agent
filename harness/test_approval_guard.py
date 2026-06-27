@@ -121,7 +121,7 @@ class TestApprovalLifecycle:
             risk_level="high", workspace_id="ws_life",
         )
 
-        resp = client.get(f"/api/agent/approvals/pending?session_id=sess-life")
+        resp = client.get("/api/agent/approvals/pending?workspace_id=ws_life&session_id=sess-life")
         data = resp.get_json()
         assert data["ok"] is True
         assert data["count"] >= 1
@@ -142,7 +142,7 @@ class TestApprovalLifecycle:
         from agent.approval import get_approval_store
         store.resolve(req.approval_id, True, resolver="test")
 
-        resp = client.get(f"/api/agent/approvals/history?session_id=sess-hist&limit=10")
+        resp = client.get("/api/agent/approvals/history?workspace_id=ws_hist&session_id=sess-hist&limit=10")
         data = resp.get_json()
         assert data["ok"] is True
         history_ids = [h["approval_id"] for h in data["history"]]
@@ -160,7 +160,7 @@ class TestApprovalLifecycle:
 
         store.resolve(req.approval_id, False, resolver="test")
 
-        resp = client.get("/api/agent/approvals/history")
+        resp = client.get("/api/agent/approvals/history?workspace_id=ws_rej")
         data = resp.get_json()
         history_ids = [h["approval_id"] for h in data["history"]]
         assert req.approval_id in history_ids
@@ -199,7 +199,7 @@ class TestWorkspaceApprovalBoundary:
         store.resolve(req_b.approval_id, True, resolver="test")
 
         # Filter by session A
-        resp = client.get("/api/agent/approvals/history?session_id=sess-A")
+        resp = client.get("/api/agent/approvals/history?workspace_id=ws_x&session_id=sess-A")
         data = resp.get_json()
         history_ids = [h["approval_id"] for h in data["history"]]
         assert req_a.approval_id in history_ids

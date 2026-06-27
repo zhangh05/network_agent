@@ -145,10 +145,12 @@ def handle_memory_confirm():
 def handle_memory_reject():
     """Reject a pending memory record."""
     data = request.get_json(silent=True) or {}
-    ws_id = _validated_ws_id(data.get("workspace_id", ""))
+    ws_id, err = _read_ws_id(data.get("workspace_id", ""))
     memory_id = data.get("memory_id", "")
-    if not ws_id or not memory_id:
-        return jsonify({"ok": False, "error": "workspace_id and memory_id required"}), 400
+    if err:
+        return jsonify({"ok": False, "error": err}), 400
+    if not memory_id:
+        return jsonify({"ok": False, "error": "memory_id required"}), 400
 
     try:
         from workspace.memory_governance import reject_memory

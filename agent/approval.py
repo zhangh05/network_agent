@@ -45,6 +45,7 @@ class ApprovalEvent:
     approval_id: str
     session_id: str
     tool_id: str
+    workspace_id: str = ""
     allowed: bool = False
     payload: Dict[str, Any] = field(default_factory=dict)
 
@@ -260,6 +261,7 @@ class ApprovalStore:
         _event_bus.publish(ApprovalEvent(
             kind="created", approval_id=approval_id,
             session_id=session_id, tool_id=tool_id,
+            workspace_id=workspace_id,
             payload={"risk_level": risk_level, "description": description},
         ))
         return req
@@ -283,6 +285,7 @@ class ApprovalStore:
         _event_bus.publish(ApprovalEvent(
             kind="resolved", approval_id=approval_id,
             session_id=req.session_id, tool_id=req.tool_id,
+            workspace_id=req.workspace_id,
             allowed=allowed, payload={"resolver": resolver, "reason": reason},
         ))
         # Pending entries can be freed once resolved — they live on in JSONL.
@@ -300,8 +303,8 @@ class ApprovalStore:
                 return None
             return req.allowed
 
-    def get_pending(self, session_id: str = "") -> list[dict]:
-        """Get pending approvals, optionally filtered by session.
+    def get_pending(self, session_id: str = "", workspace_id: str = "") -> list[dict]:
+        """Get pending approvals, optionally filtered by workspace/session.
 
         Stale approvals (older than 120s) are auto-cleaned up during this call
         to prevent orphaned approvals from flashing the frontend bubble.
@@ -325,6 +328,7 @@ class ApprovalStore:
                     _event_bus.publish(ApprovalEvent(
                         kind="resolved", approval_id=aid,
                         session_id=req.session_id, tool_id=req.tool_id,
+                        workspace_id=req.workspace_id,
                         allowed=False, payload={"resolver": "system_expired"},
                     ))
                     stale_ids.append(aid)
@@ -333,12 +337,15 @@ class ApprovalStore:
 
             result = []
             for req in self._pending.values():
+                if workspace_id and req.workspace_id != workspace_id:
+                    continue
                 if session_id and req.session_id != session_id:
                     continue
                 result.append(self._to_dict(req))
             return result
 
     def get_history(self, session_id: str = "", tool_id: str = "",
+                    workspace_id: str = "",
                     limit: int = 100, since_ts: float = 0.0) -> list[dict]:
         """Return resolved approvals from the audit log."""
         if not self._persist_path.exists():
@@ -355,6 +362,8 @@ class ApprovalStore:
                     except json.JSONDecodeError:
                         continue
                     if not rec.get("resolved"):
+                        continue
+                    if workspace_id and rec.get("workspace_id") != workspace_id:
                         continue
                     if session_id and rec.get("session_id") != session_id:
                         continue
@@ -412,6 +421,7 @@ class ApprovalStore:
                 _event_bus.publish(ApprovalEvent(
                     kind="resolved", approval_id=approval_id,
                     session_id=req.session_id, tool_id=req.tool_id,
+                    workspace_id=req.workspace_id,
                     allowed=False, payload={"resolver": "system_timeout"},
                 ))
                 self._pending.pop(approval_id, None)

@@ -27,7 +27,7 @@ interface PendingApproval {
  * Auto-denies after 60s.
  */
 export function ApprovalBubble({ onResolved }: { onResolved?: () => void }) {
-  const { currentSessionId } = useSessionStore();
+  const { currentSessionId, currentWorkspaceId } = useSessionStore();
   const [pending, setPending] = useState<PendingApproval | null>(null);
   const [secondsLeft, setSecondsLeft] = useState(60);
   const onResolvedRef = useRef(onResolved);
@@ -59,13 +59,13 @@ export function ApprovalBubble({ onResolved }: { onResolved?: () => void }) {
   // v3.10: SSE is a realtime invalidation signal; pending API remains
   // the source of truth because it carries arguments, reason, and risk info.
   useEffect(() => {
-    if (!currentSessionId) return;
+    if (!currentSessionId || !currentWorkspaceId) return;
 
     let cancelled = false;
     let es: EventSource | null = null;
     const poll = async () => {
       try {
-        const data = await approvalApi.pending(currentSessionId);
+        const data = await approvalApi.pending(currentSessionId, currentWorkspaceId);
         if (cancelled) return;
         if (data.ok && data.pending?.length > 0) {
           const p = data.pending[0] as PendingApproval;
@@ -89,8 +89,8 @@ export function ApprovalBubble({ onResolved }: { onResolved?: () => void }) {
     poll();
     const interval = setInterval(poll, 5000);
     try {
-      es = openApprovalStream((event) => {
-        if (!resolvingRef.current && event.session_id === currentSessionId) {
+      es = openApprovalStream(currentWorkspaceId, (event) => {
+        if (!resolvingRef.current && event.session_id === currentSessionId && event.workspace_id === currentWorkspaceId) {
           void poll();
         }
       });
@@ -103,7 +103,7 @@ export function ApprovalBubble({ onResolved }: { onResolved?: () => void }) {
       clearInterval(interval);
       es?.close();
     };
-  }, [currentSessionId]);
+  }, [currentSessionId, currentWorkspaceId]);
 
   // Countdown timer — uses state for re-renders
   useEffect(() => {

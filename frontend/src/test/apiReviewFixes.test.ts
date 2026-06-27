@@ -38,11 +38,11 @@ describe("API review fixes", () => {
     }
     vi.stubGlobal("EventSource", FakeEventSource as any);
 
-    openApprovalStream(() => {});
+    openApprovalStream("default", () => {});
     sseApi.connect("sid123");
 
     expect(sources).toEqual([
-      "/api/agent/approvals/sse",
+      "/api/agent/approvals/sse?workspace_id=default",
       "/api/agent/sse/stream/sid123",
     ]);
   });
@@ -58,11 +58,11 @@ describe("API review fixes", () => {
     }
     vi.stubGlobal("EventSource", FakeEventSource as any);
 
-    openApprovalStream(() => {});
+    openApprovalStream("default", () => {});
     sseApi.connect("sid123");
 
     expect(sources).toEqual([
-      "/api/agent/approvals/sse?access_token=secret+token",
+      "/api/agent/approvals/sse?workspace_id=default&access_token=secret+token",
       "/api/agent/sse/stream/sid123?access_token=secret+token",
     ]);
   });

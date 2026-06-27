@@ -113,22 +113,19 @@ class TestDedupe:
         assert len(result) == 1
 
     def test_type_aware_threshold(self):
-        """Same type with high prefix overlap → deduped (threshold=0.80)."""
+        """Same type with shared prefix but different facts is preserved."""
         from agent.runtime.memory_write.dedupe import MemoryDedupe
         from agent.runtime.memory_write.models import MemoryCandidate
 
         dedupe = MemoryDedupe()
-        # Same type, common prefix covers >80% of shorter string
         candidates = [
             MemoryCandidate(candidate_id="mc_a", memory_type="task_pattern",
                           content="Task completed successfully"),
             MemoryCandidate(candidate_id="mc_b", memory_type="task_pattern",
                           content="Task completed successfully with extra details here"),
         ]
-        # shorter = 26 ("Task completed successfully")
-        # common_prefix = 26 → 26/26 = 1.0 > 0.80 → dup
         result = dedupe.dedupe(candidates)
-        assert len(result) == 1
+        assert len(result) == 2
 
     def test_cross_type_preserved(self):
         """Different types with similar (not identical) content are preserved."""
