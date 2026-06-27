@@ -2,16 +2,7 @@
 """Memory API routes — list and delete. v3.10: governed via MemoryWriteGate."""
 
 from flask import request, jsonify
-
-
-def _read_ws_id(raw: str):
-    if not raw:
-        return "", "workspace_id required"
-    try:
-        from workspace.ids import validate_workspace_id
-        return validate_workspace_id(raw), ""
-    except Exception:
-        return "", "invalid_workspace_id"
+from backend.api.memory import _read_ws_id
 
 
 def handle_memory_delete(memory_id):

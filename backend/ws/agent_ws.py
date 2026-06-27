@@ -72,7 +72,7 @@ def register_ws_routes(app):
                     workspace_id = validate_workspace_id(workspace_id)
                     if session_id:
                         session_id = validate_session_id(session_id)
-                except Exception:
+                except ValueError:
                     ws.send(json.dumps({
                         "type": "error",
                         "message": "Invalid session_id or workspace_id",
@@ -88,6 +88,7 @@ def register_ws_routes(app):
                         ws.send(json.dumps({"type": "error", "message": "metadata too large (max 16KB)"}, ensure_ascii=True))
                         continue
                 except Exception:
+                    _log.warning("WS metadata normalize failed, resetting to {}", exc_info=True)
                     metadata = {}
                 from backend.api.agent_contract import normalize_metadata
                 metadata = normalize_metadata(metadata, transport="websocket", stream_mode="live")
@@ -176,7 +177,7 @@ def _run_agent_thread(user_input, session_id, workspace_id, metadata, event_queu
                     "seq": seq,
                 }, timeout=0.2)
         except Exception:
-            pass
+            _log.warning("realtime_callback event push failed seq=%s", stats.get("event_seq"), exc_info=True)
 
     try:
         # StreamEmitter stores callbacks thread-locally, so it must be set in

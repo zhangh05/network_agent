@@ -9,27 +9,7 @@ import { isApiError } from "../../types";
 import type { AgentResult, ToolCallResult, InlineToolCall } from "../../types";
 import { sanitizeAssistantText, renderAssistantHtml, toolLabel, filterStreamingThink } from "../../utils/displayText";
 import { beginModelStep, discardToolCallDraft, finalizeStreamText } from "../../utils/agentStream";
-import hljs from "highlight.js/lib/core";
-import accesslog from "highlight.js/lib/languages/accesslog";
-import bash from "highlight.js/lib/languages/bash";
-import css from "highlight.js/lib/languages/css";
-import diff from "highlight.js/lib/languages/diff";
-import dos from "highlight.js/lib/languages/dos";
-import http from "highlight.js/lib/languages/http";
-import ini from "highlight.js/lib/languages/ini";
-import javascript from "highlight.js/lib/languages/javascript";
-import json from "highlight.js/lib/languages/json";
-import nginx from "highlight.js/lib/languages/nginx";
-import plaintext from "highlight.js/lib/languages/plaintext";
-import powershell from "highlight.js/lib/languages/powershell";
-import python from "highlight.js/lib/languages/python";
-import routeros from "highlight.js/lib/languages/routeros";
-import shell from "highlight.js/lib/languages/shell";
-import sql from "highlight.js/lib/languages/sql";
-import typescript from "highlight.js/lib/languages/typescript";
-import xml from "highlight.js/lib/languages/xml";
-import yaml from "highlight.js/lib/languages/yaml";
-import "highlight.js/styles/github.min.css";
+import "./WorkbenchHighlight";
 import { agentResultFromWsDone } from "../../utils/wsResult";
 import { notifyRunCompleted } from "../../utils/appEvents";
 import { IconAlert, IconBolt, IconSend } from "../../components/Icon";
@@ -37,54 +17,10 @@ import { ApprovalBubble } from "../../components/ApprovalBubble";
 import { RuntimeEventTimeline } from "../../components/RuntimeEventTimeline";
 import "../../components/RuntimeEventTimeline.css";
 import { formatFileSize } from "../../utils/format";
+import { QUICK_CHIPS } from "./WorkbenchQuickChips";
 
 /* ── v3.9 View mode ── */
 type ViewMode = "chat" | "timeline";
-
-const QUICK_CHIPS = [
-  {
-    label: "OSPF 邻居不起来",
-    prompt: "帮我排查 OSPF 邻居不起来。请先告诉我需要提供哪些现象、配置和日志，我会补充。",
-  },
-  {
-    label: "Cisco 配置转华为",
-    prompt: "帮我把 Cisco 配置翻译成华为配置。请提示我粘贴源配置，并说明转换后的配置需要人工复核。",
-  },
-  {
-    label: "出口策略放通检查",
-    prompt: "帮我分析出口访问策略是否放通。请告诉我需要提供源地址、目的地址、端口、协议，以及相关 ACL/NAT/路由配置。",
-  },
-];
-
-for (const [name, language] of Object.entries({
-  accesslog,
-  bash,
-  css,
-  diff,
-  dos,
-  http,
-  ini,
-  javascript,
-  js: javascript,
-  json,
-  nginx,
-  plaintext,
-  powershell,
-  ps1: powershell,
-  python,
-  py: python,
-  routeros,
-  shell,
-  sh: shell,
-  sql,
-  typescript,
-  ts: typescript,
-  xml,
-  yaml,
-  yml: yaml,
-})) {
-  hljs.registerLanguage(name, language);
-}
 
 /** Enhanced error classification with recovery hints.
  *  Now uses error_type from AgentResult for precise messaging. */

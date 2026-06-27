@@ -10,6 +10,7 @@ v3.2.0 (Guardian): Expanded the approval API surface.
 from __future__ import annotations
 
 import json
+import logging
 import os
 import queue
 import threading
@@ -17,6 +18,8 @@ import time
 from typing import Iterator
 
 from flask import Response, jsonify, request, stream_with_context
+
+_LOG = logging.getLogger(__name__)
 
 
 def _admin_token_allowed() -> bool:
@@ -109,7 +112,8 @@ def register_approval_routes(app) -> None:
                     reason=reason,
                 )
         except Exception:
-            pass
+            _LOG.warning("resume_after_approval failed approval=%s task=%s ws=%s (non-fatal)",
+                         approval_id, task_id or "?", ws_id or "?", exc_info=True)
 
         return jsonify({
             "ok": True,

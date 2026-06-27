@@ -46,7 +46,6 @@ from backend.api.workspace_routes import register_workspace_routes
 from backend.api.knowledge_routes import register_knowledge_routes
 from backend.api.review_routes import register_review_routes
 from backend.api.pcap_routes import register_pcap_routes
-from backend.api.reference_routes import register_reference_routes
 from backend.api.workspace_status_routes import register_workspace_status_routes
 from backend.api.decision_routes import register_decision_routes
 from backend.api.remote_routes import register_remote_routes
@@ -271,7 +270,6 @@ def create_app():
     register_knowledge_routes(app)    # /api/knowledge/* (sources, search, chunks)
     register_review_routes(app)       # /api/review-items/*, /api/workspaces/<ws>/review-items
     register_pcap_routes(app)        # /api/pcap/* (parse, filter, align)
-    register_reference_routes(app)   # /api/workspaces/<ws>/files/<fid>/references, reference-graph
     register_workspace_status_routes(app)  # /api/workspaces/<ws>/status, /storage/health
     register_decision_routes(app)    # /api/workspaces/<ws>/runs/<run_id>/decision
     register_remote_routes(app)     # /api/remote/* (SSH/Telnet)

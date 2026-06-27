@@ -47,16 +47,9 @@ def register_state_routes(app):
     @app.route("/api/runtime/tasks/<task_id>")
     def api_runtime_task_detail(task_id):
         from flask import request, jsonify
-        ws_id = request.args.get("workspace_id", "")
-        if ws_id:
-            try:
-                from workspace.ids import validate_workspace_id
-                ws_id = validate_workspace_id(ws_id)
-            except Exception:
-                return jsonify({"ok": False, "error": "invalid_workspace_id"}), 400
-
-        if not ws_id:
-            return jsonify({"ok": False, "error": "workspace_id is required"}), 400
+        ws_id, err = _validated_ws_id(request.args.get("workspace_id", ""))
+        if err:
+            return err
 
         try:
             from agent.runtime.durable.store import get_task
@@ -73,16 +66,9 @@ def register_state_routes(app):
     @app.route("/api/runtime/tasks/<task_id>/events")
     def api_runtime_task_events(task_id):
         from flask import request, jsonify
-        ws_id = request.args.get("workspace_id", "")
-        if ws_id:
-            try:
-                from workspace.ids import validate_workspace_id
-                ws_id = validate_workspace_id(ws_id)
-            except Exception:
-                return jsonify({"ok": False, "error": "invalid_workspace_id"}), 400
-
-        if not ws_id:
-            return jsonify({"ok": False, "error": "workspace_id is required"}), 400
+        ws_id, err = _validated_ws_id(request.args.get("workspace_id", ""))
+        if err:
+            return err
 
         try:
             from agent.runtime.durable.store import get_task, get_events
@@ -97,16 +83,9 @@ def register_state_routes(app):
     @app.route("/api/runtime/tasks/<task_id>/checkpoints")
     def api_runtime_task_checkpoints(task_id):
         from flask import request, jsonify
-        ws_id = request.args.get("workspace_id", "")
-        if ws_id:
-            try:
-                from workspace.ids import validate_workspace_id
-                ws_id = validate_workspace_id(ws_id)
-            except Exception:
-                return jsonify({"ok": False, "error": "invalid_workspace_id"}), 400
-
-        if not ws_id:
-            return jsonify({"ok": False, "error": "workspace_id is required"}), 400
+        ws_id, err = _validated_ws_id(request.args.get("workspace_id", ""))
+        if err:
+            return err
 
         try:
             from agent.runtime.durable.store import get_task, get_checkpoints
@@ -141,16 +120,9 @@ def register_state_routes(app):
     @app.route("/api/runtime/tasks/<task_id>/cancel", methods=["POST"])
     def api_task_cancel(task_id):
         from flask import request, jsonify
-        ws_id = request.args.get("workspace_id", "")
-        if ws_id:
-            try:
-                from workspace.ids import validate_workspace_id
-                ws_id = validate_workspace_id(ws_id)
-            except Exception:
-                return jsonify({"ok": False, "error": "invalid_workspace_id"}), 400
-
-        if not ws_id:
-            return jsonify({"ok": False, "error": "workspace_id is required"}), 400
+        ws_id, err = _validated_ws_id(request.args.get("workspace_id", ""))
+        if err:
+            return err
         try:
             from agent.runtime.durable.store import get_task
             task = get_task(ws_id, task_id)
@@ -166,16 +138,9 @@ def register_state_routes(app):
     @app.route("/api/runtime/tasks/<task_id>/resume", methods=["POST"])
     def api_task_resume(task_id):
         from flask import request, jsonify
-        ws_id = request.args.get("workspace_id", "")
-        if ws_id:
-            try:
-                from workspace.ids import validate_workspace_id
-                ws_id = validate_workspace_id(ws_id)
-            except Exception:
-                return jsonify({"ok": False, "error": "invalid_workspace_id"}), 400
-
-        if not ws_id:
-            return jsonify({"ok": False, "error": "workspace_id is required"}), 400
+        ws_id, err = _validated_ws_id(request.args.get("workspace_id", ""))
+        if err:
+            return err
         try:
             from agent.runtime.durable.store import get_task
             task = get_task(ws_id, task_id)
@@ -191,16 +156,9 @@ def register_state_routes(app):
     @app.route("/api/runtime/tasks/<task_id>/steps/<step_id>/retry", methods=["POST"])
     def api_task_retry_step(task_id, step_id):
         from flask import request, jsonify
-        ws_id = request.args.get("workspace_id", "")
-        if ws_id:
-            try:
-                from workspace.ids import validate_workspace_id
-                ws_id = validate_workspace_id(ws_id)
-            except Exception:
-                return jsonify({"ok": False, "error": "invalid_workspace_id"}), 400
-
-        if not ws_id:
-            return jsonify({"ok": False, "error": "workspace_id is required"}), 400
+        ws_id, err = _validated_ws_id(request.args.get("workspace_id", ""))
+        if err:
+            return err
         try:
             from agent.runtime.durable.store import get_task
             task = get_task(ws_id, task_id)
@@ -218,16 +176,9 @@ def register_state_routes(app):
     @app.route("/api/runtime/trajectories")
     def api_trajectories():
         from flask import request, jsonify
-        ws_id = request.args.get("workspace_id", "")
-        if ws_id:
-            try:
-                from workspace.ids import validate_workspace_id
-                ws_id = validate_workspace_id(ws_id)
-            except Exception:
-                return jsonify({"ok": False, "error": "invalid_workspace_id"}), 400
-
-        if not ws_id:
-            return jsonify({"ok": False, "error": "workspace_id is required"}), 400
+        ws_id, err = _validated_ws_id(request.args.get("workspace_id", ""))
+        if err:
+            return err
         try:
             from agent.runtime.durable.trajectory import list_trajectories
             items = list_trajectories(ws_id)
@@ -238,16 +189,9 @@ def register_state_routes(app):
     @app.route("/api/runtime/trajectories/<traj_id>")
     def api_trajectory_detail(traj_id):
         from flask import request, jsonify
-        ws_id = request.args.get("workspace_id", "")
-        if ws_id:
-            try:
-                from workspace.ids import validate_workspace_id
-                ws_id = validate_workspace_id(ws_id)
-            except Exception:
-                return jsonify({"ok": False, "error": "invalid_workspace_id"}), 400
-
-        if not ws_id:
-            return jsonify({"ok": False, "error": "workspace_id is required"}), 400
+        ws_id, err = _validated_ws_id(request.args.get("workspace_id", ""))
+        if err:
+            return err
         try:
             from agent.runtime.durable.trajectory import get_trajectory
             traj = get_trajectory(traj_id, ws_id)
@@ -262,16 +206,9 @@ def register_state_routes(app):
     @app.route("/api/ecosystem/providers")
     def api_ecosystem_providers():
         from flask import request, jsonify
-        ws_id = request.args.get("workspace_id", "")
-        if ws_id:
-            try:
-                from workspace.ids import validate_workspace_id
-                ws_id = validate_workspace_id(ws_id)
-            except Exception:
-                return jsonify({"ok": False, "error": "invalid_workspace_id"}), 400
-
-        if not ws_id:
-            return jsonify({"ok": False, "error": "workspace_id is required"}), 400
+        ws_id, err = _validated_ws_id(request.args.get("workspace_id", ""))
+        if err:
+            return err
         try:
             from tool_runtime.ecosystem import EcoRegistry
             reg = EcoRegistry()
@@ -283,16 +220,9 @@ def register_state_routes(app):
     @app.route("/api/ecosystem/import/preview", methods=["POST"])
     def api_ecosystem_import_preview():
         from flask import request, jsonify
-        ws_id = request.args.get("workspace_id", "")
-        if ws_id:
-            try:
-                from workspace.ids import validate_workspace_id
-                ws_id = validate_workspace_id(ws_id)
-            except Exception:
-                return jsonify({"ok": False, "error": "invalid_workspace_id"}), 400
-
-        if not ws_id:
-            return jsonify({"ok": False, "error": "workspace_id is required"}), 400
+        ws_id, err = _validated_ws_id(request.args.get("workspace_id", ""))
+        if err:
+            return err
         try:
             from tool_runtime.ecosystem import preview_import
             data = request.get_json(silent=True) or {}
@@ -304,16 +234,9 @@ def register_state_routes(app):
     @app.route("/api/ecosystem/import/apply", methods=["POST"])
     def api_ecosystem_import_apply():
         from flask import request, jsonify
-        ws_id = request.args.get("workspace_id", "")
-        if ws_id:
-            try:
-                from workspace.ids import validate_workspace_id
-                ws_id = validate_workspace_id(ws_id)
-            except Exception:
-                return jsonify({"ok": False, "error": "invalid_workspace_id"}), 400
-
-        if not ws_id:
-            return jsonify({"ok": False, "error": "workspace_id is required"}), 400
+        ws_id, err = _validated_ws_id(request.args.get("workspace_id", ""))
+        if err:
+            return err
         try:
             from tool_runtime.ecosystem import apply_import
             data = request.get_json(silent=True) or {}
@@ -329,16 +252,9 @@ def register_state_routes(app):
     @app.route("/api/runtime/tasks/<task_id>/audit-report", methods=["POST"])
     def api_audit_report_generate(task_id):
         from flask import request, jsonify
-        ws_id = request.args.get("workspace_id", "")
-        if ws_id:
-            try:
-                from workspace.ids import validate_workspace_id
-                ws_id = validate_workspace_id(ws_id)
-            except Exception:
-                return jsonify({"ok": False, "error": "invalid_workspace_id"}), 400
-
-        if not ws_id:
-            return jsonify({"ok": False, "error": "workspace_id is required"}), 400
+        ws_id, err = _validated_ws_id(request.args.get("workspace_id", ""))
+        if err:
+            return err
         try:
             from agent.runtime.durable.delivery import build_audit_report
             report = build_audit_report(task_id, ws_id)
@@ -349,16 +265,9 @@ def register_state_routes(app):
     @app.route("/api/runtime/tasks/<task_id>/audit-report", methods=["GET"])
     def api_audit_report_get(task_id):
         from flask import request, jsonify
-        ws_id = request.args.get("workspace_id", "")
-        if ws_id:
-            try:
-                from workspace.ids import validate_workspace_id
-                ws_id = validate_workspace_id(ws_id)
-            except Exception:
-                return jsonify({"ok": False, "error": "invalid_workspace_id"}), 400
-
-        if not ws_id:
-            return jsonify({"ok": False, "error": "workspace_id is required"}), 400
+        ws_id, err = _validated_ws_id(request.args.get("workspace_id", ""))
+        if err:
+            return err
         try:
             from agent.runtime.durable.delivery import export_audit_report_markdown
             md = export_audit_report_markdown(task_id, ws_id)

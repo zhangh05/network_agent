@@ -778,56 +778,6 @@ export interface ToolPermission {
   requires_approval: boolean;
 }
 
-export interface ReferenceNode {
-  node_id: string;
-  node_type: string;
-  title: string;
-  artifact_id?: string;
-  file_id?: string;
-}
-
-export interface ReferenceEdge {
-  edge_id: string;
-  source_id: string;
-  target_id: string;
-  edge_type: string;
-}
-
-/* ──────────────────────────── Agent Graph & Breakpoints ──────────────────────────── */
-
-export interface AgentGraphState {
-  ok: boolean;
-  total_tools: number;
-  visible_tools?: number;
-  core_tools: number;
-  capability_packages?: number;
-  categories: string[];
-  breakpoints?: string[];
-  checkpoint_backend?: string;
-  baseline_read_tools?: number;
-}
-
-export interface BreakpointList {
-  ok: boolean;
-  breakpoints: string[];
-}
-
-export interface BreakpointSetResponse {
-  ok: boolean;
-  tools: string[];
-}
-
-export interface SseEvent {
-  type: "tool_call_started" | "tool_call_completed" | "tool_call_failed" | "turn_completed" | "error" | "token";
-  data: Record<string, unknown>;
-}
-
-export interface RuntimeModeResponse {
-  ok: boolean;
-  mode: string;
-  graph_runner_available: boolean;
-}
-
 /* ──────────────────────────── Message Status ──────────────────────────── */
 
 export type MessageStatus = "streaming" | "ready" | "error";

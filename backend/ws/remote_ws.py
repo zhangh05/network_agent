@@ -56,6 +56,7 @@ def register_remote_ws(app):
                             "type": "output", "session_id": sid, "text": text,
                         }, ensure_ascii=False))
                 except Exception:
+                    _log.warning("remote reader loop error sid=%s", sid, exc_info=True)
                     break
                 reader_stop.wait(0.1)
 
@@ -66,7 +67,7 @@ def register_remote_ws(app):
                     break
                 try:
                     msg = json.loads(raw)
-                except Exception:
+                except json.JSONDecodeError:
                     ws.send(json.dumps({"type": "error", "message": "invalid_json"}))
                     continue
 

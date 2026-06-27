@@ -2,6 +2,7 @@
 """Runtime routes — diagnostics, selfcheck, retention, archive, tool invocation."""
 
 import json
+import logging
 import os
 import threading
 from collections import OrderedDict
@@ -10,6 +11,8 @@ from pathlib import Path
 from flask import jsonify, request
 
 from workspace.ids import validate_workspace_id
+
+_LOG = logging.getLogger(__name__)
 
 
 # ── In-memory state for execution history ──
@@ -30,7 +33,7 @@ def _persist_history():
         from workspace.atomic_io import atomic_write_json
         atomic_write_json(_HISTORY_FILE, snapshot, indent=2)
     except Exception:
-        pass
+        _LOG.warning("_persist_history atomic write failed (non-fatal)", exc_info=True)
 
 
 def _load_persisted():

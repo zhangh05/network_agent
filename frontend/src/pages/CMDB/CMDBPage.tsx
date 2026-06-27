@@ -1,4 +1,4 @@
-import { useState, useCallback, useEffect } from "react";
+import { useState, useCallback, useEffect, type CSSProperties, type ReactNode } from "react";
 import { useSessionStore } from "../../stores/session";
 import { apiRequest } from "../../api/client";
 import { RemoteTerminal } from "../../components/RemoteTerminal/RemoteTerminal";
@@ -49,11 +49,11 @@ export function CMDBPage() {
   const [regionFilter, setRegionFilter] = useState("");
 
   // ── form ──
-  const [fv, setFv] = useState({
+  const [fv, setFv] = useState<Record<string, string>>({
     name: "", type: "switch", vendor: "", model: "", host: "", port: "22",
     protocol: "ssh", username: "", password: "", region: "", location: "", description: "", err: "",
   });
-  const ufv = (k: string, v: string) => setFv((p: any) => ({ ...p, [k]: v }));
+  const ufv = (k: string, v: string) => setFv((p) => ({ ...p, [k]: v }));
 
   // ── custom input state ──
   const [customVendor, setCustomVendor] = useState(false);
@@ -141,13 +141,13 @@ export function CMDBPage() {
   assets.forEach(a => { if (a.type in stats) (stats as any)[a.type]++; });
 
   // ── form helpers ──
-  const field = (label: string, child: any, span = 1) => (
+  const field = (label: string, child: ReactNode, span = 1) => (
     <div style={{ gridColumn: span > 1 ? `span ${span}` : undefined, display: "flex", flexDirection: "column", gap: 4 }}>
       {label && <span style={{ fontSize: 11, color: "var(--text-4)", fontWeight: 600 }}>{label}</span>}
       {child}
     </div>
   );
-  const stl = (mono = true, w: any = {}, suffix = false) => ({
+  const stl = (mono = true, w: CSSProperties = {}, suffix = false) => ({
     padding: "7px 10px", fontSize: 13, borderRadius: 6, border: "1px solid var(--line)",
     background: "var(--surface)", color: "var(--text)", outline: "none",
     fontFamily: mono ? "var(--font-mono)" : "var(--font-sans)",
@@ -155,9 +155,9 @@ export function CMDBPage() {
     transition: "border-color .15s",
     ...w,
   });
-  const inp = (ph: string, key: string, w: any = {}, mono = true) => (
+  const inp = (ph: string, key: string, w: CSSProperties = {}, mono = true) => (
     <input
-      placeholder={ph} value={(fv as any)[key]} onChange={e => ufv(key, e.target.value)}
+      placeholder={ph} value={fv[key] || ""} onChange={e => ufv(key, e.target.value)}
       style={stl(mono, w)}
       onFocus={e => e.currentTarget.style.borderColor = "var(--accent)"}
       onBlur={e => e.currentTarget.style.borderColor = "var(--line)"}
