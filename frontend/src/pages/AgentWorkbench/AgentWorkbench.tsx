@@ -1,4 +1,5 @@
 import React, { useState, useRef, useEffect, useCallback } from "react";
+import { Virtuoso, VirtuosoHandle } from "react-virtuoso";
 import { agentApi, knowledgeApi, memoryApi, sessionsApi, settingsApi, sseApi } from "../../api";
 import { apiRequest } from "../../api/client";
 import { useSessionStore } from "../../stores/session";
@@ -139,7 +140,7 @@ export function TaskWorkbench() {
   const thinkFilter = useRef<{ mode: import("../../utils/displayText").ThinkFilterState }>({ mode: "idle" });
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [llmHealth, setLlmHealth] = useState<{ connected: boolean; provider?: string; model?: string; recentFailure?: string }>({ connected: false });
-  const chatRef = useRef<HTMLDivElement>(null);
+  const chatRef = useRef<VirtuosoHandle>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
   const toast = useToastStore((s) => s.show);
   const abortRef = useRef<AbortController | null>(null);
@@ -167,12 +168,9 @@ export function TaskWorkbench() {
   }, [currentSessionId]);
 
   // Save scroll position on session switch
+  const prevSessionId = useRef(currentSessionId);
   useEffect(() => {
-    const key = currentSessionId ?? "_scratch";
-    const el = chatRef.current;
-    if (el) {
-      scrollPositions.current[key] = el.scrollTop;
-    }
+    prevSessionId.current = currentSessionId;
   });
 
   // Clean up abort controller on unmount
@@ -196,26 +194,21 @@ export function TaskWorkbench() {
     return () => window.clearInterval(id);
   }, []);
 
-  // Scroll on new messages / streaming tokens (only when user hasn't scrolled up)
+  // Scroll on new messages / streaming tokens
   const scrollToBottom = useCallback(() => {
-    requestAnimationFrame(() => {
+    if (!userScrolledUp) {
       requestAnimationFrame(() => {
-        if (chatRef.current && !userScrolledUp) {
-          chatRef.current.scrollTo({ top: chatRef.current.scrollHeight, behavior: "auto" });
-        }
+        chatRef.current?.scrollToIndex({ index: "LAST", behavior: "auto", align: "end" });
       });
-    });
+    }
   }, [userScrolledUp]);
 
   useEffect(() => {
     scrollToBottom();
   }, [(visibleHistory ?? []).length, sending, streamingText, scrollToBottom]);
 
-  // Track user scroll
-  const handleChatScroll = useCallback(() => {
-    const el = chatRef.current;
-    if (!el) return;
-    const atBottom = el.scrollHeight - el.scrollTop - el.clientHeight < 60;
+  // Track user scroll via Virtuoso atBottomStateChange
+  const handleAtBottomStateChange = useCallback((atBottom: boolean) => {
     setUserScrolledUp(!atBottom);
   }, []);
 
@@ -618,6 +611,65 @@ export function TaskWorkbench() {
     ? llmHealth.recentFailure ? "LLM 可用 · 最近一次请求超时，可重试" : `LLM 可用 · ${llmHealth.model || llmHealth.provider || "在线"}`
     : "LLM 离线";
 
+  // Message row renderer for Virtuoso virtual list
+  const renderMsg = useCallback((m: any, idx: number) => {
+    if (m.role === "user") {
+      return (
+        <div className="message-row user" data-testid="chat-user">
+          <div className="message-stack"><div className="chat-bubble user">{m.text}</div></div>
+          <div className="message-avatar user">我</div>
+        </div>
+      );
+    }
+    const total = (visibleHistory ?? []).length;
+    return (
+      <div className={`message-row assistant${m.status === "error" ? " error" : ""}${m.status === "streaming" ? " streaming" : ""}`} data-testid="chat-assistant">
+        <div className="message-avatar agent">网</div>
+        <div className="message-stack">
+          {m.toolCalls && m.toolCalls.length > 0 && (
+            <div className="tool-calls-inline">
+              {m.toolCalls.map((tc: any, tci: number) => (
+                <InlineToolCallCard key={`${tc.tool_id}-${tci}`} toolCall={tc} seq={tci + 1} />
+              ))}
+            </div>
+          )}
+          {(() => {
+            const { thinking, body } = parseThinking(m.text);
+            const html = body ? renderAssistantHtml(body) : "";
+            if (m.status === "streaming" && !html && m.text) {
+              return <span className="text-sm streaming-text">{m.text}</span>;
+            }
+            return (<>
+              {thinking && <ThinkingBlock content={thinking} />}
+              {html ? (
+                <div className="chat-bubble assistant markdown-body" onClick={handleCodeCopyClick} dangerouslySetInnerHTML={{ __html: highlightCode(html) }} />
+              ) : (!m.text && m.status !== "streaming") ? (
+                <span className="muted">(空消息)</span>
+              ) : null}
+            </>);
+          })()}
+          <ResultInline result={m.result} fallbackText={sanitizeAssistantText(m.text)} />
+          {m.status === "error" && m.error && (
+            <div className="msg-error-box">
+              <span>⚠️ {_humanFailure(m.result?.error_type, m.error ?? "").msg}</span>
+              {_humanFailure(m.result?.error_type, m.error ?? "").retryable && (
+                <button onClick={retryLast}>🔄 重试</button>
+              )}
+            </div>
+          )}
+          {m.status === "streaming" && (
+            <div className="streaming-indicator-inline">
+              <span className="typing-indicator"><span className="typing-dot" /><span className="typing-dot" /><span className="typing-dot" /></span>
+            </div>
+          )}
+          {!sending && idx === total - 1 && lastUserInput && (
+            <button className="regenerate-btn" onClick={() => onSend(lastUserInput)} title="重新生成" type="button">🔄 重新生成</button>
+          )}
+        </div>
+      </div>
+    );
+  }, [sending, lastUserInput, retryLast, handleCodeCopyClick, visibleHistory]);  // eslint-disable-line
+
   return (
     <div className="wb-shell">
       {/* ── Header bar ── */}
@@ -662,12 +714,10 @@ export function TaskWorkbench() {
       </div>
 
       {/* ── Content area ── */}
-      <div className="wb-chat" ref={chatRef} data-testid="chat-stream" onScroll={handleChatScroll}>
+      <div className="wb-chat" data-testid="chat-stream">
         {viewMode === "timeline" ? (
-          /* ── Timeline view ── */
           <RuntimeEventTimeline results={sessionResults} />
         ) : (visibleHistory?.length ?? 0) === 0 && !sending ? (
-          /* ── Chat empty state ── */
           <div className="wb-empty" data-testid="workbench-empty">
             <h2>任务工作台</h2>
             <p>输入故障现象、配置片段或排查目标，AI Agent 按事件时间线组织执行过程。</p>
@@ -680,123 +730,45 @@ export function TaskWorkbench() {
             </div>
           </div>
         ) : (
-          (visibleHistory ?? []).map((m, idx) =>
-            m.role === "user" ? (
-              <div key={m.id} className="message-row user" data-testid="chat-user">
-                <div className="message-stack">
-                  <div className="chat-bubble user">{m.text}</div>
-                </div>
-                <div className="message-avatar user">我</div>
-              </div>
-            ) : (
-              <div key={m.id} className={`message-row assistant${m.status === "error" ? " error" : ""}${m.status === "streaming" ? " streaming" : ""}`} data-testid="chat-assistant">
-                <div className="message-avatar agent">网</div>
-                <div className="message-stack">
-                  {/* Inline tool calls */}
-                  {m.toolCalls && m.toolCalls.length > 0 && (
-                    <div className="tool-calls-inline">
-                      {m.toolCalls.map((tc, tci) => (
-                        <InlineToolCallCard key={`${tc.tool_id}-${tci}`} toolCall={tc} seq={tci + 1} />
-                      ))}
-                    </div>
-                  )}
-                  {/* Message body */}
-                  {(() => {
-                    const { thinking, body } = parseThinking(m.text);
-                    const html = body ? renderAssistantHtml(body) : "";
-                    // During streaming, show plain text if no HTML
-                    if (m.status === "streaming" && !html && m.text) {
-                      return <span className="text-sm streaming-text">{m.text}</span>;
-                    }
-                    return (
-                      <>
-                        {thinking && <ThinkingBlock content={thinking} />}
-                        {html ? (
-                          <div className="chat-bubble assistant markdown-body" onClick={handleCodeCopyClick} dangerouslySetInnerHTML={{ __html: highlightCode(html) }} />
-                        ) : (!m.text && m.status !== "streaming") ? (
-                          <span className="muted">(空消息)</span>
-                        ) : null}
-                      </>
-                    );
-                  })()}
-                  <ResultInline result={m.result} fallbackText={sanitizeAssistantText(m.text)} />
-                  {/* Per-message error display */}
-                  {m.status === "error" && m.error && (
-                    <div className="msg-error-box">
-                      <span>⚠️ {_humanFailure(m.result?.error_type, m.error ?? "").msg}</span>
-                      {_humanFailure(m.result?.error_type, m.error ?? "").retryable && (
-                        <button onClick={retryLast}>🔄 重试</button>
+          <Virtuoso
+            ref={chatRef}
+            data={(visibleHistory ?? [])}
+            atBottomStateChange={handleAtBottomStateChange}
+            followOutput="auto"
+            itemContent={(idx, m) => renderMsg(m, idx)}
+            components={{
+              Footer: () => (sending ? (
+                <div className="message-row assistant" data-testid="chat-sending">
+                  <div className="message-avatar agent">网</div>
+                  <div className="message-stack">
+                    {streamingToolCalls.length > 0 && (
+                      <div className="tool-calls-inline">
+                        {streamingToolCalls.map((tc, i) => (
+                          <span key={`${tc.tool_id}-${i}`} className={`live-tool-chip ${tc.status}`}>
+                            <span className={`live-tool-dot ${tc.status}`} />
+                            {toolLabel(tc.tool_id)}
+                            {tc.summary && <span className="live-tool-summary">{tc.summary.slice(0, 40)}</span>}
+                          </span>
+                        ))}
+                      </div>
+                    )}
+                    <div className="chat-bubble assistant sending-line">
+                      {streamingText ? (
+                        <StreamingContent text={streamingText} />
+                      ) : (
+                        <div className="flex items-center gap-1">
+                          <span className="typing-indicator"><span className="typing-dot" /><span className="typing-dot" /><span className="typing-dot" /></span>
+                          <span className="text-sm muted" style={{ marginLeft: 6 }}>思考中…</span>
+                        </div>
                       )}
+                      <button className="stream-stop-btn" onClick={stopGeneration} title="停止生成" data-testid="btn-stop">⏹</button>
                     </div>
-                  )}
-                  {/* Streaming indicator */}
-                  {m.status === "streaming" && (
-                    <div className="streaming-indicator-inline">
-                      <span className="typing-indicator">
-                        <span className="typing-dot" />
-                        <span className="typing-dot" />
-                        <span className="typing-dot" />
-                      </span>
-                    </div>
-                  )}
-                  {/* Regenerate: only on last assistant message */}
-                  {!sending && idx === visibleHistory.length - 1 && lastUserInput && (
-                    <button
-                      className="regenerate-btn"
-                      onClick={() => onSend(lastUserInput)}
-                      title="重新生成"
-                      type="button"
-                    >
-                      🔄 重新生成
-                    </button>
-                  )}
-                </div>
-              </div>
-            )
-          )
-        )}
-
-        {/* ── Streaming indicator ── */}
-        {sending && (
-          <div className="message-row assistant" data-testid="chat-sending">
-            <div className="message-avatar agent">网</div>
-            <div className="message-stack">
-              {/* Live tool calls during streaming */}
-              {streamingToolCalls.length > 0 && (
-                <div className="tool-calls-inline">
-                  {streamingToolCalls.map((tc, i) => (
-                    <span key={`${tc.tool_id}-${i}`} className={`live-tool-chip ${tc.status}`}>
-                      <span className={`live-tool-dot ${tc.status}`} />
-                      {toolLabel(tc.tool_id)}
-                      {tc.summary && <span className="live-tool-summary">{tc.summary.slice(0, 40)}</span>}
-                    </span>
-                  ))}
-                </div>
-              )}
-              <div className="chat-bubble assistant sending-line">
-                {streamingText ? (
-                  <StreamingContent text={streamingText} />
-                ) : (
-                  <div className="flex items-center gap-1">
-                    <span className="typing-indicator">
-                      <span className="typing-dot" />
-                      <span className="typing-dot" />
-                      <span className="typing-dot" />
-                    </span>
-                    <span className="text-sm muted" style={{ marginLeft: 6 }}>思考中…</span>
                   </div>
-                )}
-                <button
-                  className="stream-stop-btn"
-                  onClick={stopGeneration}
-                  title="停止生成"
-                  data-testid="btn-stop"
-                >
-                  ⏹
-                </button>
-              </div>
-            </div>
-          </div>
+                </div>
+              ) : null),
+            }}
+            style={{ height: "100%" }}
+          />
         )}
       </div>
 
