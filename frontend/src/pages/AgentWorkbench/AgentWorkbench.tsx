@@ -143,13 +143,18 @@ export function TaskWorkbench() {
   const inputRef = useRef<HTMLTextAreaElement>(null);
   const toast = useToastStore((s) => s.show);
   const abortRef = useRef<AbortController | null>(null);
+  const wsRef = useRef<WebSocket | null>(null);
   const streamingMsgRef = useRef<string>("");
 
-  // Stop generation: abort + finalize streaming placeholder
+  // Stop generation: abort + close WS + finalize placeholder
   const stopGeneration = useCallback(() => {
     if (abortRef.current) {
       abortRef.current.abort();
       abortRef.current = null;
+    }
+    if (wsRef.current) {
+      try { wsRef.current.close(); } catch {}
+      wsRef.current = null;
     }
     if (streamingMsgRef.current) {
       updateAssistant(streamingMsgRef.current, { status: "ready" });
@@ -345,6 +350,7 @@ export function TaskWorkbench() {
 
     try {
       ws = new WebSocket(wsUrl);
+      wsRef.current = ws;
 
       // Track streaming state
       let streamedText = "";
@@ -459,6 +465,7 @@ export function TaskWorkbench() {
 
       try { ws.close(); } catch { /* already closed */ }
       ws = null;
+      wsRef.current = null;
 
       // Handle session resolution
       if (!currentSessionId && resolvedSid) {
@@ -562,6 +569,7 @@ export function TaskWorkbench() {
       }
     } finally {
       // Clear streaming state
+      wsRef.current = null;
       streamingMsgRef.current = "";
       requestAnimationFrame(() => {
         setSending(false);
