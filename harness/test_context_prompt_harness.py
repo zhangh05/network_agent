@@ -221,11 +221,11 @@ class TestAPI:
         assert resp.status_code == 200
 
     def test_context_resolve(self, client):
-        resp = client.post("/api/context/resolve", json={"context_ref": "last_result"})
+        resp = client.post("/api/context/resolve", json={"context_ref": "last_result", "workspace_id": "cph_test"})
         assert resp.status_code == 200
 
     def test_context_build(self, client):
-        resp = client.post("/api/context/build", json={"message": "test"})
+        resp = client.post("/api/context/build", json={"message": "test", "workspace_id": "cph_test"})
         assert resp.status_code == 200
 
     def test_prompts_list(self, client):
@@ -234,7 +234,7 @@ class TestAPI:
         assert "prompts" in resp.get_json()
 
     def test_prompt_render(self, client):
-        resp = client.post("/api/prompts/render", json={"task": "response_compose", "message": "test"})
+        resp = client.post("/api/prompts/render", json={"task": "response_compose", "message": "test", "workspace_id": "cph_test"})
         assert resp.status_code == 200
 
     def test_harness_status(self, client):
