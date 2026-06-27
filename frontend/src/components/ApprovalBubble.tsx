@@ -1,6 +1,6 @@
 import { useEffect, useState, useRef, useCallback } from "react";
 import { useSessionStore } from "../stores/session";
-import { approvalApi } from "../api";
+import { approvalApi, openApprovalStream } from "../api";
 import { IconAlert, IconCheck, IconClose, IconClock } from "./Icon";
 
 interface PendingApproval {
@@ -56,48 +56,74 @@ export function ApprovalBubble({ onResolved }: { onResolved?: () => void }) {
     }
   }, []);
 
-  // Poll for pending approvals
+  // v3.10: Use SSE stream for real-time approvals (was 5s polling)
   useEffect(() => {
     if (!currentSessionId) return;
 
-    let cancelled = false;
-
-    const poll = async () => {
-      try {
-        const data = await approvalApi.pending(currentSessionId);
-        if (cancelled) return;
-        if (data.ok && data.pending?.length > 0) {
-          const p = data.pending[0] as PendingApproval;
-          const created = new Date(p.created_at * 1000).getTime();
-          const elapsed = (Date.now() - created) / 1000;
-          const secs = Math.max(0, Math.ceil(60 - elapsed));
-
-          // Skip stale approvals
-          if (secs <= 0 || elapsed > 120) {
-            try { await approvalApi.resolve(p.approval_id, { decision: "reject" }); } catch { /* ignore */ }
-            if (!resolvingRef.current) {
-              setPending(null);
-              setSecondsLeft(60);
-            }
-            return;
-          }
-
-          setPending(p);
-          setSecondsLeft(secs);
-        } else {
-          if (!resolvingRef.current) {
-            setPending(null);
-            setSecondsLeft(60);
-          }
+    let es: EventSource | null = null;
+    try {
+      es = openApprovalStream((event) => {
+        if (resolvingRef.current) return;
+        // Map SSE event to pending approval shape
+        const p: PendingApproval = {
+          approval_id: event.approval_id,
+          session_id: event.session_id,
+          tool_id: event.tool_id,
+          arguments: {},
+          description: "",
+          risk_level: "high",
+          created_at: event.ts,
+          metadata: {},
+          resolved: event.allowed !== undefined,
+          allowed: event.allowed,
+        };
+        const created = new Date(p.created_at * 1000).getTime();
+        const elapsed = (Date.now() - created) / 1000;
+        const secs = Math.max(0, Math.ceil(60 - elapsed));
+        if (secs <= 0 || elapsed > 120) {
+          try { approvalApi.resolve(p.approval_id, { decision: "reject" }); } catch { /* ignore */ }
+          setPending(null);
+          setSecondsLeft(60);
+          return;
         }
-      } catch {
-        /* ignore */
-      }
-    };
+        setPending(p);
+        setSecondsLeft(secs);
+      });
+    } catch {
+      // SSE not available, fall back to polling
+      es = null;
+    }
 
-    poll();
-    const interval = setInterval(poll, 5000);
-    return () => { cancelled = true; clearInterval(interval); };
+    // Fallback to polling if SSE failed
+    if (!es) {
+      let cancelled = false;
+      const poll = async () => {
+        try {
+          const data = await approvalApi.pending(currentSessionId);
+          if (cancelled) return;
+          if (data.ok && data.pending?.length > 0) {
+            const p = data.pending[0] as PendingApproval;
+            const created = new Date(p.created_at * 1000).getTime();
+            const elapsed = (Date.now() - created) / 1000;
+            const secs = Math.max(0, Math.ceil(60 - elapsed));
+            if (secs <= 0 || elapsed > 120) {
+              try { await approvalApi.resolve(p.approval_id, { decision: "reject" }); } catch { /* ignore */ }
+              if (!resolvingRef.current) { setPending(null); setSecondsLeft(60); }
+              return;
+            }
+            setPending(p);
+            setSecondsLeft(secs);
+          } else {
+            if (!resolvingRef.current) { setPending(null); setSecondsLeft(60); }
+          }
+        } catch { /* ignore */ }
+      };
+      poll();
+      const interval = setInterval(poll, 5000);
+      return () => { cancelled = true; clearInterval(interval); };
+    }
+
+    return () => { es?.close(); };
   }, [currentSessionId]);
 
   // Countdown timer — uses state for re-renders

@@ -26,7 +26,7 @@ def handle_memory_confirm():
 
     # Mode 2: create new user-confirmed active record
     if title or content:
-        from workspace.memory_governance import MemoryRecord, MemoryWriteGate
+        from workspace.memory_governance import MemoryRecord, MemoryWriteGate, get_memory_gate_mode
         gate = MemoryWriteGate()
         rec = MemoryRecord(
             workspace_id=workspace_id,
@@ -38,7 +38,8 @@ def handle_memory_confirm():
             citations=data.get("citations", []),
             created_by="user", redacted=True,
         )
-        result = gate.write(rec)
+        gate_mode = get_memory_gate_mode(workspace_id)
+        result = gate.write(rec, gate_mode=gate_mode)
         return jsonify(result)
 
     return jsonify({"ok": False, "error": "memory_id or title+content required"}), 400

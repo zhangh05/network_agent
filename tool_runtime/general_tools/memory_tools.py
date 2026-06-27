@@ -39,7 +39,9 @@ def _via_gate(title: str, content: str, ws_id: str, source: str = "llm_tool",
         redacted=True,
     )
     gate = MemoryWriteGate()
-    return gate.write(rec)
+    from workspace.memory_governance import get_memory_gate_mode
+    gate_mode = get_memory_gate_mode(ws_id)
+    return gate.write(rec, gate_mode=gate_mode)
 
 
 def handle_memory_search(inv: ToolInvocation) -> dict:

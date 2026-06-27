@@ -136,15 +136,17 @@ class MemoryWriteGate:
     def __init__(self, store: MemoryStore = None):
         self.store = store or MemoryStore()
 
-    def write(self, candidate: MemoryRecord) -> dict:
+    def write(self, candidate: MemoryRecord, gate_mode: str = "rule_only") -> dict:
         """Gate a memory write. Returns dict with ok, status, memory_id, rejected, error.
 
         v3.10: Returns unified dict for all callers.
+        gate_mode: "rule_only" | "llm_first" — controls whether LLM quality gating is applied.
         """
         # 1. Workspace required
         if not candidate.workspace_id:
             return {"ok": False, "status": "rejected", "memory_id": "",
-                    "rejected": True, "error": "workspace_id is required"}
+                    "rejected": True, "error": "workspace_id is required",
+                    "gate_mode": gate_mode}
 
         # 2. Redaction
         candidate.content = _redact(candidate.content)
@@ -153,7 +155,8 @@ class MemoryWriteGate:
         # 3. Secret rejection
         if _contains_secret_pattern(candidate.content):
             return {"ok": False, "status": "rejected", "memory_id": candidate.memory_id,
-                    "rejected": True, "error": "content contains secret-like patterns, rejected"}
+                    "rejected": True, "error": "content contains secret-like patterns, rejected",
+                    "gate_mode": gate_mode}
 
         # 4. Subagent can only create pending
         if candidate.created_by == "subagent" and candidate.status != "pending":
@@ -179,7 +182,8 @@ class MemoryWriteGate:
         candidate.redacted = True
         self.store.save(candidate)
         return {"ok": True, "status": candidate.status, "memory_id": candidate.memory_id,
-                "rejected": False, "conflict": candidate.status == "conflict"}
+                "rejected": False, "conflict": candidate.status == "conflict",
+                "gate_mode": gate_mode}
 
 
 # ── Promotion ──
@@ -259,3 +263,17 @@ def _emit_event(ws_id: str, rec: MemoryRecord, event_type: str):
         ))
     except Exception:
         pass
+
+
+def get_memory_gate_mode(workspace_id: str) -> str:
+    """Read memory_gating setting from workspace state.
+    Returns 'rule_only' or 'llm_first'. """
+    try:
+        from workspace.manager import get_workspace_state
+        state = get_workspace_state(workspace_id)
+        raw = state.get("memory_gating", "").strip().lower()
+        if raw in ("llm_first", "llm", "llm-first"):
+            return "llm_first"
+    except Exception:
+        pass
+    return "rule_only"
