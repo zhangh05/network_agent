@@ -134,6 +134,7 @@ export function TaskWorkbench() {
   const [input, setInput] = useState("");
   const [attachments, setAttachments] = useState<Array<{ id: string; name: string; size: string; file: File; uploading?: boolean }>>([]);
   const [streamingText, setStreamingText] = useState("");
+  const [streamingToolCalls, setStreamingToolCalls] = useState<Array<{tool_id: string; ok?: boolean; summary?: string; status: "running" | "done" | "fail"}>>([]);
   const [userScrolledUp, setUserScrolledUp] = useState(false);
   const thinkFilter = useRef<{ mode: import("../../utils/displayText").ThinkFilterState }>({ mode: "idle" });
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -346,6 +347,7 @@ export function TaskWorkbench() {
     const streamingMsgId = appendAssistantStreaming(scratch);
     setSending(true);
     setStreamingText("");  // Clear previous streaming text
+    setStreamingToolCalls([]);  // Reset live tool calls
 
     // Try WebSocket streaming first, fall back to HTTP
     // Dev: proxied through Vite (port 5173). Prod: same-origin.
@@ -419,6 +421,21 @@ export function TaskWorkbench() {
                 }
                 if (msg.name === "tool_call" || msg.name === "tool_result") {
                   streamingResult.tool_calls_count = (streamingResult.tool_calls_count || 0) + 1;
+                  // Live tool call display during streaming
+                  const tid = msg.data?.tool_id || msg.data?.name || "";
+                  if (tid) {
+                    setStreamingToolCalls((prev) => {
+                      const existing = prev.find((t) => t.tool_id === tid && t.status === "running");
+                      if (msg.name === "tool_result") {
+                        const ok = msg.data?.ok ?? msg.data?.status === "ok";
+                        return prev.map((t) => t.tool_id === tid && t.status === "running"
+                          ? { ...t, status: ok ? "done" as const : "fail" as const, ok, summary: msg.data?.summary }
+                          : t);
+                      }
+                      if (existing) return prev;
+                      return [...prev, { tool_id: tid, status: "running" as const }];
+                    });
+                  }
                 }
                 if (msg.name === "tool_call") {
                   discardToolCallDraft(streamState);
@@ -744,6 +761,18 @@ export function TaskWorkbench() {
           <div className="message-row assistant" data-testid="chat-sending">
             <div className="message-avatar agent">网</div>
             <div className="message-stack">
+              {/* Live tool calls during streaming */}
+              {streamingToolCalls.length > 0 && (
+                <div className="tool-calls-inline">
+                  {streamingToolCalls.map((tc, i) => (
+                    <span key={`${tc.tool_id}-${i}`} className={`live-tool-chip ${tc.status}`}>
+                      <span className={`live-tool-dot ${tc.status}`} />
+                      {toolLabel(tc.tool_id)}
+                      {tc.summary && <span className="live-tool-summary">{tc.summary.slice(0, 40)}</span>}
+                    </span>
+                  ))}
+                </div>
+              )}
               <div className="chat-bubble assistant sending-line">
                 {streamingText ? (
                   <StreamingContent text={streamingText} />

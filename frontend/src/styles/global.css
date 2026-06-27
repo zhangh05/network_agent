@@ -3679,3 +3679,27 @@ details.collapse[open] summary::before {
 .message-row.assistant.error { border-left: 2px solid var(--danger); padding-left: 8px; }
 .message-row.assistant.streaming .chat-bubble { opacity: 0.9; }
 
+/* ── Live tool call chips during streaming ── */
+.live-tool-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 3px 8px;
+  border-radius: 12px;
+  font-size: var(--fs-11);
+  background: var(--surface-3);
+  border: 1px solid var(--border-2);
+}
+.live-tool-chip.running { border-color: var(--brand); animation: pulseBorder 1.5s infinite; }
+.live-tool-chip.done { border-color: var(--ok); }
+.live-tool-chip.fail { border-color: var(--danger); }
+.live-tool-dot {
+  display: inline-block; width: 6px; height: 6px; border-radius: 50%;
+}
+.live-tool-dot.running { background: var(--brand); animation: pulse 1s infinite; }
+.live-tool-dot.done { background: var(--ok); }
+.live-tool-dot.fail { background: var(--danger); }
+.live-tool-summary { color: var(--text-4); font-size: 10px; margin-left: 4px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+@keyframes pulse { 0%,100% { opacity: 1; } 50% { opacity: 0.3; } }
+@keyframes pulseBorder { 0%,100% { border-color: var(--brand); } 50% { border-color: var(--brand-soft); } }
+
