@@ -67,6 +67,13 @@ def handle_file_exists(inv: ToolInvocation) -> dict:
         return _error_inv(inv, str(e)[:200])
 
 
+def handle_file_list_merged(inv: ToolInvocation) -> dict:
+    """Merged handler for workspace.file.list — dispatches to list or exists."""
+    if inv.arguments.get("filepath", "").strip():
+        return handle_file_exists(inv)
+    return handle_file_list(inv)
+
+
 def handle_file_read(inv: ToolInvocation) -> dict:
     """Read workspace text file up to 50000 chars. Rejects binary files.
     

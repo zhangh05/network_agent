@@ -26,8 +26,8 @@ MODULE_MANIFESTS: dict[str, ModuleServiceManifest] = {
     ),
     "memory": ModuleServiceManifest(
         module_id="memory",
-        package="memory",
-        service_path="memory.service",
+        package="workspace.memory_governance",
+        service_path="workspace.memory_governance",
         operations=("search", "list", "profile"),
     ),
     "config_translation": ModuleServiceManifest(

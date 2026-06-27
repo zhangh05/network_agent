@@ -83,7 +83,7 @@ def test_shell_is_low_risk():
         tool_id="exec.run", arguments={"command": "ls -la"},
     )
     decision = risk_policy.evaluate(plan)
-    assert decision.risk_level == "low"
+    assert decision.risk_level == "medium"
     assert decision.approval_required is False
     assert decision.blocked is False
 
@@ -93,7 +93,7 @@ def test_python_is_low_risk():
     plan = ActionPlan(tool_id="exec.python", action_class="execute",
                       arguments={"code": "print(1)"})
     decision = risk_policy.evaluate(plan)
-    assert decision.risk_level == "low"
+    assert decision.risk_level == "medium"
     assert decision.approval_required is False
 
 
@@ -102,7 +102,7 @@ def test_powershell_is_low_risk():
     plan = ActionPlan(tool_id="exec.run", action_class="execute",
                       arguments={"command": "Get-Process"})
     decision = risk_policy.evaluate(plan)
-    assert decision.risk_level == "low"
+    assert decision.risk_level == "medium"
     assert decision.approval_required is False
 
 

@@ -197,6 +197,20 @@ def handle_memory_set_profile(inv: ToolInvocation) -> dict:
         return _error_inv(inv, str(e)[:200])
 
 
+def handle_memory_search_merged(inv: ToolInvocation) -> dict:
+    """Merged handler for memory.search — dispatches to search or list."""
+    if inv.arguments.get("query", "").strip():
+        return handle_memory_search(inv)
+    return handle_memory_list(inv)
+
+
+def handle_memory_profile_merged(inv: ToolInvocation) -> dict:
+    """Merged handler for memory.profile — dispatches to get or set."""
+    if inv.arguments.get("field", "").strip():
+        return handle_memory_set_profile(inv)
+    return handle_memory_get_profile(inv)
+
+
 def handle_memory_update(inv: ToolInvocation) -> dict:
     args = inv.arguments
     memory_id = str(args.get("memory_id", "")).strip()

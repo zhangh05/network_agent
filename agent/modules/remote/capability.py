@@ -41,17 +41,7 @@ CAPABILITY_REMOTE = CapabilityManifest(
             requires_approval=False,
             forbidden=False,
             handler_ref="tool_runtime.canonical_registry:_handler_network_ssh",
-            description="SSH 登录设备，执行一条命令后立即断开。危险命令自动拦截，无需审批。",
-        ),
-        CapabilityToolRef(
-            tool_id="exec.run",
-            status="enabled",
-            callable_by_llm=True,
-            risk_level="medium",
-            requires_approval=False,
-            forbidden=False,
-            handler_ref="tool_runtime.canonical_registry:_handler_network_telnet",
-            description="Telnet 登录设备，执行一条命令后立即断开。无加密，仅在内网使用。",
+            description="SSH/Telnet 远程登录设备，执行命令后断开。危险命令自动拦截。Telnet 无加密仅内网使用。",
         ),
     ],
     outputs=[

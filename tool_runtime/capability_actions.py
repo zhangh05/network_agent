@@ -49,9 +49,6 @@ EXPLICIT_CAPABILITY_ACTIONS: dict[str, CapabilityAction] = {
     "exec.run": CapabilityAction(
         capability_action="exec.run", category="host", group="shell",
         preferred_tools=("exec.run",), reason="Direct canonical action."),
-    "exec.run": CapabilityAction(
-        capability_action="exec.run", category="host", group="powershell",
-        preferred_tools=("exec.run",), reason="Direct canonical action."),
     "exec.python": CapabilityAction(
         capability_action="exec.python", category="host", group="python",
         preferred_tools=("exec.python",), reason="Direct canonical action."),

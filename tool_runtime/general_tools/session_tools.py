@@ -101,6 +101,20 @@ def handle_run_get_summary(inv: ToolInvocation) -> dict:
     except Exception as e:
         return _error_inv(inv, str(e)[:200])
 
+
+def handle_run_get_merged(inv: ToolInvocation) -> dict:
+    """Merged handler for system.run.get — dispatches to list or get-summary."""
+    if inv.arguments.get("run_id", "").strip():
+        return handle_run_get_summary(inv)
+    return handle_run_list_recent(inv)
+
+
+def handle_session_get_merged(inv: ToolInvocation) -> dict:
+    """Merged handler for system.session.get — dispatches to list or get-summary."""
+    if inv.arguments.get("session_id", "").strip():
+        return handle_session_get_summary(inv)
+    return handle_session_list(inv)
+
 def handle_session_snapshot(inv: ToolInvocation) -> dict:
     """Create a snapshot of the current session state."""
     ws = _caller_workspace(inv)

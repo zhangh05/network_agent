@@ -250,6 +250,7 @@ class CanonicalToolEntry:
 from tool_runtime.general_tools.file_tools import (
     handle_file_list,
     handle_file_exists,
+    handle_file_list_merged,
     handle_file_read,
     handle_file_read_image,
     handle_file_edit,
@@ -280,8 +281,10 @@ from tool_runtime.general_tools.web_tools import (
 from tool_runtime.general_tools.session_tools import (
     handle_session_list,
     handle_session_get_summary,
+    handle_session_get_merged,
     handle_run_list_recent,
     handle_run_get_summary,
+    handle_run_get_merged,
     handle_session_snapshot,
     handle_session_list_snapshots,
     handle_session_rewind,
@@ -290,11 +293,13 @@ from tool_runtime.general_tools.session_tools import (
 )
 from tool_runtime.general_tools.memory_tools import (
     handle_memory_search,
+    handle_memory_search_merged,
     handle_memory_create,
     handle_memory_list,
     handle_memory_confirm,
     handle_memory_get_profile,
     handle_memory_set_profile,
+    handle_memory_profile_merged,
     handle_memory_update,
     handle_memory_delete_soft,
 )
@@ -1096,6 +1101,36 @@ def _module_result_to_dict(r: dict) -> dict:
     }
 
 
+def _ws_artifact_list_merged(inv: ToolInvocation) -> dict:
+    """Merged handler for workspace.artifact.list — dispatches to list or search."""
+    if inv.arguments.get("query", "").strip():
+        result = handle_artifact_search(inv)
+    else:
+        result = _handler_artifact_list(inv)
+    if isinstance(result, dict):
+        return result
+    return {"ok": False, "error": "unexpected result type"}
+
+
+def _knowledge_import_merged(inv: ToolInvocation) -> dict:
+    """Merged handler for knowledge.import — dispatches to file import or artifact index."""
+    if inv.arguments.get("artifact_id", "").strip():
+        result = handle_knowledge_index_artifact(inv)
+    else:
+        result = _k_import(inv)
+    if isinstance(result, dict):
+        return result
+    return {"ok": False, "error": "unexpected result type"}
+
+
+def _knowledge_reindex_merged(inv: ToolInvocation) -> dict:
+    """Merged handler for knowledge.source.reindex — dispatches to specific or all."""
+    result = handle_knowledge_reindex(inv)
+    if isinstance(result, dict):
+        return result
+    return {"ok": False, "error": "unexpected result type"}
+
+
 # canonical_tool_id -> CanonicalToolEntry
 _RAW_REGISTRY: list[CanonicalToolEntry] = [
     # Exec — unified command execution
@@ -1146,18 +1181,13 @@ _RAW_REGISTRY: list[CanonicalToolEntry] = [
     # Workspace files
     CanonicalToolEntry(
         canonical_tool_id="workspace.file.list",
-        handler=_adapt(handle_file_list),
+        handler=_adapt(handle_file_list_merged),
         input_schema=_schema({
             "workspace_id": _S["workspace_id"],
             "subdir": {"type": "string", "description": "Workspace-relative subdirectory."},
+            "filepath": _S["filepath"],
         }),
-    ),
-    CanonicalToolEntry(
-        canonical_tool_id="workspace.file.list",
-        handler=_adapt(handle_file_exists),
-        input_schema=_schema({
-            "workspace_id": _S["workspace_id"], "filepath": _S["filepath"],
-        }, ["filepath"]),
+        description="List workspace files or check if a file exists.",
     ),
     CanonicalToolEntry(
         canonical_tool_id="workspace.file.read",
@@ -1213,12 +1243,14 @@ _RAW_REGISTRY: list[CanonicalToolEntry] = [
     # Workspace artifacts
     CanonicalToolEntry(
         canonical_tool_id="workspace.artifact.list",
-        handler=_adapt(_handler_artifact_list),
+        handler=_adapt(_ws_artifact_list_merged),
         input_schema=_schema({
             "workspace_id": _S["workspace_id"],
             "status": _S["status"],
+            "query": _S["query"],
             "limit": _S["limit"],
         }),
+        description="List or search workspace artifacts.",
     ),
     CanonicalToolEntry(
         canonical_tool_id="workspace.artifact.read",
@@ -1236,13 +1268,6 @@ _RAW_REGISTRY: list[CanonicalToolEntry] = [
             "artifact_type": {"type": "string"},
             "sensitivity": {"type": "string", "enum": ["internal", "sensitive"], "default": "internal"},
         }, ["content"]),
-    ),
-    CanonicalToolEntry(
-        canonical_tool_id="workspace.artifact.list",
-        handler=_adapt(handle_artifact_search),
-        input_schema=_schema({
-            "workspace_id": _S["workspace_id"], "query": _S["query"], "limit": _S["limit"],
-        }),
     ),
     CanonicalToolEntry(
         canonical_tool_id="workspace.artifact.tag",
@@ -1308,32 +1333,23 @@ _RAW_REGISTRY: list[CanonicalToolEntry] = [
     ),
     CanonicalToolEntry(
         canonical_tool_id="knowledge.import",
-        handler=_adapt(_k_import),
+        handler=_adapt(_knowledge_import_merged),
         input_schema=_schema({
             "workspace_id": _S["workspace_id"],
             "filepath": _S["filepath"],
+            "artifact_id": _S["artifact_id"],
             "title": {"type": "string", "description": "Document title."},
-        }, ["filepath"]),
-        description="Import a file or document into the knowledge base. Accepts workspace file paths (files/ or inbox/). Auto-detects format.",
-    ),
-    CanonicalToolEntry(
-        canonical_tool_id="knowledge.import",
-        handler=_adapt(handle_knowledge_index_artifact),
-        input_schema=_schema({
-            "workspace_id": _S["workspace_id"], "artifact_id": _S["artifact_id"],
-        }, ["artifact_id"]),
-    ),
-    CanonicalToolEntry(
-        canonical_tool_id="knowledge.source.reindex",
-        handler=_adapt(handle_knowledge_reindex),
-        input_schema=_schema({
-            "workspace_id": _S["workspace_id"], "source_id": _S["source_id"],
         }),
+        description="Import a file or artifact into the knowledge base. Auto-detects format.",
     ),
     CanonicalToolEntry(
         canonical_tool_id="knowledge.source.reindex",
-        handler=_adapt(handle_knowledge_reindex),
-        input_schema=_schema({"workspace_id": _S["workspace_id"]}),
+        handler=_adapt(_knowledge_reindex_merged),
+        input_schema=_schema({
+            "workspace_id": _S["workspace_id"],
+            "source_id": _S["source_id"],
+        }),
+        description="Reindex a specific knowledge source or all sources.",
     ),
     CanonicalToolEntry(
         canonical_tool_id="knowledge.source.manage",
@@ -1379,29 +1395,24 @@ _RAW_REGISTRY: list[CanonicalToolEntry] = [
     # v3.2: stub tools removed — use system.diagnostics for all health checks
     CanonicalToolEntry(
         canonical_tool_id="system.run.get",
-        handler=_adapt(handle_run_list_recent),
-        input_schema=_schema({"workspace_id": _S["workspace_id"], "limit": _S["limit"]}),
-    ),
-    CanonicalToolEntry(
-        canonical_tool_id="system.run.get",
-        handler=_adapt(handle_run_get_summary),
+        handler=_adapt(handle_run_get_merged),
         input_schema=_schema({
-            "workspace_id": _S["workspace_id"], "run_id": _S["run_id"],
-        }, ["run_id"]),
-    ),
-    CanonicalToolEntry(
-        canonical_tool_id="system.session.get",
-        handler=_adapt(handle_session_list),
-        input_schema=_schema({
-            "workspace_id": _S["workspace_id"], "status": _S["status"], "limit": _S["limit"],
+            "workspace_id": _S["workspace_id"],
+            "run_id": _S["run_id"],
+            "limit": _S["limit"],
         }),
+        description="List recent runs or get a specific run summary.",
     ),
     CanonicalToolEntry(
         canonical_tool_id="system.session.get",
-        handler=_adapt(handle_session_get_summary),
+        handler=_adapt(handle_session_get_merged),
         input_schema=_schema({
-            "workspace_id": _S["workspace_id"], "session_id": _S["session_id"],
-        }, ["session_id"]),
+            "workspace_id": _S["workspace_id"],
+            "session_id": _S["session_id"],
+            "status": _S["status"],
+            "limit": _S["limit"],
+        }),
+        description="List sessions or get a specific session summary.",
     ),
     CanonicalToolEntry(
         canonical_tool_id="system.session.checkpoint",
@@ -1444,32 +1455,28 @@ _RAW_REGISTRY: list[CanonicalToolEntry] = [
     # Memory
     CanonicalToolEntry(
         canonical_tool_id="memory.search",
-        handler=_adapt(handle_memory_search),
-        input_schema=_schema({"query": _S["query"], "limit": _S["limit"]}, ["query"]),
-    ),
-    CanonicalToolEntry(
-        canonical_tool_id="memory.search",
-        handler=_adapt(handle_memory_list),
+        handler=_adapt(handle_memory_search_merged),
         input_schema=_schema({
-            "workspace_id": _S["workspace_id"], "scope": {"type": "string"},
-            "memory_type": {"type": "string"}, "status": {"type": "string"},
-            "session_id": _S["session_id"], "limit": _S["limit"],
+            "workspace_id": _S["workspace_id"],
+            "query": _S["query"],
+            "scope": {"type": "string"},
+            "memory_type": {"type": "string"},
+            "status": {"type": "string"},
+            "session_id": _S["session_id"],
+            "limit": _S["limit"],
         }),
+        description="Search memories by query or list all retrievable memories.",
     ),
     CanonicalToolEntry(
         canonical_tool_id="memory.profile",
-        handler=_adapt(handle_memory_get_profile),
-        input_schema=_schema({"workspace_id": _S["workspace_id"]}),
-    ),
-    CanonicalToolEntry(
-        canonical_tool_id="memory.profile",
-        handler=_adapt(handle_memory_set_profile),
+        handler=_adapt(handle_memory_profile_merged),
         input_schema=_schema({
             "workspace_id": _S["workspace_id"],
             "field": {"type": "string"},
             "value": {"type": "string"},
             "merge": {"type": "boolean", "default": True},
-        }, ["field"]),
+        }),
+        description="Get user profile or set a profile field.",
     ),
 
     # Report / Data / Text
