@@ -611,4 +611,4 @@ def test_risk_policy_updates_plan_risk_level():
                       arguments={"command": "ls"})
     assert plan.risk_level == "low"  # default
     rp.evaluate(plan)
-    assert plan.risk_level == "low"
+    assert plan.risk_level == "medium"

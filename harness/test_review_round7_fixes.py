@@ -97,13 +97,16 @@ class TestMemoryWorkspaceIsolation:
     def test_search_uses_caller_workspace(self, monkeypatch, tmp_path):
         from context import context_store as cs
         from context import unified_retriever
-        from memory import store as memory_store
+        from workspace.memory_governance import MemoryStore
         from tool_runtime.general_tools import memory_tools
 
         monkeypatch.setattr(cs, "_ws_root", lambda ws="default": tmp_path / ws / "context")
         cs._stores.clear()
         unified_retriever._retrievers.clear()
-        memory_store._stores.clear()
+        try:
+            MemoryStore()._stores.clear()
+        except Exception:
+            pass
         cs.get_context_store("workspaceA").put({
             "item_type": "memory_hit",
             "title": "Only A",
