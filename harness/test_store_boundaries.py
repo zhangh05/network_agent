@@ -195,7 +195,7 @@ class TestRunStoreWriteSafety:
         redact_text uses regex SECRET_PATTERNS — it matches known secret
         patterns (password word, sk- keys with 20+ chars, api_key=, etc.).
         """
-        from memory.redaction import redact_text
+        from workspace.redaction import redact_text
 
         # API key pattern: sk- followed by 20+ alphanumeric chars
         result = redact_text("API key: sk-abcdefghijklmnopqrstuvwxyz0123456789")

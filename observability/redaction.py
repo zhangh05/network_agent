@@ -2,7 +2,7 @@
 """Trace redaction — strip secrets before persisting trace data."""
 
 import re
-from memory.redaction import SECRET_PATTERNS, MASK, redact_text, redact_dict, contains_secret
+from workspace.redaction import SECRET_PATTERNS, MASK, redact_text, redact_dict, contains_secret
 
 
 def redact_trace_event(event: dict) -> dict:
