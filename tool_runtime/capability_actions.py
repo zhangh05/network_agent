@@ -62,16 +62,13 @@ EXPLICIT_CAPABILITY_ACTIONS: dict[str, CapabilityAction] = {
     # Workspace
     "workspace.file.manage": CapabilityAction(
         capability_action="workspace.file.manage", category="workspace", group="file",
-        preferred_tools=("workspace.file.list", "workspace.file.list",
-                         "workspace.file.edit", "workspace.file.patch"),
-        fallback_tools=("workspace.file.read", "workspace.file.read",
-                        "workspace.file.write_artifact"),
+        preferred_tools=("workspace.file.list", "workspace.file.edit", "workspace.file.patch"),
+        fallback_tools=("workspace.file.read", "workspace.file.write_artifact"),
         reason="Manage workspace files end-to-end.",
     ),
     "workspace.artifact.manage": CapabilityAction(
         capability_action="workspace.artifact.manage", category="workspace", group="artifact",
-        preferred_tools=("workspace.artifact.list", "workspace.artifact.list",
-                         "workspace.artifact.read", "workspace.artifact.save"),
+        preferred_tools=("workspace.artifact.list", "workspace.artifact.read", "workspace.artifact.save"),
         fallback_tools=("workspace.artifact.diff", "workspace.artifact.export",
                         "workspace.artifact.tag", "workspace.artifact.delete_soft"),
         reason="Work with workspace artifact metadata and safe content.",
@@ -87,16 +84,14 @@ EXPLICIT_CAPABILITY_ACTIONS: dict[str, CapabilityAction] = {
         capability_action="knowledge.search_and_answer",
         category="knowledge", group="search",
         preferred_tools=("knowledge.search",),
-        fallback_tools=("knowledge.read"),
+        fallback_tools=("knowledge.read",),
         reason="Search the knowledge base and answer from safe excerpts.",
     ),
     "knowledge.maintain": CapabilityAction(
         capability_action="knowledge.maintain",
         category="knowledge", group="import",
-        preferred_tools=("knowledge.import.file", "knowledge.import.document",
-                         "knowledge.import", "knowledge.source.reindex"),
-        fallback_tools=("knowledge.source.reindex", "knowledge.source.disable",
-                        "knowledge.source.delete"),
+        preferred_tools=("knowledge.import", "knowledge.source.reindex"),
+        fallback_tools=("knowledge.source.manage",),
         reason="Maintain the knowledge base (import, reindex, retire).",
     ),
 
@@ -130,7 +125,7 @@ EXPLICIT_CAPABILITY_ACTIONS: dict[str, CapabilityAction] = {
     ),
     "web.weather.read": CapabilityAction(
         capability_action="web.weather.read", category="web", group="weather",
-        preferred_tools=("web.weather.current", "web.weather.forecast"),
+        preferred_tools=("web.weather",),
         reason="Read weather for a public location."),
 
     # Runtime / Run / Session
@@ -138,32 +133,29 @@ EXPLICIT_CAPABILITY_ACTIONS: dict[str, CapabilityAction] = {
         capability_action="runtime.audit.inspect",
         category="runtime", group="audit",
         preferred_tools=("system.diagnostics",
-                         "system.run.get", "system.run.get",
-                         "system.session.get", "system.session.get"),
-        fallback_tools=("system.session.snapshot", "system.system.session.export",
-                        "runtime.selfcheck"),
+                         "system.run.get", "system.session.get"),
+        fallback_tools=("system.session.snapshot", "system.session.export"),
         reason="Inspect runtime, run, and session audit metadata.",
     ),
     "runtime.review.manage": CapabilityAction(
         capability_action="runtime.review.manage",
         category="runtime", group="review",
-        preferred_tools=("system.system.review.item.list", "system.system.review.item.update"),
+        preferred_tools=("system.review.item.list", "system.review.item.update"),
         reason="List and update review items."),
     "runtime.session.manage": CapabilityAction(
         capability_action="runtime.session.manage",
         category="runtime", group="session",
         preferred_tools=("system.session.snapshot",
-                         "system.system.session.checkpoint", "system.system.session.rewind",
-                         "system.system.session.export"),
+                         "system.session.checkpoint", "system.session.rewind",
+                         "system.session.export"),
         reason="Manage session lifecycle and snapshots."),
 
     # Memory
     "memory.profile.manage": CapabilityAction(
         capability_action="memory.profile.manage",
         category="memory", group="profile",
-        preferred_tools=("memory.search", "memory.search",
-                         "memory.proworkspace.file.read", "memory.profile"),
-        fallback_tools=("memory.manage"),
+        preferred_tools=("memory.search", "memory.profile"),
+        fallback_tools=("memory.manage",),
         reason="Search and manage memory records and profile fields.",
     ),
 
@@ -178,9 +170,9 @@ EXPLICIT_CAPABILITY_ACTIONS: dict[str, CapabilityAction] = {
     "data.text.process": CapabilityAction(
         capability_action="data.text.process",
         category="report_data", group="text",
-        preferred_tools=("text.analyze"),
+        preferred_tools=("text.analyze",),
         fallback_tools=("data.validate",
-                        "data.data.csv.summarize", "data.data.table.extract",
+                        "data.csv.summarize", "data.table.extract",
                         "data.table.render"),
         reason="Process structured data and safe text outputs.",
     ),
@@ -189,14 +181,13 @@ EXPLICIT_CAPABILITY_ACTIONS: dict[str, CapabilityAction] = {
     "agent.skill.manage": CapabilityAction(
         capability_action="agent.skill.manage",
         category="agent", group="skill",
-        preferred_tools=("skill.list", "skill.find_skills", "skill.inspect",
-                         "skill.load"),
+        preferred_tools=("tool.catalog.search",),
         reason="Discover, inspect, load and unload skills."),
     "agent.team.coordinate": CapabilityAction(
         capability_action="agent.team.coordinate",
         category="agent", group="team",
         preferred_tools=("agent.spawn", "agent.role.list", "agent.result.get"),
-        fallback_tools=("agent.team.run", "skill.list", "skill.load"),
+        fallback_tools=("agent.team.run",),
         reason="Coordinate child-agent work under runtime limits.",
     ),
 }

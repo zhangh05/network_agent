@@ -27,6 +27,23 @@ def _workspace_path(workspace_id: str, subpath: str = "") -> Path:
 # (safe implementation with proper traversal + symlink + encoding checks)
 
 
+def _caller_workspace(inv: "ToolInvocation") -> str:
+    """Return the runtime-validated workspace for a tool invocation.
+
+    The runtime context is authoritative. If the model also supplied a
+    workspace_id argument it must match the runtime workspace.
+    """
+    requested = str((getattr(inv, "arguments", {}) or {}).get("workspace_id") or "").strip()
+    caller = str(getattr(inv, "workspace_id", "") or "").strip()
+    if caller and requested and caller != requested:
+        raise ValueError(f"workspace_id mismatch: caller={caller!r}, requested={requested!r}")
+    workspace_id = caller or requested
+    if not workspace_id:
+        raise ValueError("workspace_id is required")
+    validate_workspace_id(workspace_id)
+    return workspace_id
+
+
 def _safe_preview(text: str, max_chars: int = 500) -> str:
     """Truncate text to safe preview length."""
     if len(text) <= max_chars:

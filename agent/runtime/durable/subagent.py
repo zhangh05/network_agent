@@ -318,7 +318,7 @@ def run_subagent_task(subtask_id: str, ws_id: str) -> dict:
         result.warnings.append(f"Memory candidate write failed: {str(e)[:100]}")
 
     return {
-        "ok": True,
+        "ok": result.status == "succeeded",
         "subtask_id": subtask_id,
         "status": result.status,
         "summary": result.summary,

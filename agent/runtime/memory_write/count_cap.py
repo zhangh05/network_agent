@@ -8,12 +8,8 @@ Always applied regardless of gate mode.
 from __future__ import annotations
 
 import logging
-from typing import TYPE_CHECKING
 
 from agent.runtime.memory_write.models import MemoryCandidate
-
-if TYPE_CHECKING:
-    from memory.store import ContextStoreAdapter
 
 _log = logging.getLogger("memory_write.count_cap")
 

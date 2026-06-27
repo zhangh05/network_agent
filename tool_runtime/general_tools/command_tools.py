@@ -84,7 +84,7 @@ def handle_python_exec(inv: ToolInvocation) -> dict:
     builtins, and dunder access before execution. Runs in a subprocess with
     timeout. Requires explicit user approval.
     """
-    workspace_id = inv.arguments.get("workspace_id", "default")
+    workspace_id = _caller_workspace(inv)
     run_id = inv.arguments.get("run_id", "")
     code = str(inv.arguments.get("code", "")).strip()
     timeout = min(int(inv.arguments.get("timeout", 30) or 30), 60)  # v3.7: max 60s

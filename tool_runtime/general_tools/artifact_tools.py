@@ -4,7 +4,7 @@ from tool_runtime.general_tools.shared import *
 
 def handle_artifact_search(inv: ToolInvocation) -> dict:
     args = inv.arguments
-    ws = args.get("workspace_id", "default")
+    ws = _caller_workspace(inv)
     query = (args.get("query") or "").strip().lower()
     try:
         validate_workspace_id(ws)
@@ -30,7 +30,7 @@ def handle_artifact_search(inv: ToolInvocation) -> dict:
 
 def handle_artifact_read_content_safe(inv: ToolInvocation) -> dict:
     args = inv.arguments
-    ws = args.get("workspace_id", "default")
+    ws = _caller_workspace(inv)
     art_id = args.get("artifact_id", "")
     try:
         validate_workspace_id(ws)
@@ -69,7 +69,7 @@ def handle_artifact_read_content_safe(inv: ToolInvocation) -> dict:
 
 def handle_artifact_save_result(inv: ToolInvocation) -> dict:
     args = inv.arguments
-    ws = args.get("workspace_id", "default")
+    ws = _caller_workspace(inv)
     title = args.get("title", "tool_result")
     content = str(args.get("content", ""))
     a_type = args.get("artifact_type", "knowledge_doc")
@@ -93,7 +93,7 @@ def handle_artifact_save_result(inv: ToolInvocation) -> dict:
 
 def handle_artifact_tag(inv: ToolInvocation) -> dict:
     args = inv.arguments
-    ws = args.get("workspace_id", "default")
+    ws = _caller_workspace(inv)
     art_id = args.get("artifact_id", "")
     tags = args.get("tags", [])
     try:
@@ -115,7 +115,7 @@ def handle_artifact_tag(inv: ToolInvocation) -> dict:
 
 def handle_artifact_delete_soft(inv: ToolInvocation) -> dict:
     args = inv.arguments
-    ws = args.get("workspace_id", "default")
+    ws = _caller_workspace(inv)
     art_id = args.get("artifact_id", "")
     try:
         validate_workspace_id(ws)

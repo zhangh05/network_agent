@@ -42,7 +42,7 @@ class MemoryWritePlanner:
           5. LLM Gate (only in llm_first mode; this is the soft gate)
           6. CountCap (per-type hard limit)
           7. Write to ctx.metadata for observability
-          8. Persist to ContextStore via MemoryWriter
+          8. Persist through MemoryWriteGate via MemoryWriter
 
         Args:
             ctx: TurnContext with metadata dict

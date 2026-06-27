@@ -1,8 +1,5 @@
 # agent/runtime/memory_write/writer.py
-"""MemoryWriter — persists memory candidates to the real ContextStore.
-
-Replaces the stub writer with actual persistence via memory/store.py:get_store().put().
-"""
+"""MemoryWriter — persists memory candidates through MemoryWriteGate."""
 
 from __future__ import annotations
 
@@ -17,20 +14,15 @@ MAX_WRITE_PER_TURN = 3
 
 
 class MemoryWriter:
-    """Write memory candidates to persistent storage.
-
-    Delegates to memory/store.py (ContextStoreAdapter) for actual I/O.
-    Handles rate-limiting and error isolation so a single bad write
-    never blocks the turn pipeline.
-    """
+    """Write memory candidates through workspace memory governance."""
 
     def write(self, ctx, plan: MemoryWritePlan, workspace_id: str = "") -> dict:
-        """Persist accepted candidates to ContextStore.
+        """Persist accepted candidates through MemoryWriteGate.
 
         Args:
             ctx: TurnContext (for workspace_id fallback)
             plan: MemoryWritePlan with candidates to write
-            workspace_id: Target workspace (defaults to ctx.workspace_id)
+            workspace_id: Target workspace. Required from runtime context.
 
         Returns:
             dict with status, written_ids, skipped count, and any errors

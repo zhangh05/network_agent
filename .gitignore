@@ -36,7 +36,11 @@ workspaces/*/cmdb/
 workspaces/*/context/
 workspaces/*/index/
 workspaces/*/jobs/
+workspaces/*/durable/checkpoints/
 workspaces/*/durable/events/
+workspaces/*/durable/tasks/
+workspaces/*/subagents/
+workspaces/*/trajectories/
 workspaces/_runtime/
 workspaces/.tool_embeddings_cache.json
 workspaces/*/test.txt

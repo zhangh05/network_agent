@@ -25,6 +25,20 @@ from tool_runtime.schemas import ToolSpec, ToolInvocation
 from tool_runtime.registry_helpers import tool_keyword_score
 
 
+def _inv_workspace(inv: ToolInvocation) -> str:
+    args = inv.arguments or {}
+    requested = str(args.get("workspace_id") or "").strip()
+    caller = str(inv.workspace_id or "").strip()
+    if caller and requested and caller != requested:
+        raise ValueError(f"workspace_id mismatch: caller={caller!r}, requested={requested!r}")
+    ws = caller or requested
+    if not ws:
+        raise ValueError("workspace_id is required")
+    from workspace.ids import validate_workspace_id
+    validate_workspace_id(ws)
+    return ws
+
+
 # ── FileStore tool helpers ──
 
 def _make_filestore_handler(tool_id: str, param_names: list[str]):
@@ -417,7 +431,7 @@ def _handler_config_analysis_run(inv: ToolInvocation) -> dict:
     args = inv.arguments or {}
     return run_config_analysis(
         action=str(args.get("action", "")),
-        workspace_id=inv.workspace_id or args.get("workspace_id", "default"),
+        workspace_id=_inv_workspace(inv),
         filepath=str(args.get("filepath", "")),
         file_id=str(args.get("file_id", "")),
         source_config=str(args.get("source_config", "")),
@@ -432,7 +446,7 @@ def _handler_pcap_analysis_run(inv: ToolInvocation) -> dict:
     args = inv.arguments or {}
     return run_pcap_analysis(
         action=str(args.get("action", "")),
-        workspace_id=inv.workspace_id or args.get("workspace_id", "default"),
+        workspace_id=_inv_workspace(inv),
         filepath=str(args.get("filepath", "")),
         file_id=str(args.get("file_id", "")),
         session_id=str(args.get("session_id", "")),
@@ -450,7 +464,7 @@ def _handler_cmdb_list_assets(inv: ToolInvocation) -> dict:
     """List CMDB device assets with optional filtering."""
     from agent.modules.cmdb.tools import tool_list_assets
     args = inv.arguments or {}
-    workspace_id = inv.workspace_id or args.get("workspace_id", "default")
+    workspace_id = _inv_workspace(inv)
     return tool_list_assets(
         workspace_id=workspace_id,
         filter=str(args.get("filter", "")),
@@ -463,7 +477,7 @@ def _handler_cmdb_get_asset(inv: ToolInvocation) -> dict:
     """Get a single CMDB asset by ID."""
     from agent.modules.cmdb.tools import tool_get_asset
     args = inv.arguments or {}
-    workspace_id = inv.workspace_id or args.get("workspace_id", "default")
+    workspace_id = _inv_workspace(inv)
     asset_id = str(args.get("asset_id", "")).strip()
     if not asset_id:
         return {"ok": False, "error": "asset_id is required"}
@@ -474,7 +488,7 @@ def _handler_cmdb_add_asset(inv: ToolInvocation) -> dict:
     """Add a CMDB asset (requires approval)."""
     from agent.modules.cmdb.tools import tool_add_asset
     args = inv.arguments or {}
-    workspace_id = inv.workspace_id or args.get("workspace_id", "default")
+    workspace_id = _inv_workspace(inv)
     name = str(args.get("name", "")).strip()
     host = str(args.get("host", "")).strip()
     if not name:
@@ -497,7 +511,7 @@ def _handler_cmdb_delete_asset(inv: ToolInvocation) -> dict:
     """Soft-delete a CMDB asset."""
     from agent.modules.cmdb.tools import tool_delete_asset
     args = inv.arguments or {}
-    workspace_id = inv.workspace_id or args.get("workspace_id", "default")
+    workspace_id = _inv_workspace(inv)
     asset_id = str(args.get("asset_id", "")).strip()
     if not asset_id:
         return {"ok": False, "error": "asset_id is required"}
@@ -954,20 +968,20 @@ def _catalog_reason(tool_id: str, display_name: str, score: int, tokens: list[st
 
 def _k_source_list(inv: ToolInvocation) -> dict:
     from agent.modules.knowledge.tools import tool_handler_list
-    r = tool_handler_list({"workspace_id": inv.workspace_id or "default"}, {})
+    r = tool_handler_list({"workspace_id": _inv_workspace(inv)}, {})
     return _module_result_to_dict(r)
 
 def _k_chunk_list(inv: ToolInvocation) -> dict:
     from agent.modules.knowledge.tools import tool_handler_list_chunks
     args = inv.arguments or {}
-    r = tool_handler_list_chunks({"workspace_id": inv.workspace_id or "default", "source_id": str(args.get("source_id", ""))}, {})
+    r = tool_handler_list_chunks({"workspace_id": _inv_workspace(inv), "source_id": str(args.get("source_id", ""))}, {})
     return _module_result_to_dict(r)
 
 def _k_parent_read(inv: ToolInvocation) -> dict:
     from agent.modules.knowledge.tools import tool_handler_read_parent
     args = inv.arguments or {}
     r = tool_handler_read_parent({
-        "workspace_id": inv.workspace_id or "default",
+        "workspace_id": _inv_workspace(inv),
         "child_chunk_id": str(args.get("chunk_id", ""))}, {})
     return _module_result_to_dict(r)
 
@@ -981,7 +995,7 @@ def _k_import(inv: ToolInvocation) -> dict:
     if not fp:
         return {"ok": False, "error": "filepath or source is required", "status": "failed"}
     r = tool_handler_import_file({
-        "workspace_id": inv.workspace_id or "default",
+        "workspace_id": _inv_workspace(inv),
         "source": fp,
         "title": str(args.get("title", fp.split("/")[-1] if "/" in fp else "imported")),
         "author": str(args.get("author", "")),
@@ -994,7 +1008,7 @@ def _k_source_manage(inv: ToolInvocation) -> dict:
     from agent.modules.knowledge.tools import tool_handler_disable, tool_handler_delete, tool_handler_reindex
     args = inv.arguments or {}
     action = str(args.get("action", "disable")).strip().lower()
-    ws = inv.workspace_id or "default"
+    ws = _inv_workspace(inv)
     sid = str(args.get("source_id", ""))
     if action == "delete":
         r = tool_handler_delete({"workspace_id": ws, "source_id": sid}, {})
@@ -1009,7 +1023,7 @@ def _review_item_list(inv: ToolInvocation) -> dict:
     try:
         from agent.modules.review.tools import tool_handler_list
         args = inv.arguments or {}
-        ws = inv.workspace_id or str(args.get("workspace_id", "default"))
+        ws = _inv_workspace(inv)
         r = tool_handler_list({"workspace_id": ws, "limit": int(args.get("limit", 10)),
                                "artifact_id": str(args.get("artifact_id", ""))}, {})
         return _module_result_to_dict(r)
@@ -1023,7 +1037,7 @@ def _review_item_update(inv: ToolInvocation) -> dict:
     try:
         from agent.modules.review.tools import tool_handler_update
         args = inv.arguments or {}
-        ws = inv.workspace_id or str(args.get("workspace_id", "default"))
+        ws = _inv_workspace(inv)
         r = tool_handler_update({
             "workspace_id": ws,
             "artifact_id": str(args.get("artifact_id", args.get("review_id", ""))),

@@ -24,7 +24,7 @@ def _schema(properties: dict = None, required: list[str] = None) -> dict:
 
 
 S = {
-    "workspace_id": {"type": "string", "description": "Workspace id. Defaults to current/default workspace when omitted."},
+    "workspace_id": {"type": "string", "description": "Workspace id from runtime context. If provided as an argument, it must match the runtime workspace."},
     "query": {"type": "string", "description": "Search or filter text. Use concise, specific keywords."},
     "limit": {"type": "integer", "description": "Maximum items to return. Keep small unless user asks for broad inventory.", "default": 10},
     "artifact_id": {"type": "string", "description": "Artifact id returned by artifact search/list tools."},

@@ -29,7 +29,7 @@ def _is_current_workspace_write_path(ws: str, target: Path) -> bool:
 
 def handle_file_list(inv: ToolInvocation) -> dict:
     """List files in workspace subdirectory. Max 50 files."""
-    ws = inv.arguments.get("workspace_id", "default")
+    ws = _caller_workspace(inv)
     subdir = inv.arguments.get("subdir", "")
     try:
         target = _workspace_path(ws, subdir)
@@ -50,7 +50,7 @@ def handle_file_list(inv: ToolInvocation) -> dict:
 
 def handle_file_exists(inv: ToolInvocation) -> dict:
     """Check whether a workspace file exists and return metadata."""
-    ws = inv.arguments.get("workspace_id", "default")
+    ws = _caller_workspace(inv)
     filepath = inv.arguments.get("filepath", "")
     try:
         target = _workspace_path(ws, filepath)
@@ -72,7 +72,7 @@ def handle_file_read(inv: ToolInvocation) -> dict:
     
     v3.7: Added offset for pagination — read from line N onwards.
     """
-    ws = inv.arguments.get("workspace_id", "default")
+    ws = _caller_workspace(inv)
     filepath = inv.arguments.get("filepath", "")
     limit = min(int(inv.arguments.get("limit", 50000)), 50000)
     offset = int(inv.arguments.get("offset", 0) or 0)
@@ -111,7 +111,7 @@ def handle_file_edit(inv: ToolInvocation) -> dict:
     
     v3.7: dry_run=True returns preview diff without writing to file.
     """
-    ws = inv.arguments.get("workspace_id", "default")
+    ws = _caller_workspace(inv)
     filepath = inv.arguments.get("filepath", "")
     old_string = inv.arguments.get("old_string", "")
     new_string = inv.arguments.get("new_string", "")
@@ -156,7 +156,7 @@ def handle_file_edit(inv: ToolInvocation) -> dict:
 
 def handle_file_patch(inv: ToolInvocation) -> dict:
     """Apply a unified diff patch to a current workspace-managed file."""
-    ws = inv.arguments.get("workspace_id", "default")
+    ws = _caller_workspace(inv)
     filepath = inv.arguments.get("filepath", "")
     patch_text = inv.arguments.get("patch_text", "")
     try:
@@ -205,7 +205,7 @@ def handle_file_patch(inv: ToolInvocation) -> dict:
 
 
 def handle_ws_list_files(inv: ToolInvocation) -> dict:
-    ws = inv.arguments.get("workspace_id", "default")
+    ws = _caller_workspace(inv)
     subdir = inv.arguments.get("subdir", "")
     try:
         target = _workspace_path(ws, subdir)
@@ -223,7 +223,7 @@ def handle_ws_list_files(inv: ToolInvocation) -> dict:
 
 
 def handle_ws_read_text_preview(inv: ToolInvocation) -> dict:
-    ws = inv.arguments.get("workspace_id", "default")
+    ws = _caller_workspace(inv)
     filepath = inv.arguments.get("filepath", "")
     try:
         target = _workspace_path(ws, filepath)
@@ -238,7 +238,7 @@ def handle_ws_read_text_preview(inv: ToolInvocation) -> dict:
 
 
 def handle_ws_write_artifact_file(inv: ToolInvocation) -> dict:
-    ws = inv.arguments.get("workspace_id", "default")
+    ws = _caller_workspace(inv)
     filename = inv.arguments.get("filename", "output.txt")
     content = str(inv.arguments.get("content", ""))
     try:
@@ -266,7 +266,7 @@ def handle_ws_write_artifact_file(inv: ToolInvocation) -> dict:
 
 
 def handle_ws_path_exists(inv: ToolInvocation) -> dict:
-    ws = inv.arguments.get("workspace_id", "default")
+    ws = _caller_workspace(inv)
     filepath = inv.arguments.get("filepath", "")
     try:
         target = _workspace_path(ws, filepath)
@@ -276,7 +276,7 @@ def handle_ws_path_exists(inv: ToolInvocation) -> dict:
 
 
 def handle_ws_get_metadata(inv: ToolInvocation) -> dict:
-    ws = inv.arguments.get("workspace_id", "default")
+    ws = _caller_workspace(inv)
     try:
         target = _workspace_path(ws)
         return _ok(inv, "", {
@@ -290,7 +290,7 @@ def handle_ws_get_metadata(inv: ToolInvocation) -> dict:
 
 def handle_file_read_image(inv: ToolInvocation) -> dict:
     """Read image file metadata."""
-    ws = inv.arguments.get("workspace_id", "default")
+    ws = _caller_workspace(inv)
     filepath = inv.arguments.get("filepath", "")
     try:
         target = _workspace_path(ws, filepath)

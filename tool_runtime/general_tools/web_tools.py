@@ -535,7 +535,7 @@ def handle_web_extract_links(inv: ToolInvocation) -> dict:
 
 def handle_web_save_to_artifact(inv: ToolInvocation) -> dict:
     args = inv.arguments
-    ws = args.get("workspace_id", "default")
+    ws = _caller_workspace(inv)
     url = (args.get("url") or "").strip()
     title = args.get("title", "web_save")
     if _is_private_url(url):

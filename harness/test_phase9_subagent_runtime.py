@@ -8,6 +8,16 @@ from agent.runtime.durable.subagent import (
 )
 
 
+class _FakeAgentResult:
+    ok = True
+    final_response = "review complete"
+    events = []
+
+
+def _fake_submit_user_message(self, *args, **kwargs):
+    return _FakeAgentResult()
+
+
 class TestSubagentProfiles:
     def test_all_7_profiles_exist(self):
         assert len(BUILTIN_PROFILES) == 7
@@ -60,7 +70,8 @@ class TestSubagentTask:
 
 
 class TestSubagentRuntime:
-    def test_review_agent_cannot_call_write_tools(self):
+    def test_review_agent_cannot_call_write_tools(self, monkeypatch):
+        monkeypatch.setattr("agent.app.facade.AgentApp.submit_user_message", _fake_submit_user_message)
         ws = f"ws_rt_{uuid.uuid4().hex[:8]}"
         cr = create_subagent_task("t1", ws, "s1", "review_agent", "Review code")
         assert cr["ok"]
@@ -86,7 +97,8 @@ class TestSubagentRuntime:
         r = run_subagent_task(cr["subtask_id"], ws_b)
         assert r["ok"] is False
 
-    def test_merge_subagent_result(self):
+    def test_merge_subagent_result(self, monkeypatch):
+        monkeypatch.setattr("agent.app.facade.AgentApp.submit_user_message", _fake_submit_user_message)
         ws = f"ws_mg_{uuid.uuid4().hex[:8]}"
         cr = create_subagent_task("t-parent", ws, "s1", "review_agent", "Review")
         r = run_subagent_task(cr["subtask_id"], ws)

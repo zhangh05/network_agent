@@ -43,12 +43,11 @@ class TestWriter:
         from agent.runtime.memory_write.writer import MemoryWriter, MAX_WRITE_PER_TURN
         from agent.runtime.memory_write.models import MemoryCandidate, MemoryWritePlan
 
-        # Mock store.put to accept anything
         written = []
-        def fake_put(self, record):
+        def fake_gate_write(self, record):
             written.append(record)
-            return record.get("memory_id", "fake_id")
-        monkeypatch.setattr("memory.store.get_store", lambda ws: type("S", (), {"put": fake_put})())
+            return {"ok": True, "status": record.status, "memory_id": record.memory_id}
+        monkeypatch.setattr("workspace.memory_governance.MemoryWriteGate.write", fake_gate_write)
 
         candidates = [
             MemoryCandidate(candidate_id=f"mc_{i}", memory_type="test", content=f"content_{i}", confidence=1.0)
@@ -77,10 +76,10 @@ class TestWriter:
         from agent.runtime.memory_write.models import MemoryCandidate, MemoryWritePlan
 
         written = []
-        def fake_put_ws(self, record):
+        def fake_gate_write(self, record):
             written.append(record)
-            return record.get("memory_id", "fake_id")
-        monkeypatch.setattr("memory.store.get_store", lambda ws: type("S", (), {"put": fake_put_ws})())
+            return {"ok": True, "status": record.status, "memory_id": record.memory_id}
+        monkeypatch.setattr("workspace.memory_governance.MemoryWriteGate.write", fake_gate_write)
 
         candidates = [
             MemoryCandidate(candidate_id="mc_low", memory_type="test", content="low", confidence=0.1),
@@ -92,9 +91,9 @@ class TestWriter:
 
         result = MemoryWriter().write(make_ctx(), plan, workspace_id="test_w")
         assert result["written_count"] == MAX_WRITE_PER_TURN
-        assert written[0]["memory_id"] == "mc_high"
+        assert written[0].content == "high"
         # sorted by confidence descending
-        assert written[0]["confidence"] == 1.0
+        assert written[0].confidence == 1.0
 
 
 # ── Test: Dedupe ────────────────────────────────────────────────────────

@@ -3,7 +3,7 @@ from tool_runtime.general_tools.shared import *
 
 def handle_knowledge_index_artifact(inv: ToolInvocation) -> dict:
     args = inv.arguments
-    ws = args.get("workspace_id", "default")
+    ws = _caller_workspace(inv)
     art_id = args.get("artifact_id", "")
     try:
         validate_workspace_id(ws)
@@ -17,7 +17,7 @@ def handle_knowledge_index_artifact(inv: ToolInvocation) -> dict:
 
 def handle_knowledge_reindex(inv: ToolInvocation) -> dict:
     args = inv.arguments
-    ws = args.get("workspace_id", "default")
+    ws = _caller_workspace(inv)
     source_id = args.get("source_id", "")
     try:
         validate_workspace_id(ws)
@@ -29,7 +29,7 @@ def handle_knowledge_reindex(inv: ToolInvocation) -> dict:
 
 def handle_knowledge_search(inv: ToolInvocation) -> dict:
     args = inv.arguments
-    ws = args.get("workspace_id", "default")
+    ws = _caller_workspace(inv)
     query = (args.get("query") or "").strip()
     limit = min(int(args.get("limit", 5)), 10)
     try:
@@ -54,7 +54,7 @@ def handle_knowledge_search(inv: ToolInvocation) -> dict:
 
 def handle_knowledge_get_source(inv: ToolInvocation) -> dict:
     args = inv.arguments
-    ws = args.get("workspace_id", "default")
+    ws = _caller_workspace(inv)
     source_id = args.get("source_id", "")
     try:
         validate_workspace_id(ws)
@@ -75,7 +75,7 @@ def handle_knowledge_get_source(inv: ToolInvocation) -> dict:
 
 def handle_knowledge_get_chunk_summary(inv: ToolInvocation) -> dict:
     args = inv.arguments
-    ws = args.get("workspace_id", "default")
+    ws = _caller_workspace(inv)
     chunk_id = args.get("chunk_id", "")
     try:
         validate_workspace_id(ws)
@@ -137,7 +137,7 @@ def handle_knowledge_explain_not_found(inv: ToolInvocation) -> dict:
     })
 
 def handle_runtime_health(inv: ToolInvocation) -> dict:
-    ws = inv.arguments.get("workspace_id", "default")
+    ws = _caller_workspace(inv)
     try:
         from runtime.diagnostics import get_diagnostics
         d = get_diagnostics(ws)
@@ -152,7 +152,7 @@ def handle_runtime_selfcheck(inv: ToolInvocation) -> dict:
         return _error_inv(inv, str(e)[:200])
 
 def handle_runtime_diagnostics(inv: ToolInvocation) -> dict:
-    ws = inv.arguments.get("workspace_id", "default")
+    ws = _caller_workspace(inv)
     try:
         from runtime.diagnostics import get_diagnostics
         d = get_diagnostics(ws)
@@ -164,7 +164,7 @@ def handle_runtime_diagnostics(inv: ToolInvocation) -> dict:
         return _error_inv(inv, str(e)[:200])
 
 def handle_runtime_retention_preview(inv: ToolInvocation) -> dict:
-    ws = inv.arguments.get("workspace_id", "default")
+    ws = _caller_workspace(inv)
     try:
         validate_workspace_id(ws)
         return _ok(inv, "", {"candidate_count": 0, "blocked_items": 0, "note": "retention preview only, no apply"})
@@ -172,7 +172,7 @@ def handle_runtime_retention_preview(inv: ToolInvocation) -> dict:
         return _error_inv(inv, str(e)[:200])
 
 def handle_runtime_archive_preview(inv: ToolInvocation) -> dict:
-    ws = inv.arguments.get("workspace_id", "default")
+    ws = _caller_workspace(inv)
     try:
         validate_workspace_id(ws)
         from runtime.archive import get_archive_audits
@@ -191,7 +191,7 @@ def handle_report_render_markdown(inv: ToolInvocation) -> dict:
     return _ok(inv, "", {"markdown": content[:5000]})
 
 def handle_report_save_artifact(inv: ToolInvocation) -> dict:
-    ws = inv.arguments.get("workspace_id", "default")
+    ws = _caller_workspace(inv)
     title = inv.arguments.get("title", "report")
     content = str(inv.arguments.get("content", ""))
     try:

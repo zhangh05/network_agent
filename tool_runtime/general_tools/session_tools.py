@@ -2,7 +2,7 @@
 from tool_runtime.general_tools.shared import *
 
 def handle_session_list(inv: ToolInvocation) -> dict:
-    ws = inv.arguments.get("workspace_id", "default")
+    ws = _caller_workspace(inv)
     try:
         validate_workspace_id(ws)
         from workspace.session_store import list_sessions
@@ -20,7 +20,7 @@ def handle_session_list(inv: ToolInvocation) -> dict:
         return _error_inv(inv, str(e)[:200])
 
 def handle_session_get_summary(inv: ToolInvocation) -> dict:
-    ws = inv.arguments.get("workspace_id", "default")
+    ws = _caller_workspace(inv)
     sid = inv.arguments.get("session_id", "")
     try:
         validate_workspace_id(ws)
@@ -40,7 +40,7 @@ def handle_session_get_summary(inv: ToolInvocation) -> dict:
         return _error_inv(inv, str(e)[:200])
 
 def handle_session_create(inv: ToolInvocation) -> dict:
-    ws = inv.arguments.get("workspace_id", "default")
+    ws = _caller_workspace(inv)
     title = inv.arguments.get("title", "new_session")
     try:
         validate_workspace_id(ws)
@@ -53,7 +53,7 @@ def handle_session_create(inv: ToolInvocation) -> dict:
         return _error_inv(inv, str(e)[:200])
 
 def handle_session_archive(inv: ToolInvocation) -> dict:
-    ws = inv.arguments.get("workspace_id", "default")
+    ws = _caller_workspace(inv)
     sid = inv.arguments.get("session_id", "")
     try:
         validate_workspace_id(ws)
@@ -64,7 +64,7 @@ def handle_session_archive(inv: ToolInvocation) -> dict:
         return _error_inv(inv, str(e)[:200])
 
 def handle_run_list_recent(inv: ToolInvocation) -> dict:
-    ws = inv.arguments.get("workspace_id", "default")
+    ws = _caller_workspace(inv)
     limit = min(int(inv.arguments.get("limit", 5)), 20)
     try:
         validate_workspace_id(ws)
@@ -84,7 +84,7 @@ def handle_run_list_recent(inv: ToolInvocation) -> dict:
         return _error_inv(inv, str(e)[:200])
 
 def handle_run_get_summary(inv: ToolInvocation) -> dict:
-    ws = inv.arguments.get("workspace_id", "default")
+    ws = _caller_workspace(inv)
     run_id = inv.arguments.get("run_id", "")
     try:
         validate_workspace_id(ws)
@@ -103,7 +103,7 @@ def handle_run_get_summary(inv: ToolInvocation) -> dict:
 
 def handle_session_snapshot(inv: ToolInvocation) -> dict:
     """Create a snapshot of the current session state."""
-    ws = inv.arguments.get("workspace_id", "default")
+    ws = _caller_workspace(inv)
     sid = inv.arguments.get("session_id", "")
     reason = str(inv.arguments.get("reason", "")).strip()
     if not sid:
@@ -118,7 +118,7 @@ def handle_session_snapshot(inv: ToolInvocation) -> dict:
 
 def handle_session_list_snapshots(inv: ToolInvocation) -> dict:
     """List snapshots for a session."""
-    ws = inv.arguments.get("workspace_id", "default")
+    ws = _caller_workspace(inv)
     sid = inv.arguments.get("session_id", "")
     if not sid:
         return _error_inv(inv, "session_id is required")
@@ -132,7 +132,7 @@ def handle_session_list_snapshots(inv: ToolInvocation) -> dict:
 
 def handle_session_rewind(inv: ToolInvocation) -> dict:
     """Rewind a session to a previous snapshot."""
-    ws = inv.arguments.get("workspace_id", "default")
+    ws = _caller_workspace(inv)
     sid = inv.arguments.get("session_id", "")
     snap_id = inv.arguments.get("snapshot_id", "")
     dry_run = bool(inv.arguments.get("dry_run", True))
@@ -155,7 +155,7 @@ def handle_session_rewind(inv: ToolInvocation) -> dict:
 
 def handle_session_checkpoint(inv: ToolInvocation) -> dict:
     """Create a checkpoint with message/run/artifact references."""
-    ws = inv.arguments.get("workspace_id", "default")
+    ws = _caller_workspace(inv)
     sid = inv.arguments.get("session_id", "")
     reason = str(inv.arguments.get("reason", "")).strip()
     if not sid:
@@ -198,7 +198,7 @@ def handle_session_checkpoint(inv: ToolInvocation) -> dict:
 
 def handle_session_export(inv: ToolInvocation) -> dict:
     """Export session messages to JSON or markdown."""
-    ws = inv.arguments.get("workspace_id", "default")
+    ws = _caller_workspace(inv)
     sid = inv.arguments.get("session_id", "")
     fmt = str(inv.arguments.get("format", "md")).strip().lower()
     if not sid:

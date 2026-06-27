@@ -7,7 +7,7 @@ def handle_pdf_extract_text(inv: ToolInvocation) -> dict:
     Uses PyPDF2 if available. Validates PDF format, file size, and page range.
     """
     args = inv.arguments
-    ws = args.get("workspace_id", "default")
+    ws = _caller_workspace(inv)
     filepath = str(args.get("filepath", "")).strip()
     page_range = str(args.get("page_range", "")).strip()
 

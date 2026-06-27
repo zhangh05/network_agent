@@ -1,6 +1,57 @@
 """Split general tool handlers."""
 from tool_runtime.general_tools.shared import *
 
+def _select_subagent_profile(allowed_tools: list | None = None, roles: list | None = None) -> str:
+    tools = set(allowed_tools or [])
+    role_set = set(roles or [])
+    if "reviewer" in role_set:
+        return "review_agent"
+    if "worker" in role_set and ({"exec.run", "exec.python"} & tools):
+        return "test_agent"
+    if {"workspace.file.edit", "workspace.file.patch", "workspace.file.write_artifact"} & tools:
+        return "fix_agent"
+    if {"exec.run", "exec.python", "system.diagnostics"} & tools:
+        return "test_agent"
+    if {"config.analysis.run", "pcap.analysis.run", "device.list", "device.get"} & tools:
+        return "network_diag_agent"
+    return "review_agent"
+
+
+def _run_durable_subagent(*, instruction: str, workspace_id: str, session_id: str,
+                          allowed_tools: list | None = None, roles: list | None = None) -> dict:
+    from agent.runtime.durable.subagent import (
+        create_subagent_task,
+        merge_subagent_result,
+        run_subagent_task,
+    )
+
+    profile_id = _select_subagent_profile(allowed_tools, roles)
+    created = create_subagent_task(
+        parent_task_id="",
+        workspace_id=workspace_id,
+        session_id=session_id,
+        profile_id=profile_id,
+        goal=instruction,
+        context_refs=[],
+    )
+    if not created.get("ok"):
+        return {"ok": False, "error": created.get("error", "failed to create subagent task")}
+    subtask_id = created["subtask_id"]
+    result = run_subagent_task(subtask_id, workspace_id)
+    merge_subagent_result("", subtask_id, workspace_id)
+    return {
+        "ok": result.get("ok", False) and result.get("status") == "succeeded",
+        "final_response": result.get("summary", ""),
+        "summary": result.get("summary", ""),
+        "subtask_id": subtask_id,
+        "status": result.get("status", "unknown"),
+        "findings": result.get("findings", []),
+        "tool_results": result.get("tool_results", []),
+        "errors": result.get("errors", []),
+        "warnings": result.get("warnings", []),
+    }
+
+
 def handle_agent_spawn(inv: ToolInvocation) -> dict:
     """Spawn a sub-agent with restricted tool access.
 
@@ -8,11 +59,7 @@ def handle_agent_spawn(inv: ToolInvocation) -> dict:
     with only read-only, low-risk tools. Returns compressed results.
     """
     instruction = str(inv.arguments.get("instruction", "")).strip()
-    # v3.8.2: Fall back to "default" if workspace_id is missing, empty, or whitespace-only
-    workspace_id_arg = inv.arguments.get("workspace_id", "default")
-    workspace_id = str(workspace_id_arg).strip() if workspace_id_arg is not None else ""
-    if not workspace_id:
-        workspace_id = "default"
+    workspace_id = _caller_workspace(inv)
     parent_session_id = str(inv.arguments.get("session_id", ""))
     allowed_tools = list(inv.arguments.get("allowed_tools") or [])
     max_turns = int(inv.arguments.get("max_turns", 1))
@@ -22,13 +69,11 @@ def handle_agent_spawn(inv: ToolInvocation) -> dict:
 
     try:
         validate_workspace_id(workspace_id)
-        from agent.runtime.sub_agent import run_sub_agent
-        result = run_sub_agent(
+        result = _run_durable_subagent(
             instruction=instruction,
             workspace_id=workspace_id,
-            parent_session_id=parent_session_id,
+            session_id=parent_session_id,
             allowed_tools=allowed_tools if allowed_tools else None,
-            max_turns=max_turns,
         )
         return _result(inv, result.get("ok", False), result)
     except Exception as e:
@@ -71,11 +116,7 @@ def handle_agent_team(inv: ToolInvocation) -> dict:
     import json as _json
     import concurrent.futures
     args = inv.arguments
-    # v3.8.2: Fall back to "default" if workspace_id is missing, empty, or whitespace-only
-    workspace_id_arg = args.get("workspace_id", "default")
-    workspace_id = str(workspace_id_arg).strip() if workspace_id_arg is not None else ""
-    if not workspace_id:
-        workspace_id = "default"
+    workspace_id = _caller_workspace(inv)
     instruction = str(args.get("instruction", "")).strip()
     roles = list(args.get("roles") or ["planner", "worker"])
     parallel = bool(args.get("parallel", False))
@@ -85,7 +126,6 @@ def handle_agent_team(inv: ToolInvocation) -> dict:
 
     try:
         validate_workspace_id(workspace_id)
-        from agent.runtime.sub_agent import run_sub_agent
 
         # Low-risk read-only tools only for all roles
         _low_risk_read_tools = [
@@ -115,12 +155,12 @@ def handle_agent_team(inv: ToolInvocation) -> dict:
                 f'[{{"id": "1", "task": "..."}}, {{"id": "2", "task": "..."}}]. '
                 f"Each subtask should be specific and actionable. Do not add prose."
             )
-            plan_result = run_sub_agent(
+            plan_result = _run_durable_subagent(
                 instruction=plan_instruction,
                 workspace_id=workspace_id,
-                parent_session_id=str(args.get("session_id", "")),
+                session_id=str(args.get("session_id", "")),
                 allowed_tools=_low_risk_read_tools,
-                max_turns=2,
+                roles=["planner"],
             )
             if plan_result.get("ok"):
                 result["plan"] = plan_result.get("final_response", "") or plan_result.get("summary", "")
@@ -149,12 +189,12 @@ def handle_agent_team(inv: ToolInvocation) -> dict:
         if parallel and len(subtasks) > 1:
             # v3.1.1: Parallel worker execution
             def _run_worker(task: str) -> dict:
-                return run_sub_agent(
+                return _run_durable_subagent(
                     instruction=task,
                     workspace_id=workspace_id,
-                    parent_session_id=str(args.get("session_id", "")),
+                    session_id=str(args.get("session_id", "")),
                     allowed_tools=_text_data_tools,
-                    max_turns=2,
+                    roles=["worker"],
                 )
 
             worker_outputs = []
@@ -200,12 +240,12 @@ def handle_agent_team(inv: ToolInvocation) -> dict:
             worker_instruction = instruction
             if result.get("plan"):
                 worker_instruction = f"Plan:\n{result['plan']}\n\nExecute the above plan. Task: {instruction}"
-            worker_result = run_sub_agent(
+            worker_result = _run_durable_subagent(
                 instruction=worker_instruction,
                 workspace_id=workspace_id,
-                parent_session_id=str(args.get("session_id", "")),
+                session_id=str(args.get("session_id", "")),
                 allowed_tools=_text_data_tools,
-                max_turns=2,
+                roles=["worker"],
             )
             result["worker_result"] = {
                 "ok": worker_result.get("ok", False),
@@ -226,12 +266,12 @@ def handle_agent_team(inv: ToolInvocation) -> dict:
                 f"Worker output:\n{worker_output}\n\n"
                 f"Provide your review: is the output acceptable, or does it need revision?"
             )
-            reviewer_result = run_sub_agent(
+            reviewer_result = _run_durable_subagent(
                 instruction=review_instruction,
                 workspace_id=workspace_id,
-                parent_session_id=str(args.get("session_id", "")),
+                session_id=str(args.get("session_id", "")),
                 allowed_tools=_low_risk_read_tools,
-                max_turns=2,
+                roles=["reviewer"],
             )
             result["reviewer_result"] = {
                 "ok": reviewer_result.get("ok", False),
@@ -250,11 +290,7 @@ def handle_agent_get_result(inv: ToolInvocation) -> dict:
     Looks up child session and returns summary from run records or message store.
     """
     args = inv.arguments
-    # v3.8.2: Fall back to "default" if workspace_id is missing, empty, or whitespace-only
-    ws_arg = args.get("workspace_id", "default")
-    ws = str(ws_arg).strip() if ws_arg is not None else ""
-    if not ws:
-        ws = "default"
+    ws = _caller_workspace(inv)
     child_session_id = str(args.get("child_session_id", "")).strip()
 
     if not child_session_id:

@@ -105,22 +105,16 @@ def run_sub_agent(instruction: str, workspace_id: str,
     # Remove forbidden tools
     tool_allowlist = [t for t in tool_allowlist if t not in FORBIDDEN_FOR_SUB_AGENT]
 
-    from agent.runtime.durable.subagent import (
-        create_subagent_task, run_subagent_task, get_profile
-    )
-    # Use or create a generic profile matching the allowed tools
-    prof_id = "generic_agent"
-    prof = get_profile(prof_id)
-    if not prof:
-        from agent.runtime.durable.subagent import SubagentProfile
-        prof = SubagentProfile(
-            profile_id="generic_agent", name="Generic Agent",
-            role="General assistant", allowed_action_classes=["read"],
-            allowed_tools=tool_allowlist,
-            max_steps=min(max_turns, MAX_SUB_AGENT_TURNS),
-            max_runtime_seconds=120,
-            memory_write_policy="pending_only",
-        )
+    from agent.runtime.durable.subagent import create_subagent_task, run_subagent_task
+
+    if {"workspace.file.edit", "workspace.file.patch", "workspace.file.write_artifact"} & set(tool_allowlist):
+        prof_id = "fix_agent"
+    elif {"exec.run", "exec.python", "system.diagnostics"} & set(tool_allowlist):
+        prof_id = "test_agent"
+    elif {"config.analysis.run", "pcap.analysis.run", "device.list", "device.get"} & set(tool_allowlist):
+        prof_id = "network_diag_agent"
+    else:
+        prof_id = "review_agent"
 
     create_result = create_subagent_task(
         profile_id=prof_id,
@@ -135,8 +129,9 @@ def run_sub_agent(instruction: str, workspace_id: str,
 
     subtask_id = create_result["subtask_id"]
     run_result = run_subagent_task(subtask_id, workspace_id)
+    succeeded = run_result.get("ok", False) and run_result.get("status") == "succeeded"
     return {
-        "ok": run_result.get("ok", False),
+        "ok": succeeded,
         "final_response": run_result.get("summary", ""),
         "subtask_id": subtask_id,
         "status": run_result.get("status", "unknown"),
