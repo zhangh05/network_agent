@@ -133,10 +133,14 @@ export function TaskWorkbench() {
     scrollToBottom();
   }, [(visibleHistory ?? []).length, sending, scrollToBottom]);
 
-  // Track user scroll via Virtuoso atBottomStateChange
+  // Track user scroll via Virtuoso atBottomStateChange.
+  // During streaming (sending=true), ignore transient position changes
+  // caused by dynamic content resizing — only respect genuine user scroll.
   const handleAtBottomStateChange = useCallback((atBottom: boolean) => {
-    setUserScrolledUp(!atBottom);
-  }, []);
+    if (!sending) {
+      setUserScrolledUp(!atBottom);
+    }
+  }, [sending]);
 
   // Input draft persistence: save to localStorage debounced, restore on mount
   const draftKey = `draft-${currentSessionId ?? "_scratch"}`;
@@ -264,6 +268,7 @@ export function TaskWorkbench() {
     const scratch = currentSessionId ?? "_scratch";
     appendUser(fullText, scratch);
     const streamingMsgId = appendAssistantStreaming(scratch);
+    setUserScrolledUp(false); // reset scroll state when sending a new message
     setSending(true);
 
     // Try WebSocket streaming first, fall back to HTTP
