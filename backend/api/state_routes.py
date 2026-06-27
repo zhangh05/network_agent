@@ -37,6 +37,12 @@ def register_state_routes(app):
     def api_runtime_task_detail(task_id):
         from flask import request, jsonify
         ws_id = request.args.get("workspace_id", "")
+        if ws_id:
+            try:
+                from workspace.ids import validate_workspace_id
+                ws_id = validate_workspace_id(ws_id)
+            except Exception:
+                return jsonify({"ok": False, "error": "invalid_workspace_id"}), 400
 
         if not ws_id:
             return jsonify({"ok": False, "error": "workspace_id is required"}), 400
@@ -57,6 +63,12 @@ def register_state_routes(app):
     def api_runtime_task_events(task_id):
         from flask import request, jsonify
         ws_id = request.args.get("workspace_id", "")
+        if ws_id:
+            try:
+                from workspace.ids import validate_workspace_id
+                ws_id = validate_workspace_id(ws_id)
+            except Exception:
+                return jsonify({"ok": False, "error": "invalid_workspace_id"}), 400
 
         if not ws_id:
             return jsonify({"ok": False, "error": "workspace_id is required"}), 400
@@ -75,6 +87,12 @@ def register_state_routes(app):
     def api_runtime_task_checkpoints(task_id):
         from flask import request, jsonify
         ws_id = request.args.get("workspace_id", "")
+        if ws_id:
+            try:
+                from workspace.ids import validate_workspace_id
+                ws_id = validate_workspace_id(ws_id)
+            except Exception:
+                return jsonify({"ok": False, "error": "invalid_workspace_id"}), 400
 
         if not ws_id:
             return jsonify({"ok": False, "error": "workspace_id is required"}), 400
@@ -112,6 +130,13 @@ def register_state_routes(app):
     def api_task_cancel(task_id):
         from flask import request, jsonify
         ws_id = request.args.get("workspace_id", "")
+        if ws_id:
+            try:
+                from workspace.ids import validate_workspace_id
+                ws_id = validate_workspace_id(ws_id)
+            except Exception:
+                return jsonify({"ok": False, "error": "invalid_workspace_id"}), 400
+
         if not ws_id:
             return jsonify({"ok": False, "error": "workspace_id is required"}), 400
         try:
@@ -130,6 +155,13 @@ def register_state_routes(app):
     def api_task_resume(task_id):
         from flask import request, jsonify
         ws_id = request.args.get("workspace_id", "")
+        if ws_id:
+            try:
+                from workspace.ids import validate_workspace_id
+                ws_id = validate_workspace_id(ws_id)
+            except Exception:
+                return jsonify({"ok": False, "error": "invalid_workspace_id"}), 400
+
         if not ws_id:
             return jsonify({"ok": False, "error": "workspace_id is required"}), 400
         try:
@@ -148,6 +180,13 @@ def register_state_routes(app):
     def api_task_retry_step(task_id, step_id):
         from flask import request, jsonify
         ws_id = request.args.get("workspace_id", "")
+        if ws_id:
+            try:
+                from workspace.ids import validate_workspace_id
+                ws_id = validate_workspace_id(ws_id)
+            except Exception:
+                return jsonify({"ok": False, "error": "invalid_workspace_id"}), 400
+
         if not ws_id:
             return jsonify({"ok": False, "error": "workspace_id is required"}), 400
         try:
@@ -168,6 +207,13 @@ def register_state_routes(app):
     def api_trajectories():
         from flask import request, jsonify
         ws_id = request.args.get("workspace_id", "")
+        if ws_id:
+            try:
+                from workspace.ids import validate_workspace_id
+                ws_id = validate_workspace_id(ws_id)
+            except Exception:
+                return jsonify({"ok": False, "error": "invalid_workspace_id"}), 400
+
         if not ws_id:
             return jsonify({"ok": False, "error": "workspace_id is required"}), 400
         try:
@@ -181,6 +227,13 @@ def register_state_routes(app):
     def api_trajectory_detail(traj_id):
         from flask import request, jsonify
         ws_id = request.args.get("workspace_id", "")
+        if ws_id:
+            try:
+                from workspace.ids import validate_workspace_id
+                ws_id = validate_workspace_id(ws_id)
+            except Exception:
+                return jsonify({"ok": False, "error": "invalid_workspace_id"}), 400
+
         if not ws_id:
             return jsonify({"ok": False, "error": "workspace_id is required"}), 400
         try:
@@ -198,6 +251,13 @@ def register_state_routes(app):
     def api_ecosystem_providers():
         from flask import request, jsonify
         ws_id = request.args.get("workspace_id", "")
+        if ws_id:
+            try:
+                from workspace.ids import validate_workspace_id
+                ws_id = validate_workspace_id(ws_id)
+            except Exception:
+                return jsonify({"ok": False, "error": "invalid_workspace_id"}), 400
+
         if not ws_id:
             return jsonify({"ok": False, "error": "workspace_id is required"}), 400
         try:
@@ -212,6 +272,13 @@ def register_state_routes(app):
     def api_ecosystem_import_preview():
         from flask import request, jsonify
         ws_id = request.args.get("workspace_id", "")
+        if ws_id:
+            try:
+                from workspace.ids import validate_workspace_id
+                ws_id = validate_workspace_id(ws_id)
+            except Exception:
+                return jsonify({"ok": False, "error": "invalid_workspace_id"}), 400
+
         if not ws_id:
             return jsonify({"ok": False, "error": "workspace_id is required"}), 400
         try:
@@ -226,6 +293,13 @@ def register_state_routes(app):
     def api_ecosystem_import_apply():
         from flask import request, jsonify
         ws_id = request.args.get("workspace_id", "")
+        if ws_id:
+            try:
+                from workspace.ids import validate_workspace_id
+                ws_id = validate_workspace_id(ws_id)
+            except Exception:
+                return jsonify({"ok": False, "error": "invalid_workspace_id"}), 400
+
         if not ws_id:
             return jsonify({"ok": False, "error": "workspace_id is required"}), 400
         try:
@@ -244,6 +318,13 @@ def register_state_routes(app):
     def api_audit_report_generate(task_id):
         from flask import request, jsonify
         ws_id = request.args.get("workspace_id", "")
+        if ws_id:
+            try:
+                from workspace.ids import validate_workspace_id
+                ws_id = validate_workspace_id(ws_id)
+            except Exception:
+                return jsonify({"ok": False, "error": "invalid_workspace_id"}), 400
+
         if not ws_id:
             return jsonify({"ok": False, "error": "workspace_id is required"}), 400
         try:
@@ -257,6 +338,13 @@ def register_state_routes(app):
     def api_audit_report_get(task_id):
         from flask import request, jsonify
         ws_id = request.args.get("workspace_id", "")
+        if ws_id:
+            try:
+                from workspace.ids import validate_workspace_id
+                ws_id = validate_workspace_id(ws_id)
+            except Exception:
+                return jsonify({"ok": False, "error": "invalid_workspace_id"}), 400
+
         if not ws_id:
             return jsonify({"ok": False, "error": "workspace_id is required"}), 400
         try:

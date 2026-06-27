@@ -89,16 +89,21 @@ class ActionExecutor:
                          getattr(getattr(state, 'context', None), 'workspace_id', '') or ''
                     sid = getattr(getattr(state, 'session', None), 'session_id', '') or ''
                     rid = getattr(getattr(state, 'turn', None), 'turn_id', '') or ''
-                if ws and sid:
-                    dstep = DStep(
-                        step_id=f"step-{plan.tool_id}-{step}",
-                        task_id="", kind="tool",
-                        title=f"Tool: {plan.tool_id}",
-                        tool_id=plan.tool_id,
-                    )
+                # Get real task_id from durable store
+                real_task_id = ""
+                try:
+                    from agent.runtime.durable.store import list_tasks
+                    tasks = list_tasks(ws, session_id=sid, limit=1)
+                    if tasks:
+                        real_task_id = tasks[0].task_id
+                except Exception:
+                    pass
+                if ws and sid and real_task_id:
+                    step_id_str = f"step-{plan.tool_id}-{step}"
                     interrupt_before_tool(
+                        task_id=real_task_id,
                         ws_id=ws, session_id=sid, run_id=rid,
-                        step=dstep,
+                        step_id=step_id_str,
                         tool_invocation={
                             "tool_id": plan.tool_id,
                             "arguments": dict(plan.arguments) if hasattr(plan, 'arguments') else {},

@@ -522,7 +522,7 @@ export const memoryApi = {
       content: string;
       memory_type?: "decision" | "translation_rule" | "user_preference" | string;
       tags?: string[];
-      project_id?: string;
+      workspace_id?: string;  // v3.10: was project_id
     },
     signal?: AbortSignal,
   ): Promise<{ ok: boolean; memory_id: string; redaction_applied?: boolean; conflict_detected?: boolean; conflicts?: unknown[] }> =>

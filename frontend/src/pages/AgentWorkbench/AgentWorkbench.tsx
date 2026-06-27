@@ -762,11 +762,11 @@ const ResultInline = React.memo(function ResultInline({ result, fallbackText }: 
     setSaving("memory");
     try {
       const res = await memoryApi.confirm({
+        workspace_id: currentWorkspaceId,
         title: finalText.slice(0, 42) || "本次结论",
         content: finalText,
         memory_type: "decision",
         tags: ["agent_answer", "confirmed"],
-        project_id: currentWorkspaceId,
       });
       // Also save to unified files for File Manager visibility
       try {

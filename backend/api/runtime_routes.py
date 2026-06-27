@@ -288,7 +288,7 @@ def register_runtime_routes(app):
             arguments=arguments,
             workspace_id=ws_id,
             dry_run=dry_run,
-            requested_by="ui:tool_catalog",
+            requested_by="rest_api",
             approval_id=approval_id,
         )
 
@@ -320,7 +320,7 @@ def register_runtime_routes(app):
         governance_status = gov.status if gov else "active"
         context = ToolRuntimeContext(
             workspace_id=ws_id,
-            requested_by="ui:tool_catalog",
+            requested_by="rest_api",
             approval_id=approval_id,
         )
         result = client.invoke(

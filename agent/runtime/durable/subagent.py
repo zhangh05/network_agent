@@ -213,11 +213,6 @@ def run_subagent_task(subtask_id: str, ws_id: str) -> dict:
     try:
         # v3.10: Create restricted AgentApp for subagent execution
         from agent.app.facade import AgentApp
-        from agent.core.session import AgentSession
-        
-        sess = AgentSession(session_id=task.session_id, workspace_id=ws_id)
-        app = AgentApp()
-
         # Build goal as system-style prompt
         goal_prompt = (
             f"You are a subagent: {profile.name} ({profile.role}).\n"
@@ -230,19 +225,36 @@ def run_subagent_task(subtask_id: str, ws_id: str) -> dict:
             f"Respond concisely with your findings."
         )
 
-        # Submit the goal through LLM
-        llm_result = app.submit_user_message(
-            goal_prompt,
-            session_id=task.session_id,
-            workspace_id=ws_id,
-            metadata={
-                "caller": "subagent",
-                "profile_id": task.profile_id,
-                "subtask_id": subtask_id,
-                "allowed_action_classes": profile.allowed_action_classes,
-                "budget": task.budget,
-            },
-        )
+        # v3.10: Create restricted session + ToolRouter for profile-gated execution
+        from agent.core.session import AgentSession
+        import agent.runtime.loop as _runtime_loop
+        from agent.tools.router import ToolRouter
+
+        sess = AgentSession(session_id=task.session_id, workspace_id=ws_id)
+        sess.mark_sub_agent()
+
+        # Build restricted ToolRouter
+        tool_router = ToolRouter()
+        if profile.allowed_tools:
+            tool_router = ToolRouter(allowed_tool_ids=profile.allowed_tools)
+
+        # Submit via run_turn with restricted tools
+        from agent.core.turn import AgentTurn
+        from agent.protocol.op import AgentOp
+        op = AgentOp(user_input=goal_prompt, workspace_id=ws_id, session_id=task.session_id)
+        turn = AgentTurn.from_op(op)
+
+        try:
+            llm_result = _runtime_loop.run_turn(sess, turn, restricted_tool_router=tool_router)
+        except Exception as e:
+            result.status = "failed"
+            result.errors.append(f"LLM turn failed: {str(e)[:200]}")
+            result.summary = f"Subagent execution error: {str(e)[:100]}"
+            task.status = result.status
+            task.finished_at = _now()
+            _save_task(task)
+            return {"ok": False, "subtask_id": subtask_id, "status": "failed",
+                    "errors": result.errors}
 
         elapsed = _time.time() - start
         final_resp = getattr(llm_result, 'final_response', '') or ''
@@ -394,4 +406,5 @@ def _emit_event(ws_id: str, parent_task_id: str, session_id: str, event_type: st
             title=event_type, summary=summary[:200],
         ))
     except Exception as e:
-        result.warnings.append(f"subagent event emit failed: {str(e)[:100]}")
+        # best-effort: event emission failure is logged, not propagated
+        pass
