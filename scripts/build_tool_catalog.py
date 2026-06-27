@@ -74,12 +74,14 @@ def _build_tools() -> list[dict[str, Any]]:
     from tool_runtime.tool_governance import TOOL_GOVERNANCE
     from tool_runtime.canonical_registry import CANONICAL_REGISTRY
     from tool_runtime.capability_actions import CAPABILITY_ACTIONS, capability_actions_for
+    from tool_runtime.manifest_registry import get_manifest
 
     tools: list[dict[str, Any]] = []
     for canonical_id in sorted(TOOL_NAMESPACE):
         ns_entry = TOOL_NAMESPACE[canonical_id]
         gov_entry = TOOL_GOVERNANCE[canonical_id]
         cr_entry = CANONICAL_REGISTRY.get(canonical_id)
+        manifest = get_manifest(canonical_id)
         tool = {
             "canonical_tool_id": canonical_id,
             "category": ns_entry.category,
@@ -94,8 +96,8 @@ def _build_tools() -> list[dict[str, Any]]:
             "governance_reason": gov_entry.reason,
             "capability_actions": capability_actions_for(canonical_id),
             "input_schema": cr_entry.input_schema if cr_entry else {},
-            "risk_level": cr_entry.risk_level if cr_entry else "low",
-            "requires_approval": cr_entry.requires_approval if cr_entry else False,
+            "risk_level": manifest.risk_level if manifest else (cr_entry.risk_level if cr_entry else "low"),
+            "requires_approval": manifest.requires_approval if manifest else (cr_entry.requires_approval if cr_entry else False),
         }
         tools.append(tool)
     return tools
