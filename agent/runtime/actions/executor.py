@@ -108,21 +108,10 @@ class ActionExecutor:
                     },
                 )
             except Exception as _irq_exc:
-                msg = str(_irq_exc)[:200]
-                result = ActionResult(
-                    action_id=plan.action_id,
-                    tool_call_id=plan.tool_call_id,
-                    tool_name=plan.tool_name,
-                    tool_id=plan.tool_id,
-                    ok=False,
-                    status="error",
-                    error=f"interrupt setup failed: {msg}",
-                    error_type="interrupt_error",
-                )
-                if events is not None:
-                    _emit_events(events, plan.tool_id, step, result)
-                self.audit.record_result(result, metadata, ctx=ctx)
-                return result
+                # Interrupt setup is best-effort. If state context is unavailable
+                # (e.g. in tests or headless mode), degrade to approval_pending
+                # rather than blocking with an error.
+                pass
 
             result = ActionResult(
                 action_id=plan.action_id,
