@@ -8,12 +8,50 @@ them in priority order.
 from __future__ import annotations
 
 import json
+import os
+import platform
+import subprocess
 from typing import Any
 
 from agent.runtime.prompt_architecture.models import PromptBlock
 
 
 # ── Block builders ───────────────────────────────────────────────────
+
+def build_environment_context_block(ctx) -> PromptBlock | None:
+    """Build a compact dynamic environment block.
+
+    This is execution context, not evidence. It gives the model the same basic
+    orientation Codex/OpenCode-style agents rely on before choosing tools.
+    """
+    cwd = _safe_cwd()
+    branch = _git_value(["git", "rev-parse", "--abbrev-ref", "HEAD"], cwd)
+    commit = _git_value(["git", "rev-parse", "--short", "HEAD"], cwd)
+    dirty = _git_dirty_summary(cwd)
+    shell = os.environ.get("SHELL", "") or "unknown"
+    requested_by = getattr(ctx, "requested_by", "") or (getattr(ctx, "metadata", {}) or {}).get("requested_by", "")
+    workspace_id = getattr(ctx, "workspace_id", "") or (getattr(ctx, "safe_context", {}) or {}).get("workspace_id", "")
+    session_id = getattr(ctx, "session_id", "") or (getattr(ctx, "safe_context", {}) or {}).get("session_id", "")
+
+    lines = [
+        f"Working directory: {cwd}",
+        f"OS: {platform.system()} {platform.release()} ({platform.machine()})",
+        f"Shell: {shell}",
+        f"Git branch: {branch or 'unknown'}",
+        f"Git commit: {commit or 'unknown'}",
+        f"Git state: {dirty}",
+        f"Workspace: {workspace_id or 'unspecified'}",
+        f"Session: {session_id or 'unspecified'}",
+        f"Requested by: {requested_by or 'unspecified'}",
+        "Use this block as the source of truth for local execution assumptions.",
+    ]
+    return PromptBlock(
+        block_id="environment_context",
+        title="Environment Context",
+        content="\n".join(lines),
+        priority=10,
+        token_budget=350,
+    )
 
 def build_runtime_state_block(ctx) -> PromptBlock | None:
     """Build a block from RuntimeStateSnapshot."""
@@ -26,6 +64,42 @@ def build_runtime_state_block(ctx) -> PromptBlock | None:
         content=json.dumps(snapshot, ensure_ascii=False, default=str)[:3000],
         priority=20,
         token_budget=800,
+    )
+
+
+def build_skill_guidance_block(ctx) -> PromptBlock | None:
+    """Build skill/capability guidance without inlining skill files."""
+    snapshot = getattr(ctx, "runtime_snapshot", None) or {}
+    metadata = getattr(ctx, "metadata", None) or {}
+    selected = _string_list(
+        metadata.get("selected_skills")
+        or snapshot.get("selected_skills")
+        or snapshot.get("selected_capabilities")
+        or []
+    )
+    enabled = _string_list(
+        snapshot.get("enabled_skills")
+        or snapshot.get("enabled_capabilities")
+        or []
+    )
+    if not selected and not enabled:
+        return None
+
+    lines = [
+        "Load or consult a skill/capability when it directly matches the user's task.",
+        "Do not inline full skill files into the answer. Use their guidance to choose workflow, tools, and output format.",
+        "If no matching skill is visible, use visible discovery/catalog tools before guessing.",
+    ]
+    if selected:
+        lines.append("Selected for this turn: " + ", ".join(selected[:8]))
+    if enabled:
+        lines.append("Available baseline: " + ", ".join(enabled[:12]))
+    return PromptBlock(
+        block_id="skill_guidance",
+        title="Skill Guidance",
+        content="\n".join(lines),
+        priority=25,
+        token_budget=350,
     )
 
 
@@ -140,3 +214,64 @@ def build_active_tool_contract_block(ctx) -> PromptBlock | None:
         priority=50,
         token_budget=1200,
     )
+
+
+def _safe_cwd() -> str:
+    try:
+        return os.getcwd()
+    except Exception:
+        return "unknown"
+
+
+def _git_value(args: list[str], cwd: str) -> str:
+    if not cwd or cwd == "unknown":
+        return ""
+    try:
+        proc = subprocess.run(
+            args,
+            cwd=cwd,
+            capture_output=True,
+            text=True,
+            timeout=2,
+            check=False,
+        )
+        if proc.returncode == 0:
+            return (proc.stdout or "").strip()[:120]
+    except Exception:
+        return ""
+    return ""
+
+
+def _git_dirty_summary(cwd: str) -> str:
+    if not cwd or cwd == "unknown":
+        return "unknown"
+    try:
+        proc = subprocess.run(
+            ["git", "status", "--porcelain"],
+            cwd=cwd,
+            capture_output=True,
+            text=True,
+            timeout=2,
+            check=False,
+        )
+        if proc.returncode != 0:
+            return "not_a_git_repo"
+        lines = [line for line in (proc.stdout or "").splitlines() if line.strip()]
+        if not lines:
+            return "clean"
+        return f"dirty ({len(lines)} changed paths)"
+    except Exception:
+        return "unknown"
+
+
+def _string_list(value: Any) -> list[str]:
+    if not isinstance(value, (list, tuple, set)):
+        return []
+    result = []
+    seen = set()
+    for item in value:
+        text = str(item).strip()
+        if text and text not in seen:
+            result.append(text)
+            seen.add(text)
+    return result

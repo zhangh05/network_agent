@@ -10,7 +10,9 @@ from __future__ import annotations
 from agent.runtime.prompt_architecture.models import PromptAssembly
 from agent.runtime.prompt_architecture.policies import SYSTEM_CONTRACT
 from agent.runtime.prompt_architecture.blocks import (
+    build_environment_context_block,
     build_runtime_state_block,
+    build_skill_guidance_block,
     build_capability_context_block,
     build_evidence_context_block,
     build_active_tool_contract_block,
@@ -25,7 +27,9 @@ def compile_runtime_prompt(ctx) -> PromptAssembly:
     """
     blocks = []
     for builder in [
+        build_environment_context_block,
         build_runtime_state_block,
+        build_skill_guidance_block,
         build_capability_context_block,
         build_evidence_context_block,
         build_active_tool_contract_block,
