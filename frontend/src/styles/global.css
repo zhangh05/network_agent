@@ -3501,3 +3501,78 @@ details.collapse[open] summary::before {
   .app-root.no-sidebar .app-sidebar { display: none; }
 }
 
+/* ============================================================
+   v3.9: Stream stop, scroll-bottom, regenerate
+   ============================================================ */
+
+/* ── Stop button inside streaming bubble ── */
+.stream-stop-btn {
+  background: none;
+  border: 1px solid var(--border-2);
+  border-radius: 4px;
+  color: var(--text-4);
+  cursor: pointer;
+  padding: 2px 6px;
+  margin-left: auto;
+  font-size: 12px;
+  line-height: 1;
+  transition: color var(--dur-1), border-color var(--dur-1);
+}
+.stream-stop-btn:hover {
+  color: var(--danger);
+  border-color: var(--danger);
+}
+.sending-line {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+}
+
+/* ── Scroll-to-bottom floating button ── */
+.scroll-bottom-btn {
+  position: sticky;
+  bottom: 4px;
+  left: 50%;
+  transform: translateX(-50%);
+  background: var(--brand);
+  color: var(--text-0);
+  border: none;
+  border-radius: 20px;
+  padding: 6px 16px;
+  font-size: var(--fs-12);
+  cursor: pointer;
+  box-shadow: 0 2px 12px rgba(0,0,0,0.18);
+  z-index: 10;
+  transition: opacity var(--dur-2);
+  opacity: 0.92;
+}
+.scroll-bottom-btn:hover {
+  opacity: 1;
+}
+
+/* ── Regenerate button ── */
+.regenerate-btn {
+  background: none;
+  border: 1px solid var(--border-2);
+  border-radius: 4px;
+  color: var(--text-4);
+  cursor: pointer;
+  padding: 4px 10px;
+  font-size: var(--fs-11);
+  margin-top: 6px;
+  transition: all var(--dur-1);
+}
+.regenerate-btn:hover {
+  color: var(--brand);
+  border-color: var(--brand);
+  background: var(--surface-3);
+}
+
+/* ── Chat scrollbar on hover ── */
+.wb-chat::-webkit-scrollbar-thumb {
+  visibility: hidden;
+}
+.wb-chat:hover::-webkit-scrollbar-thumb {
+  visibility: visible;
+}
+

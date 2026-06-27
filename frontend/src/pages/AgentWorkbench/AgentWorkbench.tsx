@@ -6,7 +6,7 @@ import { useWorkbenchStore } from "../../stores/workbench";
 import { useToastStore } from "../../stores/toast";
 import { isApiError } from "../../types";
 import type { AgentResult, ToolCallResult } from "../../types";
-import { sanitizeAssistantText, renderAssistantHtml, toolLabel } from "../../utils/displayText";
+import { sanitizeAssistantText, renderAssistantHtml, toolLabel, filterStreamingThink } from "../../utils/displayText";
 import { beginModelStep, discardToolCallDraft, finalizeStreamText } from "../../utils/agentStream";
 import hljs from "highlight.js/lib/core";
 import accesslog from "highlight.js/lib/languages/accesslog";
@@ -115,6 +115,8 @@ export function TaskWorkbench() {
   const [input, setInput] = useState("");
   const [attachments, setAttachments] = useState<Array<{ id: string; name: string; size: string; file: File; uploading?: boolean }>>([]);
   const [streamingText, setStreamingText] = useState("");
+  const [userScrolledUp, setUserScrolledUp] = useState(false);
+  const thinkFilter = useRef<{ mode: import("../../utils/displayText").ThinkFilterState }>({ mode: "idle" });
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [llmHealth, setLlmHealth] = useState<{ connected: boolean; provider?: string; model?: string; recentFailure?: string }>({ connected: false });
   const chatRef = useRef<HTMLDivElement>(null);
@@ -153,10 +155,45 @@ export function TaskWorkbench() {
     return () => window.clearInterval(id);
   }, []);
 
-  // Scroll on new messages / streaming tokens
+  // Scroll on new messages / streaming tokens (only when user hasn't scrolled up)
+  const scrollToBottom = useCallback(() => {
+    requestAnimationFrame(() => {
+      requestAnimationFrame(() => {
+        if (chatRef.current && !userScrolledUp) {
+          chatRef.current.scrollTo({ top: chatRef.current.scrollHeight, behavior: "auto" });
+        }
+      });
+    });
+  }, [userScrolledUp]);
+
   useEffect(() => {
-    chatRef.current?.scrollTo({ top: chatRef.current.scrollHeight, behavior: "smooth" });
-  }, [(visibleHistory ?? []).length, sending, streamingText]);
+    scrollToBottom();
+  }, [(visibleHistory ?? []).length, sending, streamingText, scrollToBottom]);
+
+  // Track user scroll
+  const handleChatScroll = useCallback(() => {
+    const el = chatRef.current;
+    if (!el) return;
+    const atBottom = el.scrollHeight - el.scrollTop - el.clientHeight < 60;
+    setUserScrolledUp(!atBottom);
+  }, []);
+
+  // Input draft persistence: save to localStorage debounced, restore on mount
+  const draftKey = `draft-${currentSessionId ?? "_scratch"}`;
+  useEffect(() => {
+    const saved = typeof localStorage !== "undefined" ? localStorage.getItem(draftKey) : null;
+    if (saved) setInput(saved);
+  }, [currentSessionId]);  // eslint-disable-line
+
+  const handleInputChange = useCallback((val: string) => {
+    setInput(val);
+    if (typeof localStorage !== "undefined") localStorage.setItem(draftKey, val);
+  }, [draftKey]);
+
+  // Clear draft after successful send
+  const clearDraft = useCallback(() => {
+    if (typeof localStorage !== "undefined") localStorage.removeItem(draftKey);
+  }, [draftKey]);
 
   // Auto-grow input
   useEffect(() => {
@@ -223,6 +260,7 @@ export function TaskWorkbench() {
     }
 
     setInput("");
+    clearDraft();
     let fullText = text;
 
     if (hasAttachments) {
@@ -277,6 +315,7 @@ export function TaskWorkbench() {
       // Track streaming state
       let streamedText = "";
       let streamState = beginModelStep();
+      thinkFilter.current = { mode: "idle" };
       let resolvedSid: string = currentSessionId || "";
       const wsReady: Promise<void> = new Promise((resolve, reject) => {
         const timer = setTimeout(() => { reject(new Error("ws_timeout")); }, 3000);
@@ -315,8 +354,10 @@ export function TaskWorkbench() {
             const msg = JSON.parse(event.data);
             switch (msg.type) {
               case "token":
-                // Real-time token display
-                streamState.draft += msg.content || "";
+                // Real-time token display with think-block filtering
+                const raw = msg.content || "";
+                const visible = filterStreamingThink(raw, thinkFilter.current);
+                streamState.draft += visible;
                 streamedText = streamState.draft;
                 setStreamingText(streamedText);
                 break;
@@ -538,7 +579,7 @@ export function TaskWorkbench() {
       </div>
 
       {/* ── Content area ── */}
-      <div className="wb-chat" ref={chatRef} data-testid="chat-stream">
+      <div className="wb-chat" ref={chatRef} data-testid="chat-stream" onScroll={handleChatScroll}>
         {viewMode === "timeline" ? (
           /* ── Timeline view ── */
           <RuntimeEventTimeline results={sessionResults} />
@@ -556,7 +597,7 @@ export function TaskWorkbench() {
             </div>
           </div>
         ) : (
-          (visibleHistory ?? []).map((m) =>
+          (visibleHistory ?? []).map((m, idx) =>
             m.role === "user" ? (
               <div key={m.id} className="message-row user" data-testid="chat-user">
                 <div className="message-stack">
@@ -584,6 +625,17 @@ export function TaskWorkbench() {
                     );
                   })()}
                   <ResultInline result={m.result} fallbackText={sanitizeAssistantText(m.text)} />
+                  {/* Regenerate: only on last assistant message */}
+                  {!sending && idx === visibleHistory.length - 1 && lastUserInput && (
+                    <button
+                      className="regenerate-btn"
+                      onClick={() => onSend(lastUserInput)}
+                      title="重新生成"
+                      type="button"
+                    >
+                      🔄 重新生成
+                    </button>
+                  )}
                 </div>
               </div>
             )
@@ -599,20 +651,35 @@ export function TaskWorkbench() {
                 {streamingText ? (
                   <StreamingContent text={streamingText} />
                 ) : (
-                  <>
+                  <div className="flex items-center gap-1">
                     <span className="typing-indicator">
                       <span className="typing-dot" />
                       <span className="typing-dot" />
                       <span className="typing-dot" />
                     </span>
-                    <span className="text-sm muted" style={{ marginLeft: 8 }}>思考中…</span>
-                  </>
+                    <span className="text-sm muted" style={{ marginLeft: 6 }}>思考中…</span>
+                  </div>
                 )}
+                <button
+                  className="stream-stop-btn"
+                  onClick={stopGeneration}
+                  title="停止生成"
+                  data-testid="btn-stop"
+                >
+                  ⏹
+                </button>
               </div>
             </div>
           </div>
         )}
       </div>
+
+      {/* ── Scroll-to-bottom ── */}
+      {userScrolledUp && (
+        <button className="scroll-bottom-btn" onClick={() => { setUserScrolledUp(false); scrollToBottom(); }} title="回到底部">
+          ↓ 新消息
+        </button>
+      )}
 
       {/* ── Retry bar ── */}
       {!sending && sessionResults.length > 0 && !sessionResults[sessionResults.length - 1].ok && lastUserInput && (
@@ -648,7 +715,7 @@ export function TaskWorkbench() {
             className="wb-input"
             placeholder="输入主机名、IP 或排查目标… (Enter 发送, Shift+Enter 换行)"
             value={input}
-            onChange={(e) => setInput(e.target.value)}
+            onChange={(e) => handleInputChange(e.target.value)}
             onKeyDown={(e) => { if (e.key === "Enter" && !e.shiftKey && !e.nativeEvent.isComposing) { e.preventDefault(); onSend(); } }}
             disabled={sending}
             rows={1}

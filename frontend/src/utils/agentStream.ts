@@ -1,3 +1,5 @@
+import type { ThinkFilterState } from "./displayText";
+
 export type AgentStreamState = {
   draft: string;
 };
@@ -12,4 +14,9 @@ export function discardToolCallDraft(state: AgentStreamState): void {
 
 export function finalizeStreamText(streamedText: string, finalResponse: string): string {
   return finalResponse || streamedText;
+}
+
+/** Create a think filter state ref for use in streaming callbacks */
+export function createThinkFilter(): { mode: ThinkFilterState } {
+  return { mode: "idle" };
 }

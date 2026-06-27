@@ -13,26 +13,28 @@ export function sanitizeAssistantText(text: string): string {
     ].join("\n");
   }
   // Strip tool-call JSON blocks that accidentally leak into display text.
-  // These appear as lines containing only tool call invocations:
-  //   exec.run:{"command":"...",...}
   const cleaned = raw
     .replace(/^\s*(exec|device|knowledge|workspace|web|git|code|memory|agent|browser|system|data|config)\.\w+\s*:\s*\{.*\}\s*$/gm, "")
     .replace(/^\{[\s\S]*"canonical_tool_id"[\s\S]*\}$\s*/gm, "")
     .replace(/^\s*<function_calls>[\s\S]*?<\/function_calls>\s*$/gm, "");
-  return _stripThinkTags(cleaned)
+  return stripThinkTags(cleaned)
     .replace(/^\s*(reasoning|思考过程)\s*[:：][\s\S]*?(?=\n\s*(answer|回答|结论)\s*[:：]|\s*$)/gim, "")
     .replace(/\n{4,}/g, "\n\n")
     .trim();
 }
 
-/** Strip <think>...</think> blocks with proper nesting support. */
-function _stripThinkTags(text: string): string {
+/**
+ * Strip <think>...</think> and <thinking>...</thinking> blocks.
+ * Handles nested tags, mid-stream partial tags, and both tag variants.
+ */
+function stripThinkTags(text: string): string {
+  // Unified regex matches both <think> and <thinking> (case-insensitive)
+  const re = /<\/?(?:think|thinking)\b[^>]*>/gi;
   let depth = 0;
   let start = -1;
   const parts: string[] = [];
   let lastEnd = 0;
 
-  const re = /<\/?think\b[^>]*>/gi;
   let m: RegExpExecArray | null;
   while ((m = re.exec(text)) !== null) {
     const tag = m[0].toLowerCase();
@@ -53,6 +55,79 @@ function _stripThinkTags(text: string): string {
   }
   parts.push(text.slice(lastEnd));
   return parts.join('');
+}
+
+/**
+ * Streaming-time think tag filter.
+ *
+ * Unlike stripThinkTags (final text post-processing), this handles
+ * partial/mid-stream tags. It maintains a state machine across
+ * successive token chunks:
+ *
+ *   IDLE → OPEN  on <think> or <thinking>
+ *   OPEN → DONE  on </think> or </thinking>
+ *   DONE → IDLE  next token after close
+ *
+ * Returns the visible text for this chunk.
+ */
+export type ThinkFilterState = 'idle' | 'open' | 'done';
+
+export function filterStreamingThink(
+  chunk: string,
+  state: { mode: ThinkFilterState },
+): string {
+  if (!chunk) return '';
+
+  const re = /<\/?(?:think|thinking)\b[^>]*>/gi;
+  const tags: Array<{ index: number; len: number; isClose: boolean }> = [];
+  let m: RegExpExecArray | null;
+  while ((m = re.exec(chunk)) !== null) {
+    tags.push({
+      index: m.index,
+      len: m[0].length,
+      isClose: m[0].toLowerCase().startsWith('</'),
+    });
+  }
+
+  if (tags.length === 0) {
+    // No tags in this chunk — pass through only if not inside think block
+    if (state.mode === 'open') return '';
+    if (state.mode === 'done') {
+      state.mode = 'idle';
+    }
+    return chunk;
+  }
+
+  // Has tags — handle state transitions
+  let visible = '';
+  let pos = 0;
+
+  for (const tag of tags) {
+    if (!tag.isClose) {
+      // Opening tag: material before it is visible, then enter think mode
+      if (state.mode === 'idle' || state.mode === 'done') {
+        visible += chunk.slice(pos, tag.index);
+        state.mode = 'open';
+      }
+    } else {
+      // Closing tag: exit think mode, material after it is visible
+      if (state.mode === 'open') {
+        state.mode = 'done';
+        pos = tag.index + tag.len;
+      }
+    }
+  }
+
+  // Remaining text after last tag
+  if (state.mode === 'done') {
+    visible += chunk.slice(pos);
+    state.mode = 'idle';
+  } else if (state.mode === 'idle') {
+    visible += chunk.slice(pos);
+  }
+  // if mode === 'open', remaining text is inside think block — discard
+
+  return visible;
 }
 
 /** Render assistant message text as safe HTML (Markdown → styled HTML). */
