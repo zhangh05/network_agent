@@ -233,6 +233,7 @@ def run_subagent_task(subtask_id: str, ws_id: str) -> dict:
 
         sess = AgentSession(session_id=task.session_id, workspace_id=ws_id)
         sess.mark_sub_agent()
+        sess.metadata["max_steps"] = profile.max_steps
 
         # Build restricted ToolRouter from the real runtime registry. A bare
         # ToolRouter has an empty registry, which hides every subagent tool.
@@ -248,9 +249,20 @@ def run_subagent_task(subtask_id: str, ws_id: str) -> dict:
         from agent.protocol.op import AgentOp
         op = AgentOp(user_input=goal_prompt, workspace_id=ws_id, session_id=task.session_id)
         turn = AgentTurn.from_op(op)
+        turn.metadata = {
+            "max_steps": profile.max_steps,
+            "subtask_id": subtask_id,
+            "subagent_profile": profile.profile_id,
+        }
 
         try:
-            llm_result = _runtime_loop.run_turn(sess, turn, restricted_tool_router=tool_router)
+            llm_result = _run_turn_with_timeout(
+                _runtime_loop.run_turn,
+                sess,
+                turn,
+                tool_router,
+                timeout_seconds=profile.max_runtime_seconds,
+            )
         except Exception as e:
             result.status = "failed"
             result.errors.append(f"LLM turn failed: {str(e)[:200]}")
@@ -398,6 +410,32 @@ def _execute_as_subagent(tool_id: str, args: dict, ws_id: str) -> dict:
         return {"ok": result.status in ("succeeded", "dry_run"), "summary": result.summary or ""}
     except Exception as e:
         return {"ok": False, "summary": str(e)[:200]}
+
+
+def _run_turn_with_timeout(run_turn_fn, session, turn, restricted_tool_router, *, timeout_seconds: int):
+    """Run a subagent turn with a hard parent-side timeout.
+
+    Python cannot forcibly stop an already-running provider call, so timeout
+    returns control to the parent and marks the subtask failed while the worker
+    thread is abandoned best-effort.
+    """
+    import concurrent.futures
+
+    executor = concurrent.futures.ThreadPoolExecutor(max_workers=1, thread_name_prefix="subagent")
+    future = executor.submit(
+        run_turn_fn,
+        session,
+        turn,
+        None,
+        restricted_tool_router=restricted_tool_router,
+    )
+    try:
+        return future.result(timeout=max(1, int(timeout_seconds)))
+    except concurrent.futures.TimeoutError as exc:
+        future.cancel()
+        raise TimeoutError(f"subagent runtime exceeded {timeout_seconds}s") from exc
+    finally:
+        executor.shutdown(wait=False, cancel_futures=True)
 
 def _emit_event(ws_id: str, parent_task_id: str, session_id: str, event_type: str, summary: str):
     try:

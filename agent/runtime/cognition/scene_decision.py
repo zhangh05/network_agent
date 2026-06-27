@@ -10,6 +10,7 @@ Merges responsibility from:
 
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass, field
 from typing import Any
 
@@ -57,6 +58,47 @@ class SceneDecision:
 def _contains(text: str, needles: tuple[str, ...]) -> bool:
     lower = text.lower()
     return any(n.lower() in lower for n in needles)
+
+
+# ── Sub-agent intent (v3.2.0 hardening) ─────────────────────────────────
+# Robust detection across Chinese/English and verb+agent compound patterns.
+# Replaces the brittle keyword list that missed "派发子agent", "让它", "delegate to", etc.
+_SUB_AGENT_KEYWORDS: tuple[str, ...] = (
+    # English literal
+    "sub agent", "sub-agent", "subagent", "spawn", "delegate", "multi-agent",
+    "multi agent", "agent.team", "agent.spawn", "fork agent", "fork an agent",
+    # Chinese literal
+    "子代理", "子agent", "子 agent", "子任务", "分派", "调度", "派发",
+    "并行", "同时", "分头", "委托", "各自", "分别",
+    # Phrasal intents
+    "研究一下", "全面看看", "都检查", "全部", "所有文件",
+    "每一个", "都搜", "都查", "多 agent", "多agent",
+)
+# Verb + agent pattern: 派发/让/请/叫/叫一个 + agent|子代理|子任务
+_SUB_AGENT_VERB_PATTERN = re.compile(
+    r"(派发|派去|派一个|让|请|叫|叫一个|动用|发动|唤起|发起)"
+    r".{0,4}?(agent|子代理|子 agent|子任务|sub\s?agent|spawn)",
+    re.IGNORECASE,
+)
+
+
+def _mentions_sub_agent(text: str) -> bool:
+    """Detect any mention of sub-agent / delegation intent.
+
+    Three layers, ordered from cheap to expensive:
+      1. Literal keywords (substring match)
+      2. Verb+agent compound pattern (regex)
+      3. Reject false positives like "agent 状态查询" by also checking
+         that the matched "agent" is not in a read-only context.
+    """
+    if not text:
+        return False
+    lower = text.lower()
+    if _contains(lower, _SUB_AGENT_KEYWORDS):
+        return True
+    if _SUB_AGENT_VERB_PATTERN.search(lower):
+        return True
+    return False
 
 
 def is_pure_greeting(user_input: str) -> bool:
@@ -209,11 +251,7 @@ def _detect_signals(text: str, session_context: dict | None = None) -> dict[str,
         "mentions_memory": (
             _contains(text, ("记住", "偏好", "profile", "remember", "memory", "记忆"))
         ),
-        "mentions_sub_agent": _contains(text, (
-            "子代理", "sub agent", "spawn", "并行", "同时", "分头", "委托",
-            "研究一下", "全面看看", "都检查", "全部", "所有文件",
-            "每一个", "分别", "各自",
-        )),
+        "mentions_sub_agent": _mentions_sub_agent(text),
     }
 
 

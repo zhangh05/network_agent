@@ -21,6 +21,7 @@ import { sanitizeAssistantText } from "../utils/displayText";
 
 export interface ChatMsg {
   id: string;
+  message_id?: string;
   role: "user" | "assistant" | "system";
   text: string;
   created_at: string;
@@ -85,6 +86,31 @@ function capHistory(
     for (const k of toDelete) delete capped[k];
   }
   return capped;
+}
+
+function messageKey(m: Pick<ChatMsg, "message_id" | "run_id" | "role" | "text" | "created_at">): string {
+  if (m.message_id) return `id:${m.message_id}`;
+  if (m.run_id) return `run:${m.run_id}:${m.role}`;
+  return `fallback:${m.role}:${m.created_at}:${m.text}`;
+}
+
+function contentKey(m: Pick<ChatMsg, "role" | "text">): string {
+  return `${m.role}:${m.text}`;
+}
+
+function dedupeMessages(messages: ChatMsg[]): ChatMsg[] {
+  const byStable = new Set<string>();
+  const byContent = new Set<string>();
+  const out: ChatMsg[] = [];
+  for (const message of messages) {
+    const stable = messageKey(message);
+    const content = contentKey(message);
+    if (byStable.has(stable) || byContent.has(content)) continue;
+    byStable.add(stable);
+    byContent.add(content);
+    out.push(message);
+  }
+  return out;
 }
 
 interface WorkbenchState {
@@ -211,17 +237,18 @@ export const useWorkbenchStore = create<WorkbenchState>()(
 
       mergeFromBackend: (session_id, serverMsgs) => {
         if (!session_id) return;
-        const converted: ChatMsg[] = serverMsgs.map((m) => ({
+        const converted: ChatMsg[] = dedupeMessages(serverMsgs.map((m) => ({
           id:
             m.message_id ??
-            `srv-${m.run_id ?? m.created_at}-${Math.random().toString(36).slice(2, 8)}`,
+            `srv-${m.run_id ?? `${m.role}-${m.created_at}-${m.content}`}:${m.role}`,
+          message_id: m.message_id,
           role: m.role,
           text: m.role === "assistant" ? sanitizeAssistantText(m.content) : m.content,
           status: "ready",
           created_at: m.created_at,
           run_id: m.run_id,
           // `result` 不可从后端还原, 渲染为纯文本气泡 (无 inline 工具调用)
-        }));
+        })));
         set((s) => {
           const persisted = s.bySession[session_id];
           const cur = Array.isArray(persisted)
@@ -241,32 +268,28 @@ export const useWorkbenchStore = create<WorkbenchState>()(
           // For user messages (no run_id): dedup by content+role, keep local
           // copy to avoid flickering local IDs.
           const combined: ChatMsg[] = [];
-          const seenRunIds = new Set<string>();
+          const seenKeys = new Set<string>();
+          const seenContent = new Set<string>();
 
           for (const serverMsg of converted) {
-            if (serverMsg.run_id) {
-              const localMatch = cur.find(
-                (m) => m.run_id === serverMsg.run_id && m.status === "ready",
-              );
-              combined.push(localMatch ?? serverMsg);
-              seenRunIds.add(serverMsg.run_id);
-            } else {
-              // User messages: keep local copy if same content+role exists
-              const localMatch = cur.find(
-                (m) => m.role === serverMsg.role && m.text === serverMsg.text,
-              );
-              combined.push(localMatch ?? serverMsg);
-            }
+            const stable = messageKey(serverMsg);
+            const content = contentKey(serverMsg);
+            if (seenKeys.has(stable) || seenContent.has(content)) continue;
+            const localMatch = cur.find((m) =>
+              messageKey(m) === stable || contentKey(m) === content,
+            );
+            const nextMsg = localMatch ?? serverMsg;
+            combined.push(nextMsg);
+            seenKeys.add(stable);
+            seenContent.add(content);
           }
 
           // Append local-only messages not covered by server (e.g. streaming)
           for (const localMsg of cur) {
-            if (localMsg.run_id && seenRunIds.has(localMsg.run_id)) continue;
-            // For user messages already matched by content above, skip
-            if (!localMsg.run_id && combined.some(
-              (c) => c.role === localMsg.role && c.text === localMsg.text,
-            )) continue;
+            if (seenKeys.has(messageKey(localMsg)) || seenContent.has(contentKey(localMsg))) continue;
             combined.push(localMsg);
+            seenKeys.add(messageKey(localMsg));
+            seenContent.add(contentKey(localMsg));
           }
 
           // Sort by created_at ascending

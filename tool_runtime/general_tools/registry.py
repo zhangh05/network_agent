@@ -6,7 +6,6 @@ GENERAL_TOOL_INPUT_SCHEMAS, and _finalize_tool_output helpers have been
 removed — they were dead code superseded by canonical_registry.py.
 """
 from copy import deepcopy
-from tool_runtime.canonical_registry import to_tool_specs
 
 
 def register_all_general_tools(registry):
@@ -15,6 +14,8 @@ def register_all_general_tools(registry):
     This is a thin pass-through to the canonical registry, which is the truth
     source for tool metadata and dispatch.
     """
+    from tool_runtime.canonical_registry import to_tool_specs
+
     for spec, handler in to_tool_specs():
         try:
             registry.register_tool(deepcopy(spec), handler)

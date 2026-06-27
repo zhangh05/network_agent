@@ -9,6 +9,7 @@ from __future__ import annotations
 
 from typing import Any
 
+from agent.runtime.cognition.scene_decision import _mentions_sub_agent
 from tool_runtime.tool_namespace import TOOL_NAMESPACE
 
 
@@ -150,9 +151,7 @@ def route_tool_scene(
         "mentions_host": mentions_host,
         "mentions_runtime": _contains(text, ("trace", "run", "session", "运行详情", "审计", "timeline", "checkpoint")),
         "mentions_memory": _contains(text, ("记住", "偏好", "profile", "remember", "memory", "记忆")) or bool(memory_hints),
-        "mentions_sub_agent": _contains(text, ("子代理", "sub agent", "spawn", "并行", "同时", "分头", "委托",
-                                                "研究一下", "全面看看", "都检查", "全部", "所有文件",
-                                                "每一个", "分别", "各自")),
+        "mentions_sub_agent": _mentions_sub_agent(text),
     }
 
     categories: list[str] = []

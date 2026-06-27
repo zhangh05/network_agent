@@ -405,6 +405,8 @@ def _core_tools_for_context(ctx: Any, rule_scene: dict) -> list[str]:
         tools.extend(['browser.navigate', 'browser.extract', 'browser.screenshot'])
     if 'memory' in categories or groups.get('memory'):
         tools.append('memory.search')
+    if 'agent' in categories or groups.get('agent') or any((k in lower for k in ('子agent', '子 agent', 'subagent', 'sub agent', 'agent.spawn', '派发', '委托'))):
+        tools.extend(['agent.spawn', 'agent.role.list', 'agent.result.get'])
     if 'code' in categories or '代码' in user_input or '源码' in user_input:
         tools.append('code.search')
     return list(dict.fromkeys(tools))

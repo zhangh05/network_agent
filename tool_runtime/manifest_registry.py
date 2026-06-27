@@ -386,10 +386,10 @@ MANIFESTS: dict[str, CapabilityManifest] = {
     ),
     "agent.spawn": CapabilityManifest(
         tool_id="agent.spawn", category="agent", display_name="Spawn Agent",
-        description="Spawn a subagent", action_class="admin",
-        risk_level="high", requires_approval=True,
+        description="Spawn a bounded subagent; child tool calls keep their own manifest gates", action_class="execute",
+        risk_level="medium", requires_approval=False,
         side_effects="remote_exec", idempotency="unsafe_to_retry",
-        approval_reason_template="Spawning subagent: verify scope and permissions",
+        allowed_callers=["turn_runner", "rest_api", "job_runner", "graph_runner"],
         timeout_seconds=60,
     ),
     "agent.team.run": CapabilityManifest(
@@ -398,6 +398,7 @@ MANIFESTS: dict[str, CapabilityManifest] = {
         risk_level="high", requires_approval=True,
         side_effects="remote_exec", idempotency="unsafe_to_retry",
         approval_reason_template="Running agent team: confirm team composition and permissions",
+        allowed_callers=["turn_runner", "rest_api", "job_runner", "graph_runner"],
         timeout_seconds=300,
     ),
 

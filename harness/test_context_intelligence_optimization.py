@@ -123,6 +123,21 @@ def test_core_tools_for_context_does_not_inflate_all_tools():
     assert len(tools) < len(CORE_TOOL_IDS)
 
 
+def test_core_tools_for_context_includes_agent_tools_for_subagent_scene():
+    from agent.runtime.context_pipeline.stages import _core_tools_for_context
+
+    ctx = SimpleNamespace(user_input="派发子agent，让它搜索一下BGP邻居的建立条件")
+    tools = _core_tools_for_context(ctx, {
+        "categories": ["agent", "web"],
+        "groups": {"agent": ["subagent"], "web": ["search"]},
+    })
+
+    assert "agent.spawn" in tools
+    assert "agent.role.list" in tools
+    assert "agent.result.get" in tools
+    assert "web.search" in tools
+
+
 def test_llm_summary_compaction_creates_progress_summary():
     from agent.runtime.context_compactor import CompactionStrategy, compact_messages
 
