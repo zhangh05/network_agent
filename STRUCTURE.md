@@ -1,80 +1,93 @@
-# Network Agent 项目目录结构 (v3.9)
+# 目录结构
 
 ```
 network_agent/
+├── start.sh                    # 启动脚本
+├── stop.sh                     # 停止脚本
+├── requirements.txt            # Python 依赖
+├── package.json                # Node 依赖（workspace root）
+├── pytest.ini                  # 测试配置
 │
-├── agent/                  ← Agent 核心引擎
-│   ├── capabilities/       ← 能力注册
-│   ├── context/            ← 运行时上下文
-│   ├── llm/                ← LLM 客户端
-│   ├── modules/            ← 业务模块 (13 categories)
-│   ├── protocol/           ← 协议定义
-│   ├── runtime/            ← Turn Pipeline 执行引擎
-│   │   ├── capability_routing/ ← 能力路由 (semantic + keyword)
-│   │   ├── context_pipeline/   ← 上下文管道
-│   │   ├── memory_write/       ← 记忆候选提取/去重
-│   │   ├── tool_execution/     ← 工具执行管道 + 重试
-│   │   └── ...
-│   └── tools/              ← 工具系统
+├── agent/                      # Agent 引擎
+│   ├── app/service.py         # Agent Service 入口
+│   ├── runtime/               # 运行时：turn_runner, graph_runner, pipeline
+│   ├── capabilities/          # 能力注册
+│   ├── skills/                # Skill 实现
+│   ├── tools/                 # 工具路由 (registry, router)
+│   ├── llm/                   # LLM 接口 (runtime, adapter)
+│   ├── core/                  # 核心类型与常
+│   ├── context/               # 上下文装配
+│   ├── audit/                 # 审计日志
+│   ├── modules/               # 业务模块
+│   └── protocol/              # 协议定义 (tool_result 等)
 │
-├── backend/                ← Flask API (:8010)
-│   ├── api/                ← REST 路由
-│   └── main.py             ← 入口
+├── backend/                    # Flask 服务
+│   ├── main.py                # 唯一入口
+│   ├── api/                   # REST 路由
+│   │   ├── agent_routes.py    # POST /api/agent/message
+│   │   ├── session_routes.py  # Session CRUD
+│   │   ├── job_routes.py      # Job CRUD
+│   │   ├── artifact_routes.py # Artifact CRUD
+│   │   ├── runtime_routes.py  # 运行时 API
+│   │   ├── workspace_routes.py
+│   │   ├── approval_routes.py
+│   │   ├── context_routes.py
+│   │   └── cmdb_routes.py
+│   ├── ws/
+│   │   └── agent_ws.py        # WebSocket /ws/agent
+│   └── core/                  # 安全、限流、错误处理
 │
-├── frontend/               ← React/TS 前端
-│   └── src/
-│       ├── pages/          ← 页面 (Workbench/Runs/Knowledge/...)
-│       ├── components/     ← 组件
-│       ├── api/            ← API 客户端
-│       ├── layouts/        ← 布局 (Sidebar/Inspector/AppLayout)
-│       └── stores/         ← Zustand 状态管理
+├── frontend/                   # React/TS 前端 (Vite)
+│   ├── src/
+│   │   ├── pages/             # 页面组件
+│   │   │   ├── AgentWorkbench/  # 主工作台 (对话 + 工具)
+│   │   │   ├── JobsPage/       # Job 管理
+│   │   │   ├── RunsPage/       # Run 追踪
+│   │   │   └── ...             # PacketAnalysis, CMDB, Settings 等
+│   │   ├── api/               # API 客户端 (agent, sessions, jobs, ...)
+│   │   ├── stores/            # Zustand stores (workbench, session, ...)
+│   │   ├── utils/             # 工具函数 (agentStream, displayText, ...)
+│   │   ├── styles/            # 全局 CSS (global.css ~3600 行)
+│   │   └── types/             # TypeScript 类型定义
+│   └── e2e/                   # E2E 测试
 │
-├── tool_runtime/           ← 工具系统核心
-│   ├── canonical_registry.py   ← 规范注册表 (73 tools)
-│   ├── tool_namespace_data.py  ← 工具 namespace 元数据
-│   ├── tool_governance.py      ← 工具治理
-│   ├── capability_actions.py   ← 能力动作映射
-│   └── schemas.py              ← 数据契约
+├── tool_runtime/               # 工具注册与执行
+│   ├── manifest_registry.py   # 73 工具 CapabilityManifest
+│   ├── manifest.py            # 清单数据类 + DEFAULT_ALLOWED_CALLERS
+│   ├── client.py              # ToolRuntimeClient
+│   ├── context.py             # ToolRuntimeContext
+│   ├── python_exec.py         # Python 沙箱 (exec.python)
+│   ├── general_tools/         # 通用工具实现
+│   └── integration.py         # 与 Agent 引擎集成
 │
-├── context/                ← 统一上下文存储
-├── memory/                 ← Memory 适配层
-├── storage/                ← FileStore
-├── observability/          ← Trace/EventStore
-├── workspace/              ← 工作空间管理
-├── jobs/                   ← 异步任务
-├── reports_engine/         ← 报告生成
-├── prompts/                ← LLM Prompt 模板
-├── harness/                ← 测试
-├── docs/                   ← 文档
-├── scripts/                ← 运维脚本
+├── jobs/                       # Job 系统
+│   ├── schemas.py             # JobRecord, JobEvent
+│   ├── manager.py             # 状态机 (create_job, mark_running, ...)
+│   ├── runner.py              # 按类型执行 Job
+│   ├── worker.py              # 本地轮询 Worker (fcntl 文件锁)
+│   ├── store.py               # JSON 持久化
+│   └── lifecycle.py           # 统一生命周期 (HTTP + WS)
 │
-├── AGENTS.md               ← Agent 行为配置
-├── DESIGN.md               ← 架构设计
-├── README.md               ← 项目说明
-└── STRUCTURE.md            ← 本文件
+├── workspace/                  # Session/Run 管理
+│   ├── session_store.py       # create/get/delete session
+│   ├── run_store.py           # create/get/list run
+│   ├── ids.py                 # workspace_id 校验
+│   └── redaction.py           # 密钥脱敏
+│
+├── context/                    # 上下文构建
+│   └── fragments/             # 上下文片段
+│
+├── storage/                    # FileStore
+├── artifacts/                  # Artifact 持久化
+├── observability/             # Trace/Event 存储
+├── modules/                   # 业务模块
+│   ├── config_translation/    # 配置翻译
+│   ├── inspection/            # 巡检
+│   ├── knowledge_base/        # 知识库
+│   └── topology/              # 拓扑
+├── skills/                    # Skill 层
+│   └── builtin/               # 内置 Skills
+├── prompts/                   # Prompt 模板
+├── harness/                   # pytest 测试
+└──  docs/                     # 文档
 ```
-
-## 分层架构
-
-```
-┌─────────────────────────────────────────────┐
-│  frontend (React) + backend (Flask API)     │  ← 交互层
-├─────────────────────────────────────────────┤
-│  agent/ (Turn Pipeline) + tool_runtime/     │  ← 核心引擎
-├─────────────────────────────────────────────┤
-│  agent/modules/ (13 categories)             │  ← 能力模块
-├─────────────────────────────────────────────┤
-│  context/ + memory/ + storage/              │  ← 存储 & 观测层
-├─────────────────────────────────────────────┤
-│  prompts/ + config/ + registry/             │  ← 声明 & 配置层
-└─────────────────────────────────────────────┘
-```
-
-## 核心概念
-
-| 概念 | 定义处 | 示例 |
-|------|--------|------|
-| **Tool** | `tool_runtime/canonical_registry.py` | exec.run, git.status, code.search |
-| **Capability** | `agent/capabilities/` | device, exec, coding, pcap_analysis |
-| **Category** | `tool_runtime/tool_namespace_data.py` | exec → run/python/slash, git → status/diff/log |
-| **Inspector** | `frontend/src/layouts/Inspector.tsx` | 右侧面板，显示 turn 执行细节 |

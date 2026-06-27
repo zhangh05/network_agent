@@ -1,114 +1,51 @@
-# Agent Runtime (v3.9)
+# AGENTS.md — AI 编码助手指南
 
-## Turn Lifecycle
+本文件为 AI 编码助手（Claude、CodeBuddy 等）提供项目约定和工作流。
 
-```
-UserInput
-  → TurnContext
-  → SceneDecision
-  → RuntimeState
-  → Context / Memory / Knowledge
-  → CapabilityRouter (semantic + keyword)
-  → ToolPlannerV2
-  → PromptCompiler
-  → LLM sampling
-  → ToolExecutionPipeline (RiskPolicy → ApprovalGate → Dispatch → Retry)
-  → ArtifactWrite → OutputSummarize
-  → MemoryWritePlanner
-  → ObservabilityCollector
-  → FinalResponse
-```
+## 项目约束
 
-## Context Pipeline
+### 必须遵守
 
-1. ContextInitStage       — create TurnContext
-2. ModelConfigStage       — resolve LLM model config
-3. HistoryStage           — load history window (k=30)
-4. ToolRouterStage        — build active tool bundle
-5. CapabilitySelectionStage — select capabilities, snapshot services
-6. SceneDecisionStage     — compute scene decision
-7. RetrievalPolicyStage   — evaluate retrieval triggers
-8. RuntimeStateStage      — prepare runtime state hooks
-9. EvidenceStage          — run EvidencePipeline → EvidenceBundle
-10. ToolPlanningStage     — ToolPlannerV2: core tool selection
-11. SafeContextStage       — build LLM-visible context + snapshot
-12. LoadedCapabilityStage — inject capability contracts
-13. MetadataWriteStage     — finalize metadata
+1. **Backend 为 API 契约唯一来源**。前端类型从后端响应派生，不自行定义。
+2. **workspace_id 全局统一**。所有 API 需要 workspace_id，不提供默认值，非法/空返回 400。
+3. **增量 PR + Merge Commit**。不要 squash，不要 rebase。
+4. **pytest 全绿后再合并**。`harness/` 目录下 `pytest` 全部通过。
+5. **禁止 `git add -A` 把运行时数据入库**。memory/*.json、logs/* 等不可提交。
 
-## Tool Visibility
+### 代码风格
 
-Tools flow through 3 filter layers before reaching LLM:
+- Python 代码使用英文编写（变量名、注释、文档字符串）
+- 对话/文档使用简体中文
+- 严禁裸 `except:`，必须写 `except Exception:`
+- 不要使用 Tailwind CSS（项目中未安装），使用项目内 CSS 类名或内联 style
 
-1. **Canonical filter** — only 73 canonical tool_ids pass
-2. **Capability routing** — selects domains by user intent (keyword + semantic)
-3. **Core tools** (16 tools) — always visible regardless of capability match
+### 安全规则
 
-Final: `core_tools ∪ capability_matched` → max ~24 tools visible per turn.
+- 密钥必须通过 `workspace/redaction.py` 脱敏后再写入日志/存储
+- Python 沙箱禁止 `open()`、`eval()`、`exec()`、`__import__`
+- 工具调用强制 `requested_by` 检查
 
-### Core Tools (16)
-
-exec.run, exec.python, exec.slash, workspace.file.list, workspace.file.read,
-workspace.artifact.list, workspace.artifact.read, web.search, web.weather,
-git.status, git.log, git.diff, code.search, system.diagnostics,
-tool.catalog.search, device.list
-
-## Tool Execution
+## 工作流
 
 ```
-ToolExecutionPipeline:
-  risk → approval → dispatch → normalize → scan → retry → audit → evidence
+1. 了解任务 → 检查 HEAD, CI, 工作区洁净度
+2. 修改代码 → 小步提交 (fix → commit → verify)
+3. 运行 pytest → 全绿
+4. 提交推送 → git push origin main
+5. 重启服务 → bash stop.sh && bash start.sh
 ```
 
-- Medium-risk tools (`device.add`, `device.delete`, `git.commit`, `git.push`) require approval.
-- High-risk tools (`exec.run`, `exec.python`, `exec.slash`) require manual approval.
-- Dangerous commands (`reload`, `reboot`, `reset`, `rm -rf`, `format`) are blocked.
-- Auto-retry: 3 attempts with exponential backoff on transient errors.
+## 关键文件索引
 
-## Capability Routing (v3.9)
-
-12 capability domains with keyword-based matching + semantic embedding fallback:
-
-| Domain | Matches | Tools |
-|--------|---------|-------|
-| exec | 运行,ssh,telnet,cmd | exec.* |
-| device | cmdb,设备,device | device.* |
-| workspace | 文件,编辑,save | workspace.* |
-| knowledge | 知识,文档,docs | knowledge.* |
-| web | 搜索,browser,weather | web.* |
-| memory | 记忆,remember | memory.* |
-| git | commit,push,diff | git.* |
-| code | 代码,search | code.* |
-| config | 配置,analysis | config.* |
-| data | csv,table,report | data.* |
-| system | 审计,checkpoint | system.* |
-| agent | team,spawn | agent.* |
-
-## Agent Modes
-
-- **TurnRunner**: Primary while-loop runtime (max 24 steps by default), used by default.
-- **GraphRunner**: LangGraph StateGraph with checkpoint support. Enable via `AGENT_RUNTIME=langgraph`.
-
-## Dynamic Breakpoints
-
-- `AGENT_BREAKPOINT_TOOLS` env var pauses execution before specified tools.
-- UI management via Inspector panel (`/api/agent/breakpoints`).
-
-## Sub-Agents
-
-`agent.spawn` and `agent.team.run` support multi-agent collaboration.
-
-## Metadata Keys
-
-Each turn produces in `ctx.metadata`:
-
-| Key | Source |
-|-----|--------|
-| `runtime_state_snapshot` | RuntimeStateSnapshotter |
-| `task_signal` | TaskDetector |
-| `action_trace` | ActionAuditTrail |
-| `artifact_records` | ArtifactRegistry |
-| `output_summary` | OutputSummarizer |
-| `final_response` | ResponseComposer |
-| `memory_write_plan` | MemoryWritePlanner |
-| `turn_trace` | ObservabilityCollector |
-| `truth_report` | TruthReporter |
+| 关注点 | 文件 |
+|--------|------|
+| Agent 引擎入口 | `agent/app/service.py` |
+| Flask 入口 | `backend/main.py` |
+| WebSocket | `backend/ws/agent_ws.py` |
+| 工具注册 | `tool_runtime/manifest_registry.py` |
+| Job 状态机 | `jobs/manager.py` |
+| Session 存储 | `workspace/session_store.py` |
+| 前端状态 | `frontend/src/stores/workbench.ts` |
+| 前端主页 | `frontend/src/pages/AgentWorkbench/AgentWorkbench.tsx` |
+| API 路由 | `backend/api/*.py` |
+| 测试 | `harness/test_*.py` |

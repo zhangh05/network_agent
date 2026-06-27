@@ -1,84 +1,71 @@
-# Backend API Contract
+# API 契约规则
 
-Current backend contract (v3.9). This page is the backend-facing companion to
-`docs/API.md`; keep endpoint names and response shapes aligned with
-`backend/main.py` and `backend/api/*_routes.py`.
+## 原则
 
-## Response Envelope
+1. **Backend 为唯一权威来源**。前端类型定义必须从后端 API 响应派生，不得自行定义独立的结构。
+2. **响应格式统一**。所有成功响应 `{ok: true, ...data}`，错误响应 `{ok: false, error: "message"}`。
+3. **workspace_id 全局强制**。非法或空 workspace_id 返回 400。
+4. **级联清理**。删除资源时必须同步清理关联数据。
 
-Successful list endpoints return an explicit collection and count when
-available:
+## 通用参数
 
+| 参数 | 位置 | 类型 | 要求 |
+|------|------|------|------|
+| `workspace_id` | path/query | string | 必填，非空，须为合法 ID |
+| `session_id` | query/body | string | 可选，允许 null |
+| `limit` | query | int | 可选，默认 50，最大 500 |
+
+## 错误码
+
+| HTTP 状态码 | 含义 | 场景 |
+|-------------|------|------|
+| 400 | 参数错误 | 缺失必填参数、workspace_id 为空 |
+| 404 | 不存在 | 资源 ID 不存在 |
+| 413 | 负载过大 | 消息/文件超过大小限制 |
+| 500 | 服务端错误 | 未预期的运行时错误 |
+
+## 响应格式
+
+成功：
 ```json
-{"ok": true, "items": [], "count": 0, "workspace_id": "default"}
+{
+  "ok": true,
+  "session": { ... },
+  "messages": [ ... ]
+}
 ```
 
-Successful item endpoints return the item under a named key:
-
+错误：
 ```json
-{"ok": true, "item": {}, "workspace_id": "default"}
+{
+  "ok": false,
+  "error": "描述性错误信息",
+  "error_type": "provider_timeout"
+}
 ```
 
-Errors use the shared error shape:
+错误类型（`error_type`）：
+- `provider_timeout` — 可重试
+- `provider_error` — 可重试
+- `api_key` — 不可重试，需检查配置
+- `forbidden_function` — 可重试，换方式
+- `syntax_error` — 可重试
+- `caller_identity` — 不可重试
+- `network` — 可重试
 
+## WebSocket 协议
+
+连接：`ws://host/ws/agent`
+
+客户端发送：
 ```json
-{"ok": false, "error": "CODE", "message": "detail", "details": {}}
+{"type": "message", "user_input": "...", "session_id": "...", "workspace_id": "..."}
 ```
 
-## Required Runtime Surfaces
-
-| Method | Path | Contract |
-|--------|------|----------|
-| `POST` | `/api/agent/message` | Main agent entry. Returns `final_response`, `events`, `run_id`, `trace_id`, `session_id`, `metadata`, and tool-call summaries. |
-| `WS` | `/ws/agent` | Live agent stream. Emits token/event messages and a final payload compatible with `AgentResult`. |
-| `GET` | `/api/runs/recent?workspace_id=<ws>&session_id=<sid>` | Recent runs scoped to workspace and optionally session. |
-| `GET` | `/api/workspaces/<ws>/runs/<run_id>/trace` | Persisted trace with real/synthetic event counters. |
-| `GET` | `/api/workspaces/<ws>/runs/<run_id>/decision` | Decision report for routing, retrieval, tool planning, and trace truth. |
-| `GET` | `/api/runtime/summary` | Runtime truth source for capability and tool counts. |
-| `GET` | `/api/runtime/selfcheck` | Runtime consistency issues. |
-| `GET` | `/api/workspaces/<ws>/selfcheck` | Workspace storage and trace consistency issues. |
-
-## Capability And Tool Surfaces
-
-| Method | Path | Contract |
-|--------|------|----------|
-| `GET` | `/api/capabilities` | Public capability projection from manifests. |
-| `GET` | `/api/tools/catalog` | Canonical tool catalog visible to the UI. |
-| `POST` | `/api/tools/invoke` | Execute one canonical tool invocation after policy and approval checks. |
-| `POST` | `/api/tools/dry-run` | Return approval/policy decision without executing the tool. |
-
-The canonical registry lives in `tool_runtime/canonical_registry.py`; docs and
-runtime checks should agree with that source.
-
-Tool invocation requests use `arguments` for handler inputs and pass
-`workspace_id` as the query parameter consumed by the backend route.
-
-## Knowledge And PCAP Surfaces
-
-| Method | Path | Contract |
-|--------|------|----------|
-| `GET` | `/api/knowledge/sources` | List knowledge sources backed by `agent/modules/knowledge/`. |
-| `GET` | `/api/knowledge/search?q=<query>` | Search indexed knowledge chunks. |
-| `POST` | `/api/pcap/parse` | Parse uploaded PCAP data into a persisted session. |
-| `GET` | `/api/pcap/session/<sid>` | Load a persisted PCAP session. |
-| `POST` | `/api/pcap/filter` | Filter packet session data by 5-tuple and summary parameters. |
-
-Canonical session lookup: `GET /api/pcap/session/<sid>`.
-
-## Frontend Compatibility Rules
-
-- Frontend API calls are rooted at `/api` through `frontend/src/api/client.ts`.
-- SSE helpers must use the same API base as HTTP helpers.
-- `final_response` is a string; consumers must not expect
-  `final_response.content`.
-- Tool and capability counts come from backend truth endpoints, not hard-coded
-  frontend constants.
-- Trace consumers must distinguish real events from synthetic fallback events.
-
-## Security Rules
-
-- Unsafe API writes reject cross-origin browser requests even when token auth is
-  disabled for local desktop use.
-- Workspace deletion requires explicit confirmation and cannot delete
-  `default`.
-- CMDB and Remote saved-device records must not persist device passwords.
+服务端推送：
+```json
+{"type": "token", "content": "流式文本片段"}
+{"type": "event", "name": "tool_call", "data": {"tool_id": "...", ...}}
+{"type": "done", "session_id": "...", "turn_id": "...", "final_response": "...", "tool_calls": [...], "errors": [], ...}
+{"type": "error", "message": "..."}
+```

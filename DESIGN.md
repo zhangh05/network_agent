@@ -1,138 +1,66 @@
-# Current Runtime Design (v3.9)
+# 设计文档
 
-This document describes the current source architecture only.
+## 设计哲学
 
-## Principles
+**实用主义**：去掉未使用的脚手架，保留真正工作的功能。一致性优于向后兼容。
 
-1. **Runtime state is explicit.** Session, workspace, task, workflow, step, action and artifact state are first-class runtime objects.
-2. **Each turn is a staged pipeline.** Context building, tool planning, action execution and finalization are separate layers in a 13-stage pipeline.
-3. **Tools are canonical.** All tools registered in `tool_runtime/canonical_registry.py` with handler + input_schema + risk_level. Capability tools reference canonical handlers — never override schemas.
-4. **Actions wrap tools.** Tool calls pass through ActionPlan → RiskPolicy → ApprovalGate → dispatch → result normalization → audit.
-5. **Results become outputs.** Output sources are planned into artifact records and summarized for response composition.
-6. **Final responses are metadata-backed.** ResponseComposer creates a FinalResponse plan from runtime state, outputs, approvals and warnings.
-7. **Memory writes are plan-first.** MemoryWritePlanner extracts candidates, filters by risk, deduplicates, then writes up to 3 records per turn to ContextStore (JSONL).
-8. **Observability is structured.** TurnTrace and ObservabilityEvent are generated from metadata.
-9. **Truth and stability are runtime reports.** Version, configuration and capability facts are reported by the truth layer, and StabilityGate checks required runtime outputs.
+**单一真相源**：每个子系统有自己的权威存储，不重复派生状态。
 
-## Main Pipeline
+**渐进式增强**：WS 流式优先，HTTP 自动回退。无单点故障。
 
-```text
-UserInput
-  → 13-Stage Context Pipeline
-  → SceneDecision
-  → RuntimeStateResolver
-  → TaskDetector (new_task / continue / cancel, expanded v3.9 verbs)
-  → TaskPlanner → WorkflowPlanner (dynamic steps v3.9)
-  → StepExecutor.prepare_current_step
-  → EvidencePipeline (Context + Memory + Knowledge layers)
-  → ToolPlannerV2 (deterministic seed + LLM refinement v3.9)
-  → PromptCompiler
-  → LLM tool calls (Max 8 step loops per turn, configurable)
-  → ToolExecutionPipeline
-      → ActionPlanner → RiskPolicy → ApprovalGate → Dispatch
-      → CircuitBreaker (v3.9) + Exponential Retry (v3.9)
-  → StepExecutor.apply_action_results
-  → RuntimeStateTransition
-  → CompletionEvaluator
-  → ResultCollector → ArtifactPlanner → ArtifactWriter → ArtifactRegistry
-  → OutputSummarizer → ResponseComposer
-  → MemoryWritePlanner (extract + filter + dedupe + write, max 3/turn)
-  → Auto-Checkpoint Guard (v3.9, every 5 turns)
-  → ObservabilityCollector
-  → TruthReporter
-  → StabilityGate
-  → RuntimeStateStore
-  → RuntimeStateSnapshotter
-```
-
-## Runtime State Model
-
-```text
-RuntimeState
-  ├── SessionState (session_id, workspace_id, turn_count)
-  ├── WorkspaceState (memory_gating, artifact_policy)
-  ├── TaskState (pending/running/completed/failed/blocked/approval_pending)
-  ├── WorkflowState (ordered StepState list, dynamic insert/remove v3.9)
-  ├── StepState (pending/running/completed/failed/blocked/approval_pending/skipped)
-  ├── ActionState (planned/executing/completed/failed/blocked)
-  └── ArtifactState (registered/exported/deleted)
-```
-
-## Tool System Architecture (v3.9)
+## 分层架构
 
 ```
-CanonicalRegistry (73 tools, single truth source)
-  ↓
-Namespace filter (tool_namespace_data.py, 13 categories)
-  ↓
-Capability routing (keyword-based + semantic fallback)
-  ↓
-Core tools (16) + capability-matched → max ~24 visible to LLM
+Skill (业务入口/用户意图) → Module (业务实现/编排) → Tool (工具调用) → Operation (内部动作)
 ```
 
-### Tool Categories (13)
+每一层有清晰的职责边界：
+- **Skill**：理解用户意图，选择合适的 Module
+- **Module**：编排多个 Tool 调用，实现业务逻辑
+- **Tool**：封装单一能力，有明确的输入/输出契约
+- **Operation**：模块内部的具体实现步骤
 
-| Category | Count | Tools |
-|----------|-------|-------|
-| exec | 3 | exec.run, exec.python, exec.slash |
-| device | 4 | device.add, device.get, device.list, device.delete |
-| workspace | 17 | workspace.file.*, workspace.artifact.* |
-| knowledge | 8 | knowledge.search, knowledge.import, knowledge.* |
-| web | 3 | web.search, web.page.process, web.weather |
-| system | 9 | system.diagnostics, system.session.*, system.review.* |
-| memory | 3 | memory.manage, memory.profile, memory.search |
-| data | 9 | data.*, text.analyze, report.* |
-| agent | 5 | agent.spawn, agent.team.run, tool.catalog.search |
-| git | 5 | git.status, git.diff, git.log, git.commit, git.push |
-| code | 1 | code.search |
-| config | 2 | config.analysis.run, pcap.analysis.run |
-| browser | 4 | browser.navigate, browser.extract, browser.screenshot, browser.click |
+## 数据流
 
-## Capability-first Architecture (v3.9)
-
-Capabilities are safety-tagged agent abilities. Each capability declares tools + risk levels + safety contracts.
-
-```text
-CapabilityManifest
-  ├── capability_id (e.g. "coding", "network_device")
-  ├── status (enabled / planned / disabled)
-  ├── intent_patterns (trigger keywords)
-  ├── prompt_summary (LLM context injection)
-  ├── module (CapabilityModuleSpec)
-  ├── tools (CapabilityToolRef[] — references canonical handlers)
-  ├── outputs (CapabilityOutputSpec[])
-  └── safety (CapabilitySafetySpec — real_device_access, config_push, human_review)
-```
-
-No legacy "skill" concept since v3.9. Replaced by:
-- **Capability** = what the agent can do (safety contract)
-- **Skill (SKILL.md)** = reusable workflow recipe (v3.9, agentskills.io standard)
-
-## Safety Boundaries
-
-- **Unified ApprovalStore** (`agent/approval.py`) — single source of truth, JSONL-persisted, no dual-store.
-- High-risk actions (`exec.run`, `exec.python`, `exec.slash`) → approval gate
-- Medium-risk actions (`device.add`, `device.delete`, `git.commit`, `git.push`) → approval gate
-- Dangerous commands (`reload`, `reboot`, `reset`, `format`, `rm -rf`, `dd if=`, `mkfs`) → blocked
-- **Admin boundary**: approval resolve requires `X-Admin-Token` when `NETWORK_AGENT_ADMIN_TOKEN` is set; otherwise localhost only
-- **Workspace isolation**: empty/invalid workspace_id → 400; no implicit default fallback
-- SSH/Telnet session reuse → same-session commands skip repeat authentication
-- Memory candidates filtered before write plan (risk + dedupe + count cap)
-- StabilityGate verifies required runtime outputs presence
-
-## Approval Architecture (v3.9)
+### Agent 对话流
 
 ```
-ApprovalStore (agent/approval.py) — single source of truth
-  ├── create(session_id, tool_id, arguments, risk_level, workspace_id, run_id, job_id)
-  ├── resolve(approval_id, allowed, resolver, reason) [admin-gated]
-  ├── get_pending(session_id) → SSE-bridged to frontend
-  ├── get_history(session_id, tool_id, limit) → audit trail
-  └── wait(approval_id, timeout, blocking) → used by agent loop
-
-API (backend/api/approval_routes.py):
-  GET  /api/agent/approvals/pending              → list pending
-  POST /api/agent/approvals/<id>/resolve         → resolve (admin-gated)
-  GET  /api/agent/approvals/history              → audit history
-  GET  /api/agent/approvals/sse                  → real-time event stream
+用户输入 → Flask/WS → Agent 引擎 → LLM 推理 → 工具调用 → 结果汇总 → 流式返回
 ```
+
+### 工具执行流
+
+```
+LLM 工具选择 → ToolRouter.dispatch → 权限检查 (requested_by) → 沙箱执行 → 结果返回
+```
+
+### 前端渲染流
+
+```
+WS 事件 → Zustand store.updateAssistant(msgId, patch) → Virtuoso 重渲染 → DOM 更新
+```
+
+废弃了之前 Footer + React state 的双路径渲染，统一为 Zustand + Virtuoso 单路径。
+
+## Session-Job-Run 数据模型
+
+| 实体 | 关系 | 存储 |
+|------|------|------|
+| Session | 1:1 Job | `workspace/session_store.py` |
+| Job | 1:N Run | `jobs/store.py` |
+| Run | 独立记录 | `workspace/run_store.py` |
+| Artifact | N:M Run/Session | `artifacts/store.py` |
+
+生命周期：Session 创建 → Job 创建 → 每轮对话追加 Run → Session 关闭时 Job 标记完成。删除 Session 时级联清理 Job/Run/Artifact。
+
+## 工具运行时
+
+73 个工具，13 个分类，通过 `tool_runtime/manifest_registry.py` 统一注册。所有工具通过 `DEFAULT_ALLOWED_CALLERS` 常量控制访问权限。
+
+`requested_by` 强制检查（registry.dispatch → client.invoke），缺失时阻断而非静默回退。
+
+## 前端状态管理
+
+Zustand store (`frontend/src/stores/workbench.ts`) 管理消息历史、会话切换、流式状态。
+
+每个消息有 status 字段：`streaming` | `ready` | `error`。流式消息通过 `appendAssistantStreaming` 创建占位，token 到达时通过 `updateAssistant` 更新消息字段，Virtuoso 自动重渲染。
