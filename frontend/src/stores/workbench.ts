@@ -234,27 +234,48 @@ export const useWorkbenchStore = create<WorkbenchState>()(
                   ["user", "assistant", "system"].includes(message.role),
               )
             : [];
-          // v1.0.3.2: run_id dedup
-          const runIdSeen = new Set(cur.filter(m => m.run_id).map(m => m.run_id));
-          const combined = [...cur];
-          for (const m of converted) {
-            // skip already-seen runs (most reliable dedup)
-            if (m.run_id && runIdSeen.has(m.run_id)) continue;
-            if (m.run_id) runIdSeen.add(m.run_id);
-            combined.push(m);
+
+          // Merge strategy: server messages are the authoritative timeline.
+          // For assistant messages (with run_id): prefer local copy if already
+          // rendered (rich toolCalls/result data), fall back to server copy.
+          // For user messages (no run_id): dedup by content+role, keep local
+          // copy to avoid flickering local IDs.
+          const combined: ChatMsg[] = [];
+          const seenRunIds = new Set<string>();
+
+          for (const serverMsg of converted) {
+            if (serverMsg.run_id) {
+              const localMatch = cur.find(
+                (m) => m.run_id === serverMsg.run_id && m.status === "ready",
+              );
+              combined.push(localMatch ?? serverMsg);
+              seenRunIds.add(serverMsg.run_id);
+            } else {
+              // User messages: keep local copy if same content+role exists
+              const localMatch = cur.find(
+                (m) => m.role === serverMsg.role && m.text === serverMsg.text,
+              );
+              combined.push(localMatch ?? serverMsg);
+            }
           }
-          // 按 created_at 升序
+
+          // Append local-only messages not covered by server (e.g. streaming)
+          for (const localMsg of cur) {
+            if (localMsg.run_id && seenRunIds.has(localMsg.run_id)) continue;
+            // For user messages already matched by content above, skip
+            if (!localMsg.run_id && combined.some(
+              (c) => c.role === localMsg.role && c.text === localMsg.text,
+            )) continue;
+            combined.push(localMsg);
+          }
+
+          // Sort by created_at ascending
           combined.sort((a, b) => a.created_at.localeCompare(b.created_at));
           const next = capHistory(
-            {
-              ...s.bySession,
-              [session_id]: combined,
-            },
+            { ...s.bySession, [session_id]: combined },
             session_id,
           );
-          return {
-            bySession: next,
-          };
+          return { bySession: next };
         });
       },
     }),
