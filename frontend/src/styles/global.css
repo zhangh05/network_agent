@@ -3509,8 +3509,8 @@ details.collapse[open] summary::before {
 
 /* ── Scroll-to-bottom floating button ── */
 .scroll-bottom-btn {
-  position: sticky;
-  bottom: 12px;
+  position: absolute;
+  bottom: 16px;
   left: 50%;
   transform: translateX(-50%);
   display: inline-flex; align-items: center; justify-content: center;

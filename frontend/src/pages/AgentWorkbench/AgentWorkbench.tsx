@@ -764,14 +764,14 @@ export function TaskWorkbench() {
             style={{ height: "100%" }}
           />
         )}
-      </div>
 
-      {/* ── Scroll-to-bottom ── */}
-      {userScrolledUp && (
-        <button className="scroll-bottom-btn" onClick={() => { setUserScrolledUp(false); scrollToBottom(); }} title="回到底部" type="button">
-          <svg width="16" height="16" viewBox="0 0 16 16"><path d="M4 6l4 4 4-4" stroke="currentColor" strokeWidth="1.5" fill="none" strokeLinecap="round" strokeLinejoin="round"/></svg>
-        </button>
-      )}
+        {/* ── Scroll-to-bottom floating bubble ── */}
+        {userScrolledUp && (
+          <button className="scroll-bottom-btn" onClick={() => { setUserScrolledUp(false); scrollToBottom(); }} title="回到底部" type="button">
+            <svg width="14" height="14" viewBox="0 0 16 16"><path d="M4 6l4 4 4-4" stroke="currentColor" strokeWidth="1.5" fill="none" strokeLinecap="round" strokeLinejoin="round"/></svg>
+          </button>
+        )}
+      </div>
 
       {/* ── Retry bar ── */}
       {!sending && sessionResults.length > 0 && !sessionResults[sessionResults.length - 1].ok && lastUserInput && (
