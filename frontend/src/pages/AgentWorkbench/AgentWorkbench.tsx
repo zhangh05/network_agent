@@ -120,14 +120,16 @@ export function TaskWorkbench() {
     return () => window.clearInterval(id);
   }, []);
 
-  // Scroll on new messages / streaming tokens
+  // Scroll on new messages / streaming tokens.
+  // During sending, always scroll (ignore userScrolledUp — streaming text
+  // changes don't trigger followOutput or useEffect since item count is same).
   const scrollToBottom = useCallback(() => {
-    if (!userScrolledUp) {
+    if (sending || !userScrolledUp) {
       requestAnimationFrame(() => {
         chatRef.current?.scrollToIndex({ index: "LAST", behavior: "auto", align: "end" });
       });
     }
-  }, [userScrolledUp]);
+  }, [userScrolledUp, sending]);
 
   useEffect(() => {
     scrollToBottom();
@@ -331,6 +333,10 @@ export function TaskWorkbench() {
                 streamState.draft += visible;
                 streamedText = streamState.draft;
                 useWorkbenchStore.getState().updateAssistant(streamingMsgId, { text: streamedText }, scratch);
+                // Stream tokens don't change item count, so manually keep at bottom
+                requestAnimationFrame(() => {
+                  chatRef.current?.scrollToIndex({ index: "LAST", behavior: "auto", align: "end" });
+                });
                 break;
               case "event":
                 if (msg.data) {
@@ -369,6 +375,10 @@ export function TaskWorkbench() {
                   streamedText = "";
                   useWorkbenchStore.getState().updateAssistant(streamingMsgId, { text: "" }, scratch);
                 }
+                // Keep scrolled to bottom after any event that changes content height
+                requestAnimationFrame(() => {
+                  chatRef.current?.scrollToIndex({ index: "LAST", behavior: "auto", align: "end" });
+                });
                 break;
               case "done":
                 resolvedSid = msg.session_id || currentSessionId;
@@ -436,6 +446,10 @@ export function TaskWorkbench() {
       }, resolvedSid);
       setLatestResult(wsResult);
       notifyRunCompleted();
+      // Scroll to bottom after final result renders
+      requestAnimationFrame(() => {
+        chatRef.current?.scrollToIndex({ index: "LAST", behavior: "auto", align: "end" });
+      });
 
       if (resolvedSid && currentWorkspaceId) {
         sessionsApi.messages(resolvedSid, currentWorkspaceId)
@@ -473,6 +487,9 @@ export function TaskWorkbench() {
         }, resolvedSid);
         setLatestResult(res);
         notifyRunCompleted();
+        requestAnimationFrame(() => {
+          chatRef.current?.scrollToIndex({ index: "LAST", behavior: "auto", align: "end" });
+        });
         if (res.ok) {
           toast({ kind: "success", title: "回答完成", body: "可切换到时间线视图查看执行详情" });
         } else {
