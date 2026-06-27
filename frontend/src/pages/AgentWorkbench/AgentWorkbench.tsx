@@ -778,7 +778,6 @@ export function TaskWorkbench() {
                           <span className="text-sm muted" style={{ marginLeft: 6 }}>思考中…</span>
                         </div>
                       )}
-                      <button className="stream-stop-btn" onClick={stopGeneration} title="停止生成" data-testid="btn-stop">⏹</button>
                     </div>
                   </div>
                 </div>
@@ -842,7 +841,7 @@ export function TaskWorkbench() {
           />
           {sending ? (
             <button className="wb-stop" onClick={stopGeneration} title="停止生成" type="button" data-testid="btn-stop">
-              <span style={{ display: "inline-block", width: 10, height: 10, background: "var(--danger)", borderRadius: 2 }} />
+              <svg width="12" height="12" viewBox="0 0 12 12"><rect x="1" y="1" width="10" height="10" rx="2" fill="currentColor"/></svg>
             </button>
           ) : (
             <button

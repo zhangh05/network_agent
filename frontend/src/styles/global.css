@@ -3427,9 +3427,11 @@ details.collapse[open] summary::before {
 /* ── Stop button ── */
 .wb-stop {
   display: inline-flex; align-items: center; justify-content: center;
-  width: 28px; height: 28px; padding: 0; cursor: pointer;
-  color: var(--text-2); background: var(--danger-soft);
-  border: 1px solid var(--danger); border-radius: var(--r-6);
+  width: 30px; height: 30px; padding: 0; cursor: pointer;
+  flex: 0 0 auto; align-self: center; margin-right: 4px;
+  color: var(--danger); background: var(--danger-soft);
+  border: 1px solid var(--danger);
+  border-radius: var(--r-6);
   transition: all var(--dur-2);
 }
 .wb-stop:hover { background: var(--danger); color: #fff; }
@@ -3504,29 +3506,6 @@ details.collapse[open] summary::before {
 /* ============================================================
    v3.9: Stream stop, scroll-bottom, regenerate
    ============================================================ */
-
-/* ── Stop button inside streaming bubble ── */
-.stream-stop-btn {
-  background: none;
-  border: 1px solid var(--border-2);
-  border-radius: 4px;
-  color: var(--text-4);
-  cursor: pointer;
-  padding: 2px 6px;
-  margin-left: auto;
-  font-size: 12px;
-  line-height: 1;
-  transition: color var(--dur-1), border-color var(--dur-1);
-}
-.stream-stop-btn:hover {
-  color: var(--danger);
-  border-color: var(--danger);
-}
-.sending-line {
-  display: flex;
-  align-items: flex-start;
-  gap: 8px;
-}
 
 /* ── Scroll-to-bottom floating button ── */
 .scroll-bottom-btn {
