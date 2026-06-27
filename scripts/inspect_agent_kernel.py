@@ -141,7 +141,7 @@ def main():
                     continue
                 if c == "memory.retrieve":
                     try:
-                        from memory.retriever import retrieve_for_context
+                        # was memory.retriever — deprecated
                         ok += 1
                         continue
                     except Exception:

@@ -26,7 +26,7 @@ import uuid
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
-from memory.redaction import redact_text
+from workspace.redaction import redact_text
 from workspace.ids import validate_workspace_id, validate_session_id
 from workspace.manager import ensure_workspace
 

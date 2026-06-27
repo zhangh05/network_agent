@@ -40,7 +40,7 @@ except Exception:
 
 def seed(workspace_id: str) -> None:
     from agent.modules.knowledge.service import import_file
-    from memory.writer import write_user_preference
+    # was memory.writer.write_user_preference — deprecated
 
     doc = (
         "# OSPF Runbook\n\n"

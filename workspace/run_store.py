@@ -6,7 +6,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import Optional
 
-from memory.redaction import redact_text
+from workspace.redaction import redact_text
 
 ROOT = Path(__file__).resolve().parent.parent
 WS_ROOT = ROOT / "workspaces"
@@ -306,7 +306,7 @@ def write_sub_agent_run(
     a sub-agent invocation is a single line in the parent timeline.
     """
     from workspace.manager import ensure_workspace
-    from memory.redaction import redact_text
+    from workspace.redaction import redact_text
     ws_id = ensure_workspace(ws_id)
 
     run_dir = WS_ROOT / ws_id / "runs"
