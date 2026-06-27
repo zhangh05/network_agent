@@ -1,6 +1,50 @@
 """Split general tool handlers."""
 from tool_runtime.general_tools.shared import *
 
+# ── Environment variable keys blocked from user override ──
+# Users must not replace PATH or inject library-loading variables
+# that could redirect the subprocess to malicious code.
+_BLOCKED_ENV_KEYS = {
+    "PATH",
+    "PYTHONPATH",
+    "LD_PRELOAD",
+    "LD_LIBRARY_PATH",
+    "DYLD_INSERT_LIBRARIES",
+    "DYLD_LIBRARY_PATH",
+}
+
+# ── Sensitive env vars stripped from PowerShell subprocess ──
+# PowerShell inherits full parent env by default, exposing API keys.
+# Mirror python_exec's P0-3 security model: only pass allowlisted vars.
+_PS_SAFE_ENV_ALLOWLIST = {
+    "PATH", "HOME", "USER", "USERNAME", "COMPUTERNAME",
+    "SYSTEMROOT", "WINDIR", "TEMP", "TMP", "TMPDIR",
+    "LANG", "LC_ALL", "LC_CTYPE", "TZ",
+}
+
+
+def _build_safe_env() -> dict:
+    """Build a minimal environment for PowerShell subprocess.
+
+    Only passes allowlisted vars. Blocks all sensitive patterns
+    (API_KEY, TOKEN, SECRET, PASSWORD, PROXY, CREDENTIAL).
+    """
+    import os
+    _SENSITIVE_PATTERNS = (
+        "API_KEY", "APIKEY", "TOKEN", "SECRET", "PASSWORD", "PASSWD",
+        "PROXY", "CREDENTIAL", "PRIVATE_KEY", "SIGNING_KEY",
+    )
+    safe_env = {}
+    for key, value in os.environ.items():
+        upper_key = key.upper()
+        # Block sensitive patterns
+        if any(p in upper_key for p in _SENSITIVE_PATTERNS):
+            continue
+        # Allowlist
+        if upper_key in _PS_SAFE_ENV_ALLOWLIST or key in _PS_SAFE_ENV_ALLOWLIST:
+            safe_env[key] = value
+    return safe_env
+
 def handle_command_approved_exec(inv: ToolInvocation) -> dict:
     """Shell command execution on Linux/macOS.
 
@@ -23,6 +67,14 @@ def handle_command_approved_exec(inv: ToolInvocation) -> dict:
     if timeout is not None:
         timeout = int(timeout)
 
+    # Sanitize user-provided env_vars: block dangerous overrides that
+    # could replace the system PATH or inject malicious library paths.
+    if isinstance(env_vars, dict):
+        env_vars = {
+            k: v for k, v in env_vars.items()
+            if k not in _BLOCKED_ENV_KEYS
+        }
+
     result = _run_shell(command, cwd=cwd, env=env_vars, timeout=timeout)
     return _result(inv, result.pop("ok", False), result)
 
@@ -32,6 +84,9 @@ def handle_powershell_approved_script(inv: ToolInvocation) -> dict:
     Accepts a PowerShell command string, executes via powershell -Command.
     Safety limits: 15s timeout, 10000 chars output.
     Requires approval_id (high risk). Policy blocks destructive patterns.
+
+    Security: subprocess uses a minimal safe environment (mirrors
+    python_exec's P0-3 model) — no API keys, tokens, or proxy config.
     """
     import platform
     if platform.system() != "Windows":
@@ -41,9 +96,11 @@ def handle_powershell_approved_script(inv: ToolInvocation) -> dict:
         return _unavailable(inv, "command is required")
     import subprocess
     try:
+        safe_env = _build_safe_env() if platform.system() == "Windows" else None
         result = subprocess.run(
             ["powershell", "-NoProfile", "-NonInteractive", "-Command", command],
             capture_output=True, text=True, timeout=15,
+            env=safe_env,
         )
         stdout = (result.stdout or "")[:_SHELL_MAX_OUTPUT]
         stderr = (result.stderr or "")[:_SHELL_MAX_OUTPUT]
