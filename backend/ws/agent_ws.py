@@ -152,15 +152,26 @@ def _run_agent_thread(user_input, session_id, workspace_id, metadata, event_queu
 
     def realtime_callback(event):
         try:
-            stats["live_events"] = int(stats.get("live_events", 0)) + 1
+            seq = int(stats.get("event_seq", 0)) + 1
+            stats["event_seq"] = seq
             if isinstance(event, dict) and event.get("type") == "token":
-                # Pass token events through directly for streaming display
-                event_queue.put(event, timeout=0.2)
+                event_queue.put({"type": "token", "content": event.get("content", ""), "seq": seq}, timeout=0.2)
             else:
+                name = event.get("type", event.get("name", "event")) if isinstance(event, dict) else "event"
+                # v3.10: Surface tool calls as live events for inline display
+                data = event
+                if name in ("tool_call", "tool_result") and isinstance(event, dict):
+                    data = {
+                        **event,
+                        "tool_id": event.get("tool_id", event.get("name", "")),
+                        "ok": event.get("ok", event.get("status") == "ok"),
+                        "summary": event.get("summary", event.get("message", "")),
+                    }
                 event_queue.put({
                     "type": "event",
-                    "name": event.get("type", event.get("name", "event")) if isinstance(event, dict) else "event",
-                    "data": event,
+                    "name": name,
+                    "data": data,
+                    "seq": seq,
                 }, timeout=0.2)
         except Exception:
             pass
@@ -237,6 +248,11 @@ def _run_agent_thread(user_input, session_id, workspace_id, metadata, event_queu
             "warnings": result_payload.get("warnings", []),
             "tool_decision": result_payload.get("tool_decision", {}),
             "no_tool_reason": result_payload.get("no_tool_reason", ""),
+            # v3.10: Resume + context linking
+            "stream_seq": stats.get("event_seq", 0),
+            "active_module": result_payload.get("active_module", ""),
+            "capability": result_payload.get("capability", ""),
+            "error_type": result_payload.get("error_type", ""),
         })
 
         # v3.3.4: Run deferred finalization AFTER done event — user sees response immediately

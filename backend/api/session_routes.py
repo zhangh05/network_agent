@@ -111,6 +111,21 @@ def handle_session_detail(session_id):
     if include_messages:
         result["messages"] = get_session_messages(session_id, ws_id)
 
+    # v3.10: Attach session context from most recent run
+    try:
+        from workspace.run_store import list_runs
+        recent_runs = [r for r in list_runs(ws_id, limit=10) if r.get("session_id") == session_id]
+        if recent_runs:
+            latest = recent_runs[0]
+            ctx = {}
+            for key in ("active_module", "capability", "intent", "runtime_mode",
+                       "llm_metadata", "selected_skill"):
+                if latest.get(key):
+                    ctx[key] = latest[key]
+            result["context"] = ctx
+    except Exception:
+        pass
+
     return jsonify(result)
 
 
