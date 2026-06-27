@@ -674,11 +674,6 @@ export function TaskWorkbench() {
               )}
             </div>
           )}
-          {m.status === "streaming" && (
-            <div className="streaming-indicator-inline">
-              <span className="typing-indicator"><span className="typing-dot" /><span className="typing-dot" /><span className="typing-dot" /></span>
-            </div>
-          )}
           {!sending && idx === total - 1 && lastUserInput && (
             <button className="regenerate-btn" onClick={() => onSend(lastUserInput)} title="重新生成" type="button">🔄 重新生成</button>
           )}
