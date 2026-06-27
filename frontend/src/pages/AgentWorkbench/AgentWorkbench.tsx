@@ -522,10 +522,16 @@ export function TaskWorkbench() {
           });
           useWorkbenchStore.getState().switchSession(resolvedSid);
         }
+        const tcArray = (res.tool_calls ?? []).map((tc: ToolCallResult) => ({
+          tool_id: tc.tool_id, tool_name: toolLabel(tc.tool_id), ok: tc.ok,
+          summary: tc.summary, duration_ms: tc.duration_ms ?? undefined,
+          errors: tc.errors, artifacts: tc.artifacts as any,
+        }));
         updateAssistant(streamingMsgId, {
           status: res.ok ? "ready" : "error",
           text: sanitizeAssistantText(res.final_response ?? ""),
           result: res,
+          toolCalls: tcArray.length > 0 ? tcArray : undefined,
           error: !res.ok ? res.errors?.[0] : undefined,
           trace_id: res.trace_id,
         }, resolvedSid);
@@ -622,7 +628,7 @@ export function TaskWorkbench() {
     : "LLM 离线";
 
   // Message row renderer for Virtuoso virtual list
-  const renderMsg = useCallback((m: any, idx: number) => {
+  const renderMsg = useCallback((m: any, idx: number, total: number) => {
     if (m.role === "user") {
       return (
         <div className="message-row user" data-testid="chat-user">
@@ -631,7 +637,6 @@ export function TaskWorkbench() {
         </div>
       );
     }
-    const total = (visibleHistory ?? []).length;
     return (
       <div className={`message-row assistant${m.status === "error" ? " error" : ""}${m.status === "streaming" ? " streaming" : ""}`} data-testid="chat-assistant">
         <div className="message-avatar agent">网</div>
@@ -678,7 +683,7 @@ export function TaskWorkbench() {
         </div>
       </div>
     );
-  }, [sending, lastUserInput, retryLast, handleCodeCopyClick, visibleHistory]);  // eslint-disable-line
+  }, [sending, lastUserInput, retryLast, handleCodeCopyClick]);  // eslint-disable-line
 
   return (
     <div className="wb-shell">
@@ -745,7 +750,7 @@ export function TaskWorkbench() {
             data={(visibleHistory ?? [])}
             atBottomStateChange={handleAtBottomStateChange}
             followOutput="auto"
-            itemContent={(idx, m) => renderMsg(m, idx)}
+            itemContent={(idx, m) => renderMsg(m, idx, (visibleHistory ?? []).length)}
             components={{
               Footer: () => (sending ? (
                 <div className="message-row assistant" data-testid="chat-sending">
@@ -766,7 +771,7 @@ export function TaskWorkbench() {
                       {streamingText ? (
                         <StreamingContent text={streamingText} />
                       ) : (
-                        <div className="flex items-center gap-1">
+                        <div style={{ display: "flex", alignItems: "center", gap: 4 }}>
                           <span className="typing-indicator"><span className="typing-dot" /><span className="typing-dot" /><span className="typing-dot" /></span>
                           <span className="text-sm muted" style={{ marginLeft: 6 }}>思考中…</span>
                         </div>
