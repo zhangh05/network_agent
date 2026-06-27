@@ -174,6 +174,7 @@ def build_active_tool_contract_block(ctx) -> PromptBlock | None:
     )
     if not visible_tools:
         return None
+    required_tools, optional_tools = _tool_recommendation_sets(ctx)
 
     # Group by namespace prefix
     categories: dict[str, list[str]] = {}
@@ -192,6 +193,7 @@ def build_active_tool_contract_block(ctx) -> PromptBlock | None:
         tools = categories[cat]
         lines.append(f"[{cat}] ({len(tools)} tools)")
         for tid in sorted(tools):
+            label = _tool_recommendation_label(tid, required_tools, optional_tools)
             entry = TOOL_NAMESPACE.get(tid)
             if entry:
                 usage = entry.usage_hint or ""
@@ -202,9 +204,9 @@ def build_active_tool_contract_block(ctx) -> PromptBlock | None:
                 if not_for:
                     parts.append(f"[✗ avoid] {not_for}")
                 hint = " | ".join(parts) if parts else ""
-                lines.append(f"  - {tid}" + (f": {hint[:300]}" if hint else ""))
+                lines.append(f"  - {tid}{label}" + (f": {hint[:300]}" if hint else ""))
             else:
-                lines.append(f"  - {tid}")
+                lines.append(f"  - {tid}{label}")
         lines.append("")
 
     return PromptBlock(
@@ -275,3 +277,26 @@ def _string_list(value: Any) -> list[str]:
             result.append(text)
             seen.add(text)
     return result
+
+
+def _tool_recommendation_sets(ctx) -> tuple[set[str], set[str]]:
+    metadata = getattr(ctx, "metadata", None) or {}
+    decision = metadata.get("tool_planning_decision") or {}
+    if not isinstance(decision, dict):
+        decision = {}
+    if not decision:
+        safe = getattr(ctx, "safe_context", None) or {}
+        scene = safe.get("tool_scene") if isinstance(safe, dict) else {}
+        if isinstance(scene, dict):
+            decision = scene.get("tool_planning_decision") or {}
+    required = set(_string_list(decision.get("required_tools") or []))
+    optional = set(_string_list(decision.get("optional_tools") or []))
+    return required, optional
+
+
+def _tool_recommendation_label(tool_id: str, required: set[str], optional: set[str]) -> str:
+    if tool_id in required:
+        return " [recommended]"
+    if tool_id in optional:
+        return " [optional]"
+    return ""

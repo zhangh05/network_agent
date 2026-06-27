@@ -181,6 +181,28 @@ class RetrievalPolicyStage:
             file_ids = list(safe_ctx.get("file_ids", []) or [])
             artifact_ids = list(safe_ctx.get("artifact_ids", []) or [])
             artifact_refs = ctx.metadata.get("artifact_refs", []) or []
+            try:
+                from agent.runtime.context_file_refs import resolve_explicit_file_refs
+                explicit_refs = resolve_explicit_file_refs(
+                    getattr(ctx, "workspace_id", "") or "",
+                    getattr(ctx, "user_input", "") or "",
+                )
+                if explicit_refs:
+                    ctx.safe_context.setdefault("explicit_file_refs", explicit_refs)
+                    ctx.safe_context.setdefault("file_ids", [])
+                    for ref in explicit_refs:
+                        fid = ref.get("file_id")
+                        if fid and fid not in ctx.safe_context["file_ids"]:
+                            ctx.safe_context["file_ids"].append(fid)
+                    ctx.metadata["explicit_file_ref_count"] = len(explicit_refs)
+                    ctx.metadata["explicit_file_refs_verified"] = len([
+                        r for r in explicit_refs if r.get("verified")
+                    ])
+                    file_ids = list(ctx.safe_context.get("file_ids", []) or [])
+            except Exception as exc:
+                ctx.metadata.setdefault("context_warnings", []).append(
+                    f"explicit_file_ref_resolution_failed: {str(exc)[:120]}"
+                )
             has_file_refs = bool(file_ids or artifact_ids or artifact_refs)
             is_tool_retry = bool(ctx.metadata.get("required_tool_retry_used"))
 
@@ -326,11 +348,9 @@ class ToolPlanningStage:
             rule_tool_scene = scene_to_rule_scene(scene_decision)
 
             allowed_tools = list(tool_scene.get("candidate_tools") or [])
-            # v3.2: Always inject CORE_TOOL_IDS so the LLM never loses
-            # baseline tools (web.*, host.*, workspace.*, tool.catalog.search)
-            # regardless of what the planner outputs.
-            from agent.runtime.capability_routing.manifests import CORE_TOOL_IDS
-            for ct in CORE_TOOL_IDS:
+            # Keep a tiny safe baseline, then add scene-explicit core tools.
+            # Do not re-inflate every turn with the full CORE_TOOL_IDS set.
+            for ct in _core_tools_for_context(ctx, rule_tool_scene):
                 if ct not in allowed_tools:
                     allowed_tools.append(ct)
             ctx.tool_router = ToolRouter.for_turn(base_reg, allowed_tool_ids=allowed_tools)
@@ -404,8 +424,11 @@ class SafeContextStage:
                 snapshot.metadata["rule_tool_scene"] = rule_tool_scene
             ctx.runtime_snapshot = snapshot.to_dict()
 
-            # Safe context
-            safe = {"workspace_id": ctx.workspace_id, "session_id": ctx.session_id}
+            # Safe context. Preserve pre-resolved context from earlier stages
+            # (for example explicit @file/file_id evidence) and then overlay
+            # durable evidence bundle fields.
+            safe = dict(getattr(ctx, "safe_context", None) or {})
+            safe.update({"workspace_id": ctx.workspace_id, "session_id": ctx.session_id})
             if evidence_bundle is not None and hasattr(evidence_bundle, "to_safe_context"):
                 safe.update(evidence_bundle.to_safe_context())
 
@@ -576,14 +599,15 @@ def _enrich_retrieval_wrapper(ctx, evidence_bundle) -> None:
 def _tool_counts_wrapper(ctx) -> tuple:
     visible_tools = []
     all_tools_count = 0
-    if ctx.tool_router:
+    tool_router = getattr(ctx, "tool_router", None)
+    if tool_router:
         try:
-            visible_tools = ctx.tool_router.model_visible_tools()
+            visible_tools = tool_router.model_visible_tools()
         except Exception:
             visible_tools = []
         try:
-            if ctx.tool_router.registry:
-                all_tools_count = len(ctx.tool_router.registry.list_all())
+            if tool_router.registry:
+                all_tools_count = len(tool_router.registry.list_all())
         except Exception:
             all_tools_count = len(visible_tools)
     return visible_tools, all_tools_count
@@ -624,3 +648,33 @@ def _llm_safe_tool_scene(tool_scene: dict) -> dict:
     )
     safe = {k: tool_scene[k] for k in keep if k in tool_scene}
     return safe
+
+
+def _core_tools_for_context(ctx: Any, rule_scene: dict) -> list[str]:
+    """Return minimal core tools that should remain visible for this turn."""
+    tools = [
+        "tool.catalog.search",
+        "workspace.file.list",
+        "workspace.file.read",
+        "workspace.artifact.read",
+    ]
+    categories = set((rule_scene or {}).get("categories") or [])
+    groups = (rule_scene or {}).get("groups") or {}
+    user_input = getattr(ctx, "user_input", "") or ""
+    lower = user_input.lower()
+
+    if "web" in categories or groups.get("web") or any(k in lower for k in ("搜索", "官网", "最新", "weather", "新闻")):
+        tools.extend(["web.search", "web.page.process", "web.weather"])
+    if "host" in categories or groups.get("host"):
+        tools.extend(["exec.run", "exec.python", "system.diagnostics"])
+    if "git" in categories or "git" in lower:
+        tools.extend(["git.status", "git.diff", "git.log"])
+    if "device" in categories or groups.get("device"):
+        tools.extend(["device.list", "device.get"])
+    if "browser" in categories or groups.get("browser"):
+        tools.extend(["browser.navigate", "browser.extract", "browser.screenshot"])
+    if "memory" in categories or groups.get("memory"):
+        tools.append("memory.search")
+    if "code" in categories or "代码" in user_input or "源码" in user_input:
+        tools.append("code.search")
+    return list(dict.fromkeys(tools))

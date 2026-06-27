@@ -267,6 +267,29 @@ def compact_messages(
 
     original_est = estimate_context_size(messages)
 
+    if strategy == CompactionStrategy.LLM_SUMMARY:
+        protected_messages = [m for i, m in enumerate(messages) if i in protected_indices]
+        old_messages = [m for i, m in enumerate(messages) if i not in protected_indices]
+        summary = _build_progress_summary(old_messages)
+        compacted = [summary, *protected_messages] if summary else protected_messages
+        new_est = estimate_context_size(compacted)
+        duration_ms = round((time.perf_counter() - t0) * 1000, 2)
+        return compacted, {
+            "compacted": True,
+            "strategy": strategy.value,
+            "trigger": trigger,
+            "threshold_pct": threshold_pct,
+            "compacted_message_count": len(old_messages),
+            "original_estimated_tokens": original_est,
+            "compacted_estimated_tokens": new_est,
+            "duration_ms": duration_ms,
+            "reference_context_item_id": _first_reference_id(compacted),
+            "retention_ratio": round(new_est / original_est, 3) if original_est > 0 else 0.0,
+            "summary_message_created": bool(summary),
+            "summary_source": "deterministic_fallback",
+            "ts": datetime.now(timezone.utc).isoformat(),
+        }
+
     compacted = []
     compacted_count = 0
 
@@ -282,19 +305,6 @@ def compact_messages(
     new_est = estimate_context_size(compacted)
     duration_ms = round((time.perf_counter() - t0) * 1000, 2)
 
-    # ── Reference context item: first kept non-system message ──
-    ref_id = ""
-    for m in compacted:
-        if isinstance(m, dict) and not _is_system_message(m):
-            mid = m.get("message_id") or m.get("id") or m.get("run_id") or ""
-            if mid:
-                ref_id = str(mid)
-                break
-        elif hasattr(m, "message_id"):
-            ref_id = str(getattr(m, "message_id", "") or "")
-            if ref_id:
-                break
-
     return compacted, {
         "compacted": True,
         "strategy": strategy.value,
@@ -304,8 +314,9 @@ def compact_messages(
         "original_estimated_tokens": original_est,
         "compacted_estimated_tokens": new_est,
         "duration_ms": duration_ms,
-        "reference_context_item_id": ref_id,
+        "reference_context_item_id": _first_reference_id(compacted),
         "retention_ratio": round(new_est / original_est, 3) if original_est > 0 else 0.0,
+        "summary_message_created": False,
         "ts": datetime.now(timezone.utc).isoformat(),
     }
 
@@ -369,6 +380,58 @@ def _build_deterministic_summary(msg) -> dict:
             "content": f"[compacted user: {snippet}]",
         }
     return {"role": role, "content": f"[compacted {role} message]"}
+
+
+def _build_progress_summary(messages: list) -> dict:
+    """Build a compact progress summary for older history."""
+    snippets = []
+    tool_count = 0
+    user_count = 0
+    assistant_count = 0
+    for msg in messages or []:
+        role = "unknown"
+        if isinstance(msg, dict):
+            role = str(msg.get("role", "unknown"))
+        elif hasattr(msg, "role"):
+            role = str(getattr(msg, "role", "unknown"))
+        content = _message_content(msg).replace("\n", " ").strip()
+        if not content:
+            continue
+        if role == "tool":
+            tool_count += 1
+        elif role == "user":
+            user_count += 1
+        elif role == "assistant":
+            assistant_count += 1
+        if len(snippets) < 8:
+            snippets.append(f"- {role}: {content[:180]}")
+    content = (
+        "[State of progress]\n"
+        f"Compacted earlier context: {len(messages or [])} messages "
+        f"({user_count} user, {assistant_count} assistant, {tool_count} tool).\n"
+    )
+    if snippets:
+        content += "Key preserved points:\n" + "\n".join(snippets)
+    return {
+        "role": "assistant",
+        "content": content[:3000],
+        "message_id": "context_summary_auto",
+        "metadata": {"compaction": "llm_summary", "source": "deterministic_fallback"},
+    }
+
+
+def _first_reference_id(messages: list) -> str:
+    """Return first non-system context item id."""
+    for m in messages or []:
+        if isinstance(m, dict) and not _is_system_message(m):
+            mid = m.get("message_id") or m.get("id") or m.get("run_id") or ""
+            if mid:
+                return str(mid)
+        elif hasattr(m, "message_id"):
+            mid = str(getattr(m, "message_id", "") or "")
+            if mid:
+                return mid
+    return ""
 
 
 def _summarize_tool_content(content: str) -> str:

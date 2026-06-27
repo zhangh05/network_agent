@@ -135,6 +135,13 @@ class EvidenceBundle:
                 f"{a['source_type']}:{a['item_id']} trust {a['from']}→{a['to']}"
                 for a in self.trust_report.get("adjustments", [])
             ]
+        grounding = (self.trust_report or {}).get("grounding") or {}
+        if grounding:
+            safe["grounding_report"] = {
+                "verified_count": int(grounding.get("verified_count", 0) or 0),
+                "unverified_count": int(grounding.get("unverified_count", 0) or 0),
+                "checks": list(grounding.get("checks", []) or [])[:8],
+            }
         return safe
 
 
