@@ -133,8 +133,6 @@ export function TaskWorkbench() {
   const [viewMode, setViewMode] = useState<ViewMode>("chat");
   const [input, setInput] = useState("");
   const [attachments, setAttachments] = useState<Array<{ id: string; name: string; size: string; file: File; uploading?: boolean }>>([]);
-  const [streamingText, setStreamingText] = useState("");
-  const [streamingToolCalls, setStreamingToolCalls] = useState<Array<{tool_id: string; ok?: boolean; summary?: string; status: "running" | "done" | "fail"}>>([]);
   const [userScrolledUp, setUserScrolledUp] = useState(false);
   const thinkFilter = useRef<{ mode: import("../../utils/displayText").ThinkFilterState }>({ mode: "idle" });
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -144,9 +142,8 @@ export function TaskWorkbench() {
   const toast = useToastStore((s) => s.show);
   const abortRef = useRef<AbortController | null>(null);
   const wsRef = useRef<WebSocket | null>(null);
-  const streamingMsgRef = useRef<string>("");
 
-  // Stop generation: abort + close WS + finalize placeholder
+  // Stop generation: abort active request + close WebSocket
   const stopGeneration = useCallback(() => {
     if (abortRef.current) {
       abortRef.current.abort();
@@ -156,13 +153,8 @@ export function TaskWorkbench() {
       try { wsRef.current.close(); } catch {}
       wsRef.current = null;
     }
-    if (streamingMsgRef.current) {
-      updateAssistant(streamingMsgRef.current, { status: "ready" });
-      streamingMsgRef.current = "";
-    }
     setSending(false);
-    setStreamingText("");
-  }, [setSending]);  // eslint-disable-line
+  }, []);  // eslint-disable-line
 
   // Save scroll position on session switch
   const prevSessionId = useRef(currentSessionId);
@@ -202,7 +194,7 @@ export function TaskWorkbench() {
 
   useEffect(() => {
     scrollToBottom();
-  }, [(visibleHistory ?? []).length, sending, streamingText, scrollToBottom]);
+  }, [(visibleHistory ?? []).length, sending, scrollToBottom]);
 
   // Track user scroll via Virtuoso atBottomStateChange
   const handleAtBottomStateChange = useCallback((atBottom: boolean) => {
@@ -332,13 +324,10 @@ export function TaskWorkbench() {
       }
     }
 
-    const scratch = currentSessionId;
+    const scratch = currentSessionId ?? "_scratch";
     appendUser(fullText, scratch);
     const streamingMsgId = appendAssistantStreaming(scratch);
-    streamingMsgRef.current = streamingMsgId;
     setSending(true);
-    setStreamingText("");  // Clear previous streaming text
-    setStreamingToolCalls([]);  // Reset live tool calls
 
     // Try WebSocket streaming first, fall back to HTTP
     // Dev: proxied through Vite (port 5173). Prod: same-origin.
@@ -399,40 +388,44 @@ export function TaskWorkbench() {
                 const visible = filterStreamingThink(raw, thinkFilter.current);
                 streamState.draft += visible;
                 streamedText = streamState.draft;
-                setStreamingText(streamedText);
+                useWorkbenchStore.getState().updateAssistant(streamingMsgId, { text: streamedText }, scratch);
                 break;
               case "event":
                 if (msg.data) {
                   streamingResult.events = [...(streamingResult.events || []), msg.data];
                 }
-                // Log events for debugging
                 if (msg.name === "model_started") {
                   streamState = beginModelStep(streamedText);
                   streamedText = "";
-                  setStreamingText("");
+                  useWorkbenchStore.getState().updateAssistant(streamingMsgId, { text: "" }, scratch);
                 }
                 if (msg.name === "tool_call" || msg.name === "tool_result") {
                   streamingResult.tool_calls_count = (streamingResult.tool_calls_count || 0) + 1;
-                  // Live tool call display during streaming
                   const tid = msg.data?.tool_id || msg.data?.name || "";
                   if (tid) {
-                    setStreamingToolCalls((prev) => {
-                      const existing = prev.find((t) => t.tool_id === tid && t.status === "running");
-                      if (msg.name === "tool_result") {
-                        const ok = msg.data?.ok ?? msg.data?.status === "ok";
-                        return prev.map((t) => t.tool_id === tid && t.status === "running"
-                          ? { ...t, status: ok ? "done" as const : "fail" as const, ok, summary: msg.data?.summary }
-                          : t);
+                    // Update live tool calls directly on the streaming message
+                    const store = useWorkbenchStore.getState();
+                    const curr = store.bySession[scratch]?.find((m) => m.id === streamingMsgId);
+                    const prevCalls = (curr?.toolCalls || []) as any[];
+                    if (msg.name === "tool_result") {
+                      const ok = msg.data?.ok ?? msg.data?.status === "ok";
+                      const nextCalls = prevCalls.map((t: any) =>
+                        t.tool_id === tid ? { ...t, status: ok ? "done" : "fail", ok, summary: msg.data?.summary } : t
+                      );
+                      store.updateAssistant(streamingMsgId, { toolCalls: nextCalls }, scratch);
+                    } else {
+                      if (!prevCalls.find((t: any) => t.tool_id === tid)) {
+                        store.updateAssistant(streamingMsgId, {
+                          toolCalls: [...prevCalls, { tool_id: tid, tool_name: toolLabel(tid), status: "running" }],
+                        }, scratch);
                       }
-                      if (existing) return prev;
-                      return [...prev, { tool_id: tid, status: "running" as const }];
-                    });
+                    }
                   }
                 }
                 if (msg.name === "tool_call") {
                   discardToolCallDraft(streamState);
                   streamedText = "";
-                  setStreamingText("");
+                  useWorkbenchStore.getState().updateAssistant(streamingMsgId, { text: "" }, scratch);
                 }
                 break;
               case "done":
@@ -568,13 +561,8 @@ export function TaskWorkbench() {
         toast({ kind: "error", title: "请求失败", body: msg });
       }
     } finally {
-      // Clear streaming state
       wsRef.current = null;
-      streamingMsgRef.current = "";
-      requestAnimationFrame(() => {
-        setSending(false);
-        setStreamingText("");
-      });
+      setSending(false);
     }
   }
 
@@ -643,29 +631,54 @@ export function TaskWorkbench() {
       <div className={`message-row assistant${m.status === "error" ? " error" : ""}${m.status === "streaming" ? " streaming" : ""}`} data-testid="chat-assistant">
         <div className="message-avatar agent">网</div>
         <div className="message-stack">
-          {m.toolCalls && m.toolCalls.length > 0 && (
+          {/* Live tool call chips during streaming */}
+          {m.status === "streaming" && m.toolCalls && m.toolCalls.length > 0 && (
+            <div className="tool-calls-inline">
+              {m.toolCalls.map((tc: any, tci: number) => (
+                <span key={`${tc.tool_id}-${tci}`} className={`live-tool-chip ${tc.status || "running"}`}>
+                  <span className={`live-tool-dot ${tc.status || "running"}`} />
+                  {tc.tool_name || toolLabel(tc.tool_id)}
+                  {tc.summary && <span className="live-tool-summary">{tc.summary.slice(0, 40)}</span>}
+                </span>
+              ))}
+            </div>
+          )}
+          {/* Completed tool call cards */}
+          {m.status !== "streaming" && m.toolCalls && m.toolCalls.length > 0 && (
             <div className="tool-calls-inline">
               {m.toolCalls.map((tc: any, tci: number) => (
                 <InlineToolCallCard key={`${tc.tool_id}-${tci}`} toolCall={tc} seq={tci + 1} />
               ))}
             </div>
           )}
-          {(() => {
-            const { thinking, body } = parseThinking(m.text);
-            const html = body ? renderAssistantHtml(body) : "";
-            if (m.status === "streaming" && !html && m.text) {
-              return <span className="text-sm streaming-text">{m.text}</span>;
-            }
-            return (<>
-              {thinking && <ThinkingBlock content={thinking} />}
-              {html ? (
-                <div className="chat-bubble assistant markdown-body" onClick={handleCodeCopyClick} dangerouslySetInnerHTML={{ __html: highlightCode(html) }} />
-              ) : (!m.text && m.status !== "streaming") ? (
-                <span className="muted">(空消息)</span>
-              ) : null}
-            </>);
-          })()}
-          <ResultInline result={m.result} fallbackText={sanitizeAssistantText(m.text)} />
+          {m.status === "streaming" ? (
+            <div className="chat-bubble assistant sending-line">
+              {m.text ? (
+                <StreamingContent text={m.text} />
+              ) : (
+                <div style={{ display: "flex", alignItems: "center", gap: 4 }}>
+                  <span className="typing-indicator"><span className="typing-dot" /><span className="typing-dot" /><span className="typing-dot" /></span>
+                  <span className="text-sm muted" style={{ marginLeft: 6 }}>思考中…</span>
+                </div>
+              )}
+            </div>
+          ) : (
+            <>
+              {(() => {
+                const { thinking, body } = parseThinking(m.text);
+                const html = body ? renderAssistantHtml(body) : "";
+                return (<>
+                  {thinking && <ThinkingBlock content={thinking} />}
+                  {html ? (
+                    <div className="chat-bubble assistant markdown-body" onClick={handleCodeCopyClick} dangerouslySetInnerHTML={{ __html: highlightCode(html) }} />
+                  ) : (!m.text) ? (
+                    <span className="muted">(空消息)</span>
+                  ) : null}
+                </>);
+              })()}
+              <ResultInline result={m.result} fallbackText={sanitizeAssistantText(m.text)} />
+            </>
+          )}
           {m.status === "error" && m.error && (
             <div className="msg-error-box">
               <span>⚠️ {_humanFailure(m.result?.error_type, m.error ?? "").msg}</span>
@@ -748,36 +761,6 @@ export function TaskWorkbench() {
             atBottomStateChange={handleAtBottomStateChange}
             followOutput="auto"
             itemContent={(idx, m) => renderMsg(m, idx, (visibleHistory ?? []).length)}
-            components={{
-              Footer: () => (sending ? (
-                <div className="message-row assistant" data-testid="chat-sending">
-                  <div className="message-avatar agent">网</div>
-                  <div className="message-stack">
-                    {streamingToolCalls.length > 0 && (
-                      <div className="tool-calls-inline">
-                        {streamingToolCalls.map((tc, i) => (
-                          <span key={`${tc.tool_id}-${i}`} className={`live-tool-chip ${tc.status}`}>
-                            <span className={`live-tool-dot ${tc.status}`} />
-                            {toolLabel(tc.tool_id)}
-                            {tc.summary && <span className="live-tool-summary">{tc.summary.slice(0, 40)}</span>}
-                          </span>
-                        ))}
-                      </div>
-                    )}
-                    <div className="chat-bubble assistant sending-line">
-                      {streamingText ? (
-                        <StreamingContent text={streamingText} />
-                      ) : (
-                        <div style={{ display: "flex", alignItems: "center", gap: 4 }}>
-                          <span className="typing-indicator"><span className="typing-dot" /><span className="typing-dot" /><span className="typing-dot" /></span>
-                          <span className="text-sm muted" style={{ marginLeft: 6 }}>思考中…</span>
-                        </div>
-                      )}
-                    </div>
-                  </div>
-                </div>
-              ) : null),
-            }}
             style={{ height: "100%" }}
           />
         )}
