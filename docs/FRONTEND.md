@@ -99,3 +99,19 @@ Virtuoso 虚拟列表 + `renderMsg` 回调：
 1. 在 `src/pages/` 创建目录和 `.tsx`
 2. 在 `src/app/App.tsx` 添加路由
 3. 如需新 API，在 `src/api/` 添加客户端
+
+## 现有页面
+
+| 路由 | 页面 |
+|------|------|
+| `/workbench` | AgentWorkbench |
+| `/jobs` | JobsPage |
+| `/runs` | RunsPage |
+| `/packet` | PacketAnalysis |
+| `/artifacts` | ArtifactCenter |
+| `/knowledge` | KnowledgeLibrary |
+| `/memory` | MemoryPage |
+| `/cmdb` | CMDBPage |
+| `/capabilities` | CapabilityCenter |
+| `/settings` | Settings |
+| `/diagnostics` | Diagnostics |

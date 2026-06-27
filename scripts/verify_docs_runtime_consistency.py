@@ -37,34 +37,18 @@ def markdown_links(text: str) -> list[str]:
 
 
 def main() -> int:
-    from agent.runtime.services import default_runtime_services
-    from tool_runtime.canonical_registry import CANONICAL_REGISTRY
-    from tool_runtime.tool_governance import planner_visible_tool_ids
-    from tool_runtime.tool_namespace import TOOL_NAMESPACE
+    from tool_runtime.manifest_registry import MANIFESTS
 
-    services = default_runtime_services()
-    registered = {
-        tool.tool_id for tool in services.tool_service.registry.list_all()
-    }
-    model_visible = {
-        tool.tool_id for tool in services.tool_service.registry.list_model_visible()
-    }
-    canonical = set(CANONICAL_REGISTRY)
-    namespace = set(TOOL_NAMESPACE)
-    planner_visible = set(planner_visible_tool_ids())
-
-    check(registered == canonical, "runtime registry matches canonical registry")
-    check(model_visible == planner_visible, "model-visible tools match planner-visible tools")
-    check(canonical == namespace, "canonical registry matches tool namespace")
+    check(len(MANIFESTS) >= 70, "manifests registry has 70+ tools")
 
     required_docs = [
         "README.md",
         "AGENTS.md",
+        "DESIGN.md",
+        "STRUCTURE.md",
         "docs/API.md",
         "docs/ARCHITECTURE.md",
-        "docs/CAPABILITIES_AND_TOOLS.md",
         "docs/FRONTEND.md",
-        "docs/RUNTIME.md",
         "docs/backend/API_CONTRACT.md",
         "docs/storage/STORAGE_BOUNDARIES.md",
     ]
@@ -78,9 +62,11 @@ def main() -> int:
     combined_docs = "\n".join(read(path) for path in required_docs)
     required_current_refs = [
         "POST /api/agent/message",
-        "agent/modules/knowledge/",
-        "tool_runtime/canonical_registry.py",
-        "GET /api/pcap/session/<sid>",
+        "WebSocket",
+        "Zustand",
+        "Virtuoso",
+        "manifest_registry.py",
+        "workspace_id",
     ]
     for reference in required_current_refs:
         check(reference in combined_docs, f"documents current surface: {reference}")

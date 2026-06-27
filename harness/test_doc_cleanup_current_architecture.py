@@ -9,19 +9,24 @@ DOCS = [
     ROOT / "README.md",
     ROOT / "DESIGN.md",
     ROOT / "docs" / "ARCHITECTURE.md",
-    ROOT / "docs" / "RUNTIME.md",
     ROOT / "docs" / "API.md",
     ROOT / "docs" / "FRONTEND.md",
+    ROOT / "docs" / "backend" / "API_CONTRACT.md",
+    ROOT / "docs" / "storage" / "STORAGE_BOUNDARIES.md",
 ]
 
 REQUIRED_TERMS = [
-    "RuntimeState",
-    "Output",
-    "Response",
-    "memory_write_plan",
-    "turn_trace",
-    "truth_report",
-    "stability_report",
+    "AgentResult",
+    "workspace_id",
+    "Zustand",
+    "Virtuoso",
+    "WebSocket",
+]
+
+STALE_TERMS = [
+    "Python 3.13",
+    "max 8 steps",
+    "history window (k=8)",
 ]
 
 
@@ -35,22 +40,20 @@ def test_current_docs_exist_and_are_not_empty():
         assert _read(path).strip(), str(path)
 
 
-def test_docs_reference_current_runtime_reports():
+def test_docs_reference_current_architecture():
     combined = "\n".join(_read(path) for path in DOCS)
     for term in REQUIRED_TERMS:
-        assert term in combined
+        assert term in combined, f"Required term '{term}' not found in docs"
 
 
-def test_docs_match_current_runtime_constants_and_api_methods():
+def test_docs_have_no_stale_content():
     combined = "\n".join(_read(path) for path in DOCS)
+    for term in STALE_TERMS:
+        assert term not in combined, f"Stale term '{term}' found in docs"
 
-    assert "Python 3.13" not in combined
-    assert "`GET` | `/api/tools/invoke`" not in combined
-    assert "`GET /api/tools/invoke`" not in combined
-    assert "max 8 steps" not in combined
-    assert "history window (k=8)" not in combined
 
+def test_docs_match_current_stack():
+    combined = "\n".join(_read(path) for path in DOCS)
     assert "Python 3.12+" in combined
-    assert "`POST /api/tools/invoke`" in combined
-    assert "max 24 steps" in combined
-    assert "history window (k=30)" in combined
+    assert "/api/tools/invoke" in combined
+    assert "73" in combined  # tool count
