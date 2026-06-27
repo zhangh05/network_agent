@@ -957,6 +957,9 @@ const ResultInline = React.memo(function ResultInline({ result, fallbackText }: 
   const isFailed = !result?.ok;
   const finalText = (result?.final_response || fallbackText || "").trim();
 
+  // Nothing to show — no result and no fallback text
+  if (!result && !fallbackText) return null;
+
   async function rememberAnswer() {
     if (!finalText) { toast({ kind: "warning", title: "无法保存", body: "当前回答内容为空" }); return; }
     if (!currentWorkspaceId) { toast({ kind: "warning", title: "未选择工作区", body: "请先在左侧选择工作区" }); return; }
