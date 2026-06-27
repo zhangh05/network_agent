@@ -8,6 +8,8 @@ import html
 from typing import Any
 from datetime import datetime, timezone
 
+from tool_runtime.general_tools.shared import _result
+
 
 __all__ = [
     "_is_private_url",
