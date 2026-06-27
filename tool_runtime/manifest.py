@@ -13,6 +13,12 @@ RollbackStrategy = Literal["none","soft_delete_restore","artifact_restore","cust
 OutputSensitivity = Literal["public","internal","sensitive","secret"]
 CallerType = Literal["turn_runner","rest_api","job_runner","graph_runner","subagent"]
 
+# Default caller set for all tools. Individual manifests override this
+# only when a tool must be restricted to a subset of callers.
+DEFAULT_ALLOWED_CALLERS: list[CallerType] = [
+    "turn_runner", "rest_api", "job_runner", "graph_runner", "subagent",
+]
+
 @dataclass
 class RetryPolicy:
     max_attempts: int = 1
@@ -43,7 +49,9 @@ class CapabilityManifest:
     output_sensitivity: OutputSensitivity = "internal"
 
     # ── Access control ──
-    allowed_callers: list[CallerType] = field(default_factory=lambda: ["turn_runner","rest_api","job_runner"])
+    allowed_callers: list[CallerType] = field(
+        default_factory=lambda: list(DEFAULT_ALLOWED_CALLERS)
+    )
     workspace_scope_required: bool = True
 
     # ── Artifact ──

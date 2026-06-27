@@ -91,13 +91,17 @@ class ToolRuntimeClient:
             )
 
         caller = invocation.requested_by or ""
-        # v3.10: Missing caller defaults to "turn_runner" instead of blocking.
-        # The agent LLM loop always runs through TurnContext.requested_by="turn_runner",
-        # but other paths (module services, REST API direct calls, test harness)
-        # may not set it. Fail-open is safer than blocking valid tool calls.
         if not caller:
-            caller = "turn_runner"
-            invocation.requested_by = caller
+            return ToolResult(
+                tool_id=tool_id, status="blocked",
+                summary=(
+                    "Caller identity (requested_by) is required. "
+                    "Set ToolRuntimeContext.requested_by to one of: "
+                    + ", ".join(manifest.allowed_callers)
+                ),
+                errors=["caller_missing"],
+                redacted=True,
+            )
         if caller not in manifest.allowed_callers:
             return ToolResult(
                 tool_id=tool_id, status="blocked",
