@@ -60,6 +60,17 @@ class TestMemoryWriteGate:
         assert result["ok"] is False
         assert result["rejected"] is True
 
+    def test_segmented_secret_rejected(self):
+        gate = MemoryWriteGate()
+        rec = MemoryRecord(
+            workspace_id="ws_test",
+            content="api key sk-test-secret-1234567890abcdef should not store",
+            summary="API key storage",
+        )
+        result = gate.write(rec)
+        assert result["ok"] is False
+        assert result["rejected"] is True
+
     def test_workspace_required(self):
         gate = MemoryWriteGate()
         rec = MemoryRecord(workspace_id="", content="test")

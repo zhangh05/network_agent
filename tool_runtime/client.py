@@ -68,7 +68,9 @@ class ToolRuntimeClient:
             tool_id=tool_id,
             arguments=arguments,
             workspace_id=getattr(context, "workspace_id", None) if context else None,
+            session_id=getattr(context, "session_id", None) if context else None,
             run_id=getattr(context, "run_id", None) if context else None,
+            task_id=getattr(context, "task_id", None) if context else None,
             job_id=getattr(context, "job_id", None) if context else None,
             dry_run=dry_run,
             requested_by=getattr(context, "requested_by", "") if context else "",
@@ -138,7 +140,9 @@ class ToolRuntimeClient:
             meta = build_trace_metadata_from_tool_result(result)
             meta.update({
                 "workspace_id": getattr(context, "workspace_id", "") or "",
+                "session_id": getattr(context, "session_id", "") or "",
                 "run_id": getattr(context, "run_id", "") or "",
+                "task_id": getattr(context, "task_id", "") or "",
                 "job_id": getattr(context, "job_id", "") or "",
                 "capability": getattr(context, "capability", "") or "",
                 "skill": getattr(context, "skill", "") or "",

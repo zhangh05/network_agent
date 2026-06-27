@@ -8,7 +8,7 @@ import html
 from typing import Any
 from datetime import datetime, timezone
 
-from tool_runtime.general_tools.shared import _result
+from tool_runtime.general_tools.shared import _PRIVATE_IP_PREFIXES, _result
 
 
 __all__ = [

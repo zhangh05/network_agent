@@ -39,6 +39,11 @@ def test_memory_rest_contracts_are_governed_and_validated(tmp_path, monkeypatch)
     body = created.get_json()
     assert body["ok"] is True
     assert body["status"] == "active"
+    visible = client.get("/api/memory/list?workspace_id=contract_ws")
+    assert visible.status_code == 200
+    visible_body = visible.get_json()
+    assert visible_body["count"] == 1
+    assert visible_body["records"][0]["content"] == "User explicitly confirmed this memory."
 
     old_confirm_mode = client.post(
         "/api/memory/confirm",
@@ -83,6 +88,29 @@ def test_memory_delete_uses_reject_transition_not_write_gate(tmp_path, monkeypat
     assert resp.status_code == 200
     assert resp.get_json()["ok"] is True
     assert MemoryStore().get("delete_ws", rec.memory_id).status == "rejected"
+
+
+def test_memory_list_redacts_legacy_secret_records(tmp_path, monkeypatch):
+    import workspace.memory_governance as mg
+    from workspace.memory_governance import MemoryRecord, MemoryStore
+    from backend.main import create_app
+
+    monkeypatch.setattr(mg, "WS_ROOT", tmp_path)
+    MemoryStore().save(MemoryRecord(
+        workspace_id="list_redact_ws",
+        status="pending",
+        source="agent_suggestion",
+        content="legacy bad secret sk-test-secret-1234567890abcdef",
+    ))
+    client = create_app().test_client()
+
+    resp = client.get("/api/memory/list?workspace_id=list_redact_ws")
+
+    assert resp.status_code == 200
+    body = resp.get_json()
+    assert body["count"] == 1
+    assert "sk-test-secret-1234567890abcdef" not in str(body)
+    assert "[REDACTED]" in str(body)
 
 
 def test_memory_retriever_filters_non_active_hits(monkeypatch):

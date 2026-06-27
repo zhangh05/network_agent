@@ -4,6 +4,7 @@ from tool_runtime.schemas import ToolInvocation
 from workspace.ids import validate_workspace_id
 """Web tool handlers — search, weather, news, fetch."""
 import threading
+import time
 
 from tool_runtime.general_tools.shared import _caller_workspace, _contract, _error, _error_inv, _ok, _result, _safe_preview, _unavailable, _workspace_path
 from tool_runtime.general_tools.shared_web import *  # has __all__ — 21 functions, all needed

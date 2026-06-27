@@ -30,7 +30,9 @@ class ToolRuntimeContext:
     """
 
     workspace_id: Optional[str] = None
+    session_id: Optional[str] = None
     run_id: Optional[str] = None
+    task_id: Optional[str] = None
     trace_id: Optional[str] = None
     job_id: Optional[str] = None
     capability: Optional[str] = None
@@ -43,7 +45,9 @@ class ToolRuntimeContext:
     def as_dict(self) -> dict:
         return {
             "workspace_id": self.workspace_id,
+            "session_id": self.session_id,
             "run_id": self.run_id,
+            "task_id": self.task_id,
             "trace_id": self.trace_id,
             "job_id": self.job_id,
             "capability": self.capability,

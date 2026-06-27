@@ -24,5 +24,30 @@ def handle_memory_list():
         return jsonify({"ok": False, "error": err}), 400
     from workspace.memory_governance import MemoryStore
     store = MemoryStore()
-    records = store.list_retrievable(ws_id)
+    include_deleted = str(request.args.get("include_deleted", "")).lower() in {"1", "true", "yes"}
+    status_filter = str(request.args.get("status", "")).strip()
+    session_id = str(request.args.get("session_id", "")).strip()
+    try:
+        limit = int(request.args.get("limit") or 100)
+    except Exception:
+        limit = 100
+    limit = max(1, min(limit, 500))
+
+    records = []
+    for rec in store.list_all(ws_id):
+        if status_filter and rec.status != status_filter:
+            continue
+        if session_id and rec.session_id != session_id:
+            continue
+        if not include_deleted and rec.status in {"rejected", "expired"}:
+            continue
+        payload = rec.to_dict()
+        try:
+            from tool_runtime.redaction import redact_tool_output
+            payload = redact_tool_output(payload)
+        except Exception:
+            pass
+        records.append(payload)
+        if len(records) >= limit:
+            break
     return jsonify({"ok": True, "records": records, "count": len(records)})

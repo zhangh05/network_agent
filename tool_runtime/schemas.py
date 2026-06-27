@@ -107,7 +107,9 @@ class ToolInvocation:
     tool_id: str = ""
     arguments: dict = field(default_factory=dict)
     workspace_id: Optional[str] = None
+    session_id: Optional[str] = None
     run_id: Optional[str] = None
+    task_id: Optional[str] = None
     job_id: Optional[str] = None
     dry_run: bool = False
     requested_by: str = ""            # e.g. "module:config_translation", "agent:admin"

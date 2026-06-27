@@ -36,7 +36,8 @@ BUILTIN_PROFILES: dict[str, SubagentProfile] = {
         allowed_action_classes=["read"],
         allowed_tools=["workspace.file.read", "workspace.file.list", "code.search",
                        "knowledge.search", "knowledge.read", "git.diff", "git.log",
-                       "git.status", "tool.catalog.search"],
+                       "git.status", "tool.catalog.search", "web.search",
+                       "web.page.process"],
         max_steps=5, max_runtime_seconds=120,
         memory_write_policy="pending_only",
         output_contract="Review findings with severity: info/warning/critical",
@@ -231,9 +232,12 @@ def run_subagent_task(subtask_id: str, ws_id: str) -> dict:
         from agent.tools.router import ToolRouter
         from agent.runtime.services import default_runtime_services
 
-        sess = AgentSession(session_id=task.session_id, workspace_id=ws_id)
+        child_session_id = subtask_id
+        sess = AgentSession(session_id=child_session_id, workspace_id=ws_id)
         sess.mark_sub_agent()
         sess.metadata["max_steps"] = profile.max_steps
+        sess.metadata["parent_session_id"] = task.session_id
+        sess.metadata["subtask_id"] = subtask_id
 
         # Build restricted ToolRouter from the real runtime registry. A bare
         # ToolRouter has an empty registry, which hides every subagent tool.
@@ -247,7 +251,7 @@ def run_subagent_task(subtask_id: str, ws_id: str) -> dict:
         # Submit via run_turn with restricted tools
         from agent.core.turn import AgentTurn
         from agent.protocol.op import AgentOp
-        op = AgentOp(user_input=goal_prompt, workspace_id=ws_id, session_id=task.session_id)
+        op = AgentOp(user_input=goal_prompt, workspace_id=ws_id, session_id=child_session_id)
         turn = AgentTurn.from_op(op)
         turn.metadata = {
             "max_steps": profile.max_steps,
@@ -279,20 +283,28 @@ def run_subagent_task(subtask_id: str, ws_id: str) -> dict:
 
         # Extract tool calls that were actually made
         events = getattr(llm_result, 'events', []) or []
-        tool_events = [e for e in events if 'tool' in str(getattr(e, 'event_type', '')).lower()]
+        tool_events = [
+            e for e in events
+            if 'tool' in str(
+                getattr(e, 'event_type', '') or getattr(e, 'type', '') or ''
+            ).lower()
+        ]
         
         for te in tool_events:
-            tool_id = getattr(te, 'tool_id', '') or str(te.get('tool_id', ''))
-            tools_ok = getattr(te, 'ok', True) or te.get('ok', True)
-            summary = getattr(te, 'summary', '') or str(te.get('summary', ''))[:200]
+            te_get = te.get if isinstance(te, dict) else lambda _key, default=None: default
+            tool_id = getattr(te, 'tool_id', '') or str(te_get('tool_id', ''))
+            tools_ok = getattr(te, 'ok', None)
+            if tools_ok is None:
+                tools_ok = te_get('ok', True)
+            summary = getattr(te, 'summary', '') or str(te_get('summary', ''))[:200]
             result.tool_results.append({
                 "tool_id": tool_id, "ok": bool(tools_ok),
                 "summary": summary,
             })
 
         if is_ok and final_resp:
-            result.summary = final_resp[:500]
-            result.findings = [final_resp[:200]]
+            result.summary = final_resp[:4000]
+            result.findings = [final_resp[:1000]]
         elif elapsed >= profile.max_runtime_seconds:
             result.status = "failed"
             result.warnings.append(f"Budget exceeded: {profile.max_runtime_seconds}s")
@@ -349,6 +361,7 @@ def run_subagent_task(subtask_id: str, ws_id: str) -> dict:
     return {
         "ok": result.status == "succeeded",
         "subtask_id": subtask_id,
+        "child_session_id": subtask_id,
         "status": result.status,
         "summary": result.summary,
         "findings": result.findings,

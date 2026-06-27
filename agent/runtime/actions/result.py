@@ -70,14 +70,16 @@ def action_result_to_tool_result(action_result: ActionResult):
     if isinstance(raw, ToolResult):
         return raw
 
+    normalized = action_result.normalized_result if isinstance(action_result.normalized_result, dict) else {}
+
     # Build summary
     summary = ""
     if action_result.error:
         summary = action_result.error[:200]
-    elif isinstance(action_result.normalized_result, dict):
-        summary = action_result.normalized_result.get("summary", "")
+    elif normalized:
+        summary = normalized.get("summary", "")
         if not summary:
-            data = action_result.normalized_result.get("data")
+            data = normalized.get("data")
             if isinstance(data, str):
                 summary = data[:200]
     if not summary and hasattr(raw, "summary"):
@@ -89,10 +91,28 @@ def action_result_to_tool_result(action_result: ActionResult):
     if action_result.error:
         errors.append(action_result.error[:200])
 
+    data = {}
+    if normalized:
+        if isinstance(normalized.get("output"), dict):
+            data.update(normalized["output"])
+        elif isinstance(normalized.get("data"), dict):
+            data.update(normalized["data"])
+        for key in (
+            "final_response", "summary", "results", "result", "content",
+            "text", "items", "tool_results", "subtask_id", "child_session_id",
+            "status",
+        ):
+            if key in normalized and key not in data:
+                data[key] = normalized[key]
+
     return ToolResult(
+        call_id=action_result.tool_call_id,
+        tool_id=action_result.tool_id,
         ok=action_result.ok,
         summary=summary,
         errors=errors,
+        data=data,
+        raw=normalized,
         metadata={
             "action_id": action_result.action_id,
             "scan_status": action_result.scan_status,

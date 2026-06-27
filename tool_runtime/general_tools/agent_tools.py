@@ -57,6 +57,11 @@ def _run_durable_subagent(*, instruction: str, workspace_id: str, session_id: st
     }
 
 
+def _inv_session_id(inv: ToolInvocation) -> str:
+    args = inv.arguments or {}
+    return str(args.get("session_id") or getattr(inv, "session_id", "") or "").strip()
+
+
 def handle_agent_spawn(inv: ToolInvocation) -> dict:
     """Spawn a sub-agent with restricted tool access.
 
@@ -65,7 +70,7 @@ def handle_agent_spawn(inv: ToolInvocation) -> dict:
     """
     instruction = str(inv.arguments.get("instruction", "")).strip()
     workspace_id = _caller_workspace(inv)
-    parent_session_id = str(inv.arguments.get("session_id", ""))
+    parent_session_id = _inv_session_id(inv)
     allowed_tools = list(inv.arguments.get("allowed_tools") or [])
     max_turns = int(inv.arguments.get("max_turns", 1))
 
@@ -163,7 +168,7 @@ def handle_agent_team(inv: ToolInvocation) -> dict:
             plan_result = _run_durable_subagent(
                 instruction=plan_instruction,
                 workspace_id=workspace_id,
-                session_id=str(args.get("session_id", "")),
+                session_id=_inv_session_id(inv),
                 allowed_tools=_low_risk_read_tools,
                 roles=["planner"],
             )
@@ -197,7 +202,7 @@ def handle_agent_team(inv: ToolInvocation) -> dict:
                 return _run_durable_subagent(
                     instruction=task,
                     workspace_id=workspace_id,
-                    session_id=str(args.get("session_id", "")),
+                    session_id=_inv_session_id(inv),
                     allowed_tools=_text_data_tools,
                     roles=["worker"],
                 )
@@ -248,7 +253,7 @@ def handle_agent_team(inv: ToolInvocation) -> dict:
             worker_result = _run_durable_subagent(
                 instruction=worker_instruction,
                 workspace_id=workspace_id,
-                session_id=str(args.get("session_id", "")),
+                session_id=_inv_session_id(inv),
                 allowed_tools=_text_data_tools,
                 roles=["worker"],
             )
@@ -274,7 +279,7 @@ def handle_agent_team(inv: ToolInvocation) -> dict:
             reviewer_result = _run_durable_subagent(
                 instruction=review_instruction,
                 workspace_id=workspace_id,
-                session_id=str(args.get("session_id", "")),
+                session_id=_inv_session_id(inv),
                 allowed_tools=_low_risk_read_tools,
                 roles=["reviewer"],
             )

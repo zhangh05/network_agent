@@ -826,10 +826,10 @@ def _handler_tool_catalog_search(inv: ToolInvocation) -> dict:
         entry = CANONICAL_REGISTRY.get(tool_id)
         if entry is None:
             continue
-        haystack = " ".join([
+        haystack = " ".join(str(part or "") for part in (
             tool_id, ns.category, ns.group, ns.action, ns.display_name,
             ns.short_label, ns.usage_hint, ns.not_for, entry.description,
-        ]).lower()
+        )).lower()
         score = _catalog_score(tool_id, ns.category, ns.group, haystack, tokens, search_text)
         if score <= 0:
             continue
@@ -1520,6 +1520,8 @@ _RAW_REGISTRY: list[CanonicalToolEntry] = [
             "allowed_tools": {"type": "array", "items": {"type": "string"}},
             "max_turns": {"type": "integer", "default": 1, "minimum": 1, "maximum": 3},
         }, ["instruction"]),
+        risk_level="medium",
+        permission_action="exec",
     ),
     CanonicalToolEntry(
         canonical_tool_id="agent.team.run",

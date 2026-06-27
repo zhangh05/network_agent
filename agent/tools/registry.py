@@ -170,7 +170,9 @@ class ToolRegistry:
             requested_by = ""
             if context:
                 ws_id = getattr(context, 'workspace_id', '') or ''
+                session_id = getattr(context, 'session_id', '') or ''
                 run_id = getattr(context, 'turn_id', '') or getattr(context, 'run_id', '') or ''
+                task_id = getattr(context, 'task_id', '') or ''
                 job_id = getattr(context, 'job_id', '') or ''
                 requested_by = getattr(context, 'requested_by', '') or ''
 
@@ -184,7 +186,8 @@ class ToolRegistry:
 
             from tool_runtime.context import ToolRuntimeContext
             ctx = ToolRuntimeContext(
-                workspace_id=ws_id, run_id=run_id, job_id=job_id,
+                workspace_id=ws_id, session_id=session_id,
+                run_id=run_id, task_id=task_id, job_id=job_id,
                 requested_by=requested_by,
             )
             result = self._tool_client.invoke(tool_id, args, context=ctx)
