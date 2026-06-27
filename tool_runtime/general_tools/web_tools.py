@@ -3,7 +3,7 @@ from __future__ import annotations
 import threading
 
 from tool_runtime.general_tools.shared import _caller_workspace, _contract, _error, _error_inv, _ok, _result, _unavailable, _workspace_path
-from tool_runtime.general_tools.shared_web import _coerce_int, _is_private_url, _is_private_ip, _parse_duckduckgo_html, _normalize_search_domains, _build_web_search_query, _duckduckgo_search_params, _clean_url, _build_web_result
+from tool_runtime.general_tools.shared_web import *  # has __all__ — 21 functions, all needed
 
 
 
