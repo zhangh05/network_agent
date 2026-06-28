@@ -170,6 +170,100 @@ def _handle_exec_run_merged(inv: ToolInvocation) -> dict:
             return handle_command_approved_exec(inv)
 
 
+# ─── v3.9.1: workspace.file merged handler ─────────────────────────────
+# 合并 6 个原 tool: list / read / read_image / edit / patch / write_artifact
+# dispatch 字段: action (list|read|read_image|edit|patch|write_artifact)
+# 保留原 tool_id 作为 alias (callable_by_llm=False) 以兼容 router / baseline
+def _handle_workspace_file_merged(inv: ToolInvocation) -> dict:
+    """Route workspace.file(action=X) to the right sub-handler."""
+    args = inv.arguments or {}
+    action = str(args.get("action", "")).lower().strip()
+
+    if action == "list":
+        return handle_file_list_merged(inv)
+    elif action == "read":
+        return handle_file_read(inv)
+    elif action == "read_image":
+        return handle_file_read_image(inv)
+    elif action == "edit":
+        return handle_file_edit(inv)
+    elif action == "patch":
+        return handle_file_patch(inv)
+    elif action == "write_artifact":
+        return handle_ws_write_artifact_file(inv)
+    else:
+        return {
+            "ok": False,
+            "error": f"workspace.file: unknown action={action!r}. "
+                     f"Valid actions: list, read, read_image, edit, patch, write_artifact",
+        }
+
+
+# ─── v3.9.1: workspace.artifact merged handler ────────────────────────
+# 合并 7 个原 tool: list / read / save / tag / delete_soft / diff / export
+# dispatch 字段: action (list|read|save|tag|delete|diff|export)
+def _handle_workspace_artifact_merged(inv: ToolInvocation) -> dict:
+    """Route workspace.artifact(action=X) to the right sub-handler."""
+    args = inv.arguments or {}
+    action = str(args.get("action", "")).lower().strip()
+
+    if action == "list":
+        return _ws_artifact_list_merged(inv)
+    elif action == "read":
+        return handle_artifact_read_content_safe(inv)
+    elif action == "save":
+        return handle_artifact_save_result(inv)
+    elif action == "tag":
+        return handle_artifact_tag(inv)
+    elif action == "delete":
+        return handle_artifact_delete_soft(inv)
+    elif action == "diff":
+        return handle_text_diff(inv)
+    elif action == "export":
+        return handle_report_save_artifact(inv)
+    else:
+        return {
+            "ok": False,
+            "error": f"workspace.artifact: unknown action={action!r}. "
+                     f"Valid actions: list, read, save, tag, delete, diff, export",
+        }
+
+
+def _handle_workspace_filestore_merged(inv: ToolInvocation) -> dict:
+    """Route workspace.filestore(action=X) to the right FileStore handler.
+
+    Merges file.references + file.import_workspace_path.
+    """
+    args = inv.arguments or {}
+    action = str(args.get("action", "")).lower().strip()
+
+    if action == "references":
+        # file.references takes file_id, but we accept both file_id and filepath
+        new_inv = inv
+        if "file_id" in args and "filepath" not in args:
+            new_inv = ToolInvocation(
+                tool_id=inv.tool_id,
+                arguments={**args, "filepath": args.get("file_id", "")},
+                workspace_id=inv.workspace_id,
+                session_id=inv.session_id,
+                run_id=inv.run_id,
+                task_id=inv.task_id,
+                job_id=inv.job_id,
+                dry_run=inv.dry_run,
+                requested_by=inv.requested_by,
+                approval_id=inv.approval_id,
+            )
+        return _make_filestore_handler("file.references", ["filepath"])(new_inv)
+    elif action == "import":
+        return _make_filestore_handler("file.import_workspace_path", ["filepath"])(inv)
+    else:
+        return {
+            "ok": False,
+            "error": f"workspace.filestore: unknown action={action!r}. "
+                     f"Valid actions: references, import",
+        }
+
+
 def _handle_system_run_get_merged(inv: ToolInvocation) -> dict:
     """Route system.run.get(list=true|false) to list or summary handler."""
     args = inv.arguments or {}
@@ -1164,61 +1258,109 @@ _RAW_REGISTRY: list[CanonicalToolEntry] = [
         description="Run a registered slash command.",
     ),
 
-    # Workspace files
+    # ── v3.9.1: workspace.file (merged) ────────────────────────────────
+    # 6 个原 tool 合并为单一入口: workspace.file(action=X)
+    # 老 tool_id 保留为 alias (callable_by_llm=False) 兜底 router / baseline / 测试
     CanonicalToolEntry(
-        canonical_tool_id="workspace.file.list",
-        handler=_adapt(handle_file_list_merged),
+        canonical_tool_id="workspace.file",
+        handler=_adapt(_handle_workspace_file_merged),
         input_schema=_schema({
             "workspace_id": _S["workspace_id"],
-            "subdir": {"type": "string", "description": "Workspace-relative subdirectory."},
+            "action": {"type": "string", "enum": ["list", "read", "read_image",
+                                                  "edit", "patch", "write_artifact"],
+                       "description": "Operation: list, read, read_image, edit, patch, or write_artifact."},
+            "subdir": {"type": "string", "description": "[list] Workspace-relative subdirectory."},
+            "filepath": _S["filepath"],
+            "limit": {"type": "integer", "default": 50000,
+                      "description": "[read] Max chars to return."},
+            "offset": {"type": "integer", "default": 0,
+                       "description": "[read] Start reading from line N (0-based pagination)."},
+            "old_string": _S["old_string"],
+            "new_string": _S["new_string"],
+            "replace_all": {"type": "boolean", "default": False,
+                            "description": "[edit] Replace all occurrences."},
+            "dry_run": {"type": "boolean", "default": False,
+                        "description": "[edit] Preview diff without writing to file."},
+            "patch_text": _S["patch_text"],
+            "filename": {"type": "string", "description": "[write_artifact] Output filename."},
+            "content": _S["content"],
+        }, ["action"]),
+        permission_action="",  # Mixed read/write; inferred from action at runtime
+        description=(
+            "Unified workspace file tool. action=list (list files / check exists), "
+            "action=read (read text file with offset+limit pagination), "
+            "action=read_image (read image dimensions+format), "
+            "action=edit (string replace; supports replace_all/dry_run), "
+            "action=patch (apply unified diff text), "
+            "action=write_artifact (write named artifact file). "
+            "Old tool_ids (workspace.file.read etc.) are deprecated aliases."
+        ),
+    ),
+    # Aliases (callable_by_llm=False) — kept for router / baseline / test compat
+    CanonicalToolEntry(
+        canonical_tool_id="workspace.file.list",
+        handler=_adapt(_handle_workspace_file_merged),  # routes via action=list
+        input_schema=_schema({
+            "workspace_id": _S["workspace_id"],
+            "subdir": {"type": "string"},
             "filepath": _S["filepath"],
         }),
-        description="List workspace files or check if a file exists.",
+        callable_by_llm=False,
+        description="[DEPRECATED alias for workspace.file] Use workspace.file(action=list).",
     ),
     CanonicalToolEntry(
         canonical_tool_id="workspace.file.read",
-        handler=_adapt(handle_file_read),
+        handler=_adapt(_handle_workspace_file_merged),
         input_schema=_schema({
             "workspace_id": _S["workspace_id"], "filepath": _S["filepath"],
-            "limit": {"type": "integer", "default": 50000, "description": "Max chars to return."},
-            "offset": {"type": "integer", "default": 0, "description": "Start reading from line N (0-based pagination)."},
+            "limit": {"type": "integer", "default": 50000},
+            "offset": {"type": "integer", "default": 0},
         }, ["filepath"]),
-        description="Read a workspace file with optional line offset and char limit.",
+        callable_by_llm=False,
+        description="[DEPRECATED alias for workspace.file] Use workspace.file(action=read).",
     ),
     CanonicalToolEntry(
         canonical_tool_id="workspace.file.read_image",
-        handler=_adapt(handle_file_read_image),
+        handler=_adapt(_handle_workspace_file_merged),
         input_schema=_schema({
             "workspace_id": _S["workspace_id"], "filepath": _S["filepath"],
         }, ["filepath"]),
+        callable_by_llm=False,
+        description="[DEPRECATED alias for workspace.file] Use workspace.file(action=read_image).",
     ),
     CanonicalToolEntry(
         canonical_tool_id="workspace.file.edit",
-        handler=_adapt(handle_file_edit),
+        handler=_adapt(_handle_workspace_file_merged),
         input_schema=_schema({
             "workspace_id": _S["workspace_id"], "filepath": _S["filepath"],
             "old_string": _S["old_string"], "new_string": _S["new_string"],
             "replace_all": {"type": "boolean", "default": False},
-            "dry_run": {"type": "boolean", "default": False,
-                        "description": "Preview diff without writing to file."},
+            "dry_run": {"type": "boolean", "default": False},
         }, ["filepath", "old_string", "new_string"]),
+        risk_level="medium", requires_approval=False,
+        callable_by_llm=False,
+        description="[DEPRECATED alias for workspace.file] Use workspace.file(action=edit).",
     ),
     CanonicalToolEntry(
         canonical_tool_id="workspace.file.patch",
-        handler=_adapt(handle_file_patch),
+        handler=_adapt(_handle_workspace_file_merged),
         input_schema=_schema({
             "workspace_id": _S["workspace_id"], "filepath": _S["filepath"],
             "patch_text": _S["patch_text"],
         }, ["filepath", "patch_text"]),
+        callable_by_llm=False,
+        description="[DEPRECATED alias for workspace.file] Use workspace.file(action=patch).",
     ),
     CanonicalToolEntry(
         canonical_tool_id="workspace.file.write_artifact",
-        handler=_adapt(handle_ws_write_artifact_file),
+        handler=_adapt(_handle_workspace_file_merged),
         input_schema=_schema({
             "workspace_id": _S["workspace_id"],
-            "filename": {"type": "string", "description": "Output filename."},
+            "filename": {"type": "string"},
             "content": _S["content"],
         }, ["filename", "content"]),
+        callable_by_llm=False,
+        description="[DEPRECATED alias for workspace.file] Use workspace.file(action=write_artifact).",
     ),
     CanonicalToolEntry(
         canonical_tool_id="workspace.metadata.get",
@@ -1226,67 +1368,116 @@ _RAW_REGISTRY: list[CanonicalToolEntry] = [
         input_schema=_schema({"workspace_id": _S["workspace_id"]}),
     ),
 
-    # Workspace artifacts
+# ─── v3.9.1: workspace.artifact (merged) ────────────────────────────
+# 7 个原 tool 合并: list / read / save / tag / delete_soft / diff / export
+# 老 tool_id 保留为 alias (callable_by_llm=False) 兜底
     CanonicalToolEntry(
-        canonical_tool_id="workspace.artifact.list",
-        handler=_adapt(_ws_artifact_list_merged),
+        canonical_tool_id="workspace.artifact",
+        handler=_adapt(_handle_workspace_artifact_merged),
         input_schema=_schema({
             "workspace_id": _S["workspace_id"],
+            "action": {"type": "string", "enum": ["list", "read", "save", "tag",
+                                                  "delete", "diff", "export"],
+                       "description": "Operation: list, read, save, tag, delete (soft), diff, or export."},
             "status": _S["status"],
             "query": _S["query"],
             "limit": _S["limit"],
+            "artifact_id": _S["artifact_id"],
+            "title": _S["title"],
+            "content": _S["content"],
+            "artifact_type": {"type": "string",
+                               "description": "[save] Artifact type (e.g. report, analysis, log)."},
+            "sensitivity": {"type": "string", "enum": ["internal", "sensitive"],
+                            "default": "internal"},
+            "tags": {"type": "array", "items": {"type": "string"},
+                     "description": "[tag] Tags to apply."},
+            "artifact_a": {"type": "string", "description": "[diff] First artifact id."},
+            "artifact_b": {"type": "string", "description": "[diff] Second artifact id."},
+            "destination": {"type": "string",
+                            "description": "[export] Workspace-relative destination path."},
+        }, ["action"]),
+        permission_action="",  # Mixed read/write; inferred at runtime
+        description=(
+            "Unified workspace artifact tool. action=list (list/search), "
+            "action=read (read content), action=save (create new artifact), "
+            "action=tag (apply tags), action=delete (soft-delete, requires approval), "
+            "action=diff (compare two artifacts), action=export (export to file). "
+            "Old tool_ids (workspace.artifact.read etc.) are deprecated aliases."
+        ),
+    ),
+    # Aliases
+    CanonicalToolEntry(
+        canonical_tool_id="workspace.artifact.list",
+        handler=_adapt(_handle_workspace_artifact_merged),
+        input_schema=_schema({
+            "workspace_id": _S["workspace_id"], "status": _S["status"],
+            "query": _S["query"], "limit": _S["limit"],
         }),
-        description="List or search workspace artifacts.",
+        callable_by_llm=False,
+        description="[DEPRECATED] Use workspace.artifact(action=list).",
     ),
     CanonicalToolEntry(
         canonical_tool_id="workspace.artifact.read",
-        handler=_adapt(handle_artifact_read_content_safe),
+        handler=_adapt(_handle_workspace_artifact_merged),
         input_schema=_schema({
             "workspace_id": _S["workspace_id"], "artifact_id": _S["artifact_id"],
         }, ["artifact_id"]),
+        callable_by_llm=False,
+        description="[DEPRECATED] Use workspace.artifact(action=read).",
     ),
     CanonicalToolEntry(
         canonical_tool_id="workspace.artifact.save",
-        handler=_adapt(handle_artifact_save_result),
+        handler=_adapt(_handle_workspace_artifact_merged),
         input_schema=_schema({
             "workspace_id": _S["workspace_id"],
             "title": _S["title"], "content": _S["content"],
             "artifact_type": {"type": "string"},
             "sensitivity": {"type": "string", "enum": ["internal", "sensitive"], "default": "internal"},
         }, ["content"]),
+        callable_by_llm=False,
+        description="[DEPRECATED] Use workspace.artifact(action=save).",
     ),
     CanonicalToolEntry(
         canonical_tool_id="workspace.artifact.tag",
-        handler=_adapt(handle_artifact_tag),
+        handler=_adapt(_handle_workspace_artifact_merged),
         input_schema=_schema({
             "workspace_id": _S["workspace_id"], "artifact_id": _S["artifact_id"],
             "tags": {"type": "array", "items": {"type": "string"}},
         }, ["artifact_id", "tags"]),
+        callable_by_llm=False,
+        description="[DEPRECATED] Use workspace.artifact(action=tag).",
     ),
     CanonicalToolEntry(
         canonical_tool_id="workspace.artifact.delete_soft",
-        handler=_adapt(handle_artifact_delete_soft),
+        handler=_adapt(_handle_workspace_artifact_merged),
         input_schema=_schema({
             "workspace_id": _S["workspace_id"], "artifact_id": _S["artifact_id"],
         }, ["artifact_id"]),
+        risk_level="medium", requires_approval=True,
+        callable_by_llm=False,
+        description="[DEPRECATED] Use workspace.artifact(action=delete).",
     ),
     CanonicalToolEntry(
         canonical_tool_id="workspace.artifact.diff",
-        handler=_adapt(handle_text_diff),
+        handler=_adapt(_handle_workspace_artifact_merged),
         input_schema=_schema({
             "workspace_id": _S["workspace_id"],
-            "artifact_a": {"type": "string", "description": "First artifact id."},
-            "artifact_b": {"type": "string", "description": "Second artifact id."},
+            "artifact_a": {"type": "string"},
+            "artifact_b": {"type": "string"},
         }, ["artifact_a", "artifact_b"]),
+        callable_by_llm=False,
+        description="[DEPRECATED] Use workspace.artifact(action=diff).",
     ),
     CanonicalToolEntry(
         canonical_tool_id="workspace.artifact.export",
-        handler=_adapt(handle_report_save_artifact),
+        handler=_adapt(_handle_workspace_artifact_merged),
         input_schema=_schema({
             "workspace_id": _S["workspace_id"],
             "artifact_id": {"type": "string"},
-            "destination": {"type": "string", "description": "Workspace-relative destination path."},
+            "destination": {"type": "string"},
         }, ["artifact_id", "destination"]),
+        callable_by_llm=False,
+        description="[DEPRECATED] Use workspace.artifact(action=export).",
     ),
     CanonicalToolEntry(
         canonical_tool_id="workspace.document.pdf.extract_text",
@@ -1770,21 +1961,45 @@ _RAW_REGISTRY: list[CanonicalToolEntry] = [
         description="Soft-delete a CMDB asset (tombstone, recoverable). Requires approval.",
     ),
     # ── FileStore tools ──
+    # ── v3.9.1: workspace.filestore (merged) ──────────────────────────
+    # 2 个原 tool 合并: file.references / file.import_workspace_path
+    # 老 tool_id 保留为 alias (callable_by_llm=False) 兜底
+    CanonicalToolEntry(
+        canonical_tool_id="workspace.filestore",
+        handler=_adapt(_handle_workspace_filestore_merged),
+        input_schema=_schema({
+            "workspace_id": _S["workspace_id"],
+            "action": {"type": "string", "enum": ["references", "import"],
+                       "description": "Operation: references (query cross-refs) or import (import to FileStore)."},
+            "file_id": {"type": "string",
+                        "description": "[references] FileStore file_id to query."},
+            "filepath": {"type": "string",
+                         "description": "[references|import] Workspace-relative path."},
+        }, ["action"]),
+        description=(
+            "Unified FileStore tool. action=references (query cross-references for a file), "
+            "action=import (import a workspace-relative file into FileStore and get file_id). "
+            "Old tool_ids (file.references / file.import_workspace_path) are deprecated aliases."
+        ),
+    ),
+    # Aliases
     CanonicalToolEntry(
         canonical_tool_id="file.references",
         handler=_make_filestore_handler("file.references", ["file_id"]),
         input_schema=_schema({
-            "file_id": {"type": "string", "description": "FileStore file_id to query references for."},
+            "file_id": {"type": "string"},
         }, ["file_id"]),
-        description="Query cross-references for a FileStore file.",
+        callable_by_llm=False,
+        description="[DEPRECATED] Use workspace.filestore(action=references).",
     ),
     CanonicalToolEntry(
         canonical_tool_id="file.import_workspace_path",
         handler=_make_filestore_handler("file.import_workspace_path", ["filepath"]),
         input_schema=_schema({
-            "filepath": {"type": "string", "description": "Workspace-relative path to import."},
+            "filepath": {"type": "string"},
         }, ["filepath"]),
-        description="Import a workspace file into FileStore and get file_id.",
+        callable_by_llm=False,
+        description="[DEPRECATED] Use workspace.filestore(action=import).",
     ),
     # ── v3.5 Merged tools ──
     CanonicalToolEntry(

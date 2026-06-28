@@ -97,6 +97,11 @@ NS_DATA = [
     ('device.delete', 'device', 'asset', 'delete', '删除设备', 'device.delete',
      'Soft-delete a device by asset_id (tombstone, recoverable).',
      'Confirm with user before deleting.', 'device.delete'),
+    ('workspace.file', 'workspace', 'file', 'multi', '工作区文件操作', 'workspace.file',
+     'Unified workspace file tool. action=list|read|read_image|edit|patch|write_artifact. '
+     'edit/patch/write_artifact are writes; list/read/read_image are reads. '
+     'Old tool_ids (workspace.file.read etc.) are deprecated aliases.',
+     None, 'workspace.file'),
     ('workspace.file.list', 'workspace', 'file', 'list', '列出工作区文件', 'workspace.file.list',
      'List workspace files with names and sizes. Use query param to filter by name.',
      'Do not cross workspaces.', 'workspace.file.list'),
@@ -115,6 +120,10 @@ NS_DATA = [
     ('workspace.file.write_artifact', 'workspace', 'file', 'write_artifact', '写入制品文件', 'workspace.file.write_artifact',
      'Write content and register as artifact.',
      'Do not write to arbitrary paths.', 'workspace.file.write_artifact'),
+    ('workspace.filestore', 'workspace', 'filestore', 'multi', 'FileStore 操作', 'workspace.filestore',
+     'Unified FileStore tool. action=references (query cross-refs for a file) or '
+     'action=import (import a workspace-relative file into FileStore).',
+     None, 'workspace.filestore'),
     ('file.references', 'workspace', 'file', 'references', '查询文件引用', 'file.references',
      'Query cross-references for a FileStore file.',
      None, 'file.references'),
@@ -124,6 +133,10 @@ NS_DATA = [
     ('workspace.metadata.get', 'workspace', 'metadata', 'get', '读取工作区元数据', 'workspace.metadata.get',
      'Get workspace metadata and stats.',
      'Do not return secrets.', 'workspace.metadata.get'),
+    ('workspace.artifact', 'workspace', 'artifact', 'multi', '工作区制品操作', 'workspace.artifact',
+     'Unified workspace artifact tool. action=list|read|save|tag|delete|diff|export. '
+     'delete is a soft-delete that requires user approval.',
+     None, 'workspace.artifact'),
     ('workspace.artifact.list', 'workspace', 'artifact', 'list', '列出制品', 'workspace.artifact.list',
      'List workspace artifacts. Use query param to filter by title or type.',
      'Do not return artifact bodies; use workspace.artifact.read.', 'workspace.artifact.list'),
