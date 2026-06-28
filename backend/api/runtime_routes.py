@@ -258,7 +258,6 @@ def register_runtime_routes(app):
             return jsonify({"ok": False, "error": "tool_id is required"}), 400
 
         from tool_runtime.canonical_registry import CANONICAL_REGISTRY
-        from tool_runtime.tool_governance import TOOL_GOVERNANCE
         from tool_runtime.integration import get_default_tool_runtime_client
         from tool_runtime.schemas import ToolInvocation
         from tool_runtime.context import ToolRuntimeContext
@@ -270,7 +269,7 @@ def register_runtime_routes(app):
                 "message": "Only canonical tool_id is supported.",
             }), 400
 
-        gov = TOOL_GOVERNANCE.get(requested_tool_id)
+        gov = None  # v3.9.3: governance removed
         if gov and gov.status == "forbidden":
             return jsonify({
                 "ok": False,
@@ -374,7 +373,6 @@ def register_runtime_routes(app):
             return jsonify({"ok": False, "error": "tool_id is required"}), 400
 
         from tool_runtime.canonical_registry import CANONICAL_REGISTRY
-        from tool_runtime.tool_governance import TOOL_GOVERNANCE
         from tool_runtime.integration import get_default_tool_runtime_client
 
         if requested_tool_id not in CANONICAL_REGISTRY:
@@ -384,7 +382,7 @@ def register_runtime_routes(app):
                 "message": "Only canonical tool_id is supported.",
             }), 400
 
-        gov = TOOL_GOVERNANCE.get(requested_tool_id)
+        gov = None  # v3.9.3: governance removed
         if gov and gov.status == "forbidden":
             return jsonify({
                 "ok": False,

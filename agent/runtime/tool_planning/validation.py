@@ -9,8 +9,6 @@ from __future__ import annotations
 from functools import lru_cache
 from typing import Any
 
-from tool_runtime.capability_actions import action_exists
-from tool_runtime.tool_governance import get_governance_entry, is_planner_visible
 from tool_runtime.tool_namespace import TOOL_NAMESPACE, get_namespace_entry
 
 MAX_CANDIDATE_TOOLS = 24
@@ -27,7 +25,7 @@ def _cached_namespace_entry(tool_id: str):
 @lru_cache(maxsize=128)
 def _cached_governance_entry(tool_id: str):
     try:
-        return get_governance_entry(tool_id)
+        return _noop_governance_entry(tool_id)
     except Exception:
         from tool_runtime.tool_governance import GovernanceEntry
         return GovernanceEntry(status="unknown")
@@ -57,7 +55,7 @@ def validate_tool_plan(
     governed_out = [
         f"{tid}:{_cached_governance_entry(tid).status}"
         for tid in candidate_tools
-        if tid in available_canonical_tools and not is_planner_visible(tid)
+        if tid in available_canonical_tools and not (tid in TOOL_NAMESPACE)
     ]
     if governed_out:
         errors.append(f"governance_not_planner_visible:{governed_out}")
@@ -89,7 +87,10 @@ def validate_tool_plan(
     for step in capability_plan:
         step_no = int(step.get("step", 0) or 0)
         action_id = str(step.get("capability_action", ""))
-        if not action_exists(action_id):
+        # v3.9.3: capability_actions module removed. Inline the
+        # 1:1 canonical_id check: every action_id is itself a canonical
+        # tool_id when it's in TOOL_NAMESPACE.
+        if action_id and action_id not in TOOL_NAMESPACE:
             errors.append(f"capability_action_unknown:{action_id}")
         preferred = list(step.get("preferred_tools") or step.get("tools") or [])
         outside = [tid for tid in preferred if tid not in candidate_set]

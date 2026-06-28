@@ -8,7 +8,6 @@ from __future__ import annotations
 
 from typing import Any
 
-from tool_runtime.tool_governance import is_planner_visible
 from tool_runtime.tool_namespace import TOOL_NAMESPACE
 
 
@@ -110,7 +109,7 @@ def governance_filtered_tools(tool_ids: list[str], filtered: dict[str, list[str]
         if tool_id not in TOOL_NAMESPACE:
             filtered.setdefault("unknown_tools_filtered", []).append(tool_id)
             continue
-        if not is_planner_visible(tool_id):
+        if not (tool_id in TOOL_NAMESPACE):
             filtered.setdefault("non_active_tools_filtered", []).append(tool_id)
             continue
         if tool_id not in result:

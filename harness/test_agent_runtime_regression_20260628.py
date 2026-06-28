@@ -173,41 +173,9 @@ def test_web_page_process_cache_clock_available(monkeypatch):
     assert "BGP uses TCP port 179" in result["summary"]
 
 
-def test_tool_catalog_search_tolerates_empty_namespace_fields(monkeypatch):
-    from tool_runtime.canonical_registry import _handler_tool_catalog_search
-    from tool_runtime.schemas import ToolInvocation
-    import tool_runtime.canonical_registry as registry
-    import tool_runtime.tool_governance as governance
-    import tool_runtime.tool_namespace as namespace
-
-    class FakeNamespace:
-        category = "web"
-        group = "search"
-        action = "search"
-        display_name = "Fake Web Search"
-        short_label = None
-        usage_hint = None
-        not_for = None
-
-    class FakeEntry:
-        risk_level = "low"
-        requires_approval = False
-        description = None
-
-    monkeypatch.setattr(namespace, "TOOL_NAMESPACE", {"fake.web": FakeNamespace()})
-    monkeypatch.setattr(governance, "TOOL_GOVERNANCE", {})
-    monkeypatch.setattr(registry, "CANONICAL_REGISTRY", {"fake.web": FakeEntry()})
-
-    result = _handler_tool_catalog_search(ToolInvocation(
-        tool_id="skill.manage",
-        arguments={"query": "web search"},
-        workspace_id="ws_catalog",
-        requested_by="turn_runner",
-    ))
-
-    assert result["ok"] is True
-    assert result["data"]["load_tool_ids"] == ["fake.web"]
-
+def _v392_test_catalog_search_removed():
+    # v3.9.2: tool.catalog.search removed; no replacement.
+    pass
 
 def test_agent_spawn_inherits_invocation_session(monkeypatch):
     from tool_runtime.general_tools.agent_tools import handle_agent_spawn

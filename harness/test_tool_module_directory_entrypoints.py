@@ -58,7 +58,8 @@ def test_planner_uses_directory_level_tools():
 
     # v3.9.2: merged config.manage replaces config.analysis.run in planner
     assert "config.manage" in source
-    assert "config.translation" in source
+    # v3.9.3: capability_actions removed; config.translation string is
+    # replaced by config.manage in the planner's translate detection.
 
 
 # ── pcap service does not import backend routes ──────────────────────

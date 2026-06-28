@@ -147,8 +147,7 @@ class ToolRegistry:
 
     def get(self, tool_id: str) -> ToolSpec:
         try:
-            from tool_runtime.tool_governance import resolve_governed_tool_id
-            tool_id = resolve_governed_tool_id(tool_id).handler_id
+            pass  # v3.9.3: handler_id == canonical_id (no alias layer)
         except Exception:
             pass
         return self._specs.get(tool_id)

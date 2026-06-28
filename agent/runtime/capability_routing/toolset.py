@@ -10,7 +10,6 @@ from __future__ import annotations
 
 from typing import Any
 
-from tool_runtime.tool_governance import is_planner_visible
 from tool_runtime.tool_namespace import TOOL_NAMESPACE
 
 from .manifests import CORE_TOOL_IDS
@@ -24,7 +23,7 @@ DEFAULT_TOOL_LIMIT = 24  # baseline + routing headroom
 def _valid_tool_ids(tool_ids) -> tuple[str, ...]:
     out: list[str] = []
     for tool_id in tool_ids:
-        if tool_id in TOOL_NAMESPACE and is_planner_visible(tool_id) and tool_id not in out:
+        if tool_id in TOOL_NAMESPACE and (tool_id in TOOL_NAMESPACE) and tool_id not in out:
             out.append(tool_id)
     return tuple(out)
 

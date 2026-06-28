@@ -122,8 +122,13 @@ def metadata_for_tool(tool_id: str) -> dict[str, Any]:
             "handler_id": tool_id,
         }
     try:
-        from tool_runtime.tool_governance import governance_metadata
-        meta.update(governance_metadata(tool_id))
+        # v3.9.3: tool_governance removed. All canonical tools are active by
+        # default; an unknown id is the only case that needs a 'forbidden' tag.
+        meta.update({
+            "governance_status": "forbidden" if tool_id not in TOOL_NAMESPACE else "active",
+            "governance_reason": "" if tool_id in TOOL_NAMESPACE else "unknown canonical_tool_id",
+            "planner_visible": tool_id in TOOL_NAMESPACE,
+        })
     except Exception:
         pass
     return meta

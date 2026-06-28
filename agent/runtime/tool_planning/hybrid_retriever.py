@@ -95,7 +95,7 @@ def hybrid_tool_search(
     from tool_runtime.tool_governance import is_planner_visible
 
     for tid in TOOL_NAMESPACE:
-        if not is_planner_visible(tid):
+        if not (tid in TOOL_NAMESPACE):
             continue
         ks = _keyword_score(tid, user_input, capability_router)
         if ks > 0:

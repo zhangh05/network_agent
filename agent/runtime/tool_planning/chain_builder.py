@@ -27,19 +27,22 @@ def _cached_namespace_entry(tool_id: str):
 
 # Map signal keywords to (capability_action_id, goal_template)
 SIGNAL_DISPATCH = [
+    # v3.9.3: capability_actions module removed. The third tuple element
+    # used to be a high-level capability_action; it is now a canonical
+    # tool_id directly. tools_for_action() inlines the 1:1 mapping.
     (("has_uploaded_files", "mentions_file"), "workspace.file", "读取上传或 workspace 中的文本文件"),
     (("has_uploaded_files", "mentions_image"), "workspace.file", "读取上传图片的尺寸/格式元数据"),
-    (("mentions_web",), "web.official_docs.search", "检索官方文档或外部资料"),
+    (("mentions_web",), "web.manage", "检索官方文档或外部资料"),
     (("mentions_weather",), "web.manage", "查询天气信息"),
-    (("mentions_knowledge",), "knowledge.search_and_answer", "检索知识库并基于安全摘录回答"),
-    (("mentions_config_translate",), "config.translation", "离线翻译网络配置"),
-    (("mentions_packet",), "pcap.analysis", "离线分析 PCAP 报文、连接和 TCP 序列"),
-    (("mentions_network_config",), "config.analysis", "离线分析网络配置"),
-    (("mentions_report",), "report.create_and_save", "生成报告并保存制品"),
-    (("mentions_host",), "host.environment.inspect", "查询或操作当前本机环境"),
-    (("mentions_runtime",), "runtime.audit.inspect", "查看运行、trace、session 或审计信息"),
-    (("mentions_memory",), "memory.profile.manage", "搜索或维护记忆/profile"),
-    (("mentions_sub_agent",), "agent.team.coordinate", "派生子代理并行处理复杂任务"),
+    (("mentions_knowledge",), "knowledge.manage", "检索知识库并基于安全摘录回答"),
+    (("mentions_config_translate",), "config.manage", "离线翻译网络配置"),
+    (("mentions_packet",), "pcap.manage", "离线分析 PCAP 报文、连接和 TCP 序列"),
+    (("mentions_network_config",), "config.manage", "离线分析网络配置"),
+    (("mentions_report",), "report.manage", "生成报告并保存制品"),
+    (("mentions_host",), "exec.run", "查询或操作当前本机环境"),
+    (("mentions_runtime",), "system.manage", "查看运行、trace、session 或审计信息"),
+    (("mentions_memory",), "memory.manage", "搜索或维护记忆/profile"),
+    (("mentions_sub_agent",), "agent.manage", "派生子代理并行处理复杂任务"),
 ]
 
 

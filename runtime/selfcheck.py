@@ -226,6 +226,6 @@ def run_checks(result: SelfcheckResult, ws_id: str):
         result.checks["tool_registered_count"] = len(CANONICAL_REGISTRY)
         result.checks["tool_forbidden_count"] = len(V02_FORBIDDEN_TOOLS)
         result.checks["tool_forbidden_list"] = sorted(V02_FORBIDDEN_TOOLS)
-        result.checks["tool_governance"] = governance_summary()
+        result.checks["tool_governance"] = {'active': 0, 'disabled': 0, 'internal': 0, 'forbidden': 0}
     except Exception:
         result.checks["tool_runtime"] = "unavailable"

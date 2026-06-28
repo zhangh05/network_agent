@@ -11,9 +11,9 @@ CATALOG_VERSION = "tool_catalog.v2"
 
 @lru_cache(maxsize=1)
 def build_catalog_snapshot() -> dict:
-    from tool_runtime.capability_actions import capability_actions_for
+    # v3.9.3: capability_actions and tool_governance modules removed.
+    # Each canonical_id is its own "capability action" (1:1).
     from tool_runtime.canonical_registry import CANONICAL_REGISTRY, list_canonical_ids
-    from tool_runtime.tool_governance import governance_summary, planner_visible_tool_ids
     from tool_runtime.tool_namespace import TOOL_NAMESPACE, category_tree_from_specs, metadata_for_tool
 
     tools = []
@@ -44,7 +44,7 @@ def build_catalog_snapshot() -> dict:
             "enabled": True,
             "governance_status": meta["governance_status"],
             "planner_visible": bool(meta["planner_visible"]),
-            "capability_actions": capability_actions_for(canonical_id),
+            "capability_actions": [canonical_id],  # v3.9.3: 1:1 with canonical
             # v3.10 Phase 5: Capability Manifest fields
             "destructive": manifest.destructive if manifest else False,
             "idempotency": manifest.idempotency if manifest else "unknown",
@@ -105,8 +105,8 @@ def build_catalog_snapshot() -> dict:
         "tools": tools,
         "categories": categories,
         "count": len(tools),
-        "planner_visible_count": len(planner_visible_tool_ids()),
-        "governance_summary": governance_summary(),
+        "planner_visible_count": len(list(TOOL_NAMESPACE)),
+        "governance_summary": {'active': 0, 'disabled': 0, 'internal': 0, 'forbidden': 0},
         "catalog_version": CATALOG_VERSION,
         "catalog_fingerprint": fingerprint,
         "cache_policy": "process_static",

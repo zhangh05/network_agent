@@ -11,8 +11,9 @@ import threading
 import time
 from types import SimpleNamespace
 
-from agent.runtime.tool_category_router import route_tool_scene
 from agent.runtime.tool_planning.planner import plan_tools
+from agent.runtime.cognition.scene_decision import decide_scene
+from agent.runtime.tool_planning.scene_adapter import scene_to_rule_scene
 from tool_runtime.tool_namespace import TOOL_NAMESPACE
 
 
@@ -27,7 +28,10 @@ SUB_AGENT_TOOLS = {
 
 
 def _plan(text: str) -> dict:
-    rule_scene = route_tool_scene(text)
+    # v3.9.3: tool_category_router removed. SceneDecision + scene_to_rule_scene
+    # are the new entry path.
+    decision = decide_scene(text)
+    rule_scene = scene_to_rule_scene(decision)
     return plan_tools(
         user_input=text,
         safe_context={},

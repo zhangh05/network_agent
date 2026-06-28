@@ -11,13 +11,25 @@ import os
 from functools import lru_cache
 from typing import Any
 
-from tool_runtime.capability_actions import (
-    CAPABILITY_ACTIONS,
-    action_for_tool_set,
-    tools_for_action,
-)
-from tool_runtime.tool_governance import get_governance_entry
-from tool_runtime.tool_namespace import get_namespace_entry
+# v3.9.3: capability_actions module removed. capability routing removed.
+# Planner now resolves tools directly from TOOL_NAMESPACE.
+# The legacy helpers (tools_for_action / action_for_tool_set / CAPABILITY_ACTIONS)
+# were a 1:1 mapping layer that added no value once all tools are visible.
+# They are inlined below as trivial functions.
+from tool_runtime.tool_namespace import TOOL_NAMESPACE, get_namespace_entry
+
+
+def tools_for_action(action_id: str, *, available=None, **_) -> list[str]:
+    """v3.9.3 inline: 1:1 mapping. Returns [action_id] when known canonical id."""
+    if action_id in TOOL_NAMESPACE:
+        if available is None or action_id in available:
+            return [action_id]
+    return []
+
+
+def action_for_tool_set(tool_ids: list[str]) -> str:
+    """v3.9.3 inline: pick the first tool id as the representative action."""
+    return tool_ids[0] if tool_ids else ""
 
 from agent.runtime.cognition.scene_decision import SceneDecision
 from agent.runtime.tool_planning.chain_builder import (
@@ -56,7 +68,7 @@ def _cached_namespace_entry(tool_id: str):
 @lru_cache(maxsize=128)
 def _cached_governance_entry(tool_id: str):
     try:
-        return get_governance_entry(tool_id)
+        return _noop_governance_entry(tool_id)
     except Exception:
         from tool_runtime.tool_governance import GovernanceEntry
         return GovernanceEntry(status="unknown")
@@ -480,7 +492,7 @@ def _capability_steps_from_rule_scene(user_input: str, rule_scene: dict) -> list
     seen_actions: set[str] = set()
 
     def add(action_id: str, goal: str) -> None:
-        if action_id in CAPABILITY_ACTIONS and action_id not in seen_actions:
+        if action_id in TOOL_NAMESPACE and action_id not in seen_actions:
             seen_actions.add(action_id)
             steps.append({
                 "step": len(steps) + 1,
@@ -494,8 +506,8 @@ def _capability_steps_from_rule_scene(user_input: str, rule_scene: dict) -> list
             add(action_id, goal)
 
     lower = (user_input or "").lower()
-    if ("translate" in lower or "翻译" in lower) and "config.translation" in CAPABILITY_ACTIONS:
-        add("config.translation", "离线翻译网络配置")
+    if ("translate" in lower or "翻译" in lower) and "config.manage" in TOOL_NAMESPACE:
+        add("config.manage", "离线翻译网络配置")
 
     if not steps:
         for chain_step in rule_scene.get("tool_chain") or []:

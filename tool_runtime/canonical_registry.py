@@ -1842,21 +1842,18 @@ def get_entry(canonical_tool_id: str) -> CanonicalToolEntry:
 def to_tool_specs() -> list[tuple]:
     """Return list of (ToolSpec, handler) tuples for the ToolRegistry path.
 
-    v3.0: returns a list of (spec, handler) so callers can register
-    directly. Forbidden entries are skipped.
+    v3.9.3: governance layer removed. All canonical tools are visible by
+    default. A canonical id that fails to resolve in TOOL_NAMESPACE
+    (i.e. unknown) is the only case that gets filtered out.
     """
-    from tool_runtime.tool_governance import TOOL_GOVERNANCE
     out: list[tuple] = []
     for entry in _RAW_REGISTRY:
-        gov = TOOL_GOVERNANCE.get(entry.canonical_tool_id)
-        if gov is None or gov.status == "forbidden":
-            continue
-        ns_entry = None
         try:
             from tool_runtime.tool_namespace import get_namespace_entry
             ns_entry = get_namespace_entry(entry.canonical_tool_id)
         except Exception:
-            pass
+            # Unknown id: skip — no governance needed; it just isn't visible.
+            continue
         # Build the description: prefer the namespace's usage_hint, then
         # the entry description, then the namespace's display_name.
         description = (

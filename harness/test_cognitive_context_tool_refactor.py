@@ -423,14 +423,6 @@ class TestEvidencePipelineIndependence:
 # ── K. Prompt/runtime boundary checks ────────────────────────────────
 
 class TestPromptRuntimeBoundaries:
-    def test_no_backward_compatible_fields_in_router(self):
-        """tool_category_router.py must keep current field names explicit."""
-        import inspect
-        from agent.runtime import tool_category_router
-        source = inspect.getsource(tool_category_router)
-        _banned = "Backward" + "-compatible fields"
-        assert _banned not in source
-
     def test_no_empty_safe_context_in_context_tools(self):
         """context_tools.py must not pass safe_context={}."""
         import inspect
@@ -443,13 +435,10 @@ class TestPromptRuntimeBoundaries:
         import agent.runtime.context_tools as mod
         assert not hasattr(mod, "plan_tool_visibility")
 
-    def test_router_scene_no_category_compat_key(self):
-        """route_tool_scene must not return 'category' compat key."""
-        from agent.runtime.tool_category_router import route_tool_scene
-        result = route_tool_scene("查看本机端口")
-        assert "category" not in result
-        assert "group" not in result
-        assert "primary_category" in result
+    # v3.9.3: tool_category_router.py removed. The two tests
+    # `test_no_backward_compatible_fields_in_router` and
+    # `test_router_scene_no_category_compat_key` validated router output
+    # shape; they have no equivalent in the post-router architecture.
 
 
 # ── L. Simple chat does not default to web.search ────────────────────
