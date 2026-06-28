@@ -88,7 +88,7 @@ class TestSubagentRuntime:
         """Subagent tool execution must use caller=subagent."""
         from agent.runtime.durable.subagent import _execute_as_subagent
         ws = f"ws_cl_{uuid.uuid4().hex[:8]}"
-        result = _execute_as_subagent("web.search", {"query": "test", "top_k": 1}, ws)
+        result = _execute_as_subagent("web.manage", {"query": "test", "top_k": 1}, ws)
         # v3.10: web.search now allows subagent caller (profile-gated)
         assert result["ok"], f"Subagent should be allowed for web.search, got {result}"
 
@@ -128,7 +128,7 @@ class TestProfileToolsFilter:
     def test_test_agent_has_exec_tools(self):
         p = get_profile("test_agent")
         assert "exec.run" in p.allowed_tools
-        assert "system.diagnostics" in p.allowed_tools
+        assert "system.manage" in p.allowed_tools
 
 
 class TestPhase8Unaffected:

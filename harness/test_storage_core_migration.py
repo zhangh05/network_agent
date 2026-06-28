@@ -149,7 +149,7 @@ def test_pcap_parse_accepts_file_id(storage_ws):
 
     result = run_pcap_analysis("parse", workspace_id="test_ws", file_id=file_rec.file_id)
     # scapy likely not installed in test env — expect either success or clear error
-    assert result.get("tool_id") == "pcap.analysis.run"
+    assert result.get("tool_id") == "pcap.manage"
     # If parse fails due to no scapy, it should not crash
     assert "ok" in result
 

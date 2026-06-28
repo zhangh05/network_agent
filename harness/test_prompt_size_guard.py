@@ -12,8 +12,8 @@ from agent.runtime.prompt_architecture.compiler import compile_runtime_prompt
 class SmallCtx:
     runtime_snapshot = {"status": "ok"}
     safe_context = {"workspace_id": "default"}
-    metadata = {"selected_skills": [], "visible_tools": ["workspace.file.read"]}
-    visible_tool_ids = ["workspace.file.read"]
+    metadata = {"selected_skills": [], "visible_tools": ["workspace.file"]}
+    visible_tool_ids = ["workspace.file"]
 
 
 def test_default_prompt_is_not_huge():
@@ -30,8 +30,8 @@ def test_prompt_with_evidence_still_small():
             "knowledge_hits": [{"title": "OSPF", "score": 0.8}],
             "memory_hits": [{"title": "user pref"}],
         }
-        metadata = {"selected_skills": ["config_translation"], "visible_tools": ["config.analysis.run"]}
-        visible_tool_ids = ["config.analysis.run", "workspace.file.read"]
+        metadata = {"selected_skills": ["config_translation"], "visible_tools": ["config.manage"]}
+        visible_tool_ids = ["config.manage", "workspace.file"]
 
     assembly = compile_runtime_prompt(CtxWithEvidence())
     assert len(assembly.final_prompt) < 8000, f"prompt too large: {len(assembly.final_prompt)} chars"

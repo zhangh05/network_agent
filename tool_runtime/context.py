@@ -14,7 +14,7 @@ Example usage in a Module service:
         approval_id=approved_id,  # only after the caller has validated it
     )
     client = get_default_tool_runtime_client()
-    result = client.invoke("config.analysis.run", {"config_text": cfg}, context=ctx)
+    result = client.invoke("config.manage", {"config_text": cfg}, context=ctx)
 """
 
 from dataclasses import dataclass, field

@@ -1,5 +1,5 @@
 # tool_runtime/general_tools/filestore_tools.py
-"""FileStore tools - workspace.file.read, workspace.file.read, file.references, workspace.file.write_artifact, file.import_workspace_path."""
+"""FileStore tools - workspace.file, workspace.file, workspace.filestore, workspace.file, workspace.filestore."""
 
 from __future__ import annotations
 
@@ -33,20 +33,20 @@ def handle_file_get(inv, *, file_id: str = "", limit: int = 2000) -> dict[str, A
     ws = getattr(inv, "workspace_id", None) or ""
     rec = get_file_record(ws, file_id)
     if not rec:
-        return _fail("workspace.file.read", "file_not_found", file_id=file_id)
+        return _fail("workspace.file", "file_not_found", file_id=file_id)
 
     if rec.get("binary"):
-        return _ok("workspace.file.read", file_kind=rec.get("file_kind"), size_bytes=rec.get("size_bytes"),
+        return _ok("workspace.file", file_kind=rec.get("file_kind"), size_bytes=rec.get("size_bytes"),
                    sha256=rec.get("sha256"), path=rec.get("path"),
                    summary="binary file — metadata only")
 
     try:
         content = read_file_content(ws, file_id)
-        return _ok("workspace.file.read", content=content[:limit],
+        return _ok("workspace.file", content=content[:limit],
                    size_bytes=rec.get("size_bytes"),
                    truncated=len(content) > limit, file_id=file_id)
     except Exception as exc:
-        return _fail("workspace.file.read", str(exc)[:200], file_id=file_id)
+        return _fail("workspace.file", str(exc)[:200], file_id=file_id)
 
 
 def handle_file_preview(inv, *, file_id: str = "", limit: int = 500) -> dict[str, Any]:
@@ -56,9 +56,9 @@ def handle_file_preview(inv, *, file_id: str = "", limit: int = 500) -> dict[str
     ws = getattr(inv, "workspace_id", None) or ""
     rec = get_file_record(ws, file_id)
     if not rec:
-        return _fail("workspace.file.read", "file_not_found", file_id=file_id)
+        return _fail("workspace.file", "file_not_found", file_id=file_id)
 
-    result = _ok("workspace.file.read", file_kind=rec.get("file_kind"), binary=rec.get("binary"),
+    result = _ok("workspace.file", file_kind=rec.get("file_kind"), binary=rec.get("binary"),
                  size_bytes=rec.get("size_bytes"), sha256=rec.get("sha256"),
                  path=rec.get("path"), logical_type=rec.get("logical_type"),
                  file_id=file_id)
@@ -79,7 +79,7 @@ def handle_file_references(inv, *, file_id: str = "") -> dict[str, Any]:
 
     ws = getattr(inv, "workspace_id", None) or ""
     refs = list_references_for_file(ws, file_id)
-    return _ok("file.references", references=refs, count=len(refs), file_id=file_id)
+    return _ok("workspace.filestore", references=refs, count=len(refs), file_id=file_id)
 
 
 def handle_file_write_agent_output(
@@ -90,7 +90,7 @@ def handle_file_write_agent_output(
     from storage.file_store import write_agent_output
 
     if not content:
-        return _fail("workspace.file.write_artifact", "content_required")
+        return _fail("workspace.file", "content_required")
 
     ws = getattr(inv, "workspace_id", None) or ""
     run_id = getattr(inv, "run_id", "")
@@ -99,7 +99,7 @@ def handle_file_write_agent_output(
         file_kind=file_kind, title=title or "agent_output", ext=ext,
         source="tool_runtime", run_id=run_id,
     )
-    return _ok("workspace.file.write_artifact", file_id=rec.file_id, path=rec.path,
+    return _ok("workspace.file", file_id=rec.file_id, path=rec.path,
                size_bytes=rec.size_bytes, sha256=rec.sha256)
 
 
@@ -110,7 +110,7 @@ def handle_file_import_workspace_path(inv, *, filepath: str = "") -> dict[str, A
     from storage.paths import workspace_root
 
     if not filepath:
-        return _fail("file.import_workspace_path", "filepath_required")
+        return _fail("workspace.filestore", "filepath_required")
 
     ws = getattr(inv, "workspace_id", None) or ""
     root = workspace_root(ws)
@@ -118,18 +118,18 @@ def handle_file_import_workspace_path(inv, *, filepath: str = "") -> dict[str, A
     try:
         target.relative_to(root)
     except ValueError:
-        return _fail("file.import_workspace_path", "path_not_in_workspace", filepath=filepath)
+        return _fail("workspace.filestore", "path_not_in_workspace", filepath=filepath)
 
     allowed = {"files/user_upload", "files/agent_output", "files/knowledge", "inbox"}
     if not any(str(target.relative_to(root)).startswith(a) for a in allowed):
-        return _fail("file.import_workspace_path", "path_not_allowed", filepath=filepath)
+        return _fail("workspace.filestore", "path_not_allowed", filepath=filepath)
 
     if not target.exists():
-        return _fail("file.import_workspace_path", "file_not_found", filepath=filepath)
+        return _fail("workspace.filestore", "file_not_found", filepath=filepath)
 
     rec = import_user_upload(
         workspace_id=ws, file_source=str(target), original_name=target.name,
         source="file_import_workspace_path",
     )
-    return _ok("file.import_workspace_path", file_id=rec.file_id, path=rec.path,
+    return _ok("workspace.filestore", file_id=rec.file_id, path=rec.path,
                size_bytes=rec.size_bytes, sha256=rec.sha256)

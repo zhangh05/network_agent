@@ -19,12 +19,10 @@ from tool_runtime.tool_namespace import TOOL_NAMESPACE
 LOCAL_EXEC_TOOLS = {
     "exec.run",
     "exec.run",
-    "exec.python",
+    "exec.run",  # v3.9.2: python merged into exec.run(action=python)
 }
 SUB_AGENT_TOOLS = {
-    "agent.spawn",
-    "agent.role.list",
-    "agent.result.get",
+    "agent.manage",  # v3.9.2: all 4 agent tools merged
 }
 
 
@@ -56,16 +54,16 @@ def test_knowledge_qa_keeps_host_tools_scene_gated():
     """Knowledge QA exposes knowledge tools. exec.run is BASELINE so it's
     always present, but non-knowledge local exec tools stay scene-gated."""
     candidates = _candidates("知识库里有没有 OSPF 相关资料")
-    assert "knowledge.search" in candidates
+    assert "knowledge.manage" in candidates
     assert "exec.run" in candidates
 
 
 def test_config_translate_keeps_host_tools_scene_gated():
     """Config analysis tools are visible; exec.run is BASELINE so always
-    available; other local exec tools (exec.python/exec.slash) stay scene-gated."""
+    available; other local exec tools stay scene-gated."""
     candidates = _candidates("把这个华三配置翻译成思科配置")
-    assert "config.analysis.run" in candidates
-    assert {"workspace.file.read", "workspace.file.list"} & candidates
+    assert "config.manage" in candidates
+    assert {"workspace.file", "workspace.file"} & candidates
     assert "exec.run" in candidates
 
 

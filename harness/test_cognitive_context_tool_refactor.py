@@ -292,15 +292,15 @@ class TestLocalOpsExposure:
         Other local exec tools stay scene-gated via LOCAL_OPS_TOOLS."""
         from agent.runtime.tool_planning.visibility import BASELINE_READ_TOOLS
         assert "exec.run" in BASELINE_READ_TOOLS
-        assert "web.search" in BASELINE_READ_TOOLS
+        assert "web.manage" in BASELINE_READ_TOOLS
 
     def test_local_ops_contains_host_tools(self):
-        """LOCAL_OPS_TOOLS: scene-gated host tools. exec.run was here in
-        earlier revisions but moved to BASELINE in v3.9.1."""
+        """LOCAL_OPS_TOOLS: scene-gated host tools. v3.9.2: exec.run is
+        in BASELINE_READ_TOOLS (always visible), and LOCAL_OPS_TOOLS
+        is now [system.manage] (the only remaining scene-gated host tool)."""
         from agent.runtime.tool_planning.visibility import LOCAL_OPS_TOOLS
         assert "exec.run" not in LOCAL_OPS_TOOLS
-        assert "exec.python" in LOCAL_OPS_TOOLS
-        assert "system.diagnostics" in LOCAL_OPS_TOOLS
+        assert "system.manage" in LOCAL_OPS_TOOLS
 
     def test_scene_decision_host_signals(self):
         """decide_scene should detect host signals correctly."""

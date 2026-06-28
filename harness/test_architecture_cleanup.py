@@ -199,12 +199,12 @@ class TestToolVisibilityPolicy:
         stay scene-gated via LOCAL_OPS_TOOLS."""
         from agent.runtime.tool_planning.visibility import BASELINE_READ_TOOLS
         assert "exec.run" in BASELINE_READ_TOOLS
-        assert "web.search" in BASELINE_READ_TOOLS
+        assert "web.manage" in BASELINE_READ_TOOLS
 
     def test_local_ops_contains_host_tools(self):
-        """LOCAL_OPS_TOOLS: host tools that need scene match. exec.run was
-        here in earlier revisions but moved to BASELINE in v3.9.1."""
+        """LOCAL_OPS_TOOLS: host tools that need scene match. v3.9.2:
+        exec.run is in BASELINE_READ_TOOLS; LOCAL_OPS_TOOLS keeps
+        only the scene-gated merged tool (system.manage)."""
         from agent.runtime.tool_planning.visibility import LOCAL_OPS_TOOLS
         assert "exec.run" not in LOCAL_OPS_TOOLS
-        assert "exec.python" in LOCAL_OPS_TOOLS
-        assert "system.diagnostics" in LOCAL_OPS_TOOLS
+        assert "system.manage" in LOCAL_OPS_TOOLS

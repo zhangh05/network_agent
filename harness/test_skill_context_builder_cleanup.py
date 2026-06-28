@@ -23,7 +23,7 @@ class DummySession:
                     "skill_prompt": "SHOULD_NOT_APPEAR",
                     "capability_ids": ["config_translation"],
                     "module_ids": ["config_translation"],
-                    "tool_ids": ["config.analysis.run"],
+                    "tool_ids": ["config.manage"],
                     "prompt_hints": ["hint"],
                     "safety_notes": ["safe"],
                 }

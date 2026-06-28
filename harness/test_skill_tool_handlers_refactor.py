@@ -22,7 +22,7 @@ def _inv(tool_id, args=None):
 
 
 def test_skill_list_returns_manifests_not_filesystem_prompts():
-    out = handle_skill_list(_inv("skill.list"))
+    out = handle_skill_list(_inv("skill.manage"))
     assert out.get("ok")
     results = out.get("results", [])
     assert results
@@ -34,10 +34,10 @@ def test_skill_list_returns_manifests_not_filesystem_prompts():
 
 
 def test_skill_load_returns_capability_contract():
-    out = handle_skill_load(_inv("skill.load", {"skill_name": "config_translation"}))
+    out = handle_skill_load(_inv("skill.manage", {"skill_name": "config_translation"}))
     assert out.get("ok")
     assert "config_translation" in out.get("capability_ids", [])
-    assert "config.analysis.run" in out.get("tool_ids", [])
+    assert "config.manage" in out.get("tool_ids", [])
     assert "skill_prompt" not in out
 
 

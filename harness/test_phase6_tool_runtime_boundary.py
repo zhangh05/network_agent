@@ -14,7 +14,7 @@ class TestCallerPermission:
             workspace_id="default",
             requested_by="turn_runner",
         )
-        result = client.invoke("web.search", {"query": "test", "top_k": 1}, context=ctx)
+        result = client.invoke("web.manage", {"query": "test", "top_k": 1}, context=ctx)
         # Should not be blocked by caller permission
         assert result.status != "blocked" or "caller" not in str(result.summary).lower()
 
@@ -26,7 +26,7 @@ class TestCallerPermission:
             workspace_id="default",
             requested_by="bogus_caller",
         )
-        result = client.invoke("device.delete", {"asset_id": "test"}, context=ctx)
+        result = client.invoke("device.manage", {"asset_id": "test"}, context=ctx)
         # device.delete.allowed_callers only includes valid runtime callers
         assert result.status == "blocked" or "allow" in str(result.summary).lower()
 
@@ -51,26 +51,26 @@ class TestManifestGate:
             for spec, _ in to_tool_specs()
             if getattr(spec, "callable_by_llm", False)
         }
-        for tid in ("skill.list", "skill.find", "skill.load", "skill.inspect"):
+        for tid in ("skill.manage", "skill.manage", "skill.manage", "skill.manage"):
             assert tid in visible
 
         client = get_default_tool_runtime_client()
         ctx = ToolRuntimeContext(workspace_id="default", requested_by="turn_runner")
-        result = client.invoke("skill.list", {}, context=ctx)
+        result = client.invoke("skill.manage", {}, context=ctx)
         assert result.status == "succeeded"
 
     def test_active_tool_catalog_keeps_routed_business_tools_visible(self):
         from agent.runtime.capability_routing.toolset import active_tool_catalog
 
         config_catalog = active_tool_catalog("分析这个华为配置", limit=24)
-        assert "config.analysis.run" in config_catalog["tools"]
+        assert "config.manage" in config_catalog["tools"]
 
         subagent_catalog = active_tool_catalog("派发子agent搜索一下BGP邻居的建立条件", limit=24)
-        assert "agent.spawn" in subagent_catalog["tools"]
-        assert "agent.result.get" in subagent_catalog["tools"]
+        assert "agent.manage" in subagent_catalog["tools"]
+        assert "agent.manage" in subagent_catalog["tools"]
 
         for catalog in (config_catalog, subagent_catalog):
-            for tid in ("tool.catalog.search", "skill.list", "skill.load"):
+            for tid in ("skill.manage", "skill.manage", "skill.manage"):
                 assert tid in catalog["tools"]
 
 
@@ -80,7 +80,7 @@ class TestRedaction:
         from tool_runtime.context import ToolRuntimeContext
         client = get_default_tool_runtime_client()
         ctx = ToolRuntimeContext(workspace_id="default")
-        result = client.invoke("tool.catalog.search", {}, context=ctx)
+        result = client.invoke("skill.manage", {}, context=ctx)
         # Should be redacted
         assert result.redacted is True
 
@@ -89,7 +89,7 @@ class TestRedaction:
         from tool_runtime.context import ToolRuntimeContext
         client = get_default_tool_runtime_client()
         ctx = ToolRuntimeContext(workspace_id="default", requested_by="rest_api")
-        result = client.invoke("git.push", {"remote": "origin"}, context=ctx)
+        result = client.invoke("git.manage", {"remote": "origin"}, context=ctx)
         # Should go through pipeline, not directly execute
         assert result.status in ("failed", "blocked", "succeeded", "dry_run")
 
@@ -182,11 +182,13 @@ class TestPhase5Unaffected:
     def test_manifest_still_valid(self):
         from tool_runtime.manifest_registry import validate_all
         errors, count = validate_all()
-        assert count >= 70
+        # v3.9.2: 21 merged tools, not 70+. All manifests must validate.
+        assert count >= 20  # 21 expected
+        assert not errors, f"manifest validation errors: {errors}"
         assert len(errors) == 0
 
     def test_retry_still_works(self):
         from agent.runtime.durable.control import _is_retryable
         from agent.runtime.durable.models import RuntimeStep
-        step = RuntimeStep(step_id="s1", task_id="t1", kind="tool", tool_id="web.search", status="failed")
+        step = RuntimeStep(step_id="s1", task_id="t1", kind="tool", tool_id="web.manage", status="failed")
         assert _is_retryable(step) is True

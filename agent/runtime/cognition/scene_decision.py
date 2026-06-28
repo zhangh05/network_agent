@@ -66,7 +66,7 @@ def _contains(text: str, needles: tuple[str, ...]) -> bool:
 _SUB_AGENT_KEYWORDS: tuple[str, ...] = (
     # English literal
     "sub agent", "sub-agent", "subagent", "spawn", "delegate", "multi-agent",
-    "multi agent", "agent.team", "agent.spawn", "fork agent", "fork an agent",
+    "multi agent", "agent.team", "agent.manage", "fork agent", "fork an agent",
     # Chinese literal
     "子代理", "子agent", "子 agent", "子任务", "分派", "调度", "派发",
     "并行", "同时", "分头", "委托", "各自", "分别",

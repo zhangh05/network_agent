@@ -77,7 +77,7 @@ class TestCallerIdentity:
         client = get_default_tool_runtime_client()
         # Even if context says requested_by=subagent, subagent tools not allowed for subagent
         ctx = ToolRuntimeContext(workspace_id="default", requested_by="subagent")
-        result = client.invoke("agent.spawn", {"role": "review"}, context=ctx)
+        result = client.invoke("agent.manage", {"role": "review"}, context=ctx)
         # agent.spawn allowed_callers includes turn_runner but NOT subagent
         assert "blocked" in result.status or "allowed" in str(result.summary).lower()
 
@@ -85,7 +85,7 @@ class TestCallerIdentity:
 class TestExistingPhasesUnaffected:
     def test_phase6_passes(self):
         from tool_runtime.manifest_registry import get_manifest
-        assert get_manifest("web.search") is not None
+        assert get_manifest("web.manage") is not None
 
     def test_phase5_passes(self):
         from tool_runtime.manifest_registry import validate_all

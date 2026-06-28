@@ -22,7 +22,7 @@ def test_decision_report_preserves_nested_routing_structure():
         "dynamic_tool_expansions": [{
             "step": 2,
             "query": "packet sequence",
-            "added_tool_ids": ["pcap.analysis.run"],
+            "added_tool_ids": ["pcap.manage"],
         }],
         "context_pipeline_meta": {"status": "ok", "stages_run": 13},
     })
@@ -39,7 +39,7 @@ def test_decision_report_preserves_nested_routing_structure():
     assert REPORT_SCHEMA_VERSION == "decision_report.v2"
     assert report["capability_route"]["route_confidence"]["pcap_analysis"] == 0.9
     assert report["scene_decision"]["signals"]["has_file"] is True
-    assert report["catalog_expansions"][0]["added_tool_ids"] == ["pcap.analysis.run"]
+    assert report["catalog_expansions"][0]["added_tool_ids"] == ["pcap.manage"]
     assert report["context_pipeline"]["status"] == "ok"
     assert report["decision_status"] == "complete"
 
@@ -56,7 +56,7 @@ class _Emitter:
 
 def test_catalog_expansion_is_bounded_and_auditable():
     result = SimpleNamespace(
-        tool_id="tool.catalog.search",
+        tool_id="skill.manage",
         ok=True,
         metadata={
             "tool_catalog_expansion": {
@@ -71,7 +71,7 @@ def test_catalog_expansion_is_bounded_and_auditable():
     )
     context = SimpleNamespace(
         tool_router=_Router(),
-        visible_tool_ids=["tool.catalog.search"],
+        visible_tool_ids=["skill.manage"],
         metadata={},
     )
     session = SimpleNamespace(session_id="session_1")

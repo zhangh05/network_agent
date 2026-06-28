@@ -104,7 +104,7 @@ class TestMemoryWorkspaceIsolation:
         })
 
         inv = self._make_inv(workspace_id="workspaceA")
-        inv.tool_id = "memory.search"
+        inv.tool_id = "memory.manage"
         inv.arguments = {"query": "workspace-a-secret-marker"}
         result = memory_tools.handle_memory_search(inv)
 

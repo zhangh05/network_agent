@@ -59,7 +59,7 @@ def test_workspace_write_artifact_tool_uses_filestore(monkeypatch, tmp_path):
     from tool_runtime.schemas import ToolInvocation
 
     inv = ToolInvocation(
-        tool_id="workspace.file.write_artifact",
+        tool_id="workspace.file",
         arguments={"workspace_id": "tool_ws", "filename": "out.txt", "content": "hello"},
     )
     out = handle_ws_write_artifact_file(inv)

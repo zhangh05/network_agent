@@ -159,8 +159,8 @@ class ToolPlannerV2:
         artifact_layer = getattr(evidence_bundle, "artifact_layer", None)
         if artifact_layer and getattr(artifact_layer, "items", None):
             candidates = plan.get("candidate_tools", [])
-            file_tools = ["workspace.file.read", "workspace.file.list", "workspace.file.read"]
-            for ft in file_tools:
+            # v3.9.1.1: merged workspace.file (action=list|read|read_image|edit|patch|write_artifact)
+            for ft in ["workspace.file"]:
                 if ft not in candidates:
                     candidates.append(ft)
             plan["candidate_tools"] = candidates
@@ -322,16 +322,16 @@ def deterministic_plan_tools(
             filtered["local_ops_filtered"].extend(_stripped)
             filtered["local_ops_filtered"] = _ordered_unique(filtered["local_ops_filtered"])
 
-    _has_config_tools = {"config.analysis.run"} & set(candidate_tools)
-    _has_file_tools = {"workspace.file.read", "workspace.file.read",
-                       "workspace.file.list"} & set(candidate_tools)
+    _has_config_tools = {"config.manage"} & set(candidate_tools)  # v3.9.2
+    # v3.9.1.1: merged workspace.file replaces the old granular aliases
+    _has_file_tools = {"workspace.file"} & set(candidate_tools)
     if _has_config_tools and not _has_file_tools:
-        candidate_tools = _ordered_unique(["workspace.file.list", "workspace.file.read", *candidate_tools])
+        candidate_tools = _ordered_unique(["workspace.file", *candidate_tools])
 
     needs_clarification = _needs_file_clarification(user_input, safe_context, rule_scene)
 
-    if needs_clarification and not {"workspace.file.read", "workspace.file.read"} & set(candidate_tools):
-        candidate_tools = _ordered_unique(["workspace.file.list", *candidate_tools])
+    if needs_clarification and not {"workspace.file"} & set(candidate_tools):
+        candidate_tools = _ordered_unique(["workspace.file", *candidate_tools])
 
     categories, groups = categories_groups_from_tools(candidate_tools, rule_scene)
     primary = rule_scene.get("primary_category") or rule_scene.get("category") or (categories[0] if categories else "web")
@@ -511,7 +511,7 @@ def _capability_steps_from_rule_scene(user_input: str, rule_scene: dict) -> list
 def _step_required(user_input: str, step_no: int, tools: list[str]) -> bool:
     if step_no == 1:
         return True
-    if "config.analysis.run" in tools or "pcap.analysis.run" in tools:
+    if "config.manage" in tools or "pcap.manage" in tools:  # v3.9.2
         return True
     return False
 

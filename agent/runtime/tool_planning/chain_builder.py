@@ -27,10 +27,10 @@ def _cached_namespace_entry(tool_id: str):
 
 # Map signal keywords to (capability_action_id, goal_template)
 SIGNAL_DISPATCH = [
-    (("has_uploaded_files", "mentions_file"), "workspace.file.read", "读取上传或 workspace 中的文本文件"),
-    (("has_uploaded_files", "mentions_image"), "workspace.file.read_image", "读取上传图片的尺寸/格式元数据"),
+    (("has_uploaded_files", "mentions_file"), "workspace.file", "读取上传或 workspace 中的文本文件"),
+    (("has_uploaded_files", "mentions_image"), "workspace.file", "读取上传图片的尺寸/格式元数据"),
     (("mentions_web",), "web.official_docs.search", "检索官方文档或外部资料"),
-    (("mentions_weather",), "web.weather.read", "查询天气信息"),
+    (("mentions_weather",), "web.manage", "查询天气信息"),
     (("mentions_knowledge",), "knowledge.search_and_answer", "检索知识库并基于安全摘录回答"),
     (("mentions_config_translate",), "config.translation", "离线翻译网络配置"),
     (("mentions_packet",), "pcap.analysis", "离线分析 PCAP 报文、连接和 TCP 序列"),
@@ -96,73 +96,73 @@ def build_tool_chain(signals: dict[str, bool], candidates: set[str]) -> list[dic
 
     if signals.get("has_uploaded_files") or signals.get("mentions_file"):
         add("读取用户上传或 workspace 中的文件", [
-            "workspace.file.read", "workspace.file.read_image",
-            "workspace.file.read", "workspace.file.list",
+            "workspace.file", "workspace.file",
+            "workspace.file", "workspace.file",
         ])
 
     if signals.get("mentions_image"):
         add("读取上传图片的尺寸和格式信息", [
-            "workspace.file.read_image", "workspace.file.list",
+            "workspace.file", "workspace.file",
         ])
 
     if signals.get("mentions_web"):
         add("检索官方文档或外部资料", [
-            "web.search", "web.page.process",
+            "web.manage", "web.manage",
         ])
 
     if signals.get("mentions_weather"):
         add("查询天气信息", [
-            "web.weather.current", "web.weather.forecast",
+            "web.manage", "web.manage",
         ])
 
     if signals.get("mentions_knowledge"):
         add("查询知识库资料", [
-            "knowledge.search", "knowledge.read",
+            "knowledge.manage", "knowledge.manage",
         ])
 
     if signals.get("mentions_network_config"):
         add("读取配置文件内容", [
-            "workspace.file.read", "workspace.file.list", "workspace.file.read",
+            "workspace.file", "workspace.file", "workspace.file",
         ])
-        add("离线分析网络配置", ["config.analysis.run"])
+        add("离线分析网络配置", ["config.manage"])
 
     if signals.get("mentions_config_translate"):
         add("读取待翻译配置文件内容", [
-            "workspace.file.read", "workspace.file.list", "workspace.file.read",
+            "workspace.file", "workspace.file", "workspace.file",
         ])
-        add("离线翻译网络配置", ["config.analysis.run"])
+        add("离线翻译网络配置", ["config.manage"])
 
     if signals.get("mentions_packet"):
         add("读取 PCAP 报文文件", [
-            "workspace.file.read", "workspace.file.list",
+            "workspace.file", "workspace.file",
         ])
-        add("离线分析 PCAP 报文、连接和 TCP 序列", ["pcap.analysis.run"])
+        add("离线分析 PCAP 报文、连接和 TCP 序列", ["pcap.manage"])
 
     if signals.get("mentions_host"):
         add("查询或操作当前本机环境", [
-            "exec.run", "exec.python",
-            "system.diagnostics",
+            "exec.run", "exec.run",
+            "system.manage",
         ])
 
     if signals.get("mentions_runtime"):
         add("读取运行审计、run 或 session 信息", [
-            "system.run.get", "system.run.get",
-            "system.diagnostics", "system.session.get",
+            "system.manage", "system.manage",
+            "system.manage", "system.manage",
         ])
 
     if signals.get("mentions_memory"):
         add("查询或更新记忆/profile", [
-            "memory.search", "memory.proworkspace.file.read", "memory.profile",
+            "memory.manage", "memory.proworkspace.file.read", "memory.manage",
         ])
 
     if signals.get("mentions_report"):
         add("输出分析报告并保存制品", [
-            "report.markdown.render", "workspace.artifact.save",
+            "report.manage", "workspace.artifact",
         ])
 
     if signals.get("mentions_sub_agent"):
         add("派生子代理并行处理复杂任务", [
-            "agent.spawn", "agent.role.list", "agent.result.get",
+            "agent.manage", "agent.manage", "agent.manage",
         ])
 
     if not steps:

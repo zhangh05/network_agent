@@ -13,11 +13,11 @@ def _select_subagent_profile(allowed_tools: list | None = None, roles: list | No
         return "review_agent"
     if "worker" in role_set and ({"exec.run", "exec.python"} & tools):
         return "test_agent"
-    if {"workspace.file.edit", "workspace.file.patch", "workspace.file.write_artifact"} & tools:
+    if {"workspace.file", "workspace.file", "workspace.file"} & tools:
         return "fix_agent"
     if {"exec.run", "exec.python", "system.diagnostics"} & tools:
         return "test_agent"
-    if {"config.analysis.run", "pcap.analysis.run", "device.list", "device.get"} & tools:
+    if {"config.manage", "pcap.manage", "device.list", "device.get"} & tools:
         return "network_diag_agent"
     return "review_agent"
 
@@ -111,7 +111,7 @@ def handle_agent_list_roles(inv: ToolInvocation) -> dict:
         {
             "name": "reviewer",
             "description": "Reviews worker outputs for quality, correctness, and completeness. Can request rework.",
-            "default_tools": ["text.analyze", "memory.search", "workspace.artifact.list", "workspace.file.read"],
+            "default_tools": ["text.analyze", "memory.search", "workspace.artifact", "workspace.file"],
         },
     ]
     return _ok(inv, "", {"roles": roles, "count": len(roles)})
@@ -144,8 +144,8 @@ def handle_agent_team(inv: ToolInvocation) -> dict:
         # Low-risk read-only tools only for all roles
         _low_risk_read_tools = [
             "web.search", "web.page.process", "knowledge.search",
-            "knowledge.read", "workspace.artifact.list", "workspace.artifact.read",
-            "workspace.file.list", "workspace.file.read",
+            "knowledge.read", "workspace.artifact", "workspace.artifact",
+            "workspace.file", "workspace.file",
             "memory.search", "memory.profile",
             "text.analyze", "data.validate", "data.csv.summarize",
             "system.session.get", "system.run.get",
@@ -153,7 +153,7 @@ def handle_agent_team(inv: ToolInvocation) -> dict:
         _text_data_tools = [
             "web.search", "web.page.process",
             "text.analyze", "data.validate", "data.csv.summarize",
-            "data.table.extract", "workspace.file.read",
+            "data.table.extract", "workspace.file",
         ]
 
         result = {"ok": True, "instruction": instruction, "roles_used": [], "plan": "", "worker_result": None, "reviewer_result": None}

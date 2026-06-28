@@ -173,7 +173,7 @@ def test_sub_agent_run_record_written(tmp_path, monkeypatch):
         final_response="It says hello.",
         tool_calls_count=2,
         steps=3,
-        visible_tool_ids=["web.search", "text.analyze"],
+        visible_tool_ids=["web.manage", "text.analyze"],
     )
     assert rid == "run_parent_001"
 
@@ -185,7 +185,7 @@ def test_sub_agent_run_record_written(tmp_path, monkeypatch):
     assert rec["child_run_id"] == "run_child_002"
     assert rec["child_session_id"] == "sub_child_123"
     assert rec["tool_calls_count"] == 2
-    assert rec["visible_tool_ids"] == ["web.search", "text.analyze"]
+    assert rec["visible_tool_ids"] == ["web.manage", "text.analyze"]
 
 
 # ─────────────────────────────── 5. Approval timeout configurability ───────────────────────────────

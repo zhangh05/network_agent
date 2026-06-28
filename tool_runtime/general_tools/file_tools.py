@@ -73,7 +73,7 @@ def handle_file_exists(inv: ToolInvocation) -> dict:
 
 
 def handle_file_list_merged(inv: ToolInvocation) -> dict:
-    """Merged handler for workspace.file.list — dispatches to list or exists."""
+    """Merged handler for workspace.file — dispatches to list or exists."""
     if inv.arguments.get("filepath", "").strip():
         return handle_file_exists(inv)
     return handle_file_list(inv)
@@ -266,7 +266,7 @@ def handle_ws_write_artifact_file(inv: ToolInvocation) -> dict:
             file_kind=suffix,
             title=title,
             ext=suffix,
-            source="workspace.file.write_artifact",
+            source="workspace.file",
         )
         return _ok(inv, "", {
             "filepath": rec.path,

@@ -12,18 +12,29 @@ from agent.runtime.actions.models import ActionRequest, ActionPlan
 # ── Action class patterns (matched against tool_id) ─────────────────────
 
 _CLASS_PATTERNS = [
-    (re.compile(r"(shell|powershell|python|exec)", re.I), "execute"),
-    (re.compile(r"(delete|remove|drop|destroy|purge)", re.I), "mutate"),
-    (re.compile(r"(write|save|create|add|insert|update|modify|edit|patch|set|put|upload|push|append)", re.I), "write"),
-    (re.compile(r"(read|list|search|get|fetch|query|find|show|view|describe|cat|head|tail|ls|dir|stat|download|pull)", re.I), "read"),
+    (re.compile(r"(shell|powershell|python|exec|spawn|run|slash)", re.I), "execute"),
+    (re.compile(r"(delete|remove|drop|destroy|purge|rewind|checkpoint)", re.I), "mutate"),
+    (re.compile(r"(write|save|create|add|insert|update|modify|edit|patch|set|put|upload|push|append|commit|render|tag|export|reindex|import|redirect|confirm)", re.I), "write"),
+    (re.compile(r"(read|list|search|get|fetch|query|find|show|view|describe|cat|head|tail|ls|dir|stat|download|pull|status|diff|log|check|navigate|screenshot|click|extract|validate|summarize|weather|classify|keywords|explain|redact|profile|inspect|load|catalog|role|results?|checkpoints?|snapshots?)", re.I), "read"),
     (re.compile(r"(http|api|webhook|external|remote|curl|wget|request)", re.I), "external"),
 ]
 
 
-def _classify_action(tool_id: str) -> str:
-    """Classify action based on tool_id patterns."""
+def _classify_action(tool_id: str, arguments: dict | None = None) -> str:
+    """Classify action based on tool_id + (for merged tools) arguments.action.
+
+    Merged tools like ``git.manage`` / ``agent.manage`` use a single
+    canonical id and dispatch by ``arguments.action``. To classify them
+    correctly we build a pseudo tool_id that concatenates the action
+    name so the regex patterns above can match. For non-merged tools
+    the action suffix is empty and behaviour matches the original
+    tool_id-only classification.
+    """
+    args = arguments or {}
+    action = str(args.get("action", "")).lower().strip()
+    pseudo = f"{tool_id} {action}".strip()
     for pattern, cls in _CLASS_PATTERNS:
-        if pattern.search(tool_id):
+        if pattern.search(pseudo):
             return cls
     return "unknown"
 
@@ -48,7 +59,7 @@ class ActionPlanner:
              arguments: dict, turn_id: str = "", raw_call: Any = None,
              context: Any = None) -> ActionPlan:
         """Build an ActionPlan from a tool call."""
-        action_class = _classify_action(tool_id)
+        action_class = _classify_action(tool_id, arguments)
         argument_sources = _detect_argument_sources(arguments, tool_id)
 
         plan = ActionPlan(

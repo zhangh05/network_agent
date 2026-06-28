@@ -38,7 +38,7 @@ def _make_spec(name: str, tool_id: str, description: str, properties: dict, requ
 
 TOOL_ARTIFACT_LIST = _make_spec(
     name="list",
-    tool_id="workspace.artifact.list",
+    tool_id="workspace.artifact",
     description=(
         "List artifacts in a workspace, optionally filtered by session or "
         "type. Returns sanitized records (no local file paths)."
@@ -55,7 +55,7 @@ TOOL_ARTIFACT_LIST = _make_spec(
 
 TOOL_ARTIFACT_READ = _make_spec(
     name="read",
-    tool_id="workspace.artifact.read",
+    tool_id="workspace.artifact",
     description=(
         "Read an artifact's content + metadata. Returns ok=false when the "
         "artifact is missing or sensitivity gates deny access. "
@@ -73,7 +73,7 @@ TOOL_ARTIFACT_READ = _make_spec(
 
 TOOL_ARTIFACT_DIFF = _make_spec(
     name="diff",
-    tool_id="workspace.artifact.diff",
+    tool_id="workspace.artifact",
     description=(
         "Compute a unified text diff between two artifacts in the same "
         "workspace. Returns ok=false when either is missing."
@@ -90,7 +90,7 @@ TOOL_ARTIFACT_DIFF = _make_spec(
 
 TOOL_ARTIFACT_EXPORT = _make_spec(
     name="export",
-    tool_id="workspace.artifact.export",
+    tool_id="workspace.artifact",
     description=(
         "Render an artifact as txt or md. Does NOT push to a real device "
         "and does NOT generate a deployable_config."
@@ -149,17 +149,17 @@ from agent.modules.artifact import service as _artifact_service
 
 tool_handler_list = _build_handler(
     _artifact_service.list_artifacts_for_session,
-    "workspace.artifact.list",
+    "workspace.artifact",
 )
 tool_handler_read = _build_handler(
     _artifact_service.read_artifact,
-    "workspace.artifact.read",
+    "workspace.artifact",
 )
 tool_handler_diff = _build_handler(
     _artifact_service.diff_artifacts,
-    "workspace.artifact.diff",
+    "workspace.artifact",
 )
 tool_handler_export = _build_handler(
     _artifact_service.export_artifact,
-    "workspace.artifact.export",
+    "workspace.artifact",
 )

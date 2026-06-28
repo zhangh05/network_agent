@@ -8,14 +8,14 @@ def test_canonical_registry_import_has_no_general_tools_cycle():
 
     specs = to_tool_specs()
     assert specs
-    assert get_entry("agent.spawn") is not None
+    assert get_entry("agent.manage") is not None
 
 
 def test_subagent_cannot_spawn_nested_agents():
     from tool_runtime.manifest_registry import get_manifest
 
-    assert "subagent" not in get_manifest("agent.spawn").allowed_callers
-    assert "subagent" not in get_manifest("agent.team.run").allowed_callers
+    assert "subagent" not in get_manifest("agent.manage").allowed_callers
+    assert "subagent" not in get_manifest("agent.manage").allowed_callers
 
 
 def test_subagent_turn_receives_profile_step_budget(monkeypatch, tmp_path):
@@ -58,7 +58,7 @@ def test_subagent_turn_receives_profile_step_budget(monkeypatch, tmp_path):
     assert captured["session_id"] != "sess-1"
     assert captured["max_steps"] == subagent.get_profile("review_agent").max_steps
     assert captured["tool_count"] > 0
-    assert "web.search" in subagent.get_profile("review_agent").allowed_tools
+    assert "web.manage" in subagent.get_profile("review_agent").allowed_tools
 
 
 def test_web_private_url_guard_has_prefix_constants():
@@ -163,7 +163,7 @@ def test_web_page_process_cache_clock_available(monkeypatch):
     monkeypatch.setattr(requests, "get", lambda *args, **kwargs: FakeResponse())
 
     result = handle_web_fetch_summary(ToolInvocation(
-        tool_id="web.page.process",
+        tool_id="web.manage",
         arguments={"url": "https://example.com/bgp"},
         workspace_id="ws_web_page",
         requested_by="turn_runner",
@@ -199,7 +199,7 @@ def test_tool_catalog_search_tolerates_empty_namespace_fields(monkeypatch):
     monkeypatch.setattr(registry, "CANONICAL_REGISTRY", {"fake.web": FakeEntry()})
 
     result = _handler_tool_catalog_search(ToolInvocation(
-        tool_id="tool.catalog.search",
+        tool_id="skill.manage",
         arguments={"query": "web search"},
         workspace_id="ws_catalog",
         requested_by="turn_runner",
@@ -223,7 +223,7 @@ def test_agent_spawn_inherits_invocation_session(monkeypatch):
     monkeypatch.setattr(agent_tools, "_run_durable_subagent", fake_run_durable_subagent)
 
     result = handle_agent_spawn(ToolInvocation(
-        tool_id="agent.spawn",
+        tool_id="agent.manage",
         arguments={"instruction": "research"},
         workspace_id="ws_spawn",
         session_id="parent-session",
@@ -249,7 +249,7 @@ def test_tool_runtime_context_carries_session_to_invocation(monkeypatch):
 
     registry.register_tool(
         ToolSpec(
-            tool_id="web.search",
+            tool_id="web.manage",
             category="web",
             input_schema={"type": "object", "properties": {}},
         ),
@@ -257,7 +257,7 @@ def test_tool_runtime_context_carries_session_to_invocation(monkeypatch):
     )
 
     result = ToolRuntimeClient(registry).invoke(
-        "web.search",
+        "web.manage",
         {},
         context=ToolRuntimeContext(
             workspace_id="default",
@@ -277,7 +277,7 @@ def test_action_result_projection_preserves_tool_output_for_llm():
 
     action = ActionResult(
         tool_call_id="call-1",
-        tool_id="agent.spawn",
+        tool_id="agent.manage",
         ok=True,
         status="success",
         normalized_result={
@@ -323,7 +323,7 @@ def test_agent_spawn_result_exposes_child_session_id(monkeypatch):
         workspace_id="default",
         session_id="sess-parent",
         parent_task_id="task-parent",
-        allowed_tools=["web.search"],
+        allowed_tools=["web.manage"],
     )
 
     assert result["subtask_id"] == "sub-child-1"
@@ -335,7 +335,7 @@ def test_memory_search_validates_workspace_without_name_error():
     from tool_runtime.schemas import ToolInvocation
 
     result = handle_memory_search(ToolInvocation(
-        tool_id="memory.search",
+        tool_id="memory.manage",
         arguments={"workspace_id": "ws_memory_search", "query": "nothing"},
         workspace_id="ws_memory_search",
         requested_by="turn_runner",

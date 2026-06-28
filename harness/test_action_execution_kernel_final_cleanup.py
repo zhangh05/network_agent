@@ -40,7 +40,7 @@ def test_action_executor_passes_evidence_bundle_to_risk_policy(monkeypatch):
     executor.dispatcher = FakeDispatcher()
 
     ctx = SimpleNamespace(metadata={}, evidence_bundle=object())
-    plan = ActionPlan(tool_id="workspace.file.list", action_class="read")
+    plan = ActionPlan(tool_id="workspace.file", action_class="read")
 
     executor.execute(plan, tool_call=object(), ctx=ctx)
 
@@ -82,10 +82,10 @@ def test_risk_policy_conflict_keeps_execute_high_risk():
 
 def test_evidence_update_writes_action_evidence_updates():
     ctx = SimpleNamespace(metadata={})
-    plan = ActionPlan(action_id="a1", tool_id="workspace.file.read", action_class="read")
+    plan = ActionPlan(action_id="a1", tool_id="workspace.file", action_class="read")
     result = ActionResult(
         action_id="a1",
-        tool_id="workspace.file.read",
+        tool_id="workspace.file",
         ok=True,
         status="success",
         normalized_result={"summary": "read ok"},

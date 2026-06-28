@@ -82,7 +82,7 @@ def test_llm_tool_catalog_exposes_current_knowledge_search():
     for target in targets:
         text = _read(target)
         if target in {"agent/modules/knowledge/tools.py", "tool_runtime/canonical_registry.py"}:
-            assert "knowledge.search" in text
+            assert "knowledge.manage" in text
 
 
 def test_import_from_artifact_uses_current_store_and_is_searchable(tmp_path, monkeypatch):

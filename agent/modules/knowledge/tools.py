@@ -23,7 +23,7 @@ from agent.tools.schemas import ToolSpec
 
 
 TOOL_KNOWLEDGE_IMPORT = ToolSpec(
-    tool_id="knowledge.import.document",
+    tool_id="knowledge.manage.import_document",
     name="import_document",
     category="knowledge",
     description=(
@@ -51,7 +51,7 @@ TOOL_KNOWLEDGE_IMPORT = ToolSpec(
 
 
 TOOL_KNOWLEDGE_LIST = ToolSpec(
-    tool_id="knowledge.source.list",
+    tool_id="knowledge.manage.source_list",
     name="list_sources",
     category="knowledge",
     description=(
@@ -77,7 +77,7 @@ TOOL_KNOWLEDGE_LIST = ToolSpec(
 
 
 TOOL_KNOWLEDGE_READ = ToolSpec(
-    tool_id="knowledge.read",
+    tool_id="knowledge.manage.read",
     name="read_source",
     category="knowledge",
     description=(
@@ -103,7 +103,7 @@ TOOL_KNOWLEDGE_READ = ToolSpec(
 
 
 TOOL_KNOWLEDGE_DISABLE = ToolSpec(
-    tool_id="knowledge.source.disable",
+    tool_id="knowledge.manage.source_disable",
     name="disable_source",
     category="knowledge",
     description="Soft-disable a source. Pass disabled=false to re-enable.",
@@ -126,7 +126,7 @@ TOOL_KNOWLEDGE_DISABLE = ToolSpec(
 
 
 TOOL_KNOWLEDGE_DELETE = ToolSpec(
-    tool_id="knowledge.source.delete",
+    tool_id="knowledge.manage.source_delete",
     name="delete_source",
     category="knowledge",
     description=(
@@ -152,7 +152,7 @@ TOOL_KNOWLEDGE_DELETE = ToolSpec(
 # ── Retrieval ToolSpec declarations ──
 
 TOOL_KNOWLEDGE_IMPORT_FILE = ToolSpec(
-    tool_id="knowledge.import.file",
+    tool_id="knowledge.manage.import_file",
     name="import_file",
     category="knowledge",
     description=(
@@ -197,7 +197,7 @@ TOOL_KNOWLEDGE_IMPORT_FILE = ToolSpec(
 
 
 TOOL_KNOWLEDGE_LIST_CHUNKS = ToolSpec(
-    tool_id="knowledge.chunk.list",
+    tool_id="knowledge.manage.chunk_list",
     name="list_chunks",
     category="knowledge",
     description=(
@@ -228,7 +228,7 @@ TOOL_KNOWLEDGE_LIST_CHUNKS = ToolSpec(
 
 
 TOOL_KNOWLEDGE_SEARCH_CHUNKS = ToolSpec(
-    tool_id="knowledge.search",
+    tool_id="knowledge.manage.search",
     name="search_chunks",
     category="knowledge",
     description=(
@@ -268,7 +268,7 @@ TOOL_KNOWLEDGE_SEARCH_CHUNKS = ToolSpec(
 
 
 TOOL_KNOWLEDGE_READ_CHUNK = ToolSpec(
-    tool_id="knowledge.read",
+    tool_id="knowledge.manage.read",
     name="read_chunk",
     category="knowledge",
     description=(
@@ -293,7 +293,7 @@ TOOL_KNOWLEDGE_READ_CHUNK = ToolSpec(
 
 
 TOOL_KNOWLEDGE_READ_PARENT = ToolSpec(
-    tool_id="knowledge.read",
+    tool_id="knowledge.manage.read",
     name="read_parent",
     category="knowledge",
     description=(
@@ -318,7 +318,7 @@ TOOL_KNOWLEDGE_READ_PARENT = ToolSpec(
 
 
 TOOL_KNOWLEDGE_REINDEX = ToolSpec(
-    tool_id="knowledge.source.reindex",
+    tool_id="knowledge.manage.source_reindex",
     name="reindex_source",
     category="knowledge",
     description=(
@@ -409,23 +409,23 @@ from agent.modules.knowledge import service as _knowledge_service
 
 
 tool_handler_import = _build_handler(
-    _knowledge_service.import_document, "knowledge.import.document",
+    _knowledge_service.import_document, "knowledge.manage.import_document",
     passthrough_keys=("workspace_id", "title", "content", "source", "metadata"),
 )
 tool_handler_list = _build_handler(
-    _knowledge_service.list_sources, "knowledge.source.list",
+    _knowledge_service.list_sources, "knowledge.manage.source_list",
     passthrough_keys=("workspace_id", "include_disabled", "include_deleted"),
 )
 tool_handler_read = _build_handler(
-    _knowledge_service.read_source, "knowledge.read",
+    _knowledge_service.read_source, "knowledge.manage.read",
     passthrough_keys=("workspace_id", "source_id"),
 )
 tool_handler_disable = _build_handler(
-    _knowledge_service.disable_source, "knowledge.source.disable",
+    _knowledge_service.disable_source, "knowledge.manage.source_disable",
     passthrough_keys=("workspace_id", "source_id", "disabled"),
 )
 tool_handler_delete = _build_handler(
-    _knowledge_service.delete_source, "knowledge.source.delete",
+    _knowledge_service.delete_source, "knowledge.manage.source_delete",
     passthrough_keys=("workspace_id", "source_id"),
 )
 
@@ -448,30 +448,30 @@ def _tool_handler_manage_source(**kwargs):
 tool_handler_manage_source = _tool_handler_manage_source
 
 tool_handler_import_file = _build_handler(
-    _knowledge_service.import_file, "knowledge.import.file",
+    _knowledge_service.import_file, "knowledge.manage.import_file",
     passthrough_keys=("workspace_id", "source", "title", "author",
                        "edition", "source_type", "scope", "language",
                        "tags", "metadata"),
     extract_path_key="file_path",
 )
 tool_handler_list_chunks = _build_handler(
-    _knowledge_service.list_chunks, "knowledge.chunk.list",
+    _knowledge_service.list_chunks, "knowledge.manage.chunk_list",
     passthrough_keys=("workspace_id", "source_id", "chunk_type", "limit"),
 )
 tool_handler_search_chunks = _build_handler(
-    _knowledge_service.search_chunks, "knowledge.search",
+    _knowledge_service.search_chunks, "knowledge.manage.search",
     passthrough_keys=("workspace_id", "query", "top_k", "scope",
                        "source_id", "source_type", "tags", "chapter"),
 )
 tool_handler_read_chunk = _build_handler(
-    _knowledge_service.read_chunk, "knowledge.read",
+    _knowledge_service.read_chunk, "knowledge.manage.read",
     passthrough_keys=("workspace_id", "chunk_id"),
 )
 tool_handler_read_parent = _build_handler(
-    _knowledge_service.read_parent, "knowledge.read",
+    _knowledge_service.read_parent, "knowledge.manage.read",
     passthrough_keys=("workspace_id", "child_chunk_id"),
 )
 tool_handler_reindex = _build_handler(
-    _knowledge_service.reindex_source, "knowledge.source.reindex",
+    _knowledge_service.reindex_source, "knowledge.manage.source_reindex",
     passthrough_keys=("workspace_id", "source_id"),
 )

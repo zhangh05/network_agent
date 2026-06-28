@@ -18,8 +18,8 @@ def to_llm_tool_name(tool_id: str) -> str:
     """Convert tool_id to LLM-safe function name.
 
     Examples:
-        "system.diagnostics" -> "runtime__health"
-        "web.search" -> "web__search"
+        "system.manage" -> "runtime__health"
+        "web.manage" -> "web__search"
         "artifact_list" -> "artifact_list"  (no dots, no change)
     """
     return tool_id.replace(".", "__")
@@ -29,8 +29,8 @@ def from_llm_tool_name(llm_name: str) -> str:
     """Convert LLM-safe function name back to real tool_id.
 
     Examples:
-        "runtime__health" -> "system.diagnostics"
-        "web__search" -> "web.search"
+        "runtime__health" -> "system.manage"
+        "web__search" -> "web.manage"
         "artifact_list" -> "artifact_list"  (no double underscore, no change)
     """
     return llm_name.replace("__", ".")

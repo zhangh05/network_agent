@@ -38,7 +38,7 @@ class ToolSpec:
     It does NOT contain the handler function (stored separately in registry).
 
     v3.0 notes:
-      - tool_id is the public canonical_tool_id (e.g. ``workspace.file.read``).
+      - tool_id is the public canonical_tool_id (e.g. ``workspace.file``).
       - handler_id is the internal implementation key. It is never
         exposed publicly.
     """

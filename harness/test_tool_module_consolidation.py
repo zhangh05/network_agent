@@ -13,7 +13,7 @@ from tool_runtime.tool_governance import get_governance_entry
 def test_config_skill_uses_directory_level_tool():
     pkg = package_by_id("config_translation")
     assert pkg is not None
-    assert "config.analysis.run" in pkg.tool_ids
+    assert "config.manage" in pkg.tool_ids
     assert ("network" + ".config.translate") not in pkg.tool_ids
     assert len(pkg.tool_ids) <= 3
 
@@ -21,7 +21,7 @@ def test_config_skill_uses_directory_level_tool():
 def test_pcap_skill_uses_directory_level_tool():
     pkg = package_by_id("pcap_analysis")
     assert pkg is not None
-    assert "pcap.analysis.run" in pkg.tool_ids
+    assert "pcap.manage" in pkg.tool_ids
     assert ("network" + ".pcap.parse") not in pkg.tool_ids
     assert len(pkg.tool_ids) <= 2
 
@@ -43,7 +43,7 @@ def test_old_pcap_tools_are_deleted():
 
 
 def test_directory_tools_are_planner_visible():
-    for tid in ["config.analysis.run", "pcap.analysis.run"]:
+    for tid in ["config.manage", "pcap.manage"]:
         entry = get_governance_entry(tid)
         assert entry.status == "active", f"{tid} should be active, got {entry.status}"
         assert entry.planner_visible is True, f"{tid} should be planner visible"

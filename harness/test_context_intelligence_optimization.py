@@ -73,13 +73,13 @@ def test_prompt_tool_catalog_marks_required_and_optional_tools():
             "workspace_id": "default",
             "tool_scene": {
                 "tool_planning_decision": {
-                    "required_tools": ["workspace.file.read"],
-                    "optional_tools": ["web.search"],
+                    "required_tools": ["workspace.file"],
+                    "optional_tools": ["web.manage"],
                 }
             },
         },
-        metadata={"visible_tools": ["workspace.file.read", "web.search"]},
-        visible_tool_ids=["workspace.file.read", "web.search"],
+        metadata={"visible_tools": ["workspace.file", "web.manage"]},
+        visible_tool_ids=["workspace.file", "web.manage"],
         workspace_id="default",
         session_id="s1",
         requested_by="turn_runner",
@@ -116,10 +116,10 @@ def test_core_tools_for_context_does_not_inflate_all_tools():
     ctx = SimpleNamespace(user_input="总结一下")
     tools = _core_tools_for_context(ctx, {"categories": ["knowledge"], "groups": {}})
 
-    assert "workspace.file.read" in tools
-    assert "tool.catalog.search" in tools
-    assert "git.commit" not in tools
-    assert "device.delete" not in tools
+    assert "workspace.file" in tools
+    assert "skill.manage" in tools
+    assert "git.manage" not in tools
+    assert "device.manage" not in tools
     assert len(tools) < len(CORE_TOOL_IDS)
 
 
@@ -132,10 +132,10 @@ def test_core_tools_for_context_includes_agent_tools_for_subagent_scene():
         "groups": {"agent": ["subagent"], "web": ["search"]},
     })
 
-    assert "agent.spawn" in tools
-    assert "agent.role.list" in tools
-    assert "agent.result.get" in tools
-    assert "web.search" in tools
+    assert "agent.manage" in tools
+    assert "agent.manage" in tools
+    assert "agent.manage" in tools
+    assert "web.manage" in tools
 
 
 def test_context_pipeline_simple_chat_exposes_no_tools():

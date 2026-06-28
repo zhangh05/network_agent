@@ -48,7 +48,7 @@ CATEGORY_EXTERNAL = {"web"}
 
 # Tools that are safe even when in MUTATE/WRITE/EXEC classes
 SAFE_EXECUTE = {"runtime.selfcheck", "system.diagnostics", "system.diagnostics"}
-SAFE_WRITE = {"workspace.file.read"}  # not actually destructive
+SAFE_WRITE = {"workspace.file"}  # not actually destructive
 SAFE_MUTATE = {"skill.load"}  # LLM-visible capability activation, not business data mutation
 
 
@@ -69,22 +69,37 @@ class ActionClass:
 
 
 def classify_tool(tool_id: str, category: str = "", group: str = "",
-                  action: str = "") -> ActionClass:
-    """Classify a tool's action class from its category/group/action."""
+                  action: str = "", arguments: dict | None = None) -> ActionClass:
+    """Classify a tool's action class from its category/group/action.
+
+    v3.9.2: ``arguments`` enables sub-action dispatch for merged tools
+    whose canonical ``action`` is ``"multi"``. The actual class is then
+    looked up by ``arguments.action`` so ``git.manage(action="commit")``
+    classifies as ``write`` while ``git.manage(action="status")`` is
+    ``read``. Non-merged tools pass through unchanged.
+    """
     result = ActionClass(
         tool_id=tool_id, category=category, group=group, action=action
     )
 
+    # v3.9.2: merged tools dispatch on arguments.action.
+    # Non-multi tools keep their original single-action semantics.
+    effective_action = action
+    if action == "multi" and arguments:
+        sub = str(arguments.get("action", "")).lower().strip()
+        if sub:
+            effective_action = sub
+
     # Category-based overrides
     if category in CATEGORY_EXECUTE:
         result.action_class = "execute"
-    elif action in EXECUTE_ACTIONS:
+    elif effective_action in EXECUTE_ACTIONS:
         result.action_class = "execute"
-    elif action in MUTATE_ACTIONS:
+    elif effective_action in MUTATE_ACTIONS:
         result.action_class = "mutate"
-    elif action in WRITE_ACTIONS:
+    elif effective_action in WRITE_ACTIONS:
         result.action_class = "write"
-    elif action in EXTERNAL_ACTIONS and category in CATEGORY_EXTERNAL:
+    elif effective_action in EXTERNAL_ACTIONS and category in CATEGORY_EXTERNAL:
         # Only web-category "search/summarize" etc. are external
         result.action_class = "external"
     # Default: "read" for list/read/get/search/query etc.
@@ -94,7 +109,7 @@ def classify_tool(tool_id: str, category: str = "", group: str = "",
         result.is_high_impact = True
     # v3.1.1: "spawn" creates read-only sub-agents — NOT destructive.
     # It passes through the approval gate for high-impact tools.
-    if action in ("add", "delete", "delete_soft", "disable", "unload", "rewind", "checkpoint",
+    if effective_action in ("add", "delete", "delete_soft", "disable", "unload", "rewind", "checkpoint",
                   "reindex_all", "restore"):
         result.is_destructive = True
 

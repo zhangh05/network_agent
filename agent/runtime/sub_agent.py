@@ -11,11 +11,11 @@ import uuid
 # Subagent tool access is now controlled by SubagentProfile.allowed_tools.
 # These lists remain for backward compat with legacy callers that pass allowed_tools explicitly.
 DEFAULT_ALLOWED_TOOLS = [
-    "workspace.file.read", "workspace.file.list", "code.search",
-    "knowledge.search", "knowledge.read", "web.search",
-    "web.page.process", "system.diagnostics",
+    "workspace.file", "workspace.file", "code.search",
+    "knowledge.manage", "knowledge.manage", "web.manage",
+    "web.manage", "system.manage",
 ]
-FORBIDDEN_FOR_SUB_AGENT = ["exec.run", "exec.python", "agent.spawn"]
+FORBIDDEN_FOR_SUB_AGENT = ["exec.run", "exec.run", "agent.manage"]
 MAX_SUB_AGENT_TURNS = 3
 
 

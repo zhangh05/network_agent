@@ -63,7 +63,7 @@ class PermissionMatrix:
         """Check whether a tool/action is permitted.
 
         Args:
-            tool_id: The tool identifier (e.g. 'exec.run', 'workspace.file.read').
+            tool_id: The tool identifier (e.g. 'exec.run', 'workspace.file').
             action: The action type (READ, WRITE, EXEC, NETWORK).
             context: Optional context dict with workspace_id, session_id, etc.
             spec: Optional ToolSpec for richer policy checking.
@@ -144,12 +144,12 @@ class PermissionMatrix:
         if tool_id.startswith(("web.",)):
             return PermissionAction.NETWORK
         read_tools = (
-            "workspace.artifact.list", "workspace.artifact.read",
+            "workspace.artifact", "workspace.artifact",
             "knowledge.search", "knowledge.source.get", "knowledge.chunk.summary",
             "memory.search", "memory.search", "memory.proworkspace.file.read",
             "system.session.get", "system.run.get", "system.run.get",
-            "workspace.file.list", "workspace.file.list", "workspace.file.read",
-            "workspace.file.read", "workspace.metadata.get",
+            "workspace.file", "workspace.file", "workspace.file",
+            "workspace.file", "workspace.metadata.get",
             "skill.list", "skill.find_skills", "skill.inspect",
             "system.session.snapshot",
             "system.diagnostics",

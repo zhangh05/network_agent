@@ -1,568 +1,291 @@
 # tool_runtime/manifest_registry.py
-"""All tool manifests — single source of truth."""
+"""All tool manifests — single source of truth.
+
+v3.9.2: 22-tool Codex-style set. Each merged tool's manifest uses the
+highest-risk profile of any sub-action (e.g. ``git.manage`` keeps
+``requires_approval=True`` because ``action=commit`` / ``action=push``
+require approval, even though ``action=status`` is read-only). The
+runtime dispatcher in ``canonical_registry`` enforces the per-action
+approval gate regardless of manifest defaults.
+"""
 
 from .manifest import CapabilityManifest, RetryPolicy
 
 MANIFESTS: dict[str, CapabilityManifest] = {
-    # ═══ browser ═══
-    "browser.navigate": CapabilityManifest(
-        tool_id="browser.navigate", category="browser", display_name="Browser Navigate",
-        description="Navigate browser to a URL", action_class="network",
-        risk_level="low", side_effects="none", idempotency="safe_to_retry",
-        timeout_seconds=30, output_sensitivity="internal",
-    ),
-    "browser.screenshot": CapabilityManifest(
-        tool_id="browser.screenshot", category="browser", display_name="Browser Screenshot",
-        description="Capture page screenshot", action_class="read",
-        risk_level="low", side_effects="none", idempotency="safe_to_retry",
-        output_sensitivity="sensitive", timeout_seconds=30,
-    ),
-    "browser.click": CapabilityManifest(
-        tool_id="browser.click", category="browser", display_name="Browser Click",
-        description="Click element on page", action_class="write",
-        risk_level="low", side_effects="write", idempotency="unknown",
-        timeout_seconds=20,
-    ),
-    "browser.extract": CapabilityManifest(
-        tool_id="browser.extract", category="browser", display_name="Browser Extract",
-        description="Extract page content", action_class="read",
-        risk_level="low", side_effects="none", idempotency="safe_to_retry",
-        timeout_seconds=60,
-    ),
-
-    # ═══ exec ═══
+    # ═══ 1. exec.run (merged: shell + python + slash) ═══
     "exec.run": CapabilityManifest(
-        tool_id="exec.run", category="exec", display_name="Shell Execute",
-        description="Execute shell command", action_class="execute",
-        risk_level="medium", side_effects="remote_exec",
+        tool_id="exec.run", category="exec", display_name="Shell / Python / Slash",
+        description=(
+            "Unified exec tool. action=shell (default; target=local|ssh|telnet), "
+            "action=python (AST-sandboxed), action=slash (registered slash command). "
+            "Per-command approval triggered by RiskPolicy for dangerous patterns."
+        ),
+        action_class="execute",
+        risk_level="medium",  # base level; dangerous patterns escalate to critical
+        side_effects="remote_exec",
         idempotency="unsafe_to_retry", rollback_strategy="none",
-        secret_fields=["cmd"], output_sensitivity="secret",
+        secret_fields=["cmd", "code"], output_sensitivity="secret",
         timeout_seconds=120,
-        approval_reason_template="Shell command execution: requires confirmation for destructive patterns",
     ),
-    "exec.python": CapabilityManifest(
-        tool_id="exec.python", category="exec", display_name="Python Execute",
-        description="Execute Python code", action_class="execute",
-        risk_level="medium", side_effects="remote_exec",
-        idempotency="unsafe_to_retry",
-        secret_fields=["code"], output_sensitivity="sensitive",
+
+    # ═══ 2. git.manage (merged: status+log+diff+commit+push) ═══
+    "git.manage": CapabilityManifest(
+        tool_id="git.manage", category="git", display_name="Git (unified)",
+        description=(
+            "Unified git tool. action=status, log, diff (reads); "
+            "action=commit, push (writes, dispatcher enforces approval). "
+            "Run status+diff first; never commit/push without confirmation."
+        ),
+        action_class="write",
+        risk_level="medium",  # base level; commit/push escalate via dispatcher
+        side_effects="network_change", idempotency="unsafe_to_retry",
         timeout_seconds=60,
     ),
-    "exec.slash": CapabilityManifest(
-        tool_id="exec.slash", category="exec", display_name="Shell Command (direct)",
-        description="Direct shell command", action_class="execute",
-        risk_level="medium", side_effects="remote_exec",
-        idempotency="unsafe_to_retry",
-        output_sensitivity="sensitive", timeout_seconds=120,
+
+    # ═══ 3. device.manage (merged: list+get+add+delete) ═══
+    "device.manage": CapabilityManifest(
+        tool_id="device.manage", category="device", display_name="Device Asset (unified)",
+        description=(
+            "Unified CMDB tool. action=list, get (reads); "
+            "action=add, delete (writes, require approval). "
+            "Do not fabricate assets; do not expose credentials."
+        ),
+        action_class="write",
+        risk_level="high",  # contains add + delete (destructive)
+        destructive=True,  # contains delete sub-action
+        side_effects="delete", idempotency="unsafe_to_retry",
+        requires_approval=True,  # destructive tool must require approval
+        approval_reason_template="Device change: confirm asset is correct before commit",
+        timeout_seconds=30,
     ),
 
-    # ═══ file / workspace ═══
-    "file.import_workspace_path": CapabilityManifest(
-        tool_id="file.import_workspace_path", category="workspace", display_name="Import File",
-        description="Import a file into workspace", action_class="write",
-        risk_level="medium", side_effects="write", idempotency="unknown",
-        timeout_seconds=30,
-    ),
-    "file.references": CapabilityManifest(
-        tool_id="file.references", category="workspace", display_name="File References",
-        description="List file references", action_class="read",
+    # ═══ 4. browser.manage (merged: navigate+extract+screenshot+click) ═══
+    "browser.manage": CapabilityManifest(
+        tool_id="browser.manage", category="browser", display_name="Browser (unified)",
+        description=(
+            "Unified Playwright tool. action=navigate, extract, screenshot (reads); "
+            "action=click (write)."
+        ),
+        action_class="read",
         risk_level="low", side_effects="none", idempotency="safe_to_retry",
-        timeout_seconds=20,
+        timeout_seconds=60,
     ),
 
-    # ═══ workspace ═══
-    "workspace.artifact.delete_soft": CapabilityManifest(
-        tool_id="workspace.artifact.delete_soft", category="workspace", display_name="Delete Artifact",
-        description="Soft-delete an artifact", action_class="delete",
-        risk_level="medium", requires_approval=True, destructive=True,
-        side_effects="delete", idempotency="safe_to_retry",
-        rollback_strategy="soft_delete_restore",
-        approval_reason_template="Deleting artifact: requires confirmation",
-        timeout_seconds=10,
+    # ═══ 5. web.manage (merged: search+weather+page.process) ═══
+    "web.manage": CapabilityManifest(
+        tool_id="web.manage", category="web", display_name="Web (unified)",
+        description=(
+            "Unified web tool. action=search (web/docs/news), "
+            "action=weather (forecast), action=page (summarize/extract/save_artifact)."
+        ),
+        action_class="network",
+        risk_level="low", side_effects="none", idempotency="safe_to_retry",
+        timeout_seconds=90,
     ),
-    "workspace.artifact.diff": CapabilityManifest(
-        tool_id="workspace.artifact.diff", category="workspace", display_name="Artifact Diff",
-        description="Diff two artifact versions", action_class="read",
+
+    # ═══ 6. data.manage (merged: csv+table.extract+table.render+validate) ═══
+    "data.manage": CapabilityManifest(
+        tool_id="data.manage", category="data", display_name="Data (unified)",
+        description=(
+            "Unified data tool. action=csv_summarize, table_extract, table_render, validate. "
+            "All sub-actions are read-only."
+        ),
+        action_class="read",
         risk_level="low", side_effects="none", idempotency="safe_to_retry",
         timeout_seconds=30,
     ),
-    "workspace.artifact.list": CapabilityManifest(
-        tool_id="workspace.artifact.list", category="workspace", display_name="List Artifacts",
-        description="List workspace artifacts", action_class="read",
-        risk_level="low", side_effects="none", idempotency="safe_to_retry", timeout_seconds=20,
-    ),
-    "workspace.artifact.read": CapabilityManifest(
-        tool_id="workspace.artifact.read", category="workspace", display_name="Read Artifact",
-        description="Read artifact content", action_class="read",
-        risk_level="low", reads_artifact=True, side_effects="none",
-        idempotency="safe_to_retry", timeout_seconds=30,
-    ),
-    "workspace.artifact.save": CapabilityManifest(
-        tool_id="workspace.artifact.save", category="workspace", display_name="Save Artifact",
-        description="Save artifact to workspace", action_class="write",
-        risk_level="low", writes_artifact=True, side_effects="write",
-        idempotency="safe_to_retry", timeout_seconds=30,
-    ),
-    "workspace.artifact.export": CapabilityManifest(
-        tool_id="workspace.artifact.export", category="workspace", display_name="Export Artifact",
-        description="Export artifact as file", action_class="read",
-        risk_level="low", side_effects="none", idempotency="safe_to_retry", timeout_seconds=60,
-    ),
-    "workspace.artifact.tag": CapabilityManifest(
-        tool_id="workspace.artifact.tag", category="workspace", display_name="Tag Artifact",
-        description="Tag an artifact", action_class="write",
-        risk_level="low", side_effects="write", idempotency="safe_to_retry", timeout_seconds=10,
-    ),
-    "workspace.file.list": CapabilityManifest(
-        tool_id="workspace.file.list", category="workspace", display_name="List Files",
-        description="List workspace files", action_class="read",
-        risk_level="low", side_effects="none", idempotency="safe_to_retry", timeout_seconds=20,
-    ),
-    "workspace.file.read": CapabilityManifest(
-        tool_id="workspace.file.read", category="workspace", display_name="Read File",
-        description="Read file content", action_class="read",
-        risk_level="low", reads_artifact=True, side_effects="none",
-        idempotency="safe_to_retry", timeout_seconds=30,
-    ),
-    "workspace.file.read_image": CapabilityManifest(
-        tool_id="workspace.file.read_image", category="workspace", display_name="Read Image",
-        description="Read image file", action_class="read",
-        risk_level="low", reads_artifact=True, side_effects="none",
-        idempotency="safe_to_retry", timeout_seconds=30,
-    ),
-    "workspace.file.edit": CapabilityManifest(
-        tool_id="workspace.file.edit", category="workspace", display_name="Edit File",
-        description="Edit workspace file", action_class="write",
-        risk_level="medium", side_effects="write", writes_artifact=True,
-        idempotency="unsafe_to_retry", timeout_seconds=30,
-    ),
-    "workspace.file.patch": CapabilityManifest(
-        tool_id="workspace.file.patch", category="workspace", display_name="Patch File",
-        description="Apply patch to file", action_class="write",
-        risk_level="medium", side_effects="write", idempotency="unsafe_to_retry",
-        timeout_seconds=30,
-    ),
-    "workspace.file.write_artifact": CapabilityManifest(
-        tool_id="workspace.file.write_artifact", category="workspace", display_name="Write Artifact",
-        description="Write file artifact", action_class="write",
-        risk_level="low", writes_artifact=True, side_effects="write",
-        idempotency="safe_to_retry", timeout_seconds=30,
-    ),
-    "workspace.document.pdf.extract_text": CapabilityManifest(
-        tool_id="workspace.document.pdf.extract_text", category="workspace", display_name="PDF Extract",
-        description="Extract text from PDF", action_class="read",
-        risk_level="low", reads_artifact=True, side_effects="none",
+
+    # ═══ 7. report.manage (merged: markdown+safe_summary+mermaid+artifact.save) ═══
+    "report.manage": CapabilityManifest(
+        tool_id="report.manage", category="report", display_name="Report (unified)",
+        description=(
+            "Unified report tool. action=markdown_render, safe_summary_render, "
+            "mermaid_render (reads); action=artifact_save (write)."
+        ),
+        action_class="write",  # contains artifact.save
+        risk_level="low", side_effects="write", writes_artifact=True,
         idempotency="safe_to_retry", timeout_seconds=60,
     ),
-    "workspace.metadata.get": CapabilityManifest(
-        tool_id="workspace.metadata.get", category="workspace", display_name="Workspace Metadata",
-        description="Get workspace metadata", action_class="read",
-        risk_level="low", side_effects="none", idempotency="safe_to_retry", timeout_seconds=10,
+
+    # ═══ 8. config.manage (was config.analysis.run) ═══
+    "config.manage": CapabilityManifest(
+        tool_id="config.manage", category="config", display_name="Config (unified)",
+        description=(
+            "Unified config analysis. action=parse, translate, extract_interfaces, "
+            "extract_routes, diff, summarize."
+        ),
+        action_class="read",
+        risk_level="low", side_effects="none", idempotency="safe_to_retry",
+        timeout_seconds=120,
     ),
 
-    # ── v3.9.1: merged workspace tools ────────────────────────────────
+    # ═══ 9. pcap.manage (was pcap.analysis.run) ═══
+    "pcap.manage": CapabilityManifest(
+        tool_id="pcap.manage", category="network", display_name="PCAP (unified)",
+        description=(
+            "Unified PCAP analysis. action=parse, session, filter, align."
+        ),
+        action_class="read",
+        risk_level="low", side_effects="none", idempotency="safe_to_retry",
+        timeout_seconds=120,
+    ),
+
+    # ═══ 10. knowledge.manage (merged: 8 KB tools) ═══
+    "knowledge.manage": CapabilityManifest(
+        tool_id="knowledge.manage", category="knowledge", display_name="Knowledge (unified)",
+        description=(
+            "Unified knowledge tool. action=search, read, source_list, "
+            "chunk_list, not_found_explain (reads); "
+            "action=import, source_manage, source_reindex (writes)."
+        ),
+        # v3.9.2: visibility treats this as "read" because the canonical
+        # knowledge query path is read. Write sub-actions (import/manage/
+        # reindex) are gated at execution time, not visibility time.
+        action_class="read",
+        risk_level="medium", side_effects="write", idempotency="safe_to_retry",
+        timeout_seconds=300,
+    ),
+
+    # ═══ 11. memory.manage (merged: search+manage+profile) ═══
+    "memory.manage": CapabilityManifest(
+        tool_id="memory.manage", category="memory", display_name="Memory (unified)",
+        description=(
+            "Unified memory tool. action=search, profile_get (reads); "
+            "action=create, update, confirm, delete, profile_set (writes)."
+        ),
+        action_class="write",
+        risk_level="medium", side_effects="write", idempotency="unknown",
+        output_sensitivity="sensitive", timeout_seconds=30,
+    ),
+
+    # ═══ 12. skill.manage (merged: list+find+load+inspect) ═══
+    "skill.manage": CapabilityManifest(
+        tool_id="skill.manage", category="agent", display_name="Skill (unified)",
+        description=(
+            "Unified skill tool. action=list, find, load, inspect. "
+            "All sub-actions are read-only; loading a skill does not "
+            "execute the business task."
+        ),
+        action_class="read",
+        risk_level="low", side_effects="none", idempotency="safe_to_retry",
+        allowed_callers=["turn_runner", "rest_api", "job_runner", "graph_runner"],
+        timeout_seconds=10,
+    ),
+
+    # ═══ 13. agent.manage (merged: spawn+team.run+result.get+role.list) ═══
+    "agent.manage": CapabilityManifest(
+        tool_id="agent.manage", category="agent", display_name="Agent (unified)",
+        description=(
+            "Unified agent tool. action=role_list, result_get (reads); "
+            "action=spawn, team_run (execute, dispatcher enforces approval for team_run)."
+        ),
+        action_class="execute",
+        risk_level="medium",  # base level; team_run escalates via dispatcher
+        side_effects="remote_exec", idempotency="unsafe_to_retry",
+        requires_approval=False,
+        allowed_callers=["turn_runner", "rest_api", "job_runner", "graph_runner"],
+        timeout_seconds=300,
+    ),
+
+    # ═══ 14. system.manage (merged: 9 system tools) ═══
+    "system.manage": CapabilityManifest(
+        tool_id="system.manage", category="system", display_name="System (unified)",
+        description=(
+            "Unified system introspection. action=diagnostics, run_get, "
+            "session_get, session_snapshot (reads); "
+            "action=review_update, session_checkpoint (writes); "
+            "action=session_rewind, session_export (admin/approval)."
+        ),
+        action_class="admin",
+        risk_level="medium",  # contains session.rewind (destructive, approval gated)
+        side_effects="write", idempotency="unsafe_to_retry",
+        requires_approval=False,  # approval required only for rewind
+        approval_reason_template="System: rewinding session discards recent state",
+        timeout_seconds=300,
+    ),
+
+    # ═══ 15. text.analyze ═══
+    "text.analyze": CapabilityManifest(
+        tool_id="text.analyze", category="text", display_name="Text Analyze",
+        description="Analyze text. action=redact, diff, keywords, classify.",
+        action_class="read",
+        risk_level="low", side_effects="none", idempotency="safe_to_retry",
+        timeout_seconds=30,
+    ),
+
+    # ═══ 16. code.search ═══
+    "code.search": CapabilityManifest(
+        tool_id="code.search", category="code", display_name="Code Search",
+        description="Search codebase using ripgrep (fast) or Python fallback.",
+        action_class="read",
+        risk_level="low", side_effects="none", idempotency="safe_to_retry",
+        timeout_seconds=60,
+    ),
+
+    # ═══ 17. workspace.file ═══
     "workspace.file": CapabilityManifest(
         tool_id="workspace.file", category="workspace", display_name="Workspace File (unified)",
         description=(
-            "Unified workspace file tool. action=list (list/exists), read, read_image, "
-            "edit (string replace), patch (diff), write_artifact. action_class depends on action."
+            "Unified workspace file tool. action=list, read, read_image (reads); "
+            "action=edit, patch, write_artifact (writes)."
         ),
-        action_class="write",  # Mixed: read+write; dispatcher controls per-action
-        risk_level="medium",  # Contains edit/patch which are writes
-        reads_artifact=True, writes_artifact=True, side_effects="write",
-        idempotency="unsafe_to_retry", timeout_seconds=30,
-    ),
-    "workspace.artifact": CapabilityManifest(
-        tool_id="workspace.artifact", category="workspace", display_name="Workspace Artifact (unified)",
-        description=(
-            "Unified workspace artifact tool. action=list, read, save, tag, "
-            "delete (soft, requires approval), diff, export. "
-            "action=delete has requires_approval=True."
-        ),
-        action_class="write",  # Mixed: read+write+delete
+        action_class="write",
         risk_level="medium",
         reads_artifact=True, writes_artifact=True, side_effects="write",
         idempotency="unsafe_to_retry", timeout_seconds=30,
     ),
+
+    # ═══ 18. workspace.artifact ═══
+    "workspace.artifact": CapabilityManifest(
+        tool_id="workspace.artifact", category="workspace", display_name="Workspace Artifact (unified)",
+        description=(
+            "Unified workspace artifact tool. action=list, read, diff, export (reads); "
+            "action=save, tag, delete (writes, delete requires approval)."
+        ),
+        action_class="write",
+        risk_level="medium",
+        reads_artifact=True, writes_artifact=True, side_effects="write",
+        idempotency="unsafe_to_retry", timeout_seconds=30,
+    ),
+
+    # ═══ 19. workspace.filestore ═══
     "workspace.filestore": CapabilityManifest(
         tool_id="workspace.filestore", category="workspace", display_name="FileStore (unified)",
         description=(
-            "Unified FileStore tool. action=references (query cross-refs) or "
-            "action=import (import a workspace file into FileStore)."
+            "Unified FileStore tool. action=references (read cross-refs); "
+            "action=import (write into FileStore)."
         ),
         action_class="read",
         risk_level="low", side_effects="none", idempotency="safe_to_retry",
         timeout_seconds=20,
     ),
 
-    # ═══ git ═══
-    "git.commit": CapabilityManifest(
-        tool_id="git.commit", category="git", display_name="Git Commit",
-        description="Commit changes", action_class="write",
-        risk_level="medium", side_effects="write", idempotency="unsafe_to_retry",
-        requires_approval=True, approval_reason_template="Git commit: verify changes before committing",
-        timeout_seconds=30,
-    ),
-    "git.push": CapabilityManifest(
-        tool_id="git.push", category="git", display_name="Git Push",
-        description="Push to remote", action_class="network",
-        risk_level="high", requires_approval=True,
-        side_effects="network_change", idempotency="unsafe_to_retry",
-        approval_reason_template="Git push: confirm remote push is intentional",
-        timeout_seconds=60,
-    ),
-    "git.diff": CapabilityManifest(
-        tool_id="git.diff", category="git", display_name="Git Diff",
-        description="Show working tree diff", action_class="read",
-        risk_level="low", side_effects="none", idempotency="safe_to_retry",
-        timeout_seconds=30,
-    ),
-    "git.log": CapabilityManifest(
-        tool_id="git.log", category="git", display_name="Git Log",
-        description="Show commit history", action_class="read",
-        risk_level="low", side_effects="none", idempotency="safe_to_retry",
-        timeout_seconds=30,
-    ),
-    "git.status": CapabilityManifest(
-        tool_id="git.status", category="git", display_name="Git Status",
-        description="Show working tree status", action_class="read",
-        risk_level="low", side_effects="none", idempotency="safe_to_retry",
-        timeout_seconds=20,
+    # ═══ 20. workspace.metadata.get ═══
+    "workspace.metadata.get": CapabilityManifest(
+        tool_id="workspace.metadata.get", category="workspace", display_name="Workspace Metadata",
+        description="Get workspace metadata and stats.",
+        action_class="read",
+        risk_level="low", side_effects="none", idempotency="safe_to_retry", timeout_seconds=10,
     ),
 
-    # ═══ code ═══
-    "code.search": CapabilityManifest(
-        tool_id="code.search", category="code", display_name="Code Search",
-        description="Search codebase", action_class="read",
-        risk_level="low", side_effects="none", idempotency="safe_to_retry",
-        timeout_seconds=60,
-    ),
-
-    # ═══ data ═══
-    "data.csv.summarize": CapabilityManifest(
-        tool_id="data.csv.summarize", category="data", display_name="CSV Summarize",
-        description="Summarize CSV data", action_class="read",
-        risk_level="low", side_effects="none", idempotency="safe_to_retry",
-        timeout_seconds=30,
-    ),
-    "data.table.extract": CapabilityManifest(
-        tool_id="data.table.extract", category="data", display_name="Table Extract",
-        description="Extract table from document", action_class="read",
-        risk_level="low", side_effects="none", idempotency="safe_to_retry",
-        timeout_seconds=30,
-    ),
-    "data.table.render": CapabilityManifest(
-        tool_id="data.table.render", category="data", display_name="Table Render",
-        description="Render table output", action_class="read",
-        risk_level="low", side_effects="none", idempotency="safe_to_retry",
-        timeout_seconds=20,
-    ),
-    "data.validate": CapabilityManifest(
-        tool_id="data.validate", category="data", display_name="Data Validate",
-        description="Validate data format/structure", action_class="read",
-        risk_level="low", side_effects="none", idempotency="safe_to_retry",
-        timeout_seconds=30,
-    ),
-
-    # ═══ diagram ═══
-    "diagram.mermaid.render": CapabilityManifest(
-        tool_id="diagram.mermaid.render", category="visualization", display_name="Mermaid Render",
-        description="Render Mermaid diagram", action_class="read",
-        risk_level="low", side_effects="none", idempotency="safe_to_retry",
-        timeout_seconds=30, output_sensitivity="internal",
-    ),
-
-    # ═══ document ═══
-    "document.safe_summary.render": CapabilityManifest(
-        tool_id="document.safe_summary.render", category="document", display_name="Document Summary",
-        description="Render safe document summary", action_class="read",
-        risk_level="low", side_effects="none", idempotency="safe_to_retry",
-        timeout_seconds=60,
-    ),
-
-    # ═══ text ═══
-    "text.analyze": CapabilityManifest(
-        tool_id="text.analyze", category="text", display_name="Text Analyze",
-        description="Analyze text content", action_class="read",
-        risk_level="low", side_effects="none", idempotency="safe_to_retry",
-        timeout_seconds=30,
-    ),
-
-    # ═══ web ═══
-    "web.search": CapabilityManifest(
-        tool_id="web.search", category="web", display_name="Web Search",
-        description="Search the web", action_class="network",
-        risk_level="low", side_effects="none", idempotency="safe_to_retry",
-        timeout_seconds=60,
-    ),
-    "web.page.process": CapabilityManifest(
-        tool_id="web.page.process", category="web", display_name="Web Page Process",
-        description="Fetch and process web page", action_class="network",
-        risk_level="low", side_effects="none", idempotency="safe_to_retry",
-        timeout_seconds=90,
-    ),
-    "web.weather": CapabilityManifest(
-        tool_id="web.weather", category="web", display_name="Weather",
-        description="Get weather data", action_class="network",
-        risk_level="low", side_effects="none", idempotency="safe_to_retry",
-        timeout_seconds=30,
-    ),
-
-    # ═══ knowledge ═══
-    "knowledge.search": CapabilityManifest(
-        tool_id="knowledge.search", category="knowledge", display_name="Knowledge Search",
-        description="Search knowledge base", action_class="read",
-        risk_level="low", side_effects="none", idempotency="safe_to_retry",
-        timeout_seconds=30,
-    ),
-    "knowledge.read": CapabilityManifest(
-        tool_id="knowledge.read", category="knowledge", display_name="Knowledge Read",
-        description="Read knowledge entry", action_class="read",
-        risk_level="low", side_effects="none", idempotency="safe_to_retry",
-        timeout_seconds=20,
-    ),
-    "knowledge.import": CapabilityManifest(
-        tool_id="knowledge.import", category="knowledge", display_name="Knowledge Import",
-        description="Import knowledge entries", action_class="write",
-        risk_level="medium", side_effects="write", idempotency="unknown",
-        timeout_seconds=60,
-    ),
-    "knowledge.chunk.list": CapabilityManifest(
-        tool_id="knowledge.chunk.list", category="knowledge", display_name="List Chunks",
-        description="List knowledge chunks", action_class="read",
-        risk_level="low", side_effects="none", idempotency="safe_to_retry",
-        timeout_seconds=20,
-    ),
-    "knowledge.not_found.explain": CapabilityManifest(
-        tool_id="knowledge.not_found.explain", category="knowledge", display_name="Explain Not Found",
-        description="Explain why knowledge not found", action_class="read",
-        risk_level="low", side_effects="none", idempotency="safe_to_retry",
-        timeout_seconds=20,
-    ),
-    "knowledge.source.list": CapabilityManifest(
-        tool_id="knowledge.source.list", category="knowledge", display_name="List Sources",
-        description="List knowledge sources", action_class="read",
-        risk_level="low", side_effects="none", idempotency="safe_to_retry",
-        timeout_seconds=20,
-    ),
-    "knowledge.source.manage": CapabilityManifest(
-        tool_id="knowledge.source.manage", category="knowledge", display_name="Manage Sources",
-        description="Manage knowledge sources", action_class="write",
-        risk_level="medium", side_effects="write", idempotency="unknown",
-        timeout_seconds=30,
-    ),
-    "knowledge.source.reindex": CapabilityManifest(
-        tool_id="knowledge.source.reindex", category="knowledge", display_name="Reindex Sources",
-        description="Reindex knowledge sources", action_class="admin",
-        risk_level="medium", side_effects="write", idempotency="safe_to_retry",
-        timeout_seconds=300,
-    ),
-
-    # ═══ memory ═══
-    "memory.search": CapabilityManifest(
-        tool_id="memory.search", category="memory", display_name="Memory Search",
-        description="Search agent memory", action_class="read",
-        risk_level="low", side_effects="none", idempotency="safe_to_retry",
-        output_sensitivity="sensitive", timeout_seconds=30,
-    ),
-    "memory.manage": CapabilityManifest(
-        tool_id="memory.manage", category="memory", display_name="Memory Manage",
-        description="Manage memory entries", action_class="write",
-        risk_level="medium", side_effects="write", idempotency="unknown",
-        output_sensitivity="sensitive", timeout_seconds=30,
-    ),
-    "memory.profile": CapabilityManifest(
-        tool_id="memory.profile", category="memory", display_name="Memory Profile",
-        description="Get memory profile", action_class="read",
-        risk_level="low", side_effects="none", idempotency="safe_to_retry",
-        output_sensitivity="sensitive", timeout_seconds=20,
-    ),
-
-    # ═══ device ═══
-    "device.list": CapabilityManifest(
-        tool_id="device.list", category="device", display_name="List Devices",
-        description="List managed devices", action_class="read",
-        risk_level="low", side_effects="none", idempotency="safe_to_retry",
-        timeout_seconds=30,
-    ),
-    "device.get": CapabilityManifest(
-        tool_id="device.get", category="device", display_name="Get Device",
-        description="Get device details", action_class="read",
-        risk_level="low", side_effects="none", idempotency="safe_to_retry",
-        timeout_seconds=20,
-    ),
-    "device.add": CapabilityManifest(
-        tool_id="device.add", category="device", display_name="Add Device",
-        description="Add a managed device", action_class="write",
-        risk_level="medium", side_effects="write", idempotency="unsafe_to_retry",
-        timeout_seconds=30,
-    ),
-    "device.delete": CapabilityManifest(
-        tool_id="device.delete", category="device", display_name="Delete Device",
-        description="Delete a managed device", action_class="delete",
-        risk_level="high", requires_approval=True, destructive=True,
-        side_effects="delete", idempotency="unsafe_to_retry",
-        approval_reason_template="Deleting device: irreversible operation, confirm before proceeding",
-        timeout_seconds=20,
-    ),
-
-    # ═══ agent ═══
-    "agent.result.get": CapabilityManifest(
-        tool_id="agent.result.get", category="agent", display_name="Get Result",
-        description="Get agent execution result", action_class="read",
-        risk_level="low", side_effects="none", idempotency="safe_to_retry",
-        timeout_seconds=20,
-    ),
-    "agent.role.list": CapabilityManifest(
-        tool_id="agent.role.list", category="agent", display_name="List Roles",
-        description="List agent roles", action_class="read",
-        risk_level="low", side_effects="none", idempotency="safe_to_retry",
-        timeout_seconds=10,
-    ),
-    "agent.spawn": CapabilityManifest(
-        tool_id="agent.spawn", category="agent", display_name="Spawn Agent",
-        description="Spawn a bounded subagent; child tool calls keep their own manifest gates", action_class="execute",
-        risk_level="medium", requires_approval=False,
-        side_effects="remote_exec", idempotency="unsafe_to_retry",
-        allowed_callers=["turn_runner", "rest_api", "job_runner", "graph_runner"],
-        timeout_seconds=60,
-    ),
-    "agent.team.run": CapabilityManifest(
-        tool_id="agent.team.run", category="agent", display_name="Team Run",
-        description="Run agent team coordination", action_class="admin",
-        risk_level="high", requires_approval=True,
-        side_effects="remote_exec", idempotency="unsafe_to_retry",
-        approval_reason_template="Running agent team: confirm team composition and permissions",
-        allowed_callers=["turn_runner", "rest_api", "job_runner", "graph_runner"],
-        timeout_seconds=300,
-    ),
-
-    # ═══ config ═══
-    "config.analysis.run": CapabilityManifest(
-        tool_id="config.analysis.run", category="config", display_name="Config Analysis",
-        description="Analyze network config", action_class="read",
-        risk_level="low", side_effects="none", idempotency="safe_to_retry",
-        timeout_seconds=120,
-    ),
-
-    # ═══ report ═══
-    "report.artifact.save": CapabilityManifest(
-        tool_id="report.artifact.save", category="report", display_name="Save Report",
-        description="Save report as artifact", action_class="write",
-        risk_level="low", side_effects="write", writes_artifact=True,
-        idempotency="safe_to_retry", timeout_seconds=30,
-    ),
-    "report.markdown.render": CapabilityManifest(
-        tool_id="report.markdown.render", category="report", display_name="Render Markdown",
-        description="Render Markdown report", action_class="read",
-        risk_level="low", side_effects="none", idempotency="safe_to_retry",
-        timeout_seconds=30,
-    ),
-
-    # ═══ system ═══
-    "system.diagnostics": CapabilityManifest(
-        tool_id="system.diagnostics", category="system", display_name="System Diagnostics",
-        description="Run system diagnostics", action_class="admin",
-        risk_level="medium", side_effects="read", idempotency="safe_to_retry",
-        timeout_seconds=120,
-    ),
-    "system.review.item.list": CapabilityManifest(
-        tool_id="system.review.item.list", category="system", display_name="Review Items",
-        description="List review items", action_class="read",
-        risk_level="low", side_effects="none", idempotency="safe_to_retry",
-        timeout_seconds=20,
-    ),
-    "system.review.item.update": CapabilityManifest(
-        tool_id="system.review.item.update", category="system", display_name="Update Review",
-        description="Update review item", action_class="write",
-        risk_level="medium", side_effects="write", idempotency="unknown",
-        timeout_seconds=20,
-    ),
-    "system.run.get": CapabilityManifest(
-        tool_id="system.run.get", category="system", display_name="Get Run",
-        description="Get run details", action_class="read",
-        risk_level="low", side_effects="none", idempotency="safe_to_retry",
-        timeout_seconds=20,
-    ),
-    "system.session.get": CapabilityManifest(
-        tool_id="system.session.get", category="system", display_name="Get Session",
-        description="Get session details", action_class="read",
-        risk_level="low", side_effects="none", idempotency="safe_to_retry",
-        timeout_seconds=20,
-    ),
-    "system.session.checkpoint": CapabilityManifest(
-        tool_id="system.session.checkpoint", category="system", display_name="Session Checkpoint",
-        description="Create session checkpoint", action_class="admin",
-        risk_level="medium", side_effects="write", idempotency="safe_to_retry",
-        timeout_seconds=30,
-    ),
-    "system.session.export": CapabilityManifest(
-        tool_id="system.session.export", category="system", display_name="Session Export",
-        description="Export session data", action_class="read",
-        risk_level="low", side_effects="none", idempotency="safe_to_retry",
-        timeout_seconds=120,
-    ),
-    "system.session.rewind": CapabilityManifest(
-        tool_id="system.session.rewind", category="system", display_name="Session Rewind",
-        description="Rewind session state", action_class="admin",
-        risk_level="high", requires_approval=True, destructive=True,
-        side_effects="delete", idempotency="unsafe_to_retry",
-        approval_reason_template="Rewinding session: will discard recent state",
-        timeout_seconds=30,
-    ),
-    "system.session.snapshot": CapabilityManifest(
-        tool_id="system.session.snapshot", category="system", display_name="Session Snapshot",
-        description="Take session snapshot", action_class="read",
-        risk_level="low", side_effects="none", idempotency="safe_to_retry",
-        timeout_seconds=30,
-    ),
-
-    # ═══ pcap ═══
-    "pcap.analysis.run": CapabilityManifest(
-        tool_id="pcap.analysis.run", category="network", display_name="PCAP Analysis",
-        description="Analyze packet capture", action_class="read",
-        risk_level="low", side_effects="none", idempotency="safe_to_retry",
-        timeout_seconds=120,
-    ),
-
-    # ═══ tool ═══
-    "tool.catalog.search": CapabilityManifest(
-        tool_id="tool.catalog.search", category="tooling", display_name="Tool Search",
-        description="Search tool catalog", action_class="read",
-        risk_level="low", side_effects="none", idempotency="safe_to_retry",
-        timeout_seconds=20,
-    ),
-    "skill.list": CapabilityManifest(
-        tool_id="skill.list", category="agent", display_name="Skill List",
-        description="List available capability-backed skills", action_class="read",
-        risk_level="low", side_effects="none", idempotency="safe_to_retry",
-        timeout_seconds=10,
-    ),
-    "skill.find": CapabilityManifest(
-        tool_id="skill.find", category="agent", display_name="Skill Search",
-        description="Search capability-backed skills", action_class="read",
-        risk_level="low", side_effects="none", idempotency="safe_to_retry",
-        timeout_seconds=10,
-    ),
-    "skill.load": CapabilityManifest(
-        tool_id="skill.load", category="agent", display_name="Skill Load",
-        description="Load a capability-backed skill", action_class="read",
-        risk_level="low", side_effects="none", idempotency="safe_to_retry",
-        timeout_seconds=10,
-    ),
-    "skill.inspect": CapabilityManifest(
-        tool_id="skill.inspect", category="agent", display_name="Skill Inspect",
-        description="Inspect a capability-backed skill", action_class="read",
-        risk_level="low", side_effects="none", idempotency="safe_to_retry",
-        timeout_seconds=10,
+    # ═══ 21. workspace.document.pdf.extract_text ═══
+    "workspace.document.pdf.extract_text": CapabilityManifest(
+        tool_id="workspace.document.pdf.extract_text", category="workspace", display_name="PDF Extract",
+        description="Extract text from PDF.",
+        action_class="read",
+        risk_level="low", reads_artifact=True, side_effects="none",
+        idempotency="safe_to_retry", timeout_seconds=60,
     ),
 }
+
 
 def get_manifest(tool_id: str) -> CapabilityManifest | None:
     return MANIFESTS.get(tool_id)
 
+
 def get_all_manifests() -> dict[str, CapabilityManifest]:
     return dict(MANIFESTS)
+
 
 def validate_all() -> tuple[list[str], int]:
     """Validate all manifests. Returns (errors, count)."""
@@ -573,8 +296,11 @@ def validate_all() -> tuple[list[str], int]:
             errors.append(f"[{tid}] {e}")
     return errors, len(MANIFESTS)
 
+
 def is_retryable(tool_id: str) -> bool:
     m = MANIFESTS.get(tool_id)
-    if not m: return False
-    if m.destructive: return False
+    if not m:
+        return False
+    if m.destructive:
+        return False
     return m.idempotency == "safe_to_retry"

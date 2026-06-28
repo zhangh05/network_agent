@@ -54,11 +54,11 @@ def _allowed_actions(user_input: str) -> list[str]:
     lower = (user_input or "").lower()
     allowed: set[str] = set()
     if any(k in lower for k in ("添加设备", "新增设备", "录入设备", "add device", "create device")):
-        allowed.add("device.add")
+        allowed.add("device.manage")
     if any(k in lower for k in ("删除设备", "移除设备", "delete device", "remove device")):
-        allowed.add("device.delete")
+        allowed.add("device.manage")
     if any(k in lower for k in ("保存", "导出", "生成报告", "save", "export", "render report")):
-        allowed.update({"workspace.artifact.save", "report.artifact.save", "report.markdown.render"})
+        allowed.update({"workspace.artifact", "report.manage", "report.manage"})
     if any(k in lower for k in ("修改文件", "编辑文件", "写入文件", "patch file", "edit file", "write file")):
-        allowed.update({"workspace.file.edit", "workspace.file.patch", "workspace.file.write_artifact"})
+        allowed.update({"workspace.file", "workspace.file", "workspace.file"})
     return sorted(allowed)

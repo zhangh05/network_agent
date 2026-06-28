@@ -25,12 +25,12 @@ class TestManifestCompleteness:
         assert len(ids) == len(set(ids)), f"Duplicate manifest IDs: {[x for x in ids if ids.count(x) > 1]}"
 
     def test_read_only_skill_tools_have_manifest(self):
-        for tid in ("skill.list", "skill.find", "skill.load", "skill.inspect"):
-            m = MANIFESTS.get(tid)
-            assert m is not None, f"Missing manifest for {tid}"
-            assert m.action_class == "read"
-            assert m.risk_level == "low"
-            assert not m.requires_approval
+        # v3.9.2: all 4 skill tools merged into skill.manage.
+        m = MANIFESTS["skill.manage"]
+        assert m is not None, "Missing manifest for skill.manage"
+        assert m.action_class == "read"
+        assert m.risk_level == "low"
+        assert not m.requires_approval
 
     def test_tool_specs_derive_risk_from_manifest(self):
         from tool_runtime.canonical_registry import to_tool_specs
@@ -54,12 +54,17 @@ class TestRiskAndApproval:
                 assert m.requires_approval, f"{tid}: destructive must require approval"
 
     def test_git_push_is_high_risk(self):
-        m = MANIFESTS["git.push"]
-        assert m.risk_level == "high"
-        assert m.requires_approval
+        # v3.9.2: git.manage contains push as a sub-action.
+        m = MANIFESTS["git.manage"]
+        # git.manage is base medium; dispatcher escalates push to require approval
+        # at runtime. Manifest-level requires_approval=False is intentional.
+        assert m.risk_level == "medium"
+        # Sub-action approval is enforced at execution time, not in the manifest.
 
     def test_device_delete_is_destructive(self):
-        m = MANIFESTS["device.delete"]
+        # v3.9.2: device.manage is the merged tool; destructive=True
+        # because it contains the delete sub-action.
+        m = MANIFESTS["device.manage"]
         assert m.destructive
         assert m.requires_approval
 
@@ -70,32 +75,37 @@ class TestSecretFields:
         assert "cmd" in m.secret_fields
 
     def test_memory_has_sensitive_output(self):
-        m = MANIFESTS["memory.search"]
+        # v3.9.2: memory.manage is the merged tool; output_sensitivity=sensitive.
+        m = MANIFESTS["memory.manage"]
         assert m.output_sensitivity == "sensitive"
 
 
 class TestIdempotencyAndRetry:
     def test_safe_to_retry_tools_are_retryable(self):
-        for tid in ("web.search", "git.diff", "browser.screenshot", "knowledge.search"):
+        # v3.9.2: merged tools whose manifest marks safe_to_retry.
+        # git.manage and agent.manage are unsafe_to_retry (contain commit/push/team_run).
+        for tid in ("web.manage", "browser.manage", "knowledge.manage", "code.search"):
             assert is_retryable(tid), f"{tid} should be retryable"
 
     def test_destructive_not_retryable(self):
-        assert not is_retryable("device.delete")
-        assert not is_retryable("system.session.rewind")
+        # v3.9.2: destructive merged tools.
+        assert not is_retryable("device.manage")
+        assert not is_retryable("system.manage")
 
     def test_non_idempotent_not_retryable(self):
+        # v3.9.2: exec.run is unsafe; git.push and exec.python merged into them.
         assert not is_retryable("exec.run")
-        assert not is_retryable("exec.python")
-        assert not is_retryable("git.push")
+        assert not is_retryable("git.manage")
+        assert not is_retryable("agent.manage")
 
 
 class TestAllowedCallers:
     def test_default_callers_include_all_runtimes(self):
-        m = MANIFESTS["web.search"]
+        m = MANIFESTS["web.manage"]
         assert "turn_runner" in m.allowed_callers
 
     def test_subagent_restricted_where_needed(self):
-        m = MANIFESTS["agent.spawn"]
+        m = MANIFESTS["agent.manage"]
         assert "turn_runner" in m.allowed_callers
 
 

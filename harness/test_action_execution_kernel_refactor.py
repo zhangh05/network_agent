@@ -50,7 +50,7 @@ def test_planner_classifies_write():
     planner = ActionPlanner()
     plan = planner.plan(
         tool_call_id="c2", tool_name="workspace__file__write",
-        tool_id="workspace.file.write", arguments={"path": "/tmp/x", "content": "hello"},
+        tool_id="workspace.file.write", arguments={"path": "/tmp/x", "content": "hello", "_legacy": True},
     )
     assert plan.action_class == "write"
 
@@ -90,7 +90,7 @@ def test_shell_is_low_risk():
 
 def test_python_is_low_risk():
     risk_policy = RiskPolicy()
-    plan = ActionPlan(tool_id="exec.python", action_class="execute",
+    plan = ActionPlan(tool_id="exec.run", action_class="execute",
                       arguments={"code": "print(1)"})
     decision = risk_policy.evaluate(plan)
     assert decision.risk_level == "medium"
@@ -351,7 +351,7 @@ def test_audit_trail_records_plan_and_result():
     audit = ActionAuditTrail()
     meta = {}
     plan = ActionPlan(
-        action_id="act_test1", tool_id="workspace.file.read",
+        action_id="act_test1", tool_id="workspace.file",
         action_class="read",
     )
     risk = RiskDecision(
@@ -361,10 +361,10 @@ def test_audit_trail_records_plan_and_result():
     audit.record_plan(plan, risk, meta)
     assert "action_trace" in meta
     assert meta["action_trace"][0]["type"] == "plan"
-    assert meta["action_trace"][0]["tool_id"] == "workspace.file.read"
+    assert meta["action_trace"][0]["tool_id"] == "workspace.file"
 
     result = ActionResult(
-        action_id="act_test1", tool_id="workspace.file.read",
+        action_id="act_test1", tool_id="workspace.file",
         ok=True, status="success", latency_ms=42.5,
         scan_status="safe",
     )
@@ -380,13 +380,13 @@ def test_evidence_update_creates_entry_for_successful_read():
     ev = EvidenceUpdate()
     plan = ActionPlan(tool_id="workspace.file.read", action_class="read")
     result = ActionResult(
-        action_id="act_ev1", tool_id="workspace.file.read",
+        action_id="act_ev1", tool_id="workspace.file",
         ok=True, status="success",
         normalized_result={"ok": True, "summary": "Read 42 lines from /etc/hosts"},
     )
     entries = ev.update(plan, result)
     assert len(entries) == 1
-    assert entries[0]["tool_id"] == "workspace.file.read"
+    assert entries[0]["tool_id"] == "workspace.file"
     assert "42 lines" in entries[0]["summary"]
     assert result.evidence_updates == entries
 
@@ -451,7 +451,7 @@ def test_pipeline_no_manual_old_stage_chain():
 def test_risk_policy_sees_conflicts():
     """When evidence_bundle has conflicts, execute/mutate actions require approval."""
     rp = RiskPolicy()
-    plan = ActionPlan(tool_id="workspace.file.read", action_class="mutate",
+    plan = ActionPlan(tool_id="workspace.file", action_class="mutate",
                       arguments={"path": "/tmp/x"})
     bundle = {"conflicts": ["version_mismatch"]}
     decision = rp.evaluate(plan, evidence_bundle=bundle)
@@ -461,7 +461,7 @@ def test_risk_policy_sees_conflicts():
 def test_risk_policy_no_conflict_no_extra_approval():
     """Without conflicts, a read action should not require approval."""
     rp = RiskPolicy()
-    plan = ActionPlan(tool_id="workspace.file.read", action_class="read",
+    plan = ActionPlan(tool_id="workspace.file", action_class="read",
                       arguments={"path": "/tmp/x"})
     decision = rp.evaluate(plan, evidence_bundle=None)
     assert decision.approval_required is False
@@ -503,7 +503,7 @@ def test_action_result_to_tool_result_success():
     """Converts a successful ActionResult to a ToolResult."""
     from agent.protocol.tool_result import ToolResult
     ar = ActionResult(
-        action_id="act_conv1", tool_id="workspace.file.read",
+        action_id="act_conv1", tool_id="workspace.file",
         ok=True, status="success",
         normalized_result={"ok": True, "summary": "Read 10 lines"},
         scan_status="safe", latency_ms=15.3,
@@ -521,7 +521,7 @@ def test_action_result_to_tool_result_passthrough():
     from agent.protocol.tool_result import ToolResult
     original = ToolResult(ok=True, summary="original result")
     ar = ActionResult(
-        action_id="act_pt1", tool_id="workspace.file.read",
+        action_id="act_pt1", tool_id="workspace.file",
         ok=True, status="success", result=original,
     )
     tr = action_result_to_tool_result(ar)
@@ -552,14 +552,14 @@ def test_evidence_update_writes_ctx_metadata():
     ctx = SimpleNamespace(metadata={})
     plan = ActionPlan(tool_id="workspace.file.read", action_class="read")
     result = ActionResult(
-        action_id="act_ctx_ev", tool_id="workspace.file.read",
+        action_id="act_ctx_ev", tool_id="workspace.file",
         ok=True, status="success",
         normalized_result={"ok": True, "summary": "5 lines read"},
     )
     ev.update(plan, result, ctx=ctx)
     assert "action_evidence_updates" in ctx.metadata
     assert len(ctx.metadata["action_evidence_updates"]) == 1
-    assert ctx.metadata["action_evidence_updates"][0]["tool_id"] == "workspace.file.read"
+    assert ctx.metadata["action_evidence_updates"][0]["tool_id"] == "workspace.file"
     assert "evidence_updates" not in ctx.metadata
 
 
@@ -571,7 +571,7 @@ def test_audit_trail_writes_ctx_metadata():
     ctx = SimpleNamespace(metadata={})
     local_meta = {}  # separate local metadata dict
     plan = ActionPlan(
-        action_id="act_ctx_audit", tool_id="workspace.file.read",
+        action_id="act_ctx_audit", tool_id="workspace.file",
         action_class="read",
     )
     risk = RiskDecision(action_id="act_ctx_audit", risk_level="low")
@@ -580,7 +580,7 @@ def test_audit_trail_writes_ctx_metadata():
     assert ctx.metadata["action_trace"][0]["type"] == "plan"
 
     result = ActionResult(
-        action_id="act_ctx_audit", tool_id="workspace.file.read",
+        action_id="act_ctx_audit", tool_id="workspace.file",
         ok=True, status="success", scan_status="safe",
     )
     audit.record_result(result, local_meta, ctx=ctx)

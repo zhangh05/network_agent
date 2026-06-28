@@ -252,9 +252,9 @@ def _auto_summary(result) -> str:
         if val is not None:
             return f"{key}={val}"
     tool_id = str(_safe_get(result, "tool_id", ""))
-    if "workspace.artifact.list" in tool_id:
+    if "workspace.artifact" in tool_id:
         return f"Listed {raw.get('count', '?')} artifacts"
-    if "workspace.artifact.read" in tool_id:
+    if "workspace.artifact" in tool_id:
         return f"Read artifact {raw.get('artifact_id', '?')}"
     if "search" in tool_id or "query" in tool_id:
         return f"Found {raw.get('count', '?')} results"

@@ -18,9 +18,9 @@ def _ctx(**overrides):
         },
         "metadata": {
             "selected_skills": ["assistant_chat"],
-            "visible_tools": ["workspace.file.read", "exec.run"],
+            "visible_tools": ["workspace.file", "exec.run"],
         },
-        "visible_tool_ids": ["workspace.file.read", "exec.run"],
+        "visible_tool_ids": ["workspace.file", "exec.run"],
         "workspace_id": "default",
         "session_id": "sess_123",
         "requested_by": "turn_runner",

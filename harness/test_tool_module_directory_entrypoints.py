@@ -14,39 +14,39 @@ def test_build_tool_chain_routes_config_to_directory_tool():
     from agent.runtime.tool_planning.chain_builder import build_tool_chain
 
     candidates = {
-        "workspace.file.read", "workspace.file.list", "workspace.file.read",
-        "config.analysis.run",
+        "workspace.file", "workspace.file", "workspace.file",
+        "config.manage",  # v3.9.2
     }
     chain = build_tool_chain({"mentions_network_config": True}, candidates)
     text = str(chain)
 
-    assert "config.analysis.run" in text
+    assert "config.manage" in text
 
 
 def test_build_tool_chain_routes_translate_to_directory_tool():
     from agent.runtime.tool_planning.chain_builder import build_tool_chain
 
     candidates = {
-        "workspace.file.read", "workspace.file.list", "workspace.file.read",
-        "config.analysis.run",
+        "workspace.file", "workspace.file", "workspace.file",
+        "config.manage",  # v3.9.2
     }
     chain = build_tool_chain({"mentions_config_translate": True}, candidates)
     text = str(chain)
 
-    assert "config.analysis.run" in text
+    assert "config.manage" in text
 
 
 def test_build_tool_chain_routes_pcap_to_directory_tool():
     from agent.runtime.tool_planning.chain_builder import build_tool_chain
 
     candidates = {
-        "workspace.file.read", "workspace.file.list",
-        "pcap.analysis.run",
+        "workspace.file", "workspace.file",
+        "pcap.manage",  # v3.9.2
     }
     chain = build_tool_chain({"mentions_packet": True}, candidates)
     text = str(chain)
 
-    assert "pcap.analysis.run" in text
+    assert "pcap.manage" in text
 
 
 # ── planner uses directory-level tools ───────────────────────────────
@@ -56,7 +56,8 @@ def test_planner_uses_directory_level_tools():
 
     source = inspect.getsource(planner)
 
-    assert "config.analysis.run" in source
+    # v3.9.2: merged config.manage replaces config.analysis.run in planner
+    assert "config.manage" in source
     assert "config.translation" in source
 
 
@@ -106,7 +107,7 @@ def test_config_analysis_run_parse_action():
         source_vendor="huawei",
     )
     assert result["ok"]
-    assert result["tool_id"] == "config.analysis.run"
+    assert result["tool_id"] == "config.manage"  # v3.9.2
     assert result.get("interfaces")
 
 

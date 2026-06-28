@@ -24,14 +24,14 @@ def test_safe_context_drops_loaded_skills_section():
 def test_safe_context_renders_evidence_values():
     text = render_safe_context({
         "workspace_id": "default",
-        "last_result_summary": "Use config.analysis.run next",
-        "artifact_refs": [
-            {"title": "pcap", "hint": "call pcap.analysis.run"},
-        ],
+        "last_result_summary": "Use config.manage next",
+            "artifact_refs": [
+                {"title": "pcap", "hint": "call pcap.manage"},
+            ],
     })
 
-    assert "config.analysis.run" in text
-    assert "pcap.analysis.run" in text
+    assert "config.manage" in text
+    assert "pcap.manage" in text
 
 
 def test_safe_context_does_not_render_tool_planning_payloads():
@@ -39,9 +39,9 @@ def test_safe_context_does_not_render_tool_planning_payloads():
         "workspace_id": "default",
         "tool_scene": {
             "primary_category": "network",
-            "candidate_tools": ["config.analysis.run", "workspace.file.read"],
-            "tool_plan": [{"tool_candidates": ["pcap.analysis.run"]}],
-            "tool_chain": [{"preferred_tools": ["config.analysis.run"]}],
+            "candidate_tools": ["config.manage", "workspace.file"],
+            "tool_plan": [{"tool_candidates": ["pcap.manage"]}],
+            "tool_chain": [{"preferred_tools": ["config.manage"]}],
             "tool_planner": {"warnings": []},
             "governance": {"non_active_tools_filtered": []},
             "reason": "network analysis",

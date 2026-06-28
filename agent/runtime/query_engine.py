@@ -249,7 +249,7 @@ class StreamEmitter:
 
         emitter = StreamEmitter()
         emitter.emit(StreamEvent.RUN_STARTED, {"session_id": "abc"})
-        emitter.emit(StreamEvent.TOOL_CALL, {"tool_id": "web.search"})
+        emitter.emit(StreamEvent.TOOL_CALL, {"tool_id": "web.manage"})
         events = emitter.to_events()
     """
 

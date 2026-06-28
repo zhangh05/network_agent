@@ -167,7 +167,7 @@ class TestCheckpoints:
             checkpoint_id=f"cp-{uuid.uuid4().hex[:8]}",
             task_id=task_id, workspace_id=ws_id,
             session_id="sess-1", run_id="run-1", step_id="step-5",
-            state_snapshot={"step": 5, "tools": ["web.search"]},
+            state_snapshot={"step": 5, "tools": ["web.manage"]},
         )
         save_checkpoint(cp)
         cps = get_checkpoints(ws_id, task_id)

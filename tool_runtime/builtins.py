@@ -2,7 +2,7 @@
 """v0.1 built-in low-risk tools.
 
 One baseline tool is provided:
-  1. workspace.artifact.list       — list artifact summaries (no full content)
+  1. workspace.artifact       — list artifact summaries (no full content)
 
 All tools are risk_level=low and dry_run_supported=True.
 None execute real device commands, shells, or arbitrary file access.
@@ -40,7 +40,7 @@ def _handler_artifact_list(invocation: ToolInvocation) -> dict:
         art_refs = state.get("artifact_refs", []) if isinstance(state, dict) else []
         return {
             "ok": True,
-            "tool_id": "workspace.artifact.list",
+            "tool_id": "workspace.artifact",
             "status": "ok",
             "summary": f"Listed {len(art_refs)} artifact references",
             "artifacts": art_refs[:50],  # limit to 50 entries
@@ -50,11 +50,11 @@ def _handler_artifact_list(invocation: ToolInvocation) -> dict:
     except Exception as exc:
         return {
             "ok": False,
-            "tool_id": "workspace.artifact.list",
+            "tool_id": "workspace.artifact",
             "status": "failed",
             "summary": f"Failed to list artifacts: {str(exc)[:100]}",
             "artifacts": [],
-            "warnings": [f"workspace.artifact.list failed: {str(exc)[:100]}"],
+            "warnings": [f"workspace.artifact failed: {str(exc)[:100]}"],
         }
 
 
@@ -65,9 +65,9 @@ def _handler_artifact_list(invocation: ToolInvocation) -> dict:
 BUILTIN_TOOLS = [
     (
         ToolSpec(
-            tool_id="workspace.artifact.list",
+            tool_id="workspace.artifact",
             name="List Artifacts",
-            description="List artifact metadata summaries for a workspace. Use when: user wants to browse available artifacts before reading one. Read-only. No full content returned — use workspace.workspace.artifact.read for previews. Returns artifact_id, title, type for each entry.",
+            description="List artifact metadata summaries for a workspace. Use when: user wants to browse available artifacts before reading one. Read-only. No full content returned — use workspace.workspace.artifact for previews. Returns artifact_id, title, type for each entry.",
             category="artifact",
             risk_level="low",
             reads_artifact=True,

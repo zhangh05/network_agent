@@ -98,7 +98,7 @@ def test_complete_runtime_state_after_actions_updates_step_and_snapshot():
     state = prepare_runtime_state_for_turn(ctx, session=session)
     step_id = state.active_workflow.current_step_id
     ctx.metadata["action_trace"] = [
-        {"type": "result", "action_id": "a1", "tool_id": "workspace.file.read", "ok": True, "status": "success", "summary": "read ok"}
+        {"type": "result", "action_id": "a1", "tool_id": "workspace.file", "ok": True, "status": "success", "summary": "read ok"}
     ]
     ctx.metadata["action_evidence_updates"] = [{"action_id": "a1", "summary": "read ok"}]
 

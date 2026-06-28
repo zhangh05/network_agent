@@ -9,24 +9,26 @@ class TestManifestDrivesRetry:
         """retry_step should use manifest.idempotency, not hardcoded patterns."""
         from agent.runtime.durable.control import _is_retryable
         from agent.runtime.durable.models import RuntimeStep
-        # safe_to_retry tool
+        # safe_to_retry tool (v3.9.2: web.manage is the merged web tool)
         step = RuntimeStep(step_id="s1", task_id="t1", kind="tool",
-                           tool_id="web.search", status="failed")
+                           tool_id="web.manage", status="failed")
         assert _is_retryable(step) is True
-        # destructive tool
+        # destructive tool (v3.9.2: device.manage is the merged tool; manifest
+        # marks it as unsafe_to_retry because it contains delete sub-action)
         step2 = RuntimeStep(step_id="s2", task_id="t1", kind="tool",
-                            tool_id="device.delete", status="failed")
+                            tool_id="device.manage", status="failed")
         assert _is_retryable(step2) is False
 
     def test_changing_manifest_idempotency_changes_retry_behavior(self):
         """If we change manifest idempotency, retry behavior follows."""
         from agent.runtime.durable.control import _is_retryable
         from agent.runtime.durable.models import RuntimeStep
+        # v3.9.1.1: workspace.file (merged) replaces old aliases
         step = RuntimeStep(step_id="st", task_id="t", kind="tool",
-                           tool_id="workspace.file.edit", status="failed")
-        m = get_manifest("workspace.file.edit")
+                           tool_id="workspace.file", status="failed")
+        m = get_manifest("workspace.file")
         assert m is not None
-        # Currently unsafe_to_retry
+        # Currently unsafe_to_retry (mixed read/write tool)
         assert not _is_retryable(step)
         # If we changed manifest (hypothetically), behavior changes
         old_val = m.idempotency
@@ -43,9 +45,10 @@ class TestManifestDrivesRisk:
         from agent.runtime.actions.risk import RiskPolicy
         from agent.runtime.actions.models import ActionPlan
         rp = RiskPolicy()
-        plan = ActionPlan(tool_id="web.search", action_class="network")
+        plan = ActionPlan(tool_id="web.manage", action_class="network",
+                          arguments={"action": "search"})
         decision = rp.evaluate(plan)
-        m = get_manifest("web.search")
+        m = get_manifest("web.manage")
         assert decision.risk_level == m.risk_level
 
     def test_manifest_drives_approval_flag(self):
@@ -53,7 +56,8 @@ class TestManifestDrivesRisk:
         from agent.runtime.actions.risk import RiskPolicy
         from agent.runtime.actions.models import ActionPlan
         rp = RiskPolicy()
-        plan = ActionPlan(tool_id="git.diff", action_class="read")
+        plan = ActionPlan(tool_id="git.manage", action_class="read",
+                          arguments={"action": "diff"})
         decision = rp.evaluate(plan)
         assert decision.approval_required is False
 
@@ -62,9 +66,11 @@ class TestManifestDrivesRisk:
         from agent.runtime.actions.risk import RiskPolicy
         from agent.runtime.actions.models import ActionPlan
         rp = RiskPolicy()
-        plan = ActionPlan(tool_id="git.push", action_class="network")
+        # v3.9.2: git.manage(action=push) requires approval
+        plan = ActionPlan(tool_id="git.manage", action_class="write",
+                          arguments={"action": "push"})
         decision = rp.evaluate(plan)
-        m = get_manifest("git.push")
+        m = get_manifest("git.manage")
         assert decision.approval_required == m.requires_approval
 
 
@@ -74,9 +80,11 @@ class TestManifestDrivesApprovalReason:
         from agent.runtime.actions.risk import RiskPolicy
         from agent.runtime.actions.models import ActionPlan
         rp = RiskPolicy()
-        plan = ActionPlan(tool_id="device.delete", action_class="delete")
+        # v3.9.2: device.manage(action=delete) is the destructive path
+        plan = ActionPlan(tool_id="device.manage", action_class="mutate",
+                          arguments={"action": "delete"})
         decision = rp.evaluate(plan)
-        m = get_manifest("device.delete")
+        m = get_manifest("device.manage")
         assert decision.approval_required is True
 
 
@@ -86,8 +94,8 @@ class TestCatalogIncludesManifest:
         cat = build_catalog_snapshot()
         tools = cat.get("tools", [])
         assert len(tools) > 0
-        # Find a tool that exists
-        tool = next((t for t in tools if t["tool_id"] == "web.search"), None)
+        # Find a tool that exists (v3.9.2: web.manage is the merged web tool)
+        tool = next((t for t in tools if t["tool_id"] == "web.manage"), None)
         assert tool is not None
         assert "destructive" in tool
         assert "idempotency" in tool
@@ -100,7 +108,9 @@ class TestCatalogIncludesManifest:
         from tool_runtime.catalog_snapshot import build_catalog_snapshot
         cat = build_catalog_snapshot()
         tools = cat.get("tools", [])
-        tool = next((t for t in tools if t["tool_id"] == "device.delete"), None)
+        # v3.9.2: device.manage contains a destructive sub-action (delete)
+        # so its manifest is marked destructive=True.
+        tool = next((t for t in tools if t["tool_id"] == "device.manage"), None)
         assert tool is not None
         assert tool["destructive"] is True
 

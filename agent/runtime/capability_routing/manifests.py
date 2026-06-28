@@ -105,7 +105,7 @@ CAPABILITY_PACKAGES: tuple[CapabilityPackage, ...] = (
         description="Read or inspect workspace files and artifacts.",
         intent_keywords=("file", "workspace", "artifact", "文件", "制品", "读取", "查看"),
         module_ids=("workspace",),
-        tool_ids=("workspace.file.list", "workspace.file.read", "workspace.artifact.read"),
+        tool_ids=("workspace.file", "workspace.file", "workspace.artifact"),
         prompt_hints=("Read workspace files before parsing domain content.",),
         output_kinds=("text",),
         priority=10,
@@ -116,7 +116,7 @@ CAPABILITY_PACKAGES: tuple[CapabilityPackage, ...] = (
         description="Search and read indexed knowledge.",
         intent_keywords=("knowledge", "docs", "文档", "知识", "资料", "手册", "查询"),
         module_ids=("knowledge",),
-        tool_ids=("knowledge.search", "knowledge.read"),
+        tool_ids=("knowledge.manage", "knowledge.manage"),
         output_kinds=("summary",),
         priority=20,
     ),
@@ -126,7 +126,7 @@ CAPABILITY_PACKAGES: tuple[CapabilityPackage, ...] = (
         description="Search or inspect memory and profile facts.",
         intent_keywords=("memory", "remember", "记忆", "偏好", "画像", "之前"),
         module_ids=("memory",),
-        tool_ids=("memory.search", "memory.profile"),
+        tool_ids=("memory.manage", "memory.manage"),
         priority=30,
     ),
     CapabilityPackage(
@@ -135,7 +135,7 @@ CAPABILITY_PACKAGES: tuple[CapabilityPackage, ...] = (
         description="Parse, translate, compare and summarize network configuration text.",
         intent_keywords=("config", "configuration", "translate", "配置", "翻译", "转换", "厂商", "h3c", "cisco", "huawei"),
         module_ids=("config_translation", "config_analysis", "workspace"),
-        tool_ids=("workspace.file.list", "workspace.file.read", "config.analysis.run"),
+        tool_ids=("workspace.file", "workspace.file", "config.manage"),
         prompt_hints=("Translated config is analysis output, not deployable configuration.",),
         output_kinds=("markdown", "translated_config"),
         safety_notes=("Do not claim translated configuration is production-ready."),
@@ -147,7 +147,7 @@ CAPABILITY_PACKAGES: tuple[CapabilityPackage, ...] = (
         description="Parse and inspect packet capture files.",
         intent_keywords=("pcap", "pcapng", "packet", "抓包", "报文", "五元组", "tcp", "重传"),
         module_ids=("pcap", "workspace"),
-        tool_ids=("workspace.file.list", "pcap.analysis.run"),
+        tool_ids=("workspace.file", "pcap.manage"),
         output_kinds=("summary", "table"),
         priority=6,
     ),
@@ -157,7 +157,7 @@ CAPABILITY_PACKAGES: tuple[CapabilityPackage, ...] = (
         description="Render reports and save report artifacts.",
         intent_keywords=("report", "markdown", "总结", "报告", "整理", "导出"),
         module_ids=("workspace",),
-        tool_ids=("report.markdown.render", "report.artifact.save", "workspace.artifact.save"),
+        tool_ids=("report.manage", "report.manage", "workspace.artifact"),
         output_kinds=("markdown", "artifact"),
         priority=40,
     ),
@@ -167,7 +167,7 @@ CAPABILITY_PACKAGES: tuple[CapabilityPackage, ...] = (
         description="Inspect runtime health and diagnostics.",
         intent_keywords=("runtime", "diagnostic", "health", "运行", "诊断", "健康", "自检"),
         module_ids=("runtime",),
-        tool_ids=("system.diagnostics",),
+        tool_ids=("system.manage",),
         priority=50,
     ),
     CapabilityPackage(
@@ -178,7 +178,7 @@ CAPABILITY_PACKAGES: tuple[CapabilityPackage, ...] = (
                          "多agent", "多 agent", "团队", "team", "spawn", "delegate",
                          "让它搜索", "让它检查", "让它分析"),
         module_ids=("runtime",),
-        tool_ids=("agent.role.list", "agent.spawn", "agent.result.get", "agent.team.run"),
+        tool_ids=("agent.manage", "agent.manage", "agent.manage", "agent.manage"),
         output_kinds=("task", "summary"),
         safety_notes=("子 Agent 必须继承 workspace/session 边界。", "读取结果需通过 agent.result.get。"),
         priority=8,
@@ -192,7 +192,7 @@ CAPABILITY_PACKAGES: tuple[CapabilityPackage, ...] = (
                          "资产管理", "设备清单", "设备列表", "设备名",
                          "多少设备", "几个设备", "添加", "新增", "录入", "asset"),
         module_ids=("cmdb",),
-        tool_ids=("device.list", "device.get", "device.add", "device.delete"),
+        tool_ids=("device.manage", "device.manage", "device.manage", "device.manage"),
         output_kinds=("table", "summary"),
         safety_notes=("不可声明 CMDB 中存在未从工具返回的设备。", "添加/删除操作需确认。"),
         priority=7,
@@ -204,7 +204,7 @@ CAPABILITY_PACKAGES: tuple[CapabilityPackage, ...] = (
         intent_keywords=("ssh", "telnet", "连接", "登录设备", "display", "show run",
                          "执行命令", "show version", "display version"),
         module_ids=("remote", "cmdb"),
-        tool_ids=("device.list", "device.get", "exec.run"),
+        tool_ids=("device.manage", "device.manage", "exec.run"),
         output_kinds=("text",),
         safety_notes=("真实设备访问，需审批。", "危险命令（reload/erase/format）自动拦截。"),
         priority=6,
@@ -217,7 +217,7 @@ CAPABILITY_PACKAGES: tuple[CapabilityPackage, ...] = (
                          "navigate", "screenshot", "scrape", "访问网站", "查看网页",
                          "打开网页", "页面内容", "抓取"),
         module_ids=("browser",),
-        tool_ids=("browser.navigate", "browser.extract", "browser.screenshot", "browser.click"),
+        tool_ids=("browser.manage", "browser.manage", "browser.manage", "browser.manage"),
         prompt_hints=("Browser provides real-time web page content. Always prefer browser over web.page.process when interactive browsing is needed.",),
         output_kinds=("text", "image"),
         safety_notes=("浏览器内容来自外部网站，可能不准确。禁止访问内网/需登录页面。",),
@@ -227,15 +227,16 @@ CAPABILITY_PACKAGES: tuple[CapabilityPackage, ...] = (
 
 
 CORE_TOOL_IDS: tuple[str, ...] = (
-    # ── Tool discovery ──
-    "tool.catalog.search",
-    "skill.list", "skill.find", "skill.load", "skill.inspect",
+    # ── Tool discovery (v3.9.2: all 5 → skill.manage) ──
+    "skill.manage",
     # ── Workspace read baseline ──
-    "workspace.file.list", "workspace.file.read",
-    "workspace.artifact.read",
-    # ── Universal information tools ──
-    "web.search", "web.page.process", "web.weather",
-    "memory.search",
+    "workspace.file",
+    "workspace.artifact",
+    "workspace.filestore",
+    # ── Universal information tools (v3.9.2: all 3 → web.manage) ──
+    "web.manage",
+    # ── Memory (v3.9.2: search+manage+profile → memory.manage) ──
+    "memory.manage",
 )
 
 

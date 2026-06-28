@@ -59,5 +59,5 @@ def test_registry_catalog_unchanged(monkeypatch, tmp_path):
         tool_ids = [t.get("tool_id", t.get("id", "")) for t in catalog if isinstance(t, dict)]
     elif isinstance(catalog, dict):
         tool_ids = list(catalog.keys())
-    # New FileStore tools should be present
-    assert any("workspace.file.read" in tid or "file" in str(tid).lower() for tid in tool_ids) or True
+    # v3.9.1.1: workspace.file (merged) should be present
+    assert any("workspace.file" in tid or "file" in str(tid).lower() for tid in tool_ids) or True

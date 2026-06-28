@@ -8,7 +8,7 @@ from agent.runtime.tool_planning.policy import ToolPlanningPolicy
 def expand_tools_from_catalog_result(result, context, session, turn, step,
                                      audit_events, emitter) -> list:
     """Expand per-turn visible tools from a successful catalog search result."""
-    if not result or getattr(result, "tool_id", "") != "tool.catalog.search" or not getattr(result, "ok", False):
+    if not result or getattr(result, "tool_id", "") != "skill.manage" or not getattr(result, "ok", False):
         return []
     expansion = {}
     metadata = getattr(result, "metadata", {}) or {}
@@ -48,7 +48,7 @@ def expand_tools_from_catalog_result(result, context, session, turn, step,
     })
     try:
         emitter.emit(StreamEvent.TOOL_RESULT, {
-            "tool_id": "tool.catalog.search",
+            "tool_id": "skill.manage",
             "ok": True,
             "summary": f"\u5de5\u5177\u76ee\u5f55\u5df2\u8ffd\u52a0 {len(added)} \u4e2a\u5de5\u5177\u5230\u5f53\u524d\u56de\u5408\u3002",
             "added_tool_ids": added,

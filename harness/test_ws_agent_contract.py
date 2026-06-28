@@ -18,12 +18,12 @@ def test_ws_done_payload_includes_full_inspector_fields(monkeypatch):
                     {"event_id": "ev-2", "type": "final", "timestamp": 2.0},
                 ],
                 "tool_calls": [
-                    {"call_id": "call-1", "tool_id": "knowledge.search", "ok": True},
+                    {"call_id": "call-1", "tool_id": "knowledge.manage", "ok": True},
                 ],
                 "metadata": {"source_count": 1},
                 "warnings": [],
                 "errors": [],
-                "tool_decision": {"needed": True, "selected_tools": ["knowledge.search"]},
+                "tool_decision": {"needed": True, "selected_tools": ["knowledge.manage"]},
                 "no_tool_reason": "",
             }
 
@@ -45,8 +45,8 @@ def test_ws_done_payload_includes_full_inspector_fields(monkeypatch):
 
     assert done["trace_id"] == "trace-1"
     assert len(done["events"]) == 2
-    assert done["tool_decision"]["selected_tools"] == ["knowledge.search"]
-    assert done["tool_calls"][0]["tool_id"] == "knowledge.search"
+    assert done["tool_decision"]["selected_tools"] == ["knowledge.manage"]
+    assert done["tool_calls"][0]["tool_id"] == "knowledge.manage"
     assert done["metadata"]["stream_mode"] == "event_replay_fallback"
     assert done["metadata"]["transport"] == "websocket"
     assert error_holder["error"] is None

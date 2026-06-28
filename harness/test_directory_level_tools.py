@@ -1,5 +1,5 @@
 # harness/test_directory_level_tools.py
-"""Tests for directory-level tool handlers (config.analysis.run, pcap.analysis.run)."""
+"""Tests for directory-level tool handlers (config.manage, pcap.manage)."""
 
 import os
 import sys
@@ -15,32 +15,34 @@ def _inv(tool_id, args=None):
 
 def test_config_analysis_missing_action():
     from tool_runtime.canonical_registry import get_entry
-    entry = get_entry("config.analysis.run")
-    result = entry.handler(_inv("config.analysis.run", {}))
+    # v3.9.2: config.manage is the merged tool.
+    entry = get_entry("config.manage")
+    result = entry.handler(_inv("config.manage", {}))
     assert not result["ok"]
     assert "unsupported" in result.get("summary", "").lower() or "unsupported" in str(result.get("errors", []))
 
 
 def test_config_analysis_unsupported_action():
     from tool_runtime.canonical_registry import get_entry
-    entry = get_entry("config.analysis.run")
-    result = entry.handler(_inv("config.analysis.run", {"action": "explode"}))
+    entry = get_entry("config.manage")
+    result = entry.handler(_inv("config.manage", {"action": "explode"}))
     assert not result["ok"]
     assert "unsupported" in result.get("summary", "").lower()
 
 
 def test_pcap_analysis_missing_action():
     from tool_runtime.canonical_registry import get_entry
-    entry = get_entry("pcap.analysis.run")
-    result = entry.handler(_inv("pcap.analysis.run", {}))
+    # v3.9.2: pcap.manage is the merged tool.
+    entry = get_entry("pcap.manage")
+    result = entry.handler(_inv("pcap.manage", {}))
     assert not result["ok"]
     assert "unsupported" in result.get("summary", "").lower() or "unsupported" in str(result.get("errors", []))
 
 
 def test_pcap_analysis_unsupported_action():
     from tool_runtime.canonical_registry import get_entry
-    entry = get_entry("pcap.analysis.run")
-    result = entry.handler(_inv("pcap.analysis.run", {"action": "explode"}))
+    entry = get_entry("pcap.manage")
+    result = entry.handler(_inv("pcap.manage", {"action": "explode"}))
     assert not result["ok"]
     assert "unsupported" in result.get("summary", "").lower()
 
@@ -48,8 +50,9 @@ def test_pcap_analysis_unsupported_action():
 def test_config_analysis_translate_without_config():
     """translate action should delegate to config_translation service."""
     from tool_runtime.canonical_registry import get_entry
-    entry = get_entry("config.analysis.run")
-    result = entry.handler(_inv("config.analysis.run", {
+    # v3.9.2: config.manage is the merged tool.
+    entry = get_entry("config.manage")
+    result = entry.handler(_inv("config.manage", {
         "action": "translate",
         "source_config": "",
         "target_vendor": "cisco",

@@ -46,26 +46,26 @@ def parse_pcap_file(workspace_id: str, filepath: str = "", file_id: str = "",
             from storage.file_store import resolve_file_path as _resolve
             path = _resolve(workspace_id, file_id)
         except Exception as exc:
-            return {"ok": False, "tool_id": "pcap.analysis.run", "status": "failed",
+            return {"ok": False, "tool_id": "pcap.manage", "status": "failed",
                     "summary": str(exc)[:200], "errors": ["invalid_file_id"]}
     elif filepath:
         try:
             path = resolve_workspace_path(workspace_id, filepath)
         except Exception as exc:
-            return {"ok": False, "tool_id": "pcap.analysis.run", "status": "failed",
+            return {"ok": False, "tool_id": "pcap.manage", "status": "failed",
                     "summary": str(exc)[:200], "errors": ["invalid_filepath"]}
     else:
-        return {"ok": False, "tool_id": "pcap.analysis.run", "status": "failed",
+        return {"ok": False, "tool_id": "pcap.manage", "status": "failed",
                 "summary": "需要提供 file_id 或 filepath。", "errors": ["missing_filepath"]}
 
     if not path.exists() or not path.is_file():
-        return {"ok": False, "tool_id": "pcap.analysis.run", "status": "failed",
+        return {"ok": False, "tool_id": "pcap.manage", "status": "failed",
                 "summary": f"PCAP 文件不存在：{filepath or file_id}", "errors": ["file_not_found"]}
 
     packets = parse_pcap(str(path))
     if not packets:
         return {
-            "ok": False, "tool_id": "pcap.analysis.run", "status": "failed",
+            "ok": False, "tool_id": "pcap.manage", "status": "failed",
             "summary": "无法解析 PCAP 文件，可能文件不存在、格式不支持或 scapy 不可用。",
             "errors": ["pcap_parse_failed"],
         }
@@ -123,7 +123,7 @@ def parse_pcap_file(workspace_id: str, filepath: str = "", file_id: str = "",
         except Exception:
             pass
 
-    result = {"ok": True, "tool_id": "pcap.analysis.run", "status": "succeeded",
+    result = {"ok": True, "tool_id": "pcap.manage", "status": "succeeded",
               "summary": f"共解析 {len(packets)} 个报文，识别 {len(groups)} 条连接。", **meta}
     if artifacts:
         result["artifacts"] = artifacts
@@ -217,7 +217,7 @@ def get_pcap_session(session_id: str, workspace_id: str = "default") -> dict:
                                 "groups": groups,
                             }
                         return {
-                            "ok": True, "tool_id": "pcap.analysis.run", "status": "succeeded",
+                            "ok": True, "tool_id": "pcap.manage", "status": "succeeded",
                             "summary": f"PCAP session 有 {rec.get('total_packets', 0)} 个报文 (从 index 恢复)。",
                             "session_id": session_id, "filename": rec.get("filename", ""),
                             "total_packets": len(packets) if packets else rec.get("total_packets", 0),
@@ -225,10 +225,10 @@ def get_pcap_session(session_id: str, workspace_id: str = "default") -> dict:
                         }
         except Exception:
             pass
-        return {"ok": False, "tool_id": "pcap.analysis.run", "status": "failed",
+        return {"ok": False, "tool_id": "pcap.manage", "status": "failed",
                 "summary": "未找到 PCAP session。", "errors": ["session_not_found"]}
     return {
-        "ok": True, "tool_id": "pcap.analysis.run", "status": "succeeded",
+        "ok": True, "tool_id": "pcap.manage", "status": "succeeded",
         "summary": f"PCAP session 有 {len(session.get('packets', []))} 个报文。",
         "session_id": session_id, "filename": Path(session["filepath"]).name,
         "total_packets": len(session.get("packets", [])),
@@ -245,12 +245,12 @@ def filter_pcap_session(session_id: str, src: str = "", sport: int = 0,
         get_pcap_session(session_id, workspace_id=workspace_id)
         session = PCAP_SESSIONS.get(session_id)
     if not session:
-        return {"ok": False, "tool_id": "pcap.analysis.run", "status": "failed",
+        return {"ok": False, "tool_id": "pcap.manage", "status": "failed",
                 "summary": "未找到 PCAP session。", "errors": ["session_not_found"]}
     filtered = filter_by_5tuple(session.get("packets", []), src, sport, dst, dport)
     session["filtered"] = filtered
     return {
-        "ok": True, "tool_id": "pcap.analysis.run", "status": "succeeded",
+        "ok": True, "tool_id": "pcap.manage", "status": "succeeded",
         "summary": f"匹配到 {len(filtered)} 个报文。",
         "count": len(filtered), "packets": filtered[:500], "truncated": len(filtered) > 500,
     }
@@ -266,7 +266,7 @@ def align_pcap_tcp(session_id: str, src: str = "", sport: int = 0,
         get_pcap_session(session_id, workspace_id=workspace_id)
         session = PCAP_SESSIONS.get(session_id)
     if not session:
-        return {"ok": False, "tool_id": "pcap.analysis.run", "status": "failed",
+        return {"ok": False, "tool_id": "pcap.manage", "status": "failed",
                 "summary": "未找到 PCAP session。", "errors": ["session_not_found"]}
     packets = session.get("packets", [])
     if use_filter:
@@ -275,7 +275,7 @@ def align_pcap_tcp(session_id: str, src: str = "", sport: int = 0,
         packets = session.get("filtered", packets)
     result = tcp_stream_align(packets)
     return {
-        "ok": True, "tool_id": "pcap.analysis.run", "status": "succeeded",
+        "ok": True, "tool_id": "pcap.manage", "status": "succeeded",
         "summary": f"完成 TCP 序列对齐，发现 {len(result.get('anomalies', []))} 个异常。",
         **result,
     }
@@ -299,6 +299,6 @@ def run_pcap_analysis(
     if action == "align":
         return align_pcap_tcp(session_id, src=src, sport=sport, dst=dst, dport=dport, use_filter=use_filter, workspace_id=workspace_id)
     return {
-        "ok": False, "tool_id": "pcap.analysis.run", "status": "failed",
+        "ok": False, "tool_id": "pcap.manage", "status": "failed",
         "summary": f"unsupported pcap action: {action}", "errors": ["unsupported_action"],
     }

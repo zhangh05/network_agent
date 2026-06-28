@@ -26,7 +26,7 @@ def build_tool_decision(all_tool_results: list, context) -> dict:
             "failed_tools": failed_tools,
             "blocked_by": blocked_by if blocked_by else [],
             "approval_required": any(
-                tc.get("tool_id") in ("exec.run", "exec.python")
+                tc.get("tool_id") in ("exec.run", "exec.run")
                 for tc in all_tool_results
             ),
             "reason": "Tools were called to fulfill the user request.",

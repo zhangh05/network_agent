@@ -18,7 +18,7 @@ class TestExternalToolManifest:
     def test_valid_manifest_with_ref(self):
         tool = ExternalToolManifest(
             tool_id="mcp.search", provider_id="prov-1",
-            capability_manifest_ref="web.search",
+            capability_manifest_ref="web.manage",
             permissions=["read"],
         )
         ok, err = validate_external_manifest(tool)
@@ -27,7 +27,7 @@ class TestExternalToolManifest:
     def test_empty_permissions_rejected(self):
         tool = ExternalToolManifest(
             tool_id="mcp.tool", provider_id="prov-1",
-            capability_manifest_ref="web.search",
+            capability_manifest_ref="web.manage",
             permissions=[],
         )
         ok, err = validate_external_manifest(tool)
@@ -56,7 +56,7 @@ class TestSkillManifest:
     def test_valid_skill_manifest(self):
         ok, err, data = validate_skill_manifest({
             "skill_id": "s1", "name": "test skill", "version": "1.0",
-            "tools": ["web.search"], "permissions": ["read"],
+            "tools": ["web.manage"], "permissions": ["read"],
             "hash": "abc123",
         })
         assert ok

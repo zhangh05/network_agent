@@ -12,28 +12,30 @@ from tool_runtime.tool_governance import is_planner_visible
 from tool_runtime.tool_namespace import TOOL_NAMESPACE
 
 
+# v3.9.2: all 22 tools are visible to LLM. Per Codex philosophy, fewer
+# tools with strong action-class gates downstream beats many aliases
+# with hidden selection logic. Baseline + local_ops below are still
+# listed explicitly so the planner has a stable "always include" seed.
 BASELINE_READ_TOOLS = [
-    # Capability/tool/skill discovery must remain visible for every turn.
-    "tool.catalog.search",
-    "skill.list",
-    "skill.find",
-    "skill.load",
-    "skill.inspect",
-    "workspace.file.list", "workspace.file.read",
-    "workspace.artifact.read",
+    # Capability/skill discovery
+    "skill.manage",
+    # Workspace file + artifact (merged v3.9.1)
+    "workspace.file",
+    "workspace.artifact",
+    "workspace.filestore",
     # Web
-    "web.search",
-    "web.page.process",
-    "web.weather",
-    # Execution — always visible. Safety gates (approval, action_class_filter)
-    # are downstream, not visibility's responsibility.
+    "web.manage",
+    # Execution — always visible
     "exec.run",
 ]
 
+
 LOCAL_OPS_TOOLS = [
-    "exec.python",
-    "exec.slash",
-    "system.diagnostics",
+    # v3.9.2: exec.run / system.manage is the merged tool. exec.run is already
+    # in BASELINE_READ_TOOLS (always visible). system.manage contains the
+    # diagnostics sub-action; it is scene-gated by mention_host and added via
+    # LOCAL_OPS_TOOLS when the scene signals local-machine operations.
+    "system.manage",
 ]
 
 
@@ -133,20 +135,50 @@ def available_canonical_tools(available_catalog: dict) -> set[str]:
     return set(TOOL_NAMESPACE)
 
 
-def action_class_filter(candidate_tools: list[str], rule_scene: dict) -> list[str]:
+def action_class_filter(
+    candidate_tools: list[str],
+    rule_scene: dict,
+    arguments_by_tool: dict[str, dict] | None = None,
+) -> list[str]:
     """Filter candidate tools by action_class.
 
     Unknown tools fail closed. Destructive mutations are held
-    back unless the scene explicitly allows them.
+    back unless the scene explicitly allows them. v3.9.2: merged
+    tools (``action == "multi"``) get a sub-action passed via
+    ``arguments_by_tool[tid]`` so the classifier can dispatch
+    ``git.manage(action="commit")`` as ``write`` and
+    ``git.manage(action="status")`` as ``read``. When no arguments
+    are passed, the manifest's ``action_class`` is used as a fallback
+    so destructive merged tools (e.g. device.manage / report.manage)
+    are still gated without per-action arguments.
     """
     from tool_runtime.action_class import classify_tool
+    from tool_runtime.manifest_registry import get_manifest
 
+    args_map = arguments_by_tool or {}
     result = []
     for tid in candidate_tools:
         entry = TOOL_NAMESPACE.get(tid)
         if entry is None:
             continue
-        ac = classify_tool(tid, entry.category, entry.group, entry.action)
+        ac = classify_tool(
+            tid,
+            entry.category,
+            entry.group,
+            entry.action,
+            arguments=args_map.get(tid),
+        )
+        # v3.9.2: merged tools without sub-action dispatch default to
+        # the manifest's declared action_class so the destructive gate
+        # still applies (e.g. device.manage / report.manage / git.manage).
+        if entry.action == "multi" and not args_map.get(tid):
+            m = get_manifest(tid)
+            if m and m.action_class and ac.action_class == "read":
+                ac.action_class = m.action_class
+                # destructive flag follows manifest
+                if m.destructive:
+                    ac.is_destructive = True
+                    ac.is_high_impact = True
         if ac.action_class in ("write", "mutate") and not user_wants_destructive(rule_scene, tid):
             continue
         if ac.is_destructive and not user_wants_destructive(rule_scene, tid):

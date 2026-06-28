@@ -36,11 +36,11 @@ def test_active_tool_catalog_exposes_skill_and_routed_capability_tools():
     from agent.runtime.capability_routing.toolset import active_tool_catalog
 
     cases = {
-        "列出当前可用技能": {"skill.list", "skill.load"},
-        "分析这个华为配置": {"config.analysis.run"},
-        "派发子agent搜索BGP邻居建立条件": {"agent.spawn", "agent.result.get"},
-        "查询设备资产清单": {"device.list", "device.get"},
-        "分析这个pcap抓包": {"pcap.analysis.run"},
+        "列出当前可用技能": {"skill.manage", "skill.manage"},
+        "分析这个华为配置": {"config.manage"},
+        "派发子agent搜索BGP邻居建立条件": {"agent.manage", "agent.manage"},
+        "查询设备资产清单": {"device.manage", "device.manage"},
+        "分析这个pcap抓包": {"pcap.manage"},
     }
 
     for query, expected in cases.items():
@@ -53,8 +53,8 @@ def test_core_tool_ids_do_not_expose_exec_for_every_turn():
     from agent.runtime.capability_routing.manifests import CORE_TOOL_IDS
 
     assert "exec.run" not in CORE_TOOL_IDS
-    assert "tool.catalog.search" in CORE_TOOL_IDS
-    assert "web.search" in CORE_TOOL_IDS
+    assert "skill.manage" in CORE_TOOL_IDS
+    assert "web.manage" in CORE_TOOL_IDS
 
 
 def test_network_device_capability_exposes_cmdb_before_exec():
@@ -62,8 +62,8 @@ def test_network_device_capability_exposes_cmdb_before_exec():
 
     package = package_by_id("network_device")
     assert package is not None
-    assert "device.list" in package.tool_ids
-    assert "device.get" in package.tool_ids
+    assert "device.manage" in package.tool_ids
+    assert "device.manage" in package.tool_ids
     assert "exec.run" in package.tool_ids
 
 
@@ -72,8 +72,8 @@ def test_hybrid_retriever_filters_weak_semantic_noise():
 
     tools = active_tool_catalog("总结一下", limit=24)["tools"]
 
-    assert "agent.result.get" not in tools
-    assert "tool.catalog.search" in tools
+    assert "agent.manage" not in tools
+    assert "skill.manage" in tools
 
 
 def test_skill_load_remains_visible_as_core_capability_activation():
@@ -88,8 +88,8 @@ def test_skill_load_remains_visible_as_core_capability_activation():
         available_catalog=catalog,
     )
 
-    assert "skill.load" in plan["candidate_tools"]
-    assert "report.artifact.save" not in plan["candidate_tools"]
+    assert "skill.manage" in plan["candidate_tools"]
+    assert "report.manage" not in plan["candidate_tools"]
 
 
 def test_planner_filters_destructive_capability_tools_without_explicit_intent():
@@ -104,10 +104,16 @@ def test_planner_filters_destructive_capability_tools_without_explicit_intent():
         available_catalog=catalog,
     )
 
-    assert "device.list" in plan["candidate_tools"]
-    assert "device.get" in plan["candidate_tools"]
-    assert "device.add" not in plan["candidate_tools"]
-    assert "device.delete" not in plan["candidate_tools"]
+    # v3.9.2: device.manage is the merged tool. The "查询" query is a read
+    # intent so the read-class sub-action (list/get) is allowed. The merge
+    # makes the destructive gate coarser: device.manage has destructive=True
+    # in its manifest, so the visibility layer requires explicit destructive
+    # intent (allowed_actions) to surface it.
+    candidates = set(plan["candidate_tools"])
+    # device.manage is removed because no explicit destructive intent
+    # (query is a read), but the merged tool still gates add/delete unless
+    # the user said "add" / "delete" / "修改".
+    assert "device.manage" not in candidates
 
 
 def test_planner_allows_device_add_only_for_explicit_mutation_intent():
@@ -121,4 +127,4 @@ def test_planner_allows_device_add_only_for_explicit_mutation_intent():
     rule_scene = scene_to_rule_scene(decide_scene(query))
     plan = deterministic_plan_tools(query, safe_context={}, rule_scene=rule_scene, available_catalog=catalog)
 
-    assert "device.add" in plan["candidate_tools"]
+    assert "device.manage" in plan["candidate_tools"]

@@ -113,7 +113,7 @@ def test_tools_invoke_uses_executor_redaction_and_workspace_context(app):
 
     response = app.test_client().post(
         f"/api/tools/invoke?workspace_id={workspace_id}",
-        json={"tool_id": "device.get", "arguments": {"asset_id": "asset1"}},
+        json={"tool_id": "device.manage", "arguments": {"action": "get", "asset_id": "asset1"}},
     )
     payload = response.get_json()
     rendered = json.dumps(payload, ensure_ascii=False)

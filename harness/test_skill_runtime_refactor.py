@@ -20,12 +20,12 @@ from tool_runtime.general_tools.skill_tools import (
 )
 
 
-def _inv(tool_id: str = "skill.load", **args) -> ToolInvocation:
+def _inv(tool_id: str = "skill.manage", **args) -> ToolInvocation:
     return ToolInvocation(tool_id=tool_id, arguments=args, workspace_id="default")
 
 
 def test_skill_list_returns_capability_packages():
-    result = handle_skill_list(_inv("skill.list"))
+    result = handle_skill_list(_inv("skill.manage"))
     assert result.get("ok")
     assert result["count"] > 0
     ids = {r["skill_id"] for r in result["results"]}
@@ -38,7 +38,7 @@ def test_skill_load_returns_capability_contract():
     result = handle_skill_load(_inv(skill_name="config_translation"))
     assert result.get("ok")
     assert "config_translation" in result["capability_ids"]
-    assert "config.analysis.run" in result["tool_ids"]
+    assert "config.manage" in result["tool_ids"]
 
 
 def test_skill_find_finds_by_keyword():

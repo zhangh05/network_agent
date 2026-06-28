@@ -51,11 +51,11 @@ def _make_filestore_handler(tool_id: str, param_names: list[str]):
             handle_file_write_agent_output, handle_file_import_workspace_path,
         )
         handlers = {
-            "workspace.file.read": handle_file_get,
+            "workspace.file": handle_file_get,
             "workspace.file.preview": handle_file_preview,
-            "file.references": handle_file_references,
-            "workspace.file.write_artifact": handle_file_write_agent_output,
-            "file.import_workspace_path": handle_file_import_workspace_path,
+            "workspace.filestore": handle_file_references,
+            "workspace.file": handle_file_write_agent_output,
+            "workspace.filestore": handle_file_import_workspace_path,
         }
         return handlers[tool_id](inv, **kwargs)
     return handler
@@ -170,6 +170,162 @@ def _handle_exec_run_merged(inv: ToolInvocation) -> dict:
             return handle_command_approved_exec(inv)
 
 
+# ── v3.9.2: 11 new merged handlers (Codex-style dispatch) ────────────
+# Each dispatches arguments.action to the original per-action handler.
+# The original per-action handlers above are kept (not deleted) because
+# they may still be referenced from tests and from internal flows.
+
+def _action(inv: ToolInvocation) -> tuple[str, dict]:
+    """Return (action_string, arguments) for merged-tool dispatch."""
+    args = inv.arguments or {}
+    return str(args.get("action", "")).lower().strip(), args
+
+
+def _handle_exec_merged(inv: ToolInvocation) -> dict:
+    """exec.run — action=shell (default) | python | slash."""
+    action, _ = _action(inv)
+    if action == "python":
+        return handle_python_exec(inv)
+    if action == "slash":
+        return handle_slash_run(inv)
+    # default: shell (local/ssh/telnet via target + shell)
+    return _handle_exec_run_merged(inv)
+
+
+def _handle_git_merged(inv: ToolInvocation) -> dict:
+    """git.manage — action=status|log|diff|commit|push."""
+    action, _ = _action(inv)
+    return {
+        "status": _handler_git_status,
+        "log": _handler_git_log,
+        "diff": _handler_git_diff,
+        "commit": _handler_git_commit,
+        "push": _handler_git_push,
+    }.get(action, _handler_git_status)(inv)
+
+
+def _handle_device_merged(inv: ToolInvocation) -> dict:
+    """device.manage — action=list|get|add|delete."""
+    action, _ = _action(inv)
+    return {
+        "list": _handler_cmdb_list_assets,
+        "get": _handler_cmdb_get_asset,
+        "add": _handler_cmdb_add_asset,
+        "delete": _handler_cmdb_delete_asset,
+    }.get(action, _handler_cmdb_list_assets)(inv)
+
+
+def _handle_browser_merged(inv: ToolInvocation) -> dict:
+    """browser.manage — action=navigate|extract|screenshot|click."""
+    action, _ = _action(inv)
+    return {
+        "navigate": _handler_browser_navigate,
+        "extract": _handler_browser_extract,
+        "screenshot": _handler_browser_screenshot,
+        "click": _handler_browser_click,
+    }.get(action, _handler_browser_navigate)(inv)
+
+
+def _handle_web_merged(inv: ToolInvocation) -> dict:
+    """web.manage — action=search|weather|page."""
+    action, _ = _action(inv)
+    if action == "weather":
+        return _weather_merged(inv)
+    if action == "page":
+        return _handle_web_page_merged(inv)
+    # default: search
+    return handle_web_search(inv)
+
+
+def _handle_data_merged(inv: ToolInvocation) -> dict:
+    """data.manage — action=csv_summarize|table_extract|table_render|validate."""
+    action, _ = _action(inv)
+    return {
+        "csv_summarize": handle_csv_summarize,
+        "table_extract": handle_table_extract,
+        "table_render": handle_table_render_markdown,
+        "validate": _handle_data_validate_merged,
+    }.get(action, handle_csv_summarize)(inv)
+
+
+def _handle_report_merged(inv: ToolInvocation) -> dict:
+    """report.manage — action=markdown_render|artifact_save|safe_summary_render|mermaid_render."""
+    action, _ = _action(inv)
+    return {
+        "markdown_render": handle_report_render_markdown,
+        "artifact_save": handle_report_save_artifact,
+        "safe_summary_render": handle_doc_render_from_safe_summary,
+        "mermaid_render": handle_diagram_render_mermaid,
+    }.get(action, handle_report_render_markdown)(inv)
+
+
+def _handle_knowledge_merged(inv: ToolInvocation) -> dict:
+    """knowledge.manage — action=search|read|source_list|chunk_list|source_manage|source_reindex|import|not_found_explain."""
+    action, _ = _action(inv)
+    return {
+        "search": handle_knowledge_search,
+        "read": _handle_knowledge_read_merged,
+        "source_list": _k_source_list,
+        "chunk_list": _k_chunk_list,
+        "source_manage": _k_source_manage,
+        "source_reindex": _handle_knowledge_reindex_merged,
+        "import": _handle_knowledge_import_merged,
+        "not_found_explain": handle_knowledge_explain_not_found,
+    }.get(action, handle_knowledge_search)(inv)
+
+
+def _handle_memory_merged(inv: ToolInvocation) -> dict:
+    """memory.manage — action=search|create|update|confirm|delete|profile_get|profile_set."""
+    action, _ = _action(inv)
+    return {
+        "search": handle_memory_search_merged,
+        "create": _handle_memory_manage_merged,  # create is the manage-merged default
+        "update": _handle_memory_manage_merged,
+        "confirm": _handle_memory_manage_merged,
+        "delete": _handle_memory_manage_merged,
+        "profile_get": handle_memory_profile_merged,
+        "profile_set": handle_memory_profile_merged,
+    }.get(action, _handle_memory_manage_merged)(inv)
+
+
+def _handle_skill_merged(inv: ToolInvocation) -> dict:
+    """skill.manage — action=list|find|load|inspect."""
+    action, _ = _action(inv)
+    return {
+        "list": handle_skill_list,
+        "find": handle_skill_find,
+        "load": handle_skill_load,
+        "inspect": handle_skill_inspect,
+    }.get(action, handle_skill_list)(inv)
+
+
+def _handle_agent_merged(inv: ToolInvocation) -> dict:
+    """agent.manage — action=role_list|spawn|team_run|result_get."""
+    action, _ = _action(inv)
+    return {
+        "role_list": handle_agent_list_roles,
+        "spawn": handle_agent_spawn,
+        "team_run": handle_agent_team,
+        "result_get": handle_agent_get_result,
+    }.get(action, handle_agent_list_roles)(inv)
+
+
+def _handle_system_merged(inv: ToolInvocation) -> dict:
+    """system.manage — 9 actions for diagnostics/run/session/review."""
+    action, _ = _action(inv)
+    return {
+        "diagnostics": handle_runtime_diagnostics,
+        "run_get": _handle_system_run_get_merged,
+        "session_get": _handle_system_session_get_merged,
+        "session_checkpoint": handle_session_checkpoint,
+        "session_rewind": handle_session_rewind,
+        "session_export": handle_session_export,
+        "session_snapshot": _handle_session_snapshot_merged,
+        "review_list": _review_item_list,
+        "review_update": _review_item_update,
+    }.get(action, handle_runtime_diagnostics)(inv)
+
+
 # ─── v3.9.1: workspace.file merged handler ─────────────────────────────
 # 合并 6 个原 tool: list / read / read_image / edit / patch / write_artifact
 # dispatch 字段: action (list|read|read_image|edit|patch|write_artifact)
@@ -232,13 +388,13 @@ def _handle_workspace_artifact_merged(inv: ToolInvocation) -> dict:
 def _handle_workspace_filestore_merged(inv: ToolInvocation) -> dict:
     """Route workspace.filestore(action=X) to the right FileStore handler.
 
-    Merges file.references + file.import_workspace_path.
+    Merges workspace.filestore + workspace.filestore.
     """
     args = inv.arguments or {}
     action = str(args.get("action", "")).lower().strip()
 
     if action == "references":
-        # file.references takes file_id, but we accept both file_id and filepath
+        # workspace.filestore takes file_id, but we accept both file_id and filepath
         new_inv = inv
         if "file_id" in args and "filepath" not in args:
             new_inv = ToolInvocation(
@@ -253,9 +409,9 @@ def _handle_workspace_filestore_merged(inv: ToolInvocation) -> dict:
                 requested_by=inv.requested_by,
                 approval_id=inv.approval_id,
             )
-        return _make_filestore_handler("file.references", ["filepath"])(new_inv)
+        return _make_filestore_handler("workspace.filestore", ["filepath"])(new_inv)
     elif action == "import":
-        return _make_filestore_handler("file.import_workspace_path", ["filepath"])(inv)
+        return _make_filestore_handler("workspace.filestore", ["filepath"])(inv)
     else:
         return {
             "ok": False,
@@ -1027,13 +1183,13 @@ def _catalog_score(tool_id: str, category: str, group: str, haystack: str, token
         elif token in haystack:
             score += 8
     intent_boosts = [
-        (("pcap", "报文", "抓包", "packet"), "pcap.analysis.run", 40),
-        (("retransmission", "重传", "sequence", "序列", "tcp"), "pcap.analysis.run", 42),
-        (("config", "配置", "翻译", "translate"), "config.analysis.run", 40),
+        (("pcap", "报文", "抓包", "packet"), "pcap.manage", 40),
+        (("retransmission", "重传", "sequence", "序列", "tcp"), "pcap.manage", 42),
+        (("config", "配置", "翻译", "translate"), "config.manage", 40),
         (("file", "文件"), "workspace.file.", 22),
-        (("edit", "编辑", "修改"), "workspace.file.edit", 40),
-        (("patch", "补丁"), "workspace.file.patch", 40),
-        (("knowledge", "知识库"), "knowledge.", 30),
+        (("edit", "编辑", "修改"), "workspace.file", 40),
+        (("patch", "补丁"), "workspace.file", 40),
+        (("knowledge", "知识库"), "knowledge.manage.", 30),
         (("import", "导入"), "knowledge.import.", 35),
         (("reindex", "索引"), "knowledge.source.reindex", 35),
         (("memory", "记忆"), "memory.", 28),
@@ -1201,7 +1357,7 @@ def _module_result_to_dict(r: dict) -> dict:
 
 
 def _ws_artifact_list_merged(inv: ToolInvocation) -> dict:
-    """Merged handler for workspace.artifact.list — dispatches to list or search."""
+    """Merged handler for workspace.artifact — dispatches to list or search."""
     if inv.arguments.get("query", "").strip():
         result = handle_artifact_search(inv)
     else:
@@ -1213,272 +1369,450 @@ def _ws_artifact_list_merged(inv: ToolInvocation) -> dict:
 
 # canonical_tool_id -> CanonicalToolEntry
 _RAW_REGISTRY: list[CanonicalToolEntry] = [
-    # Exec — unified command execution
+    # ── v3.9.2: 22-tool Codex-style registry (all visible to LLM) ──
+    # Merged tools use action=... dispatch (see _handle_*_merged above).
+    # All old per-action tool_ids were removed in v3.9.2; LLM must use
+    # the merged canonical_tool_ids below.
+
+    # 1. exec.run — unifies shell + python + slash
     CanonicalToolEntry(
         canonical_tool_id="exec.run",
-        handler=_adapt(_handle_exec_run_merged),
+        handler=_adapt(_handle_exec_merged),
         input_schema=_schema({
-            "target": {"type": "string", "enum": ["local", "ssh", "telnet"],
-                       "description": "Target: local (default, this host), ssh, or telnet.", "default": "local"},
-            "shell": {"type": "string", "enum": ["cmd", "powershell"],
-                      "description": "Shell type for local target.", "default": "cmd"},
-            "command": {"type": "string", "description": "Command to execute."},
-            "host": {"type": "string", "description": "Remote host IP/hostname (ssh/telnet)."},
-            "port": {"type": "integer", "description": "Remote port (ssh default 22, telnet default 23)."},
-            "username": {"type": "string", "description": "Login username (ssh/telnet)."},
-            "password": {"type": "string", "description": "Login password (ssh/telnet)."},
-            "vendor": {"type": "string", "description": "Device vendor (ssh/telnet).", "default": "generic"},
-            "working_dir": {"type": "string", "description": "Working directory for local commands.", "default": ""},
-            "env_vars": {"type": "object", "description": "Extra environment variables for the command.", "default": {}},
-            "timeout": {"type": "integer", "description": "Timeout seconds (default 30, max 120).", "default": 30},
             "workspace_id": _S["workspace_id"],
-        }, ["command"]),
-        risk_level="high", requires_approval=True,
-        permission_action="exec",
-        description="Execute command on target machine: local shell (with working_dir/env_vars), SSH remote, or Telnet remote. Dangerous commands blocked automatically.",
-    ),
-    CanonicalToolEntry(
-        canonical_tool_id="exec.python",
-        handler=_adapt(handle_python_exec),
-        input_schema=_schema({
-            "workspace_id": _S["workspace_id"], "code": _S["code"],
-            "timeout": {"type": "integer", "description": "Max execution seconds (1-60, default 30).", "default": 30},
-        }, ["code"]),
-        risk_level="high", requires_approval=True,
-        permission_action="exec",
-        description="Run a Python snippet on the local host. AST-sandboxed.",
-    ),
-    CanonicalToolEntry(
-        canonical_tool_id="exec.slash",
-        handler=_adapt(handle_slash_run),
-        input_schema=_schema({
-            "command": {"type": "string", "description": "Slash command name."},
-            "args": {"type": "string", "description": "Optional command arguments."},
-        }, ["command"]),
-        description="Run a registered slash command.",
+            "action": {"type": "string",
+                       "enum": ["shell", "python", "slash"],
+                       "description": "shell (default) | python | slash.",
+                       "default": "shell"},
+            "target": {"type": "string", "enum": ["local", "ssh", "telnet"],
+                       "default": "local",
+                       "description": "[shell] Execution target."},
+            "shell": {"type": "string",
+                      "description": "[shell] Shell type: cmd or powershell.", "default": "cmd"},
+            "command": {"type": "string", "description": "[shell] Shell command to execute."},
+            "code": {"type": "string", "description": "[python] Python code (AST-sandboxed)."},
+            "host": {"type": "string"}, "port": {"type": "integer"},
+            "username": {"type": "string"}, "password": {"type": "string"},
+            "vendor": {"type": "string"},
+            "working_dir": {"type": "string"},
+            "env_vars": {"type": "object"},
+            "timeout": {"type": "integer"},
+            "command_name": {"type": "string", "description": "[slash] Slash command name."},
+            "args": {"type": "string", "description": "[slash] Slash command args."},
+        }),
+        risk_level="high", permission_action="exec",
+        description=(
+            "Unified exec tool. action=shell (default; target=local|ssh|telnet, "
+            "shell=cmd|powershell), action=python (AST-sandboxed), action=slash (registered slash command). "
+            "All require approval. NEVER use for destructive commands (reload/erase/format/rm -rf). "
+            "Do NOT store or expose credentials in output."
+        ),
     ),
 
-    # ── v3.9.1: workspace.file (merged) ────────────────────────────────
-    # 6 个原 tool 合并为单一入口: workspace.file(action=X)
-    # 老 tool_id 保留为 alias (callable_by_llm=False) 兜底 router / baseline / 测试
+    # 2. git.manage — status / log / diff / commit / push
+    CanonicalToolEntry(
+        canonical_tool_id="git.manage",
+        handler=_adapt(_handle_git_merged),
+        input_schema=_schema({
+            "repo_path": {"type": "string", "default": ".", "description": "Path to git repository."},
+            "action": {"type": "string",
+                       "enum": ["status", "log", "diff", "commit", "push"],
+                       "description": "status | log | diff | commit | push."},
+            "staged": {"type": "boolean", "default": False, "description": "[diff] Show staged only."},
+            "file_path": {"type": "string", "default": "", "description": "[diff/log] Scope to file."},
+            "n": {"type": "integer", "default": 10, "description": "[log] Number of commits."},
+            "message": {"type": "string", "description": "[commit] Commit message."},
+            "files": {"type": "array", "items": {"type": "string"},
+                      "description": "[commit] Specific files; omit to stage all (-A)."},
+            "remote": {"type": "string", "default": "origin", "description": "[push] Remote."},
+            "branch": {"type": "string", "default": "", "description": "[push] Branch."},
+        }, ["action"]),
+        risk_level="medium", requires_approval=False,  # only commit/push require approval at runtime
+        description=(
+            "Unified git tool. action=status (working tree), action=log, action=diff "
+            "(unstaged/staged/file-scoped), action=commit (requires approval), "
+            "action=push (requires approval). Always run status+diff before commit/push."
+        ),
+    ),
+
+    # 3. device.manage — list / get / add / delete
+    CanonicalToolEntry(
+        canonical_tool_id="device.manage",
+        handler=_adapt(_handle_device_merged),
+        input_schema=_schema({
+            "workspace_id": _S["workspace_id"],
+            "action": {"type": "string", "enum": ["list", "get", "add", "delete"]},
+            "search": {"type": "string", "description": "[list] Fuzzy search name/vendor/host/model."},
+            "filter": {"type": "string", "description": '[list] JSON filter, e.g. {"type":"switch"}.'},
+            "sort_by": {"type": "string", "description": "[list] Sort field."},
+            "asset_id": {"type": "string", "description": "[get|delete] Asset ID."},
+            "name": {"type": "string"}, "host": {"type": "string"},
+            "type": {"type": "string", "enum": ["switch", "router", "firewall", "server", "other"],
+                     "default": "switch"},
+            "vendor": {"type": "string"},
+            "protocol": {"type": "string", "enum": ["ssh", "telnet"], "default": "ssh"},
+            "port": {"type": "integer", "default": 22},
+            "username": {"type": "string"},
+        }, ["action"]),
+        risk_level="medium", requires_approval=False,  # add/delete require approval at runtime
+        description=(
+            "Unified CMDB device tool. action=list, get (reads); action=add, delete (writes, require approval). "
+            "Do not fabricate assets; do not expose credentials."
+        ),
+    ),
+
+    # 4. browser.manage — navigate / extract / screenshot / click
+    CanonicalToolEntry(
+        canonical_tool_id="browser.manage",
+        handler=_adapt(_handle_browser_merged),
+        input_schema=_schema({
+            "action": {"type": "string", "enum": ["navigate", "extract", "screenshot", "click"]},
+            "url": {"type": "string", "description": "[navigate|extract|screenshot] URL."},
+            "wait_selector": {"type": "string", "default": "", "description": "[navigate] Wait for CSS selector."},
+            "selector": {"type": "string", "default": "body",
+                         "description": "[extract] CSS selector; [click] selector of element."},
+            "full_page": {"type": "boolean", "default": False, "description": "[screenshot] Capture full page."},
+        }, ["action"]),
+        description=(
+            "Unified Playwright browser tool. action=navigate, extract, screenshot (reads); "
+            "action=click (write). Do not access private/login-walled URLs without permission."
+        ),
+    ),
+
+    # 5. web.manage — search / weather / page
+    CanonicalToolEntry(
+        canonical_tool_id="web.manage",
+        handler=_adapt(_handle_web_merged),
+        input_schema=_schema({
+            "action": {"type": "string", "enum": ["search", "weather", "page"]},
+            "query": {"type": "string", "description": "[search] Search query."},
+            "limit": _S["limit"],
+            "recency": _S["recency"],
+            "language": _S["language"],
+            "location": _S["location"],
+            "days": {"type": "integer", "default": 1,
+                     "description": "[weather] 1=current, 2-10=forecast."},
+            "units": _S["units"],
+            "url": _S["url"],
+            "workspace_id": _S["workspace_id"],
+            "title": _S["title"],
+        }, ["action"]),
+        description=(
+            "Unified web tool. action=search (web/docs/news), action=weather (forecast), "
+            "action=page (summarize/extract_links/save_artifact)."
+        ),
+    ),
+
+    # 6. data.manage — csv / table / validate
+    CanonicalToolEntry(
+        canonical_tool_id="data.manage",
+        handler=_adapt(_handle_data_merged),
+        input_schema=_schema({
+            "action": {"type": "string", "enum": ["csv_summarize", "table_extract", "table_render", "validate"]},
+            "text": _S["text"],
+            "rows": {"type": "array"}, "headers": {"type": "array"},
+            "format": {"type": "string", "enum": ["json", "yaml"], "default": "json",
+                       "description": "[validate] Data format."},
+        }, ["action"]),
+        description=(
+            "Unified data tool. action=csv_summarize, table_extract, table_render, validate. "
+            "Do not execute embedded code in user-supplied data."
+        ),
+    ),
+
+    # 7. report.manage — markdown / safe_summary / mermaid / artifact.save
+    CanonicalToolEntry(
+        canonical_tool_id="report.manage",
+        handler=_adapt(_handle_report_merged),
+        input_schema=_schema({
+            "action": {"type": "string", "enum": ["markdown_render", "artifact_save", "safe_summary_render", "mermaid_render"]},
+            "content": _S["content"],
+            "title": _S["title"],
+            "summary": {"type": "string", "description": "[safe_summary_render] Redacted summary."},
+            "mermaid": {"type": "string", "description": "[mermaid_render] Mermaid source."},
+            "workspace_id": _S["workspace_id"],
+        }, ["action"]),
+        description=(
+            "Unified report tool. action=markdown_render, safe_summary_render, mermaid_render (reads); "
+            "action=artifact_save (write)."
+        ),
+    ),
+
+    # 8. config.manage — was config.analysis.run
+    CanonicalToolEntry(
+        canonical_tool_id="config.manage",
+        handler=_adapt(_handler_config_analysis_run),
+        input_schema=_schema({
+            "action": {"type": "string",
+                       "enum": ["parse", "translate", "extract_interfaces", "extract_routes", "diff", "summarize"]},
+            "workspace_id": _S["workspace_id"],
+            "filepath": _S["filepath"],
+            "file_id": {"type": "string", "description": "FileStore file_id; takes priority over filepath."},
+            "source_config": {"type": "string", "description": "Inline config text."},
+            "source_vendor": {"type": "string"},
+            "target_vendor": {"type": "string"},
+        }, ["action"]),
+        description="Unified config analysis: parse, translate, extract, diff, summarize.",
+    ),
+
+    # 9. pcap.manage — was pcap.analysis.run
+    CanonicalToolEntry(
+        canonical_tool_id="pcap.manage",
+        handler=_adapt(_handler_pcap_analysis_run),
+        input_schema=_schema({
+            "action": {"type": "string", "enum": ["parse", "session", "filter", "align"]},
+            "workspace_id": _S["workspace_id"],
+            "filepath": _S["filepath"],
+            "session_id": _S["session_id"],
+            "src": {"type": "string"}, "sport": {"type": "integer"},
+            "dst": {"type": "string"}, "dport": {"type": "integer"},
+        }, ["action"]),
+        description="Unified PCAP analysis: parse, session, filter, align.",
+    ),
+
+    # 10. knowledge.manage — 8 KB tools merged
+    CanonicalToolEntry(
+        canonical_tool_id="knowledge.manage",
+        handler=_adapt(_handle_knowledge_merged),
+        input_schema=_schema({
+            "workspace_id": _S["workspace_id"],
+            "action": {"type": "string",
+                       "enum": ["search", "read", "source_list", "chunk_list",
+                                "source_manage", "source_reindex", "import", "not_found_explain"]},
+            "query": _S["query"],
+            "limit": _S["limit"],
+            "level": {"type": "string", "enum": ["chunk", "source", "parent"], "default": "chunk"},
+            "chunk_id": _S["chunk_id"],
+            "source_id": _S["source_id"],
+            "action_source": {"type": "string",
+                              "description": "[source_manage] disable|delete|reindex.",
+                              "enum": ["disable", "delete", "reindex"]},
+            "filepath": _S["filepath"],
+            "artifact_id": _S["artifact_id"],
+            "title": {"type": "string", "description": "[import] Document title."},
+        }, ["action"]),
+        description=(
+            "Unified knowledge tool. action=search, read, source_list, chunk_list, not_found_explain (reads); "
+            "action=source_manage, source_reindex, import (writes). Do not return unredacted full text."
+        ),
+    ),
+
+    # 11. memory.manage — search / create / update / confirm / delete / profile_get / profile_set
+    CanonicalToolEntry(
+        canonical_tool_id="memory.manage",
+        handler=_adapt(_handle_memory_merged),
+        input_schema=_schema({
+            "workspace_id": _S["workspace_id"],
+            "action": {"type": "string",
+                       "enum": ["search", "create", "update", "confirm", "delete",
+                                "profile_get", "profile_set"]},
+            "query": _S["query"],
+            "scope": {"type": "string", "enum": ["short_term", "project", "long_term"],
+                      "default": "long_term"},
+            "memory_type": {"type": "string", "default": "knowledge_note"},
+            "status": {"type": "string"},
+            "session_id": _S["session_id"],
+            "limit": _S["limit"],
+            "title": _S["title"],
+            "content": _S["content"],
+            "memory_id": _S["memory_id"],
+            "tags": {"type": "array", "items": {"type": "string"}},
+            "summary": {"type": "string"},
+            "metadata": {"type": "object"},
+            "field": {"type": "string", "description": "[profile_set] Profile field name."},
+            "value": {"type": "string", "description": "[profile_set] Field value."},
+            "merge": {"type": "boolean", "default": True, "description": "[profile_set] Merge with existing."},
+        }, ["action"]),
+        risk_level="medium",
+        description=(
+            "Unified memory tool. action=search, profile_get (reads); "
+            "action=create, update, confirm, delete, profile_set (writes). Do not store secrets."
+        ),
+    ),
+
+    # 12. skill.manage — list / find / load / inspect
+    CanonicalToolEntry(
+        canonical_tool_id="skill.manage",
+        handler=_adapt(_handle_skill_merged),
+        input_schema=_schema({
+            "action": {"type": "string", "enum": ["list", "find", "load", "inspect"],
+                       "default": "list",
+                       "description": "list (default) | find | load | inspect."},
+            "query": _S["query"],
+            "limit": {"type": "integer", "default": 10, "minimum": 1, "maximum": 20},
+            "skill_name": _S["skill_name"],
+        }),
+        description=(
+            "Unified skill tool. action=list, find, load, inspect. "
+            "Read-only discovery; loading does not execute the business task."
+        ),
+    ),
+
+    # 13. agent.manage — role_list / spawn / team_run / result_get
+    CanonicalToolEntry(
+        canonical_tool_id="agent.manage",
+        handler=_adapt(_handle_agent_merged),
+        input_schema=_schema({
+            "workspace_id": _S["workspace_id"],
+            "action": {"type": "string", "enum": ["role_list", "spawn", "team_run", "result_get"]},
+            "session_id": _S["session_id"],
+            "instruction": {"type": "string",
+                            "description": "[spawn|team_run] Task instruction."},
+            "allowed_tools": {"type": "array", "items": {"type": "string"},
+                              "description": "[spawn] Sub-agent allowed tools."},
+            "max_turns": {"type": "integer", "default": 1, "minimum": 1, "maximum": 3,
+                          "description": "[spawn] Sub-agent max turns."},
+            "roles": {"type": "array", "items": {"type": "string", "enum": ["planner", "worker", "reviewer"]},
+                      "description": "[team_run] Roles."},
+            "parallel": {"type": "boolean", "description": "[team_run] Run up to 3 workers in parallel."},
+            "child_session_id": _S["session_id"],
+        }, ["action"]),
+        risk_level="medium",
+        description=(
+            "Unified agent tool. action=role_list, result_get (reads); "
+            "action=spawn, team_run (execute). max_turns enforced; "
+            "do not return unredacted child payloads."
+        ),
+    ),
+
+    # 14. system.manage — 9 system tools merged
+    CanonicalToolEntry(
+        canonical_tool_id="system.manage",
+        handler=_adapt(_handle_system_merged),
+        input_schema=_schema({
+            "workspace_id": _S["workspace_id"],
+            "action": {"type": "string",
+                       "enum": ["diagnostics", "run_get", "session_get",
+                                "session_checkpoint", "session_rewind", "session_export",
+                                "session_snapshot", "review_list", "review_update"]},
+            "run_id": _S["run_id"],
+            "limit": _S["limit"],
+            "session_id": _S["session_id"],
+            "status": _S["status"],
+            "snapshot_id": {"type": "string"},
+            "dry_run": _S["dry_run"],
+            "format": _S["format"],
+            "reason": _S["reason"],
+            "review_id": {"type": "string"},
+        }, ["action"]),
+        risk_level="medium",
+        description=(
+            "Unified system introspection. action=diagnostics, run_get, session_get, "
+            "session_snapshot (reads); action=review_update, session_checkpoint, "
+            "session_export (writes); action=session_rewind (destructive, requires approval)."
+        ),
+    ),
+
+    # 15. text.analyze
+    CanonicalToolEntry(
+        canonical_tool_id="text.analyze",
+        handler=_adapt(_handle_text_analyze_merged),
+        input_schema=_schema({
+            "text": _S["text"],
+            "action": {"type": "string", "enum": ["redact", "diff", "keywords", "classify"],
+                       "default": "redact"},
+            "text_b": {"type": "string", "description": "Second text for diff."},
+            "limit": _S["limit"],
+        }, ["text"]),
+        description="Analyze text. action=redact, diff, keywords, classify.",
+    ),
+
+    # 16. code.search
+    CanonicalToolEntry(
+        canonical_tool_id="code.search",
+        handler=_adapt(_handler_code_search),
+        input_schema=_schema({
+            "pattern": {"type": "string", "description": "Search pattern (regex or literal)."},
+            "directory": {"type": "string", "default": "."},
+            "file_type": {"type": "string", "default": ""},
+            "max_results": {"type": "integer", "default": 50},
+        }, ["pattern"]),
+        description="Search codebase using ripgrep (fast) or Python fallback.",
+    ),
+
+    # 17. workspace.file
     CanonicalToolEntry(
         canonical_tool_id="workspace.file",
         handler=_adapt(_handle_workspace_file_merged),
         input_schema=_schema({
             "workspace_id": _S["workspace_id"],
             "action": {"type": "string", "enum": ["list", "read", "read_image",
-                                                  "edit", "patch", "write_artifact"],
-                       "description": "Operation: list, read, read_image, edit, patch, or write_artifact."},
+                                                  "edit", "patch", "write_artifact"]},
             "subdir": {"type": "string", "description": "[list] Workspace-relative subdirectory."},
             "filepath": _S["filepath"],
             "limit": {"type": "integer", "default": 50000,
                       "description": "[read] Max chars to return."},
             "offset": {"type": "integer", "default": 0,
-                       "description": "[read] Start reading from line N (0-based pagination)."},
+                       "description": "[read] Start reading from line N (0-based)."},
             "old_string": _S["old_string"],
             "new_string": _S["new_string"],
-            "replace_all": {"type": "boolean", "default": False,
-                            "description": "[edit] Replace all occurrences."},
+            "replace_all": {"type": "boolean", "default": False, "description": "[edit] Replace all."},
             "dry_run": {"type": "boolean", "default": False,
-                        "description": "[edit] Preview diff without writing to file."},
+                        "description": "[edit] Preview diff without writing."},
             "patch_text": _S["patch_text"],
             "filename": {"type": "string", "description": "[write_artifact] Output filename."},
             "content": _S["content"],
         }, ["action"]),
-        permission_action="",  # Mixed read/write; inferred from action at runtime
+        permission_action="",
         description=(
-            "Unified workspace file tool. action=list (list files / check exists), "
-            "action=read (read text file with offset+limit pagination), "
-            "action=read_image (read image dimensions+format), "
-            "action=edit (string replace; supports replace_all/dry_run), "
-            "action=patch (apply unified diff text), "
-            "action=write_artifact (write named artifact file). "
-            "Old tool_ids (workspace.file.read etc.) are deprecated aliases."
+            "Unified workspace file tool. action=list, read, read_image (reads); "
+            "action=edit, patch, write_artifact (writes)."
         ),
     ),
-    # Aliases (callable_by_llm=False) — kept for router / baseline / test compat
-    CanonicalToolEntry(
-        canonical_tool_id="workspace.file.list",
-        handler=_adapt(_handle_workspace_file_merged),  # routes via action=list
-        input_schema=_schema({
-            "workspace_id": _S["workspace_id"],
-            "subdir": {"type": "string"},
-            "filepath": _S["filepath"],
-        }),
-        callable_by_llm=False,
-        description="[DEPRECATED alias for workspace.file] Use workspace.file(action=list).",
-    ),
-    CanonicalToolEntry(
-        canonical_tool_id="workspace.file.read",
-        handler=_adapt(_handle_workspace_file_merged),
-        input_schema=_schema({
-            "workspace_id": _S["workspace_id"], "filepath": _S["filepath"],
-            "limit": {"type": "integer", "default": 50000},
-            "offset": {"type": "integer", "default": 0},
-        }, ["filepath"]),
-        callable_by_llm=False,
-        description="[DEPRECATED alias for workspace.file] Use workspace.file(action=read).",
-    ),
-    CanonicalToolEntry(
-        canonical_tool_id="workspace.file.read_image",
-        handler=_adapt(_handle_workspace_file_merged),
-        input_schema=_schema({
-            "workspace_id": _S["workspace_id"], "filepath": _S["filepath"],
-        }, ["filepath"]),
-        callable_by_llm=False,
-        description="[DEPRECATED alias for workspace.file] Use workspace.file(action=read_image).",
-    ),
-    CanonicalToolEntry(
-        canonical_tool_id="workspace.file.edit",
-        handler=_adapt(_handle_workspace_file_merged),
-        input_schema=_schema({
-            "workspace_id": _S["workspace_id"], "filepath": _S["filepath"],
-            "old_string": _S["old_string"], "new_string": _S["new_string"],
-            "replace_all": {"type": "boolean", "default": False},
-            "dry_run": {"type": "boolean", "default": False},
-        }, ["filepath", "old_string", "new_string"]),
-        risk_level="medium", requires_approval=False,
-        callable_by_llm=False,
-        description="[DEPRECATED alias for workspace.file] Use workspace.file(action=edit).",
-    ),
-    CanonicalToolEntry(
-        canonical_tool_id="workspace.file.patch",
-        handler=_adapt(_handle_workspace_file_merged),
-        input_schema=_schema({
-            "workspace_id": _S["workspace_id"], "filepath": _S["filepath"],
-            "patch_text": _S["patch_text"],
-        }, ["filepath", "patch_text"]),
-        callable_by_llm=False,
-        description="[DEPRECATED alias for workspace.file] Use workspace.file(action=patch).",
-    ),
-    CanonicalToolEntry(
-        canonical_tool_id="workspace.file.write_artifact",
-        handler=_adapt(_handle_workspace_file_merged),
-        input_schema=_schema({
-            "workspace_id": _S["workspace_id"],
-            "filename": {"type": "string"},
-            "content": _S["content"],
-        }, ["filename", "content"]),
-        callable_by_llm=False,
-        description="[DEPRECATED alias for workspace.file] Use workspace.file(action=write_artifact).",
-    ),
-    CanonicalToolEntry(
-        canonical_tool_id="workspace.metadata.get",
-        handler=_adapt(handle_ws_get_metadata),
-        input_schema=_schema({"workspace_id": _S["workspace_id"]}),
-    ),
 
-# ─── v3.9.1: workspace.artifact (merged) ────────────────────────────
-# 7 个原 tool 合并: list / read / save / tag / delete_soft / diff / export
-# 老 tool_id 保留为 alias (callable_by_llm=False) 兜底
+    # 18. workspace.artifact
     CanonicalToolEntry(
         canonical_tool_id="workspace.artifact",
         handler=_adapt(_handle_workspace_artifact_merged),
         input_schema=_schema({
             "workspace_id": _S["workspace_id"],
             "action": {"type": "string", "enum": ["list", "read", "save", "tag",
-                                                  "delete", "diff", "export"],
-                       "description": "Operation: list, read, save, tag, delete (soft), diff, or export."},
+                                                  "delete", "diff", "export"]},
             "status": _S["status"],
             "query": _S["query"],
             "limit": _S["limit"],
             "artifact_id": _S["artifact_id"],
             "title": _S["title"],
             "content": _S["content"],
-            "artifact_type": {"type": "string",
-                               "description": "[save] Artifact type (e.g. report, analysis, log)."},
+            "artifact_type": {"type": "string", "description": "[save] Artifact type."},
             "sensitivity": {"type": "string", "enum": ["internal", "sensitive"],
                             "default": "internal"},
-            "tags": {"type": "array", "items": {"type": "string"},
-                     "description": "[tag] Tags to apply."},
+            "tags": {"type": "array", "items": {"type": "string"}},
             "artifact_a": {"type": "string", "description": "[diff] First artifact id."},
             "artifact_b": {"type": "string", "description": "[diff] Second artifact id."},
-            "destination": {"type": "string",
-                            "description": "[export] Workspace-relative destination path."},
+            "destination": {"type": "string", "description": "[export] Destination path."},
         }, ["action"]),
-        permission_action="",  # Mixed read/write; inferred at runtime
+        permission_action="",
         description=(
-            "Unified workspace artifact tool. action=list (list/search), "
-            "action=read (read content), action=save (create new artifact), "
-            "action=tag (apply tags), action=delete (soft-delete, requires approval), "
-            "action=diff (compare two artifacts), action=export (export to file). "
-            "Old tool_ids (workspace.artifact.read etc.) are deprecated aliases."
+            "Unified workspace artifact tool. action=list, read, diff, export (reads); "
+            "action=save, tag, delete (writes, delete requires approval)."
         ),
     ),
-    # Aliases
+
+    # 19. workspace.filestore
     CanonicalToolEntry(
-        canonical_tool_id="workspace.artifact.list",
-        handler=_adapt(_handle_workspace_artifact_merged),
-        input_schema=_schema({
-            "workspace_id": _S["workspace_id"], "status": _S["status"],
-            "query": _S["query"], "limit": _S["limit"],
-        }),
-        callable_by_llm=False,
-        description="[DEPRECATED] Use workspace.artifact(action=list).",
-    ),
-    CanonicalToolEntry(
-        canonical_tool_id="workspace.artifact.read",
-        handler=_adapt(_handle_workspace_artifact_merged),
-        input_schema=_schema({
-            "workspace_id": _S["workspace_id"], "artifact_id": _S["artifact_id"],
-        }, ["artifact_id"]),
-        callable_by_llm=False,
-        description="[DEPRECATED] Use workspace.artifact(action=read).",
-    ),
-    CanonicalToolEntry(
-        canonical_tool_id="workspace.artifact.save",
-        handler=_adapt(_handle_workspace_artifact_merged),
+        canonical_tool_id="workspace.filestore",
+        handler=_adapt(_handle_workspace_filestore_merged),
         input_schema=_schema({
             "workspace_id": _S["workspace_id"],
-            "title": _S["title"], "content": _S["content"],
-            "artifact_type": {"type": "string"},
-            "sensitivity": {"type": "string", "enum": ["internal", "sensitive"], "default": "internal"},
-        }, ["content"]),
-        callable_by_llm=False,
-        description="[DEPRECATED] Use workspace.artifact(action=save).",
+            "action": {"type": "string", "enum": ["references", "import"]},
+            "file_id": {"type": "string", "description": "[references] FileStore file_id."},
+            "filepath": {"type": "string", "description": "[references|import] Workspace-relative path."},
+        }, ["action"]),
+        description=(
+            "Unified FileStore tool. action=references (query cross-refs); "
+            "action=import (import a workspace-relative file into FileStore)."
+        ),
     ),
+
+    # 20. workspace.metadata.get
     CanonicalToolEntry(
-        canonical_tool_id="workspace.artifact.tag",
-        handler=_adapt(_handle_workspace_artifact_merged),
-        input_schema=_schema({
-            "workspace_id": _S["workspace_id"], "artifact_id": _S["artifact_id"],
-            "tags": {"type": "array", "items": {"type": "string"}},
-        }, ["artifact_id", "tags"]),
-        callable_by_llm=False,
-        description="[DEPRECATED] Use workspace.artifact(action=tag).",
+        canonical_tool_id="workspace.metadata.get",
+        handler=_adapt(handle_ws_get_metadata),
+        input_schema=_schema({"workspace_id": _S["workspace_id"]}),
     ),
-    CanonicalToolEntry(
-        canonical_tool_id="workspace.artifact.delete_soft",
-        handler=_adapt(_handle_workspace_artifact_merged),
-        input_schema=_schema({
-            "workspace_id": _S["workspace_id"], "artifact_id": _S["artifact_id"],
-        }, ["artifact_id"]),
-        risk_level="medium", requires_approval=True,
-        callable_by_llm=False,
-        description="[DEPRECATED] Use workspace.artifact(action=delete).",
-    ),
-    CanonicalToolEntry(
-        canonical_tool_id="workspace.artifact.diff",
-        handler=_adapt(_handle_workspace_artifact_merged),
-        input_schema=_schema({
-            "workspace_id": _S["workspace_id"],
-            "artifact_a": {"type": "string"},
-            "artifact_b": {"type": "string"},
-        }, ["artifact_a", "artifact_b"]),
-        callable_by_llm=False,
-        description="[DEPRECATED] Use workspace.artifact(action=diff).",
-    ),
-    CanonicalToolEntry(
-        canonical_tool_id="workspace.artifact.export",
-        handler=_adapt(_handle_workspace_artifact_merged),
-        input_schema=_schema({
-            "workspace_id": _S["workspace_id"],
-            "artifact_id": {"type": "string"},
-            "destination": {"type": "string"},
-        }, ["artifact_id", "destination"]),
-        callable_by_llm=False,
-        description="[DEPRECATED] Use workspace.artifact(action=export).",
-    ),
+
+    # 21. workspace.document.pdf.extract_text
     CanonicalToolEntry(
         canonical_tool_id="workspace.document.pdf.extract_text",
         handler=_adapt(handle_pdf_extract_text),
@@ -1486,590 +1820,6 @@ _RAW_REGISTRY: list[CanonicalToolEntry] = [
             "workspace_id": _S["workspace_id"], "filepath": _S["filepath"],
             "page_range": _S["page_range"],
         }, ["filepath"]),
-    ),
-
-    # Knowledge
-    CanonicalToolEntry(
-        canonical_tool_id="knowledge.search",
-        handler=_adapt(handle_knowledge_search),
-        input_schema=_schema({
-            "workspace_id": _S["workspace_id"], "query": _S["query"], "limit": _S["limit"],
-        }, ["query"]),
-    ),
-    CanonicalToolEntry(
-        canonical_tool_id="knowledge.source.list",
-        handler=_adapt(_k_source_list),
-        input_schema=_schema({"workspace_id": _S["workspace_id"]}),
-    ),
-    CanonicalToolEntry(
-        canonical_tool_id="knowledge.chunk.list",
-        handler=_adapt(_k_chunk_list),
-        input_schema=_schema({
-            "workspace_id": _S["workspace_id"], "source_id": _S["source_id"],
-        }),
-    ),
-    CanonicalToolEntry(
-        canonical_tool_id="knowledge.import",
-        handler=_adapt(_handle_knowledge_import_merged),
-        input_schema=_schema({
-            "workspace_id": _S["workspace_id"],
-            "filepath": _S["filepath"],
-            "artifact_id": _S["artifact_id"],
-            "title": {"type": "string", "description": "Document title."},
-        }),
-        description="Import a file or artifact into the knowledge base. Auto-detects format.",
-    ),
-    CanonicalToolEntry(
-        canonical_tool_id="knowledge.source.reindex",
-        handler=_adapt(_handle_knowledge_reindex_merged),
-        input_schema=_schema({
-            "workspace_id": _S["workspace_id"],
-            "source_id": _S["source_id"],
-        }),
-        description="Reindex a specific knowledge source or all sources.",
-    ),
-    CanonicalToolEntry(
-        canonical_tool_id="knowledge.source.manage",
-        handler=_adapt(_k_source_manage),
-        input_schema=_schema({
-            "workspace_id": _S["workspace_id"], "source_id": _S["source_id"],
-            "action": {"type": "string", "description": "Action: disable, delete, or reindex.", "enum": ["disable", "delete", "reindex"]},
-        }, ["source_id", "action"]),
-        description="Manage a knowledge source: disable (hide from search), delete (permanently remove), or reindex (rebuild index).",
-    ),
-    CanonicalToolEntry(
-        canonical_tool_id="knowledge.not_found.explain",
-        handler=_adapt(handle_knowledge_explain_not_found),
-        input_schema=_schema({"query": _S["query"], "workspace_id": _S["workspace_id"]}, ["query"]),
-    ),
-
-    # Web
-    CanonicalToolEntry(
-        canonical_tool_id="web.search",
-        handler=_adapt(handle_web_search),
-        input_schema=_schema({
-            "query": _S["query"], "limit": _S["limit"], "recency": _S["recency"],
-            "language": _S["language"],
-        }, ["query"]),
-    ),
-    CanonicalToolEntry(
-        canonical_tool_id="web.weather",
-        handler=_adapt(_weather_merged),
-        input_schema=_schema({
-            "location": _S["location"],
-            "days": {"type": "integer", "description": "Days: 1=current weather, 2-10=forecast.", "default": 1},
-            "units": _S["units"], "language": _S["language"],
-        }, ["location"]),
-        description="Get weather for a location. days=1 returns current conditions; days=2-10 returns daily forecast. Uses Open-Meteo structured API with web search fallback.",
-    ),
-
-    # Runtime / Run / Session
-    CanonicalToolEntry(
-        canonical_tool_id="system.diagnostics",
-        handler=_adapt(handle_runtime_diagnostics),
-        input_schema=_schema({"workspace_id": _S["workspace_id"]}),
-    ),
-    # v3.2: stub tools removed — use system.diagnostics for all health checks
-    CanonicalToolEntry(
-        canonical_tool_id="system.run.get",
-        handler=_adapt(handle_run_get_merged),
-        input_schema=_schema({
-            "workspace_id": _S["workspace_id"],
-            "run_id": _S["run_id"],
-            "limit": _S["limit"],
-        }),
-        description="List recent runs or get a specific run summary.",
-    ),
-    CanonicalToolEntry(
-        canonical_tool_id="system.session.get",
-        handler=_adapt(handle_session_get_merged),
-        input_schema=_schema({
-            "workspace_id": _S["workspace_id"],
-            "session_id": _S["session_id"],
-            "status": _S["status"],
-            "limit": _S["limit"],
-        }),
-        description="List sessions or get a specific session summary.",
-    ),
-    CanonicalToolEntry(
-        canonical_tool_id="system.session.checkpoint",
-        handler=_adapt(handle_session_checkpoint),
-        input_schema=_schema({
-            "workspace_id": _S["workspace_id"], "session_id": _S["session_id"],
-        }, ["session_id"]),
-    ),
-    CanonicalToolEntry(
-        canonical_tool_id="system.session.rewind",
-        handler=_adapt(handle_session_rewind),
-        input_schema=_schema({
-            "workspace_id": _S["workspace_id"], "session_id": _S["session_id"],
-            "snapshot_id": {"type": "string"}, "dry_run": _S["dry_run"],
-        }, ["session_id", "snapshot_id"]),
-    ),
-    CanonicalToolEntry(
-        canonical_tool_id="system.session.export",
-        handler=_adapt(handle_session_export),
-        input_schema=_schema({
-            "workspace_id": _S["workspace_id"], "session_id": _S["session_id"],
-            "format": _S["format"],
-        }, ["session_id"]),
-    ),
-    CanonicalToolEntry(
-        canonical_tool_id="system.review.item.list",
-        handler=_adapt(_review_item_list),
-        input_schema=_schema({"workspace_id": _S["workspace_id"], "limit": _S["limit"]}),
-    ),
-    CanonicalToolEntry(
-        canonical_tool_id="system.review.item.update",
-        handler=_adapt(_review_item_update),
-        input_schema=_schema({
-            "workspace_id": _S["workspace_id"],
-            "review_id": {"type": "string"},
-            "status": {"type": "string"},
-        }, ["review_id", "status"]),
-    ),
-
-    # Memory
-    CanonicalToolEntry(
-        canonical_tool_id="memory.search",
-        handler=_adapt(handle_memory_search_merged),
-        input_schema=_schema({
-            "workspace_id": _S["workspace_id"],
-            "query": _S["query"],
-            "scope": {"type": "string"},
-            "memory_type": {"type": "string"},
-            "status": {"type": "string"},
-            "session_id": _S["session_id"],
-            "limit": _S["limit"],
-        }),
-        description="Search memories by query or list all retrievable memories.",
-    ),
-    CanonicalToolEntry(
-        canonical_tool_id="memory.profile",
-        handler=_adapt(handle_memory_profile_merged),
-        input_schema=_schema({
-            "workspace_id": _S["workspace_id"],
-            "field": {"type": "string"},
-            "value": {"type": "string"},
-            "merge": {"type": "boolean", "default": True},
-        }),
-        description="Get user profile or set a profile field.",
-    ),
-
-    # Report / Data / Text
-    CanonicalToolEntry(
-        canonical_tool_id="report.markdown.render",
-        handler=_adapt(handle_report_render_markdown),
-        input_schema=_schema({"content": _S["content"], "title": _S["title"]}, ["content"]),
-    ),
-    CanonicalToolEntry(
-        canonical_tool_id="report.artifact.save",
-        handler=_adapt(handle_report_save_artifact),
-        input_schema=_schema({
-            "workspace_id": _S["workspace_id"],
-            "title": _S["title"], "content": _S["content"],
-        }, ["content"]),
-    ),
-    CanonicalToolEntry(
-        canonical_tool_id="document.safe_summary.render",
-        handler=_adapt(handle_doc_render_from_safe_summary),
-        input_schema=_schema({
-            "title": _S["title"],
-            "summary": {"type": "string"},
-        }, ["summary"]),
-    ),
-    CanonicalToolEntry(
-        canonical_tool_id="diagram.mermaid.render",
-        handler=_adapt(handle_diagram_render_mermaid),
-        input_schema=_schema({"mermaid": {"type": "string"}}, ["mermaid"]),
-    ),
-    CanonicalToolEntry(
-        canonical_tool_id="data.table.render",
-        handler=_adapt(handle_table_render_markdown),
-        input_schema=_schema({
-            "rows": {"type": "array"},
-            "headers": {"type": "array"},
-        }),
-    ),
-    CanonicalToolEntry(
-        canonical_tool_id="data.table.extract",
-        handler=_adapt(handle_table_extract),
-        input_schema=_schema({"text": _S["text"]}, ["text"]),
-    ),
-    CanonicalToolEntry(
-        canonical_tool_id="data.csv.summarize",
-        handler=_adapt(handle_csv_summarize),
-        input_schema=_schema({"text": _S["text"]}, ["text"]),
-    ),
-    # Agent / Skill / Slash
-    CanonicalToolEntry(
-        canonical_tool_id="agent.role.list",
-        handler=_adapt(handle_agent_list_roles),
-        input_schema=_schema({"workspace_id": _S["workspace_id"]}),
-    ),
-    CanonicalToolEntry(
-        canonical_tool_id="agent.spawn",
-        handler=_adapt(handle_agent_spawn),
-        input_schema=_schema({
-            "workspace_id": _S["workspace_id"], "session_id": _S["session_id"],
-            "instruction": {"type": "string"},
-            "allowed_tools": {"type": "array", "items": {"type": "string"}},
-            "max_turns": {"type": "integer", "default": 1, "minimum": 1, "maximum": 3},
-        }, ["instruction"]),
-        risk_level="medium",
-        permission_action="exec",
-    ),
-    CanonicalToolEntry(
-        canonical_tool_id="agent.team.run",
-        handler=_adapt(handle_agent_team),
-        input_schema=_schema({
-            "workspace_id": _S["workspace_id"],
-            "instruction": {"type": "string"},
-            "roles": {"type": "array", "items": {"type": "string", "enum": ["planner", "worker", "reviewer"]}},
-            "session_id": _S["session_id"],
-            "parallel": {"type": "boolean", "description": "Run worker subtasks in parallel (up to 3 concurrent)"},
-        }, ["instruction"]),
-    ),
-    CanonicalToolEntry(
-        canonical_tool_id="agent.result.get",
-        handler=_adapt(handle_agent_get_result),
-        input_schema=_schema({
-            "workspace_id": _S["workspace_id"], "child_session_id": _S["session_id"],
-        }, ["child_session_id"]),
-    ),
-    CanonicalToolEntry(
-        canonical_tool_id="tool.catalog.search",
-        handler=_adapt(_handler_tool_catalog_search),
-        input_schema=_schema({
-            "query": _S["query"],
-            "context_summary": {"type": "string", "description": "Optional short summary of the current conversation, page, memory, or prior tool result."},
-            "category": {"type": "string", "description": "Optional category filter such as network, workspace, knowledge, memory, web, agent."},
-            "group": {"type": "string", "description": "Optional group filter such as pcap, file, skill, source."},
-            "limit": {"type": "integer", "description": "Max tools to return, 1-20.", "default": 8},
-        }, ["query"]),
-        description="Search the full tool catalog and return loadable specialized tool_ids for the current turn.",
-    ),
-    CanonicalToolEntry(
-        canonical_tool_id="skill.list",
-        handler=_adapt(handle_skill_list),
-        input_schema=_schema({}),
-        description="List available capability-backed skills.",
-    ),
-    CanonicalToolEntry(
-        canonical_tool_id="skill.find",
-        handler=_adapt(handle_skill_find),
-        input_schema=_schema({
-            "query": _S["query"],
-            "limit": {"type": "integer", "default": 10, "minimum": 1, "maximum": 20},
-        }, ["query"]),
-        description="Search available capability-backed skills.",
-    ),
-    CanonicalToolEntry(
-        canonical_tool_id="skill.load",
-        handler=_adapt(handle_skill_load),
-        input_schema=_schema({
-            "skill_name": _S["skill_name"],
-        }, ["skill_name"]),
-        description="Load a capability-backed skill and return its modules/tools/prompt hints.",
-    ),
-    CanonicalToolEntry(
-        canonical_tool_id="skill.inspect",
-        handler=_adapt(handle_skill_inspect),
-        input_schema=_schema({
-            "skill_name": _S["skill_name"],
-        }, ["skill_name"]),
-        description="Inspect a capability-backed skill.",
-    ),
-    # Skill creation/installation remains disabled in the canonical LLM surface.
-    # Define CapabilityPackage entries instead of allowing runtime skill mutation.
-    # Slash command tools removed — use exec.slash for slash execution.
-    # ── Directory-level business tools ──
-    CanonicalToolEntry(
-        canonical_tool_id="config.analysis.run",
-        handler=_adapt(_handler_config_analysis_run),
-        input_schema=_schema({
-            "action": {"type": "string", "description": "Action: parse, translate, extract_interfaces, extract_routes, diff, summarize.", "enum": ["parse", "translate", "extract_interfaces", "extract_routes", "diff", "summarize"]},
-            "workspace_id": _S["workspace_id"],
-            "filepath": _S["filepath"],
-            "file_id": {"type": "string", "description": "FileStore file_id. When provided, reads config from FileStore. Takes priority over filepath."},
-            "source_config": {"type": "string", "description": "Inline config text (alternative to filepath)."},
-            "source_vendor": {"type": "string", "description": "Source vendor, e.g. huawei, h3c, cisco."},
-            "target_vendor": {"type": "string", "description": "Target vendor for translation."},
-        }, ["action"]),
-        description="Unified config analysis: parse, translate, extract, diff, summarize.",
-    ),
-    CanonicalToolEntry(
-        canonical_tool_id="pcap.analysis.run",
-        handler=_adapt(_handler_pcap_analysis_run),
-        input_schema=_schema({
-            "action": {"type": "string", "description": "Action: parse, session, filter, align.", "enum": ["parse", "session", "filter", "align"]},
-            "workspace_id": _S["workspace_id"],
-            "filepath": _S["filepath"],
-            "session_id": _S["session_id"],
-            "src": {"type": "string", "description": "Source IP for filter."},
-            "sport": {"type": "integer", "description": "Source port for filter."},
-            "dst": {"type": "string", "description": "Destination IP for filter."},
-            "dport": {"type": "integer", "description": "Destination port for filter."},
-        }, ["action"]),
-        description="Unified PCAP analysis: parse, session, filter, align.",
-    ),
-    # ── v3.4: Git tools ──
-    CanonicalToolEntry(
-        canonical_tool_id="git.status",
-        handler=_adapt(_handler_git_status),
-        input_schema=_schema({
-            "repo_path": {"type": "string", "description": "Path to git repository. Default: current directory.", "default": "."},
-        }),
-        description="Check git status — shows modified, staged, and untracked files with branch info.",
-    ),
-    CanonicalToolEntry(
-        canonical_tool_id="git.diff",
-        handler=_adapt(_handler_git_diff),
-        input_schema=_schema({
-            "repo_path": {"type": "string", "description": "Path to git repository.", "default": "."},
-            "staged": {"type": "boolean", "description": "Show staged changes only.", "default": False},
-            "file_path": {"type": "string", "description": "Limit diff to specific file.", "default": ""},
-        }),
-        description="Show git diff — unstaged or staged changes, optionally scoped to a file.",
-    ),
-    CanonicalToolEntry(
-        canonical_tool_id="git.log",
-        handler=_adapt(_handler_git_log),
-        input_schema=_schema({
-            "repo_path": {"type": "string", "description": "Path to git repository.", "default": "."},
-            "n": {"type": "integer", "description": "Number of recent commits.", "default": 10},
-            "file_path": {"type": "string", "description": "Limit log to specific file.", "default": ""},
-        }),
-        description="View git commit history with one-line summaries.",
-    ),
-    CanonicalToolEntry(
-        canonical_tool_id="git.commit",
-        handler=_adapt(_handler_git_commit),
-        input_schema=_schema({
-            "repo_path": {"type": "string", "description": "Path to git repository.", "default": "."},
-            "message": {"type": "string", "description": "Commit message."},
-            "files": {"type": "array", "items": {"type": "string"}, "description": "Specific files to stage and commit. Omit to stage all (-A)."},
-        }, ["message"]),
-        risk_level="medium", requires_approval=True,
-        description="Stage changes and create a commit. Requires approval. Use git.status and git.diff first to review what will be committed.",
-    ),
-    CanonicalToolEntry(
-        canonical_tool_id="git.push",
-        handler=_adapt(_handler_git_push),
-        input_schema=_schema({
-            "repo_path": {"type": "string", "description": "Path to git repository.", "default": "."},
-            "remote": {"type": "string", "description": "Remote name.", "default": "origin"},
-            "branch": {"type": "string", "description": "Branch to push.", "default": ""},
-        }),
-        risk_level="medium", requires_approval=True,
-        description="Push commits to remote. Requires approval.",
-    ),
-    # ── v3.4: Code search ──
-    CanonicalToolEntry(
-        canonical_tool_id="code.search",
-        handler=_adapt(_handler_code_search),
-        input_schema=_schema({
-            "pattern": {"type": "string", "description": "Search pattern (regex or literal). Example: 'import.*paramiko', 'class DeviceSession'."},
-            "directory": {"type": "string", "description": "Directory to search. Default: current project root.", "default": "."},
-            "file_type": {"type": "string", "description": "File type filter: py, ts, js, yaml, json, md, etc.", "default": ""},
-            "max_results": {"type": "integer", "description": "Max matching lines.", "default": 50},
-        }, ["pattern"]),
-        description="Search the codebase using ripgrep (fast) or Python fallback. Returns matching lines with file paths and line numbers. Use for finding functions, classes, imports, patterns across the codebase.",
-    ),
-    # ── v3.4: Browser tools ──
-    CanonicalToolEntry(
-        canonical_tool_id="browser.navigate",
-        handler=_adapt(_handler_browser_navigate),
-        input_schema=_schema({
-            "url": {"type": "string", "description": "Full URL to navigate to (https://...)."},
-            "wait_selector": {"type": "string", "description": "Optional CSS selector to wait for.", "default": ""},
-        }, ["url"]),
-        description="Open a browser, navigate to a URL, and return page title + visible text content. Use for reading documentation, inspecting web apps, or scraping public pages.",
-    ),
-    CanonicalToolEntry(
-        canonical_tool_id="browser.extract",
-        handler=_adapt(_handler_browser_extract),
-        input_schema=_schema({
-            "url": {"type": "string", "description": "Full URL to open."},
-            "selector": {"type": "string", "description": "CSS selector for element to extract. Default: body.", "default": "body"},
-        }, ["url"]),
-        description="Extract text content from a specific element on a web page. Use for targeted scraping or reading specific sections of documentation.",
-    ),
-    # ── v3.7: Browser screenshot & click ──
-    CanonicalToolEntry(
-        canonical_tool_id="browser.screenshot",
-        handler=_adapt(_handler_browser_screenshot),
-        input_schema=_schema({
-            "url": {"type": "string", "description": "Full URL to screenshot."},
-            "full_page": {"type": "boolean", "description": "Capture full page or just viewport.", "default": False},
-        }, ["url"]),
-        description="Take a screenshot of a web page and return a base64-encoded PNG image. Use to visually inspect a page.",
-    ),
-    CanonicalToolEntry(
-        canonical_tool_id="browser.click",
-        handler=_adapt(_handler_browser_click),
-        input_schema=_schema({
-            "selector": {"type": "string", "description": "CSS selector of the element to click."},
-        }, ["selector"]),
-        description="Click an element on the currently loaded browser page. Navigate to a URL first using browser.navigate.",
-    ),
-    # ── CMDB device asset tools ──
-    CanonicalToolEntry(
-        canonical_tool_id="device.list",
-        handler=_adapt(_handler_cmdb_list_assets),
-        input_schema=_schema({
-            "workspace_id": _S["workspace_id"],
-            "search": {"type": "string", "description": "Fuzzy search by name, vendor, host, or model. Example: 'AR1' or 'huawei'."},
-            "filter": {"type": "string", "description": "JSON filter string. Example: '{\"type\": \"switch\"}' or '{\"vendor\": \"cisco\"}'."},
-            "sort_by": {"type": "string", "description": "Sort field: name (default), type, vendor, host, updated_at."},
-        }),
-        description="List and search CMDB device assets. Supports fuzzy text search and JSON filtering by type/vendor. Returns asset list plus overall statistics (total count, breakdown by type/vendor/protocol).",
-    ),
-    CanonicalToolEntry(
-        canonical_tool_id="device.get",
-        handler=_adapt(_handler_cmdb_get_asset),
-        input_schema=_schema({
-            "workspace_id": _S["workspace_id"],
-            "asset_id": {"type": "string", "description": "Asset ID to look up."},
-        }, ["asset_id"]),
-        description="Get full detail for a single CMDB asset by asset_id.",
-    ),
-    CanonicalToolEntry(
-        canonical_tool_id="device.add",
-        handler=_adapt(_handler_cmdb_add_asset),
-        input_schema=_schema({
-            "workspace_id": _S["workspace_id"],
-            "name": {"type": "string", "description": "Device name."},
-            "host": {"type": "string", "description": "Management IP or hostname."},
-            "type": {"type": "string", "description": "Device type: switch, router, firewall.", "enum": ["switch", "router", "firewall", "server", "other"], "default": "switch"},
-            "vendor": {"type": "string", "description": "Vendor: h3c, huawei, cisco, etc."},
-            "protocol": {"type": "string", "description": "Connection protocol: ssh, telnet.", "enum": ["ssh", "telnet"], "default": "ssh"},
-            "port": {"type": "integer", "description": "Connection port.", "default": 22},
-            "username": {"type": "string", "description": "Login username."},
-        }, ["name", "host"]),
-        risk_level="medium", requires_approval=True,
-        description="Add a new device asset to the CMDB. Passwords are not persisted. Requires approval.",
-    ),
-    CanonicalToolEntry(
-        canonical_tool_id="device.delete",
-        handler=_adapt(_handler_cmdb_delete_asset),
-        input_schema=_schema({
-            "workspace_id": _S["workspace_id"],
-            "asset_id": {"type": "string", "description": "Asset ID to delete."},
-        }, ["asset_id"]),
-        risk_level="medium", requires_approval=True,
-        description="Soft-delete a CMDB asset (tombstone, recoverable). Requires approval.",
-    ),
-    # ── FileStore tools ──
-    # ── v3.9.1: workspace.filestore (merged) ──────────────────────────
-    # 2 个原 tool 合并: file.references / file.import_workspace_path
-    # 老 tool_id 保留为 alias (callable_by_llm=False) 兜底
-    CanonicalToolEntry(
-        canonical_tool_id="workspace.filestore",
-        handler=_adapt(_handle_workspace_filestore_merged),
-        input_schema=_schema({
-            "workspace_id": _S["workspace_id"],
-            "action": {"type": "string", "enum": ["references", "import"],
-                       "description": "Operation: references (query cross-refs) or import (import to FileStore)."},
-            "file_id": {"type": "string",
-                        "description": "[references] FileStore file_id to query."},
-            "filepath": {"type": "string",
-                         "description": "[references|import] Workspace-relative path."},
-        }, ["action"]),
-        description=(
-            "Unified FileStore tool. action=references (query cross-references for a file), "
-            "action=import (import a workspace-relative file into FileStore and get file_id). "
-            "Old tool_ids (file.references / file.import_workspace_path) are deprecated aliases."
-        ),
-    ),
-    # Aliases
-    CanonicalToolEntry(
-        canonical_tool_id="file.references",
-        handler=_make_filestore_handler("file.references", ["file_id"]),
-        input_schema=_schema({
-            "file_id": {"type": "string"},
-        }, ["file_id"]),
-        callable_by_llm=False,
-        description="[DEPRECATED] Use workspace.filestore(action=references).",
-    ),
-    CanonicalToolEntry(
-        canonical_tool_id="file.import_workspace_path",
-        handler=_make_filestore_handler("file.import_workspace_path", ["filepath"]),
-        input_schema=_schema({
-            "filepath": {"type": "string"},
-        }, ["filepath"]),
-        callable_by_llm=False,
-        description="[DEPRECATED] Use workspace.filestore(action=import).",
-    ),
-    # ── v3.5 Merged tools ──
-    CanonicalToolEntry(
-        canonical_tool_id="web.page.process",
-        handler=_adapt(_handle_web_page_merged),
-        input_schema=_schema({
-            "url": _S["url"],
-            "action": {"type": "string", "enum": ["summarize", "extract_links", "save_artifact"],
-                       "description": "summarize (default), extract_links, or save_artifact.", "default": "summarize"},
-            "workspace_id": _S["workspace_id"], "title": _S["title"],
-        }, ["url"]),
-        description="Process a web page: summarize, extract links, or save as artifact.",
-    ),
-    CanonicalToolEntry(
-        canonical_tool_id="data.validate",
-        handler=_adapt(_handle_data_validate_merged),
-        input_schema=_schema({
-            "text": _S["text"],
-            "format": {"type": "string", "enum": ["json", "yaml"], "description": "Data format.", "default": "json"},
-        }, ["text"]),
-        description="Validate JSON or YAML data structure.",
-    ),
-    CanonicalToolEntry(
-        canonical_tool_id="knowledge.read",
-        handler=_adapt(_handle_knowledge_read_merged),
-        input_schema=_schema({
-            "workspace_id": _S["workspace_id"],
-            "level": {"type": "string", "enum": ["chunk", "source", "parent"],
-                      "description": "chunk (default), source, or parent.", "default": "chunk"},
-            "chunk_id": _S["chunk_id"], "source_id": _S["source_id"],
-        }, ["workspace_id"]),
-        description="Read knowledge: chunk, source, or parent document.",
-    ),
-    CanonicalToolEntry(
-        canonical_tool_id="memory.manage",
-        handler=_adapt(_handle_memory_manage_merged),
-        input_schema=_schema({
-            "workspace_id": _S["workspace_id"],
-            "action": {"type": "string", "enum": ["create", "update", "confirm", "delete"],
-                       "description": "create (default), update, confirm, or delete.", "default": "create"},
-            "title": _S["title"], "content": _S["content"], "memory_id": _S["memory_id"],
-            "scope": {"type": "string", "enum": ["short_term", "project", "long_term"], "default": "long_term"},
-            "memory_type": {"type": "string", "default": "knowledge_note"},
-            "tags": {"type": "array", "items": {"type": "string"}},
-            "summary": {"type": "string"}, "metadata": {"type": "object"},
-        }, ["action"]),
-        description="Manage memory: create, update, confirm, or delete records.",
-    ),
-    CanonicalToolEntry(
-        canonical_tool_id="text.analyze",
-        handler=_adapt(_handle_text_analyze_merged),
-        input_schema=_schema({
-            "text": _S["text"],
-            "action": {"type": "string", "enum": ["redact", "diff", "keywords", "classify"],
-                       "description": "redact (default), diff (needs text_b), keywords, or classify.", "default": "redact"},
-            "text_b": {"type": "string", "description": "Second text for diff action."},
-            "limit": _S["limit"],
-        }, ["text"]),
-        description="Analyze text: redact, diff, extract keywords, or classify.",
-    ),
-    CanonicalToolEntry(
-        canonical_tool_id="system.session.snapshot",
-        handler=_adapt(_handle_session_snapshot_merged),
-        input_schema=_schema({
-            "workspace_id": _S["workspace_id"], "session_id": _S["session_id"],
-            "action": {"type": "string", "enum": ["create", "list"],
-                       "description": "create (default) or list.", "default": "create"},
-            "reason": _S["reason"],
-        }, ["session_id"]),
-        description="Create or list session snapshots for audit.",
     ),
 ]
 
@@ -2201,7 +1951,7 @@ def _infer_permission_action(
                                                   "import", "export", "update")):
             return "write"
         return "read"
-    if canonical_tool_id.startswith(("knowledge.",)):
+    if canonical_tool_id.startswith(("knowledge.manage.",)):
         if any(w in canonical_tool_id for w in ("import", "delete", "rebuild")):
             return "write"
         return "read"
@@ -2228,7 +1978,7 @@ def _infer_permission_action(
         # a conservative default of READ for the fallback path.
         if action.value == "write" and not any(
             canonical_tool_id.startswith(p)
-            for p in ("host.", "workspace.", "web.", "knowledge.",
+            for p in ("host.", "workspace.", "web.", "knowledge.manage.",
                        "memory.", "session.", "run.", "skill.", "slash.",
                        "runtime.", "text.", "data.", "diagram.")
         ):

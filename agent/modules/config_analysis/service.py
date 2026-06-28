@@ -45,7 +45,7 @@ def run_config_analysis(
 
     if action not in VALID_ACTIONS:
         return {
-            "ok": False, "tool_id": "config.analysis.run", "status": "failed",
+            "ok": False, "tool_id": "config.manage", "status": "failed",
             "summary": f"unsupported config action: {action}",
             "errors": ["unsupported_action"],
         }
@@ -62,7 +62,7 @@ def run_config_analysis(
     if action == "parse":
         result = parse_config(source_config, vendor=source_vendor)
         return {
-            "ok": True, "tool_id": "config.analysis.run", "status": "succeeded",
+            "ok": True, "tool_id": "config.manage", "status": "succeeded",
             "summary": f"解析完成：{result.get('line_count', 0)} 行，"
                        f"{len(result.get('interfaces', []))} 个接口，"
                        f"{len(result.get('routes', []))} 条路由。",
@@ -73,7 +73,7 @@ def run_config_analysis(
         parsed = parse_config(source_config, vendor=source_vendor)
         interfaces = parsed.get("interfaces", [])
         return {
-            "ok": True, "tool_id": "config.analysis.run", "status": "succeeded",
+            "ok": True, "tool_id": "config.manage", "status": "succeeded",
             "summary": f"提取到 {len(interfaces)} 个接口。",
             "interfaces": interfaces,
         }
@@ -82,7 +82,7 @@ def run_config_analysis(
         parsed = parse_config(source_config, vendor=source_vendor)
         routes = parsed.get("routes", [])
         return {
-            "ok": True, "tool_id": "config.analysis.run", "status": "succeeded",
+            "ok": True, "tool_id": "config.manage", "status": "succeeded",
             "summary": f"提取到 {len(routes)} 条路由。",
             "routes": routes,
         }
@@ -92,7 +92,7 @@ def run_config_analysis(
         after = kwargs.get("after", "")
         result = diff_configs(before, after)
         return {
-            "ok": True, "tool_id": "config.analysis.run", "status": "succeeded",
+            "ok": True, "tool_id": "config.manage", "status": "succeeded",
             "summary": f"差异：+{len(result.get('added', []))} -{len(result.get('removed', []))} ~{len(result.get('changed', []))}",
             **result,
         }
@@ -101,12 +101,12 @@ def run_config_analysis(
         parsed = parse_config(source_config, vendor=source_vendor)
         summary = summarize_config(parsed)
         return {
-            "ok": True, "tool_id": "config.analysis.run", "status": "succeeded",
+            "ok": True, "tool_id": "config.manage", "status": "succeeded",
             "summary": summary,
         }
 
     return {
-        "ok": False, "tool_id": "config.analysis.run", "status": "not_implemented",
+        "ok": False, "tool_id": "config.manage", "status": "not_implemented",
         "summary": f"Action '{action}' is not implemented.",
         "errors": [f"{action}_not_implemented"],
     }

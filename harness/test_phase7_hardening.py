@@ -51,7 +51,7 @@ class TestExistingUnaffected:
 
     def test_phase6_basic(self):
         from tool_runtime.manifest_registry import get_manifest
-        assert get_manifest("web.search") is not None
+        assert get_manifest("web.manage") is not None
 
     def test_approval_basic(self):
         from agent.approval import get_approval_store
