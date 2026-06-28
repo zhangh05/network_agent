@@ -296,10 +296,18 @@ class TestShellRequiresApproval:
         assert needs_approval("exec.run", spec, 'high', True)
 
     def test_shell_unsafe_command_denied(self):
+        """v3.9.5: ``check_shell_safety`` now delegates to the unified
+        dangerous-pattern scanner. The ``denied_word`` is the matched
+        regex pattern string (e.g. ``r'\brm\s+-(r|f|rf|fr)\b'``) rather
+        than the legacy hard-coded ``"destructive_delete"`` literal.
+        We assert that *some* destructive pattern matched.
+        """
         from agent.runtime.permission_check import check_shell_safety
         safe, word = check_shell_safety("exec.run", {"command": "rm -rf /"})
         assert not safe
-        assert word == "destructive_delete"
+        # The exact pattern string is an implementation detail; what
+        # matters is that the call was flagged as destructive.
+        assert word and "rm" in word.lower()
 
     def test_shell_safe_command_allowed(self):
         from agent.runtime.permission_check import check_shell_safety
