@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import os
 from functools import lru_cache
+from types import SimpleNamespace
 from typing import Any
 
 # v3.9.3: capability_actions module removed. capability routing removed.
@@ -70,8 +71,12 @@ def _cached_governance_entry(tool_id: str):
     try:
         return _noop_governance_entry(tool_id)
     except Exception:
-        from tool_runtime.tool_governance import GovernanceEntry
-        return GovernanceEntry(status="unknown")
+        return SimpleNamespace(status="unknown")
+
+
+def _noop_governance_entry(tool_id: str):
+    """v3.9.3: tool_governance was removed; namespace membership is the gate."""
+    return SimpleNamespace(status="active" if tool_id in TOOL_NAMESPACE else "unknown")
 
 
 # ─── ToolPlannerV2 ────────────────────────────────────────────────────

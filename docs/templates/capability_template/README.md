@@ -12,7 +12,8 @@ agent/modules/<name>/
 ## Registration
 1. Add to `agent/capabilities/builtin.py`
 2. Set status: `planned` then `enabled`
-3. Run `python3 scripts/inspect_runtime_tools.py` to verify
+3. Run `python3 -m pytest harness/test_runtime_selfcheck.py -q` to verify
+   runtime registration and the 21 canonical tool contract
 
 ## CapabilityManifest Template
 

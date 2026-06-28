@@ -92,7 +92,6 @@ def hybrid_tool_search(
     # 3. Keyword matching — score ALL tools via keyword
     keyword_scores: dict[str, float] = {}
     from tool_runtime.tool_namespace import TOOL_NAMESPACE
-    from tool_runtime.tool_governance import is_planner_visible
 
     for tid in TOOL_NAMESPACE:
         if not (tid in TOOL_NAMESPACE):

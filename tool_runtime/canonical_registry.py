@@ -1028,7 +1028,6 @@ _S = {
 def _handler_tool_catalog_search(inv: ToolInvocation) -> dict:
     """Search the canonical tool catalog and return loadable tool ids."""
     import time
-    from tool_runtime.tool_governance import TOOL_GOVERNANCE
     from tool_runtime.tool_namespace import TOOL_NAMESPACE
 
     started = time.perf_counter()
@@ -1069,9 +1068,6 @@ def _handler_tool_catalog_search(inv: ToolInvocation) -> dict:
         if category_filter and ns.category != category_filter:
             continue
         if group_filter and ns.group != group_filter:
-            continue
-        gov = TOOL_GOVERNANCE.get(tool_id)
-        if gov is not None and gov.status in {"forbidden", "disabled", "internal"}:
             continue
         entry = CANONICAL_REGISTRY.get(tool_id)
         if entry is None:
