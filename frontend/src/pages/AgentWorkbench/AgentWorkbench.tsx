@@ -1,5 +1,4 @@
 import React, { useState, useRef, useEffect, useCallback } from "react";
-import { Virtuoso, VirtuosoHandle } from "react-virtuoso";
 import { agentApi, knowledgeApi, memoryApi, sessionsApi, settingsApi, sseApi } from "../../api";
 import { apiRequest } from "../../api/client";
 import { useSessionStore } from "../../stores/session";
@@ -73,38 +72,48 @@ export function TaskWorkbench() {
   const [input, setInput] = useState("");
   const [attachments, setAttachments] = useState<Array<{ id: string; name: string; size: string; file: File; uploading?: boolean }>>([]);
 
-  // ── Scroll architecture (v4.0) ──
-  // Refs break the state→effect→scroll→state feedback loop.
-  // Virtuoso owns the real scroll position; we only nudge it.
+  // ── Scroll architecture (v4.1) ──
+  // A plain scroll container is enough for the capped chat history and avoids
+  // virtual-list measurement jumps while an assistant answer is streaming.
   const [showScrollBtn, setShowScrollBtn] = useState(false);
   const userScrolledUpRef = useRef(false);    // true = user intentionally scrolled up
-  const atBottomRef = useRef(true);           // true = Virtuoso is at bottom
+  const atBottomRef = useRef(true);
+  const sendingRef = useRef(false);
 
-  const chatRef = useRef<VirtuosoHandle>(null);
+  const chatRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
 
-  // atBottomStateChange: ALWAYS tracks real position (no sending gate).
-  // We update the button UI, but the ref tracks actual user intent.
-  const handleAtBottomStateChange = useCallback((atBottom: boolean) => {
+  useEffect(() => {
+    sendingRef.current = sending;
+  }, [sending]);
+
+  const handleChatScroll = useCallback(() => {
+    const el = chatRef.current;
+    if (!el) return;
+    const atBottom = el.scrollHeight - el.scrollTop - el.clientHeight < 32;
     atBottomRef.current = atBottom;
     setShowScrollBtn(!atBottom);
-    // Mark "user scrolled up" only when they move AWAY from bottom
-    // and we're not in the middle of an auto-scroll we initiated
-    if (!atBottom) userScrolledUpRef.current = true;
+    if (!atBottom && !sendingRef.current) userScrolledUpRef.current = true;
+    if (atBottom) userScrolledUpRef.current = false;
   }, []);
 
-  // Thin scroll helper — single source of truth for nudging to bottom.
-  // Only acts when user hasn't intentionally scrolled up.
   const keepAtBottom = useCallback(() => {
     if (!userScrolledUpRef.current) {
-      chatRef.current?.scrollToIndex({ index: "LAST", behavior: "auto", align: "end" });
+      requestAnimationFrame(() => {
+        const el = chatRef.current;
+        if (!el) return;
+        el.scrollTop = el.scrollHeight;
+        atBottomRef.current = true;
+        setShowScrollBtn(false);
+      });
     }
   }, []);
 
-  // Scroll-to-bottom button click: reset intent + smooth scroll
   const handleScrollBtnClick = useCallback(() => {
     userScrolledUpRef.current = false;
-    chatRef.current?.scrollToIndex({ index: "LAST", behavior: "smooth", align: "end" });
+    chatRef.current?.scrollTo({ top: chatRef.current.scrollHeight, behavior: "smooth" });
+    atBottomRef.current = true;
+    setShowScrollBtn(false);
   }, []);
 
   const thinkFilter = useRef<{ mode: import("../../utils/displayText").ThinkFilterState }>({ mode: "idle" });
@@ -205,12 +214,6 @@ export function TaskWorkbench() {
       sessionsApi.messages(currentSessionId, currentWorkspaceId)
         .then((res) => { if (res.messages?.length) mergeFromBackend(currentSessionId, res.messages); })
         .catch(() => {});
-    };
-    es.onmessage = (e: MessageEvent) => {
-      try {
-        const msg = JSON.parse(e.data);
-        if (msg.event === "message_appended") refreshMessages();
-      } catch { /* ignore */ }
     };
     es.addEventListener("turn_completed", refreshMessages);
     es.onerror = () => { es.close(); };
@@ -577,7 +580,17 @@ export function TaskWorkbench() {
     ? llmHealth.recentFailure ? "LLM 可用 · 最近一次请求超时，可重试" : `LLM 可用 · ${llmHealth.model || llmHealth.provider || "在线"}`
     : "LLM 离线";
 
-  // Message row renderer for Virtuoso virtual list
+  useEffect(() => {
+    keepAtBottom();
+  }, [
+    keepAtBottom,
+    sending,
+    visibleHistory.length,
+    visibleHistory[visibleHistory.length - 1]?.text,
+    visibleHistory[visibleHistory.length - 1]?.status,
+  ]);
+
+  // Message row renderer for the chat list
   const renderMsg = useCallback((m: any, idx: number, total: number) => {
     if (m.role === "user") {
       return (
@@ -715,14 +728,19 @@ export function TaskWorkbench() {
             </div>
           </div>
         ) : (
-          <Virtuoso
+          <div
             ref={chatRef}
-            data={(visibleHistory ?? [])}
-            atBottomStateChange={handleAtBottomStateChange}
-            followOutput="auto"
-            itemContent={(idx, m) => renderMsg(m, idx, (visibleHistory ?? []).length)}
-            style={{ height: "100%" }}
-          />
+            className="wb-chat-list"
+            role="log"
+            aria-live={sending ? "polite" : "off"}
+            onScroll={handleChatScroll}
+          >
+            {(visibleHistory ?? []).map((m, idx) => (
+              <React.Fragment key={m.message_id || m.run_id || m.id}>
+                {renderMsg(m, idx, (visibleHistory ?? []).length)}
+              </React.Fragment>
+            ))}
+          </div>
         )}
 
         {/* ── Scroll-to-bottom floating bubble ── */}

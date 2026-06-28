@@ -100,4 +100,38 @@ describe("workbench backend message merge", () => {
       "2026-06-28T10:00:01Z",
     ]);
   });
+
+  it("collapses duplicate local users and replaces pending assistant with backend answer", () => {
+    const store = useWorkbenchStore.getState();
+    store.switchSession("sess-live");
+    store.appendUser("派发子agent，让它搜索一下BGP邻居的建立条件", "sess-live");
+    store.appendUser("派发子agent，让它搜索一下BGP邻居的建立条件", "sess-live");
+    store.appendAssistantStreaming("sess-live");
+
+    store.mergeFromBackend("sess-live", [
+      {
+        message_id: "run-sub:user",
+        session_id: "sess-live",
+        role: "user",
+        content: "派发子agent，让它搜索一下BGP邻居的建立条件",
+        created_at: "2026-06-28T10:00:00Z",
+        run_id: "run-sub",
+      },
+      {
+        message_id: "run-sub:assistant",
+        session_id: "sess-live",
+        role: "assistant",
+        content: "子 agent 已完成搜索，BGP 邻居建立条件如下。",
+        created_at: "2026-06-28T10:00:01Z",
+        run_id: "run-sub",
+      },
+    ]);
+
+    const messages = useWorkbenchStore.getState().bySession["sess-live"];
+    expect(messages.map((m) => `${m.role}:${m.text}`)).toEqual([
+      "user:派发子agent，让它搜索一下BGP邻居的建立条件",
+      "assistant:子 agent 已完成搜索，BGP 邻居建立条件如下。",
+    ]);
+    expect(messages.every((m) => m.status === "ready")).toBe(true);
+  });
 });

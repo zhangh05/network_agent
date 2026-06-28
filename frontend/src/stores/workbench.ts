@@ -113,6 +113,40 @@ function dedupeMessages(messages: ChatMsg[]): ChatMsg[] {
   return out;
 }
 
+function validChatMessage(message: unknown): message is ChatMsg {
+  if (!message || typeof message !== "object") return false;
+  const m = message as Partial<ChatMsg>;
+  return (
+    typeof m.id === "string" &&
+    typeof m.text === "string" &&
+    typeof m.created_at === "string" &&
+    typeof m.role === "string" &&
+    ["user", "assistant", "system"].includes(m.role)
+  );
+}
+
+function findLocalForServer(serverMsg: ChatMsg, localMessages: ChatMsg[]): ChatMsg | undefined {
+  const stable = messageKey(serverMsg);
+  const content = contentKey(serverMsg);
+  const exact = localMessages.find((m) => messageKey(m) === stable || contentKey(m) === content);
+  if (exact) return exact;
+  if (serverMsg.role === "assistant") {
+    return localMessages.find(
+      (m) =>
+        m.role === "assistant" &&
+        !m.message_id &&
+        !m.run_id &&
+        (m.status === "streaming" || m.text.trim() === ""),
+    );
+  }
+  if (serverMsg.role === "user") {
+    return localMessages.find(
+      (m) => m.role === "user" && !m.message_id && m.text.trim() === serverMsg.text.trim(),
+    );
+  }
+  return undefined;
+}
+
 interface WorkbenchState {
   bySession: Record<string, ChatMsg[]>;
   currentSessionId: string | null;
@@ -252,14 +286,7 @@ export const useWorkbenchStore = create<WorkbenchState>()(
         set((s) => {
           const persisted = s.bySession[session_id];
           const cur = Array.isArray(persisted)
-            ? persisted.filter(
-                (message): message is ChatMsg =>
-                  !!message &&
-                  typeof message.id === "string" &&
-                  typeof message.text === "string" &&
-                  typeof message.created_at === "string" &&
-                  ["user", "assistant", "system"].includes(message.role),
-              )
+            ? dedupeMessages(persisted.filter(validChatMessage))
             : [];
 
           // Merge strategy: server messages are the authoritative timeline.
@@ -275,9 +302,7 @@ export const useWorkbenchStore = create<WorkbenchState>()(
             const stable = messageKey(serverMsg);
             const content = contentKey(serverMsg);
             if (seenKeys.has(stable) || seenContent.has(content)) continue;
-            const localMatch = cur.find((m) =>
-              messageKey(m) === stable || contentKey(m) === content,
-            );
+            const localMatch = findLocalForServer(serverMsg, cur);
             const nextMsg = localMatch
               ? {
                   ...localMatch,
@@ -285,11 +310,19 @@ export const useWorkbenchStore = create<WorkbenchState>()(
                   run_id: serverMsg.run_id ?? localMatch.run_id,
                   created_at: serverMsg.created_at || localMatch.created_at,
                   status: localMatch.status === "streaming" ? "ready" : localMatch.status,
+                  text:
+                    serverMsg.role === "assistant" && serverMsg.text.trim()
+                      ? serverMsg.text
+                      : localMatch.text,
                 }
               : serverMsg;
             combined.push(nextMsg);
             seenKeys.add(stable);
             seenContent.add(content);
+            if (localMatch) {
+              seenKeys.add(messageKey(localMatch));
+              seenContent.add(contentKey(localMatch));
+            }
           }
 
           // Append local-only messages not covered by server (e.g. streaming)
@@ -302,8 +335,9 @@ export const useWorkbenchStore = create<WorkbenchState>()(
 
           // Sort by created_at ascending
           combined.sort((a, b) => a.created_at.localeCompare(b.created_at));
+          const cleaned = dedupeMessages(combined);
           const next = capHistory(
-            { ...s.bySession, [session_id]: combined },
+            { ...s.bySession, [session_id]: cleaned },
             session_id,
           );
           return { bySession: next };

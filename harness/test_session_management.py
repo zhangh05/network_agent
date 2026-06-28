@@ -77,6 +77,21 @@ class TestSessionCRUD:
         ids = [x["session_id"] for x in archived]
         assert s["session_id"] in ids
 
+    def test_internal_subagent_sessions_hidden_from_lists(self):
+        visible = create_session(TEST_WS, "Visible Session")
+        hidden = create_session(
+            TEST_WS,
+            "You are a subagent: Review Agent",
+            metadata={"internal": True, "is_subagent": True, "parent_session_id": visible["session_id"]},
+        )
+        active = list_sessions(TEST_WS, status="active")
+        ids = [x["session_id"] for x in active]
+        assert visible["session_id"] in ids
+        assert hidden["session_id"] not in ids
+
+        counts = get_session_count(TEST_WS)
+        assert counts["active"] == len(active)
+
     def test_update_session_title(self):
         s = create_session(TEST_WS, "Old Title")
         updated = update_session(s["session_id"], TEST_WS, title="New Title")

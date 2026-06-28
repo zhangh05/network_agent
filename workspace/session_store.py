@@ -7,6 +7,7 @@ for audit purposes.
 """
 
 import json
+import logging
 import re
 import time
 import uuid
@@ -18,6 +19,7 @@ from workspace.manager import ensure_workspace
 
 ROOT = Path(__file__).resolve().parent.parent
 WS_ROOT = ROOT / "workspaces"
+_LOG = logging.getLogger(__name__)
 
 
 def _session_dir(ws_id: str) -> Path:
@@ -150,6 +152,8 @@ def list_sessions(
             seen_ids.add(sid)
         except Exception:
             _LOG.warning("session_store: silent exception", exc_info=True)
+
+    sessions = [s for s in sessions if not _is_internal_session(s)]
 
     # Default filter: exclude deleted
     if status is None:
@@ -459,7 +463,9 @@ def list_sessions_by_status(ws_id: str = "default") -> Dict[str, List[Dict[str, 
     if sdir.is_dir():
         for f in sdir.glob("*.json"):
             try:
-                all_sessions.append(json.loads(f.read_text(encoding="utf-8")))
+                session = json.loads(f.read_text(encoding="utf-8"))
+                if not _is_internal_session(session):
+                    all_sessions.append(session)
             except Exception:
                 _LOG.warning("session_store: silent exception", exc_info=True)
 
@@ -479,3 +485,22 @@ def get_session_count(ws_id: str = "default") -> Dict[str, int]:
         "deleted": len(grouped["deleted"]),
         "total": len(grouped["active"]) + len(grouped["archived"]) + len(grouped["deleted"]),
     }
+
+
+def _is_internal_session(session: Dict[str, Any]) -> bool:
+    """Return True for runtime-owned sessions that should not appear in chat UI."""
+    sid = str(session.get("session_id") or "")
+    title = str(session.get("title") or "")
+    metadata = session.get("metadata") or {}
+    if sid.startswith("sub-"):
+        return True
+    if title.startswith("You are a subagent:"):
+        return True
+    if isinstance(metadata, dict) and (
+        metadata.get("internal")
+        or metadata.get("is_subagent")
+        or metadata.get("subtask_id")
+        or metadata.get("parent_session_id")
+    ):
+        return True
+    return False
