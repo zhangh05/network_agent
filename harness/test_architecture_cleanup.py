@@ -194,12 +194,17 @@ class TestToolVisibilityPolicy:
         assert scene_allows_local_ops({}, "翻译这段配置") is False
 
     def test_baseline_includes_read_and_web_only(self):
-        """Execute tools are scene-gated; read/discovery stays universal."""
+        """BASELINE: read/discovery + web + exec.run (always visible).
+        Other local exec tools (exec.python/exec.slash/system.diagnostics)
+        stay scene-gated via LOCAL_OPS_TOOLS."""
         from agent.runtime.tool_planning.visibility import BASELINE_READ_TOOLS
-        assert "exec.run" not in BASELINE_READ_TOOLS
+        assert "exec.run" in BASELINE_READ_TOOLS
         assert "web.search" in BASELINE_READ_TOOLS
 
     def test_local_ops_contains_host_tools(self):
-        """Host tools are available only when local ops is detected."""
+        """LOCAL_OPS_TOOLS: host tools that need scene match. exec.run was
+        here in earlier revisions but moved to BASELINE in v3.9.1."""
         from agent.runtime.tool_planning.visibility import LOCAL_OPS_TOOLS
-        assert "exec.run" in LOCAL_OPS_TOOLS
+        assert "exec.run" not in LOCAL_OPS_TOOLS
+        assert "exec.python" in LOCAL_OPS_TOOLS
+        assert "system.diagnostics" in LOCAL_OPS_TOOLS

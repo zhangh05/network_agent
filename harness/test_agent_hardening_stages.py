@@ -44,25 +44,29 @@ def _candidates(text: str) -> set[str]:
 
 
 def test_simple_chat_does_not_expose_sub_agents():
-    """Simple chat keeps sub-agents and host execution hidden."""
+    """Simple chat keeps sub-agents hidden. exec.run is in BASELINE (v3.9.1)
+    so it's always visible — safety gating is downstream (approval/action_class),
+    not visibility's job."""
     candidates = _candidates("你好")
-    assert "exec.run" not in candidates
+    assert "exec.run" in candidates
     assert not (SUB_AGENT_TOOLS & candidates)
 
 
 def test_knowledge_qa_keeps_host_tools_scene_gated():
-    """Knowledge QA exposes knowledge tools, not host execution by default."""
+    """Knowledge QA exposes knowledge tools. exec.run is BASELINE so it's
+    always present, but non-knowledge local exec tools stay scene-gated."""
     candidates = _candidates("知识库里有没有 OSPF 相关资料")
     assert "knowledge.search" in candidates
-    assert "exec.run" not in candidates
+    assert "exec.run" in candidates
 
 
 def test_config_translate_keeps_host_tools_scene_gated():
-    """Config analysis tools are visible without exposing host execution."""
+    """Config analysis tools are visible; exec.run is BASELINE so always
+    available; other local exec tools (exec.python/exec.slash) stay scene-gated."""
     candidates = _candidates("把这个华三配置翻译成思科配置")
     assert "config.analysis.run" in candidates
     assert {"workspace.file.read", "workspace.file.list"} & candidates
-    assert "exec.run" not in candidates
+    assert "exec.run" in candidates
 
 
 def test_explicit_local_ops_exposes_execution_tools():
@@ -79,6 +83,9 @@ def test_parallel_complex_task_exposes_sub_agent():
 
 
 def test_unknown_tools_fail_closed_in_planner():
+    """Governance filter must drop unknown tool ids, even if they sneak into
+    rule_scene.candidate_tools. exec.run is BASELINE so it's expected in
+    candidates regardless of scene, but unknown.tool.exec must be filtered."""
     rule_scene = {
         "primary_category": "web",
         "category": "web",
@@ -95,7 +102,7 @@ def test_unknown_tools_fail_closed_in_planner():
     )
     candidates = set(plan.get("candidate_tools") or [])
     assert "unknown.tool.exec" not in candidates
-    assert "exec.run" not in candidates
+    assert "exec.run" in candidates
     assert "unknown.tool.exec" in plan.get("governance", {}).get("unknown_tools_filtered", [])
 
 
