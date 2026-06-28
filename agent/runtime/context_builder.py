@@ -312,7 +312,6 @@ def _plan_tools_v2(ctx, evidence_bundle, session, services, selected_skills: lis
         from agent.llm.tool_adapter import from_llm_tool_name
         from agent.runtime.tool_planning.planner import ToolPlannerV2
         from agent.runtime.tool_planning.scene_adapter import scene_to_rule_scene
-        from agent.runtime.capability_routing.toolset import active_tool_catalog
 
         base_reg = getattr(ctx.tool_router, "registry", None) or (
             ctx.tool_router if hasattr(ctx.tool_router, "list_model_visible") else None
@@ -321,12 +320,12 @@ def _plan_tools_v2(ctx, evidence_bundle, session, services, selected_skills: lis
             return result
 
         planner = ToolPlannerV2()
-        available_catalog = active_tool_catalog(
-            ctx.user_input,
-            scene=scene_decision,
-            safe_context=getattr(ctx, "safe_context", {}) or {},
-            limit=12,
-        )
+        # v3.9.3: capability_routing removed. All 21 tools are visible
+        # unconditionally; the planner picks per scene signals.
+        available_catalog = {
+            "tools": list(TOOL_NAMESPACE),
+            "capability_routing": {},
+        }
         tool_scene = planner.plan(
             scene_decision,
             evidence_bundle=evidence_bundle,

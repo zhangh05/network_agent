@@ -102,13 +102,12 @@ class ToolPlannerV2:
             safe_context = evidence_bundle.to_safe_context()
 
         if available_catalog is None:
-            from agent.runtime.capability_routing.toolset import active_tool_catalog
-            available_catalog = active_tool_catalog(
-                scene.user_input,
-                scene=scene,
-                safe_context=safe_context,
-                limit=MAX_CANDIDATE_TOOLS,
-            )
+            # v3.9.3: capability_routing removed. All 21 tools are
+            # visible; the planner picks per scene signals.
+            available_catalog = {
+                "tools": list(TOOL_NAMESPACE),
+                "capability_routing": {},
+            }
 
         plan = deterministic_plan_tools(
             user_input=scene.user_input,

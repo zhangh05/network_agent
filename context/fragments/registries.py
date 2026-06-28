@@ -51,12 +51,11 @@ class SkillRegistryFragment(ContextFragment):
 
     def build(self, state) -> dict:
         try:
-            from agent.runtime.capability_routing.manifests import CAPABILITY_PACKAGES
             return {
                 "ok": True,
                 "capabilities": {
-                    pkg.capability_id: pkg.display_name
-                    for pkg in CAPABILITY_PACKAGES
+                    # v3.9.3: skill_packages inlined elsewhere; fragment is empty.
+                    {}
                 },
             }
         except Exception:

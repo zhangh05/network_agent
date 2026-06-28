@@ -132,30 +132,14 @@ def capability_hybrid_search(
     limit: int = 10,
     recently_used_tools: list[str] | None = None,
 ) -> list[tuple[str, float]]:
-    """Search that respects capability routing context + graph boost.
+    """Search that respects graph boost.
 
-    First runs hybrid_tool_search, then filters by capability route
-    if scene context is available (boosts tools from matched capabilities).
-    Finally applies graph co-occurrence boost for tools related to recently-used tools.
+    First runs hybrid_tool_search, then applies graph co-occurrence
+    boost for tools related to recently-used tools. v3.9.3:
+    capability_routing is removed; the capability-routing boost block
+    is dropped because every tool is visible unconditionally.
     """
-    from agent.runtime.capability_routing.router import route_capabilities
-
     results = hybrid_tool_search(user_input, top_k=50)
-
-    # If scene is available, boost capability-matched tools
-    if scene is not None:
-        try:
-            route = route_capabilities(user_input, scene=scene, safe_context=safe_context, limit=3)
-            capability_tool_ids = set()
-            for pkg in route.packages:
-                capability_tool_ids.update(pkg.tool_ids)
-
-            for i, (tid, score) in enumerate(results):
-                if tid in capability_tool_ids:
-                    results[i] = (tid, min(score * 1.5, 1.0))
-            results.sort(key=lambda x: -x[1])
-        except Exception:
-            pass
 
     # Apply graph co-occurrence boost
     if recently_used_tools:

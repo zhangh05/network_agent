@@ -111,7 +111,7 @@ def test_trust_policy_marks_unverified_file_backed_knowledge(temp_dirs):
 
 def test_core_tools_for_context_does_not_inflate_all_tools():
     from agent.runtime.context_pipeline.stages import _core_tools_for_context
-    from agent.runtime.capability_routing.manifests import CORE_TOOL_IDS
+    from tool_runtime.tool_namespace import TOOL_NAMESPACE as _ALL_TOOLS
 
     ctx = SimpleNamespace(user_input="总结一下")
     tools = _core_tools_for_context(ctx, {"categories": ["knowledge"], "groups": {}})
@@ -120,7 +120,7 @@ def test_core_tools_for_context_does_not_inflate_all_tools():
     assert "skill.manage" in tools
     assert "git.manage" not in tools
     assert "device.manage" not in tools
-    assert len(tools) < len(CORE_TOOL_IDS)
+    assert len(tools) < len(list(_ALL_TOOLS))
 
 
 def test_core_tools_for_context_includes_agent_tools_for_subagent_scene():

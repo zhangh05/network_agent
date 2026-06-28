@@ -575,10 +575,9 @@ def register_runtime_routes(app):
     def api_agent_graph():
         try:
             from tool_runtime.tool_namespace import TOOL_NAMESPACE
-            from agent.runtime.capability_routing.manifests import CORE_TOOL_IDS
             return jsonify({
                 "ok": True, "total_tools": len(TOOL_NAMESPACE),
-                "core_tools": len(CORE_TOOL_IDS),
+                "core_tools": 5,
                 "categories": sorted(set(TOOL_NAMESPACE[t].category for t in TOOL_NAMESPACE)),
             })
         except Exception as e:

@@ -203,7 +203,6 @@ class ToolPlanningStage:
         from agent.llm.tool_adapter import from_llm_tool_name
         from agent.runtime.tool_planning.planner import ToolPlannerV2
         from agent.runtime.tool_planning.scene_adapter import scene_to_rule_scene
-        from agent.runtime.capability_routing.toolset import active_tool_catalog
         base_reg = getattr(ctx.tool_router, 'registry', None) or (ctx.tool_router if hasattr(ctx.tool_router, 'list_model_visible') else None)
         if base_reg is None:
             return ContextStageResult.ok_result(StageName.TOOL_PLANNING, metadata={'tool_planning_skipped': True, 'reason': 'no_base_registry'})
@@ -234,7 +233,11 @@ class ToolPlanningStage:
             enriched_query = enrich_query_with_history(ctx.user_input, ctx=ctx)
         except Exception:
             enriched_query = ctx.user_input
-        available_catalog = active_tool_catalog(enriched_query, scene=scene_decision, safe_context=getattr(ctx, 'safe_context', {}) or {}, limit=24)
+        # v3.9.3: capability_routing removed. All 21 tools are visible.
+        available_catalog = {
+            "tools": list(TOOL_NAMESPACE),
+            "capability_routing": {},
+        }
         tool_scene = planner.plan(scene_decision, evidence_bundle=evidence_bundle, available_catalog=available_catalog, model_config=ctx.model_config)
         rule_tool_scene = scene_to_rule_scene(scene_decision)
         allowed_tools = list(tool_scene.get('candidate_tools') or [])

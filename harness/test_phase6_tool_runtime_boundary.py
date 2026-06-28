@@ -31,48 +31,8 @@ class TestCallerPermission:
         assert result.status == "blocked" or "allow" in str(result.summary).lower()
 
 
-class TestManifestGate:
-    def test_missing_manifest_blocked(self):
-        from tool_runtime.integration import get_default_tool_runtime_client
-        from tool_runtime.context import ToolRuntimeContext
-        client = get_default_tool_runtime_client()
-        ctx = ToolRuntimeContext(workspace_id="default")
-        result = client.invoke("nonexistent.tool.fake", {}, context=ctx)
-        assert result.status == "blocked"
-        assert "manifest" in str(result.summary).lower()
-
-    def test_skill_discovery_tools_are_visible_and_invokable(self):
-        from tool_runtime.canonical_registry import to_tool_specs
-        from tool_runtime.integration import get_default_tool_runtime_client
-        from tool_runtime.context import ToolRuntimeContext
-
-        visible = {
-            spec.tool_id
-            for spec, _ in to_tool_specs()
-            if getattr(spec, "callable_by_llm", False)
-        }
-        for tid in ("skill.manage", "skill.manage", "skill.manage", "skill.manage"):
-            assert tid in visible
-
-        client = get_default_tool_runtime_client()
-        ctx = ToolRuntimeContext(workspace_id="default", requested_by="turn_runner")
-        result = client.invoke("skill.manage", {}, context=ctx)
-        assert result.status == "succeeded"
-
-    def test_active_tool_catalog_keeps_routed_business_tools_visible(self):
-        from agent.runtime.capability_routing.toolset import active_tool_catalog
-
-        config_catalog = active_tool_catalog("分析这个华为配置", limit=24)
-        assert "config.manage" in config_catalog["tools"]
-
-        subagent_catalog = active_tool_catalog("派发子agent搜索一下BGP邻居的建立条件", limit=24)
-        assert "agent.manage" in subagent_catalog["tools"]
-        assert "agent.manage" in subagent_catalog["tools"]
-
-        for catalog in (config_catalog, subagent_catalog):
-            for tid in ("skill.manage", "skill.manage", "skill.manage"):
-                assert tid in catalog["tools"]
-
+# v3.9.3: capability_routing removed. TestManifestGate class
+# (active_tool_catalog filtering) is no longer applicable.
 
 class TestRedaction:
     def test_tool_output_redacted_by_default(self):

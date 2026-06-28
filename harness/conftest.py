@@ -81,7 +81,6 @@ def temp_dirs(monkeypatch):
     except Exception:
         pass
     try:
-        from agent.runtime.capability_routing.toolset import _active_tool_catalog_cache
         _active_tool_catalog_cache.clear()
     except Exception:
         pass

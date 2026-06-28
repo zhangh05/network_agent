@@ -130,7 +130,7 @@ class GraphRunner:
         max_steps: int = 24,
         checkpointer=None,
         enable_checkpoint: bool = True,
-        enable_semantic_route: bool = True,
+        # v3.9.3: enable_semantic_route param retained for backward compat (no-op)
     ):
         self.max_steps = max_steps
         self.enable_checkpoint = enable_checkpoint
@@ -186,26 +186,9 @@ class GraphRunner:
         user_input = state.get("user_input", "")
         metadata = state.get("metadata", {})
 
-        # Semantic routing
-        if user_input and self.enable_semantic_route:
-            try:
-                from agent.runtime.capability_routing.semantic_router import semantic_route
-                from agent.runtime.capability_routing.manifests import CAPABILITY_PACKAGES
-                cap_map = {p.capability_id: p.description for p in CAPABILITY_PACKAGES}
-                matched = semantic_route(user_input, cap_map)
-                if matched:
-                    metadata["semantic_capability"] = matched
-            except Exception:
-                pass
-
-        # Capability routing
-        try:
-            from agent.runtime.capability_routing.toolset import build_active_tool_bundle
-            bundle = build_active_tool_bundle(user_input)
-            metadata["capability_packages"] = bundle.package_ids
-        except Exception:
-            pass
-
+        # v3.9.3: capability_routing removed. All 21 tools are visible
+        # unconditionally; semantic routing / capability bundles are
+        # no longer computed. The LLM picks tools from the manifest.
         return {
             "tools": tools,
             "step": 0,

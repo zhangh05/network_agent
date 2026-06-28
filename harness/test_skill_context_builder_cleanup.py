@@ -47,11 +47,15 @@ def test_loaded_capabilities_do_not_inject_prompt_text():
 
 
 def test_context_builder_does_not_use_full_tool_namespace_catalog():
+    # v3.9.3: capability_routing removed. context_builder.py now uses
+    # {"tools": list(TOOL_NAMESPACE), "capability_routing": {}} inline.
     text = Path("agent/runtime/context_builder.py").read_text(encoding="utf-8")
-    assert "list(TOOL_NAMESPACE)" not in text
-    assert 'available_catalog={"tools": list(TOOL_NAMESPACE)}' not in text
+    assert "active_tool_catalog" not in text
+    assert "list(TOOL_NAMESPACE)" in text
 
 
-def test_context_builder_uses_active_tool_catalog():
+def test_context_builder_uses_full_tool_namespace_catalog():
+    # v3.9.3: replaces test_context_builder_uses_active_tool_catalog.
+    # The catalog is now a literal dict containing all 21 tools.
     text = Path("agent/runtime/context_builder.py").read_text(encoding="utf-8")
-    assert "active_tool_catalog" in text
+    assert '"tools": list(TOOL_NAMESPACE)' in text
