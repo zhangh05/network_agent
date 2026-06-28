@@ -21,17 +21,16 @@ BASELINE_READ_TOOLS = [
     "skill.inspect",
     "workspace.file.list", "workspace.file.read",
     "workspace.artifact.read",
-    # Host
-    "exec.run",
-    "exec.python", "exec.slash",
     # Web
     "web.search",
     "web.page.process",
-    "web.search",
     "web.weather",
 ]
 
 LOCAL_OPS_TOOLS = [
+    "exec.run",
+    "exec.python",
+    "exec.slash",
     "system.diagnostics",
 ]
 
@@ -141,6 +140,8 @@ def action_class_filter(candidate_tools: list[str], rule_scene: dict) -> list[st
         if entry is None:
             continue
         ac = classify_tool(tid, entry.category, entry.group, entry.action)
+        if ac.action_class in ("write", "mutate") and not user_wants_destructive(rule_scene, tid):
+            continue
         if ac.is_destructive and not user_wants_destructive(rule_scene, tid):
             continue
         result.append(tid)

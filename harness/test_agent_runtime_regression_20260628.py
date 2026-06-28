@@ -220,6 +220,39 @@ def test_action_result_projection_preserves_tool_output_for_llm():
     assert payload["subtask_id"] == "sub-abc"
 
 
+def test_agent_spawn_result_exposes_child_session_id(monkeypatch):
+    from tool_runtime.general_tools import agent_tools
+
+    monkeypatch.setattr(agent_tools, "_select_subagent_profile", lambda allowed_tools=None, roles=None: "review_agent")
+    monkeypatch.setattr(agent_tools, "create_subagent_task", None, raising=False)
+
+    def fake_create_subagent_task(**kwargs):
+        return {"ok": True, "subtask_id": "sub-child-1"}
+
+    def fake_run_subagent_task(subtask_id, workspace_id):
+        return {
+            "ok": True,
+            "status": "succeeded",
+            "summary": "done",
+            "child_session_id": subtask_id,
+        }
+
+    monkeypatch.setattr("agent.runtime.durable.subagent.create_subagent_task", fake_create_subagent_task)
+    monkeypatch.setattr("agent.runtime.durable.subagent.run_subagent_task", fake_run_subagent_task)
+    monkeypatch.setattr("agent.runtime.durable.subagent.merge_subagent_result", lambda *a, **k: {"ok": True})
+
+    result = agent_tools._run_durable_subagent(
+        instruction="search",
+        workspace_id="default",
+        session_id="sess-parent",
+        parent_task_id="task-parent",
+        allowed_tools=["web.search"],
+    )
+
+    assert result["subtask_id"] == "sub-child-1"
+    assert result["child_session_id"] == "sub-child-1"
+
+
 def test_memory_search_validates_workspace_without_name_error():
     from tool_runtime.general_tools.memory_tools import handle_memory_search
     from tool_runtime.schemas import ToolInvocation

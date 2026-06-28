@@ -23,6 +23,7 @@ def _select_subagent_profile(allowed_tools: list | None = None, roles: list | No
 
 
 def _run_durable_subagent(*, instruction: str, workspace_id: str, session_id: str,
+                          parent_task_id: str = "",
                           allowed_tools: list | None = None, roles: list | None = None) -> dict:
     from agent.runtime.durable.subagent import (
         create_subagent_task,
@@ -32,7 +33,7 @@ def _run_durable_subagent(*, instruction: str, workspace_id: str, session_id: st
 
     profile_id = _select_subagent_profile(allowed_tools, roles)
     created = create_subagent_task(
-        parent_task_id="",
+        parent_task_id=parent_task_id,
         workspace_id=workspace_id,
         session_id=session_id,
         profile_id=profile_id,
@@ -43,12 +44,14 @@ def _run_durable_subagent(*, instruction: str, workspace_id: str, session_id: st
         return {"ok": False, "error": created.get("error", "failed to create subagent task")}
     subtask_id = created["subtask_id"]
     result = run_subagent_task(subtask_id, workspace_id)
-    merge_subagent_result("", subtask_id, workspace_id)
+    merge_subagent_result(parent_task_id, subtask_id, workspace_id)
+    child_session_id = result.get("child_session_id") or subtask_id
     return {
         "ok": result.get("ok", False) and result.get("status") == "succeeded",
         "final_response": result.get("summary", ""),
         "summary": result.get("summary", ""),
         "subtask_id": subtask_id,
+        "child_session_id": child_session_id,
         "status": result.get("status", "unknown"),
         "findings": result.get("findings", []),
         "tool_results": result.get("tool_results", []),
@@ -83,6 +86,7 @@ def handle_agent_spawn(inv: ToolInvocation) -> dict:
             instruction=instruction,
             workspace_id=workspace_id,
             session_id=parent_session_id,
+            parent_task_id=getattr(inv, "task_id", "") or "",
             allowed_tools=allowed_tools if allowed_tools else None,
         )
         return _result(inv, result.get("ok", False), result)
@@ -169,6 +173,7 @@ def handle_agent_team(inv: ToolInvocation) -> dict:
                 instruction=plan_instruction,
                 workspace_id=workspace_id,
                 session_id=_inv_session_id(inv),
+                parent_task_id=getattr(inv, "task_id", "") or "",
                 allowed_tools=_low_risk_read_tools,
                 roles=["planner"],
             )
@@ -203,6 +208,7 @@ def handle_agent_team(inv: ToolInvocation) -> dict:
                     instruction=task,
                     workspace_id=workspace_id,
                     session_id=_inv_session_id(inv),
+                    parent_task_id=getattr(inv, "task_id", "") or "",
                     allowed_tools=_text_data_tools,
                     roles=["worker"],
                 )
@@ -254,6 +260,7 @@ def handle_agent_team(inv: ToolInvocation) -> dict:
                 instruction=worker_instruction,
                 workspace_id=workspace_id,
                 session_id=_inv_session_id(inv),
+                parent_task_id=getattr(inv, "task_id", "") or "",
                 allowed_tools=_text_data_tools,
                 roles=["worker"],
             )
@@ -280,6 +287,7 @@ def handle_agent_team(inv: ToolInvocation) -> dict:
                 instruction=review_instruction,
                 workspace_id=workspace_id,
                 session_id=_inv_session_id(inv),
+                parent_task_id=getattr(inv, "task_id", "") or "",
                 allowed_tools=_low_risk_read_tools,
                 roles=["reviewer"],
             )

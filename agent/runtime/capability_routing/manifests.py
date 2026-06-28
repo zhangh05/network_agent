@@ -203,8 +203,8 @@ CAPABILITY_PACKAGES: tuple[CapabilityPackage, ...] = (
         description="SSH / Telnet 连接网络设备并执行命令。先通过 CMDB 获取设备信息，再调用连接工具。",
         intent_keywords=("ssh", "telnet", "连接", "登录设备", "display", "show run",
                          "执行命令", "show version", "display version"),
-        module_ids=("remote",),
-        tool_ids=("exec.run",),
+        module_ids=("remote", "cmdb"),
+        tool_ids=("device.list", "device.get", "exec.run"),
         output_kinds=("text",),
         safety_notes=("真实设备访问，需审批。", "危险命令（reload/erase/format）自动拦截。"),
         priority=6,
@@ -234,7 +234,6 @@ CORE_TOOL_IDS: tuple[str, ...] = (
     "workspace.file.list", "workspace.file.read",
     "workspace.artifact.read",
     # ── Universal information tools ──
-    "exec.run",
     "web.search", "web.page.process", "web.weather",
     "memory.search",
 )

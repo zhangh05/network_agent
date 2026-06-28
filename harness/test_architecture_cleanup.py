@@ -193,13 +193,13 @@ class TestToolVisibilityPolicy:
         from agent.runtime.tool_planning.visibility import scene_allows_local_ops
         assert scene_allows_local_ops({}, "翻译这段配置") is False
 
-    def test_baseline_includes_host_and_web(self):
-        """host and web tools are universal catalog — always in BASELINE."""
+    def test_baseline_includes_read_and_web_only(self):
+        """Execute tools are scene-gated; read/discovery stays universal."""
         from agent.runtime.tool_planning.visibility import BASELINE_READ_TOOLS
-        assert "exec.run" in BASELINE_READ_TOOLS
+        assert "exec.run" not in BASELINE_READ_TOOLS
         assert "web.search" in BASELINE_READ_TOOLS
 
-    def test_local_ops_no_host_duplicates(self):
-        """host tools moved to BASELINE — no duplicates in LOCAL_OPS."""
+    def test_local_ops_contains_host_tools(self):
+        """Host tools are available only when local ops is detected."""
         from agent.runtime.tool_planning.visibility import LOCAL_OPS_TOOLS
-        assert "exec.run" not in LOCAL_OPS_TOOLS
+        assert "exec.run" in LOCAL_OPS_TOOLS

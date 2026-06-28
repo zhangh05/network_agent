@@ -20,6 +20,7 @@ from agent.runtime.tool_planning.embeddings import get_embedding_store
 
 RRF_K = 60        # Smoothing constant (higher = more weight to low-ranked items)
 RRF_ALPHA = 0.6   # Semantic weight (0-1). 0.6 = 60% semantic, 40% keyword
+SEMANTIC_MIN_SIMILARITY = 0.18
 
 
 # ── Keyword matching ───────────────────────────────────────────────────
@@ -77,7 +78,11 @@ def hybrid_tool_search(
     """
     # 1. Semantic retrieval
     store = get_embedding_store()
-    semantic_results = store.search(user_input, top_k=top_k)
+    semantic_results = [
+        (tid, score)
+        for tid, score in store.search(user_input, top_k=top_k)
+        if score >= SEMANTIC_MIN_SIMILARITY
+    ]
 
     # 2. Build rank maps
     semantic_rank: dict[str, int] = {}

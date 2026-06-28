@@ -301,6 +301,7 @@ def deterministic_plan_tools(
     # When the catalog came from capability routing, trust its tool selection
     if "capability_routing" in available_catalog:
         candidate_tools = _ordered_unique([*candidate_tools, *[tid for tid in available]])
+        candidate_tools = action_class_filter(candidate_tools, rule_scene)
 
     # BASELINE_READ_TOOLS must always be visible regardless of catalog
     # filtering — the catalog is a routing optimization, not a gatekeeper.

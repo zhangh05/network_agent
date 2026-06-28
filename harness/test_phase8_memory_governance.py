@@ -202,6 +202,34 @@ class TestConflict:
         # Should be conflict since similar to active
         assert result["status"] in ("conflict", "pending")
 
+    def test_chinese_network_content_detected_as_conflict(self):
+        ws = f"ws_cjk_{uuid.uuid4().hex[:8]}"
+        gate = MemoryWriteGate()
+        r1 = MemoryRecord(
+            workspace_id=ws,
+            scope="workspace",
+            memory_type="operational_fact",
+            status="active",
+            source="manual_confirm",
+            confidence=0.95,
+            content="BGP邻居建立失败通常需要检查AS号、peer地址和路由可达性。",
+            summary="BGP邻居建立失败需检查AS号 peer地址 路由可达性",
+        )
+        gate.write(r1)
+        r2 = MemoryRecord(
+            workspace_id=ws,
+            scope="workspace",
+            memory_type="operational_fact",
+            status="active",
+            source="manual_confirm",
+            confidence=0.95,
+            content="BGP peer 建立异常时优先确认AS号码、邻居地址以及路由是否可达。",
+            summary="BGP peer建立异常优先确认AS号码邻居地址路由可达",
+        )
+        result = gate.write(r2)
+        assert result["ok"]
+        assert result["status"] == "conflict"
+
     def test_active_not_overwritten_by_conflict(self):
         ws = f"ws_ao_{uuid.uuid4().hex[:8]}"
         gate = MemoryWriteGate()

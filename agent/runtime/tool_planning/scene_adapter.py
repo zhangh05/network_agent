@@ -24,6 +24,7 @@ def scene_to_rule_scene(decision: SceneDecision) -> dict[str, Any]:
         "reason": decision.reason,
         "warnings": list(decision.warnings),
         "signals": dict(decision.signals),
+        "allowed_actions": _allowed_actions(decision.user_input),
         "category": decision.primary_category,
         "group": primary_group,
         "followup_inherited": decision.followup_inherited,
@@ -47,3 +48,17 @@ def _primary_group(primary_category: str, groups: dict[str, list[str]]) -> str:
     if pref in group_ids:
         return pref
     return group_ids[0] if group_ids else "general"
+
+
+def _allowed_actions(user_input: str) -> list[str]:
+    lower = (user_input or "").lower()
+    allowed: set[str] = set()
+    if any(k in lower for k in ("添加设备", "新增设备", "录入设备", "add device", "create device")):
+        allowed.add("device.add")
+    if any(k in lower for k in ("删除设备", "移除设备", "delete device", "remove device")):
+        allowed.add("device.delete")
+    if any(k in lower for k in ("保存", "导出", "生成报告", "save", "export", "render report")):
+        allowed.update({"workspace.artifact.save", "report.artifact.save", "report.markdown.render"})
+    if any(k in lower for k in ("修改文件", "编辑文件", "写入文件", "patch file", "edit file", "write file")):
+        allowed.update({"workspace.file.edit", "workspace.file.patch", "workspace.file.write_artifact"})
+    return sorted(allowed)

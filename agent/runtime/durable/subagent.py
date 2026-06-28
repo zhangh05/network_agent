@@ -433,14 +433,21 @@ def _run_turn_with_timeout(run_turn_fn, session, turn, restricted_tool_router, *
     thread is abandoned best-effort.
     """
     import concurrent.futures
+    import inspect
+
+    submit_kwargs = {"restricted_tool_router": restricted_tool_router}
+    try:
+        if "services" in inspect.signature(run_turn_fn).parameters:
+            submit_kwargs["services"] = None
+    except Exception:
+        submit_kwargs["services"] = None
 
     executor = concurrent.futures.ThreadPoolExecutor(max_workers=1, thread_name_prefix="subagent")
     future = executor.submit(
         run_turn_fn,
         session,
         turn,
-        None,
-        restricted_tool_router=restricted_tool_router,
+        **submit_kwargs,
     )
     try:
         return future.result(timeout=max(1, int(timeout_seconds)))

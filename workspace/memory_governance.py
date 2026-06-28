@@ -135,7 +135,7 @@ class MemoryStore:
             if r.memory_type != record.memory_type: continue
             if r.status not in ("active", "pending"): continue
             # Simple similarity check
-            if _text_similarity(r.summary, record.summary) > 0.7:
+            if _text_similarity(r.summary, record.summary) > 0.55:
                 conflicts.append(r)
         return conflicts
 
@@ -329,10 +329,29 @@ def _llm_gate_record(record: MemoryRecord) -> tuple[bool, list[dict]]:
         return True, [{"reason": "llm_gate_unavailable_fallback"}]
 
 def _text_similarity(a: str, b: str) -> float:
-    a_words = set(a.lower().split())
-    b_words = set(b.lower().split())
-    if not a_words or not b_words: return 0
-    return len(a_words & b_words) / len(a_words | b_words)
+    def _tokens(text: str) -> set[str]:
+        import re
+        normalized = (text or "").lower().strip()
+        if not normalized:
+            return set()
+        words = set(re.findall(r"[a-z0-9_./:-]+", normalized))
+        cjk = re.findall(r"[\u4e00-\u9fff]", normalized)
+        if cjk:
+            words.update(cjk)
+            words.update("".join(cjk[i:i + 2]) for i in range(len(cjk) - 1))
+        if not words and normalized:
+            compact = re.sub(r"\s+", "", normalized)
+            words.update(compact[i:i + 3] for i in range(max(1, len(compact) - 2)))
+        return {w for w in words if w}
+
+    a_words = _tokens(a)
+    b_words = _tokens(b)
+    if not a_words or not b_words:
+        return 0
+    overlap = len(a_words & b_words)
+    jaccard = overlap / len(a_words | b_words)
+    containment = overlap / min(len(a_words), len(b_words))
+    return max(jaccard, containment)
 
 def _emit_event(ws_id: str, rec: MemoryRecord, event_type: str):
     try:

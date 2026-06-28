@@ -44,25 +44,25 @@ def _candidates(text: str) -> set[str]:
 
 
 def test_simple_chat_does_not_expose_sub_agents():
-    """host/web tools are now BASELINE (always visible). Sub-agents should NOT be in simple chat."""
+    """Simple chat keeps sub-agents and host execution hidden."""
     candidates = _candidates("你好")
-    # host tools ARE baseline now — not a bug
+    assert "exec.run" not in candidates
     assert not (SUB_AGENT_TOOLS & candidates)
 
 
-def test_knowledge_qa_exposes_host_tools_as_baseline():
-    """host tools are BASELINE — always visible, even in knowledge QA."""
+def test_knowledge_qa_keeps_host_tools_scene_gated():
+    """Knowledge QA exposes knowledge tools, not host execution by default."""
     candidates = _candidates("知识库里有没有 OSPF 相关资料")
     assert "knowledge.search" in candidates
-    # host tools appear because they're baseline — expected behaviour
+    assert "exec.run" not in candidates
 
 
-def test_config_translate_includes_baseline_host_tools():
-    """config analysis tools + baseline (including host) should be visible."""
+def test_config_translate_keeps_host_tools_scene_gated():
+    """Config analysis tools are visible without exposing host execution."""
     candidates = _candidates("把这个华三配置翻译成思科配置")
     assert "config.analysis.run" in candidates
     assert {"workspace.file.read", "workspace.file.list"} & candidates
-    # host tools are BASELINE — expected to appear
+    assert "exec.run" not in candidates
 
 
 def test_explicit_local_ops_exposes_execution_tools():
@@ -73,7 +73,7 @@ def test_explicit_local_ops_exposes_execution_tools():
 
 
 def test_parallel_complex_task_exposes_sub_agent():
-    """sub-agent tools exposed for parallel tasks; host tools are BASELINE."""
+    """sub-agent tools exposed for parallel tasks; host tools remain scene-gated."""
     candidates = _candidates("请分别检查所有文件，并行整理结果")
     assert SUB_AGENT_TOOLS & candidates
 
@@ -95,7 +95,7 @@ def test_unknown_tools_fail_closed_in_planner():
     )
     candidates = set(plan.get("candidate_tools") or [])
     assert "unknown.tool.exec" not in candidates
-    # exec.run is now BASELINE — always visible regardless of scene
+    assert "exec.run" not in candidates
     assert "unknown.tool.exec" in plan.get("governance", {}).get("unknown_tools_filtered", [])
 
 

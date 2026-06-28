@@ -23,11 +23,11 @@ READ_ACTIONS = {
 
 WRITE_ACTIONS = {
     "save", "write", "edit", "patch", "tag", "export", "render",
-    "profile.set",
+    "profile.set", "artifact_save", "write_artifact",
 }
 
 MUTATE_ACTIONS = {
-    "create", "update", "delete", "disable", "reindex", "import",
+    "add", "create", "update", "delete", "disable", "reindex", "import",
     "load", "unload", "confirm", "set", "rewind", "checkpoint",
     "delete_soft", "archive.preview", "reindex_all", "restore",
     "snapshot.create", "snapshot.list",  # session snapshots are metadata writes
@@ -49,6 +49,7 @@ CATEGORY_EXTERNAL = {"web"}
 # Tools that are safe even when in MUTATE/WRITE/EXEC classes
 SAFE_EXECUTE = {"runtime.selfcheck", "system.diagnostics", "system.diagnostics"}
 SAFE_WRITE = {"workspace.file.read"}  # not actually destructive
+SAFE_MUTATE = {"skill.load"}  # LLM-visible capability activation, not business data mutation
 
 
 # ─── Classification ──────────────────────────────────────────────────────
@@ -93,7 +94,7 @@ def classify_tool(tool_id: str, category: str = "", group: str = "",
         result.is_high_impact = True
     # v3.1.1: "spawn" creates read-only sub-agents — NOT destructive.
     # It passes through the approval gate for high-impact tools.
-    if action in ("delete", "delete_soft", "disable", "unload", "rewind", "checkpoint",
+    if action in ("add", "delete", "delete_soft", "disable", "unload", "rewind", "checkpoint",
                   "reindex_all", "restore"):
         result.is_destructive = True
 
@@ -103,6 +104,10 @@ def classify_tool(tool_id: str, category: str = "", group: str = "",
         result.is_high_impact = False
     if tool_id in SAFE_WRITE and result.action_class == "write":
         result.action_class = "read"
+    if tool_id in SAFE_MUTATE and result.action_class == "mutate":
+        result.action_class = "read"
+        result.is_high_impact = False
+        result.is_destructive = False
 
     return result
 

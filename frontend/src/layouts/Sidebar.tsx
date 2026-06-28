@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { useAsync, AsyncView } from "../components/common";
 import { sessionsApi, workspacesApi, runtimeAuditApi } from "../api";
-import { useSessionStore } from "../stores/session";
+import { isInternalSessionId, useSessionStore } from "../stores/session";
 import { useWorkbenchStore } from "../stores/workbench";
 import { useToastStore } from "../stores/toast";
 import { isApiError, AgentResult } from "../types";
@@ -40,6 +40,10 @@ export function Sidebar() {
     const rid = r.run_id;
     if (!rid || !currentWorkspaceId) return;
     const targetSessionId = r.session_id;
+    if (isInternalSessionId(targetSessionId)) {
+      toast({ kind: "warning", title: "内部子任务不作为会话打开", body: targetSessionId });
+      return;
+    }
     // Switch to the run's owning session so Timeline shows the right data
     if (targetSessionId && targetSessionId !== currentSessionId) {
       setCurrentSession(targetSessionId);

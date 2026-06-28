@@ -13,6 +13,11 @@ import { create } from "zustand";
 import { persist } from "zustand/middleware";
 import type { Session } from "../types";
 
+export function isInternalSessionId(id: string | null | undefined): boolean {
+  const value = (id || "").trim();
+  return value.startsWith("sub-") || value.startsWith("internal-");
+}
+
 interface SessionState {
   currentWorkspaceId: string;
   currentSessionId: string | null;
@@ -31,8 +36,14 @@ export const useSessionStore = create<SessionState>()(
       currentSessionId: null,
       sessions: [],
       setCurrentWorkspace: (id) => set({ currentWorkspaceId: id, currentSessionId: null, sessions: [] }),
-      setCurrentSession: (id) => set({ currentSessionId: id }),
-      setSessions: (sessions) => set({ sessions }),
+      setCurrentSession: (id) => set({ currentSessionId: isInternalSessionId(id) ? null : id }),
+      setSessions: (sessions) => set((state) => {
+        const visibleSessions = sessions.filter((s) => !isInternalSessionId(s.session_id));
+        const currentSessionId = state.currentSessionId && visibleSessions.some((s) => s.session_id === state.currentSessionId)
+          ? state.currentSessionId
+          : null;
+        return { sessions: visibleSessions, currentSessionId };
+      }),
       reset: () =>
         set({
           currentSessionId: null,
@@ -43,8 +54,17 @@ export const useSessionStore = create<SessionState>()(
       name: "na_session",
       partialize: (s) => ({
         currentWorkspaceId: s.currentWorkspaceId,
-        currentSessionId: s.currentSessionId,
+        currentSessionId: isInternalSessionId(s.currentSessionId) ? null : s.currentSessionId,
       }),
+      merge: (persisted, current) => {
+        const p = (persisted || {}) as Partial<SessionState>;
+        return {
+          ...current,
+          ...p,
+          currentSessionId: isInternalSessionId(p.currentSessionId) ? null : (p.currentSessionId ?? null),
+          sessions: [],
+        };
+      },
     },
   ),
 );
