@@ -109,11 +109,23 @@ class TestToolPolicySafetySemantics:
 
 class TestNoBypass:
     def test_web_tools_use_client_invoke(self):
-        """Confirm web_tools.py merged handlers use client.invoke, not direct handler."""
+        """Confirm web_tools.py merged handlers do NOT route through
+        the removed ``web.search`` id (deleted in v3.9.2 tool merge).
+
+        v3.9.4: sub-tool dispatch uses an internal ``_invoke_internal_*``
+        helper that re-enters the canonical ``web.manage`` handler with a
+        synthetic ToolInvocation. This is preferred over ``client.invoke``
+        for the web sub-tools because ``web.search`` no longer exists in
+        the canonical 21-tool namespace.
+        """
         import tool_runtime.general_tools.web_tools as wt
         source = open(wt.__file__).read()
-        # Should have client.invoke calls for sub-tool dispatch
-        assert "client.invoke" in source
+        # Must NOT call the removed web.search id.
+        assert '"web.search"' not in source
+        assert "'web.search'" not in source
+        # Sub-dispatch should go through an internal helper that re-enters
+        # the canonical web.manage handler.
+        assert "_invoke_internal_web_search" in source
 
     def test_canonical_registry_no_dead_handler_calls(self):
         source = open("tool_runtime/canonical_registry.py").read()
