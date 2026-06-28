@@ -83,7 +83,7 @@ def enrich_metadata(metadata: dict, context) -> dict:
     """Inject selected_skills / visible_tools from TurnContext into metadata."""
     if context and getattr(context, "metadata", None):
         for k in (
-            "selected_skills", "visible_tools", "dynamic_tool_expansions",
+            "selected_skills", "visible_tools",
             "memory_hits_count", "knowledge_hits_count",
         ):
             if k in context.metadata and k not in metadata:

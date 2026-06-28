@@ -1,73 +1,31 @@
-# Capability Template
+# Business Capability Template
 
-## Structure
-```
-agent/modules/<name>/
-  capability.py    — CapabilityManifest
-  tools.py         — ToolSpec + handlers
-  service.py       — business logic
-  __init__.py
-```
+Business capabilities are catalog entries, not runtime registrations. The LLM
+can only call canonical tools exposed by the runtime. Capabilities guide tool
+choice and UI display.
 
 ## Registration
-1. Add to `agent/capabilities/builtin.py`
-2. Set status: `planned` then `enabled`
-3. Run `python3 -m pytest harness/test_runtime_selfcheck.py -q` to verify
-   runtime registration and the 21 canonical tool contract
 
-## CapabilityManifest Template
+1. Edit `agent/capabilities/catalog.py`.
+2. Use canonical ids from the 21-tool namespace only.
+3. Keep `status="planned"` until the underlying canonical tool path works.
+4. Run:
+
+```bash
+python3 -m pytest harness/test_business_capability_catalog.py harness/test_v394_no_legacy_tool_ids.py -q
+```
+
+## Template
 
 ```python
-from agent.capabilities.schemas import (
-    CapabilityManifest, CapabilityModuleSpec, CapabilitySkillSpec,
-    CapabilityToolRef, CapabilityOutputSpec, CapabilitySafetySpec
-)
-
-CAPABILITY_MY_FEATURE = CapabilityManifest(
-    capability_id="my_feature",
-    name="My Feature",
-    status="planned",
-    description="Description of what this capability does",
-    module=CapabilityModuleSpec(
-        module_id="my_feature",
-        status="planned",
-        service_path="agent.modules.my_feature.service",
-        operations=["run"],
-        description="My Feature module",
-    ),
-    skills=[
-        CapabilitySkillSpec(
-            skill_id="my_feature_skill",
-            status="planned",
-            intent_patterns=["do my feature"],
-            required_inputs=["input_data"],
-            safety_rules=["Do not access real devices"],
-            prompt_summary="When the user asks to do my feature...",
-        ),
-    ],
-    tools=[
-        CapabilityToolRef(
-            tool_id="my_feature.run",
-            status="planned",
-            callable_by_llm=False,
-            risk_level="low",
-            requires_approval=False,
-            handler_ref="agent.modules.my_feature.tools.tool_handler",
-            description="Run my feature tool",
-        ),
-    ],
-    outputs=[
-        CapabilityOutputSpec(
-            output_id="my_feature_result",
-            output_type="result",
-            artifact_type="my_feature_result",
-            sensitivity="internal",
-        ),
-    ],
-    safety=CapabilitySafetySpec(
-        real_device_access=False,
-        allows_config_push=False,
-        produces_deployable_config=False,
-    ),
-)
+{
+    "capability_id": "my_feature",
+    "display_name": "My Feature",
+    "description": "One sentence describing the outcome.",
+    "module_ids": ("my_feature",),
+    "recommended_tool_ids": ("workspace.file", "text.analyze"),
+    "prompt_hints": ("Use workspace.file before parsing user files.",),
+    "safety_notes": ("Never claim unverified output is deployable.",),
+    "status": "planned",
+}
 ```

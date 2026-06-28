@@ -198,6 +198,28 @@ def handle_web_search(inv: ToolInvocation) -> dict:
             "next_actions": _web_no_results_actions(query, domains),
         })
 
+
+def _invoke_internal_web_search(inv: ToolInvocation, arguments: dict) -> dict:
+    """Reuse the canonical web search implementation inside web.manage.
+
+    This is an implementation detail of the merged ``web.manage`` tool. It
+    deliberately does not invoke the removed public ``web.search`` id.
+    """
+    sub_inv = ToolInvocation(
+        tool_id="web.manage",
+        arguments=dict(arguments or {}),
+        workspace_id=inv.workspace_id,
+        session_id=inv.session_id,
+        run_id=inv.run_id,
+        task_id=inv.task_id,
+        job_id=inv.job_id,
+        dry_run=inv.dry_run,
+        requested_by=inv.requested_by,
+        approval_id=inv.approval_id,
+    )
+    return handle_web_search(sub_inv)
+
+
 def handle_weather_current(inv: ToolInvocation) -> dict:
     """Current-weather lookup backed by structured public weather data."""
     args = inv.arguments
@@ -223,32 +245,23 @@ def handle_weather_current(inv: ToolInvocation) -> dict:
         )
 
     query = f"{location} current weather temperature humidity wind"
-    # v3.9: Route sub-call through unified ToolRuntimeClient (no direct handler bypass)
-    from tool_runtime.integration import get_default_tool_runtime_client
-    from tool_runtime.context import ToolRuntimeContext
-    client = get_default_tool_runtime_client()
-    ctx = ToolRuntimeContext(
-        workspace_id=inv.workspace_id,
-        requested_by=inv.requested_by,
-        approval_id=inv.approval_id,
-    )
-    result = client.invoke("web.search", {
+    result = _invoke_internal_web_search(inv, {
         "query": query,
         "top_k": _coerce_int(args.get("top_k", 5), default=5, min_value=1, max_value=10),
         "recency": args.get("recency", "day"),
         "language": language,
         "safe_search": args.get("safe_search", "moderate"),
-    }, context=ctx)
-    out = {"ok": result.status == "succeeded",
-           "summary": result.summary or "",
-           "results": result.output.get("results", []),
-           "errors": list(result.errors or [])[:5],
-           "warnings": list(result.warnings or [])[:5]}
+    })
+    out = {"ok": bool(result.get("ok")),
+           "summary": result.get("summary", ""),
+           "results": result.get("results", []),
+           "errors": list(result.get("errors") or [])[:5],
+           "warnings": list(result.get("warnings") or [])[:5]}
     return _decorate_realtime_search_result(
         out,
         tool_id="web.weather.current",
         query=query,
-        tool_fallback="web.search",
+        tool_fallback="web.manage(action=search)",
         extra={"location": location, "units": units, "language": language},
     )
 
@@ -278,32 +291,23 @@ def handle_weather_forecast(inv: ToolInvocation) -> dict:
         )
 
     query = f"{location} {days} day weather forecast"
-    # v3.9: Route sub-call through unified ToolRuntimeClient
-    from tool_runtime.integration import get_default_tool_runtime_client
-    from tool_runtime.context import ToolRuntimeContext
-    client = get_default_tool_runtime_client()
-    ctx = ToolRuntimeContext(
-        workspace_id=inv.workspace_id,
-        requested_by=inv.requested_by,
-        approval_id=inv.approval_id,
-    )
-    result = client.invoke("web.search", {
+    result = _invoke_internal_web_search(inv, {
         "query": query,
         "top_k": _coerce_int(args.get("top_k", 5), default=5, min_value=1, max_value=10),
         "recency": args.get("recency", "day"),
         "language": language,
         "safe_search": args.get("safe_search", "moderate"),
-    }, context=ctx)
-    out = {"ok": result.status == "succeeded",
-           "summary": result.summary or "",
-           "results": result.output.get("results", []),
-           "errors": list(result.errors or [])[:5],
-           "warnings": list(result.warnings or [])[:5]}
+    })
+    out = {"ok": bool(result.get("ok")),
+           "summary": result.get("summary", ""),
+           "results": result.get("results", []),
+           "errors": list(result.get("errors") or [])[:5],
+           "warnings": list(result.get("warnings") or [])[:5]}
     return _decorate_realtime_search_result(
         out,
         tool_id="web.weather.forecast",
         query=query,
-        tool_fallback="web.search",
+        tool_fallback="web.manage(action=search)",
         extra={"location": location, "days": days, "units": units, "language": language},
     )
 
@@ -315,16 +319,7 @@ def handle_news_search(inv: ToolInvocation) -> dict:
         return _error_inv(inv, "query is required")
     recency = (args.get("recency") or "day").strip().lower()
     language = (args.get("language") or "zh-CN").strip() or "zh-CN"
-    # v3.9: Route sub-call through unified ToolRuntimeClient
-    from tool_runtime.integration import get_default_tool_runtime_client
-    from tool_runtime.context import ToolRuntimeContext
-    client = get_default_tool_runtime_client()
-    ctx = ToolRuntimeContext(
-        workspace_id=inv.workspace_id,
-        requested_by=inv.requested_by,
-        approval_id=inv.approval_id,
-    )
-    result = client.invoke("web.search", {
+    result = _invoke_internal_web_search(inv, {
         "query": query,
         "top_k": _coerce_int(args.get("top_k", args.get("limit", 5)), default=5, min_value=1, max_value=10),
         "site": args.get("site", ""),
@@ -332,17 +327,17 @@ def handle_news_search(inv: ToolInvocation) -> dict:
         "recency": recency,
         "language": language,
         "safe_search": args.get("safe_search", "moderate"),
-    }, context=ctx)
-    out = {"ok": result.status == "succeeded",
-           "summary": result.summary or "",
-           "results": result.output.get("results", []),
-           "errors": list(result.errors or [])[:5],
-           "warnings": list(result.warnings or [])[:5]}
+    })
+    out = {"ok": bool(result.get("ok")),
+           "summary": result.get("summary", ""),
+           "results": result.get("results", []),
+           "errors": list(result.get("errors") or [])[:5],
+           "warnings": list(result.get("warnings") or [])[:5]}
     return _decorate_realtime_search_result(
         out,
-        tool_id="web.search",
+        tool_id="web.manage",
         query=query,
-        tool_fallback="web.search",
+        tool_fallback="web.manage(action=search)",
         extra={"recency": recency, "language": language},
     )
 
@@ -470,36 +465,27 @@ def handle_web_official_doc_search(inv: ToolInvocation) -> dict:
     if vendor in doc_targets:
         domain, base = doc_targets[vendor]
         domains = [domain]
-    # v3.9: Route sub-call through unified ToolRuntimeClient
-    from tool_runtime.integration import get_default_tool_runtime_client
-    from tool_runtime.context import ToolRuntimeContext
-    client = get_default_tool_runtime_client()
-    ctx = ToolRuntimeContext(
-        workspace_id=inv.workspace_id,
-        requested_by=inv.requested_by,
-        approval_id=inv.approval_id,
-    )
-    result = client.invoke("web.search", {
+    result = _invoke_internal_web_search(inv, {
         "query": query,
         "domains": domains,
         "top_k": _coerce_int(args.get("top_k", 5), default=5, min_value=1, max_value=10),
         "language": args.get("language", "zh-CN"),
         "safe_search": args.get("safe_search", "moderate"),
-    }, context=ctx)
-    out = {"ok": result.status == "succeeded",
-           "summary": result.summary or "",
-           "results": result.output.get("results", []),
-           "errors": list(result.errors or [])[:5],
-           "warnings": list(result.warnings or [])[:5]}
+    })
+    out = {"ok": bool(result.get("ok")),
+           "summary": result.get("summary", ""),
+           "results": result.get("results", []),
+           "errors": list(result.get("errors") or [])[:5],
+           "warnings": list(result.get("warnings") or [])[:5]}
     result = dict(out)
-    result["tool_id"] = "web.search"
+    result["tool_id"] = "web.manage"
     result["source_type"] = "official_doc_search"
     result["vendor"] = vendor
     result["official_domains"] = domains
     result["doc_base_url"] = base
     result.setdefault("next_actions", [])
     result["next_actions"] = list(result["next_actions"]) + [
-        "优先引用 official_or_primary 结果；如需要正文细节，再调用 web.page.process。",
+        "优先引用 official_or_primary 结果；如需要正文细节，再调用 web.manage(action=page)。",
     ]
     if not result.get("ok") and base:
         result["status"] = "fallback_doc_index"

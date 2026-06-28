@@ -1,7 +1,7 @@
 /**
  * Domain types — strict 1:1 mapping from backend Python dataclasses `as_dict()`.
  * No fields are guessed. The frontend only renders what the backend actually
- * returns. See `agent/capabilities/schemas.py` and `agent/runtime/result.py`.
+ * returns. See `agent/capabilities/catalog.py` and `agent/runtime/result.py`.
  */
 
 export type CapabilityStatus = "enabled" | "planned" | "disabled";
@@ -10,16 +10,15 @@ export type RiskLevel = "low" | "medium" | "high" | "forbidden";
 export type Sensitivity = "public" | "internal" | "sensitive" | "secret";
 export type ToolGovernanceStatus = "active" | "disabled" | "internal" | "forbidden";
 
-/* ───────────────────────── CapabilityManifest ─────────────────────────
+/* ───────────────────────── BusinessCapability ─────────────────────────
  *
- * Wire shape produced by `registry/loader.py::_generate_capabilities`
- * (and projected to JSON via `CapabilitySpec.as_dict`). The v1.0.1
- * frontend used the nested `agent/capabilities/schemas.py::CapabilityManifest`
- * shape; that does NOT match what `/api/capabilities` actually returns.
- * This interface reflects the REAL response.
+ * Wire shape produced by `/api/capabilities` from
+ * `agent/capabilities/catalog.py`. These are business capability cards and
+ * recommended canonical tools. They are not tool registrations or visibility
+ * gates.
  */
 
-export interface CapabilityManifest {
+export interface BusinessCapability {
   /** Unique capability id, e.g. `config.translate`. */
   capability_id: string;
   /** Whether the capability is callable by the LLM. */
@@ -614,18 +613,7 @@ export interface DecisionReport {
   created_at: string;
   decision_status: "complete" | "degraded" | string;
   scene_decision: Record<string, unknown>;
-  capability_route: {
-    capability_ids?: string[];
-    module_ids?: string[];
-    confidence?: Record<string, number>;
-    candidate_scores?: Record<string, number>;
-    signals?: string[];
-    ambiguous?: boolean;
-    fallback_used?: boolean;
-    latency_ms?: number;
-    route_version?: string;
-    [key: string]: unknown;
-  };
+  business_capabilities?: Array<Partial<BusinessCapability> & Record<string, unknown>>;
   tool_planning_decision: {
     visible_tools?: string[];
     required_tools?: string[];
@@ -633,11 +621,9 @@ export interface DecisionReport {
     blocked_tools?: Array<{ tool_id?: string; reason?: string }>;
     selection_reason?: string;
     local_ops_allowed?: boolean;
-    catalog_expansion_allowed?: boolean;
     [key: string]: unknown;
   };
   retrieval_decision: Record<string, Record<string, unknown>>;
-  catalog_expansions: Array<Record<string, unknown>>;
   context_pipeline: Record<string, unknown>;
   visibility_violations: Array<Record<string, unknown>>;
   tool_execution_summary: {

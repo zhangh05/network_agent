@@ -12,23 +12,19 @@ def main():
     all_t = reg.list_all()
     visible = reg.list_model_visible()
 
-    print(f"Agent Kernel v2.1 — {len(all_t)}/{len(visible)} tools")
+    print(f"Agent Kernel v3.9.4 — {len(all_t)}/{len(visible)} canonical tools")
     print()
 
     modules = {
-        "Tools": ["workspace.file.list", "workspace.file.read", "workspace.file.edit",
-                   "workspace.file.patch", "workspace.file.write_artifact",
-                   "exec.run", "exec.python", "web.search", "web.page.process",
-                   "browser.navigate", "browser.click", "browser.screenshot"],
-        "Memory": ["memory.manage","memory.retrieve","memory.search","memory.search",
-                    "memory.manage","memory.manage","memory.manage",
-                    "memory.profile","memory.profile"],
+        "Tools": ["workspace.file", "workspace.artifact", "workspace.filestore",
+                   "exec.run", "web.manage", "browser.manage", "git.manage",
+                   "device.manage", "config.manage", "pcap.manage"],
+        "Memory": ["memory.manage"],
         "Context": ["auto_compact","token_tracker","context_compactor"],
         "Permission": ["permission_matrix","ApprovalStore","ToolPolicy"],
-        "Sub-Agent": ["agent.spawn", "agent.role.list", "agent.result.get", "agent.team.run"],
-        "Sessions": ["system.session.get", "system.session.snapshot",
-                      "system.session.rewind", "system.session.checkpoint", "system.session.export"],
-        "Command": ["exec.slash", "command_system", "SLASH_COMMANDS"],
+        "Sub-Agent": ["agent.manage"],
+        "Sessions": ["system.manage"],
+        "Command": ["exec.run", "command_system", "SLASH_COMMANDS"],
         "Hook": ["PRE_TOOL_USE","POST_TOOL_USE","PRE_TURN","POST_TURN",
                   "PRE_MODEL","POST_MODEL","ON_ERROR","ON_APPROVAL"],
         "Query Engine": ["QueryResult","with_retry","ErrorType","build_trace_id",
@@ -187,12 +183,13 @@ def main():
     except Exception:
         print("  query_engine_connected: ❌")
     
-    # skill_capability_routing (v3.2: skill_runtime/ removed, skill_tools uses CAPABILITY_PACKAGES)
+    # business capability catalog
     try:
-        has_cap_routing = 'CAPABILITY_PACKAGES' in open('tool_runtime/general_tools/skill_tools.py').read()
-        print(f"  skill_capability_routing: {'✅' if has_cap_routing else '❌'}")
+        from agent.capabilities import catalog
+        has_catalog = bool(catalog.list_all())
+        print(f"  business_capability_catalog: {'✅' if has_catalog else '❌'}")
     except Exception:
-        print("  skill_capability_routing: ❌")
+        print("  business_capability_catalog: ❌")
     
     # command_effective
     try:

@@ -11,13 +11,13 @@ def _select_subagent_profile(allowed_tools: list | None = None, roles: list | No
     role_set = set(roles or [])
     if "reviewer" in role_set:
         return "review_agent"
-    if "worker" in role_set and ({"exec.run", "exec.python"} & tools):
+    if "worker" in role_set and "exec.run" in tools:
         return "test_agent"
-    if {"workspace.file", "workspace.file", "workspace.file"} & tools:
+    if {"workspace.file", "workspace.artifact"} & tools:
         return "fix_agent"
-    if {"exec.run", "exec.python", "system.diagnostics"} & tools:
+    if {"exec.run", "system.manage"} & tools:
         return "test_agent"
-    if {"config.manage", "pcap.manage", "device.list", "device.get"} & tools:
+    if {"config.manage", "pcap.manage", "device.manage"} & tools:
         return "network_diag_agent"
     return "review_agent"
 
@@ -101,17 +101,17 @@ def handle_agent_list_roles(inv: ToolInvocation) -> dict:
         {
             "name": "planner",
             "description": "Plans high-level task decomposition. Breaks complex tasks into subtasks and assigns to workers.",
-            "default_tools": ["agent.spawn", "skill.list", "memory.search", "memory.search", "web.search"],
+            "default_tools": ["agent.manage", "skill.manage", "memory.manage", "web.manage"],
         },
         {
             "name": "worker",
             "description": "Executes assigned subtasks. Has access to read-only research, validation, and data tools.",
-            "default_tools": ["web.search", "web.page.process", "knowledge.search", "text.analyze", "data.validate"],
+            "default_tools": ["web.manage", "knowledge.manage", "text.analyze", "data.manage"],
         },
         {
             "name": "reviewer",
             "description": "Reviews worker outputs for quality, correctness, and completeness. Can request rework.",
-            "default_tools": ["text.analyze", "memory.search", "workspace.artifact", "workspace.file"],
+            "default_tools": ["text.analyze", "memory.manage", "workspace.artifact", "workspace.file"],
         },
     ]
     return _ok(inv, "", {"roles": roles, "count": len(roles)})
@@ -119,8 +119,8 @@ def handle_agent_list_roles(inv: ToolInvocation) -> dict:
 def handle_agent_team(inv: ToolInvocation) -> dict:
     """Multi-agent team with planner/worker/reviewer roles.
 
-    Planner: uses agent.spawn with knowledge.read tools to plan.
-    Worker: uses agent.spawn with text/data tools to execute.
+    Planner: delegates through agent.manage with read-only canonical tools.
+    Worker: delegates through agent.manage with text/data canonical tools.
     Reviewer: optional, reviews worker output.
 
     Supports parallel worker mode: when parallel=True, each subtask from the
@@ -143,17 +143,13 @@ def handle_agent_team(inv: ToolInvocation) -> dict:
 
         # Low-risk read-only tools only for all roles
         _low_risk_read_tools = [
-            "web.search", "web.page.process", "knowledge.search",
-            "knowledge.read", "workspace.artifact", "workspace.artifact",
-            "workspace.file", "workspace.file",
-            "memory.search", "memory.profile",
-            "text.analyze", "data.validate", "data.csv.summarize",
-            "system.session.get", "system.run.get",
+            "web.manage", "knowledge.manage",
+            "workspace.artifact", "workspace.file",
+            "memory.manage", "text.analyze", "data.manage",
+            "system.manage",
         ]
         _text_data_tools = [
-            "web.search", "web.page.process",
-            "text.analyze", "data.validate", "data.csv.summarize",
-            "data.table.extract", "workspace.file",
+            "web.manage", "text.analyze", "data.manage", "workspace.file",
         ]
 
         result = {"ok": True, "instruction": instruction, "roles_used": [], "plan": "", "worker_result": None, "reviewer_result": None}

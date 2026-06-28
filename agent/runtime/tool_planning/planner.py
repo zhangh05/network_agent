@@ -12,11 +12,9 @@ from functools import lru_cache
 from types import SimpleNamespace
 from typing import Any
 
-# v3.9.3: capability_actions module removed. capability routing removed.
-# Planner now resolves tools directly from TOOL_NAMESPACE.
-# The legacy helpers (tools_for_action / action_for_tool_set / CAPABILITY_ACTIONS)
-# were a 1:1 mapping layer that added no value once all tools are visible.
-# They are inlined below as trivial functions.
+# v3.9.4: the planner resolves tools directly from TOOL_NAMESPACE.
+# Business capabilities are descriptive guidance only; they are not a
+# dispatch layer, permission layer, or visibility gate.
 from tool_runtime.tool_namespace import TOOL_NAMESPACE, get_namespace_entry
 
 
@@ -107,11 +105,11 @@ class ToolPlannerV2:
             safe_context = evidence_bundle.to_safe_context()
 
         if available_catalog is None:
-            # v3.9.3: capability_routing removed. All 21 tools are
-            # visible; the planner picks per scene signals.
+            # v3.9.4: all canonical tools are known to the planner;
+            # scene signals choose the turn-visible subset.
             available_catalog = {
                 "tools": list(TOOL_NAMESPACE),
-                "capability_routing": {},
+                "business_capabilities": [],
             }
 
         plan = deterministic_plan_tools(
@@ -136,9 +134,6 @@ class ToolPlannerV2:
             "fallback_used": False,
             "warnings": messages,
         }
-        if "capability_routing" in available_catalog:
-            plan["capability_routing"] = available_catalog["capability_routing"]
-
         # ── Build ToolPlanningDecision (hard contract for audit/inspection) ──
         from agent.runtime.tool_planning.decision import ToolPlanningDecision
         from agent.runtime.tool_planning.policy import ToolPlanningPolicy
@@ -146,7 +141,7 @@ class ToolPlannerV2:
         policy = ToolPlanningPolicy.default()
         decision = ToolPlanningDecision.from_plan(
             plan,
-            capability_route=plan.get("capability_routing"),
+            business_capabilities=available_catalog.get("business_capabilities"),
             policy=policy,
         )
         plan["tool_planning_decision"] = decision.to_dict()
@@ -212,10 +207,6 @@ def plan_tools(
     plan = seed
     fallback_used = False
     validation_messages = list(seed_messages)
-
-    # Preserve capability routing metadata from the catalog
-    if "capability_routing" in available_catalog:
-        plan["capability_routing"] = available_catalog["capability_routing"]
 
     if mode in {"llm", "hybrid"}:
         llm_plan = llm_plan_tools(user_input, safe_context, seed, available_catalog, model_config)
@@ -314,11 +305,6 @@ def deterministic_plan_tools(
         filtered["local_ops_filtered"].extend([tid for tid in LOCAL_OPS_TOOLS if tid in available])
 
     candidate_tools = _ordered_unique([*candidate_tools, *baseline_tools])
-    # When the catalog came from capability routing, trust its tool selection
-    if "capability_routing" in available_catalog:
-        candidate_tools = _ordered_unique([*candidate_tools, *[tid for tid in available]])
-        candidate_tools = action_class_filter(candidate_tools, rule_scene)
-
     # BASELINE_READ_TOOLS must always be visible regardless of catalog
     # filtering — the catalog is a routing optimization, not a gatekeeper.
     # Without this, baseline tools (exec.run, web.*, etc.) get
@@ -474,9 +460,6 @@ def llm_plan_tools(
             "fallback_used": False,
             "warnings": [],
         }
-        if "capability_routing" in available_catalog:
-            refined_plan["capability_routing"] = available_catalog["capability_routing"]
-
         return refined_plan
 
     except Exception:
@@ -487,7 +470,7 @@ def llm_plan_tools(
 
 
 def _capability_steps_from_rule_scene(user_input: str, rule_scene: dict) -> list[dict[str, Any]]:
-    """Build capability steps from rule_scene signals.
+    """Build canonical tool steps from rule_scene signals.
 
     Uses keyword-driven dispatch via SIGNAL_DISPATCH.
     """

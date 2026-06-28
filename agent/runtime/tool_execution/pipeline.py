@@ -17,7 +17,6 @@ from agent.runtime.hook_runner import run_pre_tool_hook, run_post_tool_hook
 
 from agent.runtime.tool_execution.result_stage import ResultStage, append_tool_result
 from agent.runtime.tool_execution.unknown_tool_stage import handle_unknown_tool
-from agent.runtime.tool_execution.catalog_stage import expand_tools_from_catalog_result
 
 from agent.runtime.actions.planner import ActionPlanner
 from agent.runtime.actions.executor import ActionExecutor
@@ -63,7 +62,6 @@ class ToolExecutionPipeline:
         )
         state.messages.append(assistant_msg.to_llm_message())
 
-        expanded_tools_this_step = []
         tool_stop_requested = False
 
         # v3.8: Parallelize independent tool_calls
@@ -118,18 +116,6 @@ class ToolExecutionPipeline:
             if should_skip:
                 continue
 
-            added_tools = expand_tools_from_catalog_result(
-                result, state.context, state.session, state.turn, state.step,
-                state.audit_events, state.emitter,
-            )
-            if added_tools:
-                expanded_tools_this_step.extend(added_tools)
-                try:
-                    state.tools = state.context.tool_router.model_visible_tools()
-                except Exception:
-                    pass
-
-        self._finalize_expanded(state, expanded_tools_this_step)
         _complete_runtime_state(state)
 
         # v3.9: SSE push turn completed
@@ -162,7 +148,6 @@ class ToolExecutionPipeline:
 
     def _run_parallel(self, state, tool_calls, resp, events):
         """Execute independent tool calls in parallel."""
-        expanded_tools = []
         tool_stop_requested = False
         
         # Prepare all tool_call objects first (build_tool_call must be serial)
@@ -244,28 +229,9 @@ class ToolExecutionPipeline:
                         r["result"], r.get("tool_call"), r.get("tc"),
                         state.all_tool_results, state.messages,
                     )
-                added = expand_tools_from_catalog_result(
-                    r["result"], state.context, state.session, state.turn, state.step,
-                    state.audit_events, state.emitter)
-                if added:
-                    expanded_tools.extend(added)
 
-        self._finalize_expanded(state, expanded_tools)
         _complete_runtime_state(state)
         return tool_stop_requested
-
-    def _finalize_expanded(self, state, expanded_tools):
-        if expanded_tools:
-            try:
-                state.tools = state.context.tool_router.model_visible_tools()
-            except Exception:
-                pass
-            from agent.protocol.message import RuntimeContextMessage
-            state.messages.append(RuntimeContextMessage(content=(
-                "Tool catalog expanded the current turn with these newly visible tools: "
-                + json.dumps(sorted(set(expanded_tools)), ensure_ascii=False)
-                + ". Continue by calling the best matching specialized tool if it is needed."
-            )).to_llm_message())
 
     def _execute_single_with_retry(self, state, tool_call, tc, events, step):
         """Execute with retry for transient errors. v3.10: manifest-driven retry policy."""

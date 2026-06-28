@@ -3,18 +3,17 @@
 
 Source tools:
   - knowledge.import.document
-  - knowledge.source.list
-  - knowledge.read
-  - knowledge.source.disable
-  - knowledge.source.delete
+  - knowledge.manage(action=source_list)
+  - knowledge.manage(action=read)
+  - knowledge.manage(action=source_disable)
+  - knowledge.manage(action=source_delete)
 
 Retrieval tools:
   - knowledge.import.file
-  - knowledge.chunk.list
-  - knowledge.search
-  - knowledge.read
-  - knowledge.read
-  - knowledge.source.reindex
+  - knowledge.manage(action=chunk_list)
+  - knowledge.manage(action=search)
+  - knowledge.manage(action=read)
+  - knowledge.manage(action=source_reindex)
 
 All handlers use the v0.8.2 ToolResult.from_module_result projection.
 """
@@ -56,7 +55,7 @@ TOOL_KNOWLEDGE_LIST = ToolSpec(
     category="knowledge",
     description=(
         "List source records in the workspace knowledge store. "
-        "For chunked view use knowledge.chunk.list."
+        "For chunked view use knowledge.manage(action=chunk_list)."
     ),
     risk_level="low",
     enabled=True,
@@ -234,8 +233,7 @@ TOOL_KNOWLEDGE_SEARCH_CHUNKS = ToolSpec(
     description=(
         "BM25 lexical search over child chunks. Returns hits with "
         "score / lexical_score / semantic_score / final_score / scope. "
-        "Does NOT return full content; use knowledge.read or "
-        "knowledge.read for that."
+        "Does NOT return full content; use knowledge.manage(action=read) for that."
     ),
     risk_level="low",
     enabled=True,

@@ -239,10 +239,11 @@ class ToolPlanningStage:
             enriched_query = enrich_query_with_history(ctx.user_input, ctx=ctx)
         except Exception:
             enriched_query = ctx.user_input
-        # v3.9.3: capability_routing removed. All 21 tools are visible.
+        # v3.9.4: business capabilities are guidance only. All canonical
+        # tools are known to the planner; scene signals choose the visible set.
         available_catalog = {
             "tools": list(TOOL_NAMESPACE),
-            "capability_routing": {},
+            "business_capabilities": list(getattr(services, 'capability_catalog', None) or []),
         }
         tool_scene = planner.plan(scene_decision, evidence_bundle=evidence_bundle, available_catalog=available_catalog, model_config=ctx.model_config)
         rule_tool_scene = scene_to_rule_scene(scene_decision)
@@ -276,6 +277,19 @@ class SafeContextStage:
         ctx.runtime_snapshot = snapshot.to_dict()
         safe = dict(getattr(ctx, 'safe_context', None) or {})
         safe.update({'workspace_id': ctx.workspace_id, 'session_id': ctx.session_id})
+        if capability_catalog:
+            safe['business_capabilities'] = [
+                {
+                    'capability_id': c.get('capability_id', ''),
+                    'display_name': c.get('display_name', ''),
+                    'status': c.get('status', ''),
+                    'recommended_tool_ids': list(c.get('recommended_tool_ids') or []),
+                    'prompt_hints': list(c.get('prompt_hints') or [])[:3],
+                    'safety_notes': list(c.get('safety_notes') or [])[:3],
+                }
+                for c in list(capability_catalog)[:20]
+                if isinstance(c, dict)
+            ]
         if evidence_bundle is not None and hasattr(evidence_bundle, 'to_safe_context'):
             safe.update(evidence_bundle.to_safe_context())
         from agent.runtime.state.hooks import runtime_state_prompt_block

@@ -173,7 +173,7 @@ interface WorkbenchState {
   /** Update an existing message (streaming→ready/error, append tool calls) */
   updateAssistant: (
     msgId: string,
-    patch: Partial<Pick<ChatMsg, "status" | "text" | "error" | "toolCalls" | "trace_id" | "result">>,
+    patch: Partial<Pick<ChatMsg, "status" | "text" | "error" | "toolCalls" | "trace_id" | "result" | "run_id">>,
     session_id?: string,
   ) => void;
   setSending: (v: boolean) => void;
@@ -370,7 +370,7 @@ export const useWorkbenchStore = create<WorkbenchState>()(
               ...(Array.isArray(runRecord.errors) ? (runRecord.errors as string[]) : []),
               ...(((runRecord as Record<string, unknown>).error as string | null) ? [(runRecord.error as string)] : []),
             ],
-            tool_decision: (runRecord.tool_decision as AgentResult["tool_decision"]) || {},
+            tool_decision: (runRecord.tool_decision as AgentResult["tool_decision"]) || { needed: false },
             no_tool_reason: (runRecord.no_tool_reason as string) || "",
             metadata: {
               selected_capabilities: (((runRecord.metadata as Record<string, unknown>)?.selected_capabilities as string[]) || []),

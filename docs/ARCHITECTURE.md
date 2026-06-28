@@ -56,7 +56,7 @@ ToolRuntimeClient.invoke()
   → Manifest.allowed_callers 检查
   → Manifest.audit_level 分级审计
   → 根据 tool_id 分发到对应 Handler
-  → python_exec(exec.python) / _run_shell(exec.run) / HTTPS etc.
+  → exec.run(action=python|shell) / HTTPS handlers / module adapters
   → 结果脱敏 (redaction)
   → 返回 ToolResult
 ```

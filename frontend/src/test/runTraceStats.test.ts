@@ -41,8 +41,8 @@ describe("deriveRunTraceStats", () => {
   });
 
   it("recognizes tool events carried in the type field", () => {
-    expect(isTraceToolEvent({ event_id: "tool-1", event_type: "", type: "tool_call", tool_id: "web.search" })).toBe(true);
-    expect(isTraceToolEvent({ event_id: "tool-2", event_type: "", type: "tool_result", tool_id: "web.search" })).toBe(true);
+    expect(isTraceToolEvent({ event_id: "tool-1", event_type: "", type: "tool_call", tool_id: "web.manage" })).toBe(true);
+    expect(isTraceToolEvent({ event_id: "tool-2", event_type: "", type: "tool_result", tool_id: "web.manage" })).toBe(true);
   });
 
   it("recognizes skill events for the trace filter", () => {

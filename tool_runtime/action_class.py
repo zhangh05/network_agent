@@ -151,7 +151,7 @@ def should_be_planner_visible(action_class: ActionClass, scene_context: dict = N
     # execute / mutate: allow non-destructive; block destructive unless allowlisted
     if action_class.action_class in ("execute", "mutate"):
         if not action_class.is_destructive:
-            return True  # e.g. agent.spawn — approval gate handles risk
+            return True  # e.g. agent.manage(action=spawn) — approval gate handles risk
         # Destructive: only if scene allowlist explicitly permits
         allowed = (scene_context or {}).get("allowed_actions", set())
         return action_class.action in allowed

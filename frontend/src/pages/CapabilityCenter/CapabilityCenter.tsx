@@ -1,12 +1,12 @@
 /**
- * CapabilityCenter — 能力矩阵 (v3.3.1 美化)
+ * CapabilityCenter — business capabilities + canonical tool catalog.
  *
  * 展示可用能力、风险边界；工具目录索引。
  */
 import { useMemo, useState } from "react";
 import { capabilitiesApi, registryApi, toolsApi } from "../../api";
 import { useAsync, AsyncView, Badge, InlineCode } from "../../components/common";
-import type { CapabilityManifest, CapabilityStatus, RiskLevel, ToolCatalogCategory, ToolCatalogItem, ToolGovernanceStatus } from "../../types";
+import type { BusinessCapability, CapabilityStatus, RiskLevel, ToolCatalogCategory, ToolCatalogItem, ToolGovernanceStatus } from "../../types";
 import { IconBolt, IconShield } from "../../components/Icon";
 
 const S_KIND: Record<CapabilityStatus, "ok" | "muted" | "warn"> = { enabled: "ok", planned: "warn", disabled: "muted" };
@@ -28,7 +28,7 @@ const CAP_TITLES: Record<string, string> = { config_translation: "配置翻译",
 export function CapabilityCenter() {
   const [tq, setTq] = useState("");
   const [tf, setTf] = useState<ToolFilter>("all");
-  const list = useAsync<{ capabilities: CapabilityManifest[]; enabled: string[] }>((s) => capabilitiesApi.manifest(s));
+  const list = useAsync<{ capabilities: BusinessCapability[]; enabled: string[] }>((s) => capabilitiesApi.manifest(s));
   const catalog = useAsync((s) => toolsApi.catalog(s));
   const registry = useAsync<{ moduleCount: number; skillCount: number }>(async (s) => {
     const [m, sk] = await Promise.all([registryApi.modules(s), registryApi.skills(s)]) as any;
@@ -83,7 +83,7 @@ export function CapabilityCenter() {
         </div>
 
         {/* Capability cards */}
-        <AsyncView state={list.state} onRetry={list.reload} emptyText="无能力注册" emptyHint="CapabilityRegistry 未注册能力">
+        <AsyncView state={list.state} onRetry={list.reload} emptyText="无业务能力" emptyHint="agent.capabilities.catalog 未返回能力">
           {(d) => (
             <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(min(100%, 340px), 1fr))", gap: 14 }} data-testid="capability-list">
               {(d.capabilities ?? []).map((cap) => <CapCard key={cap.capability_id} cap={cap} />)}
@@ -139,7 +139,7 @@ function ToolTree({ cats, tools, query, filter }: { cats: ToolCatalogCategory[];
 }
 
 function TRow({ tool }: { tool: ToolCatalogItem }) {
-  const capabilityActions = tool.capability_actions ?? [];
+  const canonicalRefs = tool.capability_actions ?? [];
   return (
     <details className="tool-row">
       <summary>
@@ -152,7 +152,7 @@ function TRow({ tool }: { tool: ToolCatalogItem }) {
         <D label="namespace"><InlineCode>{tool.category}/{tool.group}/{tool.action}</InlineCode></D>
         <D label="审批">{tool.requires_approval ? <Badge kind="warn">需要</Badge> : <Badge kind="ok">无需</Badge>}{tool.permission_action && <InlineCode>{tool.permission_action}</InlineCode>}</D>
         <D label="Planner"><Badge kind={tool.planner_visible ? "ok" : "muted"}>{tool.planner_visible ? "visible" : "hidden"}</Badge></D>
-        {capabilityActions.length > 0 && <D label="capability_actions">{capabilityActions.map((a) => <InlineCode key={a}>{a}</InlineCode>)}</D>}
+        {canonicalRefs.length > 0 && <D label="canonical refs">{canonicalRefs.map((a) => <InlineCode key={a}>{a}</InlineCode>)}</D>}
         {tool.description && <D label="描述"><span>{tool.description}</span></D>}
       </div>
     </details>
@@ -165,7 +165,7 @@ function D({ label, children }: { label: string; children: React.ReactNode }) {
 
 /* ── Capability card ── */
 
-function CapCard({ cap }: { cap: CapabilityManifest }) {
+function CapCard({ cap }: { cap: BusinessCapability }) {
   const isPlanned = cap.status === "planned";
   const title = CAP_TITLES[cap.capability_id] || cap.description?.split(/[.。]/)[0] || cap.capability_id;
   const outcome = isPlanned ? "规划中，当前不可调用" : cap.can_generate_deployable ? "会产出配置材料，必须人工复核" : cap.requires_verification ? "结果需要人工确认后使用" : "可用于当前工作区的辅助分析";

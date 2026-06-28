@@ -16,7 +16,7 @@ describe("agentResultFromWsDone", () => {
         tool_calls: [
           {
             call_id: "call-1",
-            tool_id: "knowledge.search",
+            tool_id: "knowledge.manage",
             ok: true,
             source_count: 1,
             result: { source_summary: [{ title: "本机 ifconfig 资料" }] },
@@ -24,10 +24,10 @@ describe("agentResultFromWsDone", () => {
         ],
         metadata: {
           selected_skills: ["assistant_chat"],
-          visible_tools: ["knowledge.search"],
+          visible_tools: ["knowledge.manage"],
           source_count: 1,
         },
-        tool_decision: { needed: true, selected_tools: ["knowledge.search"] },
+        tool_decision: { needed: true, selected_tools: ["knowledge.manage"] },
         no_tool_reason: "",
       },
       "",
@@ -38,6 +38,6 @@ describe("agentResultFromWsDone", () => {
     expect(result.events).toHaveLength(2);
     expect(result.tool_calls).toHaveLength(1);
     expect(result.metadata.source_count).toBe(1);
-    expect(result.tool_decision?.selected_tools).toEqual(["knowledge.search"]);
+    expect(result.tool_decision?.selected_tools).toEqual(["knowledge.manage"]);
   });
 });

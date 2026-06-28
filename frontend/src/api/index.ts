@@ -14,7 +14,7 @@ import { apiBaseURL, apiRequest, TIMEOUTS } from "./client";
 import type {
   AgentResult,
   Artifact,
-  CapabilityManifest,
+  BusinessCapability,
   KnowledgeChunk,
   KnowledgeSearchResult,
   KnowledgeSource,
@@ -280,11 +280,11 @@ export const jobsApi = {
 };
 
 export const capabilitiesApi = {
-  /** GET /api/capabilities — public YAML capability projection. */
+  /** GET /api/capabilities — business capability catalog projection. */
   manifest: (
     signal?: AbortSignal,
-  ): Promise<{ capabilities: CapabilityManifest[]; enabled: string[] }> =>
-    apiRequest<{ capabilities: CapabilityManifest[]; enabled: string[] }>(
+  ): Promise<{ capabilities: BusinessCapability[]; enabled: string[] }> =>
+    apiRequest<{ capabilities: BusinessCapability[]; enabled: string[] }>(
       { method: "GET", url: "/capabilities" },
       signal,
     ),

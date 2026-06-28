@@ -1,18 +1,16 @@
 /**
  * Test 6 — planned capability 不显示调用按钮
  *
- * v1.0.1 UI 重设计后：/api/capabilities 返回的 CapabilityManifest 改为
- * 扁平结构（见 registry/loader.py::_generate_capabilities）。本测试 mock
- * 的数据形状已对齐到真实 wire format。
+ * /api/capabilities 返回 business capability catalog projection.
  */
 
 import { describe, it, expect, beforeEach } from "vitest";
 import { render, screen } from "@testing-library/react";
 import { CapabilityCenter } from "../pages/CapabilityCenter/CapabilityCenter";
 import { enqueue, installMockApi, resetMocks } from "./mockServer";
-import type { CapabilityManifest } from "../types";
+import type { BusinessCapability } from "../types";
 
-const sampleCaps: CapabilityManifest[] = [
+const sampleCaps: BusinessCapability[] = [
   {
     capability_id: "config_translation",
     status: "enabled",

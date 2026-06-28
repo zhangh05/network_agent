@@ -59,10 +59,9 @@ def redact_decision_report(report: dict) -> dict:
             out["tool_planning_decision"], max_str_len=300,
         )
 
-    # Redact capability_route (only keep structural keys)
-    if "capability_route" in out:
-        out["capability_route"] = _redact_value(
-            out["capability_route"], max_str_len=200,
+    if "business_capabilities" in out:
+        out["business_capabilities"] = _redact_value(
+            out["business_capabilities"], max_str_len=200,
         )
 
     # Redact scene_decision

@@ -78,8 +78,8 @@ class PermissionMatrix:
 
         # 2. Check action-specific rules
         if action == PermissionAction.EXEC:
-            # Shell/PowerShell/Python always need approval
-            if tool_id in ("exec.run", "exec.python"):
+            # Unified local/remote command execution always needs approval.
+            if tool_id == "exec.run":
                 return PermissionDecision.REQUIRE_APPROVAL
             # Unknown exec tools are denied
             return PermissionDecision.DENY
@@ -139,23 +139,16 @@ class PermissionMatrix:
         Returns:
             PermissionAction category (READ, WRITE, EXEC, NETWORK).
         """
-        if tool_id in ("exec.run", "exec.python"):
+        if tool_id == "exec.run":
             return PermissionAction.EXEC
-        if tool_id.startswith(("web.",)):
+        if tool_id in {"web.manage", "browser.manage"}:
             return PermissionAction.NETWORK
         read_tools = (
-            "workspace.artifact", "workspace.artifact",
-            "knowledge.search", "knowledge.source.get", "knowledge.chunk.summary",
-            "memory.search", "memory.search", "memory.proworkspace.file.read",
-            "system.session.get", "system.run.get", "system.run.get",
-            "workspace.file", "workspace.file", "workspace.file",
-            "workspace.file", "workspace.metadata.get",
-            "skill.list", "skill.find_skills", "skill.inspect",
-            "system.session.snapshot",
-            "system.diagnostics",
-            "text.analyze", "data.validate",
-            "data.data.csv.summarize", "data.data.table.extract", "data.table.render",
-            "diagram.mermaid.render",
+            "workspace.artifact", "workspace.file", "workspace.filestore",
+            "workspace.metadata.get", "workspace.document.pdf.extract_text",
+            "knowledge.manage", "memory.manage", "skill.manage",
+            "system.manage", "text.analyze", "data.manage",
+            "report.manage", "code.search", "pcap.manage", "config.manage",
         )
         if tool_id in read_tools:
             return PermissionAction.READ

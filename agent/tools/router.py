@@ -163,9 +163,9 @@ class ToolRouter:
     def expand_dynamic_visibility(self, tool_ids) -> list[str]:
         """Add canonical tool_ids to the current turn's visible whitelist.
 
-        This is used by tool.catalog.search: catalog search may discover a
-        specialized tool after the first model call, then the runtime exposes
-        only those newly selected tools for the next model step.
+        Kept for explicit runtime-controlled updates only. LLM-visible catalog
+        search was removed in v3.9.4; callers must pass canonical ids that are
+        already present in the registry.
         """
         if not tool_ids:
             return []
@@ -206,14 +206,11 @@ class ToolRouter:
         self,
         core_tool_ids: set[str] | None = None,
     ) -> list:
-        """Return OpenAI-format tool defs with defer_loading.
+        """Return OpenAI-format tool defs with compact non-core schemas.
         
         Core tools (always needed) get full schema. Non-core tools get
-        compact name+one-liner to save tokens. The LLM can request full
-        schema via tool.catalog.search.
-
-        Uses Anthropic-style optimization: core tools with full schemas,
-        catalog tools with minimal schemas.
+        compact schemas to save tokens. Full callable schemas are selected by
+        the router/context pipeline, not by an LLM catalog-search tool.
         """
         core = core_tool_ids or set()
         result = []

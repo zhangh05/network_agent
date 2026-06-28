@@ -89,8 +89,8 @@ class TestSubagentRuntime:
         from agent.runtime.durable.subagent import _execute_as_subagent
         ws = f"ws_cl_{uuid.uuid4().hex[:8]}"
         result = _execute_as_subagent("web.manage", {"query": "test", "top_k": 1}, ws)
-        # v3.10: web.search now allows subagent caller (profile-gated)
-        assert result["ok"], f"Subagent should be allowed for web.search, got {result}"
+        # v3.10: web.manage allows subagent caller (profile-gated)
+        assert result["ok"], f"Subagent should be allowed for web.manage, got {result}"
 
     def test_cross_workspace_run_blocked(self):
         ws_a = f"ws_sa9_{uuid.uuid4().hex[:8]}"

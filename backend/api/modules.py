@@ -95,15 +95,17 @@ def handle_capabilities():
 def _cap_category(capability_id: str) -> str:
     _map = {
         "config_translation": "translation",
-        "knowledge": "knowledge",
-        "artifact_management": "artifact",
-        "review_flow": "review",
+        "knowledge_qa": "knowledge",
+        "memory_lookup": "memory",
+        "workspace_read": "workspace",
+        "report_drafting": "report",
+        "runtime_diagnostics": "system",
+        "agent_delegation": "agent",
         "topology": "topology",
         "inspection": "inspection",
         "cmdb": "cmdb",
         "network_device": "network",
         "pcap_analysis": "network",
-        "coding": "coding",
         "browser": "browser",
     }
     return _map.get(capability_id, capability_id)

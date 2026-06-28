@@ -1,13 +1,8 @@
-"""Skill tool handlers — v3.9.3 inline business metadata.
+"""Skill tool handlers — business capability catalog projection.
 
-v3.9.2: Skills were CapabilityPackages in capability_routing/manifests.py.
-v3.9.3: capability_routing/ removed. Business metadata is inlined here
-as a plain dict so the LLM-visible skill.manage tool can still answer
-list/find/load/inspect without depending on the routing layer.
-
-Each entry mirrors the old CapabilityPackage fields: display_name,
-description, intent_keywords, module_ids, tool_ids, prompt_hints,
-safety_notes, output_kinds, priority.
+v3.9.4: skill.manage reads agent.capabilities.catalog. It exposes guidance
+and recommended canonical tools only; it does not register tools, change
+visibility, or bypass manifest policy.
 """
 
 from __future__ import annotations
@@ -18,7 +13,7 @@ from workspace.ids import validate_workspace_id
 from tool_runtime.general_tools.shared import _caller_workspace, _contract, _error, _error_inv, _ok, _result, _unavailable, _workspace_path
 
 
-# v3.9.3 inlined from capability_routing/manifests.py
+# v3.9.4 projected from agent.capabilities.catalog
 
 def _pkg_as_dict(pkg: dict) -> dict:
     """Skill dict (v3.9.4: delegates to business capability catalog)."""

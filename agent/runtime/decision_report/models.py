@@ -77,8 +77,8 @@ class DecisionReport:
     # Scene decision from cognition layer
     scene_decision: dict = field(default_factory=dict)
 
-    # Capability routing result
-    capability_route: dict = field(default_factory=dict)
+    # Business capability guidance from agent.capabilities.catalog
+    business_capabilities: list = field(default_factory=list)
 
     # Tool planning decision (from P0)
     tool_planning_decision: dict = field(default_factory=dict)
@@ -92,7 +92,6 @@ class DecisionReport:
         "knowledge": {"status": "not_evaluated"},
     })
 
-    catalog_expansions: list = field(default_factory=list)
     context_pipeline: dict = field(default_factory=dict)
     decision_status: str = "degraded"
 
@@ -123,11 +122,10 @@ class DecisionReport:
             "workspace_id": self.workspace_id,
             "created_at": self.created_at,
             "scene_decision": dict(self.scene_decision),
-            "capability_route": dict(self.capability_route),
+            "business_capabilities": list(self.business_capabilities),
             "tool_planning_decision": dict(self.tool_planning_decision),
             "visibility_violations": list(self.visibility_violations),
             "retrieval_decision": dict(self.retrieval_decision),
-            "catalog_expansions": list(self.catalog_expansions),
             "context_pipeline": dict(self.context_pipeline),
             "decision_status": self.decision_status,
             "tool_execution_summary": dict(self.tool_execution_summary),

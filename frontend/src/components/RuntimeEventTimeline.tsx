@@ -10,8 +10,9 @@
  * to the assistant message. While loading we show a spinner; on error we
  * fall back to the user/assistant text pair with a retry hint.
  */
-import React, { useEffect, useMemo, useState } from "react";
-import type { AgentResult, ChatMsg, RuntimeEvent, ToolCallResult } from "../types";
+import React, { useMemo, useState } from "react";
+import type { AgentResult, RuntimeEvent, ToolCallResult } from "../types";
+import type { ChatMsg } from "../stores/workbench";
 import { useWorkbenchStore } from "../stores/workbench";
 import { useSessionStore } from "../stores/session";
 

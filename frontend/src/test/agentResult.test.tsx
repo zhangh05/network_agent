@@ -6,20 +6,21 @@ import { render, screen, fireEvent } from "@testing-library/react";
 import { RuntimeEventTimeline } from "../components/RuntimeEventTimeline";
 import { installMockApi, resetMocks } from "./mockServer";
 import type { AgentResult } from "../types";
+import type { ChatMsg } from "../stores/workbench";
 
 const sampleResult: AgentResult = {
   ok: true,
   final_response: "OSPF 是一种链路状态路由协议。",
   events: [
     { event_id: "evt-1", event_type: "turn_started", summary: "轮次启动" },
-    { event_id: "call-1", event_type: "tool_call", tool_id: "web.search", summary: "搜索 OSPF 协议" },
-    { event_id: "evt-3", event_type: "tool_result", tool_id: "web.search", summary: "Found 3 results" },
+    { event_id: "call-1", event_type: "tool_call", tool_id: "web.manage", summary: "搜索 OSPF 协议" },
+    { event_id: "evt-3", event_type: "tool_result", tool_id: "web.manage", summary: "Found 3 results" },
   ],
   trace_id: "trace_abc123",
   session_id: "sess_xyz",
   turn_id: "turn_001",
   tool_calls: [
-    { call_id: "call-1", tool_id: "web.search", ok: true, duration_ms: 450, summary: "Found 3 results about OSPF" },
+    { call_id: "call-1", tool_id: "web.manage", ok: true, duration_ms: 450, summary: "Found 3 results about OSPF" },
   ],
   warnings: [],
   errors: [],
@@ -41,18 +42,41 @@ const failedResult: AgentResult = {
   metadata: { workspace_id: "default" },
 };
 
+function messagesFor(result: AgentResult): ChatMsg[] {
+  const runId = result.turn_id || "run-test";
+  return [
+    {
+      id: `${runId}-user`,
+      role: "user",
+      text: "测试请求",
+      created_at: "2026-06-28T10:00:00Z",
+      status: "ready",
+      run_id: runId,
+    },
+    {
+      id: `${runId}-assistant`,
+      role: "assistant",
+      text: result.final_response || result.errors?.[0] || "",
+      created_at: "2026-06-28T10:00:01Z",
+      status: result.ok ? "ready" : "error",
+      run_id: runId,
+      result,
+    },
+  ];
+}
+
 describe("RuntimeEventTimeline", () => {
   beforeEach(() => { resetMocks(); installMockApi(); });
 
   it("shows turn_id in card header", () => {
-    render(<RuntimeEventTimeline results={[sampleResult]} />);
+    render(<RuntimeEventTimeline messages={messagesFor(sampleResult)} />);
     expect(screen.getByTestId("runtime-timeline")).toBeInTheDocument();
     expect(screen.getByText(/turn_001/)).toBeInTheDocument();
     expect(screen.getByText(/OSPF/)).toBeInTheDocument();
   });
 
   it("shows steps after clicking expand", () => {
-    render(<RuntimeEventTimeline results={[sampleResult]} />);
+    render(<RuntimeEventTimeline messages={messagesFor(sampleResult)} />);
     // Click the card bar to expand
     fireEvent.click(screen.getByText(/turn_001/).closest(".rt-card-bar")!);
     expect(screen.getByText("turn_started")).toBeInTheDocument();
@@ -60,18 +84,18 @@ describe("RuntimeEventTimeline", () => {
   });
 
   it("shows error diagnostics for failed run", () => {
-    render(<RuntimeEventTimeline results={[failedResult]} />);
+    render(<RuntimeEventTimeline messages={messagesFor(failedResult)} />);
     fireEvent.click(screen.getByText(/turn_002/).closest(".rt-card-bar")!);
-    expect(screen.getByText(/SSH connection refused/)).toBeInTheDocument();
+    expect(screen.getAllByText(/SSH connection refused/).length).toBeGreaterThan(0);
   });
 
   it("shows empty state when no results", () => {
-    render(<RuntimeEventTimeline results={[]} />);
+    render(<RuntimeEventTimeline messages={[]} />);
     expect(screen.getByTestId("timeline-empty")).toBeInTheDocument();
   });
 
   it("shows workspace metadata", () => {
-    render(<RuntimeEventTimeline results={[sampleResult]} />);
+    render(<RuntimeEventTimeline messages={messagesFor(sampleResult)} />);
     expect(screen.getByText("default")).toBeInTheDocument();
   });
 });

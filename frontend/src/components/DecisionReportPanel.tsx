@@ -17,13 +17,15 @@ export function DecisionReportPanel({ report, loading = false, error = "" }: Pro
       : <EmptyState text="该运行没有决策报告" />;
   }
 
-  const route = report.capability_route || {};
+  const businessCapabilities = report.business_capabilities || [];
   const planning = report.tool_planning_decision || {};
   const blockedTools = planning.blocked_tools ?? [];
   const retrieval = report.retrieval_decision || {};
   const execution = report.tool_execution_summary || { called: [], blocked: [], failed: [], succeeded: [] };
   const trace = report.trace_summary || { real_event_count: 0, synthetic_event_count: 0, missing_event_count: 0 };
-  const capabilityIds = route.capability_ids || [];
+  const capabilityIds = businessCapabilities
+    .map((cap) => String(cap.capability_id || cap.intent || ""))
+    .filter(Boolean);
 
   return (
     <div data-testid="decision-report" className="col-flex" style={{ gap: 10 }}>
@@ -33,20 +35,16 @@ export function DecisionReportPanel({ report, loading = false, error = "" }: Pro
         <Badge kind={report.decision_status === "complete" ? "ok" : "warn"}>
           {report.decision_status === "complete" ? "决策完整" : "决策降级"}
         </Badge>
-        {route.fallback_used && <Badge kind="warn">安全回退</Badge>}
         {trace.missing_event_count > 0 && <Badge kind="err">缺失 {trace.missing_event_count}</Badge>}
       </div>
 
-      {/* Capability Route */}
-      <CompactRow label="路由">
+      {/* Business capabilities */}
+      <CompactRow label="能力">
         <div className="row-flex" style={{ gap: 4, flexWrap: "wrap" }}>
           {capabilityIds.length > 0
             ? capabilityIds.map((id) => <Badge key={id} kind="accent">{id}</Badge>)
             : <span className="text-xs muted">未命中</span>}
         </div>
-        {typeof route.latency_ms === "number" && (
-          <span className="text-xs muted" style={{ marginLeft: 4 }}>{route.latency_ms.toFixed(1)}ms</span>
-        )}
       </CompactRow>
 
       {/* Tool Boundary — summary only, no full list */}

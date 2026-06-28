@@ -1,8 +1,8 @@
 # agent/runtime/tool_planning/hybrid_retriever.py
 """Hybrid tool retriever: BM25 keyword + embedding vector + RRF fusion.
 
-Combines the existing BM25/CJK keyword matching from CapabilityRouter
-with the new TF-IDF embedding store for semantic matching.
+Combines namespace keyword matching with the TF-IDF embedding store for
+semantic matching.
 
 Fusion strategy: Reciprocal Rank Fusion (RRF)
   score = alpha * 1/(k + rank_semantic) + (1-alpha) * 1/(k + rank_keyword)
@@ -25,18 +25,15 @@ SEMANTIC_MIN_SIMILARITY = 0.18
 
 # ── Keyword matching ───────────────────────────────────────────────────
 
-def _keyword_score(tool_id: str, user_input: str, capability_router=None) -> float:
-    """Score a tool by keyword match using the existing CapabilityRouter patterns.
-
-    If capability_router is provided, use its internal keyword database.
-    Otherwise, fall back to simple substring matching on namespace metadata.
-    """
+def _keyword_score(tool_id: str, user_input: str, keyword_router=None) -> float:
+    """Score a tool by keyword match using namespace metadata."""
     lower_input = user_input.lower()
 
-    # Try capability router's keyword matching first
-    if capability_router is not None:
+    # Optional external keyword router for experiments; production uses
+    # namespace metadata below.
+    if keyword_router is not None:
         try:
-            route = capability_router.route_keywords(user_input)
+            route = keyword_router.route_keywords(user_input)
             for pkg in route.packages:
                 for tid in pkg.tool_ids:
                     if tid == tool_id:
@@ -69,7 +66,7 @@ def _keyword_score(tool_id: str, user_input: str, capability_router=None) -> flo
 def hybrid_tool_search(
     user_input: str,
     top_k: int = 30,
-    capability_router=None,
+    keyword_router=None,
     scene: Any = None,
 ) -> list[tuple[str, float]]:
     """Search for relevant tools using hybrid keyword + semantic retrieval.
@@ -96,7 +93,7 @@ def hybrid_tool_search(
     for tid in TOOL_NAMESPACE:
         if not (tid in TOOL_NAMESPACE):
             continue
-        ks = _keyword_score(tid, user_input, capability_router)
+        ks = _keyword_score(tid, user_input, keyword_router)
         if ks > 0:
             keyword_scores[tid] = ks
 
@@ -134,9 +131,7 @@ def capability_hybrid_search(
     """Search that respects graph boost.
 
     First runs hybrid_tool_search, then applies graph co-occurrence
-    boost for tools related to recently-used tools. v3.9.3:
-    capability_routing is removed; the capability-routing boost block
-    is dropped because every tool is visible unconditionally.
+    boost for tools related to recently-used tools.
     """
     results = hybrid_tool_search(user_input, top_k=50)
 

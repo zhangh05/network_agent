@@ -107,23 +107,31 @@ def build_capability_context_block(ctx) -> PromptBlock | None:
     """Build a block describing the current capability/tool model."""
     safe = getattr(ctx, "safe_context", None) or {}
     tool_scene = safe.get("tool_scene") or {}
-    capability_routing = (
-        tool_scene.get("capability_routing")
-        or tool_scene.get("tool_planner", {}).get("capability_routing")
-        or {}
+    selected_tools = list(
+        getattr(ctx, "visible_tool_ids", None)
+        or tool_scene.get("selected_visible_tools")
+        or tool_scene.get("candidate_tools")
+        or []
     )
+    business_caps = safe.get("business_capabilities") or safe.get("capability_catalog") or []
 
     lines = [
-        "Current execution model (capability-first):",
-        "- Capability = business intent (routed by keywords) → exposes Tools",
-        "- Tool = callable adapter; use tool.catalog.search to discover outside current route.",
+        "Current execution model (v3.9.4):",
+        "- Business capability = guidance and recommended canonical tools only.",
+        "- Tool = callable adapter exposed through this turn's visible tool schemas.",
         "- Module = implementation service, not directly called by the LLM.",
-        "",
-        "Capability routing for this turn:",
+        "- Do not call legacy, alias, removed, or non-visible tool ids.",
     ]
 
-    if capability_routing:
-        lines.append(json.dumps(capability_routing, ensure_ascii=False, default=str)[:2000])
+    if selected_tools:
+        lines.append("")
+        lines.append("Visible canonical tools for this turn:")
+        lines.append(", ".join(str(t) for t in selected_tools[:40]))
+
+    if business_caps:
+        lines.append("")
+        lines.append("Business capability guidance:")
+        lines.append(json.dumps(business_caps, ensure_ascii=False, default=str)[:2000])
 
     return PromptBlock(
         block_id="capability_context",

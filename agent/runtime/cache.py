@@ -1,5 +1,5 @@
 # agent/runtime/cache.py
-"""TTL cache layer with LRU eviction for web.fetch / web.search results.
+"""TTL cache layer with LRU eviction for web.manage fetch/search results.
 
 Provides thread-safe caching with configurable TTL and max size.
 WebCache extends TTLCache with web-specific key normalization.
@@ -66,7 +66,7 @@ class TTLCache:
 
 
 class WebCache(TTLCache):
-    """Cache for web.fetch / web.search results.
+    """Cache for web.manage fetch/search results.
 
     Extends TTLCache with web-specific key normalization and
     additional helper methods for web result caching.

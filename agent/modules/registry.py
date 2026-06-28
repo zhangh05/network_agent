@@ -1,7 +1,6 @@
 """ModuleRegistry — thin view over the business capability catalog.
 
-v3.9.4: ModuleRegistry no longer depends on a CapabilityRegistry or
-CapabilityManifest. It reads the new business capability catalog
+v3.9.4: ModuleRegistry reads the new business capability catalog
 (`agent.capabilities.catalog`) directly. The catalog is the single
 source of truth for business capabilities; this view projects them
 into a ModuleSpec list for the API.
@@ -32,9 +31,7 @@ class ModuleSpec:
 class ModuleRegistry:
     """Read-only view of business capabilities, projected from catalog."""
 
-    def __init__(self, *args, **kwargs):
-        # Backward-compat shim: accept an old CapabilityRegistry arg
-        # but ignore it; the catalog is the new source of truth.
+    def __init__(self):
         pass
 
     def list_enabled_modules(self) -> list:

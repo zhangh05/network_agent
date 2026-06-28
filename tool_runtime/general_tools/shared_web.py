@@ -243,7 +243,7 @@ def _web_search_guidance(query: str, results: list[dict], domains: list[str]) ->
     )
     next_actions = [
         "用结果的 title/snippet 先回答用户问题，不要编造网页未给出的细节。",
-        "如果需要精确引用或正文细节，再调用 web.page.process 读取具体 URL。",
+        "如果需要精确引用或正文细节，再调用 web.manage(action=page) 读取具体 URL。",
     ]
     if not domains:
         next_actions.append("如用户要求厂商文档，下一次搜索加 domains/site 限定官方站点。")
@@ -252,7 +252,7 @@ def _web_no_results_actions(query: str, domains: list[str]) -> list[str]:
     actions = ["换 2-4 个更具体关键词重试。"]
     if domains:
         actions.append("放宽 domains/site 限制后重试。")
-    actions.append("如果问题适合本地知识库，先用 knowledge.search 查询。")
+    actions.append("如果问题适合本地知识库，先用 knowledge.manage(action=search) 查询。")
     return actions
 def _web_no_results_hint(query: str) -> str:
     """Return a user-friendly hint when no web results are found."""
@@ -507,7 +507,7 @@ def _weather_structured_result(*, tool_id: str, location: str, units: str,
     result["answer_hint"] = "直接使用 current/forecast_daily 里的结构化天气字段回答；引用 [1] open-meteo.com，并说明天气预报会变化。"
     result["next_actions"] = [
         "用 current 或 forecast_daily 的温度、降水概率/降水量、风速字段直接回答用户。",
-        "如果用户要求官方气象台口径，再用 web.search 或 web.page.process 交叉验证气象局页面。",
+        "如果用户要求官方气象台口径，再用 web.manage(action=search/page) 交叉验证气象局页面。",
     ]
     return _result(_DummyInv(tool_id), True, result)
 def _weather_summary(result: dict) -> str:

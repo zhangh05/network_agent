@@ -56,9 +56,6 @@ class ToolPlanningDecision:
     # permitted in this turn. Requires explicit scene signal.
     local_ops_allowed: bool = False
 
-    # Whether tool.catalog.search can expand the visible set mid-turn.
-    catalog_expansion_allowed: bool = True
-
     # ── Rationale ──
 
     # Human-readable explanation of why these tools were chosen.
@@ -69,8 +66,8 @@ class ToolPlanningDecision:
 
     # ── Metadata ──
 
-    # The raw capability route from CapabilityRouter (for audit)
-    capability_route: Optional[dict] = None
+    # Business capabilities used as guidance for audit.
+    business_capabilities: Optional[list] = None
 
     # Planner mode: "deterministic" | "llm" | "hybrid"
     planner_mode: str = "deterministic"
@@ -90,7 +87,6 @@ class ToolPlanningDecision:
         """Serialise for decision reports and ctx.metadata.
 
         Sensitive fields are automatically redacted:
-          - capability_route raw content is redacted (only structure preserved)
           - warnings/errors are truncated to 500 chars each
           - blocked_tools reasons are kept (they are structural, not content)
         """
@@ -102,7 +98,6 @@ class ToolPlanningDecision:
             "optional_tools": list(self.optional_tools),
             "blocked_tools": list(self.blocked_tools),
             "local_ops_allowed": self.local_ops_allowed,
-            "catalog_expansion_allowed": self.catalog_expansion_allowed,
             "selection_reason": _redact_reason(str(self.selection_reason)),
             "policy_version": self.policy_version,
             "planner_mode": self.planner_mode,
@@ -112,8 +107,8 @@ class ToolPlanningDecision:
                 str(w)[:500] for w in (self.warnings or [])
             ],
         }
-        if self.capability_route:
-            d["capability_route"] = _redact_capability_route(self.capability_route)
+        if self.business_capabilities:
+            d["business_capabilities"] = _redact_capability_list(self.business_capabilities)
         return d
 
     # ── Factory ──
@@ -122,7 +117,7 @@ class ToolPlanningDecision:
     def from_plan(
         cls,
         plan: dict,
-        capability_route: dict = None,
+        business_capabilities: list | None = None,
         policy: "ToolPlanningPolicy" = None,  # noqa: F821
     ) -> "ToolPlanningDecision":
         """Build a ToolPlanningDecision from a deterministic plan dict.
@@ -177,10 +172,9 @@ class ToolPlanningDecision:
             optional_tools=optional,
             blocked_tools=blocked,
             local_ops_allowed=local_ops,
-            catalog_expansion_allowed=True,
             selection_reason=str(plan.get("reason", "deterministic plan")),
             policy_version=pv,
-            capability_route=capability_route,
+            business_capabilities=business_capabilities,
             planner_mode=str(plan.get("mode", "deterministic")),
             planner_version=str(plan.get("planner_version", "")),
             valid=bool(plan.get("tool_planner", {}).get("valid", True)),
@@ -213,13 +207,21 @@ def _redact_reason(reason: str) -> str:
     return str(reason)[:500]
 
 
-def _redact_capability_route(route: dict) -> dict:
-    """Redact a capability route to only keep structural fields.
+def _redact_capability_list(items: list) -> list:
+    """Redact business capability guidance for reports.
 
-    Capability routes contain routing information (package names, scores,
-    reasons) — these are safe to keep. We strip any raw user content or
-    large nested data.
+    Business catalog entries are structural metadata, but we still strip large
+    nested fields defensively before exposing them in decision reports.
     """
+    if not isinstance(items, list):
+        return []
+    return [
+        _redact_capability_dict(v) if isinstance(v, dict) else str(v)[:200]
+        for v in items[:20]
+    ]
+
+
+def _redact_capability_dict(route: dict) -> dict:
     if not isinstance(route, dict):
         return {}
     safe: dict = {}
@@ -227,10 +229,10 @@ def _redact_capability_route(route: dict) -> dict:
         if _is_sensitive_key(str(key)):
             continue
         if isinstance(value, dict):
-            safe[str(key)] = _redact_capability_route(value)
+            safe[str(key)] = _redact_capability_dict(value)
         elif isinstance(value, list):
             safe[str(key)] = [
-                _redact_capability_route(v) if isinstance(v, dict)
+                _redact_capability_dict(v) if isinstance(v, dict)
                 else (str(v)[:200] if isinstance(v, str) else v)
                 for v in value[:20]
             ]
@@ -261,7 +263,6 @@ def redact_decision_for_report(decision_dict: dict) -> dict:
         out["warnings"] = [
             str(w)[:200] for w in out["warnings"]
         ]
-    # Remove capability_route entirely from external reports
-    # (internal audit can read it from ctx.metadata)
     out.pop("capability_route", None)
+    out.pop("catalog_expansion_allowed", None)
     return out

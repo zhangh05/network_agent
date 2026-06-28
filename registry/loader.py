@@ -1,5 +1,11 @@
 # registry/loader.py
-"""Registry loader — reads module/skill registries and generates capabilities."""
+"""Registry loader — reads module/skill registries and projects the catalog.
+
+v3.9.4 hard cut: business capabilities live in
+``agent.capabilities.catalog``.  This loader may project that catalog into
+legacy-shaped ``ModuleSpec`` / ``SkillSpec`` / ``CapabilitySpec`` records for
+the registry API, but it must not import or depend on a CapabilityRegistry.
+"""
 
 import json
 import os
@@ -330,49 +336,52 @@ def _generate_capabilities(modules: list, skills: list) -> list:
     return result
 
 
-def _runtime_capability_registry():
+def _business_capabilities() -> list[dict]:
     try:
-        from agent.capabilities import get_default_capability_registry
-        return get_default_capability_registry()
+        from agent.capabilities import catalog
+        return catalog.list_all()
     except Exception:
-        return None
+        return []
 
 
 def _project_runtime_modules() -> list:
-    reg = _runtime_capability_registry()
-    if reg is None:
+    caps = _business_capabilities()
+    if not caps:
         return []
+    by_module: dict[str, list[dict]] = {}
+    for cap in caps:
+        for module_id in cap.get("module_ids") or ():
+            by_module.setdefault(str(module_id), []).append(cap)
+
     modules = []
-    for cap in reg.list_all():
-        m = cap.module
-        safety = cap.safety
+    for module_id, module_caps in sorted(by_module.items()):
+        enabled = any(c.get("status") == "enabled" for c in module_caps)
+        first = module_caps[0]
+        risk = _highest_catalog_risk(module_caps)
         modules.append(ModuleSpec(
-            module_name=m.module_id,
-            display_name=cap.name,
-            description=m.description or cap.description,
-            category=cap.capability_id,
-            status=m.status,
-            maturity="beta_ready" if m.status == "enabled" else "planned",
-            module_path=f"agent/modules/{m.module_id}",
-            api_base=_module_api_base(m.module_id),
-            primary_endpoint=_module_primary_endpoint(m.module_id, m.operations),
-            health_endpoint=f"/api/modules/{m.module_id}/health",
-            has_ui=m.status == "enabled",
-            ui_route=_module_ui_route(m.module_id, cap.capability_id),
+            module_name=module_id,
+            display_name=_title_from_id(module_id),
+            description=first.get("description", ""),
+            category=first.get("capability_id", ""),
+            status="enabled" if enabled else "planned",
+            maturity="beta_ready" if enabled else "planned",
+            module_path=f"agent/modules/{module_id}",
+            api_base=f"/api/modules/{module_id}",
+            primary_endpoint="runtime",
+            health_endpoint=f"/api/modules/{module_id}/health",
+            has_ui=enabled,
+            ui_route=f"/capabilities/{first.get('capability_id', module_id)}",
             requires_llm=False,
             llm_allowed=False,
             deterministic=True,
-            can_generate_deployable=safety.produces_deployable_config,
-            deployable_output_field="deployable_config" if safety.produces_deployable_config else "",
-            risk_level=_highest_tool_risk(cap.tools),
-            can_affect_network=safety.real_device_access or safety.allows_config_push,
-            requires_manual_review=safety.requires_human_review,
-            high_risk_output_possible=safety.produces_deployable_config,
-            outputs=[
-                {"name": o.output_id, "type": o.output_type, "sensitivity": o.sensitivity}
-                for o in cap.outputs
-            ],
-            artifact_output_policy="sensitive_artifact_allowed" if cap.outputs else "none",
+            can_generate_deployable=_catalog_requires_review(module_caps),
+            deployable_output_field="deployable_config" if _catalog_requires_review(module_caps) else "",
+            risk_level=risk,
+            can_affect_network=module_id in {"cmdb", "device", "runtime"},
+            requires_manual_review=_catalog_requires_review(module_caps),
+            high_risk_output_possible=risk in {"high", "critical", "forbidden"},
+            outputs=[],
+            artifact_output_policy="sensitive_artifact_allowed" if _catalog_requires_review(module_caps) else "none",
             trace_enabled=True,
             trace_policy="sanitized_metadata_only",
         ))
@@ -380,143 +389,120 @@ def _project_runtime_modules() -> list:
 
 
 def _project_runtime_skills() -> list:
-    """Project CapabilityManifest tools as skill specs (v3.3: .skills removed, use .tools directly)."""
-    reg = _runtime_capability_registry()
-    if reg is None:
-        return []
+    """Project business capabilities as skill specs for registry views."""
     skills = []
-    for cap in reg.list_all():
-        for tool in cap.tools:
-            skills.append(SkillSpec(
-                skill_name=tool.tool_id,
-                display_name=cap.name,
-                description=tool.description or cap.description,
-                category=cap.capability_id,
-                status=cap.status,
-                skill_type="runtime_capability",
-                module=cap.module.module_id,
-                module_api=_module_primary_endpoint(cap.module.module_id, cap.module.operations),
-                adapter_path="",
-                entrypoint_type="runtime_capability",
-                entrypoint_function="",
-                capabilities=[{
-                    "capability_id": cap.capability_id,
-                    "intent": tool.tool_id,
-                    "function": tool.handler_ref or "",
-                    "description": cap.description,
-                    "risk_level": tool.risk_level,
-                }],
-                calls_module=True,
-                calls_llm=False,
-                calls_http_self=False,
-                adapter_required=False,
-                requires_adapter=False,
-                red_lines=[],
-                trace_record_capability_call=True,
-                trace_record_module_call=True,
-                memory_write_run_summary=True,
-            ))
+    for cap in _business_capabilities():
+        cap_id = str(cap.get("capability_id") or "")
+        if not cap_id:
+            continue
+        module_ids = list(cap.get("module_ids") or [])
+        tool_ids = list(cap.get("recommended_tool_ids") or [])
+        skills.append(SkillSpec(
+            skill_name=cap_id,
+            display_name=str(cap.get("display_name") or _title_from_id(cap_id)),
+            description=str(cap.get("description") or ""),
+            category=cap_id,
+            status=str(cap.get("status") or "planned"),
+            skill_type="prompt_skill",
+            module=module_ids[0] if module_ids else "",
+            module_api="runtime",
+            adapter_path="",
+            entrypoint_type="business_capability",
+            entrypoint_function="",
+            capabilities=[{
+                "capability_id": cap_id,
+                "intent": cap_id,
+                "recommended_tool_ids": tool_ids,
+                "description": cap.get("description", ""),
+                "risk_level": _highest_tool_id_risk(tool_ids),
+            }],
+            calls_module=True,
+            calls_llm=False,
+            calls_http_self=False,
+            adapter_required=False,
+            requires_adapter=False,
+            red_lines=list(cap.get("safety_notes") or []),
+            trace_record_capability_call=True,
+            trace_record_module_call=True,
+            memory_write_run_summary=True,
+        ))
     return skills
 
 
 def _project_runtime_capabilities() -> list:
-    """Project CapabilityManifest as CapabilitySpec (v3.3: .skills removed)."""
-    reg = _runtime_capability_registry()
-    if reg is None:
-        return []
+    """Project business capability catalog as CapabilitySpec records."""
     caps = []
-    for cap in reg.list_all():
-        first_tool = cap.tools[0].tool_id if cap.tools else ""
-        risk = _highest_tool_risk(cap.tools)
+    for cap in _business_capabilities():
+        cap_id = str(cap.get("capability_id") or "")
+        if not cap_id:
+            continue
+        tool_ids = list(cap.get("recommended_tool_ids") or [])
+        module_ids = list(cap.get("module_ids") or [])
+        risk = _highest_tool_id_risk(tool_ids)
         caps.append(CapabilitySpec(
-            capability_id=cap.capability_id,
-            intent=_capability_intent(cap.capability_id, first_tool or cap.capability_id),
-            module=cap.module.module_id,
-            skill=first_tool,
-            status=cap.status,
-            description=cap.description,
-            category=cap.capability_id,
+            capability_id=cap_id,
+            intent=cap_id,
+            module=module_ids[0] if module_ids else "",
+            skill=cap_id,
+            status=str(cap.get("status") or "planned"),
+            description=str(cap.get("description") or ""),
+            category=cap_id,
             risk_level=risk,
-            can_generate_deployable=cap.safety.produces_deployable_config,
-            requires_verification=cap.safety.requires_human_review,
-            requires_manual_review_if_any=cap.safety.requires_human_review,
+            can_generate_deployable=_notes_require_review(cap.get("safety_notes") or ()),
+            requires_verification=_notes_require_review(cap.get("safety_notes") or ()),
+            requires_manual_review_if_any=_notes_require_review(cap.get("safety_notes") or ()),
             llm_allowed=False,
             artifact_full_input_allowed=False,
-            artifact_sensitivity=_highest_output_sensitivity(cap.outputs),
-            ui_module_route=f"/capabilities/{cap.capability_id}",
-            ui_action_label=cap.name,
-            required_module=cap.module.module_id,
-            required_skill=first_tool,
-            input_schema={
-                t.tool_id: t.input_schema
-                for t in cap.tools
-                if t.status == "enabled"
-            },
-            output_schema={
-                o.output_id: {"type": o.output_type, "sensitivity": o.sensitivity}
-                for o in cap.outputs
-            },
+            artifact_sensitivity="internal",
+            ui_module_route=f"/capabilities/{cap_id}",
+            ui_action_label=str(cap.get("display_name") or _title_from_id(cap_id)),
+            required_module=module_ids[0] if module_ids else "",
+            required_skill=cap_id,
+            input_schema={"recommended_tool_ids": tool_ids},
+            output_schema={},
             policies={
                 "llm_allowed": False,
-                "real_device_access": cap.safety.real_device_access,
-                "allows_config_push": cap.safety.allows_config_push,
-                "may_fabricate_sources": cap.safety.may_fabricate_sources,
+                "recommended_tool_ids": tool_ids,
+                "prompt_hints": list(cap.get("prompt_hints") or []),
+                "safety_notes": list(cap.get("safety_notes") or []),
             },
         ))
     return caps
 
 
-def _highest_tool_risk(tools: list) -> str:
-    rank = {"low": 0, "medium": 1, "high": 2, "forbidden": 3}
+def _highest_tool_id_risk(tool_ids: list[str]) -> str:
+    rank = {"low": 0, "medium": 1, "high": 2, "critical": 3, "forbidden": 4}
     highest = "low"
-    for tool in tools or []:
-        risk = getattr(tool, "risk_level", "low")
+    try:
+        from tool_runtime.manifest_registry import get_manifest
+    except Exception:
+        get_manifest = None
+    for tool_id in tool_ids or []:
+        manifest = get_manifest(tool_id) if get_manifest else None
+        risk = getattr(manifest, "risk_level", "low") if manifest else "low"
         if rank.get(risk, 0) > rank.get(highest, 0):
             highest = risk
     return highest
 
 
-def _highest_output_sensitivity(outputs: list) -> str:
-    rank = {"public": 0, "internal": 1, "sensitive": 2, "secret": 3}
-    highest = "internal"
-    for output in outputs or []:
-        sensitivity = getattr(output, "sensitivity", "internal")
-        if rank.get(sensitivity, 1) > rank.get(highest, 1):
-            highest = sensitivity
-    return highest
+def _highest_catalog_risk(caps: list[dict]) -> str:
+    tool_ids: list[str] = []
+    for cap in caps:
+        tool_ids.extend(list(cap.get("recommended_tool_ids") or []))
+    return _highest_tool_id_risk(tool_ids)
 
 
-def _capability_intent(capability_id: str, fallback: str) -> str:
-    return {
-        "config_translation": "translate_config",
-        "knowledge": "knowledge_query",
-        "artifact": "artifact_management",
-        "review": "context_qa",
-        "topology": "topology_draw",
-        "inspection": "inspection_analyze",
-        "cmdb": "cmdb_query",
-    }.get(capability_id, fallback)
+def _notes_require_review(notes) -> bool:
+    text = " ".join(str(n).lower() for n in notes or ())
+    return any(word in text for word in ("approval", "verify", "review", "复核", "确认"))
 
 
-def _module_api_base(module_id: str) -> str:
-    return {
-        "config_translation": "/api/modules/config-translation",
-        "knowledge": "/api/modules/knowledge",
-    }.get(module_id, f"/api/modules/{module_id}")
+def _catalog_requires_review(caps: list[dict]) -> bool:
+    return any(_notes_require_review(c.get("safety_notes") or ()) for c in caps)
 
 
-def _module_primary_endpoint(module_id: str, operations: list) -> str:
-    return {
-        "config_translation": "/api/modules/config-translation/translate",
-        "knowledge": "/api/modules/knowledge/query",
-    }.get(module_id, operations[0] if operations else "runtime")
-
-
-def _module_ui_route(module_id: str, capability_id: str) -> str:
-    return {
-        "config_translation": "/modules/translate",
-        "knowledge": "/modules/knowledge",
-    }.get(module_id, f"/capabilities/{capability_id}")
+def _title_from_id(value: str) -> str:
+    return str(value or "").replace("_", " ").replace(".", " ").title()
 
 
 def _skill_red_lines(safety_rules: list) -> list:

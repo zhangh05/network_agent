@@ -1,12 +1,12 @@
 # agent/context/snapshot.py
 """RuntimeSnapshot — injected into every LLM turn as system context.
 
-v0.8: when a CapabilityRegistry is attached, RuntimeSnapshot summarizes
-the registry's view (enabled / planned capabilities, visible business
-tools, safety contract). The registry is the truth-source.
+v3.9.4: RuntimeSnapshot summarizes the business capability catalog
+(enabled / planned business capabilities), visible canonical tools, and
+the safety contract. The catalog is guidance only; tool schemas are the
+callable truth-source.
 
-Falls back to enabled_* / planned_* lists when no registry is
-attached; metadata.warnings records the fallback.
+Falls back to enabled_* / planned_* lists when no catalog snapshot is present.
 """
 
 from dataclasses import dataclass, field
@@ -42,7 +42,7 @@ class RuntimeSnapshot:
         lines.append(f"Model: {self.model}")
         lines.append("")
 
-        # Capability baseline (v0.8 — comes from CapabilityRegistry)
+        # Capability baseline (v3.9.4 — comes from business catalog snapshot)
         if self.capability_baseline:
             enabled_caps = self.capability_baseline.get("enabled_capabilities", [])
             planned_caps = self.capability_baseline.get("planned_capabilities", [])
@@ -99,15 +99,15 @@ class RuntimeSnapshot:
                 for t in self.selected_visible_tools:
                     lines.append(f"  - {t}")
                 lines.append("")
-                lines.append("Planned capabilities are NOT callable.")
+                lines.append("Planned business capabilities are NOT callable.")
             else:
                 lines.append("")
-                lines.append("(v0.8 fallback: per-turn skill selection not active; "
-                             "all enabled capability skills are shown.)")
+                lines.append("(catalog fallback: per-turn tool selection not active; "
+                             "enabled business capabilities are shown as guidance.)")
         else:
-            # Compatibility fallback (no capability registry available).
+            # Fallback (no business capability snapshot available).
             if self.metadata.get("capability_registry_fallback"):
-                lines.append("[WARN] CapabilityRegistry not attached — "
+                lines.append("[WARN] Business capability catalog snapshot not attached — "
                              "falling back to enabled_* / planned_* lists.")
                 lines.append("")
             lines.append("Current Tools (available NOW):")

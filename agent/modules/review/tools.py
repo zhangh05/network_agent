@@ -14,7 +14,7 @@ from agent.tools.schemas import ToolSpec
 
 
 TOOL_REVIEW_LIST = ToolSpec(
-    tool_id="system.system.review.item.list",
+    tool_id="system.manage",
     name="list_items",
     category="review",
     description=(
@@ -39,7 +39,7 @@ TOOL_REVIEW_LIST = ToolSpec(
 
 
 TOOL_REVIEW_UPDATE = ToolSpec(
-    tool_id="system.system.review.item.update",
+    tool_id="system.manage",
     name="update_item",
     category="review",
     description=(
@@ -110,5 +110,5 @@ def _build_handler(service_fn, tool_id_str: str):
 from agent.modules.review import service as _review_service
 
 
-tool_handler_list = _build_handler(_review_service.list_review_items, "system.system.review.item.list")
-tool_handler_update = _build_handler(_review_service.update_review_item, "system.system.review.item.update")
+tool_handler_list = _build_handler(_review_service.list_review_items, "system.manage")
+tool_handler_update = _build_handler(_review_service.update_review_item, "system.manage")

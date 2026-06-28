@@ -320,11 +320,11 @@ def _plan_tools_v2(ctx, evidence_bundle, session, services, selected_skills: lis
             return result
 
         planner = ToolPlannerV2()
-        # v3.9.3: capability_routing removed. All 21 tools are visible
-        # unconditionally; the planner picks per scene signals.
+        # v3.9.4: business capabilities are guidance only. All canonical
+        # tools are known to the planner; scene signals choose the visible set.
         available_catalog = {
             "tools": list(TOOL_NAMESPACE),
-            "capability_routing": {},
+            "business_capabilities": list(cap_reg or []),
         }
         tool_scene = planner.plan(
             scene_decision,
@@ -427,6 +427,4 @@ def _write_context_metadata(
         # ── P0: Persist ToolPlanningDecision for audit/inspection ──
         if tool_scene.get("tool_planning_decision"):
             ctx.metadata["tool_planning_decision"] = tool_scene["tool_planning_decision"]
-        if tool_scene.get("capability_routing"):
-            ctx.metadata["capability_routing"] = tool_scene["capability_routing"]
         persist_tool_scene_to_session(session, tool_scene, rule_tool_scene)

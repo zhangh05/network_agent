@@ -31,8 +31,13 @@ def build_decision_report(
     # ── Scene decision ──
     scene_decision = _safe_structure(ctx_meta.get("scene_decision", {}))
 
-    # ── Capability route ──
-    capability_route = _safe_structure(ctx_meta.get("capability_routing", {}))
+    # ── Business capability guidance ──
+    planning_caps = {}
+    if isinstance(ctx_meta.get("tool_planning_decision"), dict):
+        planning_caps = ctx_meta["tool_planning_decision"].get("business_capabilities") or {}
+    business_capabilities = _safe_structure(
+        planning_caps or ctx_meta.get("business_capabilities", []),
+    )
 
     # ── Tool planning decision ──
     tpd = ctx_meta.get("tool_planning_decision", {})
@@ -70,15 +75,12 @@ def build_decision_report(
             "knowledge": {"status": "not_evaluated"},
         }
 
-    catalog_expansions = _safe_structure(
-        ctx_meta.get("dynamic_tool_expansions", []),
-    )
     context_pipeline = _safe_structure(
         ctx_meta.get("context_pipeline_meta", {}),
     )
     decision_status = "complete" if all((
         scene_decision,
-        capability_route,
+        tool_planning_decision,
         retrieval_decision,
         context_pipeline,
     )) else "degraded"
@@ -105,11 +107,10 @@ def build_decision_report(
         "workspace_id": str(workspace_id),
         "created_at": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
         "scene_decision": scene_decision,
-        "capability_route": capability_route,
+        "business_capabilities": business_capabilities,
         "tool_planning_decision": tool_planning_decision,
         "visibility_violations": visibility_violations,
         "retrieval_decision": retrieval_decision,
-        "catalog_expansions": catalog_expansions,
         "context_pipeline": context_pipeline,
         "decision_status": decision_status,
         "tool_execution_summary": exec_summary,

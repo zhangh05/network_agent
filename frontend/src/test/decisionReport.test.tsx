@@ -16,29 +16,23 @@ const report: DecisionReport = {
   created_at: "2026-06-21T00:00:00Z",
   decision_status: "complete",
   scene_decision: { category: "pcap" },
-  capability_route: {
-    capability_ids: ["pcap_analysis"],
-    confidence: { pcap_analysis: 0.9 },
-    ambiguous: false,
-    fallback_used: false,
-  },
+  business_capabilities: [{ capability_id: "pcap_analysis" }],
   tool_planning_decision: {
-    visible_tools: ["pcap.analysis.run"],
-    required_tools: ["pcap.analysis.run"],
+    visible_tools: ["pcap.manage"],
+    required_tools: ["pcap.manage"],
     blocked_tools: [],
   },
   retrieval_decision: {
     memory: { status: "skipped", reason: "not_required" },
     knowledge: { status: "hit", count: 2 },
   },
-  catalog_expansions: [],
   context_pipeline: { status: "ok", stages_run: 13 },
   visibility_violations: [],
   tool_execution_summary: {
-    called: ["pcap.analysis.run"],
+    called: ["pcap.manage"],
     blocked: [],
     failed: [],
-    succeeded: ["pcap.analysis.run"],
+    succeeded: ["pcap.manage"],
   },
   trace_summary: {
     real_event_count: 8,
@@ -60,7 +54,7 @@ describe("DecisionReportPanel", () => {
   it("renders routing, retrieval, tool and trace truth", () => {
     render(<DecisionReportPanel report={report} />);
     expect(screen.getByText("pcap_analysis")).toBeInTheDocument();
-    expect(screen.getByText("pcap.analysis.run")).toBeInTheDocument();
+    expect(screen.getByText("pcap.manage")).toBeInTheDocument();
     expect(screen.getByText(/知识：命中/)).toBeInTheDocument();
     expect(screen.getByText(/真实 8/)).toBeInTheDocument();
     expect(screen.getByText(/合成 1/)).toBeInTheDocument();

@@ -3,7 +3,7 @@
 ## Principles
 1. **Single runtime** — all tool execution via ToolRuntimeClient, no direct handler bypass
 2. **Single approval** — ApprovalStore is the only approval record, interrupt/resume primitives
-3. **Manifest-driven** — all 74 tools have CapabilityManifest, policy/approval/retry derived from manifest
+3. **Manifest-driven** — all 21 canonical tools have runtime manifests; policy/approval/retry derive from them
 4. **Durable state** — TaskState → Steps → Events → Checkpoints, recoverable at any point
 5. **Auditable delivery** — trajectory + eval + audit report, every task traceable
 
@@ -12,7 +12,7 @@
 | Document | Phase | Content |
 |----------|-------|---------|
 | [Runtime Call Graph](runtime-callgraph-v3.10.md) | 1 | Full call chain: 4 entry points → 1 main path |
-| Capability Manifest | 5 | 73 tool manifests, 22 fields per tool |
+| Tool Manifest | 5 | 21 canonical tool manifests, policy and approval metadata |
 | Workspace Boundary | 7 | Zero default fallback, cross-workspace isolation |
 | Memory Governance | 8 | Write gate, pending/active/conflict, retrieval filters |
 | Subagent Runtime | 9 | 7 profiles, isolated execution, tool allowlists |
@@ -33,8 +33,8 @@ agent/runtime/durable/       — Durable state (Phase 2-12)
 └── delivery.py              — Validation gates, rollback plans, audit reports
 
 tool_runtime/
-├── manifest.py              — CapabilityManifest dataclass (25 fields)
-├── manifest_registry.py     — 74 tool manifests, validate_all()
+├── manifest.py              — Runtime tool manifest dataclass
+├── manifest_registry.py     — 21 canonical tool manifests, validate_all()
 ├── client.py                — ToolRuntimeClient with caller permission gate
 ├── ecosystem.py             — MCP/Skill/Plugin provider registry
 ├── executor.py              — ToolExecutor (all redacted=True)

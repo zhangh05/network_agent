@@ -7,7 +7,9 @@ describe("workbench backend message merge", () => {
     useWorkbenchStore.setState({
       bySession: {},
       currentSessionId: null,
-      results: {},
+      runDetails: {},
+      runDetailLoading: {},
+      runDetailError: {},
       sending: false,
       lastUserInput: "",
     });

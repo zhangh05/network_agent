@@ -70,7 +70,7 @@ export function Sidebar() {
       .some((m) => m.run_id === rid && m.role === "assistant" && m.result);
     if (already) return;
     try {
-      const raw = await runtimeAuditApi.run(rid);
+      const raw = await runtimeAuditApi.run(currentWorkspaceId, rid);
       const runData = (raw as any)?.run || raw as any;
       const result: AgentResult = {
         ok: /ok|completed|success/i.test(runData.status || r.status || ""),

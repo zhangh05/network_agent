@@ -459,7 +459,7 @@ def decide_scene(
         include("agent", "subagent", "team", "role", "result")
         reasons.append("用户请求复杂/并行/委托式任务")
 
-    # Default fallback: web.search ONLY if no categories detected
+    # Default fallback: web.manage(action=search) ONLY if no categories detected
     # AND the user actually wants something tool-related.
     if not categories and (is_tool_query or intent_profile["has_tools"]):
         include("web", "search")
