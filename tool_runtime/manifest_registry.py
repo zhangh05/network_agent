@@ -160,6 +160,41 @@ MANIFESTS: dict[str, CapabilityManifest] = {
         risk_level="low", side_effects="none", idempotency="safe_to_retry", timeout_seconds=10,
     ),
 
+    # ── v3.9.1: merged workspace tools ────────────────────────────────
+    "workspace.file": CapabilityManifest(
+        tool_id="workspace.file", category="workspace", display_name="Workspace File (unified)",
+        description=(
+            "Unified workspace file tool. action=list (list/exists), read, read_image, "
+            "edit (string replace), patch (diff), write_artifact. action_class depends on action."
+        ),
+        action_class="write",  # Mixed: read+write; dispatcher controls per-action
+        risk_level="medium",  # Contains edit/patch which are writes
+        reads_artifact=True, writes_artifact=True, side_effects="write",
+        idempotency="unsafe_to_retry", timeout_seconds=30,
+    ),
+    "workspace.artifact": CapabilityManifest(
+        tool_id="workspace.artifact", category="workspace", display_name="Workspace Artifact (unified)",
+        description=(
+            "Unified workspace artifact tool. action=list, read, save, tag, "
+            "delete (soft, requires approval), diff, export. "
+            "action=delete has requires_approval=True."
+        ),
+        action_class="write",  # Mixed: read+write+delete
+        risk_level="medium",
+        reads_artifact=True, writes_artifact=True, side_effects="write",
+        idempotency="unsafe_to_retry", timeout_seconds=30,
+    ),
+    "workspace.filestore": CapabilityManifest(
+        tool_id="workspace.filestore", category="workspace", display_name="FileStore (unified)",
+        description=(
+            "Unified FileStore tool. action=references (query cross-refs) or "
+            "action=import (import a workspace file into FileStore)."
+        ),
+        action_class="read",
+        risk_level="low", side_effects="none", idempotency="safe_to_retry",
+        timeout_seconds=20,
+    ),
+
     # ═══ git ═══
     "git.commit": CapabilityManifest(
         tool_id="git.commit", category="git", display_name="Git Commit",
