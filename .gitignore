@@ -69,3 +69,9 @@ node_modules/
 workspaces/test_*/
 workspaces/ws_*/
 workspaces/
+
+# macOS system files (v3.9.1)
+.DS_Store
+.AppleDouble
+.LSOverride
+._*
