@@ -1,23 +1,36 @@
 # tool_runtime/policy.py
 """ToolPolicy — permission and safety enforcement with risk levels.
 
+v3.9.5: command-level safety check is **destructive-only**.
+
 Checks:
   1. tool_id exists in registry
   2. tool enabled
   3. risk_level metadata (low/medium/high); risk alone does not block calls
   4. category allowed (v0.2 expanded categories)
-  5. not a forbidden tool_id
+  5. not a forbidden tool_id (e.g. legacy ssh.exec, nmap.scan)
   6. dry_run support
   7. timeout within limits
-  8. arguments safe (no shell/ssh injection signatures)
-  9. unsafe arguments block execution
+  8. arguments free of destructive command patterns → escalates to
+     ``high`` + ``requires_approval`` (the approval bubble UX), does
+     **not** block the call.
+  9. legacy char-blacklist (| && || ; ` $ > <) and sensitive-path
+     substring (/etc/passwd, ../) are gone. Only the destructive
+     command set in ``tool_runtime.dangerous_patterns`` matters.
 """
 
 from tool_runtime.schemas import ToolSpec, ToolInvocation, PolicyDecision
+from tool_runtime.dangerous_patterns import (
+    scan_arguments_for_dangerous,
+    is_destructive_command,
+)
 
 V02_ALLOWED_RISK_LEVELS = {"low", "medium", "high"}
 
-# Forbidden tool_ids — blocked at policy level even if registered
+# Forbidden tool_ids — blocked at policy level even if registered.
+# v3.9.5: these are tool-level forbids (the tool should not exist
+# in the LLM's namespace). They are independent of command-level
+# danger — see ``dangerous_patterns`` for the command-level check.
 V02_FORBIDDEN_TOOLS = {
     "ssh.exec", "telnet.exec", "snmp.walk", "nmap.scan", "ping.sweep",
     "command.exec", "device.exec", "config.push",
@@ -43,12 +56,12 @@ V02_FORBIDDEN_PATTERNS = [
     _re.compile(r"^powershell[\._]exec(?!_approved)[_\w]*$", _re.IGNORECASE),
 ]
 
-# v0.3 high-risk approved_exec tools — need approval_id but accept arbitrary commands
-# V02_APPROVED_EXEC_TOOLS removed (manifest-driven)
-
 # v0.3: handlers accept arbitrary commands, allowlists removed.
-# Policy only blocks unsafe arguments (for example destructive shell commands).
-# Risk/approval metadata is surfaced for UI/audit, but does not by itself deny a call.
+# v3.9.5: SAFE_COMMAND_ALLOWLIST and is_safe_command_first_word are
+# removed entirely. The new model is destructive-only: anything not
+# matching the dangerous-pattern set is treated as medium or low risk
+# and is surfaced for prompt-level risk awareness, not blocked.
+#
 # v3.10: All policy decisions derived from CapabilityManifest (not ToolSpec).
 
 import logging
@@ -74,41 +87,18 @@ def is_tool_forbidden(tool_id: str) -> bool:
     return False
 
 
-# ── Safe Command Allowlist ──
-# Commands whose first word is in this set are marked as safe-cmd
-# (still subject to high-risk approval gates for exec tools).
-SAFE_COMMAND_ALLOWLIST = {
-    # Core shell utils
-    "ls", "pwd", "cat", "head", "tail", "grep", "echo", "wc", "sort", "uniq",
-    "cut", "tr", "awk", "sed", "find", "xargs", "tee", "diff", "cmp",
-    "file", "stat", "du", "df", "which", "type", "env", "printenv",
-    "mkdir", "touch", "cp", "mv", "rmdir",
-    # Network diagnostics (read-only)
-    "ip", "ifconfig", "hostname", "ping", "traceroute", "tracepath",
-    "nslookup", "dig", "host", "netstat", "ss", "arp", "route",
-    "curl", "wget", "scutil", "networksetup",
-    # Process / system info (read-only)
-    "ps", "top", "uptime", "uname", "whoami", "id", "groups",
-    "lsof", "dmesg", "sysctl", "systemctl", "launchctl", "sw_vers",
-    # Python / Git / Build
-    "python", "python3", "pip", "pip3", "git", "node", "npm", "npx",
-    "make", "cmake",
-}
-
-
-def is_safe_command_first_word(command: str) -> bool:
-    """Check if the first word of a command is in the safe allowlist.
-
-    Args:
-        command: Full shell command string.
-
-    Returns:
-        True if the first word is in SAFE_COMMAND_ALLOWLIST.
-    """
-    if not command or not command.strip():
-        return False
-    first_word = command.strip().split(maxsplit=1)[0]
-    return first_word in SAFE_COMMAND_ALLOWLIST
+# ── Re-exports for back-compat with callers that imported the legacy
+# names from this module. The actual implementation lives in
+# tool_runtime.dangerous_patterns now. ──
+__all__ = [
+    "ToolPolicy",
+    "V02_ALLOWED_RISK_LEVELS",
+    "V02_FORBIDDEN_TOOLS",
+    "V02_FORBIDDEN_PATTERNS",
+    "is_tool_forbidden",
+    "is_destructive_command",
+    "_check_argument_safety",
+]
 
 
 class ToolPolicy:
@@ -198,11 +188,28 @@ class ToolPolicy:
                 f"Tool '{spec.tool_id}' timeout {effective_timeout}s > {max_timeout}s limit"
             )
 
-        # ── 10. Argument safety check ──
-        arg_check = _check_argument_safety(invocation.arguments, spec.tool_id)
-        if arg_check:
-            blocked.append("unsafe_arguments")
-            reason_parts.append(f"Unsafe arguments: {arg_check}")
+        # ── 10. Argument safety check (v3.9.5: destructive-only) ──
+        # v3.9.5: only destructive command patterns escalate. They bump
+        # the effective risk to ``high`` and require approval via the
+        # manifest. They DO NOT block the call outright — the user
+        # can still see the bubble and approve if they want to run
+        # the destructive command. Shell syntax characters
+        # (|, &&, ||, ;, `, $, >, <), sensitive-path substrings, and
+        # "rm -rf" in user text are no longer treated as unsafe
+        # arguments.
+        arg_risk, arg_reason = _check_argument_safety(
+            invocation.arguments, spec.tool_id
+        )
+        if arg_risk == "high":
+            # Escalate to high risk + approval. Do NOT block.
+            effective_risk = "high"
+            effective_approval = True
+            reason_parts.append(
+                f"Destructive command requires approval: {arg_reason}"
+            )
+        # arg_risk in {"medium", "low", "forbidden"} → no escalation.
+        # Note: forbidden command-level is reserved for future use; tool-
+        # level forbids are handled separately in step 3 above.
 
         # ── Decision ──
         requires_approval = effective_risk == "high" and effective_approval
@@ -218,88 +225,63 @@ class ToolPolicy:
 
         return PolicyDecision(
             allowed=True,
-            reason="ok",
+            reason="ok" if not reason_parts else "; ".join(reason_parts),
             risk_level=effective_risk,
             blocked_rules=[],
             requires_approval=requires_approval,
         )
 
 
-def _check_argument_safety(arguments: dict, tool_id: str = "") -> str:
-    """Check arguments for injection or unsafe patterns."""
-    FORBIDDEN_ARGS = [
-        ("snmp", "SNMP not allowed"),
-        ("nmap", "Nmap not allowed"),
-        ("ping sweep", "Ping sweep not allowed"),
-        ("rm -rf", "Destructive shell command detected"),
-        ("/etc/passwd", "Sensitive path detected"),
-        ("/etc/shadow", "Sensitive path detected"),
-        ("../", "Path traversal detected"),
-        ("remove-item", "Destructive PowerShell command detected"),
-        ("new-item", "File creation outside workspace detected"),
-        ("set-executionpolicy", "Execution policy change not allowed"),
-    ]
+def _check_argument_safety(
+    arguments: dict, tool_id: str = ""
+) -> tuple[str, str]:
+    """Classify the argument set into a risk level for policy purposes.
 
-    # Shell/PowerShell specific checks. Only command-like fields are checked;
-    # do not stringify the entire arguments dict, because user text may contain
-    # examples such as "/etc/passwd" without being a path argument.
-    if tool_id == "exec.run":
-        command = str((arguments or {}).get("command", "")).lower()
-        extra_checks = [
-            ("&&", "Command chaining detected"),
-            ("||", "Command chaining detected"),
-            (";", "Command separator detected"),
-            ("`", "Command substitution detected"),
-            ("$(", "Shell expansion detected"),
-            ("|", "Pipe detected"),
-            (">", "Redirection detected"),
-            ("<", "Input redirection detected"),
-        ]
-        for pattern, reason in extra_checks:
-            if pattern in command:
-                return reason
-        for pattern, reason in FORBIDDEN_ARGS:
-            if pattern in command:
-                return reason
-    else:
-        command = ""
+    v3.9.5: returns a ``(risk_level, reason)`` tuple. The risk level
+    is one of:
 
-    # PowerShell forbidden patterns (built-in, not configurable)
-    POWERSHELL_FORBIDDEN_PATTERNS = [
-        "Invoke-Expression", "Start-Process", "DownloadString",
-        "Invoke-WebRequest", "Set-ExecutionPolicy", "Invoke-RestMethod",
-    ]
-    if tool_id == "exec.run":
-        for pat in POWERSHELL_FORBIDDEN_PATTERNS:
-            if pat.lower() in command:
-                return f"PowerShell forbidden pattern: {pat}"
+    - ``"high"``  — destructive command pattern detected. The caller
+      should escalate the effective risk to ``high`` and require
+      approval; it must NOT block the call outright.
+    - ``"medium"`` — command-bearing arguments are present but no
+      destructive pattern was found. The prompt layer surfaces risk
+      awareness; the call proceeds.
+    - ``"low"``   — no command-bearing fields present.
 
-    for value in _iter_safety_relevant_values(arguments or {}):
-        text = str(value).lower()
-        for pattern, reason in FORBIDDEN_ARGS:
-            if pattern in text:
-                return reason
+    Earlier versions of this function returned a single string and
+    used a brittle character blacklist. That has been removed: pipe,
+    chaining, redirection, expansion, sensitive-path substrings, and
+    "rm -rf" appearing in non-command text are no longer reasons to
+    block. The only signal is the destructive-pattern scan from
+    ``tool_runtime.dangerous_patterns``.
+    """
+    if not arguments:
+        return "low", ""
 
-    return ""
-
-
-def _iter_safety_relevant_values(arguments: dict):
-    relevant_names = {
-        "command", "cmd", "shell", "args", "path", "filepath", "file_path",
-        "repo_path", "target_dir", "working_dir", "source", "destination",
-    }
-    for key, value in (arguments or {}).items():
+    # Only treat as a "command call" if the arguments contain at least
+    # one command-bearing field. Otherwise this is a regular API call
+    # (e.g. workspace.file) and any dangerous string in user text is
+    # not a command intent.
+    has_command_field = False
+    for key in arguments.keys():
         key_l = str(key).lower()
-        if isinstance(value, dict):
-            yield from _iter_safety_relevant_values(value)
-        elif isinstance(value, list):
-            for item in value:
-                if isinstance(item, dict):
-                    yield from _iter_safety_relevant_values(item)
-                elif any(name in key_l for name in relevant_names):
-                    yield item
-        elif any(name in key_l for name in relevant_names):
-            yield value
+        if key_l in {"command", "cmd", "shell", "shell_command", "args",
+                     "script", "script_body", "exec"}:
+            has_command_field = True
+            break
+
+    if not has_command_field:
+        return "low", ""
+
+    # Destructive-pattern scan: this is the single source of truth.
+    matched = scan_arguments_for_dangerous(arguments)
+    if matched:
+        return "high", (
+            f"destructive command pattern detected ({matched}); "
+            f"requires user approval before execution"
+        )
+
+    return "medium", "exec-class tool call (non-destructive)"
 
 
 def validate_tool_id(tool_id: str) -> bool:

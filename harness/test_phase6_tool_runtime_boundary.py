@@ -82,14 +82,18 @@ class TestToolPolicySafetySemantics:
         assert "high_risk_no_approval_id" not in decision.blocked_rules
 
     def test_high_risk_tool_call_blocks_destructive_arguments(self):
+        """v3.9.5: destructive commands ESCALATE to high + require
+        approval, they do NOT block the call. The approval bubble is
+        the gating UX; if the user approves, the call runs.
+        """
         from tool_runtime.policy import ToolPolicy
         from tool_runtime.schemas import ToolInvocation, ToolSpec
 
         spec = ToolSpec(
             tool_id="exec.run",
             category="exec",
-            risk_level="high",
-            requires_approval=True,
+            risk_level="medium",  # manifest would say medium; arg-level escalates
+            requires_approval=False,
             input_schema={"type": "object", "properties": {}},
         )
 
@@ -103,8 +107,11 @@ class TestToolPolicySafetySemantics:
             ),
         )
 
-        assert decision.allowed is False
-        assert "unsafe_arguments" in decision.blocked_rules
+        # v3.9.5: allowed=True, risk=high, requires_approval=True.
+        # The bubble UX decides whether the call actually executes.
+        assert decision.allowed is True
+        assert decision.risk_level == "high"
+        assert decision.requires_approval is True
 
 
 class TestNoBypass:

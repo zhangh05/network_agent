@@ -296,11 +296,15 @@ def test_git_commit_requires_explicit_files(tmp_path):
 
 
 def test_policy_does_not_scan_descriptive_text_as_path_argument():
+    """v3.9.5: _check_argument_safety returns (risk_level, reason).
+    Descriptive text mentioning sensitive paths must not be flagged —
+    the policy only inspects command-bearing fields.
+    """
     from tool_runtime.policy import _check_argument_safety
 
-    result = _check_argument_safety(
+    risk, reason = _check_argument_safety(
         {"description": "The user asked whether /etc/passwd should be inspected."},
         tool_id="text.analyze",
     )
-
-    assert result == ""
+    assert risk == "low"
+    assert reason == ""

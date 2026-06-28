@@ -213,44 +213,16 @@ def check_dangerous_path(path: str) -> bool:
 
 
 def check_safe_command(command: str) -> bool:
-    """Check if a shell command is safe to execute.
-
-    Args:
-        command: Shell command string.
-
-    Returns:
-        True if the command appears safe.
+    """v3.9.5: removed. The legacy character blacklist is gone. Shell
+    command safety is decided by
+    :func:`tool_runtime.dangerous_patterns.is_destructive_command`
+    which returns True only for explicitly destructive patterns
+    (rm -rf, dd if=, mkfs, etc.). This stub is kept only to preserve
+    any import sites during the transition; new code should call
+    :func:`is_destructive_command` directly.
     """
-    if not command or not command.strip():
-        return False
-
-    cmd_lower = command.lower().strip()
-
-    # Block patterns
-    FORBIDDEN_COMMANDS = [
-        "rm -rf /", "rm -rf ~", "rm -rf .", "rm -rf ..",
-        "dd if=", "mkfs", "fdisk", "parted",
-        ":(){ :|:& };:",  # fork bomb
-        "chmod 777", "chmod -R 777",
-        "> /dev/sda", "> /dev/hda",
-        "iptables -F", "ufw disable",
-        "shutdown", "reboot", "halt", "init 0", "init 6",
-        "kill -9 -1", "killall -9",
-        "wget", "curl",  # network downloads in shell context
-        "nc ", "netcat", "ncat",
-        "eval ", "exec ",
-    ]
-    for forbidden in FORBIDDEN_COMMANDS:
-        if forbidden in cmd_lower:
-            return False
-
-    # Block command chaining and substitution
-    DANGEROUS_CHARS = ["&&", "||", "|", ";", "`", "$(", ">", "<", ">|"]
-    for char in DANGEROUS_CHARS:
-        if char in command:
-            return False
-
-    return True
+    from tool_runtime.dangerous_patterns import is_destructive_command
+    return not is_destructive_command(command or "")
 
 
 def check_network_url(url: str) -> bool:

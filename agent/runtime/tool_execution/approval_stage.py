@@ -14,7 +14,11 @@ class ApprovalStage:
         if not _needs_approval(tid, spec, risk_level, requires_approval):
             return None, False
 
-        # Shell safety check
+        # v3.9.5: shell safety is destructive-only. We delegate to the
+        # unified pattern set in tool_runtime.dangerous_patterns. If a
+        # destructive command is detected, the policy layer (run before
+        # us) has already escalated risk to "high" + requires_approval;
+        # here we just verify the bubble interrupt setup is correct.
         safe, denied_word = _check_shell_safety(tid, tool_call.arguments)
         if not safe:
             from agent.protocol.tool_result import ToolResult
@@ -97,16 +101,19 @@ class ApprovalStage:
 
 
 def _check_shell_safety(tid: str, args: dict) -> tuple[bool, str]:
-    cmd = ""
-    if isinstance(args, dict):
-        cmd = str(args.get("command", args.get("cmd", "")))
-    if not cmd: return True, ""
-    dangerous = ["rm -rf /", "mkfs.", "shutdown", "format c:", "> /dev/sda",
-                 "dd if=", ":(){ :|:& };:", "curl | sh", "wget -O - | sh"]
-    cmd_lower = cmd.lower()
-    for d in dangerous:
-        if d.lower() in cmd_lower:
-            return False, d
+    """v3.9.5: delegate to the unified dangerous-pattern scanner.
+
+    Earlier versions embedded their own short list of destructive
+    substrings (rm -rf, mkfs, etc.) and missed several real-world
+    cases. The single source of truth is now
+    :mod:`tool_runtime.dangerous_patterns`.
+    """
+    from tool_runtime.dangerous_patterns import scan_arguments_for_dangerous
+    if not isinstance(args, dict):
+        return True, ""
+    matched = scan_arguments_for_dangerous(args)
+    if matched:
+        return False, matched
     return True, ""
 
 

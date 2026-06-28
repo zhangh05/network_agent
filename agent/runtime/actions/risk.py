@@ -7,28 +7,16 @@ import re
 from typing import Optional
 
 from agent.runtime.actions.models import ActionPlan, RiskDecision
+from tool_runtime.dangerous_patterns import scan_arguments_for_dangerous
 
 
-# ── Dangerous command patterns → critical / blocked ──────────────────────
+# ── Dangerous command detection ─────────────────────────────────────────
+# v3.9.5: the destructive-pattern list moved to
+# tool_runtime/dangerous_patterns (single source of truth). The local
+# copy here is gone; the helper is re-exported as
+# ``_check_dangerous_commands`` for any caller that still uses it.
+_check_dangerous_commands = scan_arguments_for_dangerous
 
-_DANGEROUS_PATTERNS = [
-    re.compile(r"rm\s+-(r|f|rf|fr)\s", re.I),
-    re.compile(r"rm\s+-f\s+/", re.I),
-    re.compile(r"del\s+/s\b", re.I),
-    re.compile(r"\bformat\s+[A-Za-z]:", re.I),
-    re.compile(r"\bmkfs\b", re.I),
-    re.compile(r"\bshutdown\b", re.I),
-    re.compile(r"\breboot\b", re.I),
-    re.compile(r"\bchmod\s+777\b", re.I),
-    re.compile(r"curl\s.*\|\s*sh", re.I),
-    re.compile(r"wget\s.*\|\s*sh", re.I),
-    re.compile(r"curl\s.*\|\s*bash", re.I),
-    re.compile(r"wget\s.*\|\s*bash", re.I),
-    re.compile(r"Invoke-Expression\b", re.I),
-    re.compile(r"\biex\b", re.I),
-    re.compile(r"Remove-Item\s.*-Recurse\s.*-Force", re.I),
-    re.compile(r"Remove-Item\s.*-Force\s.*-Recurse", re.I),
-]
 
 # ── Execute tools (shell/python/powershell) → high ───────────────────────
 
@@ -38,17 +26,6 @@ _EXECUTE_TOOL_PATTERNS = re.compile(
     r"|host\.(shell|powershell|python)\.exec",
     re.I,
 )
-
-
-def _check_dangerous_commands(arguments: dict) -> Optional[str]:
-    """Check if any argument value contains a dangerous command pattern."""
-    for val in arguments.values():
-        if not isinstance(val, str):
-            continue
-        for pat in _DANGEROUS_PATTERNS:
-            if pat.search(val):
-                return pat.pattern
-    return None
 
 
 def _is_execute_tool(tool_id: str) -> bool:
