@@ -128,18 +128,24 @@ def build_partial_result(state, reason) -> AgentResult:
 
 def build_blocked_result(state, reason, hook_event="pre_turn") -> AgentResult:
     """Build and persist a hook-blocked AgentResult."""
+    response = (
+        "Turn blocked by user prompt security hook. Remove credentials or sensitive values and retry."
+        if hook_event == "user_prompt_submit"
+        else "Turn blocked by pre-turn hook. Ask the user to review hook configuration."
+    )
     result = AgentResult(
         ok=False,
-        final_response="Turn blocked by pre-turn hook. Ask the user to review hook configuration.",
+        final_response=response,
         session_id=state.session.session_id,
         turn_id=state.turn.turn_id,
         trace_id=state.context.trace_id,
         warnings=state.turn.warnings,
-        tool_decision={"needed": False, "reason": "Turn blocked by pre-turn hook."},
-        no_tool_reason="blocked_by_hook: Turn 被 pre-turn hook 阻止",
+        tool_decision={"needed": False, "reason": f"Turn blocked by {hook_event} hook."},
+        no_tool_reason=f"blocked_by_hook: Turn 被 {hook_event} hook 阻止",
         metadata=enrich_metadata({
             "hook_event": hook_event,
             "hook_blocked": True,
+            "hook_block_reason": reason,
         }, state.context),
     )
     persist_run_record(state.session, state.turn, result, state.context)

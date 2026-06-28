@@ -165,11 +165,16 @@ def _post_tool_cleanup_handler(state: dict, payload: dict) -> HookResult:
         sessions_dir = WS_ROOT / workspace_id / "sessions"
         if sessions_dir.is_dir():
             for item in sessions_dir.iterdir():
-                # Sub-agent sessions are named sub_<run_id>
-                if not item.name.startswith("sub_"):
+                # Durable sub-agent sessions are named sub-<id>.
+                if not item.name.startswith("sub-"):
                     continue
-                # Check if the session JSON exists and has no runs
-                json_path = sessions_dir / f"{item.name}.json"
+                if item.is_file() and item.suffix == ".json":
+                    session_id = item.stem
+                    json_path = item
+                else:
+                    session_id = item.name
+                    json_path = sessions_dir / f"{session_id}.json"
+
                 if json_path.exists():
                     try:
                         import json
@@ -179,7 +184,7 @@ def _post_tool_cleanup_handler(state: dict, payload: dict) -> HookResult:
                             age = now - json_path.stat().st_mtime
                             if age > 600:  # 10 minutes
                                 from workspace.session_store import soft_delete_session
-                                soft_delete_session(item.name, workspace_id)
+                                soft_delete_session(session_id, workspace_id)
                                 cleaned += 1
                     except Exception:
                         pass

@@ -199,9 +199,13 @@ def build_runtime_snapshot(
         else:
             snap.visible_business_tools = list(capability_registry.visible_tool_ids())
         snap.safety_baseline = capability_registry.safety_summary()
-        # Mirror enabled/planned modules + skills from the registry so
-        # downstream consumers keep working.
-        cap_enabled = [s["skill_id"] for s in capability_registry.enabled_skills()]
+        # Mirror enabled/planned modules + capability ids from the registry so
+        # downstream prompt blocks keep the capability-first view coherent.
+        cap_enabled = [
+            s["capability_id"]
+            for s in capability_registry.enabled_capability_specs()
+            if s.get("capability_id")
+        ]
         if base_enabled_skills:
             # Preserve order: base skills first, capability skills after,
             # dedup.
@@ -214,7 +218,11 @@ def build_runtime_snapshot(
             snap.enabled_skills = merged
         else:
             snap.enabled_skills = cap_enabled
-        snap.planned_skills = [s["skill_id"] for s in capability_registry.planned_skills()]
+        snap.planned_skills = [
+            s.capability_id
+            for s in capability_registry.list_planned()
+            if getattr(s, "capability_id", "")
+        ]
         snap.enabled_modules = [m["module_id"] for m in capability_registry.enabled_modules()]
         snap.planned_modules = [m["module_id"] for m in capability_registry.planned_modules()]
     else:

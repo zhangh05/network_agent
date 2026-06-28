@@ -189,6 +189,23 @@ class TestDedupe:
         assert len(result) == 1
         assert result[0].content == "valid"
 
+    def test_cjk_near_duplicate_dedupe(self):
+        """Chinese memory candidates are tokenized by CJK units, not one giant word."""
+        from agent.runtime.memory_write.dedupe import MemoryDedupe
+        from agent.runtime.memory_write.models import MemoryCandidate
+
+        dedupe = MemoryDedupe()
+        candidates = [
+            MemoryCandidate(candidate_id="mc_a", memory_type="task_pattern",
+                            content="用户偏好使用华三设备配置示例进行BGP邻居排障"),
+            MemoryCandidate(candidate_id="mc_b", memory_type="task_pattern",
+                            content="用户偏好使用华三设备配置案例进行BGP邻居排障"),
+        ]
+
+        result = dedupe.dedupe(candidates)
+
+        assert len(result) == 1
+
 
 # ── Test: CountCap ──────────────────────────────────────────────────────
 

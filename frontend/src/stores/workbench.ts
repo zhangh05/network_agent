@@ -94,23 +94,20 @@ function messageKey(m: Pick<ChatMsg, "message_id" | "run_id" | "role" | "text" |
   return `fallback:${m.role}:${m.created_at}:${m.text}`;
 }
 
-function contentKey(m: Pick<ChatMsg, "role" | "text">): string {
-  return `${m.role}:${m.text}`;
-}
-
 function dedupeMessages(messages: ChatMsg[]): ChatMsg[] {
   const byStable = new Set<string>();
-  const byContent = new Set<string>();
   const out: ChatMsg[] = [];
   for (const message of messages) {
     const stable = messageKey(message);
-    const content = contentKey(message);
-    if (byStable.has(stable) || byContent.has(content)) continue;
+    if (byStable.has(stable)) continue;
     byStable.add(stable);
-    byContent.add(content);
     out.push(message);
   }
   return out;
+}
+
+function contentKey(m: Pick<ChatMsg, "role" | "text">): string {
+  return `${m.role}:${m.text.trim()}`;
 }
 
 function validChatMessage(message: unknown): message is ChatMsg {
@@ -127,8 +124,7 @@ function validChatMessage(message: unknown): message is ChatMsg {
 
 function findLocalForServer(serverMsg: ChatMsg, localMessages: ChatMsg[]): ChatMsg | undefined {
   const stable = messageKey(serverMsg);
-  const content = contentKey(serverMsg);
-  const exact = localMessages.find((m) => messageKey(m) === stable || contentKey(m) === content);
+  const exact = localMessages.find((m) => messageKey(m) === stable);
   if (exact) return exact;
   if (serverMsg.role === "assistant") {
     return localMessages.find(
@@ -292,16 +288,15 @@ export const useWorkbenchStore = create<WorkbenchState>()(
           // Merge strategy: server messages are the authoritative timeline.
           // For assistant messages (with run_id): prefer local copy if already
           // rendered (rich toolCalls/result data), fall back to server copy.
-          // For user messages (no run_id): dedup by content+role, keep local
-          // copy to avoid flickering local IDs.
+          // For user messages without ids: match only local optimistic messages
+          // that have not yet received a backend identity.
           const combined: ChatMsg[] = [];
           const seenKeys = new Set<string>();
-          const seenContent = new Set<string>();
+          const confirmedContent = new Set(converted.map((m) => contentKey(m)));
 
           for (const serverMsg of converted) {
             const stable = messageKey(serverMsg);
-            const content = contentKey(serverMsg);
-            if (seenKeys.has(stable) || seenContent.has(content)) continue;
+            if (seenKeys.has(stable)) continue;
             const localMatch = findLocalForServer(serverMsg, cur);
             const nextMsg = localMatch
               ? {
@@ -318,19 +313,17 @@ export const useWorkbenchStore = create<WorkbenchState>()(
               : serverMsg;
             combined.push(nextMsg);
             seenKeys.add(stable);
-            seenContent.add(content);
             if (localMatch) {
               seenKeys.add(messageKey(localMatch));
-              seenContent.add(contentKey(localMatch));
             }
           }
 
           // Append local-only messages not covered by server (e.g. streaming)
           for (const localMsg of cur) {
-            if (seenKeys.has(messageKey(localMsg)) || seenContent.has(contentKey(localMsg))) continue;
+            if (seenKeys.has(messageKey(localMsg))) continue;
+            if (!localMsg.message_id && !localMsg.run_id && confirmedContent.has(contentKey(localMsg))) continue;
             combined.push(localMsg);
             seenKeys.add(messageKey(localMsg));
-            seenContent.add(contentKey(localMsg));
           }
 
           // Sort by created_at ascending

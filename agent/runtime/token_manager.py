@@ -132,8 +132,11 @@ def track_llm_usage(session, turn, resp, messages, context, step):
         output_est = estimate_messages([resp.content]) if resp.content else 0
         model = getattr(context, 'model_config', {}).get('model', '') or ''
         provider = getattr(context, 'model_config', {}).get('provider', '') or ''
+        ws_id = getattr(session, 'workspace_id', '') or ''
+        if not ws_id:
+            return
         record_llm_call(
-            workspace_id=getattr(session, 'workspace_id', 'default') or 'default',
+            workspace_id=ws_id,
             session_id=getattr(session, 'session_id', ''),
             run_id=getattr(turn, 'turn_id', ''),
             turn_id=getattr(turn, 'turn_id', ''),
@@ -150,7 +153,7 @@ def _build_hook_state(session, context=None):
     """Build a minimal state dict for hook integration."""
     return {
         "intent": "assistant_chat",
-        "workspace_id": getattr(session, 'workspace_id', 'default') or 'default',
+        "workspace_id": getattr(session, 'workspace_id', '') or '',
         "session_id": getattr(session, 'session_id', ''),
         "active_module": "",
         "context": {},

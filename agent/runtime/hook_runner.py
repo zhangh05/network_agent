@@ -144,9 +144,19 @@ def run_pre_model_hook(session, messages, tools, context, step):
             target="assistant_chat",
         )
         if outcome.is_denied:
+            if not hasattr(context, "metadata"):
+                context.metadata = {}
+            context.metadata["user_prompt_blocked"] = True
+            context.metadata["user_prompt_block_reason"] = outcome.reason
             return True
         return False
-    except Exception:
+    except Exception as exc:
+        try:
+            context.metadata.setdefault("hook_warnings", []).append(
+                f"user_prompt_submit_hook_error: {str(exc)[:120]}"
+            )
+        except Exception:
+            pass
         return False
 
 
@@ -239,6 +249,10 @@ def run_user_prompt_submit_hook(session, context) -> bool:
             target="user_input",
         )
         if outcome.is_denied:
+            if not hasattr(context, "metadata"):
+                context.metadata = {}
+            context.metadata["user_prompt_blocked"] = True
+            context.metadata["user_prompt_block_reason"] = outcome.reason
             return True
         # Apply context injections from hooks
         if outcome.context_injections:
@@ -247,5 +261,11 @@ def run_user_prompt_submit_hook(session, context) -> bool:
             ctx_inj = context.metadata.setdefault("hook_context_injections", [])
             ctx_inj.extend(outcome.context_injections)
         return False
-    except Exception:
+    except Exception as exc:
+        try:
+            context.metadata.setdefault("hook_warnings", []).append(
+                f"user_prompt_submit_hook_error: {str(exc)[:120]}"
+            )
+        except Exception:
+            pass
         return False

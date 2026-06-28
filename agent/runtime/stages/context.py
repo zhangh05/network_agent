@@ -32,4 +32,7 @@ class ContextStage:
         events.context_built()
 
         # 6. User prompt submit hook
-        run_user_prompt_submit_hook(state.session, state.context)
+        if run_user_prompt_submit_hook(state.session, state.context):
+            reason = state.context.metadata.get("user_prompt_block_reason", "user_prompt_submit_hook")
+            state.turn.status = "blocked"
+            state.turn.warnings.append(f"user_prompt_blocked: {reason}")

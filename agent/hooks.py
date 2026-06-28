@@ -372,6 +372,22 @@ def _fold_results(
             run_count=len(results),
         )
 
+    # UserPromptSubmit: any deny blocks before prompt reaches the model.
+    if event == HookEvent.USER_PROMPT_SUBMIT:
+        if deny_count > 0:
+            return HookOutcome(
+                decision=HookDecision.DENY,
+                reason="; ".join(deny_reasons),
+                context_injections=context_injections,
+                run_count=len(results),
+                deny_count=deny_count,
+            )
+        return HookOutcome(
+            decision=HookDecision.ALLOW,
+            context_injections=context_injections,
+            run_count=len(results),
+        )
+
     # PostTurn: any block wins (force continue); context merged
     if event == HookEvent.POST_TURN:
         if block_requests:

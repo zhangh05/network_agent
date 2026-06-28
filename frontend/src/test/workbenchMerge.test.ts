@@ -134,4 +134,52 @@ describe("workbench backend message merge", () => {
     ]);
     expect(messages.every((m) => m.status === "ready")).toBe(true);
   });
+
+  it("keeps legitimate repeated backend user turns with the same text", () => {
+    const store = useWorkbenchStore.getState();
+    store.switchSession("sess-repeat");
+
+    store.mergeFromBackend("sess-repeat", [
+      {
+        message_id: "run-a:user",
+        session_id: "sess-repeat",
+        role: "user",
+        content: "查看本机IP地址",
+        created_at: "2026-06-28T10:00:00Z",
+        run_id: "run-a",
+      },
+      {
+        message_id: "run-a:assistant",
+        session_id: "sess-repeat",
+        role: "assistant",
+        content: "本机 IP 查询完成。",
+        created_at: "2026-06-28T10:00:01Z",
+        run_id: "run-a",
+      },
+      {
+        message_id: "run-b:user",
+        session_id: "sess-repeat",
+        role: "user",
+        content: "查看本机IP地址",
+        created_at: "2026-06-28T10:00:02Z",
+        run_id: "run-b",
+      },
+      {
+        message_id: "run-b:assistant",
+        session_id: "sess-repeat",
+        role: "assistant",
+        content: "再次查询完成。",
+        created_at: "2026-06-28T10:00:03Z",
+        run_id: "run-b",
+      },
+    ]);
+
+    const messages = useWorkbenchStore.getState().bySession["sess-repeat"];
+    expect(messages.map((m) => `${m.run_id}:${m.role}:${m.text}`)).toEqual([
+      "run-a:user:查看本机IP地址",
+      "run-a:assistant:本机 IP 查询完成。",
+      "run-b:user:查看本机IP地址",
+      "run-b:assistant:再次查询完成。",
+    ]);
+  });
 });

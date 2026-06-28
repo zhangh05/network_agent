@@ -138,6 +138,22 @@ def test_core_tools_for_context_includes_agent_tools_for_subagent_scene():
     assert "web.search" in tools
 
 
+def test_context_pipeline_simple_chat_exposes_no_tools():
+    from agent.core.session import AgentSession
+    from agent.core.turn import AgentTurn
+    from agent.protocol.op import AgentOp
+    from agent.runtime.context_pipeline.pipeline import ContextPipeline
+    from agent.runtime.services import default_runtime_services
+
+    session = AgentSession(session_id="ctx_simple_no_tools", workspace_id="default")
+    turn = AgentTurn.from_op(AgentOp.user_message("你好", session_id=session.session_id, workspace_id="default"))
+    ctx = ContextPipeline().run(session, turn, default_runtime_services())
+
+    assert ctx.metadata["context_status"] == "ok"
+    assert ctx.visible_tool_ids == []
+    assert ctx.tool_router.model_visible_tools() == []
+
+
 def test_llm_summary_compaction_creates_progress_summary():
     from agent.runtime.context_compactor import CompactionStrategy, compact_messages
 

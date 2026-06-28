@@ -3,7 +3,7 @@
 
 Upgraded from prefix-only matching to:
   - Exact match across same memory_type (same type + same content = guaranteed dup)
-              - Token Jaccard overlap for same type
+  - Token Jaccard overlap for same type
   - Cross-type identical content still deduped (e.g., an artifact_summary and
     a task_pattern with identical content are considered one signal)
 """
@@ -76,9 +76,19 @@ def _common_prefix_len(a: str, b: str) -> int:
 
 
 def _token_jaccard(a: str, b: str) -> float:
-    import re
-    a_tokens = set(re.findall(r"[\w.-]+", a.lower()))
-    b_tokens = set(re.findall(r"[\w.-]+", b.lower()))
+    a_tokens = _mixed_language_tokens(a)
+    b_tokens = _mixed_language_tokens(b)
     if not a_tokens or not b_tokens:
         return 0.0
     return len(a_tokens & b_tokens) / len(a_tokens | b_tokens)
+
+
+def _mixed_language_tokens(text: str) -> set[str]:
+    """Tokenize mixed CJK/ASCII text without treating whole Chinese sentences as one token."""
+    import re
+
+    lowered = text.lower()
+    ascii_tokens = set(re.findall(r"[a-z0-9][a-z0-9_.:-]*", lowered))
+    cjk_chars = re.findall(r"[\u4e00-\u9fff]", lowered)
+    cjk_bigrams = {''.join(pair) for pair in zip(cjk_chars, cjk_chars[1:])}
+    return ascii_tokens | set(cjk_chars) | cjk_bigrams

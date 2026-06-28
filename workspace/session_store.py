@@ -341,7 +341,10 @@ def get_session_messages(session_id: str, ws_id: str = "default") -> List[Dict[s
     """
     from workspace.message_store import SessionMessageStore
 
-    if get_session(session_id, ws_id) is None:
+    session = get_session(session_id, ws_id)
+    if session is None:
+        return []
+    if _is_internal_session(session):
         return []
 
     store = SessionMessageStore(session_id=session_id, ws_id=ws_id)

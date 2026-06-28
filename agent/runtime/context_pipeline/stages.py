@@ -207,6 +207,27 @@ class ToolPlanningStage:
         base_reg = getattr(ctx.tool_router, 'registry', None) or (ctx.tool_router if hasattr(ctx.tool_router, 'list_model_visible') else None)
         if base_reg is None:
             return ContextStageResult.ok_result(StageName.TOOL_PLANNING, metadata={'tool_planning_skipped': True, 'reason': 'no_base_registry'})
+        if getattr(scene_decision, "is_simple_chat", False) and not getattr(scene_decision, "needs_tool", False):
+            ctx.tool_router = ToolRouter.for_turn(base_reg, allowed_tool_ids=[])
+            ctx.visible_tool_ids = []
+            return ContextStageResult(
+                name=StageName.TOOL_PLANNING,
+                ok=True,
+                data={
+                    "selected_visible_tools": [],
+                    "dynamic_visibility": True,
+                    "tool_scene": {
+                        "planner_version": "simple_chat.no_tools",
+                        "mode": "deterministic",
+                        "primary_category": "chat",
+                        "categories": [],
+                        "groups": {},
+                        "candidate_tools": [],
+                        "reason": "simple chat does not need tools",
+                    },
+                    "rule_tool_scene": scene_to_rule_scene(scene_decision),
+                },
+            )
         planner = ToolPlannerV2()
         try:
             from agent.runtime.tool_planning.conversation import enrich_query_with_history

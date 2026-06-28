@@ -68,6 +68,83 @@ def test_web_private_url_guard_has_prefix_constants():
     assert _is_private_url("https://www.rfc-editor.org/rfc/rfc4271") is False
 
 
+def test_post_tool_cleanup_uses_durable_subagent_prefix(tmp_path, monkeypatch):
+    import json
+    import os
+    import time
+    import agent.runtime.default_hooks as default_hooks
+    import workspace.manager as manager
+    import workspace.session_store as session_store
+    from agent.hooks import HookDecision
+
+    monkeypatch.setattr(manager, "WS_ROOT", tmp_path)
+    monkeypatch.setattr(default_hooks, "_LAST_CLEANUP_TS", 0)
+    monkeypatch.setattr(default_hooks, "_CLEANUP_INTERVAL", 0)
+
+    sessions_dir = tmp_path / "ws_cleanup" / "sessions"
+    sessions_dir.mkdir(parents=True)
+    old_json = sessions_dir / "sub-cleanme.json"
+    old_json.write_text(json.dumps({"status": "active", "run_ids": []}), encoding="utf-8")
+    old_ts = time.time() - 700
+    os.utime(old_json, (old_ts, old_ts))
+
+    cleaned = []
+    monkeypatch.setattr(session_store, "soft_delete_session", lambda sid, ws: cleaned.append((sid, ws)))
+
+    result = default_hooks._post_tool_cleanup_handler(
+        {"workspace_id": "ws_cleanup"},
+        {"workspace_id": "ws_cleanup"},
+    )
+
+    assert result.decision == HookDecision.ALLOW
+    assert cleaned == [("sub-cleanme", "ws_cleanup")]
+
+
+def test_token_tracking_skips_empty_workspace(monkeypatch):
+    from types import SimpleNamespace
+    import agent.runtime.token_manager as token_manager
+
+    calls = []
+    monkeypatch.setattr(token_manager, "record_llm_call", lambda **kwargs: calls.append(kwargs))
+
+    token_manager.track_llm_usage(
+        session=SimpleNamespace(workspace_id="", session_id="sess_empty"),
+        turn=SimpleNamespace(turn_id="turn_empty"),
+        resp=SimpleNamespace(content="ok"),
+        messages=["hi"],
+        context=SimpleNamespace(model_config={"model": "m", "provider": "p"}),
+        step=None,
+    )
+
+    assert calls == []
+
+
+def test_internal_subagent_session_messages_hidden(tmp_path, monkeypatch):
+    import json
+    import workspace.manager as manager
+    import workspace.session_store as session_store
+    import workspace.message_store as message_store
+
+    monkeypatch.setattr(manager, "WS_ROOT", tmp_path)
+    monkeypatch.setattr(session_store, "WS_ROOT", tmp_path)
+    monkeypatch.setattr(message_store, "WS_ROOT", tmp_path)
+
+    sessions_dir = tmp_path / "ws_internal" / "sessions"
+    sessions_dir.mkdir(parents=True)
+    (sessions_dir / "sub-internal.json").write_text(json.dumps({
+        "session_id": "sub-internal",
+        "workspace_id": "ws_internal",
+        "title": "You are a subagent: Review",
+        "status": "active",
+        "metadata": {"subtask_id": "sub-internal", "is_subagent": True},
+    }), encoding="utf-8")
+
+    store = message_store.SessionMessageStore("sub-internal", "ws_internal")
+    store.write_message("run_1", "user", "You are a subagent: internal prompt")
+
+    assert session_store.get_session_messages("sub-internal", "ws_internal") == []
+
+
 def test_web_page_process_cache_clock_available(monkeypatch):
     from tool_runtime.general_tools.web_tools import handle_web_fetch_summary
     from tool_runtime.schemas import ToolInvocation
@@ -266,6 +343,34 @@ def test_memory_search_validates_workspace_without_name_error():
 
     assert result["ok"] is True
     assert result["count"] == 0
+
+
+def test_user_prompt_submit_hook_blocks_credentials_before_model_call():
+    from agent.core.session import AgentSession
+    from agent.core.turn import AgentTurn
+    from agent.protocol.op import AgentOp
+    from agent.runtime.loop import run_turn
+    from agent.hooks_integration import reset_hook_registry
+    from agent.runtime.default_hooks import register_default_hooks
+
+    reset_hook_registry()
+    register_default_hooks()
+
+    session = AgentSession(session_id="sess_hook_block", workspace_id="ws_hook_block")
+    turn = AgentTurn.from_op(AgentOp.user_message(
+        "这里是密码 password=super-secret-value",
+        session_id=session.session_id,
+        workspace_id=session.workspace_id,
+    ))
+
+    result = run_turn(session, turn)
+
+    assert result.ok is False
+    assert result.metadata["hook_event"] == "user_prompt_submit"
+    assert result.metadata["hook_blocked"] is True
+    assert "input_credential_scan" in result.metadata["hook_block_reason"]
+    assert "password_in_input" in result.metadata["hook_block_reason"]
+    assert "user_prompt_blocked" in result.warnings[0]
 
 
 def test_memory_create_accepts_content_only_and_uses_gate(monkeypatch):

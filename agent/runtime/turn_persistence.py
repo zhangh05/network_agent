@@ -25,6 +25,11 @@ def persist_run_record(session, turn, result, context) -> None:
     """
     try:
         user_input = (turn.op.user_input if turn.op else "") or ""
+        is_internal_session = bool(
+            getattr(session, "is_sub_agent", False)
+            or (context and getattr(context, "metadata", {}).get("is_sub_agent"))
+        )
+        record_user_input = "[internal subagent task]" if is_internal_session else user_input
         final_response = (result.final_response if result else "") or ""
         ws_id = session.workspace_id or ""
         run_id = turn.turn_id
@@ -45,7 +50,7 @@ def persist_run_record(session, turn, result, context) -> None:
             request_id=turn.turn_id,
             session_id=session.session_id,
             created_at=created_at,
-            user_input=user_input,
+            user_input=record_user_input,
             intent=(context.metadata.get("intent", "") if context and context.metadata else ""),
             context={
                 "llm": (context.metadata.get("llm", {}) if context and context.metadata else {}),
@@ -67,7 +72,7 @@ def persist_run_record(session, turn, result, context) -> None:
         _merge_result_projection(run_id, ws_id, result, context)
 
         # v1.0.3.1: also persist full messages independently
-        if session.session_id:
+        if session.session_id and not is_internal_session:
             store = SessionMessageStore(session_id=session.session_id, ws_id=ws_id)
             if user_input:
                 store.write_message(run_id, "user", user_input, metadata={

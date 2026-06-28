@@ -131,6 +131,22 @@ class TurnRunner:
 
         # ── Context stage ──
         ContextStage().run(state)
+        if self.turn.status == "blocked":
+            if _task:
+                try:
+                    reason = state.context.metadata.get("user_prompt_block_reason", "user_prompt_submit_hook")
+                    _ctx_step.mark_finished(ok=False, summary=f"Blocked: {reason}")
+                    _task.update_status("failed")
+                    _task.errors.append(f"blocked_by_user_prompt_submit: {reason}"[:200])
+                    checkpoint_task(_task.task_id, ws_id, reason="user_prompt_blocked")
+                    save_task(_task)
+                except Exception as e:
+                    state.context.warnings.append(f"durable_task_blocked_save_failed: {str(e)[:100]}")
+            return build_blocked_result(
+                state,
+                state.context.metadata.get("user_prompt_block_reason", "user_prompt_submit_hook"),
+                hook_event="user_prompt_submit",
+            )
 
         # v3.10: mark context step done
         if _task:

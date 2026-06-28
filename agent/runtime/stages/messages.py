@@ -34,7 +34,9 @@ def _apply_manual_compact(session, turn, messages):
             from workspace.run_store import WS_ROOT as _wsr
             from workspace.atomic_io import safe_read_json
             from workspace.ids import validate_workspace_id, validate_session_id
-            ws_id = validate_workspace_id(session.workspace_id) if session.workspace_id else "default"
+            if not session.workspace_id:
+                return
+            ws_id = validate_workspace_id(session.workspace_id)
             sess_id = validate_session_id(session.session_id)
             meta_path = _wsr / ws_id / "sessions" / sess_id / "meta.json"
             disk_meta = safe_read_json(meta_path, default={}) or {}
@@ -111,7 +113,9 @@ def _apply_manual_compact(session, turn, messages):
                 from workspace.run_store import WS_ROOT as _wsr2
                 from workspace.atomic_io import safe_read_json, atomic_write_json
                 from workspace.ids import validate_workspace_id, validate_session_id
-                ws_id2 = validate_workspace_id(session.workspace_id) if session.workspace_id else "default"
+                if not session.workspace_id:
+                    return
+                ws_id2 = validate_workspace_id(session.workspace_id)
                 sess_id2 = validate_session_id(session.session_id)
                 meta_path2 = _wsr2 / ws_id2 / "sessions" / sess_id2 / "meta.json"
                 disk_meta2 = safe_read_json(meta_path2, default={}) or {}
