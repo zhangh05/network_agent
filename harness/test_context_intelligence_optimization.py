@@ -57,7 +57,7 @@ def test_safe_context_stage_preserves_preparsed_file_refs():
         selected_skills=[],
         skill_snapshot={},
         module_snapshot={},
-        capability_registry=None,
+        capability_catalog=None,
     )
 
     assert result.ok is True

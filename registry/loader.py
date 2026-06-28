@@ -179,6 +179,13 @@ def load_skill_registry(reload: bool = False) -> list:
         _cache["skills"] = projected
         return projected
 
+    # SKILLS_DIR is optional — project root may not have a skills/ folder.
+    # If absent, fall back to an empty skill set rather than leaking the
+    # absolute path through diagnostics.
+    if not SKILLS_DIR.is_dir():
+        _cache["skills"] = []
+        return _cache["skills"]
+
     skills = {}
 
     # 1. Read registry.json

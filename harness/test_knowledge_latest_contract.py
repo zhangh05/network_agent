@@ -70,12 +70,13 @@ def test_frontend_knowledge_search_uses_current_query_contract():
 
 
 def test_llm_tool_catalog_exposes_current_knowledge_search():
-    # v3.9.3: capability_actions.py and tool_category_router.py removed.
+    # v3.9.4: agent/modules/<x>/capability.py all removed. Tools come
+    # only from the 21-canonical registry.
     targets = [
-        "agent/modules/knowledge/capability.py",
         "agent/modules/knowledge/tools.py",
         "tool_runtime/canonical_registry.py",
         "tool_runtime/tool_namespace_data.py",
+        "agent/capabilities/catalog.py",
         "agent/runtime/sub_agent.py",
     ]
     for target in targets:

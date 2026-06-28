@@ -1,5 +1,12 @@
 # agent/runtime/services.py
-"""RuntimeServices — dependency injection container for all runtime capabilities."""
+"""RuntimeServices — dependency injection container for all runtime capabilities.
+
+v3.9.4: ToolRegistry is built ONLY from ToolRuntimeClient/canonical
+registry. There is no CapabilityRegistry and no register_capability_tools
+path. The business capability catalog (`agent.capabilities.catalog`)
+is a thin read-only description layer; it does not register tools and
+does not influence visibility.
+"""
 
 from dataclasses import dataclass, field
 
@@ -8,15 +15,17 @@ from dataclasses import dataclass, field
 class RuntimeServices:
     model_service: object = None      # LLM Runtime
     tool_service: object = None       # ToolRouter/Registry
-    module_service: object = None     # ModuleRegistry
+    module_service: object = None     # ModuleRegistry (projected from catalog)
     artifact_service: object = None   # ArtifactStore
     knowledge_service: object = None  # Knowledge/RAG
     workspace_service: object = None  # Workspace state
     audit_service: object = None      # EventRecorder + TraceRecorder
-    # v3.3: CapabilityRegistry is the single source of truth for all
-    # capabilities — intent routing, tool visibility, safety baselines.
-    # Replaces the deprecated SkillRegistry / SkillSelector.
-    capability_registry: object = None  # CapabilityRegistry | None
+    # v3.9.4: capability_catalog holds a frozen snapshot (list[dict]) of the
+    # business capability catalog. We do NOT store the catalog module here
+    # because the turn runtime state is deepcopied for parallel tool calls
+    # and modules are not picklable. The snapshot is the only state we need
+    # to answer "which business capabilities are available".
+    capability_catalog: list = field(default_factory=list)
 
 
 def default_runtime_services() -> RuntimeServices:
@@ -27,14 +36,13 @@ def default_runtime_services() -> RuntimeServices:
     from agent.audit.events import EventRecorder
     from agent.audit.trace import TraceRecorder
     from agent.audit.rollout import RolloutRecorder
-    from agent.capabilities import get_default_capability_registry
+    from agent.capabilities import catalog as _catalog
 
-    # CapabilityRegistry is the single source of truth.
-    cap_reg = get_default_capability_registry()
-
-    tool_registry = _build_default_registry(cap_reg)
+    # v3.9.4: ToolRegistry is built solely from ToolRuntimeClient.
+    # No capability-side tool registration.
+    tool_registry = _build_default_registry()
     tool_router = ToolRouter.for_turn(tool_registry)
-    module_reg = ModuleRegistry.from_capabilities(cap_reg)
+    module_reg = ModuleRegistry()
 
     svc = RuntimeServices(
         tool_service=tool_router,
@@ -44,25 +52,27 @@ def default_runtime_services() -> RuntimeServices:
             "trace": TraceRecorder(),
             "rollout": RolloutRecorder(),
         },
-        capability_registry=cap_reg,
+        # Frozen snapshot — picklable, safe for state deepcopy.
+        capability_catalog=list(_catalog.list_all()),
     )
     return svc
 
 
-def _build_default_registry(capability_registry=None) -> "ToolRegistry":
-    """Build ToolRegistry from the real ToolRuntime catalog + capability tools."""
+def _build_default_registry(*args, **kwargs) -> "ToolRegistry":
+    """Build ToolRegistry from the canonical ToolRuntime catalog.
+
+    v3.9.4: the legacy ``capability_registry`` arg is ignored; the
+    canonical registry is the single source of tool truth.
+    """
     from agent.tools.registry import ToolRegistry
     import logging
     _log = logging.getLogger(__name__)
-    reg = ToolRegistry()
     try:
         from tool_runtime.integration import get_default_tool_runtime_client
         client = get_default_tool_runtime_client()
-        reg = ToolRegistry.from_runtime_client(client)
+        return ToolRegistry.from_runtime_client(client)
     except Exception as exc:
         _log.exception(
             "_build_default_registry: ToolRuntimeClient init FAILED — %s", exc
         )
-    if capability_registry is not None:
-        reg.register_capability_tools(capability_registry)
-    return reg
+        return ToolRegistry()

@@ -174,12 +174,13 @@ def register_runtime_routes(app):
         from agent.runtime.services import default_runtime_services
 
         services = default_runtime_services()
-        caps = services.capability_registry.list_all()
+        # v3.9.4: services hold a frozen list snapshot, not the catalog module.
+        caps = services.capability_catalog
         cap_counts = {
             "total": len(caps),
-            "enabled": len([c for c in caps if c.status == "enabled"]),
-            "planned": len([c for c in caps if c.status == "planned"]),
-            "disabled": len([c for c in caps if c.status == "disabled"]),
+            "enabled": len([c for c in caps if c.get("status") == "enabled"]),
+            "planned": len([c for c in caps if c.get("status") == "planned"]),
+            "disabled": len([c for c in caps if c.get("status") == "disabled"]),
         }
 
         registry = services.tool_service.registry

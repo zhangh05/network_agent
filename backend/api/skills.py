@@ -1,23 +1,29 @@
 # backend/api/skills.py
-"""Skills API — now backed by CapabilityRegistry (v3.3)."""
+"""Skills API — backed by the business capability catalog (v3.9.4).
+
+Single source of truth: `agent.capabilities.catalog`. The returned
+``capabilities`` list contains canonical tool ids only (the 21-tool
+set). No legacy tool names are emitted from this endpoint.
+"""
 
 from flask import jsonify
 
+from agent.capabilities import catalog as _catalog
+
 
 def handle_skills():
-    from agent.capabilities.builtin import get_default_capability_registry
-    cap_reg = get_default_capability_registry()
     return jsonify({
         "skills": [
             {
-                "skill_name": m.capability_id,
-                "display_name": m.name,
-                "status": m.status,
-                "module": m.module.module_id,
-                "capabilities": [t.tool_id for t in m.tools],
-                "enabled": m.status == "enabled",
-                "planned": m.status == "planned",
+                "skill_name": cap["capability_id"],
+                "display_name": cap["display_name"],
+                "status": cap["status"],
+                "module": cap["module_ids"][0]
+                if cap["module_ids"] else None,
+                "capabilities": list(cap["recommended_tool_ids"]),
+                "enabled": cap["status"] == "enabled",
+                "planned": cap["status"] == "planned",
             }
-            for m in cap_reg.list_all()
+            for cap in _catalog.list_all()
         ]
     })

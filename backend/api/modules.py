@@ -39,36 +39,56 @@ def handle_registry_status():
 
 def handle_capabilities():
     """GET /api/capabilities — The single source of truth is
-    agent.capabilities.CapabilityRegistry. Returns a frontend-compatible
-    projection of the 7 capabilities (4 enabled, 3 planned).
+    agent.capabilities.catalog. Returns a frontend-compatible projection
+    of the business capabilities.
 
-    Planned capabilities are listed but NEVER callable.
+    v3.9.4: planned capabilities are listed for UI only; they have
+    no tool refs and are NEVER callable. No legacy tool names are
+    returned.
     """
-    from agent.capabilities.builtin import get_default_capability_registry
+    from agent.capabilities import catalog as _catalog
 
-    reg = get_default_capability_registry()
-    manifests = reg.list_all()
-
-    def _project(m) -> dict:
-        """Project CapabilityManifest → frontend-expected wire shape."""
+    def _project(cap: dict) -> dict:
+        # v3.9.4: risk_level is the maximum of any recommended tool's
+        # manifest risk level. Tools with no recommendation = low.
+        risk = "low"
+        try:
+            from tool_runtime.manifest_registry import get_manifest
+            for tid in cap["recommended_tool_ids"]:
+                m = get_manifest(tid)
+                if m is not None and m.risk_level == "high":
+                    risk = "high"
+                    break
+                if m is not None and m.risk_level == "medium" and risk == "low":
+                    risk = "medium"
+        except Exception:
+            pass
         return {
-            "capability_id": m.capability_id,
-            "enabled": m.status == "enabled",
-            "status": m.status,
-            "description": m.description,
-            "category": _cap_category(m.capability_id),
-            "intent": m.capability_id.replace("_", "."),
-            "module": m.module.module_id if m.module else "",
-            "risk_level": m.tools[0].risk_level if m.tools else "low",
-            "can_generate_deployable": m.safety.produces_deployable_config if m.safety else False,
-            "requires_verification": m.safety.requires_human_review if m.safety else False,
-            "requires_human_review": m.safety.requires_human_review if m.safety else False,
+            "capability_id": cap["capability_id"],
+            "enabled": cap["status"] == "enabled",
+            "status": cap["status"],
+            "description": cap["description"],
+            "category": _cap_category(cap["capability_id"]),
+            "intent": cap["capability_id"].replace("_", "."),
+            "module": cap["module_ids"][0] if cap["module_ids"] else "",
+            "tool_ids": list(cap["recommended_tool_ids"]),
+            "risk_level": risk,
+            "can_generate_deployable": any(
+                "deployable" in n.lower() for n in cap["safety_notes"]
+            ),
+            "requires_verification": any(
+                "approval" in n.lower() or "verify" in n.lower()
+                for n in cap["safety_notes"]
+            ),
+            "requires_human_review": any(
+                "approval" in n.lower() or "verify" in n.lower()
+                for n in cap["safety_notes"]
+            ),
         }
 
-    projected = [_project(m) for m in manifests]
     return jsonify({
-        "capabilities": projected,
-        "enabled": [m.capability_id for m in manifests if m.status == "enabled"],
+        "capabilities": [_project(c) for c in _catalog.list_all()],
+        "enabled": [c["capability_id"] for c in _catalog.list_enabled()],
     })
 
 

@@ -88,11 +88,11 @@ def create_app():
     @app.route("/api/health")
     def api_health():
         from backend.core.responses import ok_response
-        from agent.capabilities.builtin import get_default_capability_registry
+        from agent.capabilities import catalog as _catalog
         body, _ = ok_response({
             "status": "ok",
             "api_mode": API_MODE,
-            "capabilities_loaded": len(get_default_capability_registry().list_all()),
+            "capabilities_loaded": len(_catalog.list_all()),
         })
         return jsonify(body)
 

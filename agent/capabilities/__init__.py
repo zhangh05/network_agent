@@ -1,44 +1,32 @@
-# agent/capabilities/__init__.py
-"""Capability Layer v0.8 — unified CapabilityManifest / CapabilityRegistry.
+"""v3.9.4: Business capability catalog.
 
-A Capability is the canonical, truth-source definition of a business
-capability: a Module + Tool(s) + Output Contract + Safety
-Contract. RuntimeSnapshot / ModuleRegistry / ToolRegistry
-all derive from this single source.
+A "business capability" is a thin description of what the agent can do,
+plus a list of recommended canonical tool ids. The catalog is **not** a
+tool registration layer, **not** a visibility gate, and **not** an
+approval/policy layer. Those concerns live in:
 
-Design contract:
-- Module: business implementation, structured in/out, may write artifacts,
-  does NOT know about LLM / ToolRouter.
-- Tool: LLM-callable entry. Defines tool_id / schema / risk / approval /
-  callable_by_llm. Lightweight argument validation, dispatches to Module,
-  wraps ToolResult.
-- Capability: a Capability bundles Module + Tool(s) + intent routing
-  (intent_patterns / prompt_summary) + Output Contract + Safety Contract.
+  - tool_runtime/canonical_registry.py  (registration)
+  - tool_runtime/manifest_registry.py    (risk/approval metadata)
+  - tool_runtime/sandbox / approval       (runtime gates)
+
+The catalog's single job is to give the LLM and the frontend a
+business-readable index of capabilities and their recommended tools.
 """
 
-from agent.capabilities.schemas import (
-    CapabilityStatus,
-    CapabilityManifest,
-    CapabilityModuleSpec,
-    CapabilityToolRef,
-    CapabilityOutputSpec,
-    CapabilitySafetySpec,
-)
-from agent.capabilities.registry import (
-    CapabilityRegistry,
-)
-from agent.capabilities.builtin import (
-    get_default_capability_registry,
-    BUILTIN_CAPABILITIES,
+from .catalog import (
+    list_all,
+    list_enabled,
+    list_planned,
+    get,
+    to_skill_dict,
+    all_recommended_tool_ids,
 )
 
 __all__ = [
-    "CapabilityStatus",
-    "CapabilityManifest",
-    "CapabilityModuleSpec",
-    "CapabilityToolRef",
-    "CapabilityOutputSpec",
-    "CapabilitySafetySpec",
-    "CapabilityRegistry",
-    "get_default_capability_registry",
+    "list_all",
+    "list_enabled",
+    "list_planned",
+    "get",
+    "to_skill_dict",
+    "all_recommended_tool_ids",
 ]

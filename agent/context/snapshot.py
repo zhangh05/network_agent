@@ -163,7 +163,7 @@ def build_runtime_snapshot(
     workspace_id: str = "",
     session_id: str = "",
     model: str = "",
-    capability_registry=None,
+    capability_catalog: Optional[list] = None,
     skill_snap: Optional[dict] = None,
     module_snap: Optional[dict] = None,
     base_enabled_skills: Optional[list] = None,
@@ -171,16 +171,13 @@ def build_runtime_snapshot(
     selected_visible_tools: Optional[list] = None,
     dynamic_tool_visibility: bool = False,
 ) -> RuntimeSnapshot:
-    """Build a RuntimeSnapshot. If capability_registry is given, summarize
-    from it. Otherwise, fall back to the skill/module snapshots
-    and record a fallback warning in metadata.
+    """Build a RuntimeSnapshot.
 
-    `base_enabled_skills` is the list of system / base skill ids that
-    are NOT carried by a Capability (e.g. `assistant_chat`). They are
-    added to the enabled-skill list so the prompt still reflects them.
-
-    v0.8.1: per-turn `selected_skills` / `selected_visible_tools` /
-    `dynamic_tool_visibility` are projected into the snapshot.
+    v3.9.4: `capability_catalog` is a frozen list-of-dicts snapshot
+    of the business capability catalog. We derive every summary field
+    (visible tools, safety baseline, enabled/planned skills + modules)
+    from that snapshot without re-reading the live catalog module. This
+    keeps the snapshot picklable and stage-local.
     """
     snap = RuntimeSnapshot(
         tool_count=tool_count,
@@ -189,23 +186,50 @@ def build_runtime_snapshot(
         session_id=session_id,
         model=model,
     )
-    if capability_registry is not None:
-        snap.capability_baseline = capability_registry.to_snapshot_dict()
-        # v2.3.3: When per-turn visibility is active, use the actual
-        # turn tools instead of capability-level ids. This
-        # keeps the LLM prompt consistent with the function-call catalog.
+    if capability_catalog:
+        enabled = [c for c in capability_catalog if c.get("status") == "enabled"]
+        planned = [c for c in capability_catalog if c.get("status") == "planned"]
+
+        # Compact view of all capabilities (capability_id + status + modules).
+        snap.capability_baseline = {
+            "total": len(capability_catalog),
+            "enabled": len(enabled),
+            "planned": len(planned),
+            "capabilities": [
+                {
+                    "capability_id": c.get("capability_id"),
+                    "status": c.get("status"),
+                    "module_ids": list(c.get("module_ids") or ()),
+                    "recommended_tool_ids": list(c.get("recommended_tool_ids") or ()),
+                }
+                for c in capability_catalog
+            ],
+        }
+
+        # Visible business tools: union of recommended_tool_ids for enabled
+        # capabilities (or per-turn projection if dynamic visibility is on).
         if dynamic_tool_visibility and selected_visible_tools:
             snap.visible_business_tools = list(selected_visible_tools)
         else:
-            snap.visible_business_tools = list(capability_registry.visible_tool_ids())
-        snap.safety_baseline = capability_registry.safety_summary()
-        # Mirror enabled/planned modules + capability ids from the registry so
-        # downstream prompt blocks keep the capability-first view coherent.
-        cap_enabled = [
-            s["capability_id"]
-            for s in capability_registry.enabled_capability_specs()
-            if s.get("capability_id")
-        ]
+            visible_set = []
+            seen = set()
+            for c in enabled:
+                for tid in c.get("recommended_tool_ids") or ():
+                    if tid and tid not in seen:
+                        visible_set.append(tid)
+                        seen.add(tid)
+            snap.visible_business_tools = visible_set
+
+        # Safety baseline: merged safety_notes from enabled capabilities.
+        safety_notes: list[str] = []
+        for c in enabled:
+            for note in c.get("safety_notes") or ():
+                if note and note not in safety_notes:
+                    safety_notes.append(note)
+        snap.safety_baseline = {"notes": safety_notes, "count": len(safety_notes)}
+
+        # Enabled / planned skills mirror the capability ids.
+        cap_enabled = [c.get("capability_id", "") for c in enabled if c.get("capability_id")]
         if base_enabled_skills:
             # Preserve order: base skills first, capability skills after,
             # dedup.
@@ -218,13 +242,25 @@ def build_runtime_snapshot(
             snap.enabled_skills = merged
         else:
             snap.enabled_skills = cap_enabled
-        snap.planned_skills = [
-            s.capability_id
-            for s in capability_registry.list_planned()
-            if getattr(s, "capability_id", "")
-        ]
-        snap.enabled_modules = [m["module_id"] for m in capability_registry.enabled_modules()]
-        snap.planned_modules = [m["module_id"] for m in capability_registry.planned_modules()]
+        snap.planned_skills = [c.get("capability_id", "") for c in planned if c.get("capability_id")]
+
+        # Modules projected from capability module_ids.
+        enabled_modules: list[str] = []
+        planned_modules: list[str] = []
+        seen = set()
+        for c in enabled:
+            for mid in c.get("module_ids") or ():
+                if mid and mid not in seen:
+                    enabled_modules.append(mid)
+                    seen.add(mid)
+        seen = set()
+        for c in planned:
+            for mid in c.get("module_ids") or ():
+                if mid and mid not in seen:
+                    planned_modules.append(mid)
+                    seen.add(mid)
+        snap.enabled_modules = enabled_modules
+        snap.planned_modules = planned_modules
     else:
         snap.metadata = {"capability_registry_fallback": True}
         if skill_snap:

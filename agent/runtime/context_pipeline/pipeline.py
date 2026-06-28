@@ -101,7 +101,7 @@ class ContextPipeline:
         selected_skills = sr.data.get("selected_capabilities", [])
         skill_snapshot = sr.data.get("capability_snapshot", {})
         module_snapshot = sr.data.get("module_snapshot", {})
-        capability_registry = sr.data.get("capability_registry")
+        capability_catalog = sr.data.get("capability_catalog")
 
         # ── Stage 6: Scene Decision ─────────────────────────────────
         sr = self._scene.run(ctx=ctx, session=session)
@@ -142,7 +142,7 @@ class ContextPipeline:
             selected_visible_tools=selected_visible_tools,
             selected_skills=selected_skills,
             skill_snapshot=skill_snapshot, module_snapshot=module_snapshot,
-            capability_registry=capability_registry,
+            capability_catalog=capability_catalog,
         )
         stage_results.append(sr)
         _record_stage(meta, sr)

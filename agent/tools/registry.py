@@ -66,85 +66,6 @@ class ToolRegistry:
         return [s for s in self._specs.values()
                 if s.enabled and not s.forbidden and s.callable_by_llm]
 
-    def register_capability_tools(self, capability_registry) -> int:
-        """Register capability tools from a CapabilityRegistry.
-
-        Only enabled capabilities contribute tools. For each tool ref:
-        - status == "enabled"  → registered as an enabled ToolSpec with
-          the resolved handler (callable_by_llm preserved)
-        - status == "planned"  → SKIPPED (planned tools are not injected)
-
-        v2.3.3: Non-canonical capability tool IDs (e.g. knowledge.read_chunk) are
-        filtered out when a canonical equivalent already exists in the
-        registry, preventing duplicate tool entries.
-
-        Returns the number of newly registered tool_ids.
-        """
-        if capability_registry is None:
-            return 0
-        from tool_runtime.tool_namespace import TOOL_NAMESPACE
-        registered = 0
-        for tool_ref in capability_registry.enabled_tools():
-            if tool_ref.status != "enabled":
-                continue
-            # v2.3.3: skip non-canonical capability tools that duplicate runtime tools
-            if tool_ref.tool_id not in TOOL_NAMESPACE:
-                continue
-            # v3.2.4: Skip tool registration entirely if _tool_client already
-            # has this tool registered in CANONICAL_REGISTRY. Capability tool
-            # refs often have empty input_schemas, which would overwrite the
-            # canonical registry's full schema and cause the LLM to see tools
-            # without parameters (e.g. device.get without asset_id field).
-            # Must check BEFORE resolving handler_ref to avoid failures on
-            # dummy handler_refs (e.g. knowledge.search uses canonical handler).
-            if self._tool_client is not None:
-                try:
-                    existing_handler = self._tool_client._registry.get_handler(tool_ref.tool_id)
-                except Exception:
-                    existing_handler = None
-            else:
-                existing_handler = None
-            
-            if existing_handler is not None:
-                continue  # Already registered in canonical registry — keep original spec
-            
-            handler = _resolve_capability_handler(tool_ref.handler_ref)
-            if handler is None:
-                raise RuntimeError(
-                    f"Failed to resolve handler for capability tool "
-                    f"{tool_ref.tool_id!r}: {tool_ref.handler_ref!r}"
-                )
-            
-            existing = self._specs.get(tool_ref.tool_id)
-            if existing is not None and str(getattr(existing, "source", "")).startswith("capability:"):
-                raise RuntimeError(f"Duplicate capability tool_id: {tool_ref.tool_id!r}")
-            spec = ToolSpec(
-                tool_id=tool_ref.tool_id,
-                name=tool_ref.tool_id,
-                category="capability",
-                description=tool_ref.description,
-                risk_level=tool_ref.risk_level,
-                enabled=True,
-                requires_approval=tool_ref.requires_approval,
-                input_schema=dict(tool_ref.input_schema),
-                callable_by_llm=tool_ref.callable_by_llm,
-                forbidden=tool_ref.forbidden,
-                source=f"capability:{tool_ref.tool_id}",
-                permission_action=getattr(tool_ref, 'permission_action', '') or "read",
-            )
-            try:
-                from tool_runtime.tool_namespace import enrich_spec
-                spec = enrich_spec(spec)
-            except Exception:
-                pass
-            self._specs[spec.tool_id] = spec
-            # Register capability handler (now only for tools NOT in canonical registry)
-            if not hasattr(self, '_handlers'):
-                self._handlers = {}
-            self._handlers[spec.tool_id] = handler
-            registered += 1
-        return registered
-
     def get(self, tool_id: str) -> ToolSpec:
         try:
             pass  # v3.9.3: handler_id == canonical_id (no alias layer)
@@ -201,24 +122,6 @@ class ToolRegistry:
             }
         except Exception as e:
             return {"ok": False, "status": "failed", "summary": str(e)[:200], "errors": [str(e)[:200]]}
-
-
-def _resolve_capability_handler(handler_ref: str):
-    """Import a capability handler by its dotted-path ref.
-
-    Format: "module.path:variable_name"
-    Returns the callable or None if resolution fails.
-    """
-    if not handler_ref or ":" not in handler_ref:
-        return None
-    mod_path, var_name = handler_ref.rsplit(":", 1)
-    try:
-        import importlib
-        mod = importlib.import_module(mod_path)
-        return getattr(mod, var_name, None)
-    except Exception:
-        return None
-
 
 
 def _tool_runtime_result_to_dict(result) -> dict:

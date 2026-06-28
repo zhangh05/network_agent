@@ -1,18 +1,17 @@
-# agent/modules/registry.py
-"""ModuleRegistry — thin view over CapabilityRegistry.
+"""ModuleRegistry — thin view over the business capability catalog.
 
-v1.0.3.1: ModuleRegistry is no longer a parallel source of truth.
-It MUST be constructed with a CapabilityRegistry and reads everything
-through it. There is no default-construct path that loads hardcoded
-modules, eliminating the previous risk of "older modules override
-capability modules" or vice versa.
+v3.9.4: ModuleRegistry no longer depends on a CapabilityRegistry or
+CapabilityManifest. It reads the new business capability catalog
+(`agent.capabilities.catalog`) directly. The catalog is the single
+source of truth for business capabilities; this view projects them
+into a ModuleSpec list for the API.
 """
 
 from __future__ import annotations
 
 from typing import List, Optional
 
-from agent.capabilities.schemas import CapabilityManifest
+from agent.capabilities import catalog as _catalog
 
 
 class ModuleSpec:
@@ -31,59 +30,65 @@ class ModuleSpec:
 
 
 class ModuleRegistry:
-    """Read-only view of capability modules, projected from CapabilityRegistry."""
+    """Read-only view of business capabilities, projected from catalog."""
 
-    def __init__(self, capability_registry):
-        if capability_registry is None:
-            raise ValueError(
-                "ModuleRegistry requires a CapabilityRegistry; "
-                "there is no default. Construct via "
-                "ModuleRegistry(get_default_capability_registry()) or "
-                "ModuleRegistry.from_capabilities(cap_reg)."
-            )
-        self._cap_reg = capability_registry
+    def __init__(self, *args, **kwargs):
+        # Backward-compat shim: accept an old CapabilityRegistry arg
+        # but ignore it; the catalog is the new source of truth.
+        pass
 
     def list_enabled_modules(self) -> list:
-        return [_module_spec_from_capability(c) for c in self._cap_reg.list_enabled()]
+        return [_module_spec_from_capability(c)
+                for c in _catalog.list_enabled()]
 
     def list_planned_modules(self) -> list:
-        return [_module_spec_from_capability(c) for c in self._cap_reg.list_planned()]
+        return [_module_spec_from_capability(c)
+                for c in _catalog.list_planned()]
 
     def get_module(self, module_id: str):
-        for cap in self._cap_reg.list_all():
-            if cap.module.module_id == module_id:
+        for cap in _catalog.list_all():
+            if cap["module_ids"] and cap["module_ids"][0] == module_id:
                 return _module_spec_from_capability(cap)
         return None
 
     def snapshot(self) -> dict:
         return {
             "enabled": [
-                {"module_id": m.module_id, "name": m.name, "description": m.description,
-                 "related_tools": m.related_tools}
+                {"module_id": m.module_id, "name": m.name,
+                 "description": m.description, "related_tools": m.related_tools}
                 for m in self.list_enabled_modules()
             ],
             "planned": [
-                {"module_id": m.module_id, "name": m.name, "description": m.description}
+                {"module_id": m.module_id, "name": m.name,
+                 "description": m.description}
                 for m in self.list_planned_modules()
             ],
         }
 
     @classmethod
     def from_capabilities(cls, capability_registry) -> "ModuleRegistry":
-        return cls(capability_registry)
+        # v3.9.4: catalog is the source of truth; the registry builds itself
+        # from it directly. The capability_registry arg is ignored.
+        del capability_registry
+        return cls()
 
-    @property
-    def capability_registry(self):
-        return self._cap_reg
 
-
-def _module_spec_from_capability(cap: CapabilityManifest) -> ModuleSpec:
+def _module_spec_from_capability(cap: dict) -> ModuleSpec:
+    module_id = cap["module_ids"][0] if cap["module_ids"] else cap["capability_id"]
     return ModuleSpec(
-        module_id=cap.module.module_id,
-        name=cap.name,
-        status=cap.module.status,
-        service_path=cap.module.service_path,
-        skill_id=sk.skill_id if sk else cap.capability_id,
-        related_tools=[t.tool_id for t in cap.tools],
-        description=cap.module.description or cap.description,
+        module_id=module_id,
+        name=cap["display_name"],
+        status=cap["status"],
+        service_path=f"agent.modules.{module_id}"
+        if module_id in {"artifact", "browser", "cmdb", "git",
+                          "inspection", "knowledge", "pcap", "remote",
+                          "review", "topology", "memory", "workspace",
+                          "config_analysis", "runtime"}
+        else "",
+        skill_id=cap["capability_id"],
+        related_tools=list(cap["recommended_tool_ids"]),
+        description=cap["description"],
     )
+
+
+__all__ = ["ModuleSpec", "ModuleRegistry"]

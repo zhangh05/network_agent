@@ -299,7 +299,7 @@ def _plan_tools_v2(ctx, evidence_bundle, session, services, selected_skills: lis
         "rule_tool_scene": {},
         "warnings": [],
     }
-    cap_reg = getattr(services, "capability_registry", None) if services else None
+    cap_reg = getattr(services, "capability_catalog", None) if services else None
     if cap_reg is None or ctx.tool_router is None:
         return result
 

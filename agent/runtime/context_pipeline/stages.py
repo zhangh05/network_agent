@@ -87,10 +87,15 @@ class CapabilitySelectionStage:
     def _do_run(ctx, services):
         module_snap = _snapshot_service_wrapper(getattr(services, 'module_service', None))
         ctx.module_snapshot = module_snap
-        cap_reg = getattr(services, 'capability_registry', None) if services else None
-        selected = list(cap_reg.list_all()) if cap_reg else []
-        selected_ids = [m.capability_id for m in selected if m.status == 'enabled']
-        return ContextStageResult(name=StageName.CAPABILITY_SELECTION, ok=True, warnings=[], data={'selected_capabilities': selected_ids, 'module_snapshot': module_snap, 'capability_registry': cap_reg})
+        # v3.9.4: capability_catalog is a frozen list snapshot of business
+        # capabilities (list[dict]), not a registry object.
+        cap_catalog = getattr(services, 'capability_catalog', None) if services else None
+        selected = list(cap_catalog) if cap_catalog else []
+        selected_ids = [
+            m["capability_id"] for m in selected
+            if m.get("status") == "enabled" and m.get("capability_id")
+        ]
+        return ContextStageResult(name=StageName.CAPABILITY_SELECTION, ok=True, warnings=[], data={'selected_capabilities': selected_ids, 'module_snapshot': module_snap, 'capability_catalog': selected})
 
 class SceneDecisionStage:
     """Stage 6: Compute SceneDecision."""
@@ -193,7 +198,8 @@ class ToolPlanningStage:
 
     @staticmethod
     def _do_run(ctx, evidence_bundle, session, services, selected_skills):
-        cap_reg = getattr(services, 'capability_registry', None) if services else None
+        # v3.9.4: catalog snapshot is checked for None presence only.
+        cap_reg = getattr(services, 'capability_catalog', None) if services else None
         if cap_reg is None or ctx.tool_router is None:
             return ContextStageResult.ok_result(StageName.TOOL_PLANNING, metadata={'tool_planning_skipped': True, 'reason': 'missing_services'})
         scene_decision = getattr(ctx, 'scene_decision', None)
@@ -254,15 +260,15 @@ class ToolPlanningStage:
 class SafeContextStage:
     """Stage 11: Build safe_context (LLM-visible) + runtime snapshot."""
 
-    def run(self, ctx, evidence_bundle, services, tool_scene, rule_tool_scene, selected_visible_tools, selected_skills, skill_snapshot, module_snapshot, capability_registry, **inputs) -> ContextStageResult:
-        return _safe_except(StageName.SAFE_CONTEXT, self._do_run, ctx, evidence_bundle, services, tool_scene, rule_tool_scene, selected_visible_tools, selected_skills, skill_snapshot, module_snapshot, capability_registry)
+    def run(self, ctx, evidence_bundle, services, tool_scene, rule_tool_scene, selected_visible_tools, selected_skills, skill_snapshot, module_snapshot, capability_catalog, **inputs) -> ContextStageResult:
+        return _safe_except(StageName.SAFE_CONTEXT, self._do_run, ctx, evidence_bundle, services, tool_scene, rule_tool_scene, selected_visible_tools, selected_skills, skill_snapshot, module_snapshot, capability_catalog)
 
     @staticmethod
-    def _do_run(ctx, evidence_bundle, services, tool_scene, rule_tool_scene, selected_visible_tools, selected_skills, skill_snapshot, module_snapshot, capability_registry):
+    def _do_run(ctx, evidence_bundle, services, tool_scene, rule_tool_scene, selected_visible_tools, selected_skills, skill_snapshot, module_snapshot, capability_catalog):
         from agent.context.snapshot import build_runtime_snapshot
         visible_tools, all_tools_count = _tool_counts_wrapper(ctx)
         base_enabled = _base_enabled_skills_wrapper(services)
-        snapshot = build_runtime_snapshot(tool_count=all_tools_count, visible_tool_count=len(visible_tools), workspace_id=ctx.workspace_id, session_id=ctx.session_id, model=ctx.model_config.get('model', ''), capability_registry=capability_registry, skill_snap=skill_snapshot, module_snap=module_snapshot, base_enabled_skills=base_enabled, selected_skills=selected_skills, selected_visible_tools=selected_visible_tools, dynamic_tool_visibility=bool(tool_scene))
+        snapshot = build_runtime_snapshot(tool_count=all_tools_count, visible_tool_count=len(visible_tools), workspace_id=ctx.workspace_id, session_id=ctx.session_id, model=ctx.model_config.get('model', ''), capability_catalog=capability_catalog, skill_snap=skill_snapshot, module_snap=module_snapshot, base_enabled_skills=base_enabled, selected_skills=selected_skills, selected_visible_tools=selected_visible_tools, dynamic_tool_visibility=bool(tool_scene))
         snapshot.metadata = dict(getattr(snapshot, 'metadata', None) or {})
         if tool_scene:
             snapshot.metadata['tool_scene'] = tool_scene
