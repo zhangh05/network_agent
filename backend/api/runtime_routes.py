@@ -301,8 +301,10 @@ def register_runtime_routes(app):
             )
 
         # v3.2.1: Enforce ToolPolicy.check() before dispatch. Without this
-        # guard, _check_argument_safety (rm -rf, /etc/passwd, |, >, etc.)
-        # and risk-level gating are bypassed.
+        # guard, destructive-pattern detection and risk-level gating are
+        # bypassed. v3.9.5: the command-safety check is destructive-only;
+        # pipe / redirect / sensitive-path substrings are no longer
+        # reasons to block.
         policy_decision = None
         try:
             policy_decision = client._policy.check(spec, invocation)

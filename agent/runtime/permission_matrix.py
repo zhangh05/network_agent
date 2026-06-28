@@ -15,7 +15,6 @@ from tool_runtime.policy import (
     ToolPolicy,
     V02_FORBIDDEN_TOOLS,
     V02_FORBIDDEN_PATTERNS,
-    _check_argument_safety,
 )
 from tool_runtime.schemas import PolicyDecision
 
@@ -160,6 +159,9 @@ class PermissionMatrix:
 # ═══════════════════════════
 
 # Dangerous paths that should never be accessed
+# v3.9.5: named ``_DANGEROUS_PATH_PATTERNS`` (was ``_DANGEROUS_PATTERNS``)
+# to avoid collision with the command-level dangerous pattern set in
+# ``tool_runtime.dangerous_patterns``.
 _DANGEROUS_PATHS = {
     "/etc/passwd", "/etc/shadow", "/etc/sudoers",
     "/root", "/var/root",
@@ -169,7 +171,7 @@ _DANGEROUS_PATHS = {
     "C:\\Users\\Administrator",
 }
 
-_DANGEROUS_PATTERNS = [
+_DANGEROUS_PATH_PATTERNS = [
     re.compile(r"^~?/\.(ssh|aws|gnupg|docker|kube|config)"),
     re.compile(r"^/etc/(passwd|shadow|sudoers|ssl|certs)"),
     re.compile(r"^/proc/"),
@@ -201,7 +203,7 @@ def check_dangerous_path(path: str) -> bool:
             return True
 
     # Check patterns
-    for pattern in _DANGEROUS_PATTERNS:
+    for pattern in _DANGEROUS_PATH_PATTERNS:
         if pattern.search(normalized) or pattern.search(path):
             return True
 
