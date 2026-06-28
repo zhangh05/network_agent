@@ -24,6 +24,23 @@ class TestManifestCompleteness:
         ids = list(MANIFESTS.keys())
         assert len(ids) == len(set(ids)), f"Duplicate manifest IDs: {[x for x in ids if ids.count(x) > 1]}"
 
+    def test_read_only_skill_tools_have_manifest(self):
+        for tid in ("skill.list", "skill.find", "skill.load", "skill.inspect"):
+            m = MANIFESTS.get(tid)
+            assert m is not None, f"Missing manifest for {tid}"
+            assert m.action_class == "read"
+            assert m.risk_level == "low"
+            assert not m.requires_approval
+
+    def test_tool_specs_derive_risk_from_manifest(self):
+        from tool_runtime.canonical_registry import to_tool_specs
+
+        specs = {spec.tool_id: spec for spec, _ in to_tool_specs()}
+        for tid, manifest in MANIFESTS.items():
+            assert tid in specs
+            assert specs[tid].risk_level == manifest.risk_level
+            assert specs[tid].requires_approval == manifest.requires_approval
+
 
 class TestRiskAndApproval:
     def test_high_risk_requires_approval(self):

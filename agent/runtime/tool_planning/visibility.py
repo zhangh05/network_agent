@@ -13,9 +13,12 @@ from tool_runtime.tool_namespace import TOOL_NAMESPACE
 
 
 BASELINE_READ_TOOLS = [
-    # v3.2: skill.load / skill.search removed.
-    # Use tool.catalog.search for tool discovery.
+    # Capability/tool/skill discovery must remain visible for every turn.
     "tool.catalog.search",
+    "skill.list",
+    "skill.find",
+    "skill.load",
+    "skill.inspect",
     "workspace.file.list", "workspace.file.read",
     "workspace.artifact.read",
     # Host

@@ -171,6 +171,19 @@ CAPABILITY_PACKAGES: tuple[CapabilityPackage, ...] = (
         priority=50,
     ),
     CapabilityPackage(
+        capability_id="agent_delegation",
+        display_name="Agent 子任务派发",
+        description="派发子 Agent、列出 Agent 角色、运行 Agent 团队并读取子任务结果。",
+        intent_keywords=("子agent", "子 agent", "subagent", "派发", "委派", "agent",
+                         "多agent", "多 agent", "团队", "team", "spawn", "delegate",
+                         "让它搜索", "让它检查", "让它分析"),
+        module_ids=("runtime",),
+        tool_ids=("agent.role.list", "agent.spawn", "agent.result.get", "agent.team.run"),
+        output_kinds=("task", "summary"),
+        safety_notes=("子 Agent 必须继承 workspace/session 边界。", "读取结果需通过 agent.result.get。"),
+        priority=8,
+    ),
+    CapabilityPackage(
         capability_id="cmdb",
         display_name="CMDB 设备资产",
         description="查询、添加、删除网络设备资产。每个资产记录名称、类型、厂商、型号、IP、连接方式。",
@@ -216,30 +229,13 @@ CAPABILITY_PACKAGES: tuple[CapabilityPackage, ...] = (
 CORE_TOOL_IDS: tuple[str, ...] = (
     # ── Tool discovery ──
     "tool.catalog.search",
-    # ── Workspace ──
+    "skill.list", "skill.find", "skill.load", "skill.inspect",
+    # ── Workspace read baseline ──
     "workspace.file.list", "workspace.file.read",
-    "workspace.file.edit", "workspace.file.patch",
     "workspace.artifact.read",
-    # ── Exec — unified command execution ──
-    "exec.run", "exec.python",
-    # ── Browser automation ──
-    "browser.navigate", "browser.extract",
-    "browser.screenshot", "browser.click",
-    # ── Web / info ──
-    "web.search",
-    "web.page.process",
-    "web.weather",
-    # ── Device assets ──
-    "device.list", "device.get",
-    "device.add", "device.delete",
-    # ── Git ──
-    "git.status", "git.diff", "git.log",
-    "git.commit", "git.push",
-    # ── Code search ──
-    "code.search",
-    # ── Data rendering ──
-    "data.table.render",
-    "report.markdown.render",
+    # ── Universal information tools ──
+    "exec.run",
+    "web.search", "web.page.process", "web.weather",
     "memory.search",
 )
 

@@ -497,6 +497,30 @@ MANIFESTS: dict[str, CapabilityManifest] = {
         risk_level="low", side_effects="none", idempotency="safe_to_retry",
         timeout_seconds=20,
     ),
+    "skill.list": CapabilityManifest(
+        tool_id="skill.list", category="agent", display_name="Skill List",
+        description="List available capability-backed skills", action_class="read",
+        risk_level="low", side_effects="none", idempotency="safe_to_retry",
+        timeout_seconds=10,
+    ),
+    "skill.find": CapabilityManifest(
+        tool_id="skill.find", category="agent", display_name="Skill Search",
+        description="Search capability-backed skills", action_class="read",
+        risk_level="low", side_effects="none", idempotency="safe_to_retry",
+        timeout_seconds=10,
+    ),
+    "skill.load": CapabilityManifest(
+        tool_id="skill.load", category="agent", display_name="Skill Load",
+        description="Load a capability-backed skill", action_class="read",
+        risk_level="low", side_effects="none", idempotency="safe_to_retry",
+        timeout_seconds=10,
+    ),
+    "skill.inspect": CapabilityManifest(
+        tool_id="skill.inspect", category="agent", display_name="Skill Inspect",
+        description="Inspect a capability-backed skill", action_class="read",
+        risk_level="low", side_effects="none", idempotency="safe_to_retry",
+        timeout_seconds=10,
+    ),
 }
 
 def get_manifest(tool_id: str) -> CapabilityManifest | None:

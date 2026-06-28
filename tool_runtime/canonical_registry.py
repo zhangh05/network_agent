@@ -826,6 +826,11 @@ def _handler_tool_catalog_search(inv: ToolInvocation) -> dict:
         entry = CANONICAL_REGISTRY.get(tool_id)
         if entry is None:
             continue
+        try:
+            from tool_runtime.manifest_registry import get_manifest
+            manifest = get_manifest(tool_id)
+        except Exception:
+            manifest = None
         haystack = " ".join(str(part or "") for part in (
             tool_id, ns.category, ns.group, ns.action, ns.display_name,
             ns.short_label, ns.usage_hint, ns.not_for, entry.description,
@@ -839,8 +844,8 @@ def _handler_tool_catalog_search(inv: ToolInvocation) -> dict:
             "category": ns.category,
             "group": ns.group,
             "action": ns.action,
-            "risk_level": entry.risk_level,
-            "requires_approval": entry.requires_approval,
+            "risk_level": manifest.risk_level if manifest else entry.risk_level,
+            "requires_approval": manifest.requires_approval if manifest else entry.requires_approval,
             "reason": _catalog_reason(tool_id, ns.display_name, score, tokens),
             "usage_hint": ns.usage_hint,
         }))
@@ -1553,8 +1558,39 @@ _RAW_REGISTRY: list[CanonicalToolEntry] = [
         }, ["query"]),
         description="Search the full tool catalog and return loadable specialized tool_ids for the current turn.",
     ),
-    # v3.2：skill.* tools removed — capability-first routing replaces them.
-    # Use tool.catalog.search for capability discovery.
+    CanonicalToolEntry(
+        canonical_tool_id="skill.list",
+        handler=_adapt(handle_skill_list),
+        input_schema=_schema({}),
+        description="List available capability-backed skills.",
+    ),
+    CanonicalToolEntry(
+        canonical_tool_id="skill.find",
+        handler=_adapt(handle_skill_find),
+        input_schema=_schema({
+            "query": _S["query"],
+            "limit": {"type": "integer", "default": 10, "minimum": 1, "maximum": 20},
+        }, ["query"]),
+        description="Search available capability-backed skills.",
+    ),
+    CanonicalToolEntry(
+        canonical_tool_id="skill.load",
+        handler=_adapt(handle_skill_load),
+        input_schema=_schema({
+            "skill_name": _S["skill_name"],
+        }, ["skill_name"]),
+        description="Load a capability-backed skill and return its modules/tools/prompt hints.",
+    ),
+    CanonicalToolEntry(
+        canonical_tool_id="skill.inspect",
+        handler=_adapt(handle_skill_inspect),
+        input_schema=_schema({
+            "skill_name": _S["skill_name"],
+        }, ["skill_name"]),
+        description="Inspect a capability-backed skill.",
+    ),
+    # Skill creation/installation remains disabled in the canonical LLM surface.
+    # Define CapabilityPackage entries instead of allowing runtime skill mutation.
     # Slash command tools removed — use exec.slash for slash execution.
     # ── Directory-level business tools ──
     CanonicalToolEntry(
@@ -1873,13 +1909,18 @@ def to_tool_specs() -> list[tuple]:
                 entry.canonical_tool_id,
                 ns_entry.action if ns_entry else "",
             )
+        try:
+            from tool_runtime.manifest_registry import get_manifest
+            manifest = get_manifest(entry.canonical_tool_id)
+        except Exception:
+            manifest = None
         spec = ToolSpec(
             tool_id=entry.canonical_tool_id,
             handler_id=entry.canonical_tool_id,
             description=description,
             category=ns_entry.category if ns_entry else "",
-            risk_level=entry.risk_level,
-            requires_approval=entry.requires_approval,
+            risk_level=manifest.risk_level if manifest else entry.risk_level,
+            requires_approval=manifest.requires_approval if manifest else entry.requires_approval,
             permission_action=perm_action,
             callable_by_llm=getattr(entry, 'callable_by_llm', True),
             enabled=True,
