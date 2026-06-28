@@ -53,8 +53,6 @@ export function TaskWorkbench() {
   const { currentWorkspaceId, currentSessionId } = useSessionStore();
   const sending = useWorkbenchStore((s) => s.sending);
   const lastUserInput = useWorkbenchStore((s) => s.lastUserInput);
-  const results = useWorkbenchStore((s) => s.results);
-  const sessionResults = results[currentSessionId ?? "_scratch"] ?? [];
   // Granular selector: only re-render when THIS session's messages change
   const visibleHistory = useWorkbenchStore((s) => {
     const msgs = s.bySession?.[currentSessionId ?? "_scratch"];
@@ -449,7 +447,7 @@ export function TaskWorkbench() {
         trace_id: wsResult.trace_id,
         run_id: wsResult.turn_id,
       }, resolvedSid);
-      setLatestResult(wsResult);
+      setLatestResult(wsResult, resolvedSid);
       notifyRunCompleted();
       keepAtBottom();
 
@@ -488,7 +486,7 @@ export function TaskWorkbench() {
           trace_id: res.trace_id,
           run_id: res.turn_id,
         }, resolvedSid);
-        setLatestResult(res);
+        setLatestResult(res, resolvedSid);
         notifyRunCompleted();
         keepAtBottom();
         if (res.ok) {
@@ -517,7 +515,7 @@ export function TaskWorkbench() {
           result: stubResult,
           error: msg,
         }, fallbackSid);
-        setLatestResult(stubResult);
+        setLatestResult(stubResult, fallbackSid);
         toast({ kind: "error", title: "请求失败", body: msg });
       }
     } finally {
@@ -711,7 +709,7 @@ export function TaskWorkbench() {
       {/* ── Content area ── */}
       <div className="wb-chat" data-testid="chat-stream">
         {viewMode === "timeline" ? (
-          <RuntimeEventTimeline results={sessionResults} />
+          <RuntimeEventTimeline messages={visibleHistory ?? []} />
         ) : (visibleHistory?.length ?? 0) === 0 && !sending ? (
           <div className="wb-empty" data-testid="workbench-empty">
             <h2>任务工作台</h2>
@@ -748,18 +746,25 @@ export function TaskWorkbench() {
         )}
       </div>
 
-      {/* ── Retry bar ── */}
-      {!sending && sessionResults.length > 0 && !sessionResults[sessionResults.length - 1].ok && lastUserInput && (
-        <div className="wb-retry-bar">
-          <IconAlert size={11} />
-          <span>{_humanFailure(sessionResults[sessionResults.length - 1].error_type, sessionResults[sessionResults.length - 1].errors?.[0] ?? "请求失败").msg}</span>
-          {_humanFailure(sessionResults[sessionResults.length - 1].error_type, sessionResults[sessionResults.length - 1].errors?.[0] ?? "").retryable && (
-            <button type="button" onClick={() => onSend(lastUserInput)} data-testid="retry-btn">
-              自动重试
-            </button>
-          )}
-        </div>
-      )}
+      {/* ── Retry bar (derive from last assistant message's result) ── */}
+      {(() => {
+        if (sending || !lastUserInput) return null;
+        const lastAssistant = [...(visibleHistory ?? [])].reverse().find((m) => m.role === "assistant");
+        const lastResult = lastAssistant?.result;
+        if (!lastResult) return null;
+        if (lastResult.ok) return null;
+        return (
+          <div className="wb-retry-bar">
+            <IconAlert size={11} />
+            <span>{_humanFailure(lastResult.error_type, lastResult.errors?.[0] ?? "请求失败").msg}</span>
+            {_humanFailure(lastResult.error_type, lastResult.errors?.[0] ?? "").retryable && (
+              <button type="button" onClick={() => onSend(lastUserInput)} data-testid="retry-btn">
+                自动重试
+              </button>
+            )}
+          </div>
+        );
+      })()}
 
       {/* ── Input bar ── */}
       <div className="wb-input-bar" onDragOver={handleDragOver} onDrop={handleDrop}>

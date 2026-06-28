@@ -65,6 +65,12 @@ def persist_run_record(session, turn, result, context) -> None:
             warnings=(result.warnings if result and result.warnings else []),
             trace_id=(result.trace_id if result else ""),
             error=((result.errors[0] if result and result.errors else None)),
+            # v3.9.1: expose the real AgentResult.ok / .errors so
+            # workspace.run_store._safe_status can derive the record's
+            # `status` field from runtime truth (was previously always "ok"
+            # because it read the skill_results dict instead).
+            result_ok=(bool(result.ok) if result else None),
+            result_errors=(list(result.errors) if result and result.errors else []),
             skill_results=skill_results,
             tool_results=skill_results,
         )
@@ -217,6 +223,16 @@ def _merge_result_projection(run_id: str, ws_id: str, result, context) -> None:
         "metadata": _safe_metadata(metadata),
         "timeline_summary": result_dict.get("timeline_summary") or metadata.get("timeline_summary") or {},
     })
+    # v3.9.1: keep `status` consistent with `ok`. If the initial write (via
+    # _safe_status) computed a wrong value because it read skill_results
+    # instead of the real AgentResult, correct it now that we have the truth.
+    is_ok = bool(result_dict.get("ok", True))
+    has_errors = bool(result_dict.get("errors"))
+    if not is_ok or has_errors:
+        record["status"] = "error"
+    elif record.get("status") not in ("planned",):
+        # Only flip to "ok" if the record wasn't explicitly marked planned.
+        record["status"] = "ok"
     try:
         # Atomic write: tmp → rename to avoid corruption on crash
         import tempfile

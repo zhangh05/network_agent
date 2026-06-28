@@ -16,8 +16,9 @@
  */
 import { create } from "zustand";
 import { persist } from "zustand/middleware";
-import type { AgentResult, SessionMessage, MessageStatus, InlineToolCall } from "../types";
+import type { AgentResult, SessionMessage, MessageStatus, InlineToolCall, RuntimeEvent } from "../types";
 import { sanitizeAssistantText } from "../utils/displayText";
+import { runtimeAuditApi } from "../api";
 
 export interface ChatMsg {
   id: string;
@@ -152,10 +153,18 @@ function findLocalForServer(serverMsg: ChatMsg, localMessages: ChatMsg[], matche
 interface WorkbenchState {
   bySession: Record<string, ChatMsg[]>;
   currentSessionId: string | null;
-  /** Per-session run results (v3.9: persisted, survives session switch) */
-  results: Record<string, AgentResult[]>;
   sending: boolean;
   lastUserInput: string;
+  /**
+   * v3.9.1: lazy-loaded run detail cache, keyed by run_id (not by session).
+   * Populated when the Timeline tab expands a card and we need the full
+   * events/tool_calls trace. Not persisted — re-fetched on reload.
+   */
+  runDetails: Record<string, AgentResult>;
+  /** Track in-flight run detail loads to avoid duplicate requests. */
+  runDetailLoading: Record<string, boolean>;
+  /** Track failed loads so the Timeline can show a retry hint. */
+  runDetailError: Record<string, string>;
 
   switchSession: (session_id: string | null) => void;
   appendUser: (text: string, session_id: string | null) => void;
@@ -168,10 +177,29 @@ interface WorkbenchState {
     session_id?: string,
   ) => void;
   setSending: (v: boolean) => void;
-  setLatestResult: (r: AgentResult) => void;
+  /**
+   * Attach a finalized AgentResult to the matching assistant message in `sid`
+   * (defaults to currentSessionId). Matched by ChatMsg.run_id === result.turn_id.
+   * No-op if the message is not yet present (caller should ensure messages
+   * are loaded for `sid` first).
+   */
+  setLatestResult: (r: AgentResult, sid?: string) => void;
   /** Drop local history for current (or specified) session. */
   clear: (session_id?: string) => void;
   mergeFromBackend: (session_id: string, serverMsgs: SessionMessage[]) => void;
+  /**
+   * v3.9.1: Lazily fetch the full run detail (GET /runs/<id> + /runs/<id>/trace)
+   * and attach the merged AgentResult to the matching assistant message in
+   * `sid`. Cached by run_id so repeat expansions are instant.
+   *
+   * Returns the AgentResult on success, or null on failure (the cache is
+   * left with the error message).
+   */
+  loadRunDetail: (
+    workspace_id: string,
+    run_id: string,
+    sid?: string,
+  ) => Promise<AgentResult | null>;
 }
 
 export const useWorkbenchStore = create<WorkbenchState>()(
@@ -179,9 +207,11 @@ export const useWorkbenchStore = create<WorkbenchState>()(
     (set, get) => ({
       bySession: {},
       currentSessionId: null,
-      results: {},
       sending: false,
       lastUserInput: "",
+      runDetails: {},
+      runDetailLoading: {},
+      runDetailError: {},
 
       switchSession: (session_id) => {
         set((s) => {
@@ -246,17 +276,160 @@ export const useWorkbenchStore = create<WorkbenchState>()(
       },
 
       setSending: (v) => set({ sending: v }),
-      // v3.9: setLatestResult appends to current session's results
-      setLatestResult: (r) => {
-        const sid = get().currentSessionId;
-        if (!sid) return;
+      // C-plan refactor: setLatestResult attaches the AgentResult to the
+      // matching assistant ChatMsg (by run_id == turn_id). Timeline view
+      // derives runs from bySession, so this single source-of-truth works
+      // across session switches / page reloads.
+      setLatestResult: (r, sid) => {
+        const targetSid = sid ?? get().currentSessionId;
+        if (!targetSid) return;
         set((s) => {
-          const sessResults = s.results[sid] ?? [];
-          const maxResults = 50;
-          return {
-            results: { ...s.results, [sid]: [...sessResults, r].slice(-maxResults) },
-          };
+          const msgs = s.bySession[targetSid];
+          if (!Array.isArray(msgs) || msgs.length === 0) return s;
+          // Match the latest assistant message with this run_id
+          let idx = -1;
+          for (let i = msgs.length - 1; i >= 0; i--) {
+            const m = msgs[i];
+            if (m.role === "assistant" && m.run_id === r.turn_id) {
+              idx = i;
+              break;
+            }
+          }
+          if (idx < 0) return s;
+          const updated: ChatMsg = { ...msgs[idx], result: r };
+          const nextMsgs = [
+            ...msgs.slice(0, idx),
+            updated,
+            ...msgs.slice(idx + 1),
+          ];
+          return { bySession: { ...s.bySession, [targetSid]: nextMsgs } };
         });
+      },
+
+      // ────────────────────────────────────────────────────────────────────
+      // v3.9.1: loadRunDetail — lazy fetch full run trace/tool_calls.
+      //
+      // Timeline cards start with no AgentResult attached (the messages API
+      // doesn't include events/tool_calls). When the user expands a card and
+      // the assistant message has no `result`, this action:
+      //   1. calls GET /api/runs/<id>?workspace_id=...    → run record (38 keys incl. tool_calls)
+      //   2. calls GET /api/workspaces/<ws>/runs/<id>/trace → events array
+      //   3. merges into an AgentResult, attaches to the matching assistant msg,
+      //      and stores in `runDetails` cache for repeat expansions.
+      // ────────────────────────────────────────────────────────────────────
+      loadRunDetail: async (workspace_id, run_id, sid) => {
+        const targetSid = sid ?? get().currentSessionId;
+        const state = get();
+        // Already cached → just attach (no-op if already attached).
+        if (state.runDetails[run_id]) {
+          get().setLatestResult(state.runDetails[run_id], targetSid ?? undefined);
+          return state.runDetails[run_id];
+        }
+        // Already in-flight → wait for the existing load (avoids dup requests).
+        if (state.runDetailLoading[run_id]) {
+          // simple poll: wait until cache populated or error set
+          for (let i = 0; i < 60; i++) {
+            await new Promise((r) => setTimeout(r, 100));
+            const cur = get();
+            if (cur.runDetails[run_id]) {
+              cur.setLatestResult(cur.runDetails[run_id], targetSid ?? undefined);
+              return cur.runDetails[run_id];
+            }
+            if (!cur.runDetailLoading[run_id]) {
+              return null; // the other loader failed
+            }
+          }
+          return null;
+        }
+
+        set((s) => ({
+          runDetailLoading: { ...s.runDetailLoading, [run_id]: true },
+          runDetailError: { ...s.runDetailError, [run_id]: "" },
+        }));
+
+        try {
+          const [runResp, traceResp] = await Promise.all([
+            runtimeAuditApi.run(workspace_id, run_id),
+            runtimeAuditApi.trace(workspace_id, run_id),
+          ]);
+          const runRecord = (runResp && typeof runResp === "object" ? runResp : {}) as Record<string, unknown>;
+          const traceData = (traceResp && typeof traceResp === "object" ? traceResp : {}) as {
+            events?: RuntimeEvent[];
+          };
+
+          const merged: AgentResult = {
+            ok: runRecord.ok !== false,  // default true if missing
+            final_response: (runRecord.final_response_summary as string) || "",
+            events: Array.isArray(traceData.events) ? traceData.events : [],
+            trace_id: (runRecord.trace_id as string) || "",
+            session_id: (runRecord.session_id as string) || "",
+            turn_id: run_id,
+            tool_calls: Array.isArray(runRecord.tool_calls) ? (runRecord.tool_calls as AgentResult["tool_calls"]) : [],
+            warnings: Array.isArray(runRecord.warnings) ? (runRecord.warnings as string[]) : [],
+            errors: [
+              ...(Array.isArray(runRecord.errors) ? (runRecord.errors as string[]) : []),
+              ...(((runRecord as Record<string, unknown>).error as string | null) ? [(runRecord.error as string)] : []),
+            ],
+            tool_decision: (runRecord.tool_decision as AgentResult["tool_decision"]) || {},
+            no_tool_reason: (runRecord.no_tool_reason as string) || "",
+            metadata: {
+              selected_capabilities: (((runRecord.metadata as Record<string, unknown>)?.selected_capabilities as string[]) || []),
+              selected_skills: (((runRecord.metadata as Record<string, unknown>)?.selected_skills as string[]) || []),
+              visible_tools: (((runRecord.metadata as Record<string, unknown>)?.visible_tools as string[]) || []),
+              source_count: 0,
+              workspace_id,
+            },
+          };
+
+          set((s) => {
+            const nextDetails = { ...s.runDetails, [run_id]: merged };
+            const nextLoading = { ...s.runDetailLoading };
+            delete nextLoading[run_id];
+            // Also attach to the assistant message in this session
+            let nextBySession = s.bySession;
+            if (targetSid) {
+              const msgs = s.bySession[targetSid];
+              if (Array.isArray(msgs) && msgs.length > 0) {
+                let idx = -1;
+                for (let i = msgs.length - 1; i >= 0; i--) {
+                  const m = msgs[i];
+                  if (m.role === "assistant" && m.run_id === run_id) {
+                    idx = i;
+                    break;
+                  }
+                }
+                if (idx >= 0 && !msgs[idx].result) {
+                  const updated: ChatMsg = { ...msgs[idx], result: merged };
+                  const nextMsgs = [
+                    ...msgs.slice(0, idx),
+                    updated,
+                    ...msgs.slice(idx + 1),
+                  ];
+                  nextBySession = { ...s.bySession, [targetSid]: nextMsgs };
+                }
+              }
+            }
+            return {
+              runDetails: nextDetails,
+              runDetailLoading: nextLoading,
+              bySession: nextBySession,
+            };
+          });
+          return merged;
+        } catch (e) {
+          const msg = (e && typeof e === "object" && "message" in e)
+            ? String((e as { message?: unknown }).message)
+            : "加载失败";
+          set((s) => {
+            const nextLoading = { ...s.runDetailLoading };
+            delete nextLoading[run_id];
+            return {
+              runDetailLoading: nextLoading,
+              runDetailError: { ...s.runDetailError, [run_id]: msg },
+            };
+          });
+          return null;
+        }
       },
 
       clear: (session_id) => {
@@ -265,9 +438,7 @@ export const useWorkbenchStore = create<WorkbenchState>()(
         set((s) => {
           const nextBySession = { ...s.bySession };
           delete nextBySession[sid];
-          const nextResults = { ...s.results };
-          delete nextResults[sid];
-          return { bySession: nextBySession, results: nextResults };
+          return { bySession: nextBySession };
         });
       },
 
@@ -345,22 +516,24 @@ export const useWorkbenchStore = create<WorkbenchState>()(
     }),
     {
       name: "na_workbench",
-      version: 2,
+      version: 3,
+      // v3: drop `results` from persistence — Timeline derives runs from
+      // bySession now, so we only need to persist bySession + lastUserInput.
+      migrate: (persisted: unknown, _version: number) => {
+        // No-op: old `results` field is simply ignored. bySession carries the
+        // agent results inside ChatMsg.result, which is what Timeline reads.
+        return persisted as WorkbenchState;
+      },
       partialize: (s) => ({
         bySession: s.bySession,
-        results: s.results,
         lastUserInput: s.lastUserInput,
       }),
       merge: (persisted: unknown, current: WorkbenchState): WorkbenchState => {
         const p = persisted as Record<string, unknown> | null | undefined;
         const safe = p?.bySession;
-        const safeResults = p?.results;
         const merged: Partial<WorkbenchState> = {};
         if (safe && typeof safe === "object" && !Array.isArray(safe)) {
           merged.bySession = safe as Record<string, ChatMsg[]>;
-        }
-        if (safeResults && typeof safeResults === "object" && !Array.isArray(safeResults)) {
-          merged.results = safeResults as Record<string, AgentResult[]>;
         }
         return { ...current, ...merged };
       },

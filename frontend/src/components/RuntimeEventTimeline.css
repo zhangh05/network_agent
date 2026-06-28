@@ -1,12 +1,22 @@
 /* rt-* = RuntimeEventTimeline — v3.9 collapsible cards */
 
-/* ── list ── */
-.rt-list { display: flex; flex-direction: column; gap: 10px; padding: 16px 0; }
+/* ── list (v3.9.1: must be the scroll container, parent .wb-chat is overflow:hidden) ── */
+.rt-list {
+  display: flex; flex-direction: column; gap: 10px;
+  padding: 16px 32px 28px;
+  height: 100%;
+  min-height: 0;
+  overflow-y: auto;
+  scroll-behavior: auto;
+}
 
 /* ── card ── */
 .rt-card {
   border: 1px solid var(--line); border-radius: 8px; background: var(--surface);
-  overflow: hidden;
+  /* v3.9.1: was overflow:hidden, which clipped expanded bodies.
+     Keep radius by allowing children to render normally; the rt-list above
+     is the scroll container. */
+  overflow: visible;
 }
 .rt-card-bar {
   display: flex; align-items: center; gap: 8px; padding: 10px 14px;
@@ -114,6 +124,61 @@
 .rt-empty { display: flex; flex-direction: column; align-items: center; justify-content: center; padding: 80px 20px; color: var(--text-4); text-align: center; min-height: 200px; }
 .rt-empty p { margin: 2px 0; font-size: 14px; }
 .rt-empty-hint { font-size: 12px; color: var(--text-4); opacity: 0.8; }
+
+/* ── fallback body (C-plan: no AgentResult attached, just text) ── */
+.rt-fallback { display: flex; flex-direction: column; gap: 6px; }
+.rt-fallback-row { display: flex; gap: 8px; align-items: flex-start; }
+.rt-fallback-role { font-size: 11px; color: var(--text-4); flex-shrink: 0; min-width: 56px; }
+.rt-fallback-text { font-size: 13px; color: var(--text-2); line-height: 1.55; white-space: pre-wrap; word-break: break-word; }
+.rt-fallback-hint {
+  margin-top: 6px;
+  font-size: 11px;
+  color: var(--text-4);
+  font-style: italic;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+/* ── loading spinner (v3.9.1 lazy load) ── */
+.rt-loading {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 16px 18px;
+  font-size: 12px;
+  color: var(--text-4);
+}
+.rt-spinner {
+  width: 12px;
+  height: 12px;
+  border: 2px solid var(--line-2);
+  border-top-color: var(--accent);
+  border-radius: 50%;
+  animation: rt-spin 0.8s linear infinite;
+  flex-shrink: 0;
+}
+@keyframes rt-spin { to { transform: rotate(360deg); } }
+
+/* ── retry button ── */
+.rt-retry-btn {
+  font-size: 11px;
+  padding: 2px 8px;
+  border: 1px solid var(--line);
+  border-radius: 4px;
+  background: var(--surface-2);
+  color: var(--text-2);
+  cursor: pointer;
+  font-style: normal;
+}
+.rt-retry-btn:hover {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
+/* ── scrollbar (matches wb-chat-list) ── */
+.rt-list::-webkit-scrollbar { width: 8px; }
+.rt-list::-webkit-scrollbar-thumb { background: var(--line-2); border-radius: 4px; }
 
 /* ── dark ── */
 [data-theme="dark"] .rt-diag { background: #3d2e0a; border-color: #ca8a04; }

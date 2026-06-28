@@ -705,11 +705,12 @@ export const runtimeAuditApi = {
         signal,
       ),
   run: (
+    workspace_id: string,
     run_id: string,
     signal?: AbortSignal,
   ): Promise<unknown> =>
     apiRequest<unknown>(
-      { method: "GET", url: `/runs/${run_id}` },
+      { method: "GET", url: `/runs/${run_id}`, params: { workspace_id } },
       signal,
     ),
   trace: (

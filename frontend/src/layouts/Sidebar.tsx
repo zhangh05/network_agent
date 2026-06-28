@@ -49,9 +49,26 @@ export function Sidebar() {
       setCurrentSession(targetSessionId);
       switchWbSession(targetSessionId);
     }
-    // Dedup: skip if this turn_id already exists in the session's results
-    const existing = useWorkbenchStore.getState().results[targetSessionId ?? "_scratch"] ?? [];
-    if (existing.some((x) => x.turn_id === rid)) return;
+    // Ensure the target session's messages are loaded into bySession before
+    // we try to attach the AgentResult. Timeline derives runs from bySession,
+    // so the assistant ChatMsg must exist for setLatestResult to hook onto.
+    const sid = targetSessionId ?? currentSessionId ?? "_scratch";
+    if (sid) {
+      const hasInStore = (useWorkbenchStore.getState().bySession[sid] ?? [])
+        .some((m) => m.run_id === rid);
+      if (!hasInStore) {
+        try {
+          const msgsRes = await sessionsApi.messages(sid, currentWorkspaceId);
+          if (msgsRes.messages?.length) {
+            useWorkbenchStore.getState().mergeFromBackend(sid, msgsRes.messages);
+          }
+        } catch { /* best-effort: if messages can't load, setLatestResult will no-op */ }
+      }
+    }
+    // Dedup: skip if the matching assistant message already has a result
+    const already = (useWorkbenchStore.getState().bySession[sid] ?? [])
+      .some((m) => m.run_id === rid && m.role === "assistant" && m.result);
+    if (already) return;
     try {
       const raw = await runtimeAuditApi.run(rid);
       const runData = (raw as any)?.run || raw as any;
@@ -76,7 +93,7 @@ export function Sidebar() {
           tool_scene: runData.tool_scene,
         },
       };
-      useWorkbenchStore.getState().setLatestResult(result);
+      useWorkbenchStore.getState().setLatestResult(result, sid);
     } catch {
       // Minimal fallback from summary
       const result: AgentResult = {
@@ -97,7 +114,7 @@ export function Sidebar() {
           workspace_id: currentWorkspaceId,
         },
       };
-      useWorkbenchStore.getState().setLatestResult(result);
+      useWorkbenchStore.getState().setLatestResult(result, sid);
     }
   };
 

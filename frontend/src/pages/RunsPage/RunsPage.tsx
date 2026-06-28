@@ -28,6 +28,28 @@ const STATUS_LABEL: Record<string, string> = {
   pending: "等待中", timeout: "超时", cancelled: "已取消",
 };
 
+/**
+ * v3.9.1 fix: previously the list rendered `r.status` only, while the detail
+ * rendered `r.ok`. They could disagree on legacy disk records (status was
+ * stuck at "ok" because the write path read the wrong dict; see
+ * workspace/run_store.py::_safe_status). Now we prefer the boolean truth —
+ * `r.ok === false` is a hard "error" regardless of the legacy `status` string,
+ * and `r.status` only supplements when `r.ok` is missing.
+ *
+ * For new runs (post-fix) `r.ok` and `r.status` agree; for old runs this
+ * keeps the list honest.
+ */
+function effectiveStatus(run: RuntimeAuditTurn): string {
+  // v3.9.1: r.ok is the runtime truth. If it's explicitly false, ignore the
+  // legacy `status` string entirely (legacy records can have status="ok"
+  // even when ok=false). If it's explicitly true, also return "ok" — we
+  // don't trust the status string either way once the boolean is set.
+  if (run.ok === false) return "error";
+  if (run.ok === true) return "ok";
+  // r.ok undefined (truly old records or non-AI jobs): fall back to status.
+  return run.status || "ok";
+}
+
 function sBadge(s: string): "ok" | "err" | "warn" | "muted" {
   if (/ok|completed|success/i.test(s)) return "ok";
   if (/fail|error/i.test(s)) return "err";
@@ -262,11 +284,11 @@ export function RunsPage() {
                   background: active ? "var(--accent-soft)" : "var(--surface)",
                 }}>
                 <div style={{ display: "flex", alignItems: "flex-start", gap: 8, marginBottom: 5 }}>
-                  <StatusDot status={sDot(r.status || "")} />
+                  <StatusDot status={sDot(effectiveStatus(r))} />
                   <span style={{ flex: 1, fontSize: "var(--fs-13)", fontWeight: 680, lineHeight: 1.35, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
                     {r.user_input_summary || r.intent || "(无摘要)"}
                   </span>
-                  <Badge kind={sBadge(r.status || "")}>{sLabel(r.status || "")}</Badge>
+                  <Badge kind={sBadge(effectiveStatus(r))}>{sLabel(effectiveStatus(r))}</Badge>
                 </div>
                 <div style={{ display: "flex", gap: 8, marginLeft: 16, fontSize: "var(--fs-10)", color: "var(--text-4)" }}>
                   <span>{r.created_at ? new Date(r.created_at).toLocaleString("zh-CN", { month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit" }) : "-"}</span>
@@ -297,9 +319,9 @@ export function RunsPage() {
           ) : (
             <div style={{ animation: "surface-in var(--dur-4) var(--ease-out) both" }}>
               <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 16 }}>
-                <StatusDot status={sDot(sel.status || "")} />
+                <StatusDot status={sDot(effectiveStatus(sel))} />
                 <h3 style={{ fontSize: "var(--fs-18)", fontWeight: 720, margin: 0 }}>运行详情</h3>
-                <Badge kind={sBadge(sel.status || "")}>{sLabel(sel.status || "")}</Badge>
+                <Badge kind={sBadge(effectiveStatus(sel))}>{sLabel(effectiveStatus(sel))}</Badge>
               </div>
 
               <div className="tabs" style={{ marginBottom: 16 }}>
@@ -400,8 +422,14 @@ export function RunsPage() {
 
 /** Convert RuntimeAuditTurn → AgentResult so Inspector can display it. */
 function buildAgentResult(run: RuntimeAuditTurn, workspaceId: string): AgentResult {
+  // v3.9.1: prefer `run.ok` over the legacy status string. The disk record
+  // may have status="ok" but ok=false (legacy bug); we want the truth here.
+  const truthyOk =
+    typeof run.ok === "boolean"
+      ? run.ok
+      : /ok|completed|success/i.test(run.status || "");
   return {
-    ok: /ok|completed|success/i.test(run.status || ""),
+    ok: truthyOk,
     final_response: "",
     events: (run.events || []) as any[],
     trace_id: run.trace_id || "",

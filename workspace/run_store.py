@@ -154,10 +154,39 @@ def _safe_quality_summary(result: dict) -> dict:
 
 
 def _safe_status(state, result: dict) -> str:
+    """Derive the run record's `status` field from runtime truth.
+
+    v3.9.1 fix: previously this read `result.get("ok")`, but `result` at the
+    call site (write_run_record) was `state.skill_results or state.tool_results
+    or {}`, which is the *tool skill payload* (deployable_config / manual_review
+    / unsupported / semantic_near / audit) — it does NOT carry `ok`. So
+    `result.get("ok")` was always None, and status always fell through to "ok"
+    even when the run actually failed. Meanwhile _merge_result_projection later
+    wrote the real `ok` field, producing the inconsistency seen by the UI
+    (list says "ok", detail says "failed").
+
+    Order of precedence (most authoritative first):
+    1. explicit state.error → "error"
+    2. state.context.capability_status == "planned" → "planned"
+    3. state.result_ok explicitly False → "error"   (NEW: real AgentResult.ok)
+    4. state.result_errors non-empty → "error"       (NEW: real errors list)
+    5. legacy `result.get("ok")` (kept for back-compat with any caller that
+       passes a dict that actually has it) → "error"
+    6. otherwise → "ok"
+    """
     if state.error:
         return "error"
     if state.context.get("capability_status") == "planned":
         return "planned"
+    # Prefer the explicit AgentResult fields placed on state by the caller
+    # (turn_persistence.persist_run_record).
+    result_ok = getattr(state, "result_ok", None)
+    if result_ok is False:
+        return "error"
+    result_errors = getattr(state, "result_errors", None)
+    if result_errors:  # non-empty list
+        return "error"
+    # Legacy fallback for direct dict callers (kept for compatibility)
     if isinstance(result, dict) and result.get("ok") is False:
         return "error"
     return "ok"

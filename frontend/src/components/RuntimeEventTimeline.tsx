@@ -1,11 +1,19 @@
 /**
- * RuntimeEventTimeline — collapsible run cards.
+ * RuntimeEventTimeline — collapsible run cards derived from ChatMsg[].
  *
- * Each run = one card. Collapsed shows run_id + snippet.
- * Expand to see the full event timeline inside.
+ * C-plan: Timeline no longer reads a parallel `results` array. Instead it
+ * groups messages by `run_id` (one user + one assistant per run) and renders
+ * each pair as a card. If the assistant message has an attached
+ * `AgentResult`, the expanded view shows the full event timeline; otherwise
+ * v3.9.1: on first expand, fires `loadRunDetail(workspace_id, run_id)` to
+ * fetch /api/runs/<id> + /api/runs/<id>/trace and attach the merged result
+ * to the assistant message. While loading we show a spinner; on error we
+ * fall back to the user/assistant text pair with a retry hint.
  */
-import React, { useState } from "react";
-import type { AgentResult, RuntimeEvent, ToolCallResult } from "../types";
+import React, { useEffect, useMemo, useState } from "react";
+import type { AgentResult, ChatMsg, RuntimeEvent, ToolCallResult } from "../types";
+import { useWorkbenchStore } from "../stores/workbench";
+import { useSessionStore } from "../stores/session";
 
 /* ── helpers ── */
 
@@ -87,13 +95,11 @@ const StepRow: React.FC<{ evt: RuntimeEvent }> = React.memo(({ evt }) => {
   );
 });
 
-/* ── run card ── */
+/* ── result-driven body (assistant has AgentResult attached) ── */
 
-const RunCard: React.FC<{ result: AgentResult; runIdx: number }> = React.memo(({ result, runIdx }) => {
-  const [open, setOpen] = useState(false);
+const ResultBody: React.FC<{ result: AgentResult }> = React.memo(({ result }) => {
   const events = result.events ?? [];
   const tools = result.tool_calls ?? [];
-  const meta = result.metadata ?? {};
   const hasDiag = !!(result.errors?.length) || !!(result.warnings?.length);
   const allArtifacts = tools.flatMap((t) => t.artifacts ?? []);
 
@@ -102,57 +108,205 @@ const RunCard: React.FC<{ result: AgentResult; runIdx: number }> = React.memo(({
   for (const tc of tools) { if (tc.call_id) toolMap.set(tc.call_id, tc); }
 
   return (
+    <div className="rt-card-body">
+      {/* diagnostics */}
+      {hasDiag && (
+        <div className="rt-diag">
+          {result.errors?.map((e, i) => <div key={`e-${i}`} className="rt-diag-e">{e}</div>)}
+          {result.warnings?.map((w, i) => <div key={`w-${i}`} className="rt-diag-w">{w}</div>)}
+        </div>
+      )}
+
+      {/* steps */}
+      <div className="rt-timeline">
+        {events.map((evt, i) => {
+          const t = (evt.event_type || evt.type || "").toLowerCase();
+          const isTool = t.startsWith("tool_call") || evt.tool_id;
+          if (isTool) {
+            const match = toolMap.get(evt.tool_id || "") || toolMap.get(evt.event_id || "");
+            if (match) return <ToolChip key={`tc-${i}`} tc={match} />;
+          }
+          return <StepRow key={`ev-${i}`} evt={evt} />;
+        })}
+        {/* tools without matching events */}
+        {tools.filter((tc) => !events.some((e) => e.event_id === tc.call_id || e.tool_id === tc.call_id)).map((tc) => (
+          <ToolChip key={`tc-orphan-${tc.call_id}`} tc={tc} />
+        ))}
+      </div>
+
+      {/* artifacts */}
+      {allArtifacts.length > 0 && (
+        <div className="rt-artifacts">
+          <span className="rt-art-label">产物 · {allArtifacts.length}</span>
+          <div className="rt-chips">
+            {allArtifacts.slice(0, 8).map((a) => (
+              <span key={a.artifact_id} className="rt-chip">{a.title || a.artifact_id.slice(0, 12)}</span>
+            ))}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+});
+
+/* ── fallback body (no result attached — only shown on load failure) ── */
+
+const FallbackBody: React.FC<{
+  userText: string;
+  assistantText: string;
+  loadError?: string;
+  onRetry?: () => void;
+}> = React.memo(
+  ({ userText, assistantText, loadError, onRetry }) => (
+    <div className="rt-card-body">
+      <div className="rt-fallback">
+        <div className="rt-fallback-row">
+          <span className="rt-fallback-role">🙋 用户</span>
+          <span className="rt-fallback-text">{userText || "(无内容)"}</span>
+        </div>
+        <div className="rt-fallback-row">
+          <span className="rt-fallback-role">🤖 AI</span>
+          <span className="rt-fallback-text">{assistantText || "(无内容)"}</span>
+        </div>
+        <div className="rt-fallback-hint">
+          {loadError
+            ? `加载后端执行步骤失败 · ${loadError}`
+            : "详细执行步骤未加载（切换会话/刷新后由后端消息还原）"}
+          {onRetry && (
+            <button
+              className="rt-retry-btn"
+              onClick={(e) => { e.stopPropagation(); onRetry(); }}
+              type="button"
+            >重试</button>
+          )}
+        </div>
+      </div>
+    </div>
+  ),
+);
+
+/* ── group messages into runs ── */
+
+interface RunGroup {
+  runId: string;
+  userMsg?: ChatMsg;
+  assistantMsg?: ChatMsg;
+  result?: AgentResult;
+  createdAt: string;
+}
+
+function groupMessagesIntoRuns(messages: ChatMsg[]): RunGroup[] {
+  const out: RunGroup[] = [];
+  const byRunId = new Map<string, RunGroup>();
+
+  for (const m of messages) {
+    if (m.role !== "user" && m.role !== "assistant") continue;
+    const rid = m.run_id;
+    if (rid) {
+      let grp = byRunId.get(rid);
+      if (!grp) {
+        grp = { runId: rid, createdAt: m.created_at || "" };
+        byRunId.set(rid, grp);
+        out.push(grp);
+      }
+      if (m.role === "user") grp.userMsg = m;
+      else {
+        grp.assistantMsg = m;
+        if (m.result) grp.result = m.result;
+        if (m.created_at) grp.createdAt = m.created_at;
+      }
+    } else {
+      // No run_id — only render assistant (user without run_id is just
+      // optimistic placeholder noise, the server will fill run_id on next
+      // mergeFromBackend).
+      if (m.role === "assistant") {
+        out.push({
+          runId: `orphan-${m.id}`,
+          assistantMsg: m,
+          result: m.result,
+          createdAt: m.created_at || "",
+        });
+      }
+    }
+  }
+
+  // Newest first
+  out.sort((a, b) => (b.createdAt || "").localeCompare(a.createdAt || ""));
+  return out;
+}
+
+/* ── run card ── */
+
+const RunCard: React.FC<{ group: RunGroup; runIdx: number }> = React.memo(({ group, runIdx }) => {
+  const [open, setOpen] = useState(false);
+  const result = group.result;
+  const assistantText = group.assistantMsg?.text ?? "";
+  const userText = group.userMsg?.text ?? "";
+  const ok = result ? result.ok : group.assistantMsg?.status !== "error";
+  const cardId = (result?.turn_id ?? group.runId).slice(0, 8);
+  const snippet = assistantText.slice(0, 50) || userText.slice(0, 50) || "";
+  const workspaceId = result?.metadata?.workspace_id;
+  const hasResultBody = !!result;
+
+  // v3.9.1: when expanded and no result yet, fetch the full trace lazily.
+  // We do NOT auto-fetch on mount — only when the user explicitly expands.
+  const currentWorkspaceId = useSessionStore((s) => s.currentWorkspaceId);
+  const loadRunDetail = useWorkbenchStore((s) => s.loadRunDetail);
+  const loading = useWorkbenchStore((s) => !!s.runDetailLoading[group.runId]);
+  const loadError = useWorkbenchStore((s) => s.runDetailError[group.runId] || "");
+
+  React.useEffect(() => {
+    if (
+      open &&
+      !hasResultBody &&
+      !loading &&
+      !loadError &&
+      currentWorkspaceId &&
+      group.runId &&
+      !group.runId.startsWith("orphan-") // skip orphan placeholders
+    ) {
+      void loadRunDetail(currentWorkspaceId, group.runId);
+    }
+    // We intentionally depend on [open, hasResultBody] so reopening after an
+    // error doesn't auto-retry (user must click the retry button).
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open, hasResultBody]);
+
+  const tryLoad = () => {
+    if (currentWorkspaceId && group.runId && !group.runId.startsWith("orphan-")) {
+      void loadRunDetail(currentWorkspaceId, group.runId);
+    }
+  };
+
+  return (
     <div className="rt-card">
       {/* ── collapsed header ── */}
       <div className="rt-card-bar" onClick={() => setOpen(!open)}>
-        <span className={`rt-card-dot ${result.ok ? "ok" : "err"}`} />
-        <span className="rt-card-id">{result.turn_id?.slice(0, 8) || `#${runIdx + 1}`}</span>
-        {meta.workspace_id && <span className="rt-card-ws">{meta.workspace_id}</span>}
-        <span className="rt-card-snippet">{result.final_response?.slice(0, 50) || ""}{result.final_response && result.final_response.length > 50 ? "…" : ""}</span>
+        <span className={`rt-card-dot ${ok ? "ok" : "err"}`} />
+        <span className="rt-card-id">{cardId || `#${runIdx + 1}`}</span>
+        {workspaceId && <span className="rt-card-ws">{workspaceId}</span>}
+        <span className="rt-card-snippet">{snippet}{snippet.length > 50 ? "…" : ""}</span>
         <span className="rt-card-chev">{open ? "▲ 收起" : "▼ 展开"}</span>
       </div>
 
       {/* ── expanded body ── */}
       {open && (
-        <div className="rt-card-body">
-
-          {/* diagnostics */}
-          {hasDiag && (
-            <div className="rt-diag">
-              {result.errors?.map((e, i) => <div key={`e-${i}`} className="rt-diag-e">{e}</div>)}
-              {result.warnings?.map((w, i) => <div key={`w-${i}`} className="rt-diag-w">{w}</div>)}
-            </div>
-          )}
-
-          {/* steps */}
-          <div className="rt-timeline">
-            {events.map((evt, i) => {
-              const t = (evt.event_type || evt.type || "").toLowerCase();
-              const isTool = t.startsWith("tool_call") || evt.tool_id;
-              if (isTool) {
-                const match = toolMap.get(evt.tool_id || "") || toolMap.get(evt.event_id || "");
-                if (match) return <ToolChip key={`tc-${i}`} tc={match} />;
-              }
-              return <StepRow key={`ev-${i}`} evt={evt} />;
-            })}
-            {/* tools without matching events */}
-            {tools.filter((tc) => !events.some((e) => e.event_id === tc.call_id || e.tool_id === tc.call_id)).map((tc) => (
-              <ToolChip key={`tc-orphan-${tc.call_id}`} tc={tc} />
-            ))}
-          </div>
-
-          {/* artifacts */}
-          {allArtifacts.length > 0 && (
-            <div className="rt-artifacts">
-              <span className="rt-art-label">产物 · {allArtifacts.length}</span>
-              <div className="rt-chips">
-                {allArtifacts.slice(0, 8).map((a) => (
-                  <span key={a.artifact_id} className="rt-chip">{a.title || a.artifact_id.slice(0, 12)}</span>
-                ))}
+        hasResultBody
+          ? <ResultBody result={result!} />
+          : loading
+            ? (
+              <div className="rt-card-body rt-loading">
+                <span className="rt-spinner" /> 加载后端执行步骤…
               </div>
-            </div>
-          )}
-        </div>
+            )
+            : (
+              <FallbackBody
+                userText={userText}
+                assistantText={assistantText}
+                loadError={loadError}
+                onRetry={loadError ? tryLoad : undefined}
+              />
+            )
       )}
     </div>
   );
@@ -160,9 +314,10 @@ const RunCard: React.FC<{ result: AgentResult; runIdx: number }> = React.memo(({
 
 /* ── main ── */
 
-export const RuntimeEventTimeline: React.FC<{ results: AgentResult[] }> = React.memo(
-  function RuntimeEventTimeline({ results }) {
-    if (!results || results.length === 0) {
+export const RuntimeEventTimeline: React.FC<{ messages: ChatMsg[] }> = React.memo(
+  function RuntimeEventTimeline({ messages }) {
+    const groups = useMemo(() => groupMessagesIntoRuns(messages ?? []), [messages]);
+    if (!groups || groups.length === 0) {
       return (
         <div className="rt-empty" data-testid="timeline-empty">
           <p>准备就绪</p>
@@ -172,7 +327,7 @@ export const RuntimeEventTimeline: React.FC<{ results: AgentResult[] }> = React.
     }
     return (
       <div className="rt-list" data-testid="runtime-timeline">
-        {results.map((r, i) => <RunCard key={r.turn_id || `run-${i}`} result={r} runIdx={i} />)}
+        {groups.map((g, i) => <RunCard key={g.runId} group={g} runIdx={i} />)}
       </div>
     );
   },
