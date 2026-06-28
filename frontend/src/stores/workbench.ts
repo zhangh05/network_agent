@@ -106,10 +106,6 @@ function dedupeMessages(messages: ChatMsg[]): ChatMsg[] {
   return out;
 }
 
-function contentKey(m: Pick<ChatMsg, "role" | "text">): string {
-  return `${m.role}:${m.text.trim()}`;
-}
-
 function validChatMessage(message: unknown): message is ChatMsg {
   if (!message || typeof message !== "object") return false;
   const m = message as Partial<ChatMsg>;
@@ -122,22 +118,32 @@ function validChatMessage(message: unknown): message is ChatMsg {
   );
 }
 
-function findLocalForServer(serverMsg: ChatMsg, localMessages: ChatMsg[]): ChatMsg | undefined {
+function findLocalForServer(serverMsg: ChatMsg, localMessages: ChatMsg[], matchedIds: Set<string>): ChatMsg | undefined {
   const stable = messageKey(serverMsg);
-  const exact = localMessages.find((m) => messageKey(m) === stable);
+  const exact = localMessages.find((m) => messageKey(m) === stable && !matchedIds.has(m.id));
   if (exact) return exact;
+  // Server messages carry message_id which takes priority in messageKey;
+  // local placeholders often only have run_id (set during finalize).
+  // Match by run_id before falling through to heuristics.
+  if (serverMsg.run_id) {
+    const runMatch = localMessages.find(
+      (m) => m.run_id && m.run_id === serverMsg.run_id && m.role === serverMsg.role && !matchedIds.has(m.id),
+    );
+    if (runMatch) return runMatch;
+  }
   if (serverMsg.role === "assistant") {
+    // Match any local assistant placeholder that lacks server-side identity.
     return localMessages.find(
       (m) =>
         m.role === "assistant" &&
         !m.message_id &&
         !m.run_id &&
-        (m.status === "streaming" || m.text.trim() === ""),
+        !matchedIds.has(m.id),
     );
   }
   if (serverMsg.role === "user") {
     return localMessages.find(
-      (m) => m.role === "user" && !m.message_id && m.text.trim() === serverMsg.text.trim(),
+      (m) => m.role === "user" && !m.message_id && m.text.trim() === serverMsg.text.trim() && !matchedIds.has(m.id),
     );
   }
   return undefined;
@@ -292,12 +298,12 @@ export const useWorkbenchStore = create<WorkbenchState>()(
           // that have not yet received a backend identity.
           const combined: ChatMsg[] = [];
           const seenKeys = new Set<string>();
-          const confirmedContent = new Set(converted.map((m) => contentKey(m)));
+          const matchedIds = new Set<string>();
 
           for (const serverMsg of converted) {
             const stable = messageKey(serverMsg);
             if (seenKeys.has(stable)) continue;
-            const localMatch = findLocalForServer(serverMsg, cur);
+            const localMatch = findLocalForServer(serverMsg, cur, matchedIds);
             const nextMsg = localMatch
               ? {
                   ...localMatch,
@@ -314,6 +320,7 @@ export const useWorkbenchStore = create<WorkbenchState>()(
             combined.push(nextMsg);
             seenKeys.add(stable);
             if (localMatch) {
+              matchedIds.add(localMatch.id);
               seenKeys.add(messageKey(localMatch));
             }
           }
@@ -321,7 +328,6 @@ export const useWorkbenchStore = create<WorkbenchState>()(
           // Append local-only messages not covered by server (e.g. streaming)
           for (const localMsg of cur) {
             if (seenKeys.has(messageKey(localMsg))) continue;
-            if (!localMsg.message_id && !localMsg.run_id && confirmedContent.has(contentKey(localMsg))) continue;
             combined.push(localMsg);
             seenKeys.add(messageKey(localMsg));
           }

@@ -25,10 +25,12 @@ BASELINE_READ_TOOLS = [
     "web.search",
     "web.page.process",
     "web.weather",
+    # Execution — always visible. Safety gates (approval, action_class_filter)
+    # are downstream, not visibility's responsibility.
+    "exec.run",
 ]
 
 LOCAL_OPS_TOOLS = [
-    "exec.run",
     "exec.python",
     "exec.slash",
     "system.diagnostics",
@@ -49,9 +51,14 @@ def scene_allows_local_ops(rule_scene: dict, user_input: str) -> bool:
     lower = (user_input or "").lower()
     explicit = (
         "本机", "localhost", "127.0.0.1", "shell", "powershell", "cmd",
-        "执行命令", "跑命令", "运行命令", "终端", "命令行", "ipconfig",
-        "ifconfig", "netstat", "process", "进程", "端口", "磁盘", "内存",
+        "执行命令", "跑命令", "运行命令", "终端", "命令行",
+        "ipconfig", "ifconfig", "netstat", "process", "进程", "端口", "磁盘", "内存",
         "cpu", "system info", "启动服务", "停止服务",
+        # Frequently used execution-related terms
+        "ssh", "exec", "execute", "scp", "telnet",
+        "run", "运行", "执行", "连接", "连到",
+        "ping", "traceroute", "curl", "wget",
+        "python", "脚本", "sh ", "bash",
     )
     return any(k in lower for k in explicit)
 

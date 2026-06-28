@@ -413,18 +413,16 @@ export function TaskWorkbench() {
       ws = null;
       wsRef.current = null;
 
-      // Handle session resolution — migrate _scratch to real session
-      // v4.0.1: dedup by content+role before concatenating to avoid duplicates
+      // Phase 1: migrate _scratch → real session (identity-only, no content dedup).
+      // existing is always [] here — resolvedSid is a brand-new session ID.
+      // Deduplication is deferred to mergeFromBackend (Phase 2 below), which
+      // handles it correctly via message_id / run_id matching.
       if (!currentSessionId && resolvedSid) {
         useSessionStore.getState().setCurrentSession(resolvedSid);
         useWorkbenchStore.setState((prev) => {
           const scratchMsgs = prev.bySession["_scratch"] ?? [];
           const existing = prev.bySession[resolvedSid] ?? [];
-          // Filter out scratch messages that already exist in the real session
-          const newOnly = scratchMsgs.filter((sm) =>
-            !existing.some((em) => em.role === sm.role && em.text === sm.text),
-          );
-          return { bySession: { ...prev.bySession, [resolvedSid]: [...existing, ...newOnly], _scratch: [] } };
+          return { bySession: { ...prev.bySession, [resolvedSid]: [...existing, ...scratchMsgs], _scratch: [] } };
         });
         useWorkbenchStore.getState().switchSession(resolvedSid);
       }
@@ -449,6 +447,7 @@ export function TaskWorkbench() {
         toolCalls: toolCalls.length > 0 ? toolCalls : undefined,
         error: wsResult.errors?.[0],
         trace_id: wsResult.trace_id,
+        run_id: wsResult.turn_id,
       }, resolvedSid);
       setLatestResult(wsResult);
       notifyRunCompleted();
@@ -471,10 +470,7 @@ export function TaskWorkbench() {
           useWorkbenchStore.setState((prev) => {
             const scratchMsgs = prev.bySession["_scratch"] ?? [];
             const existing = prev.bySession[resolvedSid] ?? [];
-            const newOnly = scratchMsgs.filter((sm) =>
-              !existing.some((em) => em.role === sm.role && em.text === sm.text),
-            );
-            return { bySession: { ...prev.bySession, [resolvedSid]: [...existing, ...newOnly], _scratch: [] } };
+            return { bySession: { ...prev.bySession, [resolvedSid]: [...existing, ...scratchMsgs], _scratch: [] } };
           });
           useWorkbenchStore.getState().switchSession(resolvedSid);
         }
@@ -490,6 +486,7 @@ export function TaskWorkbench() {
           toolCalls: tcArray.length > 0 ? tcArray : undefined,
           error: !res.ok ? res.errors?.[0] : undefined,
           trace_id: res.trace_id,
+          run_id: res.turn_id,
         }, resolvedSid);
         setLatestResult(res);
         notifyRunCompleted();
