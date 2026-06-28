@@ -217,15 +217,22 @@ def run_checks(result: SelfcheckResult, ws_id: str):
                         "Redact absolute paths from trace metadata"))
 
     # 13. Tool Runtime current policy/governance summary
+    # v3.9.3: tool_governance module removed. All canonical tools are
+    # active by default; the summary is now derived from the registry
+    # size minus any known forbidden list.
     try:
         from tool_runtime.canonical_registry import CANONICAL_REGISTRY
         from tool_runtime.policy import V02_FORBIDDEN_TOOLS
-        from tool_runtime.tool_governance import governance_summary
 
         result.checks["tool_runtime"] = "ok"
         result.checks["tool_registered_count"] = len(CANONICAL_REGISTRY)
         result.checks["tool_forbidden_count"] = len(V02_FORBIDDEN_TOOLS)
         result.checks["tool_forbidden_list"] = sorted(V02_FORBIDDEN_TOOLS)
-        result.checks["tool_governance"] = {'active': 0, 'disabled': 0, 'internal': 0, 'forbidden': 0}
+        result.checks["tool_governance"] = {
+            "active": len(CANONICAL_REGISTRY) - len(V02_FORBIDDEN_TOOLS),
+            "disabled": 0,
+            "internal": 0,
+            "forbidden": len(V02_FORBIDDEN_TOOLS),
+        }
     except Exception:
         result.checks["tool_runtime"] = "unavailable"

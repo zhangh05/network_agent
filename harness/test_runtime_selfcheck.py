@@ -58,14 +58,21 @@ class TestSelfcheck:
     def test_selfcheck_reports_current_tool_runtime_contract(self):
         from tool_runtime.canonical_registry import CANONICAL_REGISTRY
         from tool_runtime.policy import V02_FORBIDDEN_TOOLS
-        from tool_runtime.tool_governance import governance_summary
 
         result = run_selfcheck("default")
 
         assert result.checks.get("tool_runtime") == "ok"
         assert result.checks.get("tool_registered_count") == len(CANONICAL_REGISTRY)
         assert result.checks.get("tool_forbidden_count") == len(V02_FORBIDDEN_TOOLS)
-        assert result.checks.get("tool_governance") == governance_summary()
+        # v3.9.3: tool_governance module removed. governance_summary
+        # always returns {active: 21, disabled: 0, internal: 0, forbidden: 0}
+        # because all 21 canonical tools are active by default.
+        assert result.checks.get("tool_governance") == {
+            "active": len(CANONICAL_REGISTRY),
+            "disabled": 0,
+            "internal": 0,
+            "forbidden": 0,
+        }
 
 
 class TestRetention:
