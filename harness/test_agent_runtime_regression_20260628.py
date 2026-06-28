@@ -218,3 +218,50 @@ def test_action_result_projection_preserves_tool_output_for_llm():
 
     assert payload["final_response"] == "完整子 agent 结论"
     assert payload["subtask_id"] == "sub-abc"
+
+
+def test_memory_search_validates_workspace_without_name_error():
+    from tool_runtime.general_tools.memory_tools import handle_memory_search
+    from tool_runtime.schemas import ToolInvocation
+
+    result = handle_memory_search(ToolInvocation(
+        tool_id="memory.search",
+        arguments={"workspace_id": "ws_memory_search", "query": "nothing"},
+        workspace_id="ws_memory_search",
+        requested_by="turn_runner",
+    ))
+
+    assert result["ok"] is True
+    assert result["count"] == 0
+
+
+def test_memory_create_accepts_content_only_and_uses_gate(monkeypatch):
+    from tool_runtime.general_tools.memory_tools import handle_memory_create
+    from tool_runtime.schemas import ToolInvocation
+    import workspace.memory_governance as memory_governance
+
+    captured = {}
+
+    class FakeGate:
+        def write(self, rec, gate_mode="rule"):
+            captured["summary"] = rec.summary
+            captured["content"] = rec.content
+            captured["workspace_id"] = rec.workspace_id
+            return {"ok": True, "memory_id": "mem-test", "status": "pending"}
+
+    monkeypatch.setattr(memory_governance, "MemoryWriteGate", FakeGate)
+
+    result = handle_memory_create(ToolInvocation(
+        tool_id="memory.manage",
+        arguments={
+            "workspace_id": "ws_memory_create",
+            "content": "只提供内容也应该能写入候选记忆",
+        },
+        workspace_id="ws_memory_create",
+        requested_by="turn_runner",
+    ))
+
+    assert result["ok"] is True
+    assert result["memory_id"] == "mem-test"
+    assert captured["summary"] == "只提供内容也应该能写入候选记忆"
+    assert captured["workspace_id"] == "ws_memory_create"

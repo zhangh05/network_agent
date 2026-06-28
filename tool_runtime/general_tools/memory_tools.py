@@ -2,7 +2,8 @@
 
 from tool_runtime.schemas import ToolInvocation
 
-from tool_runtime.general_tools.shared import _caller_workspace, _contract, _error, _error_inv, _ok, _result, _unavailable, _workspace_path
+from tool_runtime.general_tools.shared import _error_inv, _ok
+from workspace.ids import validate_workspace_id
 
 
 def _caller_workspace(inv: ToolInvocation) -> str:
@@ -68,8 +69,10 @@ def handle_memory_create(inv: ToolInvocation) -> dict:
     args = inv.arguments
     title = str(args.get("title", "")).strip()
     content = str(args.get("content", "")).strip()
-    if not title or not content:
-        return _error_inv(inv, "title and content are required")
+    if not content:
+        return _error_inv(inv, "content is required")
+    if not title:
+        title = str(args.get("summary", "")).strip() or content[:80]
     try:
         ws = _caller_workspace(inv)
         sid = str(args.get("session_id", ""))
