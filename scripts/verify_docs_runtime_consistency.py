@@ -39,7 +39,8 @@ def markdown_links(text: str) -> list[str]:
 def main() -> int:
     from tool_runtime.manifest_registry import MANIFESTS
 
-    check(len(MANIFESTS) >= 70, "manifests registry has 70+ tools")
+    # v3.9.2: 21-tool Codex-style registry (was 65+ before v3.9.1 / 17+ pre-merge).
+    check(len(MANIFESTS) >= 20, "manifests registry has 20+ tools (v3.9.2 Codex set)")
 
     required_docs = [
         "README.md",
