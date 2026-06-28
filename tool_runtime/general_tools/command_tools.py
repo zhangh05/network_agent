@@ -3,7 +3,7 @@ from __future__ import annotations
 from tool_runtime.schemas import ToolInvocation
 from workspace.ids import validate_workspace_id
 
-from tool_runtime.general_tools.shared import _caller_workspace, _contract, _error, _error_inv, _ok, _result, _run_shell, _unavailable, _workspace_path
+from tool_runtime.general_tools.shared import _caller_workspace, _error_inv, _ok, _result, _run_shell, _unavailable, _SHELL_MAX_OUTPUT
 """Split general tool handlers."""
 
 # ── Environment variable keys blocked from user override ──

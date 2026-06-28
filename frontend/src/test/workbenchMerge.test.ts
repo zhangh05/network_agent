@@ -49,4 +49,55 @@ describe("workbench backend message merge", () => {
       "assistant:明天上海天气：多云。",
     ]);
   });
+
+  it("keeps backend turn ordering when replacing optimistic local messages", () => {
+    const store = useWorkbenchStore.getState();
+    store.switchSession("sess-order");
+    store.appendUser("你好，查看明天杭州天气", "sess-order");
+    const assistantId = store.appendAssistantStreaming("sess-order");
+    useWorkbenchStore.getState().updateAssistant(assistantId, {
+      status: "ready",
+      text: "明天杭州天气：小雨。",
+    }, "sess-order");
+
+    useWorkbenchStore.setState((state) => ({
+      bySession: {
+        ...state.bySession,
+        "sess-order": state.bySession["sess-order"].map((m) =>
+          m.role === "user"
+            ? { ...m, created_at: "2026-06-28T10:00:05Z" }
+            : { ...m, created_at: "2026-06-28T10:00:06Z" },
+        ),
+      },
+    }));
+
+    store.mergeFromBackend("sess-order", [
+      {
+        message_id: "run-weather:user",
+        session_id: "sess-order",
+        role: "user",
+        content: "你好，查看明天杭州天气",
+        created_at: "2026-06-28T10:00:00Z",
+        run_id: "run-weather",
+      },
+      {
+        message_id: "run-weather:assistant",
+        session_id: "sess-order",
+        role: "assistant",
+        content: "明天杭州天气：小雨。",
+        created_at: "2026-06-28T10:00:01Z",
+        run_id: "run-weather",
+      },
+    ]);
+
+    const messages = useWorkbenchStore.getState().bySession["sess-order"];
+    expect(messages.map((m) => `${m.role}:${m.text}`)).toEqual([
+      "user:你好，查看明天杭州天气",
+      "assistant:明天杭州天气：小雨。",
+    ]);
+    expect(messages.map((m) => m.created_at)).toEqual([
+      "2026-06-28T10:00:00Z",
+      "2026-06-28T10:00:01Z",
+    ]);
+  });
 });

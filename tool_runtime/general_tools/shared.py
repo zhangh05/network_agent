@@ -17,6 +17,9 @@ from workspace.ids import validate_workspace_id
 ROOT = Path(__file__).resolve().parents[2]
 WS_ROOT = ROOT / "workspaces"
 
+_SHELL_TIMEOUT = 30
+_SHELL_MAX_OUTPUT = 10000
+
 
 # ═══════════════ Helpers ═══════════════
 def _workspace_path(workspace_id: str, subpath: str = "") -> Path:

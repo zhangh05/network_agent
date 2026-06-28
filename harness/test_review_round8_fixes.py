@@ -127,6 +127,47 @@ def test_tools_invoke_uses_executor_redaction_and_workspace_context(app):
     shutil.rmtree(root)
 
 
+def test_tools_invoke_allows_safe_exec_without_approval(app):
+    response = app.test_client().post(
+        "/api/tools/invoke?workspace_id=default",
+        json={
+            "tool_id": "exec.run",
+            "arguments": {
+                "target": "local",
+                "command": "pwd",
+                "workspace_id": "default",
+                "timeout": 5,
+            },
+        },
+    )
+    payload = response.get_json()
+
+    assert response.status_code == 200
+    assert payload["status"] != "blocked"
+    assert payload.get("errors") != ["invalid_or_unapproved_approval_id"]
+
+
+def test_tools_invoke_blocks_destructive_exec_arguments(app):
+    response = app.test_client().post(
+        "/api/tools/invoke?workspace_id=default",
+        json={
+            "tool_id": "exec.run",
+            "arguments": {
+                "target": "local",
+                "command": "rm -rf /tmp/network-agent-danger",
+                "workspace_id": "default",
+                "timeout": 5,
+            },
+        },
+    )
+    payload = response.get_json()
+
+    assert response.status_code == 200
+    assert payload["ok"] is False
+    assert payload["status"] == "blocked"
+    assert "unsafe" in str(payload).lower() or "destructive" in str(payload).lower()
+
+
 def test_exec_run_remote_targets_are_not_blocked_by_argument_safety():
     from tool_runtime.canonical_registry import to_tool_specs
     from tool_runtime.executor import ToolInvocation

@@ -294,11 +294,10 @@ def register_runtime_routes(app):
             approval_id=approval_id,
         )
 
-        spec_high_risk = spec and (spec.risk_level == "high" or spec.requires_approval)
-        if spec_high_risk and not _validate_approved_tool_invocation(approval_id, requested_tool_id, ws_id):
+        if approval_id and not _validate_approved_tool_invocation(approval_id, requested_tool_id, ws_id):
             return _blocked_tool_response(
                 invocation, ws_id, _get_tool_risk_level(client, requested_tool_id),
-                "invalid_or_unapproved_approval_id",
+                "invalid_approval_id",
             )
 
         # v3.2.1: Enforce ToolPolicy.check() before dispatch. Without this

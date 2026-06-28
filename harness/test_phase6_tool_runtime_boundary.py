@@ -62,6 +62,59 @@ class TestRedaction:
         assert result.status in ("failed", "blocked", "succeeded", "dry_run")
 
 
+class TestToolPolicySafetySemantics:
+    def test_high_risk_tool_call_allowed_until_arguments_are_unsafe(self):
+        from tool_runtime.policy import ToolPolicy
+        from tool_runtime.schemas import ToolInvocation, ToolSpec
+
+        spec = ToolSpec(
+            tool_id="exec.run",
+            category="exec",
+            risk_level="high",
+            requires_approval=True,
+            input_schema={"type": "object", "properties": {}},
+        )
+
+        decision = ToolPolicy().check(
+            spec,
+            ToolInvocation(
+                tool_id="exec.run",
+                arguments={"target": "local", "command": "ifconfig"},
+                workspace_id="default",
+                requested_by="turn_runner",
+            ),
+        )
+
+        assert decision.allowed is True
+        assert decision.requires_approval is False
+        assert "high_risk_no_approval_id" not in decision.blocked_rules
+
+    def test_high_risk_tool_call_blocks_destructive_arguments(self):
+        from tool_runtime.policy import ToolPolicy
+        from tool_runtime.schemas import ToolInvocation, ToolSpec
+
+        spec = ToolSpec(
+            tool_id="exec.run",
+            category="exec",
+            risk_level="high",
+            requires_approval=True,
+            input_schema={"type": "object", "properties": {}},
+        )
+
+        decision = ToolPolicy().check(
+            spec,
+            ToolInvocation(
+                tool_id="exec.run",
+                arguments={"target": "local", "command": "rm -rf /tmp/network-agent-test"},
+                workspace_id="default",
+                requested_by="turn_runner",
+            ),
+        )
+
+        assert decision.allowed is False
+        assert "unsafe_arguments" in decision.blocked_rules
+
+
 class TestNoBypass:
     def test_web_tools_use_client_invoke(self):
         """Confirm web_tools.py merged handlers use client.invoke, not direct handler."""

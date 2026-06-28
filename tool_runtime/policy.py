@@ -4,15 +4,13 @@
 Checks:
   1. tool_id exists in registry
   2. tool enabled
-  3. risk_level enforcement (low=allowed, medium=conditional, high=approval+gates)
+  3. risk_level metadata (low/medium/high); risk alone does not block calls
   4. category allowed (v0.2 expanded categories)
   5. not a forbidden tool_id
   6. dry_run support
   7. timeout within limits
   8. arguments safe (no shell/ssh injection signatures)
-  9. high-risk: requires_approval + approval_id check
-  10. high-risk: dry_run default enforcement
-  11. approved execution requires explicit approval metadata
+  9. unsafe arguments block execution
 """
 
 from tool_runtime.schemas import ToolSpec, ToolInvocation, PolicyDecision
@@ -49,8 +47,8 @@ V02_FORBIDDEN_PATTERNS = [
 # V02_APPROVED_EXEC_TOOLS removed (manifest-driven)
 
 # v0.3: handlers accept arbitrary commands, allowlists removed.
-# Policy still enforces: high risk → requires approval_id,
-# argument safety checks (no chaining/injection patterns).
+# Policy only blocks unsafe arguments (for example destructive shell commands).
+# Risk/approval metadata is surfaced for UI/audit, but does not by itself deny a call.
 # v3.10: All policy decisions derived from CapabilityManifest (not ToolSpec).
 
 import logging
@@ -183,22 +181,9 @@ class ToolPolicy:
                 f"Tool '{spec.tool_id}' risk_level={effective_risk} not allowed"
             )
 
-        # ── 6. HIGH risk: approval enforcement ──
-        if effective_risk == "high" and not blocked:
-            if not effective_approval:
-                blocked.append("high_risk_no_approval_required")
-                reason_parts.append(
-                    f"Tool '{spec.tool_id}' risk=high but requires_approval=false"
-                )
-            elif not invocation.approval_id:
-                blocked.append("high_risk_no_approval_id")
-                reason_parts.append(
-                    f"Tool '{spec.tool_id}' requires approval_id, none provided"
-                )
-
-        # ── 7. HIGH risk: approved_exec — now accepts arbitrary commands,
-        #     no allowlist check. Safety enforced by handler timeouts +
-        #     argument injection checks below. ──
+        # ── 6. Risk is metadata, not a call blocker ──
+        # High-risk/destructive tools remain visible and callable by the LLM.
+        # Safety enforcement happens on the arguments below.
 
         # ── 8. Dry-run support ──
         if invocation.dry_run and not spec.dry_run_supported:

@@ -278,7 +278,15 @@ export const useWorkbenchStore = create<WorkbenchState>()(
             const localMatch = cur.find((m) =>
               messageKey(m) === stable || contentKey(m) === content,
             );
-            const nextMsg = localMatch ?? serverMsg;
+            const nextMsg = localMatch
+              ? {
+                  ...localMatch,
+                  message_id: serverMsg.message_id ?? localMatch.message_id,
+                  run_id: serverMsg.run_id ?? localMatch.run_id,
+                  created_at: serverMsg.created_at || localMatch.created_at,
+                  status: localMatch.status === "streaming" ? "ready" : localMatch.status,
+                }
+              : serverMsg;
             combined.push(nextMsg);
             seenKeys.add(stable);
             seenContent.add(content);
