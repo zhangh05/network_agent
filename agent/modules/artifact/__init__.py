@@ -7,7 +7,7 @@ notably translated_config from config_translation).
 
 Critical safety:
 - This module NEVER generates authoritative deployable_config.
-- This module NEVER touches real devices.
+- All operations are local to the workspace; no remote push.
 - This module NEVER fabricates artifact content; all output is
   read straight from the existing artifacts/store.py.
 - Translated_config artifacts are returned verbatim with

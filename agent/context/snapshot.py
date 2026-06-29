@@ -75,18 +75,20 @@ class RuntimeSnapshot:
             lines.append(f"  visible: {self.visible_tool_count}")
             lines.append("")
 
-            if self.safety_baseline:
-                lines.append("Safety:")
-                if self.safety_baseline.get("real_device_access"):
-                    lines.append("  - Real device access ENABLED (SSH/Telnet allowed; dangerous commands blocked)")
-                else:
-                    lines.append("  - No real device access")
-                if self.safety_baseline.get("allows_config_push"):
-                    lines.append("  - Config push ALLOWED (requires approval)")
-                else:
-                    lines.append("  - Config push forbidden")
-                lines.append("  - translated_config is not deployable_config")
-                lines.append("  - knowledge sources must not be fabricated")
+            # v3.9.7: safety_baseline now renders ONLY the
+            # safety_notes collected from the business capability
+            # catalog. Earlier versions emitted a hard-coded
+            # "No real device access" / "Config push forbidden"
+            # banner that was misleading: it implied a hard policy
+            # gate that did not exist in code. The agent does have
+            # real-device access (via exec.run(target=ssh/telnet))
+            # and destructive commands trigger a runtime approval,
+            # not a configuration ban.
+            if self.safety_baseline and self.safety_baseline.get("notes"):
+                lines.append("Safety notes:")
+                for note in self.safety_baseline["notes"]:
+                    lines.append(f"  - {note}")
+                lines.append("")
 
             # v0.8.1: per-turn dynamic skill/tool visibility
             if self.dynamic_tool_visibility:

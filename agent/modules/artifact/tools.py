@@ -6,10 +6,10 @@ service, projects to ModuleResult, then to ToolResult (which becomes
 the v0.8.2 standard 10-field dict the runtime / LLM consume).
 
 Strict contract:
-  - No real device access.
-  - No config.push.
+  - No config.push (deployment is a separate tool path).
   - No authoritative deployable_config generation.
   - No fabrication.
+  - All operations are local to the workspace; no remote push.
 """
 
 from agent.tools.schemas import ToolSpec
@@ -92,8 +92,8 @@ TOOL_ARTIFACT_EXPORT = _make_spec(
     name="export",
     tool_id="workspace.artifact",
     description=(
-        "Render an artifact as txt or md. Does NOT push to a real device "
-        "and does NOT generate a deployable_config."
+        "Render an artifact as txt or md. Local render only; does NOT "
+        "push to any device and does NOT generate a deployable_config."
     ),
     properties={
         "workspace_id": {"type": "string"},

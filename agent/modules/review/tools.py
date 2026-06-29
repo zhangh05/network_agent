@@ -7,7 +7,7 @@ v0.8.2 result-contract adapter pattern:
 Strict contract:
   - Never modify the original translated_config content.
   - Never produce a deployable_config.
-  - Never touch a real device.
+  - Stay on local host; no device pushing.
 """
 
 from agent.tools.schemas import ToolSpec

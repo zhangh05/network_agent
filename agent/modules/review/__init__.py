@@ -8,7 +8,7 @@ manual_review_items attached to a translated_config artifact
 Critical safety:
 - This module NEVER modifies the original translated_config content.
 - This module NEVER generates a deployable_config.
-- This module NEVER touches a real device.
+- Stay on local host; no device pushing.
 - Review status / user_note are stored in a sidecar JSON file per
   artifact; the artifact's own metadata is read-only from this module.
 """

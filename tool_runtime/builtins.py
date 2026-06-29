@@ -4,8 +4,9 @@
 One baseline tool is provided:
   1. workspace.artifact       — list artifact summaries (no full content)
 
-All tools are risk_level=low and dry_run_supported=True.
-None execute real device commands, shells, or arbitrary file access.
+All tools are risk_level=low and dry_run_supported=True. They are
+scope-limited to workspace state; remote device access is intentionally
+not provided here (use exec.run(target=ssh|telnet) for that).
 """
 
 from tool_runtime.schemas import ToolSpec, ToolInvocation

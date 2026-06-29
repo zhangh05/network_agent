@@ -2,7 +2,10 @@
 """Tool Runtime Foundation v0.1 — atomic, auditable, policy-controlled tool execution.
 
 This package provides the base layer for tool registration, policy enforcement,
-execution, redaction, and audit metadata. No real device execution is included.
+execution, redaction, and audit metadata. Real device access is provided by
+the canonical tool layer (``tool_runtime.canonical_registry`` — e.g.
+``exec.run(target=ssh|telnet)``); this foundation layer is policy/registry
+agnostic to where the call goes.
 
 Architecture:
   Module Service → Tool Runtime → Tool Provider
