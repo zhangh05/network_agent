@@ -1,9 +1,7 @@
 # tool_runtime/manifest_registry.py
-"""All tool manifests — single source of truth.
+"""All tool manifests — single source of truth for the 21 canonical tools.
 
-v3.9.2: 22-tool Codex-style set. Each merged tool's manifest uses the
-highest-risk profile of any sub-action (e.g. ``git.manage`` keeps
-merged tools carry a base risk profile only. Per-action destructive
+Each merged tool carries a base risk profile. Per-action destructive
 checks in ``tool_runtime.policy`` escalate delete/rewind/destructive
 commands to high risk and approval.
 """
@@ -168,7 +166,7 @@ MANIFESTS: dict[str, CapabilityManifest] = {
         ),
         action_class="read",
         risk_level="low", side_effects="none", idempotency="safe_to_retry",
-        allowed_callers=["turn_runner", "rest_api", "job_runner", "graph_runner"],
+        allowed_callers=["turn_runner", "rest_api", "job_runner", "graph_runner", "subagent"],
         timeout_seconds=10,
     ),
 

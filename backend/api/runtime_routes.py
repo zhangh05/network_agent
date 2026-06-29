@@ -369,6 +369,10 @@ def register_runtime_routes(app):
           ok=false, error="unknown_tool_id",
           message="Only canonical tool_id is supported."
         """
+        ws_id, err = _validated_ws_id(request.args.get("workspace_id", ""))
+        if err:
+            return err
+
         body = request.get_json(silent=True) or {}
         requested_tool_id = body.get("tool_id", "")
         arguments = body.get("arguments", {})
@@ -402,14 +406,26 @@ def register_runtime_routes(app):
         if not spec.dry_run_supported:
             return jsonify({"ok": False, "error": "dry_run not supported for this tool"}), 400
 
+        from tool_runtime.schemas import ToolInvocation
+        invocation = ToolInvocation(
+            tool_id=requested_tool_id,
+            arguments=arguments,
+            workspace_id=ws_id,
+            dry_run=True,
+            requested_by="rest_api",
+        )
+        policy_decision = client._policy.check(spec, invocation)
+
         return jsonify({
             "ok": True,
             "dry_run": True,
+            "workspace_id": ws_id,
             "tool_id": requested_tool_id,
             "canonical_tool_id": requested_tool_id,
             "governance_status": gov.status if gov else "active",
-            "risk_level": spec.risk_level,
-            "requires_approval": spec.requires_approval,
+            "risk_level": policy_decision.risk_level or spec.risk_level,
+            "requires_approval": bool(policy_decision.requires_approval),
+            "policy_decision": policy_decision.__dict__,
             "params": list(arguments.keys()),
             "would_do": f"Would invoke {requested_tool_id} with {len(arguments)} argument(s)",
             "note": "This is a preview. The tool will NOT be executed.",

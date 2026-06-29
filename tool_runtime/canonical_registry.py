@@ -1542,10 +1542,9 @@ def _ws_artifact_list_merged(inv: ToolInvocation) -> dict:
 
 # canonical_tool_id -> CanonicalToolEntry
 _RAW_REGISTRY: list[CanonicalToolEntry] = [
-    # ── v3.9.2: 22-tool Codex-style registry (all visible to LLM) ──
+    # ── 21-tool Codex-style registry (all visible to LLM) ──
     # Merged tools use action=... dispatch (see _handle_*_merged above).
-    # All old per-action tool_ids were removed in v3.9.2; LLM must use
-    # the merged canonical_tool_ids below.
+    # LLMs and runtime callers use the merged canonical_tool_ids below.
 
     # 1. exec.run — unifies shell + python + slash
     CanonicalToolEntry(

@@ -6,7 +6,7 @@
 
 export type CapabilityStatus = "enabled" | "planned" | "disabled";
 export type ToolStatus = "enabled" | "planned" | "disabled";
-export type RiskLevel = "low" | "medium" | "high" | "forbidden";
+export type RiskLevel = "low" | "medium" | "high" | "critical" | "forbidden";
 export type Sensitivity = "public" | "internal" | "sensitive" | "secret";
 export type ToolGovernanceStatus = "active" | "disabled" | "internal" | "forbidden";
 
@@ -56,6 +56,9 @@ export interface ToolCatalogItem {
   action: string;
   display_name: string;
   description?: string;
+  usage_hint?: string;
+  not_for?: string;
+  actions?: string[];
   capability_actions?: string[];
   risk_level: RiskLevel;
   requires_approval: boolean;
@@ -65,6 +68,11 @@ export interface ToolCatalogItem {
   enabled: boolean;
   callable_by_llm: boolean;
   input_schema?: Record<string, unknown>;
+  allowed_callers?: string[];
+  action_class?: string;
+  destructive?: boolean;
+  side_effects?: string;
+  output_sensitivity?: Sensitivity;
   metadata?: Record<string, unknown>;
 }
 

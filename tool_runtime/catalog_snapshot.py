@@ -35,6 +35,8 @@ def build_catalog_snapshot() -> dict:
             "category": meta["category"],
             "group": meta["group"],
             "action": meta["action"],
+            "usage_hint": meta.get("usage_hint", ""),
+            "not_for": meta.get("not_for", ""),
             "description": manifest.description if manifest else cr_entry.description,
             "risk_level": manifest.risk_level if manifest else cr_entry.risk_level,
             "requires_approval": manifest.requires_approval if manifest else bool(cr_entry.requires_approval),
@@ -58,6 +60,7 @@ def build_catalog_snapshot() -> dict:
             "reads_artifact": manifest.reads_artifact if manifest else False,
             "writes_artifact": manifest.writes_artifact if manifest else False,
             "secret_fields": manifest.secret_fields if manifest else [],
+            "actions": _schema_actions(cr_entry.input_schema),
         }
         tools.append(item)
     tools.sort(key=lambda item: item["canonical_tool_id"])
@@ -119,3 +122,15 @@ def build_catalog_snapshot() -> dict:
 
 def reset_catalog_snapshot_cache() -> None:
     build_catalog_snapshot.cache_clear()
+
+
+def _schema_actions(schema: dict) -> list[str]:
+    """Return declared action enum values from a canonical tool schema."""
+    try:
+        action = (schema or {}).get("properties", {}).get("action", {})
+        values = action.get("enum", [])
+        if isinstance(values, list):
+            return [str(v) for v in values]
+    except Exception:
+        return []
+    return []

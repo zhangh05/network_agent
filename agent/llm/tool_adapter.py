@@ -76,8 +76,7 @@ def tool_spec_to_openai_function(tool: dict) -> dict:
 
     # Use LLM-safe name (dots -> double underscore)
     llm_name = to_llm_tool_name(canonical_tool_id)
-    description = (tool.get("description") or tool.get("name") or canonical_tool_id)[:420]
-    description = f"[tool_id={canonical_tool_id}] {description}"[:512]
+    description = _build_tool_description(tool, metadata, canonical_tool_id)
 
     return {
         "type": "function",
@@ -87,6 +86,26 @@ def tool_spec_to_openai_function(tool: dict) -> dict:
             "parameters": params_def,
         },
     }
+
+
+def _build_tool_description(tool: dict, metadata: dict, canonical_tool_id: str) -> str:
+    """Build a compact but actionable LLM-facing tool description."""
+    base = str(tool.get("description") or tool.get("name") or canonical_tool_id)
+    parts = [
+        f"[tool_id={canonical_tool_id}]",
+        base[:360],
+    ]
+    usage_hint = metadata.get("usage_hint") or tool.get("usage_hint")
+    not_for = metadata.get("not_for") or tool.get("not_for")
+    risk = tool.get("risk_level", "")
+    approval = tool.get("requires_approval", False)
+    if risk:
+        parts.append(f"Risk: {risk}; approval_required={bool(approval)}.")
+    if usage_hint:
+        parts.append(f"Use when: {str(usage_hint)[:260]}")
+    if not_for:
+        parts.append(f"Do not use for: {str(not_for)[:180]}")
+    return " ".join(p for p in parts if p)[:900]
 
 
 def build_tool_registry_for_llm(tools: List[dict]) -> List[dict]:

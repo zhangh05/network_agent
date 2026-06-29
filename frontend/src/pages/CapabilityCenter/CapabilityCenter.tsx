@@ -11,8 +11,8 @@ import { IconBolt, IconShield } from "../../components/Icon";
 
 const S_KIND: Record<CapabilityStatus, "ok" | "muted" | "warn"> = { enabled: "ok", planned: "warn", disabled: "muted" };
 const S_LABEL: Record<CapabilityStatus, string> = { enabled: "已启用", planned: "规划中", disabled: "已停用" };
-const R_KIND: Record<RiskLevel, "ok" | "info" | "warn" | "err"> = { low: "ok", medium: "info", high: "warn", forbidden: "err" };
-const R_LABEL: Record<RiskLevel, string> = { low: "低", medium: "中", high: "高", forbidden: "禁止" };
+const R_KIND: Record<RiskLevel, "ok" | "info" | "warn" | "err"> = { low: "ok", medium: "info", high: "warn", critical: "err", forbidden: "err" };
+const R_LABEL: Record<RiskLevel, string> = { low: "低", medium: "中", high: "高", critical: "严重", forbidden: "禁止" };
 const G_KIND: Record<ToolGovernanceStatus, "ok" | "info" | "warn" | "muted"> = { active: "ok", disabled: "info", internal: "info", forbidden: "warn" };
 
 type ToolFilter = "all" | "planner" | "active" | "disabled" | "internal" | "forbidden" | "high" | "host" | "workspace" | "network" | "knowledge";
@@ -70,7 +70,7 @@ export function CapabilityCenter() {
             <span style={{ fontSize: "var(--fs-12)", color: "var(--text-3)", flex: 1, minWidth: 0 }}>
               {catalog.state.kind === "success" && <>Planner 可见 {catalog.state.data.planner_visible_count ?? 0} 个工具</>}
             </span>
-            <input className="input" value={tq} onChange={(e) => setTq(e.target.value)} placeholder="搜索 canonical / alias…" style={{ maxWidth: 240, height: 30, fontSize: "var(--fs-12)" }} />
+            <input className="input" value={tq} onChange={(e) => setTq(e.target.value)} placeholder="搜索 canonical / action…" style={{ maxWidth: 240, height: 30, fontSize: "var(--fs-12)" }} />
           </div>
           <div className="segmented" style={{ marginBottom: 12, flexWrap: "wrap" }}>
             {T_FILTERS.map((f) => (
@@ -152,7 +152,11 @@ function TRow({ tool }: { tool: ToolCatalogItem }) {
         <D label="namespace"><InlineCode>{tool.category}/{tool.group}/{tool.action}</InlineCode></D>
         <D label="审批">{tool.requires_approval ? <Badge kind="warn">需要</Badge> : <Badge kind="ok">无需</Badge>}{tool.permission_action && <InlineCode>{tool.permission_action}</InlineCode>}</D>
         <D label="Planner"><Badge kind={tool.planner_visible ? "ok" : "muted"}>{tool.planner_visible ? "visible" : "hidden"}</Badge></D>
+        {tool.actions?.length ? <D label="actions">{tool.actions.map((a) => <InlineCode key={a}>{a}</InlineCode>)}</D> : null}
+        {tool.allowed_callers?.length ? <D label="callers">{tool.allowed_callers.map((c) => <InlineCode key={c}>{c}</InlineCode>)}</D> : null}
         {canonicalRefs.length > 0 && <D label="canonical refs">{canonicalRefs.map((a) => <InlineCode key={a}>{a}</InlineCode>)}</D>}
+        {tool.usage_hint && <D label="使用"><span>{tool.usage_hint}</span></D>}
+        {tool.not_for && <D label="禁用"><span>{tool.not_for}</span></D>}
         {tool.description && <D label="描述"><span>{tool.description}</span></D>}
       </div>
     </details>
@@ -215,7 +219,19 @@ function SR({ label, children }: { label: string; children: React.ReactNode }) {
 
 function matchT(t: ToolCatalogItem, q: string): boolean {
   if (!q) return true;
-  return [t.display_name, t.canonical_tool_id, t.category, t.group, t.action, t.governance_status ?? "", ...(t.capability_actions ?? []), t.description ?? ""].some((v) => String(v ?? "").toLowerCase().includes(q));
+  return [
+    t.display_name,
+    t.canonical_tool_id,
+    t.category,
+    t.group,
+    t.action,
+    t.governance_status ?? "",
+    ...(t.actions ?? []),
+    ...(t.capability_actions ?? []),
+    t.usage_hint ?? "",
+    t.not_for ?? "",
+    t.description ?? "",
+  ].some((v) => String(v ?? "").toLowerCase().includes(q));
 }
 
 function matchF(t: ToolCatalogItem, f: ToolFilter): boolean {

@@ -33,7 +33,7 @@ All workspace-scoped endpoints require an explicit valid `workspace_id`. Missing
 | --- | --- | --- |
 | `POST` | `/api/tools/invoke` | Invoke one canonical tool through ToolRuntimeClient |
 | `GET` | `/api/tools/history?workspace_id=<ws>` | Tool invocation history |
-| `GET` | `/api/tools/dry-run?workspace_id=<ws>` | Tool dry-run metadata |
+| `POST` | `/api/tools/dry-run?workspace_id=<ws>` | Tool dry-run metadata |
 | `GET` | `/api/capabilities` | Business capability catalog |
 | `GET` | `/api/modules` | Module display metadata |
 

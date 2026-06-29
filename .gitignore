@@ -58,6 +58,7 @@ workspaces/ws_b/
 workspaces/default_get_or_create/
 config/LLM_setting.json
 config/providers/
+config/.providers-test.lock
 config/llm.local.json
 API_key.txt
 # Generated audit/planning output

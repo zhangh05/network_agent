@@ -108,16 +108,32 @@ def temp_dirs(monkeypatch):
 def protect_llm_config():
     """Backup and restore real LLM config to prevent test pollution."""
     providers_dir = Path(__file__).resolve().parent.parent / "config" / "providers"
+    lock_file = providers_dir.parent / ".providers-test.lock"
+    lock_file.parent.mkdir(parents=True, exist_ok=True)
+    lock_fh = lock_file.open("a+")
+    try:
+        import fcntl
+        fcntl.flock(lock_fh.fileno(), fcntl.LOCK_EX)
+    except Exception:
+        pass
     backup_dir = None
     if providers_dir.exists():
         import tempfile
         backup_dir = Path(tempfile.mkdtemp(prefix="na_provider_backup_")) / "providers"
-        shutil.copytree(providers_dir, backup_dir)
-    yield
-    if backup_dir is not None:
-        shutil.rmtree(providers_dir, ignore_errors=True)
-        providers_dir.parent.mkdir(exist_ok=True)
-        shutil.copytree(backup_dir, providers_dir)
+        shutil.copytree(providers_dir, backup_dir, dirs_exist_ok=True)
+    try:
+        yield
+    finally:
+        if backup_dir is not None and backup_dir.exists():
+            shutil.rmtree(providers_dir, ignore_errors=True)
+            providers_dir.parent.mkdir(exist_ok=True)
+            shutil.copytree(backup_dir, providers_dir, dirs_exist_ok=True)
+        try:
+            import fcntl
+            fcntl.flock(lock_fh.fileno(), fcntl.LOCK_UN)
+        except Exception:
+            pass
+        lock_fh.close()
 
 
 @pytest.fixture
