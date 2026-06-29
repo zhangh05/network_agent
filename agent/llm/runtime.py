@@ -12,7 +12,11 @@ import re
 from typing import Optional, List
 from agent.state import NetworkAgentState
 from agent.llm.schemas import LLMRequest, LLMMessage, SafeLLMOutput, PolicyDecision, LLMResponse
+import logging
 
+
+
+logger = logging.getLogger(__name__)
 
 def invoke_llm(
     task: str,
@@ -185,7 +189,7 @@ def safe_generate(
             if inj_result.injection_detected:
                 prompt_input_issues.append({"rule": "injection_detected", "warnings": inj_result.warnings})
         except Exception:
-            pass
+            logger.debug("safe_generate: <pass>", exc_info=True)
 
         spec = get_prompt_by_task(task)
         prompt_id = spec.prompt_id
@@ -199,7 +203,7 @@ def safe_generate(
                 prompt_input_issues.extend(inp_result.issues)
                 prompt_policy_pass = False
         except Exception:
-            pass
+            logger.debug("safe_generate: <pass>", exc_info=True)
 
         # Render
         citations = safe_ctx.get("citations", []) if isinstance(safe_ctx, dict) else []
@@ -213,7 +217,7 @@ def safe_generate(
                 prompt_text_issues.extend(txt_result.issues)
                 prompt_policy_pass = False
         except Exception:
-            pass
+            logger.debug("safe_generate: <pass>", exc_info=True)
 
         messages = messages or _messages_from_rendered_prompt(rendered.text, user_input, task)
 
@@ -241,7 +245,7 @@ def safe_generate(
             request_policy_ok = False
             request_policy_violations = policy_req.violations
     except Exception:
-        pass
+        logger.debug("safe_generate: <pass>", exc_info=True)
 
     # ── ALWAYS call provider via unified entry point ──
     resp = invoke_llm(
@@ -293,7 +297,7 @@ def safe_generate(
             output_policy_issues = out_result.issues
             prompt_policy_pass = False
     except Exception:
-        pass
+        logger.debug("safe_generate: <pass>", exc_info=True)
 
     # ── Response policy (NON-BLOCKING) ──
     try:
@@ -303,7 +307,7 @@ def safe_generate(
             response_policy_ok = False
             response_policy_violations = policy_resp.violations
     except Exception:
-        pass
+        logger.debug("safe_generate: <pass>", exc_info=True)
 
     # ── Build warnings from all policy failures ──
     warnings = []
@@ -413,7 +417,7 @@ def _get_system_prompt(task: str) -> str:
         r = render_prompt(task, {}, "")
         return r.text[:2000]
     except Exception:
-        pass
+        logger.debug("_get_system_prompt: <pass>", exc_info=True)
     return "You are a helpful network assistant. Be factual and concise."
 
 

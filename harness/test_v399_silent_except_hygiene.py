@@ -39,6 +39,11 @@ CRITICAL_FILES = [
     "agent/runtime/result_builder.py",
     "agent/runtime/hook_runner.py",
     "agent/modules/remote/core.py",
+    # v3.9.11 — second-round cuts (formerly C-class silent fallbacks).
+    "agent/runtime/command_system.py",
+    "tool_runtime/canonical_registry.py",
+    "agent/llm/runtime.py",
+    "backend/api/runtime_routes.py",
 ]
 
 
@@ -283,7 +288,7 @@ def test_logger_module_set_in_each_critical_file():
             if isinstance(node, ast.Assign):
                 for tgt in node.targets:
                     name = tgt.id if isinstance(tgt, ast.Name) else None
-                    if name and name.startswith(("logger", "_log", "_logger")):
+                    if name and name.lower().lstrip("_").startswith(("logger", "log")) or name.upper().startswith("_LOG") or name in {"_LOG", "LOG"}:
                         if isinstance(node.value, ast.Call):
                             fn = ast.unparse(node.value.func)
                             if fn in {"logging.getLogger", "logging.getLogger(__name__)"} \
@@ -291,7 +296,7 @@ def test_logger_module_set_in_each_critical_file():
                                 found = True
             elif isinstance(node, ast.AnnAssign):
                 name = node.target.id if isinstance(node.target, ast.Name) else None
-                if name and name.startswith(("logger", "_log", "_logger")):
+                if name and name.lower().lstrip("_").startswith(("logger", "log")) or name.upper().startswith("_LOG") or name in {"_LOG", "LOG"}:
                     found = True
         assert found, (
             f"{rel} has no module-level logger declared (v3.9.9 — "

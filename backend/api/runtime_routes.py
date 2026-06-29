@@ -94,7 +94,7 @@ def _validate_approved_tool_invocation(approval_id: str, tool_id: str, workspace
             ):
                 return True
     except Exception:
-        pass
+        _LOG.debug("_validate_approved_tool_invocation: <pass>", exc_info=True)
     return False
 
 
@@ -283,6 +283,7 @@ def register_runtime_routes(app):
         try:
             spec = client._registry.get_tool(requested_tool_id)
         except Exception:
+            _LOG.debug("api_tools_invoke: <fallback-assign>", exc_info=True)
             spec = None
 
         invocation = ToolInvocation(
@@ -309,7 +310,7 @@ def register_runtime_routes(app):
         try:
             policy_decision = client._policy.check(spec, invocation)
         except Exception as policy_exc:
-            app.logger.warning(
+            app._LOG.warning(
                 "policy_check_failed tool_id=%s err=%s",
                 requested_tool_id, policy_exc,
             )

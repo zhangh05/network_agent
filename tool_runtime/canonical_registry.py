@@ -631,7 +631,11 @@ from tool_runtime.general_tools.runtime_tools import (
 from tool_runtime.builtins import (
     _handler_artifact_list,
 )
+import logging
 
+
+
+logger = logging.getLogger(__name__)
 
 def _safe_int(value, default: int = 0) -> int:
     """Convert value to int safely, returning default on failure."""
@@ -882,7 +886,7 @@ def _handler_network_ssh(inv: ToolInvocation) -> dict:
         try:
             disconnect(session_id)
         except Exception:
-            pass
+            logger.debug("_handler_network_ssh: <pass>", exc_info=True)
         return {"ok": True, "session_closed": True, "session_id": session_id}
 
     # Reuse existing session
@@ -910,9 +914,9 @@ def _handler_network_ssh(inv: ToolInvocation) -> dict:
                 try:
                     disconnect(session_id)
                 except Exception:
-                    pass
+                    logger.debug("_handler_network_ssh: <pass>", exc_info=True)
         except Exception:
-            pass
+            logger.debug("_handler_network_ssh: <pass>", exc_info=True)
 
     # New session
     if not host:
@@ -940,7 +944,7 @@ def _handler_network_ssh(inv: ToolInvocation) -> dict:
             try:
                 disconnect(new_sid)
             except Exception:
-                pass
+                logger.debug("_handler_network_ssh: <pass>", exc_info=True)
             return {"ok": False, "error": f"Command failed: {exec_result.get('error', '')}"}
         output_text = _extract_output(exec_result)
         return {
@@ -954,7 +958,7 @@ def _handler_network_ssh(inv: ToolInvocation) -> dict:
             try:
                 disconnect(new_sid)
             except Exception:
-                pass
+                logger.debug("_handler_network_ssh: <pass>", exc_info=True)
         return {"ok": False, "error": f"SSH failed: {e}"}
 
 
@@ -1000,7 +1004,7 @@ def _handler_network_telnet(inv: ToolInvocation) -> dict:
         try:
             disconnect(session_id)
         except Exception:
-            pass
+            logger.debug("_handler_network_telnet: <pass>", exc_info=True)
         return {"ok": True, "session_closed": True, "session_id": session_id}
 
     # Reuse existing session
@@ -1015,7 +1019,7 @@ def _handler_network_telnet(inv: ToolInvocation) -> dict:
                     "session_id": session_id,
                 }
         except Exception:
-            pass
+            logger.debug("_handler_network_telnet: <pass>", exc_info=True)
 
     if not host:
         return {"ok": False, "error": "host is required"}
@@ -1102,7 +1106,7 @@ def handle_audit_log_query(inv: ToolInvocation) -> dict:
                     continue
                 entries.append(parsed)
             except Exception:
-                pass
+                logger.debug("handle_audit_log_query: <pass>", exc_info=True)
         return {"ok": True, "entries": entries, "count": len(entries)}
     except Exception as e:
         return {"ok": True, "entries": [], "count": 0, "note": f"Audit log not available: {e}"}
@@ -1544,7 +1548,7 @@ def _module_result_to_dict(r: dict) -> dict:
         try:
             content = json.loads(content)
         except Exception:
-            pass
+            logger.debug("_module_result_to_dict: <pass>", exc_info=True)
     return {
         "ok": ok, "tool_id": r.get("tool_id", ""),
         "status": "succeeded" if ok else "failed",
@@ -2086,7 +2090,7 @@ def to_tool_specs() -> list[tuple]:
             ns_entry = get_namespace_entry(entry.canonical_tool_id)
         except Exception:
             # Unknown id: skip — no governance needed; it just isn't visible.
-            continue
+            logger.debug("to_tool_specs: <continue>", exc_info=True)
         # Build the description: prefer the namespace's usage_hint, then
         # the entry description, then the namespace's display_name.
         description = (
@@ -2108,6 +2112,7 @@ def to_tool_specs() -> list[tuple]:
             from tool_runtime.manifest_registry import get_manifest
             manifest = get_manifest(entry.canonical_tool_id)
         except Exception:
+            logger.debug("to_tool_specs: <fallback-assign>", exc_info=True)
             manifest = None
         spec = ToolSpec(
             tool_id=entry.canonical_tool_id,

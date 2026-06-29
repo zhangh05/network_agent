@@ -7,9 +7,13 @@ via the /slash.run tool or directly through the runtime.
 """
 
 from typing import Any, Callable, Optional
+import logging
 
 # dict of command_name -> handler
 # Handler signature: handler(args: str, session_id: str | None, context: dict | None) -> str
+
+logger = logging.getLogger(__name__)
+
 SLASH_COMMANDS: dict[str, Callable[[str, Optional[str], Optional[dict]], str]] = {}
 
 # Command metadata: command_name -> {"description": str, "category": str}
@@ -170,7 +174,7 @@ def _cmd_skills(args: str, session_id: Optional[str], context: Optional[dict]) -
                     desc = str(data.get("description", ""))[:80]
                     status = str(data.get("status", "unknown"))
                 except Exception:
-                    pass
+                    logger.debug("_cmd_skills: <pass>", exc_info=True)
             results.append(f"  {item.name} [{status}] — {desc}")
         return "# Skills\n" + "\n".join(results) if results else "No skills installed."
     except Exception as e:
@@ -214,7 +218,7 @@ def _cmd_context(args: str, session_id: Optional[str], context: Optional[dict]) 
         # This is a rough estimate — actual tracking depends on session state
         lines.append("Token tracking: available via /usage")
     except Exception:
-        pass
+        logger.debug("_cmd_context: <pass>", exc_info=True)
 
     # Try history length
     try:
@@ -222,7 +226,7 @@ def _cmd_context(args: str, session_id: Optional[str], context: Optional[dict]) 
         if session_id:
             lines.append("History: check /sessions for details")
     except Exception:
-        pass
+        logger.debug("_cmd_context: <pass>", exc_info=True)
 
     return "\n".join(lines)
 
@@ -266,7 +270,7 @@ def _cmd_compact(args: str, session_id: Optional[str], context: Optional[dict]) 
         try:
             session_id.metadata['manual_compact_requested'] = True
         except Exception:
-            pass
+            logger.debug("_cmd_compact: <pass>", exc_info=True)
     
     # Also persist to disk metadata so the runtime's session can pick it up on next turn
     if sid:
@@ -281,11 +285,11 @@ def _cmd_compact(args: str, session_id: Optional[str], context: Optional[dict]) 
                 try:
                     meta = _json.loads(meta_path.read_text(encoding='utf-8'))
                 except Exception:
-                    pass
+                    logger.debug("_cmd_compact: <pass>", exc_info=True)
             meta['manual_compact_requested'] = True
             meta_path.write_text(_json.dumps(meta, ensure_ascii=False, indent=2), encoding='utf-8')
         except Exception:
-            pass
+            logger.debug("_cmd_compact: <pass>", exc_info=True)
 
     # Also try to compact immediately if messages available
     try:
@@ -308,7 +312,7 @@ def _cmd_compact(args: str, session_id: Optional[str], context: Optional[dict]) 
                 },
             })
     except Exception:
-        pass
+        logger.debug("_cmd_compact: <pass>", exc_info=True)
     return _format_command_result({
         "ok": True, "status": "ok", "command": "compact",
         "result": "Manual compact requested for next turn",
@@ -328,7 +332,7 @@ def _cmd_usage(args: str, session_id: Optional[str], context: Optional[dict]) ->
             from agent.runtime.token_tracker import get_usage
             usage_stats = get_usage(ws_id) or {}
         except Exception:
-            pass
+            logger.debug("_cmd_usage: <pass>", exc_info=True)
 
         if usage_stats:
             result_lines = [
@@ -375,7 +379,7 @@ def _cmd_agent(args: str, session_id: Optional[str], context: Optional[dict]) ->
         tool_count = len(services.tool_service.registry.list_all())
         lines.append(f"Loaded tools: {tool_count}")
     except Exception:
-        pass
+        logger.debug("_cmd_agent: <pass>", exc_info=True)
     return "\n".join(lines)
 
 
@@ -402,7 +406,7 @@ def _cmd_reset(args: str, session_id: Optional[str], context: Optional[dict]) ->
             elif hasattr(ms, 'clear_session'):
                 ms.clear_session(sid)
         except Exception:
-            pass
+            logger.debug("_cmd_reset: <pass>", exc_info=True)
         
         return _format_command_result({
             "ok": True, "status": "ok", "command": "reset",
@@ -453,7 +457,7 @@ def _cmd_export(args, session_id: Optional[str], context: Optional[dict]) -> str
             if len(raw) >= limit:
                 truncated = True
     except Exception:
-        pass
+        logger.debug("_cmd_export: <pass>", exc_info=True)
 
     # Fallback to session_store
     if not messages:
@@ -467,7 +471,7 @@ def _cmd_export(args, session_id: Optional[str], context: Optional[dict]) -> str
                 if len(sess.messages) > limit:
                     truncated = True
         except Exception:
-            pass
+            logger.debug("_cmd_export: <pass>", exc_info=True)
 
     if not messages:
         return _format_command_result({
