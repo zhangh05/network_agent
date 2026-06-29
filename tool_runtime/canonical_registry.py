@@ -42,28 +42,6 @@ def _inv_workspace(inv: ToolInvocation) -> str:
     return ws
 
 
-# ── FileStore tool helpers ──
-
-def _make_filestore_handler(tool_id: str, param_names: list[str]):
-    """Create a handler that extracts named params from inv.arguments."""
-    def handler(inv: ToolInvocation):
-        args = (inv.arguments or {})
-        kwargs = {n: args.get(n, "") for n in param_names}
-        from tool_runtime.general_tools.filestore_tools import (
-            handle_file_get, handle_file_preview, handle_file_references,
-            handle_file_write_agent_output, handle_file_import_workspace_path,
-        )
-        handlers = {
-            "workspace.file": handle_file_get,
-            "workspace.file.preview": handle_file_preview,
-            "workspace.filestore": handle_file_references,
-            "workspace.file": handle_file_write_agent_output,
-            "workspace.filestore": handle_file_import_workspace_path,
-        }
-        return handlers[tool_id](inv, **kwargs)
-    return handler
-
-
 def _adapt(handler: Callable[[ToolInvocation], dict]) -> Callable[..., Any]:
     """Adapter: existing handlers take (inv: ToolInvocation)."""
     def _callable(*args: Any, **kwargs: Any) -> Any:
@@ -417,30 +395,23 @@ def _handle_workspace_artifact_merged(inv: ToolInvocation) -> dict:
 def _handle_workspace_filestore_merged(inv: ToolInvocation) -> dict:
     """Route workspace.filestore(action=X) to the right FileStore handler.
 
-    Merges workspace.filestore + workspace.filestore.
+    Supports FileStore references and workspace-path imports.
     """
     args = inv.arguments or {}
     action = str(args.get("action", "")).lower().strip()
 
     if action == "references":
-        # workspace.filestore takes file_id, but we accept both file_id and filepath
-        new_inv = inv
-        if "file_id" in args and "filepath" not in args:
-            new_inv = ToolInvocation(
-                tool_id=inv.tool_id,
-                arguments={**args, "filepath": args.get("file_id", "")},
-                workspace_id=inv.workspace_id,
-                session_id=inv.session_id,
-                run_id=inv.run_id,
-                task_id=inv.task_id,
-                job_id=inv.job_id,
-                dry_run=inv.dry_run,
-                requested_by=inv.requested_by,
-                approval_id=inv.approval_id,
-            )
-        return _make_filestore_handler("workspace.filestore", ["filepath"])(new_inv)
+        from tool_runtime.general_tools.filestore_tools import handle_file_references
+
+        file_id = str(args.get("file_id") or args.get("filepath") or "").strip()
+        return handle_file_references(inv, file_id=file_id)
     elif action == "import":
-        return _make_filestore_handler("workspace.filestore", ["filepath"])(inv)
+        from tool_runtime.general_tools.filestore_tools import handle_file_import_workspace_path
+
+        return handle_file_import_workspace_path(
+            inv,
+            filepath=str(args.get("filepath") or "").strip(),
+        )
     else:
         return {
             "ok": False,

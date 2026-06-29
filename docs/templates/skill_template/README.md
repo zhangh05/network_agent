@@ -1,10 +1,13 @@
 # Skill Template
 
+Skills are instruction and metadata surfaces. They guide the LLM and UI but do not bypass the canonical tool runtime.
+
 ## Structure
-```
-skills/<name>/
-  SKILL.md       — LLM-visible instructions
-  skill.yaml     — metadata (optional, preferred)
+
+```text
+agent/skills/<name>/
+  SKILL.md
+  skill.yaml
 ```
 
 ## SKILL.md
@@ -12,58 +15,36 @@ skills/<name>/
 ```markdown
 # Skill: My Feature
 
-## When to Use
-Use this skill when the user asks to:
-- Do something specific
-- Perform a particular operation
-- Analyze certain data
+## When To Use
+Use this skill when the user asks for the specific business outcome.
 
-## What It Needs
-- Required input: input_data (string)
-- Optional: config_options (object)
+## Required Inputs
+- workspace_id
+- source file, device asset, or user-provided text
 
-## Preconditions
-- Workspace must be active
-- User must have appropriate permissions
+## Tool Strategy
+- Prefer existing canonical tools.
+- Cite retrieved evidence.
+- Stop before destructive operations unless approval is granted.
 
-## Postconditions
-- Result is saved as an artifact
-- Review item is created if needed
-
-## Safety Rules
-- Do not access real network devices
-- Do not modify production configurations
-- Always cite sources
+## Output
+Return a concise, verified answer with warnings separated from facts.
 ```
 
 ## skill.yaml
 
 ```yaml
-skill_id: my_feature_skill
+skill_id: my_feature
 name: My Feature
-version: "0.1.0"
-status: planned
-description: >-
-  Skill for performing my feature operations.
-
+version: "1.0.0"
+status: enabled
+description: "Instruction layer for a current business capability."
 related_tools:
-  - my_feature.run
-
-intent_patterns:
-  - do my feature
-  - run my feature
-  - my feature operation
-
-required_inputs:
-  - input_data
-
-preconditions:
-  - workspace_active
-
-postconditions:
-  - result_saved
-
+  - workspace.file
+  - text.analyze
 safety_rules:
-  - no_real_device_access
-  - no_config_push
+  - no_unapproved_destructive_actions
+  - cite_sources_when_using_retrieval
 ```
+
+`related_tools` must use canonical IDs.

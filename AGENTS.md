@@ -1,51 +1,78 @@
-# AGENTS.md — AI 编码助手指南
+# AGENTS.md
 
-本文件为 AI 编码助手（Claude、CodeBuddy 等）提供项目约定和工作流。
+This file is the handoff contract for AI coding agents working in this repository.
 
-## 项目约束
+## Non-Negotiable Rules
 
-### 必须遵守
+1. Keep the current architecture only. Do not add compatibility branches, old tool names, fallback APIs, or historical docs.
+2. All tool calls must go through `ToolRuntimeClient.invoke()`.
+3. All tools must be one of the 21 canonical IDs in `tool_runtime/tool_namespace.py`.
+4. `workspace_id` must be explicit and validated at API boundaries. Empty values return 400.
+5. Approval is for high-risk/destructive actions, not for ordinary read/list/query operations.
+6. Memory writes go through `workspace.memory_governance.MemoryWriteGate`.
+7. Do not commit runtime data, provider secrets, logs, build output, caches, or workspace contents.
 
-1. **Backend 为 API 契约唯一来源**。前端类型从后端响应派生，不自行定义。
-2. **workspace_id 全局统一**。所有 API 需要 workspace_id，不提供默认值，非法/空返回 400。
-3. **增量 PR + Merge Commit**。不要 squash，不要 rebase。
-4. **pytest 全绿后再合并**。`harness/` 目录下 `pytest` 全部通过。
-5. **禁止 `git add -A` 把运行时数据入库**。memory/*.json、logs/* 等不可提交。
+## Current Main Chain
 
-### 代码风格
-
-- Python 代码使用英文编写（变量名、注释、文档字符串）
-- 对话/文档使用简体中文
-- 严禁裸 `except:`，必须写 `except Exception:`
-- 不要使用 Tailwind CSS（项目中未安装），使用项目内 CSS 类名或内联 style
-
-### 安全规则
-
-- 密钥必须通过 `workspace/redaction.py` 脱敏后再写入日志/存储
-- Python 沙箱禁止 `open()`、`eval()`、`exec()`、`__import__`
-- 工具调用强制 `requested_by` 检查
-
-## 工作流
-
-```
-1. 了解任务 → 检查 HEAD, CI, 工作区洁净度
-2. 修改代码 → 小步提交 (fix → commit → verify)
-3. 运行 pytest → 全绿
-4. 提交推送 → git push origin main
-5. 重启服务 → bash stop.sh && bash start.sh
+```text
+Frontend
+  -> backend/main.py routes or backend/ws/agent_ws.py
+  -> agent.app.facade.AgentApp
+  -> AgentThread / TurnRunner
+  -> context + prompt pipeline
+  -> LLM provider
+  -> ToolExecutionPipeline
+  -> ToolRuntimeClient
+  -> ToolExecutor
+  -> durable state, messages, artifacts, memory, trace
 ```
 
-## 关键文件索引
+## Canonical Tools
 
-| 关注点 | 文件 |
-|--------|------|
-| Agent 引擎入口 | `agent/app/service.py` |
-| Flask 入口 | `backend/main.py` |
-| WebSocket | `backend/ws/agent_ws.py` |
-| 工具注册 | `tool_runtime/manifest_registry.py` |
-| Job 状态机 | `jobs/manager.py` |
-| Session 存储 | `workspace/session_store.py` |
-| 前端状态 | `frontend/src/stores/workbench.ts` |
-| 前端主页 | `frontend/src/pages/AgentWorkbench/AgentWorkbench.tsx` |
-| API 路由 | `backend/api/*.py` |
-| 测试 | `harness/test_*.py` |
+There are exactly 21 public tool IDs:
+
+`agent.manage`, `browser.manage`, `code.search`, `config.manage`, `data.manage`, `device.manage`, `exec.run`, `git.manage`, `knowledge.manage`, `memory.manage`, `pcap.manage`, `report.manage`, `skill.manage`, `system.manage`, `text.analyze`, `web.manage`, `workspace.artifact`, `workspace.document.pdf.extract_text`, `workspace.file`, `workspace.filestore`, `workspace.metadata.get`
+
+If a change needs a new operation, add it behind an existing canonical tool unless there is a strong product reason to create a new public tool.
+
+## Review Checklist
+
+Before committing:
+
+- Search for old tool IDs and direct handler dispatch.
+- Confirm `TOOL_NAMESPACE`, manifests, and registry counts match.
+- Run focused tests for the changed layer.
+- Run frontend typecheck for frontend/API contract edits.
+- Inspect `git status --short` and stage only intended source/docs/tests.
+
+Useful commands:
+
+```bash
+python3 - <<'PY'
+from tool_runtime.tool_namespace import TOOL_NAMESPACE
+from tool_runtime.manifest_registry import MANIFESTS
+from tool_runtime.registry import get_default_registry
+print(len(TOOL_NAMESPACE), len(MANIFESTS), get_default_registry().count())
+PY
+
+python3 -m pytest harness/test_business_capability_catalog.py harness/test_v394_no_legacy_tool_ids.py -q
+npm --prefix frontend run typecheck
+```
+
+## Local Cleanup
+
+Safe cleanup targets:
+
+- `.DS_Store`
+- `__pycache__/`
+- `.pytest_cache/`
+- frontend build output
+- generated audit reports
+
+Preserve:
+
+- `workspaces/default/`
+- `workspaces/_runtime/`
+- `config/providers/`
+- `config/llm.local.yaml`
+- running backend/frontend processes unless the user asks to restart

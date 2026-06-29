@@ -252,7 +252,7 @@ def reindex_source(workspace_id: str, source_id: str) -> dict:
 
 def query_knowledge(
     query: str,
-    workspace_id: str = "default",
+    workspace_id: str = "",
     top_k: int = 5,
     filters: Optional[dict] = None,
 ) -> dict:
@@ -276,7 +276,21 @@ def query_knowledge(
             "errors": ["missing_query"],
             "metadata": {},
         }
-    workspace_id = workspace_id or "default"
+    try:
+        from workspace.ids import validate_workspace_id
+        workspace_id = validate_workspace_id(workspace_id)
+    except ValueError:
+        return {
+            "ok": False,
+            "summary": "workspace_id is required",
+            "query": query.strip(),
+            "hits": [],
+            "source_count": 0,
+            "source_summary": [],
+            "warnings": [],
+            "errors": ["invalid_workspace_id"],
+            "metadata": {},
+        }
 
     from agent.modules.knowledge.index import load_all_chunks
     from agent.modules.knowledge.store import list_sources as _list_sources

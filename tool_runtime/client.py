@@ -6,10 +6,15 @@ All invocations go through ToolPolicy, ToolExecutor, redaction, and audit.
 
 Example:
     client = get_default_tool_runtime_client()
-    ctx = ToolRuntimeContext(workspace_id="default", module="config_translation")
+    ctx = ToolRuntimeContext(
+        workspace_id=validated_workspace_id,
+        module="config_translation",
+        requested_by="turn_runner",
+    )
     result = client.invoke("config.manage", {"config_text": cfg}, context=ctx)
 """
 
+import logging
 from typing import Optional
 
 from tool_runtime.schemas import ToolSpec, ToolInvocation, ToolResult
@@ -17,6 +22,8 @@ from tool_runtime.registry import ToolRegistry
 from tool_runtime.policy import ToolPolicy
 from tool_runtime.executor import ToolExecutor
 from tool_runtime.context import ToolRuntimeContext
+
+_LOG = logging.getLogger(__name__)
 
 
 class ToolRuntimeClient:
@@ -55,7 +62,7 @@ class ToolRuntimeClient:
             from tool_runtime.tool_namespace import resolve_tool_id
             tool_id = resolve_tool_id(tool_id)
         except Exception:
-            pass
+            _LOG.debug("tool id normalization failed for %r", tool_id, exc_info=True)
         arguments = arguments or {}
 
         # ── Resolve dry_run ──
@@ -152,7 +159,7 @@ class ToolRuntimeClient:
             append_event(getattr(context, "trace_id", ""), {
                 "trace_id": getattr(context, "trace_id", ""),
                 "run_id": getattr(context, "run_id", ""),
-                "workspace_id": getattr(context, "workspace_id", "default"),
+                "workspace_id": getattr(context, "workspace_id", "") or "",
                 "event_type": "tool_runtime",
                 "name": f"tool:{result.tool_id}",
                 "status": status,
@@ -162,4 +169,4 @@ class ToolRuntimeClient:
                 "redaction_applied": True,
             }, ws_id=context.workspace_id or "")
         except Exception:
-            return
+            _LOG.debug("tool trace append failed", exc_info=True)

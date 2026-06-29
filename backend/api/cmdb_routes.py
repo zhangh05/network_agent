@@ -11,7 +11,7 @@ def _invalid_ws():
     return jsonify({"ok": False, "error": "invalid_workspace_id"}), 400
 
 
-def _validated_ws_id(raw="default"):
+def _validated_ws_id(raw=""):
     try:
         return validate_workspace_id(raw), None
     except ValueError:
@@ -29,7 +29,7 @@ def register_cmdb_routes(app):
     @app.route("/api/cmdb/assets", methods=["POST"])
     def api_cmdb_save():
         data = request.get_json(silent=True) or {}
-        ws_id, err = _validated_ws_id(data.pop("workspace_id", "default"))
+        ws_id, err = _validated_ws_id(data.pop("workspace_id", ""))
         if err:
             return err
         result = save_asset(ws_id, data)

@@ -24,8 +24,10 @@ from agent.modules.pcap.core import (
 def resolve_workspace_path(workspace_id: str, filepath: str) -> Path:
     """Resolve a workspace-relative filepath with path traversal protection."""
     from agent.modules.knowledge.ingestion import _ws_root
+    from workspace.ids import validate_workspace_id
 
-    root = (_ws_root() / (workspace_id or "default")).resolve()
+    workspace_id = validate_workspace_id(workspace_id)
+    root = (_ws_root() / workspace_id).resolve()
     candidate = Path(filepath)
     if not candidate.is_absolute():
         candidate = root / filepath

@@ -148,10 +148,13 @@ def _record_meta_dict(rec: ArtifactRecord) -> dict:
 
 def _save_artifact_record(rec: ArtifactRecord) -> None:
     """Upsert one ArtifactRecord into index/artifacts.jsonl."""
-    p = _artifact_records_path(rec.workspace_id or "default")
+    from workspace.ids import validate_workspace_id
+
+    ws_id = validate_workspace_id(rec.workspace_id)
+    p = _artifact_records_path(ws_id)
     p.parent.mkdir(parents=True, exist_ok=True)
     records = [
-        r for r in _read_artifact_record_dicts(rec.workspace_id or "default")
+        r for r in _read_artifact_record_dicts(ws_id)
         if r.get("artifact_id") != rec.artifact_id
     ]
     records.append(_record_meta_dict(rec))

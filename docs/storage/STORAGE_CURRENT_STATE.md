@@ -1,69 +1,35 @@
-# Storage Final State
+# Storage Current State
 
-## Overview
+The current storage model is file-based and workspace-scoped.
 
-The `storage/` package is the only supported file management layer.
+## Stores
 
-## Completed Migration
+| Store | Module |
+| --- | --- |
+| Sessions | `workspace/session_store.py` |
+| Messages | `workspace/message_store.py` |
+| Runs | `workspace/run_store.py` |
+| Memory | `workspace/memory_governance.py` |
+| Artifacts | `artifacts/store.py` |
+| Jobs | `jobs/store.py` |
+| Durable runtime | `agent/runtime/durable/store.py` |
+| Tool history | `backend/api/runtime_routes.py` |
 
-| Module | Status |
-|--------|--------|
-| `workspace/manager.py` | ✅ Calls `ensure_workspace_storage_dirs` |
-| `artifacts/store.py` | ✅ Writes through `FileStore.write_agent_output`; requires `file_id` for reads |
-| `artifacts/schemas.py` | ✅ `ArtifactRecord.file_id` |
-| `backend/api/artifact_routes.py` | ✅ Upload preserves originals via `import_user_upload` |
-| `workspace/message_store.py` | ✅ Large content via managed artifacts |
-| `agent/modules/pcap/service.py` | ✅ `file_id` parse; result artifacts; no sidecar |
-| `agent/modules/knowledge/ingestion.py` | ✅ `file_id` import; normalized FileRecord |
-| `config_analysis/service.py` | ✅ `file_id` parameter |
-| `storage/reference_index.py` | ✅ Cross-reference index |
+## Current Guarantees
 
-## FileStore Components
+- Workspace IDs are validated at API boundaries.
+- Memory write/read is governed by status, scope, TTL, and workspace.
+- Tool history and runtime events store redacted summaries.
+- Provider secrets and local runtime data are ignored by Git.
 
-| File | Purpose |
-|------|---------|
-| `storage/paths.py` | Unified workspace root resolution |
-| `storage/schemas.py` | FileRecord and FileReference data models |
-| `storage/file_store.py` | Managed file write/read/index/delete |
-| `storage/reference_index.py` | Cross-reference index |
-| `storage/policy.py` | Size limits, kind classification |
-| `storage/gc.py` | Dry-run garbage collection |
+## Cleanup Policy
 
-## Directory Structure
+Safe generated data to remove during maintenance:
 
-```
-workspaces/<ws>/
-  files/
-    user_upload/original/     # uploaded originals
-    agent_output/config/      # config analysis
-    agent_output/pcap/        # PCAP results
-    agent_output/report/      # reports
-    agent_output/export/      # exports
-    agent_output/message/     # large messages
-    knowledge/source/         # knowledge imports
-    knowledge/normalized/     # normalized markdown
-    tmp/                      # atomic writes
-  index/
-    files.jsonl               # file records
-    references.jsonl          # cross-references
-    artifacts.jsonl           # artifact records
-  inbox/
-  context/
-  sessions/
-  runs/
-  sys/
-```
+- Python caches
+- pytest caches
+- frontend build output
+- generated audit reports
+- OS metadata files
 
-## Removed Paths
-
-- Removed artifact-store markers are not accepted by runtime
-- PCAP sidecar read/write — removed from runtime
-- Artifact path fallback — removed from read operations
-
-There is no migration entrypoint in the runtime tree. Current workspaces use
-the FileStore/ArtifactStore indexes as the source of truth.
-
-## Pending Work
-
-- Physical GC / hard delete policy
-- Optional historical data archive/export
+Do not delete live workspace data, provider config, or runtime state without an explicit user request.

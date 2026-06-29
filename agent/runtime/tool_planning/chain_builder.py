@@ -155,7 +155,7 @@ def build_tool_chain(signals: dict[str, bool], candidates: set[str]) -> list[dic
 
     if signals.get("mentions_memory"):
         add("查询或更新记忆/profile", [
-            "memory.manage", "memory.proworkspace.file.read", "memory.manage",
+            "memory.manage",
         ])
 
     if signals.get("mentions_report"):

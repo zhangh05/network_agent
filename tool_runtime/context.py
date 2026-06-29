@@ -6,11 +6,11 @@ caller identity, and already-validated approval information when invoking tools.
 
 Example usage in a Module service:
     ctx = ToolRuntimeContext(
-        workspace_id="default",
+        workspace_id=validated_workspace_id,
         run_id=run_id,
         module="config_translation",
         skill="config_translation",
-        requested_by="module:config_translation",
+        requested_by="turn_runner",
         approval_id=approved_id,  # only after the caller has validated it
     )
     client = get_default_tool_runtime_client()

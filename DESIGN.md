@@ -1,66 +1,115 @@
-# 设计文档
+# Network Agent Design
 
-## 设计哲学
+本设计文档只描述当前实现，不保留旧架构、旧工具名或兼容路径。
 
-**实用主义**：去掉未使用的脚手架，保留真正工作的功能。一致性优于向后兼容。
+## 设计原则
 
-**单一真相源**：每个子系统有自己的权威存储，不重复派生状态。
+1. **单主链**：所有用户请求进入同一条运行时链路，避免旁路执行。
+2. **硬边界**：工具必须经过 manifest、caller、risk、approval、redaction、audit。
+3. **显式 workspace**：所有跨数据边界操作必须带已验证 `workspace_id`。
+4. **能力只描述，工具才执行**：业务能力目录用于提示和 UI，不参与 handler 注册。
+5. **最新口径优先**：不为旧 API、旧工具名、旧文档叙述保留分支。
 
-**渐进式增强**：WS 流式优先，HTTP 自动回退。无单点故障。
+## 主链路
 
-## 分层架构
+```mermaid
+sequenceDiagram
+  participant UI as Frontend
+  participant API as Flask API / WS
+  participant App as AgentApp
+  participant Runner as TurnRunner
+  participant LLM as LLM Provider
+  participant Tools as ToolRuntimeClient
+  participant Store as Durable Stores
 
-```
-Skill (业务入口/用户意图) → Module (业务实现/编排) → Tool (工具调用) → Operation (内部动作)
-```
-
-每一层有清晰的职责边界：
-- **Skill**：理解用户意图，选择合适的 Module
-- **Module**：编排多个 Tool 调用，实现业务逻辑
-- **Tool**：封装单一能力，有明确的输入/输出契约
-- **Operation**：模块内部的具体实现步骤
-
-## 数据流
-
-### Agent 对话流
-
-```
-用户输入 → Flask/WS → Agent 引擎 → LLM 推理 → 工具调用 → 结果汇总 → 流式返回
-```
-
-### 工具执行流
-
-```
-LLM 工具选择 → ToolRouter.dispatch → 权限检查 (requested_by) → 沙箱执行 → 结果返回
-```
-
-### 前端渲染流
-
-```
-WS 事件 → Zustand store.updateAssistant(msgId, patch) → Virtuoso 重渲染 → DOM 更新
+  UI->>API: message(workspace_id, session_id, text)
+  API->>App: submit_user_message()
+  App->>Runner: run_turn()
+  Runner->>Store: create TaskState + checkpoint
+  Runner->>LLM: compile prompt + call model
+  Runner->>Tools: invoke canonical tool
+  Tools->>Tools: manifest/caller/policy/redaction/audit
+  Tools-->>Runner: ToolResult
+  Runner->>Store: messages, events, trace, task state
+  Runner-->>API: AgentResult
+  API-->>UI: stream/final/timeline
 ```
 
-废弃了之前 Footer + React state 的双路径渲染，统一为 Zustand + Virtuoso 单路径。
+## Durable Runtime
 
-## Session-Job-Run 数据模型
+运行时状态由四类数据构成：
 
-| 实体 | 关系 | 存储 |
-|------|------|------|
-| Session | 1:1 Job | `workspace/session_store.py` |
-| Job | 1:N Run | `jobs/store.py` |
-| Run | 独立记录 | `workspace/run_store.py` |
-| Artifact | N:M Run/Session | `artifacts/store.py` |
+- `TaskState`：一次用户任务的权威状态。
+- `RuntimeStep`：context、model、tool、final 等阶段步骤。
+- `RuntimeEvent`：前端时间线和审计事件来源。
+- `RuntimeCheckpoint`：中断、审批、失败恢复的快照。
 
-生命周期：Session 创建 → Job 创建 → 每轮对话追加 Run → Session 关闭时 Job 标记完成。删除 Session 时级联清理 Job/Run/Artifact。
+运行中会在关键步骤中途持久化，不再只在 turn 结束后记录结果。
 
-## 工具运行时
+## Tool Runtime
 
-73 个工具，13 个分类，通过 `tool_runtime/manifest_registry.py` 统一注册。所有工具通过 `DEFAULT_ALLOWED_CALLERS` 常量控制访问权限。
+`ToolRuntimeClient.invoke()` 是唯一合法入口。执行顺序：
 
-`requested_by` 强制检查（registry.dispatch → client.invoke），缺失时阻断而非静默回退。
+```text
+canonical tool id
+  -> CapabilityManifest
+  -> requested_by caller gate
+  -> ToolPolicy
+  -> approval/interrupt when needed
+  -> ToolExecutor
+  -> redaction
+  -> trace/audit
+  -> ToolResult
+```
 
-## 前端状态管理
+当前只有 21 个 canonical tool。`handler_id` 是内部实现细节，不暴露给 LLM、前端或公共 API。
 
-Zustand store (`frontend/src/stores/workbench.ts`) 管理消息历史、会话切换、流式状态。
+## Capability Catalog
 
-每个消息有 status 字段：`streaming` | `ready` | `error`。流式消息通过 `appendAssistantStreaming` 创建占位，token 到达时通过 `updateAssistant` 更新消息字段，Virtuoso 自动重渲染。
+`agent/capabilities/catalog.py` 是业务能力目录，当前 13 个能力，其中 11 个 enabled、2 个 planned。目录只提供：
+
+- 能力说明
+- 推荐 canonical tool
+- prompt hint
+- safety note
+- 前端展示数据
+
+它不注册工具、不控制权限、不分发 handler。
+
+## Approval
+
+审批只用于高危或破坏性操作。普通 read/list/query 不应因为工具类别本身被阻断。审批生命周期是 durable interrupt：
+
+```text
+tool policy requires approval
+  -> pending approval + checkpoint
+  -> TaskState waiting_approval
+  -> user approve/reject/edit_args
+  -> resume or fail
+```
+
+## Memory Governance
+
+记忆写入必须经过 `MemoryWriteGate`：
+
+1. 校验 workspace。
+2. 先检测密钥模式，再脱敏。
+3. 根据来源、置信度、scope、TTL、冲突判断状态。
+4. 只有 `active`、未过期、同 workspace 的记录可检索。
+
+LLM 失败时不能泄露异常文本，降级原因必须结构化。
+
+## Prompt 与上下文
+
+Prompt 由模块化 block 组装：角色、行为规则、环境、能力、工具策略、安全策略、输出要求。上下文管道负责 history、scene、retrieval、safe context、loaded capability 和 metadata write。
+
+工具 schema 通过模型 tools 字段提供；system prompt 只提供策略和工具选择原则，不内联长工具清单。
+
+## Frontend
+
+前端以任务工作台为中心：
+
+- 对话视图展示用户消息、LLM 回复、工具卡、审批气泡。
+- 时间线视图读取 `AgentResult.events` 和 runtime state。
+- 会话、最近运行、workspace 全部显式绑定。
+- 前端不得制造默认 workspace，也不得自行补旧 API 格式。

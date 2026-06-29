@@ -1,75 +1,57 @@
-# 架构概览
+# Architecture
 
-## 系统架构图
+This document describes the current Network Agent architecture only.
 
-```
-┌─────────────────────────────────────────────────────────┐
-│                      Frontend (React)                     │
-│  Zustand Store → Virtuoso → renderMsg → AgentWorkbench   │
-└───────────────────────┬─────────────────────────────────┘
-                        │ HTTP / WebSocket
-┌───────────────────────▼─────────────────────────────────┐
-│                   Backend (Flask)                         │
-│  main.py → api_routes → agent_routes / session_routes     │
-└───────────────────────┬─────────────────────────────────┘
-                        │
-┌───────────────────────▼─────────────────────────────────┐
-│                   Agent 引擎                              │
-│  AgentService → TurnRunner → LLM → ToolRouter            │
-└───────────────────────┬─────────────────────────────────┘
-                        │
-┌───────────────────────▼─────────────────────────────────┐
-│                   Tool Runtime                            │
-│  ToolRuntimeClient → 沙箱执行 → 返回结果                  │
-│  73 tools, 13 categories                                 │
-└─────────────────────────────────────────────────────────┘
+## Runtime Flow
+
+```text
+HTTP / WebSocket / SSE / Job entry
+  -> AgentApp.submit_user_message
+  -> SessionManager + AgentThread
+  -> TurnRunner
+  -> Context pipeline
+  -> LLM provider
+  -> ToolExecutionPipeline
+  -> ToolRuntimeClient.invoke
+  -> ToolExecutor
+  -> AgentResult + RuntimeEvent timeline
 ```
 
-## 层间通信
+There is no public direct handler dispatch path. Any new entrypoint must converge before `ToolRuntimeClient.invoke()`.
 
-| 方向 | 协议 | 格式 |
-|------|------|------|
-| Frontend → Backend | HTTP REST | JSON |
-| Frontend ↔ Backend | WebSocket | JSON 流 |
-| Backend → Agent | Python 直接调用 | AgentResult |
-| Agent → Tool Runtime | Python 直接调用 | ToolInvocation → ToolResult |
+## Runtime State
 
-## Agent 引擎内部
+Durable runtime state is stored as:
 
-```
-AgentService.evaluate()
-  → TurnRunner.run_turn()
-    → ContextBuilder 构建上下文
-    → LLM 推理 (MiniMax M3)
-    → 解析 function_call
-    → ToolRouter.dispatch() → 沙箱执行
-    → 结果注入 Context → 下一轮推理
-    → 循环直到 no function_call
-  → 组装 AgentResult
-```
+- `TaskState`
+- `RuntimeStep`
+- `RuntimeEvent`
+- `RuntimeCheckpoint`
 
-## 工具运行时内部
+The frontend timeline consumes runtime events and tool results instead of inferring state from ad hoc UI flags.
 
-```
-ToolRuntimeClient.invoke()
-  → requested_by 校验
-  → Manifest.allowed_callers 检查
-  → Manifest.audit_level 分级审计
-  → 根据 tool_id 分发到对应 Handler
-  → exec.run(action=python|shell) / HTTPS handlers / module adapters
-  → 结果脱敏 (redaction)
-  → 返回 ToolResult
-```
+## Tool Boundary
 
-## 存储抽象
+The public tool namespace has 21 canonical IDs. `tool_runtime/tool_namespace.py`, `tool_runtime/manifest_registry.py`, and the default registry must remain count-aligned.
 
-```
-Application Layer (Flask, Agent)
-  │
-  ├─ FileStore (storage/store.py)    → 文件级抽象 (read/write/delete)
-  ├─ ArtifactStore (artifacts/)       → 制品生命周期
-  ├─ JobStore (jobs/store.py)        → Job 持久化
-  ├─ SessionStore (workspace/)       → Session 元数据
-  ├─ RunStore (workspace/run_store.py) → Run 记录
-  └─ ContextStore (context/)         → JSONL 知识存储
-```
+Tool execution requires:
+
+- canonical tool id
+- manifest
+- explicit `requested_by`
+- workspace/session/run context when available
+- risk policy
+- redacted result
+- audit/trace event
+
+## Business Capability Boundary
+
+`agent/capabilities/catalog.py` is a catalog, not a dispatcher. It maps business capability descriptions to recommended canonical tools for prompt/UI guidance.
+
+## Workspace Boundary
+
+No backend route should silently create or infer a workspace. Missing or invalid `workspace_id` returns a client error. Runtime stores, memory, artifacts, sessions, runs, and approvals are all workspace-scoped.
+
+## Memory Boundary
+
+Memory is governed by `MemoryWriteGate`. Raw writers are not active paths. Retrieval returns only active, non-expired records in the same workspace and relevant scope.

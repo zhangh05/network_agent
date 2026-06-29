@@ -18,7 +18,7 @@ from typing import Optional
 READ_ACTIONS = {
     "list", "read", "get", "search", "query", "summary", "preview",
     "exists", "validate", "diff", "status", "extract", "classify",
-    "keywords.extract", "explain", "proworkspace.file.read",
+    "keywords.extract", "explain", "workspace.file.read",
 }
 
 WRITE_ACTIONS = {

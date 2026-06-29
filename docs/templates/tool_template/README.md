@@ -1,65 +1,41 @@
 # Tool Template
 
-## Registration: `tool_runtime/general_tools.py`
+Public tools are canonical IDs in `tool_runtime/tool_namespace.py`. Prefer adding an operation behind an existing canonical tool before creating a new public tool.
+
+## Change Checklist
+
+1. Update namespace data in `tool_runtime/tool_namespace_data.py` only if a new canonical public ID is truly needed.
+2. Add or update the manifest in `tool_runtime/manifest_registry.py`.
+3. Wire the handler in `tool_runtime/canonical_registry.py`.
+4. Keep all execution behind `ToolRuntimeClient.invoke()`.
+5. Add focused tests for namespace, manifest, policy, and handler result shape.
+
+## Manifest Guidance
 
 ```python
-_reg("category.name", "Display Name", "category", "low",
-     "Description", handler_function)
+CapabilityManifest(
+    tool_id="text.analyze",
+    action_class="read",
+    risk_level="low",
+    requires_approval=False,
+    destructive=False,
+    side_effects=False,
+    allowed_callers=("turn_runner", "rest_api", "job_runner", "subagent"),
+    output_sensitivity="internal",
+)
 ```
 
-## Schema: `GENERAL_TOOL_INPUT_SCHEMAS`
+Risk levels:
 
-```python
-"category.name": _schema({
-    "param": {"type": "string", "description": "Description of param"},
-    "count": {"type": "integer", "description": "Number of items", "default": 10},
-})
-```
+| Risk | Meaning | Approval |
+| --- | --- | --- |
+| `low` | Read-only local analysis | No |
+| `medium` | Writes, external network, or state changes without destructive intent | Usually no |
+| `high` | Destructive or sensitive mutation such as delete/remove/reset/connect with risk | Yes |
+| `critical` | Explicitly dangerous operation | Yes or blocked |
 
-## Handler
+Safety policy should block dangerous arguments such as destructive shell commands, not ordinary tool use.
 
-```python
-from tool_runtime.schemas import ToolInvocation
+## Result Shape
 
-def handle_my_tool(inv: ToolInvocation) -> dict:
-    args = inv.arguments
-    param_val = args.get("param", "")
-
-    try:
-        # ... business logic ...
-        result = do_something(param_val)
-        return _ok({
-            "data": result,
-            "summary": "Successfully processed",
-            "count": len(result),
-        })
-    except Exception as e:
-        return _error(str(e)[:200])
-```
-
-## Standardized Return Format
-
-```python
-# Success
-_ok({"data": result, "summary": "Done"})
-# → {"ok": True, "data": result, "summary": "Done"}
-
-# Error
-_error("Something went wrong")
-# → {"ok": False, "error": "Something went wrong"}
-```
-
-## Risk Level Guidelines
-
-| Risk | When to Use | requires_approval |
-|------|-------------|-------------------|
-| `low` | Read-only, local, no side effects | `False` |
-| `medium` | Write ops, network calls, state changes | `False` |
-| `high` | Arbitrary execution, system commands | **`True`** |
-| `forbidden` | Retired or blocked | `False` (but `callable_by_llm=False`) |
-
-## Test Requirements
-
-- Unit test: per handler function
-- Contract test: verify schema, risk, approval
-- E2E test: full invocation chain
+Handlers return plain dictionaries that `ToolExecutor` wraps into `ToolResult`. Include a concise `summary`, structured fields, and no raw secrets.
