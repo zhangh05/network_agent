@@ -133,8 +133,22 @@ class TestProfileToolsFilter:
 
 class TestPhase8Unaffected:
     def test_phase8_memory_gate_still_works(self):
+        """v3.9.6: MemoryWriteGate now applies a low_value_memory filter
+        on top of the legacy secret / workspace_id / redactor checks.
+        A bare "test" string would be rejected as low-value, so we
+        pass a concrete user-confirmed record with non-trivial content
+        to verify the gate accepts a normal write end-to-end.
+        """
         from workspace.memory_governance import MemoryWriteGate, MemoryRecord
         gate = MemoryWriteGate()
-        rec = MemoryRecord(workspace_id="ws_test", content="test", status="pending")
-        result = gate.write(rec); ok = result["ok"]
-        assert ok
+        rec = MemoryRecord(
+            workspace_id="ws_test",
+            content="User said: please remember my office wifi is on the 5th floor.",
+            summary="office wifi location",
+            status="pending",
+            source="user",
+            confidence=0.5,
+        )
+        result = gate.write(rec)
+        assert result["ok"] is True
+        assert result["status"] in ("active", "pending", "conflict")

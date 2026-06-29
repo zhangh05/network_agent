@@ -30,13 +30,22 @@ def _ctx(**overrides):
 
 
 def test_system_contract_includes_agent_operating_protocol():
+    """v3.9.6: prompt contract was rewritten. The legacy literal strings
+    ``"complex task"`` and ``"Skill usage"`` no longer appear; the
+    operating protocol is now phrased as an enumerated list. We pin
+    the canonical contract snippets that survived the rewrite.
+    """
     prompt = compile_runtime_prompt(_ctx()).final_prompt
 
+    # Surviving invariants
     assert "Before calling any tool" in prompt
-    assert "complex task" in prompt
-    assert "pending -> in_progress -> completed" in prompt
+    assert "pending \u2192 in_progress \u2192 completed" in prompt
     assert "Verify before finalizing" in prompt
-    assert "Skill usage" in prompt
+
+    # New operating-protocol markers (replacement assertions)
+    assert "Operating protocol" in prompt
+    assert "preamble" in prompt
+    assert "environment context" in prompt
 
 
 def test_prompt_injects_dynamic_environment_context():

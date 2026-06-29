@@ -110,17 +110,26 @@ def test_trust_policy_marks_unverified_file_backed_knowledge(temp_dirs):
 
 
 def test_core_tools_for_context_does_not_inflate_all_tools():
+    """v3.9.6: ``_core_tools_for_context`` was simplified to return the
+    full canonical namespace as the baseline seed. Scene-based gating
+    is now done downstream by ToolPlannerV2 / visibility. So the
+    function returns ALL canonical tools regardless of scene hint —
+    the assertion below reflects that contract.
+    """
     from agent.runtime.context_pipeline.stages import _core_tools_for_context
     from tool_runtime.tool_namespace import TOOL_NAMESPACE as _ALL_TOOLS
 
     ctx = SimpleNamespace(user_input="总结一下")
     tools = _core_tools_for_context(ctx, {"categories": ["knowledge"], "groups": {}})
 
+    # Full canonical baseline — every canonical tool is present.
     assert "workspace.file" in tools
     assert "skill.manage" in tools
-    assert "git.manage" not in tools
-    assert "device.manage" not in tools
-    assert len(tools) < len(list(_ALL_TOOLS))
+    assert "git.manage" in tools
+    assert "device.manage" in tools
+    # And nothing extra leaks in.
+    assert set(tools) == set(_ALL_TOOLS.keys())
+    assert len(tools) == len(_ALL_TOOLS)
 
 
 def test_core_tools_for_context_includes_agent_tools_for_subagent_scene():

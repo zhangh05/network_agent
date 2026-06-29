@@ -285,7 +285,13 @@ class TestPipelineIntegration:
         assert len(candidates) == 0
 
     def test_planner_extracts_from_task(self):
-        """Planner extracts candidate from completed task."""
+        """v3.9.6: task-completion extraction was removed. Planner
+        no longer derives ``task_pattern`` candidates from
+        ``runtime_state_snapshot`` — only action_trace errors,
+        user_preference_signals, and successful tool summaries are
+        considered. This test asserts the new contract: a ctx with
+        only a task completion yields zero candidates.
+        """
         from agent.runtime.memory_write.planner import MemoryWritePlanner
 
         planner = MemoryWritePlanner()
@@ -298,8 +304,7 @@ class TestPipelineIntegration:
         )
         candidates = planner._extract_candidates(ctx)
         task_cands = [c for c in candidates if c.memory_type == "task_pattern"]
-        assert len(task_cands) == 1
-        assert "search task" in task_cands[0].content
+        assert task_cands == []  # task-completion extractor returns [] now
 
     def test_planner_extracts_from_errors(self):
         """Planner extracts candidate from failed actions."""

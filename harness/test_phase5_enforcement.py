@@ -105,14 +105,51 @@ class TestCatalogIncludesManifest:
         assert "action_class" in tool
 
     def test_catalog_destructive_matches_manifest(self):
+        """v3.9.6: destructiveness is now action-level, not tool-level.
+        The manifest no longer marks ``device.manage`` as
+        ``destructive=True`` just because it contains a ``delete``
+        sub-action. Instead, ``tool_runtime.policy._is_destructive_action``
+        escalates the call to ``high`` + ``requires_approval`` only
+        when ``action`` is in ``_DESTRUCTIVE_ACTIONS`` (delete / remove /
+        purge / destroy / drop / delete_file / session_rewind / rewind).
+        That separates the static risk profile (one per tool) from the
+        dynamic per-call destructive escalation.
+        """
         from tool_runtime.catalog_snapshot import build_catalog_snapshot
+        from tool_runtime.policy import ToolPolicy
+        from tool_runtime.schemas import ToolSpec, ToolInvocation
+
+        # 1. Manifest field is still present and is a bool.
         cat = build_catalog_snapshot()
         tools = cat.get("tools", [])
-        # v3.9.2: device.manage contains a destructive sub-action (delete)
-        # so its manifest is marked destructive=True.
         tool = next((t for t in tools if t["tool_id"] == "device.manage"), None)
         assert tool is not None
-        assert tool["destructive"] is True
+        assert isinstance(tool["destructive"], bool)
+
+        # 2. A non-destructive sub-action keeps the normal risk level.
+        spec = ToolSpec(
+            tool_id="device.manage", name="device.manage", category="device",
+            description="x", risk_level="medium", enabled=True, input_schema={},
+            callable_by_llm=True, permission_action="write",
+        )
+        inv_safe = ToolInvocation(
+            tool_id="device.manage",
+            arguments={"action": "list"},
+            workspace_id="default", requested_by="test",
+        )
+        d_safe = ToolPolicy().check(spec, inv_safe)
+        assert d_safe.risk_level == "medium"
+        assert d_safe.requires_approval is False
+
+        # 3. A destructive sub-action escalates to high + approval.
+        inv_destr = ToolInvocation(
+            tool_id="device.manage",
+            arguments={"action": "delete"},
+            workspace_id="default", requested_by="test",
+        )
+        d_destr = ToolPolicy().check(spec, inv_destr)
+        assert d_destr.risk_level == "high"
+        assert d_destr.requires_approval is True
 
 
 class TestNoDuplicateRiskLogic:
