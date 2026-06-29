@@ -55,6 +55,57 @@ class TestRedaction:
 
 
 class TestToolPolicySafetySemantics:
+    def test_merged_device_read_action_does_not_require_approval(self):
+        from tool_runtime.policy import ToolPolicy
+        from tool_runtime.schemas import ToolInvocation, ToolSpec
+
+        spec = ToolSpec(
+            tool_id="device.manage",
+            category="device",
+            risk_level="medium",
+            requires_approval=False,
+            input_schema={"type": "object", "properties": {}},
+        )
+
+        decision = ToolPolicy().check(
+            spec,
+            ToolInvocation(
+                tool_id="device.manage",
+                arguments={"workspace_id": "default", "action": "list", "search": "测试"},
+                workspace_id="default",
+                requested_by="turn_runner",
+            ),
+        )
+
+        assert decision.allowed is True
+        assert decision.requires_approval is False
+
+    def test_merged_device_delete_action_requires_approval(self):
+        from tool_runtime.policy import ToolPolicy
+        from tool_runtime.schemas import ToolInvocation, ToolSpec
+
+        spec = ToolSpec(
+            tool_id="device.manage",
+            category="device",
+            risk_level="medium",
+            requires_approval=False,
+            input_schema={"type": "object", "properties": {}},
+        )
+
+        decision = ToolPolicy().check(
+            spec,
+            ToolInvocation(
+                tool_id="device.manage",
+                arguments={"workspace_id": "default", "action": "delete", "asset_id": "asset-1"},
+                workspace_id="default",
+                requested_by="turn_runner",
+            ),
+        )
+
+        assert decision.allowed is True
+        assert decision.risk_level == "high"
+        assert decision.requires_approval is True
+
     def test_high_risk_tool_call_allowed_until_arguments_are_unsafe(self):
         from tool_runtime.policy import ToolPolicy
         from tool_runtime.schemas import ToolInvocation, ToolSpec

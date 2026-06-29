@@ -56,6 +56,16 @@ V02_FORBIDDEN_PATTERNS = [
     _re.compile(r"^powershell[\._]exec(?!_approved)[_\w]*$", _re.IGNORECASE),
 ]
 
+_DESTRUCTIVE_ACTIONS = {
+    "delete", "remove", "purge", "destroy", "drop",
+    "delete_file", "session_rewind", "rewind",
+}
+
+
+def _is_destructive_action(arguments: dict) -> bool:
+    action = str((arguments or {}).get("action", "")).strip().lower()
+    return action in _DESTRUCTIVE_ACTIONS
+
 # v0.3: handlers accept arbitrary commands, allowlists removed.
 # v3.9.5: SAFE_COMMAND_ALLOWLIST and is_safe_command_first_word are
 # removed entirely. The new model is destructive-only: anything not
@@ -212,7 +222,14 @@ class ToolPolicy:
         # level forbids are handled separately in step 3 above.
 
         # ── Decision ──
-        requires_approval = effective_risk == "high" and effective_approval
+        if _is_destructive_action(invocation.arguments):
+            effective_risk = "high"
+            effective_approval = True
+            reason_parts.append(
+                f"Destructive action requires approval: {invocation.arguments.get('action')}"
+            )
+
+        requires_approval = effective_risk in ("high", "critical") and effective_approval
 
         if blocked:
             return PolicyDecision(

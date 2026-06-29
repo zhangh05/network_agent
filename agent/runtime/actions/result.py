@@ -115,6 +115,7 @@ def action_result_to_tool_result(action_result: ActionResult):
         raw=normalized,
         metadata={
             "action_id": action_result.action_id,
+            "action_status": action_result.status,
             "scan_status": action_result.scan_status,
             "latency_ms": action_result.latency_ms,
         },

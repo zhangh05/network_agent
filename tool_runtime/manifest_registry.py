@@ -3,10 +3,9 @@
 
 v3.9.2: 22-tool Codex-style set. Each merged tool's manifest uses the
 highest-risk profile of any sub-action (e.g. ``git.manage`` keeps
-``requires_approval=True`` because ``action=commit`` / ``action=push``
-require approval, even though ``action=status`` is read-only). The
-runtime dispatcher in ``canonical_registry`` enforces the per-action
-approval gate regardless of manifest defaults.
+merged tools carry a base risk profile only. Per-action destructive
+checks in ``tool_runtime.policy`` escalate delete/rewind/destructive
+commands to high risk and approval.
 """
 
 from .manifest import CapabilityManifest, RetryPolicy
@@ -47,14 +46,14 @@ MANIFESTS: dict[str, CapabilityManifest] = {
         tool_id="device.manage", category="device", display_name="Device Asset (unified)",
         description=(
             "Unified CMDB tool. action=list, get (reads); "
-            "action=add, delete (writes, require approval). "
+            "action=add, update (writes); action=delete (destructive approval). "
             "Do not fabricate assets; do not expose credentials."
         ),
         action_class="write",
-        risk_level="high",  # contains add + delete (destructive)
-        destructive=True,  # contains delete sub-action
+        risk_level="medium",
+        destructive=False,
         side_effects="delete", idempotency="unsafe_to_retry",
-        requires_approval=True,  # destructive tool must require approval
+        requires_approval=False,
         approval_reason_template="Device change: confirm asset is correct before commit",
         timeout_seconds=30,
     ),

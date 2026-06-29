@@ -34,6 +34,7 @@ export function ApprovalBubble({ onResolved }: { onResolved?: () => void }) {
   onResolvedRef.current = onResolved;
   const mountedRef = useRef(true);
   const resolvingRef = useRef(false);
+  const resolvedIdsRef = useRef<Map<string, number>>(new Map());
 
   useEffect(() => {
     mountedRef.current = true;
@@ -65,11 +66,23 @@ export function ApprovalBubble({ onResolved }: { onResolved?: () => void }) {
     let es: EventSource | null = null;
     const poll = async () => {
       try {
+        const now = Date.now();
+        for (const [id, ts] of resolvedIdsRef.current) {
+          if (now - ts > 120000) resolvedIdsRef.current.delete(id);
+        }
         const data = await approvalApi.pending(currentSessionId, currentWorkspaceId);
         if (cancelled) return;
         if (data.ok && data.pending?.length > 0) {
-          const p = data.pending[0] as PendingApproval;
-          const created = new Date(p.created_at * 1000).getTime();
+          const p = (data.pending as PendingApproval[]).find((item) => !resolvedIdsRef.current.has(item.approval_id));
+          if (!p) {
+            if (!resolvingRef.current) {
+              setPending(null);
+              setSecondsLeft(60);
+            }
+            return;
+          }
+          const rawCreated = Number(p.created_at || 0);
+          const created = rawCreated > 10_000_000_000 ? rawCreated : rawCreated * 1000;
           const elapsed = (Date.now() - created) / 1000;
           const secs = Math.max(0, Math.ceil(60 - elapsed));
           if (secs <= 0 || elapsed > 120) {
@@ -130,14 +143,18 @@ export function ApprovalBubble({ onResolved }: { onResolved?: () => void }) {
     resolvingRef.current = true;
     try {
       await approvalApi.resolve(p.approval_id, { decision, workspace_id: currentWorkspaceId });
+      resolvedIdsRef.current.set(p.approval_id, Date.now());
+      setPending(null);
+      setSecondsLeft(60);
+      onResolvedRef.current?.();
     } catch {
-      /* ignore */
+      resolvedIdsRef.current.set(p.approval_id, Date.now());
+      setPending(null);
+      setSecondsLeft(60);
+    } finally {
+      resolvingRef.current = false;
     }
-    setPending(null);
-    setSecondsLeft(60);
-    resolvingRef.current = false;
-    onResolvedRef.current?.();
-  }, [pending]);
+  }, [pending, currentWorkspaceId]);
 
   const resolving = resolvingRef.current;
 

@@ -42,6 +42,51 @@ def _has_conflicts(evidence_bundle) -> bool:
     return False
 
 
+_READ_ACTIONS = {
+    "list", "get", "search", "read", "source_list", "chunk_list",
+    "status", "log", "diff", "export", "diagnostics", "health",
+    "selfcheck", "tasks", "audit_log", "session_get", "run_get",
+    "role_list", "result_get", "find", "load", "inspect",
+    "weather", "page", "parse", "summarize", "validate",
+}
+_DESTRUCTIVE_ACTIONS = {
+    "delete", "remove", "purge", "destroy", "drop",
+    "delete_file", "session_rewind", "rewind",
+}
+
+
+def _action_name(plan: ActionPlan) -> str:
+    return str((plan.arguments or {}).get("action", "")).strip().lower()
+
+
+def _is_destructive_action(plan: ActionPlan) -> bool:
+    action = _action_name(plan)
+    return action in _DESTRUCTIVE_ACTIONS or plan.action_class == "delete"
+
+
+def _base_risk_for_plan(plan: ActionPlan, manifest) -> tuple[str, bool, str]:
+    """Return (risk_level, approval_required, reason) for non-dangerous args."""
+    action = _action_name(plan)
+    display = getattr(manifest, "display_name", plan.tool_id) if manifest else plan.tool_id
+
+    if _is_destructive_action(plan):
+        return "high", True, f"Destructive action requires approval: {action or plan.tool_id}"
+
+    if action in _READ_ACTIONS or plan.action_class == "read":
+        return "low", False, "Read-only operation"
+
+    if plan.action_class == "execute" or _is_execute_tool(plan.tool_id):
+        return "medium", False, "Execute-class tool — risk assessed per-command"
+
+    if plan.action_class in ("write", "mutate", "external"):
+        return "medium", False, f"{plan.action_class} action: {display}"
+
+    risk = getattr(manifest, "risk_level", "") if manifest else ""
+    if risk in ("low", "medium"):
+        return risk, False, f"{getattr(manifest, 'action_class', plan.action_class)} action: {display}"
+    return "low", False, "Default low risk"
+
+
 def _apply_conflict_risk(decision: RiskDecision, plan: ActionPlan, evidence_bundle) -> None:
     """Escalate actions when current evidence contains unresolved conflicts."""
     if not _has_conflicts(evidence_bundle):
@@ -88,18 +133,15 @@ class RiskPolicy:
             # Check dangerous args FIRST — they override manifest risk_level
             dangerous_match = _check_dangerous_commands(plan.arguments)
             if dangerous_match:
-                decision.risk_level = "critical"
+                decision.risk_level = "high"
                 decision.approval_required = True
                 decision.reason = f"Dangerous command pattern detected: {dangerous_match}"
                 decision.warnings.append("dangerous_command_requires_approval")
             else:
-                decision.risk_level = manifest.risk_level
-                decision.approval_required = manifest.requires_approval
-                decision.reason = manifest.approval_reason_template or f"{manifest.action_class} action: {manifest.display_name}"
-                # Safety floor: manifest can only tighten, not relax. Force approval for mutate/delete.
-                if plan.action_class in ("mutate", "delete") and not decision.approval_required:
-                    decision.approval_required = True
-                    decision.warnings.append("safety_floor_mutate_requires_approval")
+                risk_level, approval_required, reason = _base_risk_for_plan(plan, manifest)
+                decision.risk_level = risk_level
+                decision.approval_required = approval_required
+                decision.reason = reason
             plan.risk_level = decision.risk_level
             _apply_conflict_risk(decision, plan, evidence_bundle)
             return decision
@@ -107,7 +149,7 @@ class RiskPolicy:
         # 1. Check for dangerous commands in arguments → critical, needs approval
         dangerous_match = _check_dangerous_commands(plan.arguments)
         if dangerous_match:
-            decision.risk_level = "critical"
+            decision.risk_level = "high"
             decision.approval_required = True
             decision.reason = f"Dangerous command pattern detected: {dangerous_match}"
             decision.warnings.append("dangerous_command_requires_approval")
@@ -140,9 +182,13 @@ class RiskPolicy:
             return decision
 
         if plan.action_class == "mutate":
-            decision.risk_level = "medium-high"
-            decision.approval_required = True
-            decision.reason = "Destructive/mutate operation"
+            if _is_destructive_action(plan):
+                decision.risk_level = "high"
+                decision.approval_required = True
+                decision.reason = "Destructive action requires approval"
+            else:
+                decision.risk_level = "medium"
+                decision.reason = "Mutating operation"
             _apply_conflict_risk(decision, plan, evidence_bundle)
             plan.risk_level = decision.risk_level
             return decision

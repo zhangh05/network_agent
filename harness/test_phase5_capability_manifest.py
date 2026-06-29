@@ -61,12 +61,13 @@ class TestRiskAndApproval:
         assert m.risk_level == "medium"
         # Sub-action approval is enforced at execution time, not in the manifest.
 
-    def test_device_delete_is_destructive(self):
-        # v3.9.2: device.manage is the merged tool; destructive=True
-        # because it contains the delete sub-action.
+    def test_device_manage_base_policy_is_medium(self):
+        # v3.9.7: merged tools carry base risk only. action=delete
+        # escalates at runtime; action=list/get never opens approval.
         m = MANIFESTS["device.manage"]
-        assert m.destructive
-        assert m.requires_approval
+        assert m.risk_level == "medium"
+        assert not m.destructive
+        assert not m.requires_approval
 
 
 class TestSecretFields:

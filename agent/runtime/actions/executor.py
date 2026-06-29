@@ -118,9 +118,9 @@ class ActionExecutor:
                 tool_call_id=plan.tool_call_id,
                 tool_name=plan.tool_name,
                 tool_id=plan.tool_id,
-                ok=False,
+                ok=True,
                 status="approval_pending",
-                error="Action requires approval",
+                error="",
                 error_type="approval_pending",
                 metadata={"approval": {
                     "status": approval.status,
@@ -170,6 +170,11 @@ def _emit_events(events, tid: str, step: int, result: ActionResult) -> None:
         summary = getattr(result.result, "summary", "")[:200]
     else:
         summary = result.status
+
+    if result.status == "approval_pending":
+        if hasattr(events, "record_tool_result"):
+            events.record_tool_result(step, tid, True, summary or "Approval pending")
+        return
 
     if ok:
         if hasattr(events, "tool_call_completed"):
