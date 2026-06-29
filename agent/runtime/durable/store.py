@@ -4,12 +4,16 @@
 Storage: workspaces/<ws>/durable/tasks/<id>.json, events/<id>.events.json, checkpoints/<tid>/<cid>.json
 """
 from __future__ import annotations
-import json, time as _time
+import json
+import logging
+import time as _time
 from pathlib import Path
 from typing import Optional
 from workspace.run_store import WS_ROOT
 from workspace.atomic_io import atomic_write_json
 from .models import TaskState, RuntimeEvent, RuntimeCheckpoint
+
+logger = logging.getLogger(__name__)
 
 _REDACT_KEYS = {"password","token","api_key","secret","credential","private_key","access_key","auth","authorization","x-api-token","x-admin-token"}
 
@@ -45,7 +49,10 @@ def list_tasks(ws_id: str, session_id="", limit=50) -> list[TaskState]:
             if session_id and t.session_id != session_id: continue
             tasks.append(t)
             if len(tasks) >= limit: break
-        except Exception: continue
+        except (OSError, ValueError, json.JSONDecodeError):
+            # v3.9.9: a malformed TaskState file should not silently
+            # skip — log it. (Continue reading remaining files.)
+            logger.debug("durable: skip corrupt task file %s", f, exc_info=True)
     return tasks
 
 # ── Events ──
@@ -55,9 +62,13 @@ def append_event(evt: RuntimeEvent):
     p = _events_path(evt.workspace_id, evt.task_id); p.parent.mkdir(parents=True, exist_ok=True)
     try:
         with p.open("a") as fh: fh.write(json.dumps(evt.__dict__, ensure_ascii=False, default=str) + "\n")
-    except Exception as e:
-        # Best-effort load — missing/corrupt file is not critical
-        pass
+    except OSError:
+        # v3.9.9: was bare ``except Exception: pass`` — losing the
+        # entire event log silently hides every tool error, every
+        # approval decision, every retry. Surface it at WARNING so
+        # the admin sees disk pressure.
+        logger.warning("durable: append_event write failed for %s",
+                       p, exc_info=True)
 
 def get_events(ws_id, task_id, limit=100) -> list[dict]:
     p = _events_path(ws_id, task_id)
@@ -67,7 +78,12 @@ def get_events(ws_id, task_id, limit=100) -> list[dict]:
         for line in p.read_text().splitlines():
             if line.strip(): evts.append(json.loads(line))
         return evts[-limit:]
-    except Exception: return evts
+    except (OSError, json.JSONDecodeError):
+        # v3.9.9: best-effort read — return what we already
+        # collected before the error.
+        logger.debug("durable: get_events read failed for %s", p,
+                     exc_info=True)
+        return evts
 
 # ── Checkpoints ──
 def save_checkpoint(cp: RuntimeCheckpoint):
@@ -82,6 +98,9 @@ def get_checkpoints(ws_id, task_id) -> list[dict]:
     if not d.exists(): return []
     cps = []
     for f in sorted(d.glob("*.json"), key=lambda x: x.stat().st_mtime):
-        try: cps.append(json.loads(f.read_text()))
-        except Exception: continue
+        try:
+            cps.append(json.loads(f.read_text()))
+        except (OSError, json.JSONDecodeError):
+            # v3.9.9: skip + log corrupt checkpoint files.
+            logger.debug("durable: skip corrupt checkpoint %s", f, exc_info=True)
     return cps

@@ -13,6 +13,7 @@ Key guarantees:
 from __future__ import annotations
 
 import json
+import logging
 import os
 import threading
 import time
@@ -23,6 +24,8 @@ from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional
 
 from agent.runtime.utils import now_iso, to_iso, from_iso
+
+logger = logging.getLogger(__name__)
 
 
 def _now_iso() -> str:
@@ -98,7 +101,10 @@ class _EventBus:
             try:
                 fn(event)
             except Exception:
-                pass  # one bad subscriber must not break others
+                # One bad subscriber must not break others; record so
+                # the bug is observable in logs (v3.9.9 — silent
+                # exceptions are now debug-logged).
+                logger.debug("approval event subscriber raised", exc_info=True)
 
 
 # Module-level singleton (separate from store so SSE routes can import it
@@ -183,7 +189,7 @@ class ApprovalStore:
                     raw_created = rec.get("created_at") or ""
                     try:
                         created_iso = to_iso(raw_created)
-                    except Exception:
+                    except (ValueError, TypeError):
                         continue
                     if (created_iso or "") < cutoff_iso:
                         continue
@@ -199,8 +205,12 @@ class ApprovalStore:
                         resolved=False,
                     )
                     self._pending[req.approval_id] = req
-        except Exception:
-            pass
+        except (OSError, ValueError, json.JSONDecodeError):
+            # v3.9.9: file IO / JSON corruption are not unexpected —
+            # surface them at WARNING so audit ingest failures are
+            # visible instead of silently losing approved actions.
+            logger.warning("approval: failed to load history from %s",
+                           self._persist_path, exc_info=True)
 
     def _append_record(self, req: ApprovalRequest) -> None:
         """Append a record (pending or resolved) to the JSONL audit log."""
@@ -228,34 +238,52 @@ class ApprovalStore:
             }
             with self._persist_path.open("a", encoding="utf-8") as f:
                 f.write(json.dumps(rec, ensure_ascii=False) + "\n")
-        except Exception:
-            pass
+        except (OSError, TypeError, ValueError):
+            # v3.9.9: ApprovalStore._append_record silently losing
+            # every audit row is a real failure — silently skipping
+            # a write hides every denied tool invocation. Surface it.
+            logger.warning("approval: failed to append record to %s",
+                           self._persist_path, exc_info=True)
 
     def _gc_history(self) -> None:
         """Periodically compact the audit log by removing records older than retention."""
-        now = time.time()
-        if now - self._last_gc_at < _GC_INTERVAL_SECONDS:
+        now_epoch = time.time()
+        if now_epoch - self._last_gc_at < _GC_INTERVAL_SECONDS:
             return
         if not self._persist_path.exists():
             return
-        self._last_gc_at = now
-        cutoff = now - _RETENTION_DAYS * 86400
+        self._last_gc_at = now_epoch
+        # v3.9.8: cutoff is now ISO-8601 str (matches the on-disk shape).
+        # Earlier versions compared an epoch float to str created_at;
+        # Python's `str >= float` raises or silently miscompares, so we
+        # only accept records whose created_at (ISO) is at-or-after
+        # the retention cutoff (also ISO).
+        cutoff_iso = _now_iso_offset(-_RETENTION_DAYS * 86400)
         try:
             kept: List[str] = []
             with self._persist_path.open("r", encoding="utf-8") as f:
                 for line in f:
                     try:
                         rec = json.loads(line.strip())
-                    except Exception:
+                    except json.JSONDecodeError:
                         continue
-                    if rec.get("created_at", 0) >= cutoff:
-                        kept.append(line if line.endswith("\n") else line + "\n")
+                    # Coerce legacy float or any other value through to_iso
+                    # for ordering — falls back to ``""`` for missing keys.
+                    raw_created = rec.get("created_at") or ""
+                    try:
+                        if not raw_created or raw_created < cutoff_iso:
+                            continue
+                    except TypeError:
+                        # str vs float comparison would fail; skip record.
+                        continue
+                    kept.append(line if line.endswith("\n") else line + "\n")
             tmp = self._persist_path.with_suffix(".jsonl.tmp")
             with tmp.open("w", encoding="utf-8") as f:
                 f.writelines(kept)
             tmp.replace(self._persist_path)
-        except Exception:
-            pass
+        except OSError:
+            logger.warning("approval: GC history compaction failed for %s",
+                           self._persist_path, exc_info=True)
 
     # ── Public API ──────────────────────────────────────────────────
 
@@ -320,7 +348,8 @@ class ApprovalStore:
             if req and not req.resolved:
                 req.resolved = True
                 req.allowed = allowed
-                req.resolved_at = time.time()
+                # v3.9.8: resolved_at is ISO-8601 string; was float.
+                req.resolved_at = now_iso()
                 req.resolver = resolver
                 req.reason = reason
                 req._event.set()
@@ -428,10 +457,13 @@ class ApprovalStore:
                     if since_ts and rec.get("created_at", "") < since_ts:
                         continue
                     records.append(rec)
-        except Exception:
+        except OSError:
+            logger.warning("approval: get_history read failed for %s",
+                           self._persist_path, exc_info=True)
             return []
         records.sort(key=lambda r: r.get("resolved_at") or "", reverse=True)
-        return records[:limit]
+        return records[:limit] \
+
 
     def wait(self, approval_id: str, timeout: int = 60,
              blocking: bool = True) -> Optional[bool]:
@@ -470,7 +502,8 @@ class ApprovalStore:
             if not req.resolved:
                 req.resolved = True
                 req.allowed = False
-                req.resolved_at = time.time()
+                # v3.9.8: resolved_at is ISO-8601 string; was float.
+                req.resolved_at = now_iso()
                 req.resolver = "system_timeout"
                 req._event.set()
                 self._append_record(req)
@@ -559,6 +592,8 @@ def reset_approval_store_for_tests(remove_persisted: bool = False) -> None:
     if remove_persisted:
         try:
             (_approval_store._persist_path if _approval_store else _APPROVALS_FILE).unlink(missing_ok=True)
-        except Exception:
-            pass
+        except OSError:
+            logger.debug("approval: test reset could not unlink %s",
+                         _approval_store._persist_path if _approval_store else _APPROVALS_FILE,
+                         exc_info=True)
     _approval_store = None

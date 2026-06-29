@@ -1,6 +1,8 @@
 # agent/runtime/result_builder.py
 """Result construction helpers — extracted from loop.py."""
 
+import logging
+
 from agent.runtime.result import AgentResult
 from agent.runtime.turn_persistence import persist_run_record
 from agent.runtime.tool_result_utils import enrich_metadata
@@ -9,6 +11,8 @@ from agent.runtime.tool_decision import (
     build_no_tool_reason as _build_no_tool_reason,
     build_partial_answer as _build_partial_answer,
 )
+
+logger = logging.getLogger(__name__)
 
 
 def build_success_result(state) -> AgentResult:
@@ -56,7 +60,10 @@ def build_success_result(state) -> AgentResult:
             if rollout:
                 rollout.persist_turn(state.turn, result)
     except Exception:
-        pass
+        # v3.9.9: rollout persistence is best-effort; the agent
+        # result is already finalized in memory.
+        logger.debug("result_builder: rollout.persist_turn failed",
+                     exc_info=True)
 
     persist_run_record(state.session, state.turn, result, state.context)
 
@@ -67,7 +74,10 @@ def build_success_result(state) -> AgentResult:
         from agent.llm.config import record_recent_success
         record_recent_success()
     except Exception:
-        pass
+        # v3.9.9: rate-limit bookkeeping is non-critical for the
+        # current turn; log only.
+        logger.debug("result_builder: record_recent_success failed",
+                     exc_info=True)
 
     run_post_turn_hooks(state.session, state.turn, state.final_response)
     run_stop_hooks(state.session)
@@ -228,8 +238,11 @@ def _backfill_decision_report_path(*, run_id: str, workspace_id: str, report_pat
         tmp = run_file.with_suffix(".tmp")
         tmp.write_text(json.dumps(record, indent=2, ensure_ascii=False), encoding="utf-8")
         tmp.rename(run_file)
-    except Exception:
-        pass
+    except (OSError, ValueError):
+        # v3.9.9: backfilling the run record with the report path
+        # is best-effort — losing it is a UX nit, not a data loss.
+        logger.debug("result_builder: backfill decision-report path failed",
+                     exc_info=True)
 
 
 def _ensure_snapshot(ctx, state) -> None:
@@ -240,7 +253,9 @@ def _ensure_snapshot(ctx, state) -> None:
         runtime_state = getattr(state, "runtime_state", None) or RuntimeStateResolver().resolve(ctx)
         RuntimeStateSnapshotter().snapshot(ctx, runtime_state)
     except Exception:
-        pass
+        # v3.9.9: snapshot is consumed by finalization kernels — if
+        # it fails, those kernels see the absence; surface it.
+        logger.debug("result_builder: state snapshot failed", exc_info=True)
 
 
 def run_deferred_finalization(result: AgentResult) -> None:
@@ -259,4 +274,7 @@ def run_deferred_finalization(result: AgentResult) -> None:
         from agent.runtime.state.hooks import _run_finalization_kernels
         _run_finalization_kernels(ctx)
     except Exception:
-        pass
+        # v3.9.9: deferred finalization kernels are best-effort;
+        # the user already got their answer.
+        logger.debug("result_builder: deferred finalization kernels failed",
+                     exc_info=True)

@@ -6,9 +6,15 @@ Validation gates enforce: no unvalidated success, no destructive without rollbac
 """
 
 from __future__ import annotations
-import json, uuid, time as _time, os
+import json
+import logging
+import uuid
+import time as _time
+import os
 from dataclasses import dataclass, field, asdict
 from pathlib import Path
+
+logger = logging.getLogger(__name__)
 
 
 def _resolve_repo_dir(ws_id: str) -> str:
@@ -196,8 +202,11 @@ def git_status_check(ws_id: str) -> dict:
                 type="git_status_checked", status="ok",
                 title=f"Git status: {result['branch']}, dirty={result['dirty']}",
             ))
-        except Exception:
-            pass
+        except OSError:
+            # v3.9.9: git_status_checked event log is best-effort;
+            # git itself succeeded, so surface disk failure at debug.
+            logger.debug("delivery: git_status_checked event log failed",
+                         exc_info=True)
     except FileNotFoundError:
         result["status"] = "git_not_available"
     except Exception as e:
@@ -234,8 +243,9 @@ def git_commit(ws_id: str, message: str = "", confirm: bool = False) -> dict:
                 type="git_committed", status="ok",
                 title=f"Git commit: {message[:80]}",
             ))
-        except Exception:
-            pass
+        except OSError:
+            logger.debug("delivery: git_committed event log failed",
+                         exc_info=True)
         return {"ok": True, "message": "committed", "commit_message": message[:200],
                 "output": r2.stdout.strip()[:500]}
     except FileNotFoundError:
@@ -273,8 +283,9 @@ def git_push(ws_id: str, remote: str = "origin", confirm: bool = False) -> dict:
                 type="git_pushed", status="ok",
                 title=f"Git push {remote}/{branch}",
             ))
-        except Exception:
-            pass
+        except OSError:
+            logger.debug("delivery: git_pushed event log failed",
+                         exc_info=True)
         return {"ok": True, "remote": remote, "branch": branch,
                 "message": "pushed", "output": r2.stdout.strip()[:500]}
     except FileNotFoundError:

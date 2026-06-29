@@ -8,6 +8,7 @@ Flow: pre_tool_hook → ActionPlanner.plan → ActionExecutor.execute (with retr
 """
 
 import json
+import logging
 from concurrent.futures import ThreadPoolExecutor, as_completed
 import copy
 import time
@@ -22,6 +23,8 @@ from agent.runtime.actions.planner import ActionPlanner
 from agent.runtime.actions.executor import ActionExecutor
 from agent.runtime.actions.result import action_result_to_tool_result
 from agent.runtime.state.hooks import complete_runtime_state_after_actions
+
+logger = logging.getLogger(__name__)
 
 # v3.8: Retry configuration
 MAX_RETRIES = 3
@@ -94,7 +97,10 @@ class ToolExecutionPipeline:
                 if sid:
                     push_tool_start(sid, tool_call.real_tool_id, state.step)
             except Exception:
-                pass
+                # v3.9.9: SSE push is best-effort; the tool chain must
+                # not fail because the live progress channel raised.
+                logger.debug("pipeline: push_tool_start SSE failed",
+                             exc_info=True)
 
             result, should_skip, should_stop = self._execute_single_with_retry(
                 state, tool_call, tc, events, state.step)
@@ -108,7 +114,10 @@ class ToolExecutionPipeline:
                                    result.ok if result else False,
                                    result.summary if result else "")
             except Exception:
-                pass
+                # v3.9.9: best-effort live SSE; tool result already
+                # recorded, do not let the channel raise.
+                logger.debug("pipeline: push_tool_done SSE failed",
+                             exc_info=True)
 
             if should_stop:
                 tool_stop_requested = True
@@ -126,7 +135,8 @@ class ToolExecutionPipeline:
             if sid:
                 push_turn_done(sid, turn_id, resp.content if resp.content else "")
         except Exception:
-            pass
+            logger.debug("pipeline: push_turn_done SSE failed",
+                         exc_info=True)
 
         return tool_stop_requested
 
@@ -177,7 +187,11 @@ class ToolExecutionPipeline:
                                     ValueError(f"Tool {tid} not allowed in parallel: unsafe for concurrent execution")))
                                 continue
                     except Exception:
-                        pass
+                        # v3.9.9: parallel-safety inspection missing
+                        # the manifest — log so a missing manifest is
+                        # debuggable, but fall through to serial run.
+                        logger.debug("pipeline: manifest lookup failed for %s",
+                                     tid, exc_info=True)
                 prepared.append((tc, tool_call, llm_name, None))
             except Exception as e:
                 prepared.append((tc, None, llm_name, e))
@@ -317,7 +331,10 @@ class ToolExecutionPipeline:
                     errors=[f"dynamic_breakpoint: {tid}"],
                 ), True, False
         except Exception:
-            pass
+            # v3.9.9: dynamic breakpoint opt-in feature unavailable;
+            # treated as no-op, log so missing module is visible.
+            logger.debug("pipeline: dynamic breakpoint lookup failed",
+                         exc_info=True)
 
         action_plan = self._action_planner.plan(
             tool_call_id=call_id,

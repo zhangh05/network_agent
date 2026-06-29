@@ -44,7 +44,7 @@ class DeviceSession:
         with self._lock:
             if self._chan:
                 try: self._chan.close()
-                except Exception: pass
+                except Exception: _log.debug("remote: chan close during shutdown", exc_info=True)
                 self._chan = None
             self.connected = False
 
@@ -59,7 +59,8 @@ class DeviceSession:
                     elif hasattr(self._chan, "write"):
                         self._chan.write(data)
                 except Exception:
-                    pass
+                    _log.debug("remote: send data to device channel failed",
+                               exc_info=True)
 
     def recv(self, timeout: int = 0) -> bytes:
         """Read available data. Returns b'' if nothing ready."""
@@ -74,6 +75,8 @@ class DeviceSession:
                         return b""
                     return self._chan.recv(4096)
                 except Exception:
+                    _log.debug("remote: paramiko recv_ready / recv failed",
+                               exc_info=True)
                     return b""
             return b""
 
@@ -239,7 +242,7 @@ class _TelnetSocket:
 
     def close(self):
         try: self.sock.close()
-        except Exception: pass
+        except Exception: _log.debug("remote: telnet sock close failed", exc_info=True)
 
     def sendall(self, data: bytes):
         self.sock.sendall(data)
@@ -254,7 +257,7 @@ class _TelnetSocket:
             if data:
                 return self._filter_iac(data)
         except Exception:
-            pass
+            _log.debug("remote: telnet recv failed", exc_info=True)
         return b""
 
     def _filter_iac(self, data: bytes) -> bytes:

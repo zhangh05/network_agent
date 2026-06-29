@@ -1,9 +1,17 @@
 """Hook runner — run lifecycle hooks (pre/post turn, tool, model, approval, etc.).
 
 Extracted from loop.py to centralize all hook execution logic.
+
+v3.9.9: hook isolation is a deliberate design — a single bad hook
+must not break the surrounding cycle — but failures are now logged
+at DEBUG so a misbehaving hook is debuggable instead of invisible.
 """
 
+import logging
+
 from agent.hooks import HookEvent
+
+logger = logging.getLogger(__name__)
 
 
 def build_hook_state(session, context=None):
@@ -59,6 +67,9 @@ def run_pre_tool_hook(session, tool_id: str, arguments: dict) -> tuple:
             return False, None, outcome.reason
         return True, outcome.updated_input, ""
     except Exception:
+        # v3.9.9: a broken pre-tool hook is treated as "no-hook",
+        # allowing the tool to proceed. Log for debuggability.
+        logger.debug("hook_runner: PRE_TOOL_USE raised", exc_info=True)
         return True, None, ""
 
 
@@ -87,6 +98,7 @@ def run_post_tool_hook(session, tool_id: str, result, turn):
             return True
         return False
     except Exception:
+        logger.debug("hook_runner: POST_TOOL_USE raised", exc_info=True)
         return False
 
 
@@ -105,7 +117,7 @@ def run_post_turn_hooks(session, turn, final_response: str):
             target="assistant_chat",
         )
     except Exception:
-        pass
+        logger.debug("hook_runner: POST_TURN raised", exc_info=True)
 
 
 def run_stop_hooks(session):
@@ -123,7 +135,7 @@ def run_stop_hooks(session):
             target="assistant_chat",
         )
     except Exception:
-        pass
+        logger.debug("hook_runner: STOP raised", exc_info=True)
 
 
 def run_pre_model_hook(session, messages, tools, context, step):
@@ -156,7 +168,8 @@ def run_pre_model_hook(session, messages, tools, context, step):
                 f"user_prompt_submit_hook_error: {str(exc)[:120]}"
             )
         except Exception:
-            pass
+            logger.debug("hook_runner: nested metadata write failed",
+                         exc_info=True)
         return False
 
 
@@ -187,6 +200,7 @@ def run_post_model_hook(session, resp, context, step):
             return outcome.updated_input
         return None
     except Exception:
+        logger.debug("hook_runner: POST_MODEL raised", exc_info=True)
         return None
 
 
@@ -205,7 +219,7 @@ def run_error_hook(session, error_type: str, error_data: dict, context=None):
             target=error_type,
         )
     except Exception:
-        pass
+        logger.debug("hook_runner: ON_ERROR raised", exc_info=True)
 
 
 def run_approval_hook(session, stage: str, approval_id: str, tool_id: str, context=None):
@@ -227,7 +241,7 @@ def run_approval_hook(session, stage: str, approval_id: str, tool_id: str, conte
             target=tool_id,
         )
     except Exception:
-        pass
+        logger.debug("hook_runner: ON_APPROVAL raised", exc_info=True)
 
 
 def run_user_prompt_submit_hook(session, context) -> bool:
@@ -267,5 +281,6 @@ def run_user_prompt_submit_hook(session, context) -> bool:
                 f"user_prompt_submit_hook_error: {str(exc)[:120]}"
             )
         except Exception:
-            pass
+            logger.debug("hook_runner: nested metadata write failed",
+                         exc_info=True)
         return False
