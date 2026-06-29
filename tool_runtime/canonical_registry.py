@@ -20,6 +20,8 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from typing import Any, Callable
+import threading
+import time
 
 from tool_runtime.schemas import ToolSpec, ToolInvocation
 from tool_runtime.registry_helpers import tool_keyword_score
@@ -69,6 +71,10 @@ def _adapt(handler: Callable[[ToolInvocation], dict]) -> Callable[..., Any]:
         inv = ToolInvocation(arguments=dict(kwargs), tool_id="")
         return handler(inv)
     return _callable
+
+
+_BACKGROUND_JOBS: dict[str, dict[str, Any]] = {}
+_BACKGROUND_LOCK = threading.Lock()
 
 
 # ── v3.5 Merged tool routing wrappers ──
@@ -137,6 +143,10 @@ def _handle_text_analyze_merged(inv: ToolInvocation) -> dict:
         return handle_text_extract_keywords(inv)
     elif action == "classify":
         return handle_text_classify(inv)
+    elif action == "extract_entities":
+        return handle_text_extract_entities(inv)
+    elif action == "regex":
+        return handle_text_regex(inv)
     else:
         return handle_text_redact(inv)
 
@@ -182,12 +192,16 @@ def _action(inv: ToolInvocation) -> tuple[str, dict]:
 
 
 def _handle_exec_merged(inv: ToolInvocation) -> dict:
-    """exec.run — action=shell (default) | python | slash."""
+    """exec.run — action=shell (default) | python | slash | background | stream."""
     action, _ = _action(inv)
     if action == "python":
         return handle_python_exec(inv)
     if action == "slash":
         return handle_slash_run(inv)
+    if action == "background":
+        return handle_background_exec(inv)
+    if action == "stream":
+        return handle_stream_exec(inv)
     # default: shell (local/ssh/telnet via target + shell)
     return _handle_exec_run_merged(inv)
 
@@ -205,13 +219,15 @@ def _handle_git_merged(inv: ToolInvocation) -> dict:
 
 
 def _handle_device_merged(inv: ToolInvocation) -> dict:
-    """device.manage — action=list|get|add|delete."""
+    """device.manage — action=list|get|add|delete|update|export."""
     action, _ = _action(inv)
     return {
         "list": _handler_cmdb_list_assets,
         "get": _handler_cmdb_get_asset,
         "add": _handler_cmdb_add_asset,
         "delete": _handler_cmdb_delete_asset,
+        "update": _handler_cmdb_update_asset,
+        "export": _handler_cmdb_export_assets,
     }.get(action, _handler_cmdb_list_assets)(inv)
 
 
@@ -233,29 +249,33 @@ def _handle_web_merged(inv: ToolInvocation) -> dict:
         return _weather_merged(inv)
     if action == "page":
         return _handle_web_page_merged(inv)
-    # default: search
-    return handle_web_search(inv)
+    # default: search (respects source=general|docs|news)
+    return _handle_web_search_merged(inv)
 
 
 def _handle_data_merged(inv: ToolInvocation) -> dict:
-    """data.manage — action=csv_summarize|table_extract|table_render|validate."""
+    """data.manage — action=csv_summarize|table_extract|table_render|validate|filter|deduplicate."""
     action, _ = _action(inv)
     return {
         "csv_summarize": handle_csv_summarize,
         "table_extract": handle_table_extract,
         "table_render": handle_table_render_markdown,
         "validate": _handle_data_validate_merged,
+        "filter": handle_data_filter,
+        "deduplicate": handle_data_deduplicate,
     }.get(action, handle_csv_summarize)(inv)
 
 
 def _handle_report_merged(inv: ToolInvocation) -> dict:
-    """report.manage — action=markdown_render|artifact_save|safe_summary_render|mermaid_render."""
+    """report.manage — action=markdown_render|artifact_save|safe_summary_render|mermaid_render|html_render|diff_report."""
     action, _ = _action(inv)
     return {
         "markdown_render": handle_report_render_markdown,
         "artifact_save": handle_report_save_artifact,
         "safe_summary_render": handle_doc_render_from_safe_summary,
         "mermaid_render": handle_diagram_render_mermaid,
+        "html_render": handle_report_render_html,
+        "diff_report": handle_report_diff,
     }.get(action, handle_report_render_markdown)(inv)
 
 
@@ -311,10 +331,14 @@ def _handle_agent_merged(inv: ToolInvocation) -> dict:
 
 
 def _handle_system_merged(inv: ToolInvocation) -> dict:
-    """system.manage — 9 actions for diagnostics/run/session/review."""
+    """system.manage — 13 actions for diagnostics/run/session/review."""
     action, _ = _action(inv)
     return {
         "diagnostics": handle_runtime_diagnostics,
+        "health": handle_runtime_health,
+        "selfcheck": handle_runtime_selfcheck,
+        "tasks": handle_runtime_tasks,
+        "audit_log": handle_audit_log_query,
         "run_get": _handle_system_run_get_merged,
         "session_get": _handle_system_session_get_merged,
         "session_checkpoint": handle_session_checkpoint,
@@ -347,11 +371,15 @@ def _handle_workspace_file_merged(inv: ToolInvocation) -> dict:
         return handle_file_patch(inv)
     elif action == "write_artifact":
         return handle_ws_write_artifact_file(inv)
+    elif action == "glob":
+        return handle_file_glob(inv)
+    elif action == "delete_file":
+        return handle_file_delete(inv)
     else:
         return {
             "ok": False,
             "error": f"workspace.file: unknown action={action!r}. "
-                     f"Valid actions: list, read, read_image, edit, patch, write_artifact",
+                     f"Valid actions: list, read, read_image, edit, patch, write_artifact, glob, delete_file",
         }
 
 
@@ -981,6 +1009,333 @@ def _handler_network_telnet(inv: ToolInvocation) -> dict:
         return {"ok": False, "error": f"Telnet failed: {e}"}
 
 
+# ─── v3.9.7: New action handlers (P0-P2 gap fill) ─────────────────────
+
+def handle_runtime_tasks(inv: ToolInvocation) -> dict:
+    """List pending/running background tasks (v3.9.7)."""
+    now = time.time()
+    tasks = []
+    try:
+        with _BACKGROUND_LOCK:
+            for job_id, job in list(_BACKGROUND_JOBS.items()):
+                proc = job.get("process")
+                returncode = proc.poll() if proc else job.get("returncode")
+                status = "running" if returncode is None else "completed"
+                if returncode is not None and not job.get("collected"):
+                    try:
+                        stdout, stderr = proc.communicate(timeout=0.1)
+                    except Exception:
+                        stdout, stderr = "", ""
+                    job["stdout"] = str(stdout)[-8000:]
+                    job["stderr"] = str(stderr)[-4000:]
+                    job["returncode"] = returncode
+                    job["collected"] = True
+                    job["completed_at"] = now
+                if status == "completed" and now - float(job.get("completed_at") or now) > 3600:
+                    _BACKGROUND_JOBS.pop(job_id, None)
+                    continue
+                tasks.append({
+                    "job_id": job_id,
+                    "pid": job.get("pid"),
+                    "status": status,
+                    "returncode": returncode,
+                    "command": job.get("command", ""),
+                    "started_at": job.get("started_at"),
+                    "elapsed_seconds": round(now - float(job.get("started_ts") or now), 2),
+                    "stdout_tail": job.get("stdout", ""),
+                    "stderr_tail": job.get("stderr", ""),
+                })
+        return {"ok": True, "tasks": tasks, "count": len(tasks)}
+    except Exception as e:
+        return {"ok": False, "error": str(e)[:200]}
+
+
+def handle_audit_log_query(inv: ToolInvocation) -> dict:
+    """Query audit log entries (v3.9.7)."""
+    args = inv.arguments or {}
+    log_level = str(args.get("log_level", "info")).lower()
+    limit = max(1, min(int(args.get("limit", 20) or 20), 100))
+    try:
+        import json
+        from storage.paths import workspace_root
+        ws_id = _inv_workspace(inv)
+        log_dir = workspace_root(ws_id) / "audit"
+        files = sorted(log_dir.glob("*.json"))[-limit:] if log_dir.exists() else []
+        entries = []
+        for f in files:
+            try:
+                parsed = json.loads(f.read_text(encoding="utf-8")[:20000])
+                level = str(parsed.get("level", parsed.get("severity", "info"))).lower() if isinstance(parsed, dict) else "info"
+                if log_level == "error" and level != "error":
+                    continue
+                if log_level == "warn" and level not in {"warn", "warning", "error"}:
+                    continue
+                entries.append(parsed)
+            except Exception:
+                pass
+        return {"ok": True, "entries": entries, "count": len(entries)}
+    except Exception as e:
+        return {"ok": True, "entries": [], "count": 0, "note": f"Audit log not available: {e}"}
+
+
+def handle_text_extract_entities(inv: ToolInvocation) -> dict:
+    """Extract network entities: IP, MAC, VLAN, subnet, hostname (v3.9.7)."""
+    import re
+    args = inv.arguments or {}
+    text = str(args.get("text", ""))
+    patterns = {
+        "ipv4": r"\b(?:\d{1,3}\.){3}\d{1,3}\b",
+        "mac": r"\b(?:[0-9A-Fa-f]{2}[:-]){5}[0-9A-Fa-f]{2}\b",
+        "vlan": r"\bvlan\s*\d+\b",
+        "subnet": r"\b(?:\d{1,3}\.){3}\d{1,3}/\d{1,2}\b",
+        "hostname": r"\b(?:[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?\.)+[a-zA-Z]{2,}\b",
+    }
+    result = {}
+    for entity_type, pat in patterns.items():
+        matches = list(set(re.findall(pat, text, re.IGNORECASE)))
+        if matches:
+            result[entity_type] = matches[:50]
+    return {"ok": True, "entities": result, "total": sum(len(v) for v in result.values())}
+
+
+def handle_text_regex(inv: ToolInvocation) -> dict:
+    """Apply a regex pattern to text and return matches (v3.9.7)."""
+    import re
+    args = inv.arguments or {}
+    text = str(args.get("text", ""))
+    pattern = str(args.get("pattern", ""))
+    if not pattern:
+        return {"ok": False, "error": "pattern is required"}
+    try:
+        matches = re.findall(pattern, text[:50000])
+        return {"ok": True, "matches": [str(m) for m in matches[:100]], "count": len(matches)}
+    except re.error as e:
+        return {"ok": False, "error": f"Invalid regex: {e}"}
+
+
+def handle_background_exec(inv: ToolInvocation) -> dict:
+    """Launch a background command and return a job_id for polling (v3.9.7)."""
+    import subprocess, uuid
+    args = inv.arguments or {}
+    command = str(args.get("command", ""))
+    if not command:
+        return {"ok": False, "error": "command is required"}
+    job_id = f"bg_{uuid.uuid4().hex[:8]}"
+    try:
+        proc = subprocess.Popen(
+            command, shell=True,
+            stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+            text=True,
+        )
+        started_ts = time.time()
+        with _BACKGROUND_LOCK:
+            _BACKGROUND_JOBS[job_id] = {
+                "process": proc,
+                "pid": proc.pid,
+                "command": command[:500],
+                "started_ts": started_ts,
+                "started_at": time.strftime("%Y-%m-%dT%H:%M:%S", time.localtime(started_ts)),
+                "stdout": "",
+                "stderr": "",
+                "collected": False,
+            }
+        return {
+            "ok": True, "job_id": job_id, "command": command[:200],
+            "pid": proc.pid, "status": "started",
+            "hint": "Use system.manage action=tasks to check status.",
+        }
+    except Exception as e:
+        return {"ok": False, "error": str(e)[:200]}
+
+
+def handle_stream_exec(inv: ToolInvocation) -> dict:
+    """Execute command with streaming output (PTY-like, v3.9.7)."""
+    import subprocess
+    args = inv.arguments or {}
+    command = str(args.get("command", ""))
+    if not command:
+        return {"ok": False, "error": "command is required"}
+    timeout = args.get("timeout", 30)
+    try:
+        result = subprocess.run(
+            command, shell=True, capture_output=True, text=True,
+            timeout=timeout,
+        )
+        return {
+            "ok": result.returncode == 0,
+            "stdout": result.stdout[:10000],
+            "stderr": result.stderr[:5000],
+            "exit_code": result.returncode,
+        }
+    except subprocess.TimeoutExpired:
+        return {"ok": False, "error": f"Command timed out after {timeout}s"}
+    except Exception as e:
+        return {"ok": False, "error": str(e)[:200]}
+
+
+def handle_file_glob(inv: ToolInvocation) -> dict:
+    """Glob file pattern matching (v3.9.7)."""
+    import glob as g, os
+    args = inv.arguments or {}
+    subdir = str(args.get("subdir", "."))
+    pattern = str(args.get("pattern", "*"))
+    try:
+        from tool_runtime.general_tools.shared import _workspace_path
+        ws_id = _inv_workspace(inv)
+        base = str(_workspace_path(ws_id, subdir))
+        full_pattern = os.path.join(base, pattern)
+        matches = sorted(g.glob(full_pattern, recursive=True))[:200]
+        rel = [os.path.relpath(m, base) for m in matches]
+        return {"ok": True, "files": rel, "count": len(rel), "directory": subdir}
+    except Exception as e:
+        return {"ok": False, "error": str(e)[:200]}
+
+
+def handle_file_delete(inv: ToolInvocation) -> dict:
+    """Soft-delete a file (move to .trash) (v3.9.7)."""
+    import shutil
+    from pathlib import Path
+    args = inv.arguments or {}
+    filepath = str(args.get("filepath", ""))
+    if not filepath:
+        return {"ok": False, "error": "filepath is required"}
+    try:
+        from tool_runtime.general_tools.shared import _workspace_path
+        ws_id = _inv_workspace(inv)
+        target = _workspace_path(ws_id, filepath)
+        base = _workspace_path(ws_id, "")
+        if not target.exists() or not target.is_file():
+            return {"ok": False, "error": f"File not found: {filepath}"}
+        trash = base / ".trash"
+        trash.mkdir(parents=True, exist_ok=True)
+        ts = int(time.time())
+        dest = trash / f"{Path(filepath).name}.{ts}"
+        shutil.move(target, dest)
+        return {"ok": True, "deleted": filepath, "trash_path": str(dest)}
+    except Exception as e:
+        return {"ok": False, "error": str(e)[:200]}
+
+
+def handle_data_filter(inv: ToolInvocation) -> dict:
+    """Filter rows by column conditions (v3.9.7)."""
+    import json
+    args = inv.arguments or {}
+    rows = args.get("rows", [])
+    conditions = args.get("conditions", {})
+    if not rows:
+        return {"ok": False, "error": "rows array is required"}
+    try:
+        cond = conditions if isinstance(conditions, dict) else json.loads(str(conditions))
+    except Exception:
+        return {"ok": False, "error": "conditions must be a JSON object"}
+    result = []
+    for row in rows:
+        if not isinstance(row, dict):
+            continue
+        match = all(str(row.get(k, "")) == str(v) for k, v in cond.items())
+        if match:
+            result.append(row)
+    return {"ok": True, "rows": result[:100], "filtered": len(rows) - len(result), "total": len(rows)}
+
+
+def handle_data_deduplicate(inv: ToolInvocation) -> dict:
+    """Deduplicate rows by a key column (v3.9.7)."""
+    args = inv.arguments or {}
+    rows = args.get("rows", [])
+    key = str(args.get("key", ""))
+    if not rows:
+        return {"ok": False, "error": "rows array is required"}
+    seen = set()
+    result = []
+    for row in rows:
+        if not isinstance(row, dict):
+            continue
+        k = str(row.get(key, "")) if key else str(row)
+        if k not in seen:
+            seen.add(k)
+            result.append(row)
+    return {"ok": True, "rows": result[:100], "removed": len(rows) - len(result), "total": len(rows)}
+
+
+def handle_report_render_html(inv: ToolInvocation) -> dict:
+    """Render content as basic HTML (v3.9.7)."""
+    import html
+    args = inv.arguments or {}
+    content = str(args.get("content", ""))[:20000]
+    title = str(args.get("title", "Report"))
+    body = html.escape(content).replace("\n", "<br>\n")
+    page = (
+        "<html><head><meta charset='utf-8'>"
+        f"<title>{html.escape(title)}</title></head><body>{body}</body></html>"
+    )
+    return {"ok": True, "html": page[:25000], "title": title}
+
+
+def handle_report_diff(inv: ToolInvocation) -> dict:
+    """Diff two artifacts (v3.9.7)."""
+    args = inv.arguments or {}
+    aid_a = str(args.get("artifact_id_a", ""))
+    aid_b = str(args.get("artifact_id_b", ""))
+    try:
+        ws_id = _inv_workspace(inv)
+        from tool_runtime.general_tools.file_tools import handle_artifact_read_content_safe
+        inv_a = ToolInvocation(arguments={"workspace_id": ws_id, "artifact_id": aid_a})
+        res_a = handle_artifact_read_content_safe(inv_a)
+        inv_b = ToolInvocation(arguments={"workspace_id": ws_id, "artifact_id": aid_b})
+        res_b = handle_artifact_read_content_safe(inv_b)
+        text_a = res_a.get("content", "") if isinstance(res_a, dict) else ""
+        text_b = res_b.get("content", "") if isinstance(res_b, dict) else ""
+        return {
+            "ok": True,
+            "artifact_a": {"id": aid_a, "size": len(text_a)},
+            "artifact_b": {"id": aid_b, "size": len(text_b)},
+            "same": text_a == text_b,
+        }
+    except Exception as e:
+        return {"ok": False, "error": str(e)[:200]}
+
+
+def _handler_cmdb_update_asset(inv: ToolInvocation) -> dict:
+    """Update an existing CMDB asset (v3.9.7)."""
+    args = inv.arguments or {}
+    asset_id = str(args.get("asset_id", ""))
+    if not asset_id:
+        return {"ok": False, "error": "asset_id is required for update"}
+    try:
+        from agent.modules.cmdb.service import get_asset, save_asset
+        ws_id = _inv_workspace(inv)
+        asset = get_asset(ws_id, asset_id, safe=False)
+        if not asset:
+            return {"ok": False, "error": f"Asset not found: {asset_id}"}
+        for key in ("name", "host", "vendor", "type", "protocol", "port", "username",
+                    "model", "region", "location", "description", "tags"):
+            if key in args and args[key] is not None:
+                asset[key] = args[key]
+        result = save_asset(ws_id, asset)
+        if not result.get("ok"):
+            return result
+        updated = get_asset(ws_id, asset_id, safe=True) or asset
+        return {"ok": True, "asset": updated, "updated": True}
+    except Exception as e:
+        return {"ok": False, "error": str(e)[:200]}
+
+
+def _handler_cmdb_export_assets(inv: ToolInvocation) -> dict:
+    """Export CMDB assets list (v3.9.7)."""
+    import json
+    args = inv.arguments or {}
+    fmt = str(args.get("format", "json")).lower()
+    try:
+        from agent.modules.cmdb.service import export_assets
+        result = _handler_cmdb_list_assets(inv)
+        assets = result.get("assets", []) if isinstance(result, dict) else []
+        if fmt == "csv":
+            return {"ok": True, "format": "csv", "data": export_assets(_inv_workspace(inv)), "count": len(assets)}
+        return {"ok": True, "format": "json", "data": json.dumps(assets, ensure_ascii=False), "count": len(assets)}
+    except Exception as e:
+        return {"ok": False, "error": str(e)[:200]}
+
+
 def _schema(properties: dict | None = None, required: list[str] | None = None) -> dict:
     return {
         "type": "object",
@@ -1193,8 +1548,8 @@ _RAW_REGISTRY: list[CanonicalToolEntry] = [
         input_schema=_schema({
             "workspace_id": _S["workspace_id"],
             "action": {"type": "string",
-                       "enum": ["shell", "python", "slash"],
-                       "description": "shell (default) | python | slash.",
+                       "enum": ["shell", "python", "slash", "background", "stream"],
+                       "description": "shell (default) | python | slash | background | stream.",
                        "default": "shell"},
             "target": {"type": "string", "enum": ["local", "ssh", "telnet"],
                        "default": "local",
@@ -1206,6 +1561,8 @@ _RAW_REGISTRY: list[CanonicalToolEntry] = [
             "host": {"type": "string"}, "port": {"type": "integer"},
             "username": {"type": "string"}, "password": {"type": "string"},
             "vendor": {"type": "string"},
+            "session_id": {"type": "string", "description": "[ssh] Reuse existing SSH session."},
+            "close_session": {"type": "boolean", "description": "[ssh] Close session after execution."},
             "working_dir": {"type": "string"},
             "env_vars": {"type": "object"},
             "timeout": {"type": "integer"},
@@ -1215,7 +1572,8 @@ _RAW_REGISTRY: list[CanonicalToolEntry] = [
         risk_level="high", permission_action="exec",
         description=(
             "Unified exec tool. action=shell (default; target=local|ssh|telnet, "
-            "shell=cmd|powershell), action=python (AST-sandboxed), action=slash (registered slash command). "
+            "shell=cmd|powershell), action=python (AST-sandboxed), action=slash (registered slash command), "
+            "action=background (async, returns job_id), action=stream (PTY streaming). "
             "All require approval. NEVER use for destructive commands (reload/erase/format/rm -rf). "
             "Do NOT store or expose credentials in output."
         ),
@@ -1253,11 +1611,11 @@ _RAW_REGISTRY: list[CanonicalToolEntry] = [
         handler=_adapt(_handle_device_merged),
         input_schema=_schema({
             "workspace_id": _S["workspace_id"],
-            "action": {"type": "string", "enum": ["list", "get", "add", "delete"]},
+            "action": {"type": "string", "enum": ["list", "get", "add", "delete", "update", "export"]},
             "search": {"type": "string", "description": "[list] Fuzzy search name/vendor/host/model."},
             "filter": {"type": "string", "description": '[list] JSON filter, e.g. {"type":"switch"}.'},
             "sort_by": {"type": "string", "description": "[list] Sort field."},
-            "asset_id": {"type": "string", "description": "[get|delete] Asset ID."},
+            "asset_id": {"type": "string", "description": "[get|delete|update] Asset ID."},
             "name": {"type": "string"}, "host": {"type": "string"},
             "type": {"type": "string", "enum": ["switch", "router", "firewall", "server", "other"],
                      "default": "switch"},
@@ -1265,10 +1623,13 @@ _RAW_REGISTRY: list[CanonicalToolEntry] = [
             "protocol": {"type": "string", "enum": ["ssh", "telnet"], "default": "ssh"},
             "port": {"type": "integer", "default": 22},
             "username": {"type": "string"},
+            "format": {"type": "string", "enum": ["json", "csv"], "default": "json",
+                       "description": "[export] Output format."},
         }, ["action"]),
         risk_level="medium", requires_approval=False,  # add/delete require approval at runtime
         description=(
-            "Unified CMDB device tool. action=list, get (reads); action=add, delete (writes, require approval). "
+            "Unified CMDB device tool. action=list, get (reads); "
+            "action=add, delete, update (writes, require approval); action=export (read). "
             "Do not fabricate assets; do not expose credentials."
         ),
     ),
@@ -1298,6 +1659,9 @@ _RAW_REGISTRY: list[CanonicalToolEntry] = [
         input_schema=_schema({
             "action": {"type": "string", "enum": ["search", "weather", "page"]},
             "query": {"type": "string", "description": "[search] Search query."},
+            "source": {"type": "string", "enum": ["general", "docs", "news"],
+                       "default": "general",
+                       "description": "[search] Search source: general web, vendor docs, or news."},
             "limit": _S["limit"],
             "recency": _S["recency"],
             "language": _S["language"],
@@ -1310,7 +1674,7 @@ _RAW_REGISTRY: list[CanonicalToolEntry] = [
             "title": _S["title"],
         }, ["action"]),
         description=(
-            "Unified web tool. action=search (web/docs/news), action=weather (forecast), "
+            "Unified web tool. action=search (source=general|docs|news), action=weather (forecast), "
             "action=page (summarize/extract_links/save_artifact)."
         ),
     ),
@@ -1320,14 +1684,16 @@ _RAW_REGISTRY: list[CanonicalToolEntry] = [
         canonical_tool_id="data.manage",
         handler=_adapt(_handle_data_merged),
         input_schema=_schema({
-            "action": {"type": "string", "enum": ["csv_summarize", "table_extract", "table_render", "validate"]},
+            "action": {"type": "string", "enum": ["csv_summarize", "table_extract", "table_render", "validate", "filter", "deduplicate"]},
             "text": _S["text"],
             "rows": {"type": "array"}, "headers": {"type": "array"},
             "format": {"type": "string", "enum": ["json", "yaml"], "default": "json",
                        "description": "[validate] Data format."},
+            "conditions": {"type": "object", "description": "[filter] Filter criteria, e.g. {\"column\":\"value\"}."},
+            "key": {"type": "string", "description": "[deduplicate] Column name to deduplicate by."},
         }, ["action"]),
         description=(
-            "Unified data tool. action=csv_summarize, table_extract, table_render, validate. "
+            "Unified data tool. action=csv_summarize, table_extract, table_render, validate, filter, deduplicate. "
             "Do not execute embedded code in user-supplied data."
         ),
     ),
@@ -1337,16 +1703,18 @@ _RAW_REGISTRY: list[CanonicalToolEntry] = [
         canonical_tool_id="report.manage",
         handler=_adapt(_handle_report_merged),
         input_schema=_schema({
-            "action": {"type": "string", "enum": ["markdown_render", "artifact_save", "safe_summary_render", "mermaid_render"]},
+            "action": {"type": "string", "enum": ["markdown_render", "artifact_save", "safe_summary_render", "mermaid_render", "html_render", "diff_report"]},
             "content": _S["content"],
             "title": _S["title"],
             "summary": {"type": "string", "description": "[safe_summary_render] Redacted summary."},
             "mermaid": {"type": "string", "description": "[mermaid_render] Mermaid source."},
             "workspace_id": _S["workspace_id"],
+            "artifact_id_a": {"type": "string", "description": "[diff_report] First artifact ID to compare."},
+            "artifact_id_b": {"type": "string", "description": "[diff_report] Second artifact ID to compare."},
         }, ["action"]),
         description=(
-            "Unified report tool. action=markdown_render, safe_summary_render, mermaid_render (reads); "
-            "action=artifact_save (write)."
+            "Unified report tool. action=markdown_render, safe_summary_render, mermaid_render, "
+            "html_render (reads); action=artifact_save (write); action=diff_report (compare)."
         ),
     ),
 
@@ -1494,7 +1862,8 @@ _RAW_REGISTRY: list[CanonicalToolEntry] = [
         input_schema=_schema({
             "workspace_id": _S["workspace_id"],
             "action": {"type": "string",
-                       "enum": ["diagnostics", "run_get", "session_get",
+                       "enum": ["diagnostics", "health", "selfcheck", "tasks", "audit_log",
+                                "run_get", "session_get",
                                 "session_checkpoint", "session_rewind", "session_export",
                                 "session_snapshot", "review_list", "review_update"]},
             "run_id": _S["run_id"],
@@ -1506,12 +1875,15 @@ _RAW_REGISTRY: list[CanonicalToolEntry] = [
             "format": _S["format"],
             "reason": _S["reason"],
             "review_id": {"type": "string"},
+            "log_level": {"type": "string", "enum": ["info", "warn", "error"],
+                          "default": "info", "description": "[audit_log] Minimum log level."},
         }, ["action"]),
         risk_level="medium",
         description=(
-            "Unified system introspection. action=diagnostics, run_get, session_get, "
-            "session_snapshot (reads); action=review_update, session_checkpoint, "
-            "session_export (writes); action=session_rewind (destructive, requires approval)."
+            "Unified system introspection. action=diagnostics, health, selfcheck, tasks, "
+            "audit_log, run_get, session_get, session_snapshot (reads); "
+            "action=review_update, session_checkpoint, session_export (writes); "
+            "action=session_rewind (destructive, requires approval)."
         ),
     ),
 
@@ -1521,12 +1893,16 @@ _RAW_REGISTRY: list[CanonicalToolEntry] = [
         handler=_adapt(_handle_text_analyze_merged),
         input_schema=_schema({
             "text": _S["text"],
-            "action": {"type": "string", "enum": ["redact", "diff", "keywords", "classify"],
+            "action": {"type": "string", "enum": ["redact", "diff", "keywords", "classify", "extract_entities", "regex"],
                        "default": "redact"},
             "text_b": {"type": "string", "description": "Second text for diff."},
+            "pattern": {"type": "string", "description": "[regex] Regular expression pattern."},
             "limit": _S["limit"],
         }, ["text"]),
-        description="Analyze text. action=redact, diff, keywords, classify.",
+        description=(
+            "Analyze text. action=redact, diff, keywords, classify, extract_entities (IP/MAC/VLAN), "
+            "regex (pattern match)."
+        ),
     ),
 
     # 16. code.search
@@ -1538,8 +1914,19 @@ _RAW_REGISTRY: list[CanonicalToolEntry] = [
             "directory": {"type": "string", "default": "."},
             "file_type": {"type": "string", "default": ""},
             "max_results": {"type": "integer", "default": 50},
+            "context_lines": {"type": "integer", "default": 2,
+                              "description": "Lines before/after each match."},
+            "output_mode": {"type": "string", "enum": ["content", "files_with_matches", "count"],
+                            "default": "content",
+                            "description": "content: show matching lines; files_with_matches: file paths; count: match counts."},
+            "case_sensitive": {"type": "boolean", "default": False},
+            "multiline": {"type": "boolean", "default": False,
+                          "description": "Enable multiline matching (dot matches newline)."},
         }, ["pattern"]),
-        description="Search codebase using ripgrep (fast) or Python fallback.",
+        description=(
+            "Search codebase using ripgrep (fast) or Python fallback. "
+            "Supports regex, context lines, and multiple output modes."
+        ),
     ),
 
     # 17. workspace.file
@@ -1549,9 +1936,11 @@ _RAW_REGISTRY: list[CanonicalToolEntry] = [
         input_schema=_schema({
             "workspace_id": _S["workspace_id"],
             "action": {"type": "string", "enum": ["list", "read", "read_image",
-                                                  "edit", "patch", "write_artifact"]},
-            "subdir": {"type": "string", "description": "[list] Workspace-relative subdirectory."},
+                                                  "edit", "patch", "write_artifact",
+                                                  "glob", "delete_file"]},
+            "subdir": {"type": "string", "description": "[list|glob] Workspace-relative subdirectory."},
             "filepath": _S["filepath"],
+            "pattern": {"type": "string", "description": "[glob] File pattern, e.g. **/*.py."},
             "limit": {"type": "integer", "default": 50000,
                       "description": "[read] Max chars to return."},
             "offset": {"type": "integer", "default": 0,
@@ -1567,8 +1956,8 @@ _RAW_REGISTRY: list[CanonicalToolEntry] = [
         }, ["action"]),
         permission_action="",
         description=(
-            "Unified workspace file tool. action=list, read, read_image (reads); "
-            "action=edit, patch, write_artifact (writes)."
+            "Unified workspace file tool. action=list, read, read_image, glob (reads); "
+            "action=edit, patch, write_artifact (writes); action=delete_file (delete)."
         ),
     ),
 

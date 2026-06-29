@@ -116,17 +116,11 @@ def build_capability_context_block(ctx) -> PromptBlock | None:
     business_caps = safe.get("business_capabilities") or safe.get("capability_catalog") or []
 
     lines = [
-        "Current execution model (v3.9.4):",
-        "- Business capability = guidance and recommended canonical tools only.",
-        "- Tool = callable adapter exposed through this turn's visible tool schemas.",
-        "- Module = implementation service, not directly called by the LLM.",
-        "- Do not call legacy, alias, removed, or non-visible tool ids.",
+        "Current execution model (v3.9.7):",
+        "- All 21 canonical tools are always visible. No catalog search needed.",
+        "- Each tool uses an `action` parameter to select sub-capabilities.",
+        "- Do not call legacy, alias, or removed tool ids.",
     ]
-
-    if selected_tools:
-        lines.append("")
-        lines.append("Visible canonical tools for this turn:")
-        lines.append(", ".join(str(t) for t in selected_tools[:40]))
 
     if business_caps:
         lines.append("")
@@ -138,7 +132,7 @@ def build_capability_context_block(ctx) -> PromptBlock | None:
         title="Capability Context",
         content="\n".join(lines),
         priority=30,
-        token_budget=900,
+        token_budget=600,
     )
 
 

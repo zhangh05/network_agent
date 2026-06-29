@@ -190,6 +190,19 @@ class MemoryWriteGate:
         if candidate.confidence < 0.3:
             candidate.status = "pending"
 
+        # 6b. Auto-confirm only explicit user/manual confirmations.
+        # Agent/LLM/subagent suggestions remain pending even when confidence is
+        # high; confidence is a ranking signal, not proof of durable truth.
+        _auto_confirm_types = {"operational_fact", "artifact_summary", "user_preference"}
+        _auto_sources = {"user", "manual_confirm"}
+        if (
+            candidate.status == "pending"
+            and candidate.memory_type in _auto_confirm_types
+            and candidate.confidence >= 0.7
+            and candidate.source in _auto_sources
+        ):
+            candidate.status = "active"
+
         warnings: list[dict] = []
 
         # 7. LLM-first quality gate for agent-generated memories.

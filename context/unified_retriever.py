@@ -383,6 +383,9 @@ class UnifiedRetriever:
             if len(results) >= top_k:
                 break
 
+        # Apply post-score boosts: recency, confirmation, frequency
+        results = self._apply_boosts(results)
+
         # Dedup by content similarity (Jaccard on tokens)
         results = self._dedup_results(results)
 
@@ -413,6 +416,54 @@ class UnifiedRetriever:
             "memory_hits": memory,
             "knowledge_hits": knowledge,
         }
+
+    @staticmethod
+    def _apply_boosts(results: list[dict]) -> list[dict]:
+        """Apply post-BM25 boosts: recency, confirmation.
+
+        v3.9.7: Time-weighted scoring ensures recent memories rank higher.
+        Confirmed/active memories get a confidence boost.
+
+        Note: frequency boost (access_count) is reserved for future use
+        when per-item access tracking is implemented on ContextStore.
+        """
+        if not results:
+            return results
+
+        now = time.time()
+        for hit in results:
+            boost = 1.0
+            score = hit.get("_score", 0.0)
+
+            # ── Recency boost (time decay) ──
+            created_at = hit.get("created_at", "")
+            if created_at:
+                try:
+                    age_s = now - _ts_to_epoch(created_at)
+                    if age_s <= 0 or age_s > 31536000:   # invalid or >1yr old
+                        pass
+                    elif age_s < 300:                     # < 5 min
+                        boost *= 2.0
+                    elif age_s < 3600:                    # < 1 hour
+                        boost *= 1.5
+                    elif age_s < 86400:                   # < 1 day
+                        boost *= 1.2
+                    elif age_s < 604800:                  # < 1 week
+                        boost *= 1.05
+                except Exception:
+                    pass
+
+            # ── Confirmation boost ──
+            status = str(hit.get("status", "")).lower()
+            if status in ("active", "confirmed"):
+                boost *= 1.3
+
+            hit["_boost"] = round(boost, 3)
+            hit["_score"] = round(score * boost, 4)
+
+        # Re-sort by boosted score
+        results.sort(key=lambda h: -h["_score"])
+        return results
 
     @staticmethod
     def _dedup_results(results: list[dict], threshold: float = 0.75) -> list[dict]:
@@ -447,6 +498,20 @@ class UnifiedRetriever:
                 kept_tokens.append(toks)
 
         return kept
+
+
+# ---------------------------------------------------------------------------
+# Helpers
+# ---------------------------------------------------------------------------
+
+def _ts_to_epoch(ts: str) -> float:
+    """Parse ISO 8601 timestamp to epoch seconds. Returns 0 on failure."""
+    import datetime
+    try:
+        ts = ts.replace("Z", "+00:00")
+        return datetime.datetime.fromisoformat(ts).timestamp()
+    except Exception:
+        return 0.0
 
 
 # ---------------------------------------------------------------------------

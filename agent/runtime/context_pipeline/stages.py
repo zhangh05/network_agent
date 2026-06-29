@@ -431,30 +431,11 @@ def _llm_safe_tool_scene(tool_scene: dict) -> dict:
     return safe
 
 def _core_tools_for_context(ctx: Any, rule_scene: dict) -> list[str]:
-    """Return minimal core tools that should remain visible for this turn.
+    """Return all canonical tools (v3.9.6: full baseline, no scene gating).
 
-    v3.9.2: 21-tool Codex-style set. Each scene-relevant group surfaces
-    one merged tool instead of several granular aliases.
+    This function is kept as a single place to seed the visible list
+    and will pick up any future additions to the canonical namespace
+    automatically.
     """
-    tools = ['skill.manage', 'workspace.file', 'workspace.artifact', 'workspace.filestore']
-    categories = set((rule_scene or {}).get('categories') or [])
-    groups = (rule_scene or {}).get('groups') or {}
-    user_input = getattr(ctx, 'user_input', '') or ''
-    lower = user_input.lower()
-    if 'web' in categories or groups.get('web') or any((k in lower for k in ('搜索', '官网', '最新', 'weather', '新闻'))):
-        tools.append('web.manage')
-    if 'host' in categories or groups.get('host'):
-        tools.extend(['exec.run', 'system.manage'])
-    if 'git' in categories or 'git' in lower:
-        tools.append('git.manage')
-    if 'device' in categories or groups.get('device'):
-        tools.append('device.manage')
-    if 'browser' in categories or groups.get('browser'):
-        tools.append('browser.manage')
-    if 'memory' in categories or groups.get('memory'):
-        tools.append('memory.manage')
-    if 'agent' in categories or groups.get('agent') or any((k in lower for k in ('子agent', '子 agent', 'subagent', 'sub agent', 'agent.spawn', '派发', '委托'))):
-        tools.append('agent.manage')
-    if 'code' in categories or '代码' in user_input or '源码' in user_input:
-        tools.append('code.search')
-    return list(dict.fromkeys(tools))
+    from tool_runtime.tool_namespace import ALL_TOOL_IDS
+    return list(ALL_TOOL_IDS)

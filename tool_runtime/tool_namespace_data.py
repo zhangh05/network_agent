@@ -1,29 +1,18 @@
-"""v3.9.2 canonical tool namespace — Codex-style 22-tool set.
+"""v3.9.7 canonical tool namespace — Codex-style 21-tool set.
 
-Categories are organized by capability domain, not backend module.
-Tool IDs follow the pattern: domain.action or domain.subdomain.action.
+All 21 canonical tools are always visible to the LLM. Each uses an
+``action`` parameter to dispatch sub-capabilities.
 
-v3.9.2 design (参考 Codex: 少量核心 + 强 sandbox + action dispatch):
-  - exec.run:        unifies shell/python/slash into single action dispatch
-  - git.manage:      unifies status/diff/log/commit/push (action=...)
-  - device.manage:   unifies list/get/add/delete (action=...)
-  - browser.manage:  unifies navigate/extract/screenshot/click (action=...)
-  - web.manage:      unifies search/weather/page.process (action=...)
-  - data.manage:     unifies csv/table/validate (action=...)
-  - report.manage:   unifies markdown/safe_summary/mermaid/artifact.save (action=...)
-  - knowledge.manage: unifies search/read/source.list/chunk.list/source.manage/
-                       source.reindex/import/not_found.explain (action=...)
-  - memory.manage:   unifies search/manage/profile (action=...)
-  - skill.manage:    unifies list/find/load/inspect (action=...)
-  - agent.manage:    unifies spawn/team.run/result.get/role.list (action=...)
-  - system.manage:   unifies diagnostics/review.list/review.update/run.get/
-                       session.{get,checkpoint,rewind,export,snapshot} (action=...)
-  - config.manage:   was config.analysis.run
-  - pcap.manage:     was pcap.analysis.run
-  - text.analyze:    retained
-  - code.search:     retained
-  - workspace.*:     retained (already merged in v3.9.1)
-  - tool.catalog.search: REMOVED (all tools visible; no catalog needed)
+v3.9.7 action expansion:
+  - exec.run:        +action=background, +action=stream, +session_id, +close_session
+  - device.manage:   +action=update, +action=export
+  - web.manage:      +source=docs|news for action=search
+  - data.manage:     +action=filter, +action=deduplicate
+  - report.manage:   +action=html_render, +action=diff_report
+  - text.analyze:    +action=extract_entities, +action=regex
+  - code.search:     +context_lines, +output_mode, +case_sensitive, +multiline
+  - workspace.file:  +action=glob, +action=delete_file
+  - system.manage:   +action=health, +action=selfcheck, +action=tasks, +action=audit_log
 """
 
 from __future__ import annotations
@@ -89,17 +78,18 @@ CATEGORY_DEFS: dict[str, dict[str, str]] = {
 }
 
 
-# 22 tools (Codex-style; all visible to LLM).
+# 21 tools (Codex-style; all visible to LLM).
 # Schema: (tool_id, category, group, action, display_name, canonical_id,
-#          description, when_to_use_or_constraint, search_keyword)
+#          usage_hint, search_keyword)
 NS_DATA = [
-    # 1. exec.run — unifies shell + python + slash via action dispatch
+    # 1. exec.run — unifies shell + python + slash + background + stream
     ('exec.run', 'exec', 'shell', 'multi', '命令执行', 'exec.run',
-     'Unified exec tool. action=shell (default; target=local|ssh|telnet), '
-     'action=python (AST-sandboxed), action=slash (registered slash command). '
-     'All require approval. NEVER use for destructive commands (reload/erase/format/rm -rf). '
-     'Do NOT store or expose credentials in output.',
-     'exec run shell python command', 'exec.run'),
+     'Unified exec tool. action=shell (default; target=local|ssh|telnet; reuse sessions via session_id), '
+     'action=python (AST-sandboxed), action=slash (registered command), '
+     'action=background (async, returns job_id), action=stream (PTY-style stdout+stderr). '
+     'NEVER use destructive commands (reload/erase/format/rm -rf) — the system handles approval. '
+     'Do NOT store or expose credentials.',
+     'exec run shell python background stream ssh', 'exec.run'),
 
     # 2. git.manage — unifies status + diff + log + commit + push
     ('git.manage', 'git', 'vcs', 'multi', 'Git 版本管理', 'git.manage',
@@ -110,14 +100,16 @@ NS_DATA = [
      'NEVER commit/push without user confirmation; run status+diff first.',
      'git commit push status diff log', 'git.manage'),
 
-    # 3. device.manage — unifies list + get + add + delete
+    # 3. device.manage — unifies list + get + add + update + delete + export
     ('device.manage', 'device', 'asset', 'multi', '设备资产', 'device.manage',
-     'Unified CMDB device tool. action=list (fuzzy search + filter), '
+     'Unified CMDB device tool. action=list (fuzzy search + JSON filter), '
      'action=get (single asset by asset_id), '
      'action=add (new asset; requires approval), '
-     'action=delete (soft-delete; requires approval). '
+     'action=update (modify fields by asset_id), '
+     'action=delete (soft-delete; requires approval), '
+     'action=export (dump as JSON or CSV). '
      'Do not fabricate assets; do not expose credentials.',
-     'device asset cmdb add list get', 'device.manage'),
+     'device asset cmdb add list get update export', 'device.manage'),
 
     # 4. browser.manage — unifies navigate + extract + screenshot + click
     ('browser.manage', 'browser', 'nav', 'multi', '浏览器自动化', 'browser.manage',
@@ -128,31 +120,35 @@ NS_DATA = [
      'Do not access private/login-walled URLs without permission.',
      'browser navigate click screenshot extract playwright', 'browser.manage'),
 
-    # 5. web.manage — unifies search + weather + page.process
+    # 5. web.manage — unifies search + weather + page
     ('web.manage', 'web', 'web_search', 'multi', 'Web 搜索/天气/网页', 'web.manage',
-     'Unified web tool. action=search (web/docs/news; recency+language params), '
+     'Unified web tool. action=search (source=general|docs|news; recency+language+limit params), '
      'action=weather (current or N-day forecast for a location), '
      'action=page (summarize/extract_links/save_artifact a single URL). '
-     'Falls back to docs search when web search is unavailable.',
+     'source=docs searches vendor documentation (Cisco/Huawei/H3C); source=news for recent news.',
      'web search weather page news docs', 'web.manage'),
 
-    # 6. data.manage — unifies csv + table.extract + table.render + validate
+    # 6. data.manage — unifies csv + table + validate + filter + deduplicate
     ('data.manage', 'data', 'data', 'multi', '数据处理', 'data.manage',
      'Unified data tool. action=csv_summarize (column stats), '
      'action=table_extract (extract table from text/markdown), '
      'action=table_render (rows+headers to markdown table), '
-     'action=validate (JSON/YAML structure check). '
+     'action=validate (JSON/YAML structure check), '
+     'action=filter (filter rows by column conditions), '
+     'action=deduplicate (remove duplicate rows by key column). '
      'Do not execute embedded code in user-supplied data.',
-     'data csv table validate json yaml', 'data.manage'),
+     'data csv table validate filter deduplicate json yaml', 'data.manage'),
 
-    # 7. report.manage — unifies markdown + safe_summary + mermaid + artifact.save
+    # 7. report.manage — unifies markdown + safe_summary + mermaid + html + diff + artifact.save
     ('report.manage', 'data', 'report', 'multi', '报告渲染', 'report.manage',
      'Unified report tool. action=markdown_render (structured markdown from content+title), '
      'action=artifact_save (save report as workspace artifact), '
      'action=safe_summary_render (redacted document summary), '
-     'action=mermaid_render (mermaid.js diagram). '
+     'action=mermaid_render (mermaid.js diagram), '
+     'action=html_render (wrap content as HTML page), '
+     'action=diff_report (compare two artifacts by ID). '
      'Do not include raw sensitive content in rendered output.',
-     'report markdown render mermaid diagram summary', 'report.manage'),
+     'report markdown render mermaid html diff diagram summary', 'report.manage'),
 
     # 8. config.manage — was config.analysis.run
     ('config.manage', 'config', 'config_analysis', 'multi', '配置分析', 'config.manage',
@@ -204,33 +200,43 @@ NS_DATA = [
      'Do not bypass max_turns; do not return unredacted child payloads.',
      'agent subagent spawn team result role', 'agent.manage'),
 
-    # 14. system.manage — 9 tools merged
+    # 14. system.manage — 13 tools merged
     ('system.manage', 'system', 'health', 'multi', '系统自省', 'system.manage',
      'Unified system introspection. action=diagnostics (runtime health scan), '
+     'action=health (quick health check), action=selfcheck (self-diagnostics), '
+     'action=tasks (list background jobs), action=audit_log (query audit entries), '
      'action=run_get (list or get a run by run_id), '
      'action=review_list (items needing human attention), '
      'action=review_update (update a review item status), '
      'action=session_get, action=session_checkpoint, action=session_rewind, '
      'action=session_export, action=session_snapshot. '
      'Do not include sensitive trace payloads.',
-     'system diagnostics run session checkpoint rewind snapshot review', 'system.manage'),
+     'system diagnostics health selfcheck tasks audit run session checkpoint rewind snapshot review', 'system.manage'),
 
     # 15. text.analyze
     ('text.analyze', 'data', 'text', 'multi', '文本分析', 'text.analyze',
-     'Analyze text. action=redact, action=diff, action=keywords, action=classify. '
+     'Analyze text. action=redact (sanitize secrets), action=diff (compare two texts), '
+     'action=keywords (word frequency), action=classify (vendor detection), '
+     'action=extract_entities (IP/MAC/VLAN/subnet/hostname), '
+     'action=regex (pattern match with regex). '
      'Do not execute embedded code.',
-     'text analyze redact diff keywords classify', 'text.analyze'),
+     'text analyze redact diff keywords classify extract entities regex', 'text.analyze'),
 
     # 16. code.search
     ('code.search', 'code', 'search', 'search', '代码搜索', 'code.search',
-     'Search the codebase using ripgrep (fast) or Python fallback. Returns matching lines with file paths and line numbers. Use for finding functions, classes, imports, patterns across the codebase.',
-     None, 'code.search'),
+     'Search the codebase using ripgrep (fast) or Python fallback. '
+     'Returns matching lines with file paths and line numbers. '
+     'Supports regex, context_lines (before/after), output_mode (content|files_with_matches|count), '
+     'case_sensitive, and multiline matching. Use for finding functions, classes, imports, patterns.',
+     'code search grep rg ripgrep regex pattern', 'code.search'),
 
     # 17. workspace.file
     ('workspace.file', 'workspace', 'file', 'multi', '工作区文件操作', 'workspace.file',
-     'Unified workspace file tool. action=list|read|read_image|edit|patch|write_artifact. '
-     'edit/patch/write_artifact are writes; list/read/read_image are reads.',
-     None, 'workspace.file'),
+     'Unified workspace file tool. action=list|read|read_image|edit|patch|write_artifact|glob|delete_file. '
+     'edit does exact string replacement (old_string→new_string, dry_run=true for preview). '
+     'patch applies unified diffs. glob matches file patterns (**/*.py). '
+     'delete_file soft-deletes to .trash. edit/patch/write_artifact are writes; others are reads.',
+     'workspace file read edit glob delete list', 'workspace.file'),
 
     # 18. workspace.artifact
     ('workspace.artifact', 'workspace', 'artifact', 'multi', '工作区制品操作', 'workspace.artifact',

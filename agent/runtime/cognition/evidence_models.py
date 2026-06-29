@@ -146,14 +146,50 @@ class EvidenceBundle:
 
 
 def _evidence_to_hit(item: EvidenceItem) -> dict[str, Any]:
-    """Convert an EvidenceItem to the retrieval-hit dict format."""
+    """Convert an EvidenceItem to a structured, LLM-friendly hit dict (v3.9.7).
+
+    Produces compact entries with a ``_meta`` annotation for quick scanning,
+    while still preserving key metadata fields for downstream use.
+    """
     hit: dict[str, Any] = {}
     if item.title:
         hit["title"] = item.title
     if item.content:
-        hit["content"] = item.content
+        hit["content"] = item.content[:500]
     if item.summary:
-        hit["summary"] = item.summary
+        hit["summary"] = item.summary[:200]
+
+    # ── Preserve key metadata fields (selective, not full merge) ──
+    meta = item.metadata or {}
+    for field in ("memory_id", "memory_type", "scope", "confirmation_status",
+                  "confidence", "tags"):
+        val = meta.get(field)
+        if val is not None and val != "":
+            hit[field] = val
+
+    # ── Build scannable annotation line ──
+    annotations = []
+    if item.source_type:
+        annotations.append(item.source_type)
+    if item.trust_level and item.trust_level != "untrusted":
+        annotations.append(f"trust={item.trust_level}")
+    if item.score:
+        annotations.append(f"score={item.score:.2f}")
+
+    mem_type = str(meta.get("memory_type", ""))
+    mem_status = str(meta.get("confirmation_status", "") or meta.get("status", ""))
+    mem_scope = str(meta.get("scope", ""))
+
+    if mem_type:
+        annotations.append(f"type={mem_type}")
+    if mem_status and mem_status != "active":
+        annotations.append(f"status={mem_status}")
+    if mem_scope and mem_scope != "workspace":
+        annotations.append(f"scope={mem_scope}")
+
+    if annotations:
+        hit["_meta"] = " | ".join(annotations)
+
     if item.source_id:
         hit["source_id"] = item.source_id
     if item.chunk_id:
@@ -164,5 +200,4 @@ def _evidence_to_hit(item: EvidenceItem) -> dict[str, Any]:
         hit["score"] = item.score
     if item.source_type:
         hit["source_type"] = item.source_type
-    hit.update(item.metadata)
     return hit

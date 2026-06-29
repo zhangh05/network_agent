@@ -15,7 +15,7 @@ from typing import Any
 # v3.9.4: the planner resolves tools directly from TOOL_NAMESPACE.
 # Business capabilities are descriptive guidance only; they are not a
 # dispatch layer, permission layer, or visibility gate.
-from tool_runtime.tool_namespace import TOOL_NAMESPACE, get_namespace_entry
+from tool_runtime.tool_namespace import TOOL_NAMESPACE, ALL_TOOL_IDS, get_namespace_entry
 
 
 def tools_for_action(action_id: str, *, available=None, **_) -> list[str]:
@@ -38,16 +38,16 @@ from agent.runtime.tool_planning.chain_builder import (
 )
 from agent.runtime.tool_planning.scene_adapter import scene_to_rule_scene
 from agent.runtime.tool_planning.validation import validate_tool_plan
-from agent.runtime.tool_planning.visibility import (
-    BASELINE_READ_TOOLS,
-    LOCAL_OPS_TOOLS,
-    _ordered_unique,
-    action_class_filter,
-    available_canonical_tools,
-    build_visibility_metadata,
-    governance_filtered_tools,
-    scene_allows_local_ops,
-)
+
+
+def _ordered_unique(items) -> list[str]:
+    seen: set[str] = set()
+    result: list[str] = []
+    for item in items:
+        if item and item not in seen:
+            seen.add(item)
+            result.append(item)
+    return result
 
 
 PLANNER_VERSION = "v2.4"
@@ -120,7 +120,7 @@ class ToolPlannerV2:
         )
 
         # Validate
-        available = available_canonical_tools(available_catalog)
+        available = set(ALL_TOOL_IDS)
         valid, messages = validate_tool_plan(plan, available, user_input=scene.user_input)
 
         # Evidence-aware adjustments
@@ -197,7 +197,7 @@ def plan_tools(
     if mode not in {"deterministic", "llm", "hybrid"}:
         mode = "hybrid"
 
-    available = available_canonical_tools(available_catalog)
+    available = set(ALL_TOOL_IDS)
     seed = deterministic_plan_tools(user_input, safe_context, rule_scene, available_catalog)
     seed_valid, seed_messages = validate_tool_plan(seed, available, user_input=user_input)
     if not seed_valid:
@@ -236,8 +236,12 @@ def deterministic_plan_tools(
     rule_scene: dict,
     available_catalog: dict,
 ) -> dict:
-    """Build a minimal deterministic plan from the rule_scene chain."""
-    available = available_canonical_tools(available_catalog)
+    """Build a deterministic plan with ALL tools visible (v3.9.6).
+
+    No scene gating, no action_class filtering, no governance layer.
+    The capability_steps are kept for audit / tool_plan display but
+    do not restrict the candidate set.
+    """
     safe_context = safe_context or {}
     capability_steps = _capability_steps_from_rule_scene(user_input, rule_scene)
     steps: list[dict[str, Any]] = []
@@ -249,8 +253,8 @@ def deterministic_plan_tools(
 
     for capability_step in capability_steps:
         action_id = capability_step["capability_action"]
-        raw_tools = tools_for_action(action_id, include_fallback=True, available=available)
-        tools = governance_filtered_tools(raw_tools, filtered)
+        raw_tools = [action_id] if action_id in TOOL_NAMESPACE else []
+        tools = [t for t in raw_tools if t in TOOL_NAMESPACE]
         if not tools:
             continue
         step_no = len(steps) + 1
@@ -269,10 +273,8 @@ def deterministic_plan_tools(
     capability_steps = [step for step in capability_steps if step.get("preferred_tools")]
 
     if not steps:
-        tools = governance_filtered_tools(
-            list(rule_scene.get("candidate_tools", [])),
-            filtered,
-        )[:5]
+        raw = list(rule_scene.get("candidate_tools", []))[:5]
+        tools = [t for t in raw if t in TOOL_NAMESPACE]
         if tools:
             action_id = action_for_tool_set(tools)
             steps.append({
@@ -290,61 +292,12 @@ def deterministic_plan_tools(
                 "preferred_tools": tools,
             }]
 
-    candidate_tools = _ordered_unique(
-        tid
-        for step in steps
-        for tid in step.get("tool_candidates", [])
-    )
-    candidate_tools = action_class_filter(candidate_tools, rule_scene)
-
-    local_ops_enabled = scene_allows_local_ops(rule_scene, user_input)
-    baseline_tools = list(BASELINE_READ_TOOLS)
-    if local_ops_enabled:
-        baseline_tools.extend(LOCAL_OPS_TOOLS)
-    else:
-        filtered["local_ops_filtered"].extend([tid for tid in LOCAL_OPS_TOOLS if tid in available])
-
-    candidate_tools = _ordered_unique([*candidate_tools, *baseline_tools])
-    # BASELINE_READ_TOOLS must always be visible regardless of catalog
-    # filtering — the catalog is a routing optimization, not a gatekeeper.
-    # Without this, baseline tools (exec.run, web.*, etc.) get
-    # silently dropped because they're absent from the catalog.
-    baseline_set = set(baseline_tools)
-    candidate_tools = governance_filtered_tools(
-        [tid for tid in candidate_tools if tid in available or tid in baseline_set],
-        filtered,
-    )
-
-    if not local_ops_enabled:
-        _local_ops_set = set(LOCAL_OPS_TOOLS)
-        _stripped = [t for t in candidate_tools if t in _local_ops_set]
-        candidate_tools = [t for t in candidate_tools if t not in _local_ops_set]
-        if _stripped:
-            filtered.setdefault("local_ops_filtered", [])
-            filtered["local_ops_filtered"].extend(_stripped)
-            filtered["local_ops_filtered"] = _ordered_unique(filtered["local_ops_filtered"])
-
-    _has_config_tools = {"config.manage"} & set(candidate_tools)  # v3.9.2
-    # v3.9.1.1: merged workspace.file replaces the old granular aliases
-    _has_file_tools = {"workspace.file"} & set(candidate_tools)
-    if _has_config_tools and not _has_file_tools:
-        candidate_tools = _ordered_unique(["workspace.file", *candidate_tools])
-
-    needs_clarification = _needs_file_clarification(user_input, safe_context, rule_scene)
-
-    if needs_clarification and not {"workspace.file"} & set(candidate_tools):
-        candidate_tools = _ordered_unique(["workspace.file", *candidate_tools])
+    # All tools are always in the candidate set
+    candidate_tools = _ordered_unique(list(ALL_TOOL_IDS))
 
     categories, groups = categories_groups_from_tools(candidate_tools, rule_scene)
     primary = rule_scene.get("primary_category") or rule_scene.get("category") or (categories[0] if categories else "web")
     group = rule_scene.get("group") or (groups.get(primary) or ["general"])[0]
-    visibility_meta = build_visibility_metadata(
-        rule_scene=rule_scene,
-        candidate_tools=candidate_tools,
-        baseline_tools=baseline_tools,
-        local_ops_enabled=local_ops_enabled,
-        filtered=filtered,
-    )
     plan = {
         "planner_version": PLANNER_VERSION,
         "mode": "deterministic",
@@ -355,10 +308,17 @@ def deterministic_plan_tools(
         "capability_plan": capability_steps,
         "tool_plan": steps,
         "governance": filtered,
-        "visibility": visibility_meta,
-        "needs_clarification": needs_clarification,
-        "clarifying_question": "请提供要分析的配置文件路径，或先上传配置文件。" if needs_clarification else "",
-        "reason": rule_scene.get("reason", "deterministic planner from rule_scene"),
+        "visibility": {
+            "scene": primary,
+            "reason": rule_scene.get("reason", ""),
+            "candidate_count": len(candidate_tools),
+            "local_ops_enabled": True,   # v3.9.7: all tools always visible
+            "visible_tools": list(candidate_tools),
+            "filtered": {},
+        },
+        "needs_clarification": False,
+        "clarifying_question": "",
+        "reason": rule_scene.get("reason", "deterministic planner: all tools visible (v3.9.6)"),
         "category": primary,
         "group": group,
     }
@@ -388,7 +348,7 @@ def llm_plan_tools(
         if not runtime:
             return None
 
-        available = available_canonical_tools(available_catalog)
+        available = set(ALL_TOOL_IDS)
         seed_tools = seed_plan.get("candidate_tools", [])
         seed_steps = seed_plan.get("tool_plan", [])
 

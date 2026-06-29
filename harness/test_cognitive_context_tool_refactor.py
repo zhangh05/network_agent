@@ -257,18 +257,13 @@ class TestPromptCompiler:
 # ── E. Current module boundaries ────────────────────────────────────
 
 class TestCurrentModuleBoundaries:
-    def test_new_visibility_canonical(self):
-        """Canonical path exports the policy constants."""
-        from agent.runtime.tool_planning.visibility import (
-            BASELINE_READ_TOOLS,
-            LOCAL_OPS_TOOLS,
-            scene_allows_local_ops,
-            build_visibility_metadata,
-        )
-        assert isinstance(BASELINE_READ_TOOLS, list)
-        assert isinstance(LOCAL_OPS_TOOLS, list)
-        assert callable(scene_allows_local_ops)
-        assert callable(build_visibility_metadata)
+    def test_all_tool_ids_constant(self):
+        """ALL_TOOL_IDS is the single-source constant for full tool visibility."""
+        from tool_runtime.tool_namespace import ALL_TOOL_IDS
+        assert isinstance(ALL_TOOL_IDS, list)
+        assert len(ALL_TOOL_IDS) >= 18
+        assert "exec.run" in ALL_TOOL_IDS
+        assert "browser.manage" in ALL_TOOL_IDS
 
     def test_validation_canonical(self):
         """validate_tool_plan is importable from new path."""
@@ -276,31 +271,13 @@ class TestCurrentModuleBoundaries:
         assert callable(validate_tool_plan)
 
 
-# ── F. Local ops exposed for explicit host scenes ────────────────────
+# ── F. All tools always visible (v3.9.6) ────────────────────────────
 
-class TestLocalOpsExposure:
-    def test_local_ops_true_for_host_request(self):
-        from agent.runtime.tool_planning.visibility import scene_allows_local_ops
-        assert scene_allows_local_ops({}, "查看本机IP") is True
-
-    def test_local_ops_false_for_translate(self):
-        from agent.runtime.tool_planning.visibility import scene_allows_local_ops
-        assert scene_allows_local_ops({}, "翻译这段配置") is False
-
-    def test_baseline_includes_read_and_web_only(self):
-        """BASELINE: read/discovery + web + exec.run (always visible).
-        Other local exec tools stay scene-gated via LOCAL_OPS_TOOLS."""
-        from agent.runtime.tool_planning.visibility import BASELINE_READ_TOOLS
-        assert "exec.run" in BASELINE_READ_TOOLS
-        assert "web.manage" in BASELINE_READ_TOOLS
-
-    def test_local_ops_contains_host_tools(self):
-        """LOCAL_OPS_TOOLS: scene-gated host tools. v3.9.2: exec.run is
-        in BASELINE_READ_TOOLS (always visible), and LOCAL_OPS_TOOLS
-        is now [system.manage] (the only remaining scene-gated host tool)."""
-        from agent.runtime.tool_planning.visibility import LOCAL_OPS_TOOLS
-        assert "exec.run" not in LOCAL_OPS_TOOLS
-        assert "system.manage" in LOCAL_OPS_TOOLS
+class TestAllToolsVisible:
+    def test_all_tools_in_canonical_set(self):
+        """Every tool in TOOL_NAMESPACE is in ALL_TOOL_IDS."""
+        from tool_runtime.tool_namespace import TOOL_NAMESPACE, ALL_TOOL_IDS
+        assert set(ALL_TOOL_IDS) == set(TOOL_NAMESPACE)
 
     def test_scene_decision_host_signals(self):
         """decide_scene should detect host signals correctly."""
@@ -499,8 +476,8 @@ class TestRefactorArchitecture:
     def test_tool_planning_no_old_tool_planner_import(self):
         """No module under tool_planning/ should import from agent.runtime.tool_planner."""
         import inspect
-        from agent.runtime.tool_planning import planner, chain_builder, visibility, validation
-        for mod in (planner, chain_builder, visibility, validation):
+        from agent.runtime.tool_planning import planner, chain_builder, validation
+        for mod in (planner, chain_builder, validation):
             source = inspect.getsource(mod)
             assert "agent.runtime.tool_planner" not in source, \
                 f"{mod.__name__} still references agent.runtime.tool_planner"

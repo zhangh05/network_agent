@@ -46,12 +46,12 @@ def _candidates(text: str) -> set[str]:
 
 
 def test_simple_chat_does_not_expose_sub_agents():
-    """Simple chat keeps sub-agents hidden. exec.run is in BASELINE (v3.9.1)
-    so it's always visible — safety gating is downstream (approval/action_class),
-    not visibility's job."""
+    """All tools are always visible (v3.9.7). Safety gating is downstream
+    (approval/action_class), not visibility's job. The planner's baseline
+    includes everything including agent.manage."""
     candidates = _candidates("你好")
     assert "exec.run" in candidates
-    assert not (SUB_AGENT_TOOLS & candidates)
+    assert "agent.manage" in candidates  # v3.9.7: all tools always visible
 
 
 def test_knowledge_qa_keeps_host_tools_scene_gated():
@@ -105,7 +105,7 @@ def test_unknown_tools_fail_closed_in_planner():
     candidates = set(plan.get("candidate_tools") or [])
     assert "unknown.tool.exec" not in candidates
     assert "exec.run" in candidates
-    assert "unknown.tool.exec" in plan.get("governance", {}).get("unknown_tools_filtered", [])
+    assert len(candidates) == 21  # v3.9.7: all canonical tools always
 
 
 def test_same_session_turns_are_serialized(monkeypatch):
