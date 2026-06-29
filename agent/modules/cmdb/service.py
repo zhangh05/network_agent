@@ -3,7 +3,11 @@
 
 from __future__ import annotations
 
+import base64
+import hashlib
 import json
+import os
+import secrets
 import csv
 import io
 import threading
@@ -67,6 +71,8 @@ def save_asset(workspace_id: str, asset: dict) -> dict:
                 continue  # 编辑自己，不冲突
             return {"ok": False, "error": f"资产冲突：{host}:{port} 已存在 ({existing.get('name', 'unknown')})"}
 
+    existing_asset = get_asset(workspace_id, incoming_asset_id, safe=False) if incoming_asset_id else None
+
     record = {
         "asset_id": str(asset.get("asset_id") or str(uuid.uuid4())[:12]),
         "name": name,
@@ -84,6 +90,11 @@ def save_asset(workspace_id: str, asset: dict) -> dict:
         "created_at": str(asset.get("created_at") or _now()),
         "updated_at": _now(),
     }
+    raw_password = str(asset.get("password") or "")
+    if raw_password:
+        record["password_secret"] = _seal_secret(workspace_id, raw_password)
+    elif existing_asset and existing_asset.get("password"):
+        record["password_secret"] = _seal_secret(workspace_id, str(existing_asset["password"]))
     path = _db_dir(workspace_id) / "assets.jsonl"
     _cmdb_lock = _get_cmdb_lock(path)
     with _cmdb_lock:
@@ -140,8 +151,12 @@ def get_asset(workspace_id: str, asset_id: str, *, safe: bool = True) -> dict | 
             if d.get("asset_id") == asset_id:
                 if d.get("deleted"):
                     return None
+                password = _record_password(workspace_id, d)
+                d.pop("password_secret", None)
                 if safe:
                     d.pop("password", None)
+                elif password:
+                    d["password"] = password
                 return d
         except json.JSONDecodeError:
             continue
@@ -224,6 +239,7 @@ def _load_all(workspace_id: str) -> list[dict]:
                 continue
             if aid not in deleted:
                 d.pop("password", None)
+                d.pop("password_secret", None)
                 assets[aid] = d
         except json.JSONDecodeError:
             continue
@@ -272,6 +288,65 @@ def _sort_assets(assets: list[dict], sort_by: str) -> list[dict]:
     return sorted(assets, key=lambda a: (a.get(key) or "").lower())
 
 
-def _obfuscate(s: str) -> str:
-    import base64
-    return base64.b64encode(str(s).encode()).decode()
+def _record_password(workspace_id: str, record: dict) -> str:
+    secret = str(record.get("password_secret") or "")
+    if secret:
+        return _open_secret(workspace_id, secret)
+    legacy = record.get("password")
+    return _decode_legacy_password(str(legacy or ""))
+
+
+def _seal_secret(workspace_id: str, value: str) -> str:
+    if not value:
+        return ""
+    nonce = secrets.token_bytes(16)
+    plaintext = value.encode("utf-8")
+    stream = _secret_stream(workspace_id, nonce, len(plaintext))
+    cipher = bytes(a ^ b for a, b in zip(plaintext, stream))
+    payload = nonce + cipher
+    return "cmdb:v1:" + base64.urlsafe_b64encode(payload).decode("ascii")
+
+
+def _open_secret(workspace_id: str, sealed: str) -> str:
+    try:
+        if sealed.startswith("cmdb:v1:"):
+            payload = base64.urlsafe_b64decode(sealed.split(":", 2)[2].encode("ascii"))
+            nonce, cipher = payload[:16], payload[16:]
+            stream = _secret_stream(workspace_id, nonce, len(cipher))
+            return bytes(a ^ b for a, b in zip(cipher, stream)).decode("utf-8")
+        return base64.b64decode(sealed.encode("ascii")).decode("utf-8")
+    except Exception:
+        return ""
+
+
+def _decode_legacy_password(value: str) -> str:
+    if not value:
+        return ""
+    try:
+        decoded = base64.b64decode(value.encode("ascii"), validate=True).decode("utf-8")
+        if decoded and all(ch.isprintable() for ch in decoded):
+            return decoded
+    except Exception:
+        pass
+    return value
+
+
+def _secret_stream(workspace_id: str, nonce: bytes, length: int) -> bytes:
+    key = _workspace_secret_key(workspace_id)
+    chunks: list[bytes] = []
+    counter = 0
+    while sum(len(c) for c in chunks) < length:
+        chunks.append(hashlib.sha256(key + nonce + counter.to_bytes(4, "big")).digest())
+        counter += 1
+    return b"".join(chunks)[:length]
+
+
+def _workspace_secret_key(workspace_id: str) -> bytes:
+    path = _db_dir(workspace_id) / ".cmdb_secret_key"
+    if not path.exists():
+        path.write_text(secrets.token_urlsafe(48), encoding="utf-8")
+        try:
+            os.chmod(path, 0o600)
+        except OSError:
+            pass
+    return hashlib.sha256(path.read_text(encoding="utf-8").encode("utf-8")).digest()

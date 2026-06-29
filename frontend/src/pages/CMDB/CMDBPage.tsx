@@ -119,7 +119,7 @@ export function CMDBPage() {
       username: fv.username,
       region, location: fv.location, description: fv.description,
     };
-    if (!editingAsset && fv.password) payload.password = fv.password;
+    if (fv.password) payload.password = fv.password;
     await apiRequest({
       method: "POST", url: "/cmdb/assets",
       data: payload,
@@ -277,7 +277,7 @@ export function CMDBPage() {
         {/* ── 全局终端 ── */}
         {globalTerm && <RemoteTerminal onClose={() => setGlobalTerm(false)} />}
         {termAsset && <RemoteTerminal onClose={() => setTermAsset(null)}
-          initial={{ host: termAsset.host, port: termAsset.port, protocol: termAsset.protocol,
+          initial={{ asset_id: termAsset.asset_id, host: termAsset.host, port: termAsset.port, protocol: termAsset.protocol,
             vendor: termAsset.vendor, username: termAsset.username, password: "" }} />}
 
         {/* ── 新增/编辑弹窗 ── */}

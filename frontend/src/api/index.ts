@@ -237,12 +237,12 @@ export const workspacesApi = {
 export const runtimeApi = {
   summary: (signal?: AbortSignal): Promise<RuntimeSummary> =>
     apiRequest<RuntimeSummary>({ method: "GET", url: "/runtime/summary" }, signal),
-  health: (signal?: AbortSignal) =>
+  health: (workspace_id: string, signal?: AbortSignal) =>
     apiRequest<Record<string, unknown>>(
-      { method: "GET", url: "/runtime/health" }, signal),
-  selfcheck: (signal?: AbortSignal) =>
+      { method: "GET", url: "/runtime/health", params: { workspace_id } }, signal),
+  selfcheck: (workspace_id: string, signal?: AbortSignal) =>
     apiRequest<Record<string, unknown>>(
-      { method: "GET", url: "/runtime/selfcheck" }, signal),
+      { method: "GET", url: "/runtime/selfcheck", params: { workspace_id } }, signal),
 };
 
 export const jobsApi = {
@@ -891,7 +891,7 @@ export function openApprovalStream(workspaceId: string, onEvent: (e: { kind: str
 
 export const agentUsageApi = {
   /** GET /api/agent/usage — returns flat fields (no .usage wrapper) */
-  get: (signal?: AbortSignal) =>
+  get: (workspace_id: string, signal?: AbortSignal) =>
     apiRequest<{
       ok: boolean;
       input_tokens: number;
@@ -900,7 +900,7 @@ export const agentUsageApi = {
       estimated_cost: number;
       call_count: number;
       last_updated: string;
-    }>({ method: "GET", url: "/agent/usage" }, signal),
+    }>({ method: "GET", url: "/agent/usage", params: { workspace_id } }, signal),
 };
 
 export const reportsApi = {

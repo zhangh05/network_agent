@@ -16,6 +16,7 @@ MANIFESTS: dict[str, CapabilityManifest] = {
         tool_id="exec.run", category="exec", display_name="Shell / Python / Slash",
         description=(
             "Unified exec tool. action=shell (default; target=local|ssh|telnet), "
+            "use asset_id for saved devices so credentials stay server-side. "
             "action=python (AST-sandboxed), action=slash (registered slash command). "
             "Per-command approval triggered by RiskPolicy for dangerous patterns."
         ),

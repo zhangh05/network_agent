@@ -98,6 +98,7 @@ def tool_add_asset(workspace_id: str = "default", name: str = "", host: str = ""
             "name": name.strip(), "host": host.strip(), "type": type,
             "vendor": vendor.strip(), "model": model.strip(),
             "protocol": protocol, "port": port, "username": username,
+            "password": password,
             "location": location.strip(),
             "description": description.strip(),
         })

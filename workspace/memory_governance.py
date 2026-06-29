@@ -173,6 +173,13 @@ class MemoryWriteGate:
             return {"ok": False, "status": "rejected", "memory_id": candidate.memory_id,
                     "rejected": True, "error": "content contains secret-like patterns, rejected",
                     "gate_mode": gate_mode}
+        if _is_low_value_memory(candidate):
+            candidate.status = "rejected"
+            candidate.redacted = True
+            self.store.save(candidate)
+            return {"ok": False, "status": "rejected", "memory_id": candidate.memory_id,
+                    "rejected": True, "error": "low_value_memory",
+                    "gate_mode": gate_mode}
 
         # 3. Redaction
         candidate.content = _redact(candidate.content)
@@ -298,6 +305,24 @@ def _contains_secret_pattern(text: str) -> bool:
         for p in patterns:
             if re.search(p, text): return True
         return False
+
+
+def _is_low_value_memory(record: MemoryRecord) -> bool:
+    text = " ".join([record.summary or "", record.content or ""]).strip().lower()
+    if not text:
+        return True
+    if record.memory_type == "task_pattern":
+        import re
+        generic_task_patterns = [
+            r"task\s+'?[\w\-]+'?\s+completed\s+successfully",
+            r"task completed successfully",
+            r"result:\s*search completed successfully",
+        ]
+        if any(re.search(p, text) for p in generic_task_patterns):
+            return True
+    if len(text) < 12 and record.source in ("agent_suggestion", "task", "subagent"):
+        return True
+    return False
 
 def _llm_gate_record(record: MemoryRecord) -> tuple[bool, list[dict]]:
     """Run LLM quality gate on a single memory record.

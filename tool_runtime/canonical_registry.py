@@ -852,6 +852,7 @@ def _handler_network_ssh(inv: ToolInvocation) -> dict:
     from agent.modules.remote.core import ssh_connect, exec_command, disconnect, get_session
 
     args = inv.arguments or {}
+    asset_id = str(args.get("asset_id", "")).strip()
     host = str(args.get("host", "")).strip()
     port = _safe_int(args.get("port"), 22)
     username = str(args.get("username", "")).strip()
@@ -861,6 +862,20 @@ def _handler_network_ssh(inv: ToolInvocation) -> dict:
     session_id = str(args.get("session_id", "")).strip()
     close_session = bool(args.get("close_session", False))
     sudo = bool(args.get("sudo", False))
+
+    if asset_id:
+        try:
+            from agent.modules.cmdb.service import get_asset
+            asset = get_asset(_inv_workspace(inv), asset_id, safe=False)
+            if not asset:
+                return {"ok": False, "error": f"asset_not_found: {asset_id}"}
+            host = str(asset.get("host") or host).strip()
+            port = _safe_int(asset.get("port") or port, 22)
+            username = str(asset.get("username") or username).strip()
+            password = str(asset.get("password") or password)
+            vendor = str(asset.get("vendor") or vendor or "generic").strip()
+        except Exception as exc:
+            return {"ok": False, "error": f"asset_resolve_failed: {str(exc)[:120]}"}
 
     # Close session request
     if session_id and (close_session or not command):
@@ -956,6 +971,7 @@ def _handler_network_telnet(inv: ToolInvocation) -> dict:
     from agent.modules.remote.core import telnet_connect, exec_command, disconnect, get_session
 
     args = inv.arguments or {}
+    asset_id = str(args.get("asset_id", "")).strip()
     host = str(args.get("host", "")).strip()
     port = _safe_int(args.get("port"), 23)
     username = str(args.get("username", "")).strip()
@@ -964,6 +980,20 @@ def _handler_network_telnet(inv: ToolInvocation) -> dict:
     vendor = str(args.get("vendor", "generic")).strip()
     session_id = str(args.get("session_id", "")).strip()
     close_session = bool(args.get("close_session", False))
+
+    if asset_id:
+        try:
+            from agent.modules.cmdb.service import get_asset
+            asset = get_asset(_inv_workspace(inv), asset_id, safe=False)
+            if not asset:
+                return {"ok": False, "error": f"asset_not_found: {asset_id}"}
+            host = str(asset.get("host") or host).strip()
+            port = _safe_int(asset.get("port") or port, 23)
+            username = str(asset.get("username") or username).strip()
+            password = str(asset.get("password") or password)
+            vendor = str(asset.get("vendor") or vendor or "generic").strip()
+        except Exception as exc:
+            return {"ok": False, "error": f"asset_resolve_failed: {str(exc)[:120]}"}
 
     # Close session
     if session_id and (close_session or not command):
@@ -1559,6 +1589,7 @@ _RAW_REGISTRY: list[CanonicalToolEntry] = [
             "command": {"type": "string", "description": "[shell] Shell command to execute."},
             "code": {"type": "string", "description": "[python] Python code (AST-sandboxed)."},
             "host": {"type": "string"}, "port": {"type": "integer"},
+            "asset_id": {"type": "string", "description": "[ssh|telnet] Resolve host/user/password from CMDB asset without exposing credentials."},
             "username": {"type": "string"}, "password": {"type": "string"},
             "vendor": {"type": "string"},
             "session_id": {"type": "string", "description": "[ssh] Reuse existing SSH session."},
@@ -1623,6 +1654,7 @@ _RAW_REGISTRY: list[CanonicalToolEntry] = [
             "protocol": {"type": "string", "enum": ["ssh", "telnet"], "default": "ssh"},
             "port": {"type": "integer", "default": 22},
             "username": {"type": "string"},
+            "password": {"type": "string", "description": "[add] Optional saved credential; never returned by get/list/export."},
             "format": {"type": "string", "enum": ["json", "csv"], "default": "json",
                        "description": "[export] Output format."},
         }, ["action"]),

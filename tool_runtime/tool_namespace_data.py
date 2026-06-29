@@ -85,6 +85,7 @@ NS_DATA = [
     # 1. exec.run — unifies shell + python + slash + background + stream
     ('exec.run', 'exec', 'shell', 'multi', '命令执行', 'exec.run',
      'Unified exec tool. action=shell (default; target=local|ssh|telnet; reuse sessions via session_id), '
+     'use asset_id for saved devices so credentials stay server-side; '
      'action=python (AST-sandboxed), action=slash (registered command), '
      'action=background (async, returns job_id), action=stream (PTY-style stdout+stderr). '
      'NEVER use destructive commands (reload/erase/format/rm -rf) — the system handles approval. '

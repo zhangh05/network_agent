@@ -16,11 +16,32 @@ from agent.modules.remote.vendors import list_vendors, get_profile
 
 def connect_device(workspace_id: str, host: str, port: int, protocol: str,
                    username: str, password: str, vendor: str = "",
-                   device_name: str = "") -> dict:
+                   device_name: str = "", asset_id: str = "", device_id: str = "") -> dict:
     """Connect to a network device.
 
     Returns: {ok, session_id, host, banner_snippet}
     """
+    resolved = _resolve_connection_profile(
+        workspace_id=workspace_id,
+        host=host,
+        port=port,
+        protocol=protocol,
+        username=username,
+        password=password,
+        vendor=vendor,
+        asset_id=asset_id,
+        device_id=device_id,
+    )
+    if not resolved.get("ok"):
+        return resolved
+
+    host = resolved["host"]
+    port = int(resolved["port"])
+    protocol = resolved["protocol"]
+    username = resolved["username"]
+    password = resolved["password"]
+    vendor = resolved["vendor"]
+
     sid = f"dev_{int(time.time() * 1000)}_{host.replace('.', '_')}"
 
     try:
@@ -105,6 +126,10 @@ def save_device(workspace_id: str, device: dict) -> dict:
         "username": device.get("username", ""),
         "created_at": device.get("created_at", time.strftime("%Y-%m-%dT%H:%M:%S")),
     }
+    password = str(device.get("password") or "")
+    if password:
+        from agent.modules.cmdb.service import _seal_secret
+        record["password_secret"] = _seal_secret(workspace_id, password)
     path = _remote_dir(workspace_id) / "connections.jsonl"
     with open(path, "a", encoding="utf-8") as f:
         f.write(json.dumps(record, ensure_ascii=False) + "\n")
@@ -127,6 +152,7 @@ def list_devices(workspace_id: str) -> list[dict]:
             if did and did not in seen:
                 seen.add(did)
                 d.pop("password", None)
+                d.pop("password_secret", None)
                 devices.append(d)
         except json.JSONDecodeError:
             continue
@@ -154,10 +180,101 @@ def get_device_password(workspace_id: str, device_id: str) -> str:
         try:
             d = json.loads(line)
             if d.get("device_id") == device_id:
-                return _deobfuscate(d.get("password", ""))
+                return _extract_saved_password(workspace_id, d)
         except json.JSONDecodeError:
             continue
     return ""
+
+
+def _resolve_connection_profile(
+    *,
+    workspace_id: str,
+    host: str,
+    port: int,
+    protocol: str,
+    username: str,
+    password: str,
+    vendor: str,
+    asset_id: str = "",
+    device_id: str = "",
+) -> dict:
+    if asset_id:
+        from agent.modules.cmdb.service import get_asset
+        asset = get_asset(workspace_id, asset_id, safe=False)
+        if not asset:
+            return {"ok": False, "error": f"asset_not_found: {asset_id}"}
+        host = str(asset.get("host") or host)
+        port = int(asset.get("port") or port or 22)
+        protocol = str(asset.get("protocol") or protocol or "ssh")
+        username = str(asset.get("username") or username)
+        password = str(asset.get("password") or password)
+        vendor = str(asset.get("vendor") or vendor)
+    elif device_id and not password:
+        password = get_device_password(workspace_id, device_id)
+    elif not password and host:
+        matched = _find_cmdb_asset_for_connection(
+            workspace_id=workspace_id,
+            host=host,
+            port=port,
+            username=username,
+            protocol=protocol,
+        )
+        if matched:
+            username = str(matched.get("username") or username)
+            password = str(matched.get("password") or password)
+            vendor = str(matched.get("vendor") or vendor)
+            protocol = str(matched.get("protocol") or protocol or "ssh")
+            port = int(matched.get("port") or port or 22)
+
+    if not host:
+        return {"ok": False, "error": "host is required"}
+    if protocol == "ssh" and not username:
+        return {"ok": False, "error": "username is required"}
+    if protocol == "ssh" and not password:
+        return {"ok": False, "error": "password is required"}
+    return {
+        "ok": True,
+        "host": host,
+        "port": int(port or (23 if protocol == "telnet" else 22)),
+        "protocol": protocol or "ssh",
+        "username": username,
+        "password": password,
+        "vendor": vendor,
+    }
+
+
+def _find_cmdb_asset_for_connection(
+    *,
+    workspace_id: str,
+    host: str,
+    port: int,
+    username: str,
+    protocol: str,
+) -> dict | None:
+    from agent.modules.cmdb.service import get_asset, list_assets
+
+    matches = []
+    for asset in list_assets(workspace_id):
+        if str(asset.get("host") or "").strip() != str(host or "").strip():
+            continue
+        if int(asset.get("port") or port or 22) != int(port or 22):
+            continue
+        if protocol and str(asset.get("protocol") or "").lower() != str(protocol).lower():
+            continue
+        if username and str(asset.get("username") or "") != str(username):
+            continue
+        matches.append(asset)
+    if len(matches) != 1:
+        return None
+    return get_asset(workspace_id, str(matches[0].get("asset_id") or ""), safe=False)
+
+
+def _extract_saved_password(workspace_id: str, record: dict) -> str:
+    secret = str(record.get("password_secret") or "")
+    if secret:
+        from agent.modules.cmdb.service import _open_secret
+        return _open_secret(workspace_id, secret)
+    return _deobfuscate(str(record.get("password") or ""))
 
 
 def _save_session_log(workspace_id: str, session_id: str, log_lines: list[str]):

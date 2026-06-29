@@ -105,29 +105,13 @@ class MemoryWritePlanner:
 
     def _extract_candidates(self, ctx) -> list[MemoryCandidate]:
         candidates: list[MemoryCandidate] = []
-        candidates.extend(self._from_task_completion(ctx))
         candidates.extend(self._from_error_lessons(ctx))
         candidates.extend(self._from_user_preferences(ctx))
         candidates.extend(self._from_tool_learnings(ctx))
         return candidates
 
     def _from_task_completion(self, ctx) -> list[MemoryCandidate]:
-        out: list[MemoryCandidate] = []
-        snap = ctx.metadata.get("runtime_state_snapshot") or {}
-        if not isinstance(snap, dict):
-            return out
-        if snap.get("task_status") != "completed":
-            return out
-        task_title = snap.get("active_task_title", "") or snap.get("active_task_id", "")
-        out.append(MemoryCandidate(
-            candidate_id=f"mc_{uuid.uuid4().hex[:8]}",
-            memory_type="task_pattern",
-            content=f"Task '{task_title}' completed successfully",
-            source="task",
-            task_id=snap.get("active_task_id", ""),
-            confidence=0.7,
-        ))
-        return out
+        return []
 
     def _from_error_lessons(self, ctx) -> list[MemoryCandidate]:
         out: list[MemoryCandidate] = []

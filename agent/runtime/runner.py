@@ -455,8 +455,8 @@ def _trim_messages_if_needed(state) -> None:
         return
     
     # Keep system message + last N*3 messages (user+assistant+tool per turn)
-    system_msgs = [m for m in state.messages if m.get("role") == "system"]
-    non_system = [m for m in state.messages if m.get("role") != "system"]
+    system_msgs = [m for m in state.messages if _message_role(m) == "system"]
+    non_system = [m for m in state.messages if _message_role(m) != "system"]
     
     if len(non_system) > MAX_MESSAGE_TURNS * 3:
         trimmed = non_system[-(MAX_MESSAGE_TURNS * 3):]
@@ -465,6 +465,12 @@ def _trim_messages_if_needed(state) -> None:
         state.messages.append(RuntimeContextMessage(content=(
             f"Earlier messages trimmed to last {MAX_MESSAGE_TURNS} turns to stay within context window."
         )).to_llm_message())
+
+
+def _message_role(message) -> str:
+    if isinstance(message, dict):
+        return str(message.get("role", ""))
+    return str(getattr(message, "role", ""))
 
 
 # ── v3.10: Trajectory build + eval hooked into turn completion ──

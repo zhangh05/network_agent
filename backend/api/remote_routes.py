@@ -49,6 +49,8 @@ def register_remote_routes(app):
             username=data.get("username", ""),
             password=data.get("password", ""),
             vendor=data.get("vendor", ""),
+            asset_id=data.get("asset_id", ""),
+            device_id=data.get("device_id", ""),
         )
         return jsonify(result)
 

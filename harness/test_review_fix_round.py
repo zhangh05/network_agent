@@ -137,12 +137,12 @@ def test_cmdb_export_uses_valid_csv_columns():
     shutil.rmtree(root)
 
 
-def test_device_passwords_are_not_persisted_by_default():
+def test_device_passwords_are_stored_as_server_side_secrets_only():
     import json
     import shutil
 
-    from agent.modules.cmdb.service import save_asset
-    from agent.modules.remote.service import save_device
+    from agent.modules.cmdb.service import get_asset, list_assets, save_asset
+    from agent.modules.remote.service import get_device_password, list_devices, save_device
     from storage.paths import workspace_root
 
     workspace_id = "pytest_no_passwords"
@@ -177,7 +177,14 @@ def test_device_passwords_are_not_persisted_by_default():
 
     assert "password" not in cmdb_record
     assert "password" not in remote_record
-    assert "secret" not in "\n".join(cmdb_lines + remote_lines)
+    assert "password_secret" in cmdb_record
+    assert "password_secret" in remote_record
+    assert "\"secret\"" not in "\n".join(cmdb_lines + remote_lines)
+    assert list_assets(workspace_id)[0].get("password") is None
+    assert list_devices(workspace_id)[0].get("password") is None
+    unsafe = get_asset(workspace_id, cmdb_record["asset_id"], safe=False)
+    assert unsafe and unsafe["password"] == "secret"
+    assert get_device_password(workspace_id, remote_record["device_id"]) == "secret"
 
     shutil.rmtree(root)
 

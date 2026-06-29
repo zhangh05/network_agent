@@ -24,7 +24,7 @@ def register_remote_ws(app):
         """Real-time terminal session over WebSocket.
 
         Client sends:
-          {type:"connect", host, port, protocol, username, password, vendor, workspace_id}
+          {type:"connect", host, port, protocol, username, password, vendor, workspace_id, asset_id?, device_id?}
           {type:"input", session_id, data}
           {type:"disconnect", session_id}
 
@@ -96,6 +96,8 @@ def register_remote_ws(app):
                         username=msg.get("username", ""),
                         password=msg.get("password", ""),
                         vendor=msg.get("vendor", ""),
+                        asset_id=msg.get("asset_id", ""),
+                        device_id=msg.get("device_id", ""),
                     )
 
                     if result.get("ok"):

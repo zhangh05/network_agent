@@ -13,7 +13,7 @@ interface VendorDef {
 
 export function RemoteTerminal({ onClose, initial }: {
   onClose: () => void;
-  initial?: { host: string; port: number; protocol: string; vendor: string; username: string; password?: string };
+  initial?: { asset_id?: string; host: string; port: number; protocol: string; vendor: string; username: string; password?: string };
 }) {
   const wsId = useSessionStore((s) => s.currentWorkspaceId);
   const termRef = useRef<HTMLDivElement>(null);
@@ -28,6 +28,8 @@ export function RemoteTerminal({ onClose, initial }: {
   const [vendor, setVendor] = useState(initial?.vendor || "");
   const [username, setUsername] = useState(initial?.username || "");
   const [password, setPassword] = useState(initial?.password || "");
+  const [assetId, setAssetId] = useState(initial?.asset_id || "");
+  const [deviceId, setDeviceId] = useState("");
 
   // Connection state
   const [sessionId, setSessionId] = useState("");
@@ -120,7 +122,8 @@ export function RemoteTerminal({ onClose, initial }: {
 
     ws.onopen = () => {
       ws.send(JSON.stringify({ type: "connect", workspace_id: wsId, host,
-        port: parseInt(port) || 22, protocol, username, password, vendor }));
+        port: parseInt(port) || 22, protocol, username, password, vendor,
+        asset_id: assetId, device_id: deviceId }));
     };
     ws.onmessage = (e) => {
       const msg = JSON.parse(e.data);
@@ -177,6 +180,7 @@ export function RemoteTerminal({ onClose, initial }: {
   const loadDevice = (d: SavedDevice) => {
     setHost(d.host); setPort(String(d.port)); setProtocol(d.protocol);
     setVendor(d.vendor); setUsername(d.username); setPassword("");
+    setAssetId(""); setDeviceId(d.device_id);
     setShowDevices(false);
   };
 
