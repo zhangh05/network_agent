@@ -61,7 +61,7 @@ class DeviceSession:
                 except Exception:
                     pass
 
-    def recv(self, timeout: float = 0.5) -> bytes:
+    def recv(self, timeout: int = 0) -> bytes:
         """Read available data. Returns b'' if nothing ready."""
         with self._lock:
             if isinstance(self._chan, _TelnetSocket):

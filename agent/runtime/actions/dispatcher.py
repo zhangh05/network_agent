@@ -6,11 +6,11 @@ Uses the same dispatch mechanism as DispatchStage: ctx.tool_router.dispatch().
 
 from __future__ import annotations
 
-import time
 from typing import Any
 
 from agent.protocol.tool_result import ToolResult
 from agent.runtime.actions.models import ActionPlan, ActionResult
+from agent.runtime.utils import duration_ms, now_iso
 
 
 class ToolDispatcher:
@@ -24,6 +24,10 @@ class ToolDispatcher:
         provided, ``state.context`` is used as a fallback context.
 
         Returns an ActionResult with raw result or error.
+
+        v3.9.8: started_at / finished_at are ISO-8601 strings (matching
+        RuntimeStep / TrajectoryRecord); latency_ms is int (matching
+        ToolResult.duration_ms). Was float-epoch before.
         """
         result = ActionResult(
             action_id=plan.action_id,
@@ -31,7 +35,7 @@ class ToolDispatcher:
             tool_name=plan.tool_name,
             tool_id=plan.tool_id,
             status="failed",
-            started_at=time.time(),
+            started_at=now_iso(),
             attempts=1,
         )
 
@@ -51,6 +55,6 @@ class ToolDispatcher:
             result.error = str(e)[:500]
             result.error_type = type(e).__name__
 
-        result.finished_at = time.time()
-        result.latency_ms = (result.finished_at - result.started_at) * 1000
+        result.finished_at = now_iso()
+        result.latency_ms = duration_ms(result.started_at, result.finished_at)
         return result

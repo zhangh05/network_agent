@@ -18,7 +18,10 @@ class RuntimeStep:
     title: str = ""; summary: str = ""; tool_id: Optional[str] = None
     input_ref: Optional[str] = None; output_ref: Optional[str] = None
     approval_id: Optional[str] = None; started_at: str = ""; finished_at: str = ""
-    duration_ms: Optional[float] = None
+    # v3.9.8: duration_ms is now int milliseconds (matches ToolResult
+    # and TrajectoryRecord). Float with millisecond decimal precision
+    # was unnecessary; int covers up to ~2.9e6 hours without overflow.
+    duration_ms: Optional[int] = None
     def mark_started(self): self.started_at = _now(); self.status = "running"
     def mark_finished(self, ok=True, summary=""):
         self.finished_at = _now(); self.status = "succeeded" if ok else "failed"
@@ -26,7 +29,8 @@ class RuntimeStep:
         if self.started_at:
             try:
                 st = _time.mktime(_time.strptime(self.started_at,"%Y-%m-%dT%H:%M:%S"))
-                self.duration_ms = (_time.time()-st)*1000
+                # v3.9.8: round-and-int for clean integer milliseconds
+                self.duration_ms = int(round((_time.time()-st)*1000))
             except Exception:
                 pass  # non-critical idempotent update
 

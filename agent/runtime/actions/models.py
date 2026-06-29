@@ -90,7 +90,10 @@ class ActionResult:
     scan_status: str = "skipped"        # safe/summary/blocked/skipped
     evidence_updates: list = field(default_factory=list)
     artifact_refs: list = field(default_factory=list)
-    started_at: float = 0.0
-    finished_at: float = 0.0
-    latency_ms: float = 0.0
+    # v3.9.8: started_at / finished_at / latency_ms are now ISO-8601
+    # strings / int milliseconds to match RuntimeStep, TrajectoryRecord,
+    # and ToolResult. Float-epoch caused API-boundary type drift.
+    started_at: str = ""
+    finished_at: str = ""
+    latency_ms: int = 0
     metadata: dict = field(default_factory=dict)

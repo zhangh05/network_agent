@@ -30,7 +30,7 @@ class TrajectoryMetrics:
     unverified_completion: bool = False
     memory_conflict_count: int = 0
     workspace_boundary_violation_count: int = 0
-    duration_ms: float = 0
+    duration_ms: int = 0
     warnings_count: int = 0
     errors_count: int = 0
 
@@ -46,7 +46,7 @@ class TrajectoryRecord:
     final_status: str = ""
     started_at: str = ""
     finished_at: str = ""
-    duration_ms: float = 0
+    duration_ms: int = 0
     model_provider: str = ""
     model_name: str = ""
     plan_steps: list = field(default_factory=list)
@@ -104,7 +104,7 @@ def build_trajectory(task_id: str, ws_id: str) -> Optional[TrajectoryRecord]:
         try:
             st = datetime.strptime(task.created_at, "%Y-%m-%dT%H:%M:%S")
             ft = datetime.strptime(task.updated_at, "%Y-%m-%dT%H:%M:%S")
-            traj.duration_ms = (ft - st).total_seconds() * 1000
+            traj.duration_ms = int(round((ft - st).total_seconds() * 1000))
         except Exception as e:
             traj.warnings.append(f"duration calc failed: {str(e)[:100]}")
 

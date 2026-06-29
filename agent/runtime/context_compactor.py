@@ -86,7 +86,7 @@ class CompactionMetric:
         compacted_messages: int,
         compacted_estimated_tokens: int,
         compacted_message_count: int,
-        duration_ms: float,
+        duration_ms: int,
         reference_context_item_id: str = "",
         ts: str = "",
     ) -> None:
@@ -98,7 +98,7 @@ class CompactionMetric:
         self.compacted_messages = compacted_messages
         self.compacted_estimated_tokens = compacted_estimated_tokens
         self.compacted_message_count = compacted_message_count
-        self.duration_ms = round(duration_ms, 2)
+        self.duration_ms = int(round(duration_ms))
         self.reference_context_item_id = reference_context_item_id
         self.ts = ts
 
@@ -242,7 +242,7 @@ def compact_messages(
             "compacted": False,
             "reason": "below_threshold",
             "strategy": strategy.value,
-            "duration_ms": round((time.perf_counter() - t0) * 1000, 2),
+            "duration_ms": int(round((time.perf_counter() - t0) * 1000)),
         }
 
     # Find the user message position (must not be compacted)
@@ -273,7 +273,7 @@ def compact_messages(
         summary = _build_progress_summary(old_messages)
         compacted = [summary, *protected_messages] if summary else protected_messages
         new_est = estimate_context_size(compacted)
-        duration_ms = round((time.perf_counter() - t0) * 1000, 2)
+        duration_ms = int(round((time.perf_counter() - t0) * 1000))
         return compacted, {
             "compacted": True,
             "strategy": strategy.value,
@@ -303,7 +303,7 @@ def compact_messages(
             compacted_count += 1
 
     new_est = estimate_context_size(compacted)
-    duration_ms = round((time.perf_counter() - t0) * 1000, 2)
+    duration_ms = int(round((time.perf_counter() - t0) * 1000))
 
     return compacted, {
         "compacted": True,
@@ -340,7 +340,7 @@ def build_compaction_metric(
         compacted_messages=original_messages - int(meta.get("compacted_message_count", 0)),
         compacted_estimated_tokens=int(meta.get("compacted_estimated_tokens", 0)),
         compacted_message_count=int(meta.get("compacted_message_count", 0)),
-        duration_ms=float(meta.get("duration_ms", 0.0)),
+        duration_ms=int(meta.get("duration_ms", 0)),
         reference_context_item_id=meta.get("reference_context_item_id") or reference_context_item_id,
         ts=meta.get("ts", "") or datetime.now(timezone.utc).isoformat(),
     )

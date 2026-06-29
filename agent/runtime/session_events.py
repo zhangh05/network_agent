@@ -62,7 +62,7 @@ def push_error(session_id: str, error_type: str, message: str):
     push_event(session_id, "error", {"type": error_type, "message": message[:200]})
 
 
-def subscribe(session_id: str, timeout: float = 25) -> Optional[str]:
+def subscribe(session_id: str, timeout: int = 25) -> Optional[str]:
     """Block up to `timeout` seconds for the next SSE-formatted event line.
 
     Returns one SSE frame string, or None if timeout / no session.

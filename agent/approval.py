@@ -22,6 +22,23 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional
 
+from agent.runtime.utils import now_iso, to_iso, from_iso
+
+
+def _now_iso() -> str:
+    """v3.9.8: wrapper for ApprovalRequest default_factory."""
+    return now_iso()
+
+
+def _now_iso_offset(delta_seconds: float) -> str:
+    """Return the ISO timestamp for ``now + delta_seconds``.
+
+    Used by ApprovalStore._load_history to compute a retention cutoff.
+    """
+    target = datetime.now(timezone.utc) + timedelta(seconds=delta_seconds)
+    return target.isoformat()
+
+
 # ════════════════════════════════════════════════════
 # Constants
 # ════════════════════════════════════════════════════
@@ -110,10 +127,14 @@ class ApprovalRequest:
     run_id: str = ""
     job_id: str = ""
     metadata: dict = field(default_factory=dict)
-    created_at: float = field(default_factory=time.time)
+    # v3.9.8: created_at / resolved_at are now ISO-8601 strings (UTC),
+    # matching every other dataclass in the durable / state / event
+    # namespace. Earlier float/epoch split made the API surface
+    # inconsistent between /api/approvals and /api/agent/state.
+    created_at: str = field(default_factory=_now_iso)
     resolved: bool = False
     allowed: bool = False
-    resolved_at: Optional[float] = None
+    resolved_at: Optional[str] = None
     resolver: str = ""              # who resolved (user/admin/system)
     reason: str = ""                # resolver's optional note
     _event: threading.Event = field(default_factory=threading.Event)
@@ -142,7 +163,7 @@ class ApprovalStore:
         if not self._persist_path.exists():
             return
         try:
-            cutoff = time.time() - _RETENTION_DAYS * 86400
+            cutoff_iso = _now_iso_offset(-_RETENTION_DAYS * 86400)
             with self._persist_path.open("r", encoding="utf-8") as f:
                 for line in f:
                     line = line.strip()
@@ -155,7 +176,16 @@ class ApprovalStore:
                     # Only restore still-pending records (resolved are history)
                     if rec.get("resolved"):
                         continue
-                    if rec.get("created_at", 0) < cutoff:
+                    # v3.9.8: created_at is an ISO-8601 string in the
+                    # JSONL log. Legacy records (pre-v3.9.8) store a
+                    # float epoch — coerce via ``to_iso`` so we accept
+                    # both representations during the migration window.
+                    raw_created = rec.get("created_at") or ""
+                    try:
+                        created_iso = to_iso(raw_created)
+                    except Exception:
+                        continue
+                    if (created_iso or "") < cutoff_iso:
                         continue
                     req = ApprovalRequest(
                         approval_id=rec["approval_id"],
@@ -165,7 +195,7 @@ class ApprovalStore:
                         description=rec.get("description", ""),
                         risk_level=rec.get("risk_level", "high"),
                         metadata=rec.get("metadata", {}),
-                        created_at=rec.get("created_at", time.time()),
+                        created_at=created_iso,
                         resolved=False,
                     )
                     self._pending[req.approval_id] = req
@@ -326,7 +356,7 @@ class ApprovalStore:
         to prevent orphaned approvals from flashing the frontend bubble.
         """
         with self._lock:
-            now = time.time()
+            now = datetime.now(timezone.utc)
             stale_ids = []
             for aid, req in list(self._pending.items()):
                 if req.resolved:
@@ -334,10 +364,20 @@ class ApprovalStore:
                     continue
                 # Auto-expire approvals older than 120 seconds that never
                 # reached the wait/resolve path (orphaned by turn failure).
-                if now - req.created_at > 120:
+                # v3.9.8: created_at is an ISO-8601 string now; compare
+                # via datetime parsing instead of float math.
+                try:
+                    created = datetime.fromisoformat(req.created_at)
+                    if req.created_at and (now - created).total_seconds() > 120:
+                        _expire = True
+                    else:
+                        _expire = False
+                except Exception:
+                    _expire = False
+                if _expire:
                     req.resolved = True
                     req.allowed = False
-                    req.resolved_at = now
+                    req.resolved_at = now_iso()
                     req.resolver = "system_expired"
                     req._event.set()
                     self._append_record(req)
@@ -385,15 +425,15 @@ class ApprovalStore:
                         continue
                     if tool_id and rec.get("tool_id") != tool_id:
                         continue
-                    if since_ts and rec.get("created_at", 0) < since_ts:
+                    if since_ts and rec.get("created_at", "") < since_ts:
                         continue
                     records.append(rec)
         except Exception:
             return []
-        records.sort(key=lambda r: r.get("resolved_at") or 0, reverse=True)
+        records.sort(key=lambda r: r.get("resolved_at") or "", reverse=True)
         return records[:limit]
 
-    def wait(self, approval_id: str, timeout: float = 60.0,
+    def wait(self, approval_id: str, timeout: int = 60,
              blocking: bool = True) -> Optional[bool]:
         """Wait for approval to be resolved.
 
@@ -454,6 +494,12 @@ class ApprovalStore:
         from tool_runtime.redaction import redact_tool_output
 
         safe_arguments = redact_tool_output(req.arguments or {})
+        # v3.9.8: created_at is an ISO string now (was float). Both
+        # ``created_at`` and ``created_at_iso`` carry the same value;
+        # callers should pick one and stick with it.
+        created_at = req.created_at
+        if not created_at:
+            created_at = now_iso()
         return {
             "approval_id": req.approval_id,
             "session_id": req.session_id,
@@ -466,8 +512,8 @@ class ApprovalStore:
             "status": "resolved" if req.resolved else "pending",
             "arguments_summary": _summarize_args(safe_arguments),
             "arguments_preview": safe_arguments,
-            "created_at": req.created_at,
-            "created_at_iso": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(req.created_at)),
+            "created_at": created_at,
+            "created_at_iso": created_at,
         }
 
 
