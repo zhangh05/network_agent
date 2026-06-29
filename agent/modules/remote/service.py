@@ -7,6 +7,7 @@ import json
 import time
 from pathlib import Path
 
+from agent.runtime.utils import now_iso
 from agent.modules.remote.core import (
     ssh_connect, telnet_connect, exec_command, send_interactive,
     disconnect, list_sessions, get_session,
@@ -124,7 +125,7 @@ def save_device(workspace_id: str, device: dict) -> dict:
         "protocol": device.get("protocol", "ssh"),
         "vendor": device.get("vendor", ""),
         "username": device.get("username", ""),
-        "created_at": device.get("created_at", time.strftime("%Y-%m-%dT%H:%M:%S")),
+        "created_at": device.get("created_at", now_iso()),
     }
     password = str(device.get("password") or "")
     if password:
@@ -164,8 +165,7 @@ def delete_device(workspace_id: str, device_id: str) -> dict:
     path = _remote_dir(workspace_id) / "connections.jsonl"
     if not path.exists():
         return {"ok": False, "error": "not_found"}
-    record = {"device_id": device_id, "deleted": True,
-              "deleted_at": time.strftime("%Y-%m-%dT%H:%M:%S")}
+    record = {"device_id": device_id, "deleted": True, "deleted_at": now_iso()}
     with open(path, "a", encoding="utf-8") as f:
         f.write(json.dumps(record, ensure_ascii=False) + "\n")
     return {"ok": True}

@@ -11,6 +11,8 @@ import os
 import time
 from pathlib import Path
 
+from agent.runtime.utils import now_iso
+
 ROOT = Path(__file__).resolve().parent.parent
 RUNTIME = ROOT / "runtime" / "jobs"
 LOCK_PATH = RUNTIME / "worker.lock"
@@ -88,5 +90,5 @@ def get_worker_state() -> dict:
 
 def _write_state(state):
     STATE_PATH.parent.mkdir(parents=True, exist_ok=True)
-    state["updated_at"] = time.strftime("%Y-%m-%dT%H:%M:%S")
+    state["updated_at"] = now_iso()
     STATE_PATH.write_text(json.dumps(state, indent=2, ensure_ascii=False))

@@ -26,10 +26,11 @@ def _resolve_repo_dir(ws_id: str) -> str:
 from typing import Optional, Literal
 from workspace.run_store import WS_ROOT
 from workspace.atomic_io import atomic_write_json
+from agent.runtime.utils import now_iso
 
 DeliveryMode = Literal["code","network_change","diagnosis","report","config_translation","artifact_generation"]
 
-def _now(): return _time.strftime("%Y-%m-%dT%H:%M:%S", _time.localtime())
+def _now(): return now_iso()
 def _rid(): return f"rb-{uuid.uuid4().hex[:8]}"
 def _aid(): return f"art-{uuid.uuid4().hex[:8]}"
 

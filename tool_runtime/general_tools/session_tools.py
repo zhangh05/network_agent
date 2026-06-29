@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from agent.runtime.utils import now_iso
 from tool_runtime.schemas import ToolInvocation
 from workspace.ids import validate_workspace_id
 
@@ -50,10 +51,11 @@ def handle_session_create(inv: ToolInvocation) -> dict:
     try:
         validate_workspace_id(ws)
         from workspace.session_store import create_session
-        import uuid
-        sid = str(uuid.uuid4())[:8]
-        create_session(ws, sid, title)
-        return _ok(inv, "", {"session_id": sid, "title": title})
+        session = create_session(ws_id=ws, title=title)
+        return _ok(inv, "", {
+            "session_id": session.get("session_id", ""),
+            "title": session.get("title", title),
+        })
     except Exception as e:
         return _error_inv(inv, str(e)[:200])
 
@@ -63,8 +65,8 @@ def handle_session_archive(inv: ToolInvocation) -> dict:
     try:
         validate_workspace_id(ws)
         from workspace.session_store import archive_session
-        ok = archive_session(ws, sid)
-        return _ok(inv, "", {"archived": ok}) if ok else _error_inv(inv, "archive failed")
+        archived = archive_session(sid, ws)
+        return _ok(inv, "", {"archived": True}) if archived else _error_inv(inv, "archive failed")
     except Exception as e:
         return _error_inv(inv, str(e)[:200])
 
@@ -94,7 +96,7 @@ def handle_run_get_summary(inv: ToolInvocation) -> dict:
     try:
         validate_workspace_id(ws)
         from workspace.run_store import get_run
-        r = get_run(ws, run_id)
+        r = get_run(run_id, ws)
         if not r:
             return _error_inv(inv, "run not found")
         return _ok(inv, "", {
@@ -187,6 +189,7 @@ def handle_session_checkpoint(inv: ToolInvocation) -> dict:
             return _error_inv(inv, "session not found")
         import uuid
         cid = str(uuid.uuid4())[:8]
+        from workspace.manager import WS_ROOT
         checkpoints_dir = WS_ROOT / ws / "sessions" / sid / "checkpoints"
         checkpoints_dir.mkdir(parents=True, exist_ok=True)
         messages = s.get("messages", [])
@@ -198,7 +201,7 @@ def handle_session_checkpoint(inv: ToolInvocation) -> dict:
             "message_count": len(messages),
             "run_refs": s.get("run_refs", []),
             "artifact_refs": s.get("artifact_refs", []),
-            "created_at": time.strftime("%Y-%m-%dT%H:%M:%S"),
+            "created_at": now_iso(),
         }
         checkpoint_path = checkpoints_dir / f"{cid}.json"
         # P1 fix (round 7): write checkpoint atomically. A crash mid-write

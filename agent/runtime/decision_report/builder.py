@@ -3,7 +3,7 @@
 
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from agent.runtime.utils import now_iso
 
 
 def build_decision_report(
@@ -105,7 +105,7 @@ def build_decision_report(
         "run_id": str(run_id),
         "session_id": str(session_id),
         "workspace_id": str(workspace_id),
-        "created_at": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
+        "created_at": now_iso(),
         "scene_decision": scene_decision,
         "business_capabilities": business_capabilities,
         "tool_planning_decision": tool_planning_decision,

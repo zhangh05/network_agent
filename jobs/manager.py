@@ -1,7 +1,8 @@
 # jobs/manager.py
 """Job manager — strict state machine, lifecycle operations."""
 
-import time, traceback
+import traceback
+from agent.runtime.utils import now_iso
 from jobs.schemas import JobRecord, JobEvent, JobProgress, ENABLED_JOB_TYPES
 from jobs.store import create_job as _create, get_job, update_job, append_event, append_log
 from jobs.redaction import sanitize_job_record_for_api, sanitize_job_record_for_storage
@@ -122,7 +123,7 @@ def mark_running(ws_id, job_id) -> JobRecord:
     rec = get_job(ws_id, job_id)
     if not rec: raise ValueError("job not found")
     _check_transition(rec.status, "running")
-    now = time.strftime("%Y-%m-%dT%H:%M:%S")
+    now = now_iso()
     result = _transition(ws_id, job_id, "running", "job_started", "Job started")
     if result:
         update_job(ws_id, job_id, {"started_at": now})
@@ -133,7 +134,7 @@ def mark_succeeded(ws_id, job_id, result_summary=None) -> JobRecord:
     rec = get_job(ws_id, job_id)
     if not rec: return None
     _check_transition(rec.status, "succeeded")
-    now = time.strftime("%Y-%m-%dT%H:%M:%S")
+    now = now_iso()
     patch = {"status": "succeeded", "finished_at": now}
     if result_summary: patch["result_summary"] = result_summary
     result = update_job(ws_id, job_id, patch)
@@ -148,7 +149,7 @@ def mark_failed(ws_id, job_id, error="") -> JobRecord:
     rec = get_job(ws_id, job_id)
     if not rec: return None
     _check_transition(rec.status, "failed")
-    now = time.strftime("%Y-%m-%dT%H:%M:%S")
+    now = now_iso()
     error = str(error)[:500]
     result = update_job(ws_id, job_id, {"status": "failed", "finished_at": now, "error": error})
     if result:
@@ -167,7 +168,7 @@ def update_progress(ws_id, job_id, current=None, total=None, message="", step=""
     if total: prog["percent"] = min(100, int((prog.get("current", 0) / total) * 100))
     if message: prog["message"] = message
     if step: prog["current_step"] = step
-    prog["updated_at"] = time.strftime("%Y-%m-%dT%H:%M:%S")
+    prog["updated_at"] = now_iso()
     update_job(ws_id, job_id, {"progress": prog})
     append_event(ws_id, job_id, JobEvent(job_id=job_id, workspace_id=ws_id,
                  event_type="job_progress", message=message or f"Progress: {prog.get('current', 0)}/{prog.get('total', 0)}",

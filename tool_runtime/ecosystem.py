@@ -8,11 +8,12 @@ from pathlib import Path
 from typing import Optional, Literal
 from workspace.run_store import WS_ROOT
 from workspace.atomic_io import atomic_write_json
+from agent.runtime.utils import now_iso
 
 ProviderType = Literal["mcp","skill","plugin"]
 TrustLevel = Literal["untrusted","local","verified"]
 
-def _now(): return _time.strftime("%Y-%m-%dT%H:%M:%S", _time.localtime())
+def _now(): return now_iso()
 def _pid(): return f"prov-{uuid.uuid4().hex[:8]}"
 
 @dataclass

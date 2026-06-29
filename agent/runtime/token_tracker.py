@@ -8,10 +8,11 @@ from __future__ import annotations
 
 import json
 import os
-import time
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Optional
+
+from agent.runtime.utils import now_iso
 
 
 def estimate_text(text: str) -> int:
@@ -106,7 +107,7 @@ def record_llm_call(
         output_tokens=output_tokens,
         total_tokens=total,
         estimated_cost=round(cost, 6),
-        created_at=time.strftime("%Y-%m-%dT%H:%M:%S"),
+        created_at=now_iso(),
     )
     try:
         path = _record_path(workspace_id)

@@ -3,10 +3,10 @@
 
 from __future__ import annotations
 
-import time as _time
 from typing import Any
 
 from agent.runtime.memory.models import MemoryItem, MemoryQueryPlan
+from agent.runtime.utils import from_iso, now_iso
 
 
 class MemoryRetriever:
@@ -54,8 +54,12 @@ def _hit_is_retrievable(hit: dict[str, Any]) -> bool:
     if status != "active":
         return False
     expires_at = str(hit.get("expires_at") or "")
-    if expires_at and expires_at < _time.strftime("%Y-%m-%dT%H:%M:%S", _time.localtime()):
-        return False
+    if expires_at:
+        try:
+            if from_iso(expires_at) < from_iso(now_iso()):
+                return False
+        except (TypeError, ValueError):
+            return False
     return True
 
 

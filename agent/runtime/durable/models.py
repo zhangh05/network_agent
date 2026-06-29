@@ -1,15 +1,19 @@
 # agent/runtime/durable/models.py
 """Phase 2 data models for durable runtime state."""
 from __future__ import annotations
-import uuid, time as _time
+import uuid
 from dataclasses import dataclass, field, asdict
 from typing import Optional, Literal
+from agent.runtime.utils import now_iso, duration_ms
 
 TaskStatus = Literal["pending","running","interrupting","waiting_approval","succeeded","failed","cancelled"]
 StepKind = Literal["message","model","tool","approval","checkpoint","validation","final","error"]
 StepStatus = Literal["pending","running","succeeded","failed","skipped","cancelled"]
 
-def _now(): return _time.strftime("%Y-%m-%dT%H:%M:%S", _time.localtime())
+# v3.9.10: thin alias kept for callers that historically imported
+# ``_now`` from this module. Returns the unified ISO-8601 timestamp.
+def _now() -> str: return now_iso()
+
 def _next_id(prefix="evt"): return f"{prefix}-{uuid.uuid4().hex[:12]}"
 
 @dataclass
@@ -22,16 +26,14 @@ class RuntimeStep:
     # and TrajectoryRecord). Float with millisecond decimal precision
     # was unnecessary; int covers up to ~2.9e6 hours without overflow.
     duration_ms: Optional[int] = None
-    def mark_started(self): self.started_at = _now(); self.status = "running"
+    def mark_started(self): self.started_at = now_iso(); self.status = "running"
     def mark_finished(self, ok=True, summary=""):
-        self.finished_at = _now(); self.status = "succeeded" if ok else "failed"
+        self.finished_at = now_iso(); self.status = "succeeded" if ok else "failed"
         if summary: self.summary = summary
         if self.started_at:
             try:
-                st = _time.mktime(_time.strptime(self.started_at,"%Y-%m-%dT%H:%M:%S"))
-                # v3.9.8: round-and-int for clean integer milliseconds
-                self.duration_ms = int(round((_time.time()-st)*1000))
-            except Exception:
+                self.duration_ms = duration_ms(self.started_at, self.finished_at)
+            except (TypeError, ValueError):
                 pass  # non-critical idempotent update
 
 @dataclass

@@ -4,11 +4,10 @@ Extracted from loop.py to keep the turn runner focused on the agentic loop.
 """
 
 import json
-import time
-from datetime import datetime, timezone
 from pathlib import Path
 from types import SimpleNamespace
 
+from agent.runtime.utils import now_iso
 from workspace.run_store import write_run_record
 from workspace.message_store import SessionMessageStore
 
@@ -129,7 +128,7 @@ def persist_trace(run_id: str, ws_id: str, events: list) -> None:
         "missing_event_count": len(missing_events),
         "node_count": len(normalized_events),
         "total_duration_ms": 0,
-        "persisted_at": time.strftime("%Y-%m-%dT%H:%M:%S"),
+        "persisted_at": now_iso(),
     }
     tmp = trace_path.with_suffix(".trace.tmp")
     tmp.write_text(json.dumps(record, indent=2, ensure_ascii=False), encoding="utf-8")

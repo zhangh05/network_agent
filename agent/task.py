@@ -10,6 +10,7 @@ from __future__ import annotations
 import enum
 import time
 from typing import Any
+from agent.runtime.utils import now_iso
 
 
 class TaskStatus(enum.Enum):
@@ -59,9 +60,9 @@ class Task:
         self.workspace_id: str = workspace_id
         self.session_id: str = session_id
         self.status: TaskStatus = TaskStatus.CREATED
-        self.created_at: float = time.time()
-        self.started_at: float | None = None
-        self.completed_at: float | None = None
+        self.created_at: str = now_iso()
+        self.started_at: str | None = None
+        self.completed_at: str | None = None
         self.turn_count: int = 0
         self.error: str | None = None
         self.metadata: dict[str, Any] = {}
@@ -73,7 +74,7 @@ class Task:
                 f"Cannot start task in state {self.status.value}"
             )
         self.status = TaskStatus.RUNNING
-        self.started_at = time.time()
+        self.started_at = now_iso()
 
     def complete(self, metadata: dict | None = None) -> None:
         """Transition RUNNING → COMPLETED."""
@@ -82,14 +83,14 @@ class Task:
                 f"Cannot complete task in state {self.status.value}"
             )
         self.status = TaskStatus.COMPLETED
-        self.completed_at = time.time()
+        self.completed_at = now_iso()
         if metadata:
             self.metadata.update(metadata)
 
     def fail(self, error: str) -> None:
         """Transition RUNNING → FAILED."""
         self.status = TaskStatus.FAILED
-        self.completed_at = time.time()
+        self.completed_at = now_iso()
         self.error = error
 
     def cancel(self) -> None:
@@ -97,7 +98,7 @@ class Task:
         if self.is_terminal:
             return
         self.status = TaskStatus.CANCELLED
-        self.completed_at = time.time()
+        self.completed_at = now_iso()
 
     def record_turn(self) -> int:
         """Increment turn counter. Returns the new turn number."""
@@ -118,10 +119,21 @@ class Task:
 
     @property
     def elapsed_ms(self) -> float:
-        """Elapsed time in milliseconds since task start (or creation if not started)."""
-        t0 = self.started_at or self.created_at
-        t1 = self.completed_at or time.time()
-        return (t1 - t0) * 1000
+        """Elapsed time in milliseconds since task start (or creation if not started).
+
+        v3.9.10: created_at / started_at / completed_at are now ISO-8601
+        strings (UTC). Use ``from_iso`` to parse.
+        """
+        from agent.runtime.utils import from_iso
+        t0_str = self.started_at or self.created_at
+        t1_str = self.completed_at
+        if t1_str is None:
+            t1_epoch = time.time()
+            t0_epoch = from_iso(t0_str) if isinstance(t0_str, str) else float(t0_str)
+        else:
+            t0_epoch = from_iso(t0_str) if isinstance(t0_str, str) else float(t0_str)
+            t1_epoch = from_iso(t1_str)
+        return (t1_epoch - t0_epoch) * 1000
 
     def as_dict(self) -> dict:
         return {

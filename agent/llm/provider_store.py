@@ -13,9 +13,9 @@ import json
 import os
 import stat
 from pathlib import Path
-from datetime import datetime, timezone
 from typing import Optional
 
+from agent.runtime.utils import now_iso
 ROOT = Path(__file__).resolve().parent.parent.parent
 PROVIDERS_DIR = ROOT / "config" / "providers"
 ACTIVE_FILE = PROVIDERS_DIR / "_active"
@@ -111,7 +111,7 @@ def _build_provider_config(provider_id: str, data: Optional[dict] = None) -> dic
 
 def _write_json(path: Path, data: dict):
     _ensure_dir()
-    data["updated_at"] = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+    data["updated_at"] = now_iso()
     path.write_text(json.dumps(data, indent=2, ensure_ascii=False))
     try:
         os.chmod(str(path), stat.S_IRUSR | stat.S_IWUSR)

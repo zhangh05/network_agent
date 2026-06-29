@@ -14,6 +14,7 @@ import threading
 import time
 import uuid
 from pathlib import Path
+from agent.runtime.utils import now_iso
 
 _locks: dict[str, threading.Lock] = {}
 
@@ -33,8 +34,7 @@ def _db_dir(workspace_id: str) -> Path:
     return d
 
 
-def _now() -> str:
-    return time.strftime("%Y-%m-%dT%H:%M:%S")
+def _now() -> str: return now_iso()
 
 
 _VALID_TYPES = {"switch", "router", "firewall", "server", "load_balancer", "wireless", "other"}

@@ -11,6 +11,7 @@ from jobs.redaction import (
     sanitize_job_event_for_storage, sanitize_job_event_for_api,
     sanitize_job_log_for_storage, sanitize_job_log_for_api,
 )
+from agent.runtime.utils import now_iso
 
 ROOT = Path(__file__).resolve().parent.parent
 
@@ -80,7 +81,7 @@ def update_job(ws_id, job_id, patch: dict) -> Optional[JobRecord]:
     for k, v in patch.items():
         if hasattr(rec, k):
             setattr(rec, k, v)
-    rec.updated_at = time.strftime("%Y-%m-%dT%H:%M:%S")
+    rec.updated_at = now_iso()
     d = _ensure(ws_id, job_id)
     safe = sanitize_job_record_for_storage(rec.as_dict())
     _write_atomic(d / f"{job_id}.json", json.dumps(safe, indent=2, ensure_ascii=False))
@@ -182,7 +183,7 @@ def list_events(ws_id, job_id, limit=200) -> list:
 def append_log(ws_id, job_id, message, level="info", meta=None):
     _ensure(ws_id, job_id)
     p = _job_dir(ws_id, job_id) / f"{job_id}.log.jsonl"
-    entry = {"ts": time.strftime("%Y-%m-%dT%H:%M:%S"), "level": level,
+    entry = {"ts": now_iso(), "level": level,
              "msg": message[:1000], "meta": meta or {}}
     # Sanitize before writing
     safe = sanitize_job_log_for_storage(entry)
@@ -228,7 +229,7 @@ def _update_index(ws_id, rec):
             _LOG.warning("jobs.store: silent exception", exc_info=True)
     if rec.job_id not in idx.setdefault("job_ids", []):
         idx["job_ids"].append(rec.job_id)
-    idx["updated_at"] = time.strftime("%Y-%m-%dT%H:%M:%S")
+    idx["updated_at"] = now_iso()
     p.write_text(json.dumps(idx, indent=2, ensure_ascii=False))
 
 def _write_atomic(path, content):

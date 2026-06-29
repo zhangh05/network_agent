@@ -6,6 +6,7 @@ import yaml
 from pathlib import Path
 from typing import Any, Dict, Optional
 
+from agent.runtime.utils import now_iso
 from agent.llm.key_resolver import resolve_api_key, get_key_source, is_key_loaded
 from agent.llm.key_resolver import mask_secret as _key_mask  # use key_resolver's mask, not recursive
 
@@ -175,13 +176,13 @@ _FAILURE_FILE = "workspaces/_runtime/llm_recent_failure.json"
 def record_recent_failure(error_summary: str, error_type: str = "") -> None:
     """Called by the runtime when an LLM turn fails, so the health
     bar can show a diagnostic even when normal probing passes."""
-    import json, os, time
+    import json, os
     from pathlib import Path
     from workspace.run_store import WS_ROOT
     path = WS_ROOT / "_runtime" / "llm_recent_failure.json"
     path.parent.mkdir(parents=True, exist_ok=True)
     record = {
-        "at": time.strftime("%Y-%m-%dT%H:%M:%S"),
+        "at": now_iso(),
         "error_summary": error_summary[:200],
         "error_type": error_type[:100],
     }
@@ -191,12 +192,11 @@ def record_recent_failure(error_summary: str, error_type: str = "") -> None:
 def record_recent_success() -> None:
     """Called by the runtime when an LLM turn succeeds, so Settings
     can show success state alongside any stale failure record."""
-    import time
     from pathlib import Path
     from workspace.run_store import WS_ROOT
     path = WS_ROOT / "_runtime" / "llm_recent_success.json"
     path.parent.mkdir(parents=True, exist_ok=True)
-    _atomic_write_json_cfg(path, {"at": time.strftime("%Y-%m-%dT%H:%M:%S")})
+    _atomic_write_json_cfg(path, {"at": now_iso()})
     failure_path = WS_ROOT / "_runtime" / "llm_recent_failure.json"
     try:
         failure_path.unlink(missing_ok=True)

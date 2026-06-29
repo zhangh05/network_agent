@@ -1,8 +1,10 @@
 # jobs/schemas.py
 """JobRecord, JobEvent, JobProgress schemas."""
 
-import uuid, time
+import uuid
 from dataclasses import dataclass, field
+
+from agent.runtime.utils import now_iso
 
 JOB_STATUSES = {"created", "queued", "running", "succeeded", "failed", "cancelled", "paused"}
 JOB_TYPES = {"agent_run", "translate_config", "export_report", "batch_translate_config",
@@ -15,7 +17,7 @@ EVENT_TYPES = {"job_created", "job_queued", "job_started", "job_progress", "job_
                "job_cancel_requested", "job_cancelled", "job_retried"}
 
 
-def _ts(): return time.strftime("%Y-%m-%dT%H:%M:%S")
+def _ts(): return now_iso()
 
 
 @dataclass

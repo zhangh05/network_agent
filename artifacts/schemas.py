@@ -3,8 +3,9 @@
 
 import uuid
 from dataclasses import dataclass, field
-from datetime import datetime, timezone
 from typing import Optional
+
+from agent.runtime.utils import now_iso
 
 ARTIFACT_TYPES = {
     "input_config", "output_config", "report",
@@ -20,7 +21,7 @@ LIFECYCLES = {"quarantined", "active", "promoted", "archived", "deleted"}
 
 
 def _utcnow() -> str:
-    return datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%S")
+    return now_iso()
 
 
 @dataclass

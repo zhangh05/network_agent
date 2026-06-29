@@ -19,6 +19,7 @@ from artifacts.schemas import ArtifactRecord, ArtifactIndex, RunArtifactIndex
 from artifacts.redaction import redact_artifact_content, contains_secret, redact_metadata
 from artifacts.classifier import classify_file
 import logging
+from agent.runtime.utils import now_iso
 _LOG = logging.getLogger(__name__)
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -119,7 +120,7 @@ def _load_index(ws_id: str) -> ArtifactIndex:
 def _save_index(idx: ArtifactIndex):
     p = _index_path(idx.workspace_id)
     p.parent.mkdir(parents=True, exist_ok=True)
-    idx.updated_at = time.strftime("%Y-%m-%dT%H:%M:%S")
+    idx.updated_at = now_iso()
     idx.artifact_count = len(idx.artifact_ids)
     p.write_text(json.dumps(idx.as_dict(), indent=2, ensure_ascii=False))
 
@@ -397,7 +398,7 @@ def update_artifact_tags(workspace_id: str, artifact_id: str, tags: list) -> boo
     if not rec:
         return False
     rec.tags = list(tags or [])
-    rec.updated_at = time.strftime("%Y-%m-%dT%H:%M:%S")
+    rec.updated_at = now_iso()
     _save_artifact_record(rec)
     return True
 
@@ -407,7 +408,7 @@ def delete_artifact(workspace_id: str, artifact_id: str) -> bool:
     if not rec:
         return False
     rec.lifecycle = "deleted"
-    rec.updated_at = time.strftime("%Y-%m-%dT%H:%M:%S")
+    rec.updated_at = now_iso()
     _save_artifact_record(rec)
     _remove_from_knowledge_index(workspace_id, artifact_id)
     return True
@@ -443,7 +444,7 @@ def promote_artifact(workspace_id: str, artifact_id: str, target_scope: str) -> 
         return None
     rec.scope = target_scope
     rec.lifecycle = "promoted"
-    rec.updated_at = time.strftime("%Y-%m-%dT%H:%M:%S")
+    rec.updated_at = now_iso()
     _save_artifact_record(rec)
     return rec
 

@@ -14,6 +14,7 @@ from typing import Optional
 
 from context.context_store import get_context_store
 from context.unified_retriever import get_retriever
+from agent.runtime.utils import now_iso
 
 
 SOURCE_ID_PREFIX = "ksrc_"
@@ -21,7 +22,7 @@ MAX_CONTENT_LENGTH = 200_000
 
 
 def _now_iso() -> str:
-    return datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+    return now_iso()
 
 
 def _generate_source_id() -> str:

@@ -23,6 +23,7 @@ from typing import Any, Callable
 import threading
 import time
 
+from agent.runtime.utils import now_iso
 from tool_runtime.schemas import ToolSpec, ToolInvocation
 from tool_runtime.registry_helpers import tool_keyword_score
 
@@ -1168,7 +1169,7 @@ def handle_background_exec(inv: ToolInvocation) -> dict:
                 "pid": proc.pid,
                 "command": command[:500],
                 "started_ts": started_ts,
-                "started_at": time.strftime("%Y-%m-%dT%H:%M:%S", time.localtime(started_ts)),
+                "started_at": now_iso(),
                 "stdout": "",
                 "stderr": "",
                 "collected": False,

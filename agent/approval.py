@@ -23,7 +23,7 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional
 
-from agent.runtime.utils import now_iso, to_iso, from_iso
+from agent.runtime.utils import now_iso, from_iso
 
 logger = logging.getLogger(__name__)
 
@@ -182,15 +182,17 @@ class ApprovalStore:
                     # Only restore still-pending records (resolved are history)
                     if rec.get("resolved"):
                         continue
-                    # v3.9.8: created_at is an ISO-8601 string in the
-                    # JSONL log. Legacy records (pre-v3.9.8) store a
-                    # float epoch — coerce via ``to_iso`` so we accept
-                    # both representations during the migration window.
+                    try:
+                        from workspace.ids import validate_workspace_id
+                        workspace_id = validate_workspace_id(str(rec.get("workspace_id") or ""))
+                    except Exception:
+                        continue
                     raw_created = rec.get("created_at") or ""
                     try:
-                        created_iso = to_iso(raw_created)
+                        from_iso(raw_created)
                     except (ValueError, TypeError):
                         continue
+                    created_iso = str(raw_created)
                     if (created_iso or "") < cutoff_iso:
                         continue
                     req = ApprovalRequest(
@@ -200,6 +202,9 @@ class ApprovalStore:
                         arguments=rec.get("arguments", {}),
                         description=rec.get("description", ""),
                         risk_level=rec.get("risk_level", "high"),
+                        workspace_id=workspace_id,
+                        run_id=rec.get("run_id", ""),
+                        job_id=rec.get("job_id", ""),
                         metadata=rec.get("metadata", {}),
                         created_at=created_iso,
                         resolved=False,
@@ -267,14 +272,14 @@ class ApprovalStore:
                         rec = json.loads(line.strip())
                     except json.JSONDecodeError:
                         continue
-                    # Coerce legacy float or any other value through to_iso
-                    # for ordering — falls back to ``""`` for missing keys.
                     raw_created = rec.get("created_at") or ""
+                    if not raw_created:
+                        continue
                     try:
-                        if not raw_created or raw_created < cutoff_iso:
-                            continue
-                    except TypeError:
-                        # str vs float comparison would fail; skip record.
+                        from_iso(raw_created)
+                    except (TypeError, ValueError):
+                        continue
+                    if raw_created < cutoff_iso:
                         continue
                     kept.append(line if line.endswith("\n") else line + "\n")
             tmp = self._persist_path.with_suffix(".jsonl.tmp")
@@ -396,7 +401,7 @@ class ApprovalStore:
                 # v3.9.8: created_at is an ISO-8601 string now; compare
                 # via datetime parsing instead of float math.
                 try:
-                    created = datetime.fromisoformat(req.created_at)
+                    created = datetime.fromtimestamp(from_iso(req.created_at), tz=timezone.utc)
                     if req.created_at and (now - created).total_seconds() > 120:
                         _expire = True
                     else:

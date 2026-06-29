@@ -7,10 +7,11 @@ All approval is task_id/step_id-bound. No guessing by session or tool_id.
 from __future__ import annotations
 from typing import Optional, Literal
 import uuid, time as _time, json
+from agent.runtime.utils import now_iso
 
 Decision = Literal["approve", "reject", "edit_args", "respond", "respond_with_feedback"]
 
-def _now(): return _time.strftime("%Y-%m-%dT%H:%M:%S", _time.localtime())
+def _now(): return now_iso()
 def _next_id(prefix: str) -> str: return f"{prefix}-{uuid.uuid4().hex[:8]}"
 
 _SECRET_PATTERNS = {"password", "token", "api_key", "secret", "credential",

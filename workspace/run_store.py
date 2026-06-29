@@ -2,10 +2,10 @@
 
 import json
 import time
-from datetime import datetime
 from pathlib import Path
 from typing import Optional
 
+from agent.runtime.utils import now_iso, from_iso
 from workspace.redaction import redact_text
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -41,7 +41,7 @@ def write_run_record(state, ws_id: str = "default") -> str:
 
     run_dir = WS_ROOT / ws_id / "runs"
     run_id = _safe_run_id(state.request_id or f"run_{int(time.time())}")
-    created_at = getattr(state, "created_at", "") or time.strftime("%Y-%m-%dT%H:%M:%S")
+    created_at = getattr(state, "created_at", "") or now_iso()
 
     result = state.skill_results or state.tool_results or {}
     llm_ctx = state.context.get("llm", {})
@@ -69,7 +69,7 @@ def write_run_record(state, ws_id: str = "default") -> str:
         "selected_skill": state.selected_skill,
         "runtime_mode": state.runtime_mode,
         "started_at": created_at,
-        "finished_at": time.strftime("%Y-%m-%dT%H:%M:%S"),
+        "finished_at": now_iso(),
         "status": _safe_status(state, result),
         "result_counts": {
             "deployable_lines": dc_lines,
@@ -165,14 +165,12 @@ def _safe_status(state, result: dict) -> str:
     wrote the real `ok` field, producing the inconsistency seen by the UI
     (list says "ok", detail says "failed").
 
-    Order of precedence (most authoritative first):
+    Order of precedence:
     1. explicit state.error → "error"
     2. state.context.capability_status == "planned" → "planned"
-    3. state.result_ok explicitly False → "error"   (NEW: real AgentResult.ok)
-    4. state.result_errors non-empty → "error"       (NEW: real errors list)
-    5. legacy `result.get("ok")` (kept for back-compat with any caller that
-       passes a dict that actually has it) → "error"
-    6. otherwise → "ok"
+    3. state.result_ok explicitly False → "error"
+    4. state.result_errors non-empty → "error"
+    5. otherwise → "ok"
     """
     if state.error:
         return "error"
@@ -185,9 +183,6 @@ def _safe_status(state, result: dict) -> str:
         return "error"
     result_errors = getattr(state, "result_errors", None)
     if result_errors:  # non-empty list
-        return "error"
-    # Legacy fallback for direct dict callers (kept for compatibility)
-    if isinstance(result, dict) and result.get("ok") is False:
         return "error"
     return "ok"
 
@@ -272,7 +267,7 @@ def _is_run_record_file(path: Path) -> bool:
 
 
 def run_sort_key(record: dict) -> tuple:
-    """Sort newest first across mixed ISO formats and timezone styles."""
+    """Sort newest first by the canonical timezone-aware ISO timestamp."""
     stamp = record.get("created_at") or record.get("started_at") or record.get("finished_at") or ""
     parsed = _timestamp_seconds(stamp)
     if parsed is not None:
@@ -287,25 +282,14 @@ def _timestamp_seconds(value: str) -> float | None:
     if not text:
         return None
     try:
-        dt = datetime.fromisoformat(text.replace("Z", "+00:00"))
+        return from_iso(text)
     except ValueError:
         return None
-    if dt.tzinfo is None:
-        dt = dt.replace(tzinfo=datetime.now().astimezone().tzinfo)
-    return dt.timestamp()
 
 
 def _normalize_run_record(record: dict) -> dict:
-    """Backfill display-critical timestamps for older run records."""
-    if not isinstance(record, dict):
-        return {}
-    if not record.get("created_at"):
-        fallback = record.get("started_at") or record.get("finished_at") or ""
-        if fallback:
-            record["created_at"] = fallback
-    if not record.get("started_at") and record.get("created_at"):
-        record["started_at"] = record["created_at"]
-    return record
+    """Return only canonical run records."""
+    return record if isinstance(record, dict) else {}
 
 
 def get_last_run(ws_id: str = "default") -> Optional[dict]:
@@ -340,7 +324,7 @@ def write_sub_agent_run(
 
     run_dir = WS_ROOT / ws_id / "runs"
     run_id = parent_run_id
-    created_at = time.strftime("%Y-%m-%dT%H:%M:%S")
+    created_at = now_iso()
 
     record = {
         "run_id": run_id,
@@ -349,7 +333,7 @@ def write_sub_agent_run(
         "request_id": child_run_id,
         "created_at": created_at,
         "started_at": created_at,
-        "finished_at": time.strftime("%Y-%m-%dT%H:%M:%S"),
+        "finished_at": now_iso(),
         "kind": "sub_agent",
         "is_sub_agent": True,
         "parent_run_id": parent_run_id,

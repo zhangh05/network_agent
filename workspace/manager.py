@@ -6,6 +6,7 @@ import time
 from typing import Optional
 from pathlib import Path
 
+from agent.runtime.utils import now_iso
 from workspace.ids import validate_workspace_id, is_valid_workspace_id
 from workspace.atomic_io import atomic_write_text, atomic_write_json, safe_read_json
 
@@ -107,7 +108,7 @@ def update_workspace_state(ws_id: str, patch: dict) -> dict:
             safe_patch[k] = v
 
     s.update(safe_patch)
-    s["updated_at"] = time.strftime("%Y-%m-%dT%H:%M:%S")
+    s["updated_at"] = now_iso()
     s["runs_count"] = _count_runs(ws_id)
 
     try:

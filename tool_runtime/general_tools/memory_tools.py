@@ -4,6 +4,7 @@ from tool_runtime.schemas import ToolInvocation
 
 from tool_runtime.general_tools.shared import _error_inv, _ok
 from workspace.ids import validate_workspace_id
+from agent.runtime.utils import now_iso
 
 
 def _caller_workspace(inv: ToolInvocation) -> str:
@@ -185,7 +186,7 @@ def handle_memory_set_profile(inv: ToolInvocation) -> dict:
             profile["explicit_preferences"][field] = value
         else:
             profile["explicit_preferences"] = {field: value}
-        profile["updated_at"] = time.strftime("%Y-%m-%dT%H:%M:%S")
+        profile["updated_at"] = now_iso()
 
         rec = MemoryRecord(
             workspace_id=ws, scope="workspace",
@@ -231,7 +232,7 @@ def handle_memory_update(inv: ToolInvocation) -> dict:
             return _error_inv(inv, f"memory_id not found: {memory_id}")
         rec.content = content[:2000]
         import time
-        rec.updated_at = time.strftime("%Y-%m-%dT%H:%M:%S")
+        rec.updated_at = now_iso()
         from workspace.memory_governance import MemoryWriteGate
         gate = MemoryWriteGate()
         result = gate.write(rec)

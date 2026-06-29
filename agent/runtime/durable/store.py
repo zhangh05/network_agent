@@ -12,6 +12,7 @@ from typing import Optional
 from workspace.run_store import WS_ROOT
 from workspace.atomic_io import atomic_write_json
 from .models import TaskState, RuntimeEvent, RuntimeCheckpoint
+from agent.runtime.utils import now_iso
 
 logger = logging.getLogger(__name__)
 
@@ -29,7 +30,7 @@ def _checkpoint_dir(ws, tid): return WS_ROOT / ws / "durable" / "checkpoints" / 
 
 # ── Task CRUD ──
 def save_task(task: TaskState):
-    task.updated_at = _time.strftime("%Y-%m-%dT%H:%M:%S", _time.localtime())
+    task.updated_at = now_iso()
     d = _task_dir(task.workspace_id); d.mkdir(parents=True, exist_ok=True)
     atomic_write_json(d / f"{task.task_id}.json", task.to_dict())
 
@@ -57,7 +58,7 @@ def list_tasks(ws_id: str, session_id="", limit=50) -> list[TaskState]:
 
 # ── Events ──
 def append_event(evt: RuntimeEvent):
-    evt.created_at = _time.strftime("%Y-%m-%dT%H:%M:%S", _time.localtime())
+    evt.created_at = now_iso()
     evt.payload_redacted = _redact(evt.payload_redacted)
     p = _events_path(evt.workspace_id, evt.task_id); p.parent.mkdir(parents=True, exist_ok=True)
     try:
@@ -87,7 +88,7 @@ def get_events(ws_id, task_id, limit=100) -> list[dict]:
 
 # ── Checkpoints ──
 def save_checkpoint(cp: RuntimeCheckpoint):
-    cp.created_at = _time.strftime("%Y-%m-%dT%H:%M:%S", _time.localtime())
+    cp.created_at = now_iso()
     cp.state_snapshot = _redact(cp.state_snapshot)
     if cp.pending_action: cp.pending_action = _redact(cp.pending_action)
     d = _checkpoint_dir(cp.workspace_id, cp.task_id); d.mkdir(parents=True, exist_ok=True)

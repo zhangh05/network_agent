@@ -185,9 +185,16 @@ def test_internal_time_utils_helpers_round_trip():
     assert isinstance(duration_ms(a, b), int)
 
 
-def test_to_iso_accepts_float_legacy_input():
-    """to_iso tolerates a float input (legacy callers) and emits str."""
+def test_to_iso_accepts_epoch_input_for_internal_runtime_math():
+    """to_iso can encode an epoch value produced by internal runtime timers."""
     out = to_iso(1751188800.0)
     assert isinstance(out, str)
     # Round-trip
     assert abs(from_iso(out) - 1751188800.0) < 0.001
+
+
+def test_from_iso_rejects_naive_timestamps():
+    import pytest
+
+    with pytest.raises(ValueError):
+        from_iso("2026-06-30T10:00:00")

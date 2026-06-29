@@ -9,8 +9,9 @@ from pathlib import Path
 from typing import Optional
 from workspace.run_store import WS_ROOT
 from workspace.atomic_io import atomic_write_json
+from agent.runtime.utils import now_iso, duration_ms
 
-def _now(): return _time.strftime("%Y-%m-%dT%H:%M:%S", _time.localtime())
+def _now(): return now_iso()
 def _tid(): return f"traj-{uuid.uuid4().hex[:12]}"
 
 _REDACT_KEYS = {"password","token","api_key","secret","credential","key","auth"}
@@ -102,10 +103,8 @@ def build_trajectory(task_id: str, ws_id: str) -> Optional[TrajectoryRecord]:
     traj.finished_at = task.updated_at
     if task.created_at and task.updated_at:
         try:
-            st = datetime.strptime(task.created_at, "%Y-%m-%dT%H:%M:%S")
-            ft = datetime.strptime(task.updated_at, "%Y-%m-%dT%H:%M:%S")
-            traj.duration_ms = int(round((ft - st).total_seconds() * 1000))
-        except Exception as e:
+            traj.duration_ms = duration_ms(task.created_at, task.updated_at)
+        except (TypeError, ValueError) as e:
             traj.warnings.append(f"duration calc failed: {str(e)[:100]}")
 
     # ── Compute metrics ──

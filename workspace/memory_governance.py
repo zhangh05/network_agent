@@ -8,6 +8,7 @@ from pathlib import Path
 from typing import Optional, Literal
 from workspace.run_store import WS_ROOT
 from workspace.atomic_io import atomic_write_json
+from agent.runtime.utils import from_iso, now_iso, to_iso
 
 Scope = Literal["global","workspace","session","task"]
 MemoryType = Literal[
@@ -22,7 +23,7 @@ MemorySource = Literal[
 
 _REDACT_KEYS = {"password","token","api_key","secret","credential","key","auth"}
 
-def _now(): return _time.strftime("%Y-%m-%dT%H:%M:%S", _time.localtime())
+def _now(): return now_iso()
 def _mid(): return f"mem-{uuid.uuid4().hex[:12]}"
 
 @dataclass
@@ -55,12 +56,16 @@ class MemoryRecord:
         if not self.created_at: self.created_at = n
         if not self.updated_at: self.updated_at = n
         if self.ttl_seconds and not self.expires_at:
-            self.expires_at = _time.strftime("%Y-%m-%dT%H:%M:%S",
-                _time.localtime(_time.time() + self.ttl_seconds))
+            self.expires_at = to_iso(_time.time() + self.ttl_seconds)
 
     def is_retrievable(self) -> bool:
         if self.status != "active": return False
-        if self.expires_at and self.expires_at < _now(): return False
+        if self.expires_at:
+            try:
+                if from_iso(self.expires_at) < _time.time():
+                    return False
+            except (TypeError, ValueError):
+                return False
         return True
 
     def to_dict(self) -> dict: return asdict(self)

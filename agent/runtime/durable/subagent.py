@@ -5,8 +5,9 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Optional, Literal
 import uuid, time as _time
+from agent.runtime.utils import now_iso
 
-def _now(): return _time.strftime("%Y-%m-%dT%H:%M:%S", _time.localtime())
+def _now(): return now_iso()
 def _sid(): return f"sub-{uuid.uuid4().hex[:8]}"
 
 # ── Profiles ──
