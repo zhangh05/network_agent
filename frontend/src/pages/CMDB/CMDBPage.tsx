@@ -40,12 +40,13 @@ const VENDOR_PRESETS_LIST = [
   "锐讯", "Aruba", "Palo Alto", "F5", "Check Point", "A10",
 ];
 
-// ── tiny stat pill ──
-function Stat({ label, value, color }: { label: string; value: number; color: string }) {
+// ── compact stat pill ──
+function Stat({ label, value, color, sub }: { label: string; value: number | string; color: string; sub?: string }) {
   return (
-    <div style={{ textAlign: "center", minWidth: 64 }}>
+    <div style={{ minWidth: 72 }}>
       <div style={{ fontSize: 22, fontWeight: 700, color, lineHeight: 1.2 }}>{value}</div>
-      <div style={{ fontSize: 11, color: "var(--text-4)", marginTop: 2 }}>{label}</div>
+      <div style={{ fontSize: 11, color: "var(--text-4)", marginTop: 2, whiteSpace: "nowrap" }}>{label}</div>
+      {sub && <div style={{ fontSize: 10, color: "var(--text-5)", marginTop: 1, whiteSpace: "nowrap" }}>{sub}</div>}
     </div>
   );
 }
@@ -155,8 +156,28 @@ export function CMDBPage() {
   const activeInspectionRegionCount = activeInspectionRegion
     ? assets.filter(a => (a.region || "") === activeInspectionRegion).length
     : 0;
-  const stats = { total: assets.length, switch: 0, router: 0, firewall: 0 };
-  assets.forEach(a => { if (a.type in stats) (stats as any)[a.type]++; });
+  const stats = assets.reduce((acc, a) => {
+    const type = (a.type || "other").toLowerCase();
+    const protocol = (a.protocol || "").toLowerCase();
+    const vendor = (a.vendor || "").trim();
+    const region = (a.region || "").trim();
+    acc.total += 1;
+    if (type === "switch") acc.switch += 1;
+    else if (type === "router") acc.router += 1;
+    else if (type === "firewall") acc.firewall += 1;
+    else if (type === "server") acc.server += 1;
+    else acc.other += 1;
+    if (protocol === "ssh") acc.ssh += 1;
+    if (protocol === "telnet") acc.telnet += 1;
+    if (["ssh", "telnet"].includes(protocol)) acc.connectable += 1;
+    if (vendor) acc.vendors.add(vendor);
+    if (region) acc.regions.add(region);
+    return acc;
+  }, {
+    total: 0, switch: 0, router: 0, firewall: 0, server: 0, other: 0,
+    ssh: 0, telnet: 0, connectable: 0,
+    vendors: new Set<string>(), regions: new Set<string>(),
+  });
 
   const launchInspection = useCallback((scope: { region?: string; asset_ids?: string[]; label: string; source: string }) => {
     const region = (scope.region || "").trim();
@@ -285,15 +306,21 @@ export function CMDBPage() {
       <div style={{ padding: "0 24px 24px" }}>
         {/* ── 统计栏 ── */}
         <div style={{
-          display: "flex", alignItems: "center", gap: 28,
-          padding: "14px 20px", marginBottom: 18,
+          display: "grid",
+          gridTemplateColumns: "repeat(auto-fit, minmax(86px, 1fr))",
+          gap: 14,
+          padding: "14px 18px", marginBottom: 18,
           borderRadius: 10, border: "1px solid var(--line-2)", background: "var(--surface)",
+          alignItems: "center",
         }}>
-          <Stat label="总计" value={stats.total} color="var(--accent)" />
-          <div style={{ width: 1, height: 32, background: "var(--line-2)" }} />
+          <Stat label="总资产" value={stats.total} color="var(--accent)" sub={`${stats.regions.size} 区域`} />
+          <Stat label="可连接" value={stats.connectable} color="var(--ok)" sub={`SSH ${stats.ssh} / Telnet ${stats.telnet}`} />
+          <Stat label="厂商" value={stats.vendors.size} color="#7e22ce" sub="已登记厂商" />
           <Stat label="交换机" value={stats.switch} color="var(--info)" />
           <Stat label="路由器" value={stats.router} color="#cf0a2c" />
           <Stat label="防火墙" value={stats.firewall} color="#e65100" />
+          <Stat label="服务器" value={stats.server} color="#475569" />
+          <Stat label="其它" value={stats.other} color="var(--text-4)" />
         </div>
 
         {/* ── 区域筛选 ── */}

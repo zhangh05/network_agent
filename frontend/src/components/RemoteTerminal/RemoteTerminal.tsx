@@ -1,6 +1,7 @@
 import { useState, useRef, useEffect, useCallback } from "react";
 import { useSessionStore } from "../../stores/session";
 import { apiRequest } from "../../api/client";
+import "xterm/css/xterm.css";
 
 interface SavedDevice {
   device_id: string; name: string; host: string; port: number;
@@ -82,8 +83,6 @@ export function RemoteTerminal({ onClose, initial }: {
       const fit = new FitAddon();
       term.loadAddon(fit);
       term.open(termRef.current);
-      fit.fit();
-      term.scrollToBottom();
       term.writeln("Ready. Fill connection settings and click Connect.");
       xtermRef.current = term;
       fitRef.current = fit;
@@ -109,6 +108,10 @@ export function RemoteTerminal({ onClose, initial }: {
       });
       resizeObserverRef.current.observe(termRef.current);
       window.addEventListener("resize", syncResize);
+      window.requestAnimationFrame(() => {
+        syncResize?.();
+        term.focus();
+      });
 
       term.onData((data: string) => {
         const ws = wsRef.current;
@@ -179,13 +182,13 @@ export function RemoteTerminal({ onClose, initial }: {
           if (term) {
             term.writeln("\x1b[32m═══ 已连接 " + msg.host + " ═══\x1b[0m");
             if (msg.banner) term.write(msg.banner);
-            term.scrollToBottom();
+            term.focus();
           }
         }, 200);
       } else if (msg.type === "output") {
         if (term) {
           term.write(msg.text);
-          term.scrollToBottom();
+          term.focus();
         }
       } else if (msg.type === "error") {
         setError(msg.message || "连接失败"); setConnecting(false); connectingRef.current = false;
@@ -411,15 +414,29 @@ export function RemoteTerminal({ onClose, initial }: {
 
         {/* Terminal */}
         <div
-          ref={termRef}
           style={{
             flex: 1,
-            padding: "4px 8px",
             background: "#1e1e2e",
             minHeight: 0,
             overflow: "hidden",
+            display: "flex",
           }}
-        />
+          onClick={() => xtermRef.current?.focus()}
+        >
+          <div
+            ref={termRef}
+            className="remote-terminal-host"
+            style={{
+              flex: 1,
+              minWidth: 0,
+              minHeight: 0,
+              height: "100%",
+              padding: "4px 8px",
+              boxSizing: "border-box",
+              overflow: "hidden",
+            }}
+          />
+        </div>
       </div>
     </div>
   );
