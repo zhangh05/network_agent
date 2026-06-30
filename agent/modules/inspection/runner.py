@@ -126,8 +126,7 @@ def _task_from_dict(d: dict) -> InspectionTask:
     )
     devices: dict[str, DeviceResult] = {}
     for aid, dev in (d.get("devices") or {}).items():
-        dr = DeviceResult(task_id=d.get("task_id", ""))
-        dr.asset_id = aid
+        dr = DeviceResult(task_id=d.get("task_id", ""), asset_id=aid)
         for k, v in dev.items():
             if k == "command_results":
                 dr.command_results = [

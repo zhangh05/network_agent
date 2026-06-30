@@ -579,3 +579,67 @@ def test_backend_routes_return_400_for_empty_profile_id():
         )
     else:
         assert "error" in data, f"400 must include error field: {data}"
+
+
+def test_task_from_dict_does_not_crash_on_disk_round_trip():
+    """v3.9.14 follow-up: ``_task_from_dict`` must construct DeviceResult
+    with both required fields (task_id, asset_id). Otherwise a
+    list_tasks / task_get cycle on a real task raises
+    ``DeviceResult.__init__() missing 1 required positional argument:
+    'asset_id'`` instead of returning the task.
+    """
+    import json
+    from agent.modules.inspection import service as svc
+    from agent.modules.inspection.runner import _task_from_dict
+
+    # 1. create + persist a real task to disk
+    task = svc.create_task("ws_round_trip", profile_id="", scope={"limit": 3})
+    assert task.task_id, "task creation failed"
+
+    # 2. simulate a list_tasks payload (raw dict) and round-trip it
+    raw = {
+        "task_id": task.task_id,
+        "workspace_id": task.workspace_id,
+        "scope": {
+            "region": "", "location": "", "type": "", "vendor": "",
+            "tags": [], "asset_ids": [], "limit": 3,
+        },
+        "profile_id": task.profile_id,
+        "status": task.status,
+        "started_at": task.started_at,
+        "finished_at": task.finished_at,
+        "total_assets": task.total_assets,
+        "succeeded": task.succeeded,
+        "failed": task.failed,
+        "skipped": task.skipped,
+        "warnings": task.warnings,
+        "criticals": task.criticals,
+        "infos": task.infos,
+        "created_by": task.created_by,
+        "session_id": task.session_id,
+        "max_concurrency": task.max_concurrency,
+        "devices": {},
+        "error": task.error,
+    }
+    # Must not raise TypeError about missing asset_id
+    loaded = _task_from_dict(raw)
+    assert loaded.task_id == task.task_id
+    assert loaded.workspace_id == task.workspace_id
+    assert loaded.devices == {}
+
+    # 3. round-trip with one synthesised device entry — the original
+    #    bug (missing asset_id kwarg) would crash here.
+    raw["devices"] = {
+        "asset_x": {
+            "asset_name": "switch-east-1",
+            "host": "10.0.0.1",
+            "status": "succeeded",
+            "command_results": [],
+            "findings": [],
+            "errors": [],
+        }
+    }
+    loaded2 = _task_from_dict(raw)
+    assert "asset_x" in loaded2.devices
+    assert loaded2.devices["asset_x"].asset_id == "asset_x"
+    assert loaded2.devices["asset_x"].task_id == task.task_id
