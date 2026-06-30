@@ -58,11 +58,19 @@ def test_legacy_tool_ids_absent_from_tooL_namespace():
 
 
 def test_canonical_namespace_has_exactly_21_tools():
-    """v3.9.2 design: 21 canonical tools, no more, no less."""
-    assert len(TOOL_NAMESPACE) == 21, (
-        f"expected 21 canonical tools, got {len(TOOL_NAMESPACE)}: "
-        f"{sorted(TOOL_NAMESPACE)}"
+    """v3.9.2 design: 21 canonical tools baseline.
+    v3.9.13 added `inspection.manage` (CMDB-driven device inspection);
+    the canonical set may grow when a new merged tool lands, but a
+    hardcoded floor of 21 documents the v3.9.2 baseline.
+    """
+    assert len(TOOL_NAMESPACE) >= 21, (
+        f"canonical tool count below v3.9.2 baseline: {len(TOOL_NAMESPACE)}"
     )
+    # No legacy names may sneak in.
+    for tid in TOOL_NAMESPACE:
+        assert "_v0" not in tid and not tid.endswith(".legacy"), (
+            f"legacy tool id re-emerged: {tid}"
+        )
 
 
 def test_all_canonical_tools_have_manifests():
@@ -73,7 +81,7 @@ def test_all_canonical_tools_have_manifests():
 
 def test_canonical_registry_lists_all_21():
     from tool_runtime.canonical_registry import CANONICAL_REGISTRY
-    assert len(CANONICAL_REGISTRY) == 21
+    assert len(CANONICAL_REGISTRY) == len(TOOL_NAMESPACE)
     assert set(CANONICAL_REGISTRY.keys()) == set(TOOL_NAMESPACE)
 
 

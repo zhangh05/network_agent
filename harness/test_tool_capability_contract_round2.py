@@ -51,19 +51,25 @@ def test_tools_dry_run_reports_policy_escalation():
 
 def test_catalog_exposes_action_and_usage_guidance():
     from tool_runtime.catalog_snapshot import reset_catalog_snapshot_cache, build_catalog_snapshot
+    from tool_runtime.tool_namespace import TOOL_NAMESPACE
 
     reset_catalog_snapshot_cache()
     catalog = build_catalog_snapshot()
 
-    assert catalog["count"] == 21
+    # Catalog count must match the canonical tool namespace — no drift.
+    # v3.9.13 added `inspection.manage` (CMDB-driven inspection).
+    assert catalog["count"] == len(TOOL_NAMESPACE)
     by_id = {tool["canonical_tool_id"]: tool for tool in catalog["tools"]}
     text = by_id["text.analyze"]
     exec_tool = by_id["exec.run"]
+    inspection_tool = by_id["inspection.manage"]
 
     assert "keywords" in text["actions"]
     assert text["usage_hint"]
     assert text["not_for"] is not None
     assert "turn_runner" in exec_tool["allowed_callers"]
+    # The runner is exposed to the inspection_runner caller (internal)
+    assert "inspection_runner" in inspection_tool["allowed_callers"]
 
 
 def test_llm_tool_description_contains_actionable_guidance():

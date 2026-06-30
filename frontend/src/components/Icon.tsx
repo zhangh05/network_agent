@@ -80,6 +80,18 @@ export function IconShield(props: IconProps) {
   );
 }
 
+export function IconProbe(props: IconProps) {
+  // Stethoscope-style icon — represents device health inspection.
+  return (
+    <svg {...base(props.size, props)}>
+      <path d="M3 2v5a3.5 3.5 0 0 0 7 0V2" />
+      <path d="M3 2h7" opacity="0.4" />
+      <circle cx="12.5" cy="11" r="1.5" />
+      <path d="M6.5 10.5a3.5 3.5 0 0 1 3.5 3.5c0 1.5 1 2.5 2.5 2.5" />
+    </svg>
+  );
+}
+
 export function IconClock(props: IconProps) {
   return (
     <svg {...base(props.size, props)}>

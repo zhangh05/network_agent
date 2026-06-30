@@ -269,4 +269,13 @@ NS_DATA = [
     ('workspace.document.pdf.extract_text', 'workspace', 'document', 'pdf_extract_text', '提取 PDF 文本', 'workspace.document.pdf.extract_text',
      'Extract text from a PDF.',
      'Do not use for non-PDF files.', 'workspace.document.pdf.extract_text'),
-]
+
+    # 22. inspection.manage (CMDB-driven device health inspection)
+    ('inspection.manage', 'inspection', 'inspection', 'manage', 'CMDB 巡检任务', 'inspection.manage',
+     'CMDB-driven device health inspection. '
+     'Commands come from a fixed per-vendor map (no LLM-typed commands). '
+     'Credentials stay server-side via exec.run(asset_id=...).',
+     "Don't use raw shell commands -- the runner dispatches a fixed profile. "
+     'Never expose device passwords in tool output.',
+     'inspection.manage'),
+] 

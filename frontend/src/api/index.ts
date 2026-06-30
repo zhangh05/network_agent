@@ -1068,6 +1068,152 @@ export const sseApi = {
     new EventSource(apiUrlWithAuth(`/agent/sse/stream/${encodeURIComponent(sessionId)}?workspace_id=${encodeURIComponent(workspaceId)}`)),
 };
 
+// ──────────────────────────────────────────────────────────────────────
+// Inspection (CMDB-driven device health inspection) types + module
+// ──────────────────────────────────────────────────────────────────────
+
+export interface InspectionCheckSpec {
+  check_id: string;
+  category: string;
+  display_name: string;
+  command_key: string;
+  parser_key: string;
+  severity_default: "info" | "warning" | "critical";
+  timeout_seconds: number;
+}
+
+export interface InspectionProfile {
+  profile_id: string;
+  display_name: string;
+  description: string;
+  risk_level: "low" | "medium" | "high" | "critical";
+  requires_approval: boolean;
+  checks: InspectionCheckSpec[];
+}
+
+export interface InspectionScope {
+  region: string;
+  location: string;
+  type: string;
+  vendor: string;
+  tags: string[];
+  asset_ids: string[];
+  limit: number;
+}
+
+export interface InspectionTaskSummary {
+  total_devices: number;
+  succeeded_devices: number;
+  failed_devices: number;
+  skipped_devices: number;
+  findings_total: number;
+  findings_critical: number;
+  findings_warning: number;
+  findings_info: number;
+}
+
+export interface InspectionTaskRecord {
+  task_id: string;
+  workspace_id: string;
+  scope: InspectionScope;
+  profile_id: string;
+  profile_display_name: string;
+  status: "pending" | "running" | "succeeded" | "failed" | "cancelled";
+  started_at: string;
+  finished_at: string;
+  total_assets: number;
+  succeeded: number;
+  failed: number;
+  skipped: number;
+  warnings: number;
+  criticals: number;
+  infos: number;
+  created_by: string;
+  session_id: string;
+  max_concurrency: number;
+  devices: Record<string, unknown>;
+  error: string;
+}
+
+export const inspectionApi = {
+  /** GET /api/inspection/profiles */
+  listProfiles: (
+    workspace_id: string,
+    signal?: AbortSignal,
+  ): Promise<{ ok: boolean; workspace_id: string; profiles: InspectionProfile[]; count: number }> =>
+    apiRequest<{ ok: boolean; workspace_id: string; profiles: InspectionProfile[]; count: number }>(
+      { method: "GET", url: `/inspection/profiles`, params: { workspace_id } },
+      signal,
+    ),
+
+  /** POST /api/inspection/tasks */
+  createTask: (data: {
+    workspace_id: string;
+    profile_id: string;
+    scope: Partial<InspectionScope>;
+    max_concurrency?: number;
+  }): Promise<{
+    ok: boolean;
+    task_id: string;
+    status: string;
+    profile_id: string;
+    scope: InspectionScope;
+    summary: InspectionTaskSummary;
+    started_at: string;
+    finished_at: string;
+    error: string;
+  }> =>
+    apiRequest<{
+      ok: boolean;
+      task_id: string;
+      status: string;
+      profile_id: string;
+      scope: InspectionScope;
+      summary: InspectionTaskSummary;
+      started_at: string;
+      finished_at: string;
+      error: string;
+    }>({ method: "POST", url: `/inspection/tasks`, data }),
+
+  /** GET /api/inspection/tasks */
+  listTasks: (
+    workspace_id: string,
+    limit = 20,
+    signal?: AbortSignal,
+  ): Promise<{ ok: boolean; workspace_id: string; items: unknown[]; count: number }> =>
+    apiRequest<{ ok: boolean; workspace_id: string; items: unknown[]; count: number }>(
+      { method: "GET", url: `/inspection/tasks`, params: { workspace_id, limit } },
+      signal,
+    ),
+
+  /** GET /api/inspection/tasks/<id> */
+  getTask: (
+    workspace_id: string,
+    task_id: string,
+    signal?: AbortSignal,
+  ): Promise<{ ok: boolean; task: InspectionTaskRecord } | { ok: boolean; error: string }> =>
+    apiRequest<{ ok: boolean; task: InspectionTaskRecord } | { ok: boolean; error: string }>(
+      { method: "GET", url: `/inspection/tasks/${encodeURIComponent(task_id)}`, params: { workspace_id } },
+      signal,
+    ),
+
+  /** POST /api/inspection/tasks/<id>/cancel */
+  cancelTask: (workspace_id: string, task_id: string) =>
+    apiRequest<{ ok: boolean; supported?: boolean; error?: string }>({
+      method: "POST",
+      url: `/inspection/tasks/${encodeURIComponent(task_id)}/cancel`,
+      data: { workspace_id },
+    }),
+
+  /** GET /api/inspection/tasks/<id>/report?format=md|json */
+  getReport: (workspace_id: string, task_id: string, format: "md" | "json" = "md") =>
+    apiRequest<{ ok: boolean; format: string; filename?: string; content?: string; error?: string }>({
+      method: "GET",
+      url: `/inspection/tasks/${encodeURIComponent(task_id)}/report`,
+      params: { workspace_id, format },
+    }),
+};
+
 function apiUrl(path: string): string {
   return `${apiBaseURL}${path.startsWith("/") ? path : `/${path}`}`;
 }

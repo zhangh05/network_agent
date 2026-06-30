@@ -210,8 +210,88 @@ def _handle_device_merged(inv: ToolInvocation) -> dict:
     }.get(action, _handler_cmdb_list_assets)(inv)
 
 
+def _handle_inspection_managed(inv: ToolInvocation) -> dict:
+    """inspection.manage — CMDB-driven device health inspection.
+
+    Dispatches to agent.modules.inspection.service. The runner is
+    internal — credentials stay server-side and never cross the
+    canonical_tool boundary. The LLM never sees device passwords.
+    """
+    from agent.modules.inspection import service as inspection_service
+
+    ws = _inv_workspace(inv)
+    action = str((inv.arguments or {}).get("action", "") or "").lower()
+    args = dict(inv.arguments or {})
+
+    if action == "profile_list":
+        profiles = inspection_service.list_profiles()
+        return {"ok": True, "profiles": profiles, "count": len(profiles)}
+
+    if action == "run":
+        try:
+            scope = args.get("scope") or {}
+            task = inspection_service.create_task(
+                workspace_id=ws,
+                profile_id=str(args.get("profile_id", "") or "basic_health"),
+                scope=scope if isinstance(scope, dict) else {},
+                created_by=str(args.get("created_by", "user") or "user"),
+                session_id=str(args.get("session_id", "") or ""),
+                max_concurrency=int(args.get("max_concurrency", 3) or 3),
+            )
+        except Exception as exc:
+            return {"ok": False, "error": f"inspection_run_failed: {type(exc).__name__}: {exc}"}
+        return {
+            "ok": task.status != "failed" or not task.error.startswith("unknown_profile"),
+            "task_id": task.task_id,
+            "status": task.status,
+            "profile_id": task.profile_id,
+            "scope": {
+                "region": task.scope.region, "location": task.scope.location,
+                "type": task.scope.type, "vendor": task.scope.vendor,
+                "tags": list(task.scope.tags),
+                "asset_ids": list(task.scope.asset_ids), "limit": task.scope.limit,
+            },
+            "summary": {
+                "total_devices": task.total_assets,
+                "succeeded_devices": task.succeeded,
+                "failed_devices": task.failed,
+                "skipped_devices": task.skipped,
+                "findings_total": task.warnings + task.criticals + task.infos,
+                "findings_critical": task.criticals,
+                "findings_warning": task.warnings,
+                "findings_info": task.infos,
+            },
+            "started_at": task.started_at,
+            "finished_at": task.finished_at,
+            "error": task.error,
+        }
+
+    if action == "task_list":
+        limit = int(args.get("limit", 50) or 50)
+        items = inspection_service.list_tasks(ws, limit=limit)
+        return {"ok": True, "items": items, "count": len(items)}
+
+    if action == "task_get":
+        task_id = str(args.get("task_id", "") or "")
+        task = inspection_service.get_task(ws, task_id)
+        if task is None:
+            return {"ok": False, "error": "task_not_found"}
+        from dataclasses import asdict
+        return {"ok": True, "task": asdict(task)}
+
+    if action == "task_cancel":
+        task_id = str(args.get("task_id", "") or "")
+        return inspection_service.cancel_task(ws, task_id)
+
+    if action == "report":
+        task_id = str(args.get("task_id", "") or "")
+        fmt = str(args.get("format", "md") or "md").lower()
+        return inspection_service.render_report(ws, task_id, fmt)
+
+    return {"ok": False, "error": f"unknown_action: {action}"}
+
+
 def _handle_browser_merged(inv: ToolInvocation) -> dict:
-    """browser.manage — action=navigate|extract|screenshot|click."""
     action, _ = _action(inv)
     return {
         "navigate": _handler_browser_navigate,
@@ -2055,6 +2135,37 @@ _RAW_REGISTRY: list[CanonicalToolEntry] = [
             "workspace_id": _S["workspace_id"], "filepath": _S["filepath"],
             "page_range": _S["page_range"],
         }, ["filepath"]),
+    ),
+
+    # 22. inspection.manage (CMDB-driven device health inspection)
+    CanonicalToolEntry(
+        canonical_tool_id="inspection.manage",
+        handler=_adapt(_handle_inspection_managed),
+        input_schema=_schema({
+            "workspace_id": _S["workspace_id"],
+            "action": {
+                "type": "string",
+                "enum": ["profile_list", "run", "task_list", "task_get",
+                         "task_cancel", "report"],
+            },
+            "profile_id": {"type": "string",
+                "description": "[run] Profile id from profile_list."},
+            "scope": {"type": "object",
+                "description": "[run] CMDB scope: type/vendor/region/location/tags/asset_ids/limit."},
+            "created_by": {"type": "string", "description": "[run] user|job|system."},
+            "session_id": {"type": "string", "description": "[run] Session id."},
+            "max_concurrency": {"type": "integer", "description": "[run] Per-task device concurrency (default 3)."},
+            "task_id": {"type": "string",
+                "description": "[task_get|task_cancel|report] Task id from action=run."},
+            "limit": {"type": "integer", "description": "[task_list] Max items (default 50)."},
+            "format": {"type": "string", "enum": ["md", "json"], "description": "[report] Report format."},
+        }, ["action"]),
+        description=(
+            "CMDB-driven device health inspection. action=profile_list / run / "
+            "task_list / task_get / task_cancel / report. Commands come from "
+            "a fixed per-vendor map — the LLM never assembles them. "
+            "Credentials are resolved server-side via exec.run(asset_id=...)."
+        ),
     ),
 ]
 

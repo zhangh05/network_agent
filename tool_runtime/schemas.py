@@ -24,7 +24,7 @@ VALID_TOOL_CATEGORIES = {
     "skill", "run", "file", "snmp", "nmap", "diagram", "document",
     "review", "slash", "team", "frontend", "general", "ops", "config_translation",
     "weather", "news", "tool", "pcap", "parser", "report", "command", "query",
-    "capability",
+    "capability", "inspection",
 }
 # v0.2 — expanded categories for general agent tools
 V02_ALLOWED_CATEGORIES = VALID_TOOL_CATEGORIES

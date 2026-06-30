@@ -24,6 +24,8 @@ MANIFESTS: dict[str, CapabilityManifest] = {
         idempotency="unsafe_to_retry", rollback_strategy="none",
         secret_fields=["cmd", "code"], output_sensitivity="secret",
         timeout_seconds=120,
+        allowed_callers=["turn_runner", "rest_api", "job_runner",
+                        "graph_runner", "subagent", "inspection_runner"],
     ),
 
     # ═══ 2. git.manage (merged: status+log+diff+commit+push) ═══
@@ -56,6 +58,8 @@ MANIFESTS: dict[str, CapabilityManifest] = {
         requires_approval=False,
         approval_reason_template="Device change: confirm asset is correct before commit",
         timeout_seconds=30,
+        allowed_callers=["turn_runner", "rest_api", "job_runner",
+                        "graph_runner", "subagent", "inspection_runner"],
     ),
 
     # ═══ 4. browser.manage (merged: navigate+extract+screenshot+click) ═══
@@ -274,6 +278,40 @@ MANIFESTS: dict[str, CapabilityManifest] = {
         action_class="read",
         risk_level="low", reads_artifact=True, side_effects="none",
         idempotency="safe_to_retry", timeout_seconds=60,
+    ),
+
+    # ═══ 22. inspection.manage (CMDB-driven device health check) ═══
+    "inspection.manage": CapabilityManifest(
+        tool_id="inspection.manage", category="inspection",
+        display_name="设备巡检 (CMDB)",
+        description=(
+            "CMDB-driven device health inspection. "
+            "action=profile_list (returns available profiles + checks); "
+            "action=run (creates a task from a CMDB scope and runs it "
+            "through exec.run with asset_id resolution — credentials "
+            "stay server-side); "
+            "action=task_list / task_get / task_cancel / report. "
+            "All commands come from a per-vendor fixed map (H3C / Huawei / "
+            "Cisco / generic-fallback). The runner does NOT accept raw "
+            "LLM string commands — every command is mapped through "
+            "VendorCommandProfile and run only after a static "
+            "read-only check."
+        ),
+        action_class="read",  # inspection commands are all read-only
+        risk_level="low",  # base; no destructive surface
+        destructive=False,
+        side_effects="none",  # writes only to artifact store + audit
+        idempotency="safe_to_retry",
+        rollback_strategy="none",
+        secret_fields=[],  # never sees a password
+        output_sensitivity="internal",
+        reads_artifact=True, writes_artifact=True,
+        timeout_seconds=300,
+        # The runner is "inspection_runner" — an internal background
+        # identity used by the inspection service. The user-facing
+        # LLM-driven entrypoint is still "turn_runner".
+        allowed_callers=["turn_runner", "rest_api", "job_runner",
+                        "graph_runner", "subagent", "inspection_runner"],
     ),
 }
 
