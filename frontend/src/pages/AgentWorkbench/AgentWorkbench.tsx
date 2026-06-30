@@ -22,6 +22,11 @@ import { QUICK_CHIPS } from "./WorkbenchQuickChips";
 /* ── v3.9 View mode ── */
 type ViewMode = "chat" | "timeline";
 
+interface WorkbenchAutoPrompt {
+  prompt?: string;
+  metadata?: Record<string, unknown>;
+}
+
 /** Enhanced error classification with recovery hints.
  *  Now uses error_type from AgentResult for precise messaging. */
 function _humanFailure(errorType: string | undefined, errorText: string): { msg: string; retryable: boolean } {
@@ -120,6 +125,7 @@ export function TaskWorkbench() {
   const toast = useToastStore((s) => s.show);
   const abortRef = useRef<AbortController | null>(null);
   const wsRef = useRef<WebSocket | null>(null);
+  const pendingAutoMetadataRef = useRef<Record<string, unknown> | null>(null);
 
   // Stop generation: abort active request + close WebSocket
   const stopGeneration = useCallback(() => {
@@ -176,14 +182,31 @@ export function TaskWorkbench() {
     el.style.height = Math.min(el.scrollHeight, 140) + "px";
   }, [input]);
 
-  // Pick up pcap analysis prompt from sessionStorage (set by PacketAnalysis "Ask AI")
+  // Pick up cross-page auto prompts (CMDB inspection, packet analysis, etc.)
   useEffect(() => {
+    const autoRaw = sessionStorage.getItem("workbench_auto_prompt");
+    if (autoRaw && currentWorkspaceId) {
+      sessionStorage.removeItem("workbench_auto_prompt");
+      try {
+        const payload = JSON.parse(autoRaw) as WorkbenchAutoPrompt;
+        const prompt = String(payload.prompt || "").trim();
+        if (prompt) {
+          pendingAutoMetadataRef.current = payload.metadata || {};
+          setInput(prompt);
+          const t = setTimeout(() => onSend(prompt, payload.metadata || {}), 500);
+          return () => clearTimeout(t);
+        }
+      } catch {
+        // Fall through to legacy prompt support below.
+      }
+    }
     const prompt = sessionStorage.getItem("pcap_ai_prompt");
     if (prompt && currentWorkspaceId) {
       sessionStorage.removeItem("pcap_ai_prompt");
+      pendingAutoMetadataRef.current = { source: "packet_analysis" };
       setInput(prompt);
       // Auto-send after a short delay to let UI settle
-      const t = setTimeout(() => onSend(prompt), 500);
+      const t = setTimeout(() => onSend(prompt, { source: "packet_analysis" }), 500);
       return () => clearTimeout(t);
     }
   }, [currentWorkspaceId]);
@@ -221,7 +244,7 @@ export function TaskWorkbench() {
     };
   }, [currentSessionId, currentWorkspaceId]);
 
-  async function onSend(textOverride?: string) {
+  async function onSend(textOverride?: string, metadataOverride?: Record<string, unknown>) {
     const hasAttachments = attachments.length > 0;
     const raw = typeof textOverride === "string" ? textOverride : input;
     const text = raw.trim();
@@ -234,6 +257,8 @@ export function TaskWorkbench() {
     setInput("");
     clearDraft();
     let fullText = text;
+    const turnMetadata = metadataOverride || pendingAutoMetadataRef.current || {};
+    pendingAutoMetadataRef.current = null;
 
     if (hasAttachments) {
       setAttachments((prev) => prev.map((a) => ({ ...a, uploading: true })));
@@ -306,7 +331,7 @@ export function TaskWorkbench() {
         user_input: fullText,
         session_id: currentSessionId,
         workspace_id: currentWorkspaceId,
-        metadata: {},
+        metadata: turnMetadata,
       }));
 
       // Receive streaming events
@@ -461,7 +486,12 @@ export function TaskWorkbench() {
       // WebSocket failed, fall back to HTTP
       if (ws) { try { ws.close(); } catch {} }
       try {
-        const res = await agentApi.run({ message: fullText, workspace_id: currentWorkspaceId, session_id: currentSessionId });
+        const res = await agentApi.run({
+          message: fullText,
+          workspace_id: currentWorkspaceId,
+          session_id: currentSessionId,
+          metadata: turnMetadata,
+        });
         const resolvedSid = (res.session_id && res.session_id !== "—" ? res.session_id : currentSessionId) ?? undefined;
         if (!currentSessionId && resolvedSid) {
           useSessionStore.getState().setCurrentSession(resolvedSid);

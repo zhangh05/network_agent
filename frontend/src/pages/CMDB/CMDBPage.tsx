@@ -1,4 +1,5 @@
 import { useState, useCallback, useEffect, type CSSProperties, type ReactNode } from "react";
+import { useNavigate } from "react-router-dom";
 import { useSessionStore } from "../../stores/session";
 import { apiRequest } from "../../api/client";
 import { RemoteTerminal } from "../../components/RemoteTerminal/RemoteTerminal";
@@ -39,6 +40,9 @@ const VENDOR_PRESETS_LIST = [
   "锐讯", "Aruba", "Palo Alto", "F5", "Check Point", "A10",
 ];
 
+const DEFAULT_INSPECTION_PROFILE_ID = "basic_health";
+const DEFAULT_INSPECTION_PROFILE_LABEL = "基础健康检查";
+
 // ── tiny stat pill ──
 function Stat({ label, value, color }: { label: string; value: number; color: string }) {
   return (
@@ -51,6 +55,7 @@ function Stat({ label, value, color }: { label: string; value: number; color: st
 
 export function CMDBPage() {
   const wsId = useSessionStore((s) => s.currentWorkspaceId);
+  const navigate = useNavigate();
   const [assets, setAssets] = useState<Asset[]>([]);
   const [showForm, setShowForm] = useState(false);
   const [editingAsset, setEditingAsset] = useState<Asset | null>(null);
@@ -149,8 +154,40 @@ export function CMDBPage() {
     : assets;
 
   const regionSet = [...new Set(assets.map(a => a.region).filter(Boolean))];
+  const activeInspectionRegion = regionFilter || (regionSet.length === 1 ? regionSet[0] : "");
+  const activeInspectionRegionCount = activeInspectionRegion
+    ? assets.filter(a => (a.region || "") === activeInspectionRegion).length
+    : 0;
   const stats = { total: assets.length, switch: 0, router: 0, firewall: 0 };
   assets.forEach(a => { if (a.type in stats) (stats as any)[a.type]++; });
+
+  const launchInspection = useCallback((scope: { region?: string; asset_ids?: string[]; label: string; source: string }) => {
+    const region = (scope.region || "").trim();
+    const assetIds = scope.asset_ids || [];
+    const targetText = region
+      ? `CMDB 区域「${region}」`
+      : `CMDB 资产「${scope.label}」`;
+    const prompt = [
+      `对 ${targetText} 执行「${DEFAULT_INSPECTION_PROFILE_LABEL}」巡检。`,
+      "",
+      "请按以下流程进行：",
+      "1. 先用 device.manage 确认巡检范围，列出命中的设备数量、名称、区域、协议。",
+      `2. 调用 inspection.manage(action=run, profile_id=\"${DEFAULT_INSPECTION_PROFILE_ID}\") 运行巡检；scope 必须来自 CMDB，不要手写设备命令。`,
+      "3. 读取巡检任务和报告，汇总 critical/warning/info、失败设备、跳过设备和下一步建议。",
+      "4. 如果没有命中设备或认证失败，请明确告诉我原因。",
+    ].join("\n");
+    sessionStorage.setItem("workbench_auto_prompt", JSON.stringify({
+      prompt,
+      metadata: {
+        intent: region ? "cmdb_region_inspection" : "cmdb_asset_inspection",
+        region,
+        asset_ids: assetIds,
+        profile_id: DEFAULT_INSPECTION_PROFILE_ID,
+        source: scope.source,
+      },
+    }));
+    navigate("/workbench");
+  }, [navigate]);
 
   // ── form helpers ──
   const field = (label: string, child: ReactNode, span = 1) => (
@@ -291,6 +328,33 @@ export function CMDBPage() {
                 >{r}</button>
               );
             })}
+            <div style={{ flex: "1 1 160px" }} />
+            <button
+              type="button"
+              className="btn primary"
+              data-testid="cmdb-inspect-region"
+              disabled={!activeInspectionRegion}
+              title={activeInspectionRegion
+                ? `跳转工作台，让 LLM 对 ${activeInspectionRegion} 的 ${activeInspectionRegionCount} 台设备发起巡检`
+                : "选择区域后发起巡检"}
+              onClick={() => {
+                if (!activeInspectionRegion) return;
+                launchInspection({
+                  region: activeInspectionRegion,
+                  label: activeInspectionRegion,
+                  source: "cmdb_region_button",
+                });
+              }}
+              style={{
+                fontWeight: 700,
+                fontSize: 13,
+                padding: "7px 14px",
+                opacity: activeInspectionRegion ? 1 : .55,
+                whiteSpace: "nowrap",
+              }}
+            >
+              巡检 {activeInspectionRegion || "当前区域"}
+            </button>
           </div>
         )}
 
@@ -594,6 +658,25 @@ export function CMDBPage() {
                     disabled={!canOpenTerminal}
                     style={{ flex: 1, justifyContent: "center", fontWeight: 600, fontSize: 13, padding: "7px 0" }}>
                     {canOpenTerminal ? "连接" : "已保存资料"}
+                  </button>
+                  <button
+                    className="btn"
+                    type="button"
+                    onClick={() => launchInspection({
+                      asset_ids: [a.asset_id],
+                      label: a.name || a.host,
+                      source: "cmdb_asset_button",
+                    })}
+                    style={{
+                      flex: 1,
+                      justifyContent: "center",
+                      fontWeight: 600,
+                      fontSize: 13,
+                      padding: "7px 0",
+                      background: "var(--surface-2)",
+                    }}
+                  >
+                    巡检
                   </button>
                 </div>
               </div>
