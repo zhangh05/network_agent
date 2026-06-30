@@ -322,7 +322,10 @@ def create_app():
             return jsonify({"ok": False, "error": "not_found", "path": f"/{filename}"}), 404
         frontend_index = Path(FRONTEND_DIR) / "index.html"
         if not frontend_index.exists():
-            dev_url = os.environ.get("NETWORK_AGENT_FRONTEND_DEV_URL", "http://127.0.0.1:5173").rstrip("/")
+            dev_url = os.environ.get("NETWORK_AGENT_FRONTEND_DEV_URL", "").rstrip("/")
+            if not dev_url:
+                host = request.host.split(":", 1)[0] or "127.0.0.1"
+                dev_url = f"{request.scheme}://{host}:5173"
             target_path = "/" if filename == "index.html" else f"/{filename}"
             query = request.query_string.decode("utf-8")
             target = f"{dev_url}{target_path}"
