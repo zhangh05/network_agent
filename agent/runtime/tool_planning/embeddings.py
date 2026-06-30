@@ -17,6 +17,7 @@ from collections import defaultdict
 from pathlib import Path
 from typing import Optional
 
+from agent.runtime.utils import now_iso, from_iso
 from context.unified_retriever import tokenize  # CJK unigram+bigram tokenizer
 
 
@@ -41,7 +42,7 @@ class ToolEmbeddingStore:
         self._tool_ids: list[str] = []
         self._vectors: list[dict[str, float]] = []  # token → weight per tool
         self._idf: dict[str, float] = {}            # token → idf
-        self._built_at: float = 0.0
+        self._built_at: str = ""
 
     # ── Build ──────────────────────────────────────────────────────────
 
@@ -71,7 +72,7 @@ class ToolEmbeddingStore:
         n = len(docs)
         self._idf = {t: math.log((n + 1) / (df[t] + 1)) + 1.0 for t in df}
         self._vectors = docs
-        self._built_at = time.time()
+        self._built_at = now_iso()
 
     # ── Query ──────────────────────────────────────────────────────────
 
@@ -125,13 +126,17 @@ class ToolEmbeddingStore:
             return False
         try:
             data = json.loads(p.read_text())
-            age = time.time() - data.get("built_at", 0)
+            built_at_raw = data.get("built_at")
+            if not isinstance(built_at_raw, str):
+                return False
+            built_at_epoch = from_iso(built_at_raw)
+            age = time.time() - built_at_epoch
             if age > CACHE_TTL_SECONDS:
                 return False
             self._tool_ids = data["tool_ids"]
             self._idf = data["idf"]
             self._vectors = data["vectors"]
-            self._built_at = data["built_at"]
+            self._built_at = built_at_raw
             return True
         except Exception:
             return False
@@ -142,9 +147,12 @@ class ToolEmbeddingStore:
 
     @property
     def age_seconds(self) -> float:
-        if self._built_at == 0:
+        if not self._built_at:
             return float("inf")
-        return time.time() - self._built_at
+        try:
+            return time.time() - from_iso(self._built_at)
+        except (TypeError, ValueError):
+            return float("inf")
 
 
 # ── Module-level singleton ─────────────────────────────────────────────

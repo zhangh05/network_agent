@@ -243,13 +243,20 @@ NS_DATA = [
     ('workspace.artifact', 'workspace', 'artifact', 'multi', '工作区制品操作', 'workspace.artifact',
      'Unified workspace artifact tool. action=list|read|save|tag|delete|diff|export. '
      'delete is a soft-delete that requires user approval.',
-     None, 'workspace.artifact'),
+     'Do not use workspace.artifact for raw file read/write — '
+     'use workspace.file for that. artifact is for saved reports, '
+     'decisions, and structured outputs.',
+     'workspace.artifact'),
 
     # 19. workspace.filestore
     ('workspace.filestore', 'workspace', 'filestore', 'multi', 'FileStore 操作', 'workspace.filestore',
      'Unified FileStore tool. action=references (query cross-refs for a file) or '
      'action=import (import a workspace-relative file into FileStore).',
-     None, 'workspace.filestore'),
+     'Do not use workspace.filestore to read or edit raw file '
+     'contents. Use workspace.file for text/code reads and edits; '
+     'workspace.filestore is for cross-reference queries and '
+     'importing files into the content-addressed store.',
+     'workspace.filestore'),
 
     # 20. workspace.metadata.get
     ('workspace.metadata.get', 'workspace', 'metadata', 'get', '读取工作区元数据', 'workspace.metadata.get',

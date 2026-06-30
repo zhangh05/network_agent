@@ -63,6 +63,8 @@ class TrajectoryRecord:
     final_answer: str = ""
     validation_result: str = ""
     user_feedback: dict = field(default_factory=dict)
+    # Per-record trajectory warnings captured during build/evaluation.
+    warnings: list[str] = field(default_factory=list)
     metrics: TrajectoryMetrics = field(default_factory=TrajectoryMetrics)
     redacted: bool = True
     created_at: str = ""

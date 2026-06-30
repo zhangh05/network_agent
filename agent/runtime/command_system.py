@@ -260,7 +260,7 @@ def _cmd_compact(args: str, session_id: Optional[str], context: Optional[dict]) 
         sid = session_id or ""
     elif hasattr(session_id, 'session_id'):
         sid = getattr(session_id, 'session_id', '') or ""
-        ws = getattr(session_id, 'workspace_id', 'default') or 'default'
+        ws = getattr(session_id, 'workspace_id', '') or ''
     
     if context:
         ws = context.get("workspace_id", ws) or ""
@@ -386,17 +386,18 @@ def _cmd_agent(args: str, session_id: Optional[str], context: Optional[dict]) ->
 def _cmd_reset(args: str, session_id: Optional[str], context: Optional[dict]) -> str:
     """Reset session: archive current history or create new session."""
     try:
-        from workspace.session_store import AgentSessionStore
-        store = AgentSessionStore()
-        sid = session_id or ""
-        wid = (context or {}).get("workspace_id", "") or ""
-        
-        # Try archive
-        if hasattr(store, 'archive_session'):
-            store.archive_session(sid)
-        elif hasattr(store, 'archive'):
-            store.archive(sid)
-        
+        from workspace.session_store import archive_session
+        sid = ""
+        wid = ""
+        if isinstance(session_id, str):
+            sid = session_id or ""
+        elif hasattr(session_id, 'session_id'):
+            sid = getattr(session_id, 'session_id', '') or ""
+            wid = getattr(session_id, 'workspace_id', '') or ''
+        if context:
+            wid = context.get("workspace_id", wid) or ""
+        archive_session(sid, wid)
+
         # Archive messages too
         try:
             from workspace.message_store import get_message_store
@@ -407,7 +408,7 @@ def _cmd_reset(args: str, session_id: Optional[str], context: Optional[dict]) ->
                 ms.clear_session(sid)
         except Exception:
             logger.debug("_cmd_reset: <pass>", exc_info=True)
-        
+
         return _format_command_result({
             "ok": True, "status": "ok", "command": "reset",
             "result": f"Session {sid} reset. History archived.",
@@ -438,7 +439,7 @@ def _cmd_export(args, session_id: Optional[str], context: Optional[dict]) -> str
         sid = session_id or ""
     elif hasattr(session_id, 'session_id'):
         sid = getattr(session_id, 'session_id', '') or ""
-        wid = getattr(session_id, 'workspace_id', 'default') or 'default'
+        wid = getattr(session_id, 'workspace_id', '') or ''
     if context:
         wid = context.get("workspace_id", wid) or ""
 
@@ -462,14 +463,15 @@ def _cmd_export(args, session_id: Optional[str], context: Optional[dict]) -> str
     # Fallback to session_store
     if not messages:
         try:
-            from workspace.session_store import AgentSessionStore
-            store = AgentSessionStore()
-            sess = store.get_session(sid)
-            if sess and hasattr(sess, 'messages') and sess.messages:
-                messages = sess.messages[:limit]
-                source = "session_store"
-                if len(sess.messages) > limit:
-                    truncated = True
+            from workspace.session_store import get_session
+            sess = get_session(sid, wid)
+            if sess:
+                sess_messages = sess.get("messages") if isinstance(sess, dict) else None
+                if sess_messages:
+                    messages = sess_messages[:limit]
+                    source = "session_store"
+                    if len(sess_messages) > limit:
+                        truncated = True
         except Exception:
             logger.debug("_cmd_export: <pass>", exc_info=True)
 

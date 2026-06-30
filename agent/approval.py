@@ -185,7 +185,14 @@ class ApprovalStore:
                     try:
                         from workspace.ids import validate_workspace_id
                         workspace_id = validate_workspace_id(str(rec.get("workspace_id") or ""))
+                    except (ValueError, TypeError):
+                        continue
                     except Exception:
+                        logger.debug(
+                            "approval: validate_workspace_id raised unexpected "
+                            "exception for record",
+                            exc_info=True,
+                        )
                         continue
                     raw_created = rec.get("created_at") or ""
                     try:

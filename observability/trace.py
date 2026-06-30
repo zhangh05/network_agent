@@ -3,6 +3,8 @@
 
 import time
 import uuid
+
+from agent.runtime.utils import now_iso, from_iso
 from observability.schemas import TraceRecord
 from observability.timeline import build_timeline_summary
 
@@ -35,7 +37,7 @@ def create_trace(state, ws_id: str = "default") -> str:
 
 def finalize_trace(state, ws_id: str = "default") -> TraceRecord:
     """Finalize a trace record from state events. Returns TraceRecord."""
-    finished_at = time.strftime("%Y-%m-%dT%H:%M:%S")
+    finished_at = now_iso()
     duration = round((time.time() - _parse_time(state.created_at)) * 1000, 2) if state.created_at else 0.0
 
     summary = build_timeline_summary(state)
@@ -83,9 +85,7 @@ def finalize_trace(state, ws_id: str = "default") -> TraceRecord:
 def _parse_time(ts: str) -> float:
     """Parse ISO timestamp to epoch seconds."""
     try:
-        from datetime import datetime, timezone
-        dt = datetime.fromisoformat(ts)
-        return dt.timestamp()
+        return from_iso(ts)
     except Exception:
         return time.time()
 
