@@ -1,47 +1,49 @@
 #!/usr/bin/env bash
-# Start Network Agent on macOS/Linux.
+# Start Network Agent backend + frontend on macOS/Linux.
 
-set -eu
+set -euo pipefail
 
 ROOT="$(cd "$(dirname "$0")" && pwd)"
 BACKEND_PORT="${BACKEND_PORT:-8010}"
 FRONTEND_PORT="${FRONTEND_PORT:-5173}"
+BACKEND_HOST="${BACKEND_HOST:-0.0.0.0}"
+FRONTEND_HOST="${FRONTEND_HOST:-0.0.0.0}"
 INSTALL_DEPS="${INSTALL_DEPS:-auto}"
-LOG_DIR="$ROOT/workspace/logs"
+LOG_DIR="${LOG_DIR:-$ROOT/logs}"
 BACKEND_PID_FILE="$ROOT/.backend.pid"
 FRONTEND_PID_FILE="$ROOT/.frontend.pid"
-BACKEND_STARTED=0
-FRONTEND_STARTED=0
+BACKEND_SCREEN="${BACKEND_SCREEN:-network-agent-backend}"
+FRONTEND_SCREEN="${FRONTEND_SCREEN:-network-agent-frontend}"
 
-log() {
-    printf '%s\n' "$*"
+log() { printf '%s\n' "$*"; }
+fail() { log "[ERROR] $*" >&2; exit 1; }
+
+find_cmd() {
+    local name="$1"
+    shift
+    local candidate
+    for candidate in "$@"; do
+        if [ -x "$candidate" ]; then
+            printf '%s\n' "$candidate"
+            return 0
+        fi
+    done
+    command -v "$name" 2>/dev/null || return 1
 }
 
-fail() {
-    log "[ERROR] $*"
-    exit 1
-}
-
-check_version() {
-    command -v python3 >/dev/null 2>&1 || fail "Python 3.12+ is required."
-    python3 -c 'import sys; raise SystemExit(0 if sys.version_info >= (3, 12) else 1)' \
-        || fail "Python 3.12+ is required; found $(python3 --version 2>&1)."
-
-    command -v node >/dev/null 2>&1 || fail "Node.js 18+ is required."
-    node -e 'process.exit(Number(process.versions.node.split(".")[0]) >= 18 ? 0 : 1)' \
-        || fail "Node.js 18+ is required; found $(node --version 2>&1)."
-    command -v npm >/dev/null 2>&1 || fail "npm is required."
-    command -v curl >/dev/null 2>&1 || fail "curl is required."
-    command -v lsof >/dev/null 2>&1 || fail "lsof is required."
-}
+PYTHON_BIN="${PYTHON_BIN:-$(find_cmd python3 "$HOME/.local/bin/python3" /opt/homebrew/bin/python3 /usr/local/bin/python3 /usr/bin/python3)}"
+NODE_BIN="${NODE_BIN:-$(find_cmd node "$HOME/.local/node/bin/node" /opt/homebrew/bin/node /usr/local/bin/node /usr/bin/node)}"
+NPM_BIN="${NPM_BIN:-$(find_cmd npm "$HOME/.local/node/bin/npm" /opt/homebrew/bin/npm /usr/local/bin/npm /usr/bin/npm)}"
+VITE_BIN="${VITE_BIN:-$ROOT/frontend/node_modules/.bin/vite}"
 
 process_cwd() {
     lsof -a -p "$1" -d cwd -Fn 2>/dev/null | sed -n 's/^n//p' | head -n 1
 }
 
 process_belongs_to_project() {
-    pid="$1"
-    role="$2"
+    local pid="$1"
+    local role="$2"
+    local command_line cwd
     kill -0 "$pid" 2>/dev/null || return 1
     command_line="$(ps -p "$pid" -o command= 2>/dev/null || true)"
     cwd="$(process_cwd "$pid")"
@@ -52,42 +54,38 @@ process_belongs_to_project() {
             [ "$cwd" = "$ROOT" ]
             ;;
         frontend)
-            printf '%s' "$command_line" | grep -Eq 'vite|npm run dev' || return 1
+            printf '%s' "$command_line" | grep -Eq 'vite|node.*/vite' || return 1
             [ "$cwd" = "$ROOT/frontend" ]
             ;;
-        *)
-            return 1
-            ;;
+        *) return 1 ;;
     esac
 }
 
-port_pid() {
-    lsof -nP -tiTCP:"$1" -sTCP:LISTEN 2>/dev/null | head -n 1
+port_pids() {
+    lsof -nP -tiTCP:"$1" -sTCP:LISTEN 2>/dev/null || true
 }
 
-adopt_existing_service() {
-    role="$1"
-    port="$2"
-    pid_file="$3"
-    pid="$(port_pid "$port")"
-    [ -n "$pid" ] || return 1
+port_pid() {
+    port_pids "$1" | head -n 1
+}
 
-    if process_belongs_to_project "$pid" "$role"; then
-        printf '%s\n' "$pid" > "$pid_file"
-        log "[$role] Already running on port $port (PID $pid)."
-        return 0
+screen_exists() {
+    command -v screen >/dev/null 2>&1 && screen -ls 2>/dev/null | grep -q "[.]$1[[:space:]]"
+}
+
+stop_screen() {
+    local name="$1"
+    if command -v screen >/dev/null 2>&1; then
+        screen -S "$name" -X quit >/dev/null 2>&1 || true
     fi
-    fail "Port $port is occupied by another process (PID $pid)."
 }
 
 wait_for_url() {
-    role="$1"
-    pid="$2"
-    url="$3"
-    attempts="${4:-30}"
-    i=1
+    local role="$1"
+    local url="$2"
+    local attempts="${3:-40}"
+    local i=1
     while [ "$i" -le "$attempts" ]; do
-        kill -0 "$pid" 2>/dev/null || return 1
         if curl --fail --silent --show-error --max-time 2 "$url" >/dev/null 2>&1; then
             log "[$role] Ready."
             return 0
@@ -98,23 +96,39 @@ wait_for_url() {
     return 1
 }
 
-terminate_owned_pid() {
-    pid="$1"
-    role="$2"
+ensure_port_available_or_owned() {
+    local role="$1"
+    local port="$2"
+    local pid
+    pid="$(port_pid "$port")"
+    [ -n "$pid" ] || return 0
     if process_belongs_to_project "$pid" "$role"; then
-        kill "$pid" 2>/dev/null || true
+        log "[$role] Already running on port $port (PID $pid)."
+        return 2
     fi
+    fail "Port $port is occupied by another process (PID $pid)."
 }
 
-stop_started_services() {
-    if [ "$FRONTEND_STARTED" = "1" ] && [ -f "$FRONTEND_PID_FILE" ]; then
-        terminate_owned_pid "$(cat "$FRONTEND_PID_FILE")" frontend
-        rm -f "$FRONTEND_PID_FILE"
-    fi
-    if [ "$BACKEND_STARTED" = "1" ] && [ -f "$BACKEND_PID_FILE" ]; then
-        terminate_owned_pid "$(cat "$BACKEND_PID_FILE")" backend
-        rm -f "$BACKEND_PID_FILE"
-    fi
+write_port_pid() {
+    local port="$1"
+    local file="$2"
+    local pid
+    pid="$(port_pid "$port")"
+    [ -n "$pid" ] || return 1
+    printf '%s\n' "$pid" > "$file"
+}
+
+check_version() {
+    [ -x "$PYTHON_BIN" ] || fail "Python 3.12+ is required."
+    "$PYTHON_BIN" -c 'import sys; raise SystemExit(0 if sys.version_info >= (3, 12) else 1)' \
+        || fail "Python 3.12+ is required; found $("$PYTHON_BIN" --version 2>&1)."
+
+    [ -x "$NODE_BIN" ] || fail "Node.js 18+ is required."
+    "$NODE_BIN" -e 'process.exit(Number(process.versions.node.split(".")[0]) >= 18 ? 0 : 1)' \
+        || fail "Node.js 18+ is required; found $("$NODE_BIN" --version 2>&1)."
+    [ -x "$NPM_BIN" ] || fail "npm is required."
+    command -v curl >/dev/null 2>&1 || fail "curl is required."
+    command -v lsof >/dev/null 2>&1 || fail "lsof is required."
 }
 
 install_dependencies() {
@@ -124,65 +138,92 @@ install_dependencies() {
     fi
 
     log "[deps] Checking Python dependencies..."
-    if ! python3 -c 'import flask, flask_sock, yaml, langgraph, bs4, lxml, pdfplumber, scapy' >/dev/null 2>&1; then
-        python3 -m pip install -r "$ROOT/requirements.txt"
+    if ! "$PYTHON_BIN" -c 'import flask, flask_sock, yaml, langgraph, bs4, lxml, pdfplumber, scapy' >/dev/null 2>&1; then
+        "$PYTHON_BIN" -m pip install -r "$ROOT/requirements.txt"
     fi
-    python3 -m pip check >/dev/null || fail "Python dependency check failed."
+    "$PYTHON_BIN" -m pip check >/dev/null || fail "Python dependency check failed."
 
     log "[deps] Checking frontend dependencies..."
-    if [ ! -x "$ROOT/frontend/node_modules/.bin/vite" ]; then
-        (cd "$ROOT/frontend" && npm install)
+    if [ ! -x "$VITE_BIN" ]; then
+        (cd "$ROOT/frontend" && "$NPM_BIN" install)
+    fi
+}
+
+local_ips() {
+    if command -v ifconfig >/dev/null 2>&1; then
+        ifconfig | awk '/inet / && $2 != "127.0.0.1" {print $2}'
+    elif command -v hostname >/dev/null 2>&1; then
+        hostname -I 2>/dev/null | tr ' ' '\n' | sed '/^$/d'
     fi
 }
 
 start_backend() {
-    if adopt_existing_service backend "$BACKEND_PORT" "$BACKEND_PID_FILE"; then
+    local state
+    ensure_port_available_or_owned backend "$BACKEND_PORT" || state=$?
+    if [ "${state:-0}" = "2" ]; then
+        write_port_pid "$BACKEND_PORT" "$BACKEND_PID_FILE"
         return
     fi
 
-    log "[backend] Starting on port $BACKEND_PORT..."
-    cd "$ROOT"
-    nohup python3 backend/main.py --host 0.0.0.0 --port "$BACKEND_PORT" \
-        >"$LOG_DIR/backend.log" 2>&1 </dev/null &
-    pid=$!
-    printf '%s\n' "$pid" > "$BACKEND_PID_FILE"
-    BACKEND_STARTED=1
-    if ! wait_for_url backend "$pid" "http://127.0.0.1:$BACKEND_PORT/api/health"; then
-        stop_started_services
-        fail "Backend failed to start. See $LOG_DIR/backend.log"
+    log "[backend] Starting on $BACKEND_HOST:$BACKEND_PORT..."
+    : > "$LOG_DIR/backend-8010.log"
+    stop_screen "$BACKEND_SCREEN"
+    if command -v screen >/dev/null 2>&1; then
+        screen -dmS "$BACKEND_SCREEN" /bin/bash -lc \
+            "cd '$ROOT' && exec '$PYTHON_BIN' backend/main.py --host '$BACKEND_HOST' --port '$BACKEND_PORT' >> '$LOG_DIR/backend-8010.log' 2>&1"
+    else
+        (cd "$ROOT" && nohup "$PYTHON_BIN" backend/main.py --host "$BACKEND_HOST" --port "$BACKEND_PORT" >> "$LOG_DIR/backend-8010.log" 2>&1 </dev/null &)
     fi
+    wait_for_url backend "http://127.0.0.1:$BACKEND_PORT/api/health" || fail "Backend failed to start. See $LOG_DIR/backend-8010.log"
+    write_port_pid "$BACKEND_PORT" "$BACKEND_PID_FILE"
 }
 
 start_frontend() {
-    if adopt_existing_service frontend "$FRONTEND_PORT" "$FRONTEND_PID_FILE"; then
+    local state
+    ensure_port_available_or_owned frontend "$FRONTEND_PORT" || state=$?
+    if [ "${state:-0}" = "2" ]; then
+        write_port_pid "$FRONTEND_PORT" "$FRONTEND_PID_FILE"
         return
     fi
 
-    log "[frontend] Starting on port $FRONTEND_PORT..."
-    cd "$ROOT/frontend"
-    nohup "$ROOT/frontend/node_modules/.bin/vite" --host 0.0.0.0 --port "$FRONTEND_PORT" \
-        >"$LOG_DIR/frontend.log" 2>&1 </dev/null &
-    pid=$!
-    printf '%s\n' "$pid" > "$FRONTEND_PID_FILE"
-    FRONTEND_STARTED=1
-    if ! wait_for_url frontend "$pid" "http://127.0.0.1:$FRONTEND_PORT"; then
-        stop_started_services
-        fail "Frontend failed to start. See $LOG_DIR/frontend.log"
+    log "[frontend] Starting on $FRONTEND_HOST:$FRONTEND_PORT..."
+    : > "$LOG_DIR/frontend-5173.log"
+    stop_screen "$FRONTEND_SCREEN"
+    if command -v screen >/dev/null 2>&1; then
+        screen -dmS "$FRONTEND_SCREEN" /bin/bash -lc \
+            "cd '$ROOT/frontend' && exec '$VITE_BIN' --host '$FRONTEND_HOST' --port '$FRONTEND_PORT' >> '$LOG_DIR/frontend-5173.log' 2>&1"
+    else
+        (cd "$ROOT/frontend" && nohup "$VITE_BIN" --host "$FRONTEND_HOST" --port "$FRONTEND_PORT" >> "$LOG_DIR/frontend-5173.log" 2>&1 </dev/null &)
     fi
+    wait_for_url frontend "http://127.0.0.1:$FRONTEND_PORT" || fail "Frontend failed to start. See $LOG_DIR/frontend-5173.log"
+    write_port_pid "$FRONTEND_PORT" "$FRONTEND_PID_FILE"
+}
+
+print_summary() {
+    log ""
+    log "Backend API:  http://127.0.0.1:$BACKEND_PORT"
+    log "Frontend UI:  http://127.0.0.1:$FRONTEND_PORT"
+    for ip in $(local_ips); do
+        log "LAN UI:       http://$ip:$FRONTEND_PORT"
+        log "LAN backend:  http://$ip:$BACKEND_PORT"
+    done
+    if command -v screen >/dev/null 2>&1; then
+        log ""
+        log "Screen sessions: $BACKEND_SCREEN, $FRONTEND_SCREEN"
+    fi
+    log "Logs:         $LOG_DIR/backend-8010.log"
+    log "              $LOG_DIR/frontend-5173.log"
+    log "Stop with:    ./stop.sh"
 }
 
 main() {
     log "Network Agent"
-    log "Checking Python 3.12+ and Node.js 18+..."
+    mkdir -p "$LOG_DIR"
     check_version
     install_dependencies
-    mkdir -p "$LOG_DIR"
     start_backend
     start_frontend
-    log ""
-    log "Backend:  http://localhost:$BACKEND_PORT"
-    log "Frontend: http://localhost:$FRONTEND_PORT"
-    log "Stop with: ./stop.sh"
+    print_summary
 }
 
 main "$@"
