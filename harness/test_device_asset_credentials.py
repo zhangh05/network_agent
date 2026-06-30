@@ -40,6 +40,45 @@ def test_cmdb_asset_password_is_resolved_only_for_internal_connectors():
         shutil.rmtree(root)
 
 
+def test_cmdb_update_preserves_created_at():
+    from agent.modules.cmdb.service import get_asset, save_asset
+    from storage.paths import workspace_root
+
+    workspace_id = "pytest_cmdb_created_at"
+    root = workspace_root(workspace_id)
+    if root.exists():
+        shutil.rmtree(root)
+
+    created = save_asset(
+        workspace_id,
+        {
+            "name": "edge",
+            "type": "router",
+            "host": "192.0.2.40",
+            "created_at": "2026-01-01T00:00:00+08:00",
+        },
+    )
+    assert created["ok"] is True
+    updated = save_asset(
+        workspace_id,
+        {
+            "asset_id": created["asset_id"],
+            "name": "edge-renamed",
+            "type": "router",
+            "host": "192.0.2.40",
+            "port": 22,
+        },
+    )
+    assert updated["ok"] is True
+    asset = get_asset(workspace_id, created["asset_id"])
+    assert asset["name"] == "edge-renamed"
+    assert asset["created_at"] == "2026-01-01T00:00:00+08:00"
+    assert asset["updated_at"] != asset["created_at"]
+
+    if root.exists():
+        shutil.rmtree(root)
+
+
 def test_remote_connect_uses_cmdb_asset_id_without_frontend_password(monkeypatch):
     from agent.modules.cmdb.service import save_asset
     from agent.modules.remote import service as remote_service
@@ -100,6 +139,7 @@ def test_remote_connect_uses_cmdb_asset_id_without_frontend_password(monkeypatch
     assert captured["vendor"] == "h3c"
     assert captured["terminal_cols"] == 160
     assert captured["terminal_rows"] == 40
+    assert captured["workspace_id"] == workspace_id
 
     if root.exists():
         shutil.rmtree(root)
@@ -208,6 +248,7 @@ def test_remote_connect_falls_back_to_unique_cmdb_asset_when_password_empty(monk
     assert captured["password"] == "secret-pass"
     assert captured["terminal_cols"] == 160
     assert captured["terminal_rows"] == 40
+    assert captured["workspace_id"] == workspace_id
 
     shutil.rmtree(root)
 
@@ -276,8 +317,49 @@ def test_exec_run_ssh_can_resolve_cmdb_asset_id(monkeypatch):
     assert captured["username"] == "admin"
     assert captured["password"] == "secret-pass"
     assert captured["vendor"] == "huawei"
+    assert captured["workspace_id"] == workspace_id
 
     shutil.rmtree(root)
+
+
+def test_remote_session_followup_requires_matching_workspace(monkeypatch):
+    from agent.modules.remote import service as remote_service
+
+    class FakeSession:
+        connected = True
+        workspace_id = "ws_a"
+
+    monkeypatch.setattr(remote_service, "get_session", lambda sid: FakeSession())
+
+    assert remote_service.run_command("sid", "display version", workspace_id="ws_b") == {
+        "ok": False,
+        "error": "session_workspace_mismatch",
+    }
+    assert remote_service.interactive_input("sid", "\r", workspace_id="ws_b") == {
+        "ok": False,
+        "error": "session_workspace_mismatch",
+    }
+    assert remote_service.resize_terminal("sid", 120, 40, workspace_id="ws_b") == {
+        "ok": False,
+        "error": "session_workspace_mismatch",
+    }
+    assert remote_service.close_session("sid", workspace_id="ws_b") == {
+        "ok": False,
+        "error": "session_workspace_mismatch",
+    }
+
+
+def test_remote_active_sessions_are_workspace_scoped(monkeypatch):
+    from agent.modules.remote import service as remote_service
+
+    monkeypatch.setattr(remote_service, "list_sessions", lambda: [
+        {"session_id": "sid_a", "workspace_id": "ws_a"},
+        {"session_id": "sid_b", "workspace_id": "ws_b"},
+    ])
+
+    assert remote_service.get_active_sessions("ws_a") == [
+        {"session_id": "sid_a", "workspace_id": "ws_a"},
+    ]
 
 
 def test_telnet_connect_allows_no_username_or_password(monkeypatch):

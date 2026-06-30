@@ -39,6 +39,7 @@ def register_remote_ws(app):
             return
 
         sid = None
+        workspace_id = ""
         reader_stop = threading.Event()
 
         def reader_thread():
@@ -136,37 +137,63 @@ def register_remote_ws(app):
                         }, ensure_ascii=False))
 
                 elif msg_type == "input":
-                    from agent.modules.remote.core import send_interactive
+                    from agent.modules.remote.service import interactive_input
                     data = _terminal_input_data(msg.get("data", ""))
-                    result = send_interactive(msg.get("session_id", ""), data)
+                    msg_sid = str(msg.get("session_id", "") or "")
+                    if not _same_session(msg_sid, sid):
+                        ws.send(json.dumps({
+                            "type": "error",
+                            "session_id": msg_sid,
+                            "message": "session_mismatch",
+                        }, ensure_ascii=False))
+                        continue
+                    result = interactive_input(sid or "", data, workspace_id)
                     if not result.get("ok"):
                         ws.send(json.dumps({
                             "type": "error",
-                            "session_id": msg.get("session_id", ""),
+                            "session_id": sid,
                             "message": result.get("error", "发送失败"),
                         }, ensure_ascii=False))
 
                 elif msg_type == "resize":
                     from agent.modules.remote.service import resize_terminal
+                    msg_sid = str(msg.get("session_id", "") or "")
+                    if not _same_session(msg_sid, sid):
+                        ws.send(json.dumps({
+                            "type": "error",
+                            "session_id": msg_sid,
+                            "message": "session_mismatch",
+                        }, ensure_ascii=False))
+                        continue
                     result = resize_terminal(
-                        msg.get("session_id", ""),
+                        sid or "",
                         _parse_terminal_size(msg.get("cols"), default=160, lo=20, hi=240),
                         _parse_terminal_size(msg.get("rows"), default=40, lo=8, hi=80),
+                        workspace_id,
                     )
                     if not result.get("ok"):
                         ws.send(json.dumps({
                             "type": "error",
-                            "session_id": msg.get("session_id", ""),
+                            "session_id": sid,
                             "message": result.get("error", "resize_failed"),
                         }, ensure_ascii=False))
 
                 elif msg_type == "disconnect":
                     from agent.modules.remote.service import close_session
-                    close_session(msg.get("session_id", ""))
+                    msg_sid = str(msg.get("session_id", "") or "")
+                    if not _same_session(msg_sid, sid):
+                        ws.send(json.dumps({
+                            "type": "error",
+                            "session_id": msg_sid,
+                            "message": "session_mismatch",
+                        }, ensure_ascii=False))
+                        continue
+                    close_session(sid or "", workspace_id=workspace_id)
                     ws.send(json.dumps({
                         "type": "disconnected",
-                        "session_id": msg.get("session_id", ""),
+                        "session_id": sid,
                     }, ensure_ascii=False))
+                    sid = None
 
                 else:
                     ws.send(json.dumps({
@@ -180,7 +207,7 @@ def register_remote_ws(app):
             reader_stop.set()
             if sid:
                 from agent.modules.remote.service import close_session
-                close_session(sid)
+                close_session(sid, workspace_id=workspace_id)
 
 
 def _parse_port(value) -> int:
@@ -210,6 +237,10 @@ def _terminal_input_data(value) -> str:
     output. Keep the browser terminal as the single source of truth.
     """
     return str(value or "")
+
+
+def _same_session(requested_sid: str, active_sid: str | None) -> bool:
+    return bool(active_sid and requested_sid and requested_sid == active_sid)
 
 
 def _same_origin_ws_request() -> bool:

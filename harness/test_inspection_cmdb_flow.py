@@ -217,8 +217,8 @@ def test_create_task_rejects_unknown_explicit_profile():
     assert bad.error.startswith("unknown_profile:")
 
 
-def test_create_task_with_known_profile_and_empty_scope_succeeds():
-    """Empty CMDB scope (no assets) must run — runner yields succeeded status."""
+def test_create_task_with_known_profile_and_empty_scope_fails_clearly():
+    """Empty CMDB scope must not be reported as a successful inspection."""
     from agent.modules.inspection import service as svc
 
     task = svc.create_task(
@@ -226,8 +226,9 @@ def test_create_task_with_known_profile_and_empty_scope_succeeds():
         profile_id="basic_health",
         scope={"limit": 10},
     )
-    assert task.status in ("succeeded", "partial"), task.error
-    assert task.total_assets == 0  # empty assets
+    assert task.status == "failed"
+    assert task.error == "no_assets_matched_scope"
+    assert task.total_assets == 0
     assert task.started_at and task.finished_at
 
 
@@ -858,6 +859,59 @@ def test_run_checks_uses_single_session_per_asset(monkeypatch):
     assert len(distinct) == 1, (
         f"expected 1 session reused, got {len(distinct)}: {distinct}"
     )
+
+
+def test_run_checks_closes_reused_session_after_asset(monkeypatch):
+    from agent.modules.inspection import runner
+    from agent.modules.inspection.models import InspectionCheck, InspectionProfile, InspectionTask, InspectionScope
+
+    closed: list[tuple[str, str]] = []
+
+    def fake_exec(workspace_id, asset_id, protocol, command, timeout, session_id=""):
+        return {
+            "ok": True,
+            "output": f"fake-output-for-{command}",
+            "error": "",
+            "session_id": session_id or "ssh_asset_session",
+        }
+
+    monkeypatch.setattr(runner, "_exec_one_command", fake_exec)
+    monkeypatch.setattr(
+        runner,
+        "_close_remote_session",
+        lambda workspace_id, protocol, session_id: closed.append((protocol, session_id)),
+    )
+
+    profile = InspectionProfile(
+        profile_id="server_health",
+        display_name="Server",
+        description="server checks",
+        checks=tuple(InspectionCheck(
+            check_id=f"srv.close{i}",
+            category="server",
+            display_name=f"X{i}",
+            command_key="version",
+            parser_key="version",
+            timeout_seconds=30,
+        ) for i in range(2)),
+    )
+    task = InspectionTask(
+        task_id="ins_test_close_session",
+        workspace_id="ws_test_inspect",
+        scope=InspectionScope(),
+        profile_id="server_health",
+    )
+    dr = runner._run_checks_on_asset(task, profile, {
+        "asset_id": "asset_x",
+        "name": "fake-server",
+        "host": "10.0.0.1",
+        "vendor": "",
+        "type": "server",
+        "protocol": "ssh",
+    }, "ws_test_inspect")
+
+    assert dr.status == "succeeded", dr.errors
+    assert closed == [("ssh", "ssh_asset_session")]
 
 
 def test_per_device_workers_setting_is_ignored_for_interactive_safety(monkeypatch):

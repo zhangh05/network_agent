@@ -30,8 +30,9 @@ class DeviceSession:
     """Active device connection session."""
 
     def __init__(self, session_id: str, protocol: str, host: str, port: int,
-                 vendor_profile: VendorProfile):
+                 vendor_profile: VendorProfile, workspace_id: str = ""):
         self.session_id = session_id
+        self.workspace_id = str(workspace_id or "")
         self.protocol = protocol
         self.host = host
         self.port = port
@@ -106,7 +107,8 @@ def ssh_connect(session_id: str, host: str, port: int,
                 username: str, password: str,
                 vendor: str = "generic",
                 terminal_cols: int = 160,
-                terminal_rows: int = 40) -> DeviceSession:
+                terminal_rows: int = 40,
+                workspace_id: str = "") -> DeviceSession:
     import paramiko
     profile = get_profile(vendor)
     client = paramiko.SSHClient()
@@ -133,7 +135,7 @@ def ssh_connect(session_id: str, host: str, port: int,
         client.close()
         raise ConnectionError(f"SSH shell 失败: {e}")
 
-    session = DeviceSession(session_id, "ssh", host, port, profile)
+    session = DeviceSession(session_id, "ssh", host, port, profile, workspace_id=workspace_id)
     session._chan = chan
     session.connected = True
     with _SESSIONS_LOCK:
@@ -149,7 +151,8 @@ def ssh_connect(session_id: str, host: str, port: int,
 
 def telnet_connect(session_id: str, host: str, port: int,
                    username: str = "", password: str = "",
-                   vendor: str = "generic") -> DeviceSession:
+                   vendor: str = "generic",
+                   workspace_id: str = "") -> DeviceSession:
     """Connect via Telnet.
 
     Telnet credentials are optional. Some console servers expose a
@@ -168,7 +171,7 @@ def telnet_connect(session_id: str, host: str, port: int,
         raise ConnectionError(f"Telnet 连接失败 {host}:{port}: {e}")
 
     tn = _TelnetSocket(s)
-    session = DeviceSession(session_id, "telnet", host, port, profile)
+    session = DeviceSession(session_id, "telnet", host, port, profile, workspace_id=workspace_id)
     session._chan = tn
     session.connected = True
     with _SESSIONS_LOCK:
@@ -227,7 +230,7 @@ def list_sessions() -> list[dict]:
     return [{
         "session_id": s.session_id, "protocol": s.protocol,
         "host": s.host, "port": s.port, "vendor": s.vendor.vendor,
-        "connected": s.connected,
+        "connected": s.connected, "workspace_id": s.workspace_id,
     } for s in _SESSIONS.values()]
 
 

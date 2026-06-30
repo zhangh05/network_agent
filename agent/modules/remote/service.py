@@ -52,9 +52,13 @@ def connect_device(workspace_id: str, host: str, port: int, protocol: str,
                 sid, host, port, username, password, vendor,
                 terminal_cols=terminal_cols,
                 terminal_rows=terminal_rows,
+                workspace_id=workspace_id,
             )
         elif protocol == "telnet":
-            session = telnet_connect(sid, host, port, username, password, vendor)
+            session = telnet_connect(
+                sid, host, port, username, password, vendor,
+                workspace_id=workspace_id,
+            )
         else:
             return {"ok": False, "error": f"unsupported protocol: {protocol}"}
 
@@ -76,35 +80,64 @@ def connect_device(workspace_id: str, host: str, port: int, protocol: str,
         return {"ok": False, "error": f"连接失败: {e}"}
 
 
-def run_command(session_id: str, command: str) -> dict:
+def run_command(session_id: str, command: str, workspace_id: str) -> dict:
     """Execute a command on a connected device."""
+    guard = _require_session_workspace(session_id, workspace_id)
+    if guard:
+        return guard
     return exec_command(session_id, command)
 
 
-def interactive_input(session_id: str, data: str) -> dict:
+def interactive_input(session_id: str, data: str, workspace_id: str) -> dict:
     """Send interactive input to a session."""
+    guard = _require_session_workspace(session_id, workspace_id)
+    if guard:
+        return guard
     return send_interactive(session_id, data)
 
 
-def resize_terminal(session_id: str, cols: int, rows: int) -> dict:
+def resize_terminal(session_id: str, cols: int, rows: int, workspace_id: str) -> dict:
     """Resize an active remote terminal PTY when supported."""
+    guard = _require_session_workspace(session_id, workspace_id)
+    if guard:
+        return guard
     return resize_session(session_id, cols, rows)
 
 
 def close_session(session_id: str, workspace_id: str = "") -> dict:
     """Disconnect and optionally save log."""
+    guard = _require_session_workspace(session_id, workspace_id)
+    if guard:
+        return guard
     session = get_session(session_id)
     if session and session.log and workspace_id:
         _save_session_log(workspace_id, session_id, session.log)
     return disconnect(session_id)
 
 
-def get_active_sessions() -> list[dict]:
-    return list_sessions()
+def get_active_sessions(workspace_id: str) -> list[dict]:
+    return [
+        session for session in list_sessions()
+        if session.get("workspace_id") == workspace_id
+    ]
 
 
 def get_vendors() -> list[dict]:
     return list_vendors()
+
+
+def _require_session_workspace(session_id: str, workspace_id: str) -> dict | None:
+    """Fail closed for all session follow-up operations."""
+    if not session_id:
+        return {"ok": False, "error": "session_id is required"}
+    if not workspace_id:
+        return {"ok": False, "error": "workspace_id is required"}
+    session = get_session(session_id)
+    if not session or not getattr(session, "connected", False):
+        return {"ok": False, "error": "session_not_connected"}
+    if getattr(session, "workspace_id", "") != workspace_id:
+        return {"ok": False, "error": "session_workspace_mismatch"}
+    return None
 
 
 # ═══════════════════════════════════════════════════════════════════════

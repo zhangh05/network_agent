@@ -319,6 +319,33 @@ def _exec_one_command(workspace_id: str, asset_id: str, protocol: str,
     return parsed
 
 
+def _close_remote_session(workspace_id: str, protocol: str, session_id: str) -> None:
+    """Close a reused SSH/Telnet session through the canonical runtime."""
+    if not session_id:
+        return
+    client = get_default_tool_runtime_client()
+    ctx = ToolRuntimeContext(
+        workspace_id=workspace_id,
+        requested_by=INSPECTION_CALLER,
+        dry_run_default=False,
+    )
+    target = "telnet" if (protocol or "").lower() == "telnet" else "ssh"
+    try:
+        client.invoke(
+            "exec.run",
+            {
+                "action": "shell",
+                "target": target,
+                "session_id": session_id,
+                "close_session": True,
+                "workspace_id": workspace_id,
+            },
+            context=ctx,
+        )
+    except Exception:
+        logger.debug("inspection: close remote session failed", exc_info=True)
+
+
 # ── one asset's checks ───────────────────────────────────────────────────
 
 def _run_checks_on_asset(task: InspectionTask,
@@ -426,26 +453,29 @@ def _run_checks_on_asset(task: InspectionTask,
     # command stream and one reusable session_id.
     all_bucket_results: list = []
     bucket_session_id = ""
-    for check, cmd_key, command in eligible:
-        t0 = time.time()
-        try:
-            run_result = _exec_one_command(
-                workspace_id, asset_id, dr.protocol, command,
-                timeout=_timeout_for(check, cmd_key),
-                session_id=bucket_session_id,
-            )
-        except Exception as exc:
-            run_result = {
-                "ok": False,
-                "output": "",
-                "error": f"inspection_run_failed: {type(exc).__name__}: {str(exc)[:160]}",
-                "session_id": bucket_session_id,
-            }
-        elapsed = int((time.time() - t0) * 1000)
-        new_sid = run_result.get("session_id", "") or ""
-        if new_sid:
-            bucket_session_id = new_sid
-        all_bucket_results.append((check, cmd_key, command, run_result, elapsed))
+    try:
+        for check, cmd_key, command in eligible:
+            t0 = time.time()
+            try:
+                run_result = _exec_one_command(
+                    workspace_id, asset_id, dr.protocol, command,
+                    timeout=_timeout_for(check, cmd_key),
+                    session_id=bucket_session_id,
+                )
+            except Exception as exc:
+                run_result = {
+                    "ok": False,
+                    "output": "",
+                    "error": f"inspection_run_failed: {type(exc).__name__}: {str(exc)[:160]}",
+                    "session_id": bucket_session_id,
+                }
+            elapsed = int((time.time() - t0) * 1000)
+            new_sid = run_result.get("session_id", "") or ""
+            if new_sid:
+                bucket_session_id = new_sid
+            all_bucket_results.append((check, cmd_key, command, run_result, elapsed))
+    finally:
+        _close_remote_session(workspace_id, dr.protocol, bucket_session_id)
 
     # ── Persist results + parse + attach findings ──
     # Keep the profile's order so the report is stable.
@@ -687,7 +717,8 @@ def run_task(workspace_id: str,
     _save_task(workspace_id, task)
 
     if not target_assets:
-        task.status = "succeeded"
+        task.status = "failed"
+        task.error = "no_assets_matched_scope"
         task.finished_at = now_iso()
         _save_task(workspace_id, task)
         return task

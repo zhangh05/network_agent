@@ -927,6 +927,7 @@ def _handler_network_ssh(inv: ToolInvocation) -> dict:
     from agent.modules.remote.core import ssh_connect, exec_command, disconnect, get_session
 
     args = inv.arguments or {}
+    workspace_id = _inv_workspace(inv)
     asset_id = str(args.get("asset_id", "")).strip()
     host = str(args.get("host", "")).strip()
     port = _safe_int(args.get("port"), 22)
@@ -941,7 +942,7 @@ def _handler_network_ssh(inv: ToolInvocation) -> dict:
     if asset_id:
         try:
             from agent.modules.cmdb.service import get_asset
-            asset = get_asset(_inv_workspace(inv), asset_id, safe=False)
+            asset = get_asset(workspace_id, asset_id, safe=False)
             if not asset:
                 return {"ok": False, "error": f"asset_not_found: {asset_id}"}
             host = str(asset.get("host") or host).strip()
@@ -955,6 +956,9 @@ def _handler_network_ssh(inv: ToolInvocation) -> dict:
     # Close session request
     if session_id and (close_session or not command):
         try:
+            existing = get_session(session_id)
+            if not existing or getattr(existing, "workspace_id", "") != workspace_id:
+                return {"ok": False, "error": "session_workspace_mismatch"}
             disconnect(session_id)
         except Exception:
             logger.debug("_handler_network_ssh: <pass>", exc_info=True)
@@ -965,6 +969,8 @@ def _handler_network_ssh(inv: ToolInvocation) -> dict:
         try:
             existing = get_session(session_id)
             if existing and getattr(existing, "connected", False):
+                if getattr(existing, "workspace_id", "") != workspace_id:
+                    return {"ok": False, "error": "session_workspace_mismatch"}
                 if not command:
                     return {"ok": True, "session_id": session_id, "session_active": True}
                 if sudo and not command.startswith("sudo "):
@@ -1008,7 +1014,10 @@ def _handler_network_ssh(inv: ToolInvocation) -> dict:
         new_sid = session_id or f"ssh_{int(__import__('time').time())}_{host.replace('.', '_')}"
         if sudo and not command.startswith("sudo "):
             command = f"sudo {command}"
-        session = ssh_connect(new_sid, host, port, username, password, vendor)
+        session = ssh_connect(
+            new_sid, host, port, username, password, vendor,
+            workspace_id=workspace_id,
+        )
         exec_result = exec_command(new_sid, command)
         if isinstance(exec_result, dict) and not exec_result.get("ok"):
             # Command failed — clean up session
@@ -1046,6 +1055,7 @@ def _handler_network_telnet(inv: ToolInvocation) -> dict:
     from agent.modules.remote.core import telnet_connect, exec_command, disconnect, get_session
 
     args = inv.arguments or {}
+    workspace_id = _inv_workspace(inv)
     asset_id = str(args.get("asset_id", "")).strip()
     host = str(args.get("host", "")).strip()
     port = _safe_int(args.get("port"), 23)
@@ -1059,7 +1069,7 @@ def _handler_network_telnet(inv: ToolInvocation) -> dict:
     if asset_id:
         try:
             from agent.modules.cmdb.service import get_asset
-            asset = get_asset(_inv_workspace(inv), asset_id, safe=False)
+            asset = get_asset(workspace_id, asset_id, safe=False)
             if not asset:
                 return {"ok": False, "error": f"asset_not_found: {asset_id}"}
             host = str(asset.get("host") or host).strip()
@@ -1073,6 +1083,9 @@ def _handler_network_telnet(inv: ToolInvocation) -> dict:
     # Close session
     if session_id and (close_session or not command):
         try:
+            existing = get_session(session_id)
+            if not existing or getattr(existing, "workspace_id", "") != workspace_id:
+                return {"ok": False, "error": "session_workspace_mismatch"}
             disconnect(session_id)
         except Exception:
             logger.debug("_handler_network_telnet: <pass>", exc_info=True)
@@ -1083,6 +1096,8 @@ def _handler_network_telnet(inv: ToolInvocation) -> dict:
         try:
             existing = get_session(session_id)
             if existing and getattr(existing, "connected", False):
+                if getattr(existing, "workspace_id", "") != workspace_id:
+                    return {"ok": False, "error": "session_workspace_mismatch"}
                 exec_result = exec_command(session_id, command)
                 return {
                     "ok": True, "host": host, "command": command,
@@ -1103,7 +1118,10 @@ def _handler_network_telnet(inv: ToolInvocation) -> dict:
 
     try:
         new_sid = session_id or f"telnet_{int(__import__('time').time())}_{host.replace('.', '_')}"
-        telnet_connect(new_sid, host, port, username, password, vendor)
+        telnet_connect(
+            new_sid, host, port, username, password, vendor,
+            workspace_id=workspace_id,
+        )
         exec_result = exec_command(new_sid, command)
         return {
             "ok": True, "host": host, "command": command,

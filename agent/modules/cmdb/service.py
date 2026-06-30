@@ -73,6 +73,11 @@ def save_asset(workspace_id: str, asset: dict) -> dict:
 
     existing_asset = get_asset(workspace_id, incoming_asset_id, safe=False) if incoming_asset_id else None
 
+    created_at = (
+        str(existing_asset.get("created_at") or "").strip()
+        if existing_asset else ""
+    ) or str(asset.get("created_at") or _now())
+
     record = {
         "asset_id": str(asset.get("asset_id") or str(uuid.uuid4())[:12]),
         "name": name,
@@ -87,7 +92,7 @@ def save_asset(workspace_id: str, asset: dict) -> dict:
         "location": str(asset.get("location", "")).strip(),
         "description": str(asset.get("description", "")).strip(),
         "tags": [str(t).strip() for t in (asset.get("tags") or []) if str(t).strip()],
-        "created_at": str(asset.get("created_at") or _now()),
+        "created_at": created_at,
         "updated_at": _now(),
     }
     raw_password = str(asset.get("password") or "")

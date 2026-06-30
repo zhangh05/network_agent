@@ -57,24 +57,34 @@ def register_remote_routes(app):
     @app.route("/api/remote/exec", methods=["POST"])
     def api_remote_exec():
         data = request.get_json(silent=True) or {}
+        ws_id, err = _validated_ws_id(data.get("workspace_id", ""))
+        if err:
+            return err
         result = run_command(
             session_id=data.get("session_id", ""),
             command=data.get("command", ""),
+            workspace_id=ws_id,
         )
         return jsonify(result)
 
     @app.route("/api/remote/disconnect", methods=["POST"])
     def api_remote_disconnect():
         data = request.get_json(silent=True) or {}
+        ws_id, err = _validated_ws_id(data.get("workspace_id", ""))
+        if err:
+            return err
         result = close_session(
             session_id=data.get("session_id", ""),
-            workspace_id=data.get("workspace_id", ""),
+            workspace_id=ws_id,
         )
         return jsonify(result)
 
     @app.route("/api/remote/sessions", methods=["GET"])
     def api_remote_sessions():
-        return jsonify({"ok": True, "sessions": get_active_sessions()})
+        ws_id, err = _validated_ws_id(request.args.get("workspace_id", ""))
+        if err:
+            return err
+        return jsonify({"ok": True, "sessions": get_active_sessions(ws_id)})
 
     @app.route("/api/remote/vendors", methods=["GET"])
     def api_remote_vendors():
