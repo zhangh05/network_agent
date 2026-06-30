@@ -11,6 +11,7 @@ interface Asset {
 
 const TYPE_LABEL: Record<string, string> = {
   switch: "交换机", router: "路由器", firewall: "防火墙", server: "服务器",
+  load_balancer: "负载均衡", wireless: "无线", other: "其他",
 };
 const VENDOR_STRIP: Record<string, string> = {
   h3c: "var(--info)", huawei: "#cf0a2c", cisco: "#049fd9", ruijie: "#0077be",
@@ -51,7 +52,7 @@ export function CMDBPage() {
   // ── form ──
   const [fv, setFv] = useState<Record<string, string>>({
     name: "", type: "switch", vendor: "", model: "", host: "", port: "22",
-    protocol: "ssh", username: "", password: "", region: "", location: "", description: "", err: "",
+    protocol: "ssh", username: "", password: "", region: "", location: "", description: "", tags: "", err: "",
   });
   const ufv = (k: string, v: string) => setFv((p) => ({ ...p, [k]: v }));
 
@@ -85,7 +86,7 @@ export function CMDBPage() {
   const openNew = () => {
     setEditingAsset(null);
     setFv({ name: "", type: "switch", vendor: "", model: "", host: "", port: "22",
-      protocol: "ssh", username: "", password: "", region: "", location: "", description: "", err: "" });
+      protocol: "ssh", username: "", password: "", region: "", location: "", description: "", tags: "", err: "" });
     setCustomVendor(false); setCustomRegion(false);
     setCustomVendorVal(""); setCustomRegionVal("");
     setShowForm(true);
@@ -97,7 +98,7 @@ export function CMDBPage() {
       name: a.name, type: a.type, vendor: a.vendor, model: a.model,
       host: a.host, port: String(a.port), protocol: a.protocol,
       username: a.username, password: "", region: a.region || "",
-      location: a.location, description: a.description || "", err: "",
+      location: a.location, description: a.description || "", tags: (a.tags || []).join(", "), err: "",
     });
     // detect if vendor/region is custom
     const isCustomV = a.vendor && !VENDOR_PRESETS.find(([k]) => k === a.vendor);
@@ -118,6 +119,7 @@ export function CMDBPage() {
       host: fv.host, port: parseInt(fv.port) || 22, protocol: fv.protocol,
       username: fv.username,
       region, location: fv.location, description: fv.description,
+      tags: fv.tags.split(/[,，\s]+/).map(t => t.trim()).filter(Boolean),
     };
     if (fv.password) payload.password = fv.password;
     await apiRequest({
@@ -183,12 +185,25 @@ export function CMDBPage() {
       onBlur={e => e.currentTarget.style.borderColor = "var(--line)"}
     />
   );
+  const sectionTitle = (title: string, desc: string) => (
+    <div style={{ gridColumn: "1 / -1", display: "flex", alignItems: "baseline", gap: 10, marginTop: 4 }}>
+      <span style={{ fontSize: 13, fontWeight: 700, color: "var(--text)" }}>{title}</span>
+      <span style={{ fontSize: 11, color: "var(--text-4)" }}>{desc}</span>
+    </div>
+  );
+  const helpText = (text: string) => (
+    <div style={{ fontSize: 11, color: "var(--text-4)", lineHeight: 1.45 }}>{text}</div>
+  );
 
   // ── build dropdown options ──
   const typeOpts: [string, string][] = [
     ["switch", "交换机"], ["router", "路由器"], ["firewall", "防火墙"], ["server", "服务器"],
+    ["load_balancer", "负载均衡"], ["wireless", "无线"], ["other", "其他"],
   ];
-  const protocolOpts: [string, string][] = [["ssh", "SSH"], ["telnet", "Telnet"]];
+  const protocolOpts: [string, string][] = [
+    ["ssh", "SSH"], ["telnet", "Telnet"], ["https", "HTTPS"], ["snmp", "SNMP"],
+    ["netconf", "NETCONF"], ["restconf", "RESTCONF"],
+  ];
 
   const vendorOpts: [string, string][] = [
     ["", "—"], ...VENDOR_PRESETS, ...savedVendors.map(v => [v, v] as [string, string]),
@@ -286,29 +301,51 @@ export function CMDBPage() {
             position: "fixed", inset: 0, zIndex: 9999,
             background: "var(--overlay)", backdropFilter: "blur(3px)",
             display: "flex", alignItems: "center", justifyContent: "center",
+            padding: 18,
           }} onClick={() => setShowForm(false)}>
             <div
               onClick={e => e.stopPropagation()}
               style={{
-                width: 540, maxHeight: "92vh", overflow: "auto",
-                background: "var(--surface)", borderRadius: 12,
-                boxShadow: "var(--shadow-menu)", padding: 28,
+                width: "min(760px, 100%)", maxHeight: "92vh", overflow: "auto",
+                background: "var(--surface)", borderRadius: 10,
+                boxShadow: "var(--shadow-menu)", padding: 0,
                 display: "flex", flexDirection: "column",
               }}>
               {/* 标题 */}
-              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 20 }}>
-                <span style={{ fontWeight: 700, fontSize: 16, color: "var(--text)" }}>
-                  {editingAsset ? "编辑设备" : "新增设备"}
-                </span>
+              <div style={{
+                display: "flex", justifyContent: "space-between", alignItems: "flex-start",
+                gap: 16, padding: "22px 24px 16px", borderBottom: "1px solid var(--line-2)",
+                background: "var(--surface)",
+              }}>
+                <div>
+                  <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                    <span style={{ fontWeight: 800, fontSize: 18, color: "var(--text)" }}>
+                      {editingAsset ? "编辑设备资产" : "新增设备资产"}
+                    </span>
+                    {editingAsset?.asset_id && (
+                      <span className="mono" style={{
+                        fontSize: 11, color: "var(--text-4)", background: "var(--surface-3)",
+                        border: "1px solid var(--line-2)", borderRadius: 5, padding: "2px 7px",
+                      }}>{editingAsset.asset_id}</span>
+                    )}
+                  </div>
+                  <div style={{ marginTop: 5, fontSize: 12, color: "var(--text-4)", lineHeight: 1.5 }}>
+                    字段与 CMDB 后端一致；密码只会保存为服务端密钥，列表和详情不会返回明文。
+                  </div>
+                </div>
                 <button className="btn sm ghost" onClick={() => setShowForm(false)}
-                  style={{ fontSize: 16, padding: "2px 6px", color: "var(--text-4)" }}>×</button>
+                  style={{ fontSize: 18, padding: "2px 7px", color: "var(--text-4)", flexShrink: 0 }}>×</button>
               </div>
 
-              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "12px 14px" }}>
+              <div style={{
+                display: "grid", gridTemplateColumns: "repeat(12, minmax(0, 1fr))",
+                gap: "13px 14px", padding: "18px 24px 8px",
+              }}>
                 {/* 基本信息 */}
-                {field("名称 *", inp("设备名称", "name", { fontFamily: "var(--font-sans)" }, false), 2)}
-                {field("类型", sel("type", typeOpts))}
-                <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
+                {sectionTitle("基础信息", "用于识别资产，LLM 会优先根据名称、厂商、型号和标签检索。")}
+                <div style={{ gridColumn: "span 6" }}>{field("名称 *", inp("设备名称，例如：杭州核心交换机-01", "name", { fontFamily: "var(--font-sans)" }, false))}</div>
+                <div style={{ gridColumn: "span 3" }}>{field("类型", sel("type", typeOpts))}</div>
+                <div style={{ gridColumn: "span 3", display: "flex", flexDirection: "column", gap: 4 }}>
                   <span style={{ fontSize: 11, color: "var(--text-4)", fontWeight: 600 }}>厂商</span>
                   {sel("vendor", vendorOpts, (v) => {
                     if (v === "__custom__") { setCustomVendor(true); setCustomVendorVal(""); ufv("vendor", ""); }
@@ -316,9 +353,12 @@ export function CMDBPage() {
                   })}
                   {customVendor && customInput(customVendorVal, setCustomVendorVal, "输入自定义厂商...")}
                 </div>
-                {field("型号", inp("型号", "model", { fontFamily: "var(--font-sans)" }, false))}
+                <div style={{ gridColumn: "span 4" }}>{field("型号", inp("型号，例如：S5735 / AR3260", "model", { fontFamily: "var(--font-sans)" }, false))}</div>
+                <div style={{ gridColumn: "span 8" }}>{field("标签", inp("多个标签用逗号分隔，例如：核心, BGP, 生产", "tags", { fontFamily: "var(--font-sans)" }, false))}</div>
+
                 {/* 区域 & 位置 */}
-                <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
+                {sectionTitle("区域与位置", "区域用于 LLM 分区检索和运维调度；位置用于机房、机柜、U 位等物理定位。")}
+                <div style={{ gridColumn: "span 4", display: "flex", flexDirection: "column", gap: 4 }}>
                   <span style={{ fontSize: 11, color: "var(--text-4)", fontWeight: 600 }}>区域</span>
                   {sel("region", regionOpts, (v) => {
                     if (v === "__custom__") { setCustomRegion(true); setCustomRegionVal(""); ufv("region", ""); }
@@ -326,27 +366,25 @@ export function CMDBPage() {
                   })}
                   {customRegion && customInput(customRegionVal, setCustomRegionVal, "输入自定义区域...")}
                 </div>
-                {field("位置", inp("机架 / 机房", "location", { fontFamily: "var(--font-sans)" }, false))}
-                {field("备注", inp("备注信息", "description", { fontFamily: "var(--font-sans)" }, false), 2)}
+                <div style={{ gridColumn: "span 4" }}>{field("位置", inp("机房 / 机柜 / U 位，例如：7A-18U", "location", { fontFamily: "var(--font-sans)" }, false))}</div>
+                <div style={{ gridColumn: "span 4", alignSelf: "end" }}>{helpText("示例：华东 / 杭州-A机房 / 7A-18U。区域越稳定，LLM 按区域查找越可靠。")}</div>
+                <div style={{ gridColumn: "span 12" }}>{field("备注", inp("备注信息，例如用途、业务归属、维护窗口", "description", { fontFamily: "var(--font-sans)" }, false))}</div>
 
                 {/* 连接信息分隔 */}
-                <div style={{ gridColumn: "span 2", height: 1, background: "var(--line-2)", margin: "4px 0" }} />
-                <div style={{ gridColumn: "span 2", fontSize: 11, color: "var(--text-4)", fontWeight: 600, marginBottom: -4 }}>
-                  连接信息
-                </div>
+                {sectionTitle("连接凭据", "SSH/Telnet 可直接从资产发起连接；其他协议先作为资产资料保存。")}
 
-                <div style={{ display: "flex", gap: 8, gridColumn: "span 2" }}>
-                  <div style={{ width: 90 }}>
+                <div style={{ display: "flex", gap: 8, gridColumn: "span 12" }}>
+                  <div style={{ width: 116 }}>
                     {field("", sel("protocol", protocolOpts))}
                   </div>
                   <div style={{ flex: 1 }}>{field("主机 *", inp("192.168.1.1", "host"))}</div>
-                  <div style={{ width: 72 }}>{field("端口", inp("22", "port", { textAlign: "center" }))}</div>
+                  <div style={{ width: 92 }}>{field("端口", inp("22", "port", { textAlign: "center" }))}</div>
                 </div>
-                {field("用户名", inp("admin", "username"))}
-                <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
+                <div style={{ gridColumn: "span 6" }}>{field("用户名", inp("admin", "username"))}</div>
+                <div style={{ gridColumn: "span 6", display: "flex", flexDirection: "column", gap: 4 }}>
                   <span style={{ fontSize: 11, color: "var(--text-4)", fontWeight: 600 }}>密码</span>
                   <input
-                    type="password" placeholder="······" value={fv.password}
+                    type="password" placeholder={editingAsset ? "留空则保留已保存密钥" : "输入后保存为服务端密钥"} value={fv.password}
                     onChange={e => ufv("password", e.target.value)}
                     style={{
                       padding: "7px 10px", fontSize: 13, borderRadius: 6, border: "1px solid var(--line)",
@@ -357,15 +395,29 @@ export function CMDBPage() {
                     onBlur={e => e.currentTarget.style.borderColor = "var(--line)"}
                   />
                 </div>
+                <div style={{ gridColumn: "span 12" }}>
+                  <div style={{
+                    border: "1px solid var(--line-2)", background: "var(--surface-2)",
+                    borderRadius: 7, padding: "9px 11px", fontSize: 12,
+                    color: "var(--text-3)", lineHeight: 1.55,
+                  }}>
+                    {editingAsset
+                      ? "保存时如果密码为空，后端会保留原有 password_secret；填写新密码才会替换密钥。"
+                      : "创建设备时保存密码后，LLM 和远程终端通过 asset_id 连接设备，不会读取或展示明文密码。"}
+                  </div>
+                </div>
               </div>
 
               {fv.err && (
-                <div style={{ marginTop: 12, padding: "8px 12px", borderRadius: 6, background: "var(--warn-soft)", color: "var(--warn)", fontSize: 12, fontWeight: 500 }}>
+                <div style={{ margin: "10px 24px 0", padding: "8px 12px", borderRadius: 6, background: "var(--warn-soft)", color: "var(--warn)", fontSize: 12, fontWeight: 500 }}>
                   {fv.err}
                 </div>
               )}
 
-              <div style={{ display: "flex", gap: 8, justifyContent: "flex-end", marginTop: 20 }}>
+              <div style={{
+                display: "flex", gap: 8, justifyContent: "flex-end", marginTop: 18,
+                padding: "14px 24px 20px", borderTop: "1px solid var(--line-2)",
+              }}>
                 <button className="btn" onClick={() => setShowForm(false)} style={{ padding: "7px 16px" }}>取消</button>
                 <button className="btn primary" onClick={doSave} style={{ padding: "7px 22px" }}>
                   {editingAsset ? "保存更改" : "创建设备"}
@@ -389,6 +441,7 @@ export function CMDBPage() {
           {filtered.map(a => {
             const strip = VENDOR_STRIP[a.vendor] || "var(--accent)";
             const regionName = a.region || "";
+            const canOpenTerminal = ["ssh", "telnet"].includes((a.protocol || "").toLowerCase());
             return (
               <div key={a.asset_id}
                 style={{
@@ -453,9 +506,10 @@ export function CMDBPage() {
                   padding: "10px 16px", borderTop: "1px solid var(--line-2)",
                   display: "flex", gap: 8,
                 }}>
-                  <button className="btn primary" onClick={() => setTermAsset(a)}
+                  <button className="btn primary" onClick={() => canOpenTerminal && setTermAsset(a)}
+                    disabled={!canOpenTerminal}
                     style={{ flex: 1, justifyContent: "center", fontWeight: 600, fontSize: 13, padding: "7px 0" }}>
-                    连接
+                    {canOpenTerminal ? "连接" : "已保存资料"}
                   </button>
                 </div>
               </div>
