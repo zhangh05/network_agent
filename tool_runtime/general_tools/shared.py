@@ -256,16 +256,19 @@ def _run_shell(command: str, cwd: str = None, shell: str = "/bin/bash",
     if not command or not command.strip():
         return {"ok": False, "error": "empty command"}
 
-    # Build safe subprocess environment: inherit parent PATH and ensure
-    # python3 is resolvable (required by exec.run-based analysis tools).
-    sub_env = dict(_os.environ)  # inherit full parent environment
+    # Build safe subprocess environment using the per-platform allowlist.
+    from tool_runtime.general_tools.command_tools import _build_safe_shell_env
+    sub_env = _build_safe_shell_env()
     # Prepend sys.executable dir to PATH so python3 is always found
+    # (required by exec.run-based analysis tools).
     import sys as _sys
     _python_bin = str(_os.path.dirname(_sys.executable))
     existing_path = sub_env.get("PATH", "")
     if _python_bin and _python_bin not in existing_path.split(_os.pathsep):
         sub_env["PATH"] = _python_bin + _os.pathsep + existing_path
-    # Apply caller-provided overrides on top
+    # Apply caller-provided overrides on top (caller must not bypass
+    # the allowlist for sensitive keys — but caller sanitization at
+    # handle_command_approved_exec already strips *_BLOCKED_ENV_KEYS).
     if env:
         sub_env.update(env)
 
@@ -277,8 +280,9 @@ def _run_shell(command: str, cwd: str = None, shell: str = "/bin/bash",
             cwd=cwd or str(ROOT),
             env=sub_env,
         )
-        stdout = (result.stdout or "")[:_SHELL_MAX_OUTPUT]
-        stderr = (result.stderr or "")[:_SHELL_MAX_OUTPUT]
+        from tool_runtime.redaction import redact_tool_output
+        stdout = redact_tool_output(result.stdout or "")[:_SHELL_MAX_OUTPUT]
+        stderr = redact_tool_output(result.stderr or "")[:_SHELL_MAX_OUTPUT]
         actual_timeout = timeout or _SHELL_TIMEOUT
         return {
             "ok": True,

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import os
 from tool_runtime.schemas import ToolInvocation
 from workspace.ids import validate_workspace_id
 
@@ -18,37 +19,57 @@ _BLOCKED_ENV_KEYS = {
     "DYLD_LIBRARY_PATH",
 }
 
-# ── Sensitive env vars stripped from PowerShell subprocess ──
-# PowerShell inherits full parent env by default, exposing API keys.
-# Mirror python_exec's P0-3 security model: only pass allowlisted vars.
+# ── Sensitive env var name fragments (case-insensitive) ──
+# Substrings that identify a variable as a credential / token / proxy
+# and therefore must NEVER be inherited by a subprocess.
+_SENSITIVE_PATTERNS = (
+    "API_KEY", "APIKEY", "TOKEN", "SECRET", "PASSWORD", "PASSWD",
+    "PROXY", "CREDENTIAL", "PRIVATE_KEY", "SIGNING_KEY",
+)
+
+# ── Per-platform safe env allowlists ──
+# Only vars in this set are passed through to the subprocess.
 _PS_SAFE_ENV_ALLOWLIST = {
     "PATH", "HOME", "USER", "USERNAME", "COMPUTERNAME",
     "SYSTEMROOT", "WINDIR", "TEMP", "TMP", "TMPDIR",
     "LANG", "LC_ALL", "LC_CTYPE", "TZ",
 }
 
+_LINUX_SAFE_ENV_ALLOWLIST = {
+    "PATH", "HOME", "USER", "LOGNAME", "SHELL", "TERM",
+    "LANG", "LC_ALL", "LC_CTYPE", "LC_COLLATE", "LC_MESSAGES",
+    "TZ", "TMPDIR", "PWD", "OLDPWD",
+}
 
-def _build_safe_env() -> dict:
-    """Build a minimal environment for PowerShell subprocess.
 
-    Only passes allowlisted vars. Blocks all sensitive patterns
-    (API_KEY, TOKEN, SECRET, PASSWORD, PROXY, CREDENTIAL).
+def _is_sensitive_env_key(key: str) -> bool:
+    upper = key.upper()
+    return any(p in upper for p in _SENSITIVE_PATTERNS)
+
+
+def _build_safe_env(allowlist: set[str] | None = None) -> dict:
+    """Build a minimal subprocess environment.
+
+    Shared by PowerShell and bash subprocess paths. Sensitive vars
+    are always stripped; everything else is gated by the
+    per-platform allowlist.
     """
-    import os
-    _SENSITIVE_PATTERNS = (
-        "API_KEY", "APIKEY", "TOKEN", "SECRET", "PASSWORD", "PASSWD",
-        "PROXY", "CREDENTIAL", "PRIVATE_KEY", "SIGNING_KEY",
-    )
+    if allowlist is None:
+        allowlist = _PS_SAFE_ENV_ALLOWLIST
     safe_env = {}
     for key, value in os.environ.items():
-        upper_key = key.upper()
-        # Block sensitive patterns
-        if any(p in upper_key for p in _SENSITIVE_PATTERNS):
+        # Always strip sensitive patterns regardless of platform.
+        if _is_sensitive_env_key(key):
             continue
-        # Allowlist
-        if upper_key in _PS_SAFE_ENV_ALLOWLIST or key in _PS_SAFE_ENV_ALLOWLIST:
+        # Allowlist check accepts both upper- and lower-case forms so
+        # callers that pass {"PATH"} or {"path"} both work.
+        if key in allowlist or key.upper() in allowlist:
             safe_env[key] = value
     return safe_env
+
+
+def _build_safe_shell_env() -> dict:
+    return _build_safe_env(_LINUX_SAFE_ENV_ALLOWLIST)
 
 def handle_command_approved_exec(inv: ToolInvocation) -> dict:
     """Shell command execution on Linux/macOS.

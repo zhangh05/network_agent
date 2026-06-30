@@ -8,6 +8,7 @@ the registry API, but it must not import or depend on a CapabilityRegistry.
 """
 
 import json
+import logging
 import os
 import yaml
 from pathlib import Path
@@ -18,6 +19,7 @@ from registry.schemas import ModuleSpec, SkillSpec, CapabilitySpec
 ROOT = Path(__file__).resolve().parent.parent
 MODULES_DIR = ROOT / "modules"
 SKILLS_DIR = ROOT / "skills"
+logger = logging.getLogger(__name__)
 
 # Cache
 _cache = {"modules": None, "skills": None, "capabilities": None}
@@ -568,9 +570,15 @@ def get_enabled_capabilities() -> list:
 
 
 def reload_all():
-    """Force reload all registries."""
+    """Force reload all registries and derived catalog snapshots."""
     global _cache
     _cache = {"modules": None, "skills": None, "capabilities": None}
+    try:
+        from tool_runtime.catalog_snapshot import reset_catalog_snapshot_cache
+        reset_catalog_snapshot_cache()
+    except Exception:
+        logger.debug("registry reload: catalog snapshot reset skipped", exc_info=True)
+        pass
     return {
         "modules": load_module_registry(reload=True),
         "skills": load_skill_registry(reload=True),
