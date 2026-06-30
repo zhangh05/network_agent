@@ -3,6 +3,7 @@ import { render, screen, fireEvent, waitFor } from "@testing-library/react";
 import { MemoryRouter, useLocation } from "react-router-dom";
 import { CMDBPage } from "../pages/CMDB/CMDBPage";
 import { TaskWorkbench } from "../pages/AgentWorkbench/AgentWorkbench";
+import { App } from "../app/App";
 import { enqueue, getRequests, installMockApi, resetMocks } from "./mockServer";
 import { useSessionStore } from "../stores/session";
 import { useWorkbenchStore } from "../stores/workbench";
@@ -73,11 +74,33 @@ describe("CMDB inspection launch", () => {
     expect(payload.metadata).toMatchObject({
       intent: "cmdb_region_inspection",
       region: "测试一区",
-      profile_id: "basic_health",
       source: "cmdb_region_button",
     });
     expect(payload.prompt).toContain("CMDB 区域「测试一区」");
-    expect(payload.prompt).toContain("inspection.manage");
+    expect(payload.prompt).toContain("自动巡检");
+    expect(payload.prompt).not.toContain("inspection.manage");
+    expect(payload.prompt).not.toContain("device.manage");
+    expect(payload.prompt).not.toContain("基础健康检查");
+  });
+
+  it("does not expose a standalone inspection page in navigation", async () => {
+    enqueue("/version", { status: 200, data: { version: "test" } });
+    enqueue("/workspaces", {
+      status: 200,
+      data: { workspaces: [{ workspace_id: "default", name: "default", is_default: true, stats: {} }] },
+    });
+    enqueue("/runtime/summary", {
+      status: 200,
+      data: { capabilities: { total: 1, enabled: 1 }, tools: { registered: 1, model_visible: 1 } },
+    });
+    enqueue("/sessions", { status: 200, data: { sessions: [] } });
+    enqueue("/runs/recent", { status: 200, data: { runs: [] } });
+
+    render(<App />);
+
+    await screen.findByText("Operations Console · vtest");
+    expect(screen.queryByTestId("nav-inspection")).not.toBeInTheDocument();
+    expect(screen.queryByText("设备巡检")).not.toBeInTheDocument();
   });
 
   it("workbench auto-sends inspection prompt with source metadata", async () => {
@@ -94,11 +117,10 @@ describe("CMDB inspection launch", () => {
       metadata: { source_count: 0 },
     };
     sessionStorage.setItem("workbench_auto_prompt", JSON.stringify({
-      prompt: "对 CMDB 区域「测试一区」执行「基础健康检查」巡检。",
+      prompt: "对 CMDB 区域「测试一区」执行自动巡检。",
       metadata: {
         intent: "cmdb_region_inspection",
         region: "测试一区",
-        profile_id: "basic_health",
         source: "cmdb_region_button",
       },
     }));
@@ -111,13 +133,12 @@ describe("CMDB inspection launch", () => {
     await screen.findByText("已完成测试一区基础巡检。");
     const request = getRequests().find((r) => r.url === "/agent/message");
     expect(request?.data).toMatchObject({
-      message: "对 CMDB 区域「测试一区」执行「基础健康检查」巡检。",
+      message: "对 CMDB 区域「测试一区」执行自动巡检。",
       workspace_id: "default",
       session_id: "sess-cmdb",
       metadata: {
         intent: "cmdb_region_inspection",
         region: "测试一区",
-        profile_id: "basic_health",
         source: "cmdb_region_button",
       },
     });

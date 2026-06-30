@@ -5,17 +5,17 @@ directly; the canonical tool ``inspection.manage`` is also registered
 for LLM-driven flows.
 
 Endpoints (all require workspace_id):
-    GET  /api/inspection/profiles
     POST /api/inspection/tasks            — run an inspection
     GET  /api/inspection/tasks            — list recent tasks
     GET  /api/inspection/tasks/<id>       — get task details
     POST /api/inspection/tasks/<id>/cancel — cancel (MVP: not_supported)
-    GET  /api/inspection/tasks/<id>/report — render md|json report
+    GET  /api/inspection/tasks/<id>/report — render md|json|html report JSON
+    GET  /api/inspection/tasks/<id>/report.html — render viewable HTML report
 """
 
 from __future__ import annotations
 
-from flask import jsonify, request
+from flask import Response, jsonify, request
 
 from workspace.ids import validate_workspace_id
 
@@ -36,32 +36,12 @@ def _validated_ws_id(raw: str = ""):
 def register_inspection_routes(app):
     """Register all inspection routes on the given Flask app."""
 
-    @app.route("/api/inspection/profiles", methods=["GET"])
-    def api_inspection_profiles():
-        ws_id, err = _validated_ws_id(request.args.get("workspace_id", ""))
-        if err:
-            return err
-        profiles = inspection_service.list_profiles()
-        # list_profiles() is global (profiles are vendor-fixed) — no
-        # workspace_id coupling. We return them under an envelope so the
-        # frontend can render profile_cards consistently.
-        return jsonify({
-            "ok": True,
-            "workspace_id": ws_id,
-            "profiles": profiles,
-            "count": len(profiles),
-        })
-
     @app.route("/api/inspection/tasks", methods=["POST"])
     def api_inspection_tasks_create():
         data = request.get_json(silent=True) or {}
         ws_id, err = _validated_ws_id(data.get("workspace_id", ""))
         if err:
             return err
-        profile_id = str(data.get("profile_id", "") or "").strip()
-        if not profile_id:
-            return jsonify({"ok": False, "error": "profile_id_required"}), 400
-
         scope = data.get("scope") or {}
         if not isinstance(scope, dict):
             return jsonify({"ok": False, "error": "scope_must_be_object"}), 400
@@ -71,7 +51,7 @@ def register_inspection_routes(app):
         #   pending → running → succeeded | failed | partial
         task = inspection_service.create_task(
             workspace_id=ws_id,
-            profile_id=profile_id,
+            profile_id=str(data.get("profile_id", "") or ""),
             scope=scope,
             created_by=str(data.get("created_by", "user") or "user"),
             session_id=str(data.get("session_id", "") or ""),
@@ -155,7 +135,7 @@ def register_inspection_routes(app):
         if err:
             return err
         fmt = (request.args.get("format", "md") or "md").lower()
-        if fmt not in ("md", "markdown", "json"):
+        if fmt not in ("md", "markdown", "json", "html"):
             return jsonify({"ok": False, "error": f"unsupported_format: {fmt}"}), 400
         if fmt == "markdown":
             fmt = "md"
@@ -164,3 +144,20 @@ def register_inspection_routes(app):
             status_code = 404 if result.get("error") == "task_not_found" else 400
             return jsonify(result), status_code
         return jsonify(result)
+
+    @app.route("/api/inspection/tasks/<task_id>/report.html", methods=["GET"])
+    def api_inspection_tasks_report_html(task_id):
+        ws_id, err = _validated_ws_id(request.args.get("workspace_id", ""))
+        if err:
+            return err
+        result = inspection_service.render_report(ws_id, task_id, "html")
+        if not result.get("ok"):
+            status_code = 404 if result.get("error") == "task_not_found" else 400
+            return jsonify(result), status_code
+        filename = str(result.get("filename") or f"inspection_{task_id}.html")
+        headers = {"Content-Disposition": f'inline; filename="{filename}"'}
+        return Response(
+            str(result.get("content") or ""),
+            mimetype="text/html; charset=utf-8",
+            headers=headers,
+        )

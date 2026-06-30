@@ -65,16 +65,16 @@ Approval requests are durable interrupts. Approval is required only when policy 
 
 ## Inspection
 
-CMDB-driven inspection runs only fixed read-only commands from builtin profiles. The runner resolves device credentials server-side through `exec.run(asset_id=...)`; request and response schemas never include password fields.
+CMDB-driven inspection runs only fixed read-only scripts selected by each asset's vendor and device type. The runner resolves device credentials server-side through `exec.run(asset_id=...)`; request and response schemas never include password fields. Users do not choose inspection templates.
 
 | Method | Path | Purpose |
 | --- | --- | --- |
-| `GET` | `/api/inspection/profiles?workspace_id=<ws>` | List builtin inspection profiles and checks |
-| `POST` | `/api/inspection/tasks` | Run an inspection for a CMDB scope |
+| `POST` | `/api/inspection/tasks` | Run an automatic inspection for a CMDB scope |
 | `GET` | `/api/inspection/tasks?workspace_id=<ws>&limit=<n>` | List recent inspection tasks |
 | `GET` | `/api/inspection/tasks/<task_id>?workspace_id=<ws>` | Inspection task detail |
 | `POST` | `/api/inspection/tasks/<task_id>/cancel` | Cancel inspection task when supported |
-| `GET` | `/api/inspection/tasks/<task_id>/report?workspace_id=<ws>&format=md` | Render Markdown or JSON report |
+| `GET` | `/api/inspection/tasks/<task_id>/report?workspace_id=<ws>&format=md` | Render Markdown, JSON, or HTML report metadata |
+| `GET` | `/api/inspection/tasks/<task_id>/report.html?workspace_id=<ws>` | Open the HTML inspection report directly |
 
 ## Error Shape
 

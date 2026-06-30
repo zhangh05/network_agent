@@ -47,8 +47,10 @@ from .profiles import (
     BUILTIN_PROFILES,
     CK_CURRENT_CONFIG,
     CK_VERSION,
+    AUTO_PROFILE_ID,
+    resolve_auto_profile,
     resolve_profile,
-    resolve_vendor,
+    resolve_command_profile,
     is_read_only_command,
 )
 
@@ -316,7 +318,14 @@ def _run_checks_on_asset(task: InspectionTask,
         dr.finished_at = now_iso()
         return dr
 
-    vendor_profile = resolve_vendor(dr.vendor)
+    vendor_profile = resolve_command_profile(dr.vendor, dr.type)
+    effective_profile = (
+        resolve_auto_profile(dr.vendor, dr.type)
+        if profile.profile_id == AUTO_PROFILE_ID
+        else profile
+    )
+    dr.script_profile_id = vendor_profile.vendor
+    dr.script_profile_name = effective_profile.display_name
     if vendor_profile.vendor == "generic":
         # Only if the asset's vendor doesn't have a profile we mark
         # ``limited_support``; the runner will still try the safe
@@ -325,7 +334,7 @@ def _run_checks_on_asset(task: InspectionTask,
         dr.limited_support = True
 
     # Sort checks deterministically (task_id prefix keeps order stable)
-    checks = list(profile.checks)
+    checks = list(effective_profile.checks)
     checks.sort(key=lambda c: c.check_id)
 
     config_check_seen = False
@@ -557,6 +566,7 @@ def run_task(workspace_id: str,
     MVP: synchronous. Errors per device are isolated — one bad
     SSH target never affects another asset's results.
     """
+    profile_id = str(profile_id or "").strip() or AUTO_PROFILE_ID
     profile = resolve_profile(profile_id)
     if profile is None:
         # Surface the unknown profile as an empty failed task so
@@ -584,7 +594,7 @@ def run_task(workspace_id: str,
         task_id=_new_task_id(),
         workspace_id=workspace_id,
         scope=scope,
-        profile_id=profile_id,
+        profile_id=profile.profile_id,
         profile_display_name=profile.display_name,
         status="running",
         created_by=created_by,

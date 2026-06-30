@@ -19,7 +19,7 @@ from typing import Any, Optional
 from agent.runtime.utils import now_iso
 from workspace.ids import validate_workspace_id
 
-from .models import InspectionScope, InspectionTask, InspectionProfile
+from .models import InspectionScope, InspectionTask
 from .profiles import BUILTIN_PROFILES, resolve_profile
 from .runner import (
     INSPECTION_CALLER,
@@ -160,7 +160,7 @@ def cancel_task(workspace_id: str, task_id: str) -> dict:
 
 
 def render_report(workspace_id: str, task_id: str, fmt: str = "md") -> dict:
-    """Render the report in ``fmt`` (``md`` or ``json``).
+    """Render the report in ``fmt`` (``md``, ``json``, or ``html``).
 
     Returns ``{"ok": True, "format": ..., "content": ...}`` or
     ``{"ok": False, "error": ...}``.
@@ -168,6 +168,37 @@ def render_report(workspace_id: str, task_id: str, fmt: str = "md") -> dict:
     task = get_task(workspace_id, task_id)
     if task is None:
         return {"ok": False, "error": "task_not_found"}
+    if fmt == "html":
+        html = _report.render_html(task)
+        artifact_id = ""
+        from artifacts.store import save_artifact
+        art = save_artifact(
+            workspace_id=workspace_id,
+            content=html,
+            artifact_type="report",
+            title=f"inspection_{task_id}.html",
+            scope="workspace",
+            sensitivity="internal",
+            run_id=task_id,
+            capability_id="inspection",
+            metadata={
+                "inspection_task_id": task_id,
+                "report_format": "html",
+            },
+            tags=["inspection", "html_report"],
+            source="inspection",
+        )
+        if art is not None:
+            artifact_id = getattr(art, "artifact_id", "")
+        return {
+            "ok": True,
+            "format": "html",
+            "filename": f"inspection_{task_id}.html",
+            "content": html,
+            "artifact_id": artifact_id,
+            "download_url": f"/api/inspection/tasks/{task_id}/report.html?workspace_id={workspace_id}",
+        }
+
     if fmt not in ("md", "markdown"):
         if fmt == "json":
             from dataclasses import asdict

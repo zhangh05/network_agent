@@ -286,19 +286,19 @@ MANIFESTS: dict[str, CapabilityManifest] = {
         display_name="设备巡检 (CMDB)",
         description=(
             "CMDB-driven device health inspection. "
-            "action=profile_list (returns available profiles + checks); "
-            "action=run (creates a task from a CMDB scope and runs it "
+            "action=run creates a task from a CMDB scope and runs it "
             "through exec.run with asset_id resolution — credentials "
-            "stay server-side); "
+            "stay server-side. "
             "action=task_list / task_get / task_cancel / report. "
-            "All commands come from a per-vendor fixed map (H3C / Huawei / "
-            "Cisco / generic-fallback). The runner does NOT accept raw "
+            "All commands come from a per-vendor/type fixed map (H3C / "
+            "Huawei / Cisco / Ruijie / Hillstone / Linux server / "
+            "generic-fallback). The runner does NOT accept raw "
             "LLM string commands — every command is mapped through "
             "VendorCommandProfile and run only after a static "
             "read-only check."
         ),
         action_class="read",  # inspection commands are all read-only
-        risk_level="low",  # base; no destructive surface
+        risk_level="medium",  # long read-only remote task; no approval
         destructive=False,
         side_effects="none",  # writes only to artifact store + audit
         idempotency="safe_to_retry",

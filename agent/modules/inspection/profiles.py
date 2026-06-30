@@ -1,8 +1,9 @@
 """agent.modules.inspection.profiles
 
 Built-in ``InspectionProfile`` and ``VendorCommandProfile``
-registries. The MVP focus is H3C, Huawei, Cisco. ``generic`` is
-a last-resort fallback (only very-safe read-only commands).
+registries. The command set is intentionally boring: fixed, read-only
+operator scripts keyed by vendor/type. LLMs pass a CMDB scope only; the
+backend chooses the script set from each asset's vendor and device type.
 
 All commands are **read-only**. The pipeline:
     ``display version`` / ``show version``
@@ -35,9 +36,31 @@ CK_OSPF_PEER       = "ospf_peer"
 CK_BGP_SUMMARY     = "bgp_summary"
 CK_ROUTE_SUMMARY   = "route_summary"
 CK_CURRENT_CONFIG  = "current_config"
+CK_ENVIRONMENT     = "environment"
+CK_LOG             = "log"
+CK_ARP             = "arp"
+CK_MAC             = "mac"
+CK_VLAN            = "vlan"
+CK_FIREWALL_SESSION = "firewall_session"
+CK_FIREWALL_POLICY  = "firewall_policy"
+CK_FIREWALL_NAT     = "firewall_nat"
+CK_FIREWALL_HA      = "firewall_ha"
+CK_SERVER_DISK      = "server_disk"
+CK_SERVER_PROCESS   = "server_process"
+CK_SERVER_NETWORK   = "server_network"
+CK_SERVER_LISTEN    = "server_listen"
 
 
 # ── builtin inspection profiles (MVP) ──────────────────────────────────────
+
+AUTO_PROFILE_ID = "auto"
+AUTO_PROFILE = InspectionProfile(
+    profile_id=AUTO_PROFILE_ID,
+    display_name="自动巡检",
+    description="根据 CMDB 厂商和设备类型自动选择固定只读脚本。",
+    checks=(),
+    risk_level="medium",
+)
 
 BUILTIN_PROFILES: dict[str, InspectionProfile] = {
     "basic_health": InspectionProfile(
@@ -63,6 +86,18 @@ BUILTIN_PROFILES: dict[str, InspectionProfile] = {
                 display_name="内存利用率", command_key=CK_MEMORY,
                 parser_key="memory",
                 severity_default="info",
+            ),
+            InspectionCheck(
+                check_id="basic.env", category="health",
+                display_name="硬件/环境状态", command_key=CK_ENVIRONMENT,
+                parser_key="environment",
+                severity_default="warning",
+            ),
+            InspectionCheck(
+                check_id="basic.log", category="health",
+                display_name="近期告警日志", command_key=CK_LOG,
+                parser_key="log",
+                severity_default="warning",
             ),
         ]),
         risk_level="low",
@@ -131,13 +166,93 @@ BUILTIN_PROFILES: dict[str, InspectionProfile] = {
         ]),
         risk_level="low",
     ),
+    "firewall_health": InspectionProfile(
+        profile_id="firewall_health",
+        display_name="防火墙巡检",
+        description="会话、策略、NAT、HA 与基础资源状态。",
+        checks=tuple([
+            InspectionCheck(
+                check_id="fw.session", category="security",
+                display_name="会话状态", command_key=CK_FIREWALL_SESSION,
+                parser_key="firewall_session",
+                severity_default="info",
+                timeout_seconds=45,
+            ),
+            InspectionCheck(
+                check_id="fw.policy", category="security",
+                display_name="安全策略", command_key=CK_FIREWALL_POLICY,
+                parser_key="firewall_policy",
+                severity_default="info",
+                timeout_seconds=60,
+            ),
+            InspectionCheck(
+                check_id="fw.nat", category="security",
+                display_name="NAT 状态", command_key=CK_FIREWALL_NAT,
+                parser_key="firewall_nat",
+                severity_default="info",
+                timeout_seconds=45,
+            ),
+            InspectionCheck(
+                check_id="fw.ha", category="health",
+                display_name="双机/集群状态", command_key=CK_FIREWALL_HA,
+                parser_key="ha",
+                severity_default="warning",
+                timeout_seconds=45,
+            ),
+        ]),
+        risk_level="medium",
+    ),
+    "server_health": InspectionProfile(
+        profile_id="server_health",
+        display_name="服务器巡检",
+        description="Linux 服务器的系统版本、负载、内存、磁盘、网卡与监听端口。",
+        checks=tuple([
+            InspectionCheck(
+                check_id="srv.version", category="health",
+                display_name="系统版本", command_key=CK_VERSION,
+                parser_key="version",
+                severity_default="info",
+            ),
+            InspectionCheck(
+                check_id="srv.cpu", category="health",
+                display_name="CPU / 负载", command_key=CK_CPU,
+                parser_key="cpu",
+                severity_default="warning",
+            ),
+            InspectionCheck(
+                check_id="srv.memory", category="health",
+                display_name="内存", command_key=CK_MEMORY,
+                parser_key="memory",
+                severity_default="warning",
+            ),
+            InspectionCheck(
+                check_id="srv.disk", category="health",
+                display_name="磁盘空间", command_key=CK_SERVER_DISK,
+                parser_key="server_disk",
+                severity_default="warning",
+            ),
+            InspectionCheck(
+                check_id="srv.network", category="interface",
+                display_name="网卡地址", command_key=CK_SERVER_NETWORK,
+                parser_key="interface_brief",
+                severity_default="info",
+            ),
+            InspectionCheck(
+                check_id="srv.listen", category="security",
+                display_name="监听端口", command_key=CK_SERVER_LISTEN,
+                parser_key="server_listen",
+                severity_default="info",
+            ),
+        ]),
+        risk_level="medium",
+    ),
     }  # end BUILTIN_PROFILES (declared above)
 
 # ``full_basic`` aliases the union of basic + interface + routing.
 BUILTIN_PROFILES["full_basic"] = InspectionProfile(
     profile_id="full_basic",
     display_name="综合巡检（基础 + 接口 + 路由）",
-    description="等价于 basic_health + interface_health + routing_health。",
+    description="一次完成基础状态、接口状态和路由邻居检查。",
     checks=tuple(
         BUILTIN_PROFILES["basic_health"].checks
         + BUILTIN_PROFILES["interface_health"].checks
@@ -156,7 +271,8 @@ VENDOR_COMMAND_PROFILES: dict[str, VendorCommandProfile] = {
             CK_VERSION, CK_CPU, CK_MEMORY,
             CK_INTERFACE_BRIEF, CK_INTERFACE_ERROR,
             CK_OSPF_PEER, CK_BGP_SUMMARY, CK_ROUTE_SUMMARY,
-            CK_CURRENT_CONFIG,
+            CK_CURRENT_CONFIG, CK_ENVIRONMENT, CK_LOG,
+            CK_ARP, CK_MAC, CK_VLAN,
         ),
         commands={
             CK_VERSION:         "display version",
@@ -168,6 +284,37 @@ VENDOR_COMMAND_PROFILES: dict[str, VendorCommandProfile] = {
             CK_BGP_SUMMARY:     "display bgp peer ipv4 unicast",
             CK_ROUTE_SUMMARY:   "display ip routing-table summary",
             CK_CURRENT_CONFIG:  "display current-configuration",
+            CK_ENVIRONMENT:     "display device",
+            CK_LOG:             "display logbuffer reverse",
+            CK_ARP:             "display arp",
+            CK_MAC:             "display mac-address",
+            CK_VLAN:            "display vlan brief",
+        },
+    ),
+    "h3c_firewall": VendorCommandProfile(
+        vendor="h3c_firewall",
+        supported_checks=(
+            CK_VERSION, CK_CPU, CK_MEMORY,
+            CK_INTERFACE_BRIEF, CK_INTERFACE_ERROR,
+            CK_ROUTE_SUMMARY, CK_CURRENT_CONFIG,
+            CK_ENVIRONMENT, CK_LOG,
+            CK_FIREWALL_SESSION, CK_FIREWALL_POLICY,
+            CK_FIREWALL_NAT, CK_FIREWALL_HA,
+        ),
+        commands={
+            CK_VERSION:          "display version",
+            CK_CPU:              "display cpu-usage",
+            CK_MEMORY:           "display memory",
+            CK_INTERFACE_BRIEF:  "display interface brief",
+            CK_INTERFACE_ERROR:  "display interface | include CRC ERROR DROP",
+            CK_ROUTE_SUMMARY:    "display ip routing-table summary",
+            CK_CURRENT_CONFIG:   "display current-configuration",
+            CK_ENVIRONMENT:      "display device",
+            CK_LOG:              "display logbuffer reverse",
+            CK_FIREWALL_SESSION: "display session table",
+            CK_FIREWALL_POLICY:  "display security-policy",
+            CK_FIREWALL_NAT:     "display nat session",
+            CK_FIREWALL_HA:      "display redundancy group",
         },
     ),
     "huawei": VendorCommandProfile(
@@ -176,7 +323,8 @@ VENDOR_COMMAND_PROFILES: dict[str, VendorCommandProfile] = {
             CK_VERSION, CK_CPU, CK_MEMORY,
             CK_INTERFACE_BRIEF, CK_INTERFACE_ERROR,
             CK_OSPF_PEER, CK_BGP_SUMMARY, CK_ROUTE_SUMMARY,
-            CK_CURRENT_CONFIG,
+            CK_CURRENT_CONFIG, CK_ENVIRONMENT, CK_LOG,
+            CK_ARP, CK_MAC, CK_VLAN,
         ),
         commands={
             CK_VERSION:         "display version",
@@ -188,6 +336,11 @@ VENDOR_COMMAND_PROFILES: dict[str, VendorCommandProfile] = {
             CK_BGP_SUMMARY:     "display bgp peer ipv4 unicast",
             CK_ROUTE_SUMMARY:   "display ip routing-table summary",
             CK_CURRENT_CONFIG:  "display current-configuration",
+            CK_ENVIRONMENT:     "display device",
+            CK_LOG:             "display logbuffer",
+            CK_ARP:             "display arp",
+            CK_MAC:             "display mac-address",
+            CK_VLAN:            "display vlan",
         },
     ),
     "cisco": VendorCommandProfile(
@@ -196,7 +349,8 @@ VENDOR_COMMAND_PROFILES: dict[str, VendorCommandProfile] = {
             CK_VERSION, CK_CPU, CK_MEMORY,
             CK_INTERFACE_BRIEF, CK_INTERFACE_ERROR,
             CK_OSPF_PEER, CK_BGP_SUMMARY, CK_ROUTE_SUMMARY,
-            CK_CURRENT_CONFIG,
+            CK_CURRENT_CONFIG, CK_ENVIRONMENT, CK_LOG,
+            CK_ARP, CK_MAC, CK_VLAN,
         ),
         commands={
             CK_VERSION:         "show version",
@@ -208,6 +362,79 @@ VENDOR_COMMAND_PROFILES: dict[str, VendorCommandProfile] = {
             CK_BGP_SUMMARY:     "show ip bgp summary",
             CK_ROUTE_SUMMARY:   "show ip route summary",
             CK_CURRENT_CONFIG:  "show running-config",
+            CK_ENVIRONMENT:     "show environment all",
+            CK_LOG:             "show logging",
+            CK_ARP:             "show ip arp",
+            CK_MAC:             "show mac address-table",
+            CK_VLAN:            "show vlan brief",
+        },
+    ),
+    "ruijie": VendorCommandProfile(
+        vendor="ruijie",
+        supported_checks=(
+            CK_VERSION, CK_CPU, CK_MEMORY,
+            CK_INTERFACE_BRIEF, CK_INTERFACE_ERROR,
+            CK_OSPF_PEER, CK_BGP_SUMMARY, CK_ROUTE_SUMMARY,
+            CK_CURRENT_CONFIG, CK_ENVIRONMENT, CK_LOG,
+            CK_ARP, CK_MAC, CK_VLAN,
+        ),
+        commands={
+            CK_VERSION:         "show version",
+            CK_CPU:             "show cpu",
+            CK_MEMORY:          "show memory",
+            CK_INTERFACE_BRIEF: "show ip interface brief",
+            CK_INTERFACE_ERROR: "show interfaces counters errors",
+            CK_OSPF_PEER:       "show ip ospf neighbor",
+            CK_BGP_SUMMARY:     "show ip bgp summary",
+            CK_ROUTE_SUMMARY:   "show ip route summary",
+            CK_CURRENT_CONFIG:  "show running-config",
+            CK_ENVIRONMENT:     "show environment",
+            CK_LOG:             "show logging",
+            CK_ARP:             "show arp",
+            CK_MAC:             "show mac-address-table",
+            CK_VLAN:            "show vlan",
+        },
+    ),
+    "hillstone": VendorCommandProfile(
+        vendor="hillstone",
+        supported_checks=(
+            CK_VERSION, CK_CPU, CK_MEMORY,
+            CK_INTERFACE_BRIEF, CK_INTERFACE_ERROR,
+            CK_ROUTE_SUMMARY, CK_CURRENT_CONFIG,
+            CK_LOG, CK_FIREWALL_SESSION, CK_FIREWALL_POLICY,
+            CK_FIREWALL_NAT, CK_FIREWALL_HA,
+        ),
+        commands={
+            CK_VERSION:          "show version",
+            CK_CPU:              "show cpu",
+            CK_MEMORY:           "show memory",
+            CK_INTERFACE_BRIEF:  "show interface",
+            CK_INTERFACE_ERROR:  "show interface",
+            CK_ROUTE_SUMMARY:    "show route",
+            CK_CURRENT_CONFIG:   "show configuration",
+            CK_LOG:              "show log",
+            CK_FIREWALL_SESSION: "show session",
+            CK_FIREWALL_POLICY:  "show policy",
+            CK_FIREWALL_NAT:     "show nat",
+            CK_FIREWALL_HA:      "show ha",
+        },
+    ),
+    "server": VendorCommandProfile(
+        vendor="server",
+        supported_checks=(
+            CK_VERSION, CK_CPU, CK_MEMORY,
+            CK_SERVER_DISK, CK_SERVER_PROCESS,
+            CK_SERVER_NETWORK, CK_SERVER_LISTEN, CK_LOG,
+        ),
+        commands={
+            CK_VERSION:        "uname -a",
+            CK_CPU:            "top -bn1 | head -20",
+            CK_MEMORY:         "free -m",
+            CK_SERVER_DISK:    "df -h",
+            CK_SERVER_PROCESS: "ps aux --sort=-%cpu | head -20",
+            CK_SERVER_NETWORK: "ip -brief addr",
+            CK_SERVER_LISTEN:  "ss -tuln",
+            CK_LOG:            "journalctl -p warning -n 50 --no-pager",
         },
     ),
     "generic": VendorCommandProfile(
@@ -223,9 +450,58 @@ VENDOR_COMMAND_PROFILES: dict[str, VendorCommandProfile] = {
 }
 
 
+def _norm(value: str) -> str:
+    return (value or "").strip().lower().replace(" ", "").replace("_", "")
+
+
+def resolve_command_profile(vendor: str = "", device_type: str = "") -> VendorCommandProfile:
+    """Resolve commands by CMDB vendor + type.
+
+    The CMDB ``type`` wins for server/firewall because those assets need
+    materially different scripts even when the vendor field is unknown or
+    shared with switching products.
+    """
+    v = _norm(vendor)
+    t = _norm(device_type)
+    if t in {"server", "服务器", "linux", "主机"} or "linux" in v or "server" in v:
+        return VENDOR_COMMAND_PROFILES["server"]
+    if "hillstone" in v or "山石" in v:
+        return VENDOR_COMMAND_PROFILES["hillstone"]
+    if "ruijie" in v or "锐捷" in v:
+        return VENDOR_COMMAND_PROFILES["ruijie"]
+    if "huawei" in v or "华为" in v:
+        return VENDOR_COMMAND_PROFILES["huawei"]
+    if "cisco" in v or "思科" in v:
+        return VENDOR_COMMAND_PROFILES["cisco"]
+    if "h3c" in v or "华三" in v:
+        if t in {"firewall", "防火墙"} or "firewall" in v or "防火墙" in v:
+            return VENDOR_COMMAND_PROFILES["h3c_firewall"]
+        return VENDOR_COMMAND_PROFILES["h3c"]
+    return VENDOR_COMMAND_PROFILES["generic"]
+
+
 def resolve_profile(profile_id: str) -> InspectionProfile | None:
     """Return the profile or None if the id is unknown."""
+    if not (profile_id or "").strip() or profile_id == AUTO_PROFILE_ID:
+        return AUTO_PROFILE
     return BUILTIN_PROFILES.get(profile_id)
+
+
+def resolve_auto_profile_id(vendor: str = "", device_type: str = "") -> str:
+    """Resolve the internal inspection profile for one CMDB asset."""
+    command_profile = resolve_command_profile(vendor, device_type)
+    if command_profile.vendor == "server":
+        return "server_health"
+    if command_profile.vendor in {"h3c_firewall", "hillstone"}:
+        return "firewall_health"
+    if command_profile.vendor in {"h3c", "huawei", "cisco", "ruijie"}:
+        return "full_basic"
+    return "basic_health"
+
+
+def resolve_auto_profile(vendor: str = "", device_type: str = "") -> InspectionProfile:
+    """Return the concrete internal profile used for one asset."""
+    return BUILTIN_PROFILES[resolve_auto_profile_id(vendor, device_type)]
 
 
 def resolve_vendor(vendor: str) -> VendorCommandProfile:
@@ -235,12 +511,7 @@ def resolve_vendor(vendor: str) -> VendorCommandProfile:
     flags every check on the affected asset as ``skipped`` with
     ``reason=unsupported_vendor``. We never silently degrade.
     """
-    if not vendor:
-        return VENDOR_COMMAND_PROFILES["generic"]
-    v = vendor.strip().lower()
-    if v in VENDOR_COMMAND_PROFILES:
-        return VENDOR_COMMAND_PROFILES[v]
-    return VENDOR_COMMAND_PROFILES["generic"]
+    return resolve_command_profile(vendor, "")
 
 
 def is_read_only_command(command: str) -> bool:

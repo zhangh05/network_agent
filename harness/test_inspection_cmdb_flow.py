@@ -6,16 +6,14 @@ Pins the v3.9.13 inspection capability:
      as primary recommended tool.
   2. canonical_registry has `inspection.manage` registered and it
      executes through the merged adapter.
-  3. profile_list returns 5 builtin profiles (no LLM-typed commands).
-  4. profile commands come from fixed per-vendor map; raw commands
+  3. profile commands come from fixed per-vendor/type maps; raw commands
      never appear in the canonical schema.
-  5. create_task rejects ``profile_id=""`` and unknown profiles but
-     accepts CMDB scope with ``limit``.
+  4. create_task accepts automatic mode without user-selected profile_id.
   6. manifest_registry has 22 manifests including `inspection.manage`.
   7. tool_namespace_data has 22 NS_DATA entries including inspection.
   8. tool_namespace has matching canonical count (no drift).
-  9. backend GET /api/inspection/profiles returns the same shape as
-     inspectionApi.listProfiles.
+  9. internal script catalog remains valid, but public API/schema does
+     not require users to choose a profile.
  10. canonical tool never returns device passwords — the schema
      does not declare a password field.
 """
@@ -57,40 +55,39 @@ def test_canonical_inspection_manage_registered():
     entry = CANONICAL_REGISTRY["inspection.manage"]
     schema = entry.input_schema or {}
     fields = set(schema.get("properties", {}).keys())
-    # action discriminator must include 6 actions
+    # action discriminator must expose only user-facing task actions.
     enum_actions = set(schema["properties"]["action"].get("enum", []))
-    for required_action in (
-        "profile_list", "run", "task_list", "task_get",
-        "task_cancel", "report",
-    ):
+    assert "profile_list" not in enum_actions, (
+        "LLM-visible schema must not send users through profile selection"
+    )
+    assert "profile_id" not in fields, (
+        "LLM-visible schema must not expose inspection profile selection"
+    )
+    for required_action in ("run", "task_list", "task_get", "task_cancel", "report"):
         assert required_action in enum_actions, (
             f"missing action={required_action} in inspection.manage schema"
         )
+    assert "html" in schema["properties"]["format"].get("enum", [])
     # No raw password / credential field — runner is server-side only
     forbidden = {"password", "credentials", "secret", "token"}
     leaked = forbidden & fields
     assert not leaked, f"inspection.manage schema leaks {leaked}"
 
 
-def test_profile_list_returns_five_builtin_profiles():
-    from tool_runtime.schemas import ToolInvocation
-    from tool_runtime.canonical_registry import CANONICAL_REGISTRY
-    inv = ToolInvocation(
-        arguments={"workspace_id": "ws_demo", "action": "profile_list"},
-        tool_id="inspection.manage",
-    )
-    result = CANONICAL_REGISTRY["inspection.manage"].handler(inv)
-    assert result["ok"] is True
-    profiles = result["profiles"]
-    assert result["count"] == len(profiles) == 5, (
-        f"expected 5 builtin profiles, got {len(profiles)}"
+def test_internal_script_catalog_contains_vendor_device_scripts():
+    from agent.modules.inspection import service as svc
+    profiles = svc.list_profiles()
+    assert len(profiles) >= 7, (
+        f"expected at least 7 internal profiles including firewall/server, got {len(profiles)}"
     )
     ids = {p["profile_id"] for p in profiles}
-    assert ids == {"basic_health", "interface_health", "routing_health",
-                    "config_backup", "full_basic"}
-    # All profiles must be read-only (risk_level=low, no destructive surface)
+    assert {"basic_health", "interface_health", "routing_health",
+            "config_backup", "full_basic", "firewall_health",
+            "server_health"} <= ids
+    # All profiles must be read-only; long remote-read templates can be medium
+    # without requiring approval.
     for p in profiles:
-        assert p["risk_level"] == "low"
+        assert p["risk_level"] in {"low", "medium"}
         assert p["requires_approval"] is False
         # Every check must have a known parser_key (LLM-typed strings rejected)
         for c in p["checks"]:
@@ -103,10 +100,10 @@ def test_profile_commands_fixed_per_vendor_no_llm_input():
     from agent.modules.inspection.profiles import (
         VENDOR_COMMAND_PROFILES, is_read_only_command,
     )
-    # h3c / huawei / cisco / generic fallback
-    expected = {"h3c", "huawei", "cisco", "generic"}
-    assert set(VENDOR_COMMAND_PROFILES) == expected, (
-        f"vendor profile set mismatch: got {set(VENDOR_COMMAND_PROFILES)}"
+    expected = {"h3c", "h3c_firewall", "huawei", "cisco",
+                "ruijie", "hillstone", "server", "generic"}
+    assert expected <= set(VENDOR_COMMAND_PROFILES), (
+        f"vendor profile set missing entries: got {set(VENDOR_COMMAND_PROFILES)}"
     )
     # Every command in every vendor profile must pass the static read-only check
     for vendor, prof in VENDOR_COMMAND_PROFILES.items():
@@ -123,19 +120,99 @@ def test_profile_commands_fixed_per_vendor_no_llm_input():
     assert not is_read_only_command("format c:")
 
 
-def test_create_task_rejects_empty_or_unknown_profile():
-    """create_task must give a deterministic failure for missing/invalid profile."""
+def test_inspection_policy_allows_long_read_only_task_without_approval():
+    """CMDB inspection is a read-only long task; it must not be blocked by
+    the generic low-risk 120s timeout ceiling and must not request approval.
+    """
+    from tool_runtime.canonical_registry import to_tool_specs
+    from tool_runtime.policy import ToolPolicy
+    from tool_runtime.schemas import ToolInvocation
+
+    spec = next(spec for spec, _ in to_tool_specs() if spec.tool_id == "inspection.manage")
+    decision = ToolPolicy().check(
+        spec,
+        ToolInvocation(
+            tool_id="inspection.manage",
+            arguments={
+                "workspace_id": "ws_demo",
+                "action": "run",
+                "scope": {"region": "测试一区", "limit": 20},
+            },
+        ),
+    )
+    assert decision.allowed is True, decision.reason
+    assert decision.requires_approval is False
+    assert decision.risk_level in {"low", "medium"}
+
+
+def test_server_assets_resolve_to_server_command_profile():
+    """Server assets must not fall through to network-device show commands."""
+    from agent.modules.inspection.profiles import (
+        CK_CPU,
+        CK_MEMORY,
+        CK_VERSION,
+        resolve_command_profile,
+        is_read_only_command,
+    )
+
+    prof = resolve_command_profile(vendor="", device_type="server")
+    assert prof.vendor == "server"
+    assert resolve_command_profile(vendor="Linux", device_type="").vendor == "server"
+    assert "uname" in prof.commands[CK_VERSION]
+    assert prof.commands[CK_CPU].startswith("top ")
+    assert "free" in prof.commands[CK_MEMORY]
+    for cmd in prof.commands.values():
+        assert is_read_only_command(cmd), cmd
+
+
+def test_firewall_and_vendor_script_profiles_include_real_read_commands():
+    """Firewall/Ruijie/Hillstone profiles must carry concrete read-only
+    inspection commands rather than silently falling back to generic.
+    """
+    from agent.modules.inspection.profiles import (
+        CK_FIREWALL_POLICY,
+        CK_FIREWALL_SESSION,
+        CK_ROUTE_SUMMARY,
+        VENDOR_COMMAND_PROFILES,
+        is_read_only_command,
+    )
+
+    h3c_fw = VENDOR_COMMAND_PROFILES["h3c_firewall"]
+    from agent.modules.inspection.profiles import resolve_command_profile
+    assert resolve_command_profile("H3C Firewall", "").vendor == "h3c_firewall"
+    assert h3c_fw.commands[CK_FIREWALL_SESSION].startswith("display session")
+    assert h3c_fw.commands[CK_FIREWALL_POLICY].startswith("display security-policy")
+
+    ruijie = VENDOR_COMMAND_PROFILES["ruijie"]
+    assert ruijie.commands[CK_ROUTE_SUMMARY].startswith("show ip route")
+
+    hillstone = VENDOR_COMMAND_PROFILES["hillstone"]
+    assert hillstone.commands[CK_FIREWALL_SESSION].startswith("show session")
+
+    for profile_id in ("h3c_firewall", "ruijie", "hillstone"):
+        for cmd in VENDOR_COMMAND_PROFILES[profile_id].commands.values():
+            assert is_read_only_command(cmd), f"{profile_id}: {cmd}"
+
+
+def test_create_task_defaults_to_auto_profile_without_user_selection():
+    """CMDB-triggered inspection must not require the user/LLM to choose a
+    template. The backend stores profile_id=auto and resolves scripts per asset.
+    """
     from agent.modules.inspection import service as svc
 
-    # Empty profile_id rejected via service internals (resolve_profile returns None)
-    bad1 = svc.create_task(workspace_id="ws_demo", profile_id="")
-    # Unknown profile id — service emits a failed InspectionTask with
-    # error="unknown_profile: ..."
-    bad2 = svc.create_task(workspace_id="ws_demo", profile_id="does_not_exist_xyz")
-    assert bad2.status == "failed"
-    assert bad2.error.startswith("unknown_profile:")
-    # bad1 path — resolve_profile("") falls back to default value semantics, must not throw
-    assert bad1.status in ("failed", "succeeded")
+    task = svc.create_task(workspace_id="ws_demo", profile_id="", scope={"limit": 1})
+    assert task.profile_id == "auto"
+    assert task.profile_display_name == "自动巡检"
+    assert task.status in ("succeeded", "partial", "failed")
+
+
+def test_create_task_rejects_unknown_explicit_profile():
+    """Unknown explicit internal profile ids still fail deterministically."""
+    from agent.modules.inspection import service as svc
+
+    bad = svc.create_task(workspace_id="ws_demo", profile_id="does_not_exist_xyz")
+    assert bad.status == "failed"
+    assert bad.error.startswith("unknown_profile:")
 
 
 def test_create_task_with_known_profile_and_empty_scope_succeeds():
@@ -150,6 +227,67 @@ def test_create_task_with_known_profile_and_empty_scope_succeeds():
     assert task.status in ("succeeded", "partial"), task.error
     assert task.total_assets == 0  # empty assets
     assert task.started_at and task.finished_at
+
+
+def test_canonical_run_does_not_require_profile_id():
+    """LLM/CMDB run action passes only scope; backend chooses scripts."""
+    from tool_runtime.schemas import ToolInvocation
+    from tool_runtime.canonical_registry import CANONICAL_REGISTRY
+
+    inv = ToolInvocation(
+        arguments={
+            "workspace_id": "ws_test_inspect_auto",
+            "action": "run",
+            "scope": {"region": "不存在区域", "limit": 5},
+        },
+        tool_id="inspection.manage",
+    )
+    result = CANONICAL_REGISTRY["inspection.manage"].handler(inv)
+    assert result["ok"] is True
+    assert result["profile_id"] == "auto"
+
+
+def test_html_report_returns_download_link_and_artifact():
+    from agent.modules.inspection import service as svc
+
+    task = svc.create_task(
+        workspace_id="ws_test_inspect_html",
+        profile_id="",
+        scope={"limit": 5},
+    )
+    rep = svc.render_report("ws_test_inspect_html", task.task_id, "html")
+    assert rep["ok"] is True, rep.get("error")
+    assert rep["format"] == "html"
+    assert rep["filename"].endswith(".html")
+    assert rep["artifact_id"].startswith("art_")
+    assert (
+        f"/api/inspection/tasks/{task.task_id}/report.html?workspace_id=ws_test_inspect_html"
+        == rep["download_url"]
+    )
+    assert "<html" in rep["content"].lower()
+
+
+def test_html_report_route_returns_viewable_html():
+    from flask import Flask
+    from backend.api.inspection_routes import register_inspection_routes
+    from agent.modules.inspection import service as svc
+
+    task = svc.create_task(
+        workspace_id="ws_test_inspect_html_route",
+        profile_id="",
+        scope={"limit": 5},
+    )
+    app = Flask(__name__)
+    register_inspection_routes(app)
+    client = app.test_client()
+
+    resp = client.get(
+        f"/api/inspection/tasks/{task.task_id}/report.html"
+        "?workspace_id=ws_test_inspect_html_route"
+    )
+    assert resp.status_code == 200
+    assert resp.mimetype == "text/html"
+    assert "<html" in resp.get_data(as_text=True).lower()
 
 
 def test_manifest_registry_has_22_manifests_with_inspection():
@@ -188,11 +326,11 @@ def test_namespace_data_has_22_entries_with_inspection():
     assert any("inspection" in (f or "").lower() for f in fields)
 
 
-def test_backend_profiles_route_shape_matches_api():
-    """The live backend ``/api/inspection/profiles`` returns the same shape
-    the frontend expects. We start a tiny in-process Flask app pointing
-    to the canonical handler. (No real backend boot needed.)"""
-    # The contract is: profiles keys MUST match InspectionProfile type
+def test_internal_script_catalog_shape_is_stable():
+    """The internal vendor script catalog remains structured for runner use.
+
+    It is not exposed as a frontend profile-selection contract.
+    """
     from agent.modules.inspection.service import list_profiles
     profiles = list_profiles()
     required_keys = {
@@ -246,8 +384,8 @@ def test_report_render_does_not_embed_passwords():
         assert needle.lower() not in md.lower(), (
             f"report unexpectedly contains {needle!r}"
         )
-    # Empty-scope report must still include the basic structure: scope / profile / summary
-    assert "巡检模板" in md, "report must include template name section"
+    # Empty-scope report must still include the basic structure: scope / auto policy / summary
+    assert "巡检策略" in md, "report must include auto policy section"
     assert "巡检范围" in md, "report must include scope section"
     assert "总体" in md or "总设备" in md, "report must include summary section"
 
@@ -374,3 +512,70 @@ def test_current_config_snippet_is_not_raw_config(monkeypatch):
     assert "plain-secret" not in snippet
     assert "password=" not in snippet
     assert "sensitive artifact" in snippet
+
+def test_scope_schema_exposes_inner_filter_fields():
+    """The `scope` parameter is an object; the schema must document
+    which fields the runner accepts (region/location/type/vendor/tags/
+    asset_ids/limit). Otherwise the LLM can't construct a meaningful
+    filter and will either send nothing or hallucinate fields.
+    """
+    from tool_runtime.canonical_registry import CANONICAL_REGISTRY
+    schema = CANONICAL_REGISTRY["inspection.manage"].input_schema
+    scope = schema["properties"]["scope"]
+    desc = (scope.get("description") or "").lower()
+    for field in ("region", "location", "type", "vendor",
+                   "tags", "asset_ids", "limit"):
+        assert field in desc, (
+            f"scope description must mention {field!r}; got: {desc!r}"
+        )
+
+
+def test_run_with_empty_profile_id_resolves_to_auto_profile():
+    """The runner must accept a missing/empty profile_id and route the
+    task through AUTO_PROFILE. This is the contract that lets the LLM
+    safely call inspection.manage(action=run) without a profile choice.
+    """
+    from agent.modules.inspection.profiles import (
+        AUTO_PROFILE_ID, resolve_profile, BUILTIN_PROFILES,
+    )
+    # resolve_profile("") -> AUTO_PROFILE (already wired by f32de51)
+    assert resolve_profile("").profile_id == AUTO_PROFILE_ID
+    assert resolve_profile("auto").profile_id == AUTO_PROFILE_ID
+    # resolve_profile(unknown) -> None — surface as a clean error
+    assert resolve_profile("totally_made_up") is None
+    # And the 5 builtin ids are all resolvable
+    for pid in ("basic_health", "interface_health", "routing_health",
+                 "config_backup", "full_basic"):
+        assert pid in BUILTIN_PROFILES, f"missing builtin {pid!r}"
+
+
+def test_backend_routes_return_400_for_empty_profile_id():
+    """Live backend route must not crash on missing profile_id; it must
+    surface a clean 400 (or 200 with auto-resolved profile)."""
+    import os
+    host = os.environ.get("INSPECTION_API_HOST", "127.0.0.1")
+    port = int(os.environ.get("INSPECTION_API_PORT", "8010"))
+    try:
+        import urllib.request
+        import urllib.error
+        body = b'{"workspace_id":"ws_schema_test","action":"run","scope":{"limit":5}}'
+        req = urllib.request.Request(
+            f"http://{host}:{port}/api/inspection/tasks",
+            data=body, headers={"Content-Type": "application/json"},
+            method="POST",
+        )
+        with urllib.request.urlopen(req, timeout=8) as resp:
+            code = resp.getcode()
+            payload = resp.read().decode("utf-8", errors="replace")
+    except (urllib.error.URLError, ConnectionError, OSError) as exc:
+        pytest.skip(f"backend not reachable on {host}:{port}: {exc}")
+    import json
+    data = json.loads(payload)
+    # Either 200 with auto-resolved profile or 400 with explicit error.
+    assert code in (200, 400), f"unexpected HTTP {code}: {payload[:200]}"
+    if code == 200:
+        assert data.get("profile_id") == "auto", (
+            f"empty profile_id should default to 'auto', got {data.get('profile_id')!r}"
+        )
+    else:
+        assert "error" in data, f"400 must include error field: {data}"

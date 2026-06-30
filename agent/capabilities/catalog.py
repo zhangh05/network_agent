@@ -185,20 +185,22 @@ _CAPABILITIES: tuple[dict, ...] = (
         "prompt_hints": (
             "When the user asks to inspect / health-check / batch-check / "
             "backup configuration across devices, prefer inspection.manage "
-            "with a profile id. List profiles first (action=profile_list) "
-            "to pick a scope-appropriate one (basic_health / interface_health "
-            "/ routing_health / config_backup / full_basic).",
-            "Send a CMDB scope (region/location/type/vendor/tags/asset_ids). "
-            "Do not enumerate devices in the prompt and do not ask for "
-            "passwords -- CMDB stores them and the runner resolves "
-            "server-side via exec.run(asset_id=...).",
+            "with action=run. The backend picks the right profile per device "
+            "from CMDB vendor/type -- callers do NOT need to choose. Pass "
+            "profile_id=\"auto\" (or omit it) for default behaviour. The five "
+            "fixed profiles are: basic_health, interface_health, "
+            "routing_health, config_backup, full_basic -- copy the id "
+            "exactly with the underscores if you want to override.",
+            "Send a CMDB scope (region/location/type/vendor/tags/asset_ids/limit). "
+            "An empty scope inspects every device in the workspace -- that "
+            "may be too many devices; prefer a region or vendor filter when "
+            "the CMDB has many assets.",
         ),
         "safety_notes": (
             "Inspection commands are read-only -- the runner enforces a "
             "fixed per-vendor map and rejects unknown commands.",
-            "Run read-only. Do not pass raw shell strings into the LLM "
-            "execution path; only inspection.manage may dispatch device "
-            "commands, and only via a registered profile.",
+            "Do not pass raw shell strings into the LLM execution path; "
+            "only inspection.manage may dispatch device commands.",
             "Device passwords never appear in tool input or output.",
         ),
         "status": "enabled",

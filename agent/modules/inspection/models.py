@@ -4,9 +4,9 @@ Data models for the CMDB-driven inspection workflow.
 
 The pipeline is:
     scope (region / type / vendor / tags / asset_ids)
-    → profile (basic_health / interface_health / routing_health /
-              config_backup / full_basic)
-    → vendor command profile (h3c / huawei / cisco / generic fallback)
+    → automatic script selection by CMDB asset vendor + device type
+    → vendor command profile (h3c / huawei / cisco / ruijie /
+      hillstone / linux server / generic fallback)
     → per-asset remote execution through ``exec.run`` (asset_id,
       server-side credential resolution)
     → parsed metrics + findings + saved artifacts
@@ -149,6 +149,8 @@ class DeviceResult:
     status: str = "pending"   # pending|running|succeeded|failed|skipped
     supported: bool = True   # False when no vendor profile matches
     limited_support: bool = False
+    script_profile_id: str = ""
+    script_profile_name: str = ""
     command_results: list[CommandResult] = field(default_factory=list)
     parsed_metrics: dict[str, Any] = field(default_factory=dict)
     findings: list[Finding] = field(default_factory=list)

@@ -1072,25 +1072,6 @@ export const sseApi = {
 // Inspection (CMDB-driven device health inspection) types + module
 // ──────────────────────────────────────────────────────────────────────
 
-export interface InspectionCheckSpec {
-  check_id: string;
-  category: string;
-  display_name: string;
-  command_key: string;
-  parser_key: string;
-  severity_default: "info" | "warning" | "critical";
-  timeout_seconds: number;
-}
-
-export interface InspectionProfile {
-  profile_id: string;
-  display_name: string;
-  description: string;
-  risk_level: "low" | "medium" | "high" | "critical";
-  requires_approval: boolean;
-  checks: InspectionCheckSpec[];
-}
-
 export interface InspectionScope {
   region: string;
   location: string;
@@ -1136,20 +1117,9 @@ export interface InspectionTaskRecord {
 }
 
 export const inspectionApi = {
-  /** GET /api/inspection/profiles */
-  listProfiles: (
-    workspace_id: string,
-    signal?: AbortSignal,
-  ): Promise<{ ok: boolean; workspace_id: string; profiles: InspectionProfile[]; count: number }> =>
-    apiRequest<{ ok: boolean; workspace_id: string; profiles: InspectionProfile[]; count: number }>(
-      { method: "GET", url: `/inspection/profiles`, params: { workspace_id } },
-      signal,
-    ),
-
   /** POST /api/inspection/tasks */
   createTask: (data: {
     workspace_id: string;
-    profile_id: string;
     scope: Partial<InspectionScope>;
     max_concurrency?: number;
   }): Promise<{
@@ -1205,9 +1175,9 @@ export const inspectionApi = {
       data: { workspace_id },
     }),
 
-  /** GET /api/inspection/tasks/<id>/report?format=md|json */
-  getReport: (workspace_id: string, task_id: string, format: "md" | "json" = "md") =>
-    apiRequest<{ ok: boolean; format: string; filename?: string; content?: string; error?: string }>({
+  /** GET /api/inspection/tasks/<id>/report?format=md|json|html */
+  getReport: (workspace_id: string, task_id: string, format: "md" | "json" | "html" = "md") =>
+    apiRequest<{ ok: boolean; format: string; filename?: string; content?: string; artifact_id?: string; download_url?: string; error?: string }>({
       method: "GET",
       url: `/inspection/tasks/${encodeURIComponent(task_id)}/report`,
       params: { workspace_id, format },

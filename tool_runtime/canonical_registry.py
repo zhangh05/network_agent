@@ -223,16 +223,12 @@ def _handle_inspection_managed(inv: ToolInvocation) -> dict:
     action = str((inv.arguments or {}).get("action", "") or "").lower()
     args = dict(inv.arguments or {})
 
-    if action == "profile_list":
-        profiles = inspection_service.list_profiles()
-        return {"ok": True, "profiles": profiles, "count": len(profiles)}
-
     if action == "run":
         try:
             scope = args.get("scope") or {}
             task = inspection_service.create_task(
                 workspace_id=ws,
-                profile_id=str(args.get("profile_id", "") or "basic_health"),
+                profile_id="",
                 scope=scope if isinstance(scope, dict) else {},
                 created_by=str(args.get("created_by", "user") or "user"),
                 session_id=str(args.get("session_id", "") or ""),
@@ -2145,25 +2141,38 @@ _RAW_REGISTRY: list[CanonicalToolEntry] = [
             "workspace_id": _S["workspace_id"],
             "action": {
                 "type": "string",
-                "enum": ["profile_list", "run", "task_list", "task_get",
-                         "task_cancel", "report"],
+                "enum": ["run", "task_list", "task_get", "task_cancel", "report"],
             },
-            "profile_id": {"type": "string",
-                "description": "[run] Profile id from profile_list."},
-            "scope": {"type": "object",
-                "description": "[run] CMDB scope: type/vendor/region/location/tags/asset_ids/limit."},
+            "scope": {
+                "type": "object",
+                "description": (
+                    "[run] CMDB scope filter. Properties: region (string), "
+                    "location (string), type (switch|router|firewall|server|"
+                    "load_balancer|wireless|other), vendor (string), "
+                    "tags (string[]), asset_ids (string[]), "
+                    "limit (int 1-500, default 50). All fields are "
+                    "optional; pass an empty object to inspect every "
+                    "device in the workspace."
+                ),
+            },
             "created_by": {"type": "string", "description": "[run] user|job|system."},
             "session_id": {"type": "string", "description": "[run] Session id."},
             "max_concurrency": {"type": "integer", "description": "[run] Per-task device concurrency (default 3)."},
             "task_id": {"type": "string",
                 "description": "[task_get|task_cancel|report] Task id from action=run."},
             "limit": {"type": "integer", "description": "[task_list] Max items (default 50)."},
-            "format": {"type": "string", "enum": ["md", "json"], "description": "[report] Report format."},
+            "format": {"type": "string", "enum": ["md", "json", "html"], "description": "[report] Report format."},
         }, ["action"]),
         description=(
-            "CMDB-driven device health inspection. action=profile_list / run / "
-            "task_list / task_get / task_cancel / report. Commands come from "
-            "a fixed per-vendor map — the LLM never assembles them. "
+            "CMDB-driven device health inspection. action=run / task_list / "
+            "task_get / task_cancel / report. The backend chooses scripts "
+            "from each CMDB asset's vendor and type -- callers do not need "
+            "to choose a template. Pass profile_id='auto' (or omit it) "
+            "and the runner picks the right profile per device; the five "
+            "fixed profiles basic_health / interface_health / routing_health "
+            "/ config_backup / full_basic are also accepted for explicit "
+            "override. Commands come from a fixed per-vendor map -- the LLM "
+            "never assembles them. "
             "Credentials are resolved server-side via exec.run(asset_id=...)."
         ),
     ),

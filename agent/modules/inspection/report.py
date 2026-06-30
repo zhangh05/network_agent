@@ -9,6 +9,7 @@ frontend Markdown download.
 from __future__ import annotations
 
 from datetime import datetime, timezone
+from html import escape
 from typing import Iterable
 
 from .models import (
@@ -26,7 +27,7 @@ def render_markdown(task: InspectionTask) -> str:
     out.append("# 巡检报告")
     out.append("")
     out.append(f"- **工作区**: {task.workspace_id}")
-    out.append(f"- **巡检模板**: {task.profile_id} ({task.profile_display_name or ''})")
+    out.append(f"- **巡检策略**: CMDB 自动匹配脚本 ({task.profile_display_name or task.profile_id})")
     out.append(f"- **开始时间**: {task.started_at or '—'}")
     out.append(f"- **结束时间**: {task.finished_at or '—'}")
     out.append(f"- **状态**: {task.status}")
@@ -96,6 +97,106 @@ def render_markdown(task: InspectionTask) -> str:
         f"{datetime.now(timezone.utc).isoformat()}_"
     )
     return "\n".join(out)
+
+
+def render_html(task: InspectionTask) -> str:
+    """Render an operator-readable standalone HTML report."""
+    status = escape(task.status or "")
+    scope_lines = list(_render_scope(task))
+    device_rows: list[str] = []
+    finding_rows: list[str] = []
+
+    all_findings = sorted(
+        (f for d in task.devices.values() for f in d.findings),
+        key=lambda f: (_SEV_ORDER.get(f.severity, 99), f.title),
+    )
+    for f in all_findings:
+        owner = task.devices.get(f.asset_id)
+        device = owner.asset_name or owner.asset_id if owner else f.asset_id
+        finding_rows.append(
+            "<tr>"
+            f"<td><span class='sev {escape(f.severity)}'>{escape(f.severity)}</span></td>"
+            f"<td>{escape(f.title)}</td>"
+            f"<td>{escape(device or '—')}</td>"
+            f"<td>{escape(f.detail or '')}</td>"
+            "</tr>"
+        )
+
+    for d in sorted(task.devices.values(), key=lambda x: (x.region, x.asset_name, x.asset_id)):
+        errors = "<br>".join(escape(e) for e in d.errors) if d.errors else "—"
+        checks = "<br>".join(
+            f"{escape(cr.check_id)}: {'OK' if cr.ok else 'FAIL'}"
+            + (f" · {escape(cr.error[:120])}" if cr.error else "")
+            for cr in d.command_results
+        ) or "—"
+        device_rows.append(
+            "<tr>"
+            f"<td>{escape(d.asset_name or d.asset_id)}</td>"
+            f"<td>{escape(d.host or '')}</td>"
+            f"<td>{escape(d.region or '')}</td>"
+            f"<td>{escape(d.vendor or '')}</td>"
+            f"<td>{escape(d.type or '')}</td>"
+            f"<td>{escape(d.script_profile_name or d.script_profile_id or '—')}</td>"
+            f"<td><span class='status {escape(d.status)}'>{escape(d.status)}</span></td>"
+            f"<td>{checks}</td>"
+            f"<td>{errors}</td>"
+            "</tr>"
+        )
+
+    return f"""<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>巡检报告 {escape(task.task_id)}</title>
+  <style>
+    body {{ font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; margin: 0; color: #172033; background: #f5f7fb; }}
+    main {{ max-width: 1180px; margin: 0 auto; padding: 28px; }}
+    h1 {{ margin: 0 0 6px; font-size: 26px; }}
+    h2 {{ margin-top: 28px; font-size: 18px; }}
+    .muted {{ color: #64748b; }}
+    .summary {{ display: grid; grid-template-columns: repeat(6, minmax(120px, 1fr)); gap: 10px; margin-top: 18px; }}
+    .card {{ background: #fff; border: 1px solid #dbe3ef; border-radius: 8px; padding: 14px; }}
+    .num {{ font-size: 24px; font-weight: 750; }}
+    table {{ width: 100%; border-collapse: collapse; background: #fff; border: 1px solid #dbe3ef; border-radius: 8px; overflow: hidden; }}
+    th, td {{ padding: 10px 12px; border-bottom: 1px solid #e8eef6; text-align: left; vertical-align: top; font-size: 13px; }}
+    th {{ background: #f8fafc; color: #475569; font-size: 12px; }}
+    .sev, .status {{ display: inline-block; padding: 2px 8px; border-radius: 999px; font-size: 12px; font-weight: 650; }}
+    .critical, .failed {{ background: #fee2e2; color: #b91c1c; }}
+    .warning, .partial {{ background: #fef3c7; color: #92400e; }}
+    .info, .succeeded {{ background: #dbeafe; color: #1d4ed8; }}
+    .skipped, .cancelled, .pending {{ background: #e2e8f0; color: #475569; }}
+    ul {{ margin-top: 8px; }}
+  </style>
+</head>
+<body>
+<main>
+  <h1>巡检报告</h1>
+  <div class="muted">任务 {escape(task.task_id)} · {escape(task.started_at or '—')} 至 {escape(task.finished_at or '—')} · 状态 {status}</div>
+  <section class="summary">
+    <div class="card"><div class="muted">总设备</div><div class="num">{task.total_assets}</div></div>
+    <div class="card"><div class="muted">成功</div><div class="num">{task.succeeded}</div></div>
+    <div class="card"><div class="muted">失败</div><div class="num">{task.failed}</div></div>
+    <div class="card"><div class="muted">跳过</div><div class="num">{task.skipped}</div></div>
+    <div class="card"><div class="muted">严重</div><div class="num">{task.criticals}</div></div>
+    <div class="card"><div class="muted">告警</div><div class="num">{task.warnings}</div></div>
+  </section>
+  <h2>巡检范围</h2>
+  <div class="card"><ul>{''.join(f'<li>{escape(line)}</li>' for line in scope_lines)}</ul></div>
+  <h2>关键发现</h2>
+  <table>
+    <thead><tr><th>级别</th><th>标题</th><th>设备</th><th>详情</th></tr></thead>
+    <tbody>{''.join(finding_rows) if finding_rows else '<tr><td colspan="4">无</td></tr>'}</tbody>
+  </table>
+  <h2>设备明细</h2>
+  <table>
+    <thead><tr><th>设备</th><th>地址</th><th>区域</th><th>厂商</th><th>类型</th><th>脚本</th><th>状态</th><th>检查</th><th>错误</th></tr></thead>
+    <tbody>{''.join(device_rows) if device_rows else '<tr><td colspan="9">本次范围未命中设备</td></tr>'}</tbody>
+  </table>
+  <p class="muted">Generated by Network Agent · {escape(datetime.now(timezone.utc).isoformat())}</p>
+</main>
+</body>
+</html>"""
 
 
 def _render_scope(task: InspectionTask) -> Iterable[str]:

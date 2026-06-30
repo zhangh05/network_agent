@@ -40,9 +40,6 @@ const VENDOR_PRESETS_LIST = [
   "锐讯", "Aruba", "Palo Alto", "F5", "Check Point", "A10",
 ];
 
-const DEFAULT_INSPECTION_PROFILE_ID = "basic_health";
-const DEFAULT_INSPECTION_PROFILE_LABEL = "基础健康检查";
-
 // ── tiny stat pill ──
 function Stat({ label, value, color }: { label: string; value: number; color: string }) {
   return (
@@ -168,13 +165,8 @@ export function CMDBPage() {
       ? `CMDB 区域「${region}」`
       : `CMDB 资产「${scope.label}」`;
     const prompt = [
-      `对 ${targetText} 执行「${DEFAULT_INSPECTION_PROFILE_LABEL}」巡检。`,
-      "",
-      "请按以下流程进行：",
-      "1. 先用 device.manage 确认巡检范围，列出命中的设备数量、名称、区域、协议。",
-      `2. 调用 inspection.manage(action=run, profile_id=\"${DEFAULT_INSPECTION_PROFILE_ID}\") 运行巡检；scope 必须来自 CMDB，不要手写设备命令。`,
-      "3. 读取巡检任务和报告，汇总 critical/warning/info、失败设备、跳过设备和下一步建议。",
-      "4. 如果没有命中设备或认证失败，请明确告诉我原因。",
+      `对 ${targetText} 执行自动巡检。`,
+      "请汇总异常、失败设备、跳过设备和下一步建议；如果没有命中设备或认证失败，请直接说明原因。",
     ].join("\n");
     sessionStorage.setItem("workbench_auto_prompt", JSON.stringify({
       prompt,
@@ -182,7 +174,6 @@ export function CMDBPage() {
         intent: region ? "cmdb_region_inspection" : "cmdb_asset_inspection",
         region,
         asset_ids: assetIds,
-        profile_id: DEFAULT_INSPECTION_PROFILE_ID,
         source: scope.source,
       },
     }));
