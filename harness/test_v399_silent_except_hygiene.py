@@ -27,7 +27,7 @@ like 'logging is missing' to a regex but are actually present.
 import ast
 from pathlib import Path
 
-PROJECT_ROOT = Path("/Users/zhangh01/Desktop/network_agent")
+PROJECT_ROOT = Path(__file__).resolve().parent.parent  # portable: resolve from this test file
 
 # Files considered critical-path: a silent except here is likely to
 # hide real bugs (audit loss, durable-state loss, hook failure).

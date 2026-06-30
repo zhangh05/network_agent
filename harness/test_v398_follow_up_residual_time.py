@@ -18,7 +18,7 @@ import pytest
 import shutil
 from pathlib import Path
 
-PROJECT_ROOT = Path("/Users/zhangh01/Desktop/network_agent")
+PROJECT_ROOT = Path(__file__).resolve().parent.parent  # portable: resolve from this test file
 
 # (file path relative to repo, function name, target field, expected
 #  helper call). A row here is a regression guard: if a future edit

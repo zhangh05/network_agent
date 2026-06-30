@@ -14,7 +14,7 @@ the full harness here).
 import ast
 from pathlib import Path
 
-PROJECT_ROOT = Path("/Users/zhangh01/Desktop/network_agent")
+PROJECT_ROOT = Path(__file__).resolve().parent.parent  # portable: resolve from this test file
 
 
 def _read(path: str) -> str:

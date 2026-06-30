@@ -80,6 +80,44 @@ stop_screen() {
     fi
 }
 
+# Track which services we successfully started so a later failure can
+# roll them back instead of leaving half-up processes behind.
+STARTED_SERVICES=()
+
+stop_started_services() {
+    # Roll back any service that already came up. Called on fatal
+    # failures so we never leave a half-started stack holding ports.
+    local svc
+    for svc in "${STARTED_SERVICES[@]}"; do
+        case "$svc" in
+            backend)
+                log "[rollback] stopping backend (port $BACKEND_PORT)"
+                stop_screen "$BACKEND_SCREEN"
+                if [ -f "$BACKEND_PID_FILE" ]; then
+                    local pid
+                    pid="$(cat "$BACKEND_PID_FILE" 2>/dev/null || true)"
+                    if [ -n "${pid:-}" ]; then
+                        kill "$pid" >/dev/null 2>&1 || true
+                    fi
+                    rm -f "$BACKEND_PID_FILE"
+                fi
+                ;;
+            frontend)
+                log "[rollback] stopping frontend (port $FRONTEND_PORT)"
+                stop_screen "$FRONTEND_SCREEN"
+                if [ -f "$FRONTEND_PID_FILE" ]; then
+                    local pid
+                    pid="$(cat "$FRONTEND_PID_FILE" 2>/dev/null || true)"
+                    if [ -n "${pid:-}" ]; then
+                        kill "$pid" >/dev/null 2>&1 || true
+                    fi
+                    rm -f "$FRONTEND_PID_FILE"
+                fi
+                ;;
+        esac
+    done
+}
+
 wait_for_url() {
     local role="$1"
     local url="$2"
@@ -174,8 +212,9 @@ start_backend() {
     else
         (cd "$ROOT" && nohup "$PYTHON_BIN" backend/main.py --host "$BACKEND_HOST" --port "$BACKEND_PORT" >> "$LOG_DIR/backend-8010.log" 2>&1 </dev/null &)
     fi
-    wait_for_url backend "http://127.0.0.1:$BACKEND_PORT/api/health" || fail "Backend failed to start. See $LOG_DIR/backend-8010.log"
+    wait_for_url backend "http://127.0.0.1:$BACKEND_PORT/api/health" || { stop_started_services; fail "Backend failed to start. See $LOG_DIR/backend-8010.log"; }
     write_port_pid "$BACKEND_PORT" "$BACKEND_PID_FILE"
+    STARTED_SERVICES+=("backend")
 }
 
 start_frontend() {
@@ -195,8 +234,9 @@ start_frontend() {
     else
         (cd "$ROOT/frontend" && nohup "$VITE_BIN" --host "$FRONTEND_HOST" --port "$FRONTEND_PORT" >> "$LOG_DIR/frontend-5173.log" 2>&1 </dev/null &)
     fi
-    wait_for_url frontend "http://127.0.0.1:$FRONTEND_PORT" || fail "Frontend failed to start. See $LOG_DIR/frontend-5173.log"
+    wait_for_url frontend "http://127.0.0.1:$FRONTEND_PORT" || { stop_started_services; fail "Frontend failed to start. See $LOG_DIR/frontend-5173.log"; }
     write_port_pid "$FRONTEND_PORT" "$FRONTEND_PID_FILE"
+    STARTED_SERVICES+=("frontend")
 }
 
 print_summary() {

@@ -87,10 +87,23 @@ def _safe_run_trace_summary(run: dict, trace: dict | None) -> dict:
         selected_skills = [selected_skill] if isinstance(selected_skill, str) and selected_skill else []
 
     tool_count = max(int(run.get("tool_call_count") or 0), len(tool_ids) or anonymous_tool_events)
+    # v3.9.14 fix: started_at / finished_at fall back to ``run.created_at``
+    # before trace timestamps. Trace event timestamps are produced AFTER
+    # the run record is written (run_started event fires ~ms after the
+    # run record is created), so they are a few ms off. Tests + frontend
+    # both expect the run record's own ``created_at`` to be authoritative.
     return {
         "turn_id": run.get("turn_id") or run.get("run_id") or "",
-        "started_at": run.get("started_at") or (timestamps[0] if timestamps else run.get("created_at", "")),
-        "finished_at": run.get("finished_at") or (timestamps[-1] if timestamps else ""),
+        "started_at": (
+            run.get("started_at")
+            or run.get("created_at")
+            or (timestamps[0] if timestamps else "")
+        ),
+        "finished_at": (
+            run.get("finished_at")
+            or run.get("updated_at")
+            or (timestamps[-1] if timestamps else "")
+        ),
         "selected_capabilities": selected_skills,
         "visible_tools": sorted(tool_ids),
         "tool_call_count": tool_count,

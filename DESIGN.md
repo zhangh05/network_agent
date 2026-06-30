@@ -62,7 +62,7 @@ canonical tool id
   -> ToolResult
 ```
 
-当前只有 21 个 canonical tool。`handler_id` 是内部实现细节，不暴露给 LLM、前端或公共 API。
+当前只有 22 个 canonical tool。`handler_id` 是内部实现细节，不暴露给 LLM、前端或公共 API。
 
 ## Capability Catalog
 

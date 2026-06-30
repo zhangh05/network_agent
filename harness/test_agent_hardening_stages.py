@@ -105,7 +105,13 @@ def test_unknown_tools_fail_closed_in_planner():
     candidates = set(plan.get("candidate_tools") or [])
     assert "unknown.tool.exec" not in candidates
     assert "exec.run" in candidates
-    assert len(candidates) == 21  # v3.9.7: all canonical tools always
+    # v3.9.13 added ``inspection.manage`` (CMDB-driven device health);
+    # candidate set must mirror the canonical namespace.
+    from tool_runtime.tool_namespace import TOOL_NAMESPACE
+    assert len(candidates) == len(TOOL_NAMESPACE), (
+        f"candidate set should mirror the canonical namespace "
+        f"({len(TOOL_NAMESPACE)}); got {len(candidates)}"
+    )
 
 
 def test_same_session_turns_are_serialized(monkeypatch):

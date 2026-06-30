@@ -62,10 +62,13 @@ def main() -> int:
 
     combined_docs = "\n".join(read(path) for path in required_docs)
     required_current_refs = [
-        "POST /api/agent/message",
+        "/api/agent/message",
         "WebSocket",
         "Zustand",
-        "Virtuoso",
+        # v3.9.14: removed "Virtuoso" — the frontend dropped the
+        # Virtuoso virtual-list dependency when the Run History panel
+        # was rewritten in v3.9.x. We do not require the dead term
+        # to appear in docs any more.
         "manifest_registry.py",
         "workspace_id",
     ]

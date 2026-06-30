@@ -4,12 +4,20 @@ The frontend is a React 18 + TypeScript + Vite application. It uses Zustand for 
 
 ## Main Screens
 
-- `AgentWorkbench`: conversation, runtime timeline, inline tool calls, approvals.
-- `CMDBPage`: device assets.
-- `RemoteTerminal`: interactive SSH/Telnet connection UI.
-- `MemoryPage`: governed memory records.
-- `Diagnostics`: runtime health, selfcheck, prompt registry, policies.
-- `Settings`: LLM provider and runtime settings.
+The left sidebar exposes the canonical navigation. Each entry maps to a single-page route and is rendered via `App.tsx`'s `NAV_ITEMS` table — adding a page is a single edit there.
+
+- `AgentWorkbench` (`/workbench`): conversation, runtime timeline, inline tool calls, approvals.
+- `PacketAnalysis` (`/packet`): PCAP capture, filter, align, basic LLM assist.
+- `RunsPage` (`/runs`): recent run history with trace events.
+- `CapabilityCenter` (`/capabilities`): business capability catalog + recommended tools.
+- `JobsPage` (`/jobs`): durable background jobs.
+- `KnowledgeLibrary` (`/knowledge`): knowledge source/chunk search.
+- `ArtifactCenter` (`/artifacts`): artifact list and download.
+- `MemoryPage` (`/memory`): governed memory records.
+- `CMDBPage` (`/cmdb`): device assets.
+- `RemoteTerminal`: interactive SSH/Telnet connection UI (modal, not a sidebar route).
+- `Diagnostics` (`/diagnostics`): runtime health, selfcheck, prompt registry, policies.
+- `Settings` (`/settings`): LLM provider and runtime settings.
 
 ## Workbench Data Flow
 

@@ -19,7 +19,6 @@ REQUIRED_TERMS = [
     "AgentResult",
     "workspace_id",
     "Zustand",
-    "Virtuoso",
     "WebSocket",
 ]
 
@@ -56,4 +55,12 @@ def test_docs_match_current_stack():
     combined = "\n".join(_read(path) for path in DOCS)
     assert "Python 3.12+" in combined
     assert "/api/tools/invoke" in combined
-    assert "73" in combined  # tool count
+    # v3.9.13: tool count is dynamic — assert it appears as a number
+    # anywhere in the docs (the README/DESIGN names the canonical tool
+    # count, which is currently 22 after the inspection.manage merge).
+    from tool_runtime.tool_namespace import TOOL_NAMESPACE
+    expected_count = len(TOOL_NAMESPACE)
+    assert str(expected_count) in combined, (
+        f"docs should reference current canonical tool count "
+        f"({expected_count}) but found no occurrence in {len(DOCS)} docs"
+    )
