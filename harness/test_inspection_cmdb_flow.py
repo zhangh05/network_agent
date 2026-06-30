@@ -860,27 +860,19 @@ def test_run_checks_uses_single_session_per_asset(monkeypatch):
     )
 
 
-def test_per_device_workers_configurable(monkeypatch):
-    """The ``INSPECTION_PER_DEVICE_WORKERS`` module global controls
-    how many concurrent SSH channels we open per device. Setting
-    it to 2 must produce 2 distinct session_ids.
+def test_per_device_workers_setting_is_ignored_for_interactive_safety(monkeypatch):
+    """Per-device checks must remain serial even if an old worker
+    tuning knob is present. Device-level concurrency is allowed, but
+    one asset gets one ordered interactive stream and one session_id.
     """
     from agent.modules.inspection import runner
     from agent.modules.inspection.models import InspectionCheck, InspectionProfile, InspectionTask, InspectionScope
 
     seen_sessions: list[str] = []
-    bucket_counter = {"a": 0, "b": 0}
 
     def fake_exec(workspace_id, asset_id, protocol, command, timeout, session_id=""):
-        # If the caller has not handed us a session_id yet, this is
-        # the first call in its bucket — mint a fresh one. We split
-        # "new sessions" into two buckets (a/b) so workers=2 yields
-        # 2 distinct session_ids across the 6 checks.
         if not session_id:
-            # Round-robin: odd calls go to bucket 'b', even to 'a'.
-            bucket = "a" if (bucket_counter["a"] + bucket_counter["b"]) % 2 == 0 else "b"
-            bucket_counter[bucket] += 1
-            sid = f"ssh_{bucket}_{bucket_counter[bucket]}"
+            sid = "ssh_single_1"
         else:
             sid = session_id
         seen_sessions.append(sid)
@@ -921,8 +913,7 @@ def test_per_device_workers_configurable(monkeypatch):
         "protocol": "ssh",
     }, "ws_test_inspect")
     assert dr.status == "succeeded", dr.errors
-    # With workers=2, 6 checks should land in 2 distinct sessions
     assert len(seen_sessions) == 6
-    assert len(set(seen_sessions)) == 2, (
-        f"workers=2 should give 2 distinct sessions, got {set(seen_sessions)}"
+    assert len(set(seen_sessions)) == 1, (
+        f"per-device execution must stay serial, got sessions {set(seen_sessions)}"
     )

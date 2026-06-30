@@ -365,6 +365,46 @@ def test_telnet_connect_answers_login_prompts_only_when_credentials_exist(monkey
     remote_core.disconnect("sid_telnet_auth")
 
 
+def test_remote_exec_drains_stale_prompt_before_sending_command():
+    from agent.modules.remote import core as remote_core
+
+    class FakeVendor:
+        vendor = "generic"
+
+        def match_paging(self, text):
+            return False
+
+        def match_prompt(self, text):
+            return text.rstrip().endswith("$")
+
+    class FakeSession:
+        def __init__(self):
+            self.vendor = FakeVendor()
+            self.log = []
+            self.sent = False
+
+        def recv(self, timeout=0):
+            if not self.sent:
+                self.sent = "drained"
+                return b"stale prompt$ "
+            if self.sent == "drained":
+                return b""
+            if self.sent == "sent":
+                self.sent = "done"
+                return b"show clock\n12:00:00\nrouter$ "
+            return b""
+
+        def send(self, data):
+            assert data == b"show clock\n"
+            self.sent = "sent"
+
+    session = FakeSession()
+    output = remote_core._exec_and_wait(session, "show clock")
+
+    assert "12:00:00" in output
+    assert "stale prompt" not in output
+
+
 def test_runner_trim_accepts_llm_message_objects():
     from types import SimpleNamespace
 

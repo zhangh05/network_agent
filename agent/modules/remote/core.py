@@ -18,6 +18,8 @@ READ_TIMEOUT = 10.0
 CONNECT_TIMEOUT = 8.0
 MAX_SESSION_LOG_LINES = 1000
 PAGE_WAIT = 0.3
+PRE_COMMAND_DRAIN_QUIET = 0.08
+PRE_COMMAND_DRAIN_MAX = 0.45
 
 import threading as _threading
 _SESSIONS: dict[str, "DeviceSession"] = {}
@@ -225,7 +227,37 @@ def _read_until_prompt(session: DeviceSession) -> bytes:
     return buf
 
 
+def _drain_available(session: DeviceSession, *,
+                     quiet_window: float = PRE_COMMAND_DRAIN_QUIET,
+                     max_wait: float = PRE_COMMAND_DRAIN_MAX) -> bytes:
+    """Clear stale channel output before sending the next command.
+
+    Interactive SSH/Telnet channels can leave a prompt or delayed output
+    in the receive buffer after login, paging, or a slow command. If we
+    send the next command before draining it, ``_read_until_prompt`` may
+    return against that stale prompt and shift command outputs by one
+    step. The drained bytes are intentionally not returned to callers as
+    command output.
+    """
+    drained = b""
+    deadline = time.time() + max_wait
+    quiet_deadline = time.time() + quiet_window
+    while time.time() < deadline:
+        chunk = session.recv(timeout=0.05)
+        if chunk:
+            drained += chunk
+            quiet_deadline = time.time() + quiet_window
+            continue
+        if time.time() >= quiet_deadline:
+            break
+        time.sleep(0.02)
+    if drained and len(session.log) < MAX_SESSION_LOG_LINES:
+        session.log.append(drained.decode("utf-8", errors="replace"))
+    return drained
+
+
 def _exec_and_wait(session: DeviceSession, command: str) -> str:
+    _drain_available(session)
     session.send((command + "\n").encode())
     time.sleep(0.2)
     output = _read_until_prompt(session)

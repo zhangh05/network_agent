@@ -416,75 +416,39 @@ def _run_checks_on_asset(task: InspectionTask,
         hint = default_timeout_for(cmd_key, profile_default=check.timeout_seconds or 30)
         return min(int(check.timeout_seconds or hint), int(hint))
 
-    # ── v3.9.14: per-asset session reuse + per-check concurrency ──
-    #     Run checks with a small ThreadPoolExecutor. Each worker
-    #     owns its own ``session_id`` (one SSH connection per worker)
-    #     and reuses it across the checks in its bucket. This:
-    #       (a) keeps the per-check connect cost at exactly 1 per worker
-    #           (vs 1 per check before), so a 6-check run drops from
-    #           ~132s to ~30s.
-    #       (b) lets two checks run on the same device in parallel
-    #           (workers > 1) without two commands interleaving on
-    #           the same paramiko channel — which is unsafe.
-    #       (c) limits to 2 concurrent channels so we don't flood
-    #           the device with parallel SSH handshakes.
-    #
-    #     Default is 1 worker: 1 SSH session per device, commands
-    #     serialized through the same channel. That's the safe
-    #     baseline (no SSH-handshake races, no stale-session
-    #     collisions). Operators who want to push 2+ workers per
-    #     device must benchmark their network device first — some
-    #     vendors rate-limit or break with two simultaneous SSH
-    #     sessions from the same source IP.
-    workers = max(1, min(int(globals().get("INSPECTION_PER_DEVICE_WORKERS", 1) or 1), 4))
-    buckets: list[list] = [[] for _ in range(workers)]
-    for idx, item in enumerate(eligible):
-        buckets[idx % workers].append(item)
-
-    def _run_bucket(bucket: list) -> list:
-        """Run a bucket of checks serially, sharing one SSH session."""
-        if not bucket:
-            return []
-        results: list = []
-        bucket_session_id = ""
-        for check, cmd_key, command in bucket:
-            t0 = time.time()
+    # ── per-asset session reuse ──────────────────────────────────────
+    # Interactive devices are single-channel systems from the runner's
+    # perspective. Even when a router accepts multiple SSH/Telnet
+    # sessions, running checks for the same asset in parallel makes the
+    # report harder to trust: prompts, paging, and delayed output can be
+    # attributed to the wrong command. Device-level concurrency still
+    # happens in ``run_task``; inside one device we keep one ordered
+    # command stream and one reusable session_id.
+    all_bucket_results: list = []
+    bucket_session_id = ""
+    for check, cmd_key, command in eligible:
+        t0 = time.time()
+        try:
             run_result = _exec_one_command(
                 workspace_id, asset_id, dr.protocol, command,
                 timeout=_timeout_for(check, cmd_key),
                 session_id=bucket_session_id,
             )
-            elapsed = int((time.time() - t0) * 1000)
-            # Adopt the session id from the first successful call so
-            # subsequent calls in this bucket reuse the same channel.
-            new_sid = run_result.get("session_id", "") or ""
-            if new_sid:
-                bucket_session_id = new_sid
-            results.append((check, cmd_key, command, run_result, elapsed))
-        return results
-
-    all_bucket_results: list = []
-    active_buckets = [b for b in buckets if b]
-    if workers > 1 and len(active_buckets) > 1:
-        # Concurrent: workers buckets in parallel
-        with ThreadPoolExecutor(max_workers=workers,
-                                  thread_name_prefix="insp") as ex:
-            futures = [ex.submit(_run_bucket, b) for b in active_buckets]
-            for fut in as_completed(futures):
-                try:
-                    all_bucket_results.extend(fut.result())
-                except Exception as exc:
-                    dr.errors.append(f"inspection_bucket_failed: {type(exc).__name__}: {str(exc)[:160]}")
-    else:
-        # Single bucket (or workers==1) — run serially
-        try:
-            all_bucket_results = _run_bucket(active_buckets[0] if active_buckets else [])
         except Exception as exc:
-            dr.errors.append(f"inspection_run_failed: {type(exc).__name__}: {str(exc)[:160]}")
+            run_result = {
+                "ok": False,
+                "output": "",
+                "error": f"inspection_run_failed: {type(exc).__name__}: {str(exc)[:160]}",
+                "session_id": bucket_session_id,
+            }
+        elapsed = int((time.time() - t0) * 1000)
+        new_sid = run_result.get("session_id", "") or ""
+        if new_sid:
+            bucket_session_id = new_sid
+        all_bucket_results.append((check, cmd_key, command, run_result, elapsed))
 
     # ── Persist results + parse + attach findings ──
-    # The bucket may run out of order; restore the profile's order
-    # so the report is stable.
+    # Keep the profile's order so the report is stable.
     by_check_id = {r[0].check_id: r for r in all_bucket_results}
     for check, cmd_key, command in eligible:
         rec = by_check_id.get(check.check_id)
