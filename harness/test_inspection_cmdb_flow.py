@@ -424,9 +424,9 @@ def test_telnet_asset_uses_telnet_target(monkeypatch):
 
     seen_protocols = []
 
-    def fake_exec(workspace_id, asset_id, protocol, command, timeout):
+    def fake_exec(workspace_id, asset_id, protocol, command, timeout, session_id=""):
         seen_protocols.append(protocol)
-        return {"ok": True, "output": "H3C Comware Software", "error": ""}
+        return {"ok": True, "output": "H3C Comware Software", "error": "", "session_id": ""}
 
     monkeypatch.setattr(runner, "_exec_one_command", fake_exec)
 
@@ -735,3 +735,192 @@ def test_exec_one_command_parsing_blocked_path():
     assert result["ok"] is False
     assert "exec_run_blocked" in result["error"]
     assert "debug" in result["error"]
+
+
+# ── v3.9.14: session reuse, per-check timeout, per-asset concurrency ──
+
+def test_exec_one_command_passes_session_id_to_canonical_layer():
+    """The runner must hand the cached session_id back to ``exec.run``
+    on subsequent calls so the canonical handler reuses the existing
+    paramiko channel. Pin the contract here.
+    """
+    from unittest.mock import MagicMock, patch
+    from tool_runtime.schemas import ToolResult
+    from agent.modules.inspection import runner
+
+    mock_result = ToolResult(
+        invocation_id="x", tool_id="exec.run", status="succeeded",
+        output={"ok": True, "output": "Linux foo 6.8", "session_id": "ssh_pinned"},
+        summary="Tool exec.run completed", errors=[],
+    )
+    mock_client = MagicMock()
+    mock_client.invoke.return_value = mock_result
+
+    captured: list[dict] = []
+    def capture(*args, **kwargs):
+        captured.append(kwargs)
+        return mock_result
+
+    mock_client.invoke.side_effect = capture
+
+    with patch.object(runner, "get_default_tool_runtime_client",
+                       return_value=mock_client):
+        runner._exec_one_command(
+            workspace_id="ws_test", asset_id="asset_xxx",
+            protocol="ssh", command="df -h", timeout=30,
+            session_id="ssh_pinned",
+        )
+    # The session_id must propagate into the canonical invoke call's
+    # arguments dict (which becomes inv_args).
+    invoke_args = mock_client.invoke.call_args[0][1]
+    assert invoke_args.get("session_id") == "ssh_pinned", (
+        f"session_id not threaded into canonical invoke; got {invoke_args!r}"
+    )
+
+
+def test_default_timeout_for_clamps_and_uses_hints():
+    """per-command-key timeout hints should be tighter than the
+    30s/45s defaults in the profile, and the function must clamp
+    to [5, 120] seconds.
+    """
+    from agent.modules.inspection.profiles import default_timeout_for
+
+    assert default_timeout_for("version") == 5
+    assert default_timeout_for("memory") == 5
+    assert default_timeout_for("current_config") == 60
+    # Unknown command key falls back to the supplied profile_default
+    assert default_timeout_for("nonsense_key", profile_default=15) == 15
+    # Clamp to safe range
+    assert default_timeout_for("anything", profile_default=0) >= 5
+    assert default_timeout_for("anything", profile_default=9999) <= 120
+
+
+def test_run_checks_uses_single_session_per_asset(monkeypatch):
+    """Default config (workers=1) must dispatch every check against
+    the same asset with the cached session_id. 6 calls → 1 distinct
+    session_id reused 5 times.
+    """
+    from agent.modules.inspection import runner
+    from agent.modules.inspection.models import InspectionCheck, InspectionProfile, InspectionTask, InspectionScope
+
+    seen_sessions: list[str] = []
+
+    def fake_exec(workspace_id, asset_id, protocol, command, timeout, session_id=""):
+        # Simulate exec.run returning a fresh session_id only on the
+        # first call (i.e. when no session_id was provided).
+        if not session_id:
+            sid = f"ssh_simulated_{len(seen_sessions)}"
+        else:
+            sid = session_id
+        seen_sessions.append(sid)
+        return {
+            "ok": True,
+            "output": f"fake-output-for-{command}",
+            "error": "",
+            "session_id": sid,
+        }
+
+    monkeypatch.setattr(runner, "_exec_one_command", fake_exec)
+
+    profile = InspectionProfile(
+        profile_id="server_health",
+        display_name="Server",
+        description="server checks",
+        checks=tuple(InspectionCheck(
+            check_id=f"srv.x{i}",
+            category="server",
+            display_name=f"X{i}",
+            command_key="version",
+            parser_key="version",
+            timeout_seconds=30,
+        ) for i in range(6)),
+    )
+    task = InspectionTask(
+        task_id="ins_test_session",
+        workspace_id="ws_test_inspect",
+        scope=InspectionScope(),
+        profile_id="server_health",
+    )
+    dr = runner._run_checks_on_asset(task, profile, {
+        "asset_id": "asset_x",
+        "name": "fake-server",
+        "host": "10.0.0.1",
+        "vendor": "",
+        "type": "server",
+        "protocol": "ssh",
+    }, "ws_test_inspect")
+    assert dr.status == "succeeded", dr.errors
+    # 6 checks, 1 session_id reused across all 6
+    assert len(seen_sessions) == 6
+    distinct = set(seen_sessions)
+    assert len(distinct) == 1, (
+        f"expected 1 session reused, got {len(distinct)}: {distinct}"
+    )
+
+
+def test_per_device_workers_configurable(monkeypatch):
+    """The ``INSPECTION_PER_DEVICE_WORKERS`` module global controls
+    how many concurrent SSH channels we open per device. Setting
+    it to 2 must produce 2 distinct session_ids.
+    """
+    from agent.modules.inspection import runner
+    from agent.modules.inspection.models import InspectionCheck, InspectionProfile, InspectionTask, InspectionScope
+
+    seen_sessions: list[str] = []
+    bucket_counter = {"a": 0, "b": 0}
+
+    def fake_exec(workspace_id, asset_id, protocol, command, timeout, session_id=""):
+        # If the caller has not handed us a session_id yet, this is
+        # the first call in its bucket — mint a fresh one. We split
+        # "new sessions" into two buckets (a/b) so workers=2 yields
+        # 2 distinct session_ids across the 6 checks.
+        if not session_id:
+            # Round-robin: odd calls go to bucket 'b', even to 'a'.
+            bucket = "a" if (bucket_counter["a"] + bucket_counter["b"]) % 2 == 0 else "b"
+            bucket_counter[bucket] += 1
+            sid = f"ssh_{bucket}_{bucket_counter[bucket]}"
+        else:
+            sid = session_id
+        seen_sessions.append(sid)
+        return {
+            "ok": True, "output": f"fake-{command}",
+            "error": "", "session_id": sid,
+        }
+
+    monkeypatch.setattr(runner, "_exec_one_command", fake_exec)
+    monkeypatch.setattr(runner, "INSPECTION_PER_DEVICE_WORKERS", 2,
+                        raising=False)
+
+    profile = InspectionProfile(
+        profile_id="server_health",
+        display_name="Server",
+        description="checks",
+        checks=tuple(InspectionCheck(
+            check_id=f"srv.x{i}",
+            category="server",
+            display_name=f"X{i}",
+            command_key="version",
+            parser_key="version",
+            timeout_seconds=30,
+        ) for i in range(6)),
+    )
+    task = InspectionTask(
+        task_id="ins_test_workers",
+        workspace_id="ws_test_inspect",
+        scope=InspectionScope(),
+        profile_id="server_health",
+    )
+    dr = runner._run_checks_on_asset(task, profile, {
+        "asset_id": "asset_x",
+        "name": "fake-server",
+        "host": "10.0.0.1",
+        "vendor": "",
+        "type": "server",
+        "protocol": "ssh",
+    }, "ws_test_inspect")
+    assert dr.status == "succeeded", dr.errors
+    # With workers=2, 6 checks should land in 2 distinct sessions
+    assert len(seen_sessions) == 6
+    assert len(set(seen_sessions)) == 2, (
+        f"workers=2 should give 2 distinct sessions, got {set(seen_sessions)}"
+    )

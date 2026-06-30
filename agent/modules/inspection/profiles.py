@@ -514,6 +514,60 @@ def resolve_vendor(vendor: str) -> VendorCommandProfile:
     return resolve_command_profile(vendor, "")
 
 
+# ── v3.9.14: per-command-key timeout hints ──────────────────────────────
+# The inspection runner maps each InspectionCheck's ``command_key`` to a
+# default timeout here. The hint is overridden by the
+# ``InspectionCheck.timeout_seconds`` field on the profile when present,
+# so a profile can still bump a single check (e.g. config_backup) above
+# the table value.
+#
+# Why finer-grained timeouts matter:
+#   * ``uname -a`` / ``free -m`` / ``ip -brief addr`` finish in <1s.
+#     Giving them 30s means a hung device also hangs the whole task.
+#   * ``display current-configuration`` on a fat config genuinely
+#     needs 60s; truncating to 5s silently returns an empty page.
+#   * show commands on routing neighbors (OSPF / BGP) average 5-15s.
+# Defaults chosen to be tight but well above the realistic p99.
+CHECK_TIMEOUT_HINTS: dict[str, int] = {
+    # fast Linux / BSD facts
+    "version": 5,
+    "cpu": 8,
+    "memory": 5,
+    "server_disk": 10,
+    "server_listen": 5,
+    "server_network": 5,
+    "server_process": 5,
+    # interface summaries
+    "interface_brief": 15,
+    "interface_error": 20,
+    # routing
+    "ospf_peer": 30,
+    "bgp_summary": 45,
+    "route_summary": 30,
+    # ops / environment
+    "environment": 15,
+    "log": 15,
+    "arp": 10,
+    "mac": 10,
+    "vlan": 10,
+    # firewall-specific
+    "firewall_session": 30,
+    "firewall_policy": 60,
+    "firewall_nat": 30,
+    "firewall_ha": 30,
+    # config backups / archives — wide page, slow link
+    "current_config": 60,
+}
+
+
+def default_timeout_for(command_key: str, profile_default: int = 30) -> int:
+    """Return the recommended timeout for a command_key, falling back
+    to ``profile_default`` if unknown. Always clamps to a safe range.
+    """
+    base = CHECK_TIMEOUT_HINTS.get(command_key, profile_default)
+    return max(5, min(int(base or 30), 120))
+
+
 def is_read_only_command(command: str) -> bool:
     """Static safety check: refuse anything that smells like a write.
 
