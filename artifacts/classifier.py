@@ -29,8 +29,14 @@ def classify_file(path: str = "", content: str = "") -> dict:
         result["contains_secret"] = contains_secret(content)
         result["probable_vendor"] = _guess_vendor(content)
 
+        if re.search(r'^\s*(<!doctype\s+html|<html[\s>])', content, re.I):
+            result["artifact_type"] = "report"
+            result["mime_type"] = "text/html"
+            result["file_ext"] = "html"
+            result["tags"].append("html")
+
         # Config detection
-        if re.search(r'(hostname|interface|ip address|router|switch)', content, re.I):
+        if result["file_ext"] != "html" and re.search(r'(hostname|interface|ip address|router|switch)', content, re.I):
             result["artifact_type"] = "input_config"
             result["sensitivity"] = "sensitive"
             result["tags"].append("config")
@@ -63,7 +69,7 @@ def _ext_mime(ext: str) -> str:
         "cfg": "text/plain", "conf": "text/plain", "txt": "text/plain",
         "svg": "image/svg+xml", "png": "image/png",
         "md": "text/markdown", "pdf": "application/pdf", "docx": "application/docx",
-        "log": "text/plain", "csv": "text/csv",
+        "log": "text/plain", "csv": "text/csv", "html": "text/html",
     }
     return m.get(ext, "text/plain")
 

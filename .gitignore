@@ -15,6 +15,8 @@ minimax_api_key
 .frontend.pid
 data/
 artifacts/
+!artifacts/*.py
+!artifacts/__init__.py
 logs/
 memory/data/
 reports/*secret*
