@@ -74,9 +74,10 @@ def parse_pcap_file(workspace_id: str, filepath: str = "", file_id: str = "",
     groups = get_connection_groups(packets)
     sid = pcap_session_id_for(path)
     PCAP_SESSIONS[sid] = {"filepath": str(path), "packets": packets, "groups": groups}
+    protocol_counts = _protocol_counts(groups)
     meta = {
         "session_id": sid, "filepath": str(path), "filename": path.name,
-        "total_packets": len(packets), "connections": groups,
+        "total_packets": len(packets), "protocol_counts": protocol_counts, "connections": groups,
     }
     # Persist session to index for recovery after memory reset
     try:
@@ -86,7 +87,7 @@ def parse_pcap_file(workspace_id: str, filepath: str = "", file_id: str = "",
         idx_path = idx_dir / "pcap_sessions.jsonl"
         record = {"session_id": sid, "filepath": str(path), "filename": path.name,
                   "total_packets": len(packets), "connection_count": len(groups),
-                  "connections": groups}
+                  "protocol_counts": protocol_counts, "connections": groups}
         with open(idx_path, "a", encoding="utf-8") as f:
             f.write(json.dumps(record, ensure_ascii=False, default=str) + "\n")
     except Exception:
@@ -132,7 +133,7 @@ def parse_pcap_file(workspace_id: str, filepath: str = "", file_id: str = "",
     return result
 
 
-def delete_pcap_session(session_id: str, workspace_id: str = "default") -> dict:
+def delete_pcap_session(session_id: str, workspace_id: str = "") -> dict:
     """Remove a PCAP session from memory and persistent index."""
     # Remove from in-memory cache
     PCAP_SESSIONS.pop(session_id, None)
@@ -153,7 +154,7 @@ def delete_pcap_session(session_id: str, workspace_id: str = "default") -> dict:
     return {"ok": True, "session_id": session_id}
 
 
-def list_pcap_sessions(workspace_id: str = "default", limit: int = 20) -> list[dict]:
+def list_pcap_sessions(workspace_id: str = "", limit: int = 20) -> list[dict]:
     """List recent PCAP sessions from the persistent index."""
     try:
         from storage.paths import workspace_root
@@ -183,6 +184,7 @@ def list_pcap_sessions(workspace_id: str = "default", limit: int = 20) -> list[d
                         "filename": rec.get("filename", ""),
                         "total_packets": rec.get("total_packets", 0),
                         "connection_count": rec.get("connection_count", 0),
+                        "protocol_counts": rec.get("protocol_counts", _protocol_counts(rec.get("connections", []))),
                         "connections": rec.get("connections", []),
                     })
                 if len(sessions) >= limit:
@@ -194,7 +196,7 @@ def list_pcap_sessions(workspace_id: str = "default", limit: int = 20) -> list[d
         return []
 
 
-def get_pcap_session(session_id: str, workspace_id: str = "default") -> dict:
+def get_pcap_session(session_id: str, workspace_id: str = "") -> dict:
     """Retrieve an existing PCAP session."""
     session = PCAP_SESSIONS.get(session_id)
     if not session:
@@ -223,6 +225,7 @@ def get_pcap_session(session_id: str, workspace_id: str = "default") -> dict:
                             "summary": f"PCAP session 有 {rec.get('total_packets', 0)} 个报文 (从 index 恢复)。",
                             "session_id": session_id, "filename": rec.get("filename", ""),
                             "total_packets": len(packets) if packets else rec.get("total_packets", 0),
+                            "protocol_counts": _protocol_counts(groups),
                             "connections": groups,
                         }
         except Exception:
@@ -234,13 +237,22 @@ def get_pcap_session(session_id: str, workspace_id: str = "default") -> dict:
         "summary": f"PCAP session 有 {len(session.get('packets', []))} 个报文。",
         "session_id": session_id, "filename": Path(session["filepath"]).name,
         "total_packets": len(session.get("packets", [])),
+        "protocol_counts": _protocol_counts(session.get("groups", [])),
         "connections": session.get("groups", []),
     }
 
 
+def _protocol_counts(groups: list[dict]) -> dict:
+    counts: dict[str, int] = {}
+    for group in groups or []:
+        proto = str(group.get("proto_name") or group.get("protocol") or "UNKNOWN").upper()
+        counts[proto] = counts.get(proto, 0) + 1
+    return counts
+
+
 def filter_pcap_session(session_id: str, src: str = "", sport: int = 0,
                          dst: str = "", dport: int = 0,
-                         workspace_id: str = "default") -> dict:
+                         workspace_id: str = "") -> dict:
     """Filter PCAP session packets by 5-tuple."""
     session = PCAP_SESSIONS.get(session_id)
     if not session:
@@ -261,7 +273,7 @@ def filter_pcap_session(session_id: str, src: str = "", sport: int = 0,
 def align_pcap_tcp(session_id: str, src: str = "", sport: int = 0,
                     dst: str = "", dport: int = 0,
                     use_filter: bool = False,
-                    workspace_id: str = "default") -> dict:
+                    workspace_id: str = "") -> dict:
     """TCP sequence number / ACK alignment analysis."""
     session = PCAP_SESSIONS.get(session_id)
     if not session:
@@ -284,7 +296,7 @@ def align_pcap_tcp(session_id: str, src: str = "", sport: int = 0,
 
 
 def run_pcap_analysis(
-    action: str, *, workspace_id: str = "default", filepath: str = "",
+    action: str, *, workspace_id: str = "", filepath: str = "",
     file_id: str = "", session_id: str = "", src: str = "", sport: int = 0,
     dst: str = "", dport: int = 0, use_filter: bool = False,
     run_id: str = "", agent_session_id: str = "", **kwargs,

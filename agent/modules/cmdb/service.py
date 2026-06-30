@@ -106,8 +106,8 @@ def save_asset(workspace_id: str, asset: dict) -> dict:
 def list_assets(workspace_id: str, *, filter: dict | None = None, sort_by: str = "name") -> list[dict]:
     """List all non-deleted assets with optional filtering and sorting.
 
-    filter keys: type, vendor, search (fuzzy on name/host/description)
-    sort_by: name | type | vendor | host | updated_at
+    filter keys: type, vendor, region, location, search
+    sort_by: name | type | vendor | region | location | host | updated_at
     """
     all_assets = _load_all(workspace_id)
     filtered = _apply_filter(all_assets, filter or {})
@@ -115,7 +115,7 @@ def list_assets(workspace_id: str, *, filter: dict | None = None, sort_by: str =
 
 
 def search_assets(workspace_id: str, query: str) -> list[dict]:
-    """Fuzzy search assets by name, vendor, host, model, description."""
+    """Fuzzy search assets by name, vendor, host, model, region, location, description."""
     q = (query or "").strip().lower()
     if not q:
         return []
@@ -123,7 +123,11 @@ def search_assets(workspace_id: str, query: str) -> list[dict]:
     results = []
     for a in assets:
         score = 0
-        haystack = f"{a.get('name','')} {a.get('type','')} {a.get('vendor','')} {a.get('host','')} {a.get('model','')} {a.get('description','')} {' '.join(a.get('tags', []))}".lower()
+        haystack = (
+            f"{a.get('name','')} {a.get('type','')} {a.get('vendor','')} "
+            f"{a.get('host','')} {a.get('model','')} {a.get('region','')} "
+            f"{a.get('location','')} {a.get('description','')} {' '.join(a.get('tags', []))}"
+        ).lower()
         if q in haystack:
             score += 10
         if q == a.get("name", "").lower():
@@ -153,9 +157,8 @@ def get_asset(workspace_id: str, asset_id: str, *, safe: bool = True) -> dict | 
                     return None
                 password = _record_password(workspace_id, d)
                 d.pop("password_secret", None)
-                if safe:
-                    d.pop("password", None)
-                elif password:
+                d.pop("password", None)
+                if not safe and password:
                     d["password"] = password
                 return d
         except json.JSONDecodeError:
@@ -270,6 +273,12 @@ def _apply_filter(assets: list[dict], f: dict) -> list[dict]:
     vendor = str(f.get("vendor") or "").strip().lower()
     if vendor:
         result = [a for a in result if vendor in (a.get("vendor") or "").lower()]
+    region = str(f.get("region") or "").strip().lower()
+    if region:
+        result = [a for a in result if region in (a.get("region") or "").lower()]
+    location = str(f.get("location") or "").strip().lower()
+    if location:
+        result = [a for a in result if location in (a.get("location") or "").lower()]
     search = str(f.get("search") or "").strip().lower()
     if search:
         filtered = []
@@ -281,7 +290,15 @@ def _apply_filter(assets: list[dict], f: dict) -> list[dict]:
     return result
 
 
-_SORT_KEYS = {"name": "name", "type": "type", "vendor": "vendor", "host": "host", "updated_at": "updated_at"}
+_SORT_KEYS = {
+    "name": "name",
+    "type": "type",
+    "vendor": "vendor",
+    "region": "region",
+    "location": "location",
+    "host": "host",
+    "updated_at": "updated_at",
+}
 
 def _sort_assets(assets: list[dict], sort_by: str) -> list[dict]:
     key = _SORT_KEYS.get(sort_by, "name")
@@ -292,8 +309,7 @@ def _record_password(workspace_id: str, record: dict) -> str:
     secret = str(record.get("password_secret") or "")
     if secret:
         return _open_secret(workspace_id, secret)
-    legacy = record.get("password")
-    return _decode_legacy_password(str(legacy or ""))
+    return ""
 
 
 def _seal_secret(workspace_id: str, value: str) -> str:
@@ -314,21 +330,9 @@ def _open_secret(workspace_id: str, sealed: str) -> str:
             nonce, cipher = payload[:16], payload[16:]
             stream = _secret_stream(workspace_id, nonce, len(cipher))
             return bytes(a ^ b for a, b in zip(cipher, stream)).decode("utf-8")
-        return base64.b64decode(sealed.encode("ascii")).decode("utf-8")
     except Exception:
         return ""
-
-
-def _decode_legacy_password(value: str) -> str:
-    if not value:
-        return ""
-    try:
-        decoded = base64.b64decode(value.encode("ascii"), validate=True).decode("utf-8")
-        if decoded and all(ch.isprintable() for ch in decoded):
-            return decoded
-    except Exception:
-        pass
-    return value
+    return ""
 
 
 def _secret_stream(workspace_id: str, nonce: bytes, length: int) -> bytes:

@@ -721,12 +721,31 @@ def _handler_pcap_analysis_run(inv: ToolInvocation) -> dict:
 
 def _handler_cmdb_list_assets(inv: ToolInvocation) -> dict:
     """List CMDB device assets with optional filtering."""
+    import json as _json
     from agent.modules.cmdb.tools import tool_list_assets
     args = inv.arguments or {}
     workspace_id = _inv_workspace(inv)
+    filter_arg = str(args.get("filter", "") or "").strip()
+    direct_filter = {
+        key: str(args.get(key, "") or "").strip()
+        for key in ("type", "vendor", "region", "location")
+        if str(args.get(key, "") or "").strip()
+    }
+    if direct_filter:
+        if filter_arg:
+            try:
+                merged = _json.loads(filter_arg)
+                if not isinstance(merged, dict):
+                    return {"ok": False, "error": "filter must be a JSON object"}
+            except _json.JSONDecodeError:
+                return {"ok": False, "error": f"invalid filter JSON: {filter_arg}"}
+            merged.update(direct_filter)
+        else:
+            merged = direct_filter
+        filter_arg = _json.dumps(merged, ensure_ascii=False)
     return tool_list_assets(
         workspace_id=workspace_id,
-        filter=str(args.get("filter", "")),
+        filter=filter_arg,
         search=str(args.get("search", "")),
         sort_by=str(args.get("sort_by", "name")),
     )
@@ -763,6 +782,10 @@ def _handler_cmdb_add_asset(inv: ToolInvocation) -> dict:
         port=_safe_int(args.get("port", 22)),
         username=str(args.get("username", "")),
         password=str(args.get("password", "")),
+        region=str(args.get("region", "")),
+        location=str(args.get("location", "")),
+        model=str(args.get("model", "")),
+        description=str(args.get("description", "")),
     )
 
 
@@ -1611,25 +1634,29 @@ _RAW_REGISTRY: list[CanonicalToolEntry] = [
         ),
     ),
 
-    # 3. device.manage — list / get / add / delete
+    # 3. device.manage — list / get / add / update / delete / export
     CanonicalToolEntry(
         canonical_tool_id="device.manage",
         handler=_adapt(_handle_device_merged),
         input_schema=_schema({
             "workspace_id": _S["workspace_id"],
             "action": {"type": "string", "enum": ["list", "get", "add", "delete", "update", "export"]},
-            "search": {"type": "string", "description": "[list] Fuzzy search name/vendor/host/model."},
-            "filter": {"type": "string", "description": '[list] JSON filter, e.g. {"type":"switch"}.'},
-            "sort_by": {"type": "string", "description": "[list] Sort field."},
+            "search": {"type": "string", "description": "[list] Fuzzy search name/vendor/host/model/region/location."},
+            "filter": {"type": "string", "description": '[list] JSON filter, e.g. {"type":"switch","region":"华东"}.'},
+            "sort_by": {"type": "string", "description": "[list] Sort field: name/type/vendor/region/location/host/updated_at."},
             "asset_id": {"type": "string", "description": "[get|delete|update] Asset ID."},
             "name": {"type": "string"}, "host": {"type": "string"},
             "type": {"type": "string", "enum": ["switch", "router", "firewall", "server", "other"],
                      "default": "switch"},
             "vendor": {"type": "string"},
+            "model": {"type": "string"},
+            "region": {"type": "string", "description": "[list|add|update] Logical area/region, e.g. 华东, 华南, 核心, 接入."},
+            "location": {"type": "string", "description": "[list|add|update] Physical site/rack/room location."},
             "protocol": {"type": "string", "enum": ["ssh", "telnet"], "default": "ssh"},
             "port": {"type": "integer", "default": 22},
             "username": {"type": "string"},
             "password": {"type": "string", "description": "[add] Optional saved credential; never returned by get/list/export."},
+            "description": {"type": "string"},
             "format": {"type": "string", "enum": ["json", "csv"], "default": "json",
                        "description": "[export] Output format."},
         }, ["action"]),
@@ -1725,7 +1752,7 @@ _RAW_REGISTRY: list[CanonicalToolEntry] = [
         ),
     ),
 
-    # 8. config.manage — was config.analysis.run
+    # 8. config.manage — unified config parsing / translation
     CanonicalToolEntry(
         canonical_tool_id="config.manage",
         handler=_adapt(_handler_config_analysis_run),
@@ -1742,7 +1769,7 @@ _RAW_REGISTRY: list[CanonicalToolEntry] = [
         description="Unified config analysis: parse, translate, extract, diff, summarize.",
     ),
 
-    # 9. pcap.manage
+    # 9. pcap.manage — unified packet capture analysis
     CanonicalToolEntry(
         canonical_tool_id="pcap.manage",
         handler=_adapt(_handler_pcap_analysis_run),

@@ -121,10 +121,13 @@ _CAPABILITIES: tuple[dict, ...] = (
     {
         "capability_id": "cmdb",
         "display_name": "CMDB Device Assets",
-        "description": "List, get, add, delete network device assets.",
+        "description": "List, get, add, update, delete, export network device assets with region/location.",
         "module_ids": ("cmdb",),
         "recommended_tool_ids": ("device.manage",),
-        "prompt_hints": (),
+        "prompt_hints": (
+            "When the user mentions an area or site, call device.manage(action=list) with a JSON region/location filter.",
+            "For live access, pass the returned asset_id to exec.run target=ssh/telnet instead of asking for or exposing passwords.",
+        ),
         "safety_notes": (
             "Do not declare CMDB entries that were not returned by tools.",
             "Add/delete operations need user confirmation.",

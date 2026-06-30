@@ -47,6 +47,30 @@ def test_pcap_analysis_unsupported_action():
     assert "unsupported" in result.get("summary", "").lower()
 
 
+def test_pcap_session_returns_protocol_counts(tmp_path):
+    from agent.modules.pcap.core import PCAP_SESSIONS
+    from tool_runtime.canonical_registry import get_entry
+
+    capture = tmp_path / "sample.pcap"
+    capture.write_bytes(b"placeholder")
+    PCAP_SESSIONS["sid_proto"] = {
+        "filepath": str(capture),
+        "packets": [{"proto_name": "TCP"}, {"proto_name": "UDP"}],
+        "groups": [
+            {"proto_name": "TCP", "src": "10.0.0.1", "dst": "10.0.0.2"},
+            {"proto_name": "UDP", "src": "10.0.0.3", "dst": "10.0.0.4"},
+            {"proto_name": "TCP", "src": "10.0.0.5", "dst": "10.0.0.6"},
+        ],
+    }
+    try:
+        entry = get_entry("pcap.manage")
+        result = entry.handler(_inv("pcap.manage", {"action": "session", "session_id": "sid_proto"}))
+        assert result["ok"] is True
+        assert result["protocol_counts"] == {"TCP": 2, "UDP": 1}
+    finally:
+        PCAP_SESSIONS.pop("sid_proto", None)
+
+
 def test_config_analysis_translate_without_config():
     """translate action should delegate to config_translation service."""
     from tool_runtime.canonical_registry import get_entry

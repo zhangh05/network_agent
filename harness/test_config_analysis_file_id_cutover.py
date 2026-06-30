@@ -32,17 +32,22 @@ def test_config_analysis_importable():
 
 
 def test_config_analysis_filepath_works(config_ws):
-    """run_config_analysis should still work with filepath parameter."""
+    """run_config_analysis should read workspace-relative filepath."""
     from agent.modules.config_analysis.service import run_config_analysis
+    from storage.paths import workspace_root
+
+    path = workspace_root("test_ws") / "configs" / "edge.cfg"
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text("interface GigabitEthernet0/0/1\n description uplink\n", encoding="utf-8")
 
     result = run_config_analysis(
-        action="translate",
-        source_config="interface GigabitEthernet0/0/1\n",
+        action="extract_interfaces",
+        filepath="configs/edge.cfg",
         source_vendor="cisco_ios",
-        target_vendor="huawei_vrp",
         workspace_id="test_ws",
     )
-    assert isinstance(result, dict)
+    assert result["ok"] is True
+    assert result["interfaces"][0]["name"] == "GigabitEthernet0/0/1"
 
 
 def test_config_analysis_file_id_only_no_source_config(config_ws):

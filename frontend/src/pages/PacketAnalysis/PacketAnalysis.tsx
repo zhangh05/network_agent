@@ -18,6 +18,8 @@ interface AlignEvent {
   time: number; payload_len: number; gap?: boolean; gap_size?: number;
 }
 
+type ProtocolCounts = Record<string, number>;
+
 type AnalysisResult = {
   conn: string;
   events: AlignEvent[];
@@ -67,6 +69,7 @@ export function PacketAnalysis() {
   const [sessionId, setSessionId] = useState("");
   const [filename, setFilename] = useState("");
   const [totalPackets, setTotalPackets] = useState(0);
+  const [protocolCounts, setProtocolCounts] = useState<ProtocolCounts>({});
   const [connections, setConnections] = useState<ConnectionGroup[]>([]);
 
   const [filterProto, setFilterProto] = useState("");
@@ -74,7 +77,7 @@ export function PacketAnalysis() {
   const [activeKey, setActiveKey] = useState("");
   const [result, setResult] = useState<AnalysisResult | null>(null);
   const [uploading, setUploading] = useState(false);
-  const [recentSessions, setRecentSessions] = useState<{ session_id: string; filename: string; total_packets: number; connection_count: number }[]>([]);
+  const [recentSessions, setRecentSessions] = useState<{ session_id: string; filename: string; total_packets: number; connection_count: number; protocol_counts?: ProtocolCounts }[]>([]);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   // Load recent sessions from backend (persistent)
@@ -98,13 +101,14 @@ export function PacketAnalysis() {
       const formData = new FormData();
       formData.append("file", file);
       formData.append("workspace_id", wsId);
-      const res = await apiRequest<{ ok: boolean; session_id?: string; filename?: string; total_packets?: number; connections?: ConnectionGroup[]; error?: string }>({
+      const res = await apiRequest<{ ok: boolean; session_id?: string; filename?: string; total_packets?: number; protocol_counts?: ProtocolCounts; connections?: ConnectionGroup[]; error?: string }>({
         method: "POST", url: "/pcap/parse", data: formData,
       } as any);
       if (!res.ok) { setError(res.error || "上传失败"); return; }
       setSessionId(res.session_id || "");
       setFilename(res.filename || file.name);
       setTotalPackets(res.total_packets || 0);
+      setProtocolCounts(res.protocol_counts || {});
       setConnections(res.connections || []);
       setResult(null); setActiveKey("");
       localStorage.setItem("pcap_session", JSON.stringify({ sessionId: res.session_id, filename: res.filename }));
@@ -126,7 +130,7 @@ export function PacketAnalysis() {
 	    const sidFromUrl = searchParams.get("sid");
 	    if (sidFromUrl) {
 	      localStorage.removeItem("pcap_session"); // clear stale
-	      apiRequest<{ ok: boolean; session_id: string; filename: string; total_packets: number; connections: ConnectionGroup[] }>({
+	      apiRequest<{ ok: boolean; session_id: string; filename: string; total_packets: number; protocol_counts?: ProtocolCounts; connections: ConnectionGroup[] }>({
 	        method: "GET", url: `/pcap/session/${sidFromUrl}`, params: { workspace_id: wsId },
 	      }).then(res => {
         if (aborted.signal.aborted) return;
@@ -134,6 +138,7 @@ export function PacketAnalysis() {
         setSessionId(res.session_id);
         setFilename(res.filename);
         setTotalPackets(res.total_packets);
+        setProtocolCounts(res.protocol_counts || {});
         setConnections(res.connections || []);
         localStorage.setItem("pcap_session", JSON.stringify({ sessionId: res.session_id, filename: res.filename }));
       }).catch(() => {});
@@ -146,7 +151,7 @@ export function PacketAnalysis() {
 	    let sid = "";
 	    try { sid = JSON.parse(saved).sessionId; } catch { return; }
 	    if (!sid) return;
-	    apiRequest<{ ok: boolean; session_id: string; filename: string; total_packets: number; connections: ConnectionGroup[] }>({
+	    apiRequest<{ ok: boolean; session_id: string; filename: string; total_packets: number; protocol_counts?: ProtocolCounts; connections: ConnectionGroup[] }>({
 	      method: "GET", url: `/pcap/session/${sid}`, params: { workspace_id: wsId },
 	    }).then(res => {
         if (aborted.signal.aborted) return;
@@ -154,6 +159,7 @@ export function PacketAnalysis() {
       setSessionId(res.session_id);
       setFilename(res.filename);
       setTotalPackets(res.total_packets);
+      setProtocolCounts(res.protocol_counts || {});
       setConnections(res.connections || []);
     }).catch(() => localStorage.removeItem("pcap_session"));
     return () => { aborted.abort(); };
@@ -220,7 +226,7 @@ export function PacketAnalysis() {
           >
             {uploading ? (<span className="spinner" />) : "📤"} {uploading ? "上传中…" : "上传 pcap"}
           </button>
-          {filename && <span style={{ color: "var(--text-3)", fontSize: "var(--fs-12)" }}>{filename} · {totalPackets} pkts · {(connections || []).length} flows</span>}
+          {filename && <span style={{ color: "var(--text-3)", fontSize: "var(--fs-12)" }}>{filename} · {totalPackets} pkts · {(connections || []).length} flows{Object.keys(protocolCounts).length ? ` · ${Object.entries(protocolCounts).map(([k, v]) => `${k}:${v}`).join(" ")}` : ""}</span>}
           {loading && <span className="status-pill"><span className="dot loading" />分析中</span>}
           {result && (
             <button className="btn"
@@ -294,13 +300,14 @@ export function PacketAnalysis() {
                         onClick={async () => {
                           setError(""); setLoading(true);
                           try {
-                            const res = await apiRequest<{ ok: boolean; session_id: string; filename: string; total_packets: number; connections: ConnectionGroup[] }>({
+                            const res = await apiRequest<{ ok: boolean; session_id: string; filename: string; total_packets: number; protocol_counts?: ProtocolCounts; connections: ConnectionGroup[] }>({
                               method: "GET", url: `/pcap/session/${s.session_id}`, params: { workspace_id: wsId },
                             });
                             if (!res.ok) { setError("加载失败"); return; }
                             setSessionId(res.session_id);
                             setFilename(res.filename);
                             setTotalPackets(res.total_packets);
+                            setProtocolCounts(res.protocol_counts || {});
                             setConnections(res.connections || []);
                             setResult(null); setActiveKey("");
                             localStorage.setItem("pcap_session", JSON.stringify({ sessionId: res.session_id, filename: res.filename }));
@@ -319,6 +326,7 @@ export function PacketAnalysis() {
                           </div>
                           <div style={{ fontSize: "var(--fs-11)", color: "var(--text-4)" }}>
                             {s.total_packets} pkts · {s.connection_count} flows
+                            {s.protocol_counts && Object.keys(s.protocol_counts).length ? ` · ${Object.entries(s.protocol_counts).map(([k, v]) => `${k}:${v}`).join(" ")}` : ""}
                           </div>
                         </div>
                         <button
@@ -328,7 +336,7 @@ export function PacketAnalysis() {
                             e.stopPropagation();
                             try {
                               await apiRequest({ method: "DELETE", url: `/pcap/session/${s.session_id}`, params: { workspace_id: wsId, confirm: "true" } });
-                              if (s.session_id === sessionId) { setSessionId(""); setFilename(""); setTotalPackets(0); setConnections([]); setResult(null); localStorage.removeItem("pcap_session"); }
+                              if (s.session_id === sessionId) { setSessionId(""); setFilename(""); setTotalPackets(0); setProtocolCounts({}); setConnections([]); setResult(null); localStorage.removeItem("pcap_session"); }
                               loadRecentSessions();
                             } catch { /* ignore */ }
                           }}

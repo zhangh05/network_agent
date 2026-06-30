@@ -17,7 +17,7 @@ def _invalid_ws():
     return jsonify({"ok": False, "error": "invalid_workspace_id"}), 400
 
 
-def _validated_ws_id(raw="default"):
+def _validated_ws_id(raw=""):
     try:
         return validate_workspace_id(raw), None
     except ValueError:
@@ -81,6 +81,7 @@ def register_pcap_routes(app):
             "file_id": rec.file_id,
             "filename": result.get("filename", uploaded.filename),
             "total_packets": result.get("total_packets", 0),
+            "protocol_counts": result.get("protocol_counts", {}),
             "connections": result.get("connections", []),
             "summary": result.get("summary", ""),
         })
@@ -110,6 +111,7 @@ def register_pcap_routes(app):
             "file_id": file_id,
             "filename": result.get("filename", ""),
             "total_packets": result.get("total_packets", 0),
+            "protocol_counts": result.get("protocol_counts", {}),
             "connections": result.get("connections", []),
             "summary": result.get("summary", ""),
         })

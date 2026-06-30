@@ -3,9 +3,7 @@
 from flask import request, jsonify
 from workspace.ids import validate_workspace_id
 
-from agent.modules.cmdb.service import (
-    save_asset, list_assets, get_asset, delete_asset,
-)
+from agent.modules.cmdb.service import save_asset, list_assets, get_asset, delete_asset
 
 def _invalid_ws():
     return jsonify({"ok": False, "error": "invalid_workspace_id"}), 400
@@ -24,7 +22,13 @@ def register_cmdb_routes(app):
         ws_id, err = _validated_ws_id(request.args.get("workspace_id", ""))
         if err:
             return err
-        return jsonify({"ok": True, "assets": list_assets(ws_id)})
+        filter_data = {
+            key: request.args.get(key, "").strip()
+            for key in ("type", "vendor", "region", "location", "search")
+            if request.args.get(key, "").strip()
+        }
+        sort_by = request.args.get("sort_by", "name")
+        return jsonify({"ok": True, "assets": list_assets(ws_id, filter=filter_data, sort_by=sort_by)})
 
     @app.route("/api/cmdb/assets", methods=["POST"])
     def api_cmdb_save():

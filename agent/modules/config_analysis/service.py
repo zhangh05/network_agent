@@ -24,7 +24,7 @@ VALID_ACTIONS = {
 def run_config_analysis(
     action: str,
     *,
-    workspace_id: str = "default",
+    workspace_id: str = "",
     filepath: str = "",
     file_id: str = "",
     source_config: str = "",
@@ -34,13 +34,18 @@ def run_config_analysis(
 ) -> dict[str, Any]:
     """Unified config analysis dispatcher."""
 
-    # Resolve source_config from file_id if not provided directly
+    # Resolve source_config from file_id/filepath if not provided directly.
     if not source_config and file_id:
         try:
             from storage.file_store import read_file_content
             source_config = read_file_content(workspace_id, file_id)
-        except Exception:
-            pass
+        except Exception as exc:
+            return _source_config_error("invalid_file_id", str(exc))
+    if not source_config and filepath:
+        try:
+            source_config = _read_workspace_text_file(workspace_id, filepath)
+        except Exception as exc:
+            return _source_config_error("invalid_filepath", str(exc))
     action = (action or "").strip()
 
     if action not in VALID_ACTIONS:
@@ -60,6 +65,9 @@ def run_config_analysis(
         )
 
     if action == "parse":
+        missing = _missing_source_config(source_config)
+        if missing:
+            return missing
         result = parse_config(source_config, vendor=source_vendor)
         return {
             "ok": True, "tool_id": "config.manage", "status": "succeeded",
@@ -70,6 +78,9 @@ def run_config_analysis(
         }
 
     if action == "extract_interfaces":
+        missing = _missing_source_config(source_config)
+        if missing:
+            return missing
         parsed = parse_config(source_config, vendor=source_vendor)
         interfaces = parsed.get("interfaces", [])
         return {
@@ -79,6 +90,9 @@ def run_config_analysis(
         }
 
     if action == "extract_routes":
+        missing = _missing_source_config(source_config)
+        if missing:
+            return missing
         parsed = parse_config(source_config, vendor=source_vendor)
         routes = parsed.get("routes", [])
         return {
@@ -98,6 +112,9 @@ def run_config_analysis(
         }
 
     if action == "summarize":
+        missing = _missing_source_config(source_config)
+        if missing:
+            return missing
         parsed = parse_config(source_config, vendor=source_vendor)
         summary = summarize_config(parsed)
         return {
@@ -110,6 +127,45 @@ def run_config_analysis(
         "summary": f"Action '{action}' is not implemented.",
         "errors": [f"{action}_not_implemented"],
     }
+
+
+def _source_config_error(code: str, message: str) -> dict[str, Any]:
+    return {
+        "ok": False,
+        "tool_id": "config.manage",
+        "status": "failed",
+        "summary": message[:200],
+        "errors": [code],
+    }
+
+
+def _missing_source_config(source_config: str) -> dict[str, Any] | None:
+    if source_config and source_config.strip():
+        return None
+    return {
+        "ok": False,
+        "tool_id": "config.manage",
+        "status": "failed",
+        "summary": "需要提供源配置文本、file_id 或 workspace 内 filepath。",
+        "errors": ["missing_source_config"],
+    }
+
+
+def _read_workspace_text_file(workspace_id: str, filepath: str) -> str:
+    from storage.paths import workspace_root
+    from workspace.ids import validate_workspace_id
+
+    ws_id = validate_workspace_id(workspace_id)
+    root = workspace_root(ws_id).resolve()
+    candidate = (root / filepath).resolve()
+    if root not in candidate.parents and candidate != root:
+        raise ValueError("filepath must stay inside the workspace")
+    if not candidate.exists() or not candidate.is_file():
+        raise FileNotFoundError(f"file not found: {filepath}")
+    data = candidate.read_bytes()
+    if len(data) > 512_000:
+        raise ValueError("source_config_too_large")
+    return data.decode("utf-8", errors="replace")
 
 
 # ── Heuristic config parsing ────────────────────────────────────────

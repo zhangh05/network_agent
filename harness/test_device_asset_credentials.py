@@ -102,6 +102,54 @@ def test_remote_connect_uses_cmdb_asset_id_without_frontend_password(monkeypatch
         shutil.rmtree(root)
 
 
+def test_cmdb_region_filter_is_visible_to_llm_tools():
+    from agent.modules.cmdb.service import save_asset
+    from storage.paths import workspace_root
+    from tool_runtime.canonical_registry import _handler_cmdb_list_assets
+    from tool_runtime.schemas import ToolInvocation
+
+    workspace_id = "pytest_cmdb_region_flow"
+    root = workspace_root(workspace_id)
+    if root.exists():
+        shutil.rmtree(root)
+
+    assert save_asset(workspace_id, {
+        "name": "east-core",
+        "type": "switch",
+        "host": "192.0.2.51",
+        "region": "华东",
+        "location": "杭州-A机房",
+    })["ok"]
+    assert save_asset(workspace_id, {
+        "name": "south-core",
+        "type": "switch",
+        "host": "192.0.2.52",
+        "region": "华南",
+        "location": "广州-B机房",
+    })["ok"]
+
+    direct = _handler_cmdb_list_assets(ToolInvocation(
+        tool_id="device.manage",
+        workspace_id=workspace_id,
+        arguments={"action": "list", "region": "华东", "sort_by": "region"},
+    ))
+    assert direct["ok"] is True
+    assert direct["count"] == 1
+    assert direct["assets"][0]["name"] == "east-core"
+    assert direct["by_region"]["华东"] == 1
+    assert direct["by_region"]["华南"] == 1
+
+    fuzzy = _handler_cmdb_list_assets(ToolInvocation(
+        tool_id="device.manage",
+        workspace_id=workspace_id,
+        arguments={"action": "list", "search": "广州"},
+    ))
+    assert fuzzy["ok"] is True
+    assert [a["name"] for a in fuzzy["assets"]] == ["south-core"]
+
+    shutil.rmtree(root)
+
+
 def test_remote_connect_falls_back_to_unique_cmdb_asset_when_password_empty(monkeypatch):
     from agent.modules.cmdb.service import save_asset
     from agent.modules.remote import service as remote_service

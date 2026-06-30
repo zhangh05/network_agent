@@ -40,13 +40,14 @@ MANIFESTS: dict[str, CapabilityManifest] = {
         timeout_seconds=60,
     ),
 
-    # ═══ 3. device.manage (merged: list+get+add+delete) ═══
+    # ═══ 3. device.manage (merged: list+get+add+update+delete+export) ═══
     "device.manage": CapabilityManifest(
         tool_id="device.manage", category="device", display_name="Device Asset (unified)",
         description=(
             "Unified CMDB tool. action=list, get (reads); "
             "action=add, update (writes); action=delete (destructive approval). "
-            "Do not fabricate assets; do not expose credentials."
+            "Region/location are first-class fields. Use asset_id with remote tools "
+            "so saved credentials stay server-side. Do not fabricate assets; do not expose credentials."
         ),
         action_class="write",
         risk_level="medium",
@@ -105,7 +106,7 @@ MANIFESTS: dict[str, CapabilityManifest] = {
         idempotency="safe_to_retry", timeout_seconds=60,
     ),
 
-    # ═══ 8. config.manage (was config.analysis.run) ═══
+    # ═══ 8. config.manage (unified config parsing / translation) ═══
     "config.manage": CapabilityManifest(
         tool_id="config.manage", category="config", display_name="Config (unified)",
         description=(
@@ -117,7 +118,7 @@ MANIFESTS: dict[str, CapabilityManifest] = {
         timeout_seconds=120,
     ),
 
-    # ═══ 9. pcap.manage (was pcap.analysis.run) ═══
+    # ═══ 9. pcap.manage (unified packet capture analysis) ═══
     "pcap.manage": CapabilityManifest(
         tool_id="pcap.manage", category="network", display_name="PCAP (unified)",
         description=(

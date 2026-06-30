@@ -2,13 +2,13 @@
 """CMDB tool handlers — registered as callable LLM tools."""
 
 
-def tool_list_assets(workspace_id: str = "default", filter: str = "",
+def tool_list_assets(workspace_id: str = "", filter: str = "",
                      search: str = "", sort_by: str = "name", **kwargs) -> dict:
     """List device assets with optional filtering and search.
 
-    filter: JSON string, e.g. '{"type": "switch"}' or '{"vendor": "cisco"}'
-    search: free-text fuzzy match on name/vendor/host/model
-    sort_by: name | type | vendor | host | updated_at
+    filter: JSON string, e.g. '{"type":"switch","region":"华东"}'
+    search: free-text fuzzy match on name/vendor/host/model/region/location
+    sort_by: name | type | vendor | region | location | host | updated_at
     """
     from agent.modules.cmdb.service import list_assets, search_assets, get_stats
     try:
@@ -49,13 +49,14 @@ def tool_list_assets(workspace_id: str = "default", filter: str = "",
             "count": len(summary),
             "total_in_cmdb": stats["total"],
             "by_type": stats["by_type"],
+            "by_region": stats["by_region"],
             "assets": summary,
         }
     except Exception as e:
         return {"ok": False, "error": str(e)[:200], "assets": []}
 
 
-def tool_get_asset(workspace_id: str = "default", asset_id: str = "", **kwargs) -> dict:
+def tool_get_asset(workspace_id: str = "", asset_id: str = "", **kwargs) -> dict:
     """Get full details of a single device asset."""
     from agent.modules.cmdb.service import get_asset
     try:
@@ -85,10 +86,10 @@ def tool_get_asset(workspace_id: str = "default", asset_id: str = "", **kwargs) 
         return {"ok": False, "error": str(e)[:200]}
 
 
-def tool_add_asset(workspace_id: str = "default", name: str = "", host: str = "",
+def tool_add_asset(workspace_id: str = "", name: str = "", host: str = "",
                    type: str = "switch", vendor: str = "", protocol: str = "ssh",
                    port: int = 22, username: str = "", password: str = "",
-                   model: str = "", location: str = "", description: str = "", **kwargs) -> dict:
+                   model: str = "", region: str = "", location: str = "", description: str = "", **kwargs) -> dict:
     """Add a device asset with validation."""
     from agent.modules.cmdb.service import save_asset
     try:
@@ -99,6 +100,7 @@ def tool_add_asset(workspace_id: str = "default", name: str = "", host: str = ""
             "vendor": vendor.strip(), "model": model.strip(),
             "protocol": protocol, "port": port, "username": username,
             "password": password,
+            "region": region.strip(),
             "location": location.strip(),
             "description": description.strip(),
         })
@@ -107,7 +109,7 @@ def tool_add_asset(workspace_id: str = "default", name: str = "", host: str = ""
         return {"ok": False, "error": str(e)[:200]}
 
 
-def tool_delete_asset(workspace_id: str = "default", asset_id: str = "", **kwargs) -> dict:
+def tool_delete_asset(workspace_id: str = "", asset_id: str = "", **kwargs) -> dict:
     """Soft-delete a device asset."""
     from agent.modules.cmdb.service import delete_asset
     try:

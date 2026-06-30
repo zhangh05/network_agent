@@ -79,7 +79,7 @@ def test_cmdb_tool_does_not_return_legacy_password():
     )
 
     unsafe = get_asset(workspace_id, "asset1", safe=False)
-    assert unsafe and "password" in unsafe
+    assert unsafe and "password" not in unsafe
 
     result = tool_get_asset(workspace_id=workspace_id, asset_id="asset1")
     rendered = json.dumps(result, ensure_ascii=False)

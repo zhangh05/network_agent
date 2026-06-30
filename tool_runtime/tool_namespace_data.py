@@ -104,13 +104,15 @@ NS_DATA = [
     # 3. device.manage — unifies list + get + add + update + delete + export
     ('device.manage', 'device', 'asset', 'multi', '设备资产', 'device.manage',
      'Unified CMDB device tool. action=list (fuzzy search + JSON filter), '
+     'filter by region/location when the user mentions an area, '
      'action=get (single asset by asset_id), '
      'action=add (new asset; requires approval), '
      'action=update (modify fields by asset_id), '
      'action=delete (soft-delete; requires approval), '
      'action=export (dump as JSON or CSV). '
+     'Use asset_id with exec.run/remote access so credentials stay server-side. '
      'Do not fabricate assets; do not expose credentials.',
-     'device asset cmdb add list get update export', 'device.manage'),
+     'device asset cmdb region location add list get update export', 'device.manage'),
 
     # 4. browser.manage — unifies navigate + extract + screenshot + click
     ('browser.manage', 'browser', 'nav', 'multi', '浏览器自动化', 'browser.manage',
@@ -151,14 +153,14 @@ NS_DATA = [
      'Do not include raw sensitive content in rendered output.',
      'report markdown render mermaid html diff diagram summary', 'report.manage'),
 
-    # 8. config.manage — was config.analysis.run
+    # 8. config.manage — unified config parsing / translation
     ('config.manage', 'config', 'config_analysis', 'multi', '配置分析', 'config.manage',
      'Unified config analysis. action=parse, action=translate (vendor→vendor), '
      'action=extract_interfaces, action=extract_routes, action=diff, action=summarize. '
      'Do not claim translated config is production-ready.',
      'config analysis parse translate extract diff', 'config.manage'),
 
-    # 9. pcap.manage — was pcap.analysis.run
+    # 9. pcap.manage — unified packet capture analysis
     ('pcap.manage', 'pcap', 'pcap_analysis', 'multi', 'PCAP 分析', 'pcap.manage',
      'Unified PCAP analysis. action=parse (load + list sessions), '
      'action=session (per-session detail), action=filter (src/sport/dst/dport), '
