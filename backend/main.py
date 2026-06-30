@@ -8,6 +8,7 @@ or:
     python -m backend.main --port 8010
 """
 
+import os
 import sys
 from pathlib import Path
 
@@ -16,7 +17,7 @@ _NETWORK_AGENT_DIR = Path(__file__).resolve().parent.parent
 if str(_NETWORK_AGENT_DIR) not in sys.path:
     sys.path.insert(0, str(_NETWORK_AGENT_DIR))
 
-from flask import Flask, send_from_directory, jsonify, request
+from flask import Flask, send_from_directory, jsonify, redirect, request
 
 from backend.api.version import get_version
 from backend.api.modules_translate import handle_module_translate
@@ -317,6 +318,18 @@ def create_app():
     @app.route("/<path:filename>")
     def serve_frontend(filename="index.html"):
         from flask import make_response
+        if filename.startswith("api/"):
+            return jsonify({"ok": False, "error": "not_found", "path": f"/{filename}"}), 404
+        frontend_index = Path(FRONTEND_DIR) / "index.html"
+        if not frontend_index.exists():
+            dev_url = os.environ.get("NETWORK_AGENT_FRONTEND_DEV_URL", "http://127.0.0.1:5173").rstrip("/")
+            target_path = "/" if filename == "index.html" else f"/{filename}"
+            query = request.query_string.decode("utf-8")
+            target = f"{dev_url}{target_path}"
+            if query:
+                target = f"{target}?{query}"
+            return redirect(target, code=302)
+
         # Security: only serve known frontend file types
         if filename != "index.html":
             ext = "." + filename.rsplit(".", 1)[-1].lower() if "." in filename else ""
