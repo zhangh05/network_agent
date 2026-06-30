@@ -122,12 +122,14 @@ def test_profile_commands_fixed_per_vendor_no_llm_input():
 
 def test_inspection_policy_allows_long_read_only_task_without_approval():
     """CMDB inspection is a read-only long task; it must not be blocked by
-    the generic low-risk 120s timeout ceiling and must not request approval.
+    the generic low/medium timeout ceiling and must not request approval.
     """
+    from tool_runtime.manifest_registry import MANIFESTS
     from tool_runtime.canonical_registry import to_tool_specs
     from tool_runtime.policy import ToolPolicy
     from tool_runtime.schemas import ToolInvocation
 
+    assert MANIFESTS["inspection.manage"].timeout_seconds >= 900
     spec = next(spec for spec, _ in to_tool_specs() if spec.tool_id == "inspection.manage")
     decision = ToolPolicy().check(
         spec,

@@ -295,11 +295,26 @@ export function RemoteTerminal({ onClose, initial }: {
           <div style={{ display: "flex", gap: 8, alignItems: "flex-end" }}>
             <div style={{ display: "flex", flexDirection: "column", gap: 3, flex: 1 }}>
               <span style={labelStyle}>用户名</span>
-              <input placeholder="admin" value={username} onChange={e => setUsername(e.target.value)} style={inputStyle} autoComplete="off" disabled={connected} />
+              <input
+                placeholder={protocol === "telnet" ? "可留空" : "admin"}
+                value={username}
+                onChange={e => setUsername(e.target.value)}
+                style={inputStyle}
+                autoComplete="off"
+                disabled={connected}
+              />
             </div>
             <div style={{ display: "flex", flexDirection: "column", gap: 3, flex: 1 }}>
               <span style={labelStyle}>密码</span>
-              <input placeholder="••••••" type="password" value={password} onChange={e => setPassword(e.target.value)} style={inputStyle} autoComplete="off" disabled={connected} />
+              <input
+                placeholder={protocol === "telnet" ? "可留空，遇到提示可手动输入" : "••••••"}
+                type="password"
+                value={password}
+                onChange={e => setPassword(e.target.value)}
+                style={inputStyle}
+                autoComplete="off"
+                disabled={connected}
+              />
             </div>
             <div style={{ display: "flex", gap: 6, alignItems: "flex-end" }}>
               <button className="btn sm ghost" onClick={() => { loadDevices(); setShowDevices(!showDevices); }}

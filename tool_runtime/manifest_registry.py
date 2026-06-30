@@ -295,7 +295,7 @@ MANIFESTS: dict[str, CapabilityManifest] = {
             "generic-fallback). The runner does NOT accept raw "
             "LLM string commands — every command is mapped through "
             "VendorCommandProfile and run only after a static "
-            "read-only check."
+            "read-only check. This is a cancellable long-running task."
         ),
         action_class="read",  # inspection commands are all read-only
         risk_level="medium",  # long read-only remote task; no approval
@@ -306,7 +306,7 @@ MANIFESTS: dict[str, CapabilityManifest] = {
         secret_fields=[],  # never sees a password
         output_sensitivity="internal",
         reads_artifact=True, writes_artifact=True,
-        timeout_seconds=300,
+        timeout_seconds=1200,
         # The runner is "inspection_runner" — an internal background
         # identity used by the inspection service. The user-facing
         # LLM-driven entrypoint is still "turn_runner".

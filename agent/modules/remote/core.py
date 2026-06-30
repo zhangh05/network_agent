@@ -127,7 +127,13 @@ def ssh_connect(session_id: str, host: str, port: int,
 def telnet_connect(session_id: str, host: str, port: int,
                    username: str = "", password: str = "",
                    vendor: str = "generic") -> DeviceSession:
-    """Connect via raw socket — transparent TCP bridge."""
+    """Connect via Telnet.
+
+    Telnet credentials are optional. Some console servers expose a
+    ready prompt immediately, while others ask for username/password.
+    We only answer login prompts when the caller provided the matching
+    credential; otherwise the socket stays connected for manual input.
+    """
     profile = get_profile(vendor)
     s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
     s.settimeout(CONNECT_TIMEOUT)
@@ -146,6 +152,7 @@ def telnet_connect(session_id: str, host: str, port: int,
         _SESSIONS[session_id] = session
     # Wake console server
     tn.sendall(b"\r\n")
+    _telnet_maybe_login(session, username=username, password=password)
     return session
 
 
@@ -228,6 +235,63 @@ def _exec_and_wait(session: DeviceSession, command: str) -> str:
     else:
         session.log[-1] = text  # rotate last entry
     return text
+
+
+def _telnet_maybe_login(session: DeviceSession, *, username: str = "", password: str = "") -> None:
+    """Best-effort Telnet login prompt handling.
+
+    This is intentionally conservative: no credentials means no
+    automatic input. The terminal remains interactive, so operators can
+    type credentials manually for devices with unusual prompts.
+    """
+    username = str(username or "")
+    password = str(password or "")
+    saw_username = False
+    saw_password = False
+    buf = b""
+    deadline = time.time() + 1.5
+
+    while time.time() < deadline:
+        chunk = session.recv(timeout=0.2)
+        if chunk:
+            buf += chunk
+            text = buf.decode("utf-8", errors="replace")
+            lowered = text.lower()
+
+            if not saw_username and _looks_like_telnet_username_prompt(lowered):
+                saw_username = True
+                if username:
+                    session.send((username + "\r\n").encode("utf-8"))
+                    deadline = time.time() + 1.5
+                    continue
+                break
+
+            if not saw_password and _looks_like_telnet_password_prompt(lowered):
+                saw_password = True
+                if password:
+                    session.send((password + "\r\n").encode("utf-8"))
+                    deadline = time.time() + 1.5
+                    continue
+                break
+
+            if session.vendor.match_prompt(text):
+                break
+            deadline = time.time() + 0.4
+        else:
+            time.sleep(0.05)
+
+    if buf:
+        text = buf.decode("utf-8", errors="replace")
+        if len(session.log) < MAX_SESSION_LOG_LINES:
+            session.log.append(text)
+
+
+def _looks_like_telnet_username_prompt(text: str) -> bool:
+    return bool(re.search(r"(username|login|user name|用户名|登录名)\s*[:：]?\s*$", text, re.I))
+
+
+def _looks_like_telnet_password_prompt(text: str) -> bool:
+    return bool(re.search(r"(password|passcode|密码|口令)\s*[:：]?\s*$", text, re.I))
 
 
 # ═══════════════════════════════════════════════════════════════════════

@@ -78,6 +78,9 @@ describe("CMDB inspection launch", () => {
     });
     expect(payload.prompt).toContain("CMDB 区域「测试一区」");
     expect(payload.prompt).toContain("自动巡检");
+    expect(payload.prompt).toContain("报告链接");
+    expect(payload.prompt).toContain("异常");
+    expect(payload.prompt).toContain("失败设备");
     expect(payload.prompt).not.toContain("inspection.manage");
     expect(payload.prompt).not.toContain("device.manage");
     expect(payload.prompt).not.toContain("基础健康检查");

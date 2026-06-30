@@ -191,7 +191,12 @@ class ToolPolicy:
             reason_parts.append(f"Tool '{spec.tool_id}' does not support dry_run")
 
         # ── 9. Timeout ──
-        max_timeout = 600 if effective_risk == "high" else (300 if effective_risk == "medium" else 120)
+        tier_max_timeout = 600 if effective_risk == "high" else (300 if effective_risk == "medium" else 120)
+        # Manifest entries are the server-side trust boundary for tool
+        # capabilities. Long-running read-only tools such as CMDB
+        # inspection declare their own timeout and remain cancellable.
+        manifest_timeout = int(getattr(manifest, "timeout_seconds", 0) or 0) if manifest else 0
+        max_timeout = max(tier_max_timeout, manifest_timeout)
         if effective_timeout > max_timeout:
             blocked.append("timeout_too_high")
             reason_parts.append(

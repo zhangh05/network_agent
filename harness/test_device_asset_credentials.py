@@ -273,6 +273,98 @@ def test_exec_run_ssh_can_resolve_cmdb_asset_id(monkeypatch):
     shutil.rmtree(root)
 
 
+def test_telnet_connect_allows_no_username_or_password(monkeypatch):
+    from agent.modules.remote import core as remote_core
+
+    sent: list[bytes] = []
+
+    class FakeSocket:
+        def __init__(self):
+            self.timeout = None
+            self.closed = False
+            self.recv_chunks = [b"\r\n<H3C>"]
+
+        def settimeout(self, timeout):
+            self.timeout = timeout
+
+        def connect(self, addr):
+            self.addr = addr
+
+        def sendall(self, data):
+            sent.append(data)
+
+        def recv(self, n):
+            return self.recv_chunks.pop(0) if self.recv_chunks else b""
+
+        def close(self):
+            self.closed = True
+
+        def fileno(self):
+            return 0
+
+    fake = FakeSocket()
+    monkeypatch.setattr(remote_core.socket, "socket", lambda *a, **k: fake)
+    monkeypatch.setattr(remote_core.select, "select", lambda r, w, x, timeout=0: (r if fake.recv_chunks else [], [], []))
+
+    session = remote_core.telnet_connect(
+        "sid_telnet_noauth",
+        "192.0.2.61",
+        23,
+        username="",
+        password="",
+        vendor="h3c",
+    )
+
+    assert session.connected is True
+    assert sent == [b"\r\n"]
+    remote_core.disconnect("sid_telnet_noauth")
+
+
+def test_telnet_connect_answers_login_prompts_only_when_credentials_exist(monkeypatch):
+    from agent.modules.remote import core as remote_core
+
+    sent: list[bytes] = []
+
+    class FakeSocket:
+        def __init__(self):
+            self.recv_chunks = [b"Username:", b"Password:", b"\r\n<H3C>"]
+
+        def settimeout(self, timeout):
+            self.timeout = timeout
+
+        def connect(self, addr):
+            self.addr = addr
+
+        def sendall(self, data):
+            sent.append(data)
+
+        def recv(self, n):
+            return self.recv_chunks.pop(0) if self.recv_chunks else b""
+
+        def close(self):
+            pass
+
+        def fileno(self):
+            return 0
+
+    fake = FakeSocket()
+    monkeypatch.setattr(remote_core.socket, "socket", lambda *a, **k: fake)
+    monkeypatch.setattr(remote_core.select, "select", lambda r, w, x, timeout=0: (r if fake.recv_chunks else [], [], []))
+
+    session = remote_core.telnet_connect(
+        "sid_telnet_auth",
+        "192.0.2.62",
+        23,
+        username="admin",
+        password="pw123",
+        vendor="h3c",
+    )
+
+    assert session.connected is True
+    assert sent == [b"\r\n", b"admin\r\n", b"pw123\r\n"]
+    remote_core.disconnect("sid_telnet_auth")
+
+
 def test_runner_trim_accepts_llm_message_objects():
     from types import SimpleNamespace
 
