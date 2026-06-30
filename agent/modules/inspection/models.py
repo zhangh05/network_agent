@@ -166,7 +166,7 @@ class InspectionTask:
     scope: InspectionScope
     profile_id: str
     profile_display_name: str = ""
-    status: str = "pending"   # pending|running|succeeded|failed|cancelled
+    status: str = "pending"   # pending|running|succeeded|partial|failed|cancelled
     started_at: str = ""
     finished_at: str = ""
     total_assets: int = 0

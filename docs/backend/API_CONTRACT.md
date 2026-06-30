@@ -33,3 +33,16 @@ Approval endpoints are workspace-scoped and backed by the single `ApprovalStore`
 ## Secrets
 
 Backend responses that may contain user content or tool output must pass through redaction before returning summary lists, histories, run lists, memory records, or trace payloads.
+
+## Inspection
+
+`/api/inspection/*` is the HTTP surface for CMDB-driven device inspection and `inspection.manage` is the LLM-facing canonical tool.
+
+Rules:
+
+- All inspection endpoints require an explicit valid `workspace_id`.
+- Profiles are builtin read-only command bundles; the LLM selects a profile and scope, never raw commands.
+- `scope.asset_ids` is authoritative. When explicit asset ids are present, region/vendor/type/location filters must not hide those assets.
+- SSH/Telnet execution must call `exec.run` with `asset_id`; credentials are resolved server-side and never returned to the frontend or LLM.
+- `current_config` output is stored only as a sensitive artifact. Task JSON may include command metadata and redacted snippets, not raw configuration content.
+- Mixed device outcomes use `status="partial"` instead of reporting full success.

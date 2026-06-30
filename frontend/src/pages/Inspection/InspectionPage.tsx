@@ -36,12 +36,12 @@ const SEVERITY_COLOR: Record<string, string> = {
 
 const STATUS_COLOR: Record<string, string> = {
   pending: "var(--text-3)", running: "var(--info)", succeeded: "var(--ok)",
-  failed: "var(--danger)", cancelled: "var(--text-3)",
+  partial: "#d97706", failed: "var(--danger)", cancelled: "var(--text-3)",
 };
 
 const STATUS_LABEL: Record<string, string> = {
   pending: "等待中", running: "运行中", succeeded: "已完成",
-  failed: "已失败", cancelled: "已取消",
+  partial: "部分完成", failed: "已失败", cancelled: "已取消",
 };
 
 // Profile id → human category chip

@@ -1118,7 +1118,7 @@ export interface InspectionTaskRecord {
   scope: InspectionScope;
   profile_id: string;
   profile_display_name: string;
-  status: "pending" | "running" | "succeeded" | "failed" | "cancelled";
+  status: "pending" | "running" | "succeeded" | "partial" | "failed" | "cancelled";
   started_at: string;
   finished_at: string;
   total_assets: number;

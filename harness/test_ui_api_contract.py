@@ -170,7 +170,7 @@ class TestPlannedModules:
     """Planned modules must be properly marked."""
 
     def test_planned_modules_have_label(self):
-        """Topology and inspection must have planned/coming_soon labels."""
+        """Topology must have a planned/coming_soon label."""
         html = _html()
         assert "planned" in html.lower(), (
             "No 'planned' label found — planned modules must be clearly marked"

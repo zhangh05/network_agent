@@ -29,6 +29,7 @@ from typing import Optional
 
 from agent.runtime.utils import now_iso, from_iso, duration_ms
 from artifacts.store import save_artifact
+from tool_runtime.redaction import redact_string
 from tool_runtime.context import ToolRuntimeContext
 from tool_runtime.integration import get_default_tool_runtime_client
 from tool_runtime.schemas import ToolInvocation
@@ -224,8 +225,8 @@ def _get_asset_meta(workspace_id: str, asset_id: str) -> dict | None:
 
 # ── helper: exec one command via canonical exec.run ──────────────────────
 
-def _exec_one_command(workspace_id: str, asset_id: str, command: str,
-                      timeout: int) -> dict:
+def _exec_one_command(workspace_id: str, asset_id: str, protocol: str,
+                      command: str, timeout: int) -> dict:
     """Run a single read-only command through ``exec.run`` over SSH/Telnet.
 
     Returns a dict-shaped result (not ToolResult) so the runner can
@@ -240,9 +241,10 @@ def _exec_one_command(workspace_id: str, asset_id: str, command: str,
         requested_by=INSPECTION_CALLER,
         dry_run_default=False,
     )
+    target = "telnet" if (protocol or "").lower() == "telnet" else "ssh"
     inv_args = {
         "action": "shell",
-        "target": "ssh",
+        "target": target,
         "asset_id": asset_id,
         "command": command,
         "workspace_id": workspace_id,
@@ -284,10 +286,14 @@ def _run_checks_on_asset(task: InspectionTask,
                          profile: InspectionProfile,
                          asset_meta: dict,
                          workspace_id: str) -> DeviceResult:
-    asset_id = asset_meta.get("asset_id") or task.devices and ""
-    # The caller passes asset_id explicitly; we override once known.
-    asset_id = asset_meta["asset_id"]
+    asset_id = str(asset_meta.get("asset_id") or "")
     dr = DeviceResult(task_id=task.task_id, asset_id=asset_id)
+    if not asset_id:
+        dr.status = "failed"
+        dr.supported = False
+        dr.errors.append("asset_id_missing")
+        dr.finished_at = now_iso()
+        return dr
     dr.asset_name = asset_meta.get("name", "")
     dr.host = asset_meta.get("host", "")
     dr.region = asset_meta.get("region") or ""
@@ -354,7 +360,8 @@ def _run_checks_on_asset(task: InspectionTask,
 
         t0 = time.time()
         run_result = _exec_one_command(
-            workspace_id, asset_id, command, timeout=check.timeout_seconds,
+            workspace_id, asset_id, dr.protocol, command,
+            timeout=check.timeout_seconds,
         )
         elapsed = int((time.time() - t0) * 1000)
         output = run_result["output"]
@@ -363,7 +370,7 @@ def _run_checks_on_asset(task: InspectionTask,
         # Persist raw output as an artifact (config backup reads
         # back the same artifact later in the task for diffing).
         artifact_id = ""
-        snippet = output[:800] if output else ""
+        snippet = redact_string(output[:800]) if output else ""
         if output and cmd_key == CK_CURRENT_CONFIG and ok:
             art = save_artifact(
                 workspace_id=workspace_id,
@@ -382,6 +389,11 @@ def _run_checks_on_asset(task: InspectionTask,
             )
             if art is not None:
                 artifact_id = getattr(art, "artifact_id", "")
+            snippet = (
+                "[current configuration saved as sensitive artifact"
+                + (f" {artifact_id}" if artifact_id else "")
+                + "]"
+            )
 
         # Parser
         parser_kwargs: dict = {"asset_id": asset_id, "check_id": check.check_id}
@@ -501,35 +513,33 @@ def _read_artifact_content(workspace_id: str, rec: dict) -> dict | None:
 def _resolve_target_assets(scope: InspectionScope, workspace_id: str) -> list[dict]:
     """Resolve the scope against CMDB. Returns a list of asset dicts."""
     from agent.modules.cmdb.service import list_assets
-    f: dict[str, str] = {}
-    if scope.region:
-        f["region"] = scope.region
-    if scope.type:
-        f["type"] = scope.type
-    if scope.vendor:
-        f["vendor"] = scope.vendor
-    if scope.location:
-        f["location"] = scope.location
-    assets = list_assets(workspace_id, filter=f)
-    if scope.tags:
-        wanted = {t.strip() for t in scope.tags if t.strip()}
-        assets = [
-            a for a in assets
-            if wanted.issubset({t.strip() for t in (a.get("tags") or [])})
-        ]
     if scope.asset_ids:
-        wanted_ids = set(scope.asset_ids)
-        # explicit ids take precedence even if not in filter
-        explicit_assets = [a for a in assets if a.get("asset_id") in wanted_ids]
-        existing_ids = {a.get("asset_id") for a in explicit_assets}
-        missing = wanted_ids - existing_ids
+        all_assets = list_assets(workspace_id, filter={})
+        by_id = {str(a.get("asset_id") or ""): a for a in all_assets}
+        assets = [by_id[aid] for aid in scope.asset_ids if aid in by_id]
+        missing = set(scope.asset_ids) - set(by_id)
         if missing:
-            # surface missing ids in caller log; runner still proceeds
             for mid in missing:
                 logger.info(
-                    "inspection: explicit asset_id %s not in CMDB filter", mid,
+                    "inspection: explicit asset_id %s not found in CMDB", mid,
                 )
-        assets = explicit_assets
+    else:
+        f: dict[str, str] = {}
+        if scope.region:
+            f["region"] = scope.region
+        if scope.type:
+            f["type"] = scope.type
+        if scope.vendor:
+            f["vendor"] = scope.vendor
+        if scope.location:
+            f["location"] = scope.location
+        assets = list_assets(workspace_id, filter=f)
+        if scope.tags:
+            wanted = {t.strip() for t in scope.tags if t.strip()}
+            assets = [
+                a for a in assets
+                if wanted.issubset({t.strip() for t in (a.get("tags") or [])})
+            ]
     if scope.limit and len(assets) > scope.limit:
         assets = assets[: scope.limit]
     return assets
@@ -635,7 +645,7 @@ def run_task(workspace_id: str,
     if task.failed == 0:
         task.status = "succeeded"
     elif task.succeeded > 0:
-        task.status = "succeeded"  # partial success is still a success.
+        task.status = "partial"
     else:
         task.status = "failed"
     task.finished_at = now_iso()
@@ -646,7 +656,18 @@ def run_task(workspace_id: str,
 def _run_one_device_with_meta(workspace_id: str, asset_meta: dict,
                                task: InspectionTask,
                                profile: InspectionProfile) -> DeviceResult:
-    dr = _run_checks_on_asset(task, profile, asset_meta, workspace_id)
+    asset_id = str(asset_meta.get("asset_id") or "")
+    resolved = _get_asset_meta(workspace_id, asset_id) if asset_id else None
+    if not resolved:
+        dr = DeviceResult(task_id=task.task_id, asset_id=asset_id)
+        dr.asset_name = str(asset_meta.get("name") or "")
+        dr.host = str(asset_meta.get("host") or "")
+        dr.status = "failed"
+        dr.supported = False
+        dr.errors.append(f"asset_not_found: {asset_id}" if asset_id else "asset_id_missing")
+        dr.finished_at = now_iso()
+        return dr
+    dr = _run_checks_on_asset(task, profile, resolved, workspace_id)
     return dr
 
 

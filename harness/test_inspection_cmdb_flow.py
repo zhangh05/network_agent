@@ -250,3 +250,127 @@ def test_report_render_does_not_embed_passwords():
     assert "巡检模板" in md, "report must include template name section"
     assert "巡检范围" in md, "report must include scope section"
     assert "总体" in md or "总设备" in md, "report must include summary section"
+
+
+def test_explicit_asset_ids_are_authoritative_over_scope_filters():
+    """Explicit asset ids must not be hidden by region/vendor/type filters."""
+    from agent.modules.cmdb.service import save_asset
+    from agent.modules.inspection.models import InspectionScope
+    from agent.modules.inspection.runner import _resolve_target_assets
+
+    ws = "ws_test_inspect_scope"
+    created = save_asset(ws, {
+        "name": "scope-router-01",
+        "type": "router",
+        "vendor": "H3C",
+        "host": "10.251.13.1",
+        "port": 22,
+        "protocol": "ssh",
+        "username": "admin",
+        "region": "华东",
+    })
+    assert created["ok"] is True
+    aid = created["asset_id"]
+
+    targets = _resolve_target_assets(
+        InspectionScope(region="不存在区域", vendor="Cisco", asset_ids=(aid,)),
+        ws,
+    )
+    assert [t["asset_id"] for t in targets] == [aid]
+
+
+def test_telnet_asset_uses_telnet_target(monkeypatch):
+    """The runner must pass the CMDB protocol into exec.run target."""
+    from agent.modules.inspection import runner
+    from agent.modules.inspection.models import InspectionCheck, InspectionProfile, InspectionTask, InspectionScope
+
+    seen_protocols = []
+
+    def fake_exec(workspace_id, asset_id, protocol, command, timeout):
+        seen_protocols.append(protocol)
+        return {"ok": True, "output": "H3C Comware Software", "error": ""}
+
+    monkeypatch.setattr(runner, "_exec_one_command", fake_exec)
+
+    task = InspectionTask(
+        task_id="ins_test_telnet",
+        workspace_id="ws_test_inspect",
+        scope=InspectionScope(),
+        profile_id="one",
+    )
+    profile = InspectionProfile(
+        profile_id="one",
+        display_name="One",
+        description="One check",
+        checks=(InspectionCheck(
+            check_id="basic.version",
+            category="health",
+            display_name="Version",
+            command_key="version",
+            parser_key="version",
+        ),),
+    )
+    dr = runner._run_checks_on_asset(task, profile, {
+        "asset_id": "asset_telnet",
+        "name": "telnet-device",
+        "host": "10.251.13.2",
+        "vendor": "h3c",
+        "type": "switch",
+        "protocol": "telnet",
+    }, "ws_test_inspect")
+
+    assert dr.status == "succeeded"
+    assert seen_protocols == ["telnet"]
+
+
+def test_current_config_snippet_is_not_raw_config(monkeypatch):
+    """Raw current-config belongs in a sensitive artifact, not task JSON."""
+    from agent.modules.inspection import runner
+    from agent.modules.inspection.models import InspectionCheck, InspectionProfile, InspectionTask, InspectionScope
+
+    class FakeArtifact:
+        artifact_id = "art_sensitive_config"
+
+    monkeypatch.setattr(
+        runner,
+        "_exec_one_command",
+        lambda *args, **kwargs: {
+            "ok": True,
+            "output": "sysname demo\npassword=plain-secret\ninterface Vlanif1",
+            "error": "",
+        },
+    )
+    monkeypatch.setattr(runner, "save_artifact", lambda **kwargs: FakeArtifact())
+
+    task = InspectionTask(
+        task_id="ins_test_config",
+        workspace_id="ws_test_inspect",
+        scope=InspectionScope(),
+        profile_id="config",
+    )
+    profile = InspectionProfile(
+        profile_id="config",
+        display_name="Config",
+        description="Config backup",
+        checks=(InspectionCheck(
+            check_id="config.current",
+            category="config",
+            display_name="Current config",
+            command_key="current_config",
+            parser_key="current_config",
+        ),),
+    )
+    dr = runner._run_checks_on_asset(task, profile, {
+        "asset_id": "asset_cfg",
+        "name": "cfg-device",
+        "host": "10.251.13.3",
+        "vendor": "h3c",
+        "type": "switch",
+        "protocol": "ssh",
+    }, "ws_test_inspect")
+
+    assert dr.command_results[0].artifact_id == "art_sensitive_config"
+    snippet = dr.command_results[0].output_snippet.lower()
+    assert "plain-secret" not in snippet
+    assert "password=" not in snippet
+    assert "sensitive artifact" in snippet

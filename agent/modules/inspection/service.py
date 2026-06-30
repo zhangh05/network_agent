@@ -64,6 +64,25 @@ def list_profiles() -> list[dict]:
     return out
 
 
+def _tuple_of_strings(value: Any) -> tuple[str, ...]:
+    if value is None:
+        return ()
+    if isinstance(value, str):
+        parts = value.replace("，", ",").split(",")
+        return tuple(p.strip() for p in parts if p.strip())
+    if isinstance(value, (list, tuple, set)):
+        return tuple(str(v).strip() for v in value if str(v).strip())
+    return ()
+
+
+def _coerce_limit(value: Any, default: int = 50) -> int:
+    try:
+        limit = int(value if value not in (None, "") else default)
+    except (TypeError, ValueError):
+        limit = default
+    return max(1, min(limit, 500))
+
+
 def _coerce_scope(scope_in: dict | None) -> InspectionScope:
     s = scope_in or {}
     return InspectionScope(
@@ -71,9 +90,9 @@ def _coerce_scope(scope_in: dict | None) -> InspectionScope:
         location=str(s.get("location", "") or ""),
         type=str(s.get("type", "") or ""),
         vendor=str(s.get("vendor", "") or ""),
-        tags=tuple(s.get("tags") or ()),
-        asset_ids=tuple(s.get("asset_ids") or ()),
-        limit=int(s.get("limit", 50) or 50),
+        tags=_tuple_of_strings(s.get("tags")),
+        asset_ids=_tuple_of_strings(s.get("asset_ids")),
+        limit=_coerce_limit(s.get("limit", 50)),
     )
 
 

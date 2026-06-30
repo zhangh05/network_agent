@@ -14,20 +14,29 @@ const TYPE_LABEL: Record<string, string> = {
   load_balancer: "负载均衡", wireless: "无线", other: "其他",
 };
 const VENDOR_STRIP: Record<string, string> = {
-  h3c: "var(--info)", huawei: "#cf0a2c", cisco: "#049fd9", ruijie: "#0077be",
+  H3C: "var(--info)", Huawei: "#cf0a2c", Cisco: "#049fd9", Ruijie: "#0077be",
+  Juniper: "#7e22ce", Arista: "#be123c", Dell: "#0076ce", Fortinet: "#cc0000",
 };
-const REGION_PRESETS = ["华东", "华南", "华北", "华西", "核心", "汇聚", "接入"];
+const REGION_PRESETS = ["华东", "华南", "华北", "华西", "华东-核心", "华东-汇聚", "华东-接入",
+                          "华南-核心", "华北-核心", "海外"];
 const REGION_TINT: Record<string, string> = {
   "华东": "var(--info-soft)", "华南": "var(--ok-soft)", "华北": "#dbeafe",
-  "华西": "#f3e8ff", "核心": "#ffe4e6", "汇聚": "#fef3c7", "接入": "var(--surface-3)",
+  "华西": "#f3e8ff", "华东-核心": "#e0f2fe", "华东-汇聚": "#dbeafe", "华东-接入": "var(--surface-3)",
+  "华南-核心": "#dcfce7", "华北-核心": "#dbeafe", "海外": "#fef3c7",
 };
 const REGION_TEXT: Record<string, string> = {
   "华东": "var(--info)", "华南": "var(--ok)", "华北": "#1e40af",
-  "华西": "#7e22ce", "核心": "#be123c", "汇聚": "#92400e", "接入": "var(--text-3)",
+  "华西": "#7e22ce", "华东-核心": "#075985", "华东-汇聚": "#0369a1", "华东-接入": "var(--text-3)",
+  "华南-核心": "#15803d", "华北-核心": "#1e40af", "海外": "#92400e",
 };
 
-const VENDOR_PRESETS: [string, string][] = [
-  ["h3c", "H3C"], ["huawei", "Huawei"], ["cisco", "Cisco"], ["ruijie", "Ruijie"],
+// v3.9.13: vendor / region are user-typed strings. The combobox
+// (``<datalist>``) lets the operator pick a preset or type anything
+// for a custom entry — no more "select + extra input field" ceremony.
+const VENDOR_PRESETS_LIST = [
+  "H3C", "Huawei", "Cisco", "Ruijie", "Juniper", "Arista", "Dell",
+  "Mellanox", "MikroTik", "Ubiquiti", "Fortinet", "Hillstone", "Sangfor",
+  "锐讯", "Aruba", "Palo Alto", "F5", "Check Point", "A10",
 ];
 
 // ── tiny stat pill ──
@@ -56,13 +65,17 @@ export function CMDBPage() {
   });
   const ufv = (k: string, v: string) => setFv((p) => ({ ...p, [k]: v }));
 
-  // ── custom input state ──
-  const [customVendor, setCustomVendor] = useState(false);
-  const [customRegion, setCustomRegion] = useState(false);
-  const [customVendorVal, setCustomVendorVal] = useState("");
-  const [customRegionVal, setCustomRegionVal] = useState("");
-  const [savedVendors, setSavedVendors] = useState<string[]>([]);
-  const [savedRegions, setSavedRegions] = useState<string[]>([]);
+  // v3.9.13: vendor / region are user-typed strings. The combobox
+  // (``<datalist>``) lets the operator pick a preset or type anything
+  // for a custom entry — no more "select + extra input field" ceremony.
+  // We collect the union of preset + previously-typed values so the
+  // combobox stays helpful as the CMDB grows.
+  const [savedVendors, setSavedVendors] = useState<string[]>([...VENDOR_PRESETS_LIST]);
+  const [savedRegions, setSavedRegions] = useState<string[]>([...REGION_PRESETS]);
+  // v3.9.13: protocol picker shows the two primary live-terminal
+  // choices (SSH / Telnet) as chips; everything else is collapsed
+  // behind "其它协议".
+  const [showAdvancedProtocol, setShowAdvancedProtocol] = useState(false);
 
   const load = useCallback(async () => {
     if (!wsId) return;
@@ -72,11 +85,12 @@ export function CMDBPage() {
       if (r.ok) {
         const list = r.assets || [];
         setAssets(list);
-        // collect custom vendors & regions from existing assets
-        const allVendors = [...new Set(list.map(a => a.vendor).filter(Boolean))] as string[];
-        const allRegions = [...new Set(list.map(a => a.region).filter(Boolean))] as string[];
-        setSavedVendors(allVendors.filter(v => !VENDOR_PRESETS.find(([k]) => k === v)));
-        setSavedRegions(allRegions.filter(r => !REGION_PRESETS.includes(r)));
+        // Fold any user-typed values that already exist into the
+        // combobox so future entries get autocomplete for them.
+        const typedVendors = [...new Set(list.map(a => a.vendor).filter(Boolean))] as string[];
+        const typedRegions = [...new Set(list.map(a => a.region).filter(Boolean))] as string[];
+        setSavedVendors([...new Set([...VENDOR_PRESETS_LIST, ...typedVendors])]);
+        setSavedRegions([...new Set([...REGION_PRESETS, ...typedRegions])]);
       }
     } catch { /* */ }
   }, [wsId]);
@@ -87,8 +101,7 @@ export function CMDBPage() {
     setEditingAsset(null);
     setFv({ name: "", type: "switch", vendor: "", model: "", host: "", port: "22",
       protocol: "ssh", username: "", password: "", region: "", location: "", description: "", tags: "", err: "" });
-    setCustomVendor(false); setCustomRegion(false);
-    setCustomVendorVal(""); setCustomRegionVal("");
+    setShowAdvancedProtocol(false);
     setShowForm(true);
   };
 
@@ -100,25 +113,22 @@ export function CMDBPage() {
       username: a.username, password: "", region: a.region || "",
       location: a.location, description: a.description || "", tags: (a.tags || []).join(", "), err: "",
     });
-    // detect if vendor/region is custom
-    const isCustomV = a.vendor && !VENDOR_PRESETS.find(([k]) => k === a.vendor);
-    const isCustomR = a.region && !REGION_PRESETS.includes(a.region);
-    setCustomVendor(!!isCustomV); setCustomRegion(!!isCustomR);
-    setCustomVendorVal(isCustomV ? a.vendor : ""); setCustomRegionVal(isCustomR ? a.region || "" : "");
+    // v3.9.13: SSH / Telnet live on the primary chip row; everything
+    // else pops the "其它协议" disclosure.
+    const adv = !["ssh", "telnet"].includes((a.protocol || "").toLowerCase());
+    setShowAdvancedProtocol(adv);
     setShowForm(true);
   };
 
   const doSave = async () => {
     if (!fv.host) { ufv("err", "请输入主机地址"); return; }
     ufv("err", "");
-    const vendor = customVendor ? (customVendorVal.trim() || "") : fv.vendor;
-    const region = customRegion ? (customRegionVal.trim() || "") : fv.region;
     const payload: Record<string, unknown> = {
       workspace_id: wsId, asset_id: editingAsset?.asset_id || undefined,
-      name: fv.name || fv.host, type: fv.type, vendor, model: fv.model,
+      name: fv.name || fv.host, type: fv.type, vendor: fv.vendor, model: fv.model,
       host: fv.host, port: parseInt(fv.port) || 22, protocol: fv.protocol,
       username: fv.username,
-      region, location: fv.location, description: fv.description,
+      region: fv.region, location: fv.location, description: fv.description,
       tags: fv.tags.split(/[,，\s]+/).map(t => t.trim()).filter(Boolean),
     };
     if (fv.password) payload.password = fv.password;
@@ -176,15 +186,10 @@ export function CMDBPage() {
       {opts.map(([k, v]) => <option key={k} value={k}>{v}</option>)}
     </select>
   );
-  const customInput = (val: string, setVal: (v: string) => void, ph: string) => (
-    <input
-      placeholder={ph} value={val}
-      onChange={e => setVal(e.target.value)}
-      style={stl(false, { marginTop: 6 })}
-      onFocus={e => e.currentTarget.style.borderColor = "var(--accent)"}
-      onBlur={e => e.currentTarget.style.borderColor = "var(--line)"}
-    />
-  );
+  // v3.9.13: custom input helper removed — vendor/region are
+  // ``<input list="...">`` comboboxes tied to ``<datalist>``s that
+  // grow with previously-saved values. No extra "select + 自定义填
+  // 写" switch any more.
   const sectionTitle = (title: string, desc: string) => (
     <div style={{ gridColumn: "1 / -1", display: "flex", alignItems: "baseline", gap: 10, marginTop: 4 }}>
       <span style={{ fontSize: 13, fontWeight: 700, color: "var(--text)" }}>{title}</span>
@@ -200,20 +205,20 @@ export function CMDBPage() {
     ["switch", "交换机"], ["router", "路由器"], ["firewall", "防火墙"], ["server", "服务器"],
     ["load_balancer", "负载均衡"], ["wireless", "无线"], ["other", "其他"],
   ];
-  const protocolOpts: [string, string][] = [
-    ["ssh", "SSH"], ["telnet", "Telnet"], ["https", "HTTPS"], ["snmp", "SNMP"],
-    ["netconf", "NETCONF"], ["restconf", "RESTCONF"],
-  ];
 
-  const vendorOpts: [string, string][] = [
-    ["", "—"], ...VENDOR_PRESETS, ...savedVendors.map(v => [v, v] as [string, string]),
-    ["__custom__", "自定义填写"],
+  // v3.9.13: SSH/Telnet are the *primary* live-terminal protocols and
+  // render as toggle chips next to the host field. The remaining
+  // protocols sit behind a collapsed "其它协议" disclosure because
+  // they are non-interactive (we just persist the asset metadata).
+  const terminalProtocols = [
+    { value: "ssh", label: "SSH", desc: "可发起远程终端" },
+    { value: "telnet", label: "Telnet", desc: "明文协议，仅在受控网络使用" },
   ];
-
-  const regionOpts: [string, string][] = [
-    ["", "—"], ...REGION_PRESETS.map(r => [r, r] as [string, string]),
-    ...savedRegions.map(r => [r, r] as [string, string]),
-    ["__custom__", "自定义填写"],
+  const passiveProtocols = [
+    { value: "https", label: "HTTPS" },
+    { value: "snmp", label: "SNMP" },
+    { value: "netconf", label: "NETCONF" },
+    { value: "restconf", label: "RESTCONF" },
   ];
 
   return (
@@ -345,50 +350,129 @@ export function CMDBPage() {
                 {sectionTitle("基础信息", "用于识别资产，LLM 会优先根据名称、厂商、型号和标签检索。")}
                 <div style={{ gridColumn: "span 6" }}>{field("名称 *", inp("设备名称，例如：杭州核心交换机-01", "name", { fontFamily: "var(--font-sans)" }, false))}</div>
                 <div style={{ gridColumn: "span 3" }}>{field("类型", sel("type", typeOpts))}</div>
+                {/* v3.9.13: vendor is a combobox — pick from presets or type
+                    anything for a custom entry. The datalist grows with
+                    the CMDB. */}
                 <div style={{ gridColumn: "span 3", display: "flex", flexDirection: "column", gap: 4 }}>
                   <span style={{ fontSize: 11, color: "var(--text-4)", fontWeight: 600 }}>厂商</span>
-                  {sel("vendor", vendorOpts, (v) => {
-                    if (v === "__custom__") { setCustomVendor(true); setCustomVendorVal(""); ufv("vendor", ""); }
-                    else setCustomVendor(false);
-                  })}
-                  {customVendor && customInput(customVendorVal, setCustomVendorVal, "输入自定义厂商...")}
+                  <input
+                    list="cmdb-vendor-options"
+                    placeholder="选择或输入，例如：H3C"
+                    value={fv.vendor || ""}
+                    onChange={e => ufv("vendor", e.target.value)}
+                    style={stl(false)}
+                    onFocus={e => e.currentTarget.style.borderColor = "var(--accent)"}
+                    onBlur={e => e.currentTarget.style.borderColor = "var(--line)"}
+                  />
+                  <datalist id="cmdb-vendor-options">
+                    {savedVendors.map(v => <option key={v} value={v} />)}
+                  </datalist>
                 </div>
                 <div style={{ gridColumn: "span 4" }}>{field("型号", inp("型号，例如：S5735 / AR3260", "model", { fontFamily: "var(--font-sans)" }, false))}</div>
                 <div style={{ gridColumn: "span 8" }}>{field("标签", inp("多个标签用逗号分隔，例如：核心, BGP, 生产", "tags", { fontFamily: "var(--font-sans)" }, false))}</div>
 
                 {/* 区域 & 位置 */}
                 {sectionTitle("区域与位置", "区域用于 LLM 分区检索和运维调度；位置用于机房、机柜、U 位等物理定位。")}
+                {/* v3.9.13: region combobox — same pattern as vendor. */}
                 <div style={{ gridColumn: "span 4", display: "flex", flexDirection: "column", gap: 4 }}>
                   <span style={{ fontSize: 11, color: "var(--text-4)", fontWeight: 600 }}>区域</span>
-                  {sel("region", regionOpts, (v) => {
-                    if (v === "__custom__") { setCustomRegion(true); setCustomRegionVal(""); ufv("region", ""); }
-                    else setCustomRegion(false);
-                  })}
-                  {customRegion && customInput(customRegionVal, setCustomRegionVal, "输入自定义区域...")}
+                  <input
+                    list="cmdb-region-options"
+                    placeholder="选择或输入，例如：华东"
+                    value={fv.region || ""}
+                    onChange={e => ufv("region", e.target.value)}
+                    style={stl(false)}
+                    onFocus={e => e.currentTarget.style.borderColor = "var(--accent)"}
+                    onBlur={e => e.currentTarget.style.borderColor = "var(--line)"}
+                  />
+                  <datalist id="cmdb-region-options">
+                    {savedRegions.map(r => <option key={r} value={r} />)}
+                  </datalist>
                 </div>
                 <div style={{ gridColumn: "span 4" }}>{field("位置", inp("机房 / 机柜 / U 位，例如：7A-18U", "location", { fontFamily: "var(--font-sans)" }, false))}</div>
                 <div style={{ gridColumn: "span 4", alignSelf: "end" }}>{helpText("示例：华东 / 杭州-A机房 / 7A-18U。区域越稳定，LLM 按区域查找越可靠。")}</div>
                 <div style={{ gridColumn: "span 12" }}>{field("备注", inp("备注信息，例如用途、业务归属、维护窗口", "description", { fontFamily: "var(--font-sans)" }, false))}</div>
 
                 {/* 连接信息分隔 */}
-                {sectionTitle("连接凭据", "SSH/Telnet 可直接从资产发起连接；其他协议先作为资产资料保存。")}
+                {sectionTitle("连接凭据", "SSH / Telnet 可直接从资产发起远程终端；其它协议先作为资产资料保存。")}
+
+                {/* v3.9.13: protocol picker is two-stage — primary chips
+                    for SSH / Telnet (live-terminal protocols), an
+                    "其它协议" disclosure for the rest. "ssh" remains
+                    the default for new entries. */}
+                <div style={{ gridColumn: "span 12", display: "flex", flexDirection: "column", gap: 6 }}>
+                  <span style={{ fontSize: 11, color: "var(--text-4)", fontWeight: 600 }}>协议</span>
+                  <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
+                    {terminalProtocols.map(p => {
+                      const active = (fv.protocol || "").toLowerCase() === p.value;
+                      return (
+                        <button
+                          key={p.value}
+                          type="button"
+                          title={p.desc}
+                          onClick={() => { ufv("protocol", p.value); setShowAdvancedProtocol(false); }}
+                          style={{
+                            padding: "6px 14px", borderRadius: "var(--r-pill)", cursor: "pointer",
+                            border: `1px solid ${active ? "var(--accent)" : "var(--line-2)"}`,
+                            background: active ? "var(--accent-soft)" : "var(--surface)",
+                            color: active ? "var(--accent)" : "var(--text-3)",
+                            fontSize: 13, fontWeight: 600, transition: "all .15s",
+                          }}
+                        >{p.label}</button>
+                      );
+                    })}
+                    <button
+                      type="button"
+                      onClick={() => setShowAdvancedProtocol(v => !v)}
+                      style={{
+                        padding: "6px 12px", borderRadius: "var(--r-pill)", cursor: "pointer",
+                        border: `1px solid ${showAdvancedProtocol ? "var(--accent)" : "var(--line)"}`,
+                        background: "transparent", color: "var(--text-4)",
+                        fontSize: 12,
+                      }}
+                    >{showAdvancedProtocol ? "收起其它协议" : "其它协议 ▾"}</button>
+                    {showAdvancedProtocol && (
+                      <div style={{ display: "flex", gap: 6, marginLeft: 4, flexWrap: "wrap" }}>
+                        {passiveProtocols.map(p => {
+                          const active = (fv.protocol || "").toLowerCase() === p.value;
+                          return (
+                            <button
+                              key={p.value}
+                              type="button"
+                              onClick={() => ufv("protocol", p.value)}
+                              style={{
+                                padding: "5px 12px", borderRadius: "var(--r-pill)", cursor: "pointer",
+                                border: `1px solid ${active ? "var(--accent)" : "var(--line)"}`,
+                                background: active ? "var(--accent-soft)" : "var(--surface)",
+                                color: active ? "var(--accent)" : "var(--text-4)",
+                                fontSize: 12, fontWeight: 500,
+                              }}
+                            >{p.label}</button>
+                          );
+                        })}
+                      </div>
+                    )}
+                  </div>
+                </div>
 
                 <div style={{ display: "flex", gap: 8, gridColumn: "span 12" }}>
-                  <div style={{ width: 116 }}>
-                    {field("", sel("protocol", protocolOpts))}
-                  </div>
                   <div style={{ flex: 1 }}>{field("主机 *", inp("192.168.1.1", "host"))}</div>
                   <div style={{ width: 92 }}>{field("端口", inp("22", "port", { textAlign: "center" }))}</div>
                 </div>
                 <div style={{ gridColumn: "span 6" }}>{field("用户名", inp("admin", "username"))}</div>
                 <div style={{ gridColumn: "span 6", display: "flex", flexDirection: "column", gap: 4 }}>
-                  <span style={{ fontSize: 11, color: "var(--text-4)", fontWeight: 600 }}>密码</span>
+                  <span style={{ fontSize: 11, color: "var(--text-4)", fontWeight: 600 }}>
+                    密码 <span style={{ color: "var(--text-4)", fontWeight: 400 }}>· 后端保存为密钥，不返回明文</span>
+                  </span>
                   <input
-                    type="password" placeholder={editingAsset ? "留空则保留已保存密钥" : "输入后保存为服务端密钥"} value={fv.password}
+                    type="password"
+                    placeholder={editingAsset ? "留空保留原密钥" : "选填；填入将覆盖"}
+                    value={fv.password}
                     onChange={e => ufv("password", e.target.value)}
                     style={{
-                      padding: "7px 10px", fontSize: 13, borderRadius: 6, border: "1px solid var(--line)",
-                      background: "var(--surface)", color: "var(--text)", outline: "none",
+                      padding: "7px 10px", fontSize: 13, borderRadius: 6,
+                      border: "1px solid var(--line)", background: "var(--surface)",
+                      color: "var(--text)", outline: "none",
                       fontFamily: "var(--font-mono)", transition: "border-color .15s",
                     }}
                     onFocus={e => e.currentTarget.style.borderColor = "var(--accent)"}
@@ -402,8 +486,8 @@ export function CMDBPage() {
                     color: "var(--text-3)", lineHeight: 1.55,
                   }}>
                     {editingAsset
-                      ? "保存时如果密码为空，后端会保留原有 password_secret；填写新密码才会替换密钥。"
-                      : "创建设备时保存密码后，LLM 和远程终端通过 asset_id 连接设备，不会读取或展示明文密码。"}
+                      ? "保存时密码留空 → 后端保留原 password_secret；填入新值才替换。"
+                      : "保存后，LLM 和远程终端通过 asset_id 发起连接，看不到明文密码。"}
                   </div>
                 </div>
               </div>
