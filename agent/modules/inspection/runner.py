@@ -256,15 +256,30 @@ def _exec_one_command(workspace_id: str, asset_id: str, protocol: str,
     except Exception as exc:
         return {"ok": False, "error": f"exec_runtime_error: {str(exc)[:200]}", "output": ""}
 
-    ok = bool(getattr(result, "ok", False))
-    if not ok:
-        # Status strings differ — prefer explicit error path
-        errors = list(getattr(result, "errors", []) or [])
-        summary = str(getattr(result, "summary", "") or "")
+    # v3.9.14: ToolResult has ``status`` (succeeded|failed|blocked|dry_run),
+    # NOT ``ok``. The earlier ``result.ok`` lookup always returned False
+    # because the attribute is missing — every successful exec.run was
+    # being reported as a 22-second timeout to the runner.
+    status = str(getattr(result, "status", "") or "")
+    if status == "blocked":
         return {
             "ok": False,
             "output": "",
-            "error": errors[0] if errors else (summary or "execution_failed"),
+            "error": "exec_run_blocked: "
+                + (str(getattr(result, "summary", "") or "")[:200]),
+        }
+    if status != "succeeded":
+        # Status strings differ — prefer explicit error path
+        errors = list(getattr(result, "errors", []) or [])
+        summary = str(getattr(result, "summary", "") or "")
+        out = getattr(result, "output", None) or {}
+        out_err = ""
+        if isinstance(out, dict):
+            out_err = str(out.get("error", "") or "")
+        return {
+            "ok": False,
+            "output": "",
+            "error": errors[0] if errors else (out_err or summary or "execution_failed"),
         }
     output = getattr(result, "output", None) or ""
     # exec.run actual handler returns dict; for the canonical ``exec.run``

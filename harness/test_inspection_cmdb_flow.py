@@ -643,3 +643,95 @@ def test_task_from_dict_does_not_crash_on_disk_round_trip():
     assert "asset_x" in loaded2.devices
     assert loaded2.devices["asset_x"].asset_id == "asset_x"
     assert loaded2.devices["asset_x"].task_id == task.task_id
+
+
+def test_exec_one_command_uses_status_not_ok():
+    """v3.9.14 follow-up: ToolResult has no ``ok`` attribute — it has
+    ``status`` ("succeeded"|"failed"|"blocked"|"dry_run"). The earlier
+    implementation of ``_exec_one_command`` read ``getattr(result, "ok",
+    False)`` which always returned False, so every successful exec.run
+    was misclassified as a failure. Pin the contract here.
+    """
+    from tool_runtime.schemas import ToolResult
+
+    # The result object the runner consumes from ToolRuntimeClient.invoke
+    succeeded = ToolResult(
+        invocation_id="x", tool_id="exec.run", status="succeeded",
+        output={"ok": True, "host": "10.0.0.1", "output": "Linux foo 6.8"},
+        summary="Tool exec.run completed", errors=[],
+    )
+    # status is the source of truth, NOT a non-existent ok attribute.
+    assert succeeded.status == "succeeded"
+    assert not hasattr(succeeded, "ok"), (
+        "ToolResult must not have an 'ok' attribute — the runner was "
+        "reading this and always getting False via getattr default"
+    )
+    failed = ToolResult(
+        invocation_id="y", tool_id="exec.run", status="failed",
+        output={"ok": False, "error": "SSH 认证失败"},
+        summary="Tool exec.run failed", errors=["auth_failed"],
+    )
+    assert failed.status == "failed"
+    assert failed.errors == ["auth_failed"]
+    blocked = ToolResult(
+        invocation_id="z", tool_id="exec.run", status="blocked",
+        output={}, summary="Caller 'foo' not allowed", errors=[],
+    )
+    assert blocked.status == "blocked"
+
+
+def test_exec_one_command_parsing_happy_path():
+    """Mock the ToolRuntimeClient and confirm a succeeded result
+    surfaces as ``ok=True`` with the inner handler's stdout."""
+    from unittest.mock import MagicMock, patch
+    from tool_runtime.schemas import ToolResult
+    from agent.modules.inspection import runner
+
+    mock_result = ToolResult(
+        invocation_id="x", tool_id="exec.run", status="succeeded",
+        output={"ok": True, "host": "10.0.0.1",
+                 "output": "Linux ubuntuserver 6.8.0", "session_id": "s1"},
+        summary="Tool exec.run completed", errors=[],
+    )
+    mock_client = MagicMock()
+    mock_client.invoke.return_value = mock_result
+
+    with patch.object(runner, "get_default_tool_runtime_client",
+                       return_value=mock_client):
+        # No real asset needed — the runner extracts host/user/password
+        # via the canonical exec.run handler which is mocked here.
+        result = runner._exec_one_command(
+            workspace_id="ws_test", asset_id="asset_xxx",
+            protocol="ssh", command="uname -a", timeout=30,
+        )
+    assert result["ok"] is True, (
+        f"succeeded result must surface ok=True; got {result!r}"
+    )
+    assert "Linux ubuntuserver" in result["output"]
+
+
+def test_exec_one_command_parsing_blocked_path():
+    """A blocked result (caller not in allowed_callers) must NOT
+    silently degrade to ok=True. The runner returns the policy
+    summary as the error so the device result surfaces a clean
+    ``exec_run_blocked: ...`` reason."""
+    from unittest.mock import MagicMock, patch
+    from tool_runtime.schemas import ToolResult
+    from agent.modules.inspection import runner
+
+    mock_result = ToolResult(
+        invocation_id="x", tool_id="exec.run", status="blocked",
+        output={}, summary="Caller 'debug' not allowed for exec.run",
+        errors=[],
+    )
+    mock_client = MagicMock()
+    mock_client.invoke.return_value = mock_result
+    with patch.object(runner, "get_default_tool_runtime_client",
+                       return_value=mock_client):
+        result = runner._exec_one_command(
+            workspace_id="ws_test", asset_id="asset_xxx",
+            protocol="ssh", command="uname -a", timeout=30,
+        )
+    assert result["ok"] is False
+    assert "exec_run_blocked" in result["error"]
+    assert "debug" in result["error"]
