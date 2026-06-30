@@ -64,6 +64,21 @@ class DeviceSession:
                     _log.debug("remote: send data to device channel failed",
                                exc_info=True)
 
+    def resize(self, cols: int, rows: int) -> None:
+        cols = max(20, min(int(cols or 160), 240))
+        rows = max(8, min(int(rows or 40), 80))
+        with self._lock:
+            chan = self._chan
+            if not chan:
+                return
+            try:
+                if hasattr(chan, "resize_pty"):
+                    chan.resize_pty(width=cols, height=rows)
+                elif hasattr(chan, "set_pty_size"):
+                    chan.set_pty_size(cols, rows)
+            except Exception:
+                _log.debug("remote: resize device pty failed", exc_info=True)
+
     def recv(self, timeout: int = 0) -> bytes:
         """Read available data. Returns b'' if nothing ready."""
         with self._lock:
@@ -89,7 +104,9 @@ class DeviceSession:
 
 def ssh_connect(session_id: str, host: str, port: int,
                 username: str, password: str,
-                vendor: str = "generic") -> DeviceSession:
+                vendor: str = "generic",
+                terminal_cols: int = 160,
+                terminal_rows: int = 40) -> DeviceSession:
     import paramiko
     profile = get_profile(vendor)
     client = paramiko.SSHClient()
@@ -106,7 +123,11 @@ def ssh_connect(session_id: str, host: str, port: int,
         raise ConnectionError(f"SSH 连接失败: {e}")
 
     try:
-        chan = client.invoke_shell(term="xterm", width=160, height=40)
+        chan = client.invoke_shell(
+            term="xterm",
+            width=max(20, min(int(terminal_cols or 160), 240)),
+            height=max(8, min(int(terminal_rows or 40), 80)),
+        )
         chan.settimeout(1.0)
     except Exception as e:
         client.close()
@@ -179,6 +200,14 @@ def send_interactive(session_id: str, data: str) -> dict:
         return {"ok": True}
     except Exception as e:
         return {"ok": False, "error": str(e)[:200]}
+
+
+def resize_session(session_id: str, cols: int, rows: int) -> dict:
+    session = _SESSIONS.get(session_id)
+    if not session or not session.connected:
+        return {"ok": False, "error": "session_not_connected"}
+    session.resize(cols, rows)
+    return {"ok": True}
 
 
 def disconnect(session_id: str) -> dict:

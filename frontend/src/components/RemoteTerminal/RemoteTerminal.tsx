@@ -20,6 +20,7 @@ export function RemoteTerminal({ onClose, initial }: {
   const wsRef = useRef<WebSocket | null>(null);
   const xtermRef = useRef<any>(null);
   const fitRef = useRef<any>(null);
+  const resizeObserverRef = useRef<ResizeObserver | null>(null);
 
   // Form state
   const [protocol, setProtocol] = useState(initial?.protocol || "ssh");
@@ -67,6 +68,7 @@ export function RemoteTerminal({ onClose, initial }: {
   // Init xterm
   useEffect(() => {
     let disposed = false;
+    let syncResize: (() => void) | null = null;
     const initTerm = async () => {
       const { Terminal } = await import("xterm");
       const { FitAddon } = await import("@xterm/addon-fit");
@@ -75,15 +77,38 @@ export function RemoteTerminal({ onClose, initial }: {
       const term = new Terminal({
         theme: { background: "#1e1e2e", foreground: "#cdd6f4", cursor: "#f5e0dc" },
         fontSize: 13, fontFamily: "'JetBrains Mono', 'Fira Code', monospace",
-        cursorBlink: true, allowProposedApi: true,
+        cursorBlink: true, allowProposedApi: true, convertEol: true, scrollback: 5000,
       });
       const fit = new FitAddon();
       term.loadAddon(fit);
       term.open(termRef.current);
       fit.fit();
+      term.scrollToBottom();
       term.writeln("Ready. Fill connection settings and click Connect.");
       xtermRef.current = term;
       fitRef.current = fit;
+
+      syncResize = () => {
+        if (!termRef.current || disposed) return;
+        try {
+          fit.fit();
+          const ws = wsRef.current;
+          const sid = sessionIdRef.current;
+          if (ws && ws.readyState === WebSocket.OPEN && sid) {
+            ws.send(JSON.stringify({
+              type: "resize",
+              session_id: sid,
+              cols: term.cols,
+              rows: term.rows,
+            }));
+          }
+        } catch { /* ignore transient layout races */ }
+      };
+      resizeObserverRef.current = new ResizeObserver(() => {
+        if (syncResize) window.requestAnimationFrame(syncResize);
+      });
+      resizeObserverRef.current.observe(termRef.current);
+      window.addEventListener("resize", syncResize);
 
       term.onData((data: string) => {
         const ws = wsRef.current;
@@ -94,7 +119,13 @@ export function RemoteTerminal({ onClose, initial }: {
       });
     };
     initTerm();
-    return () => { disposed = true; xtermRef.current?.dispose(); };
+    return () => {
+      disposed = true;
+      if (syncResize) window.removeEventListener("resize", syncResize);
+      resizeObserverRef.current?.disconnect();
+      resizeObserverRef.current = null;
+      xtermRef.current?.dispose();
+    };
   }, []);
 
   // Cleanup WebSocket on unmount
@@ -121,9 +152,12 @@ export function RemoteTerminal({ onClose, initial }: {
     wsRef.current = ws;
 
     ws.onopen = () => {
+      try { fitRef.current?.fit(); } catch { /* ignore */ }
+      const cols = xtermRef.current?.cols || 160;
+      const rows = xtermRef.current?.rows || 40;
       ws.send(JSON.stringify({ type: "connect", workspace_id: wsId, host,
         port: parseInt(port) || 22, protocol, username, password, vendor,
-        asset_id: assetId, device_id: deviceId }));
+        asset_id: assetId, device_id: deviceId, cols, rows }));
     };
     ws.onmessage = (e) => {
       const msg = JSON.parse(e.data);
@@ -131,15 +165,28 @@ export function RemoteTerminal({ onClose, initial }: {
         sessionIdRef.current = msg.session_id;
         setSessionId(msg.session_id); setConnected(true); setConnecting(false); connectingRef.current = false;
         if (term) { term.clear(); }
+        try {
+          fitRef.current?.fit();
+          ws.send(JSON.stringify({
+            type: "resize",
+            session_id: msg.session_id,
+            cols: term?.cols || 160,
+            rows: term?.rows || 40,
+          }));
+        } catch { /* ignore */ }
         // Wait for banner or display "Connected."
         setTimeout(() => {
           if (term) {
             term.writeln("\x1b[32m═══ 已连接 " + msg.host + " ═══\x1b[0m");
             if (msg.banner) term.write(msg.banner);
+            term.scrollToBottom();
           }
         }, 200);
       } else if (msg.type === "output") {
-        if (term) term.write(msg.text);
+        if (term) {
+          term.write(msg.text);
+          term.scrollToBottom();
+        }
       } else if (msg.type === "error") {
         setError(msg.message || "连接失败"); setConnecting(false); connectingRef.current = false;
         if (term) term.writeln(`\r\nError: ${msg.message}`);
@@ -363,7 +410,16 @@ export function RemoteTerminal({ onClose, initial }: {
         )}
 
         {/* Terminal */}
-        <div ref={termRef} style={{ flex: 1, padding: "4px 8px", background: "#1e1e2e", minHeight: 0 }} />
+        <div
+          ref={termRef}
+          style={{
+            flex: 1,
+            padding: "4px 8px",
+            background: "#1e1e2e",
+            minHeight: 0,
+            overflow: "hidden",
+          }}
+        />
       </div>
     </div>
   );

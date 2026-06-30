@@ -10,14 +10,15 @@ from pathlib import Path
 from agent.runtime.utils import now_iso
 from agent.modules.remote.core import (
     ssh_connect, telnet_connect, exec_command, send_interactive,
-    disconnect, list_sessions, get_session,
+    resize_session, disconnect, list_sessions, get_session,
 )
 from agent.modules.remote.vendors import list_vendors, get_profile
 
 
 def connect_device(workspace_id: str, host: str, port: int, protocol: str,
                    username: str, password: str, vendor: str = "",
-                   device_name: str = "", asset_id: str = "", device_id: str = "") -> dict:
+                   device_name: str = "", asset_id: str = "", device_id: str = "",
+                   terminal_cols: int = 160, terminal_rows: int = 40) -> dict:
     """Connect to a network device.
 
     Returns: {ok, session_id, host, banner_snippet}
@@ -47,7 +48,11 @@ def connect_device(workspace_id: str, host: str, port: int, protocol: str,
 
     try:
         if protocol == "ssh":
-            session = ssh_connect(sid, host, port, username, password, vendor)
+            session = ssh_connect(
+                sid, host, port, username, password, vendor,
+                terminal_cols=terminal_cols,
+                terminal_rows=terminal_rows,
+            )
         elif protocol == "telnet":
             session = telnet_connect(sid, host, port, username, password, vendor)
         else:
@@ -79,6 +84,11 @@ def run_command(session_id: str, command: str) -> dict:
 def interactive_input(session_id: str, data: str) -> dict:
     """Send interactive input to a session."""
     return send_interactive(session_id, data)
+
+
+def resize_terminal(session_id: str, cols: int, rows: int) -> dict:
+    """Resize an active remote terminal PTY when supported."""
+    return resize_session(session_id, cols, rows)
 
 
 def close_session(session_id: str, workspace_id: str = "") -> dict:

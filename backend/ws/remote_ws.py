@@ -98,6 +98,8 @@ def register_remote_ws(app):
                         vendor=msg.get("vendor", ""),
                         asset_id=msg.get("asset_id", ""),
                         device_id=msg.get("device_id", ""),
+                        terminal_cols=_parse_terminal_size(msg.get("cols"), default=160, lo=20, hi=240),
+                        terminal_rows=_parse_terminal_size(msg.get("rows"), default=40, lo=8, hi=80),
                     )
 
                     if result.get("ok"):
@@ -135,15 +137,27 @@ def register_remote_ws(app):
 
                 elif msg_type == "input":
                     from agent.modules.remote.core import send_interactive
-                    data = msg.get("data", "")
-                    if data == "\r":
-                        data = "\r\n"
+                    data = _terminal_input_data(msg.get("data", ""))
                     result = send_interactive(msg.get("session_id", ""), data)
                     if not result.get("ok"):
                         ws.send(json.dumps({
                             "type": "error",
                             "session_id": msg.get("session_id", ""),
                             "message": result.get("error", "发送失败"),
+                        }, ensure_ascii=False))
+
+                elif msg_type == "resize":
+                    from agent.modules.remote.service import resize_terminal
+                    result = resize_terminal(
+                        msg.get("session_id", ""),
+                        _parse_terminal_size(msg.get("cols"), default=160, lo=20, hi=240),
+                        _parse_terminal_size(msg.get("rows"), default=40, lo=8, hi=80),
+                    )
+                    if not result.get("ok"):
+                        ws.send(json.dumps({
+                            "type": "error",
+                            "session_id": msg.get("session_id", ""),
+                            "message": result.get("error", "resize_failed"),
                         }, ensure_ascii=False))
 
                 elif msg_type == "disconnect":
@@ -177,6 +191,25 @@ def _parse_port(value) -> int:
     if port < 1 or port > 65535:
         raise ValueError("invalid_port")
     return port
+
+
+def _parse_terminal_size(value, *, default: int, lo: int, hi: int) -> int:
+    try:
+        parsed = int(value if value not in (None, "") else default)
+    except (TypeError, ValueError):
+        parsed = default
+    return max(lo, min(parsed, hi))
+
+
+def _terminal_input_data(value) -> str:
+    """Return xterm input exactly as emitted.
+
+    xterm sends Enter as ``"\r"``. Translating it to ``"\r\n"`` makes
+    many network CLIs execute the command on CR and then treat LF as a
+    second empty command, which shows up as a blank line after long
+    output. Keep the browser terminal as the single source of truth.
+    """
+    return str(value or "")
 
 
 def _same_origin_ws_request() -> bool:

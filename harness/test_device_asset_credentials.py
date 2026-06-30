@@ -69,7 +69,7 @@ def test_remote_connect_uses_cmdb_asset_id_without_frontend_password(monkeypatch
         log = ["banner"]
         vendor = type("Vendor", (), {"vendor": "h3c"})()
 
-    def fake_ssh_connect(session_id, host, port, username, password, vendor):
+    def fake_ssh_connect(session_id, host, port, username, password, vendor, **kwargs):
         captured.update({
             "session_id": session_id,
             "host": host,
@@ -77,6 +77,7 @@ def test_remote_connect_uses_cmdb_asset_id_without_frontend_password(monkeypatch
             "username": username,
             "password": password,
             "vendor": vendor,
+            **kwargs,
         })
         return FakeSession()
 
@@ -97,6 +98,8 @@ def test_remote_connect_uses_cmdb_asset_id_without_frontend_password(monkeypatch
     assert captured["username"] == "admin"
     assert captured["password"] == "secret-pass"
     assert captured["vendor"] == "h3c"
+    assert captured["terminal_cols"] == 160
+    assert captured["terminal_rows"] == 40
 
     if root.exists():
         shutil.rmtree(root)
@@ -179,13 +182,14 @@ def test_remote_connect_falls_back_to_unique_cmdb_asset_when_password_empty(monk
         log = ["banner"]
         vendor = type("Vendor", (), {"vendor": "h3c"})()
 
-    def fake_ssh_connect(session_id, host, port, username, password, vendor):
+    def fake_ssh_connect(session_id, host, port, username, password, vendor, **kwargs):
         captured.update({
             "host": host,
             "port": port,
             "username": username,
             "password": password,
             "vendor": vendor,
+            **kwargs,
         })
         return FakeSession()
 
@@ -202,6 +206,8 @@ def test_remote_connect_falls_back_to_unique_cmdb_asset_when_password_empty(monk
 
     assert result["ok"] is True
     assert captured["password"] == "secret-pass"
+    assert captured["terminal_cols"] == 160
+    assert captured["terminal_rows"] == 40
 
     shutil.rmtree(root)
 
@@ -237,7 +243,7 @@ def test_exec_run_ssh_can_resolve_cmdb_asset_id(monkeypatch):
         vendor = type("Vendor", (), {"vendor": "huawei"})()
         log = []
 
-    def fake_ssh_connect(session_id, host, port, username, password, vendor):
+    def fake_ssh_connect(session_id, host, port, username, password, vendor, **kwargs):
         captured.update({
             "session_id": session_id,
             "host": host,
@@ -245,6 +251,7 @@ def test_exec_run_ssh_can_resolve_cmdb_asset_id(monkeypatch):
             "username": username,
             "password": password,
             "vendor": vendor,
+            **kwargs,
         })
         return FakeSession()
 
@@ -403,6 +410,13 @@ def test_remote_exec_drains_stale_prompt_before_sending_command():
 
     assert "12:00:00" in output
     assert "stale prompt" not in output
+
+
+def test_remote_ws_keeps_xterm_enter_as_carriage_return():
+    from backend.ws.remote_ws import _terminal_input_data
+
+    assert _terminal_input_data("\r") == "\r"
+    assert _terminal_input_data("display version\r") == "display version\r"
 
 
 def test_runner_trim_accepts_llm_message_objects():
