@@ -383,6 +383,14 @@ class SPEGEngine:
                                     "original_action": e.original_action,
                                     "normalized_action": e.normalized_action,
                                     "operation": e.operation,
+                                    # v3.10: surface which alias source
+                                    # the rewrite came from. ``"canonical"``
+                                    # means action_alias.resolve_action_alias
+                                    # handled it; ``"extended"`` means the
+                                    # pre_execution_repair runtime fallback
+                                    # was the only thing that knew this
+                                    # alias.
+                                    "source": getattr(e, "source", "none"),
                                     "validation_before": e.validation_error_code_before,
                                     "validation_after": e.validation_after,
                                 }

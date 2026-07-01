@@ -37,52 +37,25 @@ from typing import Any
 # ============================================================================
 # Action Alias Table
 # ============================================================================
-
-# Maps invalid action aliases → (canonical_action, operation)
-# EXTENDED aliases beyond what action_alias.py provides.
-# The primary alias table is in action_alias.py (used by GraphCompiler).
-# This table is the fallback for runtime correction.
-ACTION_ALIAS_MAP: dict[str, tuple[str, str | None]] = {
-    # System tool — runtime fallback (not in action_alias.py)
-    "review_get": ("review", "get"),
-    "audit_get": ("audit", "get"),
-    "task_get": ("tasks", "get"),
-    "tasks_get": ("tasks", "get"),
-    "run_get": ("run", "get"),
-    "get_run": ("run", "get"),
-    "run_list": ("run", "list"),
-    "list_runs": ("run", "list"),
-    "self_check": ("selfcheck", None),
-    "check_health": ("health", None),
-    "do_diagnostics": ("diagnostics", None),
-    "diag": ("diagnostics", None),
-
-    # Knowledge tool aliases
-    "knowledge_read": ("read", None),
-    "read_knowledge": ("read", None),
-    "knowledge_import": ("import", None),
-    "import_knowledge": ("import", None),
-    "find_knowledge": ("search", None),
-    "search_knowledge": ("search", None),
-
-    # Memory tool aliases
-    "memory_search": ("search", None),
-    "search_memory": ("search", None),
-    "memory_create": ("create", None),
-    "create_memory": ("create", None),
-    "memory_delete": ("delete", None),
-    "delete_memory": ("delete", None),
-
-    # CMDB / Device aliases
-    "list_devices": ("list", None),
-    "get_device": ("get", None),
-
-    # Web aliases
-    "search_web": ("search", None),
-    "web_search": ("search", None),
-    "fetch_page": ("page", None),
-
-    # Workspace aliases
+#
+# v3.10: this map is the **runtime fallback** for action alias
+# correction. The canonical source of truth is in
+# ``speg_engine/action_alias.py`` — see ``resolve_action_alias()``
+# there. Every entry that lives here is intentionally transient:
+# if the LLM keeps emitting the same alias across a release cycle,
+# promote it to ``action_alias.CANONICAL_ALIASES_BY_TOOL``.
+#
+# Hard rule: NO alias may be defined in BOTH this map and the
+# canonical table — the canonical table always wins and the
+# drift test (``harness/test_alias_drift.py``) enforces that.
+#
+# Source field semantics for resolution events:
+#   - "canonical" — rewritten through ``resolve_action_alias()``
+#   - "extended"  — rewritten through this fallback
+#   - "none"      — caller should let the semantic validator reject it
+EXTENDED_RUNTIME_ALIAS_MAP: dict[str, tuple[str, str | None]] = {
+    # Workspace aliases — transient LLM drift we still see; promote
+    # to canonical once it stabilizes.
     "file_read": ("read", None),
     "read_file": ("read", None),
     "file_write": ("write_artifact", None),
@@ -92,30 +65,20 @@ ACTION_ALIAS_MAP: dict[str, tuple[str, str | None]] = {
     "file_delete": ("delete_file", None),
     "delete_file_obj": ("delete_file", None),
 
-    # Git aliases
+    # Git aliases — transient.
     "git_status": ("status", None),
     "git_diff": ("diff", None),
     "git_log": ("log", None),
     "git_commit": ("commit", None),
 
-    # Config aliases
+    # Config aliases — transient.
     "parse_config": ("parse", None),
     "config_parse": ("parse", None),
     "translate_config": ("translate", None),
 
-    # PCAP aliases
+    # PCAP aliases — transient.
     "parse_pcap": ("parse", None),
     "pcap_parse": ("parse", None),
-
-    # Report aliases
-    "render_report": ("markdown", None),
-    "generate_report": ("markdown", None),
-
-    # Inspection aliases
-    "start_inspection": ("start", None),
-    "inspection_status": ("status", None),
-    "inspection_result": ("result", None),
-    "cancel_inspection": ("cancel", None),
 }
 
 
@@ -184,6 +147,12 @@ class RepairEvent:
     original_action: str = ""
     normalized_action: str = ""
     operation: str | None = None
+    # v3.10: which alias source the rewrite came from. The
+    # canonical source (action_alias.resolve_action_alias) is the
+    # preferred path; ``"extended"`` means the runtime fallback in
+    # EXTENDED_RUNTIME_ALIAS_MAP rewrote it; ``"none"`` means the
+    # caller should let the semantic validator reject it.
+    source: str = "none"
     repair_attempt: int = 0
     validation_error_before: str = ""
     validation_error_code_before: str = ""
@@ -330,19 +299,38 @@ class PreExecutionRepairEngine:
     # ========================================================================
 
     def _repair_enum_invalid(self, node, event: RepairEvent, message: str) -> bool:
-        """Fix enum mismatch via action alias normalization."""
+        """Fix enum mismatch via action alias normalization.
+
+        Resolution order:
+          1. ``resolve_action_alias(node.tool, action)`` — canonical source
+          2. ``EXTENDED_RUNTIME_ALIAS_MAP`` — transient runtime fallback
+        """
         action = node.args.get("action", "")
         if not action or not isinstance(action, str):
             return False
 
-        # Check action alias table
+        # 1. Canonical source (single source of truth).
+        from .action_alias import resolve_action_alias
+        resolution = resolve_action_alias(node.tool, action)
+        if resolution.matched:
+            event.original_action = resolution.original_action
+            event.normalized_action = resolution.canonical_action
+            event.operation = resolution.operation
+            event.source = resolution.source
+            node.args["action"] = resolution.canonical_action
+            if resolution.operation:
+                node.args["operation"] = resolution.operation
+            event.validation_after = "pass"
+            return True
+
+        # 2. Extended runtime fallback (transient aliases only).
         alias_key = action.lower()
-        if alias_key in ACTION_ALIAS_MAP:
-            canonical, op = ACTION_ALIAS_MAP[alias_key]
+        if alias_key in EXTENDED_RUNTIME_ALIAS_MAP:
+            canonical, op = EXTENDED_RUNTIME_ALIAS_MAP[alias_key]
             event.original_action = action
             event.normalized_action = canonical
             event.operation = op
-
+            event.source = "extended"
             node.args["action"] = canonical
             if op:
                 node.args["operation"] = op
@@ -354,31 +342,37 @@ class PreExecutionRepairEngine:
     def _repair_action_alias_not_normalized(self, node, event: RepairEvent) -> bool:
         """Normalize an action alias that the compiler missed.
 
-        Uses action_alias.py as the primary source, with this module's
-        ACTION_ALIAS_MAP as an extended fallback.
+        Same resolution order as :meth:`_repair_enum_invalid`:
+        canonical first, extended fallback second. Either way the
+        event records ``source`` so audit surfaces the drift.
         """
-        from .action_alias import normalize_action_alias
+        from .action_alias import resolve_action_alias
 
         action = node.args.get("action", "")
         if not action or not isinstance(action, str):
             return False
 
-        # Try action_alias.py first
-        canonical, original = normalize_action_alias(action)
-        if canonical and original and canonical != original:
-            event.original_action = original
-            event.normalized_action = canonical
-            node.args["action"] = canonical
+        # 1. Canonical source.
+        resolution = resolve_action_alias(node.tool, action)
+        if resolution.matched:
+            event.original_action = resolution.original_action
+            event.normalized_action = resolution.canonical_action
+            event.operation = resolution.operation
+            event.source = resolution.source
+            node.args["action"] = resolution.canonical_action
+            if resolution.operation:
+                node.args["operation"] = resolution.operation
             event.validation_after = "pass"
             return True
 
-        # Try our extended alias table
+        # 2. Extended runtime fallback.
         alias_key = action.lower()
-        if alias_key in ACTION_ALIAS_MAP:
-            canonical, op = ACTION_ALIAS_MAP[alias_key]
+        if alias_key in EXTENDED_RUNTIME_ALIAS_MAP:
+            canonical, op = EXTENDED_RUNTIME_ALIAS_MAP[alias_key]
             event.original_action = action
             event.normalized_action = canonical
             event.operation = op
+            event.source = "extended"
             node.args["action"] = canonical
             if op:
                 node.args["operation"] = op
@@ -388,18 +382,34 @@ class PreExecutionRepairEngine:
         return False
 
     def _repair_action_alias(self, node, event: RepairEvent) -> bool:
-        """General action alias repair."""
+        """General action alias repair.
+
+        Same resolution order: canonical → extended.
+        """
         action = node.args.get("action", "")
         if not action or not isinstance(action, str):
             return False
 
+        from .action_alias import resolve_action_alias
+        resolution = resolve_action_alias(node.tool, action)
+        if resolution.matched:
+            event.original_action = resolution.original_action
+            event.normalized_action = resolution.canonical_action
+            event.operation = resolution.operation
+            event.source = resolution.source
+            node.args["action"] = resolution.canonical_action
+            if resolution.operation:
+                node.args["operation"] = resolution.operation
+            event.validation_after = "pass"
+            return True
+
         alias_key = action.lower()
-        if alias_key in ACTION_ALIAS_MAP:
-            canonical, op = ACTION_ALIAS_MAP[alias_key]
+        if alias_key in EXTENDED_RUNTIME_ALIAS_MAP:
+            canonical, op = EXTENDED_RUNTIME_ALIAS_MAP[alias_key]
             event.original_action = action
             event.normalized_action = canonical
             event.operation = op
-
+            event.source = "extended"
             node.args["action"] = canonical
             if op:
                 node.args["operation"] = op

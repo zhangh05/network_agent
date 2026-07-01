@@ -14,7 +14,7 @@ from __future__ import annotations
 
 from collections import deque
 
-from .action_alias import normalize_action_alias
+from .action_alias import resolve_action_alias
 from .models import ExecutionDAG, ExecutionNode, PlanNode, SPEGConfig
 
 
@@ -42,24 +42,35 @@ class GraphCompiler:
         # token (e.g. ``session_get``) is rewritten to the canonical
         # enum value, and the original token + a flag are recorded
         # on the node so downstream audit surfaces the drift.
+        #
+        # The alias resolution goes through the single source of
+        # truth — ``resolve_action_alias(tool_id, action)`` — which
+        # is also the entry point used by
+        # ``PreExecutionRepairEngine``. No other alias table is
+        # consulted here.
         node_map: dict[str, ExecutionNode] = {}
         for pn in plan_nodes:
             action_original = ""
             action_normalized_from_alias = False
+            action_operation: str | None = None
+            action_source: str = "none"
             if isinstance(pn.args, dict):
                 raw_action = pn.args.get("action")
                 if isinstance(raw_action, str) and raw_action:
-                    canonical, original = normalize_action_alias(raw_action)
-                    if original and canonical and original != canonical:
+                    resolution = resolve_action_alias(pn.tool, raw_action)
+                    action_source = resolution.source
+                    if resolution.matched:
                         # Rewrite the arg in-place; downstream layers
                         # (semantic_validator / risk / audit) only see
                         # the canonical token.
-                        pn.args["action"] = canonical
-                        action_original = original
+                        pn.args["action"] = resolution.canonical_action
+                        if resolution.operation:
+                            pn.args["operation"] = resolution.operation
+                        action_original = resolution.original_action
+                        action_operation = resolution.operation
                         action_normalized_from_alias = True
-                    # canonical == original or original is None: leave
-                    # the args alone; ``action_normalized_from_alias``
-                    # stays False.
+                    # matched == False: leave the args alone.
+                    # action_normalized_from_alias stays False.
             node_map[pn.id] = ExecutionNode(
                 id=pn.id,
                 tool=pn.tool,

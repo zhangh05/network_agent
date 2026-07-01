@@ -1054,16 +1054,32 @@ class TestPreExecutionRepair:
         assert ACTION_ALIASES["session_history"] == "session"
 
     def test_action_alias_review_get(self):
-        from speg_engine.pre_execution_repair import PreExecutionRepairEngine, ACTION_ALIAS_MAP
-        assert "review_get" in ACTION_ALIAS_MAP
-        canonical, op = ACTION_ALIAS_MAP["review_get"]
-        assert canonical == "review"
+        # v3.10: review_get is now a STABLE alias in the canonical
+        # table (action_alias.py), not a runtime fallback. The
+        # canonical source owns it; ``ACTION_ALIAS_MAP`` is renamed
+        # to ``EXTENDED_RUNTIME_ALIAS_MAP`` and stays empty for it.
+        from speg_engine.action_alias import (
+            resolve_action_alias, ACTION_ALIASES,
+        )
+        assert "review_get" in ACTION_ALIASES
+        assert ACTION_ALIASES["review_get"] == "review"
+        res = resolve_action_alias("system.manage", "review_get")
+        assert res.matched is True
+        assert res.source == "canonical"
+        assert res.canonical_action == "review"
+        assert res.operation == "get"
 
     def test_action_alias_audit_get(self):
-        from speg_engine.pre_execution_repair import PreExecutionRepairEngine, ACTION_ALIAS_MAP
-        assert "audit_get" in ACTION_ALIAS_MAP
-        canonical, op = ACTION_ALIAS_MAP["audit_get"]
-        assert canonical == "audit"
+        from speg_engine.action_alias import (
+            resolve_action_alias, ACTION_ALIASES,
+        )
+        assert "audit_get" in ACTION_ALIASES
+        assert ACTION_ALIASES["audit_get"] == "audit"
+        res = resolve_action_alias("system.manage", "audit_get")
+        assert res.matched is True
+        assert res.source == "canonical"
+        assert res.canonical_action == "audit"
+        assert res.operation == "get"
 
     def test_repair_result_not_repaired_initially(self):
         from speg_engine.pre_execution_repair import PreExecutionRepairResult
@@ -1088,8 +1104,17 @@ class TestPreExecutionRepairPipeline:
 
     @pytest.mark.asyncio
     async def test_review_get_auto_fixed(self, config):
-        """review_get → action=review (not in action_alias.py, caught by repair)"""
+        """v3.10: review_get is a STABLE canonical alias — GraphCompiler
+        rewrites it at compile time, so pre_exec_repair never sees it.
+
+        The end-to-end contract is unchanged: ``review_get`` still
+        resolves to ``action=review`` and the tool runs successfully.
+        What changes is which layer does the rewrite — the canonical
+        source (action_alias.resolve_action_alias) instead of the
+        pre-execution repair fallback.
+        """
         from speg_engine.engine import SPEGEngine
+        from speg_engine.models import ExecutionStatus
         import json
 
         plan_json = json.dumps({"nodes": [
@@ -1119,8 +1144,13 @@ class TestPreExecutionRepairPipeline:
 
         assert result.success, f"Expected success, got errors: {result.errors}"
         assert result.node_success_count == 1
-        assert result.metadata["pre_exec_repair_applied"] is True
-        assert len(result.metadata.get("pre_exec_repair_events", [])) > 0
+        # canonical hit: GraphCompiler rewrote the action; node carries
+        # the action_original / action_normalized_from_alias provenance.
+        node = result.node_results.get("get_review")
+        assert node is not None
+        assert node.success is True
+        # pre_exec_repair must NOT fire — the canonical path handled it.
+        assert result.metadata.get("pre_exec_repair_applied") is False
 
     @pytest.mark.asyncio
     async def test_audit_get_auto_fixed(self, config):
@@ -1273,24 +1303,30 @@ class TestPreExecutionRepairPipeline:
 
     @pytest.mark.asyncio
     async def test_repair_events_in_trace(self, config):
-        """Verify repair events for review_get → action=review."""
+        """v3.10: review_get is a STABLE canonical alias now, so the
+        pre-execution repair path does not fire for it. To exercise
+        the EXTENDED_RUNTIME_ALIAS_MAP fallback we feed in a
+        transient alias (file_read on workspace.file)."""
         from speg_engine.engine import SPEGEngine
         import json
 
+        # workspace.file with ``file_read`` — this alias is in the
+        # EXTENDED_RUNTIME_ALIAS_MAP and should still be repaired at
+        # runtime when GraphCompiler fails to rewrite it.
         plan_json = json.dumps({"nodes": [
-            {"id": "n1", "tool": "system.manage",
-             "args": {"action": "review_get"}, "deps": []}
+            {"id": "n1", "tool": "workspace.file",
+             "args": {"action": "file_read", "path": "/tmp/x"}, "deps": []}
         ]})
 
         def mock_llm(**kw):
             return plan_json
 
-        registry = {"system.manage": {"description": "", "args_schema": {
-            "required": ["action"],
+        registry = {"workspace.file": {"description": "", "args_schema": {
+            "required": ["action", "path"],
             "properties": {"action": {"type": "string", "enum": [
-                "diagnostics", "health", "selfcheck", "tasks",
-                "audit", "run", "session", "review"
-            ]}},
+                "list", "read", "read_image", "edit", "patch",
+                "write_artifact", "glob", "delete_file",
+            ]}, "path": {"type": "string"}},
         }}}
 
         engine = SPEGEngine(config=SPEGConfig(enable_finalizer=False),
@@ -1299,11 +1335,13 @@ class TestPreExecutionRepairPipeline:
         async def handler(args):
             return "ok"
 
-        engine.register_tool("system.manage", handler)
-        result = await engine.run("review")
+        engine.register_tool("workspace.file", handler)
+        result = await engine.run("read file")
 
         events = result.metadata.get("pre_exec_repair_events", [])
         assert len(events) > 0, f"No repair events found"
         event = events[0]
-        assert event["original_action"] == "review_get"
-        assert event["normalized_action"] == "review"
+        assert event["original_action"] == "file_read"
+        assert event["normalized_action"] == "read"
+        # Extended source — file_read is in the runtime fallback.
+        assert event.get("source") == "extended"
