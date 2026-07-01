@@ -1011,3 +1011,299 @@ class TestV1AttackVectors:
         assert len(records) == 1
         assert len(records[0].blocked_nodes) == 1
         assert records[0].blocked_nodes[0]["node_id"] == "attack"
+
+
+# ============================================================================
+# Pre-Execution Repair Tests (v1.0)
+# ============================================================================
+
+class TestPreExecutionRepair:
+    """Test the pre-execution repair engine."""
+
+    def test_can_repair_enum_invalid(self):
+        from speg_engine.pre_execution_repair import PreExecutionRepairEngine
+        engine = PreExecutionRepairEngine()
+        assert engine.can_repair(["ARG_ENUM_INVALID"])
+        assert engine.can_repair(["ARG_ENUM_INVALID", "MISSING_REQUIRED_ARG"])
+
+    def test_cannot_repair_security_errors(self):
+        from speg_engine.pre_execution_repair import PreExecutionRepairEngine
+        engine = PreExecutionRepairEngine()
+        assert not engine.can_repair(["FORBIDDEN_COMMAND"])
+        assert not engine.can_repair(["ARG_ENUM_INVALID", "FORBIDDEN_COMMAND"])
+        assert not engine.can_repair(["POLICY_BLOCKED"])
+        assert not engine.can_repair(["CRITICAL_RISK"])
+        assert not engine.can_repair(["FORBIDDEN_ARG"])
+
+    def test_action_alias_session_get(self):
+        """session_get is in action_alias.py (compiler-time normalization)"""
+        from speg_engine.action_alias import ACTION_ALIASES
+        assert "session_get" in ACTION_ALIASES
+        assert ACTION_ALIASES["session_get"] == "session"
+
+    def test_action_alias_get_session(self):
+        """get_session is in action_alias.py"""
+        from speg_engine.action_alias import ACTION_ALIASES
+        assert "get_session" in ACTION_ALIASES
+        assert ACTION_ALIASES["get_session"] == "session"
+
+    def test_action_alias_session_history(self):
+        """session_history is in action_alias.py"""
+        from speg_engine.action_alias import ACTION_ALIASES
+        assert "session_history" in ACTION_ALIASES
+        assert ACTION_ALIASES["session_history"] == "session"
+
+    def test_action_alias_review_get(self):
+        from speg_engine.pre_execution_repair import PreExecutionRepairEngine, ACTION_ALIAS_MAP
+        assert "review_get" in ACTION_ALIAS_MAP
+        canonical, op = ACTION_ALIAS_MAP["review_get"]
+        assert canonical == "review"
+
+    def test_action_alias_audit_get(self):
+        from speg_engine.pre_execution_repair import PreExecutionRepairEngine, ACTION_ALIAS_MAP
+        assert "audit_get" in ACTION_ALIAS_MAP
+        canonical, op = ACTION_ALIAS_MAP["audit_get"]
+        assert canonical == "audit"
+
+    def test_repair_result_not_repaired_initially(self):
+        from speg_engine.pre_execution_repair import PreExecutionRepairResult
+        r = PreExecutionRepairResult()
+        assert not r.repaired
+        assert r.strategy == ""
+
+    def test_should_not_replan_with_llm_when_no_budget(self):
+        from speg_engine.pre_execution_repair import PreExecutionRepairEngine, PreExecutionRepairResult
+        engine = PreExecutionRepairEngine()
+        result = PreExecutionRepairResult(repaired=False, strategy="deterministic",
+                                          unrepairable_reason="test")
+        assert not engine.should_replan_with_llm(result, 0)
+
+
+class TestPreExecutionRepairPipeline:
+    """Full pipeline integration tests for pre-execution repair."""
+
+    @pytest.fixture
+    def config(self):
+        return SPEGConfig()
+
+    @pytest.mark.asyncio
+    async def test_review_get_auto_fixed(self, config):
+        """review_get → action=review (not in action_alias.py, caught by repair)"""
+        from speg_engine.engine import SPEGEngine
+        import json
+
+        plan_json = json.dumps({"nodes": [
+            {"id": "get_review", "tool": "system.manage",
+             "args": {"action": "review_get"}, "deps": []}
+        ]})
+
+        def mock_llm(**kw):
+            return plan_json
+
+        registry = {"system.manage": {"description": "", "args_schema": {
+            "required": ["action"],
+            "properties": {"action": {"type": "string", "enum": [
+                "diagnostics", "health", "selfcheck", "tasks",
+                "audit", "run", "session", "review"
+            ]}},
+        }}}
+
+        engine = SPEGEngine(config=SPEGConfig(enable_finalizer=False),
+                            llm_invoke=mock_llm, tool_registry=registry)
+
+        async def handler(args):
+            return f"review data"
+
+        engine.register_tool("system.manage", handler)
+        result = await engine.run("get review")
+
+        assert result.success, f"Expected success, got errors: {result.errors}"
+        assert result.node_success_count == 1
+        assert result.metadata["pre_exec_repair_applied"] is True
+        assert len(result.metadata.get("pre_exec_repair_events", [])) > 0
+
+    @pytest.mark.asyncio
+    async def test_audit_get_auto_fixed(self, config):
+        """audit_get → action=audit (NOT in action_alias.py → caught by repair)"""
+        from speg_engine.engine import SPEGEngine
+        import json
+
+        plan_json = json.dumps({"nodes": [
+            {"id": "n1", "tool": "system.manage",
+             "args": {"action": "audit_get"}, "deps": []}
+        ]})
+
+        def mock_llm(**kw):
+            return plan_json
+
+        registry = {"system.manage": {"description": "", "args_schema": {
+            "required": ["action"],
+            "properties": {"action": {"type": "string", "enum": [
+                "diagnostics", "health", "selfcheck", "tasks",
+                "audit", "run", "session", "review"
+            ]}},
+        }}}
+
+        engine = SPEGEngine(config=SPEGConfig(enable_finalizer=False),
+                            llm_invoke=mock_llm, tool_registry=registry)
+
+        async def handler(args):
+            return "audit data"
+
+        engine.register_tool("system.manage", handler)
+        result = await engine.run("get audit")
+        assert result.success
+
+    @pytest.mark.asyncio
+    async def test_task_get_auto_fixed(self, config):
+        """task_get → action=tasks (NOT in action_alias.py → caught by repair)"""
+        from speg_engine.engine import SPEGEngine
+        import json
+
+        plan_json = json.dumps({"nodes": [
+            {"id": "n1", "tool": "system.manage",
+             "args": {"action": "task_get"}, "deps": []}
+        ]})
+
+        def mock_llm(**kw):
+            return plan_json
+
+        registry = {"system.manage": {"description": "", "args_schema": {
+            "required": ["action"],
+            "properties": {"action": {"type": "string", "enum": [
+                "diagnostics", "health", "selfcheck", "tasks",
+                "audit", "run", "session", "review"
+            ]}},
+        }}}
+
+        engine = SPEGEngine(config=SPEGConfig(enable_finalizer=False),
+                            llm_invoke=mock_llm, tool_registry=registry)
+
+        async def handler(args):
+            return f"tasks: {args.get('action', '')}"
+
+        engine.register_tool("system.manage", handler)
+        result = await engine.run("tasks")
+        assert result.success
+
+    @pytest.mark.asyncio
+    async def test_delete_system_not_repairable(self, config):
+        """Non-existent action with no alias → should NOT be repaired"""
+        from speg_engine.engine import SPEGEngine
+        import json
+
+        plan_json = json.dumps({"nodes": [
+            {"id": "n1", "tool": "system.manage",
+             "args": {"action": "delete_system"}, "deps": []}
+        ]})
+
+        def mock_llm(**kw):
+            return plan_json
+
+        registry = {"system.manage": {"description": "", "args_schema": {
+            "required": ["action"],
+            "properties": {"action": {"type": "string", "enum": [
+                "diagnostics", "health", "selfcheck", "tasks",
+                "audit", "run", "session", "review"
+            ]}},
+        }}}
+
+        engine = SPEGEngine(config=SPEGConfig(enable_finalizer=False),
+                            llm_invoke=mock_llm, tool_registry=registry)
+
+        async def handler(args):
+            return "should never run"
+
+        engine.register_tool("system.manage", handler)
+        result = await engine.run("delete system")
+        assert not result.success
+
+    @pytest.mark.asyncio
+    async def test_forbidden_command_not_repairable(self, config):
+        """powershell.exe -EncodedCommand → semantic reject, NO repair"""
+        from speg_engine.engine import SPEGEngine
+        import json
+
+        plan_json = json.dumps({"nodes": [
+            {"id": "attack", "tool": "exec.run",
+             "args": {"command": "powershell.exe -EncodedCommand xxx"}, "deps": []}
+        ]})
+
+        def mock_llm(**kw):
+            return plan_json
+
+        registry = {"exec.run": {"description": "", "args_schema": {
+            "required": ["command"], "properties": {"command": {"type": "string"}},
+        }}}
+
+        engine = SPEGEngine(config=SPEGConfig(enable_finalizer=False),
+                            llm_invoke=mock_llm, tool_registry=registry)
+
+        engine.register_tool("exec.run", lambda args: "SHOULD NOT RUN")
+        result = await engine.run("attack")
+        assert not result.success
+        assert len(result.node_results) == 0  # executor never ran
+        assert not result.metadata.get("pre_exec_repair_applied", False)
+
+    @pytest.mark.asyncio
+    async def test_rm_rf_not_repairable(self, config):
+        """rm -rf / → semantic reject, NO repair"""
+        from speg_engine.engine import SPEGEngine
+        import json
+
+        plan_json = json.dumps({"nodes": [
+            {"id": "attack", "tool": "exec.run",
+             "args": {"command": "rm -rf /"}, "deps": []}
+        ]})
+
+        def mock_llm(**kw):
+            return plan_json
+
+        registry = {"exec.run": {"description": "", "args_schema": {
+            "required": ["command"], "properties": {"command": {"type": "string"}},
+        }}}
+
+        engine = SPEGEngine(config=SPEGConfig(enable_finalizer=False),
+                            llm_invoke=mock_llm, tool_registry=registry)
+
+        engine.register_tool("exec.run", lambda args: "SHOULD NOT RUN")
+        result = await engine.run("destroy everything")
+        assert not result.success
+        assert len(result.node_results) == 0
+
+    @pytest.mark.asyncio
+    async def test_repair_events_in_trace(self, config):
+        """Verify repair events for review_get → action=review."""
+        from speg_engine.engine import SPEGEngine
+        import json
+
+        plan_json = json.dumps({"nodes": [
+            {"id": "n1", "tool": "system.manage",
+             "args": {"action": "review_get"}, "deps": []}
+        ]})
+
+        def mock_llm(**kw):
+            return plan_json
+
+        registry = {"system.manage": {"description": "", "args_schema": {
+            "required": ["action"],
+            "properties": {"action": {"type": "string", "enum": [
+                "diagnostics", "health", "selfcheck", "tasks",
+                "audit", "run", "session", "review"
+            ]}},
+        }}}
+
+        engine = SPEGEngine(config=SPEGConfig(enable_finalizer=False),
+                            llm_invoke=mock_llm, tool_registry=registry)
+
+        async def handler(args):
+            return "ok"
+
+        engine.register_tool("system.manage", handler)
+        result = await engine.run("review")
+
+        events = result.metadata.get("pre_exec_repair_events", [])
+        assert len(events) > 0, f"No repair events found"
+        event = events[0]
+        assert event["original_action"] == "review_get"
+        assert event["normalized_action"] == "review"

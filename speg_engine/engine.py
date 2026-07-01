@@ -11,6 +11,7 @@ Pipeline stages:
   4. compile_graph
   5. structural_validate_graph (DAGValidator)
   6. semantic_validate_graph (SemanticValidator)
+  6b. pre_execution_repair (PreExecutionRepairEngine) — deterministic + LLM
   7. risk_policy_check (RiskPolicyEngine)
   8. budget_check (BudgetController)
   9. schedule_and_execute (Scheduler + ExecutionEngine)
@@ -49,6 +50,7 @@ from .models import (
     ToolResult,
 )
 from .planner import Planner
+from .pre_execution_repair import PreExecutionRepairEngine, PreExecutionRepairResult
 from .repair_engine import RepairEngine
 from .result_merger import ResultMerger
 from .risk_policy import RiskPolicyEngine
@@ -84,6 +86,7 @@ class SPEGEngine:
         self._compiler = GraphCompiler(self._config)
         self._struct_validator = DAGValidator(self._config, self._tool_registry)
         self._sem_validator = SemanticValidator(self._tool_registry)
+        self._pre_exec_repair = PreExecutionRepairEngine()
         self._risk_policy = RiskPolicyEngine()
         self._scheduler = ResourceScheduler(self._config)
         self._executor = ExecutionEngine(self._config, self._tool_runtime)
@@ -225,16 +228,108 @@ class SPEGEngine:
                 # Stage 6: Semantic validation
                 t_sem = time.monotonic()
                 sem_result = self._sem_validator.validate(dag)
-                if not sem_result.valid:
-                    for e in sem_result.errors:
-                        errors.append(build_error(
-                            e.code, e.message,
-                            stage="semantic_validate", node_id=e.node_id,
-                        ))
-                    return self._build_result(ctx, dag, node_results, final_response,
-                                              errors, metrics, budget, t_total, sem_result.risk_level, approval_required)
 
-                risk_level = sem_result.risk_level
+                if not sem_result.valid:
+                    # Stage 6b: Pre-execution repair attempt
+                    repair_label = "pre_execution_repair"
+                    repair_span = self._trace.add_span(repair_label,
+                        error_count=len(sem_result.errors))
+
+                    repair_result = self._pre_exec_repair.try_repair(dag, sem_result.errors)
+
+                    if repair_result.repaired:
+                        # Re-validate with repaired DAG
+                        sem_result2 = self._sem_validator.validate(dag)
+                        if sem_result2.valid:
+                            repair_span.stop(status="ok", error_code="repaired")
+                            repair_events_data = [
+                                {
+                                    "node_id": e.node_id,
+                                    "original_action": e.original_action,
+                                    "normalized_action": e.normalized_action,
+                                    "operation": e.operation,
+                                    "validation_before": e.validation_error_code_before,
+                                    "validation_after": e.validation_after,
+                                }
+                                for e in repair_result.repair_events if e.repaired
+                            ]
+                            ctx.extras["pre_exec_repair_events"] = repair_events_data
+                            ctx.extras["pre_exec_repair_applied"] = True
+                            risk_level = sem_result2.risk_level
+                        else:
+                            # Repair applied but still invalid → try LLM replan
+                            repair_span.stop(status="partial", error_code="still_invalid")
+                            llm_repaired = await self._try_llm_replan(
+                                ctx, budget, sem_result2, metrics
+                            )
+                            if llm_repaired:
+                                repair_span._span.metadata["llm_replan"] = True
+                                dag = llm_repaired
+                                # Re-validate AGAIN
+                                sem_result3 = self._sem_validator.validate(dag)
+                                if sem_result3.valid:
+                                    risk_level = sem_result3.risk_level
+                                else:
+                                    # Still failing → structured error
+                                    repair_span.stop(status="error", error_code="unrepairable")
+                                    for e in sem_result3.errors:
+                                        errors.append(build_error(
+                                            e.code, e.message,
+                                            stage="semantic_validate", node_id=e.node_id,
+                                        ))
+                                    return self._build_result(ctx, dag, node_results, final_response,
+                                        errors, metrics, budget, t_total, sem_result3.risk_level, approval_required)
+                            else:
+                                for e in sem_result2.errors:
+                                    errors.append(build_error(
+                                        e.code, e.message,
+                                        stage="semantic_validate", node_id=e.node_id,
+                                    ))
+                                return self._build_result(ctx, dag, node_results, final_response,
+                                    errors, metrics, budget, t_total, sem_result.risk_level, approval_required)
+                    else:
+                        # Cannot repair — check if LLM replan is possible
+                        repair_span.stop(status="error", error_code="unrepairable")
+                        llm_remaining = self._config.max_llm_calls - budget.llm_calls
+                        if self._pre_exec_repair.should_replan_with_llm(repair_result, llm_remaining):
+                            llm_repaired = await self._try_llm_replan(
+                                ctx, budget, sem_result, metrics
+                            )
+                            if llm_repaired:
+                                repair_span._span.metadata["llm_replan"] = True
+                                dag = llm_repaired
+                                sem_result2 = self._sem_validator.validate(dag)
+                                if sem_result2.valid:
+                                    risk_level = sem_result2.risk_level
+                                else:
+                                    for e in sem_result2.errors:
+                                        errors.append(build_error(
+                                            e.code, e.message,
+                                            stage="semantic_validate", node_id=e.node_id,
+                                        ))
+                                    return self._build_result(ctx, dag, node_results, final_response,
+                                        errors, metrics, budget, t_total, sem_result2.risk_level, approval_required)
+                            else:
+                                for e in sem_result.errors:
+                                    errors.append(build_error(
+                                        e.code, e.message,
+                                        stage="semantic_validate", node_id=e.node_id,
+                                    ))
+                                return self._build_result(ctx, dag, node_results, final_response,
+                                    errors, metrics, budget, t_total, sem_result.risk_level, approval_required)
+                        else:
+                            # Unrepairable, no LLM budget → fail
+                            unrepairable_reason = repair_result.unrepairable_reason or "errors not repairable"
+                            errors.append(build_error(
+                                "UNREPAIRABLE",
+                                f"Validation errors could not be repaired: {unrepairable_reason}. "
+                                f"Repair attempts: {repair_result.repair_attempts}",
+                                stage="pre_execution_repair",
+                            ))
+                            return self._build_result(ctx, dag, node_results, final_response,
+                                errors, metrics, budget, t_total, sem_result.risk_level, approval_required)
+                else:
+                    risk_level = sem_result.risk_level
 
                 # Stage 7: Risk policy check
                 risk_assessment = self._risk_policy.assess(dag)
@@ -380,6 +475,63 @@ class SPEGEngine:
         return all_results
 
     # ========================================================================
+    # LLM-based replanning for pre-execution repair
+    # ========================================================================
+
+    async def _try_llm_replan(self, ctx, budget, sem_result, metrics):
+        """Attempt LLM-based replanning when deterministic repair fails.
+
+        Requires: budget.llm_calls < max_llm_calls and hasn't exceeded planner budget.
+
+        Returns:
+            New ExecutionDAG if successful, None otherwise.
+        """
+        from .graph_compiler import GraphCompiler
+
+        llm_budget = budget.check_llm_call()
+        if not llm_budget.ok:
+            return None
+
+        planner_budget = budget.check_planner()
+        if not planner_budget.ok:
+            return None
+
+        self._pre_exec_repair.mark_llm_repair_attempt()
+
+        try:
+            # Re-plan with error context
+            error_summary = "; ".join(e.message[:100] for e in sem_result.errors[:3])
+            contextualized_input = (
+                f"{ctx.user_input}\n\n"
+                f"[PREVIOUS PLAN HAD ERRORS: {error_summary}. "
+                f"Please fix the action names and tool references to match canonical contracts.]"
+            )
+            ctx.user_input = contextualized_input
+
+            t_plan = time.time()
+            plan_nodes = self._planner.plan(ctx)
+            metrics.capture_planner((time.time() - t_plan) * 1000)
+
+            dag = self._compiler.compile(plan_nodes)
+            return dag
+        except Exception:
+            return None
+
+    # ========================================================================
+    # Audit: mark blocked nodes for audit logging
+    # ========================================================================
+
+    def _mark_blocked_nodes_for_audit(self, dag, node_results, errors):
+        """Ensure blocked/failed nodes are tracked in audit."""
+        if dag is None:
+            return
+        for node in dag.nodes:
+            if node.status == ExecutionStatus.PENDING:
+                if not node.error:
+                    node.status = ExecutionStatus.SKIPPED
+                    node.error = "Blocked by policy or validation error"
+
+    # ========================================================================
     # Result assembly
     # ========================================================================
 
@@ -451,6 +603,8 @@ class SPEGEngine:
                 "rollback_available": rollback_plan.rollback_available if rollback_plan else False,
                 "rollback_recommended": rollback_plan.rollback_recommended if rollback_plan else False,
                 "alias_normalizations": alias_drift_summary,
+                "pre_exec_repair_events": ctx.extras.get("pre_exec_repair_events", []),
+                "pre_exec_repair_applied": ctx.extras.get("pre_exec_repair_applied", False),
             },
         )
 
