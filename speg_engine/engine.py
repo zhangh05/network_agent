@@ -832,7 +832,7 @@ class SPEGEngine:
         retry_result.metadata["retry_backoff_ms"] = decision.backoff_ms
         retry_result.metadata["retry_error_code"] = decision.error_code
         retry_result.metadata["retry_original_error"] = (
-            (original_result.error or "")[:200]
+            decision.notes.get("original_error", "")
         )
 
         if retry_result.success:
