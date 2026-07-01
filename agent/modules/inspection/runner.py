@@ -71,6 +71,9 @@ INSPECTION_CALLER = "inspection_runner"
 _CANCEL_LOCK = threading.Lock()
 # task_id -> cancel_requested_at (ISO str, set by cancel_task)
 _CANCEL_REQUESTS: dict[str, str] = {}
+_TASK_SESSION_LOCK = threading.Lock()
+# task_id -> session_id -> (workspace_id, protocol)
+_TASK_SESSIONS: dict[str, dict[str, tuple[str, str]]] = {}
 
 
 def _cancel_requested(task_id: str) -> bool:
@@ -87,6 +90,33 @@ def _consume_cancel_marker(task_id: str) -> str:
         return ""
     with _CANCEL_LOCK:
         return _CANCEL_REQUESTS.pop(task_id, "")
+
+
+def _register_task_session(task_id: str, workspace_id: str, protocol: str, session_id: str) -> None:
+    """Remember a live remote session owned by an inspection task."""
+    if not task_id or not workspace_id or not session_id:
+        return
+    normalized_protocol = "telnet" if (protocol or "").lower() == "telnet" else "ssh"
+    with _TASK_SESSION_LOCK:
+        _TASK_SESSIONS.setdefault(task_id, {})[session_id] = (workspace_id, normalized_protocol)
+
+
+def _forget_task_session(task_id: str, session_id: str) -> None:
+    if not task_id or not session_id:
+        return
+    with _TASK_SESSION_LOCK:
+        sessions = _TASK_SESSIONS.get(task_id)
+        if not sessions:
+            return
+        sessions.pop(session_id, None)
+        if not sessions:
+            _TASK_SESSIONS.pop(task_id, None)
+
+
+def _registered_task_sessions(task_id: str) -> dict[str, tuple[str, str]]:
+    """Return a copy for cancel/test paths."""
+    with _TASK_SESSION_LOCK:
+        return dict(_TASK_SESSIONS.get(task_id, {}))
 
 
 # ── storage ──────────────────────────────────────────────────────────────
@@ -481,6 +511,14 @@ def _close_remote_session(workspace_id: str, protocol: str, session_id: str) -> 
         logger.debug("inspection: close remote session failed", exc_info=True)
 
 
+def _close_registered_remote_sessions(task_id: str) -> None:
+    """Best-effort hardening for cancel: close known task sessions now."""
+    sessions = _registered_task_sessions(task_id)
+    for session_id, (workspace_id, protocol) in sessions.items():
+        _close_remote_session(workspace_id, protocol, session_id)
+        _forget_task_session(task_id, session_id)
+
+
 # ── one asset's checks ───────────────────────────────────────────────────
 
 def _run_checks_on_asset(task: InspectionTask,
@@ -615,6 +653,8 @@ def _run_checks_on_asset(task: InspectionTask,
                     error="cancelled_before_dispatch",
                 ))
                 continue
+            if bucket_session_id:
+                _register_task_session(task.task_id, workspace_id, dr.protocol, bucket_session_id)
             t0 = time.time()
             try:
                 run_result = _exec_one_command(
@@ -634,9 +674,11 @@ def _run_checks_on_asset(task: InspectionTask,
             new_sid = run_result.get("session_id", "") or ""
             if new_sid:
                 bucket_session_id = new_sid
+                _register_task_session(task.task_id, workspace_id, dr.protocol, bucket_session_id)
             all_bucket_results.append((check, cmd_key, command, run_result, elapsed))
     finally:
         _close_remote_session(workspace_id, dr.protocol, bucket_session_id)
+        _forget_task_session(task.task_id, bucket_session_id)
 
     # ── Persist results + parse + attach findings ──
     # Keep the profile's order so the report is stable.
@@ -1048,6 +1090,7 @@ def cancel_task(workspace_id: str, task_id: str) -> dict:
     marker = now_iso()
     with _CANCEL_LOCK:
         _CANCEL_REQUESTS[task_id] = marker
+    _close_registered_remote_sessions(task_id)
     # Persist the marker on the task record so a backend restart
     # between mark and run still honours the cancel.
     t.cancel_requested_at = marker

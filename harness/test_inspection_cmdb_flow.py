@@ -1022,6 +1022,57 @@ def test_cancel_task_returns_supported_true(monkeypatch, tmp_path):
         assert result["error"].startswith("task_already_")
 
 
+def test_cancel_task_closes_registered_remote_sessions(monkeypatch, tmp_path):
+    """Cancel should actively close already-known SSH/Telnet sessions."""
+    from dataclasses import asdict
+    import json as _json
+
+    from agent.modules.inspection import runner
+    from agent.modules.inspection.models import InspectionScope, InspectionTask
+    from agent.runtime.utils import now_iso
+    import workspace.run_store as ws_store
+
+    ws = "ws_cancel_close_sessions"
+    task_id = "ins_cancel_close_001"
+    task_dir = tmp_path / ws / "inspection" / "tasks"
+    task_dir.mkdir(parents=True)
+    task = InspectionTask(
+        task_id=task_id,
+        workspace_id=ws,
+        scope=InspectionScope(),
+        profile_id="server_health",
+        status="running",
+        started_at=now_iso(),
+    )
+    (task_dir / f"{task_id}.json").write_text(
+        _json.dumps(asdict(task), ensure_ascii=False),
+        encoding="utf-8",
+    )
+
+    closed: list[tuple[str, str, str]] = []
+    monkeypatch.setattr(
+        runner,
+        "_close_remote_session",
+        lambda workspace_id, protocol, session_id: closed.append((workspace_id, protocol, session_id)),
+    )
+    runner._register_task_session(task_id, ws, "ssh", "ssh_sid_1")
+    runner._register_task_session(task_id, ws, "telnet", "telnet_sid_2")
+
+    orig = ws_store.WS_ROOT
+    ws_store.WS_ROOT = tmp_path
+    try:
+        result = runner.cancel_task(ws, task_id)
+    finally:
+        ws_store.WS_ROOT = orig
+
+    assert result["ok"] is True
+    assert sorted(closed) == [
+        (ws, "ssh", "ssh_sid_1"),
+        (ws, "telnet", "telnet_sid_2"),
+    ]
+    assert runner._registered_task_sessions(task_id) == {}
+
+
 def test_reconcile_all_workspaces_flips_phantom_running(tmp_path):
     """On startup the backend should sweep all workspaces and mark
     crashed any inspection still in 'running' from a previous

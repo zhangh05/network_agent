@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import base64
 import hashlib
+import hmac
 import json
 import os
 import secrets
@@ -340,14 +341,18 @@ def _seal_secret(workspace_id: str, value: str) -> str:
     plaintext = value.encode("utf-8")
     stream = _secret_stream(workspace_id, nonce, len(plaintext))
     cipher = bytes(a ^ b for a, b in zip(plaintext, stream))
-    payload = nonce + cipher
-    return "cmdb:v1:" + base64.urlsafe_b64encode(payload).decode("ascii")
+    body = nonce + cipher
+    tag = hmac.new(_auth_key(workspace_id), b"cmdb:v2:" + body, hashlib.sha256).digest()
+    return "cmdb:v2:" + base64.urlsafe_b64encode(body + tag).decode("ascii")
 
 
 def _open_secret(workspace_id: str, sealed: str) -> str:
-    """Decrypt a ``cmdb:v1:`` blob. Returns ``""`` on any failure.
+    """Decrypt the current authenticated ``cmdb:v2:`` blob.
 
-    v3.9.14: distinguishes *legitimate* empty (sealed = "") from
+    Returns ``""`` on any failure for read paths that treat
+    corrupted credentials as "do not expose/use a password".
+
+    v3.9.15: distinguishes *legitimate* empty (sealed = "") from
     *corrupted* failure. A corrupted ciphertext usually means the
     workspace's `.cmdb_secret_key` was lost (e.g. tarball restore
     without the key file). Returning ``""`` silently in that case
@@ -356,21 +361,12 @@ def _open_secret(workspace_id: str, sealed: str) -> str:
     Callers that want the failure path should use
     ``_open_secret_strict`` instead.
     """
-    try:
-        if sealed.startswith("cmdb:v1:"):
-            payload = base64.urlsafe_b64decode(sealed.split(":", 2)[2].encode("ascii"))
-            if len(payload) < 17:
-                return ""
-            nonce, cipher = payload[:16], payload[16:]
-            stream = _secret_stream(workspace_id, nonce, len(cipher))
-            return bytes(a ^ b for a, b in zip(cipher, stream)).decode("utf-8")
-    except Exception:
-        return ""
-    return ""
+    opened = _open_secret_strict(workspace_id, sealed)
+    return "" if opened == _OPEN_SECRET_FAIL else opened
 
 
-# Marker characters sentinel for "we tried to decrypt but the key was
-# wrong / the ciphertext was tampered with". Distinct from "" which
+# Marker characters sentinel for "we tried to decrypt but authentication
+# failed / the ciphertext was tampered with". Distinct from "" which
 # legitimately maps to "no password stored".
 _OPEN_SECRET_FAIL = "\x00\x00CMDB_DECRYPT_FAIL\x00\x00"
 
@@ -381,8 +377,8 @@ def _open_secret_strict(workspace_id: str, sealed: str) -> str:
     Returns
       * ``""``  — sealed was empty (no password stored), or the
                     workspace has not encrypted anything yet.
-      * ``_OPEN_SECRET_FAIL`` — decryption failed. The caller can
-                                  surface this to the UI as
+      * ``_OPEN_SECRET_FAIL`` — authentication/decryption failed. The
+                                  caller can surface this to the UI as
                                   "stored password corrupted" so the
                                   operator re-enters it instead of
                                   silently losing access.
@@ -391,29 +387,20 @@ def _open_secret_strict(workspace_id: str, sealed: str) -> str:
     if not sealed:
         return ""
     try:
-        if sealed.startswith("cmdb:v1:"):
+        if sealed.startswith("cmdb:v2:"):
             payload = base64.urlsafe_b64decode(sealed.split(":", 2)[2].encode("ascii"))
-            if len(payload) < 17:
+            if len(payload) < 16 + 32:
                 return _OPEN_SECRET_FAIL
-            nonce, cipher = payload[:16], payload[16:]
+            body, tag = payload[:-32], payload[-32:]
+            expected = hmac.new(_auth_key(workspace_id), b"cmdb:v2:" + body, hashlib.sha256).digest()
+            if not hmac.compare_digest(tag, expected):
+                return _OPEN_SECRET_FAIL
+            nonce, cipher = body[:16], body[16:]
             stream = _secret_stream(workspace_id, nonce, len(cipher))
-            plain = bytes(a ^ b for a, b in zip(cipher, stream)).decode("utf-8")
-            # Round-trip sanity check: re-seal and re-open. If the
-            # plaintext is *not* the original we got garbage out
-            # (wrong key).
-            resealed = _seal_secret(workspace_id, plain)
-            if not resealed:
-                return _OPEN_SECRET_FAIL
-            re_plain = _open_secret(workspace_id, resealed)
-            # re_plain is empty on its own — settle for length/stream
-            # match: reflate the same stream against resealed and the
-            # test bytes round-trip must match. Using just "resealed
-            # decrypts to the same bytes" is enough since the
-            # open/close are deterministic given the workspace id.
-            return plain if re_plain == plain else _OPEN_SECRET_FAIL
+            return bytes(a ^ b for a, b in zip(cipher, stream)).decode("utf-8")
     except Exception:
         return _OPEN_SECRET_FAIL
-    return ""
+    return _OPEN_SECRET_FAIL
 
 
 def _secret_stream(workspace_id: str, nonce: bytes, length: int) -> bytes:
@@ -424,6 +411,10 @@ def _secret_stream(workspace_id: str, nonce: bytes, length: int) -> bytes:
         chunks.append(hashlib.sha256(key + nonce + counter.to_bytes(4, "big")).digest())
         counter += 1
     return b"".join(chunks)[:length]
+
+
+def _auth_key(workspace_id: str) -> bytes:
+    return hashlib.sha256(b"cmdb-auth-v2:" + _workspace_secret_key(workspace_id)).digest()
 
 
 def _workspace_secret_key(workspace_id: str) -> bytes:

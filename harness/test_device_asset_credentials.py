@@ -40,6 +40,37 @@ def test_cmdb_asset_password_is_resolved_only_for_internal_connectors():
         shutil.rmtree(root)
 
 
+def test_cmdb_secret_v2_detects_tampering():
+    from agent.modules.cmdb import service as cmdb_service
+    from storage.paths import workspace_root
+
+    workspace_id = "pytest_cmdb_secret_auth"
+    root = workspace_root(workspace_id)
+    if root.exists():
+        shutil.rmtree(root)
+
+    sealed = cmdb_service._seal_secret(workspace_id, "secret-pass")
+    assert sealed.startswith("cmdb:v2:")
+    assert cmdb_service._open_secret_strict(workspace_id, sealed) == "secret-pass"
+
+    tampered = sealed[:-2] + ("AA" if not sealed.endswith("AA") else "BB")
+    assert (
+        cmdb_service._open_secret_strict(workspace_id, tampered)
+        == cmdb_service._OPEN_SECRET_FAIL
+    )
+
+    wrong_workspace = "pytest_cmdb_secret_auth_other"
+    assert (
+        cmdb_service._open_secret_strict(wrong_workspace, sealed)
+        == cmdb_service._OPEN_SECRET_FAIL
+    )
+
+    for ws in (workspace_id, wrong_workspace):
+        r = workspace_root(ws)
+        if r.exists():
+            shutil.rmtree(r)
+
+
 def test_cmdb_update_preserves_created_at():
     from agent.modules.cmdb.service import get_asset, save_asset
     from storage.paths import workspace_root
