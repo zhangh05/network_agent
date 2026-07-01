@@ -226,16 +226,46 @@ def _handle_inspection_managed(inv: ToolInvocation) -> dict:
     if action == "run":
         try:
             scope = args.get("scope") or {}
+            # v3.10: clamp max_concurrency to the same [1, 16] range
+            # the HTTP route uses so tool callers can't bypass the
+            # fleet cap.
+            try:
+                _mc = int(args.get("max_concurrency", 3) or 3)
+            except (TypeError, ValueError):
+                _mc = 3
+            _mc = max(1, min(_mc, 16))
+            # v3.10: prefer the canonical ToolInvocation's caller
+            # identity so the audit trail shows whether the
+            # inspection was started by the user, a subagent, or
+            # a job. Fall back to args.created_by, finally to
+            # ``tool_invocation`` which is always present.
+            from_args = str(args.get("created_by", "") or "")
+            if from_args and from_args != "user":
+                caller = from_args
+            else:
+                # _inv_caller may not be exposed; check the
+                # invocation object directly.
+                inv_caller = getattr(inv, "requested_by", "") or ""
+                if inv_caller and inv_caller != "turn_runner":
+                    caller = inv_caller
+                else:
+                    caller = "user"
             task = inspection_service.create_task(
                 workspace_id=ws,
                 profile_id="",
                 scope=scope if isinstance(scope, dict) else {},
-                created_by=str(args.get("created_by", "user") or "user"),
+                created_by=caller,
                 session_id=str(args.get("session_id", "") or ""),
-                max_concurrency=int(args.get("max_concurrency", 3) or 3),
+                max_concurrency=_mc,
             )
         except Exception as exc:
-            return {"ok": False, "error": f"inspection_run_failed: {type(exc).__name__}: {exc}"}
+            # v3.10: don't leak the stack trace to the LLM. Log it
+            # server-side and return a generic error.
+            import logging as _il
+            _il.getLogger(__name__).exception(
+                "_handle_inspection_managed run failed",
+            )
+            return {"ok": False, "error": "inspection_run_failed: see server logs"}
         return {
             "ok": task.status != "failed" or not task.error.startswith("unknown_profile"),
             "task_id": task.task_id,
@@ -878,15 +908,10 @@ def _handler_cmdb_delete_asset(inv: ToolInvocation) -> dict:
 
 # ── Network device access (SSH / Telnet) ──
 
-# Dangerous command patterns — block destructive operations
-_DANGEROUS_COMMAND_PATTERNS = [
-    r"(?i)\breload\b", r"(?i)\breboot\b", r"(?i)\breset\b",
-    r"(?i)\bformat\b", r"(?i)\bdelete\s+flash", r"(?i)\berase\s+startup",
-    r"(?i)\bwrite\s+erase\b", r"(?i)\brm\s+-rf\b",
-    r"(?i)\bdd\s+if=", r"(?i)\bmkfs\b",
-]
-
-# Config command patterns — require approval
+# Config command patterns — used to flag config-mode commands so the
+# runner can mark them as ``is_config`` for the audit trail. These
+# are NOT a destructive-command list; the destructive scan lives in
+# ``tool_runtime.dangerous_patterns`` (the single source of truth).
 _CONFIG_COMMAND_PATTERNS = [
     r"(?i)^conf(igure)?\s*(terminal|t)?$",
     r"(?i)^system-view$", r"(?i)^config$",
@@ -899,11 +924,19 @@ _CONFIG_COMMAND_PATTERNS = [
 
 
 def _is_dangerous_command(command: str) -> tuple[bool, str]:
-    """Check if a command is dangerous. Returns (is_dangerous, reason)."""
-    import re
-    for pattern in _DANGEROUS_COMMAND_PATTERNS:
-        if re.search(pattern, command):
-            return True, f"dangerous command blocked (policy violation)"
+    """Check if a command matches a destructive pattern.
+
+    v3.10 (inspection): delegates to ``tool_runtime.dangerous_patterns``
+    so the SSH / Telnet handlers and the ToolPolicy check use the
+    same pattern set. Earlier versions carried their own
+    ``_DANGEROUS_COMMAND_PATTERNS`` here which drifted behind the
+    canonical 30+ pattern table.
+    """
+    if not command:
+        return False, ""
+    from tool_runtime.dangerous_patterns import is_destructive_command
+    if is_destructive_command(command):
+        return True, "dangerous command blocked (policy violation)"
     return False, ""
 
 
@@ -2224,9 +2257,16 @@ def to_tool_specs() -> list[tuple]:
         try:
             from tool_runtime.tool_namespace import get_namespace_entry
             ns_entry = get_namespace_entry(entry.canonical_tool_id)
-        except Exception:
-            # Unknown id: skip — no governance needed; it just isn't visible.
-            logger.debug("to_tool_specs: <continue>", exc_info=True)
+        except Exception as exc:
+            # v3.10: namespace lookup failing for a canonical id is a
+            # real drift bug, not a routine "skip". Surface as a
+            # warning so it shows up in logs without crashing the
+            # whole registry build.
+            logger.warning(
+                "to_tool_specs: namespace lookup failed for %s: %s",
+                entry.canonical_tool_id, exc,
+            )
+            ns_entry = None
         # Build the description: prefer the namespace's usage_hint, then
         # the entry description, then the namespace's display_name.
         description = (
@@ -2247,8 +2287,17 @@ def to_tool_specs() -> list[tuple]:
         try:
             from tool_runtime.manifest_registry import get_manifest
             manifest = get_manifest(entry.canonical_tool_id)
-        except Exception:
-            logger.debug("to_tool_specs: <fallback-assign>", exc_info=True)
+        except Exception as exc:
+            # v3.10: a missing manifest is also a real drift bug —
+            # the canonical registry and the manifest registry must
+            # stay in sync. Warn loudly so the operator notices; we
+            # still build a ToolSpec from the entry defaults below
+            # so the tool remains callable until the manifest is
+            # added.
+            logger.warning(
+                "to_tool_specs: manifest lookup failed for %s: %s",
+                entry.canonical_tool_id, exc,
+            )
             manifest = None
         spec = ToolSpec(
             tool_id=entry.canonical_tool_id,

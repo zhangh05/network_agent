@@ -175,6 +175,21 @@ def cancel_task(workspace_id: str, task_id: str) -> dict:
     return _runner_cancel(ws, task_id)
 
 
+def _normalise_report_fmt(fmt: str) -> str:
+    """Normalise user-provided ``fmt`` to a canonical token.
+
+    Accepts ``md`` / ``markdown`` / ``json`` / ``html``. Empty
+    string and ``markdown`` map to ``md``. Unknown tokens return
+    ``""`` so the caller can answer with a 400.
+    """
+    f = (fmt or "").lower().strip()
+    if f in ("", "md", "markdown"):
+        return "md"
+    if f in ("json", "html"):
+        return f
+    return ""
+
+
 def render_report(workspace_id: str, task_id: str, fmt: str = "md") -> dict:
     """Render the report in ``fmt`` (``md``, ``json``, or ``html``).
 
@@ -183,6 +198,9 @@ def render_report(workspace_id: str, task_id: str, fmt: str = "md") -> dict:
     creating a duplicate. Returns ``{"ok": True, ...}`` or
     ``{"ok": False, "error": ...}``.
     """
+    fmt = _normalise_report_fmt(fmt)
+    if not fmt:
+        return {"ok": False, "error": f"unsupported_format: {fmt!r}"}
     task = get_task(workspace_id, task_id)
     if task is None:
         return {"ok": False, "error": "task_not_found"}
@@ -231,16 +249,14 @@ def render_report(workspace_id: str, task_id: str, fmt: str = "md") -> dict:
             "cached": False,
         }
 
-    if fmt not in ("md", "markdown"):
-        if fmt == "json":
-            from dataclasses import asdict
-            return {
-                "ok": True,
-                "format": "json",
-                "filename": "inspection_report.json",
-                "content": asdict(task),
-            }
-        return {"ok": False, "error": f"unsupported_format: {fmt}"}
+    if fmt == "json":
+        from dataclasses import asdict
+        return {
+            "ok": True,
+            "format": "json",
+            "filename": "inspection_report.json",
+            "content": asdict(task),
+        }
     md = _report.render_markdown(task)
     return {
         "ok": True,

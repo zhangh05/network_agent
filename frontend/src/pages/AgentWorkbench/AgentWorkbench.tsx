@@ -18,6 +18,8 @@ import { RuntimeEventTimeline } from "../../components/RuntimeEventTimeline";
 import "../../components/RuntimeEventTimeline.css";
 import { formatFileSize } from "../../utils/format";
 import { QUICK_CHIPS } from "./WorkbenchQuickChips";
+import { InspectionProgressCard } from "../../components/InspectionProgressCard";
+import { inspectionApi } from "../../api";
 
 /* ── v3.9 View mode ── */
 type ViewMode = "chat" | "timeline";
@@ -126,6 +128,12 @@ export function TaskWorkbench() {
   const abortRef = useRef<AbortController | null>(null);
   const wsRef = useRef<WebSocket | null>(null);
   const pendingAutoMetadataRef = useRef<Record<string, unknown> | null>(null);
+  // v3.10: live inspection task surfaced from the workbench. When
+  // the user launches a CMDB inspection via the CMDB page, the
+  // auto-prompt hands off the run to the LLM but we also kick off
+  // the task ourselves so the UI has a cancel button + progress
+  // without waiting for the LLM to issue the tool call.
+  const [inspectionTaskId, setInspectionTaskId] = useState<string | null>(null);
 
   // Stop generation: abort active request + close WebSocket
   const stopGeneration = useCallback(() => {
@@ -193,6 +201,36 @@ export function TaskWorkbench() {
         if (prompt) {
           pendingAutoMetadataRef.current = payload.metadata || {};
           setInput(prompt);
+          // v3.10: when the auto-prompt is a CMDB inspection,
+          // fire the task directly from the UI so the operator
+          // has a cancel button + progress card before the LLM
+          // even reacts. The LLM still receives the same prompt
+          // and can call inspection.manage(action="task_get") to
+          // learn the task_id, or just narrate from the card.
+          const md = (payload.metadata || {}) as Record<string, any>;
+          if (
+            md?.intent === "cmdb_region_inspection" ||
+            md?.intent === "cmdb_asset_inspection"
+          ) {
+            const scope: any = {};
+            if (md?.region) scope.region = md.region;
+            if (Array.isArray(md?.asset_ids) && md.asset_ids.length) {
+              scope.asset_ids = md.asset_ids;
+            }
+            inspectionApi
+              .createTask({
+                workspace_id: currentWorkspaceId,
+                scope,
+                async_run: true,
+                created_by: "user",
+              } as any)
+              .then((res) => {
+                if ((res as any).ok && (res as any).task_id) {
+                  setInspectionTaskId((res as any).task_id);
+                }
+              })
+              .catch(() => { /* best-effort */ });
+          }
           const t = setTimeout(() => onSend(prompt, payload.metadata || {}), 500);
           return () => clearTimeout(t);
         }
@@ -760,6 +798,12 @@ export function TaskWorkbench() {
             aria-live={sending ? "polite" : "off"}
             onScroll={handleChatScroll}
           >
+            {inspectionTaskId && (
+              <InspectionProgressCard
+                taskId={inspectionTaskId}
+                onDismiss={() => setInspectionTaskId(null)}
+              />
+            )}
             {(visibleHistory ?? []).map((m, idx) => (
               <React.Fragment key={m.message_id || m.run_id || m.id}>
                 {renderMsg(m, idx, (visibleHistory ?? []).length)}

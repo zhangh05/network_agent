@@ -1102,10 +1102,13 @@ export interface InspectionTaskRecord {
   status: "pending" | "running" | "succeeded" | "partial" | "failed" | "cancelled";
   started_at: string;
   finished_at: string;
+  duration_ms?: number;
+  cancel_requested_at?: string;
   total_assets: number;
   succeeded: number;
   failed: number;
   skipped: number;
+  partial?: number;
   warnings: number;
   criticals: number;
   infos: number;
@@ -1116,42 +1119,67 @@ export interface InspectionTaskRecord {
   error: string;
 }
 
+export interface InspectionCreateRequest {
+  workspace_id: string;
+  scope: Partial<InspectionScope>;
+  max_concurrency?: number;
+  created_by?: string;
+  session_id?: string;
+  async_run?: boolean;
+}
+
+export interface InspectionCreateResponse {
+  ok: boolean;
+  task_id: string;
+  status: string;
+  profile_id: string;
+  scope: InspectionScope;
+  summary: InspectionTaskSummary;
+  started_at: string;
+  finished_at: string;
+  error: string;
+  async_run?: boolean;
+}
+
+export interface InspectionListResponse {
+  ok: boolean;
+  workspace_id: string;
+  items: InspectionTaskRecord[];
+  count: number;
+}
+
+export interface InspectionReportResponse {
+  ok: boolean;
+  format: string;
+  filename?: string;
+  content?: string;
+  artifact_id?: string;
+  download_url?: string;
+  cached?: boolean;
+  error?: string;
+}
+
+export interface InspectionCancelResponse {
+  ok: boolean;
+  supported?: boolean;
+  task_id?: string;
+  marked_at?: string;
+  error?: string;
+  note?: string;
+}
+
 export const inspectionApi = {
   /** POST /api/inspection/tasks */
-  createTask: (data: {
-    workspace_id: string;
-    scope: Partial<InspectionScope>;
-    max_concurrency?: number;
-  }): Promise<{
-    ok: boolean;
-    task_id: string;
-    status: string;
-    profile_id: string;
-    scope: InspectionScope;
-    summary: InspectionTaskSummary;
-    started_at: string;
-    finished_at: string;
-    error: string;
-  }> =>
-    apiRequest<{
-      ok: boolean;
-      task_id: string;
-      status: string;
-      profile_id: string;
-      scope: InspectionScope;
-      summary: InspectionTaskSummary;
-      started_at: string;
-      finished_at: string;
-      error: string;
-    }>({ method: "POST", url: `/inspection/tasks`, data }),
+  createTask: (data: InspectionCreateRequest): Promise<InspectionCreateResponse> =>
+    apiRequest<InspectionCreateResponse>({ method: "POST", url: `/inspection/tasks`, data }),
 
   /** GET /api/inspection/tasks */
   listTasks: (
     workspace_id: string,
     limit = 20,
     signal?: AbortSignal,
-  ): Promise<{ ok: boolean; workspace_id: string; items: unknown[]; count: number }> =>
-    apiRequest<{ ok: boolean; workspace_id: string; items: unknown[]; count: number }>(
+  ): Promise<InspectionListResponse> =>
+    apiRequest<InspectionListResponse>(
       { method: "GET", url: `/inspection/tasks`, params: { workspace_id, limit } },
       signal,
     ),
@@ -1168,16 +1196,20 @@ export const inspectionApi = {
     ),
 
   /** POST /api/inspection/tasks/<id>/cancel */
-  cancelTask: (workspace_id: string, task_id: string) =>
-    apiRequest<{ ok: boolean; supported?: boolean; error?: string }>({
+  cancelTask: (workspace_id: string, task_id: string): Promise<InspectionCancelResponse> =>
+    apiRequest<InspectionCancelResponse>({
       method: "POST",
       url: `/inspection/tasks/${encodeURIComponent(task_id)}/cancel`,
       data: { workspace_id },
     }),
 
   /** GET /api/inspection/tasks/<id>/report?format=md|json|html */
-  getReport: (workspace_id: string, task_id: string, format: "md" | "json" | "html" = "md") =>
-    apiRequest<{ ok: boolean; format: string; filename?: string; content?: string; artifact_id?: string; download_url?: string; error?: string }>({
+  getReport: (
+    workspace_id: string,
+    task_id: string,
+    format: "md" | "json" | "html" = "md",
+  ): Promise<InspectionReportResponse> =>
+    apiRequest<InspectionReportResponse>({
       method: "GET",
       url: `/inspection/tasks/${encodeURIComponent(task_id)}/report`,
       params: { workspace_id, format },

@@ -279,23 +279,40 @@ def create_app():
     register_state_routes(app)     # /api/runtime/tasks/* (Phase 2 Durable State)
     register_inspection_routes(app)  # /api/inspection/* (CMDB-driven device health)
 
-    # v3.9.14: sweep every workspace's inspection directory and flip
+    # v3.10: sweep every workspace's inspection directory and flip
     # any disk-resident task that was left in 'running' state when
     # the previous backend crashed. Without this the UI sees a
     # growing backlog of phantom-running tasks forever.
-    try:
-        from agent.modules.inspection.runner import reconcile_all_workspaces
-        flipped = reconcile_all_workspaces()
-        if flipped:
+    #
+    # We run the sweep in a daemon thread so a slow disk or a large
+    # number of workspaces doesn't block the WSGI app from
+    # accepting traffic. The thread is daemon=True so backend
+    # shutdown won't hang on a slow sweep. Failures are logged
+    # loudly (warning, not debug) so the operator sees them.
+    import threading as _threading
+
+    def _inspection_reconcile_async() -> None:
+        try:
+            from agent.modules.inspection.runner import reconcile_all_workspaces
+            flipped = reconcile_all_workspaces()
+            if flipped:
+                import logging as _inspect_log
+                _inspect_log.getLogger(__name__).info(
+                    "[inspection startup] flipped phantom-running: %s", flipped,
+                )
+        except Exception as exc:
             import logging as _inspect_log
-            _inspect_log.getLogger(__name__).info(
-                "[inspection startup] flipped phantom-running: %s", flipped,
+            _inspect_log.getLogger(__name__).warning(
+                "[inspection startup] reconcile failed: %s", exc,
+                exc_info=True,
             )
-    except Exception:
-        import logging as _inspect_log
-        _inspect_log.getLogger(__name__).debug(
-            "[inspection startup] reconcile skipped", exc_info=True,
-        )
+
+    _recon_t = _threading.Thread(
+        target=_inspection_reconcile_async,
+        name="inspection-reconcile-startup",
+        daemon=True,
+    )
+    _recon_t.start()
 
     # ── WebSocket routes (real-time streaming) ──
     from backend.ws.agent_ws import register_ws_routes

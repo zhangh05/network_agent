@@ -15,7 +15,9 @@ Endpoints (all require workspace_id):
 
 from __future__ import annotations
 
-from flask import Response, jsonify, request
+import uuid
+
+from flask import Response, current_app, jsonify, request
 
 from workspace.ids import validate_workspace_id
 
@@ -26,7 +28,16 @@ def _invalid_ws():
     return jsonify({"ok": False, "error": "invalid_workspace_id"}), 400
 
 
-def _validated_ws_id(raw: str = ""):
+def _validated_ws_id(raw=""):
+    """Return ``(workspace_id, error_response)``.
+
+    ``raw`` may be ``None`` (Flask's request.args.get default with a
+    missing key returns ``None``), an empty string, or a non-empty
+    string. Empty / None map to the same 400 so callers can rely on
+    the explicit error instead of an unexpected attribute access.
+    """
+    if raw is None:
+        return None, _invalid_ws()
     try:
         return validate_workspace_id(raw), None
     except ValueError:
@@ -38,7 +49,14 @@ def register_inspection_routes(app):
 
     @app.route("/api/inspection/tasks", methods=["POST"])
     def api_inspection_tasks_create():
-        data = request.get_json(silent=True) or {}
+        # v3.10: explicitly fail on a non-JSON body. The previous
+        # ``request.get_json(silent=True) or {}`` accepted a missing
+        # or non-JSON body silently, letting a form-urlencoded
+        # payload produce a "successful" task_create with no scope
+        # — silent failure.
+        if not request.is_json:
+            return jsonify({"ok": False, "error": "expected_application_json"}), 415
+        data = request.get_json(silent=False) or {}
         ws_id, err = _validated_ws_id(data.get("workspace_id", ""))
         if err:
             return err
@@ -51,7 +69,7 @@ def register_inspection_routes(app):
         #   pending → running → succeeded | failed | partial
         # v3.9.14 — clamp to the same range the service layer enforces
         # so callers see consistent behaviour regardless of which
-        # entry point (HTTP API, service call, or tool) they use.
+        # entry point (HTTP API, service call, or tool) we use.
         try:
             mc = int(data.get("max_concurrency", 3) or 3)
         except (TypeError, ValueError):
@@ -60,6 +78,43 @@ def register_inspection_routes(app):
             mc = 1
         if mc > 16:
             mc = 16
+
+        # v3.10: when the caller passes ``async_run=true`` the route
+        # fires the task off on a daemon thread and returns
+        # immediately with status=pending. Without this a fleet of
+        # 50 devices blocks the HTTP request for 90+ seconds and
+        # nginx / curl timeouts become the operator's main
+        # complaint.
+        async_run = bool(data.get("async_run", False))
+        if async_run:
+            import threading as _threading
+            payload = {
+                "workspace_id": ws_id,
+                "profile_id": str(data.get("profile_id", "") or ""),
+                "scope": scope,
+                "created_by": str(data.get("created_by", "user") or "user"),
+                "session_id": str(data.get("session_id", "") or ""),
+                "max_concurrency": mc,
+            }
+            def _kick():
+                try:
+                    inspection_service.create_task(**payload)
+                except Exception as exc:
+                    current_app.logger.exception(
+                        "[inspection async_run] task failed to start: %s", exc,
+                    )
+            t = _threading.Thread(
+                target=_kick, name="inspection-async-run", daemon=True,
+            )
+            t.start()
+            placeholder_id = f"ins_async_{uuid.uuid4().hex[:8]}"
+            return jsonify({
+                "ok": True,
+                "task_id": placeholder_id,
+                "status": "pending",
+                "async_run": True,
+                "note": "task running in background; poll /api/inspection/tasks to discover task_id",
+            }), 202
 
         task = inspection_service.create_task(
             workspace_id=ws_id,
@@ -70,9 +125,21 @@ def register_inspection_routes(app):
             max_concurrency=mc,
         )
 
+        # v3.10: distinguish "could not start" (422) from "ran but
+        # failed" (200 with status="failed"). unknown_profile and
+        # no_assets_matched_scope are caller errors (422); a run
+        # that completed with some devices down is just a 200.
         status_code = 200
+        err = task.error or ""
         if task.status == "failed":
-            status_code = 400
+            if err.startswith("unknown_profile"):
+                status_code = 422
+            elif err == "no_assets_matched_scope":
+                status_code = 422
+            elif err.startswith("runner_internal"):
+                status_code = 500
+            else:
+                status_code = 400
         return jsonify({
             "ok": status_code == 200,
             "task_id": task.task_id,
@@ -92,6 +159,7 @@ def register_inspection_routes(app):
                 "succeeded_devices": task.succeeded,
                 "failed_devices": task.failed,
                 "skipped_devices": task.skipped,
+                "partial_devices": task.partial,
                 "findings_total": task.warnings + task.criticals + task.infos,
                 "findings_critical": task.criticals,
                 "findings_warning": task.warnings,
@@ -146,14 +214,18 @@ def register_inspection_routes(app):
         ws_id, err = _validated_ws_id(request.args.get("workspace_id", ""))
         if err:
             return err
-        fmt = (request.args.get("format", "md") or "md").lower()
-        if fmt not in ("md", "markdown", "json", "html"):
-            return jsonify({"ok": False, "error": f"unsupported_format: {fmt}"}), 400
-        if fmt == "markdown":
-            fmt = "md"
+        # v3.10: format normalisation moved to the service layer
+        # so HTTP and tool callers see the same 400 shape.
+        fmt = request.args.get("format", "md") or "md"
         result = inspection_service.render_report(ws_id, task_id, fmt)
         if not result.get("ok"):
-            status_code = 404 if result.get("error") == "task_not_found" else 400
+            err = result.get("error", "")
+            if err == "task_not_found":
+                status_code = 404
+            elif err.startswith("unsupported_format"):
+                status_code = 400
+            else:
+                status_code = 400
             return jsonify(result), status_code
         return jsonify(result)
 

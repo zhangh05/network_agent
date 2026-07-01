@@ -336,6 +336,19 @@ def save_artifact(workspace_id: str, content: str = "", source_path: str = "",
         if sensitivity == "secret":
             content = redact_artifact_content(content)
         else:
+            # v3.10: surface the rejection — earlier versions
+            # silently returned None which left the operator
+            # wondering where the artifact went. We still reject
+            # (saving a secret to a non-secret slot would be a
+            # data leak) but log the event so the caller can
+            # fix the call.
+            _LOG.warning(
+                "artifacts.store: content contains a secret but "
+                "sensitivity=%r — refusing to save without explicit "
+                "'secret' marker. Caller should re-issue with "
+                "sensitivity='secret' so the redactor runs.",
+                sensitivity,
+            )
             return None
 
     cls = classify_file(source_path, content)

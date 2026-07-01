@@ -243,7 +243,13 @@ def export_assets(workspace_id: str) -> str:
 # ── internal ──
 
 def _load_all(workspace_id: str) -> list[dict]:
-    """Load all non-deleted assets."""
+    """Load all non-deleted assets.
+
+    v3.10: also surface ``password_corrupted`` per asset so the UI
+    can flag a corrupted stored password. The check uses
+    ``_open_secret_strict`` (which distinguishes a real decrypt
+    failure from a missing secret) and runs lazily per asset.
+    """
     path = _db_dir(workspace_id) / "assets.jsonl"
     if not path.exists():
         return []
@@ -265,6 +271,14 @@ def _load_all(workspace_id: str) -> list[dict]:
             if aid not in deleted:
                 d.pop("password", None)
                 d.pop("password_secret", None)
+                # Surface corrupted-password flag without leaking the
+                # secret. We do the open check *only* if a secret
+                # existed on the latest revision of the row.
+                if d.get("password_secret"):
+                    if _open_secret_strict(
+                        workspace_id, d.get("password_secret", "")
+                    ) == _OPEN_SECRET_FAIL:
+                        d["password_corrupted"] = True
                 assets[aid] = d
         except json.JSONDecodeError:
             continue
@@ -383,6 +397,10 @@ def _open_secret_strict(workspace_id: str, sealed: str) -> str:
                                   operator re-enters it instead of
                                   silently losing access.
       * plaintext — successful round-trip.
+
+    v3.10: catch ``UnicodeDecodeError`` explicitly so non-utf8
+    ciphertext (a key mismatch produces a non-text byte stream) is
+    flagged as a corruption rather than propagated up.
     """
     if not sealed:
         return ""
@@ -397,7 +415,14 @@ def _open_secret_strict(workspace_id: str, sealed: str) -> str:
                 return _OPEN_SECRET_FAIL
             nonce, cipher = body[:16], body[16:]
             stream = _secret_stream(workspace_id, nonce, len(cipher))
-            return bytes(a ^ b for a, b in zip(cipher, stream)).decode("utf-8")
+            plain_bytes = bytes(a ^ b for a, b in zip(cipher, stream))
+            try:
+                return plain_bytes.decode("utf-8")
+            except UnicodeDecodeError:
+                # Wrong key / tampered ciphertext: the byte stream
+                # doesn't decode as utf-8. Surface as a corruption
+                # so the operator can re-enter the password.
+                return _OPEN_SECRET_FAIL
     except Exception:
         return _OPEN_SECRET_FAIL
     return _OPEN_SECRET_FAIL

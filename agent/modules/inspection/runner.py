@@ -13,9 +13,11 @@ keep all side effects funneled through the canonical tool layer
   3. Audit hooks (TraceRecorder / EventRecorder) see the calls
      and credit them to the inspection task.
 
-The runner is async-by-design (returns when done) but synchronous
-in the MVP; the service layer offloads to a thread pool when
-``max_concurrency > 1``.
+v3.10 (inspection): per-device concurrency lives in a
+``ThreadPoolExecutor`` (single device = sequential). Cancellation
+is cooperative — the per-check loop polls ``_CANCEL_REQUESTS``.
+Per-task ``_save_task`` calls serialise under a per-task lock so
+the worker pool never races the same task file.
 """
 
 from __future__ import annotations
@@ -69,54 +71,77 @@ INSPECTION_CALLER = "inspection_runner"
 # in-flight commands finish, no new checks are dispatched.
 
 _CANCEL_LOCK = threading.Lock()
-# task_id -> cancel_requested_at (ISO str, set by cancel_task)
-_CANCEL_REQUESTS: dict[str, str] = {}
+# (workspace_id, task_id) -> cancel_requested_at (ISO str, set by
+# cancel_task). v3.10: scoped by workspace so the namespace doesn't
+# collide when two workspaces happen to use the same task_id (UUID
+# already makes a collision astronomically unlikely, but scoping is
+# free defence-in-depth).
+_CANCEL_REQUESTS: dict[tuple[str, str], str] = {}
 _TASK_SESSION_LOCK = threading.Lock()
-# task_id -> session_id -> (workspace_id, protocol)
-_TASK_SESSIONS: dict[str, dict[str, tuple[str, str]]] = {}
+# workspace_id -> task_id -> session_id -> protocol
+_TASK_SESSIONS: dict[str, dict[str, dict[str, str]]] = {}
+# Per-task save lock so concurrent device workers serialise their
+# progress saves. Without this the ThreadPoolExecutor can race the
+# same task to disk and the second save can revert a newer state.
+# v3.10 (inspection): each task gets its own lock lazily.
+_TASK_SAVE_LOCKS: dict[str, threading.Lock] = {}
+_TASK_SAVE_LOCKS_GUARD = threading.Lock()
 
 
-def _cancel_requested(task_id: str) -> bool:
+def _cancel_requested(workspace_id: str, task_id: str) -> bool:
     """Return True if the task has been flagged for cancellation."""
     if not task_id:
         return False
+    key = (workspace_id or "", task_id)
     with _CANCEL_LOCK:
-        return task_id in _CANCEL_REQUESTS
+        return key in _CANCEL_REQUESTS
 
 
-def _consume_cancel_marker(task_id: str) -> str:
+def _consume_cancel_marker(workspace_id: str, task_id: str) -> str:
     """Return and clear the cancel-requested ISO timestamp."""
     if not task_id:
         return ""
+    key = (workspace_id or "", task_id)
     with _CANCEL_LOCK:
-        return _CANCEL_REQUESTS.pop(task_id, "")
+        return _CANCEL_REQUESTS.pop(key, "")
 
 
-def _register_task_session(task_id: str, workspace_id: str, protocol: str, session_id: str) -> None:
-    """Remember a live remote session owned by an inspection task."""
+def _register_task_session(workspace_id: str, task_id: str, protocol: str, session_id: str) -> None:
+    """Remember a live remote session owned by an inspection task.
+
+    v3.10: namespace is ``workspace_id -> task_id -> session_id`` so
+    two workspaces can't see each other's sessions.
+    """
     if not task_id or not workspace_id or not session_id:
         return
     normalized_protocol = "telnet" if (protocol or "").lower() == "telnet" else "ssh"
     with _TASK_SESSION_LOCK:
-        _TASK_SESSIONS.setdefault(task_id, {})[session_id] = (workspace_id, normalized_protocol)
+        _TASK_SESSIONS.setdefault(workspace_id, {}).setdefault(
+            task_id, {}
+        )[session_id] = normalized_protocol
 
 
-def _forget_task_session(task_id: str, session_id: str) -> None:
+def _forget_task_session(workspace_id: str, task_id: str, session_id: str) -> None:
     if not task_id or not session_id:
         return
     with _TASK_SESSION_LOCK:
-        sessions = _TASK_SESSIONS.get(task_id)
+        tasks = _TASK_SESSIONS.get(workspace_id)
+        if not tasks:
+            return
+        sessions = tasks.get(task_id)
         if not sessions:
             return
         sessions.pop(session_id, None)
         if not sessions:
-            _TASK_SESSIONS.pop(task_id, None)
+            tasks.pop(task_id, None)
+        if not tasks:
+            _TASK_SESSIONS.pop(workspace_id, None)
 
 
-def _registered_task_sessions(task_id: str) -> dict[str, tuple[str, str]]:
-    """Return a copy for cancel/test paths."""
+def _registered_task_sessions(workspace_id: str, task_id: str) -> dict[str, str]:
+    """Return a copy of ``{session_id: protocol}`` for cancel paths."""
     with _TASK_SESSION_LOCK:
-        return dict(_TASK_SESSIONS.get(task_id, {}))
+        return dict(_TASK_SESSIONS.get(workspace_id, {}).get(task_id, {}))
 
 
 # ── storage ──────────────────────────────────────────────────────────────
@@ -131,23 +156,49 @@ def _task_path(workspace_id: str, task_id: str):
     return _inspection_root(workspace_id) / "tasks" / f"{task_id}.json"
 
 
-def _save_task(workspace_id: str, task: InspectionTask) -> None:
+def _get_task_save_lock(task_id: str) -> threading.Lock:
+    """Return (lazily create) a per-task save lock.
+
+    v3.10 (inspection): device workers running in a ThreadPoolExecutor
+    each call ``_save_task`` when they finish. Without serialising on
+    a per-task lock the writes can race and the second writer
+    reverts the merged ``task.devices`` state. We keep one lock per
+    task so unrelated tasks don't block each other.
+    """
+    with _TASK_SAVE_LOCKS_GUARD:
+        lock = _TASK_SAVE_LOCKS.get(task_id)
+        if lock is None:
+            lock = threading.Lock()
+            _TASK_SAVE_LOCKS[task_id] = lock
+        return lock
+
+
+def _release_task_save_lock(task_id: str) -> None:
+    """Drop the per-task save lock when the task is finalised.
+
+    Bounded cleanup so a long-running backend doesn't accumulate
+    locks for every task ever started.
+    """
+    with _TASK_SAVE_LOCKS_GUARD:
+        _TASK_SAVE_LOCKS.pop(task_id, None)
+
+
+def _save_task_unlocked(workspace_id: str, task: InspectionTask) -> None:
+    """Inner save helper used by both ``_save_task`` and
+    :func:`_record_device` (which already holds the per-task save
+    lock). Splits the file-write body from the lock-acquisition
+    path so ``_record_device`` can take the lock once, snap the
+    ``task.devices`` dict, and save without nested acquisition.
+    """
     from workspace.atomic_io import atomic_write_json
     p = _task_path(workspace_id, task.task_id)
     p.parent.mkdir(parents=True, exist_ok=True)
-    # dataclasses → dict
     from dataclasses import asdict
-    # Keep duration_ms consistent with started_at/finished_at so the
-    # frontend can render "total time" without parsing the timestamps.
     if task.started_at and task.finished_at:
         try:
             task.duration_ms = int((from_iso(task.finished_at)
                                     - from_iso(task.started_at)).total_seconds() * 1000)
         except Exception:
-            # v3.9.14: don't fail the save if a timestamp happens to be
-            # malformed (clock skew / partial legacy records); just zero
-            # it and continue. Real fix lands in v3.9.15 with a schema
-            # migration. Surface to logs so we notice.
             task.duration_ms = 0
             logger.debug(
                 "inspection._save_task: bad timestamps "
@@ -156,6 +207,21 @@ def _save_task(workspace_id: str, task: InspectionTask) -> None:
                 exc_info=True,
             )
     atomic_write_json(p, asdict(task))
+
+
+def _save_task(workspace_id: str, task: InspectionTask) -> None:
+    """Persist the task to disk under a per-task save lock.
+
+    v3.10 (inspection): device workers run in parallel; multiple
+    writers can hit the same task file at once. The atomic write
+    itself is file-level safe, but the in-memory mutation of
+    ``task.devices`` / ``task.duration_ms`` is not — two threads
+    can each read a stale view of the dict, then one save overwrites
+    the other. The per-task lock collapses the read-modify-write
+    window so progress saves are always monotonic.
+    """
+    with _get_task_save_lock(task.task_id):
+        _save_task_unlocked(workspace_id, task)
 
 
 def _task_duration_ms(task: InspectionTask) -> int:
@@ -276,6 +342,12 @@ def _task_from_dict(d: dict) -> InspectionTask:
     Dataclass field-name round-trip via InspectionScope / DeviceResult
     construction; nested device.results round-trip via dict and model
     rebuild keeps the on-disk shape simple.
+
+    v3.10: the per-device ``setattr`` is restricted to known
+    :class:`DeviceResult` fields so an unknown JSON key (typo or
+    legacy/experimental column) can't be injected onto a live
+    dataclass. Unknown keys are dropped with a single warning per
+    task, not per device, to keep the log readable.
     """
     scope_raw = d.get("scope", {}) or {}
     scope = InspectionScope(
@@ -287,6 +359,8 @@ def _task_from_dict(d: dict) -> InspectionTask:
         asset_ids=tuple(scope_raw.get("asset_ids", []) or []),
         limit=scope_raw.get("limit", 50),
     )
+    _dr_known = set(f.name for f in __import__("dataclasses").fields(DeviceResult))
+    _unknown_seen: set[str] = set()
     devices: dict[str, DeviceResult] = {}
     for aid, dev in (d.get("devices") or {}).items():
         dr = DeviceResult(task_id=d.get("task_id", ""), asset_id=aid)
@@ -319,9 +393,16 @@ def _task_from_dict(d: dict) -> InspectionTask:
                     })
                     for f in dev.get("findings", []) or []
                 ]
-            else:
+            elif k in _dr_known:
                 setattr(dr, k, v)
+            else:
+                _unknown_seen.add(k)
         devices[aid] = dr
+    if _unknown_seen:
+        logger.warning(
+            "_task_from_dict: dropped unknown DeviceResult fields: %s",
+            sorted(_unknown_seen),
+        )
     t = InspectionTask(
         task_id=d.get("task_id", ""),
         workspace_id=d.get("workspace_id", ""),
@@ -475,6 +556,15 @@ def _exec_one_command(workspace_id: str, asset_id: str, protocol: str,
     }
     if session_id:
         inv_args["session_id"] = session_id
+    # v3.10: surface the inspection call to the audit trail with
+    # caller = INSPECTION_CALLER + asset + command key. The canonical
+    # runtime records the call regardless; this logger entry
+    # connects it back to the inspection task for the operator
+    # reading logs.
+    logger.info(
+        "[inspection exec] ws=%s asset=%s protocol=%s cmd_key=%s timeout=%ds",
+        workspace_id, asset_id, target, getattr(__import__("threading").current_thread(), "_inspection_cmd_key", ""), int(timeout),
+    )
     try:
         result = client.invoke("exec.run", inv_args, context=ctx)
     except Exception as exc:
@@ -511,12 +601,12 @@ def _close_remote_session(workspace_id: str, protocol: str, session_id: str) -> 
         logger.debug("inspection: close remote session failed", exc_info=True)
 
 
-def _close_registered_remote_sessions(task_id: str) -> None:
+def _close_registered_remote_sessions(workspace_id: str, task_id: str) -> None:
     """Best-effort hardening for cancel: close known task sessions now."""
-    sessions = _registered_task_sessions(task_id)
-    for session_id, (workspace_id, protocol) in sessions.items():
+    sessions = _registered_task_sessions(workspace_id, task_id)
+    for session_id, protocol in sessions.items():
         _close_remote_session(workspace_id, protocol, session_id)
-        _forget_task_session(task_id, session_id)
+        _forget_task_session(workspace_id, task_id, session_id)
 
 
 # ── one asset's checks ───────────────────────────────────────────────────
@@ -638,13 +728,13 @@ def _run_checks_on_asset(task: InspectionTask,
     # attributed to the wrong command. Device-level concurrency still
     # happens in ``run_task``; inside one device we keep one ordered
     # command stream and one reusable session_id.
-    all_bucket_results: list = []
+    all_bucket_results: list[tuple[InspectionCheck, str, str, dict, int]] = []
     bucket_session_id = ""
     try:
         for check, cmd_key, command in eligible:
             # Cooperative cancel: stop dispatching new checks once the
             # task has been flagged. The in-flight command finishes.
-            if _cancel_requested(task.task_id):
+            if _cancel_requested(workspace_id, task.task_id):
                 dr.skipped += 1
                 dr.errors.append(f"cancelled_before_check: {check.check_id}")
                 dr.command_results.append(CommandResult(
@@ -654,7 +744,7 @@ def _run_checks_on_asset(task: InspectionTask,
                 ))
                 continue
             if bucket_session_id:
-                _register_task_session(task.task_id, workspace_id, dr.protocol, bucket_session_id)
+                _register_task_session(workspace_id, task.task_id, dr.protocol, bucket_session_id)
             t0 = time.time()
             try:
                 run_result = _exec_one_command(
@@ -674,11 +764,11 @@ def _run_checks_on_asset(task: InspectionTask,
             new_sid = run_result.get("session_id", "") or ""
             if new_sid:
                 bucket_session_id = new_sid
-                _register_task_session(task.task_id, workspace_id, dr.protocol, bucket_session_id)
+                _register_task_session(workspace_id, task.task_id, dr.protocol, bucket_session_id)
             all_bucket_results.append((check, cmd_key, command, run_result, elapsed))
     finally:
         _close_remote_session(workspace_id, dr.protocol, bucket_session_id)
-        _forget_task_session(task.task_id, bucket_session_id)
+        _forget_task_session(workspace_id, task.task_id, bucket_session_id)
 
     # ── Persist results + parse + attach findings ──
     # Keep the profile's order so the report is stable.
@@ -828,22 +918,64 @@ def _latest_config_snapshot(workspace_id: str, asset_id: str, *,
 
 
 def _read_artifact_content(workspace_id: str, rec: dict) -> dict | None:
-    """Materialize an artifact record's ``content`` (best effort)."""
+    """Materialize an artifact record's ``content`` (best effort).
+
+    v3.10: read through the secure ``read_artifact_content`` API
+    instead of a raw ``Path(file_path).read_text()``. The path
+    stored on a record is operator-controlled (artifact write can
+    take ``source_path``) so a path-traversal or cross-workspace
+    substitution would otherwise be possible. The secure path
+    validates the file is under the workspace root before reading
+    and respects the record's sensitivity scope.
+    """
     if not rec:
         return None
+    aid = rec.get("artifact_id") or ""
+    if aid:
+        try:
+            from artifacts.store import read_artifact_content
+            # Inspection's config_backup is sensitivity="sensitive";
+            # we need the actual content to diff, so opt-in. The
+            # helper still blocks "secret" sensitivity.
+            text = read_artifact_content(workspace_id, aid, allow_sensitive=True)
+        except Exception:
+            logger.debug(
+                "inspection: read_artifact_content(%s) failed", aid,
+                exc_info=True,
+            )
+            text = None
+        if text is not None:
+            return {"content": text, "metadata": rec}
+        # aid failed — fall through to legacy path-based read.
+    # Legacy path: pre-artifact_id records. Restricted to the
+    # workspace root to limit blast radius.
+    from pathlib import Path
+    from workspace.ids import validate_workspace_id
+    from workspace.run_store import WS_ROOT
     file_path = rec.get("file_path") or rec.get("path")
     if not file_path:
         return {"content": "", "metadata": rec}
     try:
-        from pathlib import Path
+        ws_root = (WS_ROOT / validate_workspace_id(workspace_id)).resolve()
+        target = Path(file_path).resolve()
+        try:
+            target.relative_to(ws_root)
+        except ValueError:
+            logger.warning(
+                "inspection: legacy artifact %s escapes workspace %s, "
+                "skipping read", file_path, workspace_id,
+            )
+            return {"content": "", "metadata": rec}
         return {
-            "content": Path(file_path).read_text(encoding="utf-8", errors="replace"),
+            "content": target.read_text(encoding="utf-8", errors="replace"),
             "metadata": rec,
         }
     except Exception:
         logger.debug(
-            "inspection: cannot read backup file %r", file_path, exc_info=True,
+            "inspection: cannot read legacy backup %r", file_path,
+            exc_info=True,
         )
+        return {"content": "", "metadata": rec}
         return {"content": "", "metadata": rec}
 
 
@@ -948,61 +1080,117 @@ def run_task(workspace_id: str,
         return task
 
     # Concurrency control. Each device's checks run serially inside
-    # its worker; the pool only parallelises across devices.
+    # its worker; the pool only parallelises across devices. When
+    # there's only one device (or max_concurrency == 1) we skip the
+    # pool entirely — the per-task save lock would block on a single
+    # worker, the executor adds no value, and the cancel-poll
+    # machinery is the same.
     max_workers = max(1, min(max_concurrency, len(target_assets)))
     outcomes: dict[str, DeviceResult] = {}
     cancelled = False
     cancel_marker = ""
+
+    def _record_device(dr: DeviceResult) -> None:
+        """Idempotent per-device merge + progress save.
+
+        v3.10 (inspection): collapses the read-modify-write window
+        for ``task.devices`` so concurrent device workers can't
+        write a stale view. ``_save_task`` also takes the per-task
+        save lock; the two together guarantee progress is monotonic.
+        """
+        outcomes[dr.asset_id] = dr
+        with _get_task_save_lock(task.task_id):
+            task.devices = dict(outcomes)  # snapshot under the lock
+            _save_task_unlocked(workspace_id, task)
+
+    def _run_one_serial(asset_meta: dict) -> DeviceResult:
+        try:
+            return _run_one_device_with_meta(
+                workspace_id, asset_meta, task, profile,
+            )
+        except Exception as exc:
+            aid = str(asset_meta.get("asset_id") or "")
+            dr = DeviceResult(task_id=task.task_id, asset_id=aid)
+            dr.status = "failed"
+            dr.supported = False
+            dr.errors.append(
+                f"runner_internal_error: {type(exc).__name__}: {str(exc)[:200]}"
+            )
+            dr.finished_at = now_iso()
+            return dr
+
     try:
-        with ThreadPoolExecutor(max_workers=max_workers) as ex:
-            futures = {
-                ex.submit(
-                    _run_one_device_with_meta,
-                    workspace_id, asset_meta, task, profile,
-                ): asset_meta["asset_id"]
-                for asset_meta in target_assets
-            }
-            for fut in as_completed(futures):
-                if _cancel_requested(task.task_id) and not cancel_marker:
-                    cancel_marker = _consume_cancel_marker(task.task_id)
+        if max_workers == 1:
+            # Single device: sequential. Each device finishes,
+            # records, and we check cancel between devices (per-check
+            # cancel still happens inside the device worker).
+            for asset_meta in target_assets:
+                if _cancel_requested(workspace_id, task.task_id) and not cancel_marker:
+                    cancel_marker = _consume_cancel_marker(workspace_id, task.task_id)
                     cancelled = True
-                    # Don't cancel running workers — let them finish —
-                    # but stop accepting new results once the pool
-                    # drains. as_completed() blocks on the next future,
-                    # so we break the loop instead of waiting forever.
-                    break
-                try:
-                    dr = fut.result()
-                except Exception as exc:
-                    aid = futures[fut]
-                    dr = DeviceResult(task_id=task.task_id, asset_id=aid)
-                    dr.status = "failed"
-                    dr.supported = False
-                    dr.errors.append(f"runner_internal_error: {str(exc)[:200]}")
+                    dr = DeviceResult(
+                        task_id=task.task_id,
+                        asset_id=str(asset_meta.get("asset_id") or ""),
+                    )
+                    dr.status = "skipped"
+                    dr.errors.append("cancelled_before_dispatch")
                     dr.finished_at = now_iso()
-                outcomes[dr.asset_id] = dr
-                # v3.9.14: progress save — list_tasks / task_get stay
-                # accurate as the device pool finishes. Cancelling the
-                # task still works because we break the loop above.
-                task.devices = outcomes
-                _save_task(workspace_id, task)
-            # Drain already-submitted futures so we don't leak threads.
-            # Workers stop as soon as their device completes (the cancel
-            # poll lives inside the per-check loop).
-            for fut in futures:
-                if fut.done():
+                    _record_device(dr)
                     continue
-                try:
-                    dr = fut.result()
-                except Exception as exc:
-                    aid = futures[fut]
-                    dr = DeviceResult(task_id=task.task_id, asset_id=aid)
-                    dr.status = "failed"
-                    dr.supported = False
-                    dr.errors.append(f"runner_internal_error: {str(exc)[:200]}")
-                    dr.finished_at = now_iso()
-                if dr.asset_id not in outcomes:
-                    outcomes[dr.asset_id] = dr
+                dr = _run_one_serial(asset_meta)
+                _record_device(dr)
+        else:
+            with ThreadPoolExecutor(max_workers=max_workers) as ex:
+                futures = {
+                    ex.submit(
+                        _run_one_device_with_meta,
+                        workspace_id, asset_meta, task, profile,
+                    ): asset_meta["asset_id"]
+                    for asset_meta in target_assets
+                }
+                for fut in as_completed(futures):
+                    if _cancel_requested(workspace_id, task.task_id) and not cancel_marker:
+                        cancel_marker = _consume_cancel_marker(workspace_id, task.task_id)
+                        cancelled = True
+                        # Don't cancel running workers — let them
+                        # finish — but stop accepting new results
+                        # once the pool drains. as_completed() blocks
+                        # on the next future, so we break the loop
+                        # instead of waiting forever.
+                        break
+                    try:
+                        dr = fut.result()
+                    except Exception as exc:
+                        aid = futures[fut]
+                        dr = DeviceResult(task_id=task.task_id, asset_id=aid)
+                        dr.status = "failed"
+                        dr.supported = False
+                        dr.errors.append(
+                            f"runner_internal_error: {str(exc)[:200]}"
+                        )
+                        dr.finished_at = now_iso()
+                    _record_device(dr)
+                # Drain already-submitted futures so we don't leak
+                # threads. Workers stop as soon as their device
+                # completes (the cancel poll lives inside the
+                # per-check loop). _record_device is idempotent so a
+                # drain-time completion overrides a placeholder.
+                for fut in futures:
+                    if fut.done():
+                        continue
+                    try:
+                        dr = fut.result()
+                    except Exception as exc:
+                        aid = futures[fut]
+                        dr = DeviceResult(task_id=task.task_id, asset_id=aid)
+                        dr.status = "failed"
+                        dr.supported = False
+                        dr.errors.append(
+                            f"runner_internal_error: {str(exc)[:200]}"
+                        )
+                        dr.finished_at = now_iso()
+                    if dr.asset_id not in outcomes:
+                        _record_device(dr)
     except Exception as exc:
         # v3.9.14: if the executor blew up (e.g. resource exhaustion),
         # we still persist whatever we have so the task does NOT stay
@@ -1049,6 +1237,7 @@ def run_task(workspace_id: str,
         task.status = "failed"
     task.finished_at = now_iso()
     _save_task(workspace_id, task)
+    _release_task_save_lock(task.task_id)
     return task
 
 
@@ -1089,8 +1278,8 @@ def cancel_task(workspace_id: str, task_id: str) -> dict:
         return {"ok": False, "error": f"task_already_{t.status}"}
     marker = now_iso()
     with _CANCEL_LOCK:
-        _CANCEL_REQUESTS[task_id] = marker
-    _close_registered_remote_sessions(task_id)
+        _CANCEL_REQUESTS[(workspace_id, task_id)] = marker
+    _close_registered_remote_sessions(workspace_id, task_id)
     # Persist the marker on the task record so a backend restart
     # between mark and run still honours the cancel.
     t.cancel_requested_at = marker
