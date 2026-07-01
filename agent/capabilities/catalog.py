@@ -161,19 +161,9 @@ _CAPABILITIES: tuple[dict, ...] = (
         ),
         "safety_notes": (
             "Browser content comes from external sites; do not access "
-            "internal/login-walled URLs without permission.",
+            "internal/login-walled URLs without permission."
         ),
         "status": "enabled",
-    },
-    {
-        "capability_id": "topology",
-        "display_name": "Topology",
-        "description": "Network topology discovery (planned).",
-        "module_ids": ("topology",),
-        "recommended_tool_ids": (),
-        "prompt_hints": (),
-        "safety_notes": (),
-        "status": "planned",
     },
     {
         "capability_id": "inspection",

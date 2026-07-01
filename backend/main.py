@@ -279,6 +279,24 @@ def create_app():
     register_state_routes(app)     # /api/runtime/tasks/* (Phase 2 Durable State)
     register_inspection_routes(app)  # /api/inspection/* (CMDB-driven device health)
 
+    # v3.9.14: sweep every workspace's inspection directory and flip
+    # any disk-resident task that was left in 'running' state when
+    # the previous backend crashed. Without this the UI sees a
+    # growing backlog of phantom-running tasks forever.
+    try:
+        from agent.modules.inspection.runner import reconcile_all_workspaces
+        flipped = reconcile_all_workspaces()
+        if flipped:
+            import logging as _inspect_log
+            _inspect_log.getLogger(__name__).info(
+                "[inspection startup] flipped phantom-running: %s", flipped,
+            )
+    except Exception:
+        import logging as _inspect_log
+        _inspect_log.getLogger(__name__).debug(
+            "[inspection startup] reconcile skipped", exc_info=True,
+        )
+
     # ── WebSocket routes (real-time streaming) ──
     from backend.ws.agent_ws import register_ws_routes
     register_ws_routes(app)

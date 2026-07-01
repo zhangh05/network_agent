@@ -468,8 +468,15 @@ def run_parser(parser_key: str, output: str, *,
     try:
         return fn(parser_key, output, asset_id=asset_id, check_id=check_id, **kwargs)
     except Exception as exc:  # parser never raises
+        # v3.9.14: log full stack — user-facing finding stays terse.
+        import logging as _parser_log
+        _parser_log.getLogger(__name__).warning(
+            "[inspection.parser] %s crashed for check %s on asset %s",
+            parser_key, check_id, asset_id,
+            exc_info=True,
+        )
         return {}, [_finding(
             "warning", "解析器异常",
             f"parser={parser_key}: {str(exc)[:200]}",
             asset_id=asset_id, check_id=check_id,
-        )]
+        )]  # parser_never_raises; return degraded result

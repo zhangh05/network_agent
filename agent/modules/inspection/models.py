@@ -146,7 +146,7 @@ class DeviceResult:
     vendor: str = ""
     type: str = ""
     protocol: str = ""
-    status: str = "pending"   # pending|running|succeeded|failed|skipped
+    status: str = "pending"   # pending|running|succeeded|partial|failed|skipped|cancelled
     supported: bool = True   # False when no vendor profile matches
     limited_support: bool = False
     script_profile_id: str = ""
@@ -171,15 +171,18 @@ class InspectionTask:
     status: str = "pending"   # pending|running|succeeded|partial|failed|cancelled
     started_at: str = ""
     finished_at: str = ""
+    duration_ms: int = 0
+    error: str = ""
     total_assets: int = 0
     succeeded: int = 0
     failed: int = 0
     skipped: int = 0
+    partial: int = 0    # task-level partial counter (dr-level uses status="partial")
     warnings: int = 0
     criticals: int = 0
     infos: int = 0
     created_by: str = ""      # user / subagent / inspection_runner etc.
     session_id: str = ""
     max_concurrency: int = 3
+    cancel_requested_at: str = ""  # set when LLM caller requests cancel
     devices: dict[str, DeviceResult] = field(default_factory=dict)
-    error: str = ""

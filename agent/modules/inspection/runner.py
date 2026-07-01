@@ -21,6 +21,7 @@ in the MVP; the service layer offloads to a thread pool when
 from __future__ import annotations
 
 import logging
+import threading
 import time
 import traceback
 import uuid
@@ -62,6 +63,32 @@ from .profiles import (
 INSPECTION_CALLER = "inspection_runner"
 
 
+# ── cancellation registry ──────────────────────────────────────────────
+# Tasks run in worker threads. An LLM-side cancel request lands here;
+# the per-asset / per-check loops poll it. Cancellation is cooperative:
+# in-flight commands finish, no new checks are dispatched.
+
+_CANCEL_LOCK = threading.Lock()
+# task_id -> cancel_requested_at (ISO str, set by cancel_task)
+_CANCEL_REQUESTS: dict[str, str] = {}
+
+
+def _cancel_requested(task_id: str) -> bool:
+    """Return True if the task has been flagged for cancellation."""
+    if not task_id:
+        return False
+    with _CANCEL_LOCK:
+        return task_id in _CANCEL_REQUESTS
+
+
+def _consume_cancel_marker(task_id: str) -> str:
+    """Return and clear the cancel-requested ISO timestamp."""
+    if not task_id:
+        return ""
+    with _CANCEL_LOCK:
+        return _CANCEL_REQUESTS.pop(task_id, "")
+
+
 # ── storage ──────────────────────────────────────────────────────────────
 
 def _inspection_root(workspace_id: str):
@@ -80,7 +107,112 @@ def _save_task(workspace_id: str, task: InspectionTask) -> None:
     p.parent.mkdir(parents=True, exist_ok=True)
     # dataclasses → dict
     from dataclasses import asdict
+    # Keep duration_ms consistent with started_at/finished_at so the
+    # frontend can render "total time" without parsing the timestamps.
+    if task.started_at and task.finished_at:
+        try:
+            task.duration_ms = int((from_iso(task.finished_at)
+                                    - from_iso(task.started_at)).total_seconds() * 1000)
+        except Exception:
+            # v3.9.14: don't fail the save if a timestamp happens to be
+            # malformed (clock skew / partial legacy records); just zero
+            # it and continue. Real fix lands in v3.9.15 with a schema
+            # migration. Surface to logs so we notice.
+            task.duration_ms = 0
+            logger.debug(
+                "inspection._save_task: bad timestamps "
+                "started_at=%r finished_at=%r",
+                task.started_at, task.finished_at,
+                exc_info=True,
+            )
     atomic_write_json(p, asdict(task))
+
+
+def _task_duration_ms(task: InspectionTask) -> int:
+    """Recompute duration_ms from the canonical timestamps.
+
+    Avoids hand-maintained drift; the persisted value is the one we
+    write at task finalization.
+    """
+    if not task.started_at or not task.finished_at:
+        return 0
+    try:
+        return int((from_iso(task.finished_at)
+                     - from_iso(task.started_at)).total_seconds() * 1000)
+    except Exception:
+        logger.debug(
+            "inspection._task_duration_ms: bad timestamps "
+            "started_at=%r finished_at=%r",
+            getattr(task, "started_at", ""),
+            getattr(task, "finished_at", ""),
+            exc_info=True,
+        )
+        return 0
+
+
+def reconcile_phantom_running_tasks(workspace_id: str, root_override=None) -> int:
+    """Mark any disk-resident tasks left in 'running' state as
+    'crashed'. Called on backend startup so a SIGKILL'd inspection
+    does not show phantom-running tasks forever.
+
+    Returns the number of tasks flipped. ``root_override`` lets
+    tests target a tmp directory without monkey-patching module
+    globals.
+    """
+    from workspace.atomic_io import safe_read_json, atomic_write_json
+    from .models import InspectionTask
+    if root_override is not None:
+        root = root_override / workspace_id / "inspection" / "tasks"
+    else:
+        root = _inspection_root(workspace_id) / "tasks"
+    if not root.exists():
+        return 0
+    flipped = 0
+    for p in root.glob("ins_*.json"):
+        try:
+            data = safe_read_json(p, default=None)
+        except Exception:
+            continue
+        if not data:
+            continue
+        if data.get("status") != "running":
+            continue
+        data["status"] = "crashed"
+        data["error"] = (data.get("error", "")
+                          or "backend_restart_during_run")
+        data["finished_at"] = now_iso()
+        from dataclasses import asdict
+        try:
+            atomic_write_json(p, data)
+            flipped += 1
+        except Exception:
+            logger.debug("reconcile_phantom: write failed", exc_info=True)
+    return flipped
+
+
+def reconcile_all_workspaces(root=None) -> dict:
+    """Sweep every workspace for phantom-running inspection tasks.
+
+    Returns a per-workspace count summary; safe to call on backend
+    startup. ``root`` (optional) overrides ``WS_ROOT`` for tests.
+    """
+    from workspace.run_store import WS_ROOT
+    root = WS_ROOT if root is None else root
+    out: dict = {}
+    if not root.exists():
+        return out
+    for ws_dir in root.iterdir():
+        if not ws_dir.is_dir() or ws_dir.name.startswith("_"):
+            continue
+        try:
+            from workspace.ids import validate_workspace_id
+            ws = validate_workspace_id(ws_dir.name)
+        except Exception:
+            continue
+        n = reconcile_phantom_running_tasks(ws, root_override=root)
+        if n:
+            out[ws] = n
+    return out
 
 
 def load_task(workspace_id: str, task_id: str) -> Optional[InspectionTask]:
@@ -169,16 +301,19 @@ def _task_from_dict(d: dict) -> InspectionTask:
         status=d.get("status", "pending"),
         started_at=d.get("started_at", ""),
         finished_at=d.get("finished_at", ""),
+        duration_ms=int(d.get("duration_ms") or 0),
         total_assets=d.get("total_assets", 0),
         succeeded=d.get("succeeded", 0),
         failed=d.get("failed", 0),
         skipped=d.get("skipped", 0),
+        partial=d.get("partial", 0),
         warnings=d.get("warnings", 0),
         criticals=d.get("criticals", 0),
         infos=d.get("infos", 0),
         created_by=d.get("created_by", ""),
         session_id=d.get("session_id", ""),
         max_concurrency=d.get("max_concurrency", 3),
+        cancel_requested_at=d.get("cancel_requested_at", ""),
         devices=devices,
         error=d.get("error", ""),
     )
@@ -408,6 +543,20 @@ def _run_checks_on_asset(task: InspectionTask,
     eligible: list = []
     for check in checks:
         cmd_key = check.command_key
+        if not cmd_key:
+            # Defensive: a profile check with empty command_key would
+            # match every vendor command via dict lookup; never let it
+            # through silently — emit a synthetic failure finding
+            # so the operator can fix the profile.
+            dr.command_results.append(CommandResult(
+                check_id=check.check_id,
+                category=check.category,
+                command_key="",
+                command="",
+                ok=False,
+                error=f"profile check {check.check_id!r} has empty command_key",
+            ))
+            continue
         if cmd_key not in vendor_profile.commands:
             dr.command_results.append(CommandResult(
                 check_id=check.check_id,
@@ -455,6 +604,17 @@ def _run_checks_on_asset(task: InspectionTask,
     bucket_session_id = ""
     try:
         for check, cmd_key, command in eligible:
+            # Cooperative cancel: stop dispatching new checks once the
+            # task has been flagged. The in-flight command finishes.
+            if _cancel_requested(task.task_id):
+                dr.skipped += 1
+                dr.errors.append(f"cancelled_before_check: {check.check_id}")
+                dr.command_results.append(CommandResult(
+                    check_id=check.check_id, category=check.category,
+                    command_key=cmd_key, command=command, ok=False,
+                    error="cancelled_before_dispatch",
+                ))
+                continue
             t0 = time.time()
             try:
                 run_result = _exec_one_command(
@@ -468,6 +628,7 @@ def _run_checks_on_asset(task: InspectionTask,
                     "output": "",
                     "error": f"inspection_run_failed: {type(exc).__name__}: {str(exc)[:160]}",
                     "session_id": bucket_session_id,
+                    "elapsed_ms": int((time.time() - t0) * 1000),
                 }
             elapsed = int((time.time() - t0) * 1000)
             new_sid = run_result.get("session_id", "") or ""
@@ -555,13 +716,25 @@ def _run_checks_on_asset(task: InspectionTask,
                 f.asset_id = asset_id
             dr.findings.append(f)
 
-    # Status roll-up
+    # Status roll-up. We distinguish three different failure modes
+    # because they have different operational meaning:
+    #   - ``succeeded``: every check we *attempted* returned ok
+    #   - ``partial``:   some checks succeeded, others failed (SSH
+    #                   timeout, command error, vendor unsupported)
+    #   - ``failed``:    every attempted check failed
+    #   - ``skipped``:   we never attempted any check (e.g. protocol
+    #                   unsupported, asset_id missing)
     dr.finished_at = now_iso()
-    if any(not cr.ok for cr in dr.command_results):
-        dr.status = "failed"
-    elif dr.command_results and all(cr.ok for cr in dr.command_results):
+    attempted = [cr for cr in dr.command_results if cr.command]
+    succeeded = [cr for cr in attempted if cr.ok]
+    failed = [cr for cr in attempted if not cr.ok]
+    if attempted and not failed:
         dr.status = "succeeded"
-    elif not dr.command_results:
+    elif attempted and succeeded:
+        dr.status = "partial"
+    elif attempted:
+        dr.status = "failed"
+    else:
         dr.status = "skipped"
     return dr
 
@@ -592,6 +765,9 @@ def _latest_config_snapshot(workspace_id: str, asset_id: str, *,
         try:
             rec = __import__("json").loads(line)
         except Exception:
+            # Skip a corrupt row — common when an artifact file got
+            # truncated during a previous crash. Continue past it; the
+            # neighbouring rows still give us the latest snapshot.
             continue
         if rec.get("artifact_type") != target_type:
             continue
@@ -599,8 +775,6 @@ def _latest_config_snapshot(workspace_id: str, asset_id: str, *,
         if meta.get("asset_id") != asset_id:
             continue
         if exclude_task_id and meta.get("inspection_task_id") == exclude_task_id:
-            continue
-        if meta.get("inspection_task_id") == exclude_task_id:
             continue
         candidates.append(rec)
     if not candidates:
@@ -625,6 +799,9 @@ def _read_artifact_content(workspace_id: str, rec: dict) -> dict | None:
             "metadata": rec,
         }
     except Exception:
+        logger.debug(
+            "inspection: cannot read backup file %r", file_path, exc_info=True,
+        )
         return {"content": "", "metadata": rec}
 
 
@@ -682,6 +859,7 @@ def run_task(workspace_id: str,
     if profile is None:
         # Surface the unknown profile as an empty failed task so
         # the API can communicate the error back consistently.
+        started = now_iso()
         bad = InspectionTask(
             task_id=_new_task_id(),
             workspace_id=workspace_id,
@@ -692,10 +870,14 @@ def run_task(workspace_id: str,
             created_by=created_by,
             session_id=session_id,
             max_concurrency=max_concurrency,
-            error=f"unknown_profile: {profile_id}",
+            started_at=started,
+            finished_at=started,  # zero-duration, not crashed
+            error=(
+                f"unknown_profile: {profile_id}. "
+                f"Available: {sorted(BUILTIN_PROFILES.keys())}."
+            ),
         )
-        bad.started_at = now_iso()
-        bad.finished_at = now_iso()
+        bad.duration_ms = 0
         _save_task(workspace_id, bad)
         return bad
 
@@ -727,25 +909,64 @@ def run_task(workspace_id: str,
     # its worker; the pool only parallelises across devices.
     max_workers = max(1, min(max_concurrency, len(target_assets)))
     outcomes: dict[str, DeviceResult] = {}
-    with ThreadPoolExecutor(max_workers=max_workers) as ex:
-        futures = {
-            ex.submit(
-                _run_one_device_with_meta,
-                workspace_id, asset_meta, task, profile,
-            ): asset_meta["asset_id"]
-            for asset_meta in target_assets
-        }
-        for fut in as_completed(futures):
-            try:
-                dr = fut.result()
-            except Exception as exc:
-                aid = futures[fut]
-                dr = DeviceResult(task_id=task.task_id, asset_id=aid)
-                dr.status = "failed"
-                dr.supported = False
-                dr.errors.append(f"runner_internal_error: {str(exc)[:200]}")
-                dr.finished_at = now_iso()
-            outcomes[dr.asset_id] = dr
+    cancelled = False
+    cancel_marker = ""
+    try:
+        with ThreadPoolExecutor(max_workers=max_workers) as ex:
+            futures = {
+                ex.submit(
+                    _run_one_device_with_meta,
+                    workspace_id, asset_meta, task, profile,
+                ): asset_meta["asset_id"]
+                for asset_meta in target_assets
+            }
+            for fut in as_completed(futures):
+                if _cancel_requested(task.task_id) and not cancel_marker:
+                    cancel_marker = _consume_cancel_marker(task.task_id)
+                    cancelled = True
+                    # Don't cancel running workers — let them finish —
+                    # but stop accepting new results once the pool
+                    # drains. as_completed() blocks on the next future,
+                    # so we break the loop instead of waiting forever.
+                    break
+                try:
+                    dr = fut.result()
+                except Exception as exc:
+                    aid = futures[fut]
+                    dr = DeviceResult(task_id=task.task_id, asset_id=aid)
+                    dr.status = "failed"
+                    dr.supported = False
+                    dr.errors.append(f"runner_internal_error: {str(exc)[:200]}")
+                    dr.finished_at = now_iso()
+                outcomes[dr.asset_id] = dr
+                # v3.9.14: progress save — list_tasks / task_get stay
+                # accurate as the device pool finishes. Cancelling the
+                # task still works because we break the loop above.
+                task.devices = outcomes
+                _save_task(workspace_id, task)
+            # Drain already-submitted futures so we don't leak threads.
+            # Workers stop as soon as their device completes (the cancel
+            # poll lives inside the per-check loop).
+            for fut in futures:
+                if fut.done():
+                    continue
+                try:
+                    dr = fut.result()
+                except Exception as exc:
+                    aid = futures[fut]
+                    dr = DeviceResult(task_id=task.task_id, asset_id=aid)
+                    dr.status = "failed"
+                    dr.supported = False
+                    dr.errors.append(f"runner_internal_error: {str(exc)[:200]}")
+                    dr.finished_at = now_iso()
+                if dr.asset_id not in outcomes:
+                    outcomes[dr.asset_id] = dr
+    except Exception as exc:
+        # v3.9.14: if the executor blew up (e.g. resource exhaustion),
+        # we still persist whatever we have so the task does NOT stay
+        # #4/#6 phantom-running on disk.
+        task.error = f"runner_internal: {type(exc).__name__}: {str(exc)[:160]}"
+        logger.exception("inspection: run_task executor crashed")
 
     # Finalize
     task.devices = outcomes
@@ -754,6 +975,10 @@ def run_task(workspace_id: str,
             task.succeeded += 1
         elif dr.status == "skipped":
             task.skipped += 1
+        elif dr.status == "partial":
+            task.partial += 1
+        elif dr.status == "cancelled":
+            pass  # counted under skipped; task-level handled below
         else:
             task.failed += 1
         for f in dr.findings:
@@ -764,9 +989,19 @@ def run_task(workspace_id: str,
             elif f.severity == "info":
                 task.infos += 1
 
-    if task.failed == 0:
+    # Status roll-up at task level. Cancel precedence: if the user
+    # asked to stop, the task is cancelled (we keep any succeeded
+    # devices in outcomes for the report). Otherwise fall through to
+    # succeeded / partial / failed.
+    if cancelled:
+        task.status = "partial" if task.succeeded > 0 else "cancelled"
+        if cancel_marker:
+            task.cancel_requested_at = cancel_marker
+    elif task.failed == 0 and task.partial == 0 and task.skipped == 0:
         task.status = "succeeded"
-    elif task.succeeded > 0:
+    elif task.failed == 0 and (task.succeeded > 0 or task.partial > 0):
+        task.status = "partial"
+    elif task.succeeded > 0 or task.partial > 0:
         task.status = "partial"
     else:
         task.status = "failed"
@@ -798,21 +1033,29 @@ def _new_task_id() -> str:
 
 
 def cancel_task(workspace_id: str, task_id: str) -> dict:
-    """MVP cancellation.
+    """Mark a task for cooperative cancellation.
 
-    The MVP runs synchronously, so a task that is ``running`` is
-    already in-progress inside the orchestration. We do NOT silently
-    mark it cancelled; we tell the caller the operation is
-    unavailable for the synchronous path. Future async path
-    will flip ``status`` to ``cancelled``.
+    The runner is a thread pool; we can't yank the rug out. Setting the
+    cancel marker tells the per-asset loop to stop dispatching new
+    checks after the current one completes. Final ``status`` flips
+    to ``cancelled`` (only ``partial`` if some devices finished).
     """
     t = load_task(workspace_id, task_id)
     if t is None:
-        return {"ok": False, "error": "task_not_found", "supported": True}
+        return {"ok": False, "error": "task_not_found"}
+    if t.status in ("succeeded", "failed", "cancelled", "partial"):
+        return {"ok": False, "error": f"task_already_{t.status}"}
+    marker = now_iso()
+    with _CANCEL_LOCK:
+        _CANCEL_REQUESTS[task_id] = marker
+    # Persist the marker on the task record so a backend restart
+    # between mark and run still honours the cancel.
+    t.cancel_requested_at = marker
+    _save_task(workspace_id, t)
     return {
-        "ok": False,
-        "error": "not_supported",
-        "supported": False,
-        "reason": "MVP runs inspection synchronously; cancellation is a no-op.",
+        "ok": True,
+        "supported": True,
         "task_id": task_id,
+        "marked_at": marker,
+        "note": "in-flight checks finish; remaining assets skipped",
     }

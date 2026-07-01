@@ -306,7 +306,12 @@ MANIFESTS: dict[str, CapabilityManifest] = {
         secret_fields=[],  # never sees a password
         output_sensitivity="internal",
         reads_artifact=True, writes_artifact=True,
-        timeout_seconds=1200,
+        # v3.9.14: cap at 600s — covers a fleet-wide run with the
+        # per-check timeout hints (max 120s) at the top end. Per-check
+        # cancellation is handled via task_cancel; the runner itself
+        # reports partial results on cancel instead of dragging the
+        # whole task out for 20 minutes.
+        timeout_seconds=600,
         # The runner is "inspection_runner" — an internal background
         # identity used by the inspection service. The user-facing
         # LLM-driven entrypoint is still "turn_runner".

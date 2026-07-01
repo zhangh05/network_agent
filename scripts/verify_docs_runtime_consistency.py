@@ -38,9 +38,18 @@ def markdown_links(text: str) -> list[str]:
 
 def main() -> int:
     from tool_runtime.manifest_registry import MANIFESTS
+    from tool_runtime.canonical_registry import CANONICAL_REGISTRY
 
-    # v3.9.2: 21-tool Codex-style registry (was 65+ before v3.9.1 / 17+ pre-merge).
-    check(len(MANIFESTS) >= 20, "manifests registry has 20+ tools (v3.9.2 Codex set)")
+    # v3.9.2: 21-tool Codex-style registry; v3.9.13 added
+    # inspection.manage so we have 22 in this branch. The dynamic
+    # assertion catches accidental drift without pinning the number.
+    _registered = len(CANONICAL_REGISTRY)
+    _manifests = len(MANIFESTS)
+    check(
+        _registered == _manifests and _registered >= 20,
+        f"canonical/manifest registry count drift "
+        f"(CANONICAL_REGISTRY={_registered}, MANIFESTS={_manifests})",
+    )
 
     required_docs = [
         "README.md",

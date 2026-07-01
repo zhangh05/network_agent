@@ -49,13 +49,25 @@ def register_inspection_routes(app):
         # The runner persists / runs synchronously. The frontend polls
         # task_get once this returns. Status is one of:
         #   pending → running → succeeded | failed | partial
+        # v3.9.14 — clamp to the same range the service layer enforces
+        # so callers see consistent behaviour regardless of which
+        # entry point (HTTP API, service call, or tool) they use.
+        try:
+            mc = int(data.get("max_concurrency", 3) or 3)
+        except (TypeError, ValueError):
+            mc = 3
+        if mc < 1:
+            mc = 1
+        if mc > 16:
+            mc = 16
+
         task = inspection_service.create_task(
             workspace_id=ws_id,
             profile_id=str(data.get("profile_id", "") or ""),
             scope=scope,
             created_by=str(data.get("created_by", "user") or "user"),
             session_id=str(data.get("session_id", "") or ""),
-            max_concurrency=int(data.get("max_concurrency", 3) or 3),
+            max_concurrency=mc,
         )
 
         status_code = 200
@@ -99,7 +111,7 @@ def register_inspection_routes(app):
             limit = int(request.args.get("limit", "50") or 50)
         except ValueError:
             limit = 50
-        items = inspection_service.list_tasks(ws_id, limit=limit)
+        items = inspection_service.list_tasks(ws_id, limit=limit)  # service clamps to [1, 200] (v3.9.14)
         return jsonify({
             "ok": True,
             "workspace_id": ws_id,

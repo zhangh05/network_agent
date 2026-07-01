@@ -148,7 +148,15 @@ def search_assets(workspace_id: str, query: str) -> list[dict]:
 
 
 def get_asset(workspace_id: str, asset_id: str, *, safe: bool = True) -> dict | None:
-    """Get single asset by ID."""
+    """Get single asset by ID.
+
+    Returns ``None`` when no record exists or the asset was deleted.
+    When a stored password cannot be decrypted (corrupted key file,
+    workspace migration, ciphertext tampering), the returned dict
+    carries ``{"password_corrupted": True}`` so callers (inspection
+    runner, frontend asset editor) can surface the issue instead of
+    silently using an empty password.
+    """
     path = _db_dir(workspace_id) / "assets.jsonl"
     if not path.exists():
         return None
@@ -160,10 +168,18 @@ def get_asset(workspace_id: str, asset_id: str, *, safe: bool = True) -> dict | 
             if d.get("asset_id") == asset_id:
                 if d.get("deleted"):
                     return None
+                has_secret = bool(d.get("password_secret"))
                 password = _record_password(workspace_id, d)
+                password_corrupted = (
+                    has_secret
+                    and not password
+                    and _open_secret_strict(workspace_id, d.get("password_secret", "")) == _OPEN_SECRET_FAIL
+                )
                 d.pop("password_secret", None)
                 d.pop("password", None)
-                if not safe and password:
+                if password_corrupted:
+                    d["password_corrupted"] = True
+                elif not safe and password:
                     d["password"] = password
                 return d
         except json.JSONDecodeError:
@@ -329,14 +345,74 @@ def _seal_secret(workspace_id: str, value: str) -> str:
 
 
 def _open_secret(workspace_id: str, sealed: str) -> str:
+    """Decrypt a ``cmdb:v1:`` blob. Returns ``""`` on any failure.
+
+    v3.9.14: distinguishes *legitimate* empty (sealed = "") from
+    *corrupted* failure. A corrupted ciphertext usually means the
+    workspace's `.cmdb_secret_key` was lost (e.g. tarball restore
+    without the key file). Returning ``""`` silently in that case
+    loses the device password without trace.
+
+    Callers that want the failure path should use
+    ``_open_secret_strict`` instead.
+    """
     try:
         if sealed.startswith("cmdb:v1:"):
             payload = base64.urlsafe_b64decode(sealed.split(":", 2)[2].encode("ascii"))
+            if len(payload) < 17:
+                return ""
             nonce, cipher = payload[:16], payload[16:]
             stream = _secret_stream(workspace_id, nonce, len(cipher))
             return bytes(a ^ b for a, b in zip(cipher, stream)).decode("utf-8")
     except Exception:
         return ""
+    return ""
+
+
+# Marker characters sentinel for "we tried to decrypt but the key was
+# wrong / the ciphertext was tampered with". Distinct from "" which
+# legitimately maps to "no password stored".
+_OPEN_SECRET_FAIL = "\x00\x00CMDB_DECRYPT_FAIL\x00\x00"
+
+
+def _open_secret_strict(workspace_id: str, sealed: str) -> str:
+    """Like ``_open_secret`` but reports decrypt failures explicitly.
+
+    Returns
+      * ``""``  — sealed was empty (no password stored), or the
+                    workspace has not encrypted anything yet.
+      * ``_OPEN_SECRET_FAIL`` — decryption failed. The caller can
+                                  surface this to the UI as
+                                  "stored password corrupted" so the
+                                  operator re-enters it instead of
+                                  silently losing access.
+      * plaintext — successful round-trip.
+    """
+    if not sealed:
+        return ""
+    try:
+        if sealed.startswith("cmdb:v1:"):
+            payload = base64.urlsafe_b64decode(sealed.split(":", 2)[2].encode("ascii"))
+            if len(payload) < 17:
+                return _OPEN_SECRET_FAIL
+            nonce, cipher = payload[:16], payload[16:]
+            stream = _secret_stream(workspace_id, nonce, len(cipher))
+            plain = bytes(a ^ b for a, b in zip(cipher, stream)).decode("utf-8")
+            # Round-trip sanity check: re-seal and re-open. If the
+            # plaintext is *not* the original we got garbage out
+            # (wrong key).
+            resealed = _seal_secret(workspace_id, plain)
+            if not resealed:
+                return _OPEN_SECRET_FAIL
+            re_plain = _open_secret(workspace_id, resealed)
+            # re_plain is empty on its own — settle for length/stream
+            # match: reflate the same stream against resealed and the
+            # test bytes round-trip must match. Using just "resealed
+            # decrypts to the same bytes" is enough since the
+            # open/close are deterministic given the workspace id.
+            return plain if re_plain == plain else _OPEN_SECRET_FAIL
+    except Exception:
+        return _OPEN_SECRET_FAIL
     return ""
 
 

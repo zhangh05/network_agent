@@ -127,6 +127,12 @@ def create_task(workspace_id: str, profile_id: str, scope: dict | None = None,
     coerced_scope = _coerce_scope(scope)
     if max_concurrency < 1:
         max_concurrency = 1
+    # v3.9.14 upper bound — beyond 16 devices in flight we hit SSH
+    # session limits and the run gets slower than serial. Match the
+    # route handler so behaviour is identical whether the caller
+    # passes it via the API or directly.
+    if max_concurrency > 16:
+        max_concurrency = 16
     return _runner_run(
         workspace_id=ws,
         profile_id=profile_id,
@@ -138,6 +144,16 @@ def create_task(workspace_id: str, profile_id: str, scope: dict | None = None,
 
 
 def list_tasks(workspace_id: str, *, limit: int = 50) -> list[dict]:
+    """List the most recent ``limit`` inspection tasks.
+
+    The cap (200) stops a misbehaving caller from sweeping every
+    file in `inspections/` and serialising the whole history. Below
+    1 we fall back to the default 50.
+    """
+    if limit < 1:
+        limit = 50
+    if limit > 200:
+        limit = 200
     ws = _validate_workspace(workspace_id)
     return _runner_list(ws, limit=limit)
 
@@ -162,7 +178,9 @@ def cancel_task(workspace_id: str, task_id: str) -> dict:
 def render_report(workspace_id: str, task_id: str, fmt: str = "md") -> dict:
     """Render the report in ``fmt`` (``md``, ``json``, or ``html``).
 
-    Returns ``{"ok": True, "format": ..., "content": ...}`` or
+    HTML reports are persisted as artifacts; the second render of
+    the same ``task_id`` reuses the existing artifact instead of
+    creating a duplicate. Returns ``{"ok": True, ...}`` or
     ``{"ok": False, "error": ...}``.
     """
     task = get_task(workspace_id, task_id)
@@ -170,7 +188,18 @@ def render_report(workspace_id: str, task_id: str, fmt: str = "md") -> dict:
         return {"ok": False, "error": "task_not_found"}
     if fmt == "html":
         html = _report.render_html(task)
-        artifact_id = ""
+        existing = _find_existing_report_artifact(workspace_id, task_id, "html")
+        if existing is not None:
+            artifact_id = getattr(existing, "artifact_id", "")
+            return {
+                "ok": True,
+                "format": "html",
+                "filename": f"inspection_{task_id}.html",
+                "content": html,
+                "artifact_id": artifact_id,
+                "download_url": f"/api/inspection/tasks/{task_id}/report.html?workspace_id={workspace_id}",
+                "cached": True,
+            }
         from artifacts.store import save_artifact
         art = save_artifact(
             workspace_id=workspace_id,
@@ -190,6 +219,8 @@ def render_report(workspace_id: str, task_id: str, fmt: str = "md") -> dict:
         )
         if art is not None:
             artifact_id = getattr(art, "artifact_id", "")
+        else:
+            artifact_id = ""
         return {
             "ok": True,
             "format": "html",
@@ -197,6 +228,7 @@ def render_report(workspace_id: str, task_id: str, fmt: str = "md") -> dict:
             "content": html,
             "artifact_id": artifact_id,
             "download_url": f"/api/inspection/tasks/{task_id}/report.html?workspace_id={workspace_id}",
+            "cached": False,
         }
 
     if fmt not in ("md", "markdown"):
@@ -216,3 +248,34 @@ def render_report(workspace_id: str, task_id: str, fmt: str = "md") -> dict:
         "filename": f"inspection_{task_id}.md",
         "content": md,
     }
+
+
+def _find_existing_report_artifact(workspace_id: str, task_id: str, fmt: str):
+    """Return the most recent html report artifact for ``task_id`` if any.
+
+    We deduplicate by ``run_id == task_id`` and metadata
+    ``report_format == fmt``; the *last* one is treated as canonical
+    (older html files keep their artifact id but aren't reused so
+    the download URL stays stable).
+
+    Returns ``None`` if no prior render exists.
+    """
+    try:
+        from artifacts.store import list_artifacts
+    except Exception:
+        return None
+    try:
+        items = list_artifacts(
+            workspace_id=workspace_id,
+            run_id=task_id,
+            artifact_type="report",
+        )
+    except Exception:
+        return None
+    for it in reversed(items or ()):  # newest first
+        meta = getattr(it, "metadata", None) or {}
+        if not isinstance(meta, dict):
+            continue
+        if meta.get("report_format") == fmt:
+            return it
+    return None
