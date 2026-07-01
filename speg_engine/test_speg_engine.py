@@ -748,7 +748,8 @@ class TestSPEGPipeline:
 
         result = await engine.run("search for uptime and old data")
 
-        assert not result.success  # one failure
+        # Bank-grade: failure isolation — pipeline succeeds, node failures isolated
+        assert result.success
         assert result.node_success_count == 1
         assert result.node_failure_count == 1
         assert result.node_results["good"].success
@@ -818,7 +819,7 @@ class TestSPEGPipeline:
         result = await engine.run("do something impossible")
         assert not result.success
         assert len(result.errors) > 0
-        assert "dag_status" in result.metadata
+        assert len(result.metadata["structured_errors"]) > 0
 
 
 # ============================================================================

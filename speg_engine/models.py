@@ -41,6 +41,19 @@ class PlanNode:
     deps: list[str] = field(default_factory=list)
 
 
+class NodePriority(enum.Enum):
+    HIGH = "high"
+    NORMAL = "normal"
+    LOW = "low"
+
+
+class RiskLevel(enum.Enum):
+    LOW = "low"
+    MEDIUM = "medium"
+    HIGH = "high"
+    CRITICAL = "critical"
+
+
 @dataclass
 class ExecutionNode:
     """A compiled, validated DAG node ready for execution."""
@@ -56,6 +69,11 @@ class ExecutionNode:
     started_at: float | None = None
     finished_at: float | None = None
     latency_ms: float = 0.0
+    priority: NodePriority = NodePriority.NORMAL
+    optional: bool = False
+    node_run_id: str = ""
+    approval_required: bool = False
+    approval_granted: bool = False
 
     @property
     def is_ready(self) -> bool:
@@ -121,13 +139,18 @@ class ToolResult:
 class SPEGConfig:
     """Configuration for the SPEG Engine."""
     max_retries_per_node: int = 1
-    parallel_layer_timeout_ms: int = 300_000   # 5 min per layer
-    single_node_timeout_ms: int = 120_000       # 2 min per node
-    planner_timeout_ms: int = 60_000             # 1 min for planner LLM
-    finalizer_timeout_ms: int = 30_000           # 30s for finalizer
+    parallel_layer_timeout_ms: int = 300_000
+    single_node_timeout_ms: int = 120_000
+    planner_timeout_ms: int = 20_000
+    finalizer_timeout_ms: int = 15_000
     enable_finalizer: bool = True
-    max_nodes: int = 32
+    max_nodes: int = 30
     max_depth: int = 8
+    max_global_concurrency: int = 8
+    max_layer_concurrency: int = 5
+    max_total_seconds: int = 60
+    max_tool_seconds: int = 30
+    max_llm_calls: int = 2
 
 
 @dataclass
@@ -153,3 +176,89 @@ class SPEGResult:
     @property
     def node_failure_count(self) -> int:
         return sum(1 for r in self.node_results.values() if not r.success)
+
+
+# ============================================================================
+# Bank-grade additions
+# ============================================================================
+
+@dataclass
+class ExecutionBudget:
+    """Per-request execution budget — enforced by BudgetController."""
+    max_total_seconds: int = 60
+    max_planner_seconds: int = 20
+    max_tool_seconds: int = 30
+    max_finalizer_seconds: int = 15
+    max_nodes: int = 30
+    max_depth: int = 8
+    max_parallel_width: int = 8
+    max_llm_calls: int = 2
+
+
+@dataclass
+class RollbackAction:
+    """A rollback step for a mutation node."""
+    node_id: str
+    rollback_tool: str
+    args: dict[str, Any] = field(default_factory=dict)
+    reason: str = ""
+
+
+@dataclass
+class RollbackPlan:
+    """Rollback assessment for the entire DAG run."""
+    rollback_available: bool = False
+    rollback_recommended: bool = False
+    actions: list[RollbackAction] = field(default_factory=list)
+    warnings: list[str] = field(default_factory=list)
+
+
+@dataclass
+class AuditRecord:
+    """Immutable audit record for a single request."""
+    request_id: str
+    session_id: str
+    created_at: float = field(default_factory=time.time)
+    user_request_hash: str = ""
+    planner_model: str = ""
+    llm_call_count: int = 0
+    dag_nodes: int = 0
+    dag_depth: int = 0
+    risk_level: str = "low"
+    approval_required: bool = False
+    executed_nodes: list[dict[str, Any]] = field(default_factory=list)
+    blocked_nodes: list[dict[str, Any]] = field(default_factory=list)
+    failed_nodes: list[dict[str, Any]] = field(default_factory=list)
+    duration_ms: float = 0.0
+
+
+@dataclass
+class TraceSpan:
+    """A single span in the execution trace."""
+    name: str
+    start_time: float
+    end_time: float = 0.0
+    duration_ms: float = 0.0
+    status: str = "pending"
+    error_code: str = ""
+    metadata: dict[str, Any] = field(default_factory=dict)
+    children: list["TraceSpan"] = field(default_factory=list)
+
+
+@dataclass
+class MetricSnapshot:
+    """Structured metrics for every run."""
+    total_duration_ms: float = 0.0
+    planner_duration_ms: float = 0.0
+    compile_duration_ms: float = 0.0
+    validation_duration_ms: float = 0.0
+    execution_duration_ms: float = 0.0
+    finalizer_duration_ms: float = 0.0
+    llm_calls: int = 0
+    tool_calls: int = 0
+    tool_success: int = 0
+    tool_failed: int = 0
+    cache_hit_ratio: float = 0.0
+    dag_depth: int = 0
+    max_parallel_width: int = 0
+    risk_level: str = "low"
