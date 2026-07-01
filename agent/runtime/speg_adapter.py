@@ -84,6 +84,7 @@ def run_speg_turn(
                 user_input=user_input,
                 workspace_id=workspace_id,
                 session_id=session_id,
+                extras=metadata_in,
             )
         )
         final_response = _final_response(speg_result)

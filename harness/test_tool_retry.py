@@ -57,6 +57,11 @@ def _run(engine) -> Any:
     return asyncio.run(engine.run("test"))
 
 
+def _run_approved(engine) -> Any:
+    """Run with pre-approved risk so exec.run / high-risk tools can execute."""
+    return asyncio.run(engine.run("test", extras={"approved_risk": True}))
+
+
 def _find_node(result, node_id: str):
     return result.node_results.get(node_id)
 
@@ -221,7 +226,7 @@ def test_exec_run_does_not_retry():
                      "deps": []}],
         tool_handler=handler, tool_id="exec.run",
     )
-    result = _run(engine)
+    result = _run_approved(engine)
 
     # The handler is invoked exactly once — no retry.
     assert call_count[0] == 1

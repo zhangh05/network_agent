@@ -720,7 +720,8 @@ class TestSPEGPipeline:
         engine.register_tool("exec.run", exec_handler, description="Run shell")
         engine.register_tool("workspace.file", file_handler, description="File ops")
 
-        result = await engine.run("check nginx status and logs")
+        result = await engine.run("check nginx status and logs",
+                                  extras={"approved_risk": True})
 
         assert result.success
         assert result.node_success_count == 2
@@ -821,7 +822,7 @@ class TestSPEGPipeline:
 
         engine.register_tool("exec.run", handler)
 
-        await engine.run("test")
+        await engine.run("test", extras={"approved_risk": True})
 
         # 1 planner + 1 finalizer = 2 (since finalizer is enabled by default)
         assert llm_call_count[0] == 2

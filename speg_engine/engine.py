@@ -230,8 +230,15 @@ class SPEGEngine:
         workspace_id: str = "default",
         session_id: str = "",
         cwd: str = "",
+        extras: dict[str, Any] | None = None,
     ) -> SPEGResult:
-        """Execute a single user request through the 15-stage bank-grade pipeline."""
+        """Execute a single user request through the bank-grade pipeline.
+
+        Args:
+            extras: caller-supplied metadata map that lands in
+                ``ctx.extras``.  Used for approval bypass
+                (``approved_risk=True``) and other caller signals.
+        """
         t_total = time.monotonic()
         metrics = MetricsCollector()
         budget = BudgetController(self._config)
@@ -250,6 +257,7 @@ class SPEGEngine:
             request_id=request_span.span.metadata.get("request_id", "unknown"),
             user_input=user_input,
             cwd=cwd,
+            extras=dict(extras or {}),
         )
 
         errors: list[SPEGError] = []
@@ -539,16 +547,64 @@ class SPEGEngine:
                     RISK_ASSESSED, t_total,
                     risk_level=risk_assessment.risk_level,
                     safe_to_run=bool(risk_assessment.safe_to_run),
+                    hard_block=bool(risk_assessment.hard_block),
+                    requires_approval=bool(risk_assessment.requires_approval),
                 )
-                if not risk_assessment.safe_to_run:
+
+                # v3.12: three-way risk gate.
+                #  1. hard_block → fail immediately (no override).
+                #  2. approval_required (not hard_block) → return with
+                #     approval metadata so the frontend shows a bubble.
+                #  3. safe → continue execution.
+                if risk_assessment.hard_block:
                     errors.append(build_error(
                         SpegErrorCode.RISK_CRITICAL_DENIED,
                         risk_assessment.blocked_reason,
                         stage="risk_policy",
                     ))
-                    return self._build_result(ctx, dag, node_results, final_response,
-                                              errors, metrics, budget, t_total, risk_level, risk_assessment.requires_approval)
-                approval_required = risk_assessment.requires_approval
+                    return self._build_result(
+                        ctx, dag, node_results, final_response,
+                        errors, metrics, budget, t_total,
+                        risk_level,
+                        approval_required=True,
+                        extra={
+                            "hard_block": True,
+                            "blocked_reason": risk_assessment.blocked_reason,
+                            "blocked_nodes": risk_assessment.blocked_nodes,
+                        },
+                    )
+
+                if risk_assessment.requires_approval:
+                    # Check if user already approved via metadata
+                    approved = self._check_approval_bypass(ctx)
+                    if not approved:
+                        # Return with approval metadata — caller
+                        # (AgentResult → frontend) should surface the
+                        # approval bubble.
+                        self._emit_stage(TURN_COMPLETED, t_total)
+                        metrics.set_llm_calls(budget.llm_calls)
+                        metrics.set_risk_level(risk_level)
+                        return self._build_result(
+                            ctx, dag, node_results, final_response,
+                            errors, metrics, budget, t_total,
+                            risk_level,
+                            approval_required=True,
+                            extra={
+                                "approval_required": True,
+                                "approval_reason": risk_assessment.approval_reason,
+                                "approval_nodes": risk_assessment.approval_nodes,
+                                "approval_details": risk_assessment.approval_details,
+                                "risk_level": risk_level,
+                                "command_summary": _summarize_commands(dag),
+                                "tool_summary": _summarize_tools(dag),
+                                "warnings": risk_assessment.warnings,
+                            },
+                        )
+
+                approval_required = (
+                    risk_assessment.requires_approval and
+                    not self._check_approval_bypass(ctx)
+                )
 
                 # Stage 8: Budget re-check
                 exec_budget = budget.check_execution()
@@ -929,6 +985,17 @@ class SPEGEngine:
         # LLMResponse object
         return getattr(result, "content", str(result))
 
+    def _check_approval_bypass(self, ctx: StatelessContext) -> bool:
+        """Check if the current request has been pre-approved by the user.
+
+        When the frontend shows an approval bubble and the user clicks
+        "approve", the same request is re-submitted with
+        ``ctx.extras["approved_risk"] = True``.  This gate lets the
+        approved request skip the approval_required barrier while
+        keeping the hard_block gate intact.
+        """
+        return bool(ctx.extras.get("approved_risk") or False)
+
     # ========================================================================
     # LLM-based replanning for pre-execution repair
     # ========================================================================
@@ -1038,6 +1105,14 @@ class SPEGEngine:
             "planner_skipped": False,
             "used_tools": len(node_results) > 0,
             "direct_answer_latency_ms": 0.0,
+            # v3.12: approval tracking
+            "approval_required": False,
+            "hard_block": False,
+            "approval_reason": "",
+            "approval_nodes": [],
+            "approval_details": [],
+            "command_summary": [],
+            "tool_summary": [],
         }
         if extra:
             base_meta.update(extra)
@@ -1108,3 +1183,32 @@ class SPEGEngine:
 
     def _noop_llm(self, **kwargs) -> str:
         return '{"nodes": []}'
+
+
+# ========================================================================
+# Module-level helpers (used by engine.py and risk_policy)
+# ========================================================================
+
+def _summarize_commands(dag) -> list[dict[str, str]]:
+    """Extract exec.run command summaries for the approval bubble."""
+    if dag is None:
+        return []
+    commands = []
+    for node in dag.nodes:
+        if node.tool != "exec.run":
+            continue
+        cmd = str(node.args.get("command", "")[:200])
+        if cmd:
+            commands.append({"node_id": node.id, "command": cmd})
+    return commands
+
+
+def _summarize_tools(dag) -> list[str]:
+    """List distinct tool IDs in the DAG for the approval bubble."""
+    if dag is None:
+        return []
+    seen = {}
+    for node in dag.nodes:
+        seen[node.tool] = seen.get(node.tool, 0) + 1
+    return [f"{tid} (x{count})" if count > 1 else tid
+            for tid, count in sorted(seen.items())]

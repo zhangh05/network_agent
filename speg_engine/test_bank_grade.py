@@ -146,7 +146,11 @@ class TestSemanticValidator:
         assert any("command" in e.message for e in result.errors)
 
     def test_forbidden_command_detected(self, validator):
-        nodes = [ExecutionNode(id="n1", tool="exec.run", args={"command": "rm -rf /"}, depth=0)]
+        # v3.12: rm -rf / is no longer blocked by semantic_validator.
+        # Destructive commands are deferred to RiskPolicyEngine for
+        # approval/hard_block. Use a truly forbidden command for this test.
+        nodes = [ExecutionNode(id="n1", tool="exec.run",
+                               args={"command": "shutdown /s"}, depth=0)]
         dag = ExecutionDAG(nodes=nodes, total_nodes=1, max_depth=0)
         result = validator.validate(dag)
         assert not result.valid
@@ -200,11 +204,12 @@ class TestRiskPolicy:
         ]
         dag = ExecutionDAG(nodes=nodes, total_nodes=3, max_depth=0)
         result = engine.assess(dag)
-        # 3 writes → risk escalated to HIGH (combo)
-        assert result.risk_level in ("high", "critical")
+        # v3.12: 3 writes → approval required (not hard block, not risk escalation)
+        assert result.requires_approval
+        assert result.hard_block is False
         assert any("write" in w.lower() for w in result.warnings)
 
-    def test_multiple_exec_critical(self, engine):
+    def test_multiple_exec_approval(self, engine):
         nodes = [
             ExecutionNode(id="n1", tool="exec.run", args={"command": "a"}, depth=0),
             ExecutionNode(id="n2", tool="exec.run", args={"command": "b"}, depth=0),
@@ -212,7 +217,9 @@ class TestRiskPolicy:
         ]
         dag = ExecutionDAG(nodes=nodes, total_nodes=3, max_depth=0)
         result = engine.assess(dag)
-        assert result.risk_level == "critical"
+        # v3.12: 3 exec.run → approval required, NOT hard block
+        assert result.requires_approval
+        assert result.hard_block is False
         assert not result.safe_to_run
 
 
@@ -655,8 +662,11 @@ class TestBankGradePipeline:
         engine.register_tool("exec.run", handler)
         result = await engine.run("run 3 commands")
 
-        # 3 exec nodes → combo escalation to CRITICAL → blocked
-        assert not result.success or result.metadata["risk_level"] == "critical"
+        # v3.12: 3 exec nodes → approval_required (NOT hard block).
+        # The pipeline returns success=True with approval metadata.
+        assert result.success
+        assert result.metadata.get("approval_required") is True
+        assert result.metadata.get("hard_block") is False
 
     @pytest.mark.asyncio
     async def test_repair_retries_idempotent_node(self, config):
