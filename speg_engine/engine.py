@@ -147,6 +147,7 @@ class SPEGEngine:
         dag = None
         risk_level = "low"
         approval_required = False
+        rollback_plan = None
 
         try:
             # Stage 3: Planner (1 LLM call)
@@ -180,6 +181,8 @@ class SPEGEngine:
                         )
                     else:
                         final_response = "No tools needed. (finalizer budget exceeded)"
+                else:
+                    final_response = self._finalizer._build_default_response(merged)
 
                 metrics.set_llm_calls(budget.llm_calls)
                 dag = None
@@ -306,19 +309,6 @@ class SPEGEngine:
                 stage="engine", risk_level="high",
             ))
 
-        # Stage 14: Audit
-        total_ms = (time.monotonic() - t_total) * 1000
-        self._audit.create_record(
-            ctx, dag, node_results,
-            risk_level=risk_level,
-            approval_required=approval_required,
-            llm_call_count=budget.llm_calls,
-            duration_ms=total_ms,
-        )
-
-        # Stage 15: Metrics emit + return
-        metrics.capture_total(total_ms)
-
         return self._build_result(
             ctx, dag, node_results, final_response,
             errors, metrics, budget, t_total, risk_level, approval_required,
@@ -403,6 +393,15 @@ class SPEGEngine:
         rollback_plan=None,
     ) -> SPEGResult:
         total_ms = (time.monotonic() - t_total) * 1000
+        metrics.capture_total(total_ms)
+        self._mark_blocked_nodes_for_audit(dag, node_results, errors)
+        self._audit.create_record(
+            ctx, dag, node_results,
+            risk_level=risk_level,
+            approval_required=approval_required,
+            llm_call_count=budget.llm_calls,
+            duration_ms=total_ms,
+        )
         m = metrics.snapshot()
 
         return SPEGResult(
@@ -434,6 +433,23 @@ class SPEGEngine:
                 "rollback_recommended": rollback_plan.rollback_recommended if rollback_plan else False,
             },
         )
+
+    @staticmethod
+    def _mark_blocked_nodes_for_audit(
+        dag,
+        node_results: dict[str, ToolResult],
+        errors: list[SPEGError],
+    ) -> None:
+        if not dag:
+            return
+        error_node_ids = {e.node_id for e in errors if e.node_id}
+        for node in dag.nodes:
+            if node.id in node_results:
+                continue
+            if node.status in (ExecutionStatus.SUCCESS, ExecutionStatus.FAILED):
+                continue
+            if node.id in error_node_ids:
+                node.status = ExecutionStatus.SKIPPED
 
     def _noop_llm(self, **kwargs) -> str:
         return '{"nodes": []}'

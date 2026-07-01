@@ -1006,3 +1006,8 @@ class TestV1AttackVectors:
         assert "structured_errors" in result.metadata
         assert any("FORBIDDEN_COMMAND" in str(e) for e in result.metadata["structured_errors"])
         assert result.metadata["risk_level"] in ("high", "critical")
+
+        records = engine._audit.records
+        assert len(records) == 1
+        assert len(records[0].blocked_nodes) == 1
+        assert records[0].blocked_nodes[0]["node_id"] == "attack"

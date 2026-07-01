@@ -644,6 +644,26 @@ class TestFinalizer:
 class TestSPEGPipeline:
 
     @pytest.mark.asyncio
+    async def test_no_tool_plan_returns_clean_result(self, config):
+        """Planner may decide no tools are needed; result assembly must not crash."""
+        from speg_engine.engine import SPEGEngine
+
+        config.enable_finalizer = False
+
+        engine = SPEGEngine(
+            config=config,
+            llm_invoke=lambda **kwargs: '{"nodes": []}',
+            tool_registry={},
+        )
+
+        result = await engine.run("你好")
+
+        assert result.success
+        assert result.node_success_count == 0
+        assert result.node_failure_count == 0
+        assert result.metadata["dag_nodes"] == 0
+
+    @pytest.mark.asyncio
     async def test_full_pipeline_simple_tools(self, config):
         """End-to-end test with mock LLM and mock tools."""
         from speg_engine.engine import SPEGEngine
