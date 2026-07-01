@@ -37,32 +37,60 @@ _SIMPLE_QUESTION_PATTERNS = (
 )
 
 
-# ── Blacklist: keywords that force full SPEG ──────────────────────
+# ── Hard tool keywords: always force full SPEG ────────────────────
+# Any match here means the user wants the system to DO something
+# (read a file, run a command, check a device, etc.), so fast-path
+# is categorically wrong.
 
-_BLACKLIST_KEYWORDS = (
-    # Infrastructure
-    "ping", "telnet", "traceroute", "访问慢",
-    "排查", "检查", "查看", "读取", "文件",
-    "执行", "命令", "接口", "交换机", "防火墙",
-    "路由", "策略", "NAT", "VLAN", "OSPF 邻居",
-    "BGP", "ISIS", "SRv6", "MTU", "光模块",
-    "配置", "删除", "修改", "提交", "推送",
-    # Network tools
-    "ssh", "snmp", "netconf",
-    # File system
+_HARD_TOOL_KEYWORDS = (
+    "读取", "文件", "执行", "命令", "删除", "修改",
+    "提交", "推送", "保存", "写入", "部署",
+    "查看", "检查", "排查",
+    "ping", "telnet", "traceroute", "ssh",
     "README", "readme", ".md", ".py", ".yaml", ".json",
     "workspace/", "目录",
+    "snmp", "netconf",
 )
 
 
-def _has_blacklist(text: str) -> bool:
-    """Returns True if any blacklist keyword appears in *text*."""
+# ── Network-domain keywords (protocols, devices, concepts) ────────
+# Alone these do NOT block fast path (e.g. "NAT 是什么" is fine).
+# Combined with troubleshooting keywords they DO block.
+
+_NETWORK_KEYWORDS = (
+    "OSPF", "BGP", "ISIS", "SRv6", "MTU", "NAT", "VLAN",
+    "接口", "交换机", "防火墙", "路由", "策略",
+    "光模块", "ACL", "MPLS", "VRRP", "STP",
+    "IP", "TCP", "UDP", "DNS", "DHCP",
+)
+
+
+# ── Troubleshooting-intent keywords ───────────────────────────────
+# These signal the user has a *problem* and needs diagnosis, not
+# a textbook definition.  Combined with a network keyword they
+# force full SPEG.
+
+_TROUBLESHOOTING_KEYWORDS = (
+    "不通", "起不来", "不生效", "失败", "异常", "故障",
+    "很慢", "访问慢", "丢包", "超时", "flap", "down",
+    "红灯", "告警", "原因", "怎么排查", "帮我分析",
+    "怎么解决", "如何处理", "排查", "诊断",
+    "不匹配", "不一致",
+)
+
+
+# ── Helper ────────────────────────────────────────────────────────
+
+def _has_any(text: str, keywords: tuple[str, ...]) -> bool:
+    """Returns True if any keyword appears as a substring in *text*."""
     lower = text.lower()
-    for kw in _BLACKLIST_KEYWORDS:
+    for kw in keywords:
         if kw.lower() in lower:
             return True
     return False
 
+
+# ── Classifier ─────────────────────────────────────────────────────
 
 def classify_direct_answer(user_input: str) -> FastPathDecision:
     """Narrow-rule classifier: should this input skip the planner?
@@ -71,12 +99,19 @@ def classify_direct_answer(user_input: str) -> FastPathDecision:
         FastPathDecision with ``enabled=True`` only for clear-cut
         non-tool scenarios (greetings, definition questions, etc.).
 
-    Priority (highest to lowest):
-      1. Greetings (short, unambiguous)
-      2. Simple-question whitelist (是什么, 解释一下, 翻译, etc.)
-      3. Blacklist (network / file system keywords) — only applied
-         when whitelist patterns did NOT match
-      4. Fall-through → full SPEG
+    Decision tree:
+      1. Empty → full SPEG
+      2. Greeting (short) → fast path
+      3. Simple-question whitelist matched?
+         a. Hard-tool keyword in input → full SPEG
+         b. Network + troubleshooting combo → full SPEG
+         c. Otherwise → fast path
+      4. No whitelist match → full SPEG
+
+    This ordering prevents:
+      - "解释一下 OSPF 邻居起不来的原因"  → fast-path blocked (network+troubleshooting)
+      - "帮我分析防火墙策略不生效"        → fast-path blocked (troubleshooting)
+      - "NAT 是什么 / OSPF 是什么"        → fast path (pure definition)
     """
     text = (user_input or "").strip()
     if not text:
@@ -90,26 +125,45 @@ def classify_direct_answer(user_input: str) -> FastPathDecision:
                 reason=f"greeting pattern: {pat}",
             )
 
-    # 2.  Simple question / text-task patterns.  These take
-    #     priority over the blacklist because a user asking
-    #     "NAT 是什么" clearly does not want us to ssh into a
-    #     firewall — they want a definition.
+    # 2.  Does the input match a simple-question whitelist pattern?
+    simple_question_matched = False
+    matched_pat = ""
     for pat in _SIMPLE_QUESTION_PATTERNS:
         if pat in text:
-            return FastPathDecision(
-                enabled=True, route="simple_question",
-                reason=f"simple question pattern: {pat}",
-            )
+            simple_question_matched = True
+            matched_pat = pat
+            break
 
-    # 3.  Blacklist check — only applied when no whitelist pattern
-    #     matched.  "OSPF 邻居起不来" has no whitelist pattern,
-    #     so "OSPF 邻居" blocks it.  "NAT 是什么" matched "是什么"
-    #     in step 2, so it fast-paths.
-    if _has_blacklist(text):
-        return FastPathDecision(enabled=False, route="", reason="blacklist_match")
+    if not simple_question_matched:
+        # No whitelist pattern → fall through to full SPEG.
+        return FastPathDecision(
+            enabled=False, route="",
+            reason="no fast-path pattern matched",
+        )
 
-    # 4.  Fall through — let full SPEG handle it.
+    # 3a. Hard-tool keyword block.  The user asked "翻译这个文件"
+    #     or "检查一下" — this requires actual tool execution.
+    if _has_any(text, _HARD_TOOL_KEYWORDS):
+        return FastPathDecision(
+            enabled=False, route="",
+            reason="hard_tool_keyword",
+        )
+
+    # 3b. Network + troubleshooting combo block.  The user asked
+    #     "解释一下 OSPF 邻居起不来的原因" — they have a real
+    #     network problem that needs diagnosis, not a textbook
+    #     definition.
+    has_network = _has_any(text, _NETWORK_KEYWORDS)
+    has_troubleshoot = _has_any(text, _TROUBLESHOOTING_KEYWORDS)
+    if has_network and has_troubleshoot:
+        return FastPathDecision(
+            enabled=False, route="",
+            reason="network_troubleshooting_combo",
+        )
+
+    # 3c. Pure simple question (definition, translation, etc.)
+    #     with no tool/troubleshooting intent → fast path.
     return FastPathDecision(
-        enabled=False, route="",
-        reason="no fast-path pattern matched",
+        enabled=True, route="simple_question",
+        reason=f"simple question pattern: {matched_pat}",
     )

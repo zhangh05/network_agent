@@ -73,6 +73,60 @@ class TestFastPathClassifier:
         d = classify_direct_answer("请帮我检查 Kafka 延迟情况")
         assert d.enabled is False
 
+    # ── v3.11.1: troubleshooting-intent boundary tests ──────────────
+
+    def test_ospf_definition(self):
+        """'解释一下 OSPF 是什么' is a pure definition → fast path."""
+        d = classify_direct_answer("解释一下 OSPF 是什么")
+        assert d.enabled is True
+
+    def test_ospf_neighbor_down_reason(self):
+        """'解释一下 OSPF 邻居起不来的原因' has troubleshooting intent → full SPEG."""
+        d = classify_direct_answer("解释一下 OSPF 邻居起不来的原因")
+        assert d.enabled is False
+
+    def test_nat_definition(self):
+        """'NAT 是什么' → fast path."""
+        d = classify_direct_answer("NAT 是什么")
+        assert d.enabled is True
+
+    def test_nat_policy_failure(self):
+        """'NAT 策略不生效是什么原因' has network+troubleshooting → full SPEG."""
+        d = classify_direct_answer("NAT 策略不生效是什么原因")
+        assert d.enabled is False
+
+    def test_mtu_definition(self):
+        """'MTU 是什么' → fast path."""
+        d = classify_direct_answer("MTU 是什么")
+        assert d.enabled is True
+
+    def test_mtu_mismatch(self):
+        """'MTU 不匹配是什么现象' has troubleshooting → full SPEG."""
+        d = classify_direct_answer("MTU 不匹配是什么现象")
+        assert d.enabled is False
+
+    def test_interface_packet_loss(self):
+        """'接口丢包是什么原因' has network+troubleshooting → full SPEG."""
+        d = classify_direct_answer("接口丢包是什么原因")
+        assert d.enabled is False
+
+    def test_firewall_policy_analysis(self):
+        """'帮我分析防火墙策略不生效' has troubleshooting → full SPEG."""
+        d = classify_direct_answer("帮我分析防火墙策略不生效")
+        assert d.enabled is False
+
+    def test_translate_text_fast_path(self):
+        """'翻译这段英文' → fast path (pure text task)."""
+        d = classify_direct_answer("翻译这段英文")
+        assert d.enabled is True
+
+    def test_translate_file(self):
+        """'翻译 README.md' or '翻译这个文件' → hard-tool keyword → full SPEG."""
+        d = classify_direct_answer("翻译 README.md")
+        assert d.enabled is False
+        d2 = classify_direct_answer("翻译这个文件")
+        assert d2.enabled is False
+
 
 # ============================================================================
 # SPEG fast-path integration tests
