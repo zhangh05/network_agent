@@ -1073,6 +1073,165 @@ def test_cancel_task_closes_registered_remote_sessions(monkeypatch, tmp_path):
     assert runner._registered_task_sessions(ws, task_id) == {}
 
 
+def test_async_inspection_route_returns_real_task_id(monkeypatch):
+    """async_run must return the actual persisted task_id, not a placeholder."""
+    from flask import Flask
+    from backend.api.inspection_routes import register_inspection_routes
+
+    app = Flask(__name__)
+    register_inspection_routes(app)
+    client = app.test_client()
+
+    class FakeTask:
+        task_id = "ins_real_async_001"
+        status = "running"
+        profile_id = "auto"
+        scope = type("Scope", (), {
+            "region": "广域网", "location": "", "type": "", "vendor": "",
+            "tags": (), "asset_ids": (), "limit": 50,
+        })()
+        total_assets = 6
+        succeeded = failed = skipped = partial = warnings = criticals = infos = 0
+        started_at = "2026-07-01T00:00:00+00:00"
+        finished_at = ""
+        error = ""
+
+    pending_calls = []
+    run_calls = []
+
+    def fake_create_pending_task(**payload):
+        pending_calls.append(payload)
+        return FakeTask()
+
+    def fake_create_task(**payload):
+        run_calls.append(payload)
+        return FakeTask()
+
+    monkeypatch.setattr("agent.modules.inspection.service.create_pending_task", fake_create_pending_task)
+    monkeypatch.setattr("agent.modules.inspection.service.create_task", fake_create_task)
+    resp = client.post("/api/inspection/tasks", json={
+        "workspace_id": "default",
+        "scope": {"region": "广域网"},
+        "async_run": True,
+    })
+    body = resp.get_json()
+    assert resp.status_code == 202
+    assert pending_calls, "async route must persist a real task before returning"
+    assert body["task_id"] == "ins_real_async_001"
+    import time as _time
+    deadline = _time.time() + 1
+    while not run_calls and _time.time() < deadline:
+        _time.sleep(0.01)
+    assert run_calls[0]["task_id"] == "ins_real_async_001"
+
+
+def test_cancel_route_maps_not_found_to_404(monkeypatch):
+    """task_not_found is a normal API 404, not a 501 capability failure."""
+    from flask import Flask
+    from backend.api.inspection_routes import register_inspection_routes
+
+    app = Flask(__name__)
+    register_inspection_routes(app)
+    client = app.test_client()
+
+    monkeypatch.setattr(
+        "agent.modules.inspection.service.cancel_task",
+        lambda ws, task_id: {"ok": False, "error": "task_not_found"},
+    )
+    resp = client.post("/api/inspection/tasks/missing/cancel", json={
+        "workspace_id": "default",
+    })
+    assert resp.status_code == 404
+    assert resp.get_json()["error"] == "task_not_found"
+
+
+def test_cancel_route_maps_already_terminal_to_409(monkeypatch):
+    """Already-terminal tasks should not be reported as Not Implemented."""
+    from flask import Flask
+    from backend.api.inspection_routes import register_inspection_routes
+
+    app = Flask(__name__)
+    register_inspection_routes(app)
+    client = app.test_client()
+
+    monkeypatch.setattr(
+        "agent.modules.inspection.service.cancel_task",
+        lambda ws, task_id: {"ok": False, "error": "task_already_succeeded"},
+    )
+    resp = client.post("/api/inspection/tasks/done/cancel", json={
+        "workspace_id": "default",
+    })
+    assert resp.status_code == 409
+    assert resp.get_json()["error"] == "task_already_succeeded"
+
+
+def test_parallel_cancel_records_completed_future_before_stopping(monkeypatch, tmp_path):
+    """A completed future observed at cancel time must still be merged."""
+    from agent.modules.inspection import runner
+    from agent.modules.inspection.models import DeviceResult, InspectionScope
+    import workspace.run_store as ws_store
+
+    ws = "ws_cancel_done_future"
+    (tmp_path / ws).mkdir(parents=True)
+    orig = ws_store.WS_ROOT
+    ws_store.WS_ROOT = tmp_path
+    try:
+        monkeypatch.setattr(runner, "_resolve_target_assets", lambda scope, workspace_id: [
+            {
+                "asset_id": "a_0", "name": "asset-0", "type": "server",
+                "vendor": "linux", "host": "127.0.0.1", "port": 22,
+                "protocol": "ssh",
+            },
+            {
+                "asset_id": "a_1", "name": "asset-1", "type": "server",
+                "vendor": "linux", "host": "127.0.0.1", "port": 22,
+                "protocol": "ssh",
+            },
+        ])
+
+        class FakeFuture:
+            def __init__(self, asset_id: str):
+                self.asset_id = asset_id
+            def done(self):
+                return True
+            def cancel(self):
+                return False
+            def result(self):
+                dr = DeviceResult(task_id="will_be_overwritten", asset_id=self.asset_id)
+                dr.status = "succeeded"
+                dr.finished_at = "2026-07-01T00:00:00+00:00"
+                return dr
+
+        class FakeExecutor:
+            def __init__(self, max_workers):
+                self.futures = []
+            def __enter__(self):
+                return self
+            def __exit__(self, *args):
+                return False
+            def submit(self, fn, workspace_id, asset_meta, task, profile):
+                fut = FakeFuture(asset_meta["asset_id"])
+                self.futures.append(fut)
+                return fut
+
+        submitted: list[FakeFuture] = []
+        def fake_as_completed(futures):
+            submitted[:] = list(futures)
+            return iter(submitted)
+
+        monkeypatch.setattr(runner, "ThreadPoolExecutor", FakeExecutor)
+        monkeypatch.setattr(runner, "as_completed", fake_as_completed)
+        monkeypatch.setattr(runner, "_cancel_requested", lambda workspace_id, task_id: True)
+        monkeypatch.setattr(runner, "_consume_cancel_marker", lambda workspace_id, task_id: "2026-07-01T00:00:01+00:00")
+        task = runner.run_task(ws, "server_health", InspectionScope(limit=2), max_concurrency=2)
+    finally:
+        ws_store.WS_ROOT = orig
+
+    assert task.succeeded == 2, (
+        "completed futures must be recorded even if cancel marker is visible"
+    )
+
+
 def test_reconcile_all_workspaces_flips_phantom_running(tmp_path):
     """On startup the backend should sweep all workspaces and mark
     crashed any inspection still in 'running' from a previous

@@ -24,6 +24,7 @@ from .profiles import BUILTIN_PROFILES, resolve_profile
 from .runner import (
     INSPECTION_CALLER,
     cancel_task as _runner_cancel,
+    create_pending_task as _runner_create_pending,
     list_tasks as _runner_list,
     load_task as _runner_load,
     run_task as _runner_run,
@@ -98,7 +99,7 @@ def _coerce_scope(scope_in: dict | None) -> InspectionScope:
 
 def create_task(workspace_id: str, profile_id: str, scope: dict | None = None,
                 created_by: str = "user", session_id: str = "",
-                max_concurrency: int = 3) -> InspectionTask:
+                max_concurrency: int = 3, task_id: str = "") -> InspectionTask:
     """Validate, then hand off to ``runner.run_task``.
 
     All required parameters are positional-or-keyword with explicit
@@ -140,6 +141,28 @@ def create_task(workspace_id: str, profile_id: str, scope: dict | None = None,
         created_by=created_by,
         session_id=session_id,
         max_concurrency=max_concurrency,
+        task_id=task_id,
+    )
+
+
+def create_pending_task(workspace_id: str, profile_id: str, scope: dict | None = None,
+                        created_by: str = "user", session_id: str = "",
+                        max_concurrency: int = 3, task_id: str = "") -> InspectionTask:
+    """Persist a real pending task for async HTTP callers."""
+    ws = _validate_workspace(workspace_id)
+    coerced_scope = _coerce_scope(scope)
+    if max_concurrency < 1:
+        max_concurrency = 1
+    if max_concurrency > 16:
+        max_concurrency = 16
+    return _runner_create_pending(
+        workspace_id=ws,
+        profile_id=profile_id,
+        scope=coerced_scope,
+        created_by=created_by,
+        session_id=session_id,
+        max_concurrency=max_concurrency,
+        task_id=task_id,
     )
 
 

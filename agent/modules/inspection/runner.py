@@ -1022,7 +1022,8 @@ def run_task(workspace_id: str,
              *,
              created_by: str = "user",
              session_id: str = "",
-             max_concurrency: int = 3) -> InspectionTask:
+             max_concurrency: int = 3,
+             task_id: str = "") -> InspectionTask:
     """Run an inspection synchronously and return the populated task.
 
     MVP: synchronous. Errors per device are isolated — one bad
@@ -1035,7 +1036,7 @@ def run_task(workspace_id: str,
         # the API can communicate the error back consistently.
         started = now_iso()
         bad = InspectionTask(
-            task_id=_new_task_id(),
+            task_id=str(task_id or "").strip() or _new_task_id(),
             workspace_id=workspace_id,
             scope=scope,
             profile_id=profile_id,
@@ -1058,7 +1059,7 @@ def run_task(workspace_id: str,
     target_assets = _resolve_target_assets(scope, workspace_id)
 
     task = InspectionTask(
-        task_id=_new_task_id(),
+        task_id=str(task_id or "").strip() or _new_task_id(),
         workspace_id=workspace_id,
         scope=scope,
         profile_id=profile.profile_id,
@@ -1148,16 +1149,8 @@ def run_task(workspace_id: str,
                     ): asset_meta["asset_id"]
                     for asset_meta in target_assets
                 }
+                handled: set = set()
                 for fut in as_completed(futures):
-                    if _cancel_requested(workspace_id, task.task_id) and not cancel_marker:
-                        cancel_marker = _consume_cancel_marker(workspace_id, task.task_id)
-                        cancelled = True
-                        # Don't cancel running workers — let them
-                        # finish — but stop accepting new results
-                        # once the pool drains. as_completed() blocks
-                        # on the next future, so we break the loop
-                        # instead of waiting forever.
-                        break
                     try:
                         dr = fut.result()
                     except Exception as exc:
@@ -1170,18 +1163,42 @@ def run_task(workspace_id: str,
                         )
                         dr.finished_at = now_iso()
                     _record_device(dr)
+                    handled.add(fut)
+                    if _cancel_requested(workspace_id, task.task_id) and not cancel_marker:
+                        cancel_marker = _consume_cancel_marker(workspace_id, task.task_id)
+                        cancelled = True
+                        # Record the completed future we just observed,
+                        # then stop queued futures that haven't started.
+                        for other in futures:
+                            if other not in handled:
+                                try:
+                                    other.cancel()
+                                except Exception:
+                                    logger.debug(
+                                        "inspection: future.cancel failed",
+                                        exc_info=True,
+                                    )
+                        break
                 # Drain already-submitted futures so we don't leak
                 # threads. Workers stop as soon as their device
                 # completes (the cancel poll lives inside the
-                # per-check loop). _record_device is idempotent so a
-                # drain-time completion overrides a placeholder.
+                # per-check loop). Cancelled futures are recorded as
+                # skipped so the operator can see they were not run.
                 for fut in futures:
-                    if fut.done():
+                    if fut in handled:
+                        continue
+                    aid = futures[fut]
+                    if getattr(fut, "cancelled", lambda: False)():
+                        dr = DeviceResult(task_id=task.task_id, asset_id=aid)
+                        dr.status = "skipped"
+                        dr.errors.append("cancelled_before_dispatch")
+                        dr.finished_at = now_iso()
+                        _record_device(dr)
+                        handled.add(fut)
                         continue
                     try:
                         dr = fut.result()
                     except Exception as exc:
-                        aid = futures[fut]
                         dr = DeviceResult(task_id=task.task_id, asset_id=aid)
                         dr.status = "failed"
                         dr.supported = False
@@ -1191,6 +1208,7 @@ def run_task(workspace_id: str,
                         dr.finished_at = now_iso()
                     if dr.asset_id not in outcomes:
                         _record_device(dr)
+                    handled.add(fut)
     except Exception as exc:
         # v3.9.14: if the executor blew up (e.g. resource exhaustion),
         # we still persist whatever we have so the task does NOT stay
@@ -1261,6 +1279,69 @@ def _run_one_device_with_meta(workspace_id: str, asset_meta: dict,
 
 def _new_task_id() -> str:
     return f"ins_{uuid.uuid4().hex[:12]}"
+
+
+def create_pending_task(workspace_id: str,
+                        profile_id: str,
+                        scope: InspectionScope,
+                        *,
+                        created_by: str = "user",
+                        session_id: str = "",
+                        max_concurrency: int = 3,
+                        task_id: str = "") -> InspectionTask:
+    """Create and persist a real pending task before async execution.
+
+    HTTP ``async_run`` needs a real task id immediately so the
+    frontend can poll and cancel the same task the background worker
+    will execute. This function performs the cheap validation and
+    CMDB scope resolution up front, persists the task, and leaves
+    actual device execution to ``run_task(..., task_id=...)``.
+    """
+    profile_id = str(profile_id or "").strip() or AUTO_PROFILE_ID
+    profile = resolve_profile(profile_id)
+    task_id = str(task_id or "").strip() or _new_task_id()
+    started = now_iso()
+    if profile is None:
+        bad = InspectionTask(
+            task_id=task_id,
+            workspace_id=workspace_id,
+            scope=scope,
+            profile_id=profile_id,
+            profile_display_name="",
+            status="failed",
+            created_by=created_by,
+            session_id=session_id,
+            max_concurrency=max_concurrency,
+            started_at=started,
+            finished_at=started,
+            error=(
+                f"unknown_profile: {profile_id}. "
+                f"Available: {sorted(BUILTIN_PROFILES.keys())}."
+            ),
+        )
+        _save_task(workspace_id, bad)
+        return bad
+
+    target_assets = _resolve_target_assets(scope, workspace_id)
+    task = InspectionTask(
+        task_id=task_id,
+        workspace_id=workspace_id,
+        scope=scope,
+        profile_id=profile.profile_id,
+        profile_display_name=profile.display_name,
+        status="pending",
+        created_by=created_by,
+        session_id=session_id,
+        max_concurrency=max_concurrency,
+        total_assets=len(target_assets),
+        started_at=started,
+    )
+    if not target_assets:
+        task.status = "failed"
+        task.error = "no_assets_matched_scope"
+        task.finished_at = started
+    _save_task(workspace_id, task)
+    return task
 
 
 def cancel_task(workspace_id: str, task_id: str) -> dict:

@@ -15,8 +15,6 @@ Endpoints (all require workspace_id):
 
 from __future__ import annotations
 
-import uuid
-
 from flask import Response, current_app, jsonify, request
 
 from workspace.ids import validate_workspace_id
@@ -42,6 +40,30 @@ def _validated_ws_id(raw=""):
         return validate_workspace_id(raw), None
     except ValueError:
         return None, _invalid_ws()
+
+
+def _task_create_status(task) -> int:
+    err = getattr(task, "error", "") or ""
+    if getattr(task, "status", "") == "failed":
+        if err.startswith("unknown_profile") or err == "no_assets_matched_scope":
+            return 422
+        if err.startswith("runner_internal"):
+            return 500
+        return 400
+    return 200
+
+
+def _cancel_status(result: dict) -> int:
+    if result.get("ok"):
+        return 200
+    err = str(result.get("error", "") or "")
+    if err == "task_not_found":
+        return 404
+    if err.startswith("task_already_"):
+        return 409
+    if result.get("supported") is False:
+        return 501
+    return 400
 
 
 def register_inspection_routes(app):
@@ -88,6 +110,23 @@ def register_inspection_routes(app):
         async_run = bool(data.get("async_run", False))
         if async_run:
             import threading as _threading
+            pending = inspection_service.create_pending_task(
+                workspace_id=ws_id,
+                profile_id=str(data.get("profile_id", "") or ""),
+                scope=scope,
+                created_by=str(data.get("created_by", "user") or "user"),
+                session_id=str(data.get("session_id", "") or ""),
+                max_concurrency=mc,
+            )
+            status_code = _task_create_status(pending)
+            if status_code != 200:
+                return jsonify({
+                    "ok": False,
+                    "task_id": pending.task_id,
+                    "status": pending.status,
+                    "error": pending.error,
+                    "async_run": True,
+                }), status_code
             payload = {
                 "workspace_id": ws_id,
                 "profile_id": str(data.get("profile_id", "") or ""),
@@ -95,25 +134,26 @@ def register_inspection_routes(app):
                 "created_by": str(data.get("created_by", "user") or "user"),
                 "session_id": str(data.get("session_id", "") or ""),
                 "max_concurrency": mc,
+                "task_id": pending.task_id,
             }
+            logger = current_app.logger
             def _kick():
                 try:
                     inspection_service.create_task(**payload)
                 except Exception as exc:
-                    current_app.logger.exception(
+                    logger.exception(
                         "[inspection async_run] task failed to start: %s", exc,
                     )
             t = _threading.Thread(
                 target=_kick, name="inspection-async-run", daemon=True,
             )
             t.start()
-            placeholder_id = f"ins_async_{uuid.uuid4().hex[:8]}"
             return jsonify({
                 "ok": True,
-                "task_id": placeholder_id,
-                "status": "pending",
+                "task_id": pending.task_id,
+                "status": pending.status,
                 "async_run": True,
-                "note": "task running in background; poll /api/inspection/tasks to discover task_id",
+                "note": "task running in background; poll /api/inspection/tasks/<task_id>",
             }), 202
 
         task = inspection_service.create_task(
@@ -129,17 +169,7 @@ def register_inspection_routes(app):
         # failed" (200 with status="failed"). unknown_profile and
         # no_assets_matched_scope are caller errors (422); a run
         # that completed with some devices down is just a 200.
-        status_code = 200
-        err = task.error or ""
-        if task.status == "failed":
-            if err.startswith("unknown_profile"):
-                status_code = 422
-            elif err == "no_assets_matched_scope":
-                status_code = 422
-            elif err.startswith("runner_internal"):
-                status_code = 500
-            else:
-                status_code = 400
+        status_code = _task_create_status(task)
         return jsonify({
             "ok": status_code == 200,
             "task_id": task.task_id,
@@ -207,7 +237,7 @@ def register_inspection_routes(app):
         if err:
             return err
         result = inspection_service.cancel_task(ws_id, task_id)
-        return jsonify(result), (200 if result.get("supported") else 501)
+        return jsonify(result), _cancel_status(result)
 
     @app.route("/api/inspection/tasks/<task_id>/report", methods=["GET"])
     def api_inspection_tasks_report(task_id):
