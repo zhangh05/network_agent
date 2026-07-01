@@ -19,6 +19,11 @@ def build_success_result(state) -> AgentResult:
     """Build and persist a successful AgentResult."""
     from agent.runtime.hook_runner import run_post_turn_hooks, run_stop_hooks
 
+    state.final_response = _final_response_or_tool_summary(
+        state.final_response,
+        state.all_tool_results,
+    )
+
     stream_events = state.emitter.to_events()
     event_times = [
         float(e.get("timestamp", 0))
@@ -86,6 +91,45 @@ def build_success_result(state) -> AgentResult:
     result._finalization_ctx = state.context
 
     return result
+
+
+def _final_response_or_tool_summary(final_response, tool_calls: list) -> str:
+    """Return final response, or a compact readable summary for tool-only turns."""
+    text = str(final_response or "").strip()
+    if text:
+        return text
+    calls = [c for c in list(tool_calls or []) if isinstance(c, dict)]
+    if not calls:
+        return ""
+
+    total = len(calls)
+    ok_count = sum(1 for c in calls if bool(c.get("ok")))
+    failed = [c for c in calls if not bool(c.get("ok"))]
+    lines = [
+        f"工具调用已完成：共 {total} 次，成功 {ok_count} 次，失败 {len(failed)} 次。"
+    ]
+    for idx, call in enumerate(calls[:8], start=1):
+        tool_id = str(call.get("tool_id") or "unknown")
+        status = "成功" if call.get("ok") else "失败"
+        summary = str(call.get("summary") or "").strip()
+        if not summary:
+            errors = call.get("errors") or []
+            if errors:
+                summary = str(errors[0])
+        if not summary:
+            result = call.get("result")
+            if isinstance(result, dict):
+                summary = str(
+                    result.get("summary")
+                    or result.get("message")
+                    or result.get("error")
+                    or ""
+                ).strip()
+        suffix = f"：{summary[:180]}" if summary else ""
+        lines.append(f"{idx}. {tool_id} {status}{suffix}")
+    if total > 8:
+        lines.append(f"... 另有 {total - 8} 次工具调用已省略。")
+    return "\n".join(lines)
 
 
 def build_error_result(state, final_response, error_type, extra_meta,

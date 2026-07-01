@@ -349,8 +349,6 @@ def get_session_messages(session_id: str, ws_id: str = "default") -> List[Dict[s
 
     store = SessionMessageStore(session_id=session_id, ws_id=ws_id)
     messages = store.get_messages()
-    if messages:
-        return messages
 
     from workspace.run_store import list_runs, run_sort_key
 
@@ -386,6 +384,8 @@ def get_session_messages(session_id: str, ws_id: str = "default") -> List[Dict[s
         }
         user_content = str(run.get("user_input_summary") or "").strip()
         assistant_content = str(run.get("final_response_summary") or "").strip()
+        if not assistant_content:
+            assistant_content = _tool_only_assistant_projection(ws_id, run_id)
         if user_content:
             projected.append({
                 "message_id": f"{run_id}:user",
@@ -406,7 +406,58 @@ def get_session_messages(session_id: str, ws_id: str = "default") -> List[Dict[s
                 "run_id": run_id,
                 "metadata": metadata,
             })
-    return projected
+    if not messages:
+        return projected
+
+    existing_ids = {str(m.get("message_id") or "") for m in messages}
+    merged = list(messages)
+    merged.extend(m for m in projected if m.get("message_id") not in existing_ids)
+    try:
+        from workspace.message_store import _message_sort_key
+        merged.sort(key=_message_sort_key)
+    except Exception:
+        merged.sort(key=lambda m: (
+            m.get("created_at") or "",
+            m.get("run_id") or "",
+            0 if m.get("role") == "user" else 1,
+            m.get("message_id") or "",
+        ))
+    return merged
+
+
+def _tool_only_assistant_projection(ws_id: str, run_id: str) -> str:
+    """Build a readable assistant message for historical tool-only turns."""
+    try:
+        decision_path = WS_ROOT / ws_id / "runs" / f"{run_id}.decision.json"
+        if decision_path.is_file():
+            decision = json.loads(decision_path.read_text(encoding="utf-8"))
+            summary = decision.get("tool_execution_summary") or {}
+            if isinstance(summary, dict):
+                called = [str(x) for x in (summary.get("called") or []) if x]
+                succeeded = [str(x) for x in (summary.get("succeeded") or []) if x]
+                failed = [str(x) for x in (summary.get("failed") or []) if x]
+                blocked = [str(x) for x in (summary.get("blocked") or []) if x]
+                if called:
+                    lines = [
+                        f"工具调用已完成：共 {len(called)} 次，成功 {len(succeeded)} 次，失败 {len(failed)} 次，阻止 {len(blocked)} 次。"
+                    ]
+                    for idx, tool_id in enumerate(called[:8], start=1):
+                        if tool_id in failed:
+                            status = "失败"
+                        elif tool_id in blocked:
+                            status = "阻止"
+                        elif tool_id in succeeded:
+                            status = "成功"
+                        else:
+                            status = "已调用"
+                        lines.append(f"{idx}. {tool_id} {status}")
+                    if len(called) > 8:
+                        lines.append(f"... 另有 {len(called) - 8} 次工具调用已省略。")
+                    return "\n".join(lines)
+    except Exception:
+        _LOG.debug("session_store: tool-only assistant projection failed",
+                   exc_info=True)
+    return ""
 
 
 def get_or_create_default_session(ws_id: str = "default") -> Dict[str, Any]:

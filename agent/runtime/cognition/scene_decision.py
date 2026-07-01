@@ -144,6 +144,9 @@ def is_tool_followup(user_msg: str) -> bool:
         "用错了", "调错了", "不是这个工具", "换一个工具",
         "再试", "再调", "调用失败", "重来",
         "这个不行", "不行", "没有用", "没效果",
+        "怎么样了", "到哪了", "进度", "结果呢", "有结果吗",
+        "完成了吗", "执行了吗", "查到了吗", "继续执行",
+        "接着", "往下", "动手啊", "开始吧",
     )
     return any(marker in text for marker in markers)
 
@@ -459,6 +462,18 @@ def decide_scene(
         include("agent", "subagent", "team", "role", "result")
         reasons.append("用户请求复杂/并行/委托式任务")
 
+    if followup_inherited:
+        inherited_categories, inherited_groups = _previous_scene_categories(
+            previous_scene, previous_rule_scene
+        )
+        for cat in inherited_categories:
+            _add_cat(cat)
+        for cat, grps in inherited_groups.items():
+            for grp in grps:
+                _add_grp(cat, grp)
+        if inherited_categories:
+            reasons.append("短追问继承上一轮工具场景")
+
     # Default fallback: web.manage(action=search) ONLY if no categories detected
     # AND the user actually wants something tool-related.
     if not categories and (is_tool_query or intent_profile["has_tools"]):
@@ -484,7 +499,7 @@ def decide_scene(
         is_runtime_task=signals.get("mentions_runtime", False),
         is_report_task=signals.get("mentions_report", False),
         is_sub_agent_task=signals.get("mentions_sub_agent", False),
-        needs_tool=intent_profile["has_tools"] or bool(categories),
+        needs_tool=intent_profile["has_tools"] or bool(categories) or followup_inherited,
         needs_context=intent_profile["has_knowledge"] or signals.get("mentions_knowledge", False),
         needs_memory=signals.get("mentions_memory", False),
         needs_knowledge=signals.get("mentions_knowledge", False),
@@ -520,3 +535,48 @@ def _resolve_primary(signals: dict[str, bool], categories: list[str]) -> str:
     if signals.get("mentions_report") and "report_data" in categories:
         return "report_data"
     return categories[0] if categories else "chat"
+
+
+def _previous_scene_categories(
+    previous_scene: dict[str, Any] | None,
+    previous_rule_scene: dict[str, Any] | None,
+) -> tuple[list[str], dict[str, list[str]]]:
+    """Extract prior tool scene categories for short follow-up turns."""
+    source = previous_scene if isinstance(previous_scene, dict) else {}
+    rule = previous_rule_scene if isinstance(previous_rule_scene, dict) else {}
+
+    categories: list[str] = []
+    for raw in (
+        source.get("categories"),
+        rule.get("categories"),
+        [source.get("primary_category")],
+        [rule.get("primary_category")],
+    ):
+        if not isinstance(raw, list):
+            continue
+        for cat in raw:
+            cat_s = str(cat or "").strip()
+            if cat_s and cat_s != "chat" and cat_s not in categories:
+                categories.append(cat_s)
+
+    groups: dict[str, list[str]] = {}
+    for raw_groups in (source.get("groups"), rule.get("groups")):
+        if not isinstance(raw_groups, dict):
+            continue
+        for cat, grps in raw_groups.items():
+            cat_s = str(cat or "").strip()
+            if not cat_s or cat_s == "chat":
+                continue
+            groups.setdefault(cat_s, [])
+            if isinstance(grps, list):
+                iterable = grps
+            else:
+                iterable = [grps]
+            for grp in iterable:
+                grp_s = str(grp or "").strip()
+                if grp_s and grp_s not in groups[cat_s]:
+                    groups[cat_s].append(grp_s)
+            if cat_s not in categories:
+                categories.append(cat_s)
+
+    return categories, groups

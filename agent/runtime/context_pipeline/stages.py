@@ -11,6 +11,7 @@ from __future__ import annotations
 import uuid
 from typing import Any
 from agent.runtime.context_pipeline.models import ContextStageResult, StageName
+from tool_runtime.tool_namespace import TOOL_NAMESPACE
 
 def _safe_except(stage_name: StageName, fn, *args, **kwargs):
     """Execute fn, return ContextStageResult on success or degraded on failure."""

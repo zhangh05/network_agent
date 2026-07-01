@@ -39,6 +39,7 @@ from agent.runtime.result_builder import (
     build_error_result,
     build_partial_result,
     build_blocked_result,
+    _final_response_or_tool_summary,
 )
 from agent.runtime.hook_runner import run_pre_turn_hooks
 from agent.runtime.token_manager import TokenLimitExceeded
@@ -385,6 +386,10 @@ class TurnRunner:
             if not _tool_stop_requested:
                 from agent.llm.runtime import sanitize_provider_output
                 state.final_response, reasoning_stripped = sanitize_provider_output(resp.content)
+                state.final_response = _final_response_or_tool_summary(
+                    state.final_response,
+                    state.all_tool_results,
+                )
                 events.assistant_message(len(state.final_response), reasoning_stripped)
 
             # Output policy check

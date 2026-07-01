@@ -107,6 +107,21 @@ class TestSceneDecision:
         )
         assert d.followup_inherited is True
 
+    def test_short_followup_inherits_previous_tool_scene(self):
+        from agent.runtime.cognition.scene_decision import decide_scene
+        d = decide_scene(
+            "怎么样了",
+            previous_scene={
+                "primary_category": "agent",
+                "categories": ["agent", "web", "network"],
+                "groups": {"agent": ["subagent"], "web": ["search"]},
+            },
+        )
+        assert d.followup_inherited is True
+        assert d.needs_tool is True
+        assert d.primary_category == "agent"
+        assert "web" in d.categories
+
     def test_empty_input(self):
         from agent.runtime.cognition.scene_decision import decide_scene
         d = decide_scene("")
