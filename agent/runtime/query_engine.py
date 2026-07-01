@@ -351,7 +351,9 @@ class AgentQueryEngine:
         })
         
         try:
-            result = run_speg_turn(session, turn, svc)
+            result = run_speg_turn(
+                session, turn, svc, emitter=self.emitter,
+            )
             
             # Classify error if failed
             if not result.ok:

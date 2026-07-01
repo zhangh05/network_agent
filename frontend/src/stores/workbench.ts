@@ -38,6 +38,14 @@ export interface ChatMsg {
   error?: string;
   /** Trace ID for context linking */
   trace_id?: string;
+  /** P0 fix: friendly Chinese label for the current SPEG stage, updated
+   *  by realtime ``stage_*`` events from the WebSocket. Replaces the
+   *  12s "思考中" blank with a live "正在分析任务…", "正在执行工具…",
+   *  "整理最终回复…" label. Set during streaming, kept for history. */
+  progressText?: string;
+  /** P0 fix: monotonic timer (ms) for the latest SPEG stage, used to
+   *  render the small "(已等待 5.4s)" suffix. */
+  progressElapsedMs?: number;
 }
 
 const MAX_MSGS_PER_SESSION = 100;
@@ -173,7 +181,7 @@ interface WorkbenchState {
   /** Update an existing message (streaming→ready/error, append tool calls) */
   updateAssistant: (
     msgId: string,
-    patch: Partial<Pick<ChatMsg, "status" | "text" | "error" | "toolCalls" | "trace_id" | "result" | "run_id">>,
+    patch: Partial<Pick<ChatMsg, "status" | "text" | "error" | "toolCalls" | "trace_id" | "result" | "run_id" | "progressText" | "progressElapsedMs">>,
     session_id?: string,
   ) => void;
   setSending: (v: boolean) => void;

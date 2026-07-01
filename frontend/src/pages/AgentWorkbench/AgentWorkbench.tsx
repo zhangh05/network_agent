@@ -356,6 +356,36 @@ export function TaskWorkbench() {
       let streamState = beginModelStep();
       thinkFilter.current = { mode: "idle" };
       let resolvedSid: string = currentSessionId || "";
+
+      // P0 fix: stage label table mirrors speg_engine/stage_events.py
+      // so we can translate backend events to friendly Chinese text.
+      const STAGE_LABELS: Record<string, string> = {
+        turn_started:        "轮次开始",
+        planner_started:     "正在分析任务…",
+        planner_completed:   "已规划执行图",
+        graph_compiled:      "构建执行图…",
+        structural_validated:"图结构校验通过",
+        semantic_validated:  "语义校验通过",
+        semantic_invalid:    "语义校验发现问题",
+        pre_repair_started:  "自动修复阶段…",
+        pre_repair_completed:"已自动修复",
+        risk_assessed:       "风险评估完成",
+        budget_ok:           "预算检查通过",
+        execution_started:   "开始执行工具…",
+        execution_completed: "工具执行完成",
+        repair_attempt:      "重试节点",
+        merge_completed:     "汇总执行结果",
+        finalizing_started:  "整理最终回复…",
+        finalizing_completed:"回复已就绪",
+        turn_completed:      "轮次完成",
+        heartbeat:           "仍在处理…",
+      };
+
+      // P2 fix: token batching — buffer tokens, flush every 50ms instead
+      // of one setState per token. Also pause persist during streaming;
+      // we flush the final text on `done` and let persist run once.
+      const TOKEN_FLUSH_MS = 50;
+      const tokenBufferRef = { pending: "" };
       const wsReady: Promise<void> = new Promise((resolve, reject) => {
         const timer = setTimeout(() => { reject(new Error("ws_timeout")); }, 3000);
         ws!.onopen = () => { clearTimeout(timer); resolve(); };
@@ -388,30 +418,67 @@ export function TaskWorkbench() {
       } = {};
 
       await new Promise<void>((resolve) => {
+        // P2 fix: per-token setState is replaced with a 50ms flush so
+        // we only re-render the streaming message ~20 times/sec instead
+        // of ~63 times/sec (the provider's actual burst rate).
+        const flushTokenBuffer = () => {
+          if (!tokenBufferRef.pending) return;
+          streamState.draft += tokenBufferRef.pending;
+          streamedText = streamState.draft;
+          tokenBufferRef.pending = "";
+          useWorkbenchStore.getState().updateAssistant(
+            streamingMsgId, { text: streamedText }, scratch,
+          );
+          keepAtBottom();
+        };
+        const flushTimer = setInterval(flushTokenBuffer, TOKEN_FLUSH_MS);
+
+        // P0 fix: set initial progress text on the assistant message so
+        // the user sees "正在分析任务…" instead of an empty bubble.
+        useWorkbenchStore.getState().updateAssistant(
+          streamingMsgId, { progressText: "等待 SPEG 调度…" }, scratch,
+        );
+
         ws!.onmessage = (event) => {
           try {
             const msg = JSON.parse(event.data);
             switch (msg.type) {
               case "token":
-                // Real-time token display with think-block filtering
+                // P2 fix: accumulate into buffer, not into the live state.
+                // The 50ms timer (flushTokenBuffer) does the actual setState.
                 const raw = msg.content || "";
                 const visible = filterStreamingThink(raw, thinkFilter.current);
-                streamState.draft += visible;
-                streamedText = streamState.draft;
-                useWorkbenchStore.getState().updateAssistant(streamingMsgId, { text: streamedText }, scratch);
-                // Stream tokens don't change item count, so manually keep at bottom
-                keepAtBottom();
+                tokenBufferRef.pending += visible;
                 break;
               case "event":
                 if (msg.data) {
                   streamingResult.events = [...(streamingResult.events || []), msg.data];
                 }
-                if (msg.name === "model_started") {
+                const stageName = msg.name as string;
+                if (stageName === "model_started") {
                   streamState = beginModelStep(streamedText);
                   streamedText = "";
                   useWorkbenchStore.getState().updateAssistant(streamingMsgId, { text: "" }, scratch);
                 }
-                if (msg.name === "tool_call" || msg.name === "tool_result") {
+                // P0 fix: live SPEG stage label — replaces blank "思考中…"
+                // with the actual current stage (planner / risk / exec / …)
+                // plus an elapsed counter for heartbeats.
+                if (STAGE_LABELS[stageName]) {
+                  const label = STAGE_LABELS[stageName];
+                  const elapsedRaw = msg.data?.elapsed_ms;
+                  const elapsedNum = typeof elapsedRaw === "number"
+                    ? elapsedRaw
+                    : parseInt(String(elapsedRaw || "0"), 10) || 0;
+                  useWorkbenchStore.getState().updateAssistant(
+                    streamingMsgId,
+                    {
+                      progressText: label,
+                      progressElapsedMs: elapsedNum,
+                    },
+                    scratch,
+                  );
+                }
+                if (stageName === "tool_call" || stageName === "tool_result") {
                   streamingResult.tool_calls_count = (streamingResult.tool_calls_count || 0) + 1;
                   const tid = msg.data?.tool_id || msg.data?.name || "";
                   if (tid) {
@@ -419,7 +486,7 @@ export function TaskWorkbench() {
                     const store = useWorkbenchStore.getState();
                     const curr = store.bySession[scratch]?.find((m) => m.id === streamingMsgId);
                     const prevCalls = (curr?.toolCalls || []) as any[];
-                    if (msg.name === "tool_result") {
+                    if (stageName === "tool_result") {
                       const ok = msg.data?.ok ?? msg.data?.status === "ok";
                       const nextCalls = prevCalls.map((t: any) =>
                         t.tool_id === tid ? { ...t, status: ok ? "done" : "fail", ok, summary: msg.data?.summary } : t
@@ -434,7 +501,9 @@ export function TaskWorkbench() {
                     }
                   }
                 }
-                if (msg.name === "tool_call") {
+                if (stageName === "tool_call") {
+                  // Flush pending tokens before discarding the draft.
+                  flushTokenBuffer();
                   discardToolCallDraft(streamState);
                   streamedText = "";
                   useWorkbenchStore.getState().updateAssistant(streamingMsgId, { text: "" }, scratch);
@@ -443,6 +512,10 @@ export function TaskWorkbench() {
                 keepAtBottom();
                 break;
               case "done":
+                // P2 fix: flush any remaining buffered tokens before
+                // the final text is computed.
+                flushTokenBuffer();
+                clearInterval(flushTimer);
                 resolvedSid = msg.session_id || currentSessionId;
                 streamedText = finalizeStreamText(streamState.draft, msg.final_response || "");
                 streamingResult.session_id = msg.session_id;
@@ -456,10 +529,22 @@ export function TaskWorkbench() {
                 streamingResult.warnings = msg.warnings || [];
                 streamingResult.tool_decision = msg.tool_decision;
                 streamingResult.no_tool_reason = msg.no_tool_reason;
+                // P0 fix: clear the in-flight progress label since the
+                // final assistant text replaces it.
+                useWorkbenchStore.getState().updateAssistant(
+                  streamingMsgId, { progressText: "" }, scratch,
+                );
                 resolve();
                 break;
               case "error":
+                clearInterval(flushTimer);
+                // P2 fix: flush whatever we had buffered, then keep
+                // the partial text visible to the user.
+                flushTokenBuffer();
                 streamingResult.errors = [msg.message || msg.error || "Unknown error"];
+                useWorkbenchStore.getState().updateAssistant(
+                  streamingMsgId, { progressText: "" }, scratch,
+                );
                 resolve();
                 break;
             }
@@ -689,14 +774,37 @@ export function TaskWorkbench() {
           )}
           {m.status === "streaming" ? (
             <div className="chat-bubble assistant sending-line">
+              {/* P0 fix: live progress label — replaces the static
+                  "思考中…" so the user sees which SPEG stage is running
+                  (planner / risk / exec / finalizing). Empty when not
+                  streaming or before the first event arrives. */}
+              {m.progressText && (
+                <div className="speg-progress-row" data-testid="speg-progress">
+                  <span className="typing-indicator">
+                    <span className="typing-dot" />
+                    <span className="typing-dot" />
+                    <span className="typing-dot" />
+                  </span>
+                  <span className="text-sm" style={{ marginLeft: 6 }}>
+                    {m.progressText}
+                    {m.progressElapsedMs != null && m.progressElapsedMs > 0 ? (
+                      <span className="muted" style={{ marginLeft: 6 }}>
+                        ({m.progressElapsedMs >= 1000
+                          ? `${(m.progressElapsedMs / 1000).toFixed(1)}s`
+                          : `${m.progressElapsedMs}ms`})
+                      </span>
+                    ) : null}
+                  </span>
+                </div>
+              )}
               {m.text ? (
                 <StreamingContent text={m.text} />
-              ) : (
+              ) : !m.progressText ? (
                 <div style={{ display: "flex", alignItems: "center", gap: 4 }}>
                   <span className="typing-indicator"><span className="typing-dot" /><span className="typing-dot" /><span className="typing-dot" /></span>
                   <span className="text-sm muted" style={{ marginLeft: 6 }}>思考中…</span>
                 </div>
-              )}
+              ) : null}
             </div>
           ) : (
             <>

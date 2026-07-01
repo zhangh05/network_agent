@@ -57,6 +57,27 @@ from .risk_policy import RiskPolicyEngine
 from .rollback import RollbackEngine
 from .scheduler import ResourceScheduler
 from .semantic_validator import SemanticValidator
+from .stage_events import (
+    BUDGET_OK,
+    EXECUTION_COMPLETED,
+    EXECUTION_STARTED,
+    FINALIZING_COMPLETED,
+    FINALIZING_STARTED,
+    GRAPH_COMPILED,
+    HEARTBEAT,
+    MERGE_COMPLETED,
+    PLANNER_COMPLETED,
+    PLANNER_STARTED,
+    PRE_REPAIR_COMPLETED,
+    PRE_REPAIR_STARTED,
+    REPAIR_ATTEMPT,
+    RISK_ASSESSED,
+    SEMANTIC_INVALID,
+    SEMANTIC_VALIDATED,
+    STRUCTURAL_VALIDATED,
+    TURN_COMPLETED,
+    TURN_STARTED,
+)
 from .tool_runtime import ToolRuntime
 from .trace import SpanClock, TraceCollector
 
@@ -75,11 +96,20 @@ class SPEGEngine:
         llm_invoke: Callable[..., str] | None = None,
         tool_registry: dict[str, dict[str, Any]] | None = None,
         tool_runtime: ToolRuntime | None = None,
+        emitter: Any | None = None,
+        heartbeat_interval_s: float = 1.0,
     ):
         self._config = config or SPEGConfig()
         self._llm_invoke = llm_invoke or self._noop_llm
         self._tool_registry = tool_registry or {}
         self._tool_runtime = tool_runtime or ToolRuntime(self._config)
+        # Optional emitter — when provided, every stage boundary pushes a
+        # tiny status message so the frontend can show progress instead
+        # of staring at "思考中…" for 12 seconds on cold-start.
+        # Falls back to a no-op so the engine still works in offline tests.
+        self._emitter = emitter
+        self._heartbeat_interval_s = max(0.5, float(heartbeat_interval_s))
+        self._heartbeat_task: asyncio.Task | None = None
 
         # Pipeline modules
         self._planner = Planner(self._config, self._tool_registry, self._llm_invoke)
@@ -122,6 +152,77 @@ class SPEGEngine:
     # 15-STAGE PRODUCTION PIPELINE
     # ========================================================================
 
+    def _emit_stage(self, stage: str, t_start: float, **extra: Any) -> None:
+        """Best-effort emit of a stage event through the injected emitter.
+
+        Stages that don't yet have an emitter (offline tests) fall back
+        to a fresh ``StreamEmitter()`` instance — the realtime callback
+        itself is class-level thread-local, so even a new instance
+        pushes through the callback the WebSocket handler already
+        registered in the same worker thread.
+
+        We never raise here — emit failures must not block the pipeline.
+        """
+        if self._emitter is None:
+            try:
+                from agent.runtime.query_engine import StreamEmitter
+            except Exception:
+                StreamEmitter = None
+            if StreamEmitter is None:
+                return
+            self._emitter = StreamEmitter()
+        try:
+            elapsed_ms = int((time.monotonic() - t_start) * 1000)
+            payload = {
+                "stage": stage,
+                "elapsed_ms": elapsed_ms,
+                **extra,
+            }
+            self._emitter.emit(stage, payload)
+        except Exception:
+            pass
+
+    def _start_heartbeat(self, t_total: float) -> None:
+        """Launch a periodic heartbeat so the frontend knows SPEG is alive
+        during long LLM/tool phases."""
+        if self._emitter is None or self._heartbeat_interval_s <= 0:
+            return
+
+        async def _hb():
+            try:
+                while True:
+                    await asyncio.sleep(self._heartbeat_interval_s)
+                    if self._emitter is None:
+                        return
+                    try:
+                        elapsed_ms = int((time.monotonic() - t_total) * 1000)
+                        self._emitter.emit(HEARTBEAT, {
+                            "stage": "alive",
+                            "elapsed_ms": elapsed_ms,
+                        })
+                    except Exception:
+                        pass
+            except asyncio.CancelledError:
+                return
+
+        try:
+            loop = asyncio.get_event_loop()
+            self._heartbeat_task = loop.create_task(_hb())
+        except RuntimeError:
+            # No running loop in this context (e.g. called from sync code).
+            self._heartbeat_task = None
+
+    async def _stop_heartbeat(self) -> None:
+        task = self._heartbeat_task
+        self._heartbeat_task = None
+        if task is None:
+            return
+        try:
+            task.cancel()
+            await asyncio.wait([task], timeout=0.2)
+        except Exception:
+            pass
+
     async def run(
         self,
         user_input: str,
@@ -134,6 +235,12 @@ class SPEGEngine:
         metrics = MetricsCollector()
         budget = BudgetController(self._config)
         request_span = self._trace.start_request(str(uuid.uuid4())[:8])
+
+        # P0: announce turn start so frontend logs the request.
+        self._emit_stage(TURN_STARTED, t_total,
+                         user_input_len=len(user_input or ""))
+        # P1: heartbeat the moment we enter — covers all stages.
+        self._start_heartbeat(t_total)
 
         # Stage 1 & 2: Context
         ctx = StatelessContext(
@@ -160,11 +267,16 @@ class SPEGEngine:
 
             llm_budget = budget.check_llm_call()
             if not llm_budget.ok:
-                raise ValueError(f"Budget: {llm_budget.exceeded}")
+                raise ValueError(f"Budget: {budget_result.exceeded}")
 
             t_planner = time.monotonic()
+            self._emit_stage(PLANNER_STARTED, t_total)
             plan_nodes = self._planner.plan(ctx)
             metrics.capture_planner((time.monotonic() - t_planner) * 1000)
+            self._emit_stage(
+                PLANNER_COMPLETED, t_total,
+                plan_nodes=len(plan_nodes or []),
+            )
 
             if not plan_nodes:
                 # No tools — skip to finalizer
@@ -199,6 +311,11 @@ class SPEGEngine:
                 t_compile = time.monotonic()
                 dag = self._compiler.compile(plan_nodes)
                 metrics.capture_compile((time.monotonic() - t_compile) * 1000)
+                self._emit_stage(
+                    GRAPH_COMPILED, t_total,
+                    nodes=getattr(dag, "total_nodes", 0),
+                    max_depth=getattr(dag, "max_depth", 0),
+                )
 
                 # Budget: check DAG
                 dag_budget = budget.check_dag(dag)
@@ -215,6 +332,10 @@ class SPEGEngine:
                 t_val = time.monotonic()
                 dag = self._struct_validator.validate(dag)
                 metrics.capture_validation((time.monotonic() - t_val) * 1000)
+                self._emit_stage(
+                    STRUCTURAL_VALIDATED, t_total,
+                    ok=bool(dag.is_valid),
+                )
 
                 if not dag.is_valid:
                     for e in dag.validation_errors:
@@ -235,7 +356,21 @@ class SPEGEngine:
                     repair_span = self._trace.add_span(repair_label,
                         error_count=len(sem_result.errors))
 
+                    self._emit_stage(
+                        PRE_REPAIR_STARTED, t_total,
+                        error_count=len(sem_result.errors),
+                    )
+
                     repair_result = self._pre_exec_repair.try_repair(dag, sem_result.errors)
+
+                    self._emit_stage(
+                        PRE_REPAIR_COMPLETED, t_total,
+                        repaired=bool(repair_result.repaired),
+                        repaired_count=sum(
+                            1 for ev in (repair_result.repair_events or [])
+                            if getattr(ev, "repaired", False)
+                        ),
+                    )
 
                     if repair_result.repaired:
                         # Re-validate with repaired DAG
@@ -330,10 +465,19 @@ class SPEGEngine:
                                 errors, metrics, budget, t_total, sem_result.risk_level, approval_required)
                 else:
                     risk_level = sem_result.risk_level
+                self._emit_stage(
+                    SEMANTIC_VALIDATED, t_total,
+                    risk_level=risk_level,
+                )
 
                 # Stage 7: Risk policy check
                 risk_assessment = self._risk_policy.assess(dag)
                 risk_level = risk_assessment.risk_level
+                self._emit_stage(
+                    RISK_ASSESSED, t_total,
+                    risk_level=risk_assessment.risk_level,
+                    safe_to_run=bool(risk_assessment.safe_to_run),
+                )
                 if not risk_assessment.safe_to_run:
                     errors.append(build_error(
                         SpegErrorCode.RISK_CRITICAL_DENIED,
@@ -359,10 +503,22 @@ class SPEGEngine:
                 t_exec = time.monotonic()
                 execution_span = self._trace.add_span("execution", dag_nodes=dag.total_nodes)
 
+                self._emit_stage(
+                    EXECUTION_STARTED, t_total,
+                    nodes=dag.total_nodes,
+                )
                 node_results = await self._scheduled_execute(dag, ctx, budget)
                 execution_ms = (time.monotonic() - t_exec) * 1000
                 execution_span.stop()
                 metrics.capture_execution(execution_ms, node_results, dag)
+                ok = sum(1 for n in node_results.values() if n.success)
+                fail = sum(1 for n in node_results.values() if not n.success)
+                self._emit_stage(
+                    EXECUTION_COMPLETED, t_total,
+                    ok=ok,
+                    fail=fail,
+                    total=len(node_results),
+                )
 
                 # Stage 10: Repair if needed
                 repair_spans = []
@@ -371,6 +527,10 @@ class SPEGEngine:
                     if result and not result.success:
                         repair = self._repair.assess(node, result, dag)
                         if repair.strategy == "retry":
+                            self._emit_stage(
+                                REPAIR_ATTEMPT, t_total,
+                                node_id=node.id,
+                            )
                             node.retry_count += 1
                             retry_span = self._trace.add_node_span(node)
                             retry_result = await self._tool_runtime.execute_node(node, ctx, node_results)
@@ -384,8 +544,14 @@ class SPEGEngine:
                 # Stage 12: Merge results
                 t_merge = time.monotonic()
                 merged = self._merger.merge(dag, node_results, ctx)
+                self._emit_stage(
+                    MERGE_COMPLETED, t_total,
+                    nodes=merged.get("total_nodes", 0),
+                    ok=merged.get("success_count", 0),
+                )
 
                 # Stage 13: Finalizer (optional 1 LLM call)
+                self._emit_stage(FINALIZING_STARTED, t_total)
                 final_budget = budget.check_finalizer()
                 if final_budget.ok and self._config.enable_finalizer:
                     llm_budget2 = budget.check_llm_call()
@@ -399,21 +565,31 @@ class SPEGEngine:
                         )
                 else:
                     final_response = self._finalizer._build_default_response(merged)
+                self._emit_stage(FINALIZING_COMPLETED, t_total)
 
             metrics.set_llm_calls(budget.llm_calls)
             metrics.set_risk_level(risk_level)
+            self._emit_stage(TURN_COMPLETED, t_total)
+
+            result = self._build_result(
+                ctx, dag, node_results, final_response,
+                errors, metrics, budget, t_total, risk_level, approval_required,
+                rollback_plan,
+            )
+            return result
 
         except Exception as e:
             errors.append(build_error(
                 "ENGINE_PANIC", f"{type(e).__name__}: {e}",
                 stage="engine", risk_level="high",
             ))
-
-        return self._build_result(
-            ctx, dag, node_results, final_response,
-            errors, metrics, budget, t_total, risk_level, approval_required,
-            rollback_plan,
-        )
+            return self._build_result(
+                ctx, dag, node_results, final_response,
+                errors, metrics, budget, t_total, risk_level, approval_required,
+                rollback_plan,
+            )
+        finally:
+            await self._stop_heartbeat()
 
     # ========================================================================
     # Scheduled execution with concurrency control

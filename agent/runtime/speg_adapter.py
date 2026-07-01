@@ -31,8 +31,16 @@ def run_speg_turn(
     *,
     allowed_tool_ids: set[str] | list[str] | tuple[str, ...] | None = None,
     requested_by: str = "turn_runner",
+    emitter: Any | None = None,
 ) -> AgentResult:
-    """Run one user turn through SPEG and return the stable AgentResult."""
+    """Run one user turn through SPEG and return the stable AgentResult.
+
+    Args:
+        emitter: Optional StreamEmitter (or any object exposing ``emit(event_type, payload)``)
+            used by SPEG to publish per-stage progress events to the WebSocket
+            real-time callback. When omitted, SPEG runs without progress signals
+            (used by offline tests / replay tools).
+    """
     started = time.monotonic()
     trace_id = build_trace_id()
     workspace_id = getattr(session, "workspace_id", "") or getattr(turn.op, "workspace_id", "")
@@ -69,6 +77,7 @@ def run_speg_turn(
             trace_id=trace_id,
             allowed_tool_ids=allowed_tool_ids,
             requested_by=requested_by,
+            emitter=emitter,
         )
         speg_result = _run_async(
             engine.run(
@@ -155,6 +164,7 @@ def _build_engine(
     trace_id: str,
     allowed_tool_ids=None,
     requested_by: str,
+    emitter: Any | None = None,
 ):
     from speg_engine import SPEGConfig, SPEGEngine
 
@@ -169,11 +179,14 @@ def _build_engine(
         parallel_layer_timeout_ms=300_000,
     )
     registry = _build_speg_tool_registry(allowed_tool_ids)
-    engine = SPEGEngine(
-        config=config,
-        llm_invoke=_invoke_llm_for_speg,
-        tool_registry=registry,
-    )
+    engine_kwargs: dict[str, Any] = {
+        "config": config,
+        "llm_invoke": _invoke_llm_for_speg,
+        "tool_registry": registry,
+    }
+    if emitter is not None:
+        engine_kwargs["emitter"] = emitter
+    engine = SPEGEngine(**engine_kwargs)
     client = _tool_runtime_client()
 
     for tool_id in registry:
