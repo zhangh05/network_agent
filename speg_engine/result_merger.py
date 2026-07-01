@@ -26,12 +26,16 @@ class ResultMerger:
     ) -> dict[str, Any]:
         """Merge all node results into structured summary.
 
-        Returns a structured dict that the finalizer (or caller) can use.
+        Returns a structured dict that the finalizer (or caller) can use,
+        including ``normalized_content`` extracted from read-type tools
+        (workspace.readartifact, workspace.file read, etc.).
         """
         start = time.monotonic()
 
         # Group results by tool category (from tool prefix)
         grouped: dict[str, list[dict[str, Any]]] = {}
+        normalized_contents: list[str] = []
+
         for node in dag.nodes:
             result = node_results.get(node.id)
             if result is None:
@@ -48,6 +52,14 @@ class ResultMerger:
                 "error": result.error,
                 "latency_ms": result.latency_ms,
             })
+
+            # ── v3.14: normalized_content extraction ────────────────
+            # Extract readable text from read-type tools so the
+            # finalizer has something to analyse instead of just
+            # "工具执行成功".
+            nc = _extract_normalized_content(node.tool, result)
+            if nc:
+                normalized_contents.append(nc)
 
         # Build summary
         success_count = sum(1 for r in node_results.values() if r.success)
@@ -71,6 +83,8 @@ class ResultMerger:
                 }
                 for nid, r in node_results.items()
             },
+            # v3.14: extracted readable content for finalizer analysis
+            "normalized_content": normalized_contents,
         }
 
         elapsed = (time.monotonic() - start) * 1000
@@ -95,3 +109,63 @@ def _unwrap_llm_payload(data: Any) -> Any:
         if isinstance(nested, dict) and nested:
             return nested
     return data
+
+
+# ── v3.14: normalized content extraction ──────────────────────────────
+
+_READ_TOOL_PREFIXES = (
+    "workspace.readartifact",
+    "workspace.file",
+    "workspace.knowledge",
+)
+
+_NC_EXTRACTION_KEYS = (
+    "output.content",
+    "output.text",
+    "output.preview",
+    "content",
+    "preview",
+    "summary",
+)
+
+
+def _extract_normalized_content(tool: str, result: ToolResult) -> str | None:
+    """Extract readable text from read-type tool results.
+
+    Priority order (first non-empty wins):
+      1. data.output.content
+      2. data.output.text
+      3. data.output.preview
+      4. data.content
+      5. data.preview
+      6. data.summary
+
+    Only applies to workspace.readartifact, workspace.file read, and
+    workspace.knowledge tools.
+    """
+    if not any(tool.startswith(prefix) for prefix in _READ_TOOL_PREFIXES):
+        return None
+
+    data = result.data
+    if not isinstance(data, dict):
+        return None
+
+    for key_path in _NC_EXTRACTION_KEYS:
+        value = _get_nested(data, key_path)
+        if isinstance(value, str) and value.strip():
+            return value.strip()
+        if isinstance(value, (int, float, list, tuple)):
+            return str(value)
+    return None
+
+
+def _get_nested(d: dict[str, Any], key_path: str) -> Any:
+    """Traverse nested dict by dotted key path (e.g. 'output.content')."""
+    parts = key_path.split(".")
+    current: Any = d
+    for part in parts:
+        if isinstance(current, dict):
+            current = current.get(part)
+        else:
+            return None
+    return current

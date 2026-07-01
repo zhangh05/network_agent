@@ -48,6 +48,13 @@ def run_speg_turn(
     user_input = (getattr(turn.op, "user_input", "") or "").strip()
     metadata_in = dict(getattr(turn.op, "metadata", {}) or {})
 
+    # ── v3.14: Conversation Context Injection ───────────────────────
+    # Build structured ConversationContext from session history with
+    # token-budgeted recent window, session summary, and history
+    # reference resolution via message_store.
+    metadata_in["__raw_user_input"] = user_input  # needed for ref resolution
+    _inject_conversation_context(session, metadata_in)
+
     context = SimpleNamespace(
         workspace_id=workspace_id,
         session_id=session_id,
@@ -485,3 +492,278 @@ def _current_model_name() -> str:
         return str(resolve_provider_config().get("model") or "")
     except Exception:
         return ""
+
+
+# ── v3.14: Conversation Context Injection ──────────────────────────────
+
+# Token budget (approximate chars for CJK; 1 char ≈ 0.5–1.0 tokens).
+_RECENT_WINDOW_MAX_CHARS = 8000
+
+# Keep at least this many messages regardless of budget.
+_RECENT_WINDOW_MIN_MESSAGES = 2
+
+# Max chars for a single message. Content beyond this is truncated
+# with a note but the turn boundary is still preserved.
+_MAX_SINGLE_MESSAGE_CHARS = 3000
+
+# Max chars for the session_summary block.
+_SESSION_SUMMARY_MAX_CHARS = 2000
+
+# Historical-reference patterns that trigger message_store retrieval.
+_HISTORY_REFERENCE_PATTERNS = (
+    "前面提到的", "刚才那个", "上一个任务", "继续刚才",
+    "之前的", "刚才的", "上次我说的", "我上次说了",
+    "还记得", "你记得", "之前说的", "再之前的",
+    "我说过的", "我提到过", "讨论过", "聊过的",
+)
+
+
+def _inject_conversation_context(session, metadata_in: dict[str, Any]) -> None:
+    """Build and inject a full ConversationContext into metadata_in.
+
+    Uses SessionMessageStore (disk) for complete history, with:
+      - recent_messages: token-budgeted complete turns
+      - session_summary: older-message rolling summary
+      - previous_user_message / previous_assistant_message: exact
+      - retrieved_history: cross-turn reference resolution
+
+    Never raises — injection failure must not break the turn.
+    """
+    try:
+        from speg_engine.models import ConversationContext
+
+        cc = ConversationContext()
+        _populate_from_session(session, cc)
+        _resolve_history_references(session, metadata_in, cc)
+
+        # Serialize into metadata_in for SPEG engine consumption.
+        metadata_in["conversation_context"] = cc
+        metadata_in["conversation_history"] = cc.recent_messages
+        metadata_in["session_summary"] = cc.session_summary
+        metadata_in["previous_user_message"] = cc.previous_user_message
+        metadata_in["previous_assistant_message"] = cc.previous_assistant_message
+
+    except Exception:
+        pass
+
+
+def _populate_from_session(session, cc) -> None:
+    """Populate ConversationContext from session.history (memory) and
+    SessionMessageStore (disk).
+
+    Priority: session.history for fast access, message_store for
+    older / cross-turn retrieval.
+    """
+    # 1. Read from session.history (in-memory, most recent).
+    history_entries = getattr(session, "history", None) or []
+    all_messages: list[dict[str, str]] = []
+    for msg in history_entries:
+        role = str(getattr(msg, "role", "") or "")
+        content = str(getattr(msg, "content", "") or "")
+        if role in ("user", "assistant") and content.strip():
+            all_messages.append({"role": role, "content": content})
+
+    # 2. Recent window: walk backwards, keep complete turns, token-budget.
+    recent, older_start = _build_recent_window(all_messages)
+
+    cc.recent_messages = recent
+    cc.token_estimate = sum(len(m.get("content", "")) for m in recent) // 2
+
+    # 3. session_summary from older messages.
+    if older_start > 0:
+        older = all_messages[:older_start]
+        cc.session_summary = _build_session_summary(older)
+
+    # 4. Previous messages (last even if not in recent window).
+    prev_user = ""
+    prev_assistant = ""
+    for msg in reversed(all_messages):
+        if msg["role"] == "assistant" and not prev_assistant:
+            prev_assistant = msg["content"]
+        elif msg["role"] == "user" and not prev_user:
+            prev_user = msg["content"]
+        if prev_user and prev_assistant:
+            break
+    cc.previous_user_message = prev_user
+    cc.previous_assistant_message = prev_assistant
+
+
+def _build_recent_window(
+    all_messages: list[dict[str, str]],
+) -> tuple[list[dict[str, str]], int]:
+    """Walk backwards through messages, keeping complete turns.
+
+    A "turn" = user message followed by its assistant reply. We keep
+    complete turns while the total char count is within budget, but we
+    always keep at least ``_RECENT_WINDOW_MIN_MESSAGES``.
+
+    Returns:
+        (recent, older_start): recent is in chronological order;
+        older_start is the index in all_messages at which the recent
+        window begins (i.e. all_messages[:older_start] are the older
+        messages).
+    """
+    if not all_messages:
+        return [], 0
+
+    # Segment into turns: pair user→assistant messages.
+    turns: list[list[dict[str, str]]] = []
+    current_turn: list[dict[str, str]] = []
+    for msg in all_messages:
+        current_turn.append(msg)
+        if msg["role"] == "assistant":
+            turns.append(current_turn)
+            current_turn = []
+    if current_turn:
+        # Lone user message at end
+        turns.append(current_turn)
+
+    # Walk backwards through turns.
+    selected_turns: list[list[dict[str, str]]] = []
+    total_chars = 0
+    min_reached = False
+
+    for turn in reversed(turns):
+        turn_chars = sum(len(m.get("content", "")) for m in turn)
+        turn_chars_capped = sum(
+            min(len(m.get("content", "")), _MAX_SINGLE_MESSAGE_CHARS)
+            for m in turn
+        )
+
+        if total_chars + turn_chars_capped > _RECENT_WINDOW_MAX_CHARS:
+            if len(selected_turns) * 2 >= _RECENT_WINDOW_MIN_MESSAGES:
+                # Budget exceeded and we've met min → stop.
+                break
+            # Haven't met min yet → include anyway (truncated).
+            min_reached = False
+
+        selected_turns.append(turn)
+        total_chars += turn_chars_capped
+        if len(selected_turns) * 2 >= _RECENT_WINDOW_MIN_MESSAGES:
+            min_reached = True
+
+    selected_turns.reverse()
+
+    # Flatten turns back into chronological messages.
+    recent: list[dict[str, str]] = []
+    for turn in selected_turns:
+        for msg in turn:
+            content = msg.get("content", "")
+            if len(content) > _MAX_SINGLE_MESSAGE_CHARS:
+                content = content[:_MAX_SINGLE_MESSAGE_CHARS] + "\n...[truncated]"
+            recent.append({"role": msg["role"], "content": content})
+
+    # Find older_start boundary.
+    older_start = len(all_messages) - len(recent)
+    return recent, max(0, older_start)
+
+
+def _build_session_summary(older_messages: list[dict[str, str]]) -> str:
+    """Build a brief summary from older messages using pattern extraction.
+
+    Since we want to avoid an LLM call for summary generation, we
+    extract key phrases: first 80 chars of each message, concatenated
+    with turn markers. The LLM (planner/finalizer/direct-answer) can
+    use this as supplementary context.
+    """
+    if not older_messages:
+        return ""
+
+    lines: list[str] = []
+    max_items = min(len(older_messages), 16)  # Cap at 16 older messages
+
+    for msg in older_messages[-max_items:]:
+        content = (msg.get("content") or "").strip()
+        if len(content) > 200:
+            content = content[:200] + "…"
+        role = msg.get("role", "?")
+        lines.append(f"  [{role}] {content}")
+
+    summary = "\n".join(lines)
+    if len(summary) > _SESSION_SUMMARY_MAX_CHARS:
+        summary = summary[:_SESSION_SUMMARY_MAX_CHARS] + "\n…[older messages omitted]"
+
+    return summary
+
+
+def _resolve_history_references(session, metadata_in: dict[str, Any], cc) -> None:
+    """If the current user input contains a history-reference pattern,
+    retrieve the referenced context from SessionMessageStore (disk)
+    and set cc.retrieved_history.
+
+    This handles queries like "前面提到的 TCP 文件路径是什么" where
+    session.history may not reach back far enough.
+    """
+    user_input = metadata_in.get("__raw_user_input") or ""
+    if not user_input:
+        return
+
+    text = user_input.strip()
+    has_ref = any(pat in text for pat in _HISTORY_REFERENCE_PATTERNS)
+    if not has_ref:
+        return
+
+    try:
+        ws_id = getattr(session, "workspace_id", "") or "default"
+        sid = getattr(session, "session_id", "")
+        if not sid:
+            return
+
+        from workspace.message_store import SessionMessageStore
+        store = SessionMessageStore(session_id=sid, ws_id=ws_id)
+        all_msgs = store.get_messages()
+
+        if not all_msgs:
+            return
+
+        # Extract reference keywords from user input for matching.
+        # Simple keyword intersection with message content.
+        ref_terms = _extract_reference_terms(text)
+        if not ref_terms:
+            # No specific terms → retrieve last 4 messages as reference.
+            reference = all_msgs[-4:]
+            for m in reference:
+                content = m.get("content", "")[:1000]
+                cc.retrieved_history.append({
+                    "role": m.get("role", "unknown"),
+                    "content": content,
+                })
+            return
+
+        # Search back through history for matching terms.
+        matched: list[dict[str, str]] = []
+        for m in reversed(all_msgs):
+            content = m.get("content", "").lower()
+            if any(term.lower() in content for term in ref_terms):
+                matched.insert(0, {
+                    "role": m.get("role", "unknown"),
+                    "content": m.get("content", "")[:1000],
+                })
+            if len(matched) >= 4:
+                break
+
+        cc.retrieved_history = matched
+
+    except Exception:
+        pass
+
+
+def _extract_reference_terms(text: str) -> list[str]:
+    """Extract likely reference terms from user input.
+
+    These are nouns/phrases that appear near history-reference words.
+    """
+    # Strip the reference pattern words and split remaining into terms.
+    for pat in _HISTORY_REFERENCE_PATTERNS:
+        text = text.replace(pat, " ")
+
+    # Extract meaningful CJK/ASCII terms (2+ chars).
+    import re
+    tokens = re.findall(r'[\u4e00-\u9fff]{2,}|[a-zA-Z0-9_-]{3,}', text)
+
+    # Filter stop words and short tokens.
+    stop_words = {"的", "了", "是", "在", "我", "你", "他", "她", "它",
+                  "吗", "吧", "呢", "啊", "哦", "嗯", "什么", "怎么",
+                  "这个", "那个", "一个", "可以", "应该", "需要",
+                  "the", "a", "an", "is", "are", "was", "were", "be"}
+    return [t for t in tokens if t.lower() not in stop_words]

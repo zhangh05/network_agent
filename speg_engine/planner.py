@@ -36,6 +36,11 @@ RULES (non-negotiable):
 11. Preserve user intent in tool args. Do not drop dates, locations, file paths,
     asset ids, regions, vendors, commands, limits, or requested output formats.
 12. Use the exact args_schema fields. Do not invent alias fields.
+13. When RECENT CONVERSATION HISTORY is present in the user prompt:
+    a. Answer conversation-reference queries (e.g. "什么意思",
+       "我上句话说了什么", "你说了什么还记得吗") directly from
+       the history — do NOT invoke memory.manage or any other tool.
+    b. Put the direct answer in final_response with an empty nodes array.
 
 TOOL PLANNING PLAYBOOK:
 - Weather: use web.manage with action="weather". Always include location when
@@ -130,11 +135,30 @@ class Planner:
         return "\n".join(lines)
 
     def _build_user_prompt(self, ctx: StatelessContext, tools_desc: str) -> str:
+        # ── v3.14: Conversation context injection ──────────────────
+        # Use ConversationContext.format_for_prompt() which includes
+        # session_summary, recent turns, and retrieved_history.
+        context_block = ""
+        conv_ctx = ctx.extras.get("conversation_context")
+        if conv_ctx is not None:
+            try:
+                context_block = conv_ctx.format_for_prompt()
+            except Exception:
+                context_block = ""
+
+        # Fallback: plain conversation_history if conv_ctx not set
+        if not context_block:
+            conv_history = ctx.extras.get("conversation_history") or []
+            if conv_history:
+                from .fast_path import _build_conversation_history_block
+                context_block = _build_conversation_history_block(conv_history)
+
         return f"""WORKSPACE: {ctx.workspace_id}
 SESSION: {ctx.session_id}
 CWD: {ctx.cwd}
 OS: {ctx.os}
 
+{context_block}
 USER REQUEST:
 {ctx.user_input}
 

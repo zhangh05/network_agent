@@ -285,3 +285,71 @@ class MetricSnapshot:
     dag_depth: int = 0
     max_parallel_width: int = 0
     risk_level: str = "low"
+
+
+# ============================================================================
+# v3.14: Conversation Context
+# ============================================================================
+
+@dataclass
+class ConversationContext:
+    """Structured conversation context for injection into SPEG prompts.
+
+    Replaces the naive ``messages[-10:]`` approach with:
+      - Token-budgeted recent complete turns
+      - Rolling session summary for older messages
+      - Retrieved history for cross-turn reference resolution
+      - Exact previous user/assistant message access
+    """
+    # Recent complete turns, truncated by token budget (≈chars for CJK).
+    recent_messages: list[dict[str, str]] = field(default_factory=list)
+
+    # Rolling summary of messages older than the recent window.
+    session_summary: str = ""
+
+    # Retrieved history entries (from message_store) when the user
+    # makes a cross-turn reference (e.g. "前面提到的", "上一个任务").
+    retrieved_history: list[dict[str, str]] = field(default_factory=list)
+
+    # Last two messages in the session for exact reference.
+    previous_user_message: str = ""
+    previous_assistant_message: str = ""
+
+    # Total approximate token count of recent_messages (characters / 1.5).
+    token_estimate: int = 0
+
+    @property
+    def has_context(self) -> bool:
+        return bool(self.recent_messages or self.session_summary)
+
+    def format_for_prompt(self, max_summary_chars: int = 2000) -> str:
+        """Format the full context into a prompt-ready block.
+
+        Layout:
+          1. SESSION SUMMARY (older turns)
+          2. RECENT CONVERSATION HISTORY (complete recent turns)
+          3. RETRIEVED HISTORY (cross-turn references)
+        """
+        parts: list[str] = []
+
+        if self.session_summary:
+            summary = self.session_summary[:max_summary_chars]
+            parts.append(f"SESSION SUMMARY:\n{summary}")
+
+        if self.recent_messages:
+            lines = ["RECENT CONVERSATION HISTORY:"]
+            for i, entry in enumerate(self.recent_messages, 1):
+                role = entry.get("role", "unknown")
+                content = entry.get("content", "")
+                lines.append(f"  [{i}] {role}: {content}")
+            parts.append("\n".join(lines))
+
+        if self.retrieved_history:
+            lines = ["RETRIEVED HISTORY (from earlier in session):"]
+            for i, entry in enumerate(self.retrieved_history, 1):
+                role = entry.get("role", "unknown")
+                content = entry.get("content", "")
+                lines.append(f"  [{i}] {role}: {content}")
+            parts.append("\n".join(lines))
+
+        return "\n\n".join(parts) if parts else ""

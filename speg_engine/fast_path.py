@@ -79,6 +79,46 @@ _TROUBLESHOOTING_KEYWORDS = (
 )
 
 
+# ── Conversation-ref patterns ────────────────────────────────────
+# These reference a previous conversation turn. When detected AND
+# conversation_history is available, the system must answer from
+# history rather than claiming ignorance.
+
+_CONVERSATION_REF_PATTERNS = (
+    "我上句话说了什么", "上句是什么", "刚才我说了什么",
+    "你还记得我刚才说什么吗", "什么意思", "这是什么意思",
+    "你说了什么还记得吗", "还记得吗",
+    "你刚才说什么了", "我刚说了什么",
+    "我说了什么", "我说的什么",
+)
+
+
+def is_conversation_ref(user_input: str) -> bool:
+    """Check if the input references a previous conversation turn.
+
+    Used by the SPEG engine to detect follow-up queries that need
+    conversation_history injected.  Detected refs never route through
+    memory search — they are answered directly from session.history.
+    """
+    text = (user_input or "").strip()
+    for pat in _CONVERSATION_REF_PATTERNS:
+        if pat in text:
+            return True
+    return False
+
+
+def _build_conversation_history_block(history: list[dict[str, str]]) -> str:
+    """Format conversation_history entries into a prompt-ready block."""
+    if not history:
+        return ""
+    lines = ["RECENT CONVERSATION HISTORY:"]
+    for i, entry in enumerate(history, 1):
+        role = entry.get("role", "unknown")
+        content = entry.get("content", "")
+        lines.append(f"  [{i}] {role}: {content}")
+    return "\n".join(lines)
+
+
 # ── Helper ────────────────────────────────────────────────────────
 
 def _has_any(text: str, keywords: tuple[str, ...]) -> bool:

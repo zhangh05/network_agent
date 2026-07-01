@@ -39,6 +39,7 @@ from .dag_validator import DAGValidator
 from .errors import SPEGError, SpegErrorCode, build_error
 from .execution_engine import ExecutionEngine
 from .finalizer import Finalizer
+from .fast_path import _build_conversation_history_block
 from .graph_compiler import GraphCompiler
 from .metrics import MetricsCollector
 from .models import (
@@ -270,18 +271,45 @@ class SPEGEngine:
 
         # ── v3.11: Fast-path classifier ───────────────────────────────
         # Simple greetings / definition questions skip the planner
-        # and go straight to a direct-answer LLM call.  This cuts
+        # and go to a direct-answer LLM call.  This cuts
         # first_answer_token_ms dramatically and avoids burning
         # an LLM call just to say "I don't need any tools."
-        from .fast_path import classify_direct_answer
+        #
+        # v3.13: conversation-ref queries ("什么意思", "我上句话说了什么"
+        # etc.) inject session.history into the direct-answer prompt so
+        # the LLM can reference the previous turn.  conversation-ref
+        # patterns that do NOT match the narrow classifier are still
+        # fast-pathed when history is available — they're clearly not
+        # tool requests and the planner would waste an LLM call.
+        from .fast_path import (
+            classify_direct_answer,
+            is_conversation_ref,
+            FastPathDecision,
+        )
 
         fast = classify_direct_answer(user_input)
+        conv_ctx = ctx.extras.get("conversation_context")
+        conv_history = getattr(conv_ctx, "recent_messages", None) or []
+        is_conv_ref = bool(is_conversation_ref(user_input) and conv_history)
+
+        # v3.13: conversation-ref with history → force fast-path.
+        # These queries ("我上句话说了什么", "我说了什么") are clearly
+        # not tool requests and the planner would waste a call.  We
+        # route them through direct-answer with history injected.
+        if is_conv_ref and not fast.enabled:
+            fast = FastPathDecision(
+                enabled=True, route="conversation_ref",
+                reason="conversation-ref with history available",
+            )
+
         if fast.enabled:
             self._emit_stage(FINALIZING_STARTED, t_total)
             direct_latency_start = time.monotonic()
+
             try:
                 direct_resp = await self._generate_direct_answer(
-                    ctx.user_input, budget
+                    ctx.user_input, budget,
+                    conversation_context=conv_ctx if is_conv_ref else None,
                 )
                 final_response = (direct_resp or "").strip()
             except Exception:
@@ -306,6 +334,8 @@ class SPEGEngine:
                     "used_tools": False,
                     "direct_answer_latency_ms": direct_answer_latency_ms,
                     "skip_reason": fast.reason,
+                    "conversation_ref": is_conv_ref,
+                    "conversation_history_used": bool(conv_history and is_conv_ref),
                 },
             )
 
@@ -329,6 +359,25 @@ class SPEGEngine:
             )
 
             if not plan_nodes:
+                # ── v3.14: empty-plan task-intent guard ─────────────
+                # If the user asked for a clear task (analyse, inspect,
+                # read, diagnose, etc.) but the planner produced no
+                # nodes, this is a planner failure — not a "nothing to
+                # do" scenario.
+                if plan_nodes_empty_for_task(ctx.user_input):
+                    errors.append(build_error(
+                        SpegErrorCode.PLANNER_EMPTY_FOR_TASK_INTENT,
+                        "Planner returned empty nodes for a task-intent request. "
+                        "The system cannot complete the requested analysis.",
+                        stage="planner",
+                        risk_level="high",
+                    ))
+                    return self._build_result(
+                        ctx, None, node_results, final_response,
+                        errors, metrics, budget, t_total,
+                        risk_level="high", approval_required=False,
+                    )
+
                 # No tools — skip to finalizer
                 t_merge = time.monotonic()
                 merged = {"total_nodes": 0, "success_count": 0, "failure_count": 0,
@@ -729,6 +778,48 @@ class SPEGEngine:
                     final_response = self._finalizer._build_default_response(merged)
                 self._emit_stage(FINALIZING_COMPLETED, t_total)
 
+                # ── v3.14: Final-response validation ────────────────
+                # After the finalizer, check whether the response is
+                # a known incomplete/placeholder for task-intent requests.
+                # If so, try a one-shot finalizer retry or fail with
+                # TASK_INCOMPLETE.
+                if _is_task_incomplete_final_response(ctx.user_input, final_response):
+                    # Attempt one finalizer retry with stronger prompt
+                    retry_ok = False
+                    if (
+                        self._config.enable_finalizer
+                        and (budget.llm_calls < self._config.max_llm_calls)
+                    ):
+                        # Check budget for retry call
+                        llm_budget_retry = budget.check_llm_call()
+                        if llm_budget_retry.ok:
+                            self._emit_stage(FINALIZING_STARTED, t_total)
+                            try:
+                                final_response = await self._finalizer.finalize(
+                                    ctx, merged,
+                                )
+                                retry_ok = True
+                            except Exception:
+                                pass
+                            self._emit_stage(FINALIZING_COMPLETED, t_total)
+
+                            if retry_ok and not _is_task_incomplete_final_response(
+                                ctx.user_input, final_response
+                            ):
+                                retry_ok = True
+                            else:
+                                retry_ok = False
+
+                    if not retry_ok:
+                        errors.append(build_error(
+                            SpegErrorCode.FINALIZER_TASK_INCOMPLETE,
+                            f"Finalizer produced an incomplete response "
+                            f"('{final_response[:80]}') for a task-intent request. "
+                            f"Tools executed but no analysis conclusion was generated.",
+                            stage="finalizer",
+                            risk_level="high",
+                        ))
+
             metrics.set_llm_calls(budget.llm_calls)
             metrics.set_risk_level(risk_level)
             self._emit_stage(TURN_COMPLETED, t_total)
@@ -954,23 +1045,44 @@ class SPEGEngine:
     # ========================================================================
 
     async def _generate_direct_answer(
-        self, user_input: str, budget: BudgetController
+        self,
+        user_input: str,
+        budget: BudgetController,
+        conversation_context: Any | None = None,
     ) -> str:
         """Generate a direct answer without tools or JSON planning.
 
         The call is streamed to the user (stream_to_user=True,
         stream_scope='direct_answer') so first_answer_token is
         measured from the actual answer token.
+
+        v3.14: accepts a full ``ConversationContext`` (with
+        token-budgeted recent turns, session_summary, and
+        retrieved_history) instead of just the flat chat list.
         """
         llm_budget = budget.check_llm_call()
         if not llm_budget.ok:
             return "收到。"
+
+        context_block = ""
+        if conversation_context is not None:
+            try:
+                context_block = conversation_context.format_for_prompt()
+            except Exception:
+                context_block = ""
 
         system_msg = (
             "你是网络工程助手。直接回答用户问题。"
             "不要调用工具。不要输出 JSON。"
             "不要编造已执行的检查结果。"
         )
+        if context_block:
+            system_msg += f"\n\n{context_block}\n\n"
+            system_msg += (
+                "如果用户问的是关于之前对话的问题（如'什么意思'、'我刚才说了什么'），"
+                "请基于上述对话历史回答。"
+                "不要说'我无法查看之前的对话'或'缺少上下文'——对话历史已经提供给你了。"
+            )
         result = self._llm_invoke(
             system=system_msg,
             user=user_input,
@@ -1113,6 +1225,9 @@ class SPEGEngine:
             "approval_details": [],
             "command_summary": [],
             "tool_summary": [],
+            # v3.13: conversation context
+            "conversation_ref": False,
+            "conversation_history_used": False,
         }
         if extra:
             base_meta.update(extra)
@@ -1212,3 +1327,89 @@ def _summarize_tools(dag) -> list[str]:
         seen[node.tool] = seen.get(node.tool, 0) + 1
     return [f"{tid} (x{count})" if count > 1 else tid
             for tid, count in sorted(seen.items())]
+
+
+# ── v3.14: Task-intent detection ─────────────────────────────────────────
+
+_TASK_INTENT_VERBS = (
+    "读取", "分析", "巡检", "检查", "生成",
+    "总结", "排查", "对比", "诊断", "判断",
+    "监测", "追踪", "绘制", "统计", "汇报",
+    "评估", "审查", "核实", "校验", "整理",
+    "read", "analyse", "analyze", "inspect",
+    "check", "generate", "summarise", "summarize",
+    "diagnose", "compare", "track", "monitor",
+    "report", "evaluate", "review", "verify",
+)
+
+
+def plan_nodes_empty_for_task(user_input: str) -> bool:
+    """Return True if the user input clearly asks for a task
+    (analysis, inspection, diagnosis, etc.) but is phrased as a
+    request requiring tool execution — NOT a definition question.
+
+    This guards against the planner returning empty nodes for
+    substantive task requests like "分析这个 TCP 报文" or
+    "对 CMDB 资产发起自动巡检".
+    """
+    text = (user_input or "").strip()
+    if not text:
+        return False
+
+    # Check for task-intent verbs
+    has_task = any(v in text for v in _TASK_INTENT_VERBS)
+    if not has_task:
+        return False
+
+    # Exclude definition-type questions (they don't need tools)
+    _def_patterns = ("是什么", "什么是", "什么叫", "的定义", "介绍一下")
+    for pat in _def_patterns:
+        if pat in text:
+            return False
+
+    return True
+
+
+# ── v3.14: Final-response validator ───────────────────────────────────────
+
+_TASK_INCOMPLETE_PATTERNS = (
+    "收到",
+    "已完成",
+    "工具调用成功",
+    "No tools were executed",
+    "readartifact completed",
+    "没有更多信息",
+    "readartifact succeeded",
+    "Completed",
+)
+
+
+def _is_task_incomplete_final_response(
+    user_input: str,
+    final_response: str,
+) -> bool:
+    """Check if the final_response is a known incomplete/placeholder
+    response for a task-intent request.
+
+    Only applies when the user_input already shows task intent
+    (check, analyse, inspect, etc.). Simple greetings and definition
+    questions are ignored.
+    """
+    # Only check task-intent requests
+    if not plan_nodes_empty_for_task(user_input):
+        return False
+
+    response = (final_response or "").strip()
+    if not response:
+        return True  # empty response on task request
+
+    for pat in _TASK_INCOMPLETE_PATTERNS:
+        if pat in response:
+            return True
+
+    # Also catch responses that are solely tool-success summaries
+    # without actual analysis content.
+    if len(response) < 20 and response in ("收到。", "已完成。", "No tools were executed."):
+        return True
+
+    return False
