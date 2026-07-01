@@ -74,6 +74,15 @@ class AuditLogger:
                     "status": node.status.value,
                     "latency_ms": node.latency_ms,
                 }
+                # v3.10: action-alias provenance. When GraphCompiler
+                # normalized a planner alias (``session_get`` →
+                # ``session``), we record both the original and the
+                # canonical token so the audit trail can spot
+                # planner terminology drift without losing the
+                # canonical surface.
+                if node.action_normalized_from_alias:
+                    node_entry["action_original"] = node.action_original
+                    node_entry["action_normalized_from_alias"] = True
 
                 if node.status == ExecutionStatus.SUCCESS:
                     node_entry["result_summary"] = self._redact_result(result.data) if result else None

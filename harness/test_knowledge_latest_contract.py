@@ -70,19 +70,42 @@ def test_frontend_knowledge_search_uses_current_query_contract():
 
 
 def test_llm_tool_catalog_exposes_current_knowledge_search():
-    # v3.9.4: agent/modules/<x>/capability.py all removed. Tools come
-    # only from the 21-canonical registry.
+    # v3.10: ``agent/runtime/sub_agent.py`` was removed by the
+    # SPEG hard cut (ff38bab). Sub-agent dispatch is now handled
+    # directly by ``speg_adapter.run_speg_turn`` (a fresh
+    # ``AgentSession`` is created with ``mark_sub_agent()``),
+    # not by a dedicated ``subagent`` module.
+    #
+    # Keep the canonical registry assertion, drop the deleted
+    # submodule from the targets list.
     targets = [
-        "agent/modules/knowledge/tools.py",
         "tool_runtime/canonical_registry.py",
         "tool_runtime/tool_namespace_data.py",
         "agent/capabilities/catalog.py",
-        "agent/runtime/sub_agent.py",
     ]
     for target in targets:
         text = _read(target)
-        if target in {"agent/modules/knowledge/tools.py", "tool_runtime/canonical_registry.py"}:
-            assert "knowledge.manage" in text
+        assert "knowledge.manage" in text
+    # Verify the SPEG-era sub-agent path. The trust marker
+    # ``is_sub_agent`` lives on ``AgentSession`` and is written
+    # by ``agent.runtime.durable.subagent`` (which calls
+    # ``sess.mark_sub_agent()`` on the child session). The
+    # adapter itself does not need the marker — it runs whatever
+    # session it is given — so we read it from the durable
+    # dispatcher instead.
+    durable_src = _read("agent/runtime/durable/subagent.py")
+    assert "mark_sub_agent()" in durable_src
+    # The marker is owned by ``AgentSession.is_sub_agent``;
+    # the durable dispatcher is the legitimate caller.
+    from agent.core.session import AgentSession
+    s = AgentSession(session_id="spec-knowledge-cat-1", workspace_id="default")
+    s.mark_sub_agent()
+    assert s.is_sub_agent is True
+    # The OLD removed module must NOT be imported anywhere.
+    adapter_src = _read("agent/runtime/speg_adapter.py")
+    assert "from agent.runtime.sub_agent" not in adapter_src, (
+        "speg_adapter must NOT import the removed sub_agent module."
+    )
 
 
 def test_import_from_artifact_uses_current_store_and_is_searchable(tmp_path, monkeypatch):

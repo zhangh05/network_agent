@@ -29,6 +29,10 @@ class RiskAssessment:
     approval_nodes: list[str] = field(default_factory=list)
     warnings: list[str] = field(default_factory=list)
     combo_reasons: list[str] = field(default_factory=list)
+    # v3.10: per-node action-alias normalization bookkeeping
+    # (filled when GraphCompiler normalizes a planner alias). Each
+    # entry: ``{node_id, action_original, action_normalized}``.
+    alias_normalizations: list[dict[str, str]] = field(default_factory=list)
 
 
 class RiskPolicyEngine:
@@ -83,6 +87,19 @@ class RiskPolicyEngine:
                             assessment.blocked_reason or
                             f"Command policy blocked node '{node.id}': {decision.reason}"
                         )
+
+            # v3.10: Surface action-alias normalization as a
+            # structured signal so the audit record can render
+            # ``action_original`` / ``action_normalized_from_alias``
+            # alongside the risk decision. Aliases do not change
+            # risk per se, but recording them lets the operator
+            # see planner terminology drift over time.
+            if node.action_normalized_from_alias and node.action_original:
+                assessment.alias_normalizations.append({
+                    "node_id": node.id,
+                    "action_original": node.action_original,
+                    "action_normalized": node.args.get("action", ""),
+                })
 
         # Combo escalation
         self._check_combo_escalation(dag, assessment)

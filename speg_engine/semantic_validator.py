@@ -82,6 +82,27 @@ class SemanticValidator:
         self._registry = tool_registry or {}
         self._contracts = BUILTIN_CONTRACTS
 
+    @staticmethod
+    def _canonical_action_set(tool_id: str) -> frozenset[str] | None:
+        """Return the canonical action enum for ``tool_id`` (None if unknown).
+
+        v3.10: pulls directly from the registered ToolContract so the
+        validator stays strictly aligned with what the planner is
+        allowed to emit. The GraphCompiler has already normalized
+        any alias to its canonical form before this point, so the
+        set is intentional and the check is exact.
+        """
+        contract = get_contract(tool_id)
+        if contract is None:
+            return None
+        schema = contract.input_schema or {}
+        properties = schema.get("properties") or {}
+        action = properties.get("action") or {}
+        enum = action.get("enum")
+        if not isinstance(enum, list) or not enum:
+            return None
+        return frozenset(str(x) for x in enum)
+
     def validate(self, dag: ExecutionDAG) -> SemanticValidationResult:
         result = SemanticValidationResult(valid=True)
 
@@ -179,14 +200,35 @@ class SemanticValidator:
                     message=f"Node '{node.id}' arg '{field_name}' expected array",
                 ))
 
-            # Enum validation
+            # Enum validation — strictly canonical. The GraphCompiler
+            # normalized any planner alias to a canonical token at
+            # compile time (see ``speg_engine/action_alias``), so
+            # by this point ``value`` must be in the canonical enum.
+            # If it isn't, the planner emitted something that is
+            # neither canonical nor an alias — i.e. truly unknown.
             enum_values = field_schema.get("enum")
             if enum_values and value not in enum_values:
-                result.errors.append(SemanticError(
-                    node_id=node.id,
-                    code="ARG_ENUM_INVALID",
-                    message=f"Node '{node.id}' arg '{field_name}' value '{value}' not in allowed enum: {enum_values}",
-                ))
+                # Defense in depth: also reject if value is in the
+                # alias table but not normalized. This means the
+                # normalization layer was bypassed (a future bug);
+                # we want a clear error rather than silent acceptance.
+                from .action_alias import ACTION_ALIASES
+                if value in ACTION_ALIASES:
+                    result.errors.append(SemanticError(
+                        node_id=node.id,
+                        code="ACTION_ALIAS_NOT_NORMALIZED",
+                        message=(
+                            f"Node '{node.id}' arg '{field_name}' value '{value}' is a known alias "
+                            f"(→ '{ACTION_ALIASES[value]}') but was not normalized by GraphCompiler. "
+                            f"Rebuild the DAG through GraphCompiler.compile()."
+                        ),
+                    ))
+                else:
+                    result.errors.append(SemanticError(
+                        node_id=node.id,
+                        code="ARG_ENUM_INVALID",
+                        message=f"Node '{node.id}' arg '{field_name}' value '{value}' not in allowed enum: {enum_values}",
+                    ))
 
         # Forbidden args
         for forbidden in FORBIDDEN_ARGS:

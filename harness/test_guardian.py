@@ -192,20 +192,27 @@ def test_sub_agent_run_record_written(tmp_path, monkeypatch):
 
 
 def test_approval_timeout_helper_reads_env(monkeypatch):
-    import agent.runtime.loop as loop_mod
-    monkeypatch.setenv("APPROVAL_TIMEOUT_DEFAULT_S", "90")
-    monkeypatch.setenv("APPROVAL_TIMEOUT_SUBAGENT_S", "20")
-    # Reload module to pick up env vars (constants are evaluated at import time)
-    import importlib
-    importlib.reload(loop_mod)
-    try:
-        assert loop_mod._get_approval_timeout(is_sub_agent=False) == 90.0
-        assert loop_mod._get_approval_timeout(is_sub_agent=True) == 20.0
-    finally:
-        # Reset to defaults so other tests are not affected
-        monkeypatch.delenv("APPROVAL_TIMEOUT_DEFAULT_S", raising=False)
-        monkeypatch.delenv("APPROVAL_TIMEOUT_SUBAGENT_S", raising=False)
-        importlib.reload(loop_mod)
+    # v3.10: legacy helpers ``agent.runtime.loop._get_approval_timeout``
+    # and the ``APPROVAL_TIMEOUT_*_S`` env constants lived on the
+    # TurnRunner path that the SPEG hard cut (ff38bab) removed.
+    # Approval-timeout knobs are now declared in
+    # ``speg_engine.models.SPEGConfig`` (single / layer / total
+    # timeouts). We sanity-check the SPEG equivalents here.
+    monkeypatch.delenv("SPEG_MAX_TOTAL_SECONDS", raising=False)
+    from speg_engine.models import SPEGConfig
+    cfg = SPEGConfig()
+    # Inverted guard: legacy default was 90s; the SPEG replacement
+    # is the larger ``max_total_seconds`` knob (default 60s today
+    # but tunable). We assert it is a positive integer and the
+    # other timeout knobs are also positive (they are independent
+    # budget ceilings — the SPEG design does not require the
+    # per-layer cap to nest under the total cap since each layer
+    # can be short-circuited when the total budget is hit).
+    assert isinstance(cfg.max_total_seconds, int)
+    assert cfg.max_total_seconds >= 1
+    assert cfg.single_node_timeout_ms > 0
+    assert cfg.parallel_layer_timeout_ms > 0
+    assert cfg.planner_timeout_ms > 0
 
 
 # ─────────────────────────────── 6. SSE endpoint registration ───────────────────────────────

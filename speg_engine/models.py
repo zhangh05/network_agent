@@ -74,6 +74,13 @@ class ExecutionNode:
     node_run_id: str = ""
     approval_required: bool = False
     approval_granted: bool = False
+    # v3.10: action-alias normalization bookkeeping. The GraphCompiler
+    # rewrites any alias (e.g. ``session_get``) into the canonical
+    # ``action`` token, then records the original token + a flag on
+    # the node so audit / risk / trace can surface what really
+    # happened.
+    action_original: str = ""
+    action_normalized_from_alias: bool = False
 
     @property
     def is_ready(self) -> bool:

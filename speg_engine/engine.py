@@ -407,6 +407,20 @@ class SPEGEngine:
             llm_call_count=budget.llm_calls,
             duration_ms=total_ms,
         )
+
+        # v3.10: collect alias provenance so the SPEGResult surface
+        # can show planner terminology drift at a glance (audit /
+        # trace surfaces keep the raw bookkeeping; we just propagate
+        # the per-node summary through metadata).
+        alias_drift_summary = []
+        if dag:
+            for nd in dag.nodes:
+                if nd.action_normalized_from_alias:
+                    alias_drift_summary.append({
+                        "node_id": nd.id,
+                        "action_original": nd.action_original,
+                        "action_normalized": nd.args.get("action", ""),
+                    })
         m = metrics.snapshot()
 
         return SPEGResult(
@@ -436,6 +450,7 @@ class SPEGEngine:
                 "metrics": metrics.to_dict(),
                 "rollback_available": rollback_plan.rollback_available if rollback_plan else False,
                 "rollback_recommended": rollback_plan.rollback_recommended if rollback_plan else False,
+                "alias_normalizations": alias_drift_summary,
             },
         )
 

@@ -2,6 +2,8 @@
 Graph Compiler — deterministic conversion of Planner JSON → Execution DAG IR.
 
 Responsibilities:
+  - Action-alias normalization (canonical mapping BEFORE semantic
+    validation; tracked on each node for audit/risk/trace surfaces)
   - Dependency resolution (topological sort by depth)
   - Cycle elimination
   - Node normalization (assign depth, link deps)
@@ -12,6 +14,7 @@ from __future__ import annotations
 
 from collections import deque
 
+from .action_alias import normalize_action_alias
 from .models import ExecutionDAG, ExecutionNode, PlanNode, SPEGConfig
 
 
@@ -34,14 +37,36 @@ class GraphCompiler:
                 max_depth=0,
             )
 
-        # Phase 1: Create ExecutionNode instances
+        # Phase 1: Create ExecutionNode instances + normalize action
+        # aliases BEFORE semantic validation. Any legacy / colloquial
+        # token (e.g. ``session_get``) is rewritten to the canonical
+        # enum value, and the original token + a flag are recorded
+        # on the node so downstream audit surfaces the drift.
         node_map: dict[str, ExecutionNode] = {}
         for pn in plan_nodes:
+            action_original = ""
+            action_normalized_from_alias = False
+            if isinstance(pn.args, dict):
+                raw_action = pn.args.get("action")
+                if isinstance(raw_action, str) and raw_action:
+                    canonical, original = normalize_action_alias(raw_action)
+                    if original and canonical and original != canonical:
+                        # Rewrite the arg in-place; downstream layers
+                        # (semantic_validator / risk / audit) only see
+                        # the canonical token.
+                        pn.args["action"] = canonical
+                        action_original = original
+                        action_normalized_from_alias = True
+                    # canonical == original or original is None: leave
+                    # the args alone; ``action_normalized_from_alias``
+                    # stays False.
             node_map[pn.id] = ExecutionNode(
                 id=pn.id,
                 tool=pn.tool,
                 args=pn.args,
                 deps=list(pn.deps),
+                action_original=action_original,
+                action_normalized_from_alias=action_normalized_from_alias,
             )
 
         # Phase 2: Validate dependency references

@@ -70,10 +70,19 @@ class TraceCollector:
         return SpanClock(f"execution.layer.{depth}", node_count=node_count)
 
     def add_node_span(self, node: ExecutionNode) -> SpanClock:
+        # v3.10: surface action-alias provenance on per-node spans so
+        # any later trace dump reveals planner terminology drift.
+        metadata = {
+            "node_id": node.id,
+            "tool": node.tool,
+        }
+        if node.action_normalized_from_alias:
+            metadata["action_original"] = node.action_original
+            metadata["action_normalized"] = node.args.get("action", "")
+            metadata["normalized_from_alias"] = True
         return SpanClock(
             f"execution.layer.{node.depth}.node.{node.id}",
-            node_id=node.id,
-            tool=node.tool,
+            **metadata,
         )
 
     def finalize(

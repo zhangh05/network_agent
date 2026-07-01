@@ -24,93 +24,13 @@ if str(ROOT) not in sys.path:
 
 
 # ─────────────────────────────────────────────────────────────────────
-# agent/runtime/loop.py — _resolve_max_steps configuration cascade
+# v3.10: TestMaxStepsResolve removed — the helper it tested,
+# ``agent.runtime.loop._resolve_max_steps``, lived on the legacy
+# TurnRunner path that the SPEG hard cut (ff38bab) replaced. Step
+# budgets now flow through ``SPEGConfig`` (single_node_timeout_ms /
+# parallel_layer_timeout_ms) and ``BudgetController.check_*`` rather
+# than env-override cascading.
 # ─────────────────────────────────────────────────────────────────────
-
-class TestMaxStepsResolve:
-    """MAX_STEPS must be overridable via env > session.metadata > turn.metadata > default."""
-
-    def test_default_when_no_overrides(self, monkeypatch):
-        monkeypatch.delenv("AGENT_MAX_STEPS", raising=False)
-        from agent.runtime import loop
-        # Default follows loop.MAX_STEPS.
-        assert loop._resolve_max_steps() == loop.MAX_STEPS
-
-    def test_env_var_overrides_default(self, monkeypatch):
-        monkeypatch.setenv("AGENT_MAX_STEPS", "12")
-        # Reload module to pick up env var
-        import importlib
-        import agent.runtime.loop as loop_mod
-        importlib.reload(loop_mod)
-        try:
-            assert loop_mod._resolve_max_steps() == 12
-        finally:
-            monkeypatch.delenv("AGENT_MAX_STEPS", raising=False)
-            importlib.reload(loop_mod)
-
-    def test_session_metadata_overrides_env(self, monkeypatch):
-        monkeypatch.setenv("AGENT_MAX_STEPS", "12")
-        import importlib
-        import agent.runtime.loop as loop_mod
-        importlib.reload(loop_mod)
-        try:
-            session = types_simple(metadata={"max_steps": 20})
-            assert loop_mod._resolve_max_steps(session=session) == 20
-        finally:
-            monkeypatch.delenv("AGENT_MAX_STEPS", raising=False)
-            importlib.reload(loop_mod)
-
-    def test_turn_metadata_wins_over_session(self, monkeypatch):
-        monkeypatch.setenv("AGENT_MAX_STEPS", "12")
-        import importlib
-        import agent.runtime.loop as loop_mod
-        importlib.reload(loop_mod)
-        try:
-            session = types_simple(metadata={"max_steps": 20})
-            turn = types_simple(metadata={"max_steps": 5})
-            assert loop_mod._resolve_max_steps(session=session, turn=turn) == 5
-        finally:
-            monkeypatch.delenv("AGENT_MAX_STEPS", raising=False)
-            importlib.reload(loop_mod)
-
-    def test_subagent_cap_clamps_high_values(self, monkeypatch):
-        # Without subagent cap, a misconfigured agent.team could request 200 steps
-        # and blow through budget. Sub-agent turns must be clamped.
-        session = types_simple(metadata={"max_steps": 200})
-        turn = types_simple(metadata={})
-        from agent.runtime import loop
-        # Reload to pick current MAX_STEPS_SUBAGENT_CEILING env
-        import importlib
-        importlib.reload(loop)
-        try:
-            result = loop._resolve_max_steps(session=session, turn=turn, is_sub_agent=True)
-            assert result == loop.MAX_STEPS_SUBAGENT_CEILING
-            # And parent agent is uncapped
-            result_parent = loop._resolve_max_steps(session=session, turn=turn, is_sub_agent=False)
-            assert result_parent == 200
-        finally:
-            importlib.reload(loop)
-
-    def test_invalid_metadata_falls_back_to_default(self):
-        from agent.runtime import loop
-        # Garbage values should not crash; should fall back to next layer
-        session = types_simple(metadata={"max_steps": "not-a-number"})
-        turn = types_simple(metadata={"max_steps": -7})  # negative also invalid
-        result = loop._resolve_max_steps(session=session, turn=turn)
-        assert result == loop.MAX_STEPS  # falls all the way through to default
-
-    def test_oversized_metadata_clamped_to_default(self):
-        from agent.runtime import loop
-        # >1024 should be rejected by _coerce_int_steps
-        session = types_simple(metadata={"max_steps": 9999})
-        result = loop._resolve_max_steps(session=session)
-        assert result == loop.MAX_STEPS
-
-    def test_none_metadata_safe(self):
-        from agent.runtime import loop
-        session = types_simple(metadata=None)
-        result = loop._resolve_max_steps(session=session)
-        assert result == loop.MAX_STEPS
 
 
 def types_simple(**kwargs):

@@ -298,47 +298,13 @@ class TestLoopApplyManualCompact:
 # ─────────────────────────────────────────────────────────────────────
 # agent.runtime.loop — _get_approval_timeout sub-agent detection
 # ─────────────────────────────────────────────────────────────────────
-
-class TestApprovalTimeoutDetection:
-    """The fix replaces `bool(...).get(...)` (AttributeError) with a safe
-    dict-aware read. Ensure neither truthy nor falsy metadata raises.
-    """
-
-    def test_is_sub_agent_true(self):
-        from agent.runtime.loop import _get_approval_timeout
-
-        class FakeSession:
-            metadata = {"is_sub_agent": True}
-        # Must not raise; should return sub-agent timeout.
-        from agent.runtime.loop import _APPROVAL_TIMEOUT_SUBAGENT_S
-        assert _get_approval_timeout(
-            is_sub_agent=isinstance(getattr(FakeSession(), "metadata", None), dict)
-            and FakeSession().metadata.get("is_sub_agent")
-        ) == _APPROVAL_TIMEOUT_SUBAGENT_S
-
-    def test_is_sub_agent_false(self):
-        from agent.runtime.loop import _get_approval_timeout
-        from agent.runtime.loop import _APPROVAL_TIMEOUT_DEFAULT_S
-
-        class FakeSession:
-            metadata = {"is_sub_agent": False}
-        assert _get_approval_timeout(
-            is_sub_agent=isinstance(getattr(FakeSession(), "metadata", None), dict)
-            and FakeSession().metadata.get("is_sub_agent")
-        ) == _APPROVAL_TIMEOUT_DEFAULT_S
-
-    def test_is_sub_agent_none_metadata_safe(self):
-        """Even when metadata is None, the helper must not raise."""
-        from agent.runtime.loop import _get_approval_timeout
-        from agent.runtime.loop import _APPROVAL_TIMEOUT_DEFAULT_S
-
-        class FakeSession:
-            metadata = None
-        m = getattr(FakeSession(), "metadata", None)
-        result = isinstance(m, dict) and m.get("is_sub_agent")
-        assert result is False
-        assert _get_approval_timeout(is_sub_agent=bool(result)) == _APPROVAL_TIMEOUT_DEFAULT_S
-
+# backend.ws.agent_ws — debug print removal + session_id validation
+# ─────────────────────────────────────────────────────────────────────
+# v3.10: TestApprovalTimeoutDetection removed — the helpers it tested
+# lived in the legacy ``agent.runtime.loop`` TurnRunner path that the
+# SPEG hard cut (ff38bab) replaced. Approval-timeout behaviour is now
+# driven by ``SPEGConfig.single_node_timeout_ms`` + ``parallel_layer_timeout_ms``
+# in ``speg_engine.models``; no equivalent metadata-driven helper exists.
 
 # ─────────────────────────────────────────────────────────────────────
 # backend.ws.agent_ws — debug print removal + session_id validation
