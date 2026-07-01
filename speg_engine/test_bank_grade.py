@@ -708,3 +708,301 @@ class TestBudgetEdgeCases:
         status = bc.check_execution()
         assert not status.ok
         assert "TOTAL" in status.exceeded
+
+
+# ============================================================================
+# Command Policy Tests (v1.0 — normalization + evaluation)
+# ============================================================================
+
+class TestCommandPolicy:
+    """Test the unified command_policy module."""
+
+    def test_normalize_basic_cmd(self):
+        from speg_engine.command_policy import normalize_command
+        nc = normalize_command("ls -la /tmp")
+        assert nc.executable_base == "ls"
+        assert "-la" in nc.args or "la" in str(nc.args)
+
+    def test_normalize_windows_path(self):
+        from speg_engine.command_policy import normalize_command
+        nc = normalize_command("C:\\Windows\\System32\\reg.exe add HKLM\\Software\\Test")
+        assert nc.executable_base == "reg"
+        assert nc.args[0] == "add"
+        assert nc.is_registry_tool
+
+    def test_normalize_powershell(self):
+        from speg_engine.command_policy import normalize_command
+        nc = normalize_command("powershell.exe -EncodedCommand xxx")
+        assert nc.executable_base == "powershell"
+        assert nc.is_powershell
+
+    def test_normalize_pwsh(self):
+        from speg_engine.command_policy import normalize_command
+        nc = normalize_command("pwsh -Command Remove-Item")
+        assert nc.executable_base == "pwsh"
+        assert nc.is_powershell
+
+    def test_normalize_shutdown(self):
+        from speg_engine.command_policy import normalize_command
+        nc = normalize_command("C:\\Windows\\System32\\shutdown.exe /s /t 0")
+        assert nc.executable_base == "shutdown"
+
+    def test_normalize_reg(self):
+        from speg_engine.command_policy import normalize_command
+        nc = normalize_command("reg add HKLM\\Software\\Test")
+        assert nc.executable_base == "reg"
+
+    def test_policy_blocks_reg_add(self):
+        from speg_engine.command_policy import normalize_command, evaluate_command_policy
+        for cmd in [
+            "reg add HKLM\\Software\\Test",
+            "reg.exe add HKLM\\Software\\Test",
+            "C:\\Windows\\System32\\reg.exe add HKLM\\Software\\Test",
+        ]:
+            nc = normalize_command(cmd)
+            decision = evaluate_command_policy(nc)
+            assert not decision.allowed, f"Should block: {cmd}"
+            assert decision.error_code == "FORBIDDEN_COMMAND"
+
+    def test_policy_blocks_reg_delete(self):
+        from speg_engine.command_policy import normalize_command, evaluate_command_policy
+        nc = normalize_command("reg delete HKLM\\Software\\Test")
+        decision = evaluate_command_policy(nc)
+        assert not decision.allowed
+        assert decision.risk_level == "high"
+
+    def test_policy_blocks_regedit_s(self):
+        from speg_engine.command_policy import normalize_command, evaluate_command_policy
+        nc = normalize_command("regedit /s evil.reg")
+        decision = evaluate_command_policy(nc)
+        assert not decision.allowed
+
+    def test_policy_blocks_shutdown(self):
+        from speg_engine.command_policy import normalize_command, evaluate_command_policy
+        nc = normalize_command("shutdown /s /t 0")
+        decision = evaluate_command_policy(nc)
+        assert not decision.allowed
+
+    def test_policy_blocks_reboot(self):
+        from speg_engine.command_policy import normalize_command, evaluate_command_policy
+        nc = normalize_command("reboot")
+        decision = evaluate_command_policy(nc)
+        assert not decision.allowed
+
+    def test_policy_blocks_diskpart(self):
+        from speg_engine.command_policy import normalize_command, evaluate_command_policy
+        nc = normalize_command("diskpart /s script.txt")
+        decision = evaluate_command_policy(nc)
+        assert not decision.allowed
+
+    def test_policy_blocks_bcdedit(self):
+        from speg_engine.command_policy import normalize_command, evaluate_command_policy
+        nc = normalize_command("bcdedit /set testsigning on")
+        decision = evaluate_command_policy(nc)
+        assert not decision.allowed
+
+    def test_policy_blocks_del_s(self):
+        from speg_engine.command_policy import normalize_command, evaluate_command_policy
+        nc = normalize_command("cmd.exe /c del /s C:\\temp")
+        decision = evaluate_command_policy(nc)
+        assert not decision.allowed
+
+    def test_policy_blocks_rd_s(self):
+        from speg_engine.command_policy import normalize_command, evaluate_command_policy
+        nc = normalize_command("rd /s /q C:\\")
+        decision = evaluate_command_policy(nc)
+        assert not decision.allowed
+
+    def test_policy_blocks_rm_rf(self):
+        from speg_engine.command_policy import normalize_command, evaluate_command_policy
+        nc = normalize_command("rm -rf /")
+        decision = evaluate_command_policy(nc)
+        assert not decision.allowed
+
+    def test_policy_blocks_format(self):
+        from speg_engine.command_policy import normalize_command, evaluate_command_policy
+        nc = normalize_command("format C:")
+        decision = evaluate_command_policy(nc)
+        assert not decision.allowed
+
+    def test_policy_blocks_takeown(self):
+        from speg_engine.command_policy import normalize_command, evaluate_command_policy
+        nc = normalize_command("takeown /f C:\\path")
+        decision = evaluate_command_policy(nc)
+        assert not decision.allowed
+
+    def test_policy_blocks_cipher(self):
+        from speg_engine.command_policy import normalize_command, evaluate_command_policy
+        nc = normalize_command("cipher /w:C:\\")
+        decision = evaluate_command_policy(nc)
+        assert not decision.allowed
+
+    def test_policy_blocks_delete_recursive(self):
+        from speg_engine.command_policy import normalize_command, evaluate_command_policy
+        nc = normalize_command("delete recursive /tmp/data")
+        decision = evaluate_command_policy(nc)
+        assert not decision.allowed
+
+    def test_policy_allows_safe_commands(self):
+        from speg_engine.command_policy import normalize_command, evaluate_command_policy
+        for cmd in ["ls -la", "echo hello", "cat /tmp/file.txt", "ping -c 1 localhost"]:
+            nc = normalize_command(cmd)
+            decision = evaluate_command_policy(nc)
+            assert decision.allowed, f"Should allow: {cmd}"
+
+
+# ============================================================================
+# PowerShell-specific Policy Tests (v1.0)
+# ============================================================================
+
+class TestPowerShellPolicy:
+    """Test PowerShell-specific blocking and allowlisting."""
+
+    def assert_blocked(self, cmd: str, error_code: str = "FORBIDDEN_COMMAND"):
+        from speg_engine.command_policy import normalize_command, evaluate_command_policy
+        nc = normalize_command(cmd)
+        decision = evaluate_command_policy(nc)
+        assert not decision.allowed, f"Should block: {cmd} → {decision.reason}"
+        assert decision.error_code == error_code
+
+    def test_block_encoded_command(self):
+        self.assert_blocked("powershell.exe -EncodedCommand xxx")
+
+    def test_block_pwsh_encoded_command(self):
+        self.assert_blocked("pwsh -EncodedCommand xxx")
+
+    def test_block_command_flag(self):
+        self.assert_blocked("powershell.exe -Command Remove-Item -Recurse C:\\")
+
+    def test_block_pwsh_command_flag(self):
+        self.assert_blocked("pwsh -Command Remove-Item -Recurse /")
+
+    def test_block_enc_flag(self):
+        self.assert_blocked("powershell -enc SGVsbG8=")
+
+    def test_block_remove_item(self):
+        self.assert_blocked("Remove-Item -Recurse C:\\")
+
+    def test_block_invoke_expression(self):
+        self.assert_blocked("Invoke-Expression 'malicious'")
+
+    def test_block_iex(self):
+        self.assert_blocked("IEX 'malicious'")
+
+    def test_block_start_process(self):
+        self.assert_blocked("Start-Process powershell")
+
+    def test_block_set_execution_policy(self):
+        self.assert_blocked("Set-ExecutionPolicy Unrestricted")
+
+    def test_block_add_mp_preference(self):
+        self.assert_blocked("Add-MpPreference -ExclusionPath C:\\")
+
+    def test_block_set_mp_preference(self):
+        self.assert_blocked("Set-MpPreference -DisableRealtimeMonitoring 1")
+
+    def test_block_disable_realtime_monitoring(self):
+        self.assert_blocked("DisableRealtimeMonitoring")
+
+    def test_allow_powershell_file_in_workspace(self):
+        from speg_engine.command_policy import normalize_command, evaluate_command_policy
+        nc = normalize_command("powershell.exe -File workspace/scripts/check.ps1")
+        decision = evaluate_command_policy(nc)
+        assert decision.allowed, f"Should allow: workspace/scripts/check.ps1"
+
+    def test_block_powershell_file_system_dir(self):
+        from speg_engine.command_policy import normalize_command, evaluate_command_policy
+        nc = normalize_command("powershell.exe -File C:\\Windows\\Temp\\evil.ps1")
+        decision = evaluate_command_policy(nc)
+        assert not decision.allowed
+
+    def test_block_powershell_file_traversal(self):
+        from speg_engine.command_policy import normalize_command, evaluate_command_policy
+        nc = normalize_command("powershell.exe -File ..\\evil.ps1")
+        decision = evaluate_command_policy(nc)
+        assert not decision.allowed
+
+    def test_block_powershell_file_traversal_in_path(self):
+        from speg_engine.command_policy import normalize_command, evaluate_command_policy
+        nc = normalize_command("powershell.exe -File workspace/scripts/..\\evil.ps1")
+        decision = evaluate_command_policy(nc)
+        assert not decision.allowed
+
+    def test_block_powershell_file_outside_workspace(self):
+        from speg_engine.command_policy import normalize_command, evaluate_command_policy
+        nc = normalize_command("powershell.exe -File /tmp/evil.ps1")
+        decision = evaluate_command_policy(nc)
+        assert not decision.allowed
+
+
+# ============================================================================
+# Full 20 Attack Vector Integration Tests (v1.0)
+# ============================================================================
+
+class TestV1AttackVectors:
+    """All 20 attack vectors from the spec must be blocked."""
+
+    VECTORS = [
+        (1, "C:\\Windows\\System32\\shutdown.exe /s /t 0", "shutdown"),
+        (2, "powershell.exe -EncodedCommand xxx", "powershell"),
+        (3, "powershell.exe -Command Remove-Item -Recurse C:\\", "powershell"),
+        (4, "pwsh -EncodedCommand xxx", "pwsh"),
+        (5, "pwsh -Command Remove-Item -Recurse /", "pwsh"),
+        (6, "cmd.exe /c del /s C:\\temp", "cmd"),
+        (7, "reg.exe add HKLM\\Software\\Test", "reg"),
+        (8, "C:\\Windows\\System32\\reg.exe add HKLM\\Software\\Test", "reg"),
+        (9, "reg delete HKLM\\Software\\Test", "reg"),
+        (10, "regedit /s evil.reg", "regedit"),
+        (11, "diskpart /s script.txt", "diskpart"),
+        (12, "bcdedit /set testsigning on", "bcdedit"),
+        (13, "Remove-Item -Recurse C:\\", "remove-item"),
+        (14, "Invoke-Expression 'malicious'", "invoke-expression"),
+        (15, "IEX 'malicious'", "iex"),
+        (16, "Start-Process powershell", "start-process"),
+        (17, "Set-ExecutionPolicy Unrestricted", "set-executionpolicy"),
+        (18, "rm -rf /", "rm"),
+        (19, "rd /s /q C:\\", "rd"),
+        (20, "del /s /q C:\\*.tmp", "del"),
+    ]
+
+    @pytest.mark.parametrize("num,cmd,expected_base", VECTORS)
+    def test_vector_blocked(self, num, cmd, expected_base):
+        from speg_engine.command_policy import normalize_command, evaluate_command_policy
+        nc = normalize_command(cmd)
+        decision = evaluate_command_policy(nc)
+
+        assert not decision.allowed, f"Vector #{num}: '{cmd}' should be BLOCKED"
+        assert decision.error_code == "FORBIDDEN_COMMAND", f"Vector #{num}: error_code should be FORBIDDEN_COMMAND, got {decision.error_code}"
+        assert decision.risk_level in ("high", "critical"), f"Vector #{num}: risk_level should be high/critical, got {decision.risk_level}"
+        assert nc.executable_base == expected_base, f"Vector #{num}: expected base={expected_base}, got {nc.executable_base}"
+        assert decision.normalized is not None, f"Vector #{num}: normalized command should be present"
+
+    @pytest.fixture
+    def config(self):
+        return SPEGConfig()
+
+    @pytest.mark.asyncio
+    async def test_audit_records_blocked_command(self, config):
+        """When command_policy blocks a command, audit must capture it."""
+        from speg_engine.engine import SPEGEngine
+        import json
+
+        registry = {"exec.run": {"description": "", "args_schema": {
+            "required": ["command"], "properties": {"command": {"type": "string"}},
+        }}}
+
+        plan_json = json.dumps({"nodes": [
+            {"id": "attack", "tool": "exec.run",
+             "args": {"command": "powershell.exe -EncodedCommand xxx"}, "deps": []}
+        ]})
+
+        def mock_llm(**kw):
+            return plan_json
+
+        engine = SPEGEngine(config=SPEGConfig(enable_finalizer=False), llm_invoke=mock_llm, tool_registry=registry)
+        result = await engine.run("attack")
+
+        assert not result.success
+        assert "structured_errors" in result.metadata
+        assert any("FORBIDDEN_COMMAND" in str(e) for e in result.metadata["structured_errors"])
+        assert result.metadata["risk_level"] in ("high", "critical")

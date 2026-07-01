@@ -15,6 +15,7 @@ from typing import Any
 
 from .contracts import BUILTIN_CONTRACTS, get_contract, get_risk_level
 from .models import ExecutionDAG, ExecutionNode, RiskLevel
+from .command_policy import normalize_command, evaluate_command_policy
 
 
 @dataclass
@@ -68,6 +69,20 @@ class RiskPolicyEngine:
                 assessment.approval_nodes.append(node.id)
                 assessment.requires_approval = True
                 node.approval_required = True
+
+            # v1.0: Unified command policy check via command_policy
+            if node.tool == "exec.run" and "command" in node.args:
+                cmd = node.args.get("command", "")
+                if cmd and isinstance(cmd, str):
+                    normalized = normalize_command(cmd)
+                    decision = evaluate_command_policy(normalized)
+                    if not decision.allowed:
+                        assessment.blocked_nodes.append(node.id)
+                        assessment.safe_to_run = False
+                        assessment.blocked_reason = (
+                            assessment.blocked_reason or
+                            f"Command policy blocked node '{node.id}': {decision.reason}"
+                        )
 
         # Combo escalation
         self._check_combo_escalation(dag, assessment)

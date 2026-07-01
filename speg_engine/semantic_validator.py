@@ -21,11 +21,12 @@ from typing import Any
 
 from .contracts import BUILTIN_CONTRACTS, get_contract, get_risk_level
 from .models import ExecutionDAG, ExecutionNode, RiskLevel
+from .command_policy import normalize_command, evaluate_command_policy
 
 
-# --- Dangerous command patterns ---
+# --- Dangerous command patterns (kept for backward compat in risk_policy) ---
 
-FORBIDDEN_COMMANDS: list[str] = [
+FORBIDDEN_COMMANDS: list[str] = [  # deprecated: use command_policy.evaluate_command_policy()
     r"\bformat\b",
     r"\bshutdown\b",
     r"\breboot\b",
@@ -221,19 +222,21 @@ class SemanticValidator:
         node: ExecutionNode,
         result: SemanticValidationResult,
     ) -> None:
-        """Check for forbidden command patterns."""
+        """Check for forbidden command patterns using command_policy (v1.0 unified)."""
         command = node.args.get("command", "")
         if not command or not isinstance(command, str):
             return
 
-        command_lower = command.lower()
-        for pattern in FORBIDDEN_COMMANDS:
-            if re.search(pattern, command_lower):
-                result.errors.append(SemanticError(
-                    node_id=node.id,
-                    code="FORBIDDEN_COMMAND",
-                    message=f"Node '{node.id}' contains forbidden command pattern '{pattern}': {command[:80]}",
-                ))
+        normalized = normalize_command(command)
+        decision = evaluate_command_policy(normalized)
+
+        if not decision.allowed:
+            result.errors.append(SemanticError(
+                node_id=node.id,
+                code=decision.error_code or "FORBIDDEN_COMMAND",
+                message=decision.reason or f"Node '{node.id}' command blocked by policy",
+                details=decision.to_dict(),
+            ))
 
     def _validate_contracts(
         self,
