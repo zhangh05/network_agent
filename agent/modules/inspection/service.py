@@ -190,7 +190,7 @@ def render_report(workspace_id: str, task_id: str, fmt: str = "md") -> dict:
         html = _report.render_html(task)
         existing = _find_existing_report_artifact(workspace_id, task_id, "html")
         if existing is not None:
-            artifact_id = getattr(existing, "artifact_id", "")
+            artifact_id = existing.get("artifact_id", "") if isinstance(existing, dict) else getattr(existing, "artifact_id", "")
             return {
                 "ok": True,
                 "format": "html",
@@ -273,7 +273,7 @@ def _find_existing_report_artifact(workspace_id: str, task_id: str, fmt: str):
     except Exception:
         return None
     for it in reversed(items or ()):  # newest first
-        meta = getattr(it, "metadata", None) or {}
+        meta = (it.get("metadata") if isinstance(it, dict) else getattr(it, "metadata", None)) or {}
         if not isinstance(meta, dict):
             continue
         if meta.get("report_format") == fmt:

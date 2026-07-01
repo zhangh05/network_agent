@@ -222,6 +222,85 @@ def _validate_source_path(source_path: str, workspace_id: str = "") -> bool:
     return False
 
 
+def _normalized_title(title: str) -> str:
+    return re.sub(r"\s+", " ", str(title or "").strip()).lower()
+
+
+def _is_generic_report_title(title: str) -> bool:
+    return _normalized_title(title) in {"", "report", "报告"}
+
+
+def _report_day(rec: ArtifactRecord) -> str:
+    created_at = str(getattr(rec, "created_at", "") or "")
+    return created_at[:10] if len(created_at) >= 10 else ""
+
+
+def _derive_report_title(content: str, fallback: str) -> str:
+    """Use the first markdown H1 as the report title when callers pass 'report'."""
+    if not _is_generic_report_title(fallback):
+        return fallback
+    for line in (content or "").splitlines()[:20]:
+        line = line.strip()
+        if line.startswith("# "):
+            candidate = line[2:].strip()
+            if candidate:
+                return candidate[:120]
+    return fallback
+
+
+def _report_display_key(rec: ArtifactRecord, named_days: set[str]) -> tuple | None:
+    """Return a stable UI key for report list dedupe.
+
+    The store keeps every artifact immutable; this key only controls list
+    presentation so intermediate LLM-generated drafts do not flood the
+    Artifact Center.
+    """
+    if rec.artifact_type != "report":
+        return ("artifact", rec.artifact_id)
+
+    metadata = rec.metadata if isinstance(rec.metadata, dict) else {}
+    task_id = str(metadata.get("inspection_task_id") or "")
+    report_format = str(metadata.get("report_format") or metadata.get("format") or rec.file_ext or "")
+    if task_id:
+        return ("report", "inspection_task", task_id, report_format)
+
+    day = _report_day(rec)
+    title = _normalized_title(rec.title)
+    if _is_generic_report_title(rec.title):
+        if day in named_days:
+            return None
+        return ("report", "generic_day", day)
+    return ("report", "title_day", title, day)
+
+
+def _dedupe_artifacts_for_listing(records: list[ArtifactRecord]) -> list[ArtifactRecord]:
+    named_days = {
+        _report_day(rec)
+        for rec in records
+        if rec.artifact_type == "report" and not _is_generic_report_title(rec.title)
+    }
+    latest_by_key: dict[tuple, ArtifactRecord] = {}
+    key_by_artifact_id: dict[str, tuple] = {}
+
+    for rec in records:
+        key = _report_display_key(rec, named_days)
+        if key is None:
+            continue
+        latest_by_key[key] = rec
+        key_by_artifact_id[rec.artifact_id] = key
+
+    deduped_reversed: list[ArtifactRecord] = []
+    emitted: set[tuple] = set()
+    for rec in reversed(records):
+        key = key_by_artifact_id.get(rec.artifact_id)
+        if key is None or key in emitted:
+            continue
+        if latest_by_key.get(key) is rec:
+            deduped_reversed.append(rec)
+            emitted.add(key)
+    return list(reversed(deduped_reversed))
+
+
 # ═══════════════ PUBLIC API ═══════════════
 
 def save_artifact(workspace_id: str, content: str = "", source_path: str = "",
@@ -262,6 +341,8 @@ def save_artifact(workspace_id: str, content: str = "", source_path: str = "",
     cls = classify_file(source_path, content)
     artifact_type = artifact_type or cls["artifact_type"]
     sensitivity = sensitivity or cls["sensitivity"]
+    if artifact_type == "report":
+        title = _derive_report_title(content, title)
 
     art_id = _new_artifact_id()
     ext = cls["file_ext"] or "txt"
@@ -375,7 +456,7 @@ def list_artifacts(workspace_id: str, run_id: str = None, artifact_type: str = N
                    scope: str = None, sensitivity: str = None,
                    include_deleted: bool = False, limit: int = 100) -> list:
     idx = _load_index(workspace_id)
-    results = []
+    records: list[ArtifactRecord] = []
     for aid in idx.artifact_ids:
         rec = get_artifact(workspace_id, aid)
         if not rec:
@@ -390,6 +471,10 @@ def list_artifacts(workspace_id: str, run_id: str = None, artifact_type: str = N
             continue
         if sensitivity and rec.sensitivity != sensitivity:
             continue
+        records.append(rec)
+
+    results = []
+    for rec in _dedupe_artifacts_for_listing(records):
         results.append(sanitize_record(rec, include_metadata=True))
         if len(results) >= limit:
             break

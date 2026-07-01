@@ -154,6 +154,89 @@ class TestArtifactStore:
         got = get_artifact(ws, rec.artifact_id)
         assert got is not None and got.title == "data1"
 
+    def test_report_listing_hides_intermediate_drafts(self, temp_dirs):
+        from artifacts.schemas import ArtifactIndex, ArtifactRecord
+        from artifacts.store import _save_artifact_record, _save_index, list_artifacts
+        from workspace.manager import ensure_workspace
+
+        ws = "st_report_dedupe"
+        ensure_workspace(ws)
+        records = [
+            ArtifactRecord(
+                artifact_id="art_old_named", workspace_id=ws, artifact_type="report",
+                title="广域网区域巡检报告 (2026-06-30)",
+                created_at="2026-06-30T14:45:19+00:00", updated_at="2026-06-30T14:45:19+00:00",
+            ),
+            ArtifactRecord(
+                artifact_id="art_generic_a", workspace_id=ws, artifact_type="report",
+                title="report",
+                created_at="2026-06-30T15:52:06+00:00", updated_at="2026-06-30T15:52:06+00:00",
+            ),
+            ArtifactRecord(
+                artifact_id="art_generic_b", workspace_id=ws, artifact_type="report",
+                title="report",
+                created_at="2026-06-30T15:52:50+00:00", updated_at="2026-06-30T15:52:50+00:00",
+            ),
+            ArtifactRecord(
+                artifact_id="art_latest_named", workspace_id=ws, artifact_type="report",
+                title="广域网区域巡检报告 (2026-06-30)",
+                created_at="2026-06-30T15:53:06+00:00", updated_at="2026-06-30T15:53:06+00:00",
+            ),
+            ArtifactRecord(
+                artifact_id="art_next_day", workspace_id=ws, artifact_type="report",
+                title="广域网区域巡检报告 (2026-07-01)",
+                created_at="2026-07-01T03:02:27+00:00", updated_at="2026-07-01T03:02:27+00:00",
+            ),
+        ]
+        for rec in records:
+            _save_artifact_record(rec)
+        _save_index(ArtifactIndex(workspace_id=ws, artifact_ids=[r.artifact_id for r in records]))
+
+        ids = [r["artifact_id"] for r in list_artifacts(ws, artifact_type="report", limit=20)]
+        assert ids == ["art_latest_named", "art_next_day"]
+
+    def test_report_listing_collapses_generic_only_reports(self, temp_dirs):
+        from artifacts.schemas import ArtifactIndex, ArtifactRecord
+        from artifacts.store import _save_artifact_record, _save_index, list_artifacts
+        from workspace.manager import ensure_workspace
+
+        ws = "st_report_generic"
+        ensure_workspace(ws)
+        records = [
+            ArtifactRecord(
+                artifact_id="art_generic_a", workspace_id=ws, artifact_type="report",
+                title="report",
+                created_at="2026-06-30T15:52:06+00:00", updated_at="2026-06-30T15:52:06+00:00",
+            ),
+            ArtifactRecord(
+                artifact_id="art_generic_b", workspace_id=ws, artifact_type="report",
+                title="report",
+                created_at="2026-06-30T15:52:50+00:00", updated_at="2026-06-30T15:52:50+00:00",
+            ),
+        ]
+        for rec in records:
+            _save_artifact_record(rec)
+        _save_index(ArtifactIndex(workspace_id=ws, artifact_ids=[r.artifact_id for r in records]))
+
+        ids = [r["artifact_id"] for r in list_artifacts(ws, artifact_type="report", limit=20)]
+        assert ids == ["art_generic_b"]
+
+    def test_report_generic_title_uses_markdown_heading(self, temp_dirs):
+        from artifacts.store import save_artifact
+        from workspace.manager import ensure_workspace
+
+        ws = "st_report_title"
+        ensure_workspace(ws)
+        rec = save_artifact(
+            ws,
+            content="# 广域网区域巡检报告 (2026-07-01)\n\n正文",
+            artifact_type="report",
+            title="report",
+            sensitivity="internal",
+        )
+        assert rec is not None
+        assert rec.title == "广域网区域巡检报告 (2026-07-01)"
+
     def test_unique_artifact_ids(self, temp_dirs):
         from artifacts.store import save_artifact
         from workspace.manager import ensure_workspace
