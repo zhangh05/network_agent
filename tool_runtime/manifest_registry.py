@@ -1,5 +1,5 @@
 # tool_runtime/manifest_registry.py
-"""All tool manifests — single source of truth for the 21 canonical tools.
+"""All tool manifests — single source of truth for the 22 canonical tools.
 
 Each merged tool carries a base risk profile. Per-action destructive
 checks in ``tool_runtime.policy`` escalate delete/rewind/destructive
@@ -25,7 +25,7 @@ MANIFESTS: dict[str, CapabilityManifest] = {
         secret_fields=["cmd", "code"], output_sensitivity="secret",
         timeout_seconds=120,
         allowed_callers=["turn_runner", "rest_api", "job_runner",
-                        "graph_runner", "subagent", "inspection_runner"],
+                        "subagent", "inspection_runner"],
     ),
 
     # ═══ 2. git.manage (merged: status+log+diff+commit+push) ═══
@@ -59,7 +59,7 @@ MANIFESTS: dict[str, CapabilityManifest] = {
         approval_reason_template="Device change: confirm asset is correct before commit",
         timeout_seconds=30,
         allowed_callers=["turn_runner", "rest_api", "job_runner",
-                        "graph_runner", "subagent", "inspection_runner"],
+                        "subagent", "inspection_runner"],
     ),
 
     # ═══ 4. browser.manage (merged: navigate+extract+screenshot+click) ═══
@@ -171,7 +171,7 @@ MANIFESTS: dict[str, CapabilityManifest] = {
         ),
         action_class="read",
         risk_level="low", side_effects="none", idempotency="safe_to_retry",
-        allowed_callers=["turn_runner", "rest_api", "job_runner", "graph_runner", "subagent"],
+        allowed_callers=["turn_runner", "rest_api", "job_runner", "subagent"],
         timeout_seconds=10,
     ),
 
@@ -186,7 +186,7 @@ MANIFESTS: dict[str, CapabilityManifest] = {
         risk_level="medium",  # base level; team_run escalates via dispatcher
         side_effects="remote_exec", idempotency="unsafe_to_retry",
         requires_approval=False,
-        allowed_callers=["turn_runner", "rest_api", "job_runner", "graph_runner"],
+        allowed_callers=["turn_runner", "rest_api", "job_runner"],
         timeout_seconds=300,
     ),
 
@@ -316,7 +316,7 @@ MANIFESTS: dict[str, CapabilityManifest] = {
         # identity used by the inspection service. The user-facing
         # LLM-driven entrypoint is still "turn_runner".
         allowed_callers=["turn_runner", "rest_api", "job_runner",
-                        "graph_runner", "subagent", "inspection_runner"],
+                        "subagent", "inspection_runner"],
     ),
 }
 

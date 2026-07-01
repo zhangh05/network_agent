@@ -1,18 +1,7 @@
-"""v3.9.7 canonical tool namespace — Codex-style 21-tool set.
+"""Canonical tool namespace — current 22-tool set.
 
-All 21 canonical tools are always visible to the LLM. Each uses an
+All 22 canonical tools are available to the SPEG planner. Each uses an
 ``action`` parameter to dispatch sub-capabilities.
-
-v3.9.7 action expansion:
-  - exec.run:        +action=background, +action=stream, +session_id, +close_session
-  - device.manage:   +action=update, +action=export
-  - web.manage:      +source=docs|news for action=search
-  - data.manage:     +action=filter, +action=deduplicate
-  - report.manage:   +action=html_render, +action=diff_report
-  - text.analyze:    +action=extract_entities, +action=regex
-  - code.search:     +context_lines, +output_mode, +case_sensitive, +multiline
-  - workspace.file:  +action=glob, +action=delete_file
-  - system.manage:   +action=health, +action=selfcheck, +action=tasks, +action=audit_log
 """
 
 from __future__ import annotations
@@ -78,7 +67,7 @@ CATEGORY_DEFS: dict[str, dict[str, str]] = {
 }
 
 
-# 21 tools (Codex-style; all visible to LLM).
+# Current 22-tool namespace. Every canonical tool is available to SPEG planning.
 # Schema: (tool_id, category, group, action, display_name, canonical_id,
 #          usage_hint, search_keyword)
 NS_DATA = [

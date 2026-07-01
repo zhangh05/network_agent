@@ -31,7 +31,8 @@ RULES (non-negotiable):
 7. Each node MUST have: id (string), tool (string), args (object), deps (string array).
 8. Node IDs must be unique and descriptive (e.g., "read_config", "ping_device", "analyze_data").
 9. Keep the graph as FLAT as possible — fewer depth levels = faster execution.
-10. If the request is a simple question requiring no tools, output an empty nodes array.
+10. If the request is a simple question requiring no tools, output an empty nodes array
+    and put the direct user-facing answer in final_response.
 
 OUTPUT SCHEMA:
 {
@@ -42,7 +43,8 @@ OUTPUT SCHEMA:
       "args": {"param": "value"},
       "deps": ["parent_node_id"]
     }
-  ]
+  ],
+  "final_response": "optional direct answer when nodes is empty"
 }"""
 
 
@@ -79,7 +81,12 @@ class Planner:
 
         # Clean output: strip markdown fences if present
         cleaned = self._clean_json_output(raw_output)
-        nodes = self._parse_nodes(cleaned)
+        data = self._parse_plan_json(cleaned)
+        nodes = self._parse_nodes(data)
+        if not nodes:
+            direct = data.get("final_response", "")
+            if isinstance(direct, str) and direct.strip():
+                ctx.extras["direct_response"] = direct.strip()
 
         elapsed = (time.monotonic() - start) * 1000
         ctx.extras["planner_latency_ms"] = elapsed
@@ -122,8 +129,8 @@ Generate the execution graph JSON now. No explanation, no markdown — pure JSON
             text = "\n".join(lines).strip()
         return text
 
-    def _parse_nodes(self, raw: str) -> list[PlanNode]:
-        """Parse and validate planner LLM output."""
+    def _parse_plan_json(self, raw: str) -> dict[str, Any]:
+        """Parse planner LLM output."""
         try:
             data = json.loads(raw)
         except json.JSONDecodeError as e:
@@ -131,7 +138,10 @@ Generate the execution graph JSON now. No explanation, no markdown — pure JSON
 
         if not isinstance(data, dict):
             raise ValueError(f"Planner output must be a JSON object, got {type(data).__name__}")
+        return data
 
+    def _parse_nodes(self, data: dict[str, Any]) -> list[PlanNode]:
+        """Parse and validate planner nodes from a JSON object."""
         raw_nodes = data.get("nodes", [])
         if not isinstance(raw_nodes, list):
             raise ValueError(f"'nodes' must be a JSON array, got {type(raw_nodes).__name__}")

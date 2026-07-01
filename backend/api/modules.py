@@ -43,7 +43,7 @@ def handle_capabilities():
     of the business capabilities.
 
     v3.9.4: planned capabilities are listed for UI only; they have
-    no tool refs and are NEVER callable. No legacy tool names are
+    no tool refs and are NEVER callable. Removed tool names are
     returned.
     """
     from agent.capabilities import catalog as _catalog

@@ -11,13 +11,12 @@ SideEffect = Literal["none","read","write","delete","remote_exec","network_chang
 Idempotency = Literal["safe_to_retry","unsafe_to_retry","unknown"]
 RollbackStrategy = Literal["none","soft_delete_restore","artifact_restore","custom"]
 OutputSensitivity = Literal["public","internal","sensitive","secret"]
-CallerType = Literal["turn_runner","rest_api","job_runner","graph_runner","subagent","inspection_runner"]
+CallerType = Literal["turn_runner","rest_api","job_runner","subagent","inspection_runner"]
 
 # Default caller set for all tools. Individual manifests override this
 # only when a tool must be restricted to a subset of callers.
 DEFAULT_ALLOWED_CALLERS: list[CallerType] = [
-    "turn_runner", "rest_api", "job_runner", "graph_runner", "subagent",
-    "inspection_runner",
+    "turn_runner", "rest_api", "job_runner", "subagent", "inspection_runner",
 ]
 
 @dataclass

@@ -435,10 +435,9 @@ def _handle_system_merged(inv: ToolInvocation) -> dict:
     }.get(action, handle_runtime_diagnostics)(inv)
 
 
-# ─── v3.9.1: workspace.file merged handler ─────────────────────────────
-# 合并 6 个原 tool: list / read / read_image / edit / patch / write_artifact
-# dispatch 字段: action (list|read|read_image|edit|patch|write_artifact)
-# 保留原 tool_id 作为 alias (callable_by_llm=False) 以兼容 router / baseline
+# ─── workspace.file merged handler ─────────────────────────────────────
+# action=list|read|read_image|edit|patch|write_artifact|glob|delete_file
+# Removed tool IDs are intentionally absent from the LLM namespace.
 def _handle_workspace_file_merged(inv: ToolInvocation) -> dict:
     """Route workspace.file(action=X) to the right sub-handler."""
     args = inv.arguments or {}
@@ -1165,10 +1164,10 @@ def _handler_network_telnet(inv: ToolInvocation) -> dict:
         return {"ok": False, "error": f"Telnet failed: {e}"}
 
 
-# ─── v3.9.7: New action handlers (P0-P2 gap fill) ─────────────────────
+# ─── Current action handlers ──────────────────────────────────────────
 
 def handle_runtime_tasks(inv: ToolInvocation) -> dict:
-    """List pending/running background tasks (v3.9.7)."""
+    """List pending/running background tasks."""
     now = time.time()
     tasks = []
     try:
@@ -1207,7 +1206,7 @@ def handle_runtime_tasks(inv: ToolInvocation) -> dict:
 
 
 def handle_audit_log_query(inv: ToolInvocation) -> dict:
-    """Query audit log entries (v3.9.7)."""
+    """Query audit log entries."""
     args = inv.arguments or {}
     log_level = str(args.get("log_level", "info")).lower()
     limit = max(1, min(int(args.get("limit", 20) or 20), 100))
@@ -1235,7 +1234,7 @@ def handle_audit_log_query(inv: ToolInvocation) -> dict:
 
 
 def handle_text_extract_entities(inv: ToolInvocation) -> dict:
-    """Extract network entities: IP, MAC, VLAN, subnet, hostname (v3.9.7)."""
+    """Extract network entities: IP, MAC, VLAN, subnet, hostname."""
     import re
     args = inv.arguments or {}
     text = str(args.get("text", ""))
@@ -1255,7 +1254,7 @@ def handle_text_extract_entities(inv: ToolInvocation) -> dict:
 
 
 def handle_text_regex(inv: ToolInvocation) -> dict:
-    """Apply a regex pattern to text and return matches (v3.9.7)."""
+    """Apply a regex pattern to text and return matches."""
     import re
     args = inv.arguments or {}
     text = str(args.get("text", ""))
@@ -1270,7 +1269,7 @@ def handle_text_regex(inv: ToolInvocation) -> dict:
 
 
 def handle_background_exec(inv: ToolInvocation) -> dict:
-    """Launch a background command and return a job_id for polling (v3.9.7)."""
+    """Launch a background command and return a job_id for polling."""
     import subprocess, uuid
     args = inv.arguments or {}
     command = str(args.get("command", ""))
@@ -1305,7 +1304,7 @@ def handle_background_exec(inv: ToolInvocation) -> dict:
 
 
 def handle_stream_exec(inv: ToolInvocation) -> dict:
-    """Execute command with streaming output (PTY-like, v3.9.7)."""
+    """Execute command with streaming output (PTY-like)."""
     import subprocess
     args = inv.arguments or {}
     command = str(args.get("command", ""))
@@ -1330,7 +1329,7 @@ def handle_stream_exec(inv: ToolInvocation) -> dict:
 
 
 def handle_file_glob(inv: ToolInvocation) -> dict:
-    """Glob file pattern matching (v3.9.7)."""
+    """Glob file pattern matching."""
     import glob as g, os
     args = inv.arguments or {}
     subdir = str(args.get("subdir", "."))
@@ -1348,7 +1347,7 @@ def handle_file_glob(inv: ToolInvocation) -> dict:
 
 
 def handle_file_delete(inv: ToolInvocation) -> dict:
-    """Soft-delete a file (move to .trash) (v3.9.7)."""
+    """Soft-delete a file (move to .trash)."""
     import shutil
     from pathlib import Path
     args = inv.arguments or {}
@@ -1373,7 +1372,7 @@ def handle_file_delete(inv: ToolInvocation) -> dict:
 
 
 def handle_data_filter(inv: ToolInvocation) -> dict:
-    """Filter rows by column conditions (v3.9.7)."""
+    """Filter rows by column conditions."""
     import json
     args = inv.arguments or {}
     rows = args.get("rows", [])
@@ -1395,7 +1394,7 @@ def handle_data_filter(inv: ToolInvocation) -> dict:
 
 
 def handle_data_deduplicate(inv: ToolInvocation) -> dict:
-    """Deduplicate rows by a key column (v3.9.7)."""
+    """Deduplicate rows by a key column."""
     args = inv.arguments or {}
     rows = args.get("rows", [])
     key = str(args.get("key", ""))
@@ -1414,7 +1413,7 @@ def handle_data_deduplicate(inv: ToolInvocation) -> dict:
 
 
 def handle_report_render_html(inv: ToolInvocation) -> dict:
-    """Render content as basic HTML (v3.9.7)."""
+    """Render content as basic HTML."""
     import html
     args = inv.arguments or {}
     content = str(args.get("content", ""))[:20000]
@@ -1428,7 +1427,7 @@ def handle_report_render_html(inv: ToolInvocation) -> dict:
 
 
 def handle_report_diff(inv: ToolInvocation) -> dict:
-    """Diff two artifacts (v3.9.7)."""
+    """Diff two artifacts."""
     args = inv.arguments or {}
     aid_a = str(args.get("artifact_id_a", ""))
     aid_b = str(args.get("artifact_id_b", ""))
@@ -1452,7 +1451,7 @@ def handle_report_diff(inv: ToolInvocation) -> dict:
 
 
 def _handler_cmdb_update_asset(inv: ToolInvocation) -> dict:
-    """Update an existing CMDB asset (v3.9.7)."""
+    """Update an existing CMDB asset."""
     args = inv.arguments or {}
     asset_id = str(args.get("asset_id", ""))
     if not asset_id:
@@ -1477,7 +1476,7 @@ def _handler_cmdb_update_asset(inv: ToolInvocation) -> dict:
 
 
 def _handler_cmdb_export_assets(inv: ToolInvocation) -> dict:
-    """Export CMDB assets list (v3.9.7)."""
+    """Export CMDB assets list."""
     import json
     args = inv.arguments or {}
     fmt = str(args.get("format", "json")).lower()

@@ -1,5 +1,5 @@
 # agent/state.py
-"""NetworkAgentState — shared state across all LangGraph nodes."""
+"""NetworkAgentState — structured request state for runtime traces and UI records."""
 
 import time
 import uuid
@@ -33,7 +33,7 @@ def uuid7() -> str:
 
 @dataclass
 class NetworkAgentState:
-    """Canonical state for Network Agent LangGraph workflow."""
+    """Canonical state projection for Network Agent runtime records."""
 
     request_id: str = field(default_factory=uuid7)
     user_input: str = ""
@@ -50,8 +50,7 @@ class NetworkAgentState:
     plan: List[str] = field(default_factory=list)
 
     # ── Capability execution records ──
-    # capability_calls / skill_results (legacy) are the PRIMARY fields for capability
-    # execution records. They hold capability adapter invocation metadata and results.
+    # Capability adapter invocation metadata and results.
     capability_calls: List[Dict[str, Any]] = field(default_factory=list)
     skill_results: Dict[str, Any] = field(default_factory=dict)
 
@@ -68,7 +67,7 @@ class NetworkAgentState:
     # Each entry: {action: str, target: str, value: Optional[str], params: dict}
     ui_actions: List[Dict[str, Any]] = field(default_factory=list)
 
-    runtime_mode: str = "fallback"  # langgraph | fallback
+    runtime_mode: str = "speg"
     created_at: str = field(default_factory=lambda: datetime.now(timezone.utc).isoformat())
     updated_at: str = ""
 

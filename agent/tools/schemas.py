@@ -48,9 +48,8 @@ class LLMToolSpec:
     def to_openai_function_compact(self) -> dict:
         """Compact version for defer_loading — name + one-liner only.
 
-        Minimizes token usage for non-core tools. The router/context pipeline
-        decides which full schemas are visible; there is no LLM catalog-search
-        expansion path.
+        Minimizes token usage for non-core tools. The runtime decides which
+        full schemas are visible; there is no LLM catalog-search expansion path.
         """
         parameters = dict(self.parameters or {})
         # Only include required params in compact mode — save tokens

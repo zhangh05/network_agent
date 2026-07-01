@@ -102,7 +102,7 @@ export interface ToolCatalogResponse {
 
 /* ──────────────────────── AgentResult & Tool Calls ──────────────────────── */
 
-/** P1-C: Tool plan step from context pipeline */
+/** Tool plan step from runtime planning metadata */
 export interface ToolPlanStep {
   step?: number | string;
   goal?: string;

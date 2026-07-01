@@ -215,13 +215,10 @@ def check_dangerous_path(path: str) -> bool:
 
 
 def check_safe_command(command: str) -> bool:
-    """v3.9.5: removed. The legacy character blacklist is gone. Shell
-    command safety is decided by
+    """Shell command safety is decided by
     :func:`tool_runtime.dangerous_patterns.is_destructive_command`
     which returns True only for explicitly destructive patterns
-    (rm -rf, dd if=, mkfs, etc.). This stub is kept only to preserve
-    any import sites during the transition; new code should call
-    :func:`is_destructive_command` directly.
+    (rm -rf, dd if=, mkfs, etc.).
     """
     from tool_runtime.dangerous_patterns import is_destructive_command
     return not is_destructive_command(command or "")

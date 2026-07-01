@@ -29,24 +29,18 @@ const STATUS_LABEL: Record<string, string> = {
 };
 
 /**
- * v3.9.1 fix: previously the list rendered `r.status` only, while the detail
- * rendered `r.ok`. They could disagree on legacy disk records (status was
- * stuck at "ok" because the write path read the wrong dict; see
- * workspace/run_store.py::_safe_status). Now we prefer the boolean truth —
- * `r.ok === false` is a hard "error" regardless of the legacy `status` string,
- * and `r.status` only supplements when `r.ok` is missing.
+ * Prefer the boolean truth: `r.ok === false` is a hard "error", and `r.status`
+ * only supplements when `r.ok` is missing.
  *
  * For new runs (post-fix) `r.ok` and `r.status` agree; for old runs this
  * keeps the list honest.
  */
 function effectiveStatus(run: RuntimeAuditTurn): string {
-  // v3.9.1: r.ok is the runtime truth. If it's explicitly false, ignore the
-  // legacy `status` string entirely (legacy records can have status="ok"
-  // even when ok=false). If it's explicitly true, also return "ok" — we
-  // don't trust the status string either way once the boolean is set.
+  // r.ok is the runtime truth. If it is explicitly set, prefer it over the
+  // status label stored on disk.
   if (run.ok === false) return "error";
   if (run.ok === true) return "ok";
-  // r.ok undefined (truly old records or non-AI jobs): fall back to status.
+  // r.ok undefined: fall back to status.
   return run.status || "ok";
 }
 
@@ -422,8 +416,7 @@ export function RunsPage() {
 
 /** Convert RuntimeAuditTurn → AgentResult so Inspector can display it. */
 function buildAgentResult(run: RuntimeAuditTurn, workspaceId: string): AgentResult {
-  // v3.9.1: prefer `run.ok` over the legacy status string. The disk record
-  // may have status="ok" but ok=false (legacy bug); we want the truth here.
+  // Prefer `run.ok` over the status string when available.
   const truthyOk =
     typeof run.ok === "boolean"
       ? run.ok

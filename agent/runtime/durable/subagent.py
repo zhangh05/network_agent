@@ -186,12 +186,10 @@ def create_subagent_task(
 
 
 def run_subagent_task(subtask_id: str, ws_id: str) -> dict:
-    """v3.10: Real LLM-driven subagent execution.
+    """Real LLM-driven subagent execution through SPEG.
 
-    Uses restricted AgentApp/TurnRunner with profile-gated tool access.
-    Subagent plans its own tool calls through LLM, not sequential simulation.
-    Budget (max_steps/max_runtime_seconds) enforced.
-    All tool calls go through ToolRuntimeClient with caller=subagent.
+    The profile provides the SPEG-visible tool allowlist. Tool execution still
+    goes through ToolRuntimeClient with caller=subagent.
     """
     task = _load_task(ws_id, subtask_id)
     if not task:
@@ -208,8 +206,6 @@ def run_subagent_task(subtask_id: str, ws_id: str) -> dict:
     result = SubagentResult(subtask_id=subtask_id, status="succeeded")
 
     try:
-        # v3.10: Create restricted AgentApp for subagent execution
-        from agent.app.facade import AgentApp
         # Build goal as system-style prompt
         goal_prompt = (
             f"You are a subagent: {profile.name} ({profile.role}).\n"
@@ -222,11 +218,8 @@ def run_subagent_task(subtask_id: str, ws_id: str) -> dict:
             f"Respond concisely with your findings."
         )
 
-        # v3.10: Create restricted session + ToolRouter for profile-gated execution
+        # Create restricted session for profile-gated SPEG execution.
         from agent.core.session import AgentSession
-        import agent.runtime.loop as _runtime_loop
-        from agent.tools.router import ToolRouter
-        from agent.runtime.services import default_runtime_services
 
         child_session_id = subtask_id
         sess = AgentSession(session_id=child_session_id, workspace_id=ws_id)
@@ -235,18 +228,10 @@ def run_subagent_task(subtask_id: str, ws_id: str) -> dict:
         sess.metadata["parent_session_id"] = task.session_id
         sess.metadata["subtask_id"] = subtask_id
 
-        # Build restricted ToolRouter from the real runtime registry. A bare
-        # ToolRouter has an empty registry, which hides every subagent tool.
-        base_services = default_runtime_services()
-        base_router = base_services.tool_service
-        tool_router = ToolRouter.for_turn(
-            base_router.registry,
-            allowed_tool_ids=profile.allowed_tools or None,
-        )
-
-        # Submit via run_turn with restricted tools
+        # Submit via SPEG with restricted tools.
         from agent.core.turn import AgentTurn
         from agent.protocol.op import AgentOp
+        from agent.runtime.speg_adapter import run_speg_turn
         op = AgentOp(user_input=goal_prompt, workspace_id=ws_id, session_id=child_session_id)
         turn = AgentTurn.from_op(op)
         turn.metadata = {
@@ -256,11 +241,11 @@ def run_subagent_task(subtask_id: str, ws_id: str) -> dict:
         }
 
         try:
-            llm_result = _run_turn_with_timeout(
-                _runtime_loop.run_turn,
+            llm_result = _run_speg_with_timeout(
+                run_speg_turn,
                 sess,
                 turn,
-                tool_router,
+                set(profile.allowed_tools or []),
                 timeout_seconds=profile.max_runtime_seconds,
             )
         except Exception as e:
@@ -421,7 +406,7 @@ def _execute_as_subagent(tool_id: str, args: dict, ws_id: str) -> dict:
         return {"ok": False, "summary": str(e)[:200]}
 
 
-def _run_turn_with_timeout(run_turn_fn, session, turn, restricted_tool_router, *, timeout_seconds: int):
+def _run_speg_with_timeout(run_fn, session, turn, allowed_tool_ids, *, timeout_seconds: int):
     """Run a subagent turn with a hard parent-side timeout.
 
     Python cannot forcibly stop an already-running provider call, so timeout
@@ -429,21 +414,14 @@ def _run_turn_with_timeout(run_turn_fn, session, turn, restricted_tool_router, *
     thread is abandoned best-effort.
     """
     import concurrent.futures
-    import inspect
-
-    submit_kwargs = {"restricted_tool_router": restricted_tool_router}
-    try:
-        if "services" in inspect.signature(run_turn_fn).parameters:
-            submit_kwargs["services"] = None
-    except Exception:
-        submit_kwargs["services"] = None
-
     executor = concurrent.futures.ThreadPoolExecutor(max_workers=1, thread_name_prefix="subagent")
     future = executor.submit(
-        run_turn_fn,
+        run_fn,
         session,
         turn,
-        **submit_kwargs,
+        None,
+        allowed_tool_ids=allowed_tool_ids,
+        requested_by="subagent",
     )
     try:
         return future.result(timeout=max(1, int(timeout_seconds)))

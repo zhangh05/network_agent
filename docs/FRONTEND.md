@@ -14,8 +14,7 @@ The left sidebar exposes the canonical navigation. Each entry maps to a single-p
 - `KnowledgeLibrary` (`/knowledge`): knowledge source/chunk search.
 - `ArtifactCenter` (`/artifacts`): artifact list and download.
 - `MemoryPage` (`/memory`): governed memory records.
-- `CMDBPage` (`/cmdb`): device assets.
-- `InspectionPage` (`/inspection`): live inspection tasks — list, filter, create, cancel, download MD/HTML report without going through the LLM.
+- `CMDBPage` (`/cmdb`): device assets plus region/asset inspection launch into the workbench.
 - `RemoteTerminal`: interactive SSH/Telnet connection UI (modal, not a sidebar route).
 - `Diagnostics` (`/diagnostics`): runtime health, selfcheck, prompt registry, policies.
 - `Settings` (`/settings`): LLM provider and runtime settings.
@@ -43,7 +42,7 @@ Approval bubbles subscribe to the unified approval API/SSE. Buttons resolve a du
 
 ## Tool And Capability UI
 
-The visible tool catalog is based on 22 canonical tools (21 from v3.9.2 + `inspection.manage` added in v3.9.13). Business capabilities are display metadata from `agent/capabilities/catalog.py`. Frontend labels may be friendly, but API payloads must use canonical tool IDs.
+The visible tool catalog is based on the current 22 canonical tools. Business capabilities are display metadata from `agent/capabilities/catalog.py`. Frontend labels may be friendly, but API payloads must use canonical tool IDs.
 
 ## Validation
 

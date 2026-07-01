@@ -3,7 +3,7 @@
 
 Single source of truth: `agent.capabilities.catalog`. The returned
 ``capabilities`` list contains canonical tool ids only (the 21-tool
-set). No legacy tool names are emitted from this endpoint.
+set). Removed tool names are not emitted from this endpoint.
 """
 
 from flask import jsonify

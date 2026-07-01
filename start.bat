@@ -30,7 +30,7 @@ if not exist "%LOG_DIR%" mkdir "%LOG_DIR%"
 
 if /I not "%INSTALL_DEPS%"=="false" if not "%INSTALL_DEPS%"=="0" (
     echo [deps] Checking Python dependencies...
-    "%PYTHON_BIN%" -c "import flask, flask_sock, yaml, langgraph, bs4, lxml, pdfplumber, scapy" >nul 2>&1
+    "%PYTHON_BIN%" -c "import flask, flask_sock, yaml, bs4, lxml, pdfplumber, scapy" >nul 2>&1
     if errorlevel 1 (
         "%PYTHON_BIN%" -m pip install -r "%ROOT%\requirements.txt"
         if errorlevel 1 exit /b 1

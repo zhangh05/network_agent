@@ -6,7 +6,7 @@ Business capabilities describe user-facing outcomes. They are not tool registrat
 
 1. Edit `agent/capabilities/catalog.py`.
 2. Reference only canonical tool IDs from `tool_runtime/tool_namespace.py`.
-3. Keep `status="planned"` until the runtime path and tests exist.
+3. Add the capability only after the runtime path and tests exist; the current catalog contains enabled capabilities only.
 4. Run:
 
 ```bash
@@ -24,7 +24,7 @@ python3 -m pytest harness/test_business_capability_catalog.py harness/test_v394_
     "recommended_tool_ids": ("workspace.file", "text.analyze"),
     "prompt_hints": ("Read source files before producing analysis.",),
     "safety_notes": ("Do not claim unverified output is deployable.",),
-    "status": "planned",
+    "status": "enabled",
 }
 ```
 

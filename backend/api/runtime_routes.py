@@ -77,7 +77,7 @@ def _get_tool_risk_level(client, tool_id: str) -> str:
 def _validate_approved_tool_invocation(approval_id: str, tool_id: str, workspace_id: str) -> bool:
     """Return True only for an approved ID that matches tool and workspace.
 
-    Uses the UNIFIED ApprovalStore — no legacy fallback.
+    Uses the UNIFIED ApprovalStore with no secondary store.
     """
     if not approval_id:
         return False
@@ -624,14 +624,7 @@ def register_runtime_routes(app):
 
     @app.route("/api/agent/runtime-mode")
     def api_agent_runtime_mode():
-        mode = os.environ.get("AGENT_RUNTIME", "turn_runner")
-        graph_ok = False
-        try:
-            from langgraph.graph import StateGraph
-            graph_ok = True
-        except ImportError:
-            pass
-        return jsonify({"ok": True, "mode": mode, "graph_runner_available": graph_ok})
+        return jsonify({"ok": True, "mode": "speg", "engine": "SPEGEngine"})
 
     @app.route("/api/agent/sse/stream/<session_id>")
     def api_agent_sse_stream(session_id):

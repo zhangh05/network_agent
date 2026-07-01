@@ -6,7 +6,7 @@ This file is the handoff contract for AI coding agents working in this repositor
 
 1. Keep the current architecture only. Do not add compatibility branches, old tool names, fallback APIs, or historical docs.
 2. All tool calls must go through `ToolRuntimeClient.invoke()`.
-3. All tools must be one of the 21 canonical IDs in `tool_runtime/tool_namespace.py`.
+3. All tools must be one of the 22 canonical IDs in `tool_runtime/tool_namespace.py`.
 4. `workspace_id` must be explicit and validated at API boundaries. Empty values return 400.
 5. Approval is for high-risk/destructive actions, not for ordinary read/list/query operations.
 6. Memory writes go through `workspace.memory_governance.MemoryWriteGate`.
@@ -18,10 +18,8 @@ This file is the handoff contract for AI coding agents working in this repositor
 Frontend
   -> backend/main.py routes or backend/ws/agent_ws.py
   -> agent.app.facade.AgentApp
-  -> AgentThread / TurnRunner
-  -> context + prompt pipeline
-  -> LLM provider
-  -> ToolExecutionPipeline
+  -> SPEGEngine planner
+  -> execution DAG
   -> ToolRuntimeClient
   -> ToolExecutor
   -> durable state, messages, artifacts, memory, trace
@@ -29,9 +27,9 @@ Frontend
 
 ## Canonical Tools
 
-There are exactly 21 public tool IDs:
+There are exactly 22 public tool IDs:
 
-`agent.manage`, `browser.manage`, `code.search`, `config.manage`, `data.manage`, `device.manage`, `exec.run`, `git.manage`, `knowledge.manage`, `memory.manage`, `pcap.manage`, `report.manage`, `skill.manage`, `system.manage`, `text.analyze`, `web.manage`, `workspace.artifact`, `workspace.document.pdf.extract_text`, `workspace.file`, `workspace.filestore`, `workspace.metadata.get`
+`agent.manage`, `browser.manage`, `code.search`, `config.manage`, `data.manage`, `device.manage`, `exec.run`, `git.manage`, `inspection.manage`, `knowledge.manage`, `memory.manage`, `pcap.manage`, `report.manage`, `skill.manage`, `system.manage`, `text.analyze`, `web.manage`, `workspace.artifact`, `workspace.document.pdf.extract_text`, `workspace.file`, `workspace.filestore`, `workspace.metadata.get`
 
 If a change needs a new operation, add it behind an existing canonical tool unless there is a strong product reason to create a new public tool.
 

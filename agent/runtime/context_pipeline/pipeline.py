@@ -1,5 +1,5 @@
 # agent/runtime/context_pipeline/pipeline.py
-"""ContextPipeline — orchestrates 13 stages to build TurnContext.
+"""Context assembly pipeline — orchestrates stages to build TurnContext.
 
 Each stage returns ContextStageResult. Failures are recorded
 but do NOT abort — the pipeline continues in degraded mode.

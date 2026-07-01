@@ -16,7 +16,6 @@ import { CMDBPage } from "../pages/CMDB/CMDBPage";
 import { ReviewCenter } from "../pages/ReviewCenter/ReviewCenter";
 import { RuntimeAudit } from "../pages/RuntimeAudit/RuntimeAudit";
 import { FileManager } from "../pages/FileManager/FileManager";
-import { InspectionPage } from "../pages/Inspection/InspectionPage";
 import { ToastHost } from "../components/ToastHost";
 import { useUIStore } from "../stores/session";
 import { systemApi } from "../api";
@@ -44,7 +43,6 @@ const NAV_ITEMS: Array<{ to: string; label: string; testid: string; Icon: typeof
   { to: "/artifacts", label: "制品", testid: "nav-artifacts", Icon: IconBox },
   { to: "/memory", label: "记忆", testid: "nav-memory", Icon: IconBox },
   { to: "/cmdb", label: "设备资产", testid: "nav-cmdb", Icon: IconLayers },
-  { to: "/inspection", label: "巡检任务", testid: "nav-inspection", Icon: IconLayers },
   { to: "/diagnostics", label: "系统诊断", testid: "nav-diagnostics", Icon: IconShield },
   { to: "/settings", label: "系统设置", testid: "nav-settings", Icon: IconSettings },
 ];
@@ -156,10 +154,6 @@ export function App() {
             />
             <Route path="/cmdb" element={
               <ErrorBoundary><AppLayout><CMDBPage /></AppLayout></ErrorBoundary>
-            }
-            />
-            <Route path="/inspection" element={
-              <ErrorBoundary><AppLayout><InspectionPage /></AppLayout></ErrorBoundary>
             }
             />
             <Route

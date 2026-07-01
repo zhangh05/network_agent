@@ -61,8 +61,9 @@ def default_runtime_services() -> RuntimeServices:
 def _build_default_registry(*args, **kwargs) -> "ToolRegistry":
     """Build ToolRegistry from the canonical ToolRuntime catalog.
 
-    v3.9.4: the legacy ``capability_registry`` arg is ignored; the
-    canonical registry is the single source of tool truth.
+    The canonical registry is the single source of tool truth. Extra
+    arguments are ignored because registry construction is no longer
+    parameterized by caller-owned capability registries.
     """
     from agent.tools.registry import ToolRegistry
     import logging

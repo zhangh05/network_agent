@@ -1,6 +1,6 @@
 """Unified tool approval system — single source of truth for all approvals.
 
-ALL approval flows MUST go through ApprovalStore. There is no legacy
+ALL approval flows MUST go through ApprovalStore. There is no secondary
 alternative, no dual-store pattern, no bypass.
 
 Key guarantees:

@@ -1,13 +1,13 @@
 # harness/test_runtime_pipeline_refactor.py
-"""Tests for the runtime pipeline refactor.
+"""Tests for the current runtime entrypoints.
 
 Covers:
-1. loop.py is thin (<=200 lines, contains TurnRunner, no banned symbols)
-2. All new modules are importable
+1. loop.py is a thin SPEG entrypoint
+2. Current support modules are importable
 3. DENY is still terminal
 4. Shell still requires approval
 5. ResultBuilder produces correct fields
-6. ToolExecutionPipeline stages run in order
+6. ToolExecutionPipeline archived contract remains importable
 """
 
 import inspect
@@ -27,10 +27,10 @@ class TestLoopIsThin:
         line_count = len(src.splitlines())
         assert line_count <= 200, f"loop.py has {line_count} lines, must be <=200"
 
-    def test_loop_contains_turn_runner_delegation(self):
+    def test_loop_contains_speg_delegation(self):
         import agent.runtime.loop as loop
         src = inspect.getsource(loop)
-        assert "TurnRunner" in src, "loop.py must delegate to TurnRunner"
+        assert "run_speg_turn" in src, "loop.py must delegate to SPEG"
 
     def test_loop_no_execute_tool_chain(self):
         import agent.runtime.loop as loop
@@ -66,26 +66,11 @@ class TestLoopIsThin:
         from agent.runtime.loop import run_turn
         assert callable(run_turn)
 
-    def test_loop_still_has_max_steps(self):
-        from agent.runtime.loop import MAX_STEPS, MAX_STEPS_ENV, MAX_STEPS_SUBAGENT_CEILING
-        assert MAX_STEPS == 24
-        assert isinstance(MAX_STEPS_ENV, int)
-        assert isinstance(MAX_STEPS_SUBAGENT_CEILING, int)
-
-    def test_loop_still_has_resolve_max_steps(self):
-        from agent.runtime.loop import _resolve_max_steps
-        assert callable(_resolve_max_steps)
-        assert _resolve_max_steps() == 24
-
-    def test_loop_still_has_approval_timeout(self):
-        from agent.runtime.loop import (
-            _APPROVAL_TIMEOUT_DEFAULT_S,
-            _APPROVAL_TIMEOUT_SUBAGENT_S,
-            _get_approval_timeout,
-        )
-        assert isinstance(_APPROVAL_TIMEOUT_DEFAULT_S, float)
-        assert isinstance(_APPROVAL_TIMEOUT_SUBAGENT_S, float)
-        assert callable(_get_approval_timeout)
+    def test_loop_has_no_turn_runner_constants(self):
+        import agent.runtime.loop as loop
+        assert not hasattr(loop, "MAX_STEPS")
+        assert not hasattr(loop, "_resolve_max_steps")
+        assert not hasattr(loop, "_get_approval_timeout")
 
 
 # ---------------------------------------------------------------------------
@@ -217,9 +202,10 @@ class TestNewModulesImportable:
         assert hasattr(ToolExecutionPipeline, 'run')
 
 
-    def test_runner(self):
-        from agent.runtime.runner import TurnRunner
-        assert callable(TurnRunner)
+    def test_runtime_entrypoint_uses_speg(self):
+        from agent.runtime.loop import run_turn
+        assert callable(run_turn)
+        assert "run_speg_turn" in run_turn.__code__.co_names
 
 
 # ---------------------------------------------------------------------------

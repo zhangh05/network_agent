@@ -1,7 +1,7 @@
 """Registry for split general tools.
 
 This module is a thin pass-through to the canonical registry, which is the
-truth source for tool metadata and dispatch. All legacy _reg() definitions,
+truth source for tool metadata and dispatch. Removed _reg() definitions,
 GENERAL_TOOL_INPUT_SCHEMAS, and _finalize_tool_output helpers have been
 removed — they were dead code superseded by canonical_registry.py.
 """

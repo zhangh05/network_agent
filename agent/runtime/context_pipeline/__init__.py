@@ -1,7 +1,7 @@
 # agent/runtime/context_pipeline/__init__.py
-"""ContextPipeline — stage-based TurnContext construction.
+"""Stage-based TurnContext construction.
 
-P1-C: Splits build_turn_context() into a 13-stage pipeline.
+Splits build_turn_context() into focused context assembly stages.
 Each stage returns ContextStageResult with ok/warnings/errors/metadata.
 Failures are recorded but do not block the pipeline (degraded mode).
 """

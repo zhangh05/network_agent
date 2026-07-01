@@ -235,7 +235,7 @@ export function TaskWorkbench() {
           return () => clearTimeout(t);
         }
       } catch {
-        // Fall through to legacy prompt support below.
+        // Fall through to packet-analysis prompt support below.
       }
     }
     const prompt = sessionStorage.getItem("pcap_ai_prompt");

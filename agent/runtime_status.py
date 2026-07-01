@@ -3,7 +3,6 @@
 
 import json
 import os
-import traceback
 
 
 def get_runtime_status() -> dict:
@@ -24,17 +23,6 @@ def get_runtime_status() -> dict:
     except Exception:
         enabled_modules = []
 
-    # LangGraph availability
-    graph_compile_ok = False
-    fallback_reason = None
-    graph_nodes = []
-    try:
-        from langgraph.graph import StateGraph
-        graph_compile_ok = True
-        graph_nodes = ["router", "context", "planner", "executor", "verifier", "composer", "memory"]
-    except ImportError:
-        fallback_reason = "langgraph_import_failed"
-
     from agent.llm.runtime import get_llm_status
     llm_status = get_llm_status()
 
@@ -46,12 +34,9 @@ def get_runtime_status() -> dict:
     ]
 
     return {
-        "agent_runtime": "agentic_loop" if graph_compile_ok else "fallback",
-        "langgraph_available": graph_compile_ok,
-        "fallback_available": True,
-        "graph_compile_ok": graph_compile_ok,
-        "graph_nodes": graph_nodes,
-        "fallback_reason": fallback_reason,
+        "agent_runtime": "speg",
+        "runtime_engine": "SPEGEngine",
+        "fallback_available": False,
         "llm_enabled": llm_status["enabled"],
         "llm_connected": llm_status["connected"],
         "llm_provider": llm_status["provider"],

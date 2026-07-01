@@ -246,7 +246,7 @@ _PRIVATE_IP_PREFIXES = ("10.", "172.16.", "172.17.", "172.18.", "172.19.",
 
 
 
-# Re-export from sub-modules for backward compatibility
+# Re-export shared web handlers from the split implementation module.
 from tool_runtime.general_tools.shared_web import *
 
 def _run_shell(command: str, cwd: str = None, shell: str = "/bin/bash",

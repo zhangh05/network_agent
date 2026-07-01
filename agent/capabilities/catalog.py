@@ -7,7 +7,7 @@ those concerns live in canonical_registry / manifest_registry / sandbox.
 
 Three rules:
   1. recommended_tool_ids MUST be a subset of TOOL_NAMESPACE (the 21
-     canonical tool ids). No legacy names like device.list / git.status.
+     canonical tool ids). Removed names like device.list / git.status are invalid.
   2. This module exposes only data + a few lookup helpers. It does not
      register tools, filter tools, or influence dispatch.
   3. Frontend (skills / capabilities API) and the skill.manage tool
@@ -200,7 +200,7 @@ _CAPABILITIES: tuple[dict, ...] = (
 
 # v3.9.4 contract check at import time: every recommended_tool_id MUST be
 # a canonical id. This guarantees the catalog cannot accidentally
-# re-introduce a legacy tool name.
+# re-introduce a removed tool name.
 def _validate_catalog() -> None:
     canonical = set(TOOL_NAMESPACE)
     for cap in _CAPABILITIES:

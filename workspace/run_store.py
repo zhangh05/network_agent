@@ -181,12 +181,11 @@ def _safe_status(state, result: dict) -> str:
     result_ok = getattr(state, "result_ok", None)
     if result_ok is False:
         return "error"
-    # v3.9.14 fix: legacy callers that pass a plain dict ``result={"ok": False}``
-    # (without setting state.result_ok) used to fall through to "ok". Honour
-    # the legacy contract by reading the dict if state.result_ok is unset.
+    # Dict result payloads are still accepted by persistence callers. If an
+    # explicit state.result_ok is absent, use the dict's ok field.
     if result_ok is None and isinstance(result, dict):
-        legacy_ok = result.get("ok")
-        if legacy_ok is False:
+        dict_ok = result.get("ok")
+        if dict_ok is False:
             return "error"
     result_errors = getattr(state, "result_errors", None)
     if result_errors:  # non-empty list

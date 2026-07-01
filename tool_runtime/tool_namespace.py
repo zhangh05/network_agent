@@ -190,7 +190,7 @@ def category_tree_from_specs(specs: list) -> list[dict[str, Any]]:
     return categories
 
 
-# ── All canonical tool IDs (v3.9.7) ──
+# ── All canonical tool IDs ──
 # Every canonical tool is visible to the LLM. Keep this derived from
 # TOOL_NAMESPACE so namespace/catalog/registry cannot drift by hand.
 ALL_TOOL_IDS = list(TOOL_NAMESPACE.keys())

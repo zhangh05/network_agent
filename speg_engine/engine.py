@@ -171,18 +171,23 @@ class SPEGEngine:
                 metrics.capture_compile(0)
                 metrics.capture_validation(0)
 
-                final_budget = budget.check_finalizer()
-                if final_budget.ok and self._config.enable_finalizer:
-                    llm_budget2 = budget.check_llm_call()
-                    if llm_budget2.ok:
-                        final_response = await self._finalizer.finalize(ctx, merged)
-                        metrics.capture_finalizer(
-                            float(ctx.extras.get("finalizer_latency_ms", 0))
-                        )
-                    else:
-                        final_response = "No tools needed. (finalizer budget exceeded)"
+                direct_response = str(ctx.extras.get("direct_response") or "").strip()
+                if direct_response:
+                    final_response = direct_response
+                    metrics.capture_finalizer(0)
                 else:
-                    final_response = self._finalizer._build_default_response(merged)
+                    final_budget = budget.check_finalizer()
+                    if final_budget.ok and self._config.enable_finalizer:
+                        llm_budget2 = budget.check_llm_call()
+                        if llm_budget2.ok:
+                            final_response = await self._finalizer.finalize(ctx, merged)
+                            metrics.capture_finalizer(
+                                float(ctx.extras.get("finalizer_latency_ms", 0))
+                            )
+                        else:
+                            final_response = "No tools needed. (finalizer budget exceeded)"
+                    else:
+                        final_response = self._finalizer._build_default_response(merged)
 
                 metrics.set_llm_calls(budget.llm_calls)
                 dag = None

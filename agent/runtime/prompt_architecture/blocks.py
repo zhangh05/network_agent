@@ -116,10 +116,10 @@ def build_capability_context_block(ctx) -> PromptBlock | None:
     business_caps = safe.get("business_capabilities") or safe.get("capability_catalog") or []
 
     lines = [
-        "Current execution model (v3.9.7):",
-        "- All 21 canonical tools are always visible. No catalog search needed.",
+        "Current execution model:",
+        "- All 22 canonical tools are available through SPEG planning. No catalog search needed.",
         "- Each tool uses an `action` parameter to select sub-capabilities.",
-        "- Do not call legacy, alias, or removed tool ids.",
+        "- Do not call alias or removed tool ids.",
     ]
 
     if business_caps:

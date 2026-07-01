@@ -1,7 +1,7 @@
 # agent/modules/config_translation/service.py
 """Config Translation service — wraps the canonical translate_config implementation.
 
-Exposes translate_config() for the TurnRunner → ToolRouter → ToolRegistry path.
+Exposes translate_config() for the SPEG → ToolRuntimeClient → config.manage path.
 Does NOT bypass the config_translation module.
 Does NOT generate deployable_config directly from LLM.
 Saves translated_config as an artifact with authoritative=false, deployable_config=false.

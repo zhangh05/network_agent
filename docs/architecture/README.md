@@ -3,7 +3,7 @@
 This folder contains current architecture notes only. The authoritative runtime chain is:
 
 ```text
-AgentApp -> TurnRunner -> ToolExecutionPipeline -> ToolRuntimeClient -> ToolExecutor
+AgentApp -> SPEGEngine -> ToolRuntimeClient -> ToolExecutor
 ```
 
 Current anchors:

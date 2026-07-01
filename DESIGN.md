@@ -17,21 +17,22 @@ sequenceDiagram
   participant UI as Frontend
   participant API as Flask API / WS
   participant App as AgentApp
-  participant Runner as TurnRunner
+  participant SPEG as SPEGEngine
   participant LLM as LLM Provider
   participant Tools as ToolRuntimeClient
   participant Store as Durable Stores
 
   UI->>API: message(workspace_id, session_id, text)
   API->>App: submit_user_message()
-  App->>Runner: run_turn()
-  Runner->>Store: create TaskState + checkpoint
-  Runner->>LLM: compile prompt + call model
-  Runner->>Tools: invoke canonical tool
+  App->>SPEG: run_speg_turn()
+  SPEG->>LLM: planner JSON graph
+  SPEG->>SPEG: compile + validate DAG
+  SPEG->>Tools: invoke canonical tool nodes in layers
   Tools->>Tools: manifest/caller/policy/redaction/audit
-  Tools-->>Runner: ToolResult
-  Runner->>Store: messages, events, trace, task state
-  Runner-->>API: AgentResult
+  Tools-->>SPEG: ToolResult
+  SPEG->>LLM: finalizer when tools ran
+  SPEG->>Store: messages, events, trace, run projection
+  SPEG-->>API: AgentResult
   API-->>UI: stream/final/timeline
 ```
 
@@ -44,7 +45,7 @@ sequenceDiagram
 - `RuntimeEvent`：前端时间线和审计事件来源。
 - `RuntimeCheckpoint`：中断、审批、失败恢复的快照。
 
-运行中会在关键步骤中途持久化，不再只在 turn 结束后记录结果。
+SPEG 主链将执行结果投影为 `AgentResult`、message、run 和 trace；长任务类能力仍使用 durable task/checkpoint API 管理自己的可取消状态。
 
 ## Tool Runtime
 
@@ -62,11 +63,11 @@ canonical tool id
   -> ToolResult
 ```
 
-当前只有 22 个 canonical tool。`handler_id` 是内部实现细节，不暴露给 LLM、前端或公共 API。
+当前只有 22 个 canonical tool。`handler_id` 是内部实现细节，不暴露给 LLM、前端或公共 API。SPEG 节点不会直接调用 handler，只能通过 `ToolRuntimeClient.invoke()` 进入工具边界。
 
 ## Capability Catalog
 
-`agent/capabilities/catalog.py` 是业务能力目录，当前 13 个能力，其中 11 个 enabled、2 个 planned。目录只提供：
+`agent/capabilities/catalog.py` 是业务能力目录，当前 12 个能力，全部 enabled。目录只提供：
 
 - 能力说明
 - 推荐 canonical tool

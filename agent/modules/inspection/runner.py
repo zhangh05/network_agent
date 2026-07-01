@@ -345,7 +345,7 @@ def _task_from_dict(d: dict) -> InspectionTask:
 
     v3.10: the per-device ``setattr`` is restricted to known
     :class:`DeviceResult` fields so an unknown JSON key (typo or
-    legacy/experimental column) can't be injected onto a live
+    removed/experimental column) can't be injected onto a live
     dataclass. Unknown keys are dropped with a single warning per
     task, not per device, to keep the log readable.
     """
@@ -946,37 +946,7 @@ def _read_artifact_content(workspace_id: str, rec: dict) -> dict | None:
             text = None
         if text is not None:
             return {"content": text, "metadata": rec}
-        # aid failed — fall through to legacy path-based read.
-    # Legacy path: pre-artifact_id records. Restricted to the
-    # workspace root to limit blast radius.
-    from pathlib import Path
-    from workspace.ids import validate_workspace_id
-    from workspace.run_store import WS_ROOT
-    file_path = rec.get("file_path") or rec.get("path")
-    if not file_path:
-        return {"content": "", "metadata": rec}
-    try:
-        ws_root = (WS_ROOT / validate_workspace_id(workspace_id)).resolve()
-        target = Path(file_path).resolve()
-        try:
-            target.relative_to(ws_root)
-        except ValueError:
-            logger.warning(
-                "inspection: legacy artifact %s escapes workspace %s, "
-                "skipping read", file_path, workspace_id,
-            )
-            return {"content": "", "metadata": rec}
-        return {
-            "content": target.read_text(encoding="utf-8", errors="replace"),
-            "metadata": rec,
-        }
-    except Exception:
-        logger.debug(
-            "inspection: cannot read legacy backup %r", file_path,
-            exc_info=True,
-        )
-        return {"content": "", "metadata": rec}
-        return {"content": "", "metadata": rec}
+    return {"content": "", "metadata": rec}
 
 
 # ── top-level runner ───────────────────────────────────────────────────

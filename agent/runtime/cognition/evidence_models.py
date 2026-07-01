@@ -146,7 +146,7 @@ class EvidenceBundle:
 
 
 def _evidence_to_hit(item: EvidenceItem) -> dict[str, Any]:
-    """Convert an EvidenceItem to a structured, LLM-friendly hit dict (v3.9.7).
+    """Convert an EvidenceItem to a structured, LLM-friendly hit dict.
 
     Produces compact entries with a ``_meta`` annotation for quick scanning,
     while still preserving key metadata fields for downstream use.

@@ -9,7 +9,7 @@ network_agent/
 │   ├── llm/                    # Provider config, runtime calls, key resolver
 │   ├── modules/                # Domain implementations used by canonical tools
 │   ├── prompts/                # Prompt templates
-│   ├── runtime/                # TurnRunner, context pipeline, tools, durable state
+│   ├── runtime/                # SPEG adapter, result projection, durable state
 │   ├── skills/                 # Skill metadata and skill.manage data source
 │   └── tools/                  # Agent-facing router/registry adapter
 ├── artifacts/                  # Artifact records and content store
@@ -29,7 +29,7 @@ network_agent/
 ├── reports/                    # Generated reports; audits are ignored unless tracked
 ├── runtime/                    # Diagnostics/selfcheck utilities
 ├── storage/                    # File store abstractions
-├── tool_runtime/               # 21 canonical tools, manifest, policy, executor
+├── tool_runtime/               # 22 canonical tools, manifest, policy, executor
 ├── workspace/                  # Workspace/session/run/message/memory stores
 ├── workspaces/                 # Local workspace data; not committed
 ├── start.sh

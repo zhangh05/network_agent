@@ -312,7 +312,7 @@ def deterministic_plan_tools(
             "scene": primary,
             "reason": rule_scene.get("reason", ""),
             "candidate_count": len(candidate_tools),
-            "local_ops_enabled": True,   # v3.9.7: all tools always visible
+            "local_ops_enabled": True,   # all canonical tools are available
             "visible_tools": list(candidate_tools),
             "filtered": {},
         },

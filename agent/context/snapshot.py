@@ -75,7 +75,7 @@ class RuntimeSnapshot:
             lines.append(f"  visible: {self.visible_tool_count}")
             lines.append("")
 
-            # v3.9.7: safety_baseline now renders ONLY the
+            # safety_baseline renders ONLY the
             # safety_notes collected from the business capability
             # catalog. Earlier versions emitted a hard-coded
             # "No real device access" / "Config push forbidden"

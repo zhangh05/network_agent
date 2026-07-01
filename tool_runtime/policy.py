@@ -8,13 +8,13 @@ Checks:
   2. tool enabled
   3. risk_level metadata (low/medium/high); risk alone does not block calls
   4. category allowed (v0.2 expanded categories)
-  5. not a forbidden tool_id (e.g. legacy ssh.exec, nmap.scan)
+  5. not a removed or blocked tool_id (e.g. ssh.exec, nmap.scan)
   6. dry_run support
   7. timeout within limits
   8. arguments free of destructive command patterns → escalates to
      ``high`` + ``requires_approval`` (the approval bubble UX), does
      **not** block the call.
-  9. legacy char-blacklist (| && || ; ` $ > <) and sensitive-path
+  9. broad char-blacklist (| && || ; ` $ > <) and sensitive-path
      substring (/etc/passwd, ../) are gone. Only the destructive
      command set in ``tool_runtime.dangerous_patterns`` matters.
 """
@@ -97,9 +97,8 @@ def is_tool_forbidden(tool_id: str) -> bool:
     return False
 
 
-# ── Re-exports for back-compat with callers that imported the legacy
-# names from this module. The actual implementation lives in
-# tool_runtime.dangerous_patterns now. ──
+# ── Public exports. The destructive-command implementation lives in
+# tool_runtime.dangerous_patterns. ──
 __all__ = [
     "ToolPolicy",
     "V02_ALLOWED_RISK_LEVELS",

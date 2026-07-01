@@ -28,7 +28,7 @@ from agent.runtime.state.hooks import prepare_runtime_state_for_turn, runtime_st
 def build_turn_context(session, turn, services) -> TurnContext:
     """Build complete TurnContext for a turn execution.
 
-    Delegates to ContextPipeline (13-stage pipeline).
+    Delegates to the context assembly pipeline.
     """
     from agent.runtime.context_pipeline.pipeline import ContextPipeline
     pipeline = ContextPipeline()

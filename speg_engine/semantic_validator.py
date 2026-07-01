@@ -24,7 +24,7 @@ from .models import ExecutionDAG, ExecutionNode, RiskLevel
 from .command_policy import normalize_command, evaluate_command_policy
 
 
-# --- Dangerous command patterns (kept for backward compat in risk_policy) ---
+# --- Dangerous command patterns shared with risk_policy ---
 
 FORBIDDEN_COMMANDS: list[str] = [  # deprecated: use command_policy.evaluate_command_policy()
     r"\bformat\b",

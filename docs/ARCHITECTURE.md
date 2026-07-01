@@ -8,10 +8,9 @@ This document describes the current Network Agent architecture only.
 HTTP / WebSocket / SSE / Job entry
   -> AgentApp.submit_user_message
   -> SessionManager + AgentThread
-  -> TurnRunner
-  -> Context pipeline
-  -> LLM provider
-  -> ToolExecutionPipeline
+  -> SPEG adapter
+  -> SPEGEngine planner
+  -> Execution DAG
   -> ToolRuntimeClient.invoke
   -> ToolExecutor
   -> AgentResult + RuntimeEvent timeline
@@ -32,7 +31,7 @@ The frontend timeline consumes runtime events and tool results instead of inferr
 
 ## Tool Boundary
 
-The public tool namespace has 21 canonical IDs. `tool_runtime/tool_namespace.py`, `tool_runtime/manifest_registry.py`, and the default registry must remain count-aligned.
+The public tool namespace has 22 canonical IDs. `tool_runtime/tool_namespace.py`, `tool_runtime/manifest_registry.py`, and the default registry must remain count-aligned.
 
 Tool execution requires:
 

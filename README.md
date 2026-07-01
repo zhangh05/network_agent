@@ -1,6 +1,6 @@
 # Network Agent
 
-Network Agent 是一个面向网络运维场景的本地 AI Agent 工作台。当前架构只保留一套运行时、一套工具边界和一套业务能力目录：前端通过 Flask API 与 WebSocket/SSE 驱动对话，后端由 `AgentApp -> TurnRunner -> ToolRuntimeClient` 统一执行，工具统一收敛为 22 个 canonical tool。
+Network Agent 是一个面向网络运维场景的本地 AI Agent 工作台。当前架构只保留一套运行时、一套工具边界和一套业务能力目录：前端通过 Flask API 与 WebSocket/SSE 驱动对话，后端由 `AgentApp -> SPEGEngine -> ToolRuntimeClient` 统一执行，工具统一收敛为 22 个 canonical tool。
 
 > **运行环境**：Python 3.12+ / Node.js 18+ / macOS 或 Linux。
 
@@ -27,17 +27,17 @@ bash stop.sh
 flowchart LR
   UI["React Workbench"] --> API["Flask API / WS / SSE"]
   API --> App["AgentApp"]
-  App --> Runner["TurnRunner"]
-  Runner --> Context["Context + Prompt Pipeline"]
-  Runner --> LLM["LLM Provider"]
-  Runner --> ToolPipe["ToolExecutionPipeline"]
-  ToolPipe --> Client["ToolRuntimeClient"]
+  App --> SPEG["SPEGEngine"]
+  SPEG --> Planner["Planner LLM"]
+  SPEG --> DAG["Execution DAG"]
+  DAG --> Client["ToolRuntimeClient"]
+  SPEG --> Finalizer["Finalizer LLM"]
   Client --> Policy["Manifest + Policy Gate"]
   Policy --> Exec["ToolExecutor"]
   Exec --> Store["Workspace / Artifact / Memory / Trace Stores"]
 ```
 
-核心链路只有一条：`AgentApp -> TurnRunner -> ToolExecutionPipeline -> ToolRuntimeClient -> ToolExecutor`。任何工具调用都必须携带 `requested_by`，必须命中 `CapabilityManifest`，并且必须通过 caller gate、风险策略、脱敏和审计。
+核心链路只有一条：`AgentApp -> SPEGEngine -> ToolRuntimeClient -> ToolExecutor`。SPEG 负责单次规划、DAG 并行调度和最终答复；任何工具调用都必须携带 `requested_by`，必须命中 `CapabilityManifest`，并且必须通过 caller gate、风险策略、脱敏和审计。
 
 ## 核心模块
 
@@ -46,9 +46,9 @@ flowchart LR
 | `backend/` | Flask 入口、REST API、WebSocket、SSE |
 | `frontend/` | React/Vite 工作台、会话、时间线、设置、资产、诊断 |
 | `agent/app/` | AgentApp 门面、SessionManager、AgentThread |
-| `agent/runtime/` | TurnRunner、上下文管道、工具执行、持久化、hook |
+| `agent/runtime/` | SPEG 适配、AgentResult 投影、持久化、hook |
 | `tool_runtime/` | 22 个 canonical tool、manifest、policy、executor、redaction |
-| `agent/capabilities/` | 13 个业务能力目录，只描述能力，不注册工具 |
+| `agent/capabilities/` | 12 个业务能力目录，只描述能力，不注册工具 |
 | `workspace/` | session/run/message/memory/workspace 数据边界 |
 | `artifacts/` | 制品生命周期与内容存储 |
 | `observability/` | trace/event 记录 |

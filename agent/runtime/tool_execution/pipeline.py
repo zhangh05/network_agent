@@ -305,10 +305,9 @@ class ToolExecutionPipeline:
         if hook_input and isinstance(hook_input, dict):
             tool_call.arguments.update(hook_input)
 
-        # ── Visibility: always use the full baseline set (v3.9.6) ──
-        # All 21 Codex tools are always visible. The planner may subset
-        # for context-size management, but the executor never rejects a
-        # tool the LLM chooses to call.
+        # ── Visibility: always use the full canonical set ──
+        # All 22 canonical tools are available to SPEG planning. This
+        # fallback keeps archived tool-execution records renderable.
         ctx = getattr(state, 'context', None)
         if ctx is not None:
             from tool_runtime.tool_namespace import ALL_TOOL_IDS

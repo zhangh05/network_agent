@@ -19,8 +19,7 @@ def _pkg_as_dict(pkg: dict) -> dict:
     """Skill dict (v3.9.4: delegates to business capability catalog)."""
     from agent.capabilities.catalog import to_skill_dict
     d = to_skill_dict(pkg)
-    # "active" is the legacy skill.manage status; map enabled→active,
-    # planned→planned for the frontend.
+    # The frontend displays enabled packages as active.
     d["status"] = "active" if pkg["status"] == "enabled" else pkg["status"]
     return d
 

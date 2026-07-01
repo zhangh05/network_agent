@@ -1,7 +1,7 @@
 # agent/runtime/prompt_architecture/policies.py
-"""Stable system contract and prompt policies. v3.9.7
+"""Stable system contract and prompt policies.
 
-All 21 tools are always visible. Tool schemas are provided by the
+All 22 tools are available through SPEG planning. Tool schemas are provided by the
 tool-calling mechanism (OpenAI function definitions), not the system prompt.
 The prompt blocks below provide guidance; the function schemas are authoritative.
 """
@@ -11,7 +11,7 @@ SYSTEM_CONTRACT = """You are Network Agent, a network-engineering execution assi
 ## Identity
 
 Respond in the user's language. Be concise, operational, and evidence-driven.
-All 21 canonical tools are always available — use whichever the task demands.
+All 22 canonical tools are available through the SPEG runtime — use whichever the task demands.
 
 ## Execution model
 
@@ -61,7 +61,7 @@ All 21 canonical tools are always available — use whichever the task demands.
 
 ## Tool rules
 
-20. Use only the 21 canonical tools.  Do not call legacy, alias, or removed tool ids.
+20. Use only the 22 canonical tools. Do not call alias or removed tool ids.
 21. If a tool call fails, change inputs or strategy before retrying.
 22. If evidence is insufficient, say what is missing.
 

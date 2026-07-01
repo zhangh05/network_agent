@@ -77,7 +77,7 @@ def register_approval_routes(app) -> None:
         store = get_approval_store()
         data = request.get_json(silent=True) or {}
 
-        # Require decision field (no legacy allowed fallback)
+        # Require the current decision field.
         decision = str(data.get("decision", "")).strip()
         if decision not in ("approve", "reject", "edit_args", "respond", "respond_with_feedback"):
             return jsonify({"ok": False, "error": "decision required: approve|reject|edit_args|respond"}), 400

@@ -2,12 +2,11 @@
 """Auto-checkpoint: snapshot session state at configurable intervals.
 
 v3.3: Protects long-running tasks with automatic snapshots.
-v3.8: SqliteSaver integration via LangGraph checkpoint, Postgres support.
 
 - Per-N-turns snapshot (default every 5 turns)
 - Pre-risky-operation snapshot (high risk_level tools)
 - Configurable via env vars and session metadata.
-- Sqlite checkpoint store replaces JSON file persistence.
+- JSON checkpoint store under the active workspace.
 """
 
 from __future__ import annotations
@@ -28,37 +27,9 @@ CHECKPOINT_INTERVAL_TURNS = int(
 )
 CHECKPOINT_PRE_RISK_LEVELS = {"high"}
 CHECKPOINT_ENABLED = os.environ.get("AUTO_CHECKPOINT_ENABLED", "1") != "0"
-CHECKPOINT_BACKEND = os.environ.get("CHECKPOINT_BACKEND", "json")  # "json" | "sqlite" | "postgres"
-CHECKPOINT_DB_PATH = os.environ.get("CHECKPOINT_DB_PATH", "workspaces/_runtime/checkpoints.db")
-CHECKPOINT_PG_URL = os.environ.get("CHECKPOINT_PG_URL", "")
-
-
-def _get_sqlite_saver():
-    """Get or create SqliteSaver instance (lazy, cached)."""
-    if not hasattr(_get_sqlite_saver, "_instance"):
-        try:
-            from langgraph.checkpoint.sqlite import SqliteSaver
-            _get_sqlite_saver._instance = SqliteSaver.from_conn_string(CHECKPOINT_DB_PATH)
-        except ImportError:
-            _get_sqlite_saver._instance = None
-    return _get_sqlite_saver._instance
-
-
-def _get_postgres_saver():
-    """Get or create PostgresSaver instance (lazy, cached)."""
-    if not CHECKPOINT_PG_URL:
-        return None
-    if not hasattr(_get_postgres_saver, "_instance"):
-        try:
-            from langgraph.checkpoint.postgres import PostgresSaver
-            _get_postgres_saver._instance = PostgresSaver.from_conn_string(CHECKPOINT_PG_URL)
-        except ImportError:
-            _get_postgres_saver._instance = None
-    return _get_postgres_saver._instance
-
 
 def _session_checkpoint_dir(session_id: str, workspace_id: str) -> Path:
-    """Get the checkpoint directory for a session (JSON backend only)."""
+    """Get the checkpoint directory for a session."""
     return Path("workspaces") / workspace_id / "sessions" / session_id / "checkpoints"
 
 
@@ -91,8 +62,7 @@ def create_auto_checkpoint(
 ) -> Optional[dict]:
     """Create an automatic session checkpoint.
     
-    v3.8: Uses SqliteSaver/PostgresSaver when backend != "json".
-    Falls back to JSON file persistence.
+    Writes a compact JSON checkpoint under the active workspace.
     """
     try:
         sid = getattr(session, "session_id", "") or ""
@@ -115,29 +85,13 @@ def create_auto_checkpoint(
             "turn": turn or 0,
             "created_at": datetime.now(timezone.utc).isoformat(),
             "reason": reason,
-            "backend": CHECKPOINT_BACKEND,
+            "backend": "json",
         }
 
-        # v3.8: LangGraph checkpoint backends
-        if CHECKPOINT_BACKEND == "sqlite":
-            saver = _get_sqlite_saver()
-            if saver:
-                config = {"configurable": {"thread_id": sid}}
-                saver.put(config, ckpt["checkpoint_id"], ckpt, {}, {})
-                ckpt["_backend"] = "sqlite"
-                _log.info("Sqlite checkpoint %s for session %s", ckpt["checkpoint_id"], sid)
-        elif CHECKPOINT_BACKEND == "postgres":
-            saver = _get_postgres_saver()
-            if saver:
-                config = {"configurable": {"thread_id": sid}}
-                saver.put(config, ckpt["checkpoint_id"], ckpt, {}, {})
-                ckpt["_backend"] = "postgres"
-        else:
-            # Legacy JSON file
-            ckpt_dir = _session_checkpoint_dir(sid, wsid)
-            ckpt_dir.mkdir(parents=True, exist_ok=True)
-            ckpt_path = ckpt_dir / f"{ckpt['checkpoint_id']}.json"
-            ckpt_path.write_text(json.dumps(ckpt, ensure_ascii=False, indent=2))
+        ckpt_dir = _session_checkpoint_dir(sid, wsid)
+        ckpt_dir.mkdir(parents=True, exist_ok=True)
+        ckpt_path = ckpt_dir / f"{ckpt['checkpoint_id']}.json"
+        ckpt_path.write_text(json.dumps(ckpt, ensure_ascii=False, indent=2))
 
         if hasattr(session, "metadata") and isinstance(session.metadata, dict):
             ckpts = session.metadata.get("auto_checkpoints", [])
@@ -158,17 +112,6 @@ def list_auto_checkpoints(session: Any) -> list[dict]:
         if not sid:
             return []
         
-        if CHECKPOINT_BACKEND == "sqlite":
-            saver = _get_sqlite_saver()
-            if saver:
-                config = {"configurable": {"thread_id": sid}}
-                try:
-                    items = list(saver.list(config))
-                    return [i.checkpoint for i in items if hasattr(i, 'checkpoint')]
-                except Exception:
-                    pass
-
-        # Legacy JSON
         ckpt_dir = _session_checkpoint_dir(sid, wsid)
         if not ckpt_dir.exists():
             return []

@@ -210,7 +210,7 @@ class ToolRouter:
         
         Core tools (always needed) get full schema. Non-core tools get
         compact schemas to save tokens. Full callable schemas are selected by
-        the router/context pipeline, not by an LLM catalog-search tool.
+        the runtime, not by an LLM catalog-search tool.
         """
         core = core_tool_ids or set()
         result = []
