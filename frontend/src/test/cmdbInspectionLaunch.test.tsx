@@ -128,23 +128,46 @@ describe("CMDB inspection launch", () => {
       },
     }));
     enqueue("/sessions/sess-cmdb/messages", { status: 200, data: { ok: true, messages: [], count: 0 } });
+    enqueue("/inspection/tasks", { status: 200, data: { ok: true, task_id: "insp-task-1" } });
+    enqueue("/inspection/tasks/insp-task-1", {
+      status: 200,
+      data: {
+        ok: true,
+        task: {
+          task_id: "insp-task-1",
+          status: "running",
+          total_assets: 1,
+          succeeded: 0,
+          failed: 0,
+          skipped: 0,
+          partial: 0,
+          criticals: 0,
+          warnings: 0,
+          infos: 0,
+        },
+      },
+    });
     enqueue("/agent/message", { status: 200, data: resp });
     enqueue("/sessions/sess-cmdb/messages", { status: 200, data: { ok: true, messages: [], count: 0 } });
 
     render(<TaskWorkbench />);
 
     await screen.findByText("已完成测试一区基础巡检。");
+    const inspectionRequests = getRequests().filter((r) => r.url === "/inspection/tasks" && r.method === "POST");
+    expect(inspectionRequests).toHaveLength(1);
     const request = getRequests().find((r) => r.url === "/agent/message");
     expect(request?.data).toMatchObject({
-      message: "对 CMDB 区域「测试一区」执行自动巡检。",
       workspace_id: "default",
       session_id: "sess-cmdb",
       metadata: {
         intent: "cmdb_region_inspection",
         region: "测试一区",
         source: "cmdb_region_button",
+        inspection_task_id: "insp-task-1",
       },
     });
+    expect(String(request?.data?.message || "")).toContain("任务 ID：insp-task-1");
+    expect(String(request?.data?.message || "")).toContain("请不要重复发起新的巡检任务");
     expect(sessionStorage.getItem("workbench_auto_prompt")).toBeNull();
   });
 });

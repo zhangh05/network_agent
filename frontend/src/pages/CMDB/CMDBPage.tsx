@@ -186,9 +186,9 @@ export function CMDBPage() {
       ? `CMDB 区域「${region}」`
       : `CMDB 资产「${scope.label}」`;
     const prompt = [
-      `请对 ${targetText} 做一次自动巡检。`,
+      `我想对 ${targetText} 发起自动巡检。`,
       "",
-      "巡检范围以 CMDB 中的设备信息为准。完成后请给我一个简洁结论：",
+      "巡检范围以 CMDB 中的设备信息为准。进入工作台后请帮我跟踪巡检结果，并给出简洁结论：",
       "- 是否巡检完成",
       "- 有哪些异常、失败设备或跳过设备",
       "- 需要我下一步处理什么",

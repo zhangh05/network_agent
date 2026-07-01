@@ -135,8 +135,7 @@ class TestFastPathClassifier:
 class TestFastPathGenerator:
     """Test the _generate_direct_answer path through SPEGEngine."""
 
-    @pytest.mark.asyncio
-    async def test_fast_path_skips_planner(self):
+    def test_fast_path_skips_planner(self):
         """'你好' uses fast path — planner never invoked."""
         planner_called = []
 
@@ -150,7 +149,7 @@ class TestFastPathGenerator:
             tool_runtime=mock.MagicMock(),
         )
 
-        result = await engine.run(user_input="你好", workspace_id="test")
+        result = asyncio.run(engine.run(user_input="你好", workspace_id="test"))
         assert result.success
 
         meta = result.metadata
@@ -160,8 +159,7 @@ class TestFastPathGenerator:
         assert meta.get("route") == "greeting"
         assert meta.get("direct_answer_latency_ms", 0) > 0
 
-    @pytest.mark.asyncio
-    async def test_definition_skips_planner(self):
+    def test_definition_skips_planner(self):
         """'解释一下 OSPF 是什么' uses fast path — planner never invoked."""
         planner_called = []
 
@@ -176,10 +174,10 @@ class TestFastPathGenerator:
             tool_runtime=mock.MagicMock(),
         )
 
-        result = await engine.run(
+        result = asyncio.run(engine.run(
             user_input="解释一下 OSPF 是什么",
             workspace_id="test",
-        )
+        ))
         assert result.success
 
         meta = result.metadata
@@ -188,8 +186,7 @@ class TestFastPathGenerator:
         assert meta.get("used_tools") is False
         assert meta.get("route") == "simple_question"
 
-    @pytest.mark.asyncio
-    async def test_ospf_neighbor_down_full_speg(self):
+    def test_ospf_neighbor_down_full_speg(self):
         """'OSPF 邻居起不来' rejets fast path — planner must run."""
         planner_called = []
 
@@ -203,17 +200,16 @@ class TestFastPathGenerator:
             tool_runtime=mock.MagicMock(),
         )
 
-        result = await engine.run(
+        result = asyncio.run(engine.run(
             user_input="OSPF 邻居起不来，帮我排查",
             workspace_id="test",
-        )
+        ))
         meta = result.metadata
         assert meta.get("fast_path") is False, "OSPF neighbor down should NOT fast-path"
         assert meta.get("planner_skipped") is False
         assert len(planner_called) >= 1, "planner should have been invoked"
 
-    @pytest.mark.asyncio
-    async def test_read_file_full_speg(self):
+    def test_read_file_full_speg(self):
         """'帮我读取 README.md' rejects fast path."""
         planner_called = []
 
@@ -227,10 +223,10 @@ class TestFastPathGenerator:
             tool_runtime=mock.MagicMock(),
         )
 
-        result = await engine.run(
+        result = asyncio.run(engine.run(
             user_input="帮我读取 README.md",
             workspace_id="test",
-        )
+        ))
         meta = result.metadata
         assert meta.get("fast_path") is False
         assert meta.get("planner_skipped") is False
