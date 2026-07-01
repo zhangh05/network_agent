@@ -1,5 +1,5 @@
 # tool_runtime/builtins.py
-"""v0.1 built-in low-risk tools.
+"""Built-in low-risk tools.
 
 One baseline tool is provided:
   1. workspace.artifact       — list artifact summaries (no full content)
@@ -86,7 +86,7 @@ BUILTIN_TOOLS = [
 
 
 def register_builtin_tools(registry: ToolRegistry) -> ToolRegistry:
-    """Register all v0.1 built-in tools into the given registry.
+    """Register built-in tools into the given registry.
 
     Returns the same registry for chaining.
     """

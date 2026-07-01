@@ -66,8 +66,8 @@ def _is_destructive_action(arguments: dict) -> bool:
     action = str((arguments or {}).get("action", "")).strip().lower()
     return action in _DESTRUCTIVE_ACTIONS
 
-# v0.3: handlers accept arbitrary commands, allowlists removed.
-# v3.9.5: SAFE_COMMAND_ALLOWLIST and is_safe_command_first_word are
+# Handlers accept arbitrary commands; allowlists removed in favor of
+# command_policy in speg_engine.
 # removed entirely. The new model is destructive-only: anything not
 # matching the dangerous-pattern set is treated as medium or low risk
 # and is surfaced for prompt-level risk awareness, not blocked.
@@ -111,7 +111,7 @@ __all__ = [
 
 
 class ToolPolicy:
-    """Stateless policy checker for Tool Runtime v0.2.
+    """Stateless policy checker for Tool Runtime.
 
     Supports low/medium/high risk levels with approval gates.
     All checks are pure functions. No side effects, no state.

@@ -2,7 +2,6 @@
 """Context builder — full pipeline: resolve -> load -> select -> compress -> assemble.
 
 v3.1.0: Simplified. Content is always dict from UnifiedRetriever.
-No legacy fallbacks.
 """
 
 from context.schemas import (ContextBundle, ExecutionContext, SafeLLMContext,

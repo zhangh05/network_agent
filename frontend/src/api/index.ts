@@ -58,9 +58,9 @@ export interface AgentRunRequest {
 }
 
 export const agentApi = {
-  /** POST /api/agent/message — Codex-style runtime endpoint (v0.6+).
-   *  This is the SLOW endpoint (LLM + 工具调用 + 可选 web search).
-   *  实测 30-120s, 设 180s timeout 避免误报. */
+  /** POST /api/agent/message — SPEG Agent Runtime endpoint.
+   *  This is the SLOW endpoint (LLM + tool calls + optional web search).
+   *  Expected 30-120s, 180s timeout to avoid false positives. */
   run: (req: AgentRunRequest, signal?: AbortSignal): Promise<AgentResult> =>
     apiRequest<AgentResult>(
       { method: "POST", url: "/agent/message", data: req },

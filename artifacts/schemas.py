@@ -75,7 +75,7 @@ class ArtifactRecord:
             "tags": self.tags, "redaction_applied": self.redaction_applied,
             "parent_artifact_id": self.parent_artifact_id,
         }
-        # v0.9 fix: always include metadata in the meta file so that
+        # Always include metadata in the meta file so that
         # callers can recover the original metadata (e.g. review service
         # needs manual_review_items). The include_content flag still
         # controls the larger content body. Existing consumers that use

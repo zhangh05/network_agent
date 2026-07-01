@@ -2,7 +2,7 @@
 """Integration helpers — factory functions and trace metadata adapter.
 
 Provides:
-  - get_default_tool_runtime_client(): default client with v0.1 builtins
+  - get_default_tool_runtime_client(): default client with builtins
   - create_tool_runtime_client(): configurable factory for testing
   - build_trace_metadata_from_tool_result(): safe trace metadata builder
 """

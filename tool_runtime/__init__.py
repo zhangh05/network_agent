@@ -1,5 +1,5 @@
 # tool_runtime/__init__.py
-"""Tool Runtime Foundation v0.1 — atomic, auditable, policy-controlled tool execution.
+"""Tool Runtime — atomic, auditable, policy-controlled tool execution.
 
 This package provides the base layer for tool registration, policy enforcement,
 execution, redaction, and audit metadata. Real device access is provided by
