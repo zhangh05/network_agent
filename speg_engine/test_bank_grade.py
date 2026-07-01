@@ -662,14 +662,17 @@ class TestBankGradePipeline:
     async def test_repair_retries_idempotent_node(self, config):
         from speg_engine.engine import SPEGEngine
 
+        # v3.10: knowledge.manage is a read-only idempotent tool
+        # (side_effect="read", idempotent=True, max_retries=1) —
+        # the v3.10 ToolRetryPolicy will retry transient failures.
         plan_json = json.dumps({"nodes": [
-            {"id": "n1", "tool": "web.manage", "args": {"action": "search", "query": "x"}, "deps": []}
+            {"id": "n1", "tool": "knowledge.manage", "args": {"action": "search", "query": "x"}, "deps": []}
         ]})
 
         def mock_llm(**kw):
             return plan_json
 
-        registry = {"web.manage": {"description": "", "args_schema": {
+        registry = {"knowledge.manage": {"description": "", "args_schema": {
             "required": ["action"], "properties": {"action": {"type": "string"}, "query": {"type": "string"}},
         }}}
 
@@ -683,10 +686,10 @@ class TestBankGradePipeline:
                 raise RuntimeError("first call fails")
             return "recovered"
 
-        engine.register_tool("web.manage", handler)
+        engine.register_tool("knowledge.manage", handler)
         result = await engine.run("test")
 
-        # web.manage is idempotent → repair should retry
+        # knowledge.manage is read-only idempotent → retry should fire
         assert result.node_success_count == 1
 
 

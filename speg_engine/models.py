@@ -138,8 +138,13 @@ class ToolResult:
     success: bool
     data: Any = None
     error: str | None = None
+    error_code: str = ""
     latency_ms: float = 0.0
     retry_count: int = 0
+    # v3.10 (tool retry): per-node retry provenance. Written by
+    # the execution engine when a retry actually fired, and
+    # surfaced to audit / trace / SPEGResult metadata.
+    metadata: dict[str, Any] = field(default_factory=dict)
 
 
 @dataclass

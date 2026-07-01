@@ -22,22 +22,36 @@ from typing import Any
 
 @dataclass
 class ToolContract:
-    """Immutable contract for a single canonical tool."""
+    """Immutable contract for a single canonical tool.
+
+    v3.10 (retry policy): the dataclass defaults are intentionally
+    conservative. A new contract that omits ``idempotent`` /
+    ``max_retries`` / ``side_effect`` will be treated as unsafe and
+    will NOT be retried by the ToolRetryPolicy:
+
+      - ``idempotent = False``        — never auto-retry
+      - ``max_retries = 0``           — at most zero retries
+      - ``side_effect = "unknown"``   — never auto-retry
+
+    Every entry in ``BUILTIN_CONTRACTS`` below sets the relevant
+    fields explicitly, so the dataclass defaults only matter for
+    contracts added at runtime / future / unknown tools.
+    """
     name: str
     display_name: str = ""
     description: str = ""
     input_schema: dict[str, Any] = field(default_factory=dict)
     output_schema: dict[str, Any] = field(default_factory=dict)
-    side_effect: str = "read"          # read | write_file | mutate_local | mutate_remote | execute_command | external_request | credential_access
-    risk_level: str = "low"            # low | medium | high | critical
-    idempotent: bool = True
+    side_effect: str = "unknown"        # read | write_file | mutate_local | mutate_remote | execute_command | external_request | credential_access | unknown
+    risk_level: str = "low"             # low | medium | high | critical
+    idempotent: bool = False
     timeout_seconds: int = 60
-    max_retries: int = 1
+    max_retries: int = 0
     concurrency_group: str | None = None
     requires_approval: bool = False
     rollback_supported: bool = False
     optional: bool = False
-    priority: str = "normal"           # high | normal | low
+    priority: str = "normal"            # high | normal | low
 
 
 # ============================================================================
@@ -142,6 +156,7 @@ BUILTIN_CONTRACTS: dict[str, ToolContract] = {
         risk_level="low",
         idempotent=True,
         timeout_seconds=30,
+        max_retries=1,
     ),
 
     # --- report ---
@@ -168,6 +183,7 @@ BUILTIN_CONTRACTS: dict[str, ToolContract] = {
         risk_level="medium",
         idempotent=True,
         timeout_seconds=60,
+        max_retries=1,
     ),
 
     # --- pcap ---
@@ -181,6 +197,7 @@ BUILTIN_CONTRACTS: dict[str, ToolContract] = {
         risk_level="low",
         idempotent=True,
         timeout_seconds=120,
+        max_retries=1,
     ),
 
     # --- knowledge ---
@@ -195,6 +212,7 @@ BUILTIN_CONTRACTS: dict[str, ToolContract] = {
         idempotent=True,
         timeout_seconds=30,
         concurrency_group="external_http",
+        max_retries=1,
     ),
 
     # --- memory ---
@@ -222,6 +240,7 @@ BUILTIN_CONTRACTS: dict[str, ToolContract] = {
         risk_level="low",
         idempotent=True,
         timeout_seconds=10,
+        max_retries=1,
     ),
 
     # --- agent ---
@@ -250,6 +269,7 @@ BUILTIN_CONTRACTS: dict[str, ToolContract] = {
         risk_level="low",
         idempotent=True,
         timeout_seconds=15,
+        max_retries=1,
     ),
 
     # --- text ---
@@ -263,6 +283,7 @@ BUILTIN_CONTRACTS: dict[str, ToolContract] = {
         risk_level="low",
         idempotent=True,
         timeout_seconds=15,
+        max_retries=1,
     ),
 
     # --- code ---
@@ -276,6 +297,7 @@ BUILTIN_CONTRACTS: dict[str, ToolContract] = {
         risk_level="low",
         idempotent=True,
         timeout_seconds=30,
+        max_retries=1,
     ),
 
     # --- workspace.file ---
@@ -321,6 +343,7 @@ BUILTIN_CONTRACTS: dict[str, ToolContract] = {
         risk_level="low",
         idempotent=True,
         timeout_seconds=15,
+        max_retries=1,
     ),
 
     # --- workspace.metadata ---
@@ -334,6 +357,7 @@ BUILTIN_CONTRACTS: dict[str, ToolContract] = {
         risk_level="low",
         idempotent=True,
         timeout_seconds=5,
+        max_retries=1,
     ),
 
     # --- workspace.document.pdf ---
@@ -347,6 +371,7 @@ BUILTIN_CONTRACTS: dict[str, ToolContract] = {
         risk_level="low",
         idempotent=True,
         timeout_seconds=60,
+        max_retries=1,
     ),
 
     # --- inspection ---

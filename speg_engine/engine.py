@@ -528,23 +528,67 @@ class SPEGEngine:
                     total=len(node_results),
                 )
 
-                # Stage 10: Repair if needed
-                repair_spans = []
+                # Stage 10: Tool retry summary. v3.10: the actual
+                # retry decision is made during _scheduled_execute
+                # (per-node, in-layer) — this stage is now a
+                # summary aggregator, not a re-retry. We collect
+                # the policy decisions stashed on each node,
+                # surface them to trace / audit / SPEGResult
+                # metadata, and emit the ``tool_retry`` event.
+                from .tool_retry_policy import RetryDecision
+                retry_events: list[dict] = []
+                retry_summary: dict = {
+                    "retry_attempts": 0,
+                    "retried_nodes": [],
+                    "retry_succeeded": 0,
+                    "retry_failed": 0,
+                    "retry_blocked": 0,
+                }
                 for node in dag.nodes:
+                    decision = getattr(node, "last_retry_decision", None)
+                    if decision is None or not isinstance(
+                        decision, RetryDecision
+                    ):
+                        continue
                     result = node_results.get(node.id)
-                    if result and not result.success:
-                        repair = self._repair.assess(node, result, dag)
-                        if repair.strategy == "retry":
-                            self._emit_stage(
-                                REPAIR_ATTEMPT, t_total,
-                                node_id=node.id,
-                            )
-                            node.retry_count += 1
-                            retry_span = self._trace.add_node_span(node)
-                            retry_result = await self._tool_runtime.execute_node(node, ctx, node_results)
-                            retry_span.stop(status="ok" if retry_result.success else "error")
-                            node_results[node.id] = retry_result
-                            repair_spans.append(retry_span)
+                    outcome_ok = bool(result and result.success)
+                    ev = {
+                        "type": "tool_retry",
+                        "node_id": node.id,
+                        "tool_id": node.tool,
+                        "attempt": decision.retry_count,
+                        "max_retries": decision.max_retries,
+                        "error_code": decision.error_code,
+                        "original_error": decision.notes.get(
+                            "original_error", ""
+                        ),
+                        "retry_allowed": decision.retry_allowed,
+                        "reason": decision.reason,
+                        "backoff_ms": decision.backoff_ms,
+                        "idempotent": decision.idempotent,
+                        "side_effect": decision.side_effect,
+                        "blocked_by_policy": decision.blocked_by_policy,
+                        "final_status": (
+                            "succeeded" if outcome_ok
+                            else "failed" if decision.retry_allowed
+                            else "blocked"
+                        ),
+                        "duration_ms": (
+                            float(result.latency_ms) if result else 0.0
+                        ),
+                    }
+                    retry_events.append(ev)
+                    if decision.retry_allowed:
+                        retry_summary["retry_attempts"] += 1
+                        retry_summary["retried_nodes"].append(node.id)
+                        if outcome_ok:
+                            retry_summary["retry_succeeded"] += 1
+                        else:
+                            retry_summary["retry_failed"] += 1
+                    elif decision.blocked_by_policy:
+                        retry_summary["retry_blocked"] += 1
+                ctx.extras["retry_summary"] = retry_summary
+                ctx.extras["retry_events"] = retry_events
 
                 # Stage 11: Rollback assessment
                 rollback_plan = self._rollback.assess(dag, node_results)
@@ -609,7 +653,24 @@ class SPEGEngine:
         ctx: StatelessContext,
         budget: BudgetController,
     ) -> dict[str, ToolResult]:
-        """Execute DAG layer by layer with ResourceScheduler concurrency control."""
+        """Execute DAG layer by layer with ResourceScheduler concurrency control.
+
+        v3.10 (tool retry): each node in a deeper layer is gated by
+        its dep status. If any upstream is FAILED or SKIPPED, the
+        node is marked ``skipped`` with reason ``dependency_failed``
+        and the tool handler is NOT invoked.
+
+        Failed nodes consult ``should_retry_tool_failure`` from
+        :mod:`speg_engine.tool_retry_policy`. The policy is the
+        single source of truth — both this path and the stage-10
+        repair path route through it. We do NOT re-run the layer
+        on a failed node; we re-invoke just the failed node's
+        handler (if the policy allows it).
+        """
+        from .contracts import get_contract
+        from .tool_retry_policy import should_retry_tool_failure
+        from .execution_engine import _dependency_skip_reason
+
         all_results: dict[str, ToolResult] = {}
         active_global = 0
 
@@ -618,38 +679,80 @@ class SPEGEngine:
             if not layer_nodes:
                 continue
 
-            # Mark pending
+            # v3.10: dependency gate. A node whose deps failed or
+            # were skipped is marked SKIPPED here, not run.
+            ready: list = []
             for node in layer_nodes:
+                skip_reason = _dependency_skip_reason(node, all_results)
+                if skip_reason is not None:
+                    skip_result = ToolResult(
+                        node_id=node.id,
+                        tool=node.tool,
+                        success=False,
+                        error=skip_reason,
+                        error_code="DEPENDENCY_FAILED",
+                        metadata={"skip_reason": "dependency_failed"},
+                    )
+                    node.status = ExecutionStatus.SKIPPED
+                    node.error = skip_reason
+                    node.result = None
+                    node.finished_at = time.monotonic()
+                    all_results[node.id] = skip_result
+                    continue
+                ready.append(node)
                 node.status = ExecutionStatus.PENDING
 
-            # Schedule: apply concurrency limits
-            ready = self._scheduler.schedule_layer(layer_nodes, active_global)
             if not ready:
-                # All nodes at this depth are waiting for resources
-                ready = layer_nodes
+                continue
 
-            # Execute batch
-            for node in ready:
+            # Schedule: apply concurrency limits.
+            scheduled = self._scheduler.schedule_layer(ready, active_global)
+            if not scheduled:
+                scheduled = ready
+
+            # Mark running
+            for node in scheduled:
                 node.status = ExecutionStatus.RUNNING
                 node.started_at = time.monotonic()
 
-            active_global += len(ready)
-            layer_results = await self._tool_runtime.execute_layer(ready, ctx, all_results)
+            active_global += len(scheduled)
+            layer_results = await self._tool_runtime.execute_layer(
+                scheduled, ctx, all_results
+            )
+            active_global -= len(scheduled)
 
-            # Process results
-            for node in ready:
+            # Process results — including v3.10 retry on failure.
+            for node in scheduled:
                 result = layer_results.get(node.id)
                 if result is None:
-                    result = ToolResult(node_id=node.id, tool=node.tool, success=False,
-                                        error="No result returned")
+                    result = ToolResult(
+                        node_id=node.id,
+                        tool=node.tool,
+                        success=False,
+                        error="No result returned from execution",
+                        error_code="TOOL_EXCEPTION",
+                    )
+
+                if not result.success:
+                    result = await self._handle_tool_failure(
+                        node=node,
+                        ctx=ctx,
+                        all_results=all_results,
+                        original_result=result,
+                        budget=budget,
+                        contract=get_contract(node.tool),
+                        policy=should_retry_tool_failure,
+                    )
+
                 node.result = result.data
                 node.error = result.error
-                node.status = ExecutionStatus.SUCCESS if result.success else ExecutionStatus.FAILED
+                node.status = (
+                    ExecutionStatus.SUCCESS if result.success
+                    else ExecutionStatus.FAILED
+                )
                 node.latency_ms = result.latency_ms
                 node.finished_at = time.monotonic()
                 all_results[node.id] = result
-
-            active_global -= len(ready)
 
             # Budget check between layers
             b = budget.check_execution()
@@ -657,6 +760,84 @@ class SPEGEngine:
                 break
 
         return all_results
+
+    async def _handle_tool_failure(
+        self,
+        *,
+        node,
+        ctx,
+        all_results: dict,
+        original_result: ToolResult,
+        budget: BudgetController,
+        contract,
+        policy,
+    ) -> ToolResult:
+        """Single-source-of-truth retry path. Mirrors
+        ``ExecutionEngine._handle_failure`` but additionally
+        enforces the per-request budget before invoking the policy.
+        """
+        # Best-effort: infer the error code if the handler did not
+        # set one explicitly.
+        error_code = (original_result.error_code or "").strip().upper()
+        if not error_code:
+            err = (original_result.error or "").lower()
+            if "timeout" in err or "timed out" in err:
+                error_code = "TOOL_TIMEOUT"
+            elif "rate" in err and "limit" in err:
+                error_code = "RATE_LIMITED"
+            elif "connection" in err and "reset" in err:
+                error_code = "CONNECTION_RESET"
+            else:
+                error_code = "TOOL_EXCEPTION"
+
+        # Budget gate. The retry duration would push us past the
+        # per-request / per-tool ceiling — refuse.
+        budget_status = budget.check_execution()
+        budget_ok = bool(budget_status.ok)
+
+        decision = policy(
+            node=node,
+            tool_contract=contract,
+            error_code=error_code,
+            error_message=original_result.error or "",
+            config_max_retries=(
+                int(getattr(contract, "max_retries", 0) or 0)
+                if contract is not None else 0
+            ),
+            global_max_retries_per_node=self._config.max_retries_per_node,
+            budget_ok=budget_ok,
+        )
+
+        # Stash the decision for the audit / metadata aggregator.
+        node.last_retry_decision = decision
+
+        if not decision.retry_allowed:
+            return original_result
+
+        # Backoff before the second attempt.
+        await asyncio.sleep(decision.backoff_ms / 1000.0)
+        node.retry_count += 1
+        node.status = ExecutionStatus.RETRYING
+
+        retry_result = await self._tool_runtime.execute_node(
+            node, ctx, all_results
+        )
+        retry_result.retry_count = node.retry_count
+
+        # Annotate the ToolResult with retry provenance.
+        retry_result.metadata = dict(retry_result.metadata or {})
+        retry_result.metadata["retried"] = True
+        retry_result.metadata["retry_count"] = node.retry_count
+        retry_result.metadata["retry_reason"] = decision.reason
+        retry_result.metadata["retry_backoff_ms"] = decision.backoff_ms
+        retry_result.metadata["retry_error_code"] = decision.error_code
+        retry_result.metadata["retry_original_error"] = (
+            (original_result.error or "")[:200]
+        )
+
+        if retry_result.success:
+            return retry_result
+        return retry_result
 
     # ========================================================================
     # LLM-based replanning for pre-execution repair
@@ -789,6 +970,18 @@ class SPEGEngine:
                 "alias_normalizations": alias_drift_summary,
                 "pre_exec_repair_events": ctx.extras.get("pre_exec_repair_events", []),
                 "pre_exec_repair_applied": ctx.extras.get("pre_exec_repair_applied", False),
+                # v3.10 (tool retry): aggregate per-node retry decisions
+                # collected by stage 10. ``retry_summary`` is a small
+                # dict (counts); ``retry_events`` is the full list of
+                # ``tool_retry`` events for audit.
+                "retry_summary": ctx.extras.get("retry_summary", {
+                    "retry_attempts": 0,
+                    "retried_nodes": [],
+                    "retry_succeeded": 0,
+                    "retry_failed": 0,
+                    "retry_blocked": 0,
+                }),
+                "retry_events": ctx.extras.get("retry_events", []),
             },
         )
 

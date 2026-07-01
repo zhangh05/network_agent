@@ -426,7 +426,15 @@ class TestExecutionEngine:
 
     @pytest.mark.asyncio
     async def test_retry_once(self, config):
-        """A failing node gets exactly 1 retry."""
+        """A failing idempotent read-only node gets exactly 1 retry.
+
+        v3.10: uses ``knowledge.manage`` (a BUILTIN_CONTRACTS entry
+        with idempotent=True, side_effect=read, max_retries=1) so
+        the ToolRetryPolicy allows the retry.  The old synthetic
+        ``test.recoverable`` tool is no longer used because it has no
+        contract and the policy correctly treats unknown tools as
+        non-retryable.
+        """
         runtime = ToolRuntime(config)
         call_count = {"count": 0}
 
@@ -436,12 +444,13 @@ class TestExecutionEngine:
                 raise RuntimeError("first call fails")
             return "recovered"
 
-        runtime.register("test.recoverable", fail_once_then_ok)
+        runtime.register("knowledge.manage", fail_once_then_ok)
 
         engine = ExecutionEngine(config, runtime)
 
         nodes = [
-            ExecutionNode(id="r1", tool="test.recoverable", args={}, depth=0),
+            ExecutionNode(id="r1", tool="knowledge.manage",
+                          args={"action": "search"}, depth=0),
         ]
         dag = ExecutionDAG(
             nodes=nodes, layers={0: nodes}, total_nodes=1, max_depth=0,
@@ -457,6 +466,7 @@ class TestExecutionEngine:
         assert results["r1"].success
         assert results["r1"].data == "recovered"
         assert results["r1"].retry_count == 1
+        assert call_count["count"] == 2
 
 
 # ============================================================================
