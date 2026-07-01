@@ -153,11 +153,10 @@ class RiskPolicyEngine:
                         continue  # don't process further — already hard blocked
 
                     # Destructive command check (approval, not hard block).
-                    # MUST run before command_policy to prevent the policy's
-                    # own destructive patterns from turning rm -rf into a
-                    # hard block (command_policy has FORBIDDEN_COMMAND for
-                    # rm, git reset --hard, etc. — we want those to be
-                    # approval_required instead).
+                    # We mark it as approval_required but do NOT continue —
+                    # command_policy below still runs so that credential
+                    # patterns (cat ~/.ssh/id_rsa, etc.) take precedence
+                    # and hard_block the node.
                     dest_label = _check_destructive_command(cmd)
                     if dest_label:
                        if node.id not in assessment.approval_nodes:
@@ -172,23 +171,50 @@ class RiskPolicyEngine:
                            "command": cmd[:200],
                            "risk_reason": dest_label,
                        })
-                       # Skip command_policy for destructive commands —
-                       # they've been classified as approval_required.
-                       continue
 
-                    # Unified command policy check (hard block for
-                    # FORBIDDEN_COMMAND / PATH_TRAVERSAL / reg.exe /
-                    # PowerShell abuse etc.)
+                    # Unified command policy check.
+                    # Runs AFTER destructive check.  If command_policy
+                    # blocks for destructive-only reasons (rm, rm -rf,
+                    # del, rd) we downgrade to approval_required instead
+                    # of hard_block.  Credential / path-traversal /
+                    # registry / PowerShell-abuse blocks remain hard_block.
                     normalized = normalize_command(cmd)
                     decision = evaluate_command_policy(normalized)
                     if not decision.allowed:
-                        assessment.blocked_nodes.append(node.id)
-                        assessment.hard_block = True
-                        assessment.safe_to_run = False
-                        assessment.blocked_reason = (
-                            assessment.blocked_reason or
-                            f"Command policy blocked node '{node.id}': {decision.reason}"
-                        )
+                        reason_lower = (decision.reason or "").lower()
+                        # Destructive-only blocks → approval, not hard_block
+                        if _is_cp_destructive_only(reason_lower):
+                            if node.id not in assessment.approval_nodes:
+                                assessment.approval_nodes.append(node.id)
+                            assessment.requires_approval = True
+                            if not assessment.approval_reason:
+                                assessment.approval_reason = "destructive_command"
+                        else:
+                            # Real hard block: credential, path traversal,
+                            # registry, PowerShell abuse, etc.
+                            assessment.blocked_nodes.append(node.id)
+                            assessment.hard_block = True
+                            assessment.safe_to_run = False
+                            assessment.blocked_reason = (
+                                assessment.blocked_reason or
+                                f"Command policy blocked node '{node.id}': {decision.reason}"
+                            )
+
+                    # Credential scan: commands containing destructive
+                    # patterns AND credential patterns are hard_blocked
+                    # regardless of command_policy's result.  This catches
+                    # combos like "rm -rf /tmp && cat ~/.ssh/id_rsa" where
+                    # command_policy short-circuits on the destructive
+                    # pattern and never reaches the credential check.
+                    if dest_label and _has_credential_pattern(cmd):
+                        if not assessment.hard_block:
+                            assessment.blocked_nodes.append(node.id)
+                            assessment.hard_block = True
+                            assessment.safe_to_run = False
+                            assessment.blocked_reason = (
+                                assessment.blocked_reason or
+                                f"Destructive+credential combo in node '{node.id}'"
+                            )
 
             # ── Side-effect counts for combo escalation ──
             se = contract.side_effect
@@ -334,3 +360,43 @@ def _check_system_destroy(cmd: str) -> str:
         if re.search(pattern, cmd_norm, re.IGNORECASE):
             return label
     return ""
+
+
+# ── Command-policy destructive-only block detection ────────────────────
+
+# Patterns that command_policy blocks for destructive-only reasons.
+# When command_policy returns not_allowed with one of these reasons,
+# we downgrade from hard_block to approval_required because the
+# command is destructive-but-approvable (not a true security threat).
+
+_CP_DESTRUCTIVE_ONLY_PATTERNS: list[str] = [
+    "destructive command pattern",
+    "powershell cmdlet 'rm'",
+    "powershell cmdlet 'remove-item'",
+    "powershell cmdlet 'rmdir'",
+    "powershell cmdlet 'del'",
+]
+
+
+def _is_cp_destructive_only(reason: str) -> bool:
+    """Returns True if command_policy blocked for destructive-only reasons.
+
+    These are downgraded from hard_block to approval_required by
+    the risk policy.  Credential access, path traversal, registry
+    abuse, and PowerShell injection NEVER match here.
+    """
+    reason_lower = reason.lower()
+    for pat in _CP_DESTRUCTIVE_ONLY_PATTERNS:
+        if pat in reason_lower:
+            return True
+    return False
+
+
+_CREDENTIAL_SCAN_RE = re.compile(
+    r"(?i)(~/.ssh/id_|private[_-]?key|\.pem\b|-----BEGIN|secret|password|token|api[_-]?key|authorization|bearer|credential)",
+)
+
+
+def _has_credential_pattern(cmd: str) -> bool:
+    """Quick scan for credential/private-key patterns in a command string."""
+    return bool(_CREDENTIAL_SCAN_RE.search(cmd))

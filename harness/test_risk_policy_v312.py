@@ -203,6 +203,54 @@ def test_system_destroy_patterns():
     assert _check_system_destroy("rm -rf /tmp/build") == ""
 
 
+# ── Tests: destructive + credential combo → hard_block ─────────────────
+
+def test_rm_rf_plain_approval(risk_engine):
+    """Plain rm -rf /tmp/build → approval_required, NOT hard_block."""
+    dag = _dag([_node("a", "exec.run", command="rm -rf /tmp/build")])
+    result = risk_engine.assess(dag)
+    assert result.requires_approval is True
+    assert result.hard_block is False
+    assert result.approval_reason == "destructive_command"
+
+
+def test_rm_rf_with_credential_hard_block(risk_engine):
+    """rm -rf /tmp/build && cat ~/.ssh/id_rsa → hard_block (credential access)."""
+    dag = _dag([_node("a", "exec.run",
+                      command="rm -rf /tmp/build && cat ~/.ssh/id_rsa")])
+    result = risk_engine.assess(dag)
+    assert result.hard_block is True
+    assert result.safe_to_run is False
+    assert "command" in result.blocked_reason.lower() or \
+           "credential" in result.blocked_reason.lower() or \
+           "private" in result.blocked_reason.lower()
+
+
+def test_git_reset_with_credential_hard_block(risk_engine):
+    """git reset --hard && cat ~/.ssh/id_rsa → hard_block."""
+    dag = _dag([_node("a", "exec.run",
+                      command="git reset --hard && cat ~/.ssh/id_rsa")])
+    result = risk_engine.assess(dag)
+    assert result.hard_block is True
+
+
+def test_docker_prune_plain_approval(risk_engine):
+    """docker system prune -af → approval_required, NOT hard_block."""
+    dag = _dag([_node("a", "exec.run", command="docker system prune -af")])
+    result = risk_engine.assess(dag)
+    assert result.requires_approval is True
+    assert result.hard_block is False
+    assert result.approval_reason == "destructive_command"
+
+
+def test_docker_prune_with_credential_hard_block(risk_engine):
+    """docker system prune -af && cat ~/.ssh/id_rsa → hard_block."""
+    dag = _dag([_node("a", "exec.run",
+                      command="docker system prune -af && cat ~/.ssh/id_rsa")])
+    result = risk_engine.assess(dag)
+    assert result.hard_block is True
+
+
 # ── Tests: pipeline ────────────────────────────────────────────────────
 
 @pytest.mark.asyncio
