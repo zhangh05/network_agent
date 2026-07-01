@@ -278,6 +278,26 @@ def _invoke_llm_for_speg(**kwargs) -> str:
     system = str(kwargs.get("system") or "")
     user = str(kwargs.get("user") or "")
     is_planner = "execution planner" in system.lower()
+    caller_extra = kwargs.get("extra") or {}
+
+    # v3.11 (stream scope): planner tokens are internal-only
+    # (stream_to_user=False); finalizer tokens are user-visible
+    # (stream_to_user=True).  This prevents planner JSON / tool
+    # selection from leaking into the user-facing token channel, and
+    # ensures first_answer_token_ms measures the *answer* token,
+    # not the planner's first token.
+    #
+    # When the caller provides its own ``extra`` (e.g. direct-answer
+    # fast path), it takes precedence over the auto-detected values.
+    extra = {
+        "runtime_engine": "speg",
+        "planner": is_planner,
+        "stream_to_user": not is_planner,
+        "stream_scope": "planner" if is_planner else "finalizer",
+    }
+    if caller_extra:
+        extra.update(caller_extra)
+
     resp = invoke_llm(
         task="assistant_chat",
         messages=[
@@ -286,7 +306,7 @@ def _invoke_llm_for_speg(**kwargs) -> str:
         ],
         tools=None,
         user_input=user,
-        extra={"runtime_engine": "speg", "planner": is_planner},
+        extra=extra,
     )
     if resp.error:
         raise RuntimeError(resp.error)

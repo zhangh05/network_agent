@@ -259,6 +259,47 @@ class SPEGEngine:
         approval_required = False
         rollback_plan = None
 
+        # ── v3.11: Fast-path classifier ───────────────────────────────
+        # Simple greetings / definition questions skip the planner
+        # and go straight to a direct-answer LLM call.  This cuts
+        # first_answer_token_ms dramatically and avoids burning
+        # an LLM call just to say "I don't need any tools."
+        from .fast_path import classify_direct_answer
+
+        fast = classify_direct_answer(user_input)
+        if fast.enabled:
+            self._emit_stage(FINALIZING_STARTED, t_total)
+            direct_latency_start = time.monotonic()
+            try:
+                direct_resp = await self._generate_direct_answer(
+                    ctx.user_input, budget
+                )
+                final_response = (direct_resp or "").strip()
+            except Exception:
+                final_response = "收到。"
+            direct_answer_latency_ms = (
+                time.monotonic() - direct_latency_start
+            ) * 1000
+
+            self._emit_stage(FINALIZING_COMPLETED, t_total)
+            self._emit_stage(TURN_COMPLETED, t_total)
+
+            metrics.capture_finalizer(direct_answer_latency_ms)
+            metrics.set_llm_calls(budget.llm_calls or 1)
+
+            return self._build_result(
+                ctx, None, node_results, final_response,
+                errors, metrics, budget, t_total, "low", False,
+                extra={
+                    "fast_path": True,
+                    "route": fast.route,
+                    "planner_skipped": True,
+                    "used_tools": False,
+                    "direct_answer_latency_ms": direct_answer_latency_ms,
+                    "skip_reason": fast.reason,
+                },
+            )
+
         try:
             # Stage 3: Planner (1 LLM call)
             budget_result = budget.check_planner()
@@ -840,6 +881,42 @@ class SPEGEngine:
         return retry_result
 
     # ========================================================================
+    # Direct answer (fast path)
+    # ========================================================================
+
+    async def _generate_direct_answer(
+        self, user_input: str, budget: BudgetController
+    ) -> str:
+        """Generate a direct answer without tools or JSON planning.
+
+        The call is streamed to the user (stream_to_user=True,
+        stream_scope='direct_answer') so first_answer_token is
+        measured from the actual answer token.
+        """
+        llm_budget = budget.check_llm_call()
+        if not llm_budget.ok:
+            return "收到。"
+
+        system_msg = (
+            "你是网络工程助手。直接回答用户问题。"
+            "不要调用工具。不要输出 JSON。"
+            "不要编造已执行的检查结果。"
+        )
+        result = self._llm_invoke(
+            system=system_msg,
+            user=user_input,
+            extra={
+                "runtime_engine": "speg",
+                "stream_scope": "direct_answer",
+                "stream_to_user": True,
+            },
+        )
+        if isinstance(result, str):
+            return result
+        # LLMResponse object
+        return getattr(result, "content", str(result))
+
+    # ========================================================================
     # LLM-based replanning for pre-execution repair
     # ========================================================================
 
@@ -913,6 +990,7 @@ class SPEGEngine:
         risk_level: str,
         approval_required: bool,
         rollback_plan=None,
+        extra: dict[str, Any] | None = None,
     ) -> SPEGResult:
         total_ms = (time.monotonic() - t_total) * 1000
         metrics.capture_total(total_ms)
@@ -940,6 +1018,17 @@ class SPEGEngine:
                     })
         m = metrics.snapshot()
 
+        # v3.11: merge fast-path metadata tags when present.
+        base_meta = {
+            "fast_path": False,
+            "route": "",
+            "planner_skipped": False,
+            "used_tools": len(node_results) > 0,
+            "direct_answer_latency_ms": 0.0,
+        }
+        if extra:
+            base_meta.update(extra)
+
         return SPEGResult(
             request_id=ctx.request_id,
             success=len(errors) == 0,
@@ -953,6 +1042,7 @@ class SPEGEngine:
             final_response=final_response,
             errors=[e.message for e in errors],
             metadata={
+                **base_meta,
                 "workspace_id": ctx.workspace_id,
                 "session_id": ctx.session_id,
                 "node_success_count": sum(1 for r in node_results.values() if r.success),

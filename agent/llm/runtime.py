@@ -66,16 +66,23 @@ def invoke_llm(
     # ── Build request ──
     # Always enable streaming — _api_generate_stream() handles tool calls correctly
     # by accumulating them across chunks while pushing content tokens in real-time.
+    # v3.11 (stream scope): the caller controls whether tokens reach the user
+    # channel via extra["stream_to_user"]. Default: False (internal only).
     use_stream = True
+    req_metadata = {
+        "stream_to_user": bool((extra or {}).get("stream_to_user", False)),
+        "stream_scope": str((extra or {}).get("stream_scope", "internal")),
+    }
     req = LLMRequest(
         task=task,
         messages=messages,
         safe_context=safe_context or {},
-    model=cfg.get("model", ""),
-    temperature=cfg.get("temperature", 0.2),
-    max_tokens=cfg.get("max_tokens", 1200),
+        model=cfg.get("model", ""),
+        temperature=cfg.get("temperature", 0.2),
+        max_tokens=cfg.get("max_tokens", 1200),
         tools=tools,
         stream=use_stream,
+        metadata=req_metadata,
     )
 
     # ── Call provider with retry (ONLY place that calls generate()) ──

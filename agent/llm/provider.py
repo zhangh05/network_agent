@@ -413,7 +413,13 @@ def _api_generate_stream(url: str, body_dict: dict, cfg: dict, req: "LLMRequest"
             token = delta.get("content", "")
             if token:
                 content_parts.append(token)
-                _push_stream_token(token)
+                # v3.11 (stream scope): only push to the real-time
+                # WebSocket token channel when the caller explicitly
+                # opts in via stream_to_user.  Planner tokens, for
+                # example, are accumulated but never surfaced to
+                # the user.
+                if req.metadata.get("stream_to_user"):
+                    _push_stream_token(token)
 
             # Tool calls (accumulated across chunks)
             tc_list = delta.get("tool_calls")
