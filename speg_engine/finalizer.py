@@ -20,10 +20,17 @@ concise response to the user based on tool execution results.
 
 RULES:
 1. Summarize the tool results directly — no preamble, no meta-commentary.
-2. Do NOT suggest additional tools or next steps.
+2. Use structured data fields before summaries. Prefer ``data_unwrapped`` when
+   present. If a result has content such as forecast_daily, current,
+   results_markdown, findings, report_url, stdout, artifacts, or next_actions,
+   answer from those fields.
 3. Do NOT include reasoning or chain-of-thought.
 4. If tools failed, report failures clearly and concisely.
-5. Output format: plain text, well-structured with clear sections if multi-result."""
+5. For weather forecasts, include every requested day returned by forecast_daily
+   up to the user's requested horizon; do not collapse a 10-day request to one day.
+6. For inspection results, include completion status, counts, critical/warning/info
+   findings, failed/skipped devices, next actions, and the HTML report link when present.
+7. Output format: plain text, well-structured with clear sections if multi-result."""
 
 
 class Finalizer:
@@ -84,7 +91,8 @@ EXECUTION RESULTS ({merged['total_nodes']} nodes, {merged['success_count']} succ
 
 {results_json}
 
-Synthesize a final response for the user. Be concise and direct."""
+Synthesize a final response for the user. Be concise and direct, but do not omit
+requested rows/days/items that are present in structured tool data."""
 
     def _build_default_response(self, merged: dict[str, Any]) -> str:
         """Build a simple structured response without LLM."""

@@ -37,9 +37,9 @@ import pytest
 
 SPEC_STABLE_ALIASES: list[tuple[str, str, str, str | None]] = [
     # (tool_id, alias, expected canonical, expected operation)
-    ("system.manage", "session_get", "session", "get_history"),
-    ("system.manage", "review_get", "review", "get"),
-    ("system.manage", "audit_get", "audit", "get"),
+    ("system.manage", "get_session", "session_get", "get_history"),
+    ("system.manage", "review_get", "review_list", "get"),
+    ("system.manage", "audit_get", "audit_log", "get"),
     ("system.manage", "task_get", "tasks", "get"),
 ]
 
@@ -150,16 +150,16 @@ def test_source_field_semantics():
         SOURCE_CANONICAL,
         SOURCE_NONE,
     )
-    # matched canonical
-    res = resolve_action_alias("system.manage", "session_get")
+    # matched canonical alias
+    res = resolve_action_alias("system.manage", "get_session")
     assert res.source == SOURCE_CANONICAL
     assert res.matched is True
 
     # already canonical → matched=False but source=canonical
-    res = resolve_action_alias("system.manage", "session")
+    res = resolve_action_alias("system.manage", "session_get")
     assert res.source == SOURCE_CANONICAL
     assert res.matched is False
-    assert res.canonical_action == "session"
+    assert res.canonical_action == "session_get"
 
     # unknown action → source=none
     res = resolve_action_alias("system.manage", "delete_system")

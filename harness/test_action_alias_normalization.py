@@ -21,30 +21,30 @@ if str(ROOT) not in sys.path:
 
 
 # ---------------------------------------------------------------------------
-# 1. Plan output action=session_get -> normalized to "session"
+# 1. Current canonical and aliases normalize to latest actions
 # ---------------------------------------------------------------------------
 
-def test_session_get_alias_normalizes_to_canonical_session():
+def test_session_get_is_current_canonical_not_alias():
     from speg_engine.action_alias import normalize_action_alias
     canonical, original = normalize_action_alias("session_get")
-    assert canonical == "session"
-    assert original == "session_get"
+    assert canonical == "session_get"
+    assert original is None
 
 
 def test_get_session_alias_normalizes_to_session():
     from speg_engine.action_alias import normalize_action_alias
     canonical, original = normalize_action_alias("get_session")
-    assert canonical == "session"
+    assert canonical == "session_get"
     assert original == "get_session"
 
 
 def test_history_get_session_history_aliases_normalize():
     from speg_engine.action_alias import normalize_action_alias
     for raw, expected_canonical in (
-        ("session_history", "session"),
-        ("history_get", "session"),
-        ("session_list", "session"),
-        ("list_sessions", "session"),
+        ("session_history", "session_get"),
+        ("history_get", "session_get"),
+        ("session_list", "session_get"),
+        ("list_sessions", "session_get"),
     ):
         canonical, original = normalize_action_alias(raw)
         assert canonical == expected_canonical, raw
@@ -92,25 +92,25 @@ def test_graph_compiler_normalizes_alias_on_system_manage():
     from speg_engine.models import SPEGConfig
 
     plan = [
-        type("PlanNode", (), _make_plan_node(
-            node_id="n1",
-            tool="system.manage",
-            action="session_get",
-        ))(),
+            type("PlanNode", (), _make_plan_node(
+                node_id="n1",
+                tool="system.manage",
+                action="get_session",
+            ))(),
     ]
     dag = GraphCompiler(SPEGConfig()).compile(plan)
 
     assert dag.total_nodes == 1
     node = dag.nodes[0]
     # Args were rewritten to canonical.
-    assert node.args["action"] == "session"
+    assert node.args["action"] == "session_get"
     # Bookkeeping present on the node.
-    assert node.action_original == "session_get"
+    assert node.action_original == "get_session"
     assert node.action_normalized_from_alias is True
 
 
 def test_graph_compiler_does_not_normalize_canonical_token():
-    """A canonical ``session`` action on system.manage must NOT mark
+    """A canonical ``session_get`` action on system.manage must NOT mark
     the node as alias-normalized (origin == canonical → no drift)."""
     from speg_engine.graph_compiler import GraphCompiler
     from speg_engine.models import SPEGConfig
@@ -119,12 +119,12 @@ def test_graph_compiler_does_not_normalize_canonical_token():
         type("PlanNode", (), _make_plan_node(
             node_id="n1",
             tool="system.manage",
-            action="session",
+            action="session_get",
         ))(),
     ]
     dag = GraphCompiler(SPEGConfig()).compile(plan)
     node = dag.nodes[0]
-    assert node.args["action"] == "session"
+    assert node.args["action"] == "session_get"
     assert node.action_original == ""
     assert node.action_normalized_from_alias is False
 
@@ -148,7 +148,7 @@ def test_semantic_validator_accepts_normalized_session_get_on_system_manage():
     dag = GraphCompiler(SPEGConfig()).compile(plan)
     result = SemanticValidator().validate(dag)
     assert result.valid, (
-        "After alias normalization, ``action=session`` on system.manage "
+        "After alias normalization, ``action=session_get`` on system.manage "
         f"must be canonical — got errors: {[e.message for e in result.errors]}"
     )
 
@@ -224,7 +224,7 @@ def test_risk_policy_records_alias_normalizations():
     entry = assessment.alias_normalizations[0]
     assert entry["node_id"] == "n1"
     assert entry["action_original"] == "get_session"
-    assert entry["action_normalized"] == "session"
+    assert entry["action_normalized"] == "session_get"
 
 
 # ---------------------------------------------------------------------------
@@ -240,7 +240,7 @@ def test_audit_logger_records_action_original_and_normalized():
         type("PlanNode", (), _make_plan_node(
             node_id="n1",
             tool="system.manage",
-            action="session_get",
+            action="get_session",
         ))(),
     ]
     dag = GraphCompiler(SPEGConfig()).compile(plan)
@@ -267,7 +267,7 @@ def test_audit_logger_records_action_original_and_normalized():
     )
     assert len(record.executed_nodes) == 1
     node_entry = record.executed_nodes[0]
-    assert node_entry["action_original"] == "session_get"
+    assert node_entry["action_original"] == "get_session"
     assert node_entry["action_normalized_from_alias"] is True
 
 
@@ -293,7 +293,7 @@ def test_trace_node_span_records_alias_metadata():
     # SpanClock wraps a TraceSpan; metadata sits on the inner span.
     md = span_clock.span.metadata or {}
     assert md.get("action_original") == "history_get"
-    assert md.get("action_normalized") == "session"
+    assert md.get("action_normalized") == "session_get"
     assert md.get("normalized_from_alias") is True
 
 
@@ -306,7 +306,7 @@ def test_speg_result_metadata_collects_alias_drift_summary():
     from speg_engine.action_alias import ACTION_ALIASES
     # Verify the table grows by exactly the documented set.
     expected_session_aliases = {
-        "session_get", "get_session", "session_history",
+        "get_session", "session_history",
         "history_get", "session_list", "list_sessions",
     }
     assert expected_session_aliases.issubset(ACTION_ALIASES.keys())

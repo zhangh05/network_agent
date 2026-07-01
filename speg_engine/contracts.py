@@ -16,6 +16,7 @@ scheduling, and rollback.
 
 from __future__ import annotations
 
+from copy import deepcopy
 from dataclasses import dataclass, field
 from typing import Any
 
@@ -389,6 +390,36 @@ BUILTIN_CONTRACTS: dict[str, ToolContract] = {
         requires_approval=True,
     ),
 }
+
+
+def _sync_contracts_from_canonical_registry() -> None:
+    """Keep SPEG's semantic contract layer aligned with canonical tools.
+
+    SPEG owns scheduling/risk metadata such as concurrency groups, retry
+    defaults, and per-stage timeouts. It must not own a second copy of public
+    input schemas or user-facing tool descriptions; those belong to
+    ``tool_runtime.canonical_registry`` and are also what the planner sees via
+    ToolRuntimeClient. Syncing here prevents drift such as weather forecast
+    parameters or inspection actions disappearing from semantic validation.
+    """
+    try:
+        from tool_runtime.canonical_registry import CANONICAL_REGISTRY
+    except Exception:
+        return
+
+    for tool_id, entry in CANONICAL_REGISTRY.items():
+        contract = BUILTIN_CONTRACTS.get(tool_id)
+        if contract is None:
+            continue
+        contract.description = entry.description or contract.description
+        contract.input_schema = deepcopy(entry.input_schema or {})
+        # Do not copy manifest risk/approval/timeout here. SPEG owns its
+        # execution risk model separately from LLM visibility. For example,
+        # exec.run remains high-risk in SPEG even if the runtime manifest
+        # applies more granular command-level policy later.
+
+
+_sync_contracts_from_canonical_registry()
 
 
 def get_contract(tool_name: str) -> ToolContract | None:

@@ -49,6 +49,7 @@ from .models import (
     StatelessContext,
     ToolResult,
 )
+from .plan_enrichment import enrich_dag_from_user_request
 from .planner import Planner
 from .pre_execution_repair import PreExecutionRepairEngine, PreExecutionRepairResult
 from .repair_engine import RepairEngine
@@ -351,6 +352,18 @@ class SPEGEngine:
                 # Stage 4: Compile
                 t_compile = time.monotonic()
                 dag = self._compiler.compile(plan_nodes)
+                enrichment_events = enrich_dag_from_user_request(dag, ctx.user_input)
+                if enrichment_events:
+                    ctx.extras["plan_enrichment_events"] = [
+                        {
+                            "node_id": ev.node_id,
+                            "tool": ev.tool,
+                            "field": ev.field,
+                            "value": ev.value,
+                            "reason": ev.reason,
+                        }
+                        for ev in enrichment_events
+                    ]
                 metrics.capture_compile((time.monotonic() - t_compile) * 1000)
                 self._emit_stage(
                     GRAPH_COMPILED, t_total,
@@ -1058,6 +1071,7 @@ class SPEGEngine:
                 "rollback_available": rollback_plan.rollback_available if rollback_plan else False,
                 "rollback_recommended": rollback_plan.rollback_recommended if rollback_plan else False,
                 "alias_normalizations": alias_drift_summary,
+                "plan_enrichment_events": ctx.extras.get("plan_enrichment_events", []),
                 "pre_exec_repair_events": ctx.extras.get("pre_exec_repair_events", []),
                 "pre_exec_repair_applied": ctx.extras.get("pre_exec_repair_applied", False),
                 # v3.10 (tool retry): aggregate per-node retry decisions

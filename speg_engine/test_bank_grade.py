@@ -1038,23 +1038,23 @@ class TestPreExecutionRepair:
         assert not engine.can_repair(["CRITICAL_RISK"])
         assert not engine.can_repair(["FORBIDDEN_ARG"])
 
-    def test_action_alias_session_get(self):
-        """session_get is in action_alias.py (compiler-time normalization)"""
-        from speg_engine.action_alias import ACTION_ALIASES
-        assert "session_get" in ACTION_ALIASES
-        assert ACTION_ALIASES["session_get"] == "session"
+    def test_action_alias_session_get_is_canonical(self):
+        """session_get is current canonical action, not an alias."""
+        from speg_engine.action_alias import ACTION_ALIASES, normalize_action_alias
+        assert "session_get" not in ACTION_ALIASES
+        assert normalize_action_alias("session_get") == ("session_get", None)
 
     def test_action_alias_get_session(self):
         """get_session is in action_alias.py"""
         from speg_engine.action_alias import ACTION_ALIASES
         assert "get_session" in ACTION_ALIASES
-        assert ACTION_ALIASES["get_session"] == "session"
+        assert ACTION_ALIASES["get_session"] == "session_get"
 
     def test_action_alias_session_history(self):
         """session_history is in action_alias.py"""
         from speg_engine.action_alias import ACTION_ALIASES
         assert "session_history" in ACTION_ALIASES
-        assert ACTION_ALIASES["session_history"] == "session"
+        assert ACTION_ALIASES["session_history"] == "session_get"
 
     def test_action_alias_review_get(self):
         # v3.10: review_get is now a STABLE alias in the canonical
@@ -1065,11 +1065,11 @@ class TestPreExecutionRepair:
             resolve_action_alias, ACTION_ALIASES,
         )
         assert "review_get" in ACTION_ALIASES
-        assert ACTION_ALIASES["review_get"] == "review"
+        assert ACTION_ALIASES["review_get"] == "review_list"
         res = resolve_action_alias("system.manage", "review_get")
         assert res.matched is True
         assert res.source == "canonical"
-        assert res.canonical_action == "review"
+        assert res.canonical_action == "review_list"
         assert res.operation == "get"
 
     def test_action_alias_audit_get(self):
@@ -1077,11 +1077,11 @@ class TestPreExecutionRepair:
             resolve_action_alias, ACTION_ALIASES,
         )
         assert "audit_get" in ACTION_ALIASES
-        assert ACTION_ALIASES["audit_get"] == "audit"
+        assert ACTION_ALIASES["audit_get"] == "audit_log"
         res = resolve_action_alias("system.manage", "audit_get")
         assert res.matched is True
         assert res.source == "canonical"
-        assert res.canonical_action == "audit"
+        assert res.canonical_action == "audit_log"
         assert res.operation == "get"
 
     def test_repair_result_not_repaired_initially(self):

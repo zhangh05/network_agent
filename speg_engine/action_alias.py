@@ -87,26 +87,25 @@ CANONICAL_ALIASES_BY_TOOL: Final[dict[str, dict[str, tuple[str, str | None]]]] =
     # emit the colloquial form without us mutating the canonical enum
     # declared in ``contracts.py``.
     "system.manage": {
-        # session — use operation=get_history to capture the LLM
-        # intent (a single get_history is the most common case).
-        "session_get": ("session", "get_history"),
-        "get_session": ("session", "get_history"),
-        "session_history": ("session", "get_history"),
-        "history_get": ("session", "get_history"),
-        "session_list": ("session", "list"),
-        "list_sessions": ("session", "list"),
+        # session — current canonical action is session_get. Keep
+        # colloquial aliases pointing at that token; do not rewrite
+        # canonical session_get back to the removed "session" action.
+        "get_session": ("session_get", "get_history"),
+        "session_history": ("session_get", "get_history"),
+        "history_get": ("session_get", "get_history"),
+        "session_list": ("session_get", "list"),
+        "list_sessions": ("session_get", "list"),
 
         # review / audit / tasks
-        "review_get": ("review", "get"),
-        "audit_get": ("audit", "get"),
+        "review_get": ("review_list", "get"),
+        "audit_get": ("audit_log", "get"),
         "task_get": ("tasks", "get"),
         "tasks_get": ("tasks", "get"),
 
         # run history
-        "run_get": ("run", "get"),
-        "get_run": ("run", "get"),
-        "run_list": ("run", "list"),
-        "list_runs": ("run", "list"),
+        "get_run": ("run_get", "get"),
+        "run_list": ("run_get", "list"),
+        "list_runs": ("run_get", "list"),
 
         # diagnostics / health / selfcheck (no operation hint — pure
         # synonyms)
@@ -165,10 +164,12 @@ CANONICAL_ALIASES_BY_TOOL: Final[dict[str, dict[str, tuple[str, str | None]]]] =
     },
 
     "inspection.manage": {
-        "start_inspection": ("start", None),
-        "inspection_status": ("status", None),
-        "inspection_result": ("result", None),
-        "cancel_inspection": ("cancel", None),
+        "start_inspection": ("run", None),
+        "run_inspection": ("run", None),
+        "inspection_status": ("task_get", None),
+        "inspection_result": ("task_get", None),
+        "inspection_report": ("report", None),
+        "cancel_inspection": ("task_cancel", None),
     },
 }
 
@@ -184,8 +185,9 @@ CANONICAL_ALIASES_GLOBAL: Final[dict[str, tuple[str, str | None]]] = {}
 # jsonschema and slow down the hot path.
 _CANONICAL_ACTIONS: Final[dict[str, frozenset[str]]] = {
     "system.manage": frozenset({
-        "diagnostics", "health", "selfcheck", "tasks",
-        "audit", "run", "session", "review",
+        "diagnostics", "health", "selfcheck", "tasks", "audit_log",
+        "run_get", "session_get", "session_checkpoint", "session_rewind",
+        "session_export", "session_snapshot", "review_list", "review_update",
     }),
     "workspace.file": frozenset({
         "list", "read", "read_image", "edit", "patch",
@@ -210,10 +212,10 @@ _CANONICAL_ACTIONS: Final[dict[str, frozenset[str]]] = {
     }),
     "web.manage": frozenset({"search", "weather", "page"}),
     "data.manage": frozenset({
-        "csv", "table", "validate", "filter", "deduplicate",
+        "csv_summarize", "table_extract", "table_render", "validate", "filter", "deduplicate",
     }),
     "report.manage": frozenset({
-        "markdown", "artifact", "summary", "mermaid", "html", "diff",
+        "markdown_render", "artifact_save", "safe_summary_render", "mermaid_render", "html_render", "diff_report",
     }),
     "text.analyze": frozenset({
         "redact", "diff", "keywords", "classify",
@@ -225,6 +227,9 @@ _CANONICAL_ACTIONS: Final[dict[str, frozenset[str]]] = {
     }),
     "session.manage": frozenset({
         "parse", "session", "filter", "align",
+    }),
+    "inspection.manage": frozenset({
+        "run", "task_list", "task_get", "task_cancel", "report",
     }),
 }
 
@@ -261,7 +266,19 @@ def resolve_action_alias(
             source=SOURCE_NONE,
         )
 
-    # 1. Per-tool table.
+    # 1. Already canonical — no rewrite needed. This check intentionally
+    # runs before alias lookup because a token can be both a historical alias
+    # and the current canonical action after a hard-cut rename.
+    if original in _CANONICAL_ACTIONS.get(tool_id, frozenset()):
+        return AliasResolution(
+            matched=False,
+            original_action=original,
+            canonical_action=original,
+            operation=None,
+            source=SOURCE_CANONICAL,
+        )
+
+    # 2. Per-tool table.
     by_tool = CANONICAL_ALIASES_BY_TOOL.get(tool_id) or {}
     if original in by_tool:
         canonical, op = by_tool[original]
@@ -273,7 +290,7 @@ def resolve_action_alias(
             source=SOURCE_CANONICAL,
         )
 
-    # 2. Tool-agnostic table.
+    # 3. Tool-agnostic table.
     if original in CANONICAL_ALIASES_GLOBAL:
         canonical, op = CANONICAL_ALIASES_GLOBAL[original]
         return AliasResolution(
@@ -281,16 +298,6 @@ def resolve_action_alias(
             original_action=original,
             canonical_action=canonical,
             operation=op,
-            source=SOURCE_CANONICAL,
-        )
-
-    # 3. Already canonical — no rewrite needed.
-    if original in _CANONICAL_ACTIONS.get(tool_id, frozenset()):
-        return AliasResolution(
-            matched=False,
-            original_action=original,
-            canonical_action=original,
-            operation=None,
             source=SOURCE_CANONICAL,
         )
 

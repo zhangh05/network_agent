@@ -1652,11 +1652,35 @@ def _weather_merged(inv: ToolInvocation) -> dict:
             arguments={**args, "days": str(days), "language": args.get("language", "zh-CN"), "units": args.get("units", "metric")},
             workspace_id=inv.workspace_id, requested_by=inv.requested_by, approval_id=inv.approval_id,
         ))
+    payload = _llm_payload_from_handler_result(result)
     return {"ok": result.get("ok", False),
             "summary": result.get("summary") or "",
-            "output": result.get("output", {}) if isinstance(result, dict) else {},
+            "output": payload,
             "errors": list(result.get("errors", []))[:5] if isinstance(result, dict) else [],
             "warnings": list(result.get("warnings", []))[:5] if isinstance(result, dict) else []}
+
+
+def _llm_payload_from_handler_result(result: Any) -> dict:
+    """Extract the full LLM-facing payload from split tool handlers.
+
+    Most general-tool handlers return their structured payload directly at the
+    top level (``forecast_daily``, ``results_markdown``, ``answer_hint`` ...).
+    Some older handlers use ``output`` or ``content``. Merged canonical wrappers
+    must preserve all of those fields instead of reducing the result to summary
+    text, otherwise the finalizer cannot answer multi-day weather, inspection,
+    or search questions accurately.
+    """
+    if not isinstance(result, dict):
+        return {}
+    for key in ("output", "content"):
+        value = result.get(key)
+        if isinstance(value, dict) and value:
+            return value
+    wrapper_keys = {
+        "ok", "status", "tool_id", "summary", "error", "errors", "warnings",
+        "artifact_ids", "redacted", "policy_decision", "created_at",
+    }
+    return {k: v for k, v in result.items() if k not in wrapper_keys}
 
 def _module_result_to_dict(r: dict) -> dict:
     """Convert module handler result dict to canonical tool output."""

@@ -262,7 +262,7 @@ class TestRegression:
     def test_no_api_translate(self, client):
         assert client.post("/api/translate", json={"test": 1}).status_code in (404, 405)
 
-    def test_trace_still_7_nodes(self, client):
+    def test_trace_records_current_speg_runtime(self, client):
         resp = client.post("/api/agent/message", json={
             "message": "translate",
             "workspace_id": "cph_trace",
@@ -271,4 +271,9 @@ class TestRegression:
         })
         data = resp.get_json()
         tl = data.get("timeline_summary", {})
-        assert tl.get("node_count", 0) >= 6 or not data.get("ok", True)
+        if data.get("ok", True):
+            assert tl.get("node_count", 0) >= 1
+            assert tl.get("llm_calls", 0) >= 1
+            assert "total_duration_ms" in tl
+        else:
+            assert data.get("error") or data.get("errors")

@@ -140,6 +140,7 @@ class SemanticValidator:
 
         # B. Argument schema
         self._validate_args(node, contract, result)
+        self._validate_action_specific_required_args(node, result)
 
         # C. Path safety
         self._validate_path_safety(node, result)
@@ -237,6 +238,30 @@ class SemanticValidator:
                     node_id=node.id,
                     code="FORBIDDEN_ARG",
                     message=f"Node '{node.id}' uses forbidden arg '{forbidden}'",
+                ))
+
+    def _validate_action_specific_required_args(
+        self,
+        node: ExecutionNode,
+        result: SemanticValidationResult,
+    ) -> None:
+        """Validate sub-action requirements not expressible in the flat schema."""
+        if node.tool != "exec.run":
+            return
+        action = str(node.args.get("action") or "shell").strip().lower()
+        if action in ("shell", "background", "stream", "slash"):
+            if not str(node.args.get("command") or "").strip():
+                result.errors.append(SemanticError(
+                    node_id=node.id,
+                    code="MISSING_REQUIRED_ARG",
+                    message=f"Node '{node.id}' missing required arg 'command'",
+                ))
+        elif action == "python":
+            if not str(node.args.get("code") or "").strip():
+                result.errors.append(SemanticError(
+                    node_id=node.id,
+                    code="MISSING_REQUIRED_ARG",
+                    message=f"Node '{node.id}' missing required arg 'code'",
                 ))
 
     def _validate_path_safety(

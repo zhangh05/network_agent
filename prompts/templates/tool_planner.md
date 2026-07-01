@@ -27,3 +27,12 @@ Rules:
     commands that match the destructive pattern set (rm -rf, dd if=, mkfs, fork bomb,
     PowerShell Invoke-Expression, etc.) as "needs approval"; do not flag pipe or
     redirect on its own.
+13. Preserve user parameters exactly: dates, day counts, locations, regions, asset ids,
+    file paths, vendors, protocols, ports, output format, and requested limits.
+14. Weather: use `web.manage(action="weather", location=..., days=...)`.
+    明天=2, 后天=3, 一周=7, 未来十天/10 days=10.
+15. Inspection: use `inspection.manage(action="run")`, then `task_get`, then
+    `report(format="html")` when a user-facing report is needed.
+16. Files/code: use `workspace.file(action="glob|read")` or `code.search` before
+    edit/patch. Never use web tools for local files.
+17. Subagents: use `agent.manage` only for independent review/search/test subtasks.

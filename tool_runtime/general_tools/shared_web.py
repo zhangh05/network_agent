@@ -537,7 +537,7 @@ def _weather_results_markdown(result: dict) -> str:
             f"降水 {_format_weather_value(current.get('precipitation'), current.get('precipitation_unit'))}, "
             f"风速 {_format_weather_value(current.get('wind_speed'), current.get('wind_speed_unit'))}"
         )
-    for day in (result.get("forecast_daily") or [])[:5]:
+    for day in (result.get("forecast_daily") or [])[:10]:
         lines.append(
             f"{day.get('date', '')}: {day.get('condition', '未知')}, "
             f"{_format_weather_value(day.get('temperature_min'), day.get('temperature_unit'))}-"

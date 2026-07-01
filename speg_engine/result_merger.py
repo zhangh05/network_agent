@@ -44,6 +44,7 @@ class ResultMerger:
                 "tool": node.tool,
                 "success": result.success,
                 "data": result.data,
+                "data_unwrapped": _unwrap_llm_payload(result.data),
                 "error": result.error,
                 "latency_ms": result.latency_ms,
             })
@@ -63,6 +64,7 @@ class ResultMerger:
                     "tool": r.tool,
                     "success": r.success,
                     "data": r.data,
+                    "data_unwrapped": _unwrap_llm_payload(r.data),
                     "error": r.error,
                     "latency_ms": r.latency_ms,
                     "retry_count": r.retry_count,
@@ -75,3 +77,21 @@ class ResultMerger:
         ctx.extras["merge_latency_ms"] = elapsed
 
         return merged
+
+
+def _unwrap_llm_payload(data: Any) -> Any:
+    """Expose common nested tool payloads for final synthesis.
+
+    ToolRuntimeClient returns a full ToolResult-shaped dict for canonical
+    handlers. For merged tools that dict often contains the useful payload under
+    ``output`` or ``content``. Keeping both original ``data`` and this
+    unwrapped form lets the finalizer answer from structured fields without
+    losing audit fidelity.
+    """
+    if not isinstance(data, dict):
+        return data
+    for key in ("output", "content"):
+        nested = data.get(key)
+        if isinstance(nested, dict) and nested:
+            return nested
+    return data
