@@ -49,6 +49,24 @@ OTHER RULES:
 - Output format: plain text, well-structured with clear sections if multi-result."""
 
 
+FINALIZER_RETRY_SYSTEM_PROMPT = """**RETRY — Your previous response was incomplete.**
+
+You are a final response synthesizer. Your previous attempt to answer was rejected
+because it was a placeholder response ("收到", "已完成", "工具执行成功" etc.).
+
+MANDATORY REQUIREMENTS:
+1. Complete the ORIGINAL USER REQUEST. If they asked for analysis, GIVE ANALYSIS.
+2. Base your answer on normalized_content and execution results.
+3. You MUST include: a conclusion, key findings, and (if applicable) recommendations.
+4. Never output: "收到", "已完成", "工具调用成功", "No tools were executed", or similar.
+5. If you truly cannot complete the request, state explicitly what is missing and why.
+
+OTHER RULES:
+- Use structured data fields before summaries. Prefer data_unwrapped and normalized_content.
+- If tools failed, explain impact on the user's request.
+- Output format: plain text, well-structured with clear sections if multi-result."""
+
+
 class Finalizer:
     """Optional single-call LLM response synthesizer."""
 
@@ -64,6 +82,7 @@ class Finalizer:
         self,
         ctx: StatelessContext,
         merged_results: dict[str, Any],
+        is_retry: bool = False,
     ) -> str:
         """Generate a synthesized response from merged execution results.
 
@@ -77,8 +96,11 @@ class Finalizer:
 
         try:
             user_prompt = self._build_finalizer_prompt(ctx, merged_results)
+            system_msg = FINALIZER_SYSTEM_PROMPT
+            if is_retry:
+                system_msg = FINALIZER_RETRY_SYSTEM_PROMPT
             response = self._llm_invoke(
-                system=FINALIZER_SYSTEM_PROMPT,
+                system=system_msg,
                 user=user_prompt,
                 temperature=0.0,
                 timeout=self._config.finalizer_timeout_ms,
@@ -119,11 +141,20 @@ class Finalizer:
         normalized = merged.get("normalized_content") or []
         if normalized:
             nc_lines = ["NORMALIZED CONTENT (base your analysis on this):"]
-            for i, content in enumerate(normalized, 1):
-                # Truncate very long content to avoid prompt overflow
-                truncated = content if len(content) <= 4000 else content[:4000] + "\n... [truncated]"
-                nc_lines.append(f"--- Content block {i} ---")
-                nc_lines.append(truncated)
+            for i, nc in enumerate(normalized, 1):
+                if isinstance(nc, str):
+                    # Legacy flat string format
+                    content = nc[:4000] if len(nc) > 4000 else nc
+                    nc_lines.append(f"--- Content block {i} ---")
+                    nc_lines.append(content)
+                elif isinstance(nc, dict):
+                    content = nc.get("content", "")
+                    content = content[:4000] if len(content) > 4000 else content
+                    tool = nc.get("tool", "?")
+                    action = nc.get("action", "")
+                    label = f"--- [{tool}]" + (f" action={action}" if action else "") + f" ---"
+                    nc_lines.append(label)
+                    nc_lines.append(content)
             nc_lines.append("--- End of normalized content ---\n")
             nc_block = "\n".join(nc_lines) + "\n"
 

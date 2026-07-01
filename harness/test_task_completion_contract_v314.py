@@ -16,8 +16,12 @@ from types import SimpleNamespace
 from speg_engine import SPEGConfig, SPEGEngine
 from speg_engine.models import StatelessContext, ExecutionNode, ExecutionDAG, ToolResult
 from speg_engine.engine import (
+    detect_task_intent,
     plan_nodes_empty_for_task,
     _is_task_incomplete_final_response,
+    validate_final_response,
+    TaskIntentResult,
+    FinalResponseValidatorResult,
 )
 from speg_engine.result_merger import (
     ResultMerger,
@@ -32,48 +36,75 @@ from speg_engine.errors import SpegErrorCode
 # ============================================================================
 
 class TestTaskIntentDetection:
-    """plan_nodes_empty_for_task() standalone tests."""
+    """detect_task_intent() standalone tests."""
 
     def test_analyse_has_task_intent(self):
-        assert plan_nodes_empty_for_task("分析这个 TCP 报文数据") is True
+        r = detect_task_intent("分析这个 TCP 报文数据")
+        assert r.is_task is True
+        # "报文" triggers pcap_analysis
+        assert r.intent_type in ("analysis", "pcap_analysis")
 
     def test_inspect_has_task_intent(self):
-        assert plan_nodes_empty_for_task("我想对 CMDB 资产发起自动巡检") is True
-        assert plan_nodes_empty_for_task("巡检区域广域网") is True
+        r = detect_task_intent("我想对 CMDB 资产发起自动巡检")
+        assert r.is_task is True
+        assert r.intent_type == "inspection"
 
     def test_read_file_has_task_intent(self):
-        assert plan_nodes_empty_for_task("读取配置文件并分析结果") is True
+        r = detect_task_intent("读取配置文件并分析结果")
+        assert r.is_task is True
 
     def test_check_has_task_intent(self):
-        assert plan_nodes_empty_for_task("检查设备状态") is True
+        r = detect_task_intent("检查设备状态")
+        assert r.is_task is True
 
     def test_generate_report_has_task_intent(self):
-        assert plan_nodes_empty_for_task("生成一份检查报告") is True
+        r = detect_task_intent("生成一份检查报告")
+        assert r.is_task is True
 
     def test_summarise_has_task_intent(self):
-        assert plan_nodes_empty_for_task("总结一下这些数据") is True
+        r = detect_task_intent("总结一下这些数据")
+        assert r.is_task is True
 
     def test_diagnose_has_task_intent(self):
-        assert plan_nodes_empty_for_task("诊断网络故障原因") is True
+        r = detect_task_intent("诊断网络故障原因")
+        assert r.is_task is True
 
     def test_compare_has_task_intent(self):
-        assert plan_nodes_empty_for_task("对比两个配置") is True
+        r = detect_task_intent("对比两个配置")
+        assert r.is_task is True
 
     def test_definition_question_not_task_intent(self):
-        assert plan_nodes_empty_for_task("OSPF 是什么") is False
-        assert plan_nodes_empty_for_task("解释一下什么是 BGP") is False
+        assert detect_task_intent("OSPF 是什么").is_task is False
+        assert detect_task_intent("解释一下什么是 BGP").is_task is False
 
     def test_introduce_not_task_intent(self):
-        assert plan_nodes_empty_for_task("介绍一下这个功能") is False
+        assert detect_task_intent("介绍一下这个功能").is_task is False
 
     def test_greeting_not_task_intent(self):
-        assert plan_nodes_empty_for_task("你好") is False
+        assert detect_task_intent("你好").is_task is False
 
     def test_simple_question_not_task_intent(self):
-        assert plan_nodes_empty_for_task("今天天气怎么样") is False
+        assert detect_task_intent("今天天气怎么样").is_task is False
 
     def test_empty_not_task_intent(self):
-        assert plan_nodes_empty_for_task("") is False
+        assert detect_task_intent("").is_task is False
+
+    # Cases that look like definition but are still task intent
+    def test_why_is_this_happening_is_task(self):
+        r = detect_task_intent("这个截图为什么会这样")
+        assert r.is_task is True
+
+    def test_what_problem_is_this_is_task(self):
+        r = detect_task_intent("帮我分析这是什么问题")
+        assert r.is_task is True
+
+    def test_read_log_what_exception_is_task(self):
+        r = detect_task_intent("读取这个日志看看是什么异常")
+        assert r.is_task is True
+
+    def test_old_alias_still_works(self):
+        assert plan_nodes_empty_for_task("分析数据") is True
+        assert plan_nodes_empty_for_task("OSPF 是什么") is False
 
 
 # ============================================================================
@@ -81,39 +112,51 @@ class TestTaskIntentDetection:
 # ============================================================================
 
 class TestIncompleteResponseDetection:
-    """_is_task_incomplete_final_response() tests."""
+    """validate_final_response() tests."""
 
     def test_shou_dao_incomplete(self):
-        assert _is_task_incomplete_final_response("分析数据", "收到") is True
+        v = validate_final_response("分析数据", "收到")
+        assert v.valid is False
 
     def test_completed_incomplete(self):
-        assert _is_task_incomplete_final_response("分析数据", "已完成") is True
+        assert validate_final_response("分析数据", "已完成").valid is False
 
     def test_tool_chenggong_incomplete(self):
-        assert _is_task_incomplete_final_response("分析数据", "工具调用成功") is True
+        assert validate_final_response("分析数据", "工具调用成功").valid is False
 
     def test_no_tools_incomplete(self):
-        assert _is_task_incomplete_final_response("分析数据", "No tools were executed") is True
+        assert validate_final_response("分析数据", "No tools were executed").valid is False
 
     def test_readartifact_completed_incomplete(self):
-        assert _is_task_incomplete_final_response("分析这个报文", "readartifact completed") is True
+        assert validate_final_response("分析这个报文", "readartifact completed").valid is False
 
     def test_empty_response_incomplete(self):
-        assert _is_task_incomplete_final_response("分析数据", "") is True
+        assert validate_final_response("分析数据", "").valid is False
 
     def test_real_analysis_not_incomplete(self):
         resp = "报文分析显示 TCP 连接正常，三次握手完成，无丢包。"
-        assert _is_task_incomplete_final_response("分析这个报文", resp) is False
+        assert validate_final_response("分析这个报文", resp).valid is True
 
     def test_non_task_input_not_checked(self):
-        assert _is_task_incomplete_final_response("你好", "收到") is False
-        assert _is_task_incomplete_final_response("OSPF 是什么", "") is False
+        assert validate_final_response("你好", "收到").valid is True
+        assert validate_final_response("OSPF 是什么", "").valid is True
 
-    def test_no_tools_executed_with_prefix_incomplete(self):
-        # "[TASK_INCOMPLETE] No tools were executed..." contains "No tools were executed"
-        assert _is_task_incomplete_final_response(
-            "巡检 CMDB", "[TASK_INCOMPLETE] No tools were executed for this request."
-        ) is True
+    def test_analysis_with_placeholder_word_not_flagged(self):
+        # "巡检已完成，结论如下..." contains "已完成" but has analysis → not flagged
+        resp = "巡检已完成，结论如下：ASBR-PE1 状态正常，无严重告警。建议定期复查。"
+        assert validate_final_response("巡检 CMDB", resp).valid is True
+
+    def test_file_read_analysis_not_flagged(self):
+        resp = "文件读取已完成，分析结论如下：TCP 连接正常，无异常报文。"
+        assert validate_final_response("读取文件并分析", resp).valid is True
+
+    def test_command_analysis_not_flagged(self):
+        resp = "命令执行完成，发现以下异常：接口 eth0 存在丢包。"
+        assert validate_final_response("执行命令检查", resp).valid is True
+
+    def test_old_alias_still_works(self):
+        assert _is_task_incomplete_final_response("分析数据", "收到") is True
+        assert _is_task_incomplete_final_response("分析数据", "报文分析完成，连接正常。") is False
 
 
 # ============================================================================
@@ -127,59 +170,65 @@ class TestNormalizedContentExtraction:
         r = ToolResult(node_id="n1", tool="workspace.readartifact", success=True,
                        data={"output": {"content": "TCP报文数据..."}})
         nc = _extract_normalized_content("workspace.readartifact", r)
-        assert nc == "TCP报文数据..."
+        assert nc is not None
+        assert nc["content"] == "TCP报文数据..."
 
     def test_readartifact_output_text(self):
         r = ToolResult(node_id="n1", tool="workspace.readartifact", success=True,
                        data={"output": {"text": "多行文本数据"}})
         nc = _extract_normalized_content("workspace.readartifact", r)
-        assert nc == "多行文本数据"
+        assert nc is not None
+        assert nc["content"] == "多行文本数据"
 
     def test_readartifact_output_preview(self):
         r = ToolResult(node_id="n1", tool="workspace.readartifact", success=True,
                        data={"output": {"preview": "预览内容..."}})
         nc = _extract_normalized_content("workspace.readartifact", r)
-        assert nc == "预览内容..."
+        assert nc is not None
+        assert nc["content"] == "预览内容..."
 
     def test_readartifact_direct_content(self):
         r = ToolResult(node_id="n1", tool="workspace.readartifact", success=True,
                        data={"content": "直接内容"})
         nc = _extract_normalized_content("workspace.readartifact", r)
-        assert nc == "直接内容"
+        assert nc is not None
+        assert nc["content"] == "直接内容"
 
     def test_readartifact_preview(self):
         r = ToolResult(node_id="n1", tool="workspace.readartifact", success=True,
                        data={"preview": "文件预览"})
         nc = _extract_normalized_content("workspace.readartifact", r)
-        assert nc == "文件预览"
+        assert nc is not None
+        assert nc["content"] == "文件预览"
 
     def test_readartifact_summary(self):
         r = ToolResult(node_id="n1", tool="workspace.readartifact", success=True,
                        data={"summary": "文件摘要"})
         nc = _extract_normalized_content("workspace.readartifact", r)
-        assert nc == "文件摘要"
+        assert nc is not None
+        assert nc["content"] == "文件摘要"
 
     def test_priority_order(self):
-        # output.content should win over data.content
         r = ToolResult(node_id="n1", tool="workspace.readartifact", success=True,
-                       data={
-                           "output": {"content": "优先级最高"},
-                           "content": "被覆盖",
-                       })
+                       data={"output": {"content": "优先级最高"}, "content": "被覆盖"})
         nc = _extract_normalized_content("workspace.readartifact", r)
-        assert nc == "优先级最高"
+        assert nc is not None
+        assert nc["content"] == "优先级最高"
 
     def test_workspace_file_read(self):
         r = ToolResult(node_id="n1", tool="workspace.file", success=True,
                        data={"output": {"content": "文件数据"}})
         nc = _extract_normalized_content("workspace.file", r)
-        assert nc == "文件数据"
+        assert nc is not None
+        assert nc["content"] == "文件数据"
 
     def test_exec_run_not_extracted(self):
         r = ToolResult(node_id="n1", tool="exec.run", success=True,
                        data={"output": {"content": "shell output"}})
         nc = _extract_normalized_content("exec.run", r)
-        assert nc is None
+        # exec.run IS now included in _NC_TOOL_PREFIXES
+        assert nc is not None
+        assert nc["content"] == "shell output"
 
     def test_non_dict_data(self):
         r = ToolResult(node_id="n1", tool="workspace.readartifact", success=True,
@@ -234,7 +283,7 @@ class TestMergedNormalizedContent:
         )
         nc = merged.get("normalized_content", [])
         assert len(nc) == 1
-        assert "TCP报文" in nc[0]
+        assert "TCP报文" in nc[0]["content"]
 
     def test_exec_run_no_normalized_content(self):
         merged = self._build_dag_and_run(
@@ -242,7 +291,8 @@ class TestMergedNormalizedContent:
             {"output": {"content": "some command output"}},
         )
         nc = merged.get("normalized_content", [])
-        assert len(nc) == 0
+        # exec.run IS now in _NC_TOOL_PREFIXES
+        assert len(nc) == 1
 
 
 # ============================================================================

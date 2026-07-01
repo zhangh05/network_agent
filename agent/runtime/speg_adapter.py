@@ -134,6 +134,12 @@ def run_speg_turn(
             tool_decision=_tool_decision(speg_result, tool_calls),
             no_tool_reason="" if tool_calls else "SPEG planner selected no tools.",
         )
+
+        # ── Section 1: Sync session.history after every turn ──────────────
+        # Without this, the next turn's _inject_conversation_context sees
+        # stale/no history and follow-ups like "什么意思" lose context.
+        _sync_session_history(session, user_input, final_response)
+
     except Exception as exc:
         _LOG.exception("SPEG turn failed")
         elapsed_ms = int((time.monotonic() - started) * 1000)
@@ -521,14 +527,17 @@ _HISTORY_REFERENCE_PATTERNS = (
 def _inject_conversation_context(session, metadata_in: dict[str, Any]) -> None:
     """Build and inject a full ConversationContext into metadata_in.
 
-    Uses SessionMessageStore (disk) for complete history, with:
+    Uses session.history (memory) AND SessionMessageStore (disk) for
+    complete history, with:
       - recent_messages: token-budgeted complete turns
       - session_summary: older-message rolling summary
       - previous_user_message / previous_assistant_message: exact
       - retrieved_history: cross-turn reference resolution
 
-    Never raises — injection failure must not break the turn.
+    Never raises — injection failure must not break the turn, but
+    MUST log the error so diagnostics can see injection failures.
     """
+    error_reason = None
     try:
         from speg_engine.models import ConversationContext
 
@@ -536,15 +545,21 @@ def _inject_conversation_context(session, metadata_in: dict[str, Any]) -> None:
         _populate_from_session(session, cc)
         _resolve_history_references(session, metadata_in, cc)
 
-        # Serialize into metadata_in for SPEG engine consumption.
         metadata_in["conversation_context"] = cc
         metadata_in["conversation_history"] = cc.recent_messages
         metadata_in["session_summary"] = cc.session_summary
         metadata_in["previous_user_message"] = cc.previous_user_message
         metadata_in["previous_assistant_message"] = cc.previous_assistant_message
 
-    except Exception:
-        pass
+    except Exception as e:
+        error_reason = f"{type(e).__name__}: {e}"
+    finally:
+        if error_reason:
+            metadata_in["conversation_context_error"] = error_reason
+            try:
+                _LOG.warning("Conversation context injection failed: %s", error_reason)
+            except Exception:
+                pass
 
 
 def _populate_from_session(session, cc) -> None:
@@ -767,3 +782,41 @@ def _extract_reference_terms(text: str) -> list[str]:
                   "这个", "那个", "一个", "可以", "应该", "需要",
                   "the", "a", "an", "is", "are", "was", "were", "be"}
     return [t for t in tokens if t.lower() not in stop_words]
+
+
+# ── Section 1: Session history sync ────────────────────────────────────
+
+def _sync_session_history(session, user_input: str, final_response: str) -> None:
+    """Append current turn to session.history immediately.
+
+    Before this fix, session.history was only restored from disk on
+    session init.  Active sessions' in-memory history was never
+    updated after a turn, so the next turn's ``_inject_conversation_context``
+    saw stale data and follow-up queries ("什么意思", "我上句话说了什么")
+    would lose context.
+
+    Dedup: if the last two entries already match, skip (handles
+    retry/re-submit scenarios).
+    """
+    try:
+        from agent.protocol.message import UserMessage, AssistantMessage
+
+        history = getattr(session, "history", None)
+        if history is None:
+            history = []
+            session.history = history
+
+        # Dedup check: skip if last entries already match
+        if len(history) >= 2:
+            last_user = history[-2]
+            last_asst = history[-1]
+            if (getattr(last_user, "role", "") == "user"
+                and getattr(last_asst, "role", "") == "assistant"
+                and getattr(last_user, "content", "") == user_input
+                and getattr(last_asst, "content", "") == final_response):
+                return
+
+        history.append(UserMessage(content=user_input))
+        history.append(AssistantMessage(content=final_response))
+    except Exception:
+        pass

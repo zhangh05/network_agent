@@ -34,7 +34,7 @@ class ResultMerger:
 
         # Group results by tool category (from tool prefix)
         grouped: dict[str, list[dict[str, Any]]] = {}
-        normalized_contents: list[str] = []
+        normalized_contents: list[dict[str, Any]] = []
 
         for node in dag.nodes:
             result = node_results.get(node.id)
@@ -83,8 +83,12 @@ class ResultMerger:
                 }
                 for nid, r in node_results.items()
             },
-            # v3.14: extracted readable content for finalizer analysis
+            # v3.14: structured normalized_content
             "normalized_content": normalized_contents,
+            # v3.14 legacy: flat content strings for backward compat
+            "normalized_content_texts": [
+                nc.get("content", "") for nc in normalized_contents
+            ],
         }
 
         elapsed = (time.monotonic() - start) * 1000
@@ -113,50 +117,113 @@ def _unwrap_llm_payload(data: Any) -> Any:
 
 # ── v3.14: normalized content extraction ──────────────────────────────
 
-_READ_TOOL_PREFIXES = (
+# Tools that produce readable content for finalizer analysis.
+_NC_TOOL_PREFIXES = (
     "workspace.readartifact",
     "workspace.file",
     "workspace.knowledge",
+    "workspace.artifact",
+    "workspace.document.pdf.extract_text",
+    "pcap.manage",
+    "config.manage",
+    "exec.run",
+    "inspection.manage",
+    "text.analyze",
+    "data.manage",
+    "knowledge.manage",
 )
 
+# Priority-ordered extraction keys (first non-empty wins).
 _NC_EXTRACTION_KEYS = (
     "output.content",
     "output.text",
     "output.preview",
+    "output.stdout",
+    "output.stderr",
+    "output.results_markdown",
+    "output.findings",
+    "output.report_url",
+    "output.result",
+    "output.data",
     "content",
+    "text",
     "preview",
+    "stdout",
+    "stderr",
     "summary",
+    "findings",
+    "results",
+    "artifacts",
 )
 
+# Inner unwrap keys for nested ToolResult payloads.
+_NC_UNWRAP_KEYS = ("output", "content", "result", "data")
 
-def _extract_normalized_content(tool: str, result: ToolResult) -> str | None:
-    """Extract readable text from read-type tool results.
 
-    Priority order (first non-empty wins):
-      1. data.output.content
-      2. data.output.text
-      3. data.output.preview
-      4. data.content
-      5. data.preview
-      6. data.summary
+def _extract_normalized_content(tool: str, result: ToolResult) -> dict | None:
+    """Extract structured readable text from tool results.
 
-    Only applies to workspace.readartifact, workspace.file read, and
-    workspace.knowledge tools.
+    Returns a dict: {node_id, tool, action, content_type, content, source_path}
+    or None if no extractable content was found.
     """
-    if not any(tool.startswith(prefix) for prefix in _READ_TOOL_PREFIXES):
+    if not any(tool.startswith(prefix) for prefix in _NC_TOOL_PREFIXES):
         return None
 
     data = result.data
     if not isinstance(data, dict):
         return None
 
+    # Step 1: Try to get the action from args/result metadata
+    action = _infer_action(data)
+
+    # Step 2: Unwrap nested payloads
+    unwrapped = data
+    for key in _NC_UNWRAP_KEYS:
+        inner = unwrapped.get(key)
+        if isinstance(inner, dict) and inner:
+            unwrapped = inner
+
+    # Step 3: Extract content by priority
+    content = None
+    content_type = ""
     for key_path in _NC_EXTRACTION_KEYS:
-        value = _get_nested(data, key_path)
+        value = _get_nested(unwrapped, key_path)
+        if value is None:
+            continue
         if isinstance(value, str) and value.strip():
-            return value.strip()
-        if isinstance(value, (int, float, list, tuple)):
-            return str(value)
-    return None
+            content = value.strip()
+            content_type = key_path
+            break
+        if isinstance(value, (int, float, list, tuple, dict)):
+            content = str(value)
+            content_type = key_path
+            break
+
+    if content is None:
+        return None
+
+    # Step 4: Extract source_path or artifact_id if available
+    source_path = _get_nested(data, "args.file") or _get_nested(data, "args.path") or ""
+    artifact_id = _get_nested(data, "args.artifact_id") or ""
+
+    return {
+        "node_id": result.node_id,
+        "tool": tool,
+        "action": action,
+        "content_type": content_type,
+        "content": content,
+        "source_path": str(source_path) if source_path else "",
+        "artifact_id": str(artifact_id) if artifact_id else "",
+    }
+
+
+def _infer_action(data: dict) -> str:
+    """Infer the action from result data (e.g. 'read', 'search', 'run')."""
+    for key in ("action", "args.action", "output.action"):
+        val = _get_nested(data, key)
+        if isinstance(val, str) and val:
+            return val
+    return ""
 
 
 def _get_nested(d: dict[str, Any], key_path: str) -> Any:

@@ -292,6 +292,17 @@ class SPEGEngine:
         conv_history = getattr(conv_ctx, "recent_messages", None) or []
         is_conv_ref = bool(is_conversation_ref(user_input) and conv_history)
 
+        # ── v3.14: task-intent override for fast path ────────────
+        # If the input has task-intent verbs but the narrow classifier
+        # still matched (e.g. "分析这个是什么问题" matches "是什么"),
+        # force full SPEG so the planner can produce tool nodes.
+        task_intent = detect_task_intent(user_input)
+        if task_intent.is_task and task_intent.requires_tool_likely and fast.enabled:
+            fast = FastPathDecision(
+                enabled=False, route="",
+                reason=f"task_intent_override: {task_intent.intent_type}",
+            )
+
         # v3.13: conversation-ref with history → force fast-path.
         # These queries ("我上句话说了什么", "我说了什么") are clearly
         # not tool requests and the planner would waste a call.  We
@@ -779,36 +790,35 @@ class SPEGEngine:
                 self._emit_stage(FINALIZING_COMPLETED, t_total)
 
                 # ── v3.14: Final-response validation ────────────────
-                # After the finalizer, check whether the response is
-                # a known incomplete/placeholder for task-intent requests.
-                # If so, try a one-shot finalizer retry or fail with
-                # TASK_INCOMPLETE.
-                if _is_task_incomplete_final_response(ctx.user_input, final_response):
+                # After the finalizer, check whether the response
+                # actually completes a task-intent request.  Uses
+                # the structured validator that avoids false positives
+                # on real analysis output.
+                vresult = validate_final_response(ctx.user_input, final_response)
+                if not vresult.valid:
                     # Attempt one finalizer retry with stronger prompt
                     retry_ok = False
                     if (
                         self._config.enable_finalizer
                         and (budget.llm_calls < self._config.max_llm_calls)
                     ):
-                        # Check budget for retry call
                         llm_budget_retry = budget.check_llm_call()
                         if llm_budget_retry.ok:
                             self._emit_stage(FINALIZING_STARTED, t_total)
                             try:
                                 final_response = await self._finalizer.finalize(
-                                    ctx, merged,
+                                    ctx, merged, is_retry=True,
                                 )
                                 retry_ok = True
                             except Exception:
                                 pass
                             self._emit_stage(FINALIZING_COMPLETED, t_total)
 
-                            if retry_ok and not _is_task_incomplete_final_response(
-                                ctx.user_input, final_response
-                            ):
-                                retry_ok = True
-                            else:
-                                retry_ok = False
+                            if retry_ok:
+                                vresult2 = validate_final_response(
+                                    ctx.user_input, final_response,
+                                )
+                                retry_ok = vresult2.valid
 
                     if not retry_ok:
                         errors.append(build_error(
@@ -1332,84 +1342,201 @@ def _summarize_tools(dag) -> list[str]:
 # ── v3.14: Task-intent detection ─────────────────────────────────────────
 
 _TASK_INTENT_VERBS = (
+    # Explicit action verbs
     "读取", "分析", "巡检", "检查", "生成",
     "总结", "排查", "对比", "诊断", "判断",
     "监测", "追踪", "绘制", "统计", "汇报",
     "评估", "审查", "核实", "校验", "整理",
-    "read", "analyse", "analyze", "inspect",
-    "check", "generate", "summarise", "summarize",
-    "diagnose", "compare", "track", "monitor",
-    "report", "evaluate", "review", "verify",
+    "执行", "处理", "导出", "保存",
+    # Visual/file reference patterns
+    "看这个文件", "看这个截图", "看这个报文", "看这个日志", "看这个配置",
+    "看看这个", "看下这个", "查看这个",
+    # Task-completion patterns
+    "帮我看看", "帮我看下", "分析一下",
+    "给出结论", "给出原因", "处理建议", "建议怎么",
+    # Report patterns
+    "生成报告", "导出结果", "保存分析",
 )
 
+# Patterns that make a definition question NOT task intent.
+_Q_DEFINITION_PATTERNS = ("是什么", "什么是", "什么叫", "的定义", "介绍一下")
 
-def plan_nodes_empty_for_task(user_input: str) -> bool:
-    """Return True if the user input clearly asks for a task
-    (analysis, inspection, diagnosis, etc.) but is phrased as a
-    request requiring tool execution — NOT a definition question.
+# Patterns that make a "是什么"-containing query STILL task intent.
+_Q_TASK_OVERRIDES = (
+    "帮我分析", "分析一下", "看这个", "看看这个",
+    "这个截图", "这个报文", "这个日志", "这个文件",
+    "读取", "检查一下", "排查", "是什么原因", "是什么问题",
+    "为什么会这样", "什么异常", "什么错误",
+)
 
-    This guards against the planner returning empty nodes for
-    substantive task requests like "分析这个 TCP 报文" or
-    "对 CMDB 资产发起自动巡检".
+_TASK_INTENT_RESULT_FIELDS = ("结论", "发现", "原因", "建议", "异常",
+                              "正常", "风险", "下一步", "依据", "诊断")
+
+# Task-verb-to-recommended-tool mapping for deterministic route fallback.
+_TASK_TO_DEFAULT_TOOL = {
+    "inspection": "inspection.manage",
+    "file_read_analysis": "workspace.file",
+    "artifact_read_analysis": "workspace.artifact",
+    "pcap_analysis": "pcap.manage",
+    "config_analysis": "config.manage",
+    "command_check": "exec.run",
+    "text_analysis": "text.analyze",
+    "report": "data.manage",
+}
+
+
+class TaskIntentResult:
+    """Structured task-intent detection result."""
+    is_task: bool = False
+    intent_type: str = ""       # analysis / inspection / file_read_analysis / ...
+    evidence: list[str] = None
+    requires_tool_likely: bool = False
+
+    def __post_init__(self):
+        if self.evidence is None:
+            self.evidence = []
+
+
+def detect_task_intent(user_input: str) -> TaskIntentResult:
+    """Unified task-intent detector.
+
+    Returns a structured TaskIntentResult with:
+      - is_task: whether this is a task-type request
+      - intent_type: classification (analysis, inspection, etc.)
+      - evidence: which rules matched
+      - requires_tool_likely: whether tools are probably needed
+
+    Rules (in priority order):
+      1. Definition questions ("是什么", "什么是") → NOT task
+         UNLESS the query also contains task-override patterns.
+      2. Task verbs → task intent.
+      3. Visual/file reference → task intent.
+      4. Report/generation → task intent.
+      5. Otherwise → not task intent.
     """
     text = (user_input or "").strip()
+    result = TaskIntentResult()
     if not text:
-        return False
+        return result
 
-    # Check for task-intent verbs
-    has_task = any(v in text for v in _TASK_INTENT_VERBS)
-    if not has_task:
-        return False
+    # Step 1: Check for definition patterns
+    has_def = any(p in text for p in _Q_DEFINITION_PATTERNS)
+    has_override = any(p in text for p in _Q_TASK_OVERRIDES)
 
-    # Exclude definition-type questions (they don't need tools)
-    _def_patterns = ("是什么", "什么是", "什么叫", "的定义", "介绍一下")
-    for pat in _def_patterns:
-        if pat in text:
-            return False
+    if has_def and not has_override:
+        return result  # Pure definition → not task
 
-    return True
+    # Step 2: Check for task verbs and patterns
+    matched = [v for v in _TASK_INTENT_VERBS if v in text]
+    if matched:
+        result.is_task = True
+        result.evidence = matched
+        result.requires_tool_likely = True
+
+        # Classify intent type
+        text_lower = text.lower()
+        if any(w in text_lower for w in ("巡检", "inspection", "inspect")):
+            result.intent_type = "inspection"
+        elif any(w in text_lower for w in ("报文", "pcap", "抓包")):
+            result.intent_type = "pcap_analysis"
+        elif any(w in text_lower for w in ("文件", "file", "read", "读取", "日志", "log")):
+            result.intent_type = "file_read_analysis"
+        elif any(w in text_lower for w in ("配置", "config")):
+            result.intent_type = "config_analysis"
+        elif any(w in text_lower for w in ("命令", "执行", "exec", "show", "ping")):
+            result.intent_type = "command_check"
+        elif any(w in text_lower for w in ("诊断", "排查", "问题", "异常", "故障", "起不来")):
+            result.intent_type = "analysis"
+        elif any(w in text_lower for w in ("报告", "report", "导出")):
+            result.intent_type = "report"
+        elif any(w in text_lower for w in ("分析", "总结", "判断")):
+            result.intent_type = "analysis"
+        else:
+            result.intent_type = "analysis"
+
+        return result
+
+    # Step 3: Check for "截图"/"为什么这样" patterns without explicit verbs
+    if any(p in text for p in ("为什么", "这个截图", "为什么会", "看看有问题")):
+        result.is_task = True
+        result.evidence = ["contextual_inquiry"]
+        result.intent_type = "analysis"
+        result.requires_tool_likely = True
+
+    return result
+
+
+def task_intent_to_default_tool(intent_type: str) -> str | None:
+    """Return the recommended default tool for a task intent type."""
+    return _TASK_TO_DEFAULT_TOOL.get(intent_type)
 
 
 # ── v3.14: Final-response validator ───────────────────────────────────────
 
-_TASK_INCOMPLETE_PATTERNS = (
-    "收到",
-    "已完成",
-    "工具调用成功",
+_TASK_PLACEHOLDER_PATTERNS = (
+    "收到", "已完成", "工具调用成功",
     "No tools were executed",
-    "readartifact completed",
-    "没有更多信息",
-    "readartifact succeeded",
+    "readartifact completed", "readartifact succeeded",
     "Completed",
 )
 
 
-def _is_task_incomplete_final_response(
+class FinalResponseValidatorResult:
+    valid: bool = True
+    reason: str = ""
+    matched_placeholder: str = ""
+    should_retry_finalizer: bool = False
+
+
+def validate_final_response(
     user_input: str,
     final_response: str,
-) -> bool:
-    """Check if the final_response is a known incomplete/placeholder
-    response for a task-intent request.
+) -> FinalResponseValidatorResult:
+    """Validate that the final_response actually completes the user's task.
 
-    Only applies when the user_input already shows task intent
-    (check, analyse, inspect, etc.). Simple greetings and definition
-    questions are ignored.
+    Only triggers for task-intent requests.  False-positive protection:
+    responses that contain analysis fields ("结论"/"发现"/"原因"...) or
+    are long enough are NOT flagged even if they contain placeholder words.
     """
-    # Only check task-intent requests
-    if not plan_nodes_empty_for_task(user_input):
-        return False
+    rr = FinalResponseValidatorResult()
+
+    task = detect_task_intent(user_input)
+    if not task.is_task:
+        return rr  # Not a task request → skip validation
 
     response = (final_response or "").strip()
     if not response:
-        return True  # empty response on task request
+        rr.valid = False
+        rr.reason = "empty response for task request"
+        rr.should_retry_finalizer = True
+        return rr
 
-    for pat in _TASK_INCOMPLETE_PATTERNS:
-        if pat in response:
-            return True
+    # Step 1: Check for analysis fields → always valid
+    has_analysis = any(f in response for f in _TASK_INTENT_RESULT_FIELDS)
+    if has_analysis:
+        return rr  # Valid — contains actual analysis
 
-    # Also catch responses that are solely tool-success summaries
-    # without actual analysis content.
-    if len(response) < 20 and response in ("收到。", "已完成。", "No tools were executed."):
-        return True
+    # Step 2: If response is long (>50 chars) and not just a placeholder → valid
+    if len(response) > 50:
+        return rr
 
-    return False
+    # Step 3: Check for exact/short placeholder match
+    for pat in _TASK_PLACEHOLDER_PATTERNS:
+        if response == pat or (len(response) < 30 and pat in response):
+            rr.valid = False
+            rr.reason = f"placeholder response: '{pat}'"
+            rr.matched_placeholder = pat
+            rr.should_retry_finalizer = True
+            return rr
+
+    return rr
+
+
+# Backward-compatible aliases
+def plan_nodes_empty_for_task(user_input: str) -> bool:
+    return detect_task_intent(user_input).is_task
+
+
+def _is_task_incomplete_final_response(user_input: str, final_response: str) -> bool:
+    vr = validate_final_response(user_input, final_response)
+    return not vr.valid
