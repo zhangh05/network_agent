@@ -118,7 +118,7 @@ class SPEGEngine:
         self._struct_validator = DAGValidator(self._config, self._tool_registry)
         self._sem_validator = SemanticValidator(self._tool_registry)
         self._pre_exec_repair = PreExecutionRepairEngine()
-        self._risk_policy = RiskPolicyEngine()
+        self._risk_policy = RiskPolicyEngine(self._config)
         self._scheduler = ResourceScheduler(self._config)
         self._executor = ExecutionEngine(self._config, self._tool_runtime)
         self._repair = RepairEngine(self._config)

@@ -164,6 +164,17 @@ class SPEGConfig:
     max_tool_seconds: int = 30
     max_llm_calls: int = 2
 
+    # v3.12: RiskPolicy thresholds
+    # Total tool nodes: <=20 → no approval trigger;
+    #   >20 ≤50 → approval_required; >50 → hard_block.
+    rp_max_tool_nodes_allow: int = 20
+    rp_max_tool_nodes_approval: int = 50
+
+    # Exec.run command count: ≤5 → no approval trigger;
+    #   >5 ≤20 → approval_required; >20 → hard_block.
+    rp_max_exec_allow: int = 5
+    rp_max_exec_approval: int = 20
+
 
 @dataclass
 class SPEGResult:

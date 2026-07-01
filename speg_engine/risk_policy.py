@@ -77,16 +77,26 @@ class RiskAssessment:
 class RiskPolicyEngine:
     """Risk assessment for execution DAGs.
 
-    Rules (v3.12):
+    Rules (v3.12.1, config-driven thresholds):
       - credential_access / system dir delete → **hard_block**
       - Destructive commands (rm -rf, git reset --hard, etc.) → **approval_required**
       - 3+ write/mutate → **approval_required**
-      - 3+ exec.run → **approval_required** (NOT hard block!)
-      - 11+ exec.run → **approval_required** (large_command_batch)
-      - 11+ total nodes → **approval_required** (large_tool_batch)
-      - exec + external + credential → **approval_required**
-      - exec.run count ≤ 10: approval_required but never hard block
+      - exec.run ≤ rp_max_exec_allow → no approval trigger
+      - exec.run > rp_max_exec_allow ≤ rp_max_exec_approval → approval_required
+      - exec.run > rp_max_exec_approval → hard_block
+      - total nodes ≤ rp_max_tool_nodes_allow → no approval trigger
+      - total nodes > rp_max_tool_nodes_allow ≤ rp_max_tool_nodes_approval → approval
+      - total nodes > rp_max_tool_nodes_approval → hard_block
     """
+
+    def __init__(self, config=None):
+        # late-import to avoid circular dependency at module level
+        from .models import SPEGConfig
+        cfg = config if config is not None else SPEGConfig()
+        self._max_tool_allow = getattr(cfg, "rp_max_tool_nodes_allow", 20)
+        self._max_tool_approval = getattr(cfg, "rp_max_tool_nodes_approval", 50)
+        self._max_exec_allow = getattr(cfg, "rp_max_exec_allow", 5)
+        self._max_exec_approval = getattr(cfg, "rp_max_exec_approval", 20)
 
     def assess(self, dag: ExecutionDAG) -> RiskAssessment:
         assessment = RiskAssessment()
@@ -232,7 +242,7 @@ class RiskPolicyEngine:
     ) -> None:
         total_nodes = dag.total_nodes if dag else len(dag.nodes)
 
-        # 3+ writes → approval required
+        # 3+ writes → approval required (unchanged)
         if write_count >= 3 and not assessment.hard_block:
             assessment.combo_reasons.append(f"{write_count} write/mutate operations")
             assessment.warnings.append(
@@ -242,28 +252,36 @@ class RiskPolicyEngine:
             if not assessment.approval_reason:
                 assessment.approval_reason = "multiple_writes"
 
-        # 3+ exec → approval required (NOT hard block!)
-        if exec_count >= 3 and not assessment.hard_block:
+        # exec.run tiers (config-driven)
+        if exec_count > self._max_exec_approval and not assessment.hard_block:
+            assessment.hard_block = True
+            assessment.safe_to_run = False
+            assessment.blocked_reason = (
+                assessment.blocked_reason or
+                f"Excessive command batch: {exec_count} exec nodes "
+                f"(> {self._max_exec_approval})"
+            )
+        elif exec_count > self._max_exec_allow and not assessment.hard_block:
+            assessment.requires_approval = True
             assessment.combo_reasons.append(
                 f"{exec_count} command executions"
             )
             assessment.warnings.append(
-                f"Combo: {exec_count} command executions — approval required"
+                f"Large command batch: {exec_count} exec nodes — approval required"
             )
-            assessment.requires_approval = True
             if not assessment.approval_reason:
-                assessment.approval_reason = "multiple_commands"
+                assessment.approval_reason = "large_command_batch"
 
-        # 11+ exec → approval (large command batch)
-        if exec_count > 10 and not assessment.hard_block:
-            assessment.requires_approval = True
-            assessment.approval_reason = "large_command_batch"
-            assessment.warnings.append(
-                f"Large command batch: {exec_count} exec nodes"
+        # Total nodes tiers (config-driven)
+        if total_nodes > self._max_tool_approval and not assessment.hard_block:
+            assessment.hard_block = True
+            assessment.safe_to_run = False
+            assessment.blocked_reason = (
+                assessment.blocked_reason or
+                f"Excessive tool batch: {total_nodes} total nodes "
+                f"(> {self._max_tool_approval})"
             )
-
-        # 11+ total nodes → approval (large tool batch)
-        if total_nodes > 10 and not assessment.hard_block:
+        elif total_nodes > self._max_tool_allow and not assessment.hard_block:
             assessment.requires_approval = True
             if not assessment.approval_reason:
                 assessment.approval_reason = "large_tool_batch"
