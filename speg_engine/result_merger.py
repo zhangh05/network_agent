@@ -53,11 +53,8 @@ class ResultMerger:
                 "latency_ms": result.latency_ms,
             })
 
-            # ── v3.14: normalized_content extraction ────────────────
-            # Extract readable text from read-type tools so the
-            # finalizer has something to analyse instead of just
-            # "工具执行成功".
-            nc = _extract_normalized_content(node.tool, result)
+            # ── v3.15: normalized_content extraction ────────────────
+            nc = _extract_normalized_content(node, result)
             if nc:
                 normalized_contents.append(nc)
 
@@ -160,30 +157,59 @@ _NC_EXTRACTION_KEYS = (
 _NC_UNWRAP_KEYS = ("output", "content", "result", "data")
 
 
-def _extract_normalized_content(tool: str, result: ToolResult) -> dict | None:
+def _extract_normalized_content(node, result: ToolResult) -> dict | None:
     """Extract structured readable text from tool results.
 
-    Returns a dict: {node_id, tool, action, content_type, content, source_path}
+    Accepts the full ExecutionNode so source_path/artifact_id/action
+    can be read from ``node.args`` (not guessed from result.data).
+
+    Returns a dict: {node_id, tool, action, content_type, content,
+                     source_path, artifact_id, success, error}
     or None if no extractable content was found.
     """
+    tool = getattr(node, "tool", "")
     if not any(tool.startswith(prefix) for prefix in _NC_TOOL_PREFIXES):
         return None
 
     data = result.data
     if not isinstance(data, dict):
-        return None
+        # Non-dict data: wrap as simple content
+        return {
+            "node_id": result.node_id,
+            "tool": tool,
+            "action": _get_node_arg(node, "action"),
+            "content_type": "plain",
+            "content": str(data) if data else "",
+            "source_path": _get_node_arg(node, "file") or _get_node_arg(node, "path"),
+            "artifact_id": _get_node_arg(node, "artifact_id"),
+            "success": result.success,
+            "error": result.error or "",
+        }
 
-    # Step 1: Try to get the action from args/result metadata
-    action = _infer_action(data)
+    # ── Step 1: Read from node.args (preferred) ──────────────────
+    action = (_get_node_arg(node, "action") or _infer_action_from_data(data))
+    source_path = (
+        _get_node_arg(node, "file")
+        or _get_node_arg(node, "path")
+        or _get_node_arg(node, "filepath")
+        or _get_nested(data, "args.file")
+        or _get_nested(data, "args.path")
+        or ""
+    )
+    artifact_id = (
+        _get_node_arg(node, "artifact_id")
+        or _get_nested(data, "args.artifact_id")
+        or ""
+    )
 
-    # Step 2: Unwrap nested payloads
+    # ── Step 2: Unwrap nested payloads ───────────────────────────
     unwrapped = data
     for key in _NC_UNWRAP_KEYS:
         inner = unwrapped.get(key)
         if isinstance(inner, dict) and inner:
             unwrapped = inner
 
-    # Step 3: Extract content by priority
+    # ── Step 3: Extract content by priority ──────────────────────
     content = None
     content_type = ""
     for key_path in _NC_EXTRACTION_KEYS:
@@ -199,12 +225,13 @@ def _extract_normalized_content(tool: str, result: ToolResult) -> dict | None:
             content_type = key_path
             break
 
+    # ── Step 4: Failed tool? Include error for explanation ───────
+    if content is None and result.error:
+        content = f"[FAILED] {result.error}"
+        content_type = "error"
+
     if content is None:
         return None
-
-    # Step 4: Extract source_path or artifact_id if available
-    source_path = _get_nested(data, "args.file") or _get_nested(data, "args.path") or ""
-    artifact_id = _get_nested(data, "args.artifact_id") or ""
 
     return {
         "node_id": result.node_id,
@@ -214,11 +241,23 @@ def _extract_normalized_content(tool: str, result: ToolResult) -> dict | None:
         "content": content,
         "source_path": str(source_path) if source_path else "",
         "artifact_id": str(artifact_id) if artifact_id else "",
+        "success": result.success,
+        "error": result.error or "",
     }
 
 
-def _infer_action(data: dict) -> str:
-    """Infer the action from result data (e.g. 'read', 'search', 'run')."""
+def _get_node_arg(node, key: str) -> str:
+    """Safely read an arg from an ExecutionNode (or dict/object)."""
+    args = getattr(node, "args", None)
+    if isinstance(args, dict):
+        val = args.get(key, "")
+        if isinstance(val, str):
+            return val
+    return ""
+
+
+def _infer_action_from_data(data: dict) -> str:
+    """Fallback: infer action from result data."""
     for key in ("action", "args.action", "output.action"):
         val = _get_nested(data, key)
         if isinstance(val, str) and val:

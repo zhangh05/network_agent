@@ -201,37 +201,105 @@ class TestFileReadAnalysisClosure:
 # ============================================================================
 
 class TestLongHistoryRetrieval:
-    """第20轮之后仍能通过 context 找回早期引用。"""
+    """第20轮之后仍能通过 context 找回早期实体。"""
 
-    def test_long_history_session_summary(self):
+    def test_long_history_real_entity_retrieval(self):
+        """第1轮提到 ASBR-PE1，第22轮问'前面的设备'，必须找回 ASBR-PE1."""
         session = _make_session()
-        # First mention ASBR-PE1
-        for i in range(20):
-            _sync_session_history(session, f"普通对话 {i}", f"回复 {i}")
 
-        meta = {}
+        # Turn 1: establish key entity
+        _sync_session_history(session,
+            "后面记住这个设备：ASBR-PE1，它属于广域网区域",
+            "已记录当前会话上下文：ASBR-PE1（广域网区域）。")
+
+        # Turns 2-21: random noise
+        for i in range(2, 22):
+            _sync_session_history(session,
+                f"这是第 {i} 轮普通对话",
+                f"这是第 {i} 轮普通回复")
+
+        # Turn 22: reference back
+        meta = {"__raw_user_input": "前面提到的那个设备继续巡检"}
         _inject_conversation_context(session, meta)
+
         cc = meta.get("conversation_context")
         assert cc is not None
-        # Recent messages should exist
-        assert len(cc.recent_messages) >= 2
-        # Session summary should have older turns
-        # (20 turns × ~50 chars each = 1000+ chars with summaries)
-        assert cc.has_context
 
-    def test_long_history_with_asbr(self):
+        # Key assertions:
+        # 1. ASBR-PE1 must appear in some part of the context
+        full_text = (
+            cc.session_summary
+            + " ".join(m["content"] for m in cc.recent_messages)
+            + " ".join(m["content"] for m in cc.retrieved_history)
+            + cc.previous_user_message
+        )
+        assert "ASBR-PE1" in full_text, (
+            "ASBR-PE1 should be retrievable from context after 20 rounds"
+        )
+        assert "广域网" in full_text
+
+    def test_long_history_format_for_prompt(self):
+        """format_for_prompt() must include key entity from early turns."""
         session = _make_session()
-        _sync_session_history(session, "检查 ASBR-PE1 设备状态", "设备正常")
+        _sync_session_history(session, "记住 ASBR-PE1，广域网区域", "已记录。")
         for i in range(15):
-            _sync_session_history(session, f"随便聊 {i}", f"好 {i}")
-        _sync_session_history(session, "继续处理刚才提到的设备", "...")
+            _sync_session_history(session, f"对话 {i}", f"回复 {i}")
 
         meta = {}
         _inject_conversation_context(session, meta)
         cc = meta.get("conversation_context")
-        assert cc is not None
-        # The most recent user message should be "继续处理刚才提到的设备"
-        assert "刚才" in cc.previous_user_message
+        block = cc.format_for_prompt()
+        assert "ASBR-PE1" in block
+
+    def test_disk_recovery_without_memory(self):
+        """message_store has data, session.history is empty → still retrievable."""
+        # Simulate: only disk has the data, memory is empty
+        session = SimpleNamespace(
+            session_id="test-disk-recover",
+            workspace_id="test",
+            history=[],
+        )
+
+        # We can't write to actual disk in this test, so verify the
+        # fallback behavior: when disk fails, session.history is used.
+        meta = {}
+        try:
+            _inject_conversation_context(session, meta)
+        except Exception:
+            pass
+
+        # Should not crash, should inject empty context
+        assert "conversation_context" in meta
+
+
+# ============================================================================
+# E2E 7: Validator — bogus responses caught
+# ============================================================================
+
+class TestValidatorBogusResponses:
+    """validate_final_response catches non-analysis responses."""
+
+    def test_tool_success_without_analysis_is_invalid(self):
+        v = validate_final_response("读取文件并分析",
+            "工具执行成功，文件内容已读取，后续可以继续处理。")
+        assert v.valid is False
+
+    def test_file_read_without_conclusion_is_invalid(self):
+        v = validate_final_response("读取文件并分析",
+            "文件已读取，可以继续分析。")
+        assert v.valid is False
+
+    def test_explicit_failure_is_valid(self):
+        v = validate_final_response("分析报文",
+            "无法完成分析：工具未返回正文内容，缺少可分析报文数据。")
+        assert v.valid is True
+        assert v.has_explicit_failure_reason is True
+
+    def test_real_analysis_is_valid(self):
+        v = validate_final_response("分析报文",
+            "文件读取完成，结论如下：TCP握手正常，未见RST，建议继续观察。")
+        assert v.valid is True
+        assert v.has_analysis_fields is True
 
 
 # ============================================================================

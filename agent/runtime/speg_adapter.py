@@ -135,11 +135,6 @@ def run_speg_turn(
             no_tool_reason="" if tool_calls else "SPEG planner selected no tools.",
         )
 
-        # ── Section 1: Sync session.history after every turn ──────────────
-        # Without this, the next turn's _inject_conversation_context sees
-        # stale/no history and follow-ups like "什么意思" lose context.
-        _sync_session_history(session, user_input, final_response)
-
     except Exception as exc:
         _LOG.exception("SPEG turn failed")
         elapsed_ms = int((time.monotonic() - started) * 1000)
@@ -165,6 +160,10 @@ def run_speg_turn(
             tool_decision={"needed": False, "reason": "SPEG runtime failed before execution."},
             no_tool_reason="speg_runtime_error",
         )
+
+    # ── Section 2: unified exit — sync session.history for both success
+    #    and exception paths so the next turn always has context.
+    _sync_session_history(session, user_input, result.final_response)
 
     persist_run_record(session, turn, result, context)
     return result
@@ -563,33 +562,69 @@ def _inject_conversation_context(session, metadata_in: dict[str, Any]) -> None:
 
 
 def _populate_from_session(session, cc) -> None:
-    """Populate ConversationContext from session.history (memory) and
+    """Populate ConversationContext from session.history (memory) AND
     SessionMessageStore (disk).
 
-    Priority: session.history for fast access, message_store for
-    older / cross-turn retrieval.
+    Merge strategy:
+      1. Read complete history from SessionMessageStore (disk).
+      2. Merge session.history (in-memory) for latest unsaved turns.
+      3. Dedup by (role, content, run_id).
+      4. Sort chronologically, feed into window/summary/previous.
     """
-    # 1. Read from session.history (in-memory, most recent).
+    # ── 1. Read from SessionMessageStore (disk) ──────────────────
+    disk_messages: list[dict[str, str]] = []
+    ws_id = getattr(session, "workspace_id", "") or "default"
+    sid = getattr(session, "session_id", "")
+    if sid:
+        try:
+            from workspace.message_store import SessionMessageStore
+            store = SessionMessageStore(session_id=sid, ws_id=ws_id)
+            raw = store.get_messages()
+            for m in raw:
+                role = m.get("role", "")
+                content = m.get("content", "")
+                if role in ("user", "assistant") and content.strip():
+                    disk_messages.append({
+                        "role": role,
+                        "content": content,
+                        "_run_id": m.get("run_id", ""),
+                        "_created_at": m.get("created_at", ""),
+                    })
+        except Exception:
+            # Disk read failure → fall back to session.history
+            pass
+
+    # ── 2. Read from session.history (in-memory) ─────────────────
     history_entries = getattr(session, "history", None) or []
-    all_messages: list[dict[str, str]] = []
+    mem_messages: list[dict[str, str]] = []
     for msg in history_entries:
         role = str(getattr(msg, "role", "") or "")
         content = str(getattr(msg, "content", "") or "")
         if role in ("user", "assistant") and content.strip():
-            all_messages.append({"role": role, "content": content})
+            mem_messages.append({"role": role, "content": content})
 
-    # 2. Recent window: walk backwards, keep complete turns, token-budget.
+    # ── 3. Merge: disk first, then memory (memory is more recent)─
+    seen: set[tuple[str, str]] = set()
+    all_messages: list[dict[str, str]] = []
+
+    for m in disk_messages + mem_messages:
+        # Dedup key: (role, first 80 chars of content)
+        key = (m["role"], m.get("content", "")[:80])
+        if key in seen:
+            continue
+        seen.add(key)
+        all_messages.append({"role": m["role"], "content": m.get("content", "")})
+
+    # ── 4. Recent window, session summary, previous messages ─────
     recent, older_start = _build_recent_window(all_messages)
 
     cc.recent_messages = recent
     cc.token_estimate = sum(len(m.get("content", "")) for m in recent) // 2
 
-    # 3. session_summary from older messages.
     if older_start > 0:
         older = all_messages[:older_start]
         cc.session_summary = _build_session_summary(older)
 
-    # 4. Previous messages (last even if not in recent window).
     prev_user = ""
     prev_assistant = ""
     for msg in reversed(all_messages):

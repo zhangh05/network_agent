@@ -23,6 +23,7 @@ from speg_engine.engine import (
     TaskIntentResult,
     FinalResponseValidatorResult,
 )
+from types import SimpleNamespace
 from speg_engine.result_merger import (
     ResultMerger,
     _extract_normalized_content,
@@ -169,78 +170,116 @@ class TestNormalizedContentExtraction:
     def test_readartifact_output_content(self):
         r = ToolResult(node_id="n1", tool="workspace.readartifact", success=True,
                        data={"output": {"content": "TCP报文数据..."}})
-        nc = _extract_normalized_content("workspace.readartifact", r)
+        n = SimpleNamespace(tool="workspace.readartifact", args={})
+        nc = _extract_normalized_content(n, r)
         assert nc is not None
         assert nc["content"] == "TCP报文数据..."
 
     def test_readartifact_output_text(self):
         r = ToolResult(node_id="n1", tool="workspace.readartifact", success=True,
                        data={"output": {"text": "多行文本数据"}})
-        nc = _extract_normalized_content("workspace.readartifact", r)
+        n = SimpleNamespace(tool="workspace.readartifact", args={})
+        nc = _extract_normalized_content(n, r)
         assert nc is not None
         assert nc["content"] == "多行文本数据"
 
     def test_readartifact_output_preview(self):
         r = ToolResult(node_id="n1", tool="workspace.readartifact", success=True,
                        data={"output": {"preview": "预览内容..."}})
-        nc = _extract_normalized_content("workspace.readartifact", r)
+        n = SimpleNamespace(tool="workspace.readartifact", args={})
+        nc = _extract_normalized_content(n, r)
         assert nc is not None
         assert nc["content"] == "预览内容..."
 
     def test_readartifact_direct_content(self):
         r = ToolResult(node_id="n1", tool="workspace.readartifact", success=True,
                        data={"content": "直接内容"})
-        nc = _extract_normalized_content("workspace.readartifact", r)
+        n = SimpleNamespace(tool="workspace.readartifact", args={})
+        nc = _extract_normalized_content(n, r)
         assert nc is not None
         assert nc["content"] == "直接内容"
 
     def test_readartifact_preview(self):
         r = ToolResult(node_id="n1", tool="workspace.readartifact", success=True,
                        data={"preview": "文件预览"})
-        nc = _extract_normalized_content("workspace.readartifact", r)
+        n = SimpleNamespace(tool="workspace.readartifact", args={})
+        nc = _extract_normalized_content(n, r)
         assert nc is not None
         assert nc["content"] == "文件预览"
 
     def test_readartifact_summary(self):
         r = ToolResult(node_id="n1", tool="workspace.readartifact", success=True,
                        data={"summary": "文件摘要"})
-        nc = _extract_normalized_content("workspace.readartifact", r)
+        n = SimpleNamespace(tool="workspace.readartifact", args={})
+        nc = _extract_normalized_content(n, r)
         assert nc is not None
         assert nc["content"] == "文件摘要"
 
     def test_priority_order(self):
         r = ToolResult(node_id="n1", tool="workspace.readartifact", success=True,
                        data={"output": {"content": "优先级最高"}, "content": "被覆盖"})
-        nc = _extract_normalized_content("workspace.readartifact", r)
+        n = SimpleNamespace(tool="workspace.readartifact", args={})
+        nc = _extract_normalized_content(n, r)
         assert nc is not None
         assert nc["content"] == "优先级最高"
 
     def test_workspace_file_read(self):
         r = ToolResult(node_id="n1", tool="workspace.file", success=True,
                        data={"output": {"content": "文件数据"}})
-        nc = _extract_normalized_content("workspace.file", r)
+        n = SimpleNamespace(tool="workspace.file", args={})
+        nc = _extract_normalized_content(n, r)
         assert nc is not None
         assert nc["content"] == "文件数据"
 
     def test_exec_run_not_extracted(self):
         r = ToolResult(node_id="n1", tool="exec.run", success=True,
                        data={"output": {"content": "shell output"}})
-        nc = _extract_normalized_content("exec.run", r)
-        # exec.run IS now included in _NC_TOOL_PREFIXES
+        n = SimpleNamespace(tool="exec.run", args={})
+        nc = _extract_normalized_content(n, r)
         assert nc is not None
         assert nc["content"] == "shell output"
 
     def test_non_dict_data(self):
         r = ToolResult(node_id="n1", tool="workspace.readartifact", success=True,
                        data="plain string")
-        nc = _extract_normalized_content("workspace.readartifact", r)
-        assert nc is None
+        n = SimpleNamespace(tool="workspace.readartifact", args={})
+        nc = _extract_normalized_content(n, r)
+        assert nc is not None
+        assert nc["content"] == "plain string"
 
     def test_empty_data(self):
         r = ToolResult(node_id="n1", tool="workspace.readartifact", success=True,
                        data={})
-        nc = _extract_normalized_content("workspace.readartifact", r)
+        n = SimpleNamespace(tool="workspace.readartifact", args={})
+        nc = _extract_normalized_content(n, r)
         assert nc is None
+
+    def test_node_args_source_path(self):
+        """source_path from node.args.file."""
+        r = ToolResult(node_id="n1", tool="workspace.file", success=True,
+                       data={"output": {"content": "data"}})
+        n = SimpleNamespace(tool="workspace.file", args={"action": "read", "file": "tcp.txt"})
+        nc = _extract_normalized_content(n, r)
+        assert nc is not None
+        assert nc["source_path"] == "tcp.txt"
+        assert nc["action"] == "read"
+
+    def test_node_args_artifact_id(self):
+        r = ToolResult(node_id="n1", tool="workspace.artifact", success=True,
+                       data={"output": {"content": "artifact data"}})
+        n = SimpleNamespace(tool="workspace.artifact", args={"action": "read", "artifact_id": "art_xxx"})
+        nc = _extract_normalized_content(n, r)
+        assert nc is not None
+        assert nc["artifact_id"] == "art_xxx"
+
+    def test_failed_tool_with_error(self):
+        r = ToolResult(node_id="n1", tool="workspace.file", success=False,
+                       data={}, error="permission denied")
+        n = SimpleNamespace(tool="workspace.file", args={"file": "secret.txt"})
+        nc = _extract_normalized_content(n, r)
+        assert nc is not None
+        assert "permission denied" in nc["content"]
+        assert nc["success"] is False
 
     def test_get_nested(self):
         d = {"a": {"b": {"c": "value"}}}
