@@ -55,23 +55,16 @@ class ExecutionObligationViolation(Exception):
 
 
 class ExecutionContract:
-    """v4 system-level runtime contracts.
+    """v4.1 system-level runtime contracts.
 
-    These constants are referenced by:
-
-      * ``speg_engine.tool_runtime._normalize_result`` (asserts
-        every handler result passed through ``resolve_tool_outcome``)
-      * ``agent.runtime.speg_adapter._inject_conversation_context``
-        (asserts the single ``build_context_events`` builder was
-        used for the merged context)
-      * ``speg_engine.engine.SPEGEngine.run`` (asserts all three
-        at the top of every turn)
-
-    They are class-level flags, not instance attributes, so any
-    test or operator can verify the contract is in force with a
-    single attribute read. Flipping a flag is a deliberate
-    "contract OFF" operation; the runtime will still work, but
-    the system loses the corresponding guarantee.
+    v4.1 additions:
+      * ``CONTEXT_CAUSAL_ORDER_ONLY`` — conversation context is
+        ordered by causal_index, not created_at.
+      * ``PLAN_STRICT_SCHEMA_ENFORCED`` — every planner output
+        passes through PlanSchema.validate_raw before compilation.
+      * ``DIAGNOSTIC_PRESERVATION_REQUIRED`` — ToolResult always
+        carries error_code_raw and error_code_norm；no error
+        signal is dropped mid-pipeline.
     """
 
     # [1] Tool truth closure — exactly one resolver, no silent
@@ -85,6 +78,23 @@ class ExecutionContract:
     # [3] Execution obligation — empty plan for task intent is
     #     forbidden; planner raises ExecutionObligationViolation.
     EXECUTION_OBLIGATION_ENFORCED: bool = True
+
+    # ── v4.1 ──────────────────────────────────────────────────────
+
+    # [4] Causal ordering — context is sorted by causal_index,
+    #     not created_at. No timestamp-based sort anywhere.
+    CONTEXT_CAUSAL_ORDER_ONLY: bool = True
+
+    # [5] Plan strict schema — every planner output is validated
+    #     by PlanSchema.validate_raw(). Malformed plans raise
+    #     SchemaValidationError, empty-task plans raise
+    #     ExecutionObligationViolation.
+    PLAN_STRICT_SCHEMA_ENFORCED: bool = True
+
+    # [6] Diagnostic preservation — ToolResult.error_code_raw
+    #     and .error_code_norm are always populated for failures.
+    #     No error_code disappears mid-pipeline.
+    DIAGNOSTIC_PRESERVATION_REQUIRED: bool = True
 
 
 __all__ = [

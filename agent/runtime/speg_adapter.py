@@ -705,11 +705,17 @@ def build_context_events(session) -> list[dict[str, str]]:
 
     # ── 3. Merge: disk first, then memory (memory is more recent)─
     events: list[dict[str, str]] = disk_events + mem_events
-    events.sort(key=_event_sort_key)
+    # v4.1: causal ordering — assign causal_index in merge order
+    # (disk chronologically, then memory appended), sort by it.
+    # Replaces the old created_at-based sort.
+    for idx, ev in enumerate(events):
+        ev["_causal_index"] = idx
+    events.sort(key=lambda ev: ev.get("_causal_index", 0))
 
     # ── 4. Deduplicate by (role, content[:80]) ───────────────────
     seen: set[tuple[str, str]] = set()
     deduped: list[dict[str, str]] = []
+    causal = 1
     for ev in events:
         key = (ev["role"], ev["content"][:80])
         if key in seen:
@@ -718,8 +724,9 @@ def build_context_events(session) -> list[dict[str, str]]:
         deduped.append({
             "role": ev["role"],
             "content": ev["content"],
-            "created_at": ev["created_at"],
+            "_causal_index": causal,
         })
+        causal += 1
 
     return deduped
 

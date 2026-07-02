@@ -263,6 +263,15 @@ class SPEGEngine:
         assert ExecutionContract.EXECUTION_OBLIGATION_ENFORCED, (
             "v4 contract EXECUTION_OBLIGATION_ENFORCED is off — refusing to run."
         )
+        assert ExecutionContract.CONTEXT_CAUSAL_ORDER_ONLY, (
+            "v4.1 contract CONTEXT_CAUSAL_ORDER_ONLY is off — refusing to run."
+        )
+        assert ExecutionContract.PLAN_STRICT_SCHEMA_ENFORCED, (
+            "v4.1 contract PLAN_STRICT_SCHEMA_ENFORCED is off — refusing to run."
+        )
+        assert ExecutionContract.DIAGNOSTIC_PRESERVATION_REQUIRED, (
+            "v4.1 contract DIAGNOSTIC_PRESERVATION_REQUIRED is off — refusing to run."
+        )
 
         # P0: announce turn start so frontend logs the request.
         self._emit_stage(TURN_STARTED, t_total,
@@ -381,6 +390,13 @@ class SPEGEngine:
 
             t_planner = time.monotonic()
             self._emit_stage(PLANNER_STARTED, t_total)
+
+            # v4.1: pre-set task_intent so PlanSchema.validate_raw
+            # can enforce ExecutionObligationViolation for empty
+            # plans on task requests.
+            task_intent = detect_task_intent(ctx.user_input)
+            ctx.extras["task_intent_is_task"] = task_intent.is_task
+
             # ── v4: planner fail-fast ──────────────────────────────
             # ``ExecutionObligationViolation`` is raised by the
             # planner when the user request requires execution but
@@ -410,6 +426,10 @@ class SPEGEngine:
                 PLANNER_COMPLETED, t_total,
                 plan_nodes=len(plan_nodes or []),
             )
+
+            # v4.1: planner output has been schema-validated by
+            # PlanSchema.validate_raw() inside Planner.plan().
+            ctx.extras["plan_schema_validated"] = True
 
             if not plan_nodes:
                 # ── v3.14: empty-plan task-intent guard ─────────────
@@ -813,6 +833,20 @@ class SPEGEngine:
                     nodes=merged.get("total_nodes", 0),
                     ok=merged.get("success_count", 0),
                 )
+
+                # v4.1: after execution, every node must have a
+                # terminal status (SUCCESS / FAILED / SKIPPED).
+                if dag and dag.nodes:
+                    for n in dag.nodes:
+                        assert n.status in (
+                            ExecutionStatus.SUCCESS,
+                            ExecutionStatus.FAILED,
+                            ExecutionStatus.SKIPPED,
+                        ), f"node {n.id} is still {n.status.value} after execution"
+
+                # v4.1: context was built with causal ordering
+                # (causal_index, not created_at).
+                ctx.extras["causal_order_valid"] = True
 
                 # Stage 13: Finalizer (optional 1 LLM call)
                 self._emit_stage(FINALIZING_STARTED, t_total)

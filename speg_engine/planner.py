@@ -90,6 +90,86 @@ OUTPUT SCHEMA:
 }"""
 
 
+# ── v4.1: Schema Enforcement ────────────────────────────────────────────────
+
+class SchemaValidationError(Exception):
+    """Planner output does not match the required JSON schema."""
+
+
+class PlanSchema:
+    """v4.1 strict plan schema.
+
+    Every planner output MUST pass ``validate_plan_schema`` before
+    the engine proceeds to compilation.  A schema violation raises
+    ``SchemaValidationError`` (for malformed JSON / unknown keys)
+    or ``ExecutionObligationViolation`` (for semantic empty plan).
+    """
+
+    @staticmethod
+    def validate_raw(data: dict,
+                     user_input: str = "",
+                     task_intent: bool = False) -> list[PlanNode]:
+        """Validate raw planner JSON output AND convert to PlanNode list.
+
+        Returns the validated PlanNode list.
+        Raises SchemaValidationError or ExecutionObligationViolation.
+        """
+        if not isinstance(data, dict):
+            raise SchemaValidationError(
+                f"Planner output must be a JSON object, got {type(data).__name__}"
+            )
+
+        # Block unknown top-level keys
+        allowed = {"nodes", "final_response"}
+        unknown = set(data.keys()) - allowed
+        if unknown:
+            raise SchemaValidationError(
+                f"Unknown top-level keys: {sorted(unknown)}. "
+                f"Only {sorted(allowed)} allowed."
+            )
+
+        raw_nodes = data.get("nodes")
+        if not isinstance(raw_nodes, list):
+            raise SchemaValidationError(
+                f"'nodes' must be an array, got {type(raw_nodes).__name__}"
+            )
+
+        # Semantic: empty plan on task intent
+        if not raw_nodes:
+            if task_intent and ExecutionContract.EXECUTION_OBLIGATION_ENFORCED:
+                raise ExecutionObligationViolation(
+                    f"Empty nodes ([]) for task-intent: '{user_input[:120]}'"
+                )
+            return []
+
+        nodes: list[PlanNode] = []
+        for i, n in enumerate(raw_nodes):
+            if not isinstance(n, dict):
+                raise SchemaValidationError(
+                    f"plan[{i}]: must be object, got {type(n).__name__}"
+                )
+            nid = n.get("id", "")
+            tool = n.get("tool", "")
+            args = n.get("args", {})
+
+            if not nid or not isinstance(nid, str):
+                raise SchemaValidationError(f"plan[{i}]: 'id' must be non-empty string")
+            if tool is None:
+                raise SchemaValidationError(f"plan[{i}] (id='{nid}'): 'tool' must not be null")
+            if not tool or not isinstance(tool, str):
+                raise SchemaValidationError(f"plan[{i}] (id='{nid}'): 'tool' must be non-empty string")
+            if not isinstance(args, dict):
+                raise SchemaValidationError(f"plan[{i}] (id='{nid}'): 'args' must be object")
+
+            deps = n.get("deps", [])
+            if not isinstance(deps, list):
+                raise SchemaValidationError(f"plan[{i}] (id='{nid}'): 'deps' must be array")
+
+            nodes.append(PlanNode(id=nid, tool=tool, args=args, deps=deps))
+
+        return nodes
+
+
 class Planner:
     """Single-pass planner: 1 LLM call → 1 execution graph."""
 
@@ -127,7 +207,10 @@ class Planner:
         # Clean output: strip markdown fences if present
         cleaned = self._clean_json_output(raw_output)
         data = self._parse_plan_json(cleaned)
-        nodes = self._parse_nodes(data)
+
+        # ── v4.1: strict schema validation ────────────────────
+        task_intent = ctx.extras.get("task_intent_is_task", False)
+        nodes = PlanSchema.validate_raw(data, ctx.user_input, task_intent)
         if not nodes:
             direct = data.get("final_response", "")
             if isinstance(direct, str) and direct.strip():

@@ -145,6 +145,12 @@ class ToolResult:
     # the execution engine when a retry actually fired, and
     # surfaced to audit / trace / SPEGResult metadata.
     metadata: dict[str, Any] = field(default_factory=dict)
+    # v4.1 (diagnostic preservation): raw error code from the tool
+    # handler and the normalized code after the resolver. These
+    # are always present so audit/retry/finalizer never lose error
+    # provenance.
+    error_code_raw: str = ""
+    error_code_norm: str = ""
 
 
 @dataclass

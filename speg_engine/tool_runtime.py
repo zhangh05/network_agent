@@ -52,7 +52,7 @@ _NULL_RESULT_DEFAULT_CODE = "NULL_RESULT"
 # Default error_code when a handler declared success=False (legacy
 # ``success`` key) without naming a specific code. Maps to
 # ``TOOL_FAILED`` per the v4 spec.
-_LEGACY_FAIL_DEFAULT_CODE = "TOOL_FAILED"
+_LEGACY_FAIL_DEFAULT_CODE = "LEGACY_FAILURE"
 
 
 def resolve_tool_outcome(result: Any) -> tuple[str, str | None, Any]:
@@ -102,20 +102,19 @@ def resolve_tool_outcome(result: Any) -> tuple[str, str | None, Any]:
         if result.get("ok") is True:
             return _STATUS_SUCCESS, None, result
 
-        # Legacy "success" key fallback. Per the v4 spec, the
-        # legacy branch returns ``None`` for error_code in BOTH
-        # the success and fail cases — the legacy contract is a
-        # boolean verdict only. Handlers that want a specific
-        # error_code must migrate to the modern ``ok`` key. The
-        # caller (``_normalize_result``) maps ``None`` to "" for
-        # the ToolResult field; the dict is still carried as
-        # ``normalized`` so downstream code can read
-        # ``error_code`` from the payload if it wants to.
+        # Legacy "success" key fallback. v4.1: error_code is NO
+        # LONGER discarded. On success, code is None; on
+        # failure, the handler's own error_code / code is
+        # preferred. If the handler provides neither, the
+        # normalised code is "LEGACY_FAILURE" — so audit /
+        # retry / finalizer always see a non-empty string.
         if "success" in result:
             ok = bool(result["success"])
             if ok:
                 return _STATUS_SUCCESS, None, result
-            return _STATUS_FAIL, None, result
+            raw = result.get("error_code") or result.get("code") or ""
+            norm = raw if raw else _LEGACY_FAIL_DEFAULT_CODE
+            return _STATUS_FAIL, norm, result
 
         # Dict with no ok/success keys — treat as success (the
         # absence of an error declaration is the legacy convention).
@@ -248,6 +247,8 @@ class ToolRuntime:
                 success=False,
                 error=f"Tool '{node.tool}' has no registered handler",
                 error_code="TOOL_NOT_REGISTERED",
+                error_code_raw="",
+                error_code_norm="TOOL_NOT_REGISTERED",
                 latency_ms=elapsed,
                 retry_count=0,
             )
@@ -272,6 +273,8 @@ class ToolRuntime:
                 success=False,
                 error=f"Tool execution timed out after {self._config.single_node_timeout_ms}ms",
                 error_code="TOOL_TIMEOUT",
+                error_code_raw="",
+                error_code_norm="TOOL_TIMEOUT",
                 latency_ms=elapsed,
                 retry_count=node.retry_count,
             )
@@ -283,6 +286,8 @@ class ToolRuntime:
                 success=False,
                 error=f"{type(e).__name__}: {e}",
                 error_code="TOOL_EXCEPTION",
+                error_code_raw="",
+                error_code_norm="TOOL_EXCEPTION",
                 latency_ms=elapsed,
                 retry_count=node.retry_count,
             )
@@ -441,10 +446,19 @@ def _normalize_result(
 
     status, error_code, normalized = resolve_tool_outcome(handler_result)
     success = status == _STATUS_SUCCESS
-    # On SUCCESS, error_code is None — normalise to "" so the
-    # ToolResult dataclass field (typed as str) stays consistent.
-    error_code_str = error_code or ""
+    error_code_norm = error_code or ""
     error_message = extract_error(handler_result) if not success else ""
+
+    # v4.1: preserve raw error_code from handler's return value
+    # so audit/retry can distinguish handler-declared codes from
+    # normalised fallbacks.
+    error_code_raw = ""
+    if isinstance(handler_result, dict):
+        error_code_raw = (
+            handler_result.get("error_code")
+            or handler_result.get("code")
+            or ""
+        )
 
     return ToolResult(
         node_id=node.id,
@@ -452,7 +466,9 @@ def _normalize_result(
         success=success,
         data=normalized,
         error=error_message or None,
-        error_code=error_code_str,
+        error_code=error_code_norm,
         latency_ms=elapsed_ms,
         retry_count=node.retry_count,
+        error_code_raw=str(error_code_raw) if error_code_raw else "",
+        error_code_norm=str(error_code_norm),
     )
