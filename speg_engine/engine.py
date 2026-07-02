@@ -941,25 +941,26 @@ class SPEGEngine:
             return result
 
         except SystemUnstableError as sue:
-            # ── Failure Semantics: explicit post-abort behavior ──
+            # ── Failure Semantics + Execution Contract ──────────
             from .failure_semantics import (
                 FailurePolicy, FailureContext,
                 degraded_result, retry_session_result,
             )
+            from .failure_execution_contract import (
+                apply_stop_contract,
+                apply_degrade_contract,
+                apply_retry_contract,
+            )
             from .runtime_contracts import FailureSemanticsContract
 
-            assert FailurePolicy.AFTER_ABORT_BEHAVIOR is not None, (
-                "FailurePolicy.AFTER_ABORT_BEHAVIOR is None"
-            )
-            assert "SYSTEM_UNSTABLE_ERROR" in FailurePolicy.AFTER_ABORT_BEHAVIOR, (
-                "SYSTEM_UNSTABLE_ERROR not in FailurePolicy.AFTER_ABORT_BEHAVIOR"
-            )
+            assert FailurePolicy.AFTER_ABORT_BEHAVIOR is not None
+            assert "SYSTEM_UNSTABLE_ERROR" in FailurePolicy.AFTER_ABORT_BEHAVIOR
 
             fctx = FailureContext(sue, sue.report)
             behavior = FailurePolicy.behaviour_for("SYSTEM_UNSTABLE_ERROR")
 
             if behavior == "STOP":
-                # Re-raise: terminal, no recovery
+                exec_contract = apply_stop_contract(ctx)
                 errors.append(build_error(
                     "SYSTEM_UNSTABLE",
                     f"SystemUnstableError: {sue}",
@@ -975,29 +976,32 @@ class SPEGEngine:
                     extra={
                         "failure_context": fctx.to_dict(),
                         "failure_behavior": behavior,
+                        "execution_contract": exec_contract,
                     },
                 )
 
             elif behavior == "DEGRADE":
+                exec_contract = apply_degrade_contract(ctx, fctx)
                 degraded = degraded_result(fctx)
-                final_response = str(degraded.get("reason", ""))
                 result.metadata["failure_context"] = fctx.to_dict()
                 result.metadata["failure_behavior"] = behavior
-                result.metadata["stability_report"] = collector.to_dict() if 'collector' in dir() else {}
+                result.metadata["execution_contract"] = exec_contract
+                result.metadata["stability_report"] = sue.report.to_dict()
                 return result
 
             elif behavior == "RETRY_SESSION":
+                exec_contract = apply_retry_contract(ctx, fctx)
                 retry = retry_session_result(fctx)
                 result.metadata["failure_context"] = fctx.to_dict()
                 result.metadata["failure_behavior"] = behavior
+                result.metadata["execution_contract"] = exec_contract
                 result.metadata["retry_allowed"] = fctx.recoverable
-                result.metadata["stability_report"] = collector.to_dict() if 'collector' in dir() else {}
+                result.metadata["stability_report"] = sue.report.to_dict()
                 return result
 
             else:
-                # Unmapped behavior — hard assertion
                 raise AssertionError(
-                    f"Unmapped failure behavior '{behavior}' for SYSTEM_UNSTABLE_ERROR"
+                    f"Unmapped failure behavior '{behavior}'"
                 )
 
         except Exception as e:
