@@ -176,9 +176,8 @@ def main():
     # query_engine_connected
     try:
         from agent.runtime.query_engine import StreamEvent, classify_error, build_trace_id
-        runner_src = open('agent/runtime/runner.py').read()
-        context_stage_src = open('agent/runtime/stages/context.py').read()
-        qe_connected = 'classify_error' in runner_src and 'build_trace_id' in context_stage_src
+        runtime_src = open('agent/runtime/ssot_runtime.py').read()
+        qe_connected = 'build_trace_id' in runtime_src
         print(f"  query_engine_connected: {'✅' if qe_connected else '❌'}")
     except Exception:
         print("  query_engine_connected: ❌")
@@ -201,21 +200,23 @@ def main():
     
     # sub_agent_consistent
     try:
-        sa_src = open('agent/runtime/sub_agent.py').read()
-        sa_ok = 'visible_tool_ids' in sa_src and '"ok": False' in sa_src
+        sa_src = open('agent/runtime/durable/subagent.py').read()
+        tool_src = open('core/tools/general_tools/agent_tools.py').read()
+        sa_ok = 'run_subagent_task' in sa_src and 'create_subagent_task' in sa_src and 'agent.manage' in tool_src
         print(f"  sub_agent_consistent: {'✅' if sa_ok else '❌'}")
     except Exception:
         print("  sub_agent_consistent: ❌")
     
     # memory_semantics_ok
     gt_src = open('core/tools/general_tools/memory_tools.py').read()
-    mem_ok = 'include_deleted' in gt_src
+    api_src = open('backend/api/memory_routes.py').read()
+    mem_ok = 'MemoryWriteGate' in gt_src and 'include_deleted' in api_src
     print(f"  memory_semantics_ok: {'✅' if mem_ok else '❌'}")
     
     # agent_team_preview
-    gt_src2 = open('core/tools/general_tools/registry.py').read()
-    team_preview = 'PREVIEW' in gt_src2 or 'demo' in open('agent/runtime/sub_agent.py').read().lower()
-    print(f"  agent_team_preview_status: {'PREVIEW (correctly marked)' if team_preview else '⚠️ check agent.team status'}")
+    agent_tool_src = open('core/tools/general_tools/agent_tools.py').read()
+    team_preview = 'PREVIEW' in agent_tool_src or 'preview' in agent_tool_src.lower()
+    print(f"  agent_team_preview_status: {'PREVIEW (correctly marked)' if team_preview else 'production path'}")
     
     # workspace_isolation_ok
     from agent.tools.registry import ToolRegistry

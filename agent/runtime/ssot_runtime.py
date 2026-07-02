@@ -49,13 +49,22 @@ def run_ssot_turn(
     session_id = getattr(session, "session_id", "") or getattr(turn.op, "session_id", "")
     user_input = (getattr(turn.op, "user_input", "") or "").strip()
     metadata_in = dict(getattr(turn.op, "metadata", {}) or {})
+    _graph_run_started(
+        run_id=turn.turn_id,
+        workspace_id=workspace_id,
+        session_id=session_id,
+        trace_id=trace_id,
+        user_input=user_input,
+    )
 
-    # ── v3.14: Conversation Context Injection ───────────────────────
-    # Build structured ConversationContext from session history with
-    # token-budgeted recent window, session summary, and history
-    # reference resolution via message_store.
-    metadata_in["__raw_user_input"] = user_input  # needed for ref resolution
-    _inject_conversation_context(session, metadata_in)
+    # ── Build canonical conversation context for prompt injection ──
+    metadata_in["__raw_user_input"] = user_input
+    history_block = _build_history_block(session, user_input=user_input)
+    if history_block:
+        metadata_in["conversation_history_block"] = history_block
+
+    # Build tool registry once — used for both metadata and engine
+    ssot_registry = _build_ssot_runtime_tool_registry(allowed_tool_ids)
 
     context = SimpleNamespace(
         workspace_id=workspace_id,
@@ -68,7 +77,7 @@ def run_ssot_turn(
             "transport": metadata_in.get("transport", ""),
             "stream_mode": metadata_in.get("stream_mode", ""),
             "intent": "assistant_chat",
-            "visible_tools": sorted(_build_ssot_runtime_tool_registry(allowed_tool_ids).keys()),
+            "visible_tools": sorted(ssot_registry.keys()),
             "requested_by": requested_by,
         },
     )
@@ -87,6 +96,7 @@ def run_ssot_turn(
             allowed_tool_ids=allowed_tool_ids,
             requested_by=requested_by,
             emitter=emitter,
+            prebuilt_registry=ssot_registry,
         )
         runtime_result = _run_async(
             engine.run(
@@ -168,7 +178,7 @@ def run_ssot_turn(
                 )
             else:
                 # User denied — return rejection result
-                return AgentResult(
+                denied_result = AgentResult(
                     ok=True,
                     final_response="操作已取消（审批未通过）。",
                     events=events,
@@ -183,6 +193,15 @@ def run_ssot_turn(
                         "approval_denied": True,
                     },
                 )
+                _graph_run_finished(
+                    run_id=turn.turn_id,
+                    result=denied_result,
+                    runtime_result=None,
+                    user_input=user_input,
+                )
+                _sync_session_history(session, user_input, denied_result.final_response)
+                persist_run_record(session, turn, denied_result, context)
+                return denied_result
 
         final_response = _final_response(runtime_result)
         tool_calls = _project_tool_calls(runtime_result)
@@ -273,6 +292,12 @@ def run_ssot_turn(
 
     # ── Section 2: unified exit — sync session.history for both success
     #    and exception paths so the next turn always has context.
+    _graph_run_finished(
+        run_id=turn.turn_id,
+        result=result,
+        runtime_result=locals().get("runtime_result"),
+        user_input=user_input,
+    )
     _sync_session_history(session, user_input, result.final_response)
 
     persist_run_record(session, turn, result, context)
@@ -288,6 +313,7 @@ def _build_engine(
     allowed_tool_ids=None,
     requested_by: str,
     emitter: Any | None = None,
+    prebuilt_registry: dict[str, dict[str, Any]] | None = None,
 ):
     from core.runtime_engine import SSOTRuntimeConfig, SSOTRuntimeEngine
 
@@ -301,7 +327,7 @@ def _build_engine(
         single_node_timeout_ms=120_000,
         parallel_layer_timeout_ms=300_000,
     )
-    registry = _build_ssot_runtime_tool_registry(allowed_tool_ids)
+    registry = prebuilt_registry or _build_ssot_runtime_tool_registry(allowed_tool_ids)
     engine_kwargs: dict[str, Any] = {
         "config": config,
         "llm_invoke": _invoke_llm_for_ssot_runtime,
@@ -397,21 +423,16 @@ def _make_tool_handler(
 
 def _invoke_llm_for_ssot_runtime(**kwargs) -> str:
     from agent.llm.runtime import invoke_llm
+    from agent.runtime.token_tracker import record_llm_call
 
     system = str(kwargs.get("system") or "")
     user = str(kwargs.get("user") or "")
     is_planner = "execution planner" in system.lower()
     caller_extra = kwargs.get("extra") or {}
+    tools = kwargs.get("tools") or None
+    session_id = kwargs.get("session_id") or "unknown"
+    workspace_id = kwargs.get("workspace_id") or "default"
 
-    # v3.11 (stream scope): planner tokens are internal-only
-    # (stream_to_user=False); finalizer tokens are user-visible
-    # (stream_to_user=True).  This prevents planner JSON / tool
-    # selection from leaking into the user-facing token channel, and
-    # ensures first_answer_token_ms measures the *answer* token,
-    # not the planner's first token.
-    #
-    # When the caller provides its own ``extra`` (e.g. direct-answer
-    # fast path), it takes precedence over the auto-detected values.
     extra = {
         "runtime_engine": "ssot_runtime",
         "planner": is_planner,
@@ -421,14 +442,10 @@ def _invoke_llm_for_ssot_runtime(**kwargs) -> str:
     if caller_extra:
         extra.update(caller_extra)
 
-    # v3.16: forward timeout from caller (finalizer passes
-    # finalizer_timeout_ms) so it is not silently dropped.
     config_override = None
     timeout = kwargs.get("timeout")
     if timeout is not None:
         config_override = {"timeout": int(timeout)}
-
-    sid = kwargs.get("extra", {}).get("session_id", "?")[:8]
 
     resp = invoke_llm(
         task="assistant_chat",
@@ -436,15 +453,47 @@ def _invoke_llm_for_ssot_runtime(**kwargs) -> str:
             LLMMessage(role="system", content=system),
             LLMMessage(role="user", content=user),
         ],
-        tools=None,
+        tools=tools,
         user_input=user,
         extra=extra,
         config_override=config_override,
     )
 
+    # Track token usage
+    try:
+        record_llm_call(
+            input_tokens=resp.usage_input_tokens or 0,
+            output_tokens=resp.usage_output_tokens or 0,
+            session_id=session_id,
+            workspace_id=workspace_id,
+            model=resp.model or "",
+            provider=resp.provider or "",
+        )
+    except Exception:
+        pass
 
     if resp.error:
         raise RuntimeError(resp.error)
+
+    # Handle tool_calls response (Function Calling mode)
+    if resp.tool_calls:
+        nodes = []
+        for tc in resp.tool_calls:
+            tc_name = tc.get("name", "") if isinstance(tc, dict) else getattr(tc, "name", "")
+            tc_args = tc.get("arguments", "{}") if isinstance(tc, dict) else getattr(tc, "arguments", "{}")
+            if isinstance(tc_args, str):
+                try:
+                    tc_args = json.loads(tc_args)
+                except json.JSONDecodeError:
+                    tc_args = {}
+            nodes.append({
+                "id": f"n{len(nodes)}",
+                "tool": tc_name.replace("__", "."),
+                "args": tc_args,
+                "deps": [],
+            })
+        return json.dumps({"nodes": nodes, "final_response": ""}, ensure_ascii=False)
+
     content = (resp.content or "").strip()
     if is_planner and not _looks_like_plan_json(content):
         return json.dumps({"nodes": [], "final_response": content}, ensure_ascii=False)
@@ -594,7 +643,37 @@ def _project_events(runtime_result, trace_id: str, turn_id: str) -> list[dict[st
             "summary": _tool_summary(tr.data if isinstance(tr.data, dict) else {}, tr),
             "duration_ms": tr.latency_ms,
         })
+    for idx, ev in enumerate((runtime_result.metadata or {}).get("retry_events") or []):
+        if not isinstance(ev, dict):
+            continue
+        events.append({
+            "event_id": f"retry-{turn_id}-{idx}",
+            "event_type": "tool_retry",
+            "type": "tool_retry",
+            "name": "工具自动重试",
+            "status": ev.get("final_status") or ("succeeded" if ev.get("retry_allowed") else "blocked"),
+            "summary": _retry_event_summary(ev),
+            "tool_id": ev.get("tool_id", ""),
+            "node_id": ev.get("node_id", ""),
+            "trace_id": trace_id,
+            "run_id": turn_id,
+            "timestamp": time.time(),
+            "duration_ms": ev.get("duration_ms", 0),
+            "metadata": ev,
+        })
     return events
+
+
+def _retry_event_summary(ev: dict[str, Any]) -> str:
+    tool_id = str(ev.get("tool_id") or ev.get("node_id") or "tool")
+    reason = str(ev.get("reason") or ev.get("error_code") or "")
+    if ev.get("retry_allowed"):
+        if str(ev.get("final_status") or "") == "succeeded":
+            return f"{tool_id} 首次失败后已自动重试并恢复"
+        return f"{tool_id} 已按策略重试，但仍未完成"
+    if ev.get("blocked_by_policy"):
+        return f"{tool_id} 未重试：{reason or '策略禁止重试'}"
+    return f"{tool_id} 未触发重试：{reason or '不满足重试条件'}"
 
 
 def _event(event_type: str, name: str, trace_id: str, turn_id: str, *, started_at: float) -> dict[str, Any]:
@@ -647,459 +726,249 @@ def _current_model_name() -> str:
         return ""
 
 
-# ── v3.14: Conversation Context Injection ──────────────────────────────
+# ── GraphStore SSOT projection ─────────────────────────────────────
 
-# Token budget (approximate chars for CJK; 1 char ≈ 0.5–1.0 tokens).
-_RECENT_WINDOW_MAX_CHARS = 8000
+def _graph_run_started(
+    *,
+    run_id: str,
+    workspace_id: str,
+    session_id: str,
+    trace_id: str,
+    user_input: str,
+) -> None:
+    """Append the production turn boundary to the canonical GraphStore."""
+    try:
+        from core.graph.graph_store import EventType, get_graph_store
 
-# Keep at least this many messages regardless of budget.
-_RECENT_WINDOW_MIN_MESSAGES = 2
+        store = get_graph_store()
+        store.append(EventType.RUN_CREATED, run_id, {
+            "workspace_id": workspace_id,
+            "session_id": session_id,
+            "trace_id": trace_id,
+            "input": user_input,
+        })
+        store.append(EventType.RUN_STARTED, run_id, {
+            "workspace_id": workspace_id,
+            "session_id": session_id,
+            "trace_id": trace_id,
+        })
+    except Exception:
+        _LOG.debug("GraphStore run-start append failed for %s", run_id, exc_info=True)
 
-# Max chars for a single message. Content beyond this is truncated
-# with a note but the turn boundary is still preserved.
-_MAX_SINGLE_MESSAGE_CHARS = 3000
 
-# Max chars for the session_summary block.
-_SESSION_SUMMARY_MAX_CHARS = 2000
+def _graph_run_finished(
+    *,
+    run_id: str,
+    result: AgentResult,
+    runtime_result: Any | None,
+    user_input: str,
+) -> None:
+    """Append planner/tool/final projections for a completed public turn."""
+    try:
+        from core.graph.graph_store import EventType, get_graph_store
 
-# Historical-reference patterns that trigger message_store retrieval.
+        store = get_graph_store()
+        tool_calls = list(getattr(result, "tool_calls", []) or [])
+        nodes = [
+            {
+                "id": str(tc.get("node_id") or tc.get("tool_call_id") or f"node_{i}"),
+                "tool": str(tc.get("tool_id") or tc.get("tool") or ""),
+                "args": dict(tc.get("arguments") or {}),
+                "deps": [],
+            }
+            for i, tc in enumerate(tool_calls)
+            if isinstance(tc, dict)
+        ]
+        store.append(EventType.PLAN_GENERATED, run_id, {
+            "nodes": nodes,
+            "node_count": len(nodes),
+            "user_input": user_input,
+        })
+        for node, tc in zip(nodes, tool_calls):
+            node_id = node["id"]
+            if not isinstance(tc, dict):
+                continue
+            ok = bool(tc.get("ok", tc.get("success", True)))
+            payload = {
+                "node_id": node_id,
+                "tool": node["tool"],
+                "result": {
+                    "ok": ok,
+                    "summary": tc.get("summary") or tc.get("content") or "",
+                    "latency_ms": tc.get("latency_ms", 0),
+                    "artifacts": tc.get("artifacts") or [],
+                },
+            }
+            store.append(EventType.NODE_STARTED, run_id, {
+                "node_id": node_id,
+                "tool": node["tool"],
+            })
+            if ok:
+                store.append(EventType.NODE_COMPLETED, run_id, payload)
+            else:
+                store.append(EventType.NODE_FAILED, run_id, {
+                    **payload,
+                    "error": tc.get("error") or tc.get("summary") or "tool failed",
+                })
+        store.append(EventType.FINAL_RESPONSE, run_id, {
+            "text": getattr(result, "final_response", "") or "",
+        })
+        if getattr(result, "ok", False):
+            store.append(EventType.RUN_COMPLETED, run_id, {})
+        else:
+            store.append(EventType.RUN_FAILED, run_id, {
+                "errors": list(getattr(result, "errors", []) or []),
+                "runtime_errors": list(getattr(runtime_result, "errors", []) or []) if runtime_result else [],
+            })
+    except Exception:
+        _LOG.debug("GraphStore run-finish append failed for %s", run_id, exc_info=True)
+
+
+# ── Conversation history block builder ──────────────────────────────
+
+_HISTORY_MAX_CHARS = 12000
+_HISTORY_RECENT_MESSAGES = 30
+_HISTORY_MESSAGE_MAX_CHARS = 1200
+_HISTORY_SUMMARY_MAX_CHARS = 2500
 _HISTORY_REFERENCE_PATTERNS = (
-    "前面提到的", "刚才那个", "上一个任务", "继续刚才",
-    "之前的", "刚才的", "上次我说的", "我上次说了",
-    "还记得", "你记得", "之前说的", "再之前的",
-    "我说过的", "我提到过", "讨论过", "聊过的",
+    "前面", "之前", "上次", "刚才", "继续", "还记得", "记得",
+    "那个", "上一轮", "前一轮", "前面的", "之前的", "刚才的",
 )
 
 
-def _inject_conversation_context(session, metadata_in: dict[str, Any]) -> None:
-    """Build and inject a full ConversationContext into metadata_in.
+def _build_history_block(session, *, user_input: str = "") -> str:
+    """Build prompt-ready conversation context from the session message SSOT.
 
-    Uses session.history (memory) AND SessionMessageStore (disk) for
-    complete history, with:
-      - recent_messages: token-budgeted complete turns
-      - session_summary: older-message rolling summary
-      - previous_user_message / previous_assistant_message: exact
-      - retrieved_history: cross-turn reference resolution
+    Source order:
+      1. ``SessionMessageStore`` full persisted messages
+      2. in-memory ``session.history`` entries not yet flushed
 
-    Never raises — injection failure must not break the turn, but
-    MUST log the error so diagnostics can see injection failures.
+    The block keeps recent messages verbatim, summarizes older turns, and
+    pulls a small retrieved-history section when the current input references
+    earlier conversation. This preserves long-session entities without reviving
+    a second runtime path.
     """
-    error_reason = None
     try:
-        from core.runtime_engine.models import ConversationContext
+        messages = _load_context_messages(session)
+        if not messages:
+            return ""
 
-        cc = ConversationContext()
-        _populate_from_session(session, cc)
-        _resolve_history_references(session, metadata_in, cc)
-
-        metadata_in["conversation_context"] = cc
-        metadata_in["conversation_history"] = cc.recent_messages
-        metadata_in["session_summary"] = cc.session_summary
-        metadata_in["previous_user_message"] = cc.previous_user_message
-        metadata_in["previous_assistant_message"] = cc.previous_assistant_message
-
-    except Exception as e:
-        error_reason = f"{type(e).__name__}: {e}"
-    finally:
-        if error_reason:
-            metadata_in["conversation_context_error"] = error_reason
-            try:
-                _LOG.warning("Conversation context injection failed: %s", error_reason)
-            except Exception:
-                pass
-
-
-def _populate_from_session(session, cc) -> None:
-    """Populate ConversationContext from the v4 single-source
-    event stream produced by ``build_context_events``.
-
-    The dual-source merge logic that previously lived in this
-    function (reading ``SessionMessageStore`` + ``session.history``
-    in two passes) is now centralised in ``build_context_events``.
-    This function is the only consumer of the merged event
-    stream — it does not touch either source directly.
-    """
-    # ── v4: single source of truth for context events ──────────
-    # The runtime contract ``CONTEXT_EVENT_STREAM_ONLY`` is
-    # enforced by routing every read through this builder.
-    # We honour it explicitly even though the assert at the
-    # top of ``SSOTRuntimeEngine.run`` already guards the engine entry
-    # — defence in depth in case this function is reached via a
-    # non-engine code path (tests, replay, etc.).
-    assert ExecutionContract.CONTEXT_EVENT_STREAM_ONLY, (
-        "v4 contract CONTEXT_EVENT_STREAM_ONLY is off — "
-        "_populate_from_session refuses to merge context "
-        "outside the single builder."
-    )
-
-    all_messages = build_context_events(session)
-
-    # ── 2. Recent window, session summary, previous messages ─────
-    recent, older_start = _build_recent_window(all_messages)
-
-    cc.recent_messages = recent
-    cc.token_estimate = sum(len(m.get("content", "")) for m in recent) // 2
-
-    if older_start > 0:
-        older = all_messages[:older_start]
-        cc.session_summary = _build_session_summary(older)
-
-    prev_user = ""
-    prev_assistant = ""
-    for msg in reversed(all_messages):
-        if msg["role"] == "assistant" and not prev_assistant:
-            prev_assistant = msg["content"]
-        elif msg["role"] == "user" and not prev_user:
-            prev_user = msg["content"]
-        if prev_user and prev_assistant:
-            break
-    cc.previous_user_message = prev_user
-    cc.previous_assistant_message = prev_assistant
-
-
-def build_context_events(session) -> list[dict[str, str]]:
-    """v4 single-source context event builder.
-
-    Reads the in-memory ``session.history`` and the on-disk
-    ``SessionMessageStore`` exactly once each, normalises both
-    into a uniform ``{role, content, created_at}`` shape, sorts
-    by ``created_at`` chronologically, and deduplicates by
-    ``(role, content[:80])``.
-
-    Returns the merged, sorted, deduplicated event list. Every
-    other call site that needs the conversation history MUST
-    go through this builder — manual dual-merge outside the
-    builder is forbidden by the v4
-    ``CONTEXT_EVENT_STREAM_ONLY`` contract.
-
-    Notes:
-      * ``session.history`` entries are objects with ``role`` /
-        ``content`` attributes; ``created_at`` is absent so the
-        builder assigns a sequence-ordered timestamp (current
-        millis + index) to preserve the in-memory ordering.
-      * ``SessionMessageStore.get_messages()`` returns dicts
-        with ``role`` / ``content`` / ``created_at`` keys (or
-        empty string when missing); the builder passes the
-        timestamp through directly.
-      * If the disk read fails (corrupt store, missing dir, etc.)
-        the builder falls back to the in-memory list — the same
-        fallback the v3.10 path used, but now centralised.
-    """
-    ws_id = getattr(session, "workspace_id", "") or "default"
-    sid = getattr(session, "session_id", "")
-
-    # ── 1. Read from SessionMessageStore (disk) ──────────────────
-    disk_events: list[dict[str, str]] = []
-    if sid:
-        try:
-            from workspace.message_store import SessionMessageStore
-            store = SessionMessageStore(session_id=sid, ws_id=ws_id)
-            raw = store.get_messages()
-            for m in raw:
-                role = m.get("role", "")
-                content = m.get("content", "")
-                if role in ("user", "assistant") and content.strip():
-                    disk_events.append({
-                        "role": role,
-                        "content": content,
-                        "created_at": str(m.get("created_at", "") or ""),
-                        "_source": "disk",
-                    })
-        except Exception:
-            # Disk read failure — fall back to in-memory only.
-            # The fallback is contained: the builder returns a
-            # valid event list even if the store is unavailable.
-            disk_events = []
-
-    # ── 2. Read from session.history (in-memory) ─────────────────
-    history_entries = getattr(session, "history", None) or []
-    mem_events: list[dict[str, str]] = []
-    # Use a millis offset that grows per entry so in-memory
-    # events that lack ``created_at`` still get a stable
-    # chronological order. We use the current epoch as the base
-    # so they sort after older disk events from earlier turns.
-    base_ts = _now_ms()
-    for idx, msg in enumerate(history_entries):
-        role = str(getattr(msg, "role", "") or "")
-        content = str(getattr(msg, "content", "") or "")
-        if role in ("user", "assistant") and content.strip():
-            mem_events.append({
-                "role": role,
-                "content": content,
-                "created_at": str(base_ts + idx),
-                "_source": "memory",
-            })
-
-    # ── 3. Merge: disk first, then memory ─────────────────────
-    events: list[dict[str, str]] = disk_events + mem_events
-    # v4.2: global causality — assign monotonic causal_index from
-    # GlobalCausalityClock so cross-session replay is deterministic.
-    from core.runtime_engine.runtime_contracts import (
-        GlobalCausalityClock,
-        ExecutionSemanticsContract,
-        CausalIndexGuard,
-        CausalityViolationError,
-    )
-    for ev in events:
-        ev["_causal_index"] = GlobalCausalityClock.next()
-        ev["global_causal_index"] = ev["_causal_index"]
-    events.sort(key=lambda ev: ev.get("_causal_index", 0))
-
-    # v6: enforce causal_index on every event
-    if ExecutionSemanticsContract.CAUSAL_ORDER_STRICT:
-        try:
-            CausalIndexGuard.validate(events)
-        except CausalityViolationError:
-            # If validation fails, assign fallback index
-            for i, ev in enumerate(events):
-                if not ev.get("_causal_index"):
-                    ev["_causal_index"] = GlobalCausalityClock.next()
-                    ev["global_causal_index"] = ev["_causal_index"]
-
-    # ── 4. Deduplicate by (role, content[:80]) ───────────────────
-    seen: set[tuple[str, str]] = set()
-    deduped: list[dict[str, str]] = []
-    for ev in events:
-        key = (ev["role"], ev["content"][:80])
-        if key in seen:
-            continue
-        seen.add(key)
-        deduped.append({
-            "role": ev["role"],
-            "content": ev["content"],
-            "_causal_index": ev["_causal_index"],
-        })
-
-    # v6: return immutable ContextSnapshot
-    if ExecutionSemanticsContract.SINGLE_CONTEXT_SOURCE:
-        from core.runtime_engine.runtime_contracts import ContextSnapshot
-        return list(ContextSnapshot(deduped))
-    return deduped
-
-
-def _now_ms() -> int:
-    """Return the current epoch in milliseconds. Used as a
-    timestamp base for in-memory events that lack ``created_at``."""
-    import time as _time
-    return int(_time.time() * 1000)
-
-
-def _event_sort_key(ev: dict[str, str]) -> tuple:
-    """Sort key for context events.
-
-    Sorts by ``created_at`` ascending. Empty timestamps sort
-    *first* (oldest possible position) so disk events that lost
-    their timestamp don't bunch up at the end. The secondary
-    key is the role so equal timestamps get a stable order
-    (user before assistant for the same turn).
-    """
-    ts = ev.get("created_at", "")
-    # Empty timestamps sort first.
-    if not ts:
-        return (0, 0, ev.get("role", ""))
-    # Numeric ms timestamps sort numerically; ISO strings sort
-    # lexicographically (which is correct for ISO-8601).
-    try:
-        return (1, int(ts), ev.get("role", ""))
-    except (TypeError, ValueError):
-        return (1, ts, ev.get("role", ""))
-
-
-def _build_recent_window(
-    all_messages: list[dict[str, str]],
-) -> tuple[list[dict[str, str]], int]:
-    """Walk backwards through messages, keeping complete turns.
-
-    A "turn" = user message followed by its assistant reply. We keep
-    complete turns while the total char count is within budget, but we
-    always keep at least ``_RECENT_WINDOW_MIN_MESSAGES``.
-
-    Returns:
-        (recent, older_start): recent is in chronological order;
-        older_start is the index in all_messages at which the recent
-        window begins (i.e. all_messages[:older_start] are the older
-        messages).
-    """
-    if not all_messages:
-        return [], 0
-
-    # Segment into turns: pair user→assistant messages.
-    turns: list[list[dict[str, str]]] = []
-    current_turn: list[dict[str, str]] = []
-    for msg in all_messages:
-        current_turn.append(msg)
-        if msg["role"] == "assistant":
-            turns.append(current_turn)
-            current_turn = []
-    if current_turn:
-        # Lone user message at end
-        turns.append(current_turn)
-
-    # Walk backwards through turns.
-    selected_turns: list[list[dict[str, str]]] = []
-    total_chars = 0
-    min_reached = False
-
-    for turn in reversed(turns):
-        turn_chars = sum(len(m.get("content", "")) for m in turn)
-        turn_chars_capped = sum(
-            min(len(m.get("content", "")), _MAX_SINGLE_MESSAGE_CHARS)
-            for m in turn
-        )
-
-        if total_chars + turn_chars_capped > _RECENT_WINDOW_MAX_CHARS:
-            if len(selected_turns) * 2 >= _RECENT_WINDOW_MIN_MESSAGES:
-                # Budget exceeded and we've met min → stop.
-                break
-            # Haven't met min yet → include anyway (truncated).
-            min_reached = False
-
-        selected_turns.append(turn)
-        total_chars += turn_chars_capped
-        if len(selected_turns) * 2 >= _RECENT_WINDOW_MIN_MESSAGES:
-            min_reached = True
-
-    selected_turns.reverse()
-
-    # Flatten turns back into chronological messages.
-    recent: list[dict[str, str]] = []
-    for turn in selected_turns:
-        for msg in turn:
-            content = msg.get("content", "")
-            if len(content) > _MAX_SINGLE_MESSAGE_CHARS:
-                content = content[:_MAX_SINGLE_MESSAGE_CHARS] + "\n...[truncated]"
-            recent.append({"role": msg["role"], "content": content})
-
-    # Find older_start boundary.
-    older_start = len(all_messages) - len(recent)
-    return recent, max(0, older_start)
-
-
-def _build_session_summary(older_messages: list[dict[str, str]]) -> str:
-    """Build a brief summary from older messages using pattern extraction.
-
-    Since we want to avoid an LLM call for summary generation, we
-    extract key phrases: first 80 chars of each message, concatenated
-    with turn markers. The LLM (planner/finalizer/direct-answer) can
-    use this as supplementary context.
-    """
-    if not older_messages:
+        recent = messages[-_HISTORY_RECENT_MESSAGES:]
+        older = messages[:-_HISTORY_RECENT_MESSAGES]
+        parts: list[str] = []
+        if older:
+            summary = _summarize_older_messages(older)
+            if summary:
+                parts.append("SESSION SUMMARY:\n" + summary)
+        retrieved = _retrieve_history_references(messages, user_input)
+        if retrieved:
+            parts.append("RETRIEVED HISTORY:\n" + "\n".join(
+                f"  [{m['role']}] {_truncate(m['content'], _HISTORY_MESSAGE_MAX_CHARS)}"
+                for m in retrieved
+            ))
+        if recent:
+            parts.append("RECENT CONVERSATION HISTORY:\n" + "\n".join(
+                f"  [{m['role']}] {_truncate(m['content'], _HISTORY_MESSAGE_MAX_CHARS)}"
+                for m in recent
+            ))
+        block = "\n\n".join(parts)
+        return _truncate(block, _HISTORY_MAX_CHARS)
+    except Exception:
+        _LOG.debug("conversation history block build failed", exc_info=True)
         return ""
 
+
+def _load_context_messages(session) -> list[dict[str, str]]:
+    messages: list[dict[str, str]] = []
+    seen: set[str] = set()
+    ws_id = str(getattr(session, "workspace_id", "") or "")
+    session_id = str(getattr(session, "session_id", "") or "")
+    if ws_id and session_id:
+        try:
+            from workspace.message_store import SessionMessageStore
+
+            for m in SessionMessageStore(session_id=session_id, ws_id=ws_id).get_messages():
+                _append_context_message(messages, seen, m)
+        except Exception:
+            _LOG.debug("SessionMessageStore history read failed for %s", session_id, exc_info=True)
+
+    for i, msg in enumerate(list(getattr(session, "history", None) or [])):
+        role = str(getattr(msg, "role", "") or "")
+        content = str(getattr(msg, "content", "") or "")
+        _append_context_message(messages, seen, {
+            "message_id": getattr(msg, "id", "") or getattr(msg, "message_id", "") or f"mem:{i}:{role}:{content[:40]}",
+            "role": role,
+            "content": content,
+        })
+    return messages
+
+
+def _append_context_message(messages: list[dict[str, str]], seen: set[str], raw: Any) -> None:
+    if not isinstance(raw, dict):
+        return
+    role = str(raw.get("role") or "")
+    content = str(raw.get("content") or "").strip()
+    if role not in ("user", "assistant") or not content:
+        return
+    key = str(raw.get("message_id") or raw.get("id") or raw.get("run_id") or f"{role}:{content[:80]}")
+    if key in seen:
+        return
+    seen.add(key)
+    messages.append({"role": role, "content": content})
+
+
+def _summarize_older_messages(messages: list[dict[str, str]]) -> str:
     lines: list[str] = []
-    max_items = min(len(older_messages), 16)  # Cap at 16 older messages
-
-    for msg in older_messages[-max_items:]:
-        content = (msg.get("content") or "").strip()
-        if len(content) > 200:
-            content = content[:200] + "…"
-        role = msg.get("role", "?")
-        lines.append(f"  [{role}] {content}")
-
-    summary = "\n".join(lines)
-    if len(summary) > _SESSION_SUMMARY_MAX_CHARS:
-        summary = summary[:_SESSION_SUMMARY_MAX_CHARS] + "\n…[older messages omitted]"
-
-    return summary
-
-
-def _resolve_history_references(session, metadata_in: dict[str, Any], cc) -> None:
-    """If the current user input contains a history-reference pattern,
-    retrieve the referenced context from SessionMessageStore (disk)
-    and set cc.retrieved_history.
-
-    This handles queries like "前面提到的 TCP 文件路径是什么" where
-    session.history may not reach back far enough.
-    """
-    user_input = metadata_in.get("__raw_user_input") or ""
-    if not user_input:
-        return
-
-    text = user_input.strip()
-    has_ref = any(pat in text for pat in _HISTORY_REFERENCE_PATTERNS)
-    if not has_ref:
-        return
-
-    try:
-        ws_id = getattr(session, "workspace_id", "") or "default"
-        sid = getattr(session, "session_id", "")
-        if not sid:
-            return
-
-        from workspace.message_store import SessionMessageStore
-        store = SessionMessageStore(session_id=sid, ws_id=ws_id)
-        all_msgs = store.get_messages()
-
-        if not all_msgs:
-            return
-
-        # Extract reference keywords from user input for matching.
-        # Simple keyword intersection with message content.
-        ref_terms = _extract_reference_terms(text)
-        if not ref_terms:
-            # No specific terms → retrieve last 4 messages as reference.
-            reference = all_msgs[-4:]
-            for m in reference:
-                content = m.get("content", "")[:1000]
-                cc.retrieved_history.append({
-                    "role": m.get("role", "unknown"),
-                    "content": content,
-                })
-            return
-
-        # Search back through history for matching terms.
-        matched: list[dict[str, str]] = []
-        for m in reversed(all_msgs):
-            content = m.get("content", "").lower()
-            if any(term.lower() in content for term in ref_terms):
-                matched.insert(0, {
-                    "role": m.get("role", "unknown"),
-                    "content": m.get("content", "")[:1000],
-                })
-            if len(matched) >= 4:
-                break
-
-        cc.retrieved_history = matched
-
-    except Exception:
-        pass
+    for m in messages:
+        content = m["content"]
+        if _looks_context_important(content):
+            lines.append(f"  [{m['role']}] {_truncate(content, 350)}")
+        if len("\n".join(lines)) >= _HISTORY_SUMMARY_MAX_CHARS:
+            break
+    if not lines and messages:
+        sample = messages[:3] + messages[-3:]
+        for m in sample:
+            lines.append(f"  [{m['role']}] {_truncate(m['content'], 220)}")
+    if not lines:
+        return ""
+    return _truncate("\n".join(lines), _HISTORY_SUMMARY_MAX_CHARS)
 
 
-def _extract_reference_terms(text: str) -> list[str]:
-    """Extract likely reference terms from user input.
-
-    These are nouns/phrases that appear near history-reference words.
-    """
-    # Strip the reference pattern words and split remaining into terms.
-    for pat in _HISTORY_REFERENCE_PATTERNS:
-        text = text.replace(pat, " ")
-
-    # Extract meaningful CJK/ASCII terms (2+ chars).
-    import re
-    tokens = re.findall(r'[\u4e00-\u9fff]{2,}|[a-zA-Z0-9_-]{3,}', text)
-
-    # Filter stop words and short tokens.
-    stop_words = {"的", "了", "是", "在", "我", "你", "他", "她", "它",
-                  "吗", "吧", "呢", "啊", "哦", "嗯", "什么", "怎么",
-                  "这个", "那个", "一个", "可以", "应该", "需要",
-                  "the", "a", "an", "is", "are", "was", "were", "be"}
-    return [t for t in tokens if t.lower() not in stop_words]
+def _retrieve_history_references(messages: list[dict[str, str]], user_input: str) -> list[dict[str, str]]:
+    text = (user_input or "").strip()
+    if not text or not any(p in text for p in _HISTORY_REFERENCE_PATTERNS):
+        return []
+    terms = {
+        token.strip("，。,.、：:；;（）()[]【】\"'")
+        for token in text.replace("/", " ").replace("-", " ").split()
+        if len(token.strip()) >= 2
+    }
+    important: list[dict[str, str]] = []
+    for m in messages[:-_HISTORY_RECENT_MESSAGES]:
+        content = m["content"]
+        if (terms and any(t in content for t in terms)) or _looks_context_important(content):
+            important.append(m)
+    return important[-8:]
 
 
-# ── Section 1: Session history sync ────────────────────────────────────
+def _looks_context_important(text: str) -> bool:
+    markers = (
+        "ASBR", "BGP", "OSPF", "IP", "设备", "巡检", "区域", "CMDB",
+        "报告", "资产", "故障", "异常", "配置", "记住", "总结", "结论",
+    )
+    return any(m in text for m in markers)
+
+
+def _truncate(text: str, limit: int) -> str:
+    if len(text) <= limit:
+        return text
+    return text[: max(0, limit - 1)] + "…"
+
+
+# ── Session history sync ──────────────────────────────────────
 
 def _sync_session_history(session, user_input: str, final_response: str) -> None:
-    """Append current turn to session.history immediately.
-
-    Before this fix, session.history was only restored from disk on
-    session init.  Active sessions' in-memory history was never
-    updated after a turn, so the next turn's ``_inject_conversation_context``
-    saw stale data and follow-up queries ("什么意思", "我上句话说了什么")
-    would lose context.
-
-    Dedup: if the last two entries already match, skip (handles
-    retry/re-submit scenarios).
-    """
+    """Append current turn to session.history for context in next turns."""
     try:
         from agent.protocol.message import UserMessage, AssistantMessage
 

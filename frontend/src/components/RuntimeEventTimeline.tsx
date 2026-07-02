@@ -40,6 +40,7 @@ function stepLabel(evt: RuntimeEvent): string {
 function stepColor(evt: RuntimeEvent): string {
   const t = (evt.event_type || evt.type || "").toLowerCase();
   if (t.includes("error")) return "var(--danger)";
+  if (t.includes("retry")) return "var(--accent)";
   if (t.includes("warn"))  return "var(--warn)";
   if (t.includes("tool"))  return "var(--warn)";
   if (t.includes("model")) return "var(--accent)";
@@ -103,6 +104,9 @@ const ResultBody: React.FC<{ result: AgentResult }> = React.memo(({ result }) =>
   const tools = result.tool_calls ?? [];
   const hasDiag = !!(result.errors?.length) || !!(result.warnings?.length);
   const allArtifacts = tools.flatMap((t) => t.artifacts ?? []);
+  const retrySummary = result.metadata?.retry_summary || {};
+  const retryEvents = result.metadata?.retry_events || [];
+  const retryAttempts = Number(retrySummary.retry_attempts || 0);
 
   // Merge tool calls into events
   const toolMap = new Map<string, ToolCallResult>();
@@ -134,6 +138,23 @@ const ResultBody: React.FC<{ result: AgentResult }> = React.memo(({ result }) =>
           <ToolChip key={`tc-orphan-${tc.call_id}`} tc={tc} />
         ))}
       </div>
+
+      {retryAttempts > 0 || retryEvents.length > 0 ? (
+        <div className="rt-retry-summary">
+          <span className="rt-art-label">自动重试 · {retryAttempts}</span>
+          <div className="rt-retry-items">
+            {retryEvents.slice(0, 5).map((ev, i) => (
+              <span
+                key={`${ev.node_id || ev.tool_id || "retry"}-${i}`}
+                className={`rt-retry-chip ${ev.retry_allowed ? "ok" : "muted"}`}
+              >
+                {toolLabel(String(ev.tool_id || ev.node_id || "工具"))}
+                {ev.retry_allowed ? " 已尝试" : " 未重试"}
+              </span>
+            ))}
+          </div>
+        </div>
+      ) : null}
 
       {/* artifacts */}
       {allArtifacts.length > 0 && (

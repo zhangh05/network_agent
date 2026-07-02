@@ -9,6 +9,8 @@
 3. **显式 workspace**：所有跨数据边界操作必须带已验证 `workspace_id`。
 4. **能力只描述，工具才执行**：业务能力目录用于提示和 UI，不参与 handler 注册。
 5. **最新口径优先**：不为旧 API、旧工具名、旧文档叙述保留分支。
+6. **GraphStore SSOT**：运行时与投影状态先写入 append-only GraphStore event log；run/message/artifact/memory 文件只是读模型投影。
+7. **Function Calling**：工具 schema 通过 LLM 的 `tools` 参数传递，不文本 dump 到 prompt。
 
 ## 主链路
 

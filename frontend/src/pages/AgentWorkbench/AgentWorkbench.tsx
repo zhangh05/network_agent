@@ -56,6 +56,28 @@ function _humanFailure(errorType: string | undefined, errorText: string): { msg:
   return { msg: text, retryable: true };
 }
 
+function retryStats(result?: AgentResult) {
+  const summary = result?.metadata?.retry_summary || {};
+  const events = result?.metadata?.retry_events || [];
+  return {
+    summary,
+    events,
+    attempts: Number(summary.retry_attempts || 0),
+    succeeded: Number(summary.retry_succeeded || 0),
+    failed: Number(summary.retry_failed || 0),
+    blocked: Number(summary.retry_blocked || 0),
+  };
+}
+
+function buildAlternativePrompt(lastUserInput: string): string {
+  return [
+    lastUserInput,
+    "",
+    "上一次执行未完全成功。请先复盘失败原因，再换一种等价方案继续完成任务。",
+    "要求：不要重复同一个失败命令或同一组失败参数；如果工具失败是环境缺失，请选择可用的替代命令或说明需要用户补充的信息。",
+  ].join("\n");
+}
+
 export function TaskWorkbench() {
   const { currentWorkspaceId, currentSessionId } = useSessionStore();
   const sending = useWorkbenchStore((s) => s.sending);
@@ -838,11 +860,8 @@ export function TaskWorkbench() {
               <ResultInline
                 result={m.result}
                 fallbackText={sanitizeAssistantText(m.text)}
-                onRetryAlternative={idx === total - 1 && lastUserInput ? () => onSend([
-                  lastUserInput,
-                  "",
-                  "上一次工具调用未完成。请不要重复同一个失败命令或参数，换一种等价方案继续完成任务，并说明你换了什么方案。",
-                ].join("\n")) : undefined}
+                onRetryOriginal={idx === total - 1 && lastUserInput ? () => onSend(lastUserInput) : undefined}
+                onRetryAlternative={idx === total - 1 && lastUserInput ? () => onSend(buildAlternativePrompt(lastUserInput)) : undefined}
               />
             </>
           )}
@@ -964,7 +983,12 @@ export function TaskWorkbench() {
             <span>{_humanFailure(lastResult.error_type, lastResult.errors?.[0] ?? "请求失败").msg}</span>
             {_humanFailure(lastResult.error_type, lastResult.errors?.[0] ?? "").retryable && (
               <button type="button" onClick={() => onSend(lastUserInput)} data-testid="retry-btn">
-                自动重试
+                重试原任务
+              </button>
+            )}
+            {_humanFailure(lastResult.error_type, lastResult.errors?.[0] ?? "").retryable && (
+              <button type="button" onClick={() => onSend(buildAlternativePrompt(lastUserInput))} data-testid="retry-alt-btn">
+                换方案继续
               </button>
             )}
           </div>
@@ -1137,10 +1161,12 @@ function ThinkingBlock({ content, defaultOpen }: { content: string; defaultOpen?
 const ResultInline = React.memo(function ResultInline({
   result,
   fallbackText,
+  onRetryOriginal,
   onRetryAlternative,
 }: {
   result: AgentResult | undefined;
   fallbackText: string;
+  onRetryOriginal?: () => void;
   onRetryAlternative?: () => void;
 }) {
   const { currentWorkspaceId } = useSessionStore();
@@ -1150,6 +1176,12 @@ const ResultInline = React.memo(function ResultInline({
   const isFailed = !result?.ok;
   const hasFailedTool = ((result?.tool_calls) ?? []).some((tc) => !tc.ok);
   const finalText = (result?.final_response || fallbackText || "").trim();
+  const retry = retryStats(result);
+  const toolCalls = result?.tool_calls ?? [];
+  const actionCount = toolCalls.length;
+  const failedToolCount = toolCalls.filter((tc) => !tc.ok).length;
+  const successToolCount = toolCalls.filter((tc) => tc.ok).length;
+  const showActionTrace = !!result && (actionCount > 0 || retry.events.length > 0 || isFailed);
 
   // Nothing to show — no result and no fallback text
   if (!result && !fallbackText) return null;
@@ -1245,6 +1277,45 @@ const ResultInline = React.memo(function ResultInline({
         </div>
       )}
 
+      {showActionTrace && (
+        <div className="action-trace-panel" data-testid="action-trace-panel">
+          <div className="action-trace-head">
+            <span className="action-trace-title">动作跟踪</span>
+            <span className="action-trace-pill">{actionCount} 个工具</span>
+            <span className="action-trace-pill ok">{successToolCount} 成功</span>
+            {failedToolCount > 0 && <span className="action-trace-pill danger">{failedToolCount} 需关注</span>}
+            {retry.attempts > 0 && <span className="action-trace-pill warn">{retry.attempts} 次自动重试</span>}
+            {retry.blocked > 0 && <span className="action-trace-pill muted">{retry.blocked} 次未重试</span>}
+          </div>
+          {retry.events.length > 0 ? (
+            <div className="action-retry-list">
+              {retry.events.slice(0, 4).map((ev, i) => (
+                <div className="action-retry-row" key={`${ev.node_id || ev.tool_id || "retry"}-${i}`}>
+                  <span className={`action-retry-dot ${ev.retry_allowed ? (ev.final_status === "succeeded" ? "ok" : "warn") : "muted"}`} />
+                  <span className="action-retry-main">
+                    <b>{toolLabel(String(ev.tool_id || ev.node_id || "工具"))}</b>
+                    {ev.retry_allowed
+                      ? ev.final_status === "succeeded"
+                        ? " 首次失败后已恢复"
+                        : " 已重试但仍失败"
+                      : ` 未重试：${ev.reason || "不满足安全重试条件"}`}
+                  </span>
+                  {ev.backoff_ms ? <span className="action-retry-meta">{ev.backoff_ms}ms</span> : null}
+                </div>
+              ))}
+            </div>
+          ) : actionCount > 0 ? (
+            <div className="action-trace-note">
+              本轮没有触发自动重试；危险命令和有副作用动作不会自动重试。
+            </div>
+          ) : (
+            <div className="action-trace-note">
+              本轮失败发生在工具调用前，未触发可重试动作。
+            </div>
+          )}
+        </div>
+      )}
+
       {Array.isArray(summaries) && summaries.length > 0 && (
         <div className="chat-source-summary" data-testid="inline-source-summary">
           <b>参考来源 · {summaries.length} 个</b>
@@ -1270,6 +1341,11 @@ const ResultInline = React.memo(function ResultInline({
           {hasFailedTool && onRetryAlternative && (
             <button type="button" className="run-detail-button" onClick={onRetryAlternative}>
               换方案继续
+            </button>
+          )}
+          {isFailed && onRetryOriginal && (
+            <button type="button" className="run-detail-button" onClick={onRetryOriginal}>
+              重试原任务
             </button>
           )}
           {Array.isArray(summaries) && summaries.length > 0 && (

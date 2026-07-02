@@ -364,6 +364,12 @@ export const useWorkbenchStore = create<WorkbenchState>()(
           const traceData = (traceResp && typeof traceResp === "object" ? traceResp : {}) as {
             events?: RuntimeEvent[];
           };
+          const metadata = (runRecord.metadata && typeof runRecord.metadata === "object"
+            ? runRecord.metadata
+            : {}) as Record<string, unknown>;
+          const runtimeMetadata = (metadata.ssot_runtime && typeof metadata.ssot_runtime === "object"
+            ? metadata.ssot_runtime
+            : {}) as Record<string, unknown>;
 
           const merged: AgentResult = {
             ok: runRecord.ok !== false,  // default true if missing
@@ -381,9 +387,15 @@ export const useWorkbenchStore = create<WorkbenchState>()(
             tool_decision: (runRecord.tool_decision as AgentResult["tool_decision"]) || { needed: false },
             no_tool_reason: (runRecord.no_tool_reason as string) || "",
             metadata: {
-              selected_capabilities: (((runRecord.metadata as Record<string, unknown>)?.selected_capabilities as string[]) || []),
-              selected_skills: (((runRecord.metadata as Record<string, unknown>)?.selected_skills as string[]) || []),
-              visible_tools: (((runRecord.metadata as Record<string, unknown>)?.visible_tools as string[]) || []),
+              selected_capabilities: (metadata.selected_capabilities as string[]) || [],
+              selected_skills: (metadata.selected_skills as string[]) || [],
+              visible_tools: (metadata.visible_tools as string[]) || [],
+              retry_summary: (metadata.retry_summary as AgentResult["metadata"]["retry_summary"])
+                || (runtimeMetadata.retry_summary as AgentResult["metadata"]["retry_summary"])
+                || undefined,
+              retry_events: (metadata.retry_events as AgentResult["metadata"]["retry_events"])
+                || (runtimeMetadata.retry_events as AgentResult["metadata"]["retry_events"])
+                || [],
               source_count: 0,
               workspace_id,
             },
@@ -501,11 +513,26 @@ export const useWorkbenchStore = create<WorkbenchState>()(
             if (localMatch) {
               matchedIds.add(localMatch.id);
               seenKeys.add(messageKey(localMatch));
+              if (serverMsg.role === "user") {
+                for (const duplicateLocal of cur) {
+                  if (
+                    duplicateLocal.id !== localMatch.id
+                    && duplicateLocal.role === "user"
+                    && !duplicateLocal.message_id
+                    && !duplicateLocal.run_id
+                    && duplicateLocal.text.trim() === serverMsg.text.trim()
+                  ) {
+                    matchedIds.add(duplicateLocal.id);
+                    seenKeys.add(messageKey(duplicateLocal));
+                  }
+                }
+              }
             }
           }
 
           // Append local-only messages not covered by server (e.g. streaming)
           for (const localMsg of cur) {
+            if (matchedIds.has(localMsg.id)) continue;
             if (seenKeys.has(messageKey(localMsg))) continue;
             combined.push(localMsg);
             seenKeys.add(messageKey(localMsg));

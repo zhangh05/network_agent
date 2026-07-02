@@ -103,6 +103,16 @@ def write_run_record(state, ws_id: str = "default") -> str:
         "redaction_applied": True,
     }
 
+    from core.graph.projection_events import append_run_record_written
+    event_id = append_run_record_written(
+        workspace_id=ws_id,
+        session_id=state.session_id or "",
+        run_id=run_id,
+        record=record,
+    )
+    record["ssot_event_id"] = event_id
+    record["projection_of"] = "GraphStore"
+
     # ── Atomic write: tmp → rename (P2-A: crash-safe) ──
     from pathlib import Path
     record_path = run_dir / f"{run_id}.json"

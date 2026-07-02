@@ -120,21 +120,14 @@ class Finalizer:
     ) -> str:
         import json
 
-        # ── v3.14: Conversation context injection ──────────────────
-        context_block = ""
-        conv_ctx = ctx.extras.get("conversation_context")
-        if conv_ctx is not None:
-            try:
-                context_block = conv_ctx.format_for_prompt()
-            except Exception:
-                pass
+        # ── Conversation history block ──
+        context_block = ctx.extras.get("conversation_history_block") or ""
 
-        if not context_block:
-            conv_history = ctx.extras.get("conversation_history") or []
-            if conv_history:
-                context_block = _history_block_without_import(conv_history) + "\n"
-
+        # Truncate merged results to avoid blowing context window
+        _MAX_RESULTS_CHARS = 12000
         results_json = json.dumps(merged, ensure_ascii=False, default=str, indent=2)
+        if len(results_json) > _MAX_RESULTS_CHARS:
+            results_json = results_json[:_MAX_RESULTS_CHARS] + "\n...[results truncated to fit context budget]"
 
         # ── v3.14: normalized_content for analysis tools ────────────
         nc_block = ""

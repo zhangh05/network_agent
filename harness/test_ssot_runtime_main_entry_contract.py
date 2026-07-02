@@ -5,6 +5,7 @@ from __future__ import annotations
 
 def test_agent_app_submit_uses_ssot_runtime(monkeypatch, temp_dirs):
     from agent.app.facade import AgentApp
+    from core.graph.graph_store import get_graph_store, reset_graph_store
 
     def fake_llm(**kwargs):
         system = str(kwargs.get("system") or "")
@@ -12,6 +13,7 @@ def test_agent_app_submit_uses_ssot_runtime(monkeypatch, temp_dirs):
             return '{"nodes":[],"final_response":"收到"}'
         return "收到"
 
+    reset_graph_store()
     monkeypatch.setattr("agent.runtime.ssot_runtime._invoke_llm_for_ssot_runtime", fake_llm)
 
     app = AgentApp()
@@ -26,12 +28,16 @@ def test_agent_app_submit_uses_ssot_runtime(monkeypatch, temp_dirs):
     assert result.metadata["runtime_engine"] == "ssot_runtime"
     assert result.metadata["timeline_summary"]["llm_calls"] == 1
     assert result.tool_calls == []
+    projected = get_graph_store().project(result.turn_id)
+    assert projected["status"] == "done"
+    assert projected["final_response"].strip("。") == "收到"
 
 
 def test_ssot_runtime_tool_node_invokes_tool_runtime_client(monkeypatch, temp_dirs):
     from dataclasses import dataclass, field
 
     from agent.app.facade import AgentApp
+    from core.graph.graph_store import get_graph_store, reset_graph_store
 
     calls = []
 
@@ -79,6 +85,7 @@ def test_ssot_runtime_tool_node_invokes_tool_runtime_client(monkeypatch, temp_di
             calls.append((tool_id, arguments, context))
             return FakeToolResult(tool_id=tool_id)
 
+    reset_graph_store()
     monkeypatch.setattr("agent.runtime.ssot_runtime._invoke_llm_for_ssot_runtime", fake_llm)
     monkeypatch.setattr("agent.runtime.ssot_runtime._tool_runtime_client", lambda: FakeClient())
 
@@ -97,3 +104,7 @@ def test_ssot_runtime_tool_node_invokes_tool_runtime_client(monkeypatch, temp_di
     assert calls[0][0] == "memory.manage"
     assert calls[0][1]["query"] == "BGP"
     assert calls[0][2].requested_by == "turn_runner"
+    projected = get_graph_store().project(result.turn_id)
+    assert projected["status"] == "done"
+    assert projected["node_count"] == 1
+    assert projected["success_count"] == 1

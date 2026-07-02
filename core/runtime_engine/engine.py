@@ -31,6 +31,7 @@ import asyncio
 import time
 import uuid
 import sys
+from dataclasses import dataclass
 
 from typing import Any, Callable
 
@@ -330,9 +331,8 @@ class SSOTRuntimeEngine:
         )
 
         fast = classify_direct_answer(user_input)
-        conv_ctx = ctx.extras.get("conversation_context")
-        conv_history = getattr(conv_ctx, "recent_messages", None) or []
-        is_conv_ref = bool(is_conversation_ref(user_input) and conv_history)
+        conv_history_block = ctx.extras.get("conversation_history_block") or ""
+        is_conv_ref = bool(is_conversation_ref(user_input) and conv_history_block)
 
         # ── v3.14: task-intent override for fast path ────────────
         # If the input has task-intent verbs but the narrow classifier
@@ -363,7 +363,7 @@ class SSOTRuntimeEngine:
             try:
                 direct_resp = await self._generate_direct_answer(
                     ctx.user_input, budget,
-                    conversation_context=conv_ctx if is_conv_ref else None,
+                    conversation_context=conv_history_block if is_conv_ref else None,
                 )
                 final_response = (direct_resp or "").strip()
             except Exception:
@@ -389,7 +389,7 @@ class SSOTRuntimeEngine:
                     "direct_answer_latency_ms": direct_answer_latency_ms,
                     "skip_reason": fast.reason,
                     "conversation_ref": is_conv_ref,
-                    "conversation_history_used": bool(conv_history and is_conv_ref),
+                    "conversation_history_used": bool(is_conv_ref),
                 },
             )
 
@@ -982,7 +982,7 @@ class SSOTRuntimeEngine:
             # Build proof chain from execution results
             policy_fp = PolicyFingerprint(DecisionPolicySpec)
             ctx_seal = ContextSeal.seal(
-                ctx.extras.get("conversation_history", [])
+                ctx.extras.get("conversation_history_block", "")
             )
             dag_canon = CanonicalDAG.from_dag(dag)
             proof_trace = ExecutionProofTrace()
@@ -1262,28 +1262,14 @@ class SSOTRuntimeEngine:
         self,
         user_input: str,
         budget: BudgetController,
-        conversation_context: Any | None = None,
+        conversation_context: str | None = None,
     ) -> str:
-        """Generate a direct answer without tools or JSON planning.
-
-        The call is streamed to the user (stream_to_user=True,
-        stream_scope='direct_answer') so first_answer_token is
-        measured from the actual answer token.
-
-        v3.14: accepts a full ``ConversationContext`` (with
-        token-budgeted recent turns, session_summary, and
-        retrieved_history) instead of just the flat chat list.
-        """
+        """Generate a direct answer without tools or JSON planning."""
         llm_budget = budget.check_llm_call()
         if not llm_budget.ok:
             return "收到。"
 
-        context_block = ""
-        if conversation_context is not None:
-            try:
-                context_block = conversation_context.format_for_prompt()
-            except Exception:
-                context_block = ""
+        context_block = conversation_context or ""
 
         system_msg = (
             "你是网络工程助手。直接回答用户问题。"
@@ -1293,9 +1279,7 @@ class SSOTRuntimeEngine:
         if context_block:
             system_msg += f"\n\n{context_block}\n\n"
             system_msg += (
-                "如果用户问的是关于之前对话的问题（如'什么意思'、'我刚才说了什么'），"
-                "请基于上述对话历史回答。"
-                "不要说'我无法查看之前的对话'或'缺少上下文'——对话历史已经提供给你了。"
+                "如果用户问的是关于之前对话的问题，请基于上述对话历史回答。"
             )
         result = self._llm_invoke(
             system=system_msg,
@@ -1589,6 +1573,7 @@ _TASK_TO_DEFAULT_TOOL = {
 }
 
 
+@dataclass
 class TaskIntentResult:
     """Structured task-intent detection result."""
     is_task: bool = False
@@ -1757,6 +1742,7 @@ _TASK_BOGUS_RESPONSE_PATTERNS = (
 )
 
 
+@dataclass
 class FinalResponseValidatorResult:
     valid: bool = True
     reason: str = ""
@@ -1886,14 +1872,6 @@ def _collect_stability_issues(ctx, result, errors, collector) -> None:
             se.get("stage", "engine"),
             se.get("message", ""),
             code=se.get("code"),
-        )
-
-    # Context injection failures
-    if ctx.extras.get("conversation_context_error"):
-        collector.add(
-            Severity.MEDIUM, IssueCategory.CONTEXT,
-            "ssot_runtime._inject_conversation_context",
-            str(ctx.extras["conversation_context_error"]),
         )
 
     # Empty result but had task intent

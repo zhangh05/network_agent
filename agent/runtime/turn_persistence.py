@@ -130,6 +130,15 @@ def persist_trace(run_id: str, ws_id: str, events: list) -> None:
         "total_duration_ms": 0,
         "persisted_at": now_iso(),
     }
+    from core.graph.projection_events import append_trace_written
+    event_id = append_trace_written(
+        workspace_id=ws_id,
+        run_id=run_id,
+        trace_id=record["trace_id"],
+        event_count=record["event_count"],
+    )
+    record["ssot_event_id"] = event_id
+    record["projection_of"] = "GraphStore"
     tmp = trace_path.with_suffix(".trace.tmp")
     tmp.write_text(json.dumps(record, indent=2, ensure_ascii=False), encoding="utf-8")
     tmp.rename(trace_path)

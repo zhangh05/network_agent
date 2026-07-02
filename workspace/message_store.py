@@ -1,20 +1,16 @@
-"""SessionMessageStore — canonical chat-message persistence for a session.
+"""SessionMessageStore — chat-message read-model projection for a session.
 
 v1.0.3.1: independent full-message storage.
 
-v1.0.4 introduced the store as the single source of truth, but it still
-derived content from `run.user_input_summary` (120-char) and
-`run.final_response_summary` (300-char). Those are fine for run-record
-metadata but too short for chat history.
-
-v1.0.3.1 stores COMPLETE user/assistant messages independently:
+This store writes complete user/assistant messages as a GraphStore-backed
+projection:
   - `workspaces/<ws>/sessions/<sid>/messages/<run_id>:user.json`
   - `workspaces/<ws>/sessions/<sid>/messages/<run_id>:assistant.json`
   - Content is redaction-safe (no keys, no full configs).
   - Content > ARTIFACT_THRESHOLD (50 KB) is written as an artifact
     instead, and the message carries an `artifact_ref`.
 
-The AgentSession in-memory list is now a *derived* cache, not the source.
+GraphStore is the SSOT. These files are optimized read models for UI/history.
 """
 
 from __future__ import annotations
@@ -56,7 +52,7 @@ def _safe_rid(run_id: str) -> str:
 
 
 class SessionMessageStore:
-    """Canonical chat-history read/write API for a single session.
+    """Chat-history projection read/write API for a single session.
 
     Stateless; constructed per-call. The constructor validates
     `ws_id` and `session_id` to prevent path traversal.
@@ -142,6 +138,20 @@ class SessionMessageStore:
                 "metadata": meta,
             }
 
+        from core.graph.projection_events import append_message_written
+        msg_id_preview = f"{rid}:{role}"
+        event_id = append_message_written(
+            workspace_id=self.ws_id,
+            session_id=self.session_id,
+            run_id=rid,
+            message_id=msg_id_preview,
+            role=role,
+            artifact_ref=record.get("artifact_ref") or {},
+        )
+        meta["ssot_event_id"] = event_id
+        meta["projection_of"] = "GraphStore"
+        record["metadata"] = meta
+
         msg_path = self._msg_path(rid, role)
         _atomic_write(msg_path, record)
 
@@ -156,10 +166,7 @@ class SessionMessageStore:
         return path.is_file()
 
     def get_messages(self) -> List[Dict[str, Any]]:
-        """Return the full chat-history projection of the session.
-
-        The `messages/` directory is the only source of truth.
-        """
+        """Return the full chat-history read-model projection of the session."""
         return self._read_full_messages()
 
     def get_history_window(self, k: int = 8) -> List[Dict[str, Any]]:

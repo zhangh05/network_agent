@@ -1,5 +1,9 @@
 # workspace/memory_governance.py
-"""Phase 8: Memory Governance — schema, store, gate, retrieval, conflict detection."""
+"""Memory Governance — schema, gate, retrieval, conflict detection.
+
+Memory JSON files are read-model projections. GraphStore projection events are
+written first and are the SSOT for memory write acceptance.
+"""
 
 from __future__ import annotations
 import json, time as _time, hashlib, uuid
@@ -92,6 +96,15 @@ class MemoryStore:
     def save(self, record: MemoryRecord):
         record.workspace_id = self._validated_ws_id(record.workspace_id)
         d = self._dir(record.workspace_id); d.mkdir(parents=True, exist_ok=True)
+        from core.graph.projection_events import append_memory_written
+        event_id = append_memory_written(
+            workspace_id=record.workspace_id,
+            memory_id=record.memory_id,
+            record=record.to_dict(),
+        )
+        record.metadata = dict(record.metadata or {})
+        record.metadata["ssot_event_id"] = event_id
+        record.metadata["projection_of"] = "GraphStore"
         atomic_write_json(self._path(record.workspace_id, record.memory_id), record.to_dict())
 
     def get(self, ws_id: str, memory_id: str) -> Optional[MemoryRecord]:

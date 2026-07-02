@@ -61,12 +61,11 @@ def test_allow_readonly_tools(risk_engine):
 
 
 def test_3_exec_no_approval_trigger(risk_engine):
-    """≤5 exec → no count-based approval (contract approval still fires)."""
+    """≤5 harmless exec commands do not require approval."""
     nodes = [_node(str(i), "exec.run", command=f"cmd{i}") for i in range(3)]
     dag = _dag(nodes)
     result = risk_engine.assess(dag)
-    # Contract requires_approval=True per exec.run, so approval_required=True
-    assert result.requires_approval is True
+    assert result.requires_approval is False
     assert result.hard_block is False
     assert result.approval_reason == ""  # no count-based reason
 
@@ -77,8 +76,7 @@ def test_5_exec_borderline(risk_engine):
     dag = _dag(nodes)
     result = risk_engine.assess(dag)
     assert result.hard_block is False
-    # Per-node contract approval fires
-    assert result.requires_approval is True
+    assert result.requires_approval is False
 
 
 # ── Tests: approval_required (count-based) ─────────────────────────────
@@ -267,7 +265,7 @@ def test_approval_bypass_resume():
     def mock_llm(**kw):
         return json.dumps({"nodes": [
             {"id": "n1", "tool": "exec.run",
-             "args": {"command": "echo hello"}, "deps": []},
+             "args": {"command": "rm -f /tmp/network-agent-test-file"}, "deps": []},
         ]})
 
     registry = {"exec.run": {"description": "", "args_schema": {

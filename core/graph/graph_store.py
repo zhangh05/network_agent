@@ -47,6 +47,11 @@ class EventType:
     APPROVAL_GRANTED  = "approval.granted"
     APPROVAL_DENIED   = "approval.denied"
     FINAL_RESPONSE  = "final.response"
+    RUN_RECORD_WRITTEN = "projection.run_record.written"
+    MESSAGE_WRITTEN = "projection.message.written"
+    ARTIFACT_WRITTEN = "projection.artifact.written"
+    MEMORY_WRITTEN = "projection.memory.written"
+    TRACE_WRITTEN = "projection.trace.written"
     INSPECTION_CREATED  = "inspection.created"
     INSPECTION_UPDATED  = "inspection.updated"
     INSPECTION_COMPLETED = "inspection.completed"
@@ -60,6 +65,9 @@ class EventType:
         "risk.assessed", "approval.required",
         "approval.granted", "approval.denied",
         "final.response",
+        "projection.run_record.written", "projection.message.written",
+        "projection.artifact.written", "projection.memory.written",
+        "projection.trace.written",
         "inspection.created", "inspection.updated", "inspection.completed",
     }
 
@@ -245,6 +253,7 @@ class GraphStore:
         self._subscribers: list[Callable[[Event], None]] = []
         if persist_dir:
             persist_dir.mkdir(parents=True, exist_ok=True)
+            self.replay_from_disk()
 
     # ── append() — THE ONLY WRITE PATH ─────────────────────────────
 
@@ -287,6 +296,7 @@ class GraphStore:
 
     def _persist_event(self, evt: Event) -> None:
         path = self._persist_dir / "events.jsonl"
+        path.parent.mkdir(parents=True, exist_ok=True)
         with path.open("a", encoding="utf-8") as f:
             f.write(json.dumps(evt.to_dict(), ensure_ascii=False) + "\n")
 
@@ -366,6 +376,7 @@ class GraphStore:
         if not path.exists():
             return 0
         count = 0
+        max_causal_index = 0
         with self._lock:
             with path.open("r", encoding="utf-8") as f:
                 for line in f:
@@ -382,9 +393,21 @@ class GraphStore:
                                                    "causal_index", "timestamp")},
                         )
                         self._events.append(evt)
+                        max_causal_index = max(max_causal_index, evt.causal_index)
                         count += 1
                     except (json.JSONDecodeError, KeyError):
                         continue
+        if max_causal_index:
+            try:
+                # The event clock is process-local; after replay it must continue
+                # from the durable log's highest causal index.
+                with self._clock._lock:  # type: ignore[attr-defined]
+                    self._clock._global_index = max(  # type: ignore[attr-defined]
+                        self._clock._global_index,  # type: ignore[attr-defined]
+                        max_causal_index,
+                    )
+            except Exception:
+                pass
         return count
 
     def truncate(self) -> None:
@@ -457,10 +480,11 @@ _store_lock = threading.Lock()
 
 def get_graph_store(persist_dir: Path | None = None) -> GraphStore:
     global _store
-    if _store is None:
+    target = persist_dir or _default_persist_dir()
+    if _store is None or _store._persist_dir != target:
         with _store_lock:
-            if _store is None:
-                _store = GraphStore(persist_dir=persist_dir)
+            if _store is None or _store._persist_dir != target:
+                _store = GraphStore(persist_dir=target)
     return _store
 
 
@@ -468,3 +492,19 @@ def reset_graph_store() -> None:
     global _store
     with _store_lock:
         _store = None
+
+
+def _default_persist_dir() -> Path:
+    """Default durable event-log location.
+
+    Projection stores live under ``workspaces/<ws>/...``; the graph event log
+    itself is global to preserve causal ordering across workspaces.
+    """
+    import os
+
+    root = Path(
+        os.environ.get("NA_WORKSPACE_ROOT")
+        or os.environ.get("NETWORK_AGENT_WORKSPACE_DIR")
+        or Path(__file__).resolve().parents[2] / "workspaces"
+    )
+    return root / ".graph"

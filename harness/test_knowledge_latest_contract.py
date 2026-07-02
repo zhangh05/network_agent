@@ -70,14 +70,9 @@ def test_frontend_knowledge_search_uses_current_query_contract():
 
 
 def test_llm_tool_catalog_exposes_current_knowledge_search():
-    # v3.10: ``agent/runtime/sub_agent.py`` was removed by the
-    # SSOT Runtime hard cut (ff38bab). Sub-agent dispatch is now handled
-    # directly by ``ssot_runtime.run_ssot_turn`` (a fresh
-    # ``AgentSession`` is created with ``mark_sub_agent()``),
-    # not by a dedicated ``subagent`` module.
-    #
-    # Keep the canonical registry assertion, drop the deleted
-    # submodule from the targets list.
+    # Sub-agent dispatch is handled by the durable subagent runtime plus
+    # ``agent.manage``. Keep the canonical registry assertion focused on
+    # the current modules only.
     targets = [
         "core/tools/canonical_registry.py",
         "core/tools/tool_namespace_data.py",
@@ -101,10 +96,9 @@ def test_llm_tool_catalog_exposes_current_knowledge_search():
     s = AgentSession(session_id="spec-knowledge-cat-1", workspace_id="default")
     s.mark_sub_agent()
     assert s.is_sub_agent is True
-    # The OLD removed module must NOT be imported anywhere.
     adapter_src = _read("agent/runtime/ssot_runtime.py")
     assert "from agent.runtime.sub_agent" not in adapter_src, (
-        "ssot_runtime must NOT import the removed sub_agent module."
+        "ssot_runtime must not import removed subagent modules."
     )
 
 

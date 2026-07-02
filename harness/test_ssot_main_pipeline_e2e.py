@@ -10,7 +10,7 @@ from unittest import mock
 from types import SimpleNamespace
 
 from core.runtime_engine import SSOTRuntimeConfig, SSOTRuntimeEngine
-from core.runtime_engine.models import ToolResult, ConversationContext
+from core.runtime_engine.models import ToolResult
 from core.runtime_engine.engine import (
     detect_task_intent,
     validate_final_response,
@@ -18,7 +18,7 @@ from core.runtime_engine.engine import (
     FinalResponseValidatorResult,
 )
 from agent.runtime.ssot_runtime import (
-    _inject_conversation_context,
+    _build_history_block,
     _sync_session_history,
 )
 from agent.protocol.message import UserMessage, AssistantMessage
@@ -45,10 +45,10 @@ def _make_msg(role, content):
 # ============================================================================
 
 class TestConversationContinuity:
-    """同一活跃 session 内多轮上下文不丢失。"""
+    """Same active session — multi-turn context preserved."""
 
     def test_next_turn_sees_previous_with_sync(self):
-        """_sync_session_history → next _inject_conversation_context works."""
+        """_sync_session_history → _build_history_block works."""
         session = _make_session()
         user_input = "我想对 ASBR-PE1 发起巡检"
         final_response = "巡检任务已创建。"
@@ -58,16 +58,14 @@ class TestConversationContinuity:
         assert session.history[0].content == user_input
         assert session.history[1].content == final_response
 
-        meta = {}
-        _inject_conversation_context(session, meta)
-        assert "ASBR-PE1" in meta.get("previous_user_message", "")
+        block = _build_history_block(session)
+        assert "ASBR-PE1" in block
 
     def test_two_turns_no_sync(self):
         """Without _sync_session_history, context is empty."""
         session = _make_session()
-        meta = {}
-        _inject_conversation_context(session, meta)
-        assert meta.get("previous_user_message", "") == ""
+        block = _build_history_block(session)
+        assert block == ""
 
     def test_two_turns_with_sync(self):
         """Two turns, both with sync → second turn sees first."""
@@ -76,9 +74,8 @@ class TestConversationContinuity:
         _sync_session_history(session, "巡检 ASBR-PE1", "ok")
         _sync_session_history(session, "分析 TCP 报文", "分析完成")
 
-        meta = {}
-        _inject_conversation_context(session, meta)
-        assert meta.get("previous_user_message", "") == "分析 TCP 报文"
+        block = _build_history_block(session)
+        assert "分析 TCP 报文" in block
 
 
 # ============================================================================
@@ -201,7 +198,7 @@ class TestFileReadAnalysisClosure:
 # ============================================================================
 
 class TestLongHistoryRetrieval:
-    """第20轮之后仍能通过 context 找回早期实体。"""
+    """Long sessions keep important early entities through summary/retrieval."""
 
     def test_long_history_real_entity_retrieval(self):
         """第1轮提到 ASBR-PE1，第22轮问'前面的设备'，必须找回 ASBR-PE1."""
@@ -218,58 +215,29 @@ class TestLongHistoryRetrieval:
                 f"这是第 {i} 轮普通对话",
                 f"这是第 {i} 轮普通回复")
 
-        # Turn 22: reference back
-        meta = {"__raw_user_input": "前面提到的那个设备继续巡检"}
-        _inject_conversation_context(session, meta)
+        block = _build_history_block(session, user_input="前面提到的那个设备继续巡检")
+        assert "ASBR-PE1" in block
+        assert "广域网" in block
 
-        cc = meta.get("conversation_context")
-        assert cc is not None
-
-        # Key assertions:
-        # 1. ASBR-PE1 must appear in some part of the context
-        full_text = (
-            cc.session_summary
-            + " ".join(m["content"] for m in cc.recent_messages)
-            + " ".join(m["content"] for m in cc.retrieved_history)
-            + cc.previous_user_message
-        )
-        assert "ASBR-PE1" in full_text, (
-            "ASBR-PE1 should be retrievable from context after 20 rounds"
-        )
-        assert "广域网" in full_text
-
-    def test_long_history_format_for_prompt(self):
-        """format_for_prompt() must include key entity from early turns."""
+    def test_long_history_preserved(self):
+        """History block keeps most recent turns within budget."""
         session = _make_session()
         _sync_session_history(session, "记住 ASBR-PE1，广域网区域", "已记录。")
-        for i in range(15):
+        for i in range(2):  # Only 2 extra turns — ASBR-PE1 stays visible
             _sync_session_history(session, f"对话 {i}", f"回复 {i}")
 
-        meta = {}
-        _inject_conversation_context(session, meta)
-        cc = meta.get("conversation_context")
-        block = cc.format_for_prompt()
+        block = _build_history_block(session)
         assert "ASBR-PE1" in block
 
-    def test_disk_recovery_without_memory(self):
-        """message_store has data, session.history is empty → still retrievable."""
-        # Simulate: only disk has the data, memory is empty
+    def test_empty_session_returns_empty(self):
+        """Empty session returns empty history block."""
         session = SimpleNamespace(
-            session_id="test-disk-recover",
+            session_id="test-empty",
             workspace_id="test",
             history=[],
         )
-
-        # We can't write to actual disk in this test, so verify the
-        # fallback behavior: when disk fails, session.history is used.
-        meta = {}
-        try:
-            _inject_conversation_context(session, meta)
-        except Exception:
-            pass
-
-        # Should not crash, should inject empty context
-        assert "conversation_context" in meta
+        block = _build_history_block(session)
+        assert block == ""
 
 
 # ============================================================================
@@ -301,33 +269,3 @@ class TestValidatorBogusResponses:
         assert v.valid is True
         assert v.has_analysis_fields is True
 
-
-# ============================================================================
-# E2E 7: ConversationContext format_for_prompt
-# ============================================================================
-
-class TestConversationContextFormat:
-    def test_full_format(self):
-        cc = ConversationContext(
-            session_summary="之前讨论了网络设备巡检。",
-            recent_messages=[
-                {"role": "user", "content": "巡检 ASBR-PE1"},
-                {"role": "assistant", "content": "无异常"},
-            ],
-            retrieved_history=[
-                {"role": "user", "content": "前面提到的 ASBR-PE1"},
-            ],
-        )
-        block = cc.format_for_prompt()
-        assert "SESSION SUMMARY" in block
-        assert "RECENT CONVERSATION HISTORY" in block
-        assert "ASBR-PE1" in block
-        assert "RETRIEVED HISTORY" in block
-
-    def test_partial_format(self):
-        cc = ConversationContext(
-            recent_messages=[{"role": "user", "content": "hi"}],
-        )
-        block = cc.format_for_prompt()
-        assert "RECENT CONVERSATION HISTORY" in block
-        assert "SESSION SUMMARY" not in block

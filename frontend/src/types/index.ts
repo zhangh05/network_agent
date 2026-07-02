@@ -182,6 +182,32 @@ export interface AgentResult {
     retrieval_diagnostics?: Record<string, unknown>;
     /** v2.1.2: Tool planning metadata */
     tool_scene?: ToolSceneMeta;
+    /** Runtime action retry summary surfaced from SSOT Runtime. */
+    retry_summary?: {
+      retry_attempts?: number;
+      retried_nodes?: string[];
+      retry_succeeded?: number;
+      retry_failed?: number;
+      retry_blocked?: number;
+    };
+    /** Runtime action retry events surfaced from SSOT Runtime. */
+    retry_events?: Array<{
+      type?: string;
+      node_id?: string;
+      tool_id?: string;
+      attempt?: number;
+      max_retries?: number;
+      error_code?: string;
+      original_error?: string;
+      retry_allowed?: boolean;
+      reason?: string;
+      backoff_ms?: number;
+      idempotent?: boolean;
+      side_effect?: string;
+      blocked_by_policy?: boolean;
+      final_status?: string;
+      duration_ms?: number;
+    }>;
     rule_tool_scene?: Record<string, unknown>;
     tool_planner?: {
       planner_version?: string;
