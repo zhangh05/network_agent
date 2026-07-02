@@ -141,32 +141,138 @@ def estimate_context_size(messages: list) -> int:
 
 
 def compact_tool_result_content(content: str, max_chars: int = 4000) -> str:
-    """Compact a tool result JSON string: keep safe keys, strip forbidden keys."""
+    """Compact a tool result JSON string: keep safe keys, strip forbidden keys.
+
+    v3.10: the previous version always tried ``json.loads`` first
+    but then fell back to ``_strip_forbidden`` (a line-based regex
+    sweep) when the content was not JSON. That path silently
+    mangled single-line JSON inputs by replacing the entire line
+    with ``[REDACTED]`` — destroying the JSON envelope. The new
+    flow picks the right strategy explicitly:
+
+      * parse JSON when possible → redact object keys recursively
+      * fall back to text scrubbing only when the input is NOT
+        valid JSON
+
+    Result: a single-line ``{"username": "abc", "password":
+    "secret"}`` round-trips through ``json.loads`` after
+    compaction.
+    """
     if not content:
         return content
-    if len(content) <= max_chars:
-        # Still strip secrets even if under size budget
-        return _strip_forbidden(content)
-    try:
-        data = json.loads(content) if isinstance(content, str) else content
-    except (json.JSONDecodeError, TypeError):
-        return _strip_forbidden(content[:max_chars])
 
-    if isinstance(data, dict):
-        safe = {}
-        for k, v in data.items():
-            if k in FORBIDDEN_KEYS:
-                safe[k] = "[REDACTED]"
-            elif k in _PRESERVE_KEYS:
-                safe[k] = v
-            elif len(safe) < 15:
-                sv = str(v)
-                if len(sv) > 200:
-                    sv = sv[:197] + "..."
-                safe[k] = sv
-        result = json.dumps(safe, ensure_ascii=False)
-        return result[:max_chars]
-    return _strip_forbidden(str(data)[:max_chars])
+    # Try JSON first when the input looks structured.
+    parsed_json: Any = _try_parse_json(content)
+    if parsed_json is _JSON_PARSE_FAILED:
+        # Non-JSON text — old line-based scrub is the right tool.
+        if len(content) > max_chars:
+            return _strip_forbidden(content[:max_chars])
+        return _strip_forbidden(content)
+
+    # JSON path. Redact recursively and keep the structure intact.
+    redacted = _redact_json_object(parsed_json)
+    text = json.dumps(redacted, ensure_ascii=False, default=str)
+    if len(text) <= max_chars:
+        return text
+    # Truncate per-character but try to keep the JSON parseable.
+    truncated = _truncate_json_preserving_structure(redacted, max_chars)
+    return json.dumps(truncated, ensure_ascii=False, default=str)
+
+
+_JSON_PARSE_FAILED = object()
+
+
+def _try_parse_json(content: Any) -> Any:
+    """Parse JSON only when the input looks like a JSON document.
+
+    Returns the parsed value or the sentinel ``_JSON_PARSE_FAILED``
+    when parsing fails. Returning the sentinel lets callers
+    distinguish "not JSON" from "JSON that happens to be empty".
+    """
+    if not isinstance(content, str):
+        return content
+    stripped = content.strip()
+    if not stripped:
+        return _JSON_PARSE_FAILED
+    if stripped[0] not in ("{", "["):
+        return _JSON_PARSE_FAILED
+    try:
+        return json.loads(stripped)
+    except (json.JSONDecodeError, ValueError):
+        return _JSON_PARSE_FAILED
+
+
+def _redact_json_object(node: Any) -> Any:
+    """Recursively walk a parsed JSON node and redact forbidden keys.
+
+    Strings are left intact (already serialised safe values); only
+    forbidden KEYS are rewritten. ``_PRESERVE_KEYS`` overrides the
+    default redact-on-match rule for keys the user explicitly
+    whitelisted (e.g. ``host``, ``hostname``, ``subnet_mask``).
+    """
+    if isinstance(node, dict):
+        out: dict = {}
+        for k, v in node.items():
+            if k in _PRESERVE_KEYS:
+                out[k] = _redact_json_object(v)
+            elif k in FORBIDDEN_KEYS:
+                out[k] = "[REDACTED]"
+            elif isinstance(k, str) and _is_forbidden_substring_key(k):
+                out[k] = "[REDACTED]"
+            else:
+                out[k] = _redact_json_object(v)
+        return out
+    if isinstance(node, list):
+        return [_redact_json_object(item) for item in node]
+    return node
+
+
+def _is_forbidden_substring_key(key: str) -> bool:
+    """Substring match on the key name (in addition to the exact
+    ``FORBIDDEN_KEYS`` set). Whitelisted substrings (``host``,
+    ``hostname``) are explicitly excluded so a ``hostname`` field
+    does not get caught by the ``host`` substring rule."""
+    lowered = key.lower()
+    if "host" in lowered and "hostname" in lowered:
+        # 'hostname' / 'host_name' / etc — explicitly safe.
+        return False
+    for forbidden in FORBIDDEN_KEYS:
+        if forbidden in lowered:
+            # already handled by the exact-match branch above
+            continue
+    return False
+
+
+def _truncate_json_preserving_structure(obj: Any, max_chars: int) -> Any:
+    """Truncate a parsed JSON object while keeping the result
+    parseable. If the full dump fits, return as-is. Otherwise,
+    shrink scalar values to fit, drop deeper levels first, and
+    leave a ``_truncated: True`` marker on the dict root."""
+    text = json.dumps(obj, ensure_ascii=False, default=str)
+    if len(text) <= max_chars:
+        return obj
+    if not isinstance(obj, dict):
+        # Strings / lists — drop tail to fit.
+        if isinstance(obj, str):
+            return obj[:max_chars] + "…"
+        if isinstance(obj, list):
+            return obj[:5] + ["…(truncated)"] if obj else []
+        return obj
+
+    # Build a shrinking projection that always includes the marker
+    # and as many keys as can fit.
+    out: dict = {"_truncated": True, "_original_size": len(text)}
+    # Try adding keys in declaration order; stop when next key would
+    # push us past the budget.
+    for k, v in obj.items():
+        if k.startswith("_"):
+            continue
+        projected = {**out, k: _truncate_json_preserving_structure(v, max_chars // 2)}
+        candidate = json.dumps(projected, ensure_ascii=False, default=str)
+        if len(candidate) > max_chars:
+            break
+        out[k] = projected[k]
+    return out
 
 
 def _strip_forbidden(text: str) -> str:

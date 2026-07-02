@@ -6,8 +6,9 @@ mechanism, NOT a visibility gate, NOT a permission/approval layer —
 those concerns live in canonical_registry / manifest_registry / sandbox.
 
 Three rules:
-  1. recommended_tool_ids MUST be a subset of TOOL_NAMESPACE (the 21
-     canonical tool ids). Removed names like device.list / git.status are invalid.
+  1. recommended_tool_ids MUST be a subset of TOOL_NAMESPACE (the
+     canonical tool ids, see ``tool_runtime.tool_namespace``). Removed
+     names like device.list / git.status are invalid.
   2. This module exposes only data + a few lookup helpers. It does not
      register tools, filter tools, or influence dispatch.
   3. Frontend (skills / capabilities API) and the skill.manage tool

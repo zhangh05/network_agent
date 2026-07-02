@@ -7,6 +7,8 @@ Provides:
   - build_trace_metadata_from_tool_result(): safe trace metadata builder
 """
 
+import threading
+
 from tool_runtime.registry import ToolRegistry
 from tool_runtime.policy import ToolPolicy
 from tool_runtime.client import ToolRuntimeClient
@@ -14,23 +16,58 @@ from tool_runtime.builtins import register_builtin_tools
 from tool_runtime.general_tools import register_all_general_tools
 from tool_runtime.trace_metadata import build_trace_metadata_from_tool_result
 
-# ── Module-level default (lazy singleton) ──
+# ── Module-level default (lazy singleton, double-checked locking) ──
 _default_client: ToolRuntimeClient = None
+_default_client_lock = threading.Lock()
+_default_client_build_count: int = 0
 
 
 def get_default_tool_runtime_client() -> ToolRuntimeClient:
-    """Get or create the default ToolRuntimeClient with all built-in and general tools.
+    """Get or create the default ToolRuntimeClient with all built-in
+    and general tools.
 
-    Returns a singleton instance. Thread-safe for creation (not mutation).
-    Uses independent ToolInvocation/ToolResult — does NOT import agent/state.py.
+    v3.10: the previous implementation had a classic
+    double-checked-locking bug — the read of ``_default_client``
+    was outside any lock, so two threads that observed ``None``
+    could each construct a full registry + client. The lock now
+    covers the entire critical section (read + create + assign),
+    and the inner re-check inside the lock prevents duplicate
+    builds when concurrent callers race past the first null-check.
+
+    Returns a singleton instance. Thread-safe for creation (not
+    mutation). Uses independent ToolInvocation/ToolResult — does
+    NOT import agent/state.py.
     """
-    global _default_client
-    if _default_client is None:
-        registry = register_builtin_tools(ToolRegistry())
-        registry = register_all_general_tools(registry)
-        policy = ToolPolicy()
-        _default_client = ToolRuntimeClient(registry, policy)
-    return _default_client
+    global _default_client, _default_client_build_count
+    if _default_client is not None:
+        return _default_client
+    with _default_client_lock:
+        if _default_client is None:
+            registry = register_builtin_tools(ToolRegistry())
+            registry = register_all_general_tools(registry)
+            policy = ToolPolicy()
+            _default_client = ToolRuntimeClient(registry, policy)
+            _default_client_build_count += 1
+        return _default_client
+
+
+def get_default_client_build_count() -> int:
+    """Return how many times the singleton has actually been built.
+
+    Exposed for tests and diagnostics to verify that concurrent
+    callers cannot accidentally trigger a duplicate build.
+    """
+    return _default_client_build_count
+
+
+def reset_default_client_for_tests() -> None:
+    """Drop the cached singleton — tests use this to assert that
+    a fresh build runs through ``register_builtin_tools`` /
+    ``register_all_general_tools`` on each call."""
+    global _default_client, _default_client_build_count
+    with _default_client_lock:
+        _default_client = None
+        _default_client_build_count = 0
 
 
 def create_tool_runtime_client(

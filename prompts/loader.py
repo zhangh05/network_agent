@@ -9,6 +9,25 @@ REGISTRY_PATH = ROOT / "registry.yaml"
 _cache = None
 
 
+# ── v3.10: PromptNotFoundError — fail loud, no silent fallback ────────
+# get_prompt_by_task() used to return ``reg[0]`` on a miss, which
+# silently fed the wrong system prompt to the LLM. That was the
+# root cause of misaligned replies for tasks the planner did not
+# yet know about. The fix is to raise so callers either pick a
+# known task or surface the missing entry explicitly.
+class PromptNotFoundError(KeyError):
+    """Raised by ``get_prompt_by_task`` when no entry matches.
+
+    Inherits ``KeyError`` so existing ``except KeyError`` paths
+    still trigger, but the dedicated type lets callers (and tests)
+    distinguish "prompt not found" from other key errors.
+    """
+
+    def __init__(self, task: str):
+        self.task = task
+        super().__init__(f"prompt task not found: {task!r}")
+
+
 def _load_registry_data() -> list:
     global _cache
     if _cache is not None:
@@ -89,11 +108,49 @@ def load_prompt_registry() -> list:
 
 
 def get_prompt_by_task(task: str) -> PromptSpec:
+    """Return the ``PromptSpec`` registered for ``task``.
+
+    v3.10: this no longer silently falls back to ``reg[0]`` on a
+    miss. An unknown task raises :class:`PromptNotFoundError` so
+    the caller either picks a known task or surfaces the missing
+    entry explicitly.
+
+    The strict behavior is enforced at every internal call site
+    — a misregistered task is a deployment bug, not a runtime
+    fallback case. If you genuinely need a generic catch-all,
+    register a prompt with task ``"default_chat"`` (or similar)
+    and call this function with that name.
+    """
+    if not task:
+        raise PromptNotFoundError(task)
     reg = _load_registry_data()
     for p in reg:
         if p.task == task:
             return p
-    return reg[0] if reg else PromptSpec(prompt_id="fallback.v1", task="response_compose")
+    raise PromptNotFoundError(task)
+
+
+def try_get_prompt_by_task(task: str) -> tuple[PromptSpec | None, dict]:
+    """Non-throwing variant of :func:`get_prompt_by_task`.
+
+    Returns ``(prompt_spec, fallback_meta)``. ``fallback_meta`` is
+    an empty dict on hit, or a dict describing the miss when no
+    prompt matched. Use this in code paths where the prompt is
+    optional and a soft fallback is acceptable (e.g. building a
+    generic audit message). Hard execution paths should keep
+    using :func:`get_prompt_by_task` and let it raise.
+    """
+    if not task:
+        return None, {"fallback": True, "reason": "empty_task"}
+    reg = _load_registry_data()
+    for p in reg:
+        if p.task == task:
+            return p, {}
+    return None, {
+        "fallback": True,
+        "reason": "task_not_found",
+        "original_task": task,
+    }
 
 
 def get_prompt(prompt_id: str) -> PromptSpec:

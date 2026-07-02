@@ -55,6 +55,16 @@ class ToolRuntime:
 
         Returns:
             ToolResult with success/failure and data
+
+        v3.10: the handler result is normalized so that ``ok=False``
+        in the returned dict maps to ``ToolResult.success=False``.
+        This is what lets the retry policy, dependency gate, and
+        tool-call aggregation see the real outcome — previously
+        SPEG always returned ``success=True`` whenever the handler
+        didn't raise, even when its inner data said the call had
+        failed. The behavior now mirrors the production tool
+        runtime at ``tool_runtime.executor``: the handler's
+        explicit ``ok`` (or ``success``) field drives success.
         """
         start = time.monotonic()
 
@@ -65,6 +75,7 @@ class ToolRuntime:
                 tool=node.tool,
                 success=False,
                 error=f"Tool '{node.tool}' has no registered handler",
+                error_code="TOOL_NOT_REGISTERED",
                 latency_ms=elapsed,
                 retry_count=0,
             )
@@ -80,14 +91,7 @@ class ToolRuntime:
                 timeout=self._config.single_node_timeout_ms / 1000,
             )
             elapsed = (time.monotonic() - start) * 1000
-            return ToolResult(
-                node_id=node.id,
-                tool=node.tool,
-                success=True,
-                data=result,
-                latency_ms=elapsed,
-                retry_count=node.retry_count,
-            )
+            return _normalize_result(node, result, elapsed)
         except asyncio.TimeoutError:
             elapsed = (time.monotonic() - start) * 1000
             return ToolResult(
@@ -95,6 +99,7 @@ class ToolRuntime:
                 tool=node.tool,
                 success=False,
                 error=f"Tool execution timed out after {self._config.single_node_timeout_ms}ms",
+                error_code="TOOL_TIMEOUT",
                 latency_ms=elapsed,
                 retry_count=node.retry_count,
             )
@@ -105,6 +110,7 @@ class ToolRuntime:
                 tool=node.tool,
                 success=False,
                 error=f"{type(e).__name__}: {e}",
+                error_code="TOOL_EXCEPTION",
                 latency_ms=elapsed,
                 retry_count=node.retry_count,
             )
@@ -175,3 +181,110 @@ class ToolRuntime:
                     else:
                         merged[key] = dep_result.data
         return merged
+
+
+# ── Module-level result normalizer ──────────────────────────────────────
+
+# Default error code surfaced when the handler explicitly reports
+# failure without naming one. Surfaced so the retry policy and the
+# downstream-skip gate can discriminate it from a timeout / raise.
+_HANDLER_NOT_OK_DEFAULT_CODE = "TOOL_RETURNED_NOT_OK"
+
+
+def _stringify_errors(errors: Any) -> str:
+    """Best-effort flattening of an ``errors`` payload into a
+    single human-readable string for ``ToolResult.error``.
+
+    Accepts ``list`` / ``dict`` / ``str`` / scalar. Returns "" if
+    nothing useful is present.
+    """
+    if not errors:
+        return ""
+    if isinstance(errors, str):
+        return errors
+    if isinstance(errors, list):
+        parts = [_stringify_errors(e) for e in errors if e not in (None, "")]
+        return "; ".join(p for p in parts if p)
+    if isinstance(errors, dict):
+        import json as _json
+        try:
+            return _json.dumps(errors, ensure_ascii=False, default=str)
+        except Exception:
+            return str(errors)
+    return str(errors)
+
+
+def _resolve_success_flag(handler_result: Any) -> bool:
+    """Read ``ok`` / ``success`` from a handler result.
+
+    Resolution order:
+      1. ``ok`` if present (bool) — preferred signal.
+      2. ``success`` if present (bool) — legacy fallback.
+      3. default True — handler did not declare a verdict; the
+         runtime treats absence-of-error as success.
+
+    Returns the resolved boolean.
+    """
+    if not isinstance(handler_result, dict):
+        return True
+    if "ok" in handler_result:
+        return bool(handler_result["ok"])
+    if "success" in handler_result:
+        return bool(handler_result["success"])
+    return True
+
+
+def _resolve_error_code(handler_result: Any) -> str:
+    """Read ``error_code`` / ``code`` from a handler result. Empty
+    string if neither is present."""
+    if not isinstance(handler_result, dict):
+        return ""
+    code = handler_result.get("error_code") or handler_result.get("code")
+    return str(code) if code else ""
+
+
+def _resolve_error_message(handler_result: Any) -> str:
+    """Read the human-readable error string. Falls back across
+    ``errors`` / ``error`` / ``message``."""
+    if not isinstance(handler_result, dict):
+        return ""
+    err = handler_result.get("error") or handler_result.get("message")
+    if err:
+        return str(err)
+    errors = handler_result.get("errors")
+    if errors:
+        return _stringify_errors(errors)
+    return ""
+
+
+def _normalize_result(
+    node: ExecutionNode,
+    handler_result: Any,
+    elapsed_ms: float,
+) -> ToolResult:
+    """Build a ``ToolResult`` from a handler return value, honoring
+    the handler's own ``ok``/``success``/``error`` declaration.
+
+    This is the single point where the SPEG layer decides whether a
+    handler that didn't raise was actually successful. A handler
+    that returned ``{"ok": false, ...}`` now correctly produces
+    ``ToolResult.success=False`` so the retry policy, the DAG
+    dependency gate, the audit / trace pipeline, and the final
+    tool-call aggregation all see the real outcome.
+    """
+    success = _resolve_success_flag(handler_result)
+    error_code = _resolve_error_code(handler_result) if not success else ""
+    if not error_code:
+        error_code = _HANDLER_NOT_OK_DEFAULT_CODE if not success else ""
+    error_message = _resolve_error_message(handler_result) if not success else ""
+
+    return ToolResult(
+        node_id=node.id,
+        tool=node.tool,
+        success=success,
+        data=handler_result,
+        error=error_message or None,
+        error_code=error_code or "",
+        latency_ms=elapsed_ms,
+        retry_count=node.retry_count,
+    )

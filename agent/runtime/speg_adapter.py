@@ -118,6 +118,26 @@ def run_speg_turn(
                 "model": _current_model_name(),
                 "task": "assistant_chat",
             },
+            # v3.10 (tool retry): top-level projections so the
+            # frontend / API consumers don't have to walk through
+            # ``metadata.speg.*`` to find the retry surface. The
+            # canonical source stays inside ``metadata.speg``; the
+            # top-level fields are read-only mirrors maintained for
+            # convenience. If both fields are present they MUST be
+            # byte-identical.
+            "retry_summary": dict(
+                (speg_result.metadata or {}).get("retry_summary")
+                or {
+                    "retry_attempts": 0,
+                    "retried_nodes": [],
+                    "retry_succeeded": 0,
+                    "retry_failed": 0,
+                    "retry_blocked": 0,
+                },
+            ),
+            "retry_events": list(
+                (speg_result.metadata or {}).get("retry_events") or []
+            ),
         }
         result = AgentResult(
             ok=bool(speg_result.success),
