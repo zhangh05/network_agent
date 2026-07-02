@@ -196,6 +196,7 @@ NS_DATA = [
     ('system.manage', 'system', 'health', 'multi', '系统自省', 'system.manage',
      'Unified system introspection. action=diagnostics (runtime health scan), '
      'action=health (quick health check), action=selfcheck (self-diagnostics), '
+     'action=local_info (local hostname/IP/OS/cwd without shell commands), '
      'action=tasks (list background jobs), action=audit_log (query audit entries), '
      'action=run_get (list or get a run by run_id), '
      'action=review_list (items needing human attention), '
@@ -203,7 +204,7 @@ NS_DATA = [
      'action=session_get, action=session_checkpoint, action=session_rewind, '
      'action=session_export, action=session_snapshot. '
      'Do not include sensitive trace payloads.',
-     'system diagnostics health selfcheck tasks audit run session checkpoint rewind snapshot review', 'system.manage'),
+     'system diagnostics health selfcheck local_info local ip hostname tasks audit run session checkpoint rewind snapshot review', 'system.manage'),
 
     # 15. text.analyze
     ('text.analyze', 'data', 'text', 'multi', '文本分析', 'text.analyze',
@@ -262,6 +263,7 @@ NS_DATA = [
     # 22. inspection.manage (CMDB-driven device health inspection)
     ('inspection.manage', 'inspection', 'inspection', 'manage', 'CMDB 巡检任务', 'inspection.manage',
      'CMDB-driven device health inspection. '
+     'Actions: run, task_list, task_get, wait, task_cancel, report. '
      'Commands come from a fixed per-vendor map (no LLM-typed commands). '
      'Credentials stay server-side via exec.run(asset_id=...).',
      "Don't use raw shell commands -- the runner dispatches a fixed profile. "

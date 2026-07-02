@@ -113,6 +113,10 @@ CANONICAL_ALIASES_BY_TOOL: Final[dict[str, dict[str, tuple[str, str | None]]]] =
         "check_health": ("health", None),
         "do_diagnostics": ("diagnostics", None),
         "diag": ("diagnostics", None),
+        "local_ip": ("local_info", None),
+        "local_info": ("local_info", None),
+        "host_info": ("local_info", None),
+        "system_info": ("local_info", None),
     },
 
     "workspace.file": {
@@ -167,7 +171,9 @@ CANONICAL_ALIASES_BY_TOOL: Final[dict[str, dict[str, tuple[str, str | None]]]] =
         "start_inspection": ("run", None),
         "run_inspection": ("run", None),
         "inspection_status": ("task_get", None),
-        "inspection_result": ("task_get", None),
+        "inspection_result": ("wait", None),
+        "wait_inspection": ("wait", None),
+        "follow_inspection": ("wait", None),
         "inspection_report": ("report", None),
         "cancel_inspection": ("task_cancel", None),
     },
@@ -185,7 +191,7 @@ CANONICAL_ALIASES_GLOBAL: Final[dict[str, tuple[str, str | None]]] = {}
 # jsonschema and slow down the hot path.
 _CANONICAL_ACTIONS: Final[dict[str, frozenset[str]]] = {
     "system.manage": frozenset({
-        "diagnostics", "health", "selfcheck", "tasks", "audit_log",
+        "diagnostics", "health", "selfcheck", "local_info", "tasks", "audit_log",
         "run_get", "session_get", "session_checkpoint", "session_rewind",
         "session_export", "session_snapshot", "review_list", "review_update",
     }),
@@ -229,7 +235,7 @@ _CANONICAL_ACTIONS: Final[dict[str, frozenset[str]]] = {
         "parse", "session", "filter", "align",
     }),
     "inspection.manage": frozenset({
-        "run", "task_list", "task_get", "task_cancel", "report",
+        "run", "task_list", "task_get", "wait", "task_cancel", "report",
     }),
 }
 

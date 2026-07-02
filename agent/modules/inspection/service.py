@@ -193,6 +193,61 @@ def get_task(workspace_id: str, task_id: str) -> Optional[InspectionTask]:
     return _runner_load(ws, task_id)
 
 
+def wait_task(workspace_id: str,
+              task_id: str,
+              *,
+              timeout_seconds: int = 300,
+              interval_seconds: float = 2.0) -> dict:
+    """Poll an inspection task until it reaches a terminal state.
+
+    The LLM should not invent repeated ``task_get`` calls. This helper gives
+    it one stable, cancellable tracking primitive while the real runner keeps
+    executing asynchronously in the background.
+    """
+    import time
+    from dataclasses import asdict
+
+    task_id = str(task_id or "").strip()
+    if not task_id:
+        return {"ok": False, "error": "task_id_required"}
+    ws = _validate_workspace(workspace_id)
+    try:
+        timeout = int(timeout_seconds)
+    except (TypeError, ValueError):
+        timeout = 300
+    timeout = max(1, min(timeout, 600))
+    try:
+        interval = float(interval_seconds)
+    except (TypeError, ValueError):
+        interval = 2.0
+    interval = max(0.5, min(interval, 10.0))
+
+    terminal = {"succeeded", "partial", "failed", "cancelled", "skipped"}
+    deadline = time.monotonic() + timeout
+    last: Optional[InspectionTask] = None
+    while True:
+        task = _runner_load(ws, task_id)
+        if task is None:
+            return {"ok": False, "error": "task_not_found"}
+        last = task
+        if task.status in terminal:
+            return {
+                "ok": True,
+                "done": True,
+                "status": task.status,
+                "task": asdict(task),
+            }
+        if time.monotonic() >= deadline:
+            return {
+                "ok": True,
+                "done": False,
+                "status": task.status,
+                "task": asdict(last),
+                "error": "wait_timeout",
+            }
+        time.sleep(interval)
+
+
 def cancel_task(workspace_id: str, task_id: str) -> dict:
     ws = _validate_workspace(workspace_id)
     return _runner_cancel(ws, task_id)

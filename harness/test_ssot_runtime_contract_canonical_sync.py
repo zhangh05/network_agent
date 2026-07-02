@@ -32,7 +32,25 @@ def test_inspection_contract_exposes_current_runtime_actions():
     from core.runtime_engine.contracts import get_contract
 
     actions = get_contract("inspection.manage").input_schema["properties"]["action"]["enum"]
-    assert actions == ["run", "task_list", "task_get", "task_cancel", "report"]
+    assert actions == ["run", "task_list", "task_get", "wait", "task_cancel", "report"]
+
+
+def test_system_contract_exposes_local_info_action():
+    from core.runtime_engine.contracts import get_contract
+    from core.tools.canonical_registry import CANONICAL_REGISTRY
+    from core.tools.schemas import ToolInvocation
+
+    actions = get_contract("system.manage").input_schema["properties"]["action"]["enum"]
+    assert "local_info" in actions
+    result = CANONICAL_REGISTRY["system.manage"].handler(ToolInvocation(
+        tool_id="system.manage",
+        arguments={"workspace_id": "default", "action": "local_info"},
+        requested_by="turn_runner",
+    ))
+    assert result.get("ok") is True
+    data = result.get("data") or result
+    assert data.get("hostname")
+    assert "ipv4_addresses" in data
 
 
 def test_semantic_validator_accepts_future_weather_forecast_args():

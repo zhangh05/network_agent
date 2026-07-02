@@ -232,7 +232,8 @@ export function TaskWorkbench() {
                     prompt,
                     "",
                     `巡检任务已创建，任务 ID：${taskId}。`,
-                    "请不要重复发起新的巡检任务；请跟踪这个任务的状态和报告结果，然后用用户能看懂的话总结异常、失败设备、跳过设备、下一步建议和报告链接。",
+                    "请不要重复发起新的巡检任务；请等待这个任务进入终态，然后获取 HTML 报告，用用户能看懂的话总结是否完成、异常、失败设备、跳过设备、下一步建议和报告链接。",
+                    "执行要求：使用 inspection.manage(action=\"wait\", task_id=上面的任务ID, timeout_seconds=600) 跟踪已有任务；终态后再使用 inspection.manage(action=\"report\", task_id=上面的任务ID, format=\"html\") 获取报告链接。",
                   ].join("\n");
                   pendingAutoMetadataRef.current = nextMetadata;
                   setInput(nextPrompt);
@@ -834,7 +835,15 @@ export function TaskWorkbench() {
                   ) : null}
                 </>);
               })()}
-              <ResultInline result={m.result} fallbackText={sanitizeAssistantText(m.text)} />
+              <ResultInline
+                result={m.result}
+                fallbackText={sanitizeAssistantText(m.text)}
+                onRetryAlternative={idx === total - 1 && lastUserInput ? () => onSend([
+                  lastUserInput,
+                  "",
+                  "上一次工具调用未完成。请不要重复同一个失败命令或参数，换一种等价方案继续完成任务，并说明你换了什么方案。",
+                ].join("\n")) : undefined}
+              />
             </>
           )}
           {m.status === "error" && m.error && (
@@ -1125,12 +1134,21 @@ function ThinkingBlock({ content, defaultOpen }: { content: string; defaultOpen?
    Sub-components
    ============================================================== */
 
-const ResultInline = React.memo(function ResultInline({ result, fallbackText }: { result: AgentResult | undefined; fallbackText: string }) {
+const ResultInline = React.memo(function ResultInline({
+  result,
+  fallbackText,
+  onRetryAlternative,
+}: {
+  result: AgentResult | undefined;
+  fallbackText: string;
+  onRetryAlternative?: () => void;
+}) {
   const { currentWorkspaceId } = useSessionStore();
   const toast = useToastStore((s) => s.show);
   const [saving, setSaving] = useState<"" | "memory" | "knowledge">("");
   const summaries = ((result?.metadata as any)?.context_sources || (result?.metadata as any)?.source_summary || []) as any[];
   const isFailed = !result?.ok;
+  const hasFailedTool = ((result?.tool_calls) ?? []).some((tc) => !tc.ok);
   const finalText = (result?.final_response || fallbackText || "").trim();
 
   // Nothing to show — no result and no fallback text
@@ -1249,6 +1267,11 @@ const ResultInline = React.memo(function ResultInline({ result, fallbackText }: 
           <button type="button" className="run-detail-button" onClick={() => void saveAsKnowledge()} disabled={!!saving}>
             {saving === "knowledge" ? "保存中…" : "存为知识"}
           </button>
+          {hasFailedTool && onRetryAlternative && (
+            <button type="button" className="run-detail-button" onClick={onRetryAlternative}>
+              换方案继续
+            </button>
+          )}
           {Array.isArray(summaries) && summaries.length > 0 && (
             <span className="run-detail-info">来源 ({summaries.length})</span>
           )}

@@ -18,7 +18,7 @@ from core.tools.dangerous_patterns import scan_arguments_for_dangerous
 _check_dangerous_commands = scan_arguments_for_dangerous
 
 
-# ── Execute tools (shell/python/powershell) → high ───────────────────────
+# ── Execute tools (shell/python/powershell) → medium by default ──────────
 
 _EXECUTE_TOOL_PATTERNS = re.compile(
     r"(shell|powershell|python)\b.*\b(exec|run|execute)\b"
@@ -96,8 +96,8 @@ def _apply_conflict_risk(decision: RiskDecision, plan: ActionPlan, evidence_bund
     decision.approval_required = True
     if "evidence_conflict_requires_approval" not in decision.warnings:
         decision.warnings.append("evidence_conflict_requires_approval")
-    if plan.action_class == "execute" and decision.risk_level not in ("high", "critical"):
-        decision.risk_level = "high"
+    if decision.risk_level == "low":
+        decision.risk_level = "medium"
 
 
 class RiskPolicy:

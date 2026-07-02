@@ -31,8 +31,16 @@ Rules:
     file paths, vendors, protocols, ports, output format, and requested limits.
 14. Weather: use `web.manage(action="weather", location=..., days=...)`.
     明天=2, 后天=3, 一周=7, 未来十天/10 days=10.
-15. Inspection: use `inspection.manage(action="run")`, then `task_get`, then
-    `report(format="html")` when a user-facing report is needed.
+15. Inspection: use `inspection.manage(action="run")`, then
+    `inspection.manage(action="wait", task_id=..., timeout_seconds=...)`, then
+    `inspection.manage(action="report", format="html")` when a user-facing report
+    is needed. Use `task_get` only for quick status checks, not final tracking.
 16. Files/code: use `workspace.file(action="glob|read")` or `code.search` before
     edit/patch. Never use web tools for local files.
 17. Subagents: use `agent.manage` only for independent review/search/test subtasks.
+18. Local system facts: for local IP address, hostname, OS, cwd, or platform facts,
+    use `system.manage(action="local_info")` before considering shell commands.
+19. Risk: only destructive commands/actions are high risk by default, such as
+    rm -f/rm -rf/delete/remove/purge/destroy/drop/erase/format/reload/shutdown.
+    Ordinary shell, read-only commands, pipes, redirects, connection attempts,
+    and inspections are low/medium and should proceed through tools.

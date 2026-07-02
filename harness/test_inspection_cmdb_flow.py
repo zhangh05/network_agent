@@ -63,7 +63,7 @@ def test_canonical_inspection_manage_registered():
     assert "profile_id" not in fields, (
         "LLM-visible schema must not expose inspection profile selection"
     )
-    for required_action in ("run", "task_list", "task_get", "task_cancel", "report"):
+    for required_action in ("run", "task_list", "task_get", "wait", "task_cancel", "report"):
         assert required_action in enum_actions, (
             f"missing action={required_action} in inspection.manage schema"
         )
@@ -654,6 +654,32 @@ def test_task_from_dict_does_not_crash_on_disk_round_trip():
     assert "asset_x" in loaded2.devices
     assert loaded2.devices["asset_x"].asset_id == "asset_x"
     assert loaded2.devices["asset_x"].task_id == task.task_id
+
+
+def test_inspection_wait_action_reaches_terminal_task():
+    """LLM tracking should use one stable wait action instead of inventing
+    repeated task_get loops. A terminal task must return immediately.
+    """
+    from core.tools.canonical_registry import CANONICAL_REGISTRY
+    from core.tools.schemas import ToolInvocation
+    from agent.modules.inspection import service as svc
+
+    task = svc.create_task("ws_wait_action", profile_id="", scope={"limit": 0})
+    result = CANONICAL_REGISTRY["inspection.manage"].handler(ToolInvocation(
+        tool_id="inspection.manage",
+        arguments={
+            "workspace_id": "ws_wait_action",
+            "action": "wait",
+            "task_id": task.task_id,
+            "timeout_seconds": 1,
+            "interval_seconds": 0.5,
+        },
+        requested_by="turn_runner",
+    ))
+    assert result["ok"] is True
+    assert result["done"] is True
+    assert result["status"] in {"succeeded", "partial", "failed", "cancelled", "skipped"}
+    assert result["task"]["task_id"] == task.task_id
 
 
 def test_exec_one_command_uses_status_not_ok():

@@ -168,6 +168,59 @@ def handle_runtime_diagnostics(inv: ToolInvocation) -> dict:
     except Exception as e:
         return _error_inv(inv, str(e)[:200])
 
+
+def handle_runtime_local_info(inv: ToolInvocation) -> dict:
+    """Return stable local host/network facts without shelling out.
+
+    This covers common user requests such as "查看本机 IP 地址" without
+    depending on distro-specific commands like ``ip`` or ``ifconfig``.
+    """
+    import os
+    import platform
+    import socket
+
+    hostname = socket.gethostname()
+    fqdn = socket.getfqdn()
+    addresses: list[str] = []
+
+    def add_ip(value: str) -> None:
+        value = str(value or "").strip()
+        if value and value not in addresses:
+            addresses.append(value)
+
+    try:
+        for info in socket.getaddrinfo(hostname, None, family=socket.AF_INET):
+            add_ip(info[4][0])
+    except Exception:
+        pass
+
+    primary_ip = ""
+    try:
+        sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        try:
+            sock.connect(("8.8.8.8", 80))
+            primary_ip = sock.getsockname()[0]
+            add_ip(primary_ip)
+        finally:
+            sock.close()
+    except Exception:
+        pass
+
+    if not primary_ip:
+        primary_ip = next((ip for ip in addresses if not ip.startswith("127.")), "")
+
+    return _ok(inv, "local_info collected", {
+        "hostname": hostname,
+        "fqdn": fqdn,
+        "primary_ip": primary_ip,
+        "ipv4_addresses": addresses,
+        "platform": platform.platform(),
+        "system": platform.system(),
+        "release": platform.release(),
+        "machine": platform.machine(),
+        "cwd": os.getcwd(),
+    })
+
 def handle_runtime_retention_preview(inv: ToolInvocation) -> dict:
     ws = _caller_workspace(inv)
     try:

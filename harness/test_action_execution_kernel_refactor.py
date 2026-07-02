@@ -235,10 +235,13 @@ def test_low_risk_read_no_approval():
     assert decision.required is False
 
 
-# ── 6. ActionExecutor blocks on approval_pending ─────────────────────────
+# ── 6. ActionExecutor only approval-gates destructive commands ───────────
 
-def test_executor_no_dispatch_when_approval_pending():
-    """ActionExecutor returns approval_pending and does NOT dispatch."""
+def test_executor_dispatches_normal_execute_without_approval():
+    """Normal exec.run is medium risk and should dispatch directly.
+
+    Only destructive command patterns are high risk / approval-gated.
+    """
     executor = ActionExecutor()
     plan = ActionPlan(
         tool_id="exec.run", action_class="execute",
@@ -251,10 +254,8 @@ def test_executor_no_dispatch_when_approval_pending():
 
     result = executor.execute(plan, tool_call=mock_tool_call, ctx=mock_ctx)
 
-    # Should NOT have dispatched
-    mock_ctx.tool_router.dispatch.assert_not_called()
-    assert result.status == "approval_pending"
-    assert result.ok is True
+    mock_ctx.tool_router.dispatch.assert_called()
+    assert result.status != "approval_pending"
 
 
 # ── 7. ActionExecutor requires approval for dangerous commands ──────────

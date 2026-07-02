@@ -305,6 +305,17 @@ def _handle_inspection_managed(inv: ToolInvocation) -> dict:
         from dataclasses import asdict
         return {"ok": True, "task": asdict(task)}
 
+    if action == "wait":
+        task_id = str(args.get("task_id", "") or "")
+        timeout_seconds = args.get("timeout_seconds", 300)
+        interval_seconds = args.get("interval_seconds", 2)
+        return inspection_service.wait_task(
+            ws,
+            task_id,
+            timeout_seconds=timeout_seconds,
+            interval_seconds=interval_seconds,
+        )
+
     if action == "task_cancel":
         task_id = str(args.get("task_id", "") or "")
         return inspection_service.cancel_task(ws, task_id)
@@ -422,6 +433,7 @@ def _handle_system_merged(inv: ToolInvocation) -> dict:
         "diagnostics": handle_runtime_diagnostics,
         "health": handle_runtime_health,
         "selfcheck": handle_runtime_selfcheck,
+        "local_info": handle_runtime_local_info,
         "tasks": handle_runtime_tasks,
         "audit_log": handle_audit_log_query,
         "run_get": _handle_system_run_get_merged,
@@ -689,6 +701,7 @@ from core.tools.general_tools.runtime_tools import (
     handle_runtime_health,
     handle_runtime_selfcheck,
     handle_runtime_diagnostics,
+    handle_runtime_local_info,
     handle_runtime_retention_preview,
     handle_runtime_archive_preview,
     handle_report_render_markdown,
@@ -2046,7 +2059,7 @@ _RAW_REGISTRY: list[CanonicalToolEntry] = [
         input_schema=_schema({
             "workspace_id": _S["workspace_id"],
             "action": {"type": "string",
-                       "enum": ["diagnostics", "health", "selfcheck", "tasks", "audit_log",
+                       "enum": ["diagnostics", "health", "selfcheck", "local_info", "tasks", "audit_log",
                                 "run_get", "session_get",
                                 "session_checkpoint", "session_rewind", "session_export",
                                 "session_snapshot", "review_list", "review_update"]},
@@ -2064,7 +2077,7 @@ _RAW_REGISTRY: list[CanonicalToolEntry] = [
         }, ["action"]),
         risk_level="medium",
         description=(
-            "Unified system introspection. action=diagnostics, health, selfcheck, tasks, "
+            "Unified system introspection. action=diagnostics, health, selfcheck, local_info, tasks, "
             "audit_log, run_get, session_get, session_snapshot (reads); "
             "action=review_update, session_checkpoint, session_export (writes); "
             "action=session_rewind (destructive, requires approval)."
@@ -2215,7 +2228,7 @@ _RAW_REGISTRY: list[CanonicalToolEntry] = [
             "workspace_id": _S["workspace_id"],
             "action": {
                 "type": "string",
-                "enum": ["run", "task_list", "task_get", "task_cancel", "report"],
+                "enum": ["run", "task_list", "task_get", "wait", "task_cancel", "report"],
             },
             "scope": {
                 "type": "object",
@@ -2233,13 +2246,15 @@ _RAW_REGISTRY: list[CanonicalToolEntry] = [
             "session_id": {"type": "string", "description": "[run] Session id."},
             "max_concurrency": {"type": "integer", "description": "[run] Per-task device concurrency (default 3)."},
             "task_id": {"type": "string",
-                "description": "[task_get|task_cancel|report] Task id from action=run."},
+                "description": "[task_get|wait|task_cancel|report] Task id from action=run."},
+            "timeout_seconds": {"type": "integer", "description": "[wait] Max seconds to wait for terminal status (1-600, default 300)."},
+            "interval_seconds": {"type": "number", "description": "[wait] Poll interval seconds (0.5-10, default 2)."},
             "limit": {"type": "integer", "description": "[task_list] Max items (default 50)."},
             "format": {"type": "string", "enum": ["md", "json", "html"], "description": "[report] Report format."},
         }, ["action"]),
         description=(
             "CMDB-driven device health inspection. action=run / task_list / "
-            "task_get / task_cancel / report. The backend chooses scripts "
+            "task_get / wait / task_cancel / report. The backend chooses scripts "
             "from each CMDB asset's vendor and type -- callers do not need "
             "to choose a template. Pass profile_id='auto' (or omit it) "
             "and the runner picks the right profile per device; the five "
