@@ -186,7 +186,7 @@ class TestNoBypass:
         assert "_invoke_internal_web_search" in source
 
     def test_canonical_registry_no_dead_handler_calls(self):
-        source = open("tool_runtime/canonical_registry.py").read()
+        source = open("core/tools/canonical_registry.py").read()
         assert "registry_entry.handler(" not in source or "deprecated" in source
 
     @pytest.mark.skip(reason="requires local project path")
@@ -194,7 +194,7 @@ class TestNoBypass:
         """No production code should call CANONICAL_REGISTRY[tid].handler() directly."""
         import subprocess
         r = subprocess.run(
-            ["git", "grep", "-n", r'\.handler\s*\(', "agent/", "backend/", "tool_runtime/",
+            ["git", "grep", "-n", r'\.handler\s*\(', "agent/", "backend/", "core/tools/",
              ":!*test*", ":!*canonical_registry*", ":!*__pycache__"],
             capture_output=True, text=True, cwd="/Users/zhangh01/Desktop/network_agent",
         )

@@ -84,10 +84,10 @@ def test_module_artifact_docstrings_do_not_claim_no_real_device_access():
 def test_tool_runtime_foundation_doc_acknowledges_real_device_path():
     """The Tool Runtime ``__init__`` and ``builtins`` no longer claim
     the foundation layer excludes real-device execution. Real
-    device handling lives in ``tool_runtime.canonical_registry``;
+    device handling lives in ``core.tools.canonical_registry``;
     callers get there through ``exec.run(target=ssh|telnet)``.
     """
-    import tool_runtime as tr
+    import core.tools as tr
     init_src = open(tr.__file__).read()
     assert "No real device execution is included." not in init_src
 

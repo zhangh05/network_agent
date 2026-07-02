@@ -364,7 +364,7 @@ def test_canonical_run_handler_uses_existing_manifests():
     the canonical exec.run path. We verify by inspecting source — the
     handler must call the inspection service (which uses ToolRuntimeClient)
     and must NOT shell out directly with raw ssh/telnet / python."""
-    from tool_runtime import canonical_registry
+    from core.tools import canonical_registry
     src = Path(canonical_registry.__file__).read_text(encoding="utf-8")
     assert "from agent.modules.inspection import service" in src, (
         "canonical handler must delegate to inspection service"

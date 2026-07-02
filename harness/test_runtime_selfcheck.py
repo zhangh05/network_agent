@@ -1,6 +1,12 @@
 """Runtime Selfcheck Tests — v0.1"""
 import pytest
 from core.runtime.selfcheck import run_selfcheck, SelfcheckStatus
+from workspace.manager import ensure_workspace
+
+
+@pytest.fixture(autouse=True)
+def _default_workspace_exists():
+    ensure_workspace("default")
 
 
 class TestSelfcheck:

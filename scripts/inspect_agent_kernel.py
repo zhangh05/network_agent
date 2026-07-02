@@ -208,12 +208,12 @@ def main():
         print("  sub_agent_consistent: ❌")
     
     # memory_semantics_ok
-    gt_src = open('tool_runtime/general_tools/memory_tools.py').read()
+    gt_src = open('core/tools/general_tools/memory_tools.py').read()
     mem_ok = 'include_deleted' in gt_src
     print(f"  memory_semantics_ok: {'✅' if mem_ok else '❌'}")
     
     # agent_team_preview
-    gt_src2 = open('tool_runtime/general_tools/registry.py').read()
+    gt_src2 = open('core/tools/general_tools/registry.py').read()
     team_preview = 'PREVIEW' in gt_src2 or 'demo' in open('agent/runtime/sub_agent.py').read().lower()
     print(f"  agent_team_preview_status: {'PREVIEW (correctly marked)' if team_preview else '⚠️ check agent.team status'}")
     

@@ -16,7 +16,7 @@ from pathlib import Path
 
 from core.tools.path_security import safe_workspace_path, PathSecurityError
 
-ROOT = Path(__file__).resolve().parent.parent
+ROOT = Path(__file__).resolve().parents[2]
 WS_ROOT = ROOT / "workspaces"
 
 # ── Safe environment allowlist ──
