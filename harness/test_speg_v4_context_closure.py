@@ -86,9 +86,8 @@ def test_session_without_id_returns_memory_only(monkeypatch):
     assert out[0]["content"] == "hello"
     assert out[1]["role"] == "assistant"
     assert out[1]["content"] == "hi"
-    # Both events carry a created_at — in-memory events use
-    # the millis-offset base the builder assigns.
-    assert all("created_at" in e for e in out)
+    # Both events carry a _causal_index — v4.1 uses causal ordering.
+    assert all("_causal_index" in e for e in out)
 
 
 # ── C: disk read merges with in-memory, sorted by created_at ────────

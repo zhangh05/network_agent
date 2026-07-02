@@ -83,10 +83,10 @@ def test_violation_can_be_raised_and_caught():
 
 
 def test_engine_run_asserts_contracts(monkeypatch):
-    """The engine MUST assert the three contracts at the very
-    top of ``run()``. We flip a flag to ``False`` and confirm
-    the assertion fires — this is the "contract OFF is loud"
-    contract.
+    """The engine MUST fail when a critical contract is turned off.
+
+    v4.2: uses ContractValidator instead of raw assert; still
+    returns a failure result with CONTRACT_VIOLATION error.
     """
     from speg_engine.engine import SPEGEngine
     from speg_engine.models import SPEGConfig
@@ -103,22 +103,24 @@ def test_engine_run_asserts_contracts(monkeypatch):
         tool_registry=registry,
     )
 
-    # Flip the tool truth contract off; the engine must refuse.
     original = ExecutionContract.TOOL_TRUTH_SINGLE_SOURCE
     ExecutionContract.TOOL_TRUTH_SINGLE_SOURCE = False
     try:
-        with pytest.raises(AssertionError) as excinfo:
-            asyncio.run(engine.run("test", workspace_id="default",
-                                   session_id="audit_v4_assert"))
-        assert "TOOL_TRUTH_SINGLE_SOURCE" in str(excinfo.value)
+        result = asyncio.run(engine.run("test", workspace_id="default",
+                                        session_id="audit_v4_assert"))
+        assert result.success is False, \
+            f"Expected failure when TOOL_TRUTH_SINGLE_SOURCE is off, got: {result.metadata}"
+        assert result.errors, "Expected at least one error"
+        error_texts = [str(e) for e in result.errors]
+        assert any("TOOL_TRUTH" in t for t in error_texts), \
+            f"Error should reference TOOL_TRUTH_SINGLE_SOURCE: {error_texts}"
     finally:
-        # Always restore — the flag is class-level, leaking it
-        # would break the rest of the test session.
         ExecutionContract.TOOL_TRUTH_SINGLE_SOURCE = original
 
 
 def test_engine_run_asserts_context_contract(monkeypatch):
     """Same as above, but for the context-event-stream contract.
+    v4.2: returns failure result via ContractValidator.
     """
     from speg_engine.engine import SPEGEngine
     from speg_engine.models import SPEGConfig
@@ -138,16 +140,19 @@ def test_engine_run_asserts_context_contract(monkeypatch):
     original = ExecutionContract.CONTEXT_EVENT_STREAM_ONLY
     ExecutionContract.CONTEXT_EVENT_STREAM_ONLY = False
     try:
-        with pytest.raises(AssertionError) as excinfo:
-            asyncio.run(engine.run("test", workspace_id="default",
-                                   session_id="audit_v4_assert_ctx"))
-        assert "CONTEXT_EVENT_STREAM_ONLY" in str(excinfo.value)
+        result = asyncio.run(engine.run("test", workspace_id="default",
+                                        session_id="audit_v4_assert_ctx"))
+        assert result.success is False
+        assert result.errors
+        error_texts = [str(e) for e in result.errors]
+        assert any("CONTEXT_EVENT" in t for t in error_texts)
     finally:
         ExecutionContract.CONTEXT_EVENT_STREAM_ONLY = original
 
 
 def test_engine_run_asserts_execution_obligation_contract(monkeypatch):
     """Same as above, but for the execution-obligation contract.
+    v4.2: returns failure result via ContractValidator.
     """
     from speg_engine.engine import SPEGEngine
     from speg_engine.models import SPEGConfig
@@ -167,10 +172,12 @@ def test_engine_run_asserts_execution_obligation_contract(monkeypatch):
     original = ExecutionContract.EXECUTION_OBLIGATION_ENFORCED
     ExecutionContract.EXECUTION_OBLIGATION_ENFORCED = False
     try:
-        with pytest.raises(AssertionError) as excinfo:
-            asyncio.run(engine.run("test", workspace_id="default",
-                                   session_id="audit_v4_assert_eo"))
-        assert "EXECUTION_OBLIGATION_ENFORCED" in str(excinfo.value)
+        result = asyncio.run(engine.run("test", workspace_id="default",
+                                        session_id="audit_v4_assert_eo"))
+        assert result.success is False
+        assert result.errors
+        error_texts = [str(e) for e in result.errors]
+        assert any("EXECUTION_OBLIGATION" in t for t in error_texts)
     finally:
         ExecutionContract.EXECUTION_OBLIGATION_ENFORCED = original
 

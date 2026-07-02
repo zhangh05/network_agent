@@ -266,6 +266,11 @@ class SPEGEngine:
         from .runtime_contracts import ContractBoundary
         ContractBoundary.validate_all(ctx)
 
+        # ── init result variables before contract validation ──
+        errors: list[SPEGError] = []
+        node_results: dict[str, ToolResult] = {}
+        final_response = ""
+
         # ── v4.2: self-healing contract validation ─────────
         from .runtime_contracts import ContractValidator, ContractDegradation
         c_validator = ContractValidator(ExecutionContract)
@@ -290,9 +295,6 @@ class SPEGEngine:
             )
         ctx.extras["contract_report"] = contract_report
 
-        errors: list[SPEGError] = []
-        node_results: dict[str, ToolResult] = {}
-        final_response = ""
         dag = None
         risk_level = "low"
         approval_required = False

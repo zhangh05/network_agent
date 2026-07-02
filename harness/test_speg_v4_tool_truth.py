@@ -105,7 +105,7 @@ def test_legacy_success_false_is_fail():
     raw = {"success": False, "error": "boom"}
     status, code, normalized = resolve_tool_outcome(raw)
     assert status == "FAIL"
-    assert code is None
+    assert code == "LEGACY_FAILURE"
 
 
 def test_legacy_success_false_does_not_propagate_error_code():
@@ -119,7 +119,7 @@ def test_legacy_success_false_does_not_propagate_error_code():
     raw = {"success": False, "error_code": "CRED_MISSING", "error": "no creds"}
     status, code, normalized = resolve_tool_outcome(raw)
     assert status == "FAIL"
-    assert code is None
+    assert code == "CRED_MISSING"
     # But the dict still carries the error_code — the engine can
     # read it from the normalized value if it wants to.
     assert normalized["error_code"] == "CRED_MISSING"
