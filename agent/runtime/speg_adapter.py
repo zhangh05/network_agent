@@ -20,7 +20,17 @@ from agent.runtime.result import AgentResult
 from agent.runtime.turn_persistence import persist_run_record
 from agent.runtime.query_engine import build_trace_id
 from agent.runtime.utils import now_iso
+from agent.approval import get_approval_store
 from speg_engine.runtime_contracts import ExecutionContract
+
+# ── v3.16: diagnostic logger (local to adapter) ──────────────
+import sys as _sys
+_ADIAG_OUT = _sys.stderr
+def _diag(msg: str) -> None:
+    import time
+    ts = time.monotonic()
+    _ADIAG_OUT.write(f"[SPEG-ADAPT|{ts:.3f}] {msg}\n")
+    _ADIAG_OUT.flush()
 
 _LOG = logging.getLogger(__name__)
 
@@ -95,6 +105,99 @@ def run_speg_turn(
                 extras=metadata_in,
             )
         )
+
+        # ── v3.17: SPEG approval gate → ApprovalStore → frontend bubble ──
+        # When the risk policy requires approval (e.g. destructive commands),
+        # create ApprovalStore entries so the frontend ApprovalBubble detects
+        # them, then block until the user approves/denies.
+        speg_meta = speg_result.metadata or {}
+        if speg_meta.get("approval_required") and speg_meta.get("approval_nodes"):
+            _diag(f"SPEG-ADAPTER|APPROVAL_GATE | nodes={speg_meta['approval_nodes']} risk={speg_meta.get('risk_level','?')}")
+            store = get_approval_store()
+            approval_ids: list[str] = []
+            approval_details = speg_meta.get("approval_details") or []
+            for detail in approval_details:
+                tool_id = detail.get("tool", "unknown")
+                reason = detail.get("risk_reason", "高危操作需要确认")
+                cmd = detail.get("command", "")
+                desc = f"{reason}: {tool_id}"
+                if cmd:
+                    desc += f" → {cmd[:120]}"
+                req = store.create(
+                    session_id=session_id,
+                    tool_id=tool_id,
+                    arguments=detail,
+                    description=desc,
+                    risk_level=speg_meta.get("risk_level", "high"),
+                    workspace_id=workspace_id,
+                    run_id=turn.turn_id,
+                )
+                approval_ids.append(req.approval_id)
+                _diag(f"SPEG-ADAPTER|APPROVAL_CREATE | aid={req.approval_id} tool={tool_id}")
+
+            # If no approval_details, create one entry for all nodes
+            if not approval_details:
+                nodes = speg_meta["approval_nodes"]
+                tools = speg_meta.get("tool_summary", [])
+                req = store.create(
+                    session_id=session_id,
+                    tool_id=", ".join(tools) if tools else ", ".join(nodes),
+                    arguments={"nodes": nodes},
+                    description=speg_meta.get("approval_reason", "高危操作需要确认"),
+                    risk_level=speg_meta.get("risk_level", "high"),
+                    workspace_id=workspace_id,
+                    run_id=turn.turn_id,
+                )
+                approval_ids.append(req.approval_id)
+                _diag(f"SPEG-ADAPTER|APPROVAL_CREATE | aid={req.approval_id} nodes={nodes}")
+
+            # Block until all approvals are resolved (frontend bubble flow)
+            approved = True
+            for aid in approval_ids:
+                if not store.wait(aid, timeout=120):
+                    approved = False
+                    break
+
+            if approved:
+                # Re-run with approval bypass flag
+                _diag("SPEG-ADAPTER|APPROVAL_APPROVED | re-running with approved_risk")
+                metadata_in["approved_risk"] = True
+                engine2 = _build_engine(
+                    workspace_id=workspace_id,
+                    session_id=session_id,
+                    run_id=turn.turn_id,
+                    trace_id=trace_id,
+                    allowed_tool_ids=allowed_tool_ids,
+                    requested_by=requested_by,
+                    emitter=emitter,
+                )
+                speg_result = _run_async(
+                    engine2.run(
+                        user_input=user_input,
+                        workspace_id=workspace_id,
+                        session_id=session_id,
+                        extras=metadata_in,
+                    )
+                )
+            else:
+                # User denied — return rejection result
+                _diag("SPEG-ADAPTER|APPROVAL_DENIED")
+                return AgentResult(
+                    ok=True,
+                    final_response="操作已取消（审批未通过）。",
+                    events=events,
+                    trace_id=trace_id,
+                    session_id=session_id,
+                    turn_id=turn.turn_id,
+                    tool_calls=[],
+                    metadata={
+                        **context.metadata,
+                        "runtime_engine": "speg",
+                        "speg": speg_meta,
+                        "approval_denied": True,
+                    },
+                )
+
         final_response = _final_response(speg_result)
         tool_calls = _project_tool_calls(speg_result)
         events.extend(_project_events(speg_result, trace_id, turn.turn_id))
@@ -332,6 +435,16 @@ def _invoke_llm_for_speg(**kwargs) -> str:
     if caller_extra:
         extra.update(caller_extra)
 
+    # v3.16: forward timeout from caller (finalizer passes
+    # finalizer_timeout_ms) so it is not silently dropped.
+    config_override = None
+    timeout = kwargs.get("timeout")
+    if timeout is not None:
+        config_override = {"timeout": int(timeout)}
+
+    sid = kwargs.get("extra", {}).get("session_id", "?")[:8]
+    _diag(f"SPEG-ADAPTER|{sid}|LLM_CALL | is_planner={is_planner} stream_to_user={extra.get('stream_to_user')} config_override={'yes' if config_override else 'no'}")
+
     resp = invoke_llm(
         task="assistant_chat",
         messages=[
@@ -341,7 +454,11 @@ def _invoke_llm_for_speg(**kwargs) -> str:
         tools=None,
         user_input=user,
         extra=extra,
+        config_override=config_override,
     )
+
+    _diag(f"SPEG-ADAPTER|{sid}|LLM_RESULT | error={repr(resp.error) if resp.error else 'None'} content_len={len(resp.content or '')} provider={getattr(resp, 'provider', '?')}")
+
     if resp.error:
         raise RuntimeError(resp.error)
     content = (resp.content or "").strip()
@@ -394,8 +511,34 @@ def _run_async(awaitable):
     return box.get("result")
 
 
+_BOGUS_FINAL_PATTERNS = (
+    "收到",
+    "已完成。",
+    "工具执行成功",
+    "No tools were executed",
+    "readartifact completed",
+    "readartifact succeeded",
+)
+
+
+def _is_bogus_final(text: str) -> bool:
+    """Return True when *text* is a placeholder stub rather than
+    a real answer produced by the finalizer LLM."""
+    t = text.strip()
+    if len(t) <= 10:
+        return True
+    return any(p in t for p in _BOGUS_FINAL_PATTERNS)
+
+
 def _final_response(speg_result) -> str:
     text = str(getattr(speg_result, "final_response", "") or "").strip()
+
+    # v3.16: if the final response is a known placeholder but we
+    # have actual tool results, degrade gracefully instead of
+    # returning a useless stub like "收到。".
+    if text and _is_bogus_final(text):
+        text = ""  # fall through to meaningful defaults
+
     if text:
         return text
     if speg_result.node_results:

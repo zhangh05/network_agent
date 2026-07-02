@@ -610,7 +610,8 @@ class TestPlanner:
             user_input="test",
         )
 
-        with pytest.raises(ValueError, match="missing valid 'tool'"):
+        from speg_engine.planner import SchemaValidationError
+        with pytest.raises(SchemaValidationError, match="must be non-empty"):
             planner.plan(ctx)
 
 

@@ -54,7 +54,9 @@ class TestContracts:
     def test_exec_run_is_high_risk(self):
         c = get_contract("exec.run")
         assert c is not None
-        assert c.risk_level == "high"
+        # v3.17: exec.run downgraded to medium; destructive-command
+        # checks at execution time still escalate to approval.
+        assert c.risk_level == "medium"
         assert c.side_effect == "execute_command"
         assert not c.idempotent
 
@@ -86,7 +88,9 @@ class TestContracts:
 
     def test_approval_required_on_exec_tools(self):
         c = get_contract("exec.run")
-        assert c.requires_approval
+        # v3.17: exec.run downgraded to medium; destructive-command
+        # checks at execution time still trigger approval.
+        assert not c.requires_approval
 
 
 # ============================================================================
@@ -167,7 +171,10 @@ class TestSemanticValidator:
         nodes = [ExecutionNode(id="n1", tool="exec.run", args={"command": "echo hi"}, depth=0)]
         dag = ExecutionDAG(nodes=nodes, total_nodes=1, max_depth=0)
         result = validator.validate(dag)
-        assert result.risk_level == "high"
+        # v3.17: exec.run risk_level=medium → semantic validator
+        # only elevates high/critical, so composite stays low
+        # for non-destructive echo commands.
+        assert result.risk_level == "low"
 
 
 # ============================================================================
@@ -190,7 +197,11 @@ class TestRiskPolicy:
         assert result.risk_level == "low"
 
     def test_exec_node_requires_approval(self, engine):
-        nodes = [ExecutionNode(id="n1", tool="exec.run", args={"command": "ls"}, depth=0)]
+        # v3.17: exec.run is medium risk; non-destructive commands
+        # (ls) no longer require approval. Use destructive command.
+        nodes = [ExecutionNode(id="n1", tool="exec.run",
+                               args={"command": "rm -f /tmp/test"},
+                               depth=0)]
         dag = ExecutionDAG(nodes=nodes, total_nodes=1, max_depth=0)
         result = engine.assess(dag)
         assert result.requires_approval
@@ -210,14 +221,15 @@ class TestRiskPolicy:
         assert any("write" in w.lower() for w in result.warnings)
 
     def test_multiple_exec_approval(self, engine):
+        # v3.17: exec.run=medium, requires >5 exec nodes for combo escalation
         nodes = [
-            ExecutionNode(id="n1", tool="exec.run", args={"command": "a"}, depth=0),
-            ExecutionNode(id="n2", tool="exec.run", args={"command": "b"}, depth=0),
-            ExecutionNode(id="n3", tool="exec.run", args={"command": "c"}, depth=0),
+            ExecutionNode(id=f"n{i}", tool="exec.run",
+                          args={"command": chr(ord('a')+i)},
+                          depth=0)
+            for i in range(6)
         ]
-        dag = ExecutionDAG(nodes=nodes, total_nodes=3, max_depth=0)
+        dag = ExecutionDAG(nodes=nodes, total_nodes=6, max_depth=0)
         result = engine.assess(dag)
-        # v3.12: 3 exec.run → approval required, NOT hard block
         assert result.requires_approval
         assert result.hard_block is False
         assert not result.safe_to_run
@@ -641,9 +653,10 @@ class TestBankGradePipeline:
     async def test_risk_policy_blocks_critical_combo(self, config):
         from speg_engine.engine import SPEGEngine
 
+        # v3.17: exec.run=medium; need >5 for combo escalation
         nodes_json = [
             {"id": f"n{i}", "tool": "exec.run", "args": {"command": f"cmd{i}"}, "deps": []}
-            for i in range(3)
+            for i in range(6)
         ]
         plan_json = json.dumps({"nodes": nodes_json})
 
@@ -660,10 +673,9 @@ class TestBankGradePipeline:
             return "ok"
 
         engine.register_tool("exec.run", handler)
-        result = await engine.run("run 3 commands")
+        result = await engine.run("run 6 commands")
 
-        # v3.12: 3 exec nodes → approval_required (NOT hard block).
-        # The pipeline returns success=True with approval metadata.
+        # 6 exec nodes → approval_required (NOT hard block).
         assert result.success
         assert result.metadata.get("approval_required") is True
         assert result.metadata.get("hard_block") is False

@@ -37,6 +37,15 @@ from .runtime_contracts import (
     PlanValidationError,
 )
 
+# ── v3.16 diagnostic ──────────────────────────────────────
+import sys
+_PTRIAGE = sys.stderr
+def _pdiag(sid: str, msg: str) -> None:
+    import time
+    ts = time.monotonic()
+    _PTRIAGE.write(f"[PLANNER-DIAG|{sid[:8]}|{ts:.3f}] {msg}\n")
+    _PTRIAGE.flush()
+
 
 PLANNER_SYSTEM_PROMPT = """You are a deterministic execution planner. Your ONLY job is to output a JSON
 execution graph that achieves the user's request.
@@ -227,6 +236,8 @@ class Planner:
         tools_desc = self._build_tools_description()
         user_prompt = self._build_user_prompt(ctx, tools_desc)
 
+        _pdiag(ctx.session_id, f"PLANNER_START | tools={len(self._available_tools)} input_len={len(ctx.user_input)}")
+
         raw_output = self._llm_invoke(
             system=PLANNER_SYSTEM_PROMPT,
             user=user_prompt,
@@ -234,9 +245,13 @@ class Planner:
             timeout=self._config.planner_timeout_ms,
         )
 
+        _pdiag(ctx.session_id, f"LLM_RAW | len={len(raw_output)} preview={raw_output[:200]!r}")
+
         # Clean output: strip markdown fences if present
         cleaned = self._clean_json_output(raw_output)
         data = self._parse_plan_json(cleaned)
+
+        _pdiag(ctx.session_id, f"PARSED | keys={list(data.keys())} nodes_count={len(data.get('nodes', []))} has_final_response={'final_response' in data}")
 
         # ── v6: unified plan validation pipeline ────────────
         task_intent = ctx.extras.get("task_intent_is_task", False)
@@ -261,6 +276,7 @@ class Planner:
         # returning so the engine's empty-plan guard sees the
         # exception and produces a structured error result.
         intent = detect_task_intent(ctx.user_input or "")
+        _pdiag(ctx.session_id, f"OBLIGATION_CHECK | is_task={intent.is_task} requires_exec={intent.requires_execution} plan_len={len(nodes)}")
         enforce_execution_obligation(intent, nodes)
 
         elapsed = (time.monotonic() - start) * 1000

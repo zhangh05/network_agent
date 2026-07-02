@@ -431,7 +431,7 @@ def main():
     signal.signal(signal.SIGTERM, _graceful_shutdown)
     signal.signal(signal.SIGINT, _graceful_shutdown)
 
-    app.run(host=args.host, port=port, debug=False)
+    app.run(host=args.host, port=port, debug=False, threaded=True)
 
 
 if __name__ == "__main__":

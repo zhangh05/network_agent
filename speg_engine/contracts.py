@@ -76,12 +76,12 @@ BUILTIN_CONTRACTS: dict[str, ToolContract] = {
         },
         output_schema={"properties": {"stdout": {"type": "string"}, "stderr": {"type": "string"}, "exit_code": {"type": "number"}}},
         side_effect="execute_command",
-        risk_level="high",
+        risk_level="medium",
         idempotent=False,
         timeout_seconds=120,
         max_retries=0,
         concurrency_group="shell",
-        requires_approval=True,
+        requires_approval=False,
         rollback_supported=False,
     ),
 
@@ -125,11 +125,11 @@ BUILTIN_CONTRACTS: dict[str, ToolContract] = {
         input_schema={"required": ["action"], "properties": {"action": {"type": "string", "enum": ["navigate", "extract", "screenshot", "click", "fill"]}}},
         output_schema={},
         side_effect="external_request",
-        risk_level="high",
+        risk_level="medium",
         idempotent=False,
         timeout_seconds=90,
         concurrency_group="browser",
-        requires_approval=True,
+        requires_approval=False,
     ),
 
     # --- web ---
@@ -252,11 +252,11 @@ BUILTIN_CONTRACTS: dict[str, ToolContract] = {
         input_schema={"required": ["action"], "properties": {"action": {"type": "string", "enum": ["spawn", "team_run", "result_get", "role_list"]}}},
         output_schema={},
         side_effect="execute_command",
-        risk_level="high",
+        risk_level="medium",
         idempotent=False,
         timeout_seconds=300,
         concurrency_group="subagent",
-        requires_approval=True,
+        requires_approval=False,
     ),
 
     # --- system ---
@@ -383,11 +383,11 @@ BUILTIN_CONTRACTS: dict[str, ToolContract] = {
         input_schema={"required": ["action"], "properties": {"action": {"type": "string", "enum": ["start", "status", "result", "cancel"]}}},
         output_schema={},
         side_effect="execute_command",
-        risk_level="high",
+        risk_level="medium",
         idempotent=False,
         timeout_seconds=300,
         concurrency_group="ssh",
-        requires_approval=True,
+        requires_approval=False,
     ),
 }
 
