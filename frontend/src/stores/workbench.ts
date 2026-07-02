@@ -20,6 +20,25 @@ import type { AgentResult, SessionMessage, MessageStatus, InlineToolCall, Runtim
 import { sanitizeAssistantText } from "../utils/displayText";
 import { runtimeAuditApi } from "../api";
 
+// ── Debounced localStorage — batched writes to avoid UI stutter ──
+function debouncedStorage(key: string, delayMs = 300) {
+  let timer: ReturnType<typeof setTimeout> | null = null;
+  return {
+    getItem: () => localStorage.getItem(key),
+    setItem: (_: string, value: string) => {
+      if (timer) clearTimeout(timer);
+      timer = setTimeout(() => {
+        try { localStorage.setItem(key, value); } catch {}
+        timer = null;
+      }, delayMs);
+    },
+    removeItem: () => {
+      if (timer) clearTimeout(timer);
+      try { localStorage.removeItem(key); } catch {}
+    },
+  };
+}
+
 export interface ChatMsg {
   id: string;
   message_id?: string;
@@ -552,6 +571,7 @@ export const useWorkbenchStore = create<WorkbenchState>()(
     {
       name: "na_workbench",
       version: 3,
+      storage: debouncedStorage("na_workbench"),
       // v3: drop `results` from persistence — Timeline derives runs from
       // bySession now, so we only need to persist bySession + lastUserInput.
       migrate: (persisted: unknown, _version: number) => {

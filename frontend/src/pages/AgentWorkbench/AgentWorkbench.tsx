@@ -1,4 +1,4 @@
-import React, { useState, useRef, useEffect, useCallback } from "react";
+import React, { useState, useRef, useEffect, useCallback, memo } from "react";
 import { agentApi, knowledgeApi, memoryApi, sessionsApi, settingsApi, sseApi } from "../../api";
 import { apiRequest } from "../../api/client";
 import { useSessionStore } from "../../stores/session";
@@ -77,6 +77,21 @@ function buildAlternativePrompt(lastUserInput: string): string {
     "要求：不要重复同一个失败命令或同一组失败参数；如果工具失败是环境缺失，请选择可用的替代命令或说明需要用户补充的信息。",
   ].join("\n");
 }
+
+// ── Memoized message row — skips re-render when store updates unrelated messages ──
+const MemoMessageRow = memo(function MemoMessageRow({ m, idx, total, renderFn }: {
+  m: any; idx: number; total: number;
+  renderFn: (m: any, idx: number, total: number) => React.ReactNode;
+}) {
+  return <>{renderFn(m, idx, total)}</>;
+}, (prev, next) => {
+  // Only re-render if THIS specific message's content changed
+  return prev.m.text === next.m.text
+    && prev.m.status === next.m.status
+    && prev.m.toolCalls === next.m.toolCalls
+    && prev.m.result === next.m.result
+    && prev.idx === next.idx;
+});
 
 export function TaskWorkbench() {
   const { currentWorkspaceId, currentSessionId } = useSessionStore();
@@ -596,22 +611,20 @@ export function TaskWorkbench() {
       ws = null;
       wsRef.current = null;
 
-      // Phase 1: migrate _scratch → real session (identity-only, no content dedup).
-      // existing is always [] here — resolvedSid is a brand-new session ID.
-      // Deduplication is deferred to mergeFromBackend (Phase 2 below), which
-      // handles it correctly via message_id / run_id matching.
+      // Phase 1: defer session migration to next microtask
       if (!currentSessionId && resolvedSid) {
-        useSessionStore.getState().setCurrentSession(resolvedSid);
-        useWorkbenchStore.setState((prev) => {
-          const scratchMsgs = prev.bySession["_scratch"] ?? [];
-          const existing = prev.bySession[resolvedSid] ?? [];
-          return { bySession: { ...prev.bySession, [resolvedSid]: [...existing, ...scratchMsgs], _scratch: [] } };
+        queueMicrotask(() => {
+          useSessionStore.getState().setCurrentSession(resolvedSid);
+          useWorkbenchStore.setState((prev) => {
+            const scratchMsgs = prev.bySession["_scratch"] ?? [];
+            const existing = prev.bySession[resolvedSid] ?? [];
+            return { bySession: { ...prev.bySession, [resolvedSid]: [...existing, ...scratchMsgs], _scratch: [] } };
+          });
+          useWorkbenchStore.getState().switchSession(resolvedSid);
         });
-        useWorkbenchStore.getState().switchSession(resolvedSid);
       }
 
       const wsResult = agentResultFromWsDone(streamingResult, streamedText, resolvedSid);
-      // Finalize the optimistic streaming message
       const cleanText = sanitizeAssistantText(wsResult.final_response);
       const cleanResult = { ...wsResult, final_response: sanitizeAssistantText(wsResult.final_response ?? "") };
       const toolCalls: InlineToolCall[] = (cleanResult.tool_calls ?? []).map((tc) => ({
@@ -632,9 +645,12 @@ export function TaskWorkbench() {
         trace_id: wsResult.trace_id,
         run_id: wsResult.turn_id,
       }, resolvedSid);
-      setLatestResult(wsResult, resolvedSid);
-      notifyRunCompleted();
-      keepAtBottom();
+      // Defer heavy post-processing
+      queueMicrotask(() => {
+        setLatestResult(wsResult, resolvedSid);
+        notifyRunCompleted();
+        keepAtBottom();
+      });
 
       if (resolvedSid && currentWorkspaceId) {
         sessionsApi.messages(resolvedSid, currentWorkspaceId)
@@ -955,9 +971,7 @@ export function TaskWorkbench() {
               />
             )}
             {(visibleHistory ?? []).map((m, idx) => (
-              <React.Fragment key={m.message_id || m.run_id || m.id}>
-                {renderMsg(m, idx, (visibleHistory ?? []).length)}
-              </React.Fragment>
+              <MemoMessageRow key={m.message_id || m.run_id || m.id} m={m} idx={idx} total={(visibleHistory ?? []).length} renderFn={renderMsg} />
             ))}
           </div>
         )}

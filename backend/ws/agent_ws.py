@@ -108,7 +108,7 @@ def register_ws_routes(app):
                 # Stream events from queue to WebSocket
                 while True:
                     try:
-                        event = event_queue.get(timeout=0.1)
+                        event = event_queue.get(timeout=0.01)
                     except queue.Empty:
                         if not thread.is_alive():
                             try:
@@ -237,6 +237,7 @@ def _run_agent_thread(user_input, session_id, workspace_id, metadata, event_queu
 
         resolved_session_id = result_payload.get("session_id") or session_id or ""
 
+        # Send done event first — so frontend sees it immediately
         event_queue.put({
             "type": "done",
             "session_id": resolved_session_id,
@@ -251,19 +252,18 @@ def _run_agent_thread(user_input, session_id, workspace_id, metadata, event_queu
             "warnings": result_payload.get("warnings", []),
             "tool_decision": result_payload.get("tool_decision", {}),
             "no_tool_reason": result_payload.get("no_tool_reason", ""),
-            # v3.10: Resume + context linking
             "stream_seq": stats.get("event_seq", 0),
             "active_module": result_payload.get("active_module", ""),
             "capability": result_payload.get("capability", ""),
             "error_type": result_payload.get("error_type", ""),
         })
 
-        # v3.3.4: Run deferred finalization AFTER done event — user sees response immediately
-        try:
-            from agent.runtime.result_builder import run_deferred_finalization
-            run_deferred_finalization(result)
-        except Exception:
-            pass
+        # Now apply sanitize (regex processing) — it won't delay the done event
+        if result_payload.get("final_response"):
+            from agent.llm.runtime import sanitize_provider_output
+            result_payload["final_response"], stripped = sanitize_provider_output(result_payload["final_response"])
+            if stripped:
+                result_payload.setdefault("metadata", {})["reasoning_stripped"] = True
 
     except Exception as e:
         traceback.print_exc()
