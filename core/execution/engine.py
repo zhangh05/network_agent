@@ -1,36 +1,31 @@
 """
-ExecutionEngine — Pure event emitter.
+ExecutionEngine — Stateless event emitter.
 
-Rules:
-  - ONLY emit events (ToolEvent, NodeEvent, etc.)
-  - NEVER write to GraphStore directly
-  - NEVER compute timing
-  - NEVER mutate plan state
-  - All side effects go through event callbacks
+Invariants:
+  - engine.state == NONE (no internal mutable state)
+  - No retry counter (retry is re-emitting events)
+  - No internal cache
+  - No progress state
+  - No temporary tool results storage
 
 Architecture:
-  ExecutionEngine.run(plan, emit)
-    → for each layer, for each node:
-        emit(NodeStarted)
-        result = invoke_tool(...)
-        emit(NodeCompleted | NodeFailed)
+  ExecutionEngine.execute(plan, run_id, emit, handlers)
+    → for each node: emit(NODE_STARTED), invoke handler, emit(NODE_COMPLETED|NODE_FAILED)
 """
 
 from __future__ import annotations
 
 import asyncio
-import time
 from dataclasses import dataclass, field
-from typing import Any, Callable, Awaitable
+from typing import Any, Callable, Awaitable, ClassVar
 
 from core.graph.graph_store import EventType
 
 
-# ── Data types ───────────────────────────────────────────────────────
+# ── Pure data types ────────────────────────────────────────────────────
 
-@dataclass
+@dataclass(frozen=True)
 class ExecutionNode:
-    """A single node to execute."""
     node_id: str
     tool: str
     args: dict[str, Any] = field(default_factory=dict)
@@ -38,25 +33,22 @@ class ExecutionNode:
     depth: int = 0
 
 
-@dataclass
+@dataclass(frozen=True)
 class ExecutionPlan:
-    """Pre-compiled DAG ready for execution."""
-    nodes: list[ExecutionNode]
-    layers: dict[int, list[ExecutionNode]] = field(default_factory=dict)
+    nodes: tuple[ExecutionNode, ...]
+    layers: dict[int, tuple[ExecutionNode, ...]] = field(default_factory=dict)
     max_depth: int = 0
     total_nodes: int = 0
 
     @classmethod
     def from_plan_dicts(cls, plan_nodes: list[dict]) -> "ExecutionPlan":
-        nodes = [
+        nodes = tuple(
             ExecutionNode(
-                node_id=n["id"],
-                tool=n["tool"],
-                args=n.get("args", {}),
-                deps=n.get("deps", []),
+                node_id=n["id"], tool=n["tool"],
+                args=n.get("args", {}), deps=n.get("deps", []),
             )
             for n in plan_nodes
-        ]
+        )
         depth_map: dict[str, int] = {}
         changed = True
         while changed:
@@ -69,19 +61,24 @@ class ExecutionPlan:
                     depth_map[node.node_id] = max(dep_depths, default=-1) + 1
                     changed = True
 
-        for node in nodes:
-            node.depth = depth_map.get(node.node_id, 0)
-
+        nodes = tuple(
+            ExecutionNode(
+                node_id=n.node_id, tool=n.tool, args=n.args,
+                deps=n.deps, depth=depth_map.get(n.node_id, 0),
+            )
+            for n in nodes
+        )
         max_depth = max((n.depth for n in nodes), default=0)
-        layers: dict[int, list[ExecutionNode]] = {}
+        layers: dict[int, tuple[ExecutionNode, ...]] = {}
         for n in nodes:
-            layers.setdefault(n.depth, []).append(n)
+            layers.setdefault(n.depth, ())
+            layers[n.depth] = layers[n.depth] + (n,)
 
         return cls(nodes=nodes, layers=layers, max_depth=max_depth,
                    total_nodes=len(nodes))
 
 
-@dataclass
+@dataclass(frozen=True)
 class ToolResult:
     node_id: str
     tool: str
@@ -98,47 +95,54 @@ class ToolResult:
         }
 
 
-# ── Event emitter callback type ──────────────────────────────────────
+# ── Event emitter type ─────────────────────────────────────────────────
 
 EmitFn = Callable[[str, str, dict], None]
-"""emit(event_type: str, run_id: str, payload: dict) -> None"""
 
 
-# ── ExecutionEngine ──────────────────────────────────────────────────
+# ── ExecutionEngine (STATELESS) ────────────────────────────────────────
 
 Handler = Callable[[dict[str, Any]], Any]
-AsyncHandler = Callable[[dict[str, Any]], Awaitable[Any]]
 
 
 class ExecutionEngine:
-    """Pure execution. Emits events. No state mutation."""
+    """Pure stateless execution. Zero internal state.
 
-    def __init__(self, handlers: dict[str, Handler | AsyncHandler] | None = None):
-        self._handlers: dict[str, Handler | AsyncHandler] = handlers or {}
-        self._max_retries: int = 1
+    USAGE:
+      engine = ExecutionEngine()
+      results = await engine.execute(plan, run_id, emit, handlers)
 
-    def register(self, tool: str, handler: Handler | AsyncHandler) -> None:
-        self._handlers[tool] = handler
+    The engine is a FUNCTION, not an object with state.
+    It can be shared across all runs with no side effects.
+    """
 
+    # Class-level assertion: no instance state allowed
+    INSTANCE_FIELDS_BANNED: ClassVar[set[str]] = {
+        "retry_counter", "cache", "progress", "store", "state", "_results",
+    }
+
+    def __init_subclass__(cls, **kwargs):
+        super().__init_subclass__(**kwargs)
+        for name in cls.INSTANCE_FIELDS_BANNED:
+            if hasattr(cls, name):
+                raise AssertionError(f"ExecutionEngine has banned field: {name}")
+
+    @staticmethod
     async def execute(
-        self,
         plan: ExecutionPlan,
         run_id: str,
         emit: EmitFn,
+        handlers: dict[str, Handler],
     ) -> dict[str, ToolResult]:
-        """Execute a plan. Emits events for every action. No state writes.
+        """Execute a plan. PURE FUNCTION — no side effects on engine.
 
-        Args:
-            plan: The execution plan with pre-compiled DAG
-            run_id: Current run identifier
-            emit: Event callback (event_type, run_id, payload)
+        All state goes through emit() → GraphStore events.
         """
         emit(EventType.STAGE_STARTED, run_id, {"stage": "execute"})
-
         all_results: dict[str, ToolResult] = {}
 
         for depth in range(plan.max_depth + 1):
-            layer = plan.layers.get(depth, [])
+            layer = plan.layers.get(depth, ())
             if not layer:
                 continue
 
@@ -146,7 +150,9 @@ class ExecutionEngine:
                 "depth": depth, "node_count": len(layer),
             })
 
-            layer_results = await self._execute_layer(layer, all_results, run_id, emit)
+            layer_results = await _execute_layer(
+                layer, all_results, run_id, emit, handlers,
+            )
             all_results.update(layer_results)
 
             emit(EventType.LAYER_COMPLETED, run_id, {"depth": depth})
@@ -154,143 +160,102 @@ class ExecutionEngine:
         emit(EventType.STAGE_ENDED, run_id, {"stage": "execute"})
         return all_results
 
-    async def _execute_layer(
-        self,
-        nodes: list[ExecutionNode],
-        dep_results: dict[str, ToolResult],
-        run_id: str,
-        emit: EmitFn,
-    ) -> dict[str, ToolResult]:
-        """Execute all nodes in one layer concurrently."""
-        tasks = {
-            n.node_id: asyncio.create_task(
-                self._execute_node(n, dep_results, run_id, emit)
-            )
-            for n in nodes
-        }
-        gathered = await asyncio.gather(*tasks.values(), return_exceptions=True)
 
-        results: dict[str, ToolResult] = {}
-        for node_id, result in zip(tasks.keys(), gathered):
-            if isinstance(result, Exception):
-                results[node_id] = ToolResult(
-                    node_id=node_id, tool="unknown",
-                    success=False, error=f"{type(result).__name__}: {result}",
-                )
-            else:
-                results[node_id] = result
-        return results
+# ── Pure functions (no class, no state) ────────────────────────────────
 
-    async def _execute_node(
-        self,
-        node: ExecutionNode,
-        dep_results: dict[str, ToolResult],
-        run_id: str,
-        emit: EmitFn,
-    ) -> ToolResult:
-        """Execute a single node. Emit NODE_STARTED + (NODE_COMPLETED | NODE_FAILED)."""
-        args = self._resolve_deps(node.args, dep_results)
-
-        emit(EventType.NODE_STARTED, run_id, {
-            "node_id": node.node_id, "tool": node.tool,
-        })
-
-        last_error = None
-        for attempt in range(self._max_retries + 1):
-            start = time.monotonic()
-            try:
-                handler = self._handlers.get(node.tool)
-                if handler is None:
-                    raise RuntimeError(f"No handler for {node.tool}")
-
-                result = handler(args)
-                if asyncio.iscoroutine(result):
-                    result = await result
-
-                elapsed = (time.monotonic() - start) * 1000
-                tr = ToolResult(
-                    node_id=node.node_id, tool=node.tool,
-                    success=True, data=result, latency_ms=elapsed,
-                )
-                emit(EventType.NODE_COMPLETED, run_id, {
-                    "node_id": node.node_id, "result": tr.to_dict(),
-                })
-                return tr
-
-            except Exception as e:
-                last_error = str(e)
-                if attempt == self._max_retries:
-                    elapsed = (time.monotonic() - start) * 1000
-                    tr = ToolResult(
-                        node_id=node.node_id, tool=node.tool,
-                        success=False, error=last_error, latency_ms=elapsed,
-                    )
-                    emit(EventType.NODE_FAILED, run_id, {
-                        "node_id": node.node_id, "error": last_error,
-                    })
-                    return tr
-
-        return ToolResult(
-            node_id=node.node_id, tool=node.tool,
-            success=False, error=last_error or "unknown",
+async def _execute_layer(
+    nodes: tuple[ExecutionNode, ...],
+    dep_results: dict[str, ToolResult],
+    run_id: str,
+    emit: EmitFn,
+    handlers: dict[str, Handler],
+) -> dict[str, ToolResult]:
+    tasks = {
+        n.node_id: asyncio.create_task(
+            _execute_node(n, dep_results, run_id, emit, handlers)
         )
-
-    @staticmethod
-    def _resolve_deps(
-        args: dict[str, Any],
-        dep_results: dict[str, ToolResult],
-    ) -> dict[str, Any]:
-        resolved = dict(args)
-        for key, value in list(resolved.items()):
-            if isinstance(value, str) and value.startswith("$dep."):
-                parts = value.replace("$dep.", "").split(".", 1)
-                dep_node_id = parts[0]
-                if dep_node_id in dep_results:
-                    dep_result = dep_results[dep_node_id]
-                    resolved[key] = dep_result.data
-        return resolved
+        for n in nodes
+    }
+    gathered = await asyncio.gather(*tasks.values(), return_exceptions=True)
+    results: dict[str, ToolResult] = {}
+    for node_id, result in zip(tasks.keys(), gathered):
+        if isinstance(result, Exception):
+            results[node_id] = ToolResult(
+                node_id=node_id, tool="unknown",
+                success=False, error=f"{type(result).__name__}: {result}",
+            )
+        else:
+            results[node_id] = result
+    return results
 
 
-# ── ToolGateway ────────────────────────────────────────────────────────
+async def _execute_node(
+    node: ExecutionNode,
+    dep_results: dict[str, ToolResult],
+    run_id: str,
+    emit: EmitFn,
+    handlers: dict[str, Handler],
+) -> ToolResult:
+    import time
 
-class ToolGateway:
-    """Unified tool invocation through the event system."""
+    args = _resolve_deps(node.args, dep_results)
 
-    @staticmethod
-    async def execute(
-        tool: str,
-        args: dict[str, Any],
-        run_id: str,
-        emit: EmitFn,
-        handlers: dict[str, Handler] | None = None,
-    ) -> ToolResult:
-        handlers = handlers or {}
-        handler = handlers.get(tool)
+    emit(EventType.NODE_STARTED, run_id, {
+        "node_id": node.node_id, "tool": node.tool,
+    })
+
+    start = time.monotonic()
+    try:
+        handler = handlers.get(node.tool)
         if handler is None:
-            return ToolResult(node_id="gw", tool=tool, success=False,
-                              error=f"No handler for {tool}")
+            raise RuntimeError(f"No handler for {node.tool}")
 
-        start = time.monotonic()
-        try:
-            result = handler(args)
-            if asyncio.iscoroutine(result):
-                result = await result
-            elapsed = (time.monotonic() - start) * 1000
-            return ToolResult(node_id="gw", tool=tool, success=True,
-                              data=result, latency_ms=elapsed)
-        except Exception as e:
-            elapsed = (time.monotonic() - start) * 1000
-            return ToolResult(node_id="gw", tool=tool, success=False,
-                              error=str(e), latency_ms=elapsed)
+        result = handler(args)
+        if asyncio.iscoroutine(result):
+            result = await result
+
+        elapsed = (time.monotonic() - start) * 1000
+        tr = ToolResult(
+            node_id=node.node_id, tool=node.tool,
+            success=True, data=result, latency_ms=elapsed,
+        )
+        emit(EventType.NODE_COMPLETED, run_id, {
+            "node_id": node.node_id, "result": tr.to_dict(),
+        })
+        return tr
+
+    except Exception as e:
+        elapsed = (time.monotonic() - start) * 1000
+        tr = ToolResult(
+            node_id=node.node_id, tool=node.tool,
+            success=False, error=str(e), latency_ms=elapsed,
+        )
+        emit(EventType.NODE_FAILED, run_id, {
+            "node_id": node.node_id, "error": str(e),
+        })
+        return tr
 
 
-# ── Singleton ──────────────────────────────────────────────────────────
+def _resolve_deps(
+    args: dict[str, Any],
+    dep_results: dict[str, ToolResult],
+) -> dict[str, Any]:
+    resolved = dict(args)
+    for key, value in list(resolved.items()):
+        if isinstance(value, str) and value.startswith("$dep."):
+            parts = value.replace("$dep.", "").split(".", 1)
+            dep_node_id = parts[0]
+            if dep_node_id in dep_results:
+                resolved[key] = dep_results[dep_node_id].data
+    return resolved
 
-_engine: ExecutionEngine | None = None
 
+# ── Invariant check ────────────────────────────────────────────────────
 
-def get_execution_engine() -> ExecutionEngine:
-    global _engine
-    if _engine is None:
-        _engine = ExecutionEngine()
-    return _engine
+def assert_stateless(engine: ExecutionEngine) -> bool:
+    """Assert engine has zero mutable state."""
+    vars_dict = vars(engine)
+    for name in ExecutionEngine.INSTANCE_FIELDS_BANNED:
+        if name in vars_dict:
+            raise AssertionError(f"ExecutionEngine has banned state: {name}")
+    return True

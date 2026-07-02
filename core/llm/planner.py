@@ -1,18 +1,11 @@
 """
-LLM Planner — Pure planning layer.
+LLM Planner — Pure planning with snapshot isolation.
 
-Replaces:
-  - speg_engine/planner.py  LLM planning + prompt
-  - tool chain / dependency logic
-
-Rules:
-  - ONLY output: ExecutionPlan (list of node dicts)
-  - NO tool execution
-  - NO state mutation
-  - NO timing logic
-  - NO graph access
-
-Key addition: $dep.<id>.data  syntax taught to LLM for tool chaining.
+Invariants:
+  - Input = snapshot(events) — immutable, frozen at call time
+  - NO live stream access
+  - NO runtime state awareness
+  - Output = ExecutionPlan nodes only
 """
 
 from __future__ import annotations
@@ -22,12 +15,27 @@ from dataclasses import dataclass, field
 from typing import Any, Callable
 
 
-# ── Output type ───────────────────────────────────────────────────────
+@dataclass(frozen=True)
+class PlannerSnapshot:
+    """Immutable snapshot passed to LLM. No live event access."""
+    user_input: str
+    tools: tuple[tuple[str, str, dict], ...]  # (name, description, args)
+    timestamp_iso: str
 
-@dataclass
+    def to_prompt_context(self) -> str:
+        """Build tools description for prompt."""
+        lines = []
+        for name, desc, args in self.tools:
+            arg_str = ", ".join(
+                f"{k}: {v.get('type', 'string')}" for k, v in args.items()
+            ) if args else "无参数"
+            lines.append(f"- **{name}**: {desc} (参数: {arg_str})")
+        return "\n".join(lines)
+
+
+@dataclass(frozen=True)
 class PlannerOutput:
-    """What the planner returns. Single source of truth for plan data."""
-    nodes: list[dict[str, Any]] = field(default_factory=list)
+    nodes: tuple[dict[str, Any], ...] = ()
     final_response: str = ""
     raw_llm_output: str = ""
 
@@ -93,62 +101,33 @@ PLANNER_SYSTEM_PROMPT = """你是一个任务执行规划器。根据用户的�
 """
 
 
-# ── Tool description builder ─────────────────────────────────────────
-
-def build_tools_description(tools: dict[str, dict]) -> str:
-    """Build a human-readable tool list for the planner prompt."""
-    lines = []
-    for name, meta in tools.items():
-        desc = meta.get("description", name)
-        args = meta.get("args", {})
-        arg_str = ", ".join(
-            f"{k}: {v.get('type', 'string')}" for k, v in args.items()
-        ) if args else "无参数"
-        lines.append(f"- **{name}**: {desc} (参数: {arg_str})")
-    return "\n".join(lines)
-
-
-# ── Planner ──────────────────────────────────────────────────────────
+# ── Planner ────────────────────────────────────────────────────────────
 
 class Planner:
-    """Pure planning. Takes user input → returns ExecutionPlan nodes."""
+    """Pure planning. Snapshot input → Plan output."""
 
-    def __init__(
-        self,
-        llm_invoke: Callable[..., str],
-        tools: dict[str, dict] | None = None,
-    ):
+    def __init__(self, llm_invoke: Callable[..., str]):
         self._llm = llm_invoke
-        self._tools = tools or {}
 
-    def register_tool(self, name: str, description: str = "",
-                      args: dict | None = None) -> None:
-        self._tools[name] = {
-            "description": description,
-            "args": args or {},
-        }
+    def plan(self, snapshot: PlannerSnapshot) -> PlannerOutput:
+        """Generate plan from immutable snapshot. No live state access.
 
-    def plan(self, user_input: str) -> PlannerOutput:
-        """Generate an execution plan from user input.
-
-        Pure function: input → LLM → plan JSON. No side effects.
+        Args:
+            snapshot: Frozen PlannerSnapshot — immutable at call time
+        Returns:
+            PlannerOutput with plan nodes
         """
-        tools_desc = build_tools_description(self._tools)
+        tools_desc = snapshot.to_prompt_context()
         system = PLANNER_SYSTEM_PROMPT.format(tools_description=tools_desc)
 
         raw = self._llm(
             system=system,
-            user=user_input,
+            user=snapshot.user_input,
             temperature=0.0,
         )
-
         return self._parse(raw)
 
     def _parse(self, raw_output: str) -> PlannerOutput:
-        """Parse LLM output into PlannerOutput."""
-        output = PlannerOutput(raw_llm_output=raw_output)
-
-        # Strip markdown fences
         cleaned = raw_output.strip()
         if cleaned.startswith("```"):
             lines = cleaned.split("\n")
@@ -161,57 +140,53 @@ class Planner:
         try:
             data = json.loads(cleaned)
         except json.JSONDecodeError:
-            # Try to extract JSON from text
             import re
             match = re.search(r'\{[\s\S]*\}', cleaned)
             if match:
                 try:
                     data = json.loads(match.group())
                 except json.JSONDecodeError:
-                    # Return raw output as final_response
-                    output.final_response = raw_output.strip()
-                    return output
+                    return PlannerOutput(final_response=raw_output.strip(), raw_llm_output=raw_output)
             else:
-                output.final_response = raw_output.strip()
-                return output
+                return PlannerOutput(final_response=raw_output.strip(), raw_llm_output=raw_output)
 
-        if isinstance(data, dict):
-            nodes = data.get("nodes", [])
-            if isinstance(nodes, list):
-                output.nodes = nodes
-            fr = data.get("final_response", "")
-            if fr and isinstance(fr, str):
-                output.final_response = fr
-
-        return output
+        nodes = tuple(data.get("nodes", [])) if isinstance(data, dict) else ()
+        fr = data.get("final_response", "") if isinstance(data, dict) else ""
+        return PlannerOutput(nodes=nodes, final_response=fr, raw_llm_output=raw_output)
 
     def validate(self, output: PlannerOutput) -> list[str]:
-        """Validate planner output. Returns list of errors (empty = valid)."""
         errors = []
         seen_ids = set()
-
         for i, node in enumerate(output.nodes):
             nid = node.get("id", "")
             tool = node.get("tool", "")
-
             if not nid or not isinstance(nid, str):
                 errors.append(f"节点[{i}]: id 必须是非空字符串")
             elif nid in seen_ids:
                 errors.append(f"节点[{i}]: id '{nid}' 重复")
             else:
                 seen_ids.add(nid)
-
             if not tool or not isinstance(tool, str):
                 errors.append(f"节点[{i}] (id='{nid}'): tool 必须是非空字符串")
-
             deps = node.get("deps", [])
             if not isinstance(deps, list):
                 errors.append(f"节点[{i}] (id='{nid}'): deps 必须是数组")
             else:
                 for dep in deps:
                     if dep not in seen_ids:
-                        errors.append(
-                            f"节点[{i}] (id='{nid}'): 依赖 '{dep}' 不存在或未定义"
-                        )
-
+                        errors.append(f"节点[{i}] (id='{nid}'): 依赖 '{dep}' 不存在")
         return errors
+
+    def build_snapshot(self, user_input: str, tools: dict[str, dict]) -> PlannerSnapshot:
+        """Build an immutable snapshot for planning. Frozen at this point."""
+        from core.time.clock import _diff_ms as _unused
+        import datetime
+        tools_tuple = tuple(
+            (name, meta.get("description", ""), meta.get("args", {}))
+            for name, meta in tools.items()
+        )
+        return PlannerSnapshot(
+            user_input=user_input,
+            tools=tools_tuple,
+            timestamp_iso=datetime.datetime.now(datetime.timezone.utc).isoformat(),
+        )

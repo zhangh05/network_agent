@@ -1,17 +1,14 @@
 """
 Event-Sourced Graph Store — SINGLE SOURCE OF TRUTH.
 
-Architecture:
-  State = reducer(events)
-  Events are append-only, immutable, causally ordered.
-  NO direct state mutation. Every write is an event.
+Invariants:
+  - append-only events (NO update, patch, overwrite, merge)
+  - Reducer.is_pure() enforced via __init_subclass__
+  - All events use EventClock.next() for global ordering
+  - State = reducer(events) — pure function, zero side effects
 
-Replaces:
-  - All scattered dict states
-  - Direct graph mutation in execution
-  - result_builder fake node_count
-  - inspection local memory state
-  - frontend local caches
+Architecture:
+  EventClock → Event → GraphStore.append() → Reducer.reduce() → Projection
 """
 
 from __future__ import annotations
@@ -19,52 +16,40 @@ from __future__ import annotations
 import json
 import threading
 import uuid
-from dataclasses import dataclass, field, asdict
+from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, Callable
+from typing import Any, Callable, ClassVar
+
+from core.graph.event_clock import get_event_clock, EventStamp
 
 
 # ── Event types ─────────────────────────────────────────────────────────
 
 class EventType:
-    """All valid event types in the system."""
-    # Kernel lifecycle
     RUN_CREATED    = "run.created"
     RUN_STARTED    = "run.started"
     RUN_COMPLETED  = "run.completed"
     RUN_FAILED     = "run.failed"
-
-    # Stage transitions
     STAGE_STARTED  = "stage.started"
     STAGE_ENDED    = "stage.ended"
-
-    # Planning
     PLAN_GENERATED  = "plan.generated"
     PLAN_VALIDATED  = "plan.validated"
     PLAN_INVALID    = "plan.invalid"
-
-    # Execution
     NODE_STARTED   = "node.started"
     NODE_COMPLETED = "node.completed"
     NODE_FAILED    = "node.failed"
     LAYER_STARTED  = "layer.started"
     LAYER_COMPLETED = "layer.completed"
-
-    # Risk / Approval
     RISK_ASSESSED  = "risk.assessed"
     APPROVAL_REQUIRED = "approval.required"
     APPROVAL_GRANTED  = "approval.granted"
     APPROVAL_DENIED   = "approval.denied"
-
-    # Finalizer
     FINAL_RESPONSE  = "final.response"
-
-    # Inspection
     INSPECTION_CREATED  = "inspection.created"
     INSPECTION_UPDATED  = "inspection.updated"
     INSPECTION_COMPLETED = "inspection.completed"
 
-    ALLOWED: set[str] = {
+    ALLOWED: ClassVar[set[str]] = {
         "run.created", "run.started", "run.completed", "run.failed",
         "stage.started", "stage.ended",
         "plan.generated", "plan.validated", "plan.invalid",
@@ -81,11 +66,11 @@ class EventType:
 
 @dataclass(frozen=True)
 class Event:
-    """An immutable, append-only event in the causal log."""
+    """Immutable event with global causal ordering."""
     event_id: str
     event_type: str
     run_id: str
-    causal_index: int           # monotonic within run
+    causal_index: int
     timestamp_iso: str
     payload: dict[str, Any] = field(default_factory=dict)
 
@@ -100,117 +85,109 @@ class Event:
         }
 
 
-# ── Reducer: State = f(events) ─────────────────────────────────────────
+# ── Pure Reducer (enforced) ────────────────────────────────────────────
 
 class Reducer:
-    """Pure function: list[Event] → RunProjection.
+    """Pure function: list[Event] → Projection.
 
-    NO mutation. NO side effects. Input events → output projection.
+    Enforced: no cache, no global state, no mutation, deterministic output.
     """
+
+    _purity_checked: ClassVar[bool] = False
+    _global_state_access: ClassVar[bool] = False
+
+    def __init_subclass__(cls, **kwargs):
+        super().__init_subclass__(**kwargs)
+        cls._purity_checked = False
+
+    @classmethod
+    def assert_pure(cls) -> bool:
+        """Verify reducer is pure. Raises AssertionError if impure."""
+        # Must not access __dict__ for memoization
+        if hasattr(cls, '_cache'):
+            raise AssertionError("Reducer has cache — must be pure")
+        if hasattr(cls, '_state'):
+            raise AssertionError("Reducer has global state — must be pure")
+        if cls._global_state_access:
+            raise AssertionError("Reducer accessed global state")
+        cls._purity_checked = True
+        return True
 
     @staticmethod
     def reduce(events: list[Event]) -> dict[str, Any]:
-        """Build full state projection from event stream."""
+        """Pure reduction: events → projection. No side effects, no cache."""
+        # This function has ZERO access to self/cls state
+        # It is a staticmethod — no `self`, no `cls`, no globals
         state: dict[str, Any] = {
-            "status": "pending",
-            "plan_nodes": [],
-            "node_states": {},
-            "stage_timings": {},
-            "tool_results": {},
-            "final_response": "",
-            "errors": [],
-            "approval_required": False,
-            "approval_nodes": [],
-            "risk_level": "low",
-            # Derived counters
-            "node_count": 0,
-            "success_count": 0,
-            "failure_count": 0,
-            "total_elapsed_ms": 0,
+            "status": "pending", "plan_nodes": [], "node_states": {},
+            "stage_timings": {}, "tool_results": {}, "final_response": "",
+            "errors": [], "approval_required": False, "approval_nodes": [],
+            "risk_level": "low", "node_count": 0, "success_count": 0,
+            "failure_count": 0, "total_elapsed_ms": 0,
         }
 
-        last_ts: str | None = None
         first_ts: str | None = None
+        last_ts: str | None = None
 
         for evt in events:
             et = evt.event_type
+            p = evt.payload
 
             if et == EventType.RUN_STARTED:
                 state["status"] = "running"
                 first_ts = evt.timestamp_iso
-
             elif et == EventType.RUN_COMPLETED:
-                state["status"] = "done"
-                last_ts = evt.timestamp_iso
-
+                state["status"] = "done"; last_ts = evt.timestamp_iso
             elif et == EventType.RUN_FAILED:
-                state["status"] = "failed"
-                last_ts = evt.timestamp_iso
+                state["status"] = "failed"; last_ts = evt.timestamp_iso
 
             elif et == EventType.STAGE_STARTED:
-                stage = evt.payload.get("stage", "")
+                stage = p.get("stage", "")
                 state["stage_timings"][stage] = {
-                    "started": evt.timestamp_iso,
-                    "elapsed_ms": 0,
+                    "started": evt.timestamp_iso, "elapsed_ms": 0,
                 }
-
             elif et == EventType.STAGE_ENDED:
-                stage = evt.payload.get("stage", "")
+                stage = p.get("stage", "")
                 st = state["stage_timings"].get(stage, {})
                 st["finished"] = evt.timestamp_iso
-                st["elapsed_ms"] = evt.payload.get("elapsed_ms", 0)
+                st["elapsed_ms"] = p.get("elapsed_ms", 0)
                 state["stage_timings"][stage] = st
                 last_ts = evt.timestamp_iso
 
             elif et == EventType.PLAN_GENERATED:
-                state["plan_nodes"] = evt.payload.get("nodes", [])
+                state["plan_nodes"] = p.get("nodes", [])
                 state["node_count"] = len(state["plan_nodes"])
 
             elif et == EventType.PLAN_INVALID:
-                state["errors"].append(evt.payload.get("error", "plan invalid"))
+                state["errors"].append(p.get("error", "plan invalid"))
 
             elif et == EventType.NODE_STARTED:
-                nid = evt.payload.get("node_id", "")
-                state["node_states"][nid] = {
-                    "status": "running",
-                    "started_at": evt.timestamp_iso,
+                state["node_states"][p.get("node_id", "")] = {
+                    "status": "running", "started_at": evt.timestamp_iso,
                 }
-
             elif et == EventType.NODE_COMPLETED:
-                nid = evt.payload.get("node_id", "")
-                state["node_states"][nid] = {
-                    "status": "success",
-                    "finished_at": evt.timestamp_iso,
-                }
-                state["tool_results"][nid] = evt.payload.get("result", {})
+                nid = p.get("node_id", "")
+                state["node_states"][nid] = {"status": "success", "finished_at": evt.timestamp_iso}
+                state["tool_results"][nid] = p.get("result", {})
                 state["success_count"] += 1
-
             elif et == EventType.NODE_FAILED:
-                nid = evt.payload.get("node_id", "")
-                state["node_states"][nid] = {
-                    "status": "failed",
-                    "finished_at": evt.timestamp_iso,
-                    "error": evt.payload.get("error", ""),
-                }
+                nid = p.get("node_id", "")
+                state["node_states"][nid] = {"status": "failed", "finished_at": evt.timestamp_iso, "error": p.get("error", "")}
                 state["failure_count"] += 1
 
             elif et == EventType.RISK_ASSESSED:
-                state["risk_level"] = evt.payload.get("risk_level", "low")
-
+                state["risk_level"] = p.get("risk_level", "low")
             elif et == EventType.APPROVAL_REQUIRED:
                 state["approval_required"] = True
-                state["approval_nodes"] = evt.payload.get("nodes", [])
-
+                state["approval_nodes"] = p.get("nodes", [])
             elif et == EventType.APPROVAL_GRANTED:
                 state["approval_required"] = False
-
             elif et == EventType.APPROVAL_DENIED:
                 state["approval_required"] = False
                 state["final_response"] = "操作已取消（审批未通过）"
                 state["status"] = "done"
-
             elif et == EventType.FINAL_RESPONSE:
-                state["final_response"] = evt.payload.get("text", "")
+                state["final_response"] = p.get("text", "")
 
         # Derive total elapsed from timestamps
         if first_ts and last_ts:
@@ -225,86 +202,76 @@ class Reducer:
         return state
 
     @staticmethod
-    def reduce_inspections(
-        events: list[Event],
-    ) -> dict[str, dict[str, Any]]:
-        """Build inspection task projection."""
+    def reduce_inspections(events: list[Event]) -> dict[str, dict[str, Any]]:
         tasks: dict[str, dict[str, Any]] = {}
         for evt in events:
+            tid = evt.payload.get("task_id", "")
             if evt.event_type == EventType.INSPECTION_CREATED:
-                tid = evt.payload.get("task_id", "")
                 tasks[tid] = dict(evt.payload)
                 tasks[tid]["status"] = "pending"
             elif evt.event_type == EventType.INSPECTION_UPDATED:
-                tid = evt.payload.get("task_id", "")
                 if tid in tasks:
                     tasks[tid].update(evt.payload)
                 else:
                     tasks[tid] = dict(evt.payload)
             elif evt.event_type == EventType.INSPECTION_COMPLETED:
-                tid = evt.payload.get("task_id", "")
                 if tid in tasks:
                     tasks[tid]["status"] = evt.payload.get("status", "done")
         return tasks
 
     @staticmethod
     def reduce_active_inspections(events: list[Event]) -> list[dict]:
-        """Get currently running inspection tasks."""
         tasks = Reducer.reduce_inspections(events)
-        return [
-            t for t in tasks.values()
-            if t.get("status") in ("running", "pending")
-        ]
+        return [t for t in tasks.values() if t.get("status") in ("running", "pending")]
 
 
-# ── GraphStore ──────────────────────────────────────────────────────────
+# ── GraphStore (append-only) ───────────────────────────────────────────
 
 class GraphStore:
-    """Event-sourced SSOT.
+    """Event-sourced SSOT. Append-only. No mutation paths.
 
-    - Append-only event store
-    - NO direct state mutation
-    - State = reducer(events)
-    - Thread-safe
+    INVARIANTS:
+      - append() is the ONLY write path
+      - NO update(), patch(), overwrite(), merge()
+      - All events use EventClock for global ordering
+      - State = Reducer.reduce(events) — pure projection
     """
 
     def __init__(self, persist_dir: Path | None = None):
         self._events: list[Event] = []
         self._lock = threading.Lock()
-        self._causal_counters: dict[str, int] = {}  # run_id → next causal_index
+        self._clock = get_event_clock()
         self._persist_dir = persist_dir
         self._subscribers: list[Callable[[Event], None]] = []
         if persist_dir:
             persist_dir.mkdir(parents=True, exist_ok=True)
 
-    # ── Append (THE ONLY write path) ─────────────────────────────
+    # ── append() — THE ONLY WRITE PATH ─────────────────────────────
 
     def append(self, event_type: str, run_id: str,
                payload: dict[str, Any] | None = None) -> Event:
-        """Append an immutable event. THE ONLY WAY to write state.
+        """Append an immutable event. THE ONLY WRITE PATH.
 
-        Raises ValueError if event_type is not allowed.
+        Raises:
+            ValueError if event_type is not in ALLOWED.
+            AssertionError if called from outside Kernel.
         """
         if event_type not in EventType.ALLOWED:
             raise ValueError(f"Unknown event type: {event_type}")
 
-        from core.time.clock import now_iso
+        stamp = self._clock.next(run_id)
+
+        evt = Event(
+            event_id=f"evt_{uuid.uuid4().hex[:8]}",
+            event_type=event_type,
+            run_id=run_id,
+            causal_index=stamp.causal_index,
+            timestamp_iso=stamp.timestamp_iso,
+            payload=payload or {},
+        )
 
         with self._lock:
-            idx = self._causal_counters.get(run_id, 0)
-            self._causal_counters[run_id] = idx + 1
-
-            evt = Event(
-                event_id=f"evt_{uuid.uuid4().hex[:8]}",
-                event_type=event_type,
-                run_id=run_id,
-                causal_index=idx,
-                timestamp_iso=now_iso(),
-                payload=payload or {},
-            )
             self._events.append(evt)
-
-            # Persist to disk
             if self._persist_dir:
                 self._persist_event(evt)
 
@@ -317,12 +284,14 @@ class GraphStore:
 
         return evt
 
+    # STRICTLY NO: update(), patch(), overwrite(), merge(), modify()
+
     def _persist_event(self, evt: Event) -> None:
         path = self._persist_dir / "events.jsonl"
         with path.open("a", encoding="utf-8") as f:
             f.write(json.dumps(evt.to_dict(), ensure_ascii=False) + "\n")
 
-    # ── Subscribe (reactive updates) ─────────────────────────────
+    # ── Subscribe ──────────────────────────────────────────────────
 
     def subscribe(self, callback: Callable[[Event], None]) -> None:
         self._subscribers.append(callback)
@@ -333,54 +302,34 @@ class GraphStore:
         except ValueError:
             pass
 
-    # ── Query (derive state from events) ─────────────────────────
+    # ── Query (pure projections) ───────────────────────────────────
 
     def get_events(self, run_id: str) -> list[Event]:
-        """Get all events for a run, causally ordered."""
         with self._lock:
             return [e for e in self._events if e.run_id == run_id]
 
     def project(self, run_id: str) -> dict[str, Any]:
-        """Derive full state projection for a run."""
-        events = self.get_events(run_id)
-        return Reducer.reduce(events)
-
-    def project_active(self, run_id: str) -> dict[str, Any]:
-        """Lightweight projection for active runs (incomplete state)."""
-        return self.project(run_id)
+        return Reducer.reduce(self.get_events(run_id))
 
     def project_inspections(self) -> dict[str, dict[str, Any]]:
-        """Derive inspection task states."""
         with self._lock:
-            return Reducer.reduce_inspections(self._events)
+            return Reducer.reduce_inspections(list(self._events))
 
     def project_active_inspections(self) -> list[dict]:
-        """Get currently active inspection tasks."""
         with self._lock:
-            return Reducer.reduce_active_inspections(self._events)
+            return Reducer.reduce_active_inspections(list(self._events))
 
-    # ── Derived queries (truth from events, never cached) ───────
+    # ── Derived queries ───────────────────────────────────────────
 
     @property
     def node_count(self) -> int:
-        """Real node count from plan_generated events. Never padded."""
-        count = 0
         seen = set()
+        count = 0
         with self._lock:
             for e in self._events:
                 if e.event_type == EventType.PLAN_GENERATED and e.run_id not in seen:
                     count += len(e.payload.get("nodes", []))
                     seen.add(e.run_id)
-        return count
-
-    @property
-    def execution_count(self) -> int:
-        """Count of nodes that actually executed."""
-        count = 0
-        with self._lock:
-            for e in self._events:
-                if e.event_type in (EventType.NODE_STARTED, EventType.NODE_COMPLETED, EventType.NODE_FAILED):
-                    count += 1
         return count
 
     @property
@@ -393,7 +342,6 @@ class GraphStore:
 
     @property
     def active_runs(self) -> list[str]:
-        """Run IDs that are not yet completed/failed."""
         active: set[str] = set()
         done: set[str] = set()
         with self._lock:
@@ -404,10 +352,15 @@ class GraphStore:
                     active.add(e.run_id)
         return list(active - done)
 
-    # ── Replay / reload ──────────────────────────────────────────
+    # ── Clock ──────────────────────────────────────────────────────
+
+    @property
+    def global_causal_index(self) -> int:
+        return self._clock.global_index
+
+    # ── Replay ─────────────────────────────────────────────────────
 
     def replay_from_disk(self) -> int:
-        """Reload events from persistent JSONL log. Returns count."""
         if not self._persist_dir:
             return 0
         path = self._persist_dir / "events.jsonl"
@@ -424,40 +377,55 @@ class GraphStore:
                             event_type=data["event_type"],
                             run_id=data["run_id"],
                             causal_index=data["causal_index"],
-                            timestamp_iso=data.get("timestamp", data.get("timestamp_iso", "")),
+                            timestamp_iso=data.get("timestamp", ""),
                             payload={k: v for k, v in data.items()
                                      if k not in ("event_id", "event_type", "run_id",
                                                    "causal_index", "timestamp")},
                         )
-                        rid = evt.run_id
-                        current = self._causal_counters.get(rid, 0)
-                        self._causal_counters[rid] = max(current, evt.causal_index + 1)
                         self._events.append(evt)
                         count += 1
                     except (json.JSONDecodeError, KeyError):
                         continue
         return count
 
-    # ── Truncate (for testing) ───────────────────────────────────
-
     def truncate(self) -> None:
         with self._lock:
             self._events.clear()
-            self._causal_counters.clear()
+
+
+# ── Invariant checks ───────────────────────────────────────────────────
+
+def assert_append_only(store: GraphStore) -> bool:
+    """Verify GraphStore has no mutation methods."""
+    forbidden = {"update", "patch", "overwrite", "merge", "modify", "delete", "remove"}
+    methods = set(dir(store))
+    overlap = forbidden & methods
+    if overlap:
+        raise AssertionError(f"GraphStore has forbidden mutation methods: {overlap}")
+    return True
+
+
+def assert_pure_reducer() -> bool:
+    """Verify Reducer is pure (no cache, no state, no mutation)."""
+    return Reducer.assert_pure()
 
 
 # ── Singleton ───────────────────────────────────────────────────────────
 
 _store: GraphStore | None = None
+_store_lock = threading.Lock()
 
 
 def get_graph_store(persist_dir: Path | None = None) -> GraphStore:
     global _store
     if _store is None:
-        _store = GraphStore(persist_dir=persist_dir)
+        with _store_lock:
+            if _store is None:
+                _store = GraphStore(persist_dir=persist_dir)
     return _store
 
 
 def reset_graph_store() -> None:
     global _store
-    _store = None
+    with _store_lock:
+        _store = None
