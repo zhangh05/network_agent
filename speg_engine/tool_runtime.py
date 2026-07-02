@@ -27,32 +27,27 @@ import time
 from typing import Any, Awaitable, Callable
 
 from .models import ExecutionNode, ExecutionStatus, SPEGConfig, StatelessContext, ToolResult
-from .runtime_contracts import ExecutionContract
+from .runtime_contracts import ErrorCode, ExecutionContract
 
 ToolHandler = Callable[[dict[str, Any]], Any | Awaitable[Any]]
 
 
-# ── v4 Tool Truth: single-source resolver ─────────────────────────────
+# ── v4.2: use typed ErrorCode enum ──────────────────────────────────
+
+# Handlers that explicitly report ok=False but provide no code.
+_HANDLER_NOT_OK_DEFAULT: ErrorCode = ErrorCode.TOOL_RETURNED_NOT_OK
+# Handler returned None (no value at all).
+_NULL_RESULT_DEFAULT: ErrorCode = ErrorCode.NULL_RESULT
+# Legacy success=False without a code.
+_LEGACY_FAIL_DEFAULT: ErrorCode = ErrorCode.LEGACY_FAILURE
 
 
-# Outcome status codes. Strings (not Enum) so they serialise cleanly
-# into audit / trace payloads.
+def _code_val(c: ErrorCode) -> str:
+    return c.value
+
+# Outcome status codes.
 _STATUS_SUCCESS = "SUCCESS"
 _STATUS_FAIL = "FAIL"
-
-# Default error_code when a handler declared ok=False but did not
-# supply one. Mirrors the v3.10 ``_HANDLER_NOT_OK_DEFAULT_CODE``
-# so downstream consumers (retry policy, audit) keep their
-# stable error_code string.
-_HANDLER_NOT_OK_DEFAULT_CODE = "TOOL_RETURNED_NOT_OK"
-# Default error_code when the handler returned None. Distinct from
-# ``TOOL_RETURNED_NOT_OK`` so audit can tell "handler said no" from
-# "handler produced no value at all".
-_NULL_RESULT_DEFAULT_CODE = "NULL_RESULT"
-# Default error_code when a handler declared success=False (legacy
-# ``success`` key) without naming a specific code. Maps to
-# ``TOOL_FAILED`` per the v4 spec.
-_LEGACY_FAIL_DEFAULT_CODE = "LEGACY_FAILURE"
 
 
 def resolve_tool_outcome(result: Any) -> tuple[str, str | None, Any]:
@@ -89,13 +84,13 @@ def resolve_tool_outcome(result: Any) -> tuple[str, str | None, Any]:
     status to a boolean.
     """
     if result is None:
-        return _STATUS_FAIL, _NULL_RESULT_DEFAULT_CODE, {}
+        return _STATUS_FAIL, _code_val(_NULL_RESULT_DEFAULT), {}
 
     if isinstance(result, dict):
         # ok=False is the strongest failure signal — preserve the
         # handler's error_code when present.
         if result.get("ok") is False:
-            code = result.get("error_code") or _HANDLER_NOT_OK_DEFAULT_CODE
+            code = result.get("error_code") or _code_val(_HANDLER_NOT_OK_DEFAULT)
             return _STATUS_FAIL, str(code), result
 
         # ok=True is the strongest success signal.
@@ -113,7 +108,7 @@ def resolve_tool_outcome(result: Any) -> tuple[str, str | None, Any]:
             if ok:
                 return _STATUS_SUCCESS, None, result
             raw = result.get("error_code") or result.get("code") or ""
-            norm = raw if raw else _LEGACY_FAIL_DEFAULT_CODE
+            norm = raw if raw else _code_val(_LEGACY_FAIL_DEFAULT)
             return _STATUS_FAIL, norm, result
 
         # Dict with no ok/success keys — treat as success (the
@@ -361,34 +356,6 @@ class ToolRuntime:
 
 
 # ── Module-level result normalizer ──────────────────────────────────────
-
-# Default error code surfaced when the handler explicitly reports
-# failure without naming one. Surfaced so the retry policy and the
-# downstream-skip gate can discriminate it from a timeout / raise.
-_HANDLER_NOT_OK_DEFAULT_CODE = "TOOL_RETURNED_NOT_OK"
-
-
-def _stringify_errors(errors: Any) -> str:
-    """Best-effort flattening of an ``errors`` payload into a
-    single human-readable string for ``ToolResult.error``.
-
-    Accepts ``list`` / ``dict`` / ``str`` / scalar. Returns "" if
-    nothing useful is present.
-    """
-    if not errors:
-        return ""
-    if isinstance(errors, str):
-        return errors
-    if isinstance(errors, list):
-        parts = [_stringify_errors(e) for e in errors if e not in (None, "")]
-        return "; ".join(p for p in parts if p)
-    if isinstance(errors, dict):
-        import json as _json
-        try:
-            return _json.dumps(errors, ensure_ascii=False, default=str)
-        except Exception:
-            return str(errors)
-    return str(errors)
 
 
 def _resolve_success_flag(handler_result: Any) -> bool:

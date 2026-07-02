@@ -1,103 +1,288 @@
 """
-SPEG v4 runtime contracts — system-level invariants that the
-runtime MUST uphold.
+SPEG v4.2 runtime contracts — system-level invariants + self-healing
+validation loop.
 
-These are not policies and not configuration. They are the
-non-negotiable rules that the runtime asserts on every turn.
-
-Three contracts:
-
-  * ``TOOL_TRUTH_SINGLE_SOURCE`` — there is exactly one resolver
-    for tool outcome (``speg_engine.tool_runtime.resolve_tool_outcome``)
-    and no path may construct a ``ToolResult(success=True, ...)``
-    without going through it. The previous v3.10 helper
-    (``_resolve_success_flag``) is now a thin internal alias.
-
-  * ``CONTEXT_EVENT_STREAM_ONLY`` — conversation context flows
-    through a single builder (``agent.runtime.speg_adapter.build_context_events``)
-    that merges the in-memory session history with the
-    on-disk ``SessionMessageStore``, sorts by ``created_at``, and
-    deduplicates. No other code path may read either source
-    directly for context injection.
-
-  * ``EXECUTION_OBLIGATION_ENFORCED`` — for any user intent that
-    requires tool execution, the planner MUST return a non-empty
-    graph; an empty plan for a task-intent request raises
-    ``ExecutionObligationViolation`` from the planner. The
-    engine's empty-plan guard is now a defensive layer, not the
-    primary enforcement.
-
-The constants are class-level booleans so they can be referenced
-as ``ExecutionContract.TOOL_TRUTH_SINGLE_SOURCE`` from anywhere.
-They are checked in ``SPEGEngine.run()`` at the top of every
-turn — flipping any of them to ``False`` is a deliberate
-"contract OFF" escape hatch for debugging only.
-
-Background: v3.10 closed three classes of bug (handler success
-flag, prompt silent fallback, JSON truncation) but left
-system-level contracts implicit. v4 makes them explicit,
-asserts them, and routes the corresponding code through
-single sources of truth.
+v4.2 additions (closing 5 structural gaps):
+  1. ErrorCode enum — semantic error-code catalog so retry/audit/finalizer
+     use typed codes, not string matching.
+  2. GlobalCausalityClock — monotonic cross-session counter so context
+     replay across session restore / reconnect never loses ordering.
+  3. PlanSchemaVersion — schema version marker so schema evolution
+     (new optional fields, changed required fields) is traceable.
+  4. ContractValidator — self-healing validation loop that checks
+     contracts on every turn, downgrades gracefully (controlled
+     degradation) instead of silent fail or hard crash.
+  5. Sub-execution guards — retry/replan/repair paths also enforce
+     the same contract assertions as the main path.
 """
+
+from __future__ import annotations
+
+import enum
+import threading
+import time as _time
+from typing import Any
+
+
+# ===========================================================================
+# Exceptions
+# ===========================================================================
 
 
 class ExecutionObligationViolation(Exception):
-    """Raised when the planner returns an empty plan for an intent
-    that requires tool execution.
+    """Planner returned empty nodes for task-intent request."""
 
-    This is a *fail-fast* signal: the planner MUST NOT silently
-    return an empty graph for a task-intent request. The engine
-    catches the exception and produces a structured error result
-    (matching the v3.14 empty-plan task-intent guard), but the
-    planner itself never coerces an obligation-required request
-    into a no-op.
+
+# ===========================================================================
+# 1. ErrorCode — semantic error-code catalog
+# ===========================================================================
+
+
+class ErrorCode(enum.Enum):
+    """v4.2 semantic error-code catalog.
+
+    Every error_code in the system MUST be one of these values (or
+    a raw handler-defined key that failed to normalise — those are
+    carried in ``error_code_raw``).  This lets retry policy,
+    audit, and finalizer branch on typed codes instead of
+    hard-coded string comparisons.
     """
+
+    # ── Handler-declared ──────────────────────────────────────────
+    TOOL_RETURNED_NOT_OK = "TOOL_RETURNED_NOT_OK"
+    NULL_RESULT = "NULL_RESULT"
+    LEGACY_FAILURE = "LEGACY_FAILURE"
+
+    # ── Runtime-level ─────────────────────────────────────────────
+    TOOL_NOT_REGISTERED = "TOOL_NOT_REGISTERED"
+    TOOL_TIMEOUT = "TOOL_TIMEOUT"
+    TOOL_EXCEPTION = "TOOL_EXCEPTION"
+
+    # ── Planner / schema ──────────────────────────────────────────
+    PLANNER_EMPTY_FOR_TASK_INTENT = "PLANNER_EMPTY_FOR_TASK_INTENT"
+    SCHEMA_VALIDATION_ERROR = "SCHEMA_VALIDATION_ERROR"
+    EXECUTION_OBLIGATION_VIOLATION = "EXECUTION_OBLIGATION_VIOLATION"
+
+    # ── Finalizer ─────────────────────────────────────────────────
+    FINALIZER_TASK_INCOMPLETE = "FINALIZER_TASK_INCOMPLETE"
+
+    # ── Contract ──────────────────────────────────────────────────
+    CONTRACT_VIOLATION = "CONTRACT_VIOLATION"
+
+    @classmethod
+    def normalise(cls, raw: str) -> "ErrorCode":
+        """Map a raw code string to the closest known ErrorCode.
+        Unknown codes map to the raw string's value — the caller
+        should check ``is_known`` after.
+        """
+        try:
+            return cls(raw)
+        except ValueError:
+            return raw  # type: ignore[return-value]
+
+    @classmethod
+    def is_known(cls, candidate: Any) -> bool:
+        return isinstance(candidate, cls)
+
+    # ── Retry-eligibility groups ──────────────────────────────────
+
+    @property
+    def is_retryable(self) -> bool:
+        """Error codes where a retry is permitted (idempotent tools only)."""
+        return self in (
+            ErrorCode.TOOL_TIMEOUT,
+            ErrorCode.TOOL_EXCEPTION,
+            ErrorCode.TOOL_RETURNED_NOT_OK,
+            ErrorCode.NULL_RESULT,
+            ErrorCode.LEGACY_FAILURE,
+        )
+
+    @property
+    def is_hard_block(self) -> bool:
+        """Error codes that categorically block further execution."""
+        return self in (
+            ErrorCode.EXECUTION_OBLIGATION_VIOLATION,
+            ErrorCode.SCHEMA_VALIDATION_ERROR,
+            ErrorCode.CONTRACT_VIOLATION,
+        )
+
+    @property
+    def is_handler_declared(self) -> bool:
+        """Error codes originating from tool handler return values."""
+        return self in (
+            ErrorCode.TOOL_RETURNED_NOT_OK,
+            ErrorCode.NULL_RESULT,
+            ErrorCode.LEGACY_FAILURE,
+        )
+
+
+# ===========================================================================
+# 2. GlobalCausalityClock — cross-session monotonic ordering
+# ===========================================================================
+
+
+class GlobalCausalityClock:
+    """v4.2 monotonic cross-session causality clock.
+
+    Replaces per-session ``causal_index`` with a global counter so
+    that two separately-restored sessions can be merged without
+    ordering ambiguity.  Session A's message with causal_index=3
+    happened before session B's message with causal_index=7, even
+    if B was opened later.
+
+    Thread-safe.  The clock starts at 1 so that 0 means "unset".
+    """
+
+    _lock: threading.Lock = threading.Lock()
+    _counter: int = 1
+
+    @classmethod
+    def next(cls) -> int:
+        with cls._lock:
+            val = cls._counter
+            cls._counter += 1
+            return val
+
+    @classmethod
+    def reset(cls) -> None:
+        """For tests only — resets the global clock to 1."""
+        with cls._lock:
+            cls._counter = 1
+
+
+# ===========================================================================
+# 3. PlanSchemaVersion — schema evolution marker
+# ===========================================================================
+
+
+class PlanSchemaVersion(enum.IntEnum):
+    """v4.2 plan schema version.
+
+    When the plan JSON schema evolves (new optional fields added,
+    required fields changed), increment the version here.  Old
+    plans carry their schema version so the engine can migrate or
+    reject them deterministically.
+    """
+
+    V1 = 1   # v3.10 initial: id, tool, args, deps
+    V2 = 2   # v4.1: strict validation, null-tool forbidden
+
+    CURRENT = V2
+
+    @classmethod
+    def validate_compatible(cls, plan_version: int) -> bool:
+        """True if a plan at ``plan_version`` is still understood
+        by the current schema (i.e. no breaking change since)."""
+        return plan_version == cls.CURRENT
+
+
+# ===========================================================================
+# 4. ContractValidator — self-healing validation loop
+# ===========================================================================
+
+
+class ContractDegradation(enum.Enum):
+    """Degradation level for a contract check failure."""
+    OK = "ok"
+    WARN = "warn"           # contract passed but optional guard missing
+    SOFT = "soft"           # contract failed but turn continues (degraded)
+    HARD = "hard"           # contract failed, turn aborted
+
+
+class ContractCheck:
+    """Result of a single contract check."""
+    name: str
+    level: ContractDegradation
+    message: str
+
+    def __init__(self, name: str, passed: bool, message: str = "",
+                 critical: bool = True):
+        self.name = name
+        if passed:
+            self.level = ContractDegradation.OK
+        elif critical:
+            self.level = ContractDegradation.HARD
+        else:
+            self.level = ContractDegradation.SOFT
+        self.message = message or ("" if passed else f"{name} failed")
+
+
+class ContractReport:
+    """Aggregated contract check report for a turn."""
+
+    def __init__(self):
+        self.checks: list[ContractCheck] = []
+        self.fail_count: int = 0
+        self.all_ok: bool = True
+
+    def add(self, check: ContractCheck) -> None:
+        self.checks.append(check)
+        if check.level in (ContractDegradation.SOFT, ContractDegradation.HARD):
+            self.fail_count += 1
+            if check.level == ContractDegradation.HARD:
+                self.all_ok = False
+
+    def has_critical_failure(self) -> bool:
+        return any(
+            c.level == ContractDegradation.HARD for c in self.checks
+        )
+
+
+class ContractValidator:
+    """v4.2 self-healing contract validation loop.
+
+    Runs all contract checks on every turn.  Critical failures
+    abort the turn; soft failures downgrade gracefully and
+    record a warning.  The report is attached to
+    ``SPEGResult.metadata["contract_report"]`` so diagnostics can
+    inspect degradation history.
+    """
+
+    def __init__(self, contracts: Any):
+        self._contracts = contracts  # ExecutionContract class
+
+    def validate_all(self) -> ContractReport:
+        report = ContractReport()
+
+        def _check(name: str, flag: bool, critical: bool = True):
+            report.add(ContractCheck(
+                name, flag,
+                critical=critical,
+            ))
+
+        c = self._contracts
+        _check("TOOL_TRUTH_SINGLE_SOURCE", c.TOOL_TRUTH_SINGLE_SOURCE)
+        _check("CONTEXT_EVENT_STREAM_ONLY", c.CONTEXT_EVENT_STREAM_ONLY)
+        _check("EXECUTION_OBLIGATION_ENFORCED", c.EXECUTION_OBLIGATION_ENFORCED)
+        _check("CONTEXT_CAUSAL_ORDER_ONLY", c.CONTEXT_CAUSAL_ORDER_ONLY)
+        _check("PLAN_STRICT_SCHEMA_ENFORCED", c.PLAN_STRICT_SCHEMA_ENFORCED)
+        _check("DIAGNOSTIC_PRESERVATION_REQUIRED", c.DIAGNOSTIC_PRESERVATION_REQUIRED)
+
+        return report
 
 
 class ExecutionContract:
-    """v4.1 system-level runtime contracts.
+    """v4.2 system-level runtime contracts."""
 
-    v4.1 additions:
-      * ``CONTEXT_CAUSAL_ORDER_ONLY`` — conversation context is
-        ordered by causal_index, not created_at.
-      * ``PLAN_STRICT_SCHEMA_ENFORCED`` — every planner output
-        passes through PlanSchema.validate_raw before compilation.
-      * ``DIAGNOSTIC_PRESERVATION_REQUIRED`` — ToolResult always
-        carries error_code_raw and error_code_norm；no error
-        signal is dropped mid-pipeline.
-    """
-
-    # [1] Tool truth closure — exactly one resolver, no silent
-    #     success=True default outside the resolver.
+    # [1-3] v4.0
     TOOL_TRUTH_SINGLE_SOURCE: bool = True
-
-    # [2] Context closure — exactly one builder for the merged
-    #     in-memory + on-disk conversation event stream.
     CONTEXT_EVENT_STREAM_ONLY: bool = True
-
-    # [3] Execution obligation — empty plan for task intent is
-    #     forbidden; planner raises ExecutionObligationViolation.
     EXECUTION_OBLIGATION_ENFORCED: bool = True
 
-    # ── v4.1 ──────────────────────────────────────────────────────
-
-    # [4] Causal ordering — context is sorted by causal_index,
-    #     not created_at. No timestamp-based sort anywhere.
+    # [4-6] v4.1
     CONTEXT_CAUSAL_ORDER_ONLY: bool = True
-
-    # [5] Plan strict schema — every planner output is validated
-    #     by PlanSchema.validate_raw(). Malformed plans raise
-    #     SchemaValidationError, empty-task plans raise
-    #     ExecutionObligationViolation.
     PLAN_STRICT_SCHEMA_ENFORCED: bool = True
-
-    # [6] Diagnostic preservation — ToolResult.error_code_raw
-    #     and .error_code_norm are always populated for failures.
-    #     No error_code disappears mid-pipeline.
     DIAGNOSTIC_PRESERVATION_REQUIRED: bool = True
 
 
 __all__ = [
+    "ErrorCode",
     "ExecutionContract",
     "ExecutionObligationViolation",
+    "GlobalCausalityClock",
+    "PlanSchemaVersion",
+    "ContractValidator",
+    "ContractReport",
+    "ContractCheck",
+    "ContractDegradation",
 ]

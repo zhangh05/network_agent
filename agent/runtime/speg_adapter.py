@@ -703,19 +703,18 @@ def build_context_events(session) -> list[dict[str, str]]:
                 "_source": "memory",
             })
 
-    # ── 3. Merge: disk first, then memory (memory is more recent)─
+    # ── 3. Merge: disk first, then memory ─────────────────────
     events: list[dict[str, str]] = disk_events + mem_events
-    # v4.1: causal ordering — assign causal_index in merge order
-    # (disk chronologically, then memory appended), sort by it.
-    # Replaces the old created_at-based sort.
-    for idx, ev in enumerate(events):
-        ev["_causal_index"] = idx
+    # v4.2: global causality — assign monotonic causal_index from
+    # GlobalCausalityClock so cross-session replay is deterministic.
+    from speg_engine.runtime_contracts import GlobalCausalityClock
+    for ev in events:
+        ev["_causal_index"] = GlobalCausalityClock.next()
     events.sort(key=lambda ev: ev.get("_causal_index", 0))
 
     # ── 4. Deduplicate by (role, content[:80]) ───────────────────
     seen: set[tuple[str, str]] = set()
     deduped: list[dict[str, str]] = []
-    causal = 1
     for ev in events:
         key = (ev["role"], ev["content"][:80])
         if key in seen:
@@ -724,9 +723,8 @@ def build_context_events(session) -> list[dict[str, str]]:
         deduped.append({
             "role": ev["role"],
             "content": ev["content"],
-            "_causal_index": causal,
+            "_causal_index": ev["_causal_index"],
         })
-        causal += 1
 
     return deduped
 

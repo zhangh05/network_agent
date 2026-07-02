@@ -246,33 +246,6 @@ class SPEGEngine:
         budget = BudgetController(self._config)
         request_span = self._trace.start_request(str(uuid.uuid4())[:8])
 
-        # ── v4: system-level runtime contracts ─────────────────────
-        # Asserted at the top of every turn so that flipping a
-        # contract off (a deliberate "contract OFF" escape hatch
-        # for debugging) is loud and observable. The contracts
-        # are enforced in the corresponding modules:
-        #   - TOOL_TRUTH_SINGLE_SOURCE   (tool_runtime._normalize_result)
-        #   - CONTEXT_EVENT_STREAM_ONLY  (speg_adapter.build_context_events)
-        #   - EXECUTION_OBLIGATION_ENFORCED (planner.enforce_execution_obligation)
-        assert ExecutionContract.TOOL_TRUTH_SINGLE_SOURCE, (
-            "v4 contract TOOL_TRUTH_SINGLE_SOURCE is off — refusing to run."
-        )
-        assert ExecutionContract.CONTEXT_EVENT_STREAM_ONLY, (
-            "v4 contract CONTEXT_EVENT_STREAM_ONLY is off — refusing to run."
-        )
-        assert ExecutionContract.EXECUTION_OBLIGATION_ENFORCED, (
-            "v4 contract EXECUTION_OBLIGATION_ENFORCED is off — refusing to run."
-        )
-        assert ExecutionContract.CONTEXT_CAUSAL_ORDER_ONLY, (
-            "v4.1 contract CONTEXT_CAUSAL_ORDER_ONLY is off — refusing to run."
-        )
-        assert ExecutionContract.PLAN_STRICT_SCHEMA_ENFORCED, (
-            "v4.1 contract PLAN_STRICT_SCHEMA_ENFORCED is off — refusing to run."
-        )
-        assert ExecutionContract.DIAGNOSTIC_PRESERVATION_REQUIRED, (
-            "v4.1 contract DIAGNOSTIC_PRESERVATION_REQUIRED is off — refusing to run."
-        )
-
         # P0: announce turn start so frontend logs the request.
         self._emit_stage(TURN_STARTED, t_total,
                          user_input_len=len(user_input or ""))
@@ -288,6 +261,30 @@ class SPEGEngine:
             cwd=cwd,
             extras=dict(extras or {}),
         )
+
+        # ── v4.2: self-healing contract validation ─────────
+        from .runtime_contracts import ContractValidator, ContractDegradation
+        c_validator = ContractValidator(ExecutionContract)
+        contract_report = c_validator.validate_all()
+
+        if contract_report.has_critical_failure():
+            errors.append(build_error(
+                "CONTRACT_VIOLATION",
+                f"Critical contract checks failed: "
+                + "; ".join(
+                    c.name for c in contract_report.checks
+                    if c.level == ContractDegradation.HARD
+                ),
+                stage="engine",
+                risk_level="high",
+            ))
+            return self._build_result(
+                ctx, None, node_results, final_response,
+                errors, metrics, budget, t_total,
+                risk_level="high", approval_required=False,
+                extra={"contract_report": contract_report},
+            )
+        ctx.extras["contract_report"] = contract_report
 
         errors: list[SPEGError] = []
         node_results: dict[str, ToolResult] = {}

@@ -29,7 +29,11 @@ import uuid
 from typing import Any, Callable
 
 from .models import PlanNode, SPEGConfig, StatelessContext
-from .runtime_contracts import ExecutionContract, ExecutionObligationViolation
+from .runtime_contracts import (
+    ExecutionContract,
+    ExecutionObligationViolation,
+    PlanSchemaVersion,
+)
 
 
 PLANNER_SYSTEM_PROMPT = """You are a deterministic execution planner. Your ONLY job is to output a JSON
