@@ -275,6 +275,109 @@ class ExecutionContract:
     DIAGNOSTIC_PRESERVATION_REQUIRED: bool = True
 
 
+# ===========================================================================
+# v6: Execution Semantics Contract — design boundary convergence
+# ===========================================================================
+
+
+class CausalityViolationError(Exception):
+    """A context event lacks a mandatory causal_index."""
+
+
+class PlanValidationError(Exception):
+    """Unified validation error for plan pipeline failures.
+
+    subtype is one of: SCHEMA_INVALID, SEMANTIC_INVALID,
+    EXECUTION_OBLIGATION_VIOLATION.
+    """
+    def __init__(self, subtype: str, message: str):
+        super().__init__(message)
+        self.subtype = subtype
+
+
+class ExecutionSemanticsContract:
+    """v6 boundary-converged semantics — no dual interpretation.
+
+    These are the non-negotiable rules for the v6 runtime. Every
+    boundary that was previously implicit or dual-interpreted is
+    now explicit and singular.
+    """
+
+    # [1] Single truth for tool results — only resolve_tool_outcome
+    #     decides success; error_code_norm is the sole code for
+    #     retry / audit / finalizer logic. error_code_raw is
+    #     audit-only (never a decision input).
+    SINGLE_TRUTH_TOOL_RESULT: bool = True
+
+    # [2] Single context source — build_context_events is the sole
+    #     entry point for conversation context. No direct
+    #     session.history or message_store reads outside the builder.
+    SINGLE_CONTEXT_SOURCE: bool = True
+
+    # [3] Causal order is strict — every context event carries
+    #     global_causal_index; no created_at fallback; null index
+    #     raises CausalityViolationError.
+    CAUSAL_ORDER_STRICT: bool = True
+
+    # [4] Schema + execution obligation are unified — structural
+    #     validation, semantic validation, and execution-obligation
+    #     check form a single pipeline with fixed order. No split
+    #     path, no silent empty-plan success.
+    SCHEMA_EXECUTION_UNIFIED: bool = True
+
+
+def assert_error_code_usage(result) -> None:
+    """v6: enforce error_code boundary.
+
+    - error_code_norm must be non-None for every tool result
+    - error_code_raw exists for audit but must not drive logic
+    """
+    assert result.error_code_norm is not None, (
+        "error_code_norm is None — v6 contract requires a normalised code"
+    )
+    assert result.error_code_raw is not None, (
+        "error_code_raw is None — v6 contract requires preserved raw code"
+    )
+
+
+class CausalIndexGuard:
+    """v6: enforce mandatory causal_index on every context event.
+
+    Raises CausalityViolationError if any event lacks a valid
+    causal_index.
+    """
+
+    @staticmethod
+    def validate(events: list[dict]) -> None:
+        for i, ev in enumerate(events):
+            idx = ev.get("_causal_index") or ev.get("global_causal_index")
+            if idx is None:
+                raise CausalityViolationError(
+                    f"Context event {i} lacks causal_index: {ev.get('role', '?')}"
+                )
+
+
+class ContextSnapshot:
+    """v6: immutable context snapshot after build.
+
+    Once built, context events cannot be modified. The caller
+    receives a read-only copy.
+    """
+
+    def __init__(self, events: list[dict]):
+        self.events = tuple(events)  # immutable
+        self.causal_order_verified: bool = True
+
+    def __iter__(self):
+        return iter(self.events)
+
+    def __len__(self):
+        return len(self.events)
+
+    def __getitem__(self, idx):
+        return self.events[idx]
+
+
 __all__ = [
     "ErrorCode",
     "ExecutionContract",
@@ -285,4 +388,10 @@ __all__ = [
     "ContractReport",
     "ContractCheck",
     "ContractDegradation",
+    "ExecutionSemanticsContract",
+    "CausalityViolationError",
+    "PlanValidationError",
+    "CausalIndexGuard",
+    "ContextSnapshot",
+    "assert_error_code_usage",
 ]

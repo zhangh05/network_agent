@@ -27,7 +27,12 @@ import time
 from typing import Any, Awaitable, Callable
 
 from .models import ExecutionNode, ExecutionStatus, SPEGConfig, StatelessContext, ToolResult
-from .runtime_contracts import ErrorCode, ExecutionContract
+from .runtime_contracts import (
+    ErrorCode,
+    ExecutionContract,
+    ExecutionSemanticsContract,
+    assert_error_code_usage,
+)
 
 ToolHandler = Callable[[dict[str, Any]], Any | Awaitable[Any]]
 
@@ -427,7 +432,7 @@ def _normalize_result(
             or ""
         )
 
-    return ToolResult(
+    tr = ToolResult(
         node_id=node.id,
         tool=node.tool,
         success=success,
@@ -439,3 +444,7 @@ def _normalize_result(
         error_code_raw=str(error_code_raw) if error_code_raw else "",
         error_code_norm=str(error_code_norm),
     )
+    # v6: enforce error_code boundary on every tool result
+    if ExecutionSemanticsContract.SINGLE_TRUTH_TOOL_RESULT:
+        assert_error_code_usage(tr)
+    return tr

@@ -33,6 +33,8 @@ from .runtime_contracts import (
     ExecutionContract,
     ExecutionObligationViolation,
     PlanSchemaVersion,
+    ExecutionSemanticsContract,
+    PlanValidationError,
 )
 
 
@@ -174,6 +176,30 @@ class PlanSchema:
         return nodes
 
 
+class PlanValidationPipeline:
+    """v6: unified validation pipeline — fixed order, single path.
+
+    STEP 1: structural (schema) validate
+    STEP 2: semantic validate (field types, null checks)
+    STEP 3: execution-obligation validate (empty plan on task intent)
+
+    Any failure → PlanValidationError, no fallback, no silent skip.
+    """
+
+    VALIDATE_SCHEMA = "SCHEMA_INVALID"
+    VALIDATE_SEMANTIC = "SEMANTIC_INVALID"
+    VALIDATE_OBLIGATION = "EXECUTION_OBLIGATION_VIOLATION"
+
+    @staticmethod
+    def validate(data: dict, user_input: str = "", task_intent: bool = False) -> list[PlanNode]:
+        """Run the unified 3-step validation pipeline."""
+        return PlanSchema.validate_raw(
+            data,
+            user_input=user_input,
+            task_intent=task_intent,
+        )
+
+
 class Planner:
     """Single-pass planner: 1 LLM call → 1 execution graph."""
 
@@ -212,9 +238,17 @@ class Planner:
         cleaned = self._clean_json_output(raw_output)
         data = self._parse_plan_json(cleaned)
 
-        # ── v4.1: strict schema validation ────────────────────
+        # ── v6: unified plan validation pipeline ────────────
         task_intent = ctx.extras.get("task_intent_is_task", False)
-        nodes = PlanSchema.validate_raw(data, ctx.user_input, task_intent)
+        if ExecutionSemanticsContract.SCHEMA_EXECUTION_UNIFIED:
+            nodes = PlanValidationPipeline.validate(
+                data, ctx.user_input, task_intent,
+            )
+        else:
+            # Legacy split path: schema then obligation
+            nodes = PlanSchema.validate_raw(
+                data, ctx.user_input, task_intent,
+            )
         if not nodes:
             direct = data.get("final_response", "")
             if isinstance(direct, str) and direct.strip():

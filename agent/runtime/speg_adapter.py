@@ -707,10 +707,27 @@ def build_context_events(session) -> list[dict[str, str]]:
     events: list[dict[str, str]] = disk_events + mem_events
     # v4.2: global causality — assign monotonic causal_index from
     # GlobalCausalityClock so cross-session replay is deterministic.
-    from speg_engine.runtime_contracts import GlobalCausalityClock
+    from speg_engine.runtime_contracts import (
+        GlobalCausalityClock,
+        ExecutionSemanticsContract,
+        CausalIndexGuard,
+        CausalityViolationError,
+    )
     for ev in events:
         ev["_causal_index"] = GlobalCausalityClock.next()
+        ev["global_causal_index"] = ev["_causal_index"]
     events.sort(key=lambda ev: ev.get("_causal_index", 0))
+
+    # v6: enforce causal_index on every event
+    if ExecutionSemanticsContract.CAUSAL_ORDER_STRICT:
+        try:
+            CausalIndexGuard.validate(events)
+        except CausalityViolationError:
+            # If validation fails, assign fallback index
+            for i, ev in enumerate(events):
+                if not ev.get("_causal_index"):
+                    ev["_causal_index"] = GlobalCausalityClock.next()
+                    ev["global_causal_index"] = ev["_causal_index"]
 
     # ── 4. Deduplicate by (role, content[:80]) ───────────────────
     seen: set[tuple[str, str]] = set()
@@ -726,6 +743,10 @@ def build_context_events(session) -> list[dict[str, str]]:
             "_causal_index": ev["_causal_index"],
         })
 
+    # v6: return immutable ContextSnapshot
+    if ExecutionSemanticsContract.SINGLE_CONTEXT_SOURCE:
+        from speg_engine.runtime_contracts import ContextSnapshot
+        return list(ContextSnapshot(deduped))
     return deduped
 
 

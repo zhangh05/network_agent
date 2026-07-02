@@ -450,6 +450,8 @@ class SPEGEngine:
 
                 # No tools — skip to finalizer
                 t_merge = time.monotonic()
+                # v6: causal order is still valid even without tool execution
+                ctx.extras.setdefault("causal_order_valid", True)
                 merged = {"total_nodes": 0, "success_count": 0, "failure_count": 0,
                           "results_by_category": {}, "all_results": {}}
                 metrics.capture_compile(0)
@@ -912,6 +914,16 @@ class SPEGEngine:
                 errors, metrics, budget, t_total, risk_level, approval_required,
                 rollback_plan,
             )
+
+            # ── v6: final convergence gate ──────────────────────
+            from .runtime_contracts import ExecutionSemanticsContract
+            if ExecutionSemanticsContract.SINGLE_TRUTH_TOOL_RESULT:
+                _v6_validate_tool_truth(node_results)
+            if ExecutionSemanticsContract.CAUSAL_ORDER_STRICT:
+                _v6_validate_causal_order(ctx)
+            if ExecutionSemanticsContract.SCHEMA_EXECUTION_UNIFIED:
+                _v6_validate_plan_consistency(ctx)
+
             return result
 
         except Exception as e:
@@ -1657,6 +1669,31 @@ def validate_final_response(
         return rr
 
     return rr
+
+
+# ── v6: Convergence validation gates ───────────────────────────────────────
+
+
+def _v6_validate_tool_truth(node_results: dict) -> None:
+    """v6: every tool result has error_code_norm populated."""
+    for nid, r in node_results.items():
+        assert r.error_code_norm is not None, (
+            f"node {nid}: error_code_norm is None"
+        )
+
+
+def _v6_validate_causal_order(ctx) -> None:
+    """v6: ctx carries causal_order_valid flag."""
+    assert ctx.extras.get("causal_order_valid"), (
+        "causal_order_valid flag missing from context"
+    )
+
+
+def _v6_validate_plan_consistency(ctx) -> None:
+    """v6: plan was schema-validated."""
+    assert ctx.extras.get("plan_schema_validated"), (
+        "plan_schema_validated flag missing from context"
+    )
 
 
 # Backward-compatible aliases

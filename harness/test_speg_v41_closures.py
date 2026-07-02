@@ -21,6 +21,11 @@ from speg_engine.planner import PlanSchema, SchemaValidationError
 from speg_engine.runtime_contracts import (
     ExecutionContract,
     ExecutionObligationViolation,
+    ExecutionSemanticsContract,
+    CausalIndexGuard,
+    CausalityViolationError,
+    ContextSnapshot,
+    assert_error_code_usage,
 )
 from speg_engine.engine import detect_task_intent
 
@@ -254,3 +259,80 @@ class TestV41Contracts:
         assert ExecutionContract.CONTEXT_CAUSAL_ORDER_ONLY
         assert ExecutionContract.PLAN_STRICT_SCHEMA_ENFORCED
         assert ExecutionContract.DIAGNOSTIC_PRESERVATION_REQUIRED
+
+
+# ============================================================================
+# v6: Boundary Convergence Tests
+# ============================================================================
+
+class TestV6ErrorCodeBoundary:
+    """error_code_norm is the sole system-decision code."""
+
+    def test_assert_error_code_usage_passes_on_valid(self):
+        node = ExecutionNode(id="n1", tool="t", args={}, deps=[])
+        tr = _normalize_result(node, {"ok": False, "error_code": "E1"}, 10.0)
+        assert_error_code_usage(tr)  # should not raise
+
+    def test_error_code_raw_is_preserved(self):
+        node = ExecutionNode(id="n1", tool="t", args={}, deps=[])
+        tr = _normalize_result(node, {"ok": False, "error_code": "CUSTOM"}, 10.0)
+        assert tr.error_code_raw == "CUSTOM"
+        assert tr.error_code_norm == "CUSTOM"
+
+    def test_legacy_failure_has_norm_not_none(self):
+        node = ExecutionNode(id="n1", tool="t", args={}, deps=[])
+        tr = _normalize_result(node, {"success": False}, 10.0)
+        assert tr.error_code_norm is not None
+        assert tr.error_code_norm == "LEGACY_FAILURE"
+
+
+class TestV6CausalClockConvergence:
+    """GlobalCausalityClock enforces deterministic ordering."""
+
+    def test_causal_index_present_on_all_events(self):
+        from agent.runtime.speg_adapter import build_context_events
+        session = SimpleNamespace(
+            session_id="test-v6", workspace_id="test",
+            history=[
+                SimpleNamespace(role="user", content="test"),
+                SimpleNamespace(role="assistant", content="ok"),
+            ],
+        )
+        events = build_context_events(session)
+        for ev in events:
+            assert "_causal_index" in ev, f"Missing causal_index in {ev.get('role')}"
+
+    def test_causal_index_guard_validates(self):
+        valid = [{"_causal_index": 1, "role": "user", "content": "hi"}]
+        CausalIndexGuard.validate(valid)  # no raise
+
+    def test_causal_index_guard_raises(self):
+        invalid = [{"role": "user", "content": "hi"}]
+        with pytest.raises(CausalityViolationError):
+            CausalIndexGuard.validate(invalid)
+
+
+class TestV6ContextSnapshot:
+    """ContextSnapshot is immutable after build."""
+
+    def test_snapshot_is_iterable(self):
+        events = [{"role": "user", "content": "hi"}]
+        snap = ContextSnapshot(events)
+        assert len(snap) == 1
+        assert snap[0]["content"] == "hi"
+
+    def test_snapshot_converts_to_list(self):
+        events = [{"role": "user", "content": "hi"}]
+        snap = ContextSnapshot(events)
+        lst = list(snap)
+        assert len(lst) == 1
+
+
+class TestV6SemanticsContract:
+    """ExecutionSemanticsContract v6 flags."""
+
+    def test_all_four_contracts(self):
+        assert ExecutionSemanticsContract.SINGLE_TRUTH_TOOL_RESULT
+        assert ExecutionSemanticsContract.SINGLE_CONTEXT_SOURCE
+        assert ExecutionSemanticsContract.CAUSAL_ORDER_STRICT
+        assert ExecutionSemanticsContract.SCHEMA_EXECUTION_UNIFIED
