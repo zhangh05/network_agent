@@ -1605,14 +1605,33 @@ class TaskIntentResult:
         """v4 contract alias: the user request requires the
         runtime to produce a real execution (tool calls / DAG).
 
-        Defaults to ``requires_tool_likely``; subclasses or
-        specialised detectors can override to combine multiple
-        signals (e.g. ``is_task and intent_type != 'definition'``).
-        The v4 ``enforce_execution_obligation`` guard reads this
-        property name, so the planner / engine / tests all
-        share a single vocabulary.
+        Returns False for ``conversational_followup`` even when
+        ``requires_tool_likely`` is True — a meta-question about
+        past behaviour (e.g. "你上轮为什么不总结") should never
+        trigger the execution-obligation guard.
         """
+        if self.intent_type == "conversational_followup":
+            return False
         return bool(self.requires_tool_likely)
+
+
+# Meta-questions about past behaviour — these are conversational
+# followups, NOT new tool tasks. The v4
+# ``EXECUTION_OBLIGATION_ENFORCED`` guard must NOT fire for
+# them, even when the question text contains a task verb
+# (e.g. "你上轮为什么不总结" matches "总结" but is a meta-
+# question about a past action, not a request to summarise
+# again).
+_META_QUESTION_VERBS = (
+    "为什么", "怎么", "为何", "怎么会", "是不是", "对吗",
+    "什么情况", "什么意思", "说啥", "说了啥",
+)
+_PAST_REFERENCES = (
+    "上轮", "上一轮", "上次的", "上次", "刚才", "之前",
+    "刚才的", "之前的", "上轮的", "刚才你", "你刚才",
+    "你上轮", "你上一轮", "你刚才的", "你上次的",
+    "上一轮的", "前一轮", "前一次", "前一",
+)
 
 
 def detect_task_intent(user_input: str) -> TaskIntentResult:
@@ -1625,6 +1644,9 @@ def detect_task_intent(user_input: str) -> TaskIntentResult:
       - requires_tool_likely: whether tools are probably needed
 
     Rules (in priority order):
+      0. Meta-question about past behaviour ("你上轮为什么
+         不总结", "刚才怎么没分析") → NOT task, classified
+         as ``conversational_followup``.
       1. Definition questions ("是什么", "什么是") → NOT task
          UNLESS the query also contains task-override patterns.
       2. Task verbs → task intent.
@@ -1635,6 +1657,21 @@ def detect_task_intent(user_input: str) -> TaskIntentResult:
     text = (user_input or "").strip()
     result = TaskIntentResult()
     if not text:
+        return result
+
+    # Step 0: meta-question about past behaviour. We require
+    # BOTH a meta-question verb AND a past reference — a single
+    # signal is not enough. "为什么" alone is too noisy (it
+    # also appears in "这个截图为什么这样", which IS a task);
+    # "上轮" alone is also too noisy ("上次的报告呢" is a
+    # task, not a followup).
+    has_meta = any(p in text for p in _META_QUESTION_VERBS)
+    has_past = any(p in text for p in _PAST_REFERENCES)
+    if has_meta and has_past:
+        result.intent_type = "conversational_followup"
+        result.is_task = False
+        result.requires_tool_likely = False
+        result.evidence = ["conversational_followup"]
         return result
 
     # Step 1: Check for definition patterns
