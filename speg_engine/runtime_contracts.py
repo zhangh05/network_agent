@@ -332,6 +332,18 @@ class ExecutionSemanticsContract:
     SYSTEM_STABILITY_ENFORCED: bool = True
 
 
+class FailureSemanticsContract:
+    """v6.5: post-abort behavior MUST be defined.
+
+    Every SystemUnstableError has an explicit behavior defined in
+    FailurePolicy.AFTER_ABORT_BEHAVIOR. No error type may raise
+    without a corresponding behavior entry.
+    """
+
+    MUST_DEFINE_POST_ABORT_BEHAVIOR: bool = True
+    SYSTEM_UNSTABLE_ERROR_IS_TERMINAL: bool = False  # configurable
+
+
 def assert_error_code_usage(result) -> None:
     """v6: enforce error_code boundary.
 
