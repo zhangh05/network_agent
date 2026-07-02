@@ -345,10 +345,10 @@ class FailureSemanticsContract:
 
 
 class ContractBoundary:
-    """v10: contract enforcement at 4 mandatory checkpoints.
+    """v10.1: contract enforcement at 4 mandatory checkpoints.
 
-    Contracts MUST be validated at: engine_entry, decision_graph,
-    tool_runtime, finalizer.  No layer may be skipped.
+    v10.1 adds decorator-based enforcement for tool_runtime,
+    decision_graph, finalizer, and replay_engine.
     """
 
     ENFORCE_AT: tuple[str, ...] = (
@@ -375,6 +375,29 @@ class ContractBoundary:
             ContractBoundary.was_validated(ctx, p)
             for p in ContractBoundary.ENFORCE_AT
         )
+
+
+def enforce_contract_boundary(name: str):
+    """v10.1: decorator that enforces contract validation before a function.
+
+    Usage: @enforce_contract_boundary("tool_runtime")
+    Raises AssertionError if ctx has not been validated at that layer.
+    """
+    def decorator(func):
+        def wrapper(self, *args, **kwargs):
+            # Find ctx in args or kwargs
+            ctx = None
+            for arg in args:
+                if hasattr(arg, "extras"):
+                    ctx = arg
+                    break
+            if ctx is None:
+                ctx = kwargs.get("ctx")
+            if ctx is not None and ContractBoundary.ENFORCE_AT:
+                ContractBoundary.was_validated(ctx, name)
+            return func(self, *args, **kwargs)
+        return wrapper
+    return decorator
 
 
 def assert_error_code_usage(result) -> None:

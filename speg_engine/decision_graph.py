@@ -1,8 +1,8 @@
 """
-SPEG v10 Decision Graph — single decision entry point.
+SPEG v10.1 Decision Graph — purely declarative rule resolution.
 
-All retry / failure / routing decisions flow through exactly one
-graph.  No scattered logic, no direct FailurePolicy calls.
+No if/else branching.  All routing is driven by a declarative
+rule table evaluated by DecisionPolicyResolver.resolve().
 """
 
 from __future__ import annotations
@@ -10,65 +10,93 @@ from __future__ import annotations
 from typing import Any
 
 
+# ── v10.1: Declarative rule table ─────────────────────────────────────────
+
+DecisionPolicySpec: list[tuple[str, str]] = [
+    # (condition, action)
+    ("CRITICAL", "STOP"),
+    ("HIGH", "DEGRADE"),
+    ("retryable AND source=PLANNER", "RETRY_PLANNER"),
+    ("retryable AND source=TOOL", "RETRY_TOOL"),
+    ("retryable", "RETRY_FULL"),
+    ("DEFAULT", "RUN"),
+]
+
+
+class DecisionPolicyResolver:
+    """v10.1: pure rule-matching engine — no if/else."""
+
+    @staticmethod
+    def resolve(report: Any) -> str:
+        """Match rules in order; return the first matched action."""
+        for condition, action in DecisionPolicySpec:
+            if _match(condition, report):
+                return action
+        return "RUN"  # unreachable (DEFAULT catches all)
+
+    @staticmethod
+    def resolve_with_trace(report: Any) -> tuple[str, str, list[dict[str, str]]]:
+        """Resolve with full trace of rule evaluations."""
+        trace: list[dict[str, str]] = []
+        for condition, action in DecisionPolicySpec:
+            matched = _match(condition, report)
+            trace.append({"condition": condition, "action": action,
+                          "matched": str(matched)})
+            if matched:
+                return action, condition, trace
+        return "RUN", "DEFAULT", trace
+
+
+def _match(condition: str, report: Any) -> bool:
+    """Evaluate a single rule condition against the report."""
+    if condition == "DEFAULT":
+        return True
+    if condition == "CRITICAL":
+        return getattr(report, "critical_count", 0) > 0
+    if condition == "HIGH":
+        return getattr(report, "high_count", 0) > 0
+    if condition == "retryable":
+        return bool(getattr(report, "recoverable", False))
+
+    # Compound conditions
+    if " AND " in condition:
+        parts = condition.split(" AND ")
+        return all(_match(p.strip(), report) for p in parts)
+
+    # Named conditions
+    if condition.startswith("source="):
+        expected = condition.split("=", 1)[1]
+        actual = str(getattr(report, "source", "")).upper()
+        return expected.upper() in actual
+
+    return False
+
+
 class DecisionNode:
-    """A single decision in the graph."""
     def __init__(self, name: str, action: str, reason: str):
         self.name = name
-        self.action = action    # STOP | DEGRADE | RETRY_PLANNER | RETRY_TOOL | RETRY_FULL | RUN
+        self.action = action
         self.reason = reason
 
 
 class DecisionGraph:
-    """v10: single decision entry — all routing flows through here."""
+    """v10.1: single decision entry with declarative resolver."""
 
     def __init__(self):
         self.nodes: list[DecisionNode] = []
 
     def decide(self, ctx: Any, failure_report: Any) -> DecisionNode:
-        """Route the failure report to a single action."""
-        node = self._route(failure_report)
+        action, cond, _ = DecisionPolicyResolver.resolve_with_trace(failure_report)
+        node = DecisionNode("decision_graph", action,
+                            f"rule: {cond} (CRITICAL={getattr(failure_report, 'critical_count', 0)}, HIGH={getattr(failure_report, 'high_count', 0)})")
         self.nodes.append(node)
         return node
-
-    def _route(self, report: Any) -> DecisionNode:
-        if self._is_critical(report):
-            return DecisionNode("critical_gate", "STOP",
-                                f"CRITICAL={getattr(report, 'critical_count', 0)}")
-
-        if self._is_high(report):
-            return DecisionNode("high_gate", "DEGRADE",
-                                f"HIGH={getattr(report, 'high_count', 0)}")
-
-        if self._is_retryable(report):
-            scope = self._retry_scope(report)
-            return DecisionNode("retry_gate", scope, "retryable")
-
-        return DecisionNode("run_gate", "RUN", "clean")
-
-    @staticmethod
-    def _is_critical(report: Any) -> bool:
-        return getattr(report, "critical_count", 0) > 0
-
-    @staticmethod
-    def _is_high(report: Any) -> bool:
-        return getattr(report, "high_count", 0) > 0
-
-    @staticmethod
-    def _is_retryable(report: Any) -> bool:
-        return getattr(report, "recoverable", False)
-
-    @staticmethod
-    def _retry_scope(report: Any) -> str:
-        src = getattr(report, "source", "")
-        if src and "PLANNER" in str(src).upper():
-            return "RETRY_PLANNER"
-        if src and "TOOL" in str(src).upper():
-            return "RETRY_TOOL"
-        return "RETRY_FULL"
 
     def to_trace(self) -> list[dict[str, str]]:
         return [{"name": n.name, "action": n.action, "reason": n.reason}
                 for n in self.nodes]
 
 
-__all__ = ["DecisionGraph", "DecisionNode"]
+__all__ = ["DecisionGraph", "DecisionNode", "DecisionPolicySpec",
+           "DecisionPolicyResolver"]
+

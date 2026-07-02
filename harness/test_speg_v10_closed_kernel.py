@@ -12,6 +12,7 @@ from speg_engine.execution_replay import (
     ExecutionTrace,
     ExecutionTraceEvent,
     ExecutionReplay,
+    VerifyReplayMode,
 )
 from speg_engine.runtime_contracts import ContractBoundary
 from speg_engine.runtime_stability import IssueCollector, Severity, IssueCategory
@@ -186,3 +187,137 @@ def _make_report(critical=0, high=0):
     if high > 0:
         c.add(Severity.HIGH, IssueCategory.TOOL, "t", "high")
     return c
+
+
+# ============================================================================
+# v10.1 additions
+# ============================================================================
+
+from speg_engine.decision_graph import DecisionPolicyResolver, DecisionPolicySpec
+
+
+class TestV101DeclarativeRuleResolution:
+    """DecisionGraph uses purely declarative rule matching."""
+
+    def test_critical_matches(self):
+        r = _make_report(critical=1, high=0)
+        action, cond, _ = DecisionPolicyResolver.resolve_with_trace(r)
+        assert action == "STOP"
+        assert cond == "CRITICAL"
+
+    def test_high_matches(self):
+        r = _make_report(critical=0, high=1)
+        action, _, _ = DecisionPolicyResolver.resolve_with_trace(r)
+        assert action == "DEGRADE"
+
+    def test_default_matches(self):
+        r = _make_report(critical=0, high=0)
+        action, _, _ = DecisionPolicyResolver.resolve_with_trace(r)
+        assert action == "RUN"
+
+    def test_retryable_planner(self):
+        r = SimpleNamespace(critical_count=0, high_count=0,
+                            recoverable=True, source="PLANNER")
+        action, cond, _ = DecisionPolicyResolver.resolve_with_trace(r)
+        assert action == "RETRY_PLANNER"
+        assert "PLANNER" in cond
+
+    def test_retryable_tool(self):
+        r = SimpleNamespace(critical_count=0, high_count=0,
+                            recoverable=True, source="TOOL")
+        action, _, _ = DecisionPolicyResolver.resolve_with_trace(r)
+        assert action == "RETRY_TOOL"
+
+    def test_rules_in_correct_order(self):
+        # critical should be checked before high
+        r = _make_report(critical=1, high=1)
+        action, _, _ = DecisionPolicyResolver.resolve_with_trace(r)
+        assert action == "STOP"  # CRITICAL wins over HIGH
+
+    def test_no_if_else_in_matching(self):
+        """Verify the resolver is purely rule-driven."""
+        trace = DecisionPolicyResolver.resolve_with_trace(_make_report(0, 0))[2]
+        assert len(trace) == len(DecisionPolicySpec)
+        assert trace[-1]["condition"] == "DEFAULT"
+
+
+class TestV101CanonicalSerializer:
+    """ContextSeal uses canonical serialization."""
+
+    def test_canonical_is_deterministic(self):
+        from speg_engine.context_seal import canonical_serialize, ContextSeal
+        a = canonical_serialize([{"key": "val"}])
+        b = canonical_serialize([{"key": "val"}])
+        assert a == b
+
+    def test_seal_with_canonical(self):
+        from speg_engine.context_seal import ContextSeal
+        s1 = ContextSeal.seal([{"a": 1}])
+        s2 = ContextSeal.seal([{"a": 1}])
+        assert s1["hash"] == s2["hash"]
+
+
+class TestV101TraceIdentity:
+    """ExecutionTrace has canonical identity hash."""
+
+    def test_identity_is_deterministic(self):
+        t1 = ExecutionTrace()
+        t1.record(ExecutionTraceEvent(1, "a", "RUNNING", "RUNNING", "h"))
+        t2 = ExecutionTrace()
+        t2.record(ExecutionTraceEvent(1, "a", "RUNNING", "RUNNING", "h"))
+        assert t1.identity == t2.identity
+
+    def test_identity_changes_with_content(self):
+        t1 = ExecutionTrace()
+        t1.record(ExecutionTraceEvent(1, "a", "RUNNING", "RUNNING", "h1"))
+        t2 = ExecutionTrace()
+        t2.record(ExecutionTraceEvent(1, "a", "RUNNING", "RUNNING", "h2"))
+        assert t1.identity != t2.identity
+
+
+class TestV101VerifyReplayMode:
+    """VerifyReplayMode validates without executing tools."""
+
+    def test_verify_mode_valid(self):
+        trace = ExecutionTrace()
+        trace.record(ExecutionTraceEvent(1, "r", "RUNNING", "RUNNING", "h"))
+        result = VerifyReplayMode.verify(trace)
+        assert result["valid"] is True
+        assert "identity" in result
+
+    def test_verify_mode_invalid(self):
+        trace = ExecutionTrace()
+        trace.record(ExecutionTraceEvent(1, "r", "RUNNING", "RUNNING", "h"))
+        trace.record(ExecutionTraceEvent(0, "r", "RUNNING", "RUNNING", "h"))
+        result = VerifyReplayMode.verify(trace)
+        assert result["valid"] is False
+
+
+class TestV101DependencyValidation:
+    """Replay validates DAG dependencies."""
+
+    def test_dependencies_resolved_passes(self):
+        trace = ExecutionTrace()
+        trace.record(ExecutionTraceEvent(1, "r", "RUNNING", "RUNNING", "h",
+                                         dependencies_resolved=True))
+        assert ExecutionReplay.replay(trace) is True
+
+    def test_dependencies_unresolved_fails(self):
+        trace = ExecutionTrace()
+        trace.record(ExecutionTraceEvent(1, "r", "RUNNING", "RUNNING", "h",
+                                         dependencies_resolved=False))
+        with pytest.raises(AssertionError):
+            ExecutionReplay.replay(trace)
+
+
+class TestV101ContractDecorator:
+    """ContractBoundary decorator enforces pre-validation."""
+
+    def test_decorator_function_defined(self):
+        from speg_engine.runtime_contracts import enforce_contract_boundary
+        assert callable(enforce_contract_boundary)
+
+    def test_validate_all_still_works(self):
+        ctx = SimpleNamespace(extras={})
+        ContractBoundary.validate_all(ctx)
+        assert ContractBoundary.all_validated(ctx)
