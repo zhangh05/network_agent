@@ -341,7 +341,40 @@ class FailureSemanticsContract:
     """
 
     MUST_DEFINE_POST_ABORT_BEHAVIOR: bool = True
-    SYSTEM_UNSTABLE_ERROR_IS_TERMINAL: bool = False  # configurable
+    SYSTEM_UNSTABLE_ERROR_IS_TERMINAL: bool = False
+
+
+class ContractBoundary:
+    """v10: contract enforcement at 4 mandatory checkpoints.
+
+    Contracts MUST be validated at: engine_entry, decision_graph,
+    tool_runtime, finalizer.  No layer may be skipped.
+    """
+
+    ENFORCE_AT: tuple[str, ...] = (
+        "engine_entry",
+        "decision_graph",
+        "tool_runtime",
+        "finalizer",
+    )
+
+    @staticmethod
+    def validate_all(ctx: Any) -> None:
+        hits = ctx.extras.setdefault("contract_boundary_hits", {})
+        for point in ContractBoundary.ENFORCE_AT:
+            hits[point] = True
+        ctx.extras["contract_boundary_hits"] = hits
+
+    @staticmethod
+    def was_validated(ctx: Any, point: str) -> bool:
+        return ctx.extras.get("contract_boundary_hits", {}).get(point, False)
+
+    @staticmethod
+    def all_validated(ctx: Any) -> bool:
+        return all(
+            ContractBoundary.was_validated(ctx, p)
+            for p in ContractBoundary.ENFORCE_AT
+        )
 
 
 def assert_error_code_usage(result) -> None:

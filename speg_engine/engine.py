@@ -262,6 +262,10 @@ class SPEGEngine:
             extras=dict(extras or {}),
         )
 
+        # ── v10: contract boundary — engine_entry check ───────
+        from .runtime_contracts import ContractBoundary
+        ContractBoundary.validate_all(ctx)
+
         # ── v4.2: self-healing contract validation ─────────
         from .runtime_contracts import ContractValidator, ContractDegradation
         c_validator = ContractValidator(ExecutionContract)
@@ -949,68 +953,47 @@ class SPEGEngine:
             return result
 
         except SystemUnstableError as sue:
-            # ── Failure Semantics + Execution Contract ──────────
-            from .failure_semantics import (
-                FailurePolicy, FailureContext,
-                degraded_result, retry_session_result,
-            )
-            from .failure_execution_contract import (
-                apply_stop_contract,
-                apply_degrade_contract,
-                apply_retry_contract,
-            )
-            from .runtime_contracts import FailureSemanticsContract
+            # ── v10: single DecisionGraph entry ──────────────
+            from .decision_graph import DecisionGraph
 
-            assert FailurePolicy.AFTER_ABORT_BEHAVIOR is not None
-            assert "SYSTEM_UNSTABLE_ERROR" in FailurePolicy.AFTER_ABORT_BEHAVIOR
+            dg = DecisionGraph()
+            node = dg.decide(ctx, sue.report)
+            decision = node.action
+
+            from .failure_semantics import FailureContext
 
             fctx = FailureContext(sue, sue.report)
-            behavior = FailurePolicy.behaviour_for("SYSTEM_UNSTABLE_ERROR")
 
-            if behavior == "STOP":
+            if decision == "STOP" or decision.startswith("RETRY"):
+                # Terminal or retry: produce error result with trace
+                from .failure_execution_contract import apply_stop_contract
                 exec_contract = apply_stop_contract(ctx)
                 errors.append(build_error(
                     "SYSTEM_UNSTABLE",
-                    f"SystemUnstableError: {sue}",
-                    stage="stability_gate",
+                    f"DecisionGraph: {decision} ({node.reason})",
+                    stage="decision_graph",
                     risk_level="critical",
-                    failure_behavior=behavior,
-                    recoverable=fctx.recoverable,
+                    decision=decision,
                 ))
                 return self._build_result(
-                    ctx, dag, node_results, final_response,
+                    ctx, None, node_results, final_response,
                     errors, metrics, budget, t_total,
                     risk_level="critical", approval_required=False,
                     extra={
+                        "decision_graph": dg.to_trace(),
                         "failure_context": fctx.to_dict(),
-                        "failure_behavior": behavior,
                         "execution_contract": exec_contract,
                     },
                 )
 
-            elif behavior == "DEGRADE":
+            elif decision == "DEGRADE":
+                from .failure_execution_contract import apply_degrade_contract
                 exec_contract = apply_degrade_contract(ctx, fctx)
-                degraded = degraded_result(fctx)
+                result.metadata["decision_graph"] = dg.to_trace()
                 result.metadata["failure_context"] = fctx.to_dict()
-                result.metadata["failure_behavior"] = behavior
                 result.metadata["execution_contract"] = exec_contract
                 result.metadata["stability_report"] = sue.report.to_dict()
                 return result
-
-            elif behavior == "RETRY_SESSION":
-                exec_contract = apply_retry_contract(ctx, fctx)
-                retry = retry_session_result(fctx)
-                result.metadata["failure_context"] = fctx.to_dict()
-                result.metadata["failure_behavior"] = behavior
-                result.metadata["execution_contract"] = exec_contract
-                result.metadata["retry_allowed"] = fctx.recoverable
-                result.metadata["stability_report"] = sue.report.to_dict()
-                return result
-
-            else:
-                raise AssertionError(
-                    f"Unmapped failure behavior '{behavior}'"
-                )
 
         except Exception as e:
             errors.append(build_error(
