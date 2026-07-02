@@ -1,15 +1,20 @@
 """
-Kernel — Unified entry point for SPEG execution.
+Kernel — Thin dispatcher.
 
-Orchestrates the four-layer pipeline:
+Rules:
+  - No business logic
+  - No state manipulation
+  - No timing computation
+  - ONLY routing: LLM → Execution → Graph
 
-  Kernel.execute(task)
-    → LLM.plan(task)           # pure planning
-    → ExecutionEngine.run()    # pure execution
-    → GraphStore.update()      # SSOT state
-    → StageClock.update()      # isolated timing
+  Kernel.execute(task):
+    → LLM.plan(task)           # pure event
+    → ExecutionEngine.run()    # pure events
+    → Graph.apply(events)      # SSOT store
+    → return project()         # derived state
 
-No cross-layer calls. No state in places it shouldn't be.
+All state = GraphStore.project(run_id)
+All time  = derive_timeline(events)
 """
 
 from __future__ import annotations
@@ -18,25 +23,26 @@ import asyncio
 from dataclasses import dataclass, field
 from typing import Any, Callable
 
-from core.graph.graph_store import get_graph_store, GraphStore
-from core.time.clock import start_clock, remove_clock, StageClock
-from core.time.clock import STAGE_DISPLAY
+from core.graph.graph_store import (
+    get_graph_store, GraphStore, EventType, Reducer,
+)
+from core.time.clock import derive_timeline, derive_node_timings, derive_progress
 from core.execution.engine import (
-    ExecutionEngine, ExecutionPlan, ToolResult as ExecToolResult,
+    ExecutionEngine, ExecutionPlan, ToolResult,
 )
 from core.llm.planner import Planner, PlannerOutput
 
 
-# ── Kernel result ─────────────────────────────────────────────────────
+# ── Kernel result (pure projection) ────────────────────────────────────
 
 @dataclass
 class KernelResult:
-    """Unified result from Kernel.execute()."""
+    """Derived from events, not stored directly."""
     run_id: str
     ok: bool
     final_response: str
-    node_count: int            # real count, no padding
-    tool_results: dict[str, ExecToolResult] = field(default_factory=dict)
+    node_count: int
+    tool_results: dict[str, Any] = field(default_factory=dict)
     errors: list[str] = field(default_factory=list)
     stage_timings: dict[str, int] = field(default_factory=dict)
     total_elapsed_ms: int = 0
@@ -45,13 +51,10 @@ class KernelResult:
 
     def to_dict(self) -> dict[str, Any]:
         return {
-            "run_id": self.run_id,
-            "ok": self.ok,
+            "run_id": self.run_id, "ok": self.ok,
             "final_response": self.final_response,
             "node_count": self.node_count,
-            "tool_results": {
-                nid: tr.to_dict() for nid, tr in self.tool_results.items()
-            },
+            "tool_results": self.tool_results,
             "errors": self.errors,
             "stage_timings": self.stage_timings,
             "total_elapsed_ms": self.total_elapsed_ms,
@@ -60,12 +63,12 @@ class KernelResult:
         }
 
 
-# ── Kernel ────────────────────────────────────────────────────────────
+# ── Kernel ─────────────────────────────────────────────────────────────
 
 class Kernel:
-    """Unified SPEG execution kernel.
+    """Thin dispatcher. No business logic.
 
-    Kernel.execute(task) → LLM → Execution → GraphStore → Clock
+    LLM → Execution → Graph → Projection
     """
 
     def __init__(
@@ -79,12 +82,14 @@ class Kernel:
         self._executor = ExecutionEngine(handlers=tool_handlers or {})
         self._risk_check = risk_check
         self._finalize = finalize_fn
+        self._store = get_graph_store()
 
     def register_tool(self, name: str, handler: Callable,
                       description: str = "", args: dict | None = None) -> None:
-        """Register a tool with both the planner and executor."""
         self._planner.register_tool(name, description, args)
         self._executor.register(name, handler)
+
+    # ── Entry point ──────────────────────────────────────────────
 
     def execute(
         self,
@@ -93,10 +98,6 @@ class Kernel:
         session_id: str = "",
         approved_risk: bool = False,
     ) -> KernelResult:
-        """Execute a task through the full pipeline.
-
-        Returns KernelResult synchronously (use async_execute for async).
-        """
         return _run_async(self.async_execute(
             task_input, workspace_id, session_id, approved_risk,
         ))
@@ -108,194 +109,163 @@ class Kernel:
         session_id: str = "",
         approved_risk: bool = False,
     ) -> KernelResult:
-        """Async version of execute()."""
-        store = get_graph_store()
-        run_id = store.create_run(task_input, workspace_id, session_id)
-        clock = start_clock(run_id)
-        clock.begin_stage("entry")
+        """Execute task through pure event pipeline."""
+        store = self._store
+        run_id = f"run_{task_input[:20].replace(' ', '_')}"
 
-        errors: list[str] = []
+        # ── Emit helper (the ONE write path) ────────────────────
+        def emit(et: str, rid: str, payload: dict | None = None) -> None:
+            store.append(et, rid, payload)
 
-        # ── Stage 1: Planner (LLM) ─────────────────────────────
-        clock.begin_next("planner")
-        store.update_run(run_id, status="planning")
-        store.append_event("stage", "planner_start", {
-            "run_id": run_id, "input_len": len(task_input),
+        # ── 1. RUN_STARTED ──────────────────────────────────────
+        emit(EventType.RUN_CREATED, run_id, {
+            "input": task_input, "workspace_id": workspace_id,
         })
+        emit(EventType.RUN_STARTED, run_id, {})
+
+        # ── 2. Planner (LLM) ────────────────────────────────────
+        emit(EventType.STAGE_STARTED, run_id, {"stage": "planner"})
 
         plan_output = self._planner.plan(task_input)
 
-        clock.end_stage("planner")
-        store.append_event("stage", "planner_end", {
+        if not plan_output.nodes:
+            emit(EventType.STAGE_ENDED, run_id, {"stage": "planner"})
+            emit(EventType.FINAL_RESPONSE, run_id, {
+                "text": plan_output.final_response or "收到。",
+            })
+            emit(EventType.RUN_COMPLETED, run_id, {})
+            return _project_result(run_id, store)
+
+        # Plan generated
+        emit(EventType.PLAN_GENERATED, run_id, {
+            "nodes": plan_output.nodes,
             "node_count": len(plan_output.nodes),
         })
+        emit(EventType.STAGE_ENDED, run_id, {"stage": "planner"})
 
-        # Direct response (no tools needed)
-        if not plan_output.nodes:
-            clock.begin_next("exit")
-            clock.end_stage("exit")
-            return KernelResult(
-                run_id=run_id, ok=True,
-                final_response=plan_output.final_response or "收到。",
-                node_count=0,
-                stage_timings={s: clock.elapsed(s) for s in clock.stages},
-                total_elapsed_ms=clock.total_elapsed_ms(),
-            )
-
-        # ── Stage 2: Compile ──────────────────────────────────
-        clock.begin_next("compile")
-        store.update_run(run_id, plan_nodes=plan_output.nodes)
+        # ── 3. Compile ──────────────────────────────────────────
+        emit(EventType.STAGE_STARTED, run_id, {"stage": "compile"})
         plan = ExecutionPlan.from_plan_dicts(plan_output.nodes)
-        clock.end_stage("compile")
+        emit(EventType.STAGE_ENDED, run_id, {"stage": "compile"})
 
-        # ── Stage 3: Structural validation ────────────────────
-        clock.begin_next("structural_validate")
+        # ── 4. Validate ─────────────────────────────────────────
+        emit(EventType.STAGE_STARTED, run_id, {"stage": "structural_validate"})
         validation_errors = self._planner.validate(plan_output)
-        clock.end_stage("structural_validate")
-
         if validation_errors:
-            clock.begin_next("exit")
-            clock.end_stage("exit")
-            return KernelResult(
-                run_id=run_id, ok=False,
-                final_response="计划校验失败：" + "; ".join(validation_errors[:3]),
-                node_count=len(plan_output.nodes),
-                errors=validation_errors,
-                stage_timings={s: clock.elapsed(s) for s in clock.stages},
-                total_elapsed_ms=clock.total_elapsed_ms(),
-            )
+            emit(EventType.PLAN_INVALID, run_id, {
+                "errors": validation_errors,
+            })
+            emit(EventType.RUN_FAILED, run_id, {})
+            return _project_result(run_id, store)
+        emit(EventType.PLAN_VALIDATED, run_id, {"node_count": len(plan_output.nodes)})
+        emit(EventType.STAGE_ENDED, run_id, {"stage": "structural_validate"})
 
-        # ── Stage 4: Risk policy ──────────────────────────────
-        clock.begin_next("risk_policy")
-        approval_required = False
-        approval_nodes: list[str] = []
+        # ── 5. Risk policy ──────────────────────────────────────
+        emit(EventType.STAGE_STARTED, run_id, {"stage": "risk_policy"})
 
         if self._risk_check and not approved_risk:
             risk_result = self._risk_check(plan_output.nodes)
+            risk_level = risk_result.get("risk_level", "low")
+            emit(EventType.RISK_ASSESSED, run_id, {
+                "risk_level": risk_level,
+                "hard_block": risk_result.get("hard_block", False),
+            })
+
             if risk_result.get("hard_block"):
-                errors.append(risk_result.get("reason", "操作被风险策略阻止"))
-                clock.end_stage("risk_policy")
-                clock.begin_next("exit")
-                clock.end_stage("exit")
-                return KernelResult(
-                    run_id=run_id, ok=False,
-                    final_response="操作被阻止：" + risk_result.get("reason", ""),
-                    node_count=len(plan_output.nodes),
-                    errors=errors,
-                    stage_timings={s: clock.elapsed(s) for s in clock.stages},
-                    total_elapsed_ms=clock.total_elapsed_ms(),
-                )
+                emit(EventType.RUN_FAILED, run_id, {
+                    "reason": risk_result.get("reason", "hard blocked"),
+                })
+                return _project_result(run_id, store)
 
             if risk_result.get("requires_approval"):
-                approval_required = True
-                approval_nodes = risk_result.get("approval_nodes", [])
-                store.update_run(
-                    run_id,
-                    approval_required=True,
-                    approval_nodes=approval_nodes,
-                )
+                nodes = risk_result.get("approval_nodes", [])
+                emit(EventType.APPROVAL_REQUIRED, run_id, {"nodes": nodes})
+                emit(EventType.STAGE_ENDED, run_id, {"stage": "risk_policy"})
+                emit(EventType.RUN_COMPLETED, run_id, {})
+                return _project_result(run_id, store)
 
-        clock.end_stage("risk_policy")
+        emit(EventType.STAGE_ENDED, run_id, {"stage": "risk_policy"})
 
-        # ── If approval required, return early ────────────────
-        if approval_required:
-            clock.begin_next("exit")
-            clock.end_stage("exit")
-            return KernelResult(
-                run_id=run_id, ok=True,
-                final_response="需要确认高危操作",
-                node_count=len(plan_output.nodes),
-                approval_required=True,
-                approval_nodes=approval_nodes,
-                stage_timings={s: clock.elapsed(s) for s in clock.stages},
-                total_elapsed_ms=clock.total_elapsed_ms(),
-            )
-
-        # ── Stage 5: Execute ──────────────────────────────────
-        clock.begin_next("execute")
-        store.update_run(run_id, status="executing")
-
+        # ── 6. Execute ──────────────────────────────────────────
         tool_results = await self._executor.execute(
-            plan,
-            on_stage_begin=lambda s: store.append_event("stage", f"{s}_start", {}),
-            on_stage_end=lambda s: store.append_event("stage", f"{s}_end", {}),
+            plan, run_id, emit,
         )
 
-        store.update_run(
-            run_id,
-            status="finalizing",
-            node_results={
-                nid: tr.to_dict() for nid, tr in tool_results.items()
-            },
-        )
-        clock.end_stage("execute")
-
-        # ── Stage 6: Finalizer ────────────────────────────────
-        clock.begin_next("finalizer")
-        final_response = ""
+        # ── 7. Finalize ─────────────────────────────────────────
+        emit(EventType.STAGE_STARTED, run_id, {"stage": "finalizer"})
         if self._finalize:
-            final_response = self._finalize(plan_output, tool_results)
+            final_text = self._finalize(plan_output, tool_results)
         else:
-            final_response = _build_default_final(tool_results)
+            final_text = _build_default_final(tool_results)
+        emit(EventType.FINAL_RESPONSE, run_id, {"text": final_text})
+        emit(EventType.STAGE_ENDED, run_id, {"stage": "finalizer"})
 
-        clock.end_stage("finalizer")
+        # ── Done ────────────────────────────────────────────────
+        emit(EventType.RUN_COMPLETED, run_id, {})
+        return _project_result(run_id, store)
 
-        # ── Done ──────────────────────────────────────────────
-        clock.begin_next("exit")
-        clock.end_stage("exit")
+    # ── Query (pure projection from events) ─────────────────────
 
-        ok = all(tr.success for tr in tool_results.values()) if tool_results else True
+    def get_progress(self, run_id: str) -> dict[str, Any]:
+        """Derive execution progress from events."""
+        events = [e.to_dict() for e in self._store.get_events(run_id)]
+        return derive_progress(events)
 
-        result = KernelResult(
-            run_id=run_id, ok=ok,
-            final_response=final_response,
-            node_count=len(plan_output.nodes),
-            tool_results=tool_results,
-            errors=errors,
-            stage_timings={s: clock.elapsed(s) for s in clock.stages
-                          if clock.stages[s].is_complete},
-            total_elapsed_ms=clock.total_elapsed_ms(),
-        )
+    def get_timeline(self, run_id: str) -> dict[str, Any]:
+        """Derive timing from events."""
+        events = [e.to_dict() for e in self._store.get_events(run_id)]
+        return derive_timeline(events)
 
-        store.update_run(run_id, status="done", final_response=final_response)
-        remove_clock(run_id)
-        return result
+    def get_node_timings(self, run_id: str) -> dict[str, Any]:
+        """Derive per-node timing from events."""
+        events = [e.to_dict() for e in self._store.get_events(run_id)]
+        return derive_node_timings(events)
 
 
-# ── Helpers ───────────────────────────────────────────────────────────
+# ── Helpers ────────────────────────────────────────────────────────────
+
+def _project_result(run_id: str, store: GraphStore) -> KernelResult:
+    """Build KernelResult from GraphStore projection. Pure derivation."""
+    state = store.project(run_id)
+    events = [e.to_dict() for e in store.get_events(run_id)]
+    timeline = derive_timeline(events)
+
+    return KernelResult(
+        run_id=run_id,
+        ok=state.get("status") == "done",
+        final_response=state.get("final_response", ""),
+        node_count=state.get("node_count", 0),
+        tool_results=state.get("tool_results", {}),
+        errors=state.get("errors", []),
+        stage_timings=timeline.get("stage_timings", {}),
+        total_elapsed_ms=timeline.get("total_elapsed_ms", 0),
+        approval_required=state.get("approval_required", False),
+        approval_nodes=state.get("approval_nodes", []),
+    )
+
 
 def _build_default_final(
-    tool_results: dict[str, ExecToolResult],
+    tool_results: dict[str, ToolResult],
 ) -> str:
-    """Build a default final response from tool results."""
     if not tool_results:
         return "收到。"
-
     ok_count = sum(1 for tr in tool_results.values() if tr.success)
     fail_count = len(tool_results) - ok_count
-
     lines = []
     for nid, tr in tool_results.items():
         status = "✓" if tr.success else "✗"
         summary = str(tr.data)[:200] if tr.data else (tr.error or "—")
         lines.append(f"  [{status}] {nid}: {summary}")
-
-    header = f"工具执行完成：成功 {ok_count} 个，失败 {fail_count} 个。"
-    return header + "\n" + "\n".join(lines)
+    return f"工具执行完成：成功 {ok_count} 个，失败 {fail_count} 个。\n" + "\n".join(lines)
 
 
 def _run_async(coro):
-    """Run an async coroutine synchronously."""
     try:
         loop = asyncio.get_running_loop()
     except RuntimeError:
         loop = None
-
     if loop is not None:
-        # We're already in an event loop — use run_until_complete on a new loop
         import concurrent.futures
         with concurrent.futures.ThreadPoolExecutor() as pool:
-            future = pool.submit(asyncio.run, coro)
-            return future.result()
-    else:
-        return asyncio.run(coro)
+            return pool.submit(asyncio.run, coro).result()
+    return asyncio.run(coro)

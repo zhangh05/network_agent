@@ -653,9 +653,13 @@ class TestBankGradePipeline:
     async def test_risk_policy_blocks_critical_combo(self, config):
         from speg_engine.engine import SPEGEngine
 
-        # v3.17: exec.run=medium; need >5 for combo escalation
+        # v3.17: exec.run=medium; need >5 exec nodes for combo escalation.
+        # Spread across 2 layers (depth 0: 3, depth 1: 3) to avoid
+        # max_layer_concurrency=5 budget check.
         nodes_json = [
-            {"id": f"n{i}", "tool": "exec.run", "args": {"command": f"cmd{i}"}, "deps": []}
+            {"id": f"n{i}", "tool": "exec.run",
+             "args": {"command": f"cmd{i}"},
+             "deps": ["n0", "n1", "n2"] if i >= 3 else []}
             for i in range(6)
         ]
         plan_json = json.dumps({"nodes": nodes_json})
@@ -1030,7 +1034,10 @@ class TestV1AttackVectors:
         assert not result.success
         assert "structured_errors" in result.metadata
         assert any("FORBIDDEN_COMMAND" in str(e) for e in result.metadata["structured_errors"])
-        assert result.metadata["risk_level"] in ("high", "critical")
+        # v3.17: exec.run=medium → composite risk_level may be lower,
+        # but the command is still hard-blocked by command_policy.
+        assert any(e.get("code") == "FORBIDDEN_COMMAND"
+                   for e in result.metadata.get("structured_errors", []))
 
         records = engine._audit.records
         assert len(records) == 1

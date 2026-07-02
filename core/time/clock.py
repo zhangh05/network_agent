@@ -1,43 +1,30 @@
 """
-StageClock — Isolated timing layer.
-
-Replaces:
-  - engine._emit_stage() timing (total time, not per-stage)
-  - trace.py  sum(node_time) + wall_clock (double-counting)
-  - observability/timeline.py  node_time aggregation
-  - All scattered timing calculations
+Event-Derived Time System.
 
 Rules:
-  - ONLY source of timing truths
-  - No other module computes elapsed time
-  - Each stage has its own start clock, NOT shared t_total
+  - NO standalone time truth
+  - All time is derived from event timestamps
+  - duration = diff(event_timestamps)
+  - Stage durations = diff(stage_started, stage_ended)
+  - Total elapsed = diff(run_started, run_completed)
 
-Stages are:
-  entry → planner → compile → validate → risk_policy →
-  execute → finalizer → exit
+Replaces:
+  - StageClock.elapsed() business usage
+  - sum(node_time) calculations
+  - wall_clock + node_time aggregation
+  - All scattered timing logic
 """
 
 from __future__ import annotations
 
-import time as _time
-from dataclasses import dataclass, field
+import datetime
+from dataclasses import dataclass
 from typing import Any
 
-from . import now_iso
-
-
-# ── Stage definitions ───────────────────────────────────────────────
 
 STAGE_ORDER = [
-    "entry",
-    "planner",
-    "compile",
-    "structural_validate",
-    "semantic_validate",
-    "risk_policy",
-    "execute",
-    "finalizer",
-    "exit",
+    "entry", "planner", "compile", "structural_validate",
+    "semantic_validate", "risk_policy", "execute", "finalizer", "exit",
 ]
 
 STAGE_DISPLAY: dict[str, str] = {
@@ -53,143 +40,164 @@ STAGE_DISPLAY: dict[str, str] = {
 }
 
 
+# ── Time utilities ─────────────────────────────────────────────────────
+
+def now_iso() -> str:
+    return datetime.datetime.now(datetime.timezone.utc).isoformat()
+
+
+def iso_diff_ms(start: str, end: str) -> int:
+    """Calculate elapsed milliseconds between two ISO timestamps."""
+    try:
+        t1 = datetime.datetime.fromisoformat(start)
+        t2 = datetime.datetime.fromisoformat(end)
+        return int((t2 - t1).total_seconds() * 1000)
+    except (ValueError, TypeError):
+        return 0
+
+
+# ── Event-derived timing projections ───────────────────────────────────
+
 @dataclass
 class StageTiming:
-    """Timing for a single pipeline stage."""
     stage: str
-    started_at: float = 0.0
-    finished_at: float = 0.0
+    started_at: str = ""
+    finished_at: str = ""
 
     @property
     def elapsed_ms(self) -> int:
-        """Stage-level elapsed time, NOT total time."""
-        if self.finished_at and self.started_at:
-            return int((self.finished_at - self.started_at) * 1000)
+        if self.started_at and self.finished_at:
+            return iso_diff_ms(self.started_at, self.finished_at)
         return 0
 
-    @property
-    def is_complete(self) -> bool:
-        return self.finished_at > 0
 
+def derive_timeline(events: list[dict]) -> dict[str, Any]:
+    """Derive complete timing from an event stream. Pure function.
 
-@dataclass
-class StageClock:
-    """Isolated timing for a single run.
-
-    Each stage measures its OWN duration, never cumulative total.
+    Input: list of event dicts (from GraphStore.get_events())
+    Output: stage-level and total timings
     """
+    stage_starts: dict[str, str] = {}
+    stage_ends: dict[str, str] = {}
+    run_start: str = ""
+    run_end: str = ""
 
-    run_id: str
-    stages: dict[str, StageTiming] = field(default_factory=dict)
-    _current_stage: str = ""
-    _run_started: float = 0.0
+    for evt in events:
+        et = evt.get("event_type", "")
+        ts = evt.get("timestamp", evt.get("timestamp_iso", ""))
 
-    @classmethod
-    def start(cls, run_id: str) -> "StageClock":
-        clock = cls(run_id=run_id)
-        clock._run_started = _time.monotonic()
-        for s in STAGE_ORDER:
-            clock.stages[s] = StageTiming(stage=s)
-        return clock
+        if et == "run.started":
+            run_start = ts
+        elif et in ("run.completed", "run.failed"):
+            run_end = ts
+        elif et == "stage.started":
+            stage = evt.get("stage", "")
+            if stage:
+                stage_starts[stage] = ts
+        elif et == "stage.ended":
+            stage = evt.get("stage", "")
+            if stage:
+                stage_ends[stage] = ts
 
-    def begin_stage(self, stage: str) -> None:
-        if stage not in self.stages:
-            self.stages[stage] = StageTiming(stage=stage)
-        self.stages[stage].started_at = _time.monotonic()
-        self._current_stage = stage
+    # Build per-stage timings
+    stage_timings: dict[str, int] = {}
+    for stage in STAGE_ORDER:
+        s = stage_starts.get(stage, "")
+        e = stage_ends.get(stage, "")
+        if s and e:
+            stage_timings[stage] = iso_diff_ms(s, e)
 
-    def end_stage(self, stage: str) -> None:
-        if stage in self.stages:
-            self.stages[stage].finished_at = _time.monotonic()
+    # Total elapsed
+    total_ms = iso_diff_ms(run_start, run_end) if run_start and run_end else 0
 
-    def begin_next(self, stage: str) -> None:
-        """End current stage and begin the next. Atomic transition."""
-        if self._current_stage and self._current_stage in self.stages:
-            self.end_stage(self._current_stage)
-        self.begin_stage(stage)
+    # Progress — which stage is currently active
+    current_stage = ""
+    current_stage_display = ""
+    current_stage_elapsed = 0
+    for stage in STAGE_ORDER:
+        if stage in stage_starts and stage not in stage_ends:
+            current_stage = stage
+            current_stage_display = STAGE_DISPLAY.get(stage, stage)
+            current_stage_elapsed = iso_diff_ms(
+                stage_starts[stage], now_iso(),
+            )
+            break
 
-    # ── Queries ──────────────────────────────────────────────────
-
-    def elapsed(self, stage: str) -> int:
-        """Get elapsed ms for a specific stage. Returns 0 if not started."""
-        t = self.stages.get(stage)
-        if not t:
-            return 0
-        if t.finished_at:
-            return t.elapsed_ms
-        if t.started_at:
-            return int((_time.monotonic() - t.started_at) * 1000)
-        return 0
-
-    def total_elapsed_ms(self) -> int:
-        """Total elapsed since run started — wall clock only, NO sum of stages."""
-        if self._run_started:
-            return int((_time.monotonic() - self._run_started) * 1000)
-        return 0
-
-    def sum_stage_elapsed(self) -> int:
-        """Sum of completed stage durations. For audit only."""
-        return sum(
-            t.elapsed_ms for t in self.stages.values()
-            if t.is_complete
-        )
-
-    @property
-    def current_stage(self) -> str:
-        return self._current_stage
-
-    @property
-    def current_stage_display(self) -> str:
-        return STAGE_DISPLAY.get(self._current_stage, self._current_stage)
-
-    @property
-    def current_stage_elapsed_ms(self) -> int:
-        """Elapsed time of the CURRENT stage only."""
-        return self.elapsed(self._current_stage)
-
-    # ── Stage timing for emitter ──────────────────────────────────
-
-    def stage_event(self, stage: str) -> dict[str, Any]:
-        """Build a truthful stage event payload.
-        
-        elapsed_ms = stage-level time, NOT total time.
-        """
-        t = self.stages.get(stage)
-        return {
-            "stage": stage,
-            "display": STAGE_DISPLAY.get(stage, stage),
-            "elapsed_ms": self.elapsed(stage),        # per-stage
-            "total_elapsed_ms": self.total_elapsed_ms(),  # wall clock
-        }
-
-    # ── Result timing ─────────────────────────────────────────────
-
-    def to_dict(self) -> dict[str, Any]:
-        return {
-            "run_id": self.run_id,
-            "total_elapsed_ms": self.total_elapsed_ms(),
-            "stage_timings": {
-                s: t.elapsed_ms
-                for s, t in self.stages.items()
-                if t.is_complete
-            },
-        }
+    return {
+        "stage_timings": stage_timings,
+        "total_elapsed_ms": total_ms,
+        "current_stage": current_stage,
+        "current_stage_display": current_stage_display,
+        "current_stage_elapsed_ms": current_stage_elapsed,
+    }
 
 
-# ── Global clock registry ────────────────────────────────────────────
+def derive_node_timings(events: list[dict]) -> dict[str, dict[str, Any]]:
+    """Derive per-node timing from node.started → node.completed/failed events."""
+    node_timings: dict[str, dict[str, Any]] = {}
 
-_clocks: dict[str, StageClock] = {}
+    starts: dict[str, str] = {}
+    for evt in events:
+        et = evt.get("event_type", "")
+        nid = evt.get("node_id", "")
+        ts = evt.get("timestamp", evt.get("timestamp_iso", ""))
+        if et == "node.started" and nid:
+            starts[nid] = ts
+        elif et in ("node.completed", "node.failed") and nid:
+            if nid in starts:
+                node_timings[nid] = {
+                    "node_id": nid,
+                    "started_at": starts[nid],
+                    "finished_at": ts,
+                    "elapsed_ms": iso_diff_ms(starts[nid], ts),
+                    "status": "success" if et == "node.completed" else "failed",
+                }
+
+    return node_timings
 
 
-def get_clock(run_id: str) -> StageClock | None:
-    return _clocks.get(run_id)
+def derive_progress(events: list[dict]) -> dict[str, Any]:
+    """Derive execution progress from event sequence.
 
+    Returns current/total counts for nodes, layers, etc.
+    """
+    total_nodes = 0
+    completed = 0
+    failed = 0
+    started = 0
+    current_depth = 0
+    max_depth = 0
 
-def start_clock(run_id: str) -> StageClock:
-    clock = StageClock.start(run_id)
-    _clocks[run_id] = clock
-    return clock
+    for evt in events:
+        et = evt.get("event_type", "")
 
+        if et == "plan.generated":
+            total_nodes = max(total_nodes, len(evt.get("nodes", [])))
 
-def remove_clock(run_id: str) -> None:
-    _clocks.pop(run_id, None)
+        elif et == "node.started":
+            started += 1
+
+        elif et == "node.completed":
+            completed += 1
+            started = max(0, started - 1)
+
+        elif et == "node.failed":
+            failed += 1
+            started = max(0, started - 1)
+
+        elif et == "layer.started":
+            current_depth = evt.get("depth", current_depth)
+            max_depth = max(max_depth, current_depth)
+
+    return {
+        "total_nodes": total_nodes,
+        "completed_nodes": completed,
+        "failed_nodes": failed,
+        "in_progress_nodes": started,
+        "current_depth": current_depth,
+        "max_depth": max_depth,
+        "progress_pct": (
+            round((completed + failed) / max(total_nodes, 1) * 100, 1)
+            if total_nodes > 0 else 0
+        ),
+    }
