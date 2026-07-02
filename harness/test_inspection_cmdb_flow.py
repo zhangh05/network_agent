@@ -44,13 +44,13 @@ def test_catalog_inspection_capability_enabled():
         "recommended_tool_ids must include inspection.manage"
     )
     # All recommended tool ids must be canonical (catalog validates this at import)
-    from tool_runtime.tool_namespace import TOOL_NAMESPACE
+    from core.tools.tool_namespace import TOOL_NAMESPACE
     for tid in cap["recommended_tool_ids"]:
         assert tid in TOOL_NAMESPACE, f"{tid} not in canonical namespace"
 
 
 def test_canonical_inspection_manage_registered():
-    from tool_runtime.canonical_registry import CANONICAL_REGISTRY
+    from core.tools.canonical_registry import CANONICAL_REGISTRY
     assert "inspection.manage" in CANONICAL_REGISTRY
     entry = CANONICAL_REGISTRY["inspection.manage"]
     schema = entry.input_schema or {}
@@ -124,10 +124,10 @@ def test_inspection_policy_allows_long_read_only_task_without_approval():
     """CMDB inspection is a read-only long task; it must not be blocked by
     the generic low/medium timeout ceiling and must not request approval.
     """
-    from tool_runtime.manifest_registry import MANIFESTS
-    from tool_runtime.canonical_registry import to_tool_specs
-    from tool_runtime.policy import ToolPolicy
-    from tool_runtime.schemas import ToolInvocation
+    from core.tools.manifest_registry import MANIFESTS
+    from core.tools.canonical_registry import to_tool_specs
+    from core.tools.policy import ToolPolicy
+    from core.tools.schemas import ToolInvocation
 
     # v3.9.14: the manifest declares its own timeout — the policy
     # ceiling (``max(tier, manifest)``) must include it so a long-
@@ -242,8 +242,8 @@ def test_create_task_with_known_profile_and_empty_scope_fails_clearly():
 
 def test_canonical_run_does_not_require_profile_id():
     """LLM/CMDB run action passes only scope; backend chooses scripts."""
-    from tool_runtime.schemas import ToolInvocation
-    from tool_runtime.canonical_registry import CANONICAL_REGISTRY
+    from core.tools.schemas import ToolInvocation
+    from core.tools.canonical_registry import CANONICAL_REGISTRY
 
     inv = ToolInvocation(
         arguments={
@@ -302,7 +302,7 @@ def test_html_report_route_returns_viewable_html():
 
 
 def test_manifest_registry_has_22_manifests_with_inspection():
-    from tool_runtime.manifest_registry import MANIFESTS, validate_all
+    from core.tools.manifest_registry import MANIFESTS, validate_all
     errors, count = validate_all()
     assert count == 22, f"expected 22 manifests, got {count}"
     assert not errors, f"manifest validation errors: {errors}"
@@ -317,9 +317,9 @@ def test_manifest_registry_has_22_manifests_with_inspection():
 
 def test_namespace_data_has_22_entries_with_inspection():
     """NS_DATA / canonical / namespace triple stay in sync."""
-    from tool_runtime.tool_namespace import TOOL_NAMESPACE
-    from tool_runtime.tool_namespace_data import NS_DATA
-    from tool_runtime.canonical_registry import CANONICAL_REGISTRY
+    from core.tools.tool_namespace import TOOL_NAMESPACE
+    from core.tools.tool_namespace_data import NS_DATA
+    from core.tools.canonical_registry import CANONICAL_REGISTRY
 
     assert len(NS_DATA) == len(TOOL_NAMESPACE) == len(CANONICAL_REGISTRY) == 22
     # inspection.manage must be registered in all three. NS_DATA stores
@@ -530,7 +530,7 @@ def test_scope_schema_exposes_inner_filter_fields():
     asset_ids/limit). Otherwise the LLM can't construct a meaningful
     filter and will either send nothing or hallucinate fields.
     """
-    from tool_runtime.canonical_registry import CANONICAL_REGISTRY
+    from core.tools.canonical_registry import CANONICAL_REGISTRY
     schema = CANONICAL_REGISTRY["inspection.manage"].input_schema
     scope = schema["properties"]["scope"]
     desc = (scope.get("description") or "").lower()
@@ -663,7 +663,7 @@ def test_exec_one_command_uses_status_not_ok():
     False)`` which always returned False, so every successful exec.run
     was misclassified as a failure. Pin the contract here.
     """
-    from tool_runtime.schemas import ToolResult
+    from core.tools.schemas import ToolResult
 
     # The result object the runner consumes from ToolRuntimeClient.invoke
     succeeded = ToolResult(
@@ -695,7 +695,7 @@ def test_exec_one_command_parsing_happy_path():
     """Mock the ToolRuntimeClient and confirm a succeeded result
     surfaces as ``ok=True`` with the inner handler's stdout."""
     from unittest.mock import MagicMock, patch
-    from tool_runtime.schemas import ToolResult
+    from core.tools.schemas import ToolResult
     from agent.modules.inspection import runner
 
     mock_result = ToolResult(
@@ -727,7 +727,7 @@ def test_exec_one_command_parsing_blocked_path():
     summary as the error so the device result surfaces a clean
     ``exec_run_blocked: ...`` reason."""
     from unittest.mock import MagicMock, patch
-    from tool_runtime.schemas import ToolResult
+    from core.tools.schemas import ToolResult
     from agent.modules.inspection import runner
 
     mock_result = ToolResult(
@@ -756,7 +756,7 @@ def test_exec_one_command_passes_session_id_to_canonical_layer():
     paramiko channel. Pin the contract here.
     """
     from unittest.mock import MagicMock, patch
-    from tool_runtime.schemas import ToolResult
+    from core.tools.schemas import ToolResult
     from agent.modules.inspection import runner
 
     mock_result = ToolResult(
@@ -1486,7 +1486,7 @@ def test_unified_destructive_patterns_match_full_set():
     """v3.10: the SSH/Telnet handlers and ToolPolicy should agree
     on what counts as a destructive command. Spot-check the
     dangerous_patterns module's full set."""
-    from tool_runtime.dangerous_patterns import is_destructive_command
+    from core.tools.dangerous_patterns import is_destructive_command
     # These are part of the dangerous set; both layers must flag.
     for cmd in (
         "rm -rf /",

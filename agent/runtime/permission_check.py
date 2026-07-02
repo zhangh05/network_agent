@@ -75,7 +75,7 @@ def check_shell_safety(tool_id: str, arguments: dict) -> tuple[bool, str]:
     if tool_id not in ('exec.run', 'exec.run'):
         return True, ""
 
-    from tool_runtime.dangerous_patterns import scan_arguments_for_dangerous
+    from core.tools.dangerous_patterns import scan_arguments_for_dangerous
     matched = scan_arguments_for_dangerous(arguments or {})
     if matched:
         return False, matched

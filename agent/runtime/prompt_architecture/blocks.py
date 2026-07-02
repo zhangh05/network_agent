@@ -168,7 +168,7 @@ def build_active_tool_contract_block(ctx) -> PromptBlock | None:
     Uses Anthropic-style tool guidance: each tool gets [use when] + [avoid when]
     hints to improve selection accuracy and reduce incorrect tool calls.
     """
-    from tool_runtime.tool_namespace import TOOL_NAMESPACE
+    from core.tools.tool_namespace import TOOL_NAMESPACE
 
     visible_tools = (
         getattr(ctx, "visible_tool_ids", None)

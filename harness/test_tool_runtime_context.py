@@ -51,12 +51,12 @@ class TestToolInvocationHasWorkspaceID:
 
     @pytest.mark.skip(reason="requires full state context")
     def test_tool_invocation_workspace_id(self, state_with_context):
-        """ToolRuntimeClient should create ToolInvocation with workspace_id from context."""
-        from tool_runtime.client import ToolRuntimeClient
-        from tool_runtime.registry import ToolRegistry
-        from tool_runtime.policy import ToolPolicy
-        from tool_runtime.context import ToolRuntimeContext
-        from tool_runtime.schemas import ToolResult, ToolSpec
+        """ToolRuntimeClient should create ToolInvocation with workspace_id from core.context."""
+        from core.tools.client import ToolRuntimeClient
+        from core.tools.registry import ToolRegistry
+        from core.tools.policy import ToolPolicy
+        from core.tools.context import ToolRuntimeContext
+        from core.tools.schemas import ToolResult, ToolSpec
 
         # Create a real client with mocked executor
         registry = ToolRegistry()
@@ -108,12 +108,12 @@ class TestTraceMetadata:
 
     @pytest.mark.skip(reason="requires full trace pipeline")
     def test_trace_metadata_in_result(self, state_with_context):
-        """ToolResult should contain trace metadata from context."""
-        from tool_runtime.client import ToolRuntimeClient
-        from tool_runtime.registry import ToolRegistry
-        from tool_runtime.policy import ToolPolicy
-        from tool_runtime.context import ToolRuntimeContext
-        from tool_runtime.schemas import ToolResult, ToolSpec
+        """ToolResult should contain trace metadata from core.context."""
+        from core.tools.client import ToolRuntimeClient
+        from core.tools.registry import ToolRegistry
+        from core.tools.policy import ToolPolicy
+        from core.tools.context import ToolRuntimeContext
+        from core.tools.schemas import ToolResult, ToolSpec
 
         registry = ToolRegistry()
         policy = ToolPolicy()
@@ -164,11 +164,11 @@ class TestToolPolicyNotBypassed:
 
     def test_policy_still_enforced(self):
         """ToolRuntimeClient should still enforce ToolPolicy."""
-        from tool_runtime.client import ToolRuntimeClient
-        from tool_runtime.registry import ToolRegistry
-        from tool_runtime.policy import ToolPolicy
-        from tool_runtime.context import ToolRuntimeContext
-        from tool_runtime.schemas import ToolResult, PolicyDecision, ToolSpec
+        from core.tools.client import ToolRuntimeClient
+        from core.tools.registry import ToolRegistry
+        from core.tools.policy import ToolPolicy
+        from core.tools.context import ToolRuntimeContext
+        from core.tools.schemas import ToolResult, PolicyDecision, ToolSpec
 
         # Create policy that denies everything
         class DenyAllPolicy(ToolPolicy):
@@ -194,8 +194,8 @@ class TestToolPolicyNotBypassed:
         registry.register_tool(spec, lambda **kwargs: {"ok": True})
 
         # Also register manifest so client allows policy check
-        from tool_runtime.manifest_registry import MANIFESTS
-        from tool_runtime.manifest import CapabilityManifest
+        from core.tools.manifest_registry import MANIFESTS
+        from core.tools.manifest import CapabilityManifest
         MANIFESTS["test_tool"] = CapabilityManifest(
             tool_id="test_tool", display_name="Test Tool",
             action_class="read", risk_level="low",

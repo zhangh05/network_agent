@@ -32,10 +32,10 @@ from typing import Optional
 
 from agent.runtime.utils import now_iso, from_iso, duration_ms
 from artifacts.store import save_artifact
-from tool_runtime.redaction import redact_string
-from tool_runtime.context import ToolRuntimeContext
-from tool_runtime.integration import get_default_tool_runtime_client
-from tool_runtime.schemas import ToolInvocation
+from core.tools.redaction import redact_string
+from core.tools.context import ToolRuntimeContext
+from core.tools.integration import get_default_tool_runtime_client
+from core.tools.schemas import ToolInvocation
 
 from .models import (
     CommandResult,

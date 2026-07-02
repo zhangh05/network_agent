@@ -59,8 +59,8 @@ def main() -> int:
                 )
 
     # Canonical-only invariants
-    from tool_runtime.tool_namespace import TOOL_NAMESPACE
-    from tool_runtime.canonical_registry import CANONICAL_REGISTRY
+    from core.tools.tool_namespace import TOOL_NAMESPACE
+    from core.tools.canonical_registry import CANONICAL_REGISTRY
     failures += not _check(
         f"canonical_count == registry_count "
         f"({len(TOOL_NAMESPACE)} vs {len(CANONICAL_REGISTRY)})",
@@ -68,7 +68,7 @@ def main() -> int:
     )
 
     # Handler implementation files exist for the canonical registry
-    from tool_runtime.canonical_registry import CANONICAL_REGISTRY
+    from core.tools.canonical_registry import CANONICAL_REGISTRY
     missing_handlers: list[str] = []
     for canonical_id in CANONICAL_REGISTRY:
         entry = CANONICAL_REGISTRY[canonical_id]

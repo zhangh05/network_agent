@@ -53,7 +53,7 @@ def handle_capabilities():
         # manifest risk level. Tools with no recommendation = low.
         risk = "low"
         try:
-            from tool_runtime.manifest_registry import get_manifest
+            from core.tools.manifest_registry import get_manifest
             for tid in cap["recommended_tool_ids"]:
                 m = get_manifest(tid)
                 if m is not None and m.risk_level == "high":

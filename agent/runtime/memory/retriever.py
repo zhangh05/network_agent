@@ -22,7 +22,7 @@ class MemoryRetriever:
             return []
 
         try:
-            from context.unified_retriever import get_retriever
+            from core.context.unified_retriever import get_retriever
             retriever = get_retriever(workspace_id)
             hits = retriever.search_memory(
                 plan.query_text,

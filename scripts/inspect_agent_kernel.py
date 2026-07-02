@@ -132,7 +132,7 @@ def main():
                     ok += 1
                     continue
                 if c == "workspace.file.write_artifact":
-                    from tool_runtime.general_tools import handle_ws_write_artifact_file
+                    from core.tools.general_tools import handle_ws_write_artifact_file
                     ok += 1
                     continue
                 if c == "memory.retrieve":

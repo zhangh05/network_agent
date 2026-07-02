@@ -187,7 +187,7 @@ def test_session_store_uses_canonical_validator():
 # ---------------------------------------------------------------------------
 
 def test_schema_registry_includes_trace_id():
-    from context.schema_registry import _COMMON_FIELDS
+    from core.context.schema_registry import _COMMON_FIELDS
     assert "trace_id" in _COMMON_FIELDS
     assert "run_id" in _COMMON_FIELDS
     assert "tags" in _COMMON_FIELDS
@@ -196,7 +196,7 @@ def test_schema_registry_includes_trace_id():
 
 
 def test_strip_by_schema_preserves_trace_id():
-    from context.schema_registry import strip_by_schema
+    from core.context.schema_registry import strip_by_schema
     item = {
         "item_id": "ci_1",
         "item_type": "memory_hit",

@@ -9,7 +9,7 @@ It must:
 """
 
 from agent.capabilities import catalog as _catalog
-from tool_runtime.tool_namespace import TOOL_NAMESPACE
+from core.tools.tool_namespace import TOOL_NAMESPACE
 
 
 def test_catalog_is_thin_list_of_dicts():

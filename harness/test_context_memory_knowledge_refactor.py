@@ -63,14 +63,14 @@ class TestLoaderNoMemoryKnowledge:
     def test_loader_source_no_search_memory(self):
         """loader.py must not contain search_memory calls."""
         import inspect
-        import context.loader as mod
+        import core.context.loader as mod
         source = inspect.getsource(mod)
         assert "search_memory" not in source, "loader.py still contains search_memory"
 
     def test_loader_source_no_search_knowledge(self):
         """loader.py must not contain search_knowledge calls."""
         import inspect
-        import context.loader as mod
+        import core.context.loader as mod
         source = inspect.getsource(mod)
         assert "search_knowledge" not in source, "loader.py still contains search_knowledge"
 
@@ -439,7 +439,7 @@ class TestSourceCodeCleanliness:
     def test_context_builder_py_no_memory_knowledge_hits(self):
         """context/builder.py must not assemble memory_hits or knowledge_hits."""
         import inspect
-        import context.builder as mod
+        import core.context.builder as mod
         source = inspect.getsource(mod)
         assert "memory_hits" not in source
         assert "knowledge_hits" not in source

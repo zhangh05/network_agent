@@ -43,7 +43,7 @@ def _keyword_score(tool_id: str, user_input: str, keyword_router=None) -> float:
             pass
 
     # Fallback: simple substring matching against namespace metadata
-    from tool_runtime.tool_namespace import TOOL_NAMESPACE
+    from core.tools.tool_namespace import TOOL_NAMESPACE
     entry = TOOL_NAMESPACE.get(tool_id)
     if entry is None:
         return 0.0
@@ -88,7 +88,7 @@ def hybrid_tool_search(
 
     # 3. Keyword matching — score ALL tools via keyword
     keyword_scores: dict[str, float] = {}
-    from tool_runtime.tool_namespace import TOOL_NAMESPACE
+    from core.tools.tool_namespace import TOOL_NAMESPACE
 
     for tid in TOOL_NAMESPACE:
         if not (tid in TOOL_NAMESPACE):

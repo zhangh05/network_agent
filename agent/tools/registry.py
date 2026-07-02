@@ -21,7 +21,7 @@ class ToolRegistry:
         reg = cls()
         reg._tool_client = client
         try:
-            from tool_runtime.tool_namespace import TOOL_NAMESPACE
+            from core.tools.tool_namespace import TOOL_NAMESPACE
             raw_tools = client.list_tools()
             for t in raw_tools:
                 tool_id = t.get("tool_id", "")
@@ -44,7 +44,7 @@ class ToolRegistry:
                     metadata=t.get("metadata", {}) or {},
                 )
                 try:
-                    from tool_runtime.tool_namespace import enrich_spec
+                    from core.tools.tool_namespace import enrich_spec
                     spec = enrich_spec(spec)
                 except Exception:
                     pass
@@ -104,7 +104,7 @@ class ToolRegistry:
                         "summary": "Tool dispatch blocked: caller identity (requested_by) is required",
                         "errors": ["caller_missing"]}
 
-            from tool_runtime.context import ToolRuntimeContext
+            from core.tools.context import ToolRuntimeContext
             ctx = ToolRuntimeContext(
                 workspace_id=ws_id, session_id=session_id,
                 run_id=run_id, task_id=task_id, job_id=job_id,

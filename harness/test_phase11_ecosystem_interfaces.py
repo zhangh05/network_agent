@@ -2,7 +2,7 @@
 """Phase 11: MCP / Skill / Plugin ecosystem interface tests."""
 
 import pytest, uuid
-from tool_runtime.ecosystem import (
+from core.tools.ecosystem import (
     ExternalToolManifest, ExternalProvider, EcoRegistry,
     validate_external_manifest, validate_skill_manifest,
     preview_import, apply_import,

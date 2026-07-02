@@ -227,7 +227,7 @@ class ApprovalStore:
     def _append_record(self, req: ApprovalRequest) -> None:
         """Append a record (pending or resolved) to the JSONL audit log."""
         try:
-            from tool_runtime.redaction import redact_tool_output
+            from core.tools.redaction import redact_tool_output
 
             self._persist_path.parent.mkdir(parents=True, exist_ok=True)
             rec = {
@@ -536,7 +536,7 @@ class ApprovalStore:
 
     @staticmethod
     def _to_dict(req: ApprovalRequest) -> dict:
-        from tool_runtime.redaction import redact_tool_output
+        from core.tools.redaction import redact_tool_output
 
         safe_arguments = redact_tool_output(req.arguments or {})
         # v3.9.8: created_at is an ISO string now (was float). Both
@@ -564,7 +564,7 @@ class ApprovalStore:
 
 def _summarize_args(args: dict) -> str:
     """Summarize tool arguments for display."""
-    from tool_runtime.redaction import redact_tool_output
+    from core.tools.redaction import redact_tool_output
 
     items = []
     for k, v in (redact_tool_output(args or {}) or {}).items():

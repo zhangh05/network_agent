@@ -354,7 +354,7 @@ def _build_speg_tool_registry(allowed_tool_ids=None) -> dict[str, dict[str, Any]
 
 
 def _tool_runtime_client():
-    from tool_runtime.integration import get_default_tool_runtime_client
+    from core.tools.integration import get_default_tool_runtime_client
     return get_default_tool_runtime_client()
 
 
@@ -369,7 +369,7 @@ def _make_tool_handler(
     requested_by: str,
 ):
     async def _handler(args: dict[str, Any]) -> dict[str, Any]:
-        from tool_runtime.context import ToolRuntimeContext
+        from core.tools.context import ToolRuntimeContext
 
         ctx = ToolRuntimeContext(
             workspace_id=workspace_id,

@@ -72,8 +72,8 @@ class TestCrossWorkspaceBlocked:
 class TestCallerIdentity:
     def test_rest_api_caller_fixed(self):
         """REST caller is injected by server, not from client body."""
-        from tool_runtime.integration import get_default_tool_runtime_client
-        from tool_runtime.context import ToolRuntimeContext
+        from core.tools.integration import get_default_tool_runtime_client
+        from core.tools.context import ToolRuntimeContext
         client = get_default_tool_runtime_client()
         # Even if context says requested_by=subagent, subagent tools not allowed for subagent
         ctx = ToolRuntimeContext(workspace_id="default", requested_by="subagent")
@@ -84,11 +84,11 @@ class TestCallerIdentity:
 
 class TestExistingPhasesUnaffected:
     def test_phase6_passes(self):
-        from tool_runtime.manifest_registry import get_manifest
+        from core.tools.manifest_registry import get_manifest
         assert get_manifest("web.manage") is not None
 
     def test_phase5_passes(self):
-        from tool_runtime.manifest_registry import validate_all
+        from core.tools.manifest_registry import validate_all
         errors, _ = validate_all()
         assert len(errors) == 0
 

@@ -258,6 +258,6 @@ class TestConflict:
 
 class TestPhase2To7Unaffected:
     def test_manifest_still_valid(self):
-        from tool_runtime.manifest_registry import validate_all
+        from core.tools.manifest_registry import validate_all
         errors, _ = validate_all()
         assert len(errors) == 0

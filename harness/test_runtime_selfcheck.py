@@ -1,6 +1,6 @@
 """Runtime Selfcheck Tests — v0.1"""
 import pytest
-from runtime.selfcheck import run_selfcheck, SelfcheckStatus
+from core.runtime.selfcheck import run_selfcheck, SelfcheckStatus
 
 
 class TestSelfcheck:
@@ -56,8 +56,8 @@ class TestSelfcheck:
             assert "ssh.exec" in forbidden_list
 
     def test_selfcheck_reports_current_tool_runtime_contract(self):
-        from tool_runtime.canonical_registry import CANONICAL_REGISTRY
-        from tool_runtime.policy import V02_FORBIDDEN_TOOLS
+        from core.tools.canonical_registry import CANONICAL_REGISTRY
+        from core.tools.policy import V02_FORBIDDEN_TOOLS
 
         result = run_selfcheck("default")
 
@@ -77,13 +77,13 @@ class TestSelfcheck:
 
 class TestRetention:
     def test_preview_dry_run_default(self):
-        from runtime.retention import preview_retention
+        from core.runtime.retention import preview_retention
         preview = preview_retention("default")
         assert preview.dry_run is True
         assert preview.deleted_counts == {}
 
     def test_preview_returns_structure(self):
-        from runtime.retention import preview_retention
+        from core.runtime.retention import preview_retention
         preview = preview_retention("default")
         assert preview.workspace_id == "default"
         assert isinstance(preview.candidate_counts, dict)
@@ -91,49 +91,49 @@ class TestRetention:
         assert isinstance(preview.blocked_items, list)
 
     def test_apply_dry_run_true_does_not_delete(self):
-        from runtime.retention import apply_retention
+        from core.runtime.retention import apply_retention
         preview = apply_retention("default", dry_run=True)
         assert preview.dry_run is True
         assert "DRY RUN" in str(preview.warnings)
 
     def test_default_policy_has_reasonable_values(self):
-        from runtime.retention import default_retention_policy
+        from core.runtime.retention import default_retention_policy
         policy = default_retention_policy()
         assert policy.runs_max_age_days == 30
         assert policy.runs_max_count == 500
         assert policy.prune_reports is False
 
     def test_preview_no_absolute_path(self):
-        from runtime.retention import preview_retention
+        from core.runtime.retention import preview_retention
         preview = preview_retention("default")
         output = str(preview.as_dict())
         assert "/Users/" not in output
 
     def test_missing_workspace_preview(self):
-        from runtime.retention import preview_retention
+        from core.runtime.retention import preview_retention
         preview = preview_retention("nonexistent_ws_xyz")
         assert len(preview.warnings) > 0
 
 
 class TestDiagnostics:
     def test_diagnostics_has_components(self):
-        from runtime.diagnostics import get_diagnostics
+        from core.runtime.diagnostics import get_diagnostics
         report = get_diagnostics("default")
         assert len(report.components) > 0
 
     def test_diagnostics_has_summary(self):
-        from runtime.diagnostics import get_diagnostics
+        from core.runtime.diagnostics import get_diagnostics
         report = get_diagnostics("default")
         assert "total" in report.summary
 
     def test_diagnostics_no_absolute_path(self):
-        from runtime.diagnostics import get_diagnostics
+        from core.runtime.diagnostics import get_diagnostics
         report = get_diagnostics("default")
         output = str(report.as_dict())
         assert "/Users/" not in output
 
     def test_diagnostics_component_structure(self):
-        from runtime.diagnostics import get_diagnostics
+        from core.runtime.diagnostics import get_diagnostics
         report = get_diagnostics("default")
         for c in report.components:
             d = c.as_dict()

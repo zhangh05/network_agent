@@ -10,7 +10,7 @@ from __future__ import annotations
 
 def test_speg_contracts_use_canonical_input_schemas():
     from speg_engine.contracts import BUILTIN_CONTRACTS
-    from tool_runtime.canonical_registry import CANONICAL_REGISTRY
+    from core.tools.canonical_registry import CANONICAL_REGISTRY
 
     assert set(BUILTIN_CONTRACTS) == set(CANONICAL_REGISTRY)
     for tool_id, entry in CANONICAL_REGISTRY.items():

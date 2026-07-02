@@ -403,7 +403,7 @@ def _sync_contracts_from_canonical_registry() -> None:
     parameters or inspection actions disappearing from semantic validation.
     """
     try:
-        from tool_runtime.canonical_registry import CANONICAL_REGISTRY
+        from core.tools.canonical_registry import CANONICAL_REGISTRY
     except Exception:
         return
 

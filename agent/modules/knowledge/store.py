@@ -12,8 +12,8 @@ import uuid
 from datetime import datetime, timezone
 from typing import Optional
 
-from context.context_store import get_context_store
-from context.unified_retriever import get_retriever
+from core.context.context_store import get_context_store
+from core.context.unified_retriever import get_retriever
 from agent.runtime.utils import now_iso
 
 

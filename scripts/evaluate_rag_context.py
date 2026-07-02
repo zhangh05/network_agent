@@ -26,13 +26,13 @@ except Exception:
 
 # Patch ContextStore and UnifiedRetriever to use temp directory
 try:
-    import context.context_store as _cs
+    import core.context.context_store as _cs
     _cs._BASE = TMP_ROOT
     _cs._stores.clear()
 except Exception:
     pass
 try:
-    import context.unified_retriever as _ur
+    import core.context.unified_retriever as _ur
     _ur._retrievers.clear()
 except Exception:
     pass

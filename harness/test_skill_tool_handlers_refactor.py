@@ -6,7 +6,7 @@ import sys
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
-from tool_runtime.general_tools.skill_tools import (
+from core.tools.general_tools.skill_tools import (
     handle_skill_list,
     handle_skill_load,
     handle_skill_find,
@@ -14,7 +14,7 @@ from tool_runtime.general_tools.skill_tools import (
     handle_skill_install,
     handle_skill_inspect,
 )
-from tool_runtime.schemas import ToolInvocation
+from core.tools.schemas import ToolInvocation
 
 
 def _inv(tool_id, args=None):

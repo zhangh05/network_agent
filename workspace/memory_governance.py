@@ -288,7 +288,7 @@ def expire_memory(ws_id: str, memory_id: str) -> dict:
 
 def _redact(text: str) -> str:
     try:
-        from tool_runtime.redaction import redact_string
+        from core.tools.redaction import redact_string
         return redact_string(text)
     except Exception:
         for kw in _REDACT_KEYS:
@@ -301,7 +301,7 @@ def _obfuscate_kv(text: str, key: str) -> str:
 
 def _contains_secret_pattern(text: str) -> bool:
     try:
-        from tool_runtime.redaction import contains_secret
+        from core.tools.redaction import contains_secret
         return contains_secret(text)
     except Exception:
         import re

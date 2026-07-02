@@ -357,7 +357,7 @@ def register_workspace_routes(app):
         })
         from observability.store import get_trace
         from agent.runtime.decision_report.writer import read_decision_report
-        from tool_runtime.redaction import redact_tool_output
+        from core.tools.redaction import redact_tool_output
         for r in recent:
             safe_run = {k: v for k, v in r.items() if k in _SAFE_RUN_KEYS}
             safe_run = redact_tool_output(safe_run)
@@ -454,8 +454,8 @@ def register_workspace_routes(app):
         workspace_id, err = _validated_ws_id(data.get("workspace_id", ""))
         if err:
             return err
-        from reports_engine.schemas import ReportRequest
-        from reports_engine.service import create_report as svc_create_report
+        from core.reports.schemas import ReportRequest
+        from core.reports.service import create_report as svc_create_report
         req = ReportRequest(
             workspace_id=workspace_id,
             run_id=data.get("run_id", ""),
@@ -474,7 +474,7 @@ def register_workspace_routes(app):
         if err:
             return err
         data = request.get_json(silent=True) or {}
-        from reports_engine.service import create_config_translation_report
+        from core.reports.service import create_config_translation_report
         result = create_config_translation_report(
             ws_id, run_id, {},
             fmt=data.get("format", "markdown"),

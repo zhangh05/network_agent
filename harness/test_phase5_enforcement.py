@@ -2,7 +2,7 @@
 """Phase 5 enforcement: manifest is the single source of truth."""
 
 import pytest
-from tool_runtime.manifest_registry import MANIFESTS, get_manifest, is_retryable
+from core.tools.manifest_registry import MANIFESTS, get_manifest, is_retryable
 
 class TestManifestDrivesRetry:
     def test_retry_control_reads_manifest_idempotency(self):
@@ -90,7 +90,7 @@ class TestManifestDrivesApprovalReason:
 
 class TestCatalogIncludesManifest:
     def test_catalog_has_manifest_fields(self):
-        from tool_runtime.catalog_snapshot import build_catalog_snapshot
+        from core.tools.catalog_snapshot import build_catalog_snapshot
         cat = build_catalog_snapshot()
         tools = cat.get("tools", [])
         assert len(tools) > 0
@@ -115,9 +115,9 @@ class TestCatalogIncludesManifest:
         That separates the static risk profile (one per tool) from the
         dynamic per-call destructive escalation.
         """
-        from tool_runtime.catalog_snapshot import build_catalog_snapshot
-        from tool_runtime.policy import ToolPolicy
-        from tool_runtime.schemas import ToolSpec, ToolInvocation
+        from core.tools.catalog_snapshot import build_catalog_snapshot
+        from core.tools.policy import ToolPolicy
+        from core.tools.schemas import ToolSpec, ToolInvocation
 
         # 1. Manifest field is still present and is a bool.
         cat = build_catalog_snapshot()

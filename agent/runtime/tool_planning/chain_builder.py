@@ -12,7 +12,7 @@ from __future__ import annotations
 from functools import lru_cache
 from typing import Any
 
-from tool_runtime.tool_namespace import get_namespace_entry
+from core.tools.tool_namespace import get_namespace_entry
 
 
 @lru_cache(maxsize=128)

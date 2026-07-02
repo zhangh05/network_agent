@@ -4,8 +4,8 @@ from __future__ import annotations
 
 
 def test_web_manage_weather_preserves_multi_day_forecast(monkeypatch):
-    import tool_runtime.canonical_registry as cr
-    from tool_runtime.schemas import ToolInvocation
+    import core.tools.canonical_registry as cr
+    from core.tools.schemas import ToolInvocation
 
     def fake_forecast(inv):
         return {

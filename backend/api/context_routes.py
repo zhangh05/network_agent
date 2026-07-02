@@ -35,7 +35,7 @@ def register_context_routes(app):
         workspace_id, err = _validated_ws_id(data.get("workspace_id", ""))
         if err:
             return err
-        from context.resolver import resolve_context_ref
+        from core.context.resolver import resolve_context_ref
         ref = resolve_context_ref(
             workspace_id,
             data.get("context_ref", ""),
@@ -51,7 +51,7 @@ def register_context_routes(app):
         workspace_id, err = _validated_ws_id(data.get("workspace_id", ""))
         if err:
             return err
-        from context.builder import build_context_bundle
+        from core.context.builder import build_context_bundle
         bundle = build_context_bundle(
             workspace_id=workspace_id,
             user_input=data.get("message", ""),
@@ -83,7 +83,7 @@ def register_context_routes(app):
         if err:
             return err
         from prompts.loader import render_prompt
-        from context.builder import build_context_bundle
+        from core.context.builder import build_context_bundle
         bundle = build_context_bundle(
             workspace_id=workspace_id,
             user_input=data.get("message", ""),

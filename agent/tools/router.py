@@ -13,7 +13,7 @@ from agent.tools.registry import ToolRegistry
 from agent.llm.tool_adapter import to_llm_tool_name, from_llm_tool_name
 from agent.protocol.tool_call import ToolCall
 from agent.protocol.tool_result import ToolResult
-from tool_runtime.tool_namespace import get_canonical_tool_id
+from core.tools.tool_namespace import get_canonical_tool_id
 
 
 class UnknownToolCallError(Exception):

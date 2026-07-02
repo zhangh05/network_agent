@@ -13,16 +13,16 @@ These tests pin that contract.
 
 import pytest
 
-from tool_runtime.policy import (
+from core.tools.policy import (
     ToolPolicy,
     _check_argument_safety,
     is_destructive_command,
 )
-from tool_runtime.dangerous_patterns import (
+from core.tools.dangerous_patterns import (
     scan_arguments_for_dangerous,
     is_destructive_command as is_destructive_alt,
 )
-from tool_runtime.schemas import ToolSpec, ToolInvocation
+from core.tools.schemas import ToolSpec, ToolInvocation
 
 
 # ── 1. New _check_argument_safety signature ────────────────────────────
@@ -331,6 +331,6 @@ def test_legacy_allowlist_removed():
     """SAFE_COMMAND_ALLOWLIST and is_safe_command_first_word were
     removed in v3.9.5 — the new model is destructive-only, not
     allowlist-based."""
-    import tool_runtime.policy as p
+    import core.tools.policy as p
     assert not hasattr(p, "SAFE_COMMAND_ALLOWLIST")
     assert not hasattr(p, "is_safe_command_first_word")

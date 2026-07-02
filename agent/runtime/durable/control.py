@@ -25,7 +25,7 @@ def _get_manifest(tool_id: str | None):
     if not tool_id:
         return None
     try:
-        from tool_runtime.manifest_registry import get_manifest as gm
+        from core.tools.manifest_registry import get_manifest as gm
         return gm(tool_id)
     except Exception:
         return None

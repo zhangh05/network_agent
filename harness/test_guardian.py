@@ -118,32 +118,32 @@ def test_reload_unresolved_on_startup(tmp_path):
 
 
 def test_planner_json_bare_array():
-    from tool_runtime.general_tools.agent_tools import _parse_planner_json
+    from core.tools.general_tools.agent_tools import _parse_planner_json
     text = '[{"task": "first"}, {"task": "second"}, {"task": "third"}]'
     assert _parse_planner_json(text) == ["first", "second", "third"]
 
 
 def test_planner_json_in_fenced_code_block():
-    from tool_runtime.general_tools.agent_tools import _parse_planner_json
+    from core.tools.general_tools.agent_tools import _parse_planner_json
     text = "Here is the plan:\n\n```json\n[{\"task\": \"a\"}, {\"task\": \"b\"}]\n```\n\nDone."
     assert _parse_planner_json(text) == ["a", "b"]
 
 
 def test_planner_json_in_prose_with_object_form():
-    from tool_runtime.general_tools.agent_tools import _parse_planner_json
+    from core.tools.general_tools.agent_tools import _parse_planner_json
     text = 'I think we should split it. Plan: {"subtasks": [{"task": "x"}, {"task": "y"}]}'
     assert _parse_planner_json(text) == ["x", "y"]
 
 
 def test_planner_json_malformed_returns_none():
-    from tool_runtime.general_tools.agent_tools import _parse_planner_json
+    from core.tools.general_tools.agent_tools import _parse_planner_json
     assert _parse_planner_json("nothing parseable here") is None
     assert _parse_planner_json("") is None
     assert _parse_planner_json(None) is None
 
 
 def test_planner_json_caps_parallel_fanout():
-    from tool_runtime.general_tools.agent_tools import _parse_planner_json
+    from core.tools.general_tools.agent_tools import _parse_planner_json
     items = [{"task": f"t{i}"} for i in range(20)]
     text = json.dumps(items)
     out = _parse_planner_json(text)

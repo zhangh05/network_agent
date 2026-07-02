@@ -20,7 +20,7 @@ from agent.runtime.prompt_architecture.blocks import (
 
 
 def compile_runtime_prompt(ctx) -> PromptAssembly:
-    """Compile a capability-first system prompt from context.
+    """Compile a capability-first system prompt from core.context.
 
     Returns a PromptAssembly with the final_prompt and metadata.
     Does NOT inject skill_prompt or full tool catalog.

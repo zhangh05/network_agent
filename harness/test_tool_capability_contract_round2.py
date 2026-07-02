@@ -50,8 +50,8 @@ def test_tools_dry_run_reports_policy_escalation():
 
 
 def test_catalog_exposes_action_and_usage_guidance():
-    from tool_runtime.catalog_snapshot import reset_catalog_snapshot_cache, build_catalog_snapshot
-    from tool_runtime.tool_namespace import TOOL_NAMESPACE
+    from core.tools.catalog_snapshot import reset_catalog_snapshot_cache, build_catalog_snapshot
+    from core.tools.tool_namespace import TOOL_NAMESPACE
 
     reset_catalog_snapshot_cache()
     catalog = build_catalog_snapshot()
@@ -85,8 +85,8 @@ def test_llm_tool_description_contains_actionable_guidance():
 
 
 def test_subagent_can_load_skill_catalog():
-    from tool_runtime.integration import get_default_tool_runtime_client
-    from tool_runtime.context import ToolRuntimeContext
+    from core.tools.integration import get_default_tool_runtime_client
+    from core.tools.context import ToolRuntimeContext
 
     result = get_default_tool_runtime_client().invoke(
         "skill.manage",

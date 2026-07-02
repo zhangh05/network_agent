@@ -94,8 +94,8 @@ def test_remote_invalid_workspace_and_port_return_400(app):
 
 
 def test_exec_run_is_not_policy_forbidden_with_approval():
-    from tool_runtime.integration import get_default_tool_runtime_client
-    from tool_runtime.schemas import ToolInvocation
+    from core.tools.integration import get_default_tool_runtime_client
+    from core.tools.schemas import ToolInvocation
 
     client = get_default_tool_runtime_client()
     spec = client._registry.get_tool("exec.run")

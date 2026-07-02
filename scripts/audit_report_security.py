@@ -9,14 +9,14 @@ os.makedirs(REPORTS, exist_ok=True)
 critical, high, warnings = [], [], []
 
 def run():
-    # Check reports_engine exists
-    if os.path.exists(os.path.join(ROOT, "reports_engine")):
-        warnings.append("OK: reports_engine/ exists")
+    # Check core.reports exists
+    if os.path.exists(os.path.join(ROOT, "core", "reports")):
+        warnings.append("OK: core/reports/ exists")
     else:
-        critical.append("reports_engine/ missing")
+        critical.append("core/reports/ missing")
 
     # Check no full deployable in default report
-    re_path = os.path.join(ROOT, "reports_engine", "renderer.py")
+    re_path = os.path.join(ROOT, "core", "reports", "renderer.py")
     if os.path.exists(re_path):
         with open(re_path) as f: c = f.read()
         if "include_deployable_config" in c:
@@ -25,7 +25,7 @@ def run():
             high.append("include_deployable_config option missing in renderer")
 
     # Check docx/pdf unsupported
-    exporter = os.path.join(ROOT, "reports_engine", "exporter.py")
+    exporter = os.path.join(ROOT, "core", "reports", "exporter.py")
     if os.path.exists(exporter):
         with open(exporter) as f: c_exp = f.read()
         if "unsupported" in c_exp.lower():

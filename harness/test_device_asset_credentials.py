@@ -179,8 +179,8 @@ def test_remote_connect_uses_cmdb_asset_id_without_frontend_password(monkeypatch
 def test_cmdb_region_filter_is_visible_to_llm_tools():
     from agent.modules.cmdb.service import save_asset
     from storage.paths import workspace_root
-    from tool_runtime.canonical_registry import _handler_cmdb_list_assets
-    from tool_runtime.schemas import ToolInvocation
+    from core.tools.canonical_registry import _handler_cmdb_list_assets
+    from core.tools.schemas import ToolInvocation
 
     workspace_id = "pytest_cmdb_region_flow"
     root = workspace_root(workspace_id)
@@ -288,8 +288,8 @@ def test_exec_run_ssh_can_resolve_cmdb_asset_id(monkeypatch):
     from agent.modules.cmdb.service import save_asset
     from agent.modules.remote import core as remote_core
     from storage.paths import workspace_root
-    from tool_runtime.canonical_registry import _handler_network_ssh
-    from tool_runtime.schemas import ToolInvocation
+    from core.tools.canonical_registry import _handler_network_ssh
+    from core.tools.schemas import ToolInvocation
 
     workspace_id = "pytest_exec_asset_secret"
     root = workspace_root(workspace_id)

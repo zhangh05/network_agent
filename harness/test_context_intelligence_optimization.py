@@ -117,7 +117,7 @@ def test_core_tools_for_context_does_not_inflate_all_tools():
     the assertion below reflects that contract.
     """
     from agent.runtime.context_pipeline.stages import _core_tools_for_context
-    from tool_runtime.tool_namespace import TOOL_NAMESPACE as _ALL_TOOLS
+    from core.tools.tool_namespace import TOOL_NAMESPACE as _ALL_TOOLS
 
     ctx = SimpleNamespace(user_input="总结一下")
     tools = _core_tools_for_context(ctx, {"categories": ["knowledge"], "groups": {}})

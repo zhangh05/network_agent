@@ -35,7 +35,7 @@ class ApprovalGate:
             # v3.10 Phase 5: read reason from Capability Manifest
             manifest_reason = risk.reason or ""
             try:
-                from tool_runtime.manifest_registry import get_manifest
+                from core.tools.manifest_registry import get_manifest
                 m = get_manifest(plan.tool_id)
                 if m and m.approval_reason_template:
                     manifest_reason = m.approval_reason_template

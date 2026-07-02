@@ -128,7 +128,7 @@ class TestGitOps:
 
 class TestPhase11Unaffected:
     def test_ecosystem_still_works(self):
-        from tool_runtime.ecosystem import EcoRegistry, ExternalProvider
+        from core.tools.ecosystem import EcoRegistry, ExternalProvider
         reg = EcoRegistry()
         ws = f"ws_ec12_{uuid.uuid4().hex[:8]}"
         prov = ExternalProvider(name="test")

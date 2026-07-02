@@ -20,7 +20,7 @@ class TestMemoryWorkspaceIsolation:
     workspace A must not be able to mutate memory in workspace B."""
 
     def _make_inv(self, workspace_id="default", **kwargs):
-        from tool_runtime.schemas import ToolInvocation
+        from core.tools.schemas import ToolInvocation
         return ToolInvocation(
             tool_id="memory.manage",
             arguments={"memory_id": "m1", **kwargs},
@@ -28,8 +28,8 @@ class TestMemoryWorkspaceIsolation:
         )
 
     def test_confirm_uses_caller_workspace(self, monkeypatch):
-        from tool_runtime.general_tools import memory_tools
-        from context.context_store import ContextStore
+        from core.tools.general_tools import memory_tools
+        from core.context.context_store import ContextStore
         import tempfile
 
         with tempfile.TemporaryDirectory() as tmp:
@@ -54,9 +54,9 @@ class TestMemoryWorkspaceIsolation:
             assert entry_b["metadata"]["status"] == "pending_confirmation"
 
     def test_delete_soft_uses_caller_workspace(self, monkeypatch):
-        from tool_runtime.general_tools import memory_tools
-        from context.context_store import ContextStore
-        from tool_runtime.schemas import ToolInvocation
+        from core.tools.general_tools import memory_tools
+        from core.context.context_store import ContextStore
+        from core.tools.schemas import ToolInvocation
         import tempfile
 
         with tempfile.TemporaryDirectory() as tmp:
@@ -83,7 +83,7 @@ class TestMemoryWorkspaceIsolation:
         from context import context_store as cs
         from context import unified_retriever
         from workspace.memory_governance import MemoryStore
-        from tool_runtime.general_tools import memory_tools
+        from core.tools.general_tools import memory_tools
 
         monkeypatch.setattr(cs, "_ws_root", lambda ws="default": tmp_path / ws / "context")
         cs._stores.clear()
@@ -113,7 +113,7 @@ class TestMemoryWorkspaceIsolation:
         assert "Only B" not in rendered
 
     def test_workspace_argument_cannot_override_caller(self):
-        from tool_runtime.general_tools import memory_tools
+        from core.tools.general_tools import memory_tools
 
         inv = self._make_inv(workspace_id="workspaceA")
         inv.tool_id = "memory.manage"
@@ -375,7 +375,7 @@ class TestContextStoreCompactOEXCL:
 
 class TestWebFetchCacheLock:
     def test_cache_module_has_lock(self):
-        from tool_runtime.general_tools import web_tools
+        from core.tools.general_tools import web_tools
         assert isinstance(web_tools._fetch_summary_cache_lock, type(threading.Lock()))
         assert isinstance(web_tools._fetch_summary_cache, dict)
 
@@ -392,7 +392,7 @@ class TestSessionCheckpointAtomic:
         the handler module so a crash mid-write no longer leaves a
         half-written checkpoint file."""
         import inspect
-        from tool_runtime.general_tools import session_tools
+        from core.tools.general_tools import session_tools
         src = inspect.getsource(session_tools.handle_session_checkpoint)
         assert "atomic_write_json" in src
         assert ".write_text(" not in src.split("checkpoint_path")[1], (
@@ -500,7 +500,7 @@ class TestRetentionSidValidation:
 class TestCleanupExpiredBatched:
     def test_cleanup_expired_uses_delete_many(self, monkeypatch, tmp_path):
         from context import context_store as cs
-        from context.context_store import ContextStore
+        from core.context.context_store import ContextStore
         monkeypatch.setattr(cs, "_ws_root", lambda ws="default": tmp_path / ws / "context")
         store = ContextStore("default")
 

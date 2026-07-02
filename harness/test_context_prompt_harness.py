@@ -20,36 +20,36 @@ def client(temp_dirs):
 
 class TestContextSchema:
     def test_context_ref_fields(self):
-        from context.schemas import ContextRef
+        from core.context.schemas import ContextRef
         r = ContextRef(ref_type="last_result")
         d = r.as_dict()
         assert d["ref_type"] == "last_result"
 
     def test_context_item_fields(self):
-        from context.schemas import ContextItem
+        from core.context.schemas import ContextItem
         i = ContextItem(item_type="run_summary", priority=20)
         assert i.priority == 20
 
     def test_context_budget(self):
-        from context.schemas import ContextBudget
+        from core.context.schemas import ContextBudget
         b = ContextBudget()
         assert b.max_items == 30
         assert b.max_artifact_refs == 10
 
     def test_execution_context(self):
-        from context.schemas import ExecutionContext
+        from core.context.schemas import ExecutionContext
         e = ExecutionContext(workspace_id="ws1", run_id="r1")
         d = e.as_dict()
         assert d["workspace_id"] == "ws1"
 
     def test_safe_llm_context(self):
-        from context.schemas import SafeLLMContext
+        from core.context.schemas import SafeLLMContext
         s = SafeLLMContext(workspace_id="ws1", intent="context_qa")
         d = s.as_dict()
         assert d["intent"] == "context_qa"
 
     def test_context_bundle(self):
-        from context.schemas import ContextBundle
+        from core.context.schemas import ContextBundle
         b = ContextBundle(workspace_id="ws1", intent="translate_config")
         d = b.as_dict()
         assert d["intent"] == "translate_config"
@@ -57,45 +57,45 @@ class TestContextSchema:
 
 class TestContextResolver:
     def test_none_ref(self):
-        from context.resolver import resolve_context_ref
+        from core.context.resolver import resolve_context_ref
         r = resolve_context_ref("ws1", "")
         assert r.ref_type == "none"
 
     def test_last_result(self):
-        from context.resolver import resolve_context_ref
+        from core.context.resolver import resolve_context_ref
         r = resolve_context_ref("ws1", "last_result")
         assert r.ref_type == "last_result"
 
     def test_last_job(self):
-        from context.resolver import resolve_context_ref
+        from core.context.resolver import resolve_context_ref
         r = resolve_context_ref("ws1", "last_job")
         assert r.ref_type == "last_job"
 
     def test_artifact_ref(self):
-        from context.resolver import resolve_context_ref
+        from core.context.resolver import resolve_context_ref
         r = resolve_context_ref("ws1", "artifact:art_test")
         assert r.ref_type == "artifact"
         assert r.ref_id == "art_test"
 
     def test_run_ref(self):
-        from context.resolver import resolve_context_ref
+        from core.context.resolver import resolve_context_ref
         r = resolve_context_ref("ws1", "run:r_test")
         assert r.ref_type == "run"
 
     def test_selected_artifact_from_ui(self):
-        from context.resolver import resolve_context_ref
+        from core.context.resolver import resolve_context_ref
         r = resolve_context_ref("ws1", "selected_artifact", ui_context={"selected_artifact_id": "art_sel"})
         assert r.ref_type == "selected_artifact"
         assert r.ref_id == "art_sel"
 
     def test_current_workspace(self):
-        from context.resolver import resolve_context_ref
+        from core.context.resolver import resolve_context_ref
         r = resolve_context_ref("ws1", "current_workspace")
         assert r.ref_type == "current_workspace"
         assert r.resolved is True
 
     def test_invalid_ref_clean(self):
-        from context.resolver import resolve_context_ref
+        from core.context.resolver import resolve_context_ref
         r = resolve_context_ref("ws1", "nonexistent:xyz")
         assert r.resolved is False or r.ref_type == "explicit"
 
@@ -105,7 +105,7 @@ class TestContextBuilder:
         from workspace.manager import ensure_workspace
         ws = "cb_test"
         ensure_workspace(ws)
-        from context.builder import build_context_bundle
+        from core.context.builder import build_context_bundle
         b = build_context_bundle(ws, user_input="test", intent="context_qa")
         assert b.intent == "context_qa"
         assert b.execution_context is not None
@@ -115,7 +115,7 @@ class TestContextBuilder:
         from workspace.manager import ensure_workspace
         ws = "cb_user_input"
         ensure_workspace(ws)
-        from context.builder import build_context_bundle
+        from core.context.builder import build_context_bundle
         b = build_context_bundle(ws, user_input="memory怎么回事", intent="assistant_chat")
         request_items = [i for i in b.raw_items if i.get("item_type") == "request"]
         assert request_items
@@ -125,7 +125,7 @@ class TestContextBuilder:
         from workspace.manager import ensure_workspace
         ws = "cb_sec"
         ensure_workspace(ws)
-        from context.builder import build_context_bundle
+        from core.context.builder import build_context_bundle
         b = build_context_bundle(ws, user_input="test")
         safe = b.safe_llm_context.as_dict() if b.safe_llm_context else {}
         raw = json.dumps(safe)

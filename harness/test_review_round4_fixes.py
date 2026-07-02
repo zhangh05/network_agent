@@ -88,7 +88,7 @@ class TestToolArgumentParseError:
     def _make_router(self):
         from agent.tools.router import ToolRouter
         from agent.tools.registry import ToolRegistry
-        from tool_runtime.tool_namespace import TOOL_NAMESPACE
+        from core.tools.tool_namespace import TOOL_NAMESPACE
         # Build a tiny registry containing one canonical tool.
         reg = ToolRegistry()
         from agent.tools.schemas import ToolSpec

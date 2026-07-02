@@ -23,7 +23,7 @@ class TestPythonExecASTSecurity:
 
     def test_forbidden_imports(self):
         """Block direct imports of os, subprocess, socket, etc."""
-        from tool_runtime.python_exec import FORBIDDEN_IMPORTS
+        from core.tools.python_exec import FORBIDDEN_IMPORTS
         assert "os" in FORBIDDEN_IMPORTS
         assert "subprocess" in FORBIDDEN_IMPORTS
         assert "socket" in FORBIDDEN_IMPORTS
@@ -31,7 +31,7 @@ class TestPythonExecASTSecurity:
 
     def test_forbidden_builtins(self):
         """Block dangerous builtins like eval, exec, __import__."""
-        from tool_runtime.python_exec import FORBIDDEN_BUILTINS
+        from core.tools.python_exec import FORBIDDEN_BUILTINS
         assert "eval" in FORBIDDEN_BUILTINS
         assert "exec" in FORBIDDEN_BUILTINS
         assert "__import__" in FORBIDDEN_BUILTINS
@@ -40,62 +40,62 @@ class TestPythonExecASTSecurity:
 
     def test_forbidden_attr_access(self):
         """Block dunder attribute access for escape."""
-        from tool_runtime.python_exec import FORBIDDEN_ATTRS
+        from core.tools.python_exec import FORBIDDEN_ATTRS
         assert "__class__" in FORBIDDEN_ATTRS
         assert "__subclasses__" in FORBIDDEN_ATTRS
         assert "__dict__" in FORBIDDEN_ATTRS
 
     def test_validate_code_rejects_import_os(self):
         """AST validation should reject 'import os'."""
-        from tool_runtime.python_exec import validate_code, PythonExecSecurityError
+        from core.tools.python_exec import validate_code, PythonExecSecurityError
         with pytest.raises(PythonExecSecurityError):
             validate_code("import os\nprint('hello')")
 
     def test_validate_code_rejects_from_import(self):
         """AST validation should reject 'from subprocess import ...'."""
-        from tool_runtime.python_exec import validate_code, PythonExecSecurityError
+        from core.tools.python_exec import validate_code, PythonExecSecurityError
         with pytest.raises(PythonExecSecurityError):
             validate_code("from subprocess import run\nrun(['ls'])")
 
     def test_validate_code_rejects_eval(self):
         """AST validation should reject eval()."""
-        from tool_runtime.python_exec import validate_code, PythonExecSecurityError
+        from core.tools.python_exec import validate_code, PythonExecSecurityError
         with pytest.raises(PythonExecSecurityError):
             validate_code("eval('1+1')")
 
     def test_validate_code_rejects_exec(self):
         """AST validation should reject exec()."""
-        from tool_runtime.python_exec import validate_code, PythonExecSecurityError
+        from core.tools.python_exec import validate_code, PythonExecSecurityError
         with pytest.raises(PythonExecSecurityError):
             validate_code("exec('import os')")
 
     def test_validate_code_rejects_open(self):
         """AST validation should reject open()."""
-        from tool_runtime.python_exec import validate_code, PythonExecSecurityError
+        from core.tools.python_exec import validate_code, PythonExecSecurityError
         with pytest.raises(PythonExecSecurityError):
             validate_code("open('/etc/passwd').read()")
 
     def test_validate_code_rejects_dunder_import(self):
         """AST validation should reject __import__()."""
-        from tool_runtime.python_exec import validate_code, PythonExecSecurityError
+        from core.tools.python_exec import validate_code, PythonExecSecurityError
         with pytest.raises(PythonExecSecurityError):
             validate_code("__import__('os').system('ls')")
 
     def test_validate_code_rejects_getattr_subclasses(self):
         """AST validation should reject .__subclasses__() escape."""
-        from tool_runtime.python_exec import validate_code, PythonExecSecurityError
+        from core.tools.python_exec import validate_code, PythonExecSecurityError
         with pytest.raises(PythonExecSecurityError):
             validate_code("().__class__.__subclasses__()")
 
     def test_validate_code_allows_safe_math(self):
         """AST validation should allow safe math operations."""
-        from tool_runtime.python_exec import validate_code
+        from core.tools.python_exec import validate_code
         result = validate_code("1 + 2 * 3")
         assert result == "1 + 2 * 3"
 
     def test_validate_code_allows_safe_string(self):
         """AST validation should allow safe string operations."""
-        from tool_runtime.python_exec import validate_code
+        from core.tools.python_exec import validate_code
         result = validate_code("'hello' + ' world'")
         assert result == "'hello' + ' world'"
 
@@ -105,7 +105,7 @@ class TestPythonExecEnvironment:
 
     def test_safe_env_is_built(self):
         """_build_safe_env should return a dict."""
-        from tool_runtime.python_exec import _build_safe_env
+        from core.tools.python_exec import _build_safe_env
         env = _build_safe_env()
         assert isinstance(env, dict)
 
@@ -115,7 +115,7 @@ class TestPythonExecEnvironment:
         monkeypatch.setenv("MINIMAX_API_KEY", "group_test_key_abc")
         monkeypatch.setenv("DEEPSEEK_API_KEY", "sk-deepseek-test123")
         monkeypatch.setenv("NETWORK_AGENT_API_TOKEN", "secret-token")
-        from tool_runtime.python_exec import _build_safe_env
+        from core.tools.python_exec import _build_safe_env
         env = _build_safe_env()
         assert "OPENAI_API_KEY" not in env
         assert "MINIMAX_API_KEY" not in env
@@ -127,7 +127,7 @@ class TestPythonExecEnvironment:
         monkeypatch.setenv("HOME", "/test/home")
         monkeypatch.setenv("LANG", "en_US.UTF-8")
         monkeypatch.setenv("TMPDIR", "/tmp")
-        from tool_runtime.python_exec import _build_safe_env
+        from core.tools.python_exec import _build_safe_env
         env = _build_safe_env()
         # These are typically in the allowlist
         # At minimum, env should be a dict (implementation detail)
@@ -139,7 +139,7 @@ class TestPythonExecRedaction:
 
     def test_redact_api_key(self):
         """Output containing API key should be redacted."""
-        from tool_runtime.python_exec import _redact_stdout_stderr
+        from core.tools.python_exec import _redact_stdout_stderr
         stdout = "API_KEY=sk-abc123def456"
         stderr = ""
         out, err = _redact_stdout_stderr(stdout, stderr)
@@ -148,7 +148,7 @@ class TestPythonExecRedaction:
 
     def test_redact_token(self):
         """Output containing token should be redacted."""
-        from tool_runtime.python_exec import _redact_stdout_stderr
+        from core.tools.python_exec import _redact_stdout_stderr
         stdout = "token=abcdef1234567890abcdef"
         stderr = ""
         out, err = _redact_stdout_stderr(stdout, stderr)
@@ -157,7 +157,7 @@ class TestPythonExecRedaction:
 
     def test_redact_secret(self):
         """Output containing secret should be redacted."""
-        from tool_runtime.python_exec import _redact_stdout_stderr
+        from core.tools.python_exec import _redact_stdout_stderr
         stdout = 'secret="my-super-secret"'
         stderr = ""
         out, err = _redact_stdout_stderr(stdout, stderr)
@@ -166,7 +166,7 @@ class TestPythonExecRedaction:
 
     def test_safe_output_passes_through(self):
         """Safe output should not be modified."""
-        from tool_runtime.python_exec import _redact_stdout_stderr
+        from core.tools.python_exec import _redact_stdout_stderr
         stdout = "Hello, world! The answer is 42."
         stderr = ""
         out, err = _redact_stdout_stderr(stdout, stderr)
@@ -179,7 +179,7 @@ class TestPythonExecSubprocess:
 
     def test_execute_safe_code(self, tmp_path):
         """Execute safe Python code in sandbox."""
-        from tool_runtime.python_exec import execute_python_code
+        from core.tools.python_exec import execute_python_code
         result = execute_python_code(
             run_id="test_run", code="print('hello sandbox')",
             workspace_id="default",
@@ -190,7 +190,7 @@ class TestPythonExecSubprocess:
 
     def test_execute_syntax_error(self, tmp_path):
         """Syntax error should be caught and reported."""
-        from tool_runtime.python_exec import execute_python_code
+        from core.tools.python_exec import execute_python_code
         result = execute_python_code(
             run_id="test_run", code="print('unclosed",
             workspace_id="default",
@@ -200,7 +200,7 @@ class TestPythonExecSubprocess:
 
     def test_execute_timeout(self, tmp_path):
         """Infinite loop should be terminated by timeout."""
-        from tool_runtime.python_exec import execute_python_code
+        from core.tools.python_exec import execute_python_code
         result = execute_python_code(
             run_id="test_run", code="while True: pass",
             workspace_id="default",

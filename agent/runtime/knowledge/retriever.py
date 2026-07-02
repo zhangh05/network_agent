@@ -25,7 +25,7 @@ class KnowledgeRetrieverV2:
             return []
 
         try:
-            from context.unified_retriever import get_retriever
+            from core.context.unified_retriever import get_retriever
             retriever = get_retriever(workspace_id)
             raw_hits = retriever.search_knowledge(query, top_k=plan.top_k)
         except Exception:

@@ -390,14 +390,14 @@ def _load_task(ws_id: str, subtask_id: str) -> Optional[SubagentTask]:
 
 def _get_manifest(tool_id: str):
     try:
-        from tool_runtime.manifest_registry import get_manifest as gm
+        from core.tools.manifest_registry import get_manifest as gm
         return gm(tool_id)
     except Exception: return None
 
 def _execute_as_subagent(tool_id: str, args: dict, ws_id: str) -> dict:
     try:
-        from tool_runtime.integration import get_default_tool_runtime_client
-        from tool_runtime.context import ToolRuntimeContext
+        from core.tools.integration import get_default_tool_runtime_client
+        from core.tools.context import ToolRuntimeContext
         client = get_default_tool_runtime_client()
         ctx = ToolRuntimeContext(workspace_id=ws_id, requested_by="subagent")
         result = client.invoke(tool_id, args, context=ctx)

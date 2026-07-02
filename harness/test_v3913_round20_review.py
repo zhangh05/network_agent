@@ -24,7 +24,7 @@ def test_run_shell_blocks_api_keys_and_tokens():
     """
     import sys
     sys.path.insert(0, str(PROJECT_ROOT))
-    from tool_runtime.general_tools.command_tools import _build_safe_shell_env
+    from core.tools.general_tools.command_tools import _build_safe_shell_env
 
     sentinels = {
         "OPENAI_API_KEY": "sk-sentinel-openai-1234567890abcdef",
@@ -58,7 +58,7 @@ def test_run_shell_preserves_posix_basics():
     """
     import sys
     sys.path.insert(0, str(PROJECT_ROOT))
-    from tool_runtime.general_tools.command_tools import _build_safe_shell_env
+    from core.tools.general_tools.command_tools import _build_safe_shell_env
 
     sentinels = {
         "PATH": "/usr/bin:/bin",
@@ -106,7 +106,7 @@ def test_run_shell_redacts_subprocess_output():
             os.environ[k] = v
         # We use the bash native form 'echo "$OPENAI_API_KEY"' to avoid
         # bash's plugin-style variable expansion masking.
-        from tool_runtime.general_tools.shared import _run_shell
+        from core.tools.general_tools.shared import _run_shell
         result = _run_shell('echo "$OPENAI_API_KEY"')
         assert result["ok"], f"shell exec failed: {result}"
         assert "sk-runshellsentinel" not in result["stdout"], (
@@ -127,7 +127,7 @@ def test_run_shell_redacts_before_truncating():
     import sys
     sys.path.insert(0, str(PROJECT_ROOT))
 
-    from tool_runtime.general_tools import shared
+    from core.tools.general_tools import shared
     src = Path(shared.__file__).read_text(encoding="utf-8")
     stdout_redact_idx = src.index('stdout = redact_tool_output(result.stdout or "")')
     stdout_truncate_idx = src.index('[:_SHELL_MAX_OUTPUT]', stdout_redact_idx)
@@ -140,8 +140,8 @@ def test_reload_all_invalidates_catalog_snapshot():
     """
     import sys
     sys.path.insert(0, str(PROJECT_ROOT))
-    from tool_runtime.canonical_registry import CANONICAL_REGISTRY
-    from tool_runtime.catalog_snapshot import (
+    from core.tools.canonical_registry import CANONICAL_REGISTRY
+    from core.tools.catalog_snapshot import (
         build_catalog_snapshot,
         reset_catalog_snapshot_cache,
     )
@@ -157,8 +157,8 @@ def test_reload_all_invalidates_catalog_snapshot():
         # Simulate a reload: insert a synthetic canonical entry that
         # is structurally identical to exec.run (ToolSpec exposes a
         # canonical_tool_id; the catalog enumerates from CANONICAL_REGISTRY).
-        from tool_runtime.canonical_registry import CANONICAL_REGISTRY as _cr
-        from tool_runtime.canonical_registry import CanonicalToolEntry
+        from core.tools.canonical_registry import CANONICAL_REGISTRY as _cr
+        from core.tools.canonical_registry import CanonicalToolEntry
         # Use a tiny synthetic entry that satisfies the catalog loop;
         # ``build_catalog_snapshot`` only reads canonical_tool_id.
         exec_entry = _cr["exec.run"]

@@ -18,7 +18,7 @@ from pathlib import Path
 from typing import Optional
 
 from agent.runtime.utils import now_iso, from_iso
-from context.unified_retriever import tokenize  # CJK unigram+bigram tokenizer
+from core.context.unified_retriever import tokenize  # CJK unigram+bigram tokenizer
 
 
 # ── Cache path ────────────────────────────────────────────────────────
@@ -173,7 +173,7 @@ def get_embedding_store() -> ToolEmbeddingStore:
 
 def _build_tool_embeddings(store: ToolEmbeddingStore) -> None:
     """Build embeddings from all tools in TOOL_NAMESPACE."""
-    from tool_runtime.tool_namespace import TOOL_NAMESPACE
+    from core.tools.tool_namespace import TOOL_NAMESPACE
 
     descriptions: list[tuple[str, str]] = []
     for tid, entry in sorted(TOOL_NAMESPACE.items()):

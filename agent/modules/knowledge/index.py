@@ -12,8 +12,8 @@ import uuid
 from typing import List, Optional, Tuple
 
 from agent.modules.knowledge.schemas import KnowledgeChunk
-from context.context_store import get_context_store
-from context.unified_retriever import get_retriever
+from core.context.context_store import get_context_store
+from core.context.unified_retriever import get_retriever
 
 
 # ─── Chunk persistence ───

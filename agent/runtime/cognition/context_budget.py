@@ -171,7 +171,7 @@ class ContextBudgetManager:
     def _resolve_budget(ctx) -> int:
         try:
             model = ctx.model_config.get("model", "") if ctx.model_config else ""
-            from context.schemas import resolve_budget_for_model
+            from core.context.schemas import resolve_budget_for_model
             b = resolve_budget_for_model(model)
             return b.max_chars // 4 if b.max_chars else 3000
         except Exception:

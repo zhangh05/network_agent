@@ -91,7 +91,7 @@ def test_tool_runtime_foundation_doc_acknowledges_real_device_path():
     init_src = open(tr.__file__).read()
     assert "No real device execution is included." not in init_src
 
-    import tool_runtime.builtins as tb
+    import core.tools.builtins as tb
     builtins_src = open(tb.__file__).read()
     assert "None execute real device commands" not in builtins_src
 
@@ -102,7 +102,7 @@ def test_canonical_registry_exposes_ssh_target_handler():
     layer; the dispatcher routes the call to ``_handler_network_ssh``
     / ``_handler_network_telnet``.
     """
-    from tool_runtime.canonical_registry import CANONICAL_REGISTRY
+    from core.tools.canonical_registry import CANONICAL_REGISTRY
     entry = CANONICAL_REGISTRY.get("exec.run")
     assert entry is not None
     # The handler_id should resolve to one of the merged handlers.

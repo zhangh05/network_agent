@@ -11,7 +11,7 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
 def test_registry_helpers_importable():
     """registry_helpers.py must be importable."""
-    from tool_runtime.registry_helpers import (
+    from core.tools.registry_helpers import (
         tool_keyword_score,
         filter_tools_for_scenario,
         search_tool_catalog,
@@ -20,14 +20,14 @@ def test_registry_helpers_importable():
 
 
 def test_keyword_score_works():
-    from tool_runtime.registry_helpers import tool_keyword_score
+    from core.tools.registry_helpers import tool_keyword_score
 
     assert tool_keyword_score({"tool_id": "test", "description": "hello world"}, "hello") > 0
     assert tool_keyword_score({"tool_id": "test", "description": "hello world"}, "nonexistent") == 0
 
 
 def test_filter_tools_works():
-    from tool_runtime.registry_helpers import filter_tools_for_scenario
+    from core.tools.registry_helpers import filter_tools_for_scenario
 
     tools = [
         {"tool_id": "a", "scenarios": "network"},

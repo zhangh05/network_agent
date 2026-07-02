@@ -11,7 +11,7 @@ from __future__ import annotations
 import uuid
 from typing import Any
 from agent.runtime.context_pipeline.models import ContextStageResult, StageName
-from tool_runtime.tool_namespace import TOOL_NAMESPACE
+from core.tools.tool_namespace import TOOL_NAMESPACE
 
 def _safe_except(stage_name: StageName, fn, *args, **kwargs):
     """Execute fn, return ContextStageResult on success or degraded on failure."""
@@ -438,5 +438,5 @@ def _core_tools_for_context(ctx: Any, rule_scene: dict) -> list[str]:
     and will pick up any future additions to the canonical namespace
     automatically.
     """
-    from tool_runtime.tool_namespace import ALL_TOOL_IDS
+    from core.tools.tool_namespace import ALL_TOOL_IDS
     return list(ALL_TOOL_IDS)

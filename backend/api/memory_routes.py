@@ -43,7 +43,7 @@ def handle_memory_list():
             continue
         payload = rec.to_dict()
         try:
-            from tool_runtime.redaction import redact_tool_output
+            from core.tools.redaction import redact_tool_output
             payload = redact_tool_output(payload)
         except Exception:
             pass

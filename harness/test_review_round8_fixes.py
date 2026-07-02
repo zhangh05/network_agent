@@ -185,9 +185,9 @@ def test_tools_invoke_blocks_destructive_exec_arguments(app):
 
 
 def test_exec_run_remote_targets_are_not_blocked_by_argument_safety():
-    from tool_runtime.canonical_registry import to_tool_specs
-    from tool_runtime.executor import ToolInvocation
-    from tool_runtime.policy import ToolPolicy
+    from core.tools.canonical_registry import to_tool_specs
+    from core.tools.executor import ToolInvocation
+    from core.tools.policy import ToolPolicy
 
     spec = next(spec for spec, _handler in to_tool_specs() if spec.tool_id == "exec.run")
     policy = ToolPolicy()

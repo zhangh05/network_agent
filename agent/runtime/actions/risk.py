@@ -7,7 +7,7 @@ import re
 from typing import Optional
 
 from agent.runtime.actions.models import ActionPlan, RiskDecision
-from tool_runtime.dangerous_patterns import scan_arguments_for_dangerous
+from core.tools.dangerous_patterns import scan_arguments_for_dangerous
 
 
 # ── Dangerous command detection ─────────────────────────────────────────
@@ -123,7 +123,7 @@ class RiskPolicy:
         # v3.10 Phase 5: Read risk from Capability Manifest as primary source
         manifest = None
         try:
-            from tool_runtime.manifest_registry import get_manifest
+            from core.tools.manifest_registry import get_manifest
             manifest = get_manifest(plan.tool_id)
         except Exception:
             pass

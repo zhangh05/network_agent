@@ -210,7 +210,7 @@ def register_state_routes(app):
         if err:
             return err
         try:
-            from tool_runtime.ecosystem import EcoRegistry
+            from core.tools.ecosystem import EcoRegistry
             reg = EcoRegistry()
             provs = [p.to_dict() for p in reg.list_providers(ws_id)]
             return jsonify({"ok": True, "providers": provs, "count": len(provs)})
@@ -224,7 +224,7 @@ def register_state_routes(app):
         if err:
             return err
         try:
-            from tool_runtime.ecosystem import preview_import
+            from core.tools.ecosystem import preview_import
             data = request.get_json(silent=True) or {}
             result = preview_import(data)
             return jsonify(result)
@@ -238,7 +238,7 @@ def register_state_routes(app):
         if err:
             return err
         try:
-            from tool_runtime.ecosystem import apply_import
+            from core.tools.ecosystem import apply_import
             data = request.get_json(silent=True) or {}
             confirm = str(request.args.get("confirm", data.get("confirm", "false"))).lower() == "true"
             result = apply_import(data, ws_id, confirm=confirm)

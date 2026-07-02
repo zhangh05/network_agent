@@ -108,7 +108,7 @@ def _check_shell_safety(tid: str, args: dict) -> tuple[bool, str]:
     cases. The single source of truth is now
     :mod:`tool_runtime.dangerous_patterns`.
     """
-    from tool_runtime.dangerous_patterns import scan_arguments_for_dangerous
+    from core.tools.dangerous_patterns import scan_arguments_for_dangerous
     if not isinstance(args, dict):
         return True, ""
     matched = scan_arguments_for_dangerous(args)

@@ -2,13 +2,13 @@
 """Phase 6: Tool Runtime hard boundary enforcement."""
 
 import pytest, uuid
-from tool_runtime.manifest_registry import get_manifest, is_retryable
+from core.tools.manifest_registry import get_manifest, is_retryable
 
 
 class TestCallerPermission:
     def test_allowed_caller_passes(self):
-        from tool_runtime.integration import get_default_tool_runtime_client
-        from tool_runtime.context import ToolRuntimeContext
+        from core.tools.integration import get_default_tool_runtime_client
+        from core.tools.context import ToolRuntimeContext
         client = get_default_tool_runtime_client()
         ctx = ToolRuntimeContext(
             workspace_id="default",
@@ -19,8 +19,8 @@ class TestCallerPermission:
         assert result.status != "blocked" or "caller" not in str(result.summary).lower()
 
     def test_disallowed_caller_blocked(self):
-        from tool_runtime.integration import get_default_tool_runtime_client
-        from tool_runtime.context import ToolRuntimeContext
+        from core.tools.integration import get_default_tool_runtime_client
+        from core.tools.context import ToolRuntimeContext
         client = get_default_tool_runtime_client()
         ctx = ToolRuntimeContext(
             workspace_id="default",
@@ -36,8 +36,8 @@ class TestCallerPermission:
 
 class TestRedaction:
     def test_tool_output_redacted_by_default(self):
-        from tool_runtime.integration import get_default_tool_runtime_client
-        from tool_runtime.context import ToolRuntimeContext
+        from core.tools.integration import get_default_tool_runtime_client
+        from core.tools.context import ToolRuntimeContext
         client = get_default_tool_runtime_client()
         ctx = ToolRuntimeContext(workspace_id="default")
         result = client.invoke("skill.manage", {}, context=ctx)
@@ -45,8 +45,8 @@ class TestRedaction:
         assert result.redacted is True
 
     def test_high_risk_rest_invoke_not_direct_execute(self):
-        from tool_runtime.integration import get_default_tool_runtime_client
-        from tool_runtime.context import ToolRuntimeContext
+        from core.tools.integration import get_default_tool_runtime_client
+        from core.tools.context import ToolRuntimeContext
         client = get_default_tool_runtime_client()
         ctx = ToolRuntimeContext(workspace_id="default", requested_by="rest_api")
         result = client.invoke("git.manage", {"remote": "origin"}, context=ctx)
@@ -56,8 +56,8 @@ class TestRedaction:
 
 class TestToolPolicySafetySemantics:
     def test_merged_device_read_action_does_not_require_approval(self):
-        from tool_runtime.policy import ToolPolicy
-        from tool_runtime.schemas import ToolInvocation, ToolSpec
+        from core.tools.policy import ToolPolicy
+        from core.tools.schemas import ToolInvocation, ToolSpec
 
         spec = ToolSpec(
             tool_id="device.manage",
@@ -81,8 +81,8 @@ class TestToolPolicySafetySemantics:
         assert decision.requires_approval is False
 
     def test_merged_device_delete_action_requires_approval(self):
-        from tool_runtime.policy import ToolPolicy
-        from tool_runtime.schemas import ToolInvocation, ToolSpec
+        from core.tools.policy import ToolPolicy
+        from core.tools.schemas import ToolInvocation, ToolSpec
 
         spec = ToolSpec(
             tool_id="device.manage",
@@ -107,8 +107,8 @@ class TestToolPolicySafetySemantics:
         assert decision.requires_approval is True
 
     def test_high_risk_tool_call_allowed_until_arguments_are_unsafe(self):
-        from tool_runtime.policy import ToolPolicy
-        from tool_runtime.schemas import ToolInvocation, ToolSpec
+        from core.tools.policy import ToolPolicy
+        from core.tools.schemas import ToolInvocation, ToolSpec
 
         spec = ToolSpec(
             tool_id="exec.run",
@@ -137,8 +137,8 @@ class TestToolPolicySafetySemantics:
         approval, they do NOT block the call. The approval bubble is
         the gating UX; if the user approves, the call runs.
         """
-        from tool_runtime.policy import ToolPolicy
-        from tool_runtime.schemas import ToolInvocation, ToolSpec
+        from core.tools.policy import ToolPolicy
+        from core.tools.schemas import ToolInvocation, ToolSpec
 
         spec = ToolSpec(
             tool_id="exec.run",
@@ -176,7 +176,7 @@ class TestNoBypass:
         for the web sub-tools because ``web.search`` no longer exists in
         the canonical 21-tool namespace.
         """
-        import tool_runtime.general_tools.web_tools as wt
+        import core.tools.general_tools.web_tools as wt
         source = open(wt.__file__).read()
         # Must NOT call the removed web.search id.
         assert '"web.search"' not in source
@@ -210,7 +210,7 @@ class TestNoBypass:
 
 class TestPhase5Unaffected:
     def test_manifest_still_valid(self):
-        from tool_runtime.manifest_registry import validate_all
+        from core.tools.manifest_registry import validate_all
         errors, count = validate_all()
         # v3.9.2: 21 merged tools, not 70+. All manifests must validate.
         assert count >= 20  # 21 expected

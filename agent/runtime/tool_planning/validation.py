@@ -10,7 +10,7 @@ from functools import lru_cache
 from types import SimpleNamespace
 from typing import Any
 
-from tool_runtime.tool_namespace import TOOL_NAMESPACE, get_namespace_entry
+from core.tools.tool_namespace import TOOL_NAMESPACE, get_namespace_entry
 
 MAX_CANDIDATE_TOOLS = 24
 

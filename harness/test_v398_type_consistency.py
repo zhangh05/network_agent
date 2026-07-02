@@ -145,7 +145,7 @@ def test_device_session_recv_timeout_is_int():
 
 
 def test_tool_result_duration_ms_is_int():
-    from tool_runtime.schemas import ToolResult
+    from core.tools.schemas import ToolResult
     fields = ToolResult.__dataclass_fields__
     assert "duration_ms" in fields
     t = fields["duration_ms"].type

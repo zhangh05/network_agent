@@ -132,7 +132,7 @@ def test_all_21_tools_have_not_for():
     """
     import sys
     sys.path.insert(0, str(PROJECT_ROOT))
-    from tool_runtime.tool_namespace import metadata_for_tool, TOOL_NAMESPACE
+    from core.tools.tool_namespace import metadata_for_tool, TOOL_NAMESPACE
     empty = []
     for tid in sorted(TOOL_NAMESPACE):
         meta = metadata_for_tool(tid)

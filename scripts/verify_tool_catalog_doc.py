@@ -43,7 +43,7 @@ def _load_json(path: Path):
 
 
 def _load_runtime_truth() -> dict:
-    from tool_runtime.tool_namespace import TOOL_NAMESPACE
+    from core.tools.tool_namespace import TOOL_NAMESPACE
     return {"canonical": set(TOOL_NAMESPACE)}
 
 

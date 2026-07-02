@@ -175,7 +175,7 @@ class TestAgentContract:
 class TestToolVisibilityPolicy:
     def test_all_tool_ids_constant(self):
         """ALL_TOOL_IDS is the single source for full tool visibility (v3.9.6)."""
-        from tool_runtime.tool_namespace import ALL_TOOL_IDS
+        from core.tools.tool_namespace import ALL_TOOL_IDS
         assert isinstance(ALL_TOOL_IDS, list)
         assert "exec.run" in ALL_TOOL_IDS
         assert "browser.manage" in ALL_TOOL_IDS

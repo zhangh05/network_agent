@@ -230,12 +230,15 @@ def _build_default_final(results: dict[str, ToolResult]) -> str:
 
 
 def _run_async(coro):
+    """Run coroutine. If already in async context, delegate to caller (return coroutine).
+    Otherwise execute via asyncio.run.
+    """
     try:
-        loop = asyncio.get_running_loop()
+        asyncio.get_running_loop()
+        in_loop = True
     except RuntimeError:
-        loop = None
-    if loop is not None:
-        import concurrent.futures
-        with concurrent.futures.ThreadPoolExecutor() as pool:
-            return pool.submit(asyncio.run, coro).result()
+        in_loop = False
+    if in_loop:
+        # Caller must await; we return the coroutine unchanged.
+        return coro
     return asyncio.run(coro)

@@ -58,7 +58,7 @@ def test_docs_match_current_stack():
     # v3.9.13: tool count is dynamic — assert it appears as a number
     # anywhere in the docs (the README/DESIGN names the canonical tool
     # count, which is currently 22 after the inspection.manage merge).
-    from tool_runtime.tool_namespace import TOOL_NAMESPACE
+    from core.tools.tool_namespace import TOOL_NAMESPACE
     expected_count = len(TOOL_NAMESPACE)
     assert str(expected_count) in combined, (
         f"docs should reference current canonical tool count "

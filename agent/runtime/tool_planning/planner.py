@@ -15,7 +15,7 @@ from typing import Any
 # v3.9.4: the planner resolves tools directly from TOOL_NAMESPACE.
 # Business capabilities are descriptive guidance only; they are not a
 # dispatch layer, permission layer, or visibility gate.
-from tool_runtime.tool_namespace import TOOL_NAMESPACE, ALL_TOOL_IDS, get_namespace_entry
+from core.tools.tool_namespace import TOOL_NAMESPACE, ALL_TOOL_IDS, get_namespace_entry
 
 
 def tools_for_action(action_id: str, *, available=None, **_) -> list[str]:
@@ -96,7 +96,7 @@ class ToolPlannerV2:
         Converts SceneDecision → rule_scene via scene_adapter, then
         runs deterministic_plan_tools and validates the output.
         """
-        from tool_runtime.tool_namespace import TOOL_NAMESPACE
+        from core.tools.tool_namespace import TOOL_NAMESPACE
 
         rule_scene = scene_to_rule_scene(scene)
 

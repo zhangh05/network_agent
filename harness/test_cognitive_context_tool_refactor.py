@@ -274,7 +274,7 @@ class TestPromptCompiler:
 class TestCurrentModuleBoundaries:
     def test_all_tool_ids_constant(self):
         """ALL_TOOL_IDS is the single-source constant for full tool visibility."""
-        from tool_runtime.tool_namespace import ALL_TOOL_IDS
+        from core.tools.tool_namespace import ALL_TOOL_IDS
         assert isinstance(ALL_TOOL_IDS, list)
         assert len(ALL_TOOL_IDS) >= 18
         assert "exec.run" in ALL_TOOL_IDS
@@ -291,7 +291,7 @@ class TestCurrentModuleBoundaries:
 class TestAllToolsVisible:
     def test_all_tools_in_canonical_set(self):
         """Every tool in TOOL_NAMESPACE is in ALL_TOOL_IDS."""
-        from tool_runtime.tool_namespace import TOOL_NAMESPACE, ALL_TOOL_IDS
+        from core.tools.tool_namespace import TOOL_NAMESPACE, ALL_TOOL_IDS
         assert set(ALL_TOOL_IDS) == set(TOOL_NAMESPACE)
 
     def test_scene_decision_host_signals(self):

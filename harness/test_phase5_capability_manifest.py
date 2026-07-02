@@ -2,15 +2,15 @@
 """Phase 5: Capability Manifest — all tools declared, policy derived."""
 
 import pytest
-from tool_runtime.manifest_registry import (
+from core.tools.manifest_registry import (
     MANIFESTS, get_manifest, validate_all, is_retryable,
 )
-from tool_runtime.manifest import CapabilityManifest
+from core.tools.manifest import CapabilityManifest
 
 
 class TestManifestCompleteness:
     def test_all_tools_have_manifest(self):
-        from tool_runtime.canonical_registry import CANONICAL_REGISTRY
+        from core.tools.canonical_registry import CANONICAL_REGISTRY
         for tid in CANONICAL_REGISTRY:
             assert tid in MANIFESTS, f"Missing manifest for {tid}"
         assert len(MANIFESTS) >= len(CANONICAL_REGISTRY)
@@ -33,7 +33,7 @@ class TestManifestCompleteness:
         assert not m.requires_approval
 
     def test_tool_specs_derive_risk_from_manifest(self):
-        from tool_runtime.canonical_registry import to_tool_specs
+        from core.tools.canonical_registry import to_tool_specs
 
         specs = {spec.tool_id: spec for spec, _ in to_tool_specs()}
         for tid, manifest in MANIFESTS.items():
@@ -126,5 +126,5 @@ class TestPhase4Unaffected:
 
     def test_phase4_tests_still_pass_ok(self):
         # Verify the manifest system doesn't break Phase 4
-        from tool_runtime.manifest_registry import get_manifest
+        from core.tools.manifest_registry import get_manifest
         assert get_manifest("exec.run") is not None

@@ -14,7 +14,7 @@ from types import SimpleNamespace
 from agent.runtime.tool_planning.planner import plan_tools
 from agent.runtime.cognition.scene_decision import decide_scene
 from agent.runtime.tool_planning.scene_adapter import scene_to_rule_scene
-from tool_runtime.tool_namespace import TOOL_NAMESPACE
+from core.tools.tool_namespace import TOOL_NAMESPACE
 
 
 LOCAL_EXEC_TOOLS = {
@@ -107,7 +107,7 @@ def test_unknown_tools_fail_closed_in_planner():
     assert "exec.run" in candidates
     # v3.9.13 added ``inspection.manage`` (CMDB-driven device health);
     # candidate set must mirror the canonical namespace.
-    from tool_runtime.tool_namespace import TOOL_NAMESPACE
+    from core.tools.tool_namespace import TOOL_NAMESPACE
     assert len(candidates) == len(TOOL_NAMESPACE), (
         f"candidate set should mirror the canonical namespace "
         f"({len(TOOL_NAMESPACE)}); got {len(candidates)}"

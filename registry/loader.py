@@ -476,7 +476,7 @@ def _highest_tool_id_risk(tool_ids: list[str]) -> str:
     rank = {"low": 0, "medium": 1, "high": 2, "critical": 3, "forbidden": 4}
     highest = "low"
     try:
-        from tool_runtime.manifest_registry import get_manifest
+        from core.tools.manifest_registry import get_manifest
     except Exception:
         get_manifest = None
     for tool_id in tool_ids or []:
@@ -574,7 +574,7 @@ def reload_all():
     global _cache
     _cache = {"modules": None, "skills": None, "capabilities": None}
     try:
-        from tool_runtime.catalog_snapshot import reset_catalog_snapshot_cache
+        from core.tools.catalog_snapshot import reset_catalog_snapshot_cache
         reset_catalog_snapshot_cache()
     except Exception:
         logger.debug("registry reload: catalog snapshot reset skipped", exc_info=True)

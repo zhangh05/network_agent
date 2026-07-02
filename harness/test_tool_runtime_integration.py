@@ -39,7 +39,7 @@ import threading
 
 import pytest
 
-from tool_runtime.integration import (
+from core.tools.integration import (
     get_default_client_build_count,
     get_default_tool_runtime_client,
     reset_default_client_for_tests,

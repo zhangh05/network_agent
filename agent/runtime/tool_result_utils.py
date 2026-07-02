@@ -72,7 +72,7 @@ def to_standard_tool_call(call_id: str, tool_id: str, result) -> dict:
 
 def _tool_namespace_metadata(tool_id: str) -> dict:
     try:
-        from tool_runtime.tool_namespace import get_namespace_entry
+        from core.tools.tool_namespace import get_namespace_entry
         entry = get_namespace_entry(tool_id)
         return entry.metadata()
     except Exception:

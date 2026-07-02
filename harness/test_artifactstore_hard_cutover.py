@@ -52,11 +52,11 @@ def test_workspace_write_artifact_tool_uses_filestore(monkeypatch, tmp_path):
     ws_root.mkdir()
     monkeypatch.setenv("NA_WORKSPACE_ROOT", str(ws_root))
     monkeypatch.setattr("workspace.manager.WS_ROOT", ws_root)
-    import tool_runtime.general_tools.shared as shared
+    import core.tools.general_tools.shared as shared
     monkeypatch.setattr(shared, "WS_ROOT", ws_root)
 
-    from tool_runtime.general_tools.file_tools import handle_ws_write_artifact_file
-    from tool_runtime.schemas import ToolInvocation
+    from core.tools.general_tools.file_tools import handle_ws_write_artifact_file
+    from core.tools.schemas import ToolInvocation
 
     inv = ToolInvocation(
         tool_id="workspace.file",

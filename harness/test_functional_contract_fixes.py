@@ -116,7 +116,7 @@ def test_memory_list_redacts_legacy_secret_records(tmp_path, monkeypatch):
 def test_memory_retriever_filters_non_active_hits(monkeypatch):
     from agent.runtime.memory.models import MemoryQueryPlan
     from agent.runtime.memory.retriever import MemoryRetriever
-    import context.unified_retriever as unified
+    import core.context.unified_retriever as unified
 
     class FakeRetriever:
         def search_memory(self, query, top_k):
@@ -300,7 +300,7 @@ def test_policy_does_not_scan_descriptive_text_as_path_argument():
     Descriptive text mentioning sensitive paths must not be flagged —
     the policy only inspects command-bearing fields.
     """
-    from tool_runtime.policy import _check_argument_safety
+    from core.tools.policy import _check_argument_safety
 
     risk, reason = _check_argument_safety(
         {"description": "The user asked whether /etc/passwd should be inspected."},

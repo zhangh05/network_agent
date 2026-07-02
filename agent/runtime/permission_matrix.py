@@ -11,12 +11,12 @@ import re
 from pathlib import Path
 from typing import Any
 
-from tool_runtime.policy import (
+from core.tools.policy import (
     ToolPolicy,
     V02_FORBIDDEN_TOOLS,
     V02_FORBIDDEN_PATTERNS,
 )
-from tool_runtime.schemas import PolicyDecision
+from core.tools.schemas import PolicyDecision
 
 
 # ═══════════════════════════
@@ -71,7 +71,7 @@ class PermissionMatrix:
             PermissionDecision: ALLOW, DENY, or REQUIRE_APPROVAL.
         """
         # 1. Check forbidden tools (single source of truth: tool_runtime.policy)
-        from tool_runtime.policy import is_tool_forbidden
+        from core.tools.policy import is_tool_forbidden
         if is_tool_forbidden(tool_id):
             return PermissionDecision.DENY
 
@@ -220,7 +220,7 @@ def check_safe_command(command: str) -> bool:
     which returns True only for explicitly destructive patterns
     (rm -rf, dd if=, mkfs, etc.).
     """
-    from tool_runtime.dangerous_patterns import is_destructive_command
+    from core.tools.dangerous_patterns import is_destructive_command
     return not is_destructive_command(command or "")
 
 

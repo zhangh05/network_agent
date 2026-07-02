@@ -4,7 +4,7 @@ from __future__ import annotations
 
 
 def test_canonical_registry_import_has_no_general_tools_cycle():
-    from tool_runtime.canonical_registry import get_entry, to_tool_specs
+    from core.tools.canonical_registry import get_entry, to_tool_specs
 
     specs = to_tool_specs()
     assert specs
@@ -12,7 +12,7 @@ def test_canonical_registry_import_has_no_general_tools_cycle():
 
 
 def test_subagent_cannot_spawn_nested_agents():
-    from tool_runtime.manifest_registry import get_manifest
+    from core.tools.manifest_registry import get_manifest
 
     assert "subagent" not in get_manifest("agent.manage").allowed_callers
     assert "subagent" not in get_manifest("agent.manage").allowed_callers
@@ -50,7 +50,7 @@ def test_subagent_turn_receives_profile_step_budget(monkeypatch, tmp_path):
 
 
 def test_web_private_url_guard_has_prefix_constants():
-    from tool_runtime.general_tools.shared_web import _is_private_url
+    from core.tools.general_tools.shared_web import _is_private_url
 
     assert _is_private_url("http://192.168.1.1/index.html") is True
     assert _is_private_url("https://www.rfc-editor.org/rfc/rfc4271") is False
@@ -134,8 +134,8 @@ def test_internal_subagent_session_messages_hidden(tmp_path, monkeypatch):
 
 
 def test_web_page_process_cache_clock_available(monkeypatch):
-    from tool_runtime.general_tools.web_tools import handle_web_fetch_summary
-    from tool_runtime.schemas import ToolInvocation
+    from core.tools.general_tools.web_tools import handle_web_fetch_summary
+    from core.tools.schemas import ToolInvocation
     import requests
     import socket
 
@@ -166,9 +166,9 @@ def _v392_test_catalog_search_removed():
     pass
 
 def test_agent_spawn_inherits_invocation_session(monkeypatch):
-    from tool_runtime.general_tools.agent_tools import handle_agent_spawn
-    from tool_runtime.schemas import ToolInvocation
-    import tool_runtime.general_tools.agent_tools as agent_tools
+    from core.tools.general_tools.agent_tools import handle_agent_spawn
+    from core.tools.schemas import ToolInvocation
+    import core.tools.general_tools.agent_tools as agent_tools
 
     captured = {}
 
@@ -191,10 +191,10 @@ def test_agent_spawn_inherits_invocation_session(monkeypatch):
 
 
 def test_tool_runtime_context_carries_session_to_invocation(monkeypatch):
-    from tool_runtime.client import ToolRuntimeClient
-    from tool_runtime.context import ToolRuntimeContext
-    from tool_runtime.registry import ToolRegistry
-    from tool_runtime.schemas import ToolSpec
+    from core.tools.client import ToolRuntimeClient
+    from core.tools.context import ToolRuntimeContext
+    from core.tools.registry import ToolRegistry
+    from core.tools.schemas import ToolSpec
 
     captured = {}
     registry = ToolRegistry()
@@ -254,7 +254,7 @@ def test_action_result_projection_preserves_tool_output_for_llm():
 
 
 def test_agent_spawn_result_exposes_child_session_id(monkeypatch):
-    from tool_runtime.general_tools import agent_tools
+    from core.tools.general_tools import agent_tools
 
     monkeypatch.setattr(agent_tools, "_select_subagent_profile", lambda allowed_tools=None, roles=None: "review_agent")
     monkeypatch.setattr(agent_tools, "create_subagent_task", None, raising=False)
@@ -287,8 +287,8 @@ def test_agent_spawn_result_exposes_child_session_id(monkeypatch):
 
 
 def test_memory_search_validates_workspace_without_name_error():
-    from tool_runtime.general_tools.memory_tools import handle_memory_search
-    from tool_runtime.schemas import ToolInvocation
+    from core.tools.general_tools.memory_tools import handle_memory_search
+    from core.tools.schemas import ToolInvocation
 
     result = handle_memory_search(ToolInvocation(
         tool_id="memory.manage",
@@ -339,8 +339,8 @@ def test_user_prompt_submit_hook_blocks_credentials_before_model_call():
 
 
 def test_memory_create_accepts_content_only_and_uses_gate(monkeypatch):
-    from tool_runtime.general_tools.memory_tools import handle_memory_create
-    from tool_runtime.schemas import ToolInvocation
+    from core.tools.general_tools.memory_tools import handle_memory_create
+    from core.tools.schemas import ToolInvocation
     import workspace.memory_governance as memory_governance
 
     captured = {}

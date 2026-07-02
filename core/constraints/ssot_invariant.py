@@ -116,7 +116,7 @@ def check_kernel_thin_dispatcher() -> bool:
 def check_reducer_is_pure() -> bool:
     """Reducer has no cache, no global state, no mutation."""
     try:
-        from core.graph.graph_store import Reducer, assert_pure_reducer
+        from core.graph.graph_store import assert_pure_reducer
         return assert_pure_reducer()
     except Exception as e:
         raise AssertionError(f"reducer.is_pure FAILED: {e}")

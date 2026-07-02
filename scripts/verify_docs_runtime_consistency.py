@@ -37,8 +37,8 @@ def markdown_links(text: str) -> list[str]:
 
 
 def main() -> int:
-    from tool_runtime.manifest_registry import MANIFESTS
-    from tool_runtime.canonical_registry import CANONICAL_REGISTRY
+    from core.tools.manifest_registry import MANIFESTS
+    from core.tools.canonical_registry import CANONICAL_REGISTRY
 
     # v3.9.2: 21-tool Codex-style registry; v3.9.13 added
     # inspection.manage so we have 22 in this branch. The dynamic

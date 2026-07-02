@@ -12,8 +12,8 @@ if str(ROOT) not in sys.path:
 
 
 def main() -> int:
-    from tool_runtime.tool_namespace import TOOL_NAMESPACE
-    from tool_runtime.canonical_registry import CANONICAL_REGISTRY
+    from core.tools.tool_namespace import TOOL_NAMESPACE
+    from core.tools.canonical_registry import CANONICAL_REGISTRY
 
     orphans = set(TOOL_NAMESPACE) - set(CANONICAL_REGISTRY)
     extras = set(CANONICAL_REGISTRY) - set(TOOL_NAMESPACE)

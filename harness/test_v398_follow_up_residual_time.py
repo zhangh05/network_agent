@@ -200,8 +200,8 @@ def test_memory_naive_expiry_is_rejected_not_compat_parsed():
 
 
 def test_system_session_create_and_archive_call_store_with_current_signature():
-    from tool_runtime.schemas import ToolInvocation
-    from tool_runtime.general_tools.session_tools import handle_session_create, handle_session_archive
+    from core.tools.schemas import ToolInvocation
+    from core.tools.general_tools.session_tools import handle_session_create, handle_session_archive
     from workspace.session_store import get_session
     from workspace.manager import ensure_workspace, WS_ROOT
 
@@ -231,8 +231,8 @@ def test_system_session_create_and_archive_call_store_with_current_signature():
 
 def test_system_run_get_summary_uses_run_id_then_workspace_order():
     from agent.runtime.utils import now_iso
-    from tool_runtime.schemas import ToolInvocation
-    from tool_runtime.general_tools.session_tools import handle_run_get_summary
+    from core.tools.schemas import ToolInvocation
+    from core.tools.general_tools.session_tools import handle_run_get_summary
     from workspace.manager import ensure_workspace, WS_ROOT
 
     ws = "pytest_run_tool_branch"
@@ -268,8 +268,8 @@ def test_system_run_get_summary_uses_run_id_then_workspace_order():
 
 def test_system_session_checkpoint_has_runtime_imports_and_iso_timestamp():
     from agent.runtime.utils import from_iso
-    from tool_runtime.schemas import ToolInvocation
-    from tool_runtime.general_tools.session_tools import handle_session_checkpoint
+    from core.tools.schemas import ToolInvocation
+    from core.tools.general_tools.session_tools import handle_session_checkpoint
     from workspace.session_store import create_session
     from workspace.manager import ensure_workspace, WS_ROOT
 

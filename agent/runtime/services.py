@@ -69,7 +69,7 @@ def _build_default_registry(*args, **kwargs) -> "ToolRegistry":
     import logging
     _log = logging.getLogger(__name__)
     try:
-        from tool_runtime.integration import get_default_tool_runtime_client
+        from core.tools.integration import get_default_tool_runtime_client
         client = get_default_tool_runtime_client()
         return ToolRegistry.from_runtime_client(client)
     except Exception as exc:

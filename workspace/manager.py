@@ -316,7 +316,7 @@ def _count_knowledge_sources(ws_id: str) -> int:
     """Count knowledge sources from ContextStore."""
     ws_id = validate_workspace_id(ws_id)
     try:
-        from context.context_store import get_context_store
+        from core.context.context_store import get_context_store
         store = get_context_store(ws_id)
         return store.count(item_type="knowledge_source")
     except Exception:
@@ -327,7 +327,7 @@ def _count_memory(ws_id: str) -> int:
     """Count memory records from ContextStore."""
     ws_id = validate_workspace_id(ws_id)
     try:
-        from context.context_store import get_context_store
+        from core.context.context_store import get_context_store
         store = get_context_store(ws_id)
         return store.count(item_type="memory_hit")
     except Exception:

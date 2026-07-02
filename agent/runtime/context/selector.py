@@ -13,7 +13,7 @@ def select_for_frame(items: list[Any], budget_tokens: int = 8000) -> list[Any]:
     for the actual filtering logic.
     """
     try:
-        from context.selector import select_context_items
+        from core.context.selector import select_context_items
         selected, _warnings = select_context_items(items)
         return selected
     except Exception:

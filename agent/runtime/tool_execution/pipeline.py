@@ -171,7 +171,7 @@ class ToolExecutionPipeline:
                 tid = getattr(tool_call, 'real_tool_id', '')
                 if tid:
                     try:
-                        from tool_runtime.manifest_registry import get_manifest
+                        from core.tools.manifest_registry import get_manifest
                         m = get_manifest(tid)
                         if m:
                             unsafe_parallel = (
@@ -257,7 +257,7 @@ class ToolExecutionPipeline:
         can_retry = False
         max_manifest_retries = 0
         try:
-            from tool_runtime.manifest_registry import get_manifest
+            from core.tools.manifest_registry import get_manifest
             m = get_manifest(tid)
             if m:
                 can_retry = (m.idempotency == "safe_to_retry" and not m.destructive)
@@ -310,7 +310,7 @@ class ToolExecutionPipeline:
         # fallback keeps archived tool-execution records renderable.
         ctx = getattr(state, 'context', None)
         if ctx is not None:
-            from tool_runtime.tool_namespace import ALL_TOOL_IDS
+            from core.tools.tool_namespace import ALL_TOOL_IDS
             # Always use the full set as the fallback/reset target.
             # visible_tool_ids from the planner are informational only.
             if not getattr(ctx, 'visible_tool_ids', None):

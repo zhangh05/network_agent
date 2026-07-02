@@ -19,7 +19,7 @@ from __future__ import annotations
 
 from typing import Any, Iterable
 
-from tool_runtime.tool_namespace import TOOL_NAMESPACE
+from core.tools.tool_namespace import TOOL_NAMESPACE
 
 
 # Field schema for each entry:

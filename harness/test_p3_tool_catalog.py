@@ -2,7 +2,7 @@
 
 
 def test_catalog_snapshot_is_cached_and_has_stable_identity():
-    from tool_runtime.catalog_snapshot import (
+    from core.tools.catalog_snapshot import (
         build_catalog_snapshot,
         reset_catalog_snapshot_cache,
     )

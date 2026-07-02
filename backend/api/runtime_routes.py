@@ -145,7 +145,7 @@ def _blocked_tool_response(invocation, ws_id: str, risk_level: str, reason: str)
 
 def _safe_output(output: dict) -> dict:
     """Return a sanitized version of tool output for API responses."""
-    from tool_runtime.redaction import redact_tool_output
+    from core.tools.redaction import redact_tool_output
 
     output = redact_tool_output(output or {})
     if not output:
@@ -203,7 +203,7 @@ def register_runtime_routes(app):
 
     @app.route("/api/runtime/health")
     def api_runtime_health():
-        from runtime.diagnostics import get_diagnostics
+        from core.runtime.diagnostics import get_diagnostics
         ws_id = request.args.get("workspace_id", "")
         ws_id, err = _validated_ws_id(ws_id)
         if err:
@@ -217,14 +217,14 @@ def register_runtime_routes(app):
         ws_id, err = _validated_ws_id(ws_id)
         if err:
             return err
-        from runtime.selfcheck import run_selfcheck
+        from core.runtime.selfcheck import run_selfcheck
         result = run_selfcheck(ws_id)
         return jsonify(result.as_dict())
 
     @app.route("/api/tools/catalog")
     def api_tools_catalog():
         """Return read-only tool catalog — canonical IDs only."""
-        from tool_runtime.catalog_snapshot import build_catalog_snapshot
+        from core.tools.catalog_snapshot import build_catalog_snapshot
         return jsonify(build_catalog_snapshot())
 
     # ── Tool Invocation ──
@@ -258,10 +258,10 @@ def register_runtime_routes(app):
         if not requested_tool_id:
             return jsonify({"ok": False, "error": "tool_id is required"}), 400
 
-        from tool_runtime.canonical_registry import CANONICAL_REGISTRY
-        from tool_runtime.integration import get_default_tool_runtime_client
-        from tool_runtime.schemas import ToolInvocation
-        from tool_runtime.context import ToolRuntimeContext
+        from core.tools.canonical_registry import CANONICAL_REGISTRY
+        from core.tools.integration import get_default_tool_runtime_client
+        from core.tools.schemas import ToolInvocation
+        from core.tools.context import ToolRuntimeContext
 
         if requested_tool_id not in CANONICAL_REGISTRY:
             return jsonify({
@@ -380,8 +380,8 @@ def register_runtime_routes(app):
         if not requested_tool_id:
             return jsonify({"ok": False, "error": "tool_id is required"}), 400
 
-        from tool_runtime.canonical_registry import CANONICAL_REGISTRY
-        from tool_runtime.integration import get_default_tool_runtime_client
+        from core.tools.canonical_registry import CANONICAL_REGISTRY
+        from core.tools.integration import get_default_tool_runtime_client
 
         if requested_tool_id not in CANONICAL_REGISTRY:
             return jsonify({
@@ -406,7 +406,7 @@ def register_runtime_routes(app):
         if not spec.dry_run_supported:
             return jsonify({"ok": False, "error": "dry_run not supported for this tool"}), 400
 
-        from tool_runtime.schemas import ToolInvocation
+        from core.tools.schemas import ToolInvocation
         invocation = ToolInvocation(
             tool_id=requested_tool_id,
             arguments=arguments,
@@ -468,7 +468,7 @@ def register_runtime_routes(app):
         except ValueError:
             return jsonify({"ok": False, "error": "invalid_workspace_id"}), 400
 
-        from tool_runtime.integration import get_default_tool_runtime_client
+        from core.tools.integration import get_default_tool_runtime_client
         client = get_default_tool_runtime_client()
         tools = client.list_tools()
 
@@ -501,7 +501,7 @@ def register_runtime_routes(app):
         ws_id, err = _validated_ws_id(ws_id)
         if err:
             return err
-        from runtime.selfcheck import run_selfcheck
+        from core.runtime.selfcheck import run_selfcheck
         result = run_selfcheck(ws_id)
         return jsonify(result.as_dict())
 
@@ -511,7 +511,7 @@ def register_runtime_routes(app):
         ws_id, err = _validated_ws_id(ws_id)
         if err:
             return err
-        from runtime.retention import preview_retention, default_retention_policy
+        from core.runtime.retention import preview_retention, default_retention_policy
         preview = preview_retention(ws_id, default_retention_policy())
         return jsonify(preview.as_dict())
 
@@ -522,7 +522,7 @@ def register_runtime_routes(app):
             return err
         dry_run = (request.json or {}).get("dry_run", True) if request.is_json else True
         confirm = (request.json or {}).get("confirm", False) if request.is_json else False
-        from runtime.retention import apply_retention, default_retention_policy
+        from core.runtime.retention import apply_retention, default_retention_policy
         preview = apply_retention(ws_id, default_retention_policy(),
                                   dry_run=dry_run, confirm=confirm)
         return jsonify(preview.as_dict())
@@ -532,7 +532,7 @@ def register_runtime_routes(app):
         ws_id, err = _validated_ws_id(ws_id)
         if err:
             return err
-        from runtime.retention import get_audits
+        from core.runtime.retention import get_audits
         audits = get_audits(ws_id)
         return jsonify({"audits": audits})
 
@@ -541,7 +541,7 @@ def register_runtime_routes(app):
         ws_id, err = _validated_ws_id(ws_id)
         if err:
             return err
-        from runtime.retention import get_audit
+        from core.runtime.retention import get_audit
         audit = get_audit(ws_id, audit_id)
         if not audit:
             return jsonify({"ok": False, "error": "audit not found"}), 404
@@ -553,7 +553,7 @@ def register_runtime_routes(app):
         ws_id, err = _validated_ws_id(ws_id)
         if err:
             return err
-        from runtime.archive import preview_archive_candidates, default_archive_policy
+        from core.runtime.archive import preview_archive_candidates, default_archive_policy
         preview = preview_archive_candidates(ws_id, default_archive_policy())
         return jsonify(preview.as_dict())
 
@@ -564,7 +564,7 @@ def register_runtime_routes(app):
             return err
         dry_run = (request.json or {}).get("dry_run", True) if request.is_json else True
         confirm = (request.json or {}).get("confirm", False) if request.is_json else False
-        from runtime.archive import apply_archive, default_archive_policy
+        from core.runtime.archive import apply_archive, default_archive_policy
         result = apply_archive(ws_id, default_archive_policy(),
                                dry_run=dry_run, confirm=confirm)
         return jsonify(result.as_dict())
@@ -574,7 +574,7 @@ def register_runtime_routes(app):
         ws_id, err = _validated_ws_id(ws_id)
         if err:
             return err
-        from runtime.archive import get_archive_audits
+        from core.runtime.archive import get_archive_audits
         audits = get_archive_audits(ws_id)
         return jsonify({"audits": audits})
 
@@ -583,7 +583,7 @@ def register_runtime_routes(app):
         ws_id, err = _validated_ws_id(ws_id)
         if err:
             return err
-        from runtime.archive import get_archive_audit
+        from core.runtime.archive import get_archive_audit
         audit = get_archive_audit(ws_id, audit_id)
         if not audit:
             return jsonify({"ok": False, "error": "audit not found"}), 404
@@ -594,7 +594,7 @@ def register_runtime_routes(app):
     @app.route("/api/agent/graph")
     def api_agent_graph():
         try:
-            from tool_runtime.tool_namespace import TOOL_NAMESPACE
+            from core.tools.tool_namespace import TOOL_NAMESPACE
             return jsonify({
                 "ok": True, "total_tools": len(TOOL_NAMESPACE),
                 "core_tools": 5,

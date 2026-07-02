@@ -44,13 +44,13 @@ def temp_dirs(monkeypatch):
 
     # Monkeypatch ContextStore to use temp directory
     try:
-        import context.context_store as _cs
+        import core.context.context_store as _cs
         monkeypatch.setattr(_cs, "_BASE", ws_dir)
         _cs._stores.clear()  # Reset singletons so new stores use patched path
     except Exception:
         pass
     try:
-        import context.unified_retriever as _ur
+        import core.context.unified_retriever as _ur
         _ur._retrievers.clear()  # Reset retriever singletons
     except Exception:
         pass
@@ -59,7 +59,7 @@ def temp_dirs(monkeypatch):
     monkeypatch.setattr("workspace.manager.WS_ROOT", ws_dir)
     monkeypatch.setattr("workspace.run_store.WS_ROOT", ws_dir)
     # Also patch cached imports to avoid module-load-time reference staleness
-    monkeypatch.setattr("tool_runtime.general_tools.WS_ROOT", ws_dir)
+    monkeypatch.setattr("core.tools.general_tools.WS_ROOT", ws_dir)
 
     # Set env vars
     monkeypatch.setenv("NETWORK_AGENT_REPORTS_DIR", str(reports_dir))
@@ -85,7 +85,7 @@ def temp_dirs(monkeypatch):
     except Exception:
         pass
     try:
-        from tool_runtime.tool_namespace import _cached_entries
+        from core.tools.tool_namespace import _cached_entries
         _cached_entries.clear()
     except Exception:
         pass

@@ -29,7 +29,7 @@ def final_ws(monkeypatch, tmp_path):
 
 def test_canonical_registry_registers_file_tools():
     """canonical_registry MUST register all 5 FileStore tools."""
-    from tool_runtime.canonical_registry import CANONICAL_REGISTRY
+    from core.tools.canonical_registry import CANONICAL_REGISTRY
     required = [
         "workspace.file",
         "workspace.file",
@@ -43,14 +43,14 @@ def test_canonical_registry_registers_file_tools():
 
 def test_canonical_registry_imports_registry_helpers():
     """canonical_registry MUST import registry_helpers."""
-    import tool_runtime.canonical_registry as cr
+    import core.tools.canonical_registry as cr
     assert hasattr(cr, "tool_keyword_score"), "registry_helpers not imported in canonical_registry"
 
 
 def test_filestore_tools_read_real_file(final_ws):
     """workspace.file handler MUST read text content from FileStore."""
     from storage.file_store import write_agent_output
-    from tool_runtime.general_tools.filestore_tools import handle_file_get, handle_file_preview
+    from core.tools.general_tools.filestore_tools import handle_file_get, handle_file_preview
 
     rec = write_agent_output("test_ws", "hello from filestore tool", "artifact_output", "text", title="ft test")
 
@@ -68,7 +68,7 @@ def test_filestore_tools_read_real_file(final_ws):
 
 def test_filestore_tools_write_agent_output(final_ws):
     """workspace.file handler MUST create FileRecord."""
-    from tool_runtime.general_tools.filestore_tools import handle_file_write_agent_output
+    from core.tools.general_tools.filestore_tools import handle_file_write_agent_output
 
     class FakeInv:
         workspace_id = "test_ws"

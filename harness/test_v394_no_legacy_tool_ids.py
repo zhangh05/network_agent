@@ -17,7 +17,7 @@ sys.path.insert(0, str(PROJECT_ROOT))
 # Use a stable temp directory for workspace state.
 os.environ.setdefault("WORKSPACE_ROOT", "/tmp/network_agent_v394_test")
 
-from tool_runtime.tool_namespace import TOOL_NAMESPACE
+from core.tools.tool_namespace import TOOL_NAMESPACE
 
 
 LEGACY_TOOL_IDS = {
@@ -74,13 +74,13 @@ def test_canonical_namespace_has_exactly_21_tools():
 
 
 def test_all_canonical_tools_have_manifests():
-    from tool_runtime.manifest_registry import MANIFESTS
+    from core.tools.manifest_registry import MANIFESTS
     missing = set(TOOL_NAMESPACE) - set(MANIFESTS.keys())
     assert not missing, f"tools without manifests: {missing}"
 
 
 def test_canonical_registry_lists_all_21():
-    from tool_runtime.canonical_registry import CANONICAL_REGISTRY
+    from core.tools.canonical_registry import CANONICAL_REGISTRY
     assert len(CANONICAL_REGISTRY) == len(TOOL_NAMESPACE)
     assert set(CANONICAL_REGISTRY.keys()) == set(TOOL_NAMESPACE)
 
@@ -120,10 +120,10 @@ def test_no_register_capability_tools_method():
 
 def test_legacy_tool_ids_absent_from_skill_manage_handlers():
     """skill.manage handlers must not surface legacy tool ids."""
-    from tool_runtime.general_tools.skill_tools import (
+    from core.tools.general_tools.skill_tools import (
         handle_skill_list, handle_skill_find,
     )
-    from tool_runtime.schemas import ToolInvocation
+    from core.tools.schemas import ToolInvocation
     inv = ToolInvocation(tool_id="skill.manage", arguments={}, workspace_id="default")
     out = handle_skill_list(inv)
     results = out.get("results", []) if isinstance(out, dict) else []

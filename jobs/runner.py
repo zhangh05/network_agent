@@ -1,5 +1,5 @@
 # jobs/runner.py
-"""Job runner — executes jobs by job_type, calling run_agent/reports_engine."""
+"""Job runner — executes jobs by job_type, calling run_agent/core.reports."""
 
 import time, sys, os, traceback
 
@@ -133,7 +133,7 @@ def _run_export_report(rec: JobRecord):
 
     payload = rec.payload
     try:
-        from reports_engine.service import create_config_translation_report
+        from core.reports.service import create_config_translation_report
         result = create_config_translation_report(
             ws, payload.get("run_id", ""), {},
             fmt=payload.get("report_format", "markdown"),

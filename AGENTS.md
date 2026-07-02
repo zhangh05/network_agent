@@ -6,7 +6,7 @@ This file is the handoff contract for AI coding agents working in this repositor
 
 1. Keep the current architecture only. Do not add compatibility branches, old tool names, fallback APIs, or historical docs.
 2. All tool calls must go through `ToolRuntimeClient.invoke()`.
-3. All tools must be one of the 22 canonical IDs in `tool_runtime/tool_namespace.py`.
+3. All tools must be one of the 22 canonical IDs in `core/tools/tool_namespace.py`.
 4. `workspace_id` must be explicit and validated at API boundaries. Empty values return 400.
 5. Approval is for high-risk/destructive actions, not for ordinary read/list/query operations.
 6. Memory writes go through `workspace.memory_governance.MemoryWriteGate`.
@@ -47,9 +47,9 @@ Useful commands:
 
 ```bash
 python3 - <<'PY'
-from tool_runtime.tool_namespace import TOOL_NAMESPACE
-from tool_runtime.manifest_registry import MANIFESTS
-from tool_runtime.registry import get_default_registry
+from core.tools.tool_namespace import TOOL_NAMESPACE
+from core.tools.manifest_registry import MANIFESTS
+from core.tools.registry import get_default_registry
 print(len(TOOL_NAMESPACE), len(MANIFESTS), get_default_registry().count())
 PY
 
