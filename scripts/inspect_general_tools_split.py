@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 """v3.0 verify that general_tools/ is genuinely split out.
 
-In v3.0 the dispatch layer is ``tool_runtime.canonical_registry``.
-The ``tool_runtime/general_tools/`` modules still host the underlying
+In v3.0 the dispatch layer is ``core.tools.canonical_registry``.
+The ``core/tools/general_tools/`` modules still host the underlying
 handler implementations, but they are wired by canonical_id now
 (not by v2.x execution_id).
 """
@@ -18,14 +18,14 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 
-GENERAL_DIR = ROOT / "tool_runtime" / "general_tools"
-BASE = ROOT / "tool_runtime" / "general_tools_base.py"
+GENERAL_DIR = ROOT / "core" / "tools" / "general_tools"
+BASE = ROOT / "core" / "tools" / "general_tools_base.py"
 
 FORBIDDEN_PATTERNS = {
     "_HANDLERS": re.compile(r"_HANDLERS"),
     "lazy_import": re.compile(r"lazy_import"),
     "base_alias_import": re.compile(
-        r"import\s+tool_runtime\.general_tools_base\s+as\s+_b"
+        r"import\s+core\.tools\.general_tools_base\s+as\s+_b"
     ),
     "module_spoof": re.compile(r"__module__\s*=\s*__name__"),
     "return_handlers": re.compile(r"return\s+_HANDLERS"),
@@ -75,7 +75,7 @@ def main() -> int:
         handler = entry.handler
         handler_module = getattr(handler, "__module__", "")
         # _adapt() wraps the handler; check the underlying module via closure.
-        if handler_module != "tool_runtime.canonical_registry":
+        if handler_module != "core.tools.canonical_registry":
             missing_handlers.append(
                 f"{canonical_id} -> {handler_module or '?'}"
             )

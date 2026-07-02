@@ -1,8 +1,8 @@
-# tool_runtime/manifest_registry.py
+# core/tools/manifest_registry.py
 """All tool manifests — single source of truth for the 22 canonical tools.
 
 Each merged tool carries a base risk profile. Per-action destructive
-checks in ``tool_runtime.policy`` escalate delete/rewind/destructive
+checks in ``core.tools.policy`` escalate delete/rewind/destructive
 commands to high risk and approval.
 """
 

@@ -5,9 +5,9 @@ plus a list of recommended canonical tool ids. The catalog is **not** a
 tool registration layer, **not** a visibility gate, and **not** an
 approval/policy layer. Those concerns live in:
 
-  - tool_runtime/canonical_registry.py  (registration)
-  - tool_runtime/manifest_registry.py    (risk/approval metadata)
-  - tool_runtime/sandbox / approval       (runtime gates)
+  - core/tools/canonical_registry.py  (registration)
+  - core/tools/manifest_registry.py    (risk/approval metadata)
+  - core/tools/sandbox / approval       (runtime gates)
 
 The catalog's single job is to give the LLM and the frontend a
 business-readable index of capabilities and their recommended tools.

@@ -1,12 +1,12 @@
 # Tool Template
 
-Public tools are canonical IDs in `tool_runtime/tool_namespace.py`. Prefer adding an operation behind an existing canonical tool before creating a new public tool.
+Public tools are canonical IDs in `core/tools/tool_namespace.py`. Prefer adding an operation behind an existing canonical tool before creating a new public tool.
 
 ## Change Checklist
 
-1. Update namespace data in `tool_runtime/tool_namespace_data.py` only if a new canonical public ID is truly needed.
-2. Add or update the manifest in `tool_runtime/manifest_registry.py`.
-3. Wire the handler in `tool_runtime/canonical_registry.py`.
+1. Update namespace data in `core/tools/tool_namespace_data.py` only if a new canonical public ID is truly needed.
+2. Add or update the manifest in `core/tools/manifest_registry.py`.
+3. Wire the handler in `core/tools/canonical_registry.py`.
 4. Keep all execution behind `ToolRuntimeClient.invoke()`.
 5. Add focused tests for namespace, manifest, policy, and handler result shape.
 

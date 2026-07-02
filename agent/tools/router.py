@@ -296,7 +296,7 @@ class ToolRouter:
                 raw = delegate(tool_call, context)
                 if isinstance(raw, ToolResult):
                     return raw
-                # Delegate may return tool_runtime.schemas.ToolResult, which
+                # Delegate may return core.tools.schemas.ToolResult, which
                 # has status (not ok) + output (not top-level fields).
                 if hasattr(raw, "status") and hasattr(raw, "output"):
                     output = getattr(raw, "output", {}) or {}

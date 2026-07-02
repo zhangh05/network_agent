@@ -79,8 +79,8 @@ def test_llm_tool_catalog_exposes_current_knowledge_search():
     # Keep the canonical registry assertion, drop the deleted
     # submodule from the targets list.
     targets = [
-        "tool_runtime/canonical_registry.py",
-        "tool_runtime/tool_namespace_data.py",
+        "core/tools/canonical_registry.py",
+        "core/tools/tool_namespace_data.py",
         "agent/capabilities/catalog.py",
     ]
     for target in targets:

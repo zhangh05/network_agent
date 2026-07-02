@@ -1,4 +1,4 @@
-# tool_runtime/client.py
+# core/tools/client.py
 """ToolRuntimeClient — standard, controlled, auditable interface for invoking tools.
 
 Designed for Module / Service layers (NOT direct Agent invocation).

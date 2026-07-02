@@ -15,7 +15,7 @@ class ApprovalStage:
             return None, False
 
         # v3.9.5: shell safety is destructive-only. We delegate to the
-        # unified pattern set in tool_runtime.dangerous_patterns. If a
+        # unified pattern set in core.tools.dangerous_patterns. If a
         # destructive command is detected, the policy layer (run before
         # us) has already escalated risk to "high" + requires_approval;
         # here we just verify the bubble interrupt setup is correct.
@@ -106,7 +106,7 @@ def _check_shell_safety(tid: str, args: dict) -> tuple[bool, str]:
     Earlier versions embedded their own short list of destructive
     substrings (rm -rf, mkfs, etc.) and missed several real-world
     cases. The single source of truth is now
-    :mod:`tool_runtime.dangerous_patterns`.
+    :mod:`core.tools.dangerous_patterns`.
     """
     from core.tools.dangerous_patterns import scan_arguments_for_dangerous
     if not isinstance(args, dict):

@@ -41,7 +41,7 @@ CRITICAL_FILES = [
     "agent/modules/remote/core.py",
     # v3.9.11 — second-round cuts (formerly C-class silent fallbacks).
     "agent/runtime/command_system.py",
-    "tool_runtime/canonical_registry.py",
+    "core/tools/canonical_registry.py",
     "agent/llm/runtime.py",
     "backend/api/runtime_routes.py",
 ]

@@ -108,7 +108,7 @@ class TestCatalogIncludesManifest:
         """v3.9.6: destructiveness is now action-level, not tool-level.
         The manifest no longer marks ``device.manage`` as
         ``destructive=True`` just because it contains a ``delete``
-        sub-action. Instead, ``tool_runtime.policy._is_destructive_action``
+        sub-action. Instead, ``core.tools.policy._is_destructive_action``
         escalates the call to ``high`` + ``requires_approval`` only
         when ``action`` is in ``_DESTRUCTIVE_ACTIONS`` (delete / remove /
         purge / destroy / drop / delete_file / session_rewind / rewind).

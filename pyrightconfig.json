@@ -5,7 +5,7 @@
     "context",
     "memory",
     "runtime",
-    "tool_runtime",
+    "core",
     "workspace",
     "artifacts",
     "observability",

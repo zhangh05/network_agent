@@ -12,7 +12,7 @@ from core.tools.dangerous_patterns import scan_arguments_for_dangerous
 
 # ── Dangerous command detection ─────────────────────────────────────────
 # v3.9.5: the destructive-pattern list moved to
-# tool_runtime/dangerous_patterns (single source of truth). The local
+# core/tools/dangerous_patterns (single source of truth). The local
 # copy here is gone; the helper is re-exported as
 # ``_check_dangerous_commands`` for any caller that still uses it.
 _check_dangerous_commands = scan_arguments_for_dangerous

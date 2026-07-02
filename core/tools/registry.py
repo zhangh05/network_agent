@@ -1,4 +1,4 @@
-# tool_runtime/registry.py
+# core/tools/registry.py
 """ToolRegistry — tool registration, discovery, and validation.
 
 Stores ToolSpec + handler pairs. Does NOT execute tools.

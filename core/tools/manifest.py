@@ -1,4 +1,4 @@
-# tool_runtime/manifest.py
+# core/tools/manifest.py
 """Capability Manifest 2.0 — single source of truth for tool capabilities."""
 
 from __future__ import annotations

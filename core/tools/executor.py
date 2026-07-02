@@ -1,4 +1,4 @@
-# tool_runtime/executor.py
+# core/tools/executor.py
 """ToolExecutor — execute a ToolInvocation through the full pipeline.
 
 Pipeline:

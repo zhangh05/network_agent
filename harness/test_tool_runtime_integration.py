@@ -1,5 +1,5 @@
 """
-P2c fix coverage: ``tool_runtime.integration.get_default_tool_runtime_client``
+P2c fix coverage: ``core.tools.integration.get_default_tool_runtime_client``
 must be a thread-safe singleton with double-checked locking.
 
 Background (5-layer audit, v3.10):

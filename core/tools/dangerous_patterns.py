@@ -1,4 +1,4 @@
-# tool_runtime/dangerous_patterns.py
+# core/tools/dangerous_patterns.py
 """Single source of truth for "destructive command" detection.
 
 A destructive command is one that, when executed, can permanently or
@@ -10,7 +10,7 @@ approval bubble UX).
 
 The set of patterns lives here so policy / permission / risk layers
 all agree on what "destructive" means. Earlier designs split this
-across ``tool_runtime/policy.py``, ``permission_matrix.py``,
+across ``core/tools/policy.py``, ``permission_matrix.py``,
 ``permission_check.py`` and ``approval_stage.py`` with subtly
 different substring lists — that is consolidated here.
 

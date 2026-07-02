@@ -398,7 +398,7 @@ def _sync_contracts_from_canonical_registry() -> None:
     SSOT Runtime owns scheduling/risk metadata such as concurrency groups, retry
     defaults, and per-stage timeouts. It must not own a second copy of public
     input schemas or user-facing tool descriptions; those belong to
-    ``tool_runtime.canonical_registry`` and are also what the planner sees via
+    ``core.tools.canonical_registry`` and are also what the planner sees via
     ToolRuntimeClient. Syncing here prevents drift such as weather forecast
     parameters or inspection actions disappearing from semantic validation.
     """

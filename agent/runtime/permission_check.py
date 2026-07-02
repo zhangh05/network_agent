@@ -63,7 +63,7 @@ def check_tool_permission(tool_id: str, spec, context, turn) -> tuple[bool, bool
 def check_shell_safety(tool_id: str, arguments: dict) -> tuple[bool, str]:
     """Check if a shell/powershell command is safe to execute.
 
-    v3.9.5: delegates to ``tool_runtime.dangerous_patterns``. Only
+    v3.9.5: delegates to ``core.tools.dangerous_patterns``. Only
     destructive patterns (rm -rf, dd if=, mkfs, fork bomb, PowerShell
     Invoke-Expression, etc.) cause ``(False, denied_word)``. Pipes,
     redirects, chaining, sensitive-path substrings, and arbitrary

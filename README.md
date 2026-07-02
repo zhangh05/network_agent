@@ -47,7 +47,7 @@ flowchart LR
 | `frontend/` | React/Vite 工作台、会话、时间线、设置、资产、诊断 |
 | `agent/app/` | AgentApp 门面、SessionManager、AgentThread |
 | `agent/runtime/` | SSOT Runtime 适配、AgentResult 投影、持久化、hook |
-| `tool_runtime/` | 22 个 canonical tool、manifest、policy、executor、redaction |
+| `core/tools/` | 22 个 canonical tool、manifest、policy、executor、redaction |
 | `agent/capabilities/` | 12 个业务能力目录，只描述能力，不注册工具 |
 | `workspace/` | session/run/message/memory/workspace 数据边界 |
 | `artifacts/` | 制品生命周期与内容存储 |
@@ -56,7 +56,7 @@ flowchart LR
 
 ## 22 个 Canonical Tools
 
-`agent.manage`, `browser.manage`, `code.search`, `config.manage`, `data.manage`, `device.manage`, `exec.run`, `git.manage`, `knowledge.manage`, `memory.manage`, `pcap.manage`, `report.manage`, `skill.manage`, `system.manage`, `text.analyze`, `web.manage`, `workspace.artifact`, `workspace.document.pdf.extract_text`, `workspace.file`, `workspace.filestore`, `workspace.metadata.get`
+`agent.manage`, `browser.manage`, `code.search`, `config.manage`, `data.manage`, `device.manage`, `exec.run`, `git.manage`, `inspection.manage`, `knowledge.manage`, `memory.manage`, `pcap.manage`, `report.manage`, `skill.manage`, `system.manage`, `text.analyze`, `web.manage`, `workspace.artifact`, `workspace.document.pdf.extract_text`, `workspace.file`, `workspace.filestore`, `workspace.metadata.get`
 
 工具名、manifest 和 registry 必须三方一致。不要添加别名，不要恢复旧工具名，不要让 handler 绕过 `ToolRuntimeClient`。
 

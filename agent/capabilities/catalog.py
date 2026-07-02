@@ -7,7 +7,7 @@ those concerns live in canonical_registry / manifest_registry / sandbox.
 
 Three rules:
   1. recommended_tool_ids MUST be a subset of TOOL_NAMESPACE (the
-     canonical tool ids, see ``tool_runtime.tool_namespace``). Removed
+     canonical tool ids, see ``core.tools.tool_namespace``). Removed
      names like device.list / git.status are invalid.
   2. This module exposes only data + a few lookup helpers. It does not
      register tools, filter tools, or influence dispatch.
@@ -27,7 +27,7 @@ from core.tools.tool_namespace import TOOL_NAMESPACE
 #   display_name        str   human-readable name
 #   description         str   one-sentence description
 #   module_ids          tuple  backend module name(s) (e.g. "cmdb", "pcap")
-#   recommended_tool_ids tuple  canonical tool ids from the 21-tool set
+#   recommended_tool_ids tuple  canonical tool ids from the 22-tool set
 #   prompt_hints        tuple  short hints for the LLM when invoking
 #   safety_notes        tuple  short safety warnings for the LLM
 #   status              str   "enabled" or "planned"

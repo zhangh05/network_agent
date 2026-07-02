@@ -1,4 +1,4 @@
-# tool_runtime/ecosystem.py
+# core/tools/ecosystem.py
 """Phase 11: MCP / Skill / Plugin ecosystem interfaces."""
 
 from __future__ import annotations

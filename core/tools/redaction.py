@@ -1,4 +1,4 @@
-# tool_runtime/redaction.py
+# core/tools/redaction.py
 """Tool Runtime redaction — strips secrets from tool output before return.
 
 Reuses patterns consistent with memory/ workspace/ observability redaction layers.

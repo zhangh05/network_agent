@@ -29,7 +29,19 @@ network_agent/
 ├── reports/                    # Generated reports; audits are ignored unless tracked
 ├── runtime/                    # Diagnostics/selfcheck utilities
 ├── storage/                    # File store abstractions
-├── tool_runtime/               # 22 canonical tools, manifest, policy, executor
+├── core/                       # SSOT Runtime engine, canonical tools, core utilities
+│   ├── constraints/
+│   ├── context/
+│   ├── execution/              # ExecutionEngine
+│   ├── graph/                  # EventClock, GraphStore
+│   ├── kernel/                 # Kernel
+│   ├── llm/                    # LLMProvider registry/config
+│   ├── reports/                # Report renderers
+│   ├── runtime/                # Diagnostics/Selfcheck/Retention
+│   ├── runtime_engine/         # SSOT Runtime engine (planner/DAG/finalizer)
+│   ├── time/
+│   ├── tools/                  # 22 canonical tools, manifest, policy, executor
+│   └── workspaces/             # Workspace abstractions
 ├── workspace/                  # Workspace/session/run/message/memory stores
 ├── workspaces/                 # Local workspace data; not committed
 ├── start.sh
@@ -38,7 +50,7 @@ network_agent/
 
 ## Ownership Rules
 
-- Tool execution belongs to `tool_runtime/`.
+- Tool execution belongs to `core/tools/`.
 - Business capability descriptions belong to `agent/capabilities/catalog.py`.
 - Durable runtime state belongs to `agent/runtime/durable/`.
 - User-visible workbench state belongs to `frontend/src/stores/`.

@@ -1,4 +1,4 @@
-# tool_runtime/schemas.py
+# core/tools/schemas.py
 """ToolSpec, ToolInvocation, ToolResult, PolicyDecision — canonical Tool Runtime schemas.
 
 These are independent of the agent/state.py tool_calls/tool_results.

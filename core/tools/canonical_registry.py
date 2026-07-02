@@ -923,7 +923,7 @@ def _handler_cmdb_delete_asset(inv: ToolInvocation) -> dict:
 # Config command patterns — used to flag config-mode commands so the
 # runner can mark them as ``is_config`` for the audit trail. These
 # are NOT a destructive-command list; the destructive scan lives in
-# ``tool_runtime.dangerous_patterns`` (the single source of truth).
+# ``core.tools.dangerous_patterns`` (the single source of truth).
 _CONFIG_COMMAND_PATTERNS = [
     r"(?i)^conf(igure)?\s*(terminal|t)?$",
     r"(?i)^system-view$", r"(?i)^config$",
@@ -938,7 +938,7 @@ _CONFIG_COMMAND_PATTERNS = [
 def _is_dangerous_command(command: str) -> tuple[bool, str]:
     """Check if a command matches a destructive pattern.
 
-    v3.10 (inspection): delegates to ``tool_runtime.dangerous_patterns``
+    v3.10 (inspection): delegates to ``core.tools.dangerous_patterns``
     so the SSH / Telnet handlers and the ToolPolicy check use the
     same pattern set. Earlier versions carried their own
     ``_DANGEROUS_COMMAND_PATTERNS`` here which drifted behind the
@@ -1728,7 +1728,7 @@ def _ws_artifact_list_merged(inv: ToolInvocation) -> dict:
 
 # canonical_tool_id -> CanonicalToolEntry
 _RAW_REGISTRY: list[CanonicalToolEntry] = [
-    # ── 21-tool Codex-style registry (all visible to LLM) ──
+    # ── 22-tool Codex-style registry (all visible to LLM) ──
     # Merged tools use action=... dispatch (see _handle_*_merged above).
     # LLMs and runtime callers use the merged canonical_tool_ids below.
 

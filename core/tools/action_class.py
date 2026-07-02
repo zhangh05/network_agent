@@ -1,4 +1,4 @@
-# tool_runtime/action_class.py
+# core/tools/action_class.py
 """Action class inference for tools.
 
 v2.3.2: Uses category/group/action to classify each tool into:

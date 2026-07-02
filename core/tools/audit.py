@@ -1,4 +1,4 @@
-# tool_runtime/audit.py
+# core/tools/audit.py
 """Tool Runtime audit metadata builder — lightweight structured event records.
 
 Records minimal, safe metadata about each tool invocation.

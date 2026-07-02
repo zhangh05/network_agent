@@ -70,7 +70,7 @@ class TestSelfcheck:
         assert result.checks.get("tool_runtime") == "ok"
         assert result.checks.get("tool_registered_count") == len(CANONICAL_REGISTRY)
         assert result.checks.get("tool_forbidden_count") == len(V02_FORBIDDEN_TOOLS)
-        # v3.9.3: tool_governance module removed. All 21 canonical tools
+        # v3.9.3: tool_governance module removed. All 22 canonical tools
         # are active; V02_FORBIDDEN_TOOLS is a separate policy blacklist
         # of legacy tool names, not a subset of the registry.
         assert result.checks.get("tool_governance") == {

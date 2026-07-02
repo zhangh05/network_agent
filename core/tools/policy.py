@@ -1,4 +1,4 @@
-# tool_runtime/policy.py
+# core/tools/policy.py
 """ToolPolicy — permission and safety enforcement with risk levels.
 
 v3.9.5: command-level safety check is **destructive-only**.
@@ -16,7 +16,7 @@ Checks:
      **not** block the call.
   9. broad char-blacklist (| && || ; ` $ > <) and sensitive-path
      substring (/etc/passwd, ../) are gone. Only the destructive
-     command set in ``tool_runtime.dangerous_patterns`` matters.
+     command set in ``core.tools.dangerous_patterns`` matters.
 """
 
 from core.tools.schemas import ToolSpec, ToolInvocation, PolicyDecision
@@ -87,7 +87,7 @@ def is_tool_forbidden(tool_id: str) -> bool:
     """Check if a tool_id is forbidden (exact match or regex pattern).
 
     Single source of truth for forbidden tool checks — used by both
-    tool_runtime.policy and agent.runtime.permission_matrix.
+    core.tools.policy and agent.runtime.permission_matrix.
     """
     if tool_id in V02_FORBIDDEN_TOOLS:
         return True
@@ -98,7 +98,7 @@ def is_tool_forbidden(tool_id: str) -> bool:
 
 
 # ── Public exports. The destructive-command implementation lives in
-# tool_runtime.dangerous_patterns. ──
+# core.tools.dangerous_patterns. ──
 __all__ = [
     "ToolPolicy",
     "V02_ALLOWED_RISK_LEVELS",
@@ -274,7 +274,7 @@ def _check_argument_safety(
     chaining, redirection, expansion, sensitive-path substrings, and
     "rm -rf" appearing in non-command text are no longer reasons to
     block. The only signal is the destructive-pattern scan from
-    ``tool_runtime.dangerous_patterns``.
+    ``core.tools.dangerous_patterns``.
     """
     if not arguments:
         return "low", ""

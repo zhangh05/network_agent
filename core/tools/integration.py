@@ -1,4 +1,4 @@
-# tool_runtime/integration.py
+# core/tools/integration.py
 """Integration helpers — factory functions and trace metadata adapter.
 
 Provides:

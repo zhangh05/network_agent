@@ -17,7 +17,7 @@ import pytest
 @pytest.fixture
 def mock_tool_runtime():
     """Mock ToolRuntimeClient to capture invoke() calls."""
-    with patch("tool_runtime.integration.get_default_tool_runtime_client") as mock_get:
+    with patch("core.tools.integration.get_default_tool_runtime_client") as mock_get:
         mock_client = MagicMock()
         mock_result = MagicMock()
         mock_result.status = "succeeded"

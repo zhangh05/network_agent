@@ -92,7 +92,7 @@ def test_gc_script_exists_and_importable():
 def test_runtime_uses_current_storage_tokens():
     """Runtime code should use current storage and artifact-store tokens."""
     root = Path(__file__).resolve().parents[1]
-    runtime_dirs = ["artifacts", "workspace", "agent", "backend", "storage", "tool_runtime"]
+    runtime_dirs = ["artifacts", "workspace", "agent", "backend", "storage", "core"]
     hits = []
     for rd in runtime_dirs:
         for py_file in (root / rd).rglob("*.py"):

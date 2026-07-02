@@ -1,4 +1,4 @@
-# tool_runtime/context.py
+# core/tools/context.py
 """ToolRuntimeContext — carries invocation context from caller through to ToolInvocation.
 
 Provides a standard way for Module / Service layers to pass workspace, run, job,

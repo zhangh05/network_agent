@@ -70,7 +70,7 @@ class PermissionMatrix:
         Returns:
             PermissionDecision: ALLOW, DENY, or REQUIRE_APPROVAL.
         """
-        # 1. Check forbidden tools (single source of truth: tool_runtime.policy)
+        # 1. Check forbidden tools (single source of truth: core.tools.policy)
         from core.tools.policy import is_tool_forbidden
         if is_tool_forbidden(tool_id):
             return PermissionDecision.DENY
@@ -161,7 +161,7 @@ class PermissionMatrix:
 # Dangerous paths that should never be accessed
 # v3.9.5: named ``_DANGEROUS_PATH_PATTERNS`` (was ``_DANGEROUS_PATTERNS``)
 # to avoid collision with the command-level dangerous pattern set in
-# ``tool_runtime.dangerous_patterns``.
+# ``core.tools.dangerous_patterns``.
 _DANGEROUS_PATHS = {
     "/etc/passwd", "/etc/shadow", "/etc/sudoers",
     "/root", "/var/root",
@@ -216,7 +216,7 @@ def check_dangerous_path(path: str) -> bool:
 
 def check_safe_command(command: str) -> bool:
     """Shell command safety is decided by
-    :func:`tool_runtime.dangerous_patterns.is_destructive_command`
+    :func:`core.tools.dangerous_patterns.is_destructive_command`
     which returns True only for explicitly destructive patterns
     (rm -rf, dd if=, mkfs, etc.).
     """

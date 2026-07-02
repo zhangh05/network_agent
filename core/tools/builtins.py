@@ -1,4 +1,4 @@
-# tool_runtime/builtins.py
+# core/tools/builtins.py
 """Built-in low-risk tools.
 
 One baseline tool is provided:

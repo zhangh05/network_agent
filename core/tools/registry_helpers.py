@@ -1,4 +1,4 @@
-# tool_runtime/registry_helpers.py
+# core/tools/registry_helpers.py
 """Lightweight helper functions extracted from canonical_registry for readability."""
 
 from __future__ import annotations

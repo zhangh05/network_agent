@@ -1,4 +1,4 @@
-# tool_runtime/general_tools/shared.py
+# core/tools/general_tools/shared.py
 """Shared helpers for split general tools."""
 
 import json

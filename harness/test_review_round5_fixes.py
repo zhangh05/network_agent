@@ -2,7 +2,7 @@
 
 Covers the following P0/P1 issues found in agent/runtime/loop.py,
 agent/runtime/context_builder.py, agent/runtime/query_engine.py,
-tool_runtime/general_tools/registry.py, and backend/api/runtime_routes.py.
+core/tools/general_tools/registry.py, and backend/api/runtime_routes.py.
 
 Each fix should have at least one focused test that fails on the old code
 and passes on the new code.

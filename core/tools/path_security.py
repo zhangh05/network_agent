@@ -1,4 +1,4 @@
-# tool_runtime/path_security.py
+# core/tools/path_security.py
 """Safe workspace path resolver — blocks path traversal, symlink escape, and encoding bypass.
 
 All workspace file paths MUST go through this resolver. It guarantees:

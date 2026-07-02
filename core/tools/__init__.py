@@ -1,9 +1,9 @@
-# tool_runtime/__init__.py
+# core/tools/__init__.py
 """Tool Runtime — atomic, auditable, policy-controlled tool execution.
 
 This package provides the base layer for tool registration, policy enforcement,
 execution, redaction, and audit metadata. Real device access is provided by
-the canonical tool layer (``tool_runtime.canonical_registry`` — e.g.
+the canonical tool layer (``core.tools.canonical_registry`` — e.g.
 ``exec.run(target=ssh|telnet)``); this foundation layer is policy/registry
 agnostic to where the call goes.
 

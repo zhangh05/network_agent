@@ -234,7 +234,7 @@ class ToolRuntime:
         SSOT Runtime always returned ``success=True`` whenever the handler
         didn't raise, even when its inner data said the call had
         failed. The behavior now mirrors the production tool
-        runtime at ``tool_runtime.executor``: the handler's
+        runtime at ``core.tools.executor``: the handler's
         explicit ``ok`` (or ``success``) field drives success.
         """
         start = time.monotonic()
