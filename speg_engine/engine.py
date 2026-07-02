@@ -32,13 +32,6 @@ import time
 import uuid
 import sys
 
-# ── v3.16: Diagnostic logger for zero-tool-execution triage ──────
-_TRIAGE = sys.stderr
-
-def _diag(turn_id: str, msg: str) -> None:
-    ts = time.monotonic()
-    _TRIAGE.write(f"[SPEG-DIAG|{turn_id[:8]}|{ts:.3f}] {msg}\n")
-    _TRIAGE.flush()
 from typing import Any, Callable
 
 from .audit import AuditLogger
@@ -279,7 +272,6 @@ class SPEGEngine:
         )
 
         diag_id = session_id or "none"
-        _diag(diag_id, f"ENGINE_ENTRY | user_input_len={len(user_input)}")
 
         # ── v10: contract boundary — engine_entry check ───────
         from .runtime_contracts import ContractBoundary
@@ -363,11 +355,8 @@ class SPEGEngine:
                 reason="conversation-ref with history available",
             )
 
-        _diag(diag_id, f"FAST_PATH | enabled={fast.enabled} route={fast.route} reason={fast.reason}")
-        _diag(diag_id, f"TASK_INTENT | is_task={task_intent.is_task} type={task_intent.intent_type} requires_tool={task_intent.requires_tool_likely}")
 
         if fast.enabled:
-            _diag(diag_id, "ROUTE fast_path → direct_answer")
             self._emit_stage(FINALIZING_STARTED, t_total)
             direct_latency_start = time.monotonic()
 
@@ -432,11 +421,7 @@ class SPEGEngine:
             # reached via raise instead of in-engine check.
             try:
                 plan_nodes = self._planner.plan(ctx)
-                _diag(diag_id, f"PLANNER result | nodes={len(plan_nodes)}")
-                for i, n in enumerate(plan_nodes):
-                    _diag(diag_id, f"  node[{i}] id={n.id} tool={n.tool} args_keys={list(n.args.keys())}")
             except ExecutionObligationViolation as exc:
-                _diag(diag_id, f"ROUTE execution_obligation_violation | {exc}")
                 metrics.capture_planner(
                     (time.monotonic() - t_planner) * 1000
                 )
@@ -468,9 +453,7 @@ class SPEGEngine:
                 # nodes, this is a planner failure — not a "nothing to
                 # do" scenario.
                 empty_task = plan_nodes_empty_for_task(ctx.user_input)
-                _diag(diag_id, f"EMPTY_PLAN guard | empty_for_task={empty_task}")
                 if empty_task:
-                    _diag(diag_id, "ROUTE empty_plan_task → PLANNER_EMPTY_FOR_TASK_INTENT error")
                     errors.append(build_error(
                         SpegErrorCode.PLANNER_EMPTY_FOR_TASK_INTENT,
                         "Planner returned empty nodes for a task-intent request. "
@@ -485,7 +468,6 @@ class SPEGEngine:
                     )
 
                 # No tools — skip to finalizer
-                _diag(diag_id, "ROUTE no_tools → skip to finalizer")
                 t_merge = time.monotonic()
                 # v6: causal order is still valid even without tool execution
                 ctx.extras.setdefault("causal_order_valid", True)
@@ -495,7 +477,6 @@ class SPEGEngine:
                 metrics.capture_validation(0)
 
                 direct_response = str(ctx.extras.get("direct_response") or "").strip()
-                _diag(diag_id, f"SKIP_FINALIZE | direct_response_len={len(direct_response)} enable_finalizer={self._config.enable_finalizer}")
                 if direct_response:
                     final_response = direct_response
                     metrics.capture_finalizer(0)
@@ -519,7 +500,6 @@ class SPEGEngine:
                 # Stage 4: Compile
                 t_compile = time.monotonic()
                 dag = self._compiler.compile(plan_nodes)
-                _diag(diag_id, f"COMPILE | nodes={dag.total_nodes} depth={dag.max_depth}")
                 enrichment_events = enrich_dag_from_user_request(dag, ctx.user_input)
                 if enrichment_events:
                     ctx.extras["plan_enrichment_events"] = [
@@ -553,7 +533,6 @@ class SPEGEngine:
                 # Stage 5: Structural validation
                 t_val = time.monotonic()
                 dag = self._struct_validator.validate(dag)
-                _diag(diag_id, f"STRUCT_VALID | is_valid={dag.is_valid} errors={len(dag.validation_errors)}")
                 metrics.capture_validation((time.monotonic() - t_val) * 1000)
                 self._emit_stage(
                     STRUCTURAL_VALIDATED, t_total,
@@ -572,7 +551,6 @@ class SPEGEngine:
                 # Stage 6: Semantic validation
                 t_sem = time.monotonic()
                 sem_result = self._sem_validator.validate(dag)
-                _diag(diag_id, f"SEM_VALID | valid={sem_result.valid} errors={len(sem_result.errors)}")
 
                 if not sem_result.valid:
                     # Stage 6b: Pre-execution repair attempt
@@ -705,7 +683,6 @@ class SPEGEngine:
                 # Stage 7: Risk policy check
                 risk_assessment = self._risk_policy.assess(dag)
                 risk_level = risk_assessment.risk_level
-                _diag(diag_id, f"RISK_POLICY | level={risk_level} safe={risk_assessment.safe_to_run} hard_block={risk_assessment.hard_block} approval={risk_assessment.requires_approval}")
                 self._emit_stage(
                     RISK_ASSESSED, t_total,
                     risk_level=risk_assessment.risk_level,
@@ -788,14 +765,12 @@ class SPEGEngine:
                     EXECUTION_STARTED, t_total,
                     nodes=dag.total_nodes,
                 )
-                _diag(diag_id, f"EXEC_START | nodes={dag.total_nodes} layers={dag.max_depth}")
                 node_results = await self._scheduled_execute(dag, ctx, budget)
                 execution_ms = (time.monotonic() - t_exec) * 1000
                 execution_span.stop()
                 metrics.capture_execution(execution_ms, node_results, dag)
                 ok = sum(1 for n in node_results.values() if n.success)
                 fail = sum(1 for n in node_results.values() if not n.success)
-                _diag(diag_id, f"EXEC_DONE | results={len(node_results)} ok={ok} fail={fail}")
                 execution_span.stop()
                 metrics.capture_execution(execution_ms, node_results, dag)
                 ok = sum(1 for n in node_results.values() if n.success)
@@ -905,13 +880,11 @@ class SPEGEngine:
                         t_final = time.monotonic()
                         final_response = await self._finalizer.finalize(ctx, merged)
                         llm_span.stop()
-                        _diag(diag_id, f"FINALIZER output | len={len(final_response)} preview={final_response[:120]!r}")
                         metrics.capture_finalizer(
                             float(ctx.extras.get("finalizer_latency_ms", 0))
                         )
                 else:
                     final_response = self._finalizer._build_default_response(merged)
-                    _diag(diag_id, f"FINALIZER skipped (budget/enable) | default_len={len(final_response)} preview={final_response[:120]!r}")
                 self._emit_stage(FINALIZING_COMPLETED, t_total)
 
                 # ── v3.14: Final-response validation ────────────────
@@ -958,7 +931,6 @@ class SPEGEngine:
             metrics.set_llm_calls(budget.llm_calls)
             metrics.set_risk_level(risk_level)
 
-            _diag(diag_id, f"ENGINE_EXIT | nodes={len(node_results)} errors={len(errors)} llm_calls={budget.llm_calls} final_resp_len={len(final_response)} final_resp={final_response[:80]!r}")
 
             self._emit_stage(TURN_COMPLETED, t_total)
 

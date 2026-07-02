@@ -52,9 +52,6 @@ def invoke_llm(
         cfg = {**cfg, **config_override}
 
     if not cfg.get("enabled") or cfg.get("provider_type") == "disabled":
-        # v3.16: diagnose why LLM is considered disabled
-        import sys
-        sys.stderr.write(f"[LLM-DIAG] DISABLED | enabled={cfg.get('enabled')} provider_type={cfg.get('provider_type')} config_source={cfg.get('config_source','?')}\n")
         return LLMResponse(
             error="LLM is disabled.",
             metadata={

@@ -23,15 +23,6 @@ from agent.runtime.utils import now_iso
 from agent.approval import get_approval_store
 from speg_engine.runtime_contracts import ExecutionContract
 
-# ── v3.16: diagnostic logger (local to adapter) ──────────────
-import sys as _sys
-_ADIAG_OUT = _sys.stderr
-def _diag(msg: str) -> None:
-    import time
-    ts = time.monotonic()
-    _ADIAG_OUT.write(f"[SPEG-ADAPT|{ts:.3f}] {msg}\n")
-    _ADIAG_OUT.flush()
-
 _LOG = logging.getLogger(__name__)
 
 
@@ -112,7 +103,6 @@ def run_speg_turn(
         # them, then block until the user approves/denies.
         speg_meta = speg_result.metadata or {}
         if speg_meta.get("approval_required") and speg_meta.get("approval_nodes"):
-            _diag(f"SPEG-ADAPTER|APPROVAL_GATE | nodes={speg_meta['approval_nodes']} risk={speg_meta.get('risk_level','?')}")
             store = get_approval_store()
             approval_ids: list[str] = []
             approval_details = speg_meta.get("approval_details") or []
@@ -133,7 +123,6 @@ def run_speg_turn(
                     run_id=turn.turn_id,
                 )
                 approval_ids.append(req.approval_id)
-                _diag(f"SPEG-ADAPTER|APPROVAL_CREATE | aid={req.approval_id} tool={tool_id}")
 
             # If no approval_details, create one entry for all nodes
             if not approval_details:
@@ -149,7 +138,6 @@ def run_speg_turn(
                     run_id=turn.turn_id,
                 )
                 approval_ids.append(req.approval_id)
-                _diag(f"SPEG-ADAPTER|APPROVAL_CREATE | aid={req.approval_id} nodes={nodes}")
 
             # Block until all approvals are resolved (frontend bubble flow)
             approved = True
@@ -160,7 +148,6 @@ def run_speg_turn(
 
             if approved:
                 # Re-run with approval bypass flag
-                _diag("SPEG-ADAPTER|APPROVAL_APPROVED | re-running with approved_risk")
                 metadata_in["approved_risk"] = True
                 engine2 = _build_engine(
                     workspace_id=workspace_id,
@@ -181,7 +168,6 @@ def run_speg_turn(
                 )
             else:
                 # User denied — return rejection result
-                _diag("SPEG-ADAPTER|APPROVAL_DENIED")
                 return AgentResult(
                     ok=True,
                     final_response="操作已取消（审批未通过）。",
@@ -443,7 +429,6 @@ def _invoke_llm_for_speg(**kwargs) -> str:
         config_override = {"timeout": int(timeout)}
 
     sid = kwargs.get("extra", {}).get("session_id", "?")[:8]
-    _diag(f"SPEG-ADAPTER|{sid}|LLM_CALL | is_planner={is_planner} stream_to_user={extra.get('stream_to_user')} config_override={'yes' if config_override else 'no'}")
 
     resp = invoke_llm(
         task="assistant_chat",
@@ -457,7 +442,6 @@ def _invoke_llm_for_speg(**kwargs) -> str:
         config_override=config_override,
     )
 
-    _diag(f"SPEG-ADAPTER|{sid}|LLM_RESULT | error={repr(resp.error) if resp.error else 'None'} content_len={len(resp.content or '')} provider={getattr(resp, 'provider', '?')}")
 
     if resp.error:
         raise RuntimeError(resp.error)
