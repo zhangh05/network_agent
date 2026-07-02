@@ -18,6 +18,7 @@ import { DecisionReportPanel } from "../../components/DecisionReportPanel";
 import { APP_EVENTS } from "../../utils/appEvents";
 import { deriveRunTraceStats } from "../../utils/runTraceStats";
 import { formatEventTime, formatEventDetail, formatEventLabel } from "../../utils/runEvent";
+import { formatDate } from "../../utils/format";
 import type { DecisionReport, RuntimeAuditTurn, AgentResult } from "../../types";
 
 /* ── Status helpers ── */
@@ -285,7 +286,7 @@ export function RunsPage() {
                   <Badge kind={sBadge(effectiveStatus(r))}>{sLabel(effectiveStatus(r))}</Badge>
                 </div>
                 <div style={{ display: "flex", gap: 8, marginLeft: 16, fontSize: "var(--fs-10)", color: "var(--text-4)" }}>
-                  <span>{r.created_at ? new Date(r.created_at).toLocaleString("zh-CN", { month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit" }) : "-"}</span>
+                  <span>{r.created_at ? formatDate(r.created_at, "compact") : "-"}</span>
                   {Number(r.tool_call_count || 0) > 0 && <span>{r.tool_call_count} 工具</span>}
                   {Number(r.warning_count || 0) > 0 && <span>{r.warning_count} 警告</span>}
                   {Number(r.error_count || 0) > 0 && <span>{r.error_count} 错误</span>}

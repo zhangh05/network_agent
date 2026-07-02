@@ -8,6 +8,7 @@ import { isApiError, AgentResult } from "../types";
 import type { Session } from "../types";
 import { IconArchive, IconBolt, IconChat, IconEdit, IconPlus, IconTrash, IconWorkspace } from "../components/Icon";
 import { APP_EVENTS } from "../utils/appEvents";
+import { formatDate } from "../utils/format";
 
 const SESSION_PREVIEW_LIMIT = 12;
 
@@ -422,7 +423,7 @@ export function Sidebar() {
                       {intentBadge}
                       {r.created_at && (
                         <span className="text-xs faint">
-                          {new Date(r.created_at).toLocaleTimeString(undefined, { hour: "2-digit", minute: "2-digit" })}
+                          {formatDate(r.created_at, "time")}
                         </span>
                       )}
                     </div>

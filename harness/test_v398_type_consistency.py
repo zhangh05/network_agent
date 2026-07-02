@@ -198,3 +198,19 @@ def test_from_iso_rejects_naive_timestamps():
 
     with pytest.raises(ValueError):
         from_iso("2026-06-30T10:00:00")
+
+
+def test_observability_event_timestamp_is_timezone_aware_iso():
+    from observability.schemas import TraceEvent
+
+    event = TraceEvent(event_type="agent_start")
+    parsed = datetime.fromisoformat(event.timestamp)
+    assert parsed.tzinfo is not None
+
+
+def test_context_bundle_timestamp_is_timezone_aware_iso():
+    from core.context.schemas import ContextBundle
+
+    bundle = ContextBundle()
+    parsed = datetime.fromisoformat(bundle.created_at)
+    assert parsed.tzinfo is not None

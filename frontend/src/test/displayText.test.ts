@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { renderAssistantHtml, sanitizeAssistantText } from "../utils/displayText";
+import { formatDate } from "../utils/format";
 
 describe("sanitizeAssistantText", () => {
   it("rewrites old English assistant welcome copy into product-tone Chinese", () => {
@@ -23,5 +24,13 @@ describe("sanitizeAssistantText", () => {
     expect(html).toContain("<br />");
     expect(html).toContain("<code>kubernetes.io</code>");
     expect(html).not.toMatch(/&lt;br|<br&gt;/i);
+  });
+});
+
+describe("formatDate", () => {
+  it("renders backend UTC timestamps in the product timezone", () => {
+    expect(formatDate("2026-07-02T00:42:33+00:00", "time")).toBe("08:42");
+    expect(formatDate("2026-07-02T00:42:33+00:00", "compact")).toContain("2026/07/02");
+    expect(formatDate("2026-07-02T00:42:33+00:00", "compact")).toContain("08:42");
   });
 });

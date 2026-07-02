@@ -1,9 +1,11 @@
 # context/schemas.py
 """ContextBundle, ExecutionContext, SafeLLMContext, ContextRef schemas."""
 
-import uuid, time
+import uuid
 from dataclasses import dataclass, field
 from typing import Optional
+
+from agent.runtime.utils import now_iso
 
 @dataclass
 class ContextRef:
@@ -175,7 +177,7 @@ class ContextBundle:
     policy: dict = field(default_factory=dict)
     warnings: list = field(default_factory=list)
     errors: list = field(default_factory=list)
-    created_at: str = field(default_factory=lambda: time.strftime("%Y-%m-%dT%H:%M:%S"))
+    created_at: str = field(default_factory=now_iso)
     redaction_applied: bool = False
 
     def as_dict(self):

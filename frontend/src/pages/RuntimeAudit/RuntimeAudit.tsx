@@ -12,6 +12,7 @@ import type { RuntimeAuditTurn } from "../../types";
 import { IconAlert, IconClock } from "../../components/Icon";
 import { APP_EVENTS } from "../../utils/appEvents";
 import { formatEventTime, formatEventDetail, formatEventLabel } from "../../utils/runEvent";
+import { formatDate } from "../../utils/format";
 
 const STATUS_LABEL: Record<string, string> = {
   ok: "成功",
@@ -284,14 +285,5 @@ export function RuntimeAudit() {
 
 function auditTime(turn: RuntimeAuditTurn): string {
   const value = turn.created_at || turn.started_at || turn.finished_at;
-  if (!value) return "—";
-  try {
-    return new Date(value).toLocaleTimeString(undefined, {
-      hour: "2-digit",
-      minute: "2-digit",
-    });
-  } catch {
-    return value;
-  }
+  return value ? formatDate(value, "time") : "—";
 }
-

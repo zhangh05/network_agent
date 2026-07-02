@@ -1,5 +1,6 @@
 import { renderMarkdown } from './markdown';
 import type { ToolPlanStep } from '../types';
+import { formatDate } from './format';
 
 export function sanitizeAssistantText(text: string): string {
   const raw = text ?? "";
@@ -144,16 +145,7 @@ export function shortId(id: string | undefined | null, fallback = "—"): string
 }
 
 export function formatCompactDate(value: string | undefined | null): string {
-  if (!value) return "";
-  const d = new Date(value);
-  if (Number.isNaN(d.getTime())) return value;
-  return d.toLocaleString(undefined, {
-    year: "numeric",
-    month: "2-digit",
-    day: "2-digit",
-    hour: "2-digit",
-    minute: "2-digit",
-  });
+  return value ? formatDate(value, "compact") : "";
 }
 
 // ───────────────────── Tool display helpers ─────────────────────

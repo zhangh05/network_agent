@@ -1,11 +1,11 @@
 # observability/schemas.py
 """TraceEvent, TraceRecord schemas for runtime observability."""
 
-import time
 import uuid
 from dataclasses import dataclass, field
-from datetime import datetime, timezone
 from typing import Any, Optional
+
+from agent.runtime.utils import now_iso
 
 EVENT_TYPES = {
     "agent_start", "agent_end",
@@ -25,7 +25,7 @@ STATUS_VALUES = {"started", "success", "failed", "skipped"}
 
 
 def _utcnow() -> str:
-    return datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%S")
+    return now_iso()
 
 
 @dataclass

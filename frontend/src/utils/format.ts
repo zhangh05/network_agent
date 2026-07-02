@@ -1,7 +1,11 @@
 /**
  * Shared formatting utilities — single source of truth for date / file-size display.
- * All page-level duplicates have been consolidated here.
+ * Backend timestamps are UTC ISO strings; frontend renders them in the product
+ * timezone so every page shows the same wall-clock value.
  */
+
+const DISPLAY_LOCALE = "zh-CN";
+const DISPLAY_TIME_ZONE = "Asia/Shanghai";
 
 /** Human-readable file size. */
 export function formatFileSize(bytes: number): string {
@@ -21,20 +25,20 @@ export function formatDate(
   const d = new Date(value);
   if (Number.isNaN(d.getTime())) return value;
 
-  const locale = "zh-CN";
   switch (style) {
     case "short":
-      return d.toLocaleDateString(locale);
+      return d.toLocaleDateString(DISPLAY_LOCALE, { timeZone: DISPLAY_TIME_ZONE });
     case "time":
-      return d.toLocaleTimeString(locale, { hour: "2-digit", minute: "2-digit" });
+      return d.toLocaleTimeString(DISPLAY_LOCALE, { hour: "2-digit", minute: "2-digit", timeZone: DISPLAY_TIME_ZONE });
     case "compact":
     default:
-      return d.toLocaleString(locale, {
+      return d.toLocaleString(DISPLAY_LOCALE, {
         year: "numeric",
         month: "2-digit",
         day: "2-digit",
         hour: "2-digit",
         minute: "2-digit",
+        timeZone: DISPLAY_TIME_ZONE,
       });
   }
 }

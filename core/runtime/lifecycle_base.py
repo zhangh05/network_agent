@@ -16,6 +16,8 @@ import uuid
 from pathlib import Path
 from typing import Optional
 
+from agent.runtime.utils import now_iso
+
 ROOT = Path(__file__).resolve().parents[2]
 WS_ROOT = ROOT / "workspaces"
 
@@ -165,7 +167,7 @@ def write_audit(audit_dir: Path, record_type: str, workspace_id: str,
     record = {
         "audit_id": audit_id,
         "type": record_type,
-        "created_at": time.strftime("%Y-%m-%dT%H:%M:%S"),
+        "created_at": now_iso(),
         "workspace_id": workspace_id,
         "dry_run": dry_run,
         "confirmed": not dry_run,

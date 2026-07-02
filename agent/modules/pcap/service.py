@@ -11,6 +11,7 @@ import json
 from pathlib import Path
 from typing import Any
 
+from agent.runtime.utils import now_iso
 from agent.modules.pcap.core import (
     PCAP_SESSIONS,
     filter_by_5tuple,
@@ -144,8 +145,7 @@ def delete_pcap_session(session_id: str, workspace_id: str = "") -> dict:
         import json
         idx_path = workspace_root(workspace_id) / "index" / "pcap_sessions.jsonl"
         if idx_path.exists():
-            tombstone = {"session_id": session_id, "deleted": True,
-                         "deleted_at": __import__("datetime").datetime.utcnow().isoformat() + "Z"}
+            tombstone = {"session_id": session_id, "deleted": True, "deleted_at": now_iso()}
             with open(idx_path, "a", encoding="utf-8") as f:
                 f.write(json.dumps(tombstone, ensure_ascii=False) + "\n")
     except Exception:

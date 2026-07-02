@@ -13,6 +13,7 @@ import { useToastStore } from "../../stores/toast";
 import { isApiError } from "../../types";
 import type { ProviderConfig, LlmTestResult } from "../../types";
 import { sanitizeAssistantText } from "../../utils/displayText";
+import { formatDate } from "../../utils/format";
 
 /* ──────────────────────── Provider Presets ──────────────────────── */
 
@@ -499,7 +500,7 @@ export function Settings() {
                   <span style={{ flex: 1 }} />
                   {draft.updated_at && (
                     <span className="muted" style={{ fontSize: 11 }} data-testid="last-updated">
-                      {new Date(draft.updated_at).toLocaleString()}
+                      {formatDate(draft.updated_at, "compact")}
                     </span>
                   )}
                   <button
