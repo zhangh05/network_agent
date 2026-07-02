@@ -10,9 +10,9 @@ import pytest
 from unittest import mock
 from types import SimpleNamespace
 
-from speg_engine.fast_path import classify_direct_answer, FastPathDecision
-from speg_engine import SPEGConfig, SPEGEngine
-from speg_engine.models import StatelessContext, ExecutionNode, ExecutionDAG, ToolResult
+from core.runtime_engine.fast_path import classify_direct_answer, FastPathDecision
+from core.runtime_engine import SSOTRuntimeConfig, SSOTRuntimeEngine
+from core.runtime_engine.models import StatelessContext, ExecutionNode, ExecutionDAG, ToolResult
 
 
 # ============================================================================
@@ -81,7 +81,7 @@ class TestFastPathClassifier:
         assert d.enabled is True
 
     def test_ospf_neighbor_down_reason(self):
-        """'解释一下 OSPF 邻居起不来的原因' has troubleshooting intent → full SPEG."""
+        """'解释一下 OSPF 邻居起不来的原因' has troubleshooting intent → full SSOT Runtime."""
         d = classify_direct_answer("解释一下 OSPF 邻居起不来的原因")
         assert d.enabled is False
 
@@ -91,7 +91,7 @@ class TestFastPathClassifier:
         assert d.enabled is True
 
     def test_nat_policy_failure(self):
-        """'NAT 策略不生效是什么原因' has network+troubleshooting → full SPEG."""
+        """'NAT 策略不生效是什么原因' has network+troubleshooting → full SSOT Runtime."""
         d = classify_direct_answer("NAT 策略不生效是什么原因")
         assert d.enabled is False
 
@@ -101,17 +101,17 @@ class TestFastPathClassifier:
         assert d.enabled is True
 
     def test_mtu_mismatch(self):
-        """'MTU 不匹配是什么现象' has troubleshooting → full SPEG."""
+        """'MTU 不匹配是什么现象' has troubleshooting → full SSOT Runtime."""
         d = classify_direct_answer("MTU 不匹配是什么现象")
         assert d.enabled is False
 
     def test_interface_packet_loss(self):
-        """'接口丢包是什么原因' has network+troubleshooting → full SPEG."""
+        """'接口丢包是什么原因' has network+troubleshooting → full SSOT Runtime."""
         d = classify_direct_answer("接口丢包是什么原因")
         assert d.enabled is False
 
     def test_firewall_policy_analysis(self):
-        """'帮我分析防火墙策略不生效' has troubleshooting → full SPEG."""
+        """'帮我分析防火墙策略不生效' has troubleshooting → full SSOT Runtime."""
         d = classify_direct_answer("帮我分析防火墙策略不生效")
         assert d.enabled is False
 
@@ -121,7 +121,7 @@ class TestFastPathClassifier:
         assert d.enabled is True
 
     def test_translate_file(self):
-        """'翻译 README.md' or '翻译这个文件' → hard-tool keyword → full SPEG."""
+        """'翻译 README.md' or '翻译这个文件' → hard-tool keyword → full SSOT Runtime."""
         d = classify_direct_answer("翻译 README.md")
         assert d.enabled is False
         d2 = classify_direct_answer("翻译这个文件")
@@ -129,11 +129,11 @@ class TestFastPathClassifier:
 
 
 # ============================================================================
-# SPEG fast-path integration tests
+# SSOT Runtime fast-path integration tests
 # ============================================================================
 
 class TestFastPathGenerator:
-    """Test the _generate_direct_answer path through SPEGEngine."""
+    """Test the _generate_direct_answer path through SSOTRuntimeEngine."""
 
     def test_fast_path_skips_planner(self):
         """'你好' uses fast path — planner never invoked."""
@@ -143,8 +143,8 @@ class TestFastPathGenerator:
             planner_called.append(kwargs.get("system", ""))
             return kwargs.get("user", "hello")
 
-        config = SPEGConfig()
-        engine = SPEGEngine(
+        config = SSOTRuntimeConfig()
+        engine = SSOTRuntimeEngine(
             config=config, llm_invoke=llm_mock,
             tool_runtime=mock.MagicMock(),
         )
@@ -168,8 +168,8 @@ class TestFastPathGenerator:
             planner_called.append(extra.get("stream_scope", "unknown"))
             return "OSPF（开放式最短路径优先）是一种内部网关协议..."
 
-        config = SPEGConfig()
-        engine = SPEGEngine(
+        config = SSOTRuntimeConfig()
+        engine = SSOTRuntimeEngine(
             config=config, llm_invoke=llm_mock,
             tool_runtime=mock.MagicMock(),
         )
@@ -186,7 +186,7 @@ class TestFastPathGenerator:
         assert meta.get("used_tools") is False
         assert meta.get("route") == "simple_question"
 
-    def test_ospf_neighbor_down_full_speg(self):
+    def test_ospf_neighbor_down_full_ssot_runtime(self):
         """'OSPF 邻居起不来' rejets fast path — planner must run."""
         planner_called = []
 
@@ -194,8 +194,8 @@ class TestFastPathGenerator:
             planner_called.append(True)
             return '{"nodes": []}'  # planner returns no tools
 
-        config = SPEGConfig()
-        engine = SPEGEngine(
+        config = SSOTRuntimeConfig()
+        engine = SSOTRuntimeEngine(
             config=config, llm_invoke=llm_mock,
             tool_runtime=mock.MagicMock(),
         )
@@ -209,7 +209,7 @@ class TestFastPathGenerator:
         assert meta.get("planner_skipped") is False
         assert len(planner_called) >= 1, "planner should have been invoked"
 
-    def test_read_file_full_speg(self):
+    def test_read_file_full_ssot_runtime(self):
         """'帮我读取 README.md' rejects fast path."""
         planner_called = []
 
@@ -217,8 +217,8 @@ class TestFastPathGenerator:
             planner_called.append(True)
             return '{"nodes": []}'
 
-        config = SPEGConfig()
-        engine = SPEGEngine(
+        config = SSOTRuntimeConfig()
+        engine = SSOTRuntimeEngine(
             config=config, llm_invoke=llm_mock,
             tool_runtime=mock.MagicMock(),
         )
@@ -240,7 +240,7 @@ class TestStreamScope:
     """Verify stream_to_user / stream_scope reaching provider.py."""
 
     def test_planner_gets_stream_to_user_false(self):
-        """_invoke_llm_for_speg with execution-planner system prompt
+        """_invoke_llm_for_ssot_runtime with execution-planner system prompt
         must set stream_to_user=False so planner tokens never land
         in the user-facing token channel."""
         from agent.llm.runtime import invoke_llm
@@ -267,9 +267,9 @@ class TestStreamScope:
         import agent.llm.runtime as runtime_mod
         runtime_mod.invoke_llm = _capture
         try:
-            from agent.runtime.speg_adapter import _invoke_llm_for_speg
+            from agent.runtime.ssot_runtime import _invoke_llm_for_ssot_runtime
             # Simulate a planner call
-            _invoke_llm_for_speg(
+            _invoke_llm_for_ssot_runtime(
                 system="You are an execution planner.",
                 user="test",
             )
@@ -282,7 +282,7 @@ class TestStreamScope:
         assert req_meta.get("stream_scope") == "planner"
 
     def test_finalizer_gets_stream_to_user_true(self):
-        """_invoke_llm_for_speg with non-planner system prompt
+        """_invoke_llm_for_ssot_runtime with non-planner system prompt
         must set stream_to_user=True."""
         from agent.llm.runtime import invoke_llm
 
@@ -301,9 +301,9 @@ class TestStreamScope:
         import agent.llm.runtime as runtime_mod
         runtime_mod.invoke_llm = _capture
         try:
-            from agent.runtime.speg_adapter import _invoke_llm_for_speg
+            from agent.runtime.ssot_runtime import _invoke_llm_for_ssot_runtime
             # Simulate a finalizer call (no "execution planner" in system)
-            _invoke_llm_for_speg(
+            _invoke_llm_for_ssot_runtime(
                 system="You are a helpful network assistant.",
                 user="summarize results",
             )
@@ -334,12 +334,12 @@ class TestStreamScope:
         import agent.llm.runtime as runtime_mod
         runtime_mod.invoke_llm = _capture
         try:
-            from agent.runtime.speg_adapter import _invoke_llm_for_speg
-            _invoke_llm_for_speg(
+            from agent.runtime.ssot_runtime import _invoke_llm_for_ssot_runtime
+            _invoke_llm_for_ssot_runtime(
                 system="Direct answer prompt",
                 user="what is OSPF",
                 extra={
-                    "runtime_engine": "speg",
+                    "runtime_engine": "ssot_runtime",
                     "stream_scope": "direct_answer",
                     "stream_to_user": True,
                 },

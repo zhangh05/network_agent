@@ -186,9 +186,9 @@ def create_subagent_task(
 
 
 def run_subagent_task(subtask_id: str, ws_id: str) -> dict:
-    """Real LLM-driven subagent execution through SPEG.
+    """Real LLM-driven subagent execution through SSOT Runtime.
 
-    The profile provides the SPEG-visible tool allowlist. Tool execution still
+    The profile provides the SSOT Runtime-visible tool allowlist. Tool execution still
     goes through ToolRuntimeClient with caller=subagent.
     """
     task = _load_task(ws_id, subtask_id)
@@ -218,7 +218,7 @@ def run_subagent_task(subtask_id: str, ws_id: str) -> dict:
             f"Respond concisely with your findings."
         )
 
-        # Create restricted session for profile-gated SPEG execution.
+        # Create restricted session for profile-gated SSOT Runtime execution.
         from agent.core.session import AgentSession
 
         child_session_id = subtask_id
@@ -228,10 +228,10 @@ def run_subagent_task(subtask_id: str, ws_id: str) -> dict:
         sess.metadata["parent_session_id"] = task.session_id
         sess.metadata["subtask_id"] = subtask_id
 
-        # Submit via SPEG with restricted tools.
+        # Submit via SSOT Runtime with restricted tools.
         from agent.core.turn import AgentTurn
         from agent.protocol.op import AgentOp
-        from agent.runtime.speg_adapter import run_speg_turn
+        from agent.runtime.ssot_runtime import run_ssot_turn
         op = AgentOp(user_input=goal_prompt, workspace_id=ws_id, session_id=child_session_id)
         turn = AgentTurn.from_op(op)
         turn.metadata = {
@@ -241,8 +241,8 @@ def run_subagent_task(subtask_id: str, ws_id: str) -> dict:
         }
 
         try:
-            llm_result = _run_speg_with_timeout(
-                run_speg_turn,
+            llm_result = _run_ssot_runtime_with_timeout(
+                run_ssot_turn,
                 sess,
                 turn,
                 set(profile.allowed_tools or []),
@@ -406,7 +406,7 @@ def _execute_as_subagent(tool_id: str, args: dict, ws_id: str) -> dict:
         return {"ok": False, "summary": str(e)[:200]}
 
 
-def _run_speg_with_timeout(run_fn, session, turn, allowed_tool_ids, *, timeout_seconds: int):
+def _run_ssot_runtime_with_timeout(run_fn, session, turn, allowed_tool_ids, *, timeout_seconds: int):
     """Run a subagent turn with a hard parent-side timeout.
 
     Python cannot forcibly stop an already-running provider call, so timeout

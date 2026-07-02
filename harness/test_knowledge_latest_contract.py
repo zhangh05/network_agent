@@ -71,8 +71,8 @@ def test_frontend_knowledge_search_uses_current_query_contract():
 
 def test_llm_tool_catalog_exposes_current_knowledge_search():
     # v3.10: ``agent/runtime/sub_agent.py`` was removed by the
-    # SPEG hard cut (ff38bab). Sub-agent dispatch is now handled
-    # directly by ``speg_adapter.run_speg_turn`` (a fresh
+    # SSOT Runtime hard cut (ff38bab). Sub-agent dispatch is now handled
+    # directly by ``ssot_runtime.run_ssot_turn`` (a fresh
     # ``AgentSession`` is created with ``mark_sub_agent()``),
     # not by a dedicated ``subagent`` module.
     #
@@ -86,7 +86,7 @@ def test_llm_tool_catalog_exposes_current_knowledge_search():
     for target in targets:
         text = _read(target)
         assert "knowledge.manage" in text
-    # Verify the SPEG-era sub-agent path. The trust marker
+    # Verify the SSOT Runtime-era sub-agent path. The trust marker
     # ``is_sub_agent`` lives on ``AgentSession`` and is written
     # by ``agent.runtime.durable.subagent`` (which calls
     # ``sess.mark_sub_agent()`` on the child session). The
@@ -102,9 +102,9 @@ def test_llm_tool_catalog_exposes_current_knowledge_search():
     s.mark_sub_agent()
     assert s.is_sub_agent is True
     # The OLD removed module must NOT be imported anywhere.
-    adapter_src = _read("agent/runtime/speg_adapter.py")
+    adapter_src = _read("agent/runtime/ssot_runtime.py")
     assert "from agent.runtime.sub_agent" not in adapter_src, (
-        "speg_adapter must NOT import the removed sub_agent module."
+        "ssot_runtime must NOT import the removed sub_agent module."
     )
 
 

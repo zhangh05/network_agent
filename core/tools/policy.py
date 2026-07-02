@@ -67,7 +67,7 @@ def _is_destructive_action(arguments: dict) -> bool:
     return action in _DESTRUCTIVE_ACTIONS
 
 # Handlers accept arbitrary commands; allowlists removed in favor of
-# command_policy in speg_engine.
+# command_policy in core.runtime_engine.
 # removed entirely. The new model is destructive-only: anything not
 # matching the dangerous-pattern set is treated as medium or low risk
 # and is surfaced for prompt-level risk awareness, not blocked.

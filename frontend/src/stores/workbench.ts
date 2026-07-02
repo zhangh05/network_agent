@@ -38,12 +38,12 @@ export interface ChatMsg {
   error?: string;
   /** Trace ID for context linking */
   trace_id?: string;
-  /** P0 fix: friendly Chinese label for the current SPEG stage, updated
+  /** P0 fix: friendly Chinese label for the current SSOT Runtime stage, updated
    *  by realtime ``stage_*`` events from the WebSocket. Replaces the
    *  12s "思考中" blank with a live "正在分析任务…", "正在执行工具…",
    *  "整理最终回复…" label. Set during streaming, kept for history. */
   progressText?: string;
-  /** P0 fix: monotonic timer (ms) for the latest SPEG stage, used to
+  /** P0 fix: monotonic timer (ms) for the latest SSOT Runtime stage, used to
    *  render the small "(已等待 5.4s)" suffix. */
   progressElapsedMs?: number;
 }

@@ -11,8 +11,8 @@ from unittest import mock
 
 import pytest
 
-from speg_engine.models import ExecutionDAG, ExecutionNode, SPEGConfig
-from speg_engine.risk_policy import (
+from core.runtime_engine.models import ExecutionDAG, ExecutionNode, SSOTRuntimeConfig
+from core.runtime_engine.risk_policy import (
     RiskPolicyEngine,
     _check_destructive_command,
     _check_system_destroy,
@@ -35,15 +35,15 @@ def _node(idx: str, tool: str, **args) -> ExecutionNode:
 
 
 def _make_speng(**cfg_overrides):
-    from speg_engine.engine import SPEGEngine
+    from core.runtime_engine.engine import SSOTRuntimeEngine
     cfg_kwargs = {"enable_finalizer": False}
     cfg_kwargs.update(cfg_overrides)
-    cfg = SPEGConfig(**cfg_kwargs)
+    cfg = SSOTRuntimeConfig(**cfg_kwargs)
 
     def mock_llm(**kw):
         return json.dumps({"nodes": []})
 
-    return SPEGEngine(config=cfg, llm_invoke=mock_llm, tool_registry={})
+    return SSOTRuntimeEngine(config=cfg, llm_invoke=mock_llm, tool_registry={})
 
 
 # ── Tests: allow (safe to run) ─────────────────────────────────────────
@@ -255,14 +255,14 @@ def test_docker_prune_with_credential_hard_block(risk_engine):
 
 def test_approval_bypass_resume():
     # harness/conftest.py does not install the async hook used by
-    # speg_engine/conftest.py, and pytest-asyncio is not a project
+    # core.runtime_engine/conftest.py, and pytest-asyncio is not a project
     # dependency. We dispatch through asyncio.run() here so the
     # test still works without the plugin (matches the pattern in
     # harness/test_alias_drift.py).
     import asyncio
     from unittest import mock as _mock
-    from speg_engine.engine import SPEGEngine
-    config = SPEGConfig(enable_finalizer=False)
+    from core.runtime_engine.engine import SSOTRuntimeEngine
+    config = SSOTRuntimeConfig(enable_finalizer=False)
 
     def mock_llm(**kw):
         return json.dumps({"nodes": [
@@ -275,7 +275,7 @@ def test_approval_bypass_resume():
     }}}
 
     async def _drive():
-        engine = SPEGEngine(config=config, llm_invoke=mock_llm, tool_registry=registry)
+        engine = SSOTRuntimeEngine(config=config, llm_invoke=mock_llm, tool_registry=registry)
         engine.register_tool("exec.run", _mock.AsyncMock())
 
         result1 = await engine.run("test")
@@ -292,8 +292,8 @@ def test_approval_bypass_resume():
 def test_hard_block_denied_approval():
     import asyncio
     from unittest import mock as _mock
-    from speg_engine.engine import SPEGEngine
-    config = SPEGConfig(enable_finalizer=False)
+    from core.runtime_engine.engine import SSOTRuntimeEngine
+    config = SSOTRuntimeConfig(enable_finalizer=False)
 
     def mock_llm(**kw):
         return json.dumps({"nodes": [
@@ -306,7 +306,7 @@ def test_hard_block_denied_approval():
     }}}
 
     async def _drive():
-        engine = SPEGEngine(config=config, llm_invoke=mock_llm, tool_registry=registry)
+        engine = SSOTRuntimeEngine(config=config, llm_invoke=mock_llm, tool_registry=registry)
         engine.register_tool("exec.run", _mock.AsyncMock())
 
         result = await engine.run("test", extras={"approved_risk": True})
@@ -317,8 +317,8 @@ def test_hard_block_denied_approval():
 
 
 def test_approval_metadata_in_result():
-    from speg_engine.engine import SPEGEngine
-    config = SPEGConfig(enable_finalizer=False)
+    from core.runtime_engine.engine import SSOTRuntimeEngine
+    config = SSOTRuntimeConfig(enable_finalizer=False)
 
     def mock_llm(**kw):
         return json.dumps({"nodes": [
@@ -329,7 +329,7 @@ def test_approval_metadata_in_result():
     registry = {"exec.run": {"description": "", "args_schema": {
         "required": ["command"], "properties": {"command": {"type": "string"}},
     }}}
-    engine = SPEGEngine(config=config, llm_invoke=mock_llm, tool_registry=registry)
+    engine = SSOTRuntimeEngine(config=config, llm_invoke=mock_llm, tool_registry=registry)
     engine.register_tool("exec.run", mock.AsyncMock())
 
     result = asyncio.run(engine.run("test"))
@@ -344,7 +344,7 @@ def test_approval_metadata_in_result():
 
 def test_custom_thresholds_exec():
     """Custom config: max_exec_allow=2, max_exec_approval=4."""
-    cfg = SPEGConfig(rp_max_exec_allow=2, rp_max_exec_approval=4)
+    cfg = SSOTRuntimeConfig(rp_max_exec_allow=2, rp_max_exec_approval=4)
     engine = RiskPolicyEngine(cfg)
     # 3 exec → approval (2 < 3 ≤ 4)
     nodes = [_node(str(i), "exec.run", command=f"cmd{i}") for i in range(3)]
@@ -361,7 +361,7 @@ def test_custom_thresholds_exec():
 
 def test_custom_thresholds_tools():
     """Custom config: max_tool_nodes_allow=3, max_tool_nodes_approval=6."""
-    cfg = SPEGConfig(rp_max_tool_nodes_allow=3, rp_max_tool_nodes_approval=6)
+    cfg = SSOTRuntimeConfig(rp_max_tool_nodes_allow=3, rp_max_tool_nodes_approval=6)
     engine = RiskPolicyEngine(cfg)
     # 5 nodes → approval
     nodes = [_node(str(i), "knowledge.manage", action="search") for i in range(5)]

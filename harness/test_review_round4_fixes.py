@@ -302,9 +302,9 @@ class TestLoopApplyManualCompact:
 # ─────────────────────────────────────────────────────────────────────
 # v3.10: TestApprovalTimeoutDetection removed — the helpers it tested
 # lived in the legacy ``agent.runtime.loop`` TurnRunner path that the
-# SPEG hard cut (ff38bab) replaced. Approval-timeout behaviour is now
-# driven by ``SPEGConfig.single_node_timeout_ms`` + ``parallel_layer_timeout_ms``
-# in ``speg_engine.models``; no equivalent metadata-driven helper exists.
+# SSOT Runtime hard cut (ff38bab) replaced. Approval-timeout behaviour is now
+# driven by ``SSOTRuntimeConfig.single_node_timeout_ms`` + ``parallel_layer_timeout_ms``
+# in ``core.runtime_engine.models``; no equivalent metadata-driven helper exists.
 
 # ─────────────────────────────────────────────────────────────────────
 # backend.ws.agent_ws — debug print removal + session_id validation

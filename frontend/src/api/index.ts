@@ -58,7 +58,7 @@ export interface AgentRunRequest {
 }
 
 export const agentApi = {
-  /** POST /api/agent/message — SPEG Agent Runtime endpoint.
+  /** POST /api/agent/message — SSOT Runtime endpoint.
    *  This is the SLOW endpoint (LLM + tool calls + optional web search).
    *  Expected 30-120s, 180s timeout to avoid false positives. */
   run: (req: AgentRunRequest, signal?: AbortSignal): Promise<AgentResult> =>

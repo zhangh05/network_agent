@@ -34,7 +34,7 @@ class AgentSession:
 
     def submit(self, op) -> "AgentResult":
         from agent.core.turn import AgentTurn
-        from agent.runtime.speg_adapter import run_speg_turn
+        from agent.runtime.ssot_runtime import run_ssot_turn
         turn = AgentTurn.from_op(op)
         self.active_turn = turn
-        return run_speg_turn(self, turn, self.services)
+        return run_ssot_turn(self, turn, self.services)

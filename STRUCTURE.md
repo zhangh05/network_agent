@@ -9,7 +9,7 @@ network_agent/
 │   ├── llm/                    # Provider config, runtime calls, key resolver
 │   ├── modules/                # Domain implementations used by canonical tools
 │   ├── prompts/                # Prompt templates
-│   ├── runtime/                # SPEG adapter, result projection, durable state
+│   ├── runtime/                # SSOT Runtime adapter, result projection, durable state
 │   ├── skills/                 # Skill metadata and skill.manage data source
 │   └── tools/                  # Agent-facing router/registry adapter
 ├── artifacts/                  # Artifact records and content store

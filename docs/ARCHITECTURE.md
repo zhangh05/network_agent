@@ -8,8 +8,8 @@ This document describes the current Network Agent architecture only.
 HTTP / WebSocket / SSE / Job entry
   -> AgentApp.submit_user_message
   -> SessionManager + AgentThread
-  -> SPEG adapter
-  -> SPEGEngine planner
+  -> SSOT Runtime adapter
+  -> SSOTRuntimeEngine planner
   -> Execution DAG
   -> ToolRuntimeClient.invoke
   -> ToolExecutor

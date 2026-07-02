@@ -1,16 +1,16 @@
 """
 Alias drift tests — enforce the single-source-of-truth contract for
-SPEG action alias normalization.
+SSOT Runtime action alias normalization.
 
 Background: the v3.10 alias pipeline has two tables:
 
-  1. ``speg_engine.action_alias.CANONICAL_ALIASES_BY_TOOL`` /
+  1. ``core.runtime_engine.action_alias.CANONICAL_ALIASES_BY_TOOL`` /
      ``CANONICAL_ALIASES_GLOBAL`` — the *single source of truth* for
      every stable alias. GraphCompiler and PreExecutionRepairEngine
      both call ``resolve_action_alias(tool_id, action)`` which reads
      this table.
 
-  2. ``speg_engine.pre_execution_repair.EXTENDED_RUNTIME_ALIAS_MAP``
+  2. ``core.runtime_engine.pre_execution_repair.EXTENDED_RUNTIME_ALIAS_MAP``
      — runtime fallback ONLY. Holds transient aliases (drift we
      still see from one specific LLM but haven't promoted yet).
 
@@ -49,7 +49,7 @@ SPEC_STABLE_ALIASES: list[tuple[str, str, str, str | None]] = [
 def test_spec_stable_aliases_resolve_via_canonical():
     """Every alias the spec lists as 'must work' must hit the
     canonical table with source=canonical and the right operation."""
-    from speg_engine.action_alias import (
+    from core.runtime_engine.action_alias import (
         resolve_action_alias,
         SOURCE_CANONICAL,
     )
@@ -73,8 +73,8 @@ def test_every_extended_alias_is_recognized_at_runtime():
     """Whatever survives in the extended fallback table must
     actually fire at runtime — otherwise the entry is dead code
     and a drift smell on its own."""
-    from speg_engine.pre_execution_repair import EXTENDED_RUNTIME_ALIAS_MAP
-    from speg_engine.action_alias import (
+    from core.runtime_engine.pre_execution_repair import EXTENDED_RUNTIME_ALIAS_MAP
+    from core.runtime_engine.action_alias import (
         resolve_action_alias,
         SOURCE_CANONICAL,
     )
@@ -87,7 +87,7 @@ def test_every_extended_alias_is_recognized_at_runtime():
         # The extended table is tool-agnostic. We probe it via
         # PreExecutionRepairEngine so the assertion matches the
         # runtime path the engine actually uses.
-        from speg_engine.pre_execution_repair import (
+        from core.runtime_engine.pre_execution_repair import (
             PreExecutionRepairEngine, RepairEvent,
         )
         # Synthesize a minimal node object that has the attributes
@@ -121,8 +121,8 @@ def test_no_alias_defined_in_both_canonical_and_extended():
     """If the same alias key is in both tables, the canonical
     resolver hits first and the extended entry is dead. That is
     the drift symptom we are explicitly preventing."""
-    from speg_engine.action_alias import all_canonical_alias_keys
-    from speg_engine.pre_execution_repair import EXTENDED_RUNTIME_ALIAS_MAP
+    from core.runtime_engine.action_alias import all_canonical_alias_keys
+    from core.runtime_engine.pre_execution_repair import EXTENDED_RUNTIME_ALIAS_MAP
 
     canonical_keys = all_canonical_alias_keys()
     extended_keys = set(EXTENDED_RUNTIME_ALIAS_MAP.keys())
@@ -145,7 +145,7 @@ def test_no_alias_defined_in_both_canonical_and_extended():
 def test_source_field_semantics():
     """The ``source`` field on AliasResolution is part of the
     public contract — drift tests must lock it down."""
-    from speg_engine.action_alias import (
+    from core.runtime_engine.action_alias import (
         resolve_action_alias,
         SOURCE_CANONICAL,
         SOURCE_NONE,
@@ -181,8 +181,8 @@ def test_graph_compiler_and_repair_use_same_resolver():
     canonical source. Direct alias table access in either module
     is forbidden — this test catches a regression where someone
     re-introduces a private alias dict."""
-    import speg_engine.graph_compiler as gc
-    import speg_engine.pre_execution_repair as per
+    import core.runtime_engine.graph_compiler as gc
+    import core.runtime_engine.pre_execution_repair as per
 
     # The graph compiler module should not define its own alias
     # table — it should only import from action_alias.
@@ -211,7 +211,7 @@ def test_extended_map_has_transient_only_audit():
     """The extended table is for transient aliases. A drift audit
     failure here means someone added a stable alias to the
     extended table instead of promoting it to canonical."""
-    from speg_engine.pre_execution_repair import EXTENDED_RUNTIME_ALIAS_MAP
+    from core.runtime_engine.pre_execution_repair import EXTENDED_RUNTIME_ALIAS_MAP
 
     # The stable aliases the spec calls out must NOT be in the
     # extended table — they live in canonical only.
@@ -232,12 +232,12 @@ def test_extended_alias_fires_in_engine_pipeline():
 
     We use ``asyncio.run()`` here instead of ``@pytest.mark.asyncio``
     because harness/conftest.py does not install the async hook
-    (only speg_engine/conftest.py does).
+    (only core.runtime_engine/conftest.py does).
     """
     import asyncio
     import json
-    from speg_engine.engine import SPEGEngine
-    from speg_engine.models import SPEGConfig
+    from core.runtime_engine.engine import SSOTRuntimeEngine
+    from core.runtime_engine.models import SSOTRuntimeConfig
 
     plan_json = json.dumps({"nodes": [
         {"id": "n1", "tool": "workspace.file",
@@ -258,8 +258,8 @@ def test_extended_alias_fires_in_engine_pipeline():
     async def handler(args):
         return f"read {args.get('path', '?')}"
 
-    engine = SPEGEngine(
-        config=SPEGConfig(enable_finalizer=False),
+    engine = SSOTRuntimeEngine(
+        config=SSOTRuntimeConfig(enable_finalizer=False),
         llm_invoke=lambda **kw: plan_json,
         tool_registry=registry,
     )

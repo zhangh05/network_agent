@@ -1,6 +1,6 @@
-"""Tests for SPEG v3.14 Task Completion Contract.
+"""Tests for SSOT Runtime v3.14 Task Completion Contract.
 
-Verifies that SPEG no longer returns placeholder responses ("收到", "No tools
+Verifies that SSOT Runtime no longer returns placeholder responses ("收到", "No tools
 were executed") for task-intent requests.  Ensures:
   - Empty-plan task-intent → PLANNER_EMPTY_FOR_TASK_INTENT error
   - Tool execution success + task request → analysis conclusion (not just "收到")
@@ -13,9 +13,9 @@ import pytest
 from unittest import mock
 from types import SimpleNamespace
 
-from speg_engine import SPEGConfig, SPEGEngine
-from speg_engine.models import StatelessContext, ExecutionNode, ExecutionDAG, ToolResult
-from speg_engine.engine import (
+from core.runtime_engine import SSOTRuntimeConfig, SSOTRuntimeEngine
+from core.runtime_engine.models import StatelessContext, ExecutionNode, ExecutionDAG, ToolResult
+from core.runtime_engine.engine import (
     detect_task_intent,
     plan_nodes_empty_for_task,
     _is_task_incomplete_final_response,
@@ -24,12 +24,12 @@ from speg_engine.engine import (
     FinalResponseValidatorResult,
 )
 from types import SimpleNamespace
-from speg_engine.result_merger import (
+from core.runtime_engine.result_merger import (
     ResultMerger,
     _extract_normalized_content,
     _get_nested,
 )
-from speg_engine.errors import SpegErrorCode
+from core.runtime_engine.errors import SSOTRuntimeErrorCode
 
 
 # ============================================================================
@@ -289,7 +289,7 @@ class TestNormalizedContentExtraction:
 
 
 # ============================================================================
-# Integration: SPEGEngine with normalized_content in merged results
+# Integration: SSOTRuntimeEngine with normalized_content in merged results
 # ============================================================================
 
 class TestMergedNormalizedContent:
@@ -297,11 +297,11 @@ class TestMergedNormalizedContent:
 
     def _build_dag_and_run(self, tool_id, result_data):
         """Helper: build a single-node DAG and merge results."""
-        from speg_engine.models import PlanNode, SPEGConfig
-        from speg_engine.graph_compiler import GraphCompiler
+        from core.runtime_engine.models import PlanNode, SSOTRuntimeConfig
+        from core.runtime_engine.graph_compiler import GraphCompiler
 
         plan_node = PlanNode(id="n1", tool=tool_id, args={}, deps=[])
-        compiler = GraphCompiler(config=SPEGConfig())
+        compiler = GraphCompiler(config=SSOTRuntimeConfig())
         dag = compiler.compile([plan_node])
 
         node_results = {
@@ -335,7 +335,7 @@ class TestMergedNormalizedContent:
 
 
 # ============================================================================
-# Integration: SPEGEngine empty-plan task-intent guard
+# Integration: SSOTRuntimeEngine empty-plan task-intent guard
 # ============================================================================
 
 class TestEmptyPlanTaskIntentGuard:
@@ -349,8 +349,8 @@ class TestEmptyPlanTaskIntentGuard:
             llm_calls.append(kwargs)
             return '{"nodes": []}'  # planner returns empty
 
-        config = SPEGConfig()
-        engine = SPEGEngine(
+        config = SSOTRuntimeConfig()
+        engine = SSOTRuntimeEngine(
             config=config, llm_invoke=llm_mock,
             tool_runtime=mock.MagicMock(),
         )
@@ -373,8 +373,8 @@ class TestEmptyPlanTaskIntentGuard:
             llm_calls.append(kwargs)
             return '{"nodes": []}'
 
-        config = SPEGConfig()
-        engine = SPEGEngine(
+        config = SSOTRuntimeConfig()
+        engine = SSOTRuntimeEngine(
             config=config, llm_invoke=llm_mock,
             tool_runtime=mock.MagicMock(),
         )
@@ -396,8 +396,8 @@ class TestEmptyPlanTaskIntentGuard:
             llm_calls.append(kwargs)
             return '{"nodes": []}'
 
-        config = SPEGConfig()
-        engine = SPEGEngine(
+        config = SSOTRuntimeConfig()
+        engine = SSOTRuntimeEngine(
             config=config, llm_invoke=llm_mock,
             tool_runtime=mock.MagicMock(),
         )
@@ -417,8 +417,8 @@ class TestEmptyPlanTaskIntentGuard:
             llm_calls.append(kwargs)
             return '{"nodes": []}'
 
-        config = SPEGConfig()
-        engine = SPEGEngine(
+        config = SSOTRuntimeConfig()
+        engine = SSOTRuntimeEngine(
             config=config, llm_invoke=llm_mock,
             tool_runtime=mock.MagicMock(),
         )
@@ -456,8 +456,8 @@ class TestTaskIncompleteValidator:
             }
         tool_runtime.execute_layer = mock_execute_layer
 
-        config = SPEGConfig(enable_finalizer=True, max_llm_calls=3)
-        engine = SPEGEngine(
+        config = SSOTRuntimeConfig(enable_finalizer=True, max_llm_calls=3)
+        engine = SSOTRuntimeEngine(
             config=config, llm_invoke=llm_mock,
             tool_runtime=tool_runtime,
         )
@@ -478,8 +478,8 @@ class TestTaskIncompleteValidator:
             llm_calls.append(kwargs)
             return '{"nodes": []}'
 
-        config = SPEGConfig()
-        engine = SPEGEngine(
+        config = SSOTRuntimeConfig()
+        engine = SSOTRuntimeEngine(
             config=config, llm_invoke=llm_mock,
             tool_runtime=mock.MagicMock(),
         )
@@ -511,8 +511,8 @@ class TestTaskIncompleteValidator:
             }
         tool_runtime.execute_layer = mock_execute_layer
 
-        config = SPEGConfig(enable_finalizer=True, max_llm_calls=3)
-        engine = SPEGEngine(
+        config = SSOTRuntimeConfig(enable_finalizer=True, max_llm_calls=3)
+        engine = SSOTRuntimeEngine(
             config=config, llm_invoke=llm_mock,
             tool_runtime=tool_runtime,
         )
@@ -553,8 +553,8 @@ class TestFinalizerPromptNormalizedContent:
             }
         tool_runtime.execute_layer = mock_execute_layer
 
-        config = SPEGConfig(enable_finalizer=True, max_llm_calls=3)
-        engine = SPEGEngine(
+        config = SSOTRuntimeConfig(enable_finalizer=True, max_llm_calls=3)
+        engine = SSOTRuntimeEngine(
             config=config, llm_invoke=llm_mock,
             tool_runtime=tool_runtime,
         )

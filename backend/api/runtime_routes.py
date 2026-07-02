@@ -624,7 +624,7 @@ def register_runtime_routes(app):
 
     @app.route("/api/agent/runtime-mode")
     def api_agent_runtime_mode():
-        return jsonify({"ok": True, "mode": "speg", "engine": "SPEGEngine"})
+        return jsonify({"ok": True, "mode": "ssot_runtime", "engine": "SSOTRuntimeEngine"})
 
     @app.route("/api/agent/sse/stream/<session_id>")
     def api_agent_sse_stream(session_id):

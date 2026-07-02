@@ -17,22 +17,22 @@ sequenceDiagram
   participant UI as Frontend
   participant API as Flask API / WS
   participant App as AgentApp
-  participant SPEG as SPEGEngine
+  participant SSOT Runtime as SSOTRuntimeEngine
   participant LLM as LLM Provider
   participant Tools as ToolRuntimeClient
   participant Store as Durable Stores
 
   UI->>API: message(workspace_id, session_id, text)
   API->>App: submit_user_message()
-  App->>SPEG: run_speg_turn()
-  SPEG->>LLM: planner JSON graph
-  SPEG->>SPEG: compile + validate DAG
-  SPEG->>Tools: invoke canonical tool nodes in layers
+  App->>SSOT Runtime: run_ssot_turn()
+  SSOT Runtime->>LLM: planner JSON graph
+  SSOT Runtime->>SSOT Runtime: compile + validate DAG
+  SSOT Runtime->>Tools: invoke canonical tool nodes in layers
   Tools->>Tools: manifest/caller/policy/redaction/audit
-  Tools-->>SPEG: ToolResult
-  SPEG->>LLM: finalizer when tools ran
-  SPEG->>Store: messages, events, trace, run projection
-  SPEG-->>API: AgentResult
+  Tools-->>SSOT Runtime: ToolResult
+  SSOT Runtime->>LLM: finalizer when tools ran
+  SSOT Runtime->>Store: messages, events, trace, run projection
+  SSOT Runtime-->>API: AgentResult
   API-->>UI: stream/final/timeline
 ```
 
@@ -45,7 +45,7 @@ sequenceDiagram
 - `RuntimeEvent`：前端时间线和审计事件来源。
 - `RuntimeCheckpoint`：中断、审批、失败恢复的快照。
 
-SPEG 主链将执行结果投影为 `AgentResult`、message、run 和 trace；长任务类能力仍使用 durable task/checkpoint API 管理自己的可取消状态。
+SSOT Runtime 主链将执行结果投影为 `AgentResult`、message、run 和 trace；长任务类能力仍使用 durable task/checkpoint API 管理自己的可取消状态。
 
 ## Tool Runtime
 
@@ -63,7 +63,7 @@ canonical tool id
   -> ToolResult
 ```
 
-当前只有 22 个 canonical tool。`handler_id` 是内部实现细节，不暴露给 LLM、前端或公共 API。SPEG 节点不会直接调用 handler，只能通过 `ToolRuntimeClient.invoke()` 进入工具边界。
+当前只有 22 个 canonical tool。`handler_id` 是内部实现细节，不暴露给 LLM、前端或公共 API。SSOT Runtime 节点不会直接调用 handler，只能通过 `ToolRuntimeClient.invoke()` 进入工具边界。
 
 ## Capability Catalog
 

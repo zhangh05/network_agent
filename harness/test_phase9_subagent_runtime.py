@@ -71,7 +71,7 @@ class TestSubagentTask:
 
 class TestSubagentRuntime:
     def test_review_agent_cannot_call_write_tools(self, monkeypatch):
-        monkeypatch.setattr("agent.runtime.speg_adapter.run_speg_turn", _fake_run_turn)
+        monkeypatch.setattr("agent.runtime.ssot_runtime.run_ssot_turn", _fake_run_turn)
         ws = f"ws_rt_{uuid.uuid4().hex[:8]}"
         cr = create_subagent_task("t1", ws, "s1", "review_agent", "Review code")
         assert cr["ok"]
@@ -99,7 +99,7 @@ class TestSubagentRuntime:
         assert r["ok"] is False
 
     def test_merge_subagent_result(self, monkeypatch):
-        monkeypatch.setattr("agent.runtime.speg_adapter.run_speg_turn", _fake_run_turn)
+        monkeypatch.setattr("agent.runtime.ssot_runtime.run_ssot_turn", _fake_run_turn)
         ws = f"ws_mg_{uuid.uuid4().hex[:8]}"
         cr = create_subagent_task("t-parent", ws, "s1", "review_agent", "Review")
         r = run_subagent_task(cr["subtask_id"], ws)

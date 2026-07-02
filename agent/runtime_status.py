@@ -34,8 +34,8 @@ def get_runtime_status() -> dict:
     ]
 
     return {
-        "agent_runtime": "speg",
-        "runtime_engine": "SPEGEngine",
+        "agent_runtime": "ssot_runtime",
+        "runtime_engine": "SSOTRuntimeEngine",
         "fallback_available": False,
         "llm_enabled": llm_status["enabled"],
         "llm_connected": llm_status["connected"],

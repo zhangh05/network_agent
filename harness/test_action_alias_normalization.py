@@ -1,4 +1,4 @@
-"""Tests for SPEG action-alias normalization (v3.10).
+"""Tests for SSOT Runtime action-alias normalization (v3.10).
 
 Covers:
   * canonical aliases are normalized by GraphCompiler BEFORE
@@ -25,21 +25,21 @@ if str(ROOT) not in sys.path:
 # ---------------------------------------------------------------------------
 
 def test_session_get_is_current_canonical_not_alias():
-    from speg_engine.action_alias import normalize_action_alias
+    from core.runtime_engine.action_alias import normalize_action_alias
     canonical, original = normalize_action_alias("session_get")
     assert canonical == "session_get"
     assert original is None
 
 
 def test_get_session_alias_normalizes_to_session():
-    from speg_engine.action_alias import normalize_action_alias
+    from core.runtime_engine.action_alias import normalize_action_alias
     canonical, original = normalize_action_alias("get_session")
     assert canonical == "session_get"
     assert original == "get_session"
 
 
 def test_history_get_session_history_aliases_normalize():
-    from speg_engine.action_alias import normalize_action_alias
+    from core.runtime_engine.action_alias import normalize_action_alias
     for raw, expected_canonical in (
         ("session_history", "session_get"),
         ("history_get", "session_get"),
@@ -52,7 +52,7 @@ def test_history_get_session_history_aliases_normalize():
 
 
 def test_unrelated_aliases_normalize_for_other_tools():
-    from speg_engine.action_alias import normalize_action_alias
+    from core.runtime_engine.action_alias import normalize_action_alias
     # workspace.file
     assert normalize_action_alias("ls")[:2] == ("list", "ls")
     assert normalize_action_alias("cat")[:2] == ("read", "cat")
@@ -66,7 +66,7 @@ def test_unrelated_aliases_normalize_for_other_tools():
 
 def test_unknown_action_returns_none_canonical():
     """Truly invalid actions must surface None — not silently mapped."""
-    from speg_engine.action_alias import normalize_action_alias
+    from core.runtime_engine.action_alias import normalize_action_alias
     canonical, original = normalize_action_alias("delete_system")
     assert canonical == "delete_system"  # not in alias map → token returned as-is
     assert original is None
@@ -88,8 +88,8 @@ def _make_plan_node(*, node_id, tool, action, deps=None):
 
 
 def test_graph_compiler_normalizes_alias_on_system_manage():
-    from speg_engine.graph_compiler import GraphCompiler
-    from speg_engine.models import SPEGConfig
+    from core.runtime_engine.graph_compiler import GraphCompiler
+    from core.runtime_engine.models import SSOTRuntimeConfig
 
     plan = [
             type("PlanNode", (), _make_plan_node(
@@ -98,7 +98,7 @@ def test_graph_compiler_normalizes_alias_on_system_manage():
                 action="get_session",
             ))(),
     ]
-    dag = GraphCompiler(SPEGConfig()).compile(plan)
+    dag = GraphCompiler(SSOTRuntimeConfig()).compile(plan)
 
     assert dag.total_nodes == 1
     node = dag.nodes[0]
@@ -112,8 +112,8 @@ def test_graph_compiler_normalizes_alias_on_system_manage():
 def test_graph_compiler_does_not_normalize_canonical_token():
     """A canonical ``session_get`` action on system.manage must NOT mark
     the node as alias-normalized (origin == canonical → no drift)."""
-    from speg_engine.graph_compiler import GraphCompiler
-    from speg_engine.models import SPEGConfig
+    from core.runtime_engine.graph_compiler import GraphCompiler
+    from core.runtime_engine.models import SSOTRuntimeConfig
 
     plan = [
         type("PlanNode", (), _make_plan_node(
@@ -122,7 +122,7 @@ def test_graph_compiler_does_not_normalize_canonical_token():
             action="session_get",
         ))(),
     ]
-    dag = GraphCompiler(SPEGConfig()).compile(plan)
+    dag = GraphCompiler(SSOTRuntimeConfig()).compile(plan)
     node = dag.nodes[0]
     assert node.args["action"] == "session_get"
     assert node.action_original == ""
@@ -134,9 +134,9 @@ def test_graph_compiler_does_not_normalize_canonical_token():
 # ---------------------------------------------------------------------------
 
 def test_semantic_validator_accepts_normalized_session_get_on_system_manage():
-    from speg_engine.graph_compiler import GraphCompiler
-    from speg_engine.models import SPEGConfig
-    from speg_engine.semantic_validator import SemanticValidator
+    from core.runtime_engine.graph_compiler import GraphCompiler
+    from core.runtime_engine.models import SSOTRuntimeConfig
+    from core.runtime_engine.semantic_validator import SemanticValidator
 
     plan = [
         type("PlanNode", (), _make_plan_node(
@@ -145,7 +145,7 @@ def test_semantic_validator_accepts_normalized_session_get_on_system_manage():
             action="session_get",
         ))(),
     ]
-    dag = GraphCompiler(SPEGConfig()).compile(plan)
+    dag = GraphCompiler(SSOTRuntimeConfig()).compile(plan)
     result = SemanticValidator().validate(dag)
     assert result.valid, (
         "After alias normalization, ``action=session_get`` on system.manage "
@@ -156,9 +156,9 @@ def test_semantic_validator_accepts_normalized_session_get_on_system_manage():
 def test_semantic_validator_accepts_get_session_alias():
     """Same as above for a different alias — proves the normalization
     layer applies uniformly, not just to one spelling."""
-    from speg_engine.graph_compiler import GraphCompiler
-    from speg_engine.models import SPEGConfig
-    from speg_engine.semantic_validator import SemanticValidator
+    from core.runtime_engine.graph_compiler import GraphCompiler
+    from core.runtime_engine.models import SSOTRuntimeConfig
+    from core.runtime_engine.semantic_validator import SemanticValidator
 
     plan = [
         type("PlanNode", (), _make_plan_node(
@@ -167,7 +167,7 @@ def test_semantic_validator_accepts_get_session_alias():
             action="get_session",
         ))(),
     ]
-    dag = GraphCompiler(SPEGConfig()).compile(plan)
+    dag = GraphCompiler(SSOTRuntimeConfig()).compile(plan)
     result = SemanticValidator().validate(dag)
     assert result.valid
 
@@ -177,9 +177,9 @@ def test_semantic_validator_accepts_get_session_alias():
 # ---------------------------------------------------------------------------
 
 def test_unknown_action_delete_system_is_rejected_by_semantic_validator():
-    from speg_engine.graph_compiler import GraphCompiler
-    from speg_engine.models import SPEGConfig
-    from speg_engine.semantic_validator import SemanticValidator
+    from core.runtime_engine.graph_compiler import GraphCompiler
+    from core.runtime_engine.models import SSOTRuntimeConfig
+    from core.runtime_engine.semantic_validator import SemanticValidator
 
     plan = [
         type("PlanNode", (), _make_plan_node(
@@ -188,7 +188,7 @@ def test_unknown_action_delete_system_is_rejected_by_semantic_validator():
             action="delete_system",  # not in alias table, not in canonical enum
         ))(),
     ]
-    dag = GraphCompiler(SPEGConfig()).compile(plan)
+    dag = GraphCompiler(SSOTRuntimeConfig()).compile(plan)
     # GraphCompiler sees no alias hit, leaves args["action"]
     # untouched, no bookkeeping.
     assert dag.nodes[0].args["action"] == "delete_system"
@@ -206,9 +206,9 @@ def test_unknown_action_delete_system_is_rejected_by_semantic_validator():
 # ---------------------------------------------------------------------------
 
 def test_risk_policy_records_alias_normalizations():
-    from speg_engine.graph_compiler import GraphCompiler
-    from speg_engine.models import SPEGConfig
-    from speg_engine.risk_policy import RiskPolicyEngine
+    from core.runtime_engine.graph_compiler import GraphCompiler
+    from core.runtime_engine.models import SSOTRuntimeConfig
+    from core.runtime_engine.risk_policy import RiskPolicyEngine
 
     plan = [
         type("PlanNode", (), _make_plan_node(
@@ -217,7 +217,7 @@ def test_risk_policy_records_alias_normalizations():
             action="get_session",
         ))(),
     ]
-    dag = GraphCompiler(SPEGConfig()).compile(plan)
+    dag = GraphCompiler(SSOTRuntimeConfig()).compile(plan)
     assessment = RiskPolicyEngine().assess(dag)
     assert assessment.safe_to_run
     assert len(assessment.alias_normalizations) == 1, assessment.alias_normalizations
@@ -232,9 +232,9 @@ def test_risk_policy_records_alias_normalizations():
 # ---------------------------------------------------------------------------
 
 def test_audit_logger_records_action_original_and_normalized():
-    from speg_engine.audit import AuditLogger
-    from speg_engine.graph_compiler import GraphCompiler
-    from speg_engine.models import ExecutionNode, ExecutionStatus, SPEGConfig, StatelessContext
+    from core.runtime_engine.audit import AuditLogger
+    from core.runtime_engine.graph_compiler import GraphCompiler
+    from core.runtime_engine.models import ExecutionNode, ExecutionStatus, SSOTRuntimeConfig, StatelessContext
 
     plan = [
         type("PlanNode", (), _make_plan_node(
@@ -243,7 +243,7 @@ def test_audit_logger_records_action_original_and_normalized():
             action="get_session",
         ))(),
     ]
-    dag = GraphCompiler(SPEGConfig()).compile(plan)
+    dag = GraphCompiler(SSOTRuntimeConfig()).compile(plan)
 
     # Mark the node success so it lands in ``executed_nodes``.
     dag.nodes[0].status = ExecutionStatus.SUCCESS
@@ -276,9 +276,9 @@ def test_audit_logger_records_action_original_and_normalized():
 # ---------------------------------------------------------------------------
 
 def test_trace_node_span_records_alias_metadata():
-    from speg_engine.graph_compiler import GraphCompiler
-    from speg_engine.models import SPEGConfig
-    from speg_engine.trace import TraceCollector
+    from core.runtime_engine.graph_compiler import GraphCompiler
+    from core.runtime_engine.models import SSOTRuntimeConfig
+    from core.runtime_engine.trace import TraceCollector
 
     plan = [
         type("PlanNode", (), _make_plan_node(
@@ -287,7 +287,7 @@ def test_trace_node_span_records_alias_metadata():
             action="history_get",
         ))(),
     ]
-    dag = GraphCompiler(SPEGConfig()).compile(plan)
+    dag = GraphCompiler(SSOTRuntimeConfig()).compile(plan)
     tracer = TraceCollector()
     span_clock = tracer.add_node_span(dag.nodes[0])
     # SpanClock wraps a TraceSpan; metadata sits on the inner span.
@@ -298,12 +298,12 @@ def test_trace_node_span_records_alias_metadata():
 
 
 # ---------------------------------------------------------------------------
-# 8. SPEGResult.metadata propagates the per-node summary
+# 8. SSOTRuntimeResult.metadata propagates the per-node summary
 # ---------------------------------------------------------------------------
 
-def test_speg_result_metadata_collects_alias_drift_summary():
-    """The SPEGResult envelope exposes ``metadata.alias_normalizations``."""
-    from speg_engine.action_alias import ACTION_ALIASES
+def test_runtime_result_metadata_collects_alias_drift_summary():
+    """The SSOTRuntimeResult envelope exposes ``metadata.alias_normalizations``."""
+    from core.runtime_engine.action_alias import ACTION_ALIASES
     # Verify the table grows by exactly the documented set.
     expected_session_aliases = {
         "get_session", "session_history",

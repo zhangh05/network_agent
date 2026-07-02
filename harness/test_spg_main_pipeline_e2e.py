@@ -1,4 +1,4 @@
-"""SPEG Main Pipeline E2E — 10 end-to-end tests covering the full
+"""SSOT Runtime Main Pipeline E2E — 10 end-to-end tests covering the full
 Context→Intent→Plan→Execute→Merge→Synthesize→Validate→Persist chain.
 
 v3.14: Section 9 acceptance tests.
@@ -9,15 +9,15 @@ import pytest
 from unittest import mock
 from types import SimpleNamespace
 
-from speg_engine import SPEGConfig, SPEGEngine
-from speg_engine.models import ToolResult, ConversationContext
-from speg_engine.engine import (
+from core.runtime_engine import SSOTRuntimeConfig, SSOTRuntimeEngine
+from core.runtime_engine.models import ToolResult, ConversationContext
+from core.runtime_engine.engine import (
     detect_task_intent,
     validate_final_response,
     TaskIntentResult,
     FinalResponseValidatorResult,
 )
-from agent.runtime.speg_adapter import (
+from agent.runtime.ssot_runtime import (
     _inject_conversation_context,
     _sync_session_history,
 )
@@ -120,7 +120,7 @@ class TestEmptyPlanGuardPipeline:
 
     def test_analyse_with_empty_nodes_fails(self):
         llm = mock.Mock(return_value='{"nodes": []}')
-        engine = SPEGEngine(config=SPEGConfig(), llm_invoke=llm, tool_runtime=mock.MagicMock())
+        engine = SSOTRuntimeEngine(config=SSOTRuntimeConfig(), llm_invoke=llm, tool_runtime=mock.MagicMock())
         result = asyncio.run(engine.run(user_input="帮我分析这个报文是什么问题", workspace_id="test"))
         assert result.success is False
         structured = result.metadata.get("structured_errors", [])
@@ -129,7 +129,7 @@ class TestEmptyPlanGuardPipeline:
 
     def test_inspection_with_empty_nodes_fails(self):
         llm = mock.Mock(return_value='{"nodes": []}')
-        engine = SPEGEngine(config=SPEGConfig(), llm_invoke=llm, tool_runtime=mock.MagicMock())
+        engine = SSOTRuntimeEngine(config=SSOTRuntimeConfig(), llm_invoke=llm, tool_runtime=mock.MagicMock())
         result = asyncio.run(engine.run(user_input="巡检 CMDB", workspace_id="test"))
         assert result.success is False
 
@@ -187,7 +187,7 @@ class TestFileReadAnalysisClosure:
                                      data={"output": {"content": "192.168.5.12:63028 -> 192.168.5.8:3389 SYN SYN-ACK ACK"}})}
         tr.execute_layer = m_exec
 
-        engine = SPEGEngine(config=SPEGConfig(enable_finalizer=True, max_llm_calls=3),
+        engine = SSOTRuntimeEngine(config=SSOTRuntimeConfig(enable_finalizer=True, max_llm_calls=3),
                             llm_invoke=llm_mock, tool_runtime=tr)
         engine.register_tool("workspace.file", mock.AsyncMock(), description="File ops")
 

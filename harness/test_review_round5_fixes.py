@@ -26,8 +26,8 @@ if str(ROOT) not in sys.path:
 # ─────────────────────────────────────────────────────────────────────
 # v3.10: TestMaxStepsResolve removed — the helper it tested,
 # ``agent.runtime.loop._resolve_max_steps``, lived on the legacy
-# TurnRunner path that the SPEG hard cut (ff38bab) replaced. Step
-# budgets now flow through ``SPEGConfig`` (single_node_timeout_ms /
+# TurnRunner path that the SSOT Runtime hard cut (ff38bab) replaced. Step
+# budgets now flow through ``SSOTRuntimeConfig`` (single_node_timeout_ms /
 # parallel_layer_timeout_ms) and ``BudgetController.check_*`` rather
 # than env-override cascading.
 # ─────────────────────────────────────────────────────────────────────

@@ -534,28 +534,28 @@ def test_remote_ws_keeps_xterm_enter_as_carriage_return():
 
 def test_runner_trim_accepts_llm_message_objects():
     # v3.10: ``agent.runtime.runner`` (TurnRunner) was removed by
-    # the SPEG hard cut (ff38bab). The SPEG conversation trimming
+    # the SSOT Runtime hard cut (ff38bab). The SSOT Runtime conversation trimming
     # lives inside the budget controller, not in a public runner
     # module. We replace this test with a smoke check that
-    # ``LLMMessage`` and the SPEG ``BudgetController`` agree on
+    # ``LLMMessage`` and the SSOT Runtime ``BudgetController`` agree on
     # the contract surface every consumer relies on.
     from agent.llm.schemas import LLMMessage
-    from speg_engine.budget_controller import BudgetController
-    from speg_engine.models import SPEGConfig
+    from core.runtime_engine.budget_controller import BudgetController
+    from core.runtime_engine.models import SSOTRuntimeConfig
 
     # Message shape round-trip.
     sys_msg = LLMMessage(role="system", content="system")
     assert sys_msg.role == "system"
     assert sys_msg.content == "system"
 
-    # SPEG budget API exists and reports a clean state.
-    cfg = SPEGConfig()
+    # SSOT Runtime budget API exists and reports a clean state.
+    cfg = SSOTRuntimeConfig()
     budget = BudgetController(cfg)
     res = budget.check_llm_call()
     assert hasattr(res, "ok")
     assert hasattr(res, "exceeded")
     # Default config must allow at least one planner call.
-    assert res.ok, f"SPEGConfig default budget rejected planner call: {res.exceeded}"
+    assert res.ok, f"SSOTRuntimeConfig default budget rejected planner call: {res.exceeded}"
 
 
 def test_memory_gate_rejects_generic_task_completion_noise():

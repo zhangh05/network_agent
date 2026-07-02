@@ -336,7 +336,7 @@ class AgentQueryEngine:
     
     def run(self, session, turn, services=None, restricted_tool_router=None) -> dict:
         """Execute a turn with full production pipeline."""
-        from agent.runtime.speg_adapter import run_speg_turn
+        from agent.runtime.ssot_runtime import run_ssot_turn
         svc = services or self.services
         
         # Build trace
@@ -351,7 +351,7 @@ class AgentQueryEngine:
         })
         
         try:
-            result = run_speg_turn(
+            result = run_ssot_turn(
                 session, turn, svc, emitter=self.emitter,
             )
             
@@ -370,7 +370,7 @@ class AgentQueryEngine:
                     "message": result.final_response[:200],
                 })
             
-            # Attach wrapper events without discarding SPEG runtime events.
+            # Attach wrapper events without discarding SSOT Runtime events.
             result.events = self.emitter.to_events() + list(result.events or [])
             return result
             

@@ -371,7 +371,7 @@ export function TaskWorkbench() {
       thinkFilter.current = { mode: "idle" };
       let resolvedSid: string = currentSessionId || "";
 
-      // P0 fix: stage label table mirrors speg_engine/stage_events.py
+      // P0 fix: stage label table mirrors core.runtime_engine/stage_events.py
       // so we can translate backend events to friendly Chinese text.
       const STAGE_LABELS: Record<string, string> = {
         turn_started:        "轮次开始",
@@ -450,7 +450,7 @@ export function TaskWorkbench() {
         // P0 fix: set initial progress text on the assistant message so
         // the user sees "正在分析任务…" instead of an empty bubble.
         useWorkbenchStore.getState().updateAssistant(
-          streamingMsgId, { progressText: "等待 SPEG 调度…" }, scratch,
+          streamingMsgId, { progressText: "等待 SSOT Runtime 调度…" }, scratch,
         );
 
         ws!.onmessage = (event) => {
@@ -474,7 +474,7 @@ export function TaskWorkbench() {
                   streamedText = "";
                   useWorkbenchStore.getState().updateAssistant(streamingMsgId, { text: "" }, scratch);
                 }
-                // P0 fix: live SPEG stage label — replaces blank "思考中…"
+                // P0 fix: live SSOT Runtime stage label — replaces blank "思考中…"
                 // with the actual current stage (planner / risk / exec / …)
                 // plus an elapsed counter for heartbeats.
                 if (STAGE_LABELS[stageName]) {
@@ -789,11 +789,11 @@ export function TaskWorkbench() {
           {m.status === "streaming" ? (
             <div className="chat-bubble assistant sending-line">
               {/* P0 fix: live progress label — replaces the static
-                  "思考中…" so the user sees which SPEG stage is running
+                  "思考中…" so the user sees which SSOT Runtime stage is running
                   (planner / risk / exec / finalizing). Empty when not
                   streaming or before the first event arrives. */}
               {m.progressText && (
-                <div className="speg-progress-row" data-testid="speg-progress">
+                <div className="ssot-runtime-progress-row" data-testid="ssot-runtime-progress">
                   <span className="typing-indicator">
                     <span className="typing-dot" />
                     <span className="typing-dot" />

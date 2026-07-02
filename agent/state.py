@@ -67,7 +67,7 @@ class NetworkAgentState:
     # Each entry: {action: str, target: str, value: Optional[str], params: dict}
     ui_actions: List[Dict[str, Any]] = field(default_factory=list)
 
-    runtime_mode: str = "speg"
+    runtime_mode: str = "ssot_runtime"
     created_at: str = field(default_factory=lambda: datetime.now(timezone.utc).isoformat())
     updated_at: str = ""
 

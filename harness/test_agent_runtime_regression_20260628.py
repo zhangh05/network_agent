@@ -21,10 +21,10 @@ def test_subagent_cannot_spawn_nested_agents():
 def test_subagent_turn_receives_profile_step_budget(monkeypatch, tmp_path):
     # v3.10: this test referred to legacy ``agent.runtime.durable.subagent``
     # and ``agent.runtime.loop.run_turn`` (TurnRunner path). After the
-    # SPEG hard cut (ff38bab) sub-agent dispatch is its own thing
-    # (``agent.runtime.durable.subagent.SPEG_SUBAGENT_DISPATCH`` when
+    # SSOT Runtime hard cut (ff38bab) sub-agent dispatch is its own thing
+    # (``agent.runtime.durable.subagent.SSOT_RUNTIME_SUBAGENT_DISPATCH`` when
     # wired, or just a fresh ``AgentSession.mark_sub_agent()`` plumbed
-    # through ``run_speg_turn``). Replace with a property-level test
+    # through ``run_ssot_turn``). Replace with a property-level test
     # that exercises the new invariants without invoking the removed
     # sub-agent runner.
     from agent.core.session import AgentSession
@@ -44,8 +44,8 @@ def test_subagent_turn_receives_profile_step_budget(monkeypatch, tmp_path):
 # ---------------------------------------------------------------------------
 # v3.10: legacy sub-agent dispatcher tests above deleted. See
 # TestSubAgentTrustMarker in harness/test_review_round7_fixes.py for
-# the canonical trust-marker assertion plus the SPEG-era replacement
-# TestSpegSubAgentTrustMarker.
+# the canonical trust-marker assertion plus the SSOT Runtime-era replacement
+# TestSSOTRuntimeSubAgentTrustMarker.
 # ---------------------------------------------------------------------------
 
 
@@ -303,17 +303,17 @@ def test_memory_search_validates_workspace_without_name_error():
 
 def test_user_prompt_submit_hook_blocks_credentials_before_model_call():
     # v3.10: this test called legacy ``loop.run_turn`` and expected a
-    # pre-SPEG blocked-result shape (``metadata["hook_event"]``,
+    # pre-SSOT Runtime blocked-result shape (``metadata["hook_event"]``,
     # ``metadata["hook_blocked"]``, ``hook_block_reason``). After the
-    # SPEG hard cut (ff38bab) the ``run_speg_turn`` adapter manages
-    # block reporting via ``SPEGResult.metadata`` and structured
-    # ``SPEGError`` codes — there is no longer a generic
+    # SSOT Runtime hard cut (ff38bab) the ``run_ssot_turn`` adapter manages
+    # block reporting via ``SSOTRuntimeResult.metadata`` and structured
+    # ``SSOTRuntimeError`` codes — there is no longer a generic
     # ``hook_event`` key on the AgentResult envelope.
     #
     # The credential-scan guard now lives inside the
-    # ``agent.runtime.runtime_hooks`` path which SPEG invokes from
-    # ``speg_adapter._run_agent_thread``. Validate that path
-    # directly without going through the full SPEG plan.
+    # ``agent.runtime.runtime_hooks`` path which SSOT Runtime invokes from
+    # ``ssot_runtime._run_agent_thread``. Validate that path
+    # directly without going through the full SSOT Runtime plan.
     import importlib
     mods_to_check = [
         "agent.runtime.runtime_hooks",

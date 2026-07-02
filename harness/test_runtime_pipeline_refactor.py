@@ -2,7 +2,7 @@
 """Tests for the current runtime entrypoints.
 
 Covers:
-1. loop.py is a thin SPEG entrypoint
+1. loop.py is a thin SSOT Runtime entrypoint
 2. Current support modules are importable
 3. DENY is still terminal
 4. Shell still requires approval
@@ -27,10 +27,10 @@ class TestLoopIsThin:
         line_count = len(src.splitlines())
         assert line_count <= 200, f"loop.py has {line_count} lines, must be <=200"
 
-    def test_loop_contains_speg_delegation(self):
+    def test_loop_contains_ssot_runtime_delegation(self):
         import agent.runtime.loop as loop
         src = inspect.getsource(loop)
-        assert "run_speg_turn" in src, "loop.py must delegate to SPEG"
+        assert "run_ssot_turn" in src, "loop.py must delegate to SSOT Runtime"
 
     def test_loop_no_execute_tool_chain(self):
         import agent.runtime.loop as loop
@@ -202,10 +202,10 @@ class TestNewModulesImportable:
         assert hasattr(ToolExecutionPipeline, 'run')
 
 
-    def test_runtime_entrypoint_uses_speg(self):
+    def test_runtime_entrypoint_uses_ssot_runtime(self):
         from agent.runtime.loop import run_turn
         assert callable(run_turn)
-        assert "run_speg_turn" in run_turn.__code__.co_names
+        assert "run_ssot_turn" in run_turn.__code__.co_names
 
 
 # ---------------------------------------------------------------------------

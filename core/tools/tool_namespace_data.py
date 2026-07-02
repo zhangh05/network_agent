@@ -1,6 +1,6 @@
 """Canonical tool namespace — current 22-tool set.
 
-All 22 canonical tools are available to the SPEG planner. Each uses an
+All 22 canonical tools are available to the SSOT Runtime planner. Each uses an
 ``action`` parameter to dispatch sub-capabilities.
 """
 
@@ -67,7 +67,7 @@ CATEGORY_DEFS: dict[str, dict[str, str]] = {
 }
 
 
-# Current 22-tool namespace. Every canonical tool is available to SPEG planning.
+# Current 22-tool namespace. Every canonical tool is available to SSOT Runtime planning.
 # Schema: (tool_id, category, group, action, display_name, canonical_id,
 #          usage_hint, search_keyword)
 NS_DATA = [

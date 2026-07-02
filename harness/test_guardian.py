@@ -194,18 +194,18 @@ def test_sub_agent_run_record_written(tmp_path, monkeypatch):
 def test_approval_timeout_helper_reads_env(monkeypatch):
     # v3.10: legacy helpers ``agent.runtime.loop._get_approval_timeout``
     # and the ``APPROVAL_TIMEOUT_*_S`` env constants lived on the
-    # TurnRunner path that the SPEG hard cut (ff38bab) removed.
+    # TurnRunner path that the SSOT Runtime hard cut (ff38bab) removed.
     # Approval-timeout knobs are now declared in
-    # ``speg_engine.models.SPEGConfig`` (single / layer / total
-    # timeouts). We sanity-check the SPEG equivalents here.
-    monkeypatch.delenv("SPEG_MAX_TOTAL_SECONDS", raising=False)
-    from speg_engine.models import SPEGConfig
-    cfg = SPEGConfig()
-    # Inverted guard: legacy default was 90s; the SPEG replacement
+    # ``core.runtime_engine.models.SSOTRuntimeConfig`` (single / layer / total
+    # timeouts). We sanity-check the SSOT Runtime equivalents here.
+    monkeypatch.delenv("SSOT_RUNTIME_MAX_TOTAL_SECONDS", raising=False)
+    from core.runtime_engine.models import SSOTRuntimeConfig
+    cfg = SSOTRuntimeConfig()
+    # Inverted guard: legacy default was 90s; the SSOT Runtime replacement
     # is the larger ``max_total_seconds`` knob (default 60s today
     # but tunable). We assert it is a positive integer and the
     # other timeout knobs are also positive (they are independent
-    # budget ceilings — the SPEG design does not require the
+    # budget ceilings — the SSOT Runtime design does not require the
     # per-layer cap to nest under the total cap since each layer
     # can be short-circuited when the total budget is hit).
     assert isinstance(cfg.max_total_seconds, int)

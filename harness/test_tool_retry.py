@@ -1,11 +1,11 @@
 """
-Tool retry / execution-repair closed-loop tests for SPEG.
+Tool retry / execution-repair closed-loop tests for SSOT Runtime.
 
 These tests exercise the v3.10 retry pipeline end-to-end. They:
 
   * build a fake ``Engine`` run with a mock tool that either
     succeeds on the retry, fails twice, or refuses to retry,
-  * drive the run via ``SPEGEngine.run()`` (the public entry
+  * drive the run via ``SSOTRuntimeEngine.run()`` (the public entry
     point), and
   * assert the policy-decision outcomes, the metadata /
     audit / trace events, and the DAG dependency gate.
@@ -28,10 +28,10 @@ import pytest
 
 def _make_engine(plan_nodes: list[dict], tool_handler, *, tool_id: str,
                  config_overrides: dict | None = None):
-    """Build a SPEGEngine that plans ``plan_nodes`` and dispatches
+    """Build a SSOTRuntimeEngine that plans ``plan_nodes`` and dispatches
     ``tool_id`` to ``tool_handler``. Returns the engine."""
-    from speg_engine.engine import SPEGEngine
-    from speg_engine.models import SPEGConfig
+    from core.runtime_engine.engine import SSOTRuntimeEngine
+    from core.runtime_engine.models import SSOTRuntimeConfig
 
     plan = {"nodes": plan_nodes}
 
@@ -45,8 +45,8 @@ def _make_engine(plan_nodes: list[dict], tool_handler, *, tool_id: str,
     cfg_kwargs = {"enable_finalizer": False}
     if config_overrides:
         cfg_kwargs.update(config_overrides)
-    cfg = SPEGConfig(**cfg_kwargs)
-    engine = SPEGEngine(
+    cfg = SSOTRuntimeConfig(**cfg_kwargs)
+    engine = SSOTRuntimeEngine(
         config=cfg, llm_invoke=mock_llm, tool_registry=registry,
     )
     engine.register_tool(tool_id, tool_handler)
@@ -72,7 +72,7 @@ def test_read_only_timeout_first_call_recovers():
     """read-only / idempotent / max_retries=1 / first call raises
     a TOOL_TIMEOUT-class error, second call succeeds.
     """
-    from speg_engine.contracts import get_contract
+    from core.runtime_engine.contracts import get_contract
 
     # Confirm the contract surface for knowledge.manage.
     c = get_contract("knowledge.manage")
@@ -151,7 +151,7 @@ def test_non_idempotent_tool_does_not_retry():
     unit-test instead of an engine.run — see test_retry_policy_table
     below for the unit-level coverage.)
     """
-    from speg_engine.tool_retry_policy import should_retry_tool_failure
+    from core.runtime_engine.tool_retry_policy import should_retry_tool_failure
 
     @pytest.fixture
     def _node():
@@ -186,7 +186,7 @@ def test_non_idempotent_tool_does_not_retry():
 # ── Test 4: side_effect=write_file → no retry ─────────────────────────
 
 def test_write_file_side_effect_does_not_retry():
-    from speg_engine.tool_retry_policy import should_retry_tool_failure
+    from core.runtime_engine.tool_retry_policy import should_retry_tool_failure
 
     class N:
         retry_count = 0
@@ -205,8 +205,8 @@ def test_write_file_side_effect_does_not_retry():
 # ── Test 5: exec.run → no retry ───────────────────────────────────────
 
 def test_exec_run_does_not_retry():
-    from speg_engine.contracts import get_contract
-    from speg_engine.tool_retry_policy import should_retry_tool_failure
+    from core.runtime_engine.contracts import get_contract
+    from core.runtime_engine.tool_retry_policy import should_retry_tool_failure
 
     c = get_contract("exec.run")
     # Sanity — exec.run must keep its high-risk contract.
@@ -243,7 +243,7 @@ def test_exec_run_does_not_retry():
 # ── Test 6: FORBIDDEN_COMMAND → no retry, no LLM replan ──────────────
 
 def test_forbidden_command_does_not_retry():
-    from speg_engine.tool_retry_policy import should_retry_tool_failure
+    from core.runtime_engine.tool_retry_policy import should_retry_tool_failure
 
     class N:
         retry_count = 0
@@ -262,7 +262,7 @@ def test_forbidden_command_does_not_retry():
 # ── Test 7: POLICY_BLOCKED → no retry ────────────────────────────────
 
 def test_policy_blocked_does_not_retry():
-    from speg_engine.tool_retry_policy import should_retry_tool_failure
+    from core.runtime_engine.tool_retry_policy import should_retry_tool_failure
 
     class N:
         retry_count = 0
@@ -295,8 +295,8 @@ def test_layer_retries_only_failed_node():
             raise RuntimeError("connection reset")
         return f"ok-{node_id}"
 
-    from speg_engine.engine import SPEGEngine
-    from speg_engine.models import SPEGConfig
+    from core.runtime_engine.engine import SSOTRuntimeEngine
+    from core.runtime_engine.models import SSOTRuntimeConfig
 
     plan = {
         "nodes": [
@@ -319,8 +319,8 @@ def test_layer_retries_only_failed_node():
         "properties": {"action": {"type": "string"},
                        "q": {"type": "string"}},
     }}}
-    engine = SPEGEngine(
-        config=SPEGConfig(enable_finalizer=False),
+    engine = SSOTRuntimeEngine(
+        config=SSOTRuntimeConfig(enable_finalizer=False),
         llm_invoke=mock_llm, tool_registry=registry,
     )
     engine.register_tool("knowledge.manage", handler)
@@ -339,7 +339,7 @@ def test_global_max_retries_clamp():
     """tool.max_retries=3 + global cap=1 → effective=1; only 1
     retry actually fires. Budget exhaustion also blocks.
     """
-    from speg_engine.tool_retry_policy import (
+    from core.runtime_engine.tool_retry_policy import (
         should_retry_tool_failure, effective_max_retries,
     )
 

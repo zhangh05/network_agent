@@ -1,6 +1,6 @@
-"""Tests for SPEG v3.13 Conversation Context Injection.
+"""Tests for SSOT Runtime v3.13 Conversation Context Injection.
 
-Verifies that session.history is correctly injected into SPEG so that
+Verifies that session.history is correctly injected into SSOT Runtime so that
 follow-up queries like "什么意思", "我上句话说了什么" can reference
 previous turns instead of claiming ignorance.
 """
@@ -10,14 +10,14 @@ import pytest
 from unittest import mock
 from types import SimpleNamespace
 
-from speg_engine.fast_path import (
+from core.runtime_engine.fast_path import (
     is_conversation_ref,
     _build_conversation_history_block,
     classify_direct_answer,
 )
-from speg_engine import SPEGConfig, SPEGEngine
-from speg_engine.models import StatelessContext, ExecutionNode, ExecutionDAG, ToolResult
-from agent.runtime.speg_adapter import _inject_conversation_context
+from core.runtime_engine import SSOTRuntimeConfig, SSOTRuntimeEngine
+from core.runtime_engine.models import StatelessContext, ExecutionNode, ExecutionDAG, ToolResult
+from agent.runtime.ssot_runtime import _inject_conversation_context
 
 
 # ============================================================================
@@ -223,17 +223,17 @@ class TestHistoryBlockFormatting:
 
 
 # ============================================================================
-# Integration: SPEGEngine fast-path + conversation_ref
+# Integration: SSOTRuntimeEngine fast-path + conversation_ref
 # ============================================================================
 
 class TestFastPathWithConversationRef:
     """Verify that conversation_ref queries receive history in direct-answer."""
 
     def _build_engine_with_history(self, history_entries, llm_response="基于对话历史，您上一句提到..."):
-        """Build SPEGEngine with conversation_history injected via ctx.extras."""
+        """Build SSOTRuntimeEngine with conversation_history injected via ctx.extras."""
 
-        # We bypass speg_adapter and inject history directly into
-        # engine.run(extras=) — this simulates what speg_adapter does.
+        # We bypass ssot_runtime and inject history directly into
+        # engine.run(extras=) — this simulates what ssot_runtime does.
         extras = {}
         mock_session = SimpleNamespace(history=[
             SimpleNamespace(role=e["role"], content=e["content"])
@@ -251,8 +251,8 @@ class TestFastPathWithConversationRef:
             })
             return llm_response
 
-        config = SPEGConfig()
-        engine = SPEGEngine(
+        config = SSOTRuntimeConfig()
+        engine = SSOTRuntimeEngine(
             config=config, llm_invoke=llm_mock,
             tool_runtime=mock.MagicMock(),
         )
@@ -322,8 +322,8 @@ class TestFastPathWithConversationRef:
             llm_calls.append(kwargs)
             return '{"nodes": []}'  # valid planner JSON, no tools
 
-        config = SPEGConfig()
-        engine = SPEGEngine(
+        config = SSOTRuntimeConfig()
+        engine = SSOTRuntimeEngine(
             config=config, llm_invoke=llm_mock,
             tool_runtime=mock.MagicMock(),
         )
@@ -336,7 +336,7 @@ class TestFastPathWithConversationRef:
         assert result.success
         meta = result.metadata
         # "什么意思" does NOT match fast-path whitelist, and there's no
-        # history to trigger conversation-ref override → full SPEG.
+        # history to trigger conversation-ref override → full SSOT Runtime.
         assert meta.get("fast_path") is False
         assert meta.get("conversation_ref") is False
         assert meta.get("conversation_history_used") is False
@@ -368,8 +368,8 @@ class TestFastPathWithConversationRef:
             llm_calls.append(kwargs)
             return '{"nodes": []}'  # valid planner JSON
 
-        config = SPEGConfig()
-        engine = SPEGEngine(
+        config = SSOTRuntimeConfig()
+        engine = SSOTRuntimeEngine(
             config=config, llm_invoke=llm_mock,
             tool_runtime=mock.MagicMock(),
         )
@@ -382,7 +382,7 @@ class TestFastPathWithConversationRef:
         assert result.success
         meta = result.metadata
         # Without history, "我说了什么" doesn't match fast-path whitelist
-        # and no conversation_ref override → full SPEG.
+        # and no conversation_ref override → full SSOT Runtime.
         assert meta.get("conversation_ref") is False
 
 
@@ -406,7 +406,7 @@ class TestPlannerReceivesHistory:
             planner_inputs.append(kwargs)
             return '{"nodes": []}'
 
-        engine = SPEGEngine(config=SPEGConfig(), llm_invoke=llm_mock, tool_runtime=mock.MagicMock())
+        engine = SSOTRuntimeEngine(config=SSOTRuntimeConfig(), llm_invoke=llm_mock, tool_runtime=mock.MagicMock())
 
         result = asyncio.run(engine.run(
             user_input="请描述 OSPF 邻居状态列表",
@@ -425,8 +425,8 @@ class TestPlannerReceivesHistory:
             planner_inputs.append(kwargs)
             return '{"nodes": []}'
 
-        config = SPEGConfig()
-        engine = SPEGEngine(
+        config = SSOTRuntimeConfig()
+        engine = SSOTRuntimeEngine(
             config=config, llm_invoke=llm_mock,
             tool_runtime=mock.MagicMock(),
         )
@@ -459,7 +459,7 @@ class TestFinalizerReceivesHistory:
             llm_outputs.append(kwargs.get("user", ""))
             return '{"nodes": []}'
 
-        engine = SPEGEngine(config=SPEGConfig(enable_finalizer=True), llm_invoke=llm_mock,
+        engine = SSOTRuntimeEngine(config=SSOTRuntimeConfig(enable_finalizer=True), llm_invoke=llm_mock,
                             tool_runtime=mock.MagicMock())
 
         result = asyncio.run(engine.run(
@@ -477,7 +477,7 @@ class TestFinalizerReceivesHistory:
             llm_outputs.append(kwargs.get("user", ""))
             return '{"nodes": []}'
 
-        engine = SPEGEngine(config=SPEGConfig(enable_finalizer=True), llm_invoke=llm_mock,
+        engine = SSOTRuntimeEngine(config=SSOTRuntimeConfig(enable_finalizer=True), llm_invoke=llm_mock,
                             tool_runtime=mock.MagicMock())
 
         result = asyncio.run(engine.run(
@@ -496,7 +496,7 @@ class TestPlannerSystemPrompt:
     """Verify the planner system prompt includes conversation-ref rules."""
 
     def test_planner_system_prompt_rule_13(self):
-        from speg_engine.planner import PLANNER_SYSTEM_PROMPT
+        from core.runtime_engine.planner import PLANNER_SYSTEM_PROMPT
 
         assert "RECENT CONVERSATION HISTORY" in PLANNER_SYSTEM_PROMPT
         assert "我上句话说了什么" in PLANNER_SYSTEM_PROMPT

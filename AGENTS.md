@@ -18,7 +18,7 @@ This file is the handoff contract for AI coding agents working in this repositor
 Frontend
   -> backend/main.py routes or backend/ws/agent_ws.py
   -> agent.app.facade.AgentApp
-  -> SPEGEngine planner
+  -> SSOTRuntimeEngine planner
   -> execution DAG
   -> ToolRuntimeClient
   -> ToolExecutor

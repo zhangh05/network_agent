@@ -117,7 +117,7 @@ def build_capability_context_block(ctx) -> PromptBlock | None:
 
     lines = [
         "Current execution model:",
-        "- All 22 canonical tools are available through SPEG planning. No catalog search needed.",
+        "- All 22 canonical tools are available through SSOT Runtime planning. No catalog search needed.",
         "- Each tool uses an `action` parameter to select sub-capabilities.",
         "- Do not call alias or removed tool ids.",
     ]
