@@ -253,8 +253,14 @@ def test_docker_prune_with_credential_hard_block(risk_engine):
 
 # ── Tests: pipeline ────────────────────────────────────────────────────
 
-@pytest.mark.asyncio
-async def test_approval_bypass_resume():
+def test_approval_bypass_resume():
+    # harness/conftest.py does not install the async hook used by
+    # speg_engine/conftest.py, and pytest-asyncio is not a project
+    # dependency. We dispatch through asyncio.run() here so the
+    # test still works without the plugin (matches the pattern in
+    # harness/test_alias_drift.py).
+    import asyncio
+    from unittest import mock as _mock
     from speg_engine.engine import SPEGEngine
     config = SPEGConfig(enable_finalizer=False)
 
@@ -267,20 +273,25 @@ async def test_approval_bypass_resume():
     registry = {"exec.run": {"description": "", "args_schema": {
         "required": ["command"], "properties": {"command": {"type": "string"}},
     }}}
-    engine = SPEGEngine(config=config, llm_invoke=mock_llm, tool_registry=registry)
-    engine.register_tool("exec.run", mock.AsyncMock())
 
-    result1 = await engine.run("test")
-    assert result1.metadata.get("approval_required") is True
-    assert result1.node_success_count == 0
+    async def _drive():
+        engine = SPEGEngine(config=config, llm_invoke=mock_llm, tool_registry=registry)
+        engine.register_tool("exec.run", _mock.AsyncMock())
 
-    result2 = await engine.run("test", extras={"approved_risk": True})
-    assert result2.success
-    assert result2.node_success_count == 1
+        result1 = await engine.run("test")
+        assert result1.metadata.get("approval_required") is True
+        assert result1.node_success_count == 0
+
+        result2 = await engine.run("test", extras={"approved_risk": True})
+        assert result2.success
+        assert result2.node_success_count == 1
+
+    asyncio.run(_drive())
 
 
-@pytest.mark.asyncio
-async def test_hard_block_denied_approval():
+def test_hard_block_denied_approval():
+    import asyncio
+    from unittest import mock as _mock
     from speg_engine.engine import SPEGEngine
     config = SPEGConfig(enable_finalizer=False)
 
@@ -293,12 +304,16 @@ async def test_hard_block_denied_approval():
     registry = {"exec.run": {"description": "", "args_schema": {
         "required": ["command"], "properties": {"command": {"type": "string"}},
     }}}
-    engine = SPEGEngine(config=config, llm_invoke=mock_llm, tool_registry=registry)
-    engine.register_tool("exec.run", mock.AsyncMock())
 
-    result = await engine.run("test", extras={"approved_risk": True})
-    assert result.success is False
-    assert result.metadata.get("hard_block") is True
+    async def _drive():
+        engine = SPEGEngine(config=config, llm_invoke=mock_llm, tool_registry=registry)
+        engine.register_tool("exec.run", _mock.AsyncMock())
+
+        result = await engine.run("test", extras={"approved_risk": True})
+        assert result.success is False
+        assert result.metadata.get("hard_block") is True
+
+    asyncio.run(_drive())
 
 
 def test_approval_metadata_in_result():
