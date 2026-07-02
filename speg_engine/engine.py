@@ -55,6 +55,7 @@ from .planner import Planner
 from .pre_execution_repair import PreExecutionRepairEngine, PreExecutionRepairResult
 from .repair_engine import RepairEngine
 from .result_merger import ResultMerger
+from .runtime_contracts import ExecutionContract, ExecutionObligationViolation
 from .risk_policy import RiskPolicyEngine
 from .rollback import RollbackEngine
 from .scheduler import ResourceScheduler
@@ -245,6 +246,24 @@ class SPEGEngine:
         budget = BudgetController(self._config)
         request_span = self._trace.start_request(str(uuid.uuid4())[:8])
 
+        # ── v4: system-level runtime contracts ─────────────────────
+        # Asserted at the top of every turn so that flipping a
+        # contract off (a deliberate "contract OFF" escape hatch
+        # for debugging) is loud and observable. The contracts
+        # are enforced in the corresponding modules:
+        #   - TOOL_TRUTH_SINGLE_SOURCE   (tool_runtime._normalize_result)
+        #   - CONTEXT_EVENT_STREAM_ONLY  (speg_adapter.build_context_events)
+        #   - EXECUTION_OBLIGATION_ENFORCED (planner.enforce_execution_obligation)
+        assert ExecutionContract.TOOL_TRUTH_SINGLE_SOURCE, (
+            "v4 contract TOOL_TRUTH_SINGLE_SOURCE is off — refusing to run."
+        )
+        assert ExecutionContract.CONTEXT_EVENT_STREAM_ONLY, (
+            "v4 contract CONTEXT_EVENT_STREAM_ONLY is off — refusing to run."
+        )
+        assert ExecutionContract.EXECUTION_OBLIGATION_ENFORCED, (
+            "v4 contract EXECUTION_OBLIGATION_ENFORCED is off — refusing to run."
+        )
+
         # P0: announce turn start so frontend logs the request.
         self._emit_stage(TURN_STARTED, t_total,
                          user_input_len=len(user_input or ""))
@@ -362,7 +381,30 @@ class SPEGEngine:
 
             t_planner = time.monotonic()
             self._emit_stage(PLANNER_STARTED, t_total)
-            plan_nodes = self._planner.plan(ctx)
+            # ── v4: planner fail-fast ──────────────────────────────
+            # ``ExecutionObligationViolation`` is raised by the
+            # planner when the user request requires execution but
+            # the LLM produced an empty graph. Catch it and
+            # produce a structured error result — same code path
+            # as the v3.14 empty-plan task-intent guard, just
+            # reached via raise instead of in-engine check.
+            try:
+                plan_nodes = self._planner.plan(ctx)
+            except ExecutionObligationViolation as exc:
+                metrics.capture_planner(
+                    (time.monotonic() - t_planner) * 1000
+                )
+                errors.append(build_error(
+                    SpegErrorCode.PLANNER_EMPTY_FOR_TASK_INTENT,
+                    f"Planner failed execution-obligation check: {exc}",
+                    stage="planner",
+                    risk_level="high",
+                ))
+                return self._build_result(
+                    ctx, None, node_results, final_response,
+                    errors, metrics, budget, t_total,
+                    risk_level="high", approval_required=False,
+                )
             metrics.capture_planner((time.monotonic() - t_planner) * 1000)
             self._emit_stage(
                 PLANNER_COMPLETED, t_total,
@@ -1395,6 +1437,20 @@ class TaskIntentResult:
     def __post_init__(self):
         if self.evidence is None:
             self.evidence = []
+
+    @property
+    def requires_execution(self) -> bool:
+        """v4 contract alias: the user request requires the
+        runtime to produce a real execution (tool calls / DAG).
+
+        Defaults to ``requires_tool_likely``; subclasses or
+        specialised detectors can override to combine multiple
+        signals (e.g. ``is_task and intent_type != 'definition'``).
+        The v4 ``enforce_execution_obligation`` guard reads this
+        property name, so the planner / engine / tests all
+        share a single vocabulary.
+        """
+        return bool(self.requires_tool_likely)
 
 
 def detect_task_intent(user_input: str) -> TaskIntentResult:

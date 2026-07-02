@@ -6,6 +6,18 @@ Key rules:
   - No hidden shared state
   - No implicit context access
   - All independent executions are concurrent
+
+v4 contract (runtime_contracts.ExecutionContract.TOOL_TRUTH_SINGLE_SOURCE):
+
+  Every tool handler return value MUST pass through
+  ``resolve_tool_outcome`` before it lands in a ``ToolResult``.
+  No code path may construct ``ToolResult(success=True, ...)``
+  without the resolver's verdict. This is the single source of
+  truth for "did the tool actually succeed?" — the previous
+  helper trio (``_resolve_success_flag`` / ``_resolve_error_code``
+  / ``_resolve_error_message``) was consolidated into
+  ``resolve_tool_outcome`` so the contract has exactly one
+  enforcement point.
 """
 
 from __future__ import annotations
@@ -15,8 +27,168 @@ import time
 from typing import Any, Awaitable, Callable
 
 from .models import ExecutionNode, ExecutionStatus, SPEGConfig, StatelessContext, ToolResult
+from .runtime_contracts import ExecutionContract
 
 ToolHandler = Callable[[dict[str, Any]], Any | Awaitable[Any]]
+
+
+# ── v4 Tool Truth: single-source resolver ─────────────────────────────
+
+
+# Outcome status codes. Strings (not Enum) so they serialise cleanly
+# into audit / trace payloads.
+_STATUS_SUCCESS = "SUCCESS"
+_STATUS_FAIL = "FAIL"
+
+# Default error_code when a handler declared ok=False but did not
+# supply one. Mirrors the v3.10 ``_HANDLER_NOT_OK_DEFAULT_CODE``
+# so downstream consumers (retry policy, audit) keep their
+# stable error_code string.
+_HANDLER_NOT_OK_DEFAULT_CODE = "TOOL_RETURNED_NOT_OK"
+# Default error_code when the handler returned None. Distinct from
+# ``TOOL_RETURNED_NOT_OK`` so audit can tell "handler said no" from
+# "handler produced no value at all".
+_NULL_RESULT_DEFAULT_CODE = "NULL_RESULT"
+# Default error_code when a handler declared success=False (legacy
+# ``success`` key) without naming a specific code. Maps to
+# ``TOOL_FAILED`` per the v4 spec.
+_LEGACY_FAIL_DEFAULT_CODE = "TOOL_FAILED"
+
+
+def resolve_tool_outcome(result: Any) -> tuple[str, str | None, Any]:
+    """v4 single-source tool truth resolver.
+
+    Returns a 3-tuple ``(status, error_code, normalized)`` where:
+
+      * ``status`` is ``"SUCCESS"`` or ``"FAIL"`` — the boolean
+        verdict of the handler's return value.
+      * ``error_code`` is a non-empty string on FAIL and ``None``
+        on SUCCESS. Empty codes are normalised to the v4 default
+        (``TOOL_RETURNED_NOT_OK`` for ``ok=False``, ``TOOL_FAILED``
+        for legacy ``success=False``, ``NULL_RESULT`` for None).
+      * ``normalized`` is the value the ``ToolResult.data`` field
+        should hold. For dicts this is the original result; for
+        ``None`` it is an empty dict so ``ToolResult.data`` is
+        always a defined value (never ``None``).
+
+    Resolution order (per v4 spec):
+
+      1. ``result is None`` → FAIL / NULL_RESULT / {}.
+      2. ``result["ok"] is False`` → FAIL / result.error_code or
+         ``TOOL_RETURNED_NOT_OK`` / result.
+      3. ``result["ok"] is True`` → SUCCESS / None / result.
+      4. ``"success" in result`` → SUCCESS or FAIL based on the
+         value; error_code falls back to ``TOOL_FAILED`` for FAIL.
+      5. Non-dict (e.g. handler returns a bare string or number) →
+         SUCCESS / None / result.
+
+    This function is the ONLY function in the v4 runtime that
+    decides whether a tool call succeeded. Every
+    ``ToolResult(success=...)`` field is filled by feeding the
+    handler return value through this resolver and mapping the
+    status to a boolean.
+    """
+    if result is None:
+        return _STATUS_FAIL, _NULL_RESULT_DEFAULT_CODE, {}
+
+    if isinstance(result, dict):
+        # ok=False is the strongest failure signal — preserve the
+        # handler's error_code when present.
+        if result.get("ok") is False:
+            code = result.get("error_code") or _HANDLER_NOT_OK_DEFAULT_CODE
+            return _STATUS_FAIL, str(code), result
+
+        # ok=True is the strongest success signal.
+        if result.get("ok") is True:
+            return _STATUS_SUCCESS, None, result
+
+        # Legacy "success" key fallback. Per the v4 spec, the
+        # legacy branch returns ``None`` for error_code in BOTH
+        # the success and fail cases — the legacy contract is a
+        # boolean verdict only. Handlers that want a specific
+        # error_code must migrate to the modern ``ok`` key. The
+        # caller (``_normalize_result``) maps ``None`` to "" for
+        # the ToolResult field; the dict is still carried as
+        # ``normalized`` so downstream code can read
+        # ``error_code`` from the payload if it wants to.
+        if "success" in result:
+            ok = bool(result["success"])
+            if ok:
+                return _STATUS_SUCCESS, None, result
+            return _STATUS_FAIL, None, result
+
+        # Dict with no ok/success keys — treat as success (the
+        # absence of an error declaration is the legacy convention).
+        return _STATUS_SUCCESS, None, result
+
+    # Non-dict return (str, int, list, custom object, ...). The
+    # v4 contract treats this as success — the previous v3.10
+    # resolver did the same.
+    return _STATUS_SUCCESS, None, result
+
+
+def extract_error(result: Any) -> str:
+    """v4 single-source error string extractor.
+
+    Resolution order:
+
+      1. ``result["error"]`` (str) — direct.
+      2. ``result["errors"]`` (list / dict / str) — flattened via
+         ``_stringify_errors`` so list members are joined with
+         ``"; "``.
+      3. ``result["message"]`` (str) — fallback.
+      4. ``error_code`` / ``code`` (str) — preserved verbatim as
+         a last-resort hint.
+
+    Returns ``""`` when no error field is present. Non-dict
+    results always return ``""``.
+    """
+    if not isinstance(result, dict):
+        return ""
+
+    err = result.get("error")
+    if err:
+        return str(err)
+
+    errors = result.get("errors")
+    if errors:
+        text = _stringify_errors(errors)
+        if text:
+            return text
+
+    msg = result.get("message")
+    if msg:
+        return str(msg)
+
+    code = result.get("error_code") or result.get("code")
+    if code:
+        return str(code)
+
+    return ""
+
+
+def _stringify_errors(errors: Any) -> str:
+    """Best-effort flattening of an ``errors`` payload into a
+    single human-readable string for ``ToolResult.error``.
+
+    Accepts ``list`` / ``dict`` / ``str`` / scalar. Returns "" if
+    nothing useful is present. Used by both ``extract_error`` and
+    the v3.10 backward-compat path inside ``_normalize_result``.
+    """
+    if not errors:
+        return ""
+    if isinstance(errors, str):
+        return errors
+    if isinstance(errors, list):
+        parts = [_stringify_errors(e) for e in errors if e not in (None, "")]
+        return "; ".join(p for p in parts if p)
+    if isinstance(errors, dict):
+        import json as _json
+        try:
+            return _json.dumps(errors, ensure_ascii=False, default=str)
+        except Exception:
+            return str(errors)
+    return str(errors)
 
 
 class ToolRuntime:
@@ -215,46 +387,31 @@ def _stringify_errors(errors: Any) -> str:
 
 
 def _resolve_success_flag(handler_result: Any) -> bool:
-    """Read ``ok`` / ``success`` from a handler result.
+    """v3.10 thin compatibility shim around ``resolve_tool_outcome``.
 
-    Resolution order:
-      1. ``ok`` if present (bool) — preferred signal.
-      2. ``success`` if present (bool) — legacy fallback.
-      3. default True — handler did not declare a verdict; the
-         runtime treats absence-of-error as success.
-
-    Returns the resolved boolean.
+    New code MUST call ``resolve_tool_outcome`` directly. This
+    wrapper exists only so that any test or external caller that
+    imports the v3.10 name keeps working. It deliberately does
+    not preserve ``error_code`` / ``error`` semantics — those
+    require the full resolver.
     """
-    if not isinstance(handler_result, dict):
-        return True
-    if "ok" in handler_result:
-        return bool(handler_result["ok"])
-    if "success" in handler_result:
-        return bool(handler_result["success"])
-    return True
+    status, _code, _normalized = resolve_tool_outcome(handler_result)
+    return status == _STATUS_SUCCESS
 
 
 def _resolve_error_code(handler_result: Any) -> str:
-    """Read ``error_code`` / ``code`` from a handler result. Empty
-    string if neither is present."""
-    if not isinstance(handler_result, dict):
-        return ""
-    code = handler_result.get("error_code") or handler_result.get("code")
-    return str(code) if code else ""
+    """v3.10 thin compatibility shim — returns the v4 error_code or
+    empty string. Prefer ``resolve_tool_outcome`` for new code.
+    """
+    _status, code, _normalized = resolve_tool_outcome(handler_result)
+    return code or ""
 
 
 def _resolve_error_message(handler_result: Any) -> str:
-    """Read the human-readable error string. Falls back across
-    ``errors`` / ``error`` / ``message``."""
-    if not isinstance(handler_result, dict):
-        return ""
-    err = handler_result.get("error") or handler_result.get("message")
-    if err:
-        return str(err)
-    errors = handler_result.get("errors")
-    if errors:
-        return _stringify_errors(errors)
-    return ""
+    """v3.10 thin compatibility shim — returns the v4 error string.
+    Prefer ``extract_error`` for new code.
+    """
+    return extract_error(handler_result)
 
 
 def _normalize_result(
@@ -262,29 +419,40 @@ def _normalize_result(
     handler_result: Any,
     elapsed_ms: float,
 ) -> ToolResult:
-    """Build a ``ToolResult`` from a handler return value, honoring
-    the handler's own ``ok``/``success``/``error`` declaration.
+    """v4 single-source ``ToolResult`` builder.
 
-    This is the single point where the SPEG layer decides whether a
-    handler that didn't raise was actually successful. A handler
-    that returned ``{"ok": false, ...}`` now correctly produces
-    ``ToolResult.success=False`` so the retry policy, the DAG
-    dependency gate, the audit / trace pipeline, and the final
-    tool-call aggregation all see the real outcome.
+    Routes the handler's return value through
+    ``resolve_tool_outcome`` to decide the verdict, and through
+    ``extract_error`` to flatten the error message. This is the
+    ONLY function in the runtime that constructs a
+    ``ToolResult`` for a handler return value — see
+    ``ExecutionContract.TOOL_TRUTH_SINGLE_SOURCE``.
+
+    Direct ``ToolResult`` constructions elsewhere in this file
+    are reserved for runtime-level failure paths (handler not
+    registered, asyncio timeout, exception raised) where the
+    handler did NOT return and there is no verdict to resolve.
     """
-    success = _resolve_success_flag(handler_result)
-    error_code = _resolve_error_code(handler_result) if not success else ""
-    if not error_code:
-        error_code = _HANDLER_NOT_OK_DEFAULT_CODE if not success else ""
-    error_message = _resolve_error_message(handler_result) if not success else ""
+    assert ExecutionContract.TOOL_TRUTH_SINGLE_SOURCE, (
+        "v4 contract TOOL_TRUTH_SINGLE_SOURCE is off — "
+        "_normalize_result refuses to build a ToolResult without "
+        "the resolver enforcement."
+    )
+
+    status, error_code, normalized = resolve_tool_outcome(handler_result)
+    success = status == _STATUS_SUCCESS
+    # On SUCCESS, error_code is None — normalise to "" so the
+    # ToolResult dataclass field (typed as str) stays consistent.
+    error_code_str = error_code or ""
+    error_message = extract_error(handler_result) if not success else ""
 
     return ToolResult(
         node_id=node.id,
         tool=node.tool,
         success=success,
-        data=handler_result,
+        data=normalized,
         error=error_message or None,
-        error_code=error_code or "",
+        error_code=error_code_str,
         latency_ms=elapsed_ms,
         retry_count=node.retry_count,
     )

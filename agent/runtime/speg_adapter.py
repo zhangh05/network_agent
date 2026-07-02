@@ -20,6 +20,7 @@ from agent.runtime.result import AgentResult
 from agent.runtime.turn_persistence import persist_run_record
 from agent.runtime.query_engine import build_trace_id
 from agent.runtime.utils import now_iso
+from speg_engine.runtime_contracts import ExecutionContract
 
 _LOG = logging.getLogger(__name__)
 
@@ -582,60 +583,31 @@ def _inject_conversation_context(session, metadata_in: dict[str, Any]) -> None:
 
 
 def _populate_from_session(session, cc) -> None:
-    """Populate ConversationContext from session.history (memory) AND
-    SessionMessageStore (disk).
+    """Populate ConversationContext from the v4 single-source
+    event stream produced by ``build_context_events``.
 
-    Merge strategy:
-      1. Read complete history from SessionMessageStore (disk).
-      2. Merge session.history (in-memory) for latest unsaved turns.
-      3. Dedup by (role, content, run_id).
-      4. Sort chronologically, feed into window/summary/previous.
+    The dual-source merge logic that previously lived in this
+    function (reading ``SessionMessageStore`` + ``session.history``
+    in two passes) is now centralised in ``build_context_events``.
+    This function is the only consumer of the merged event
+    stream — it does not touch either source directly.
     """
-    # ── 1. Read from SessionMessageStore (disk) ──────────────────
-    disk_messages: list[dict[str, str]] = []
-    ws_id = getattr(session, "workspace_id", "") or "default"
-    sid = getattr(session, "session_id", "")
-    if sid:
-        try:
-            from workspace.message_store import SessionMessageStore
-            store = SessionMessageStore(session_id=sid, ws_id=ws_id)
-            raw = store.get_messages()
-            for m in raw:
-                role = m.get("role", "")
-                content = m.get("content", "")
-                if role in ("user", "assistant") and content.strip():
-                    disk_messages.append({
-                        "role": role,
-                        "content": content,
-                        "_run_id": m.get("run_id", ""),
-                        "_created_at": m.get("created_at", ""),
-                    })
-        except Exception:
-            # Disk read failure → fall back to session.history
-            pass
+    # ── v4: single source of truth for context events ──────────
+    # The runtime contract ``CONTEXT_EVENT_STREAM_ONLY`` is
+    # enforced by routing every read through this builder.
+    # We honour it explicitly even though the assert at the
+    # top of ``SPEGEngine.run`` already guards the engine entry
+    # — defence in depth in case this function is reached via a
+    # non-engine code path (tests, replay, etc.).
+    assert ExecutionContract.CONTEXT_EVENT_STREAM_ONLY, (
+        "v4 contract CONTEXT_EVENT_STREAM_ONLY is off — "
+        "_populate_from_session refuses to merge context "
+        "outside the single builder."
+    )
 
-    # ── 2. Read from session.history (in-memory) ─────────────────
-    history_entries = getattr(session, "history", None) or []
-    mem_messages: list[dict[str, str]] = []
-    for msg in history_entries:
-        role = str(getattr(msg, "role", "") or "")
-        content = str(getattr(msg, "content", "") or "")
-        if role in ("user", "assistant") and content.strip():
-            mem_messages.append({"role": role, "content": content})
+    all_messages = build_context_events(session)
 
-    # ── 3. Merge: disk first, then memory (memory is more recent)─
-    seen: set[tuple[str, str]] = set()
-    all_messages: list[dict[str, str]] = []
-
-    for m in disk_messages + mem_messages:
-        # Dedup key: (role, first 80 chars of content)
-        key = (m["role"], m.get("content", "")[:80])
-        if key in seen:
-            continue
-        seen.add(key)
-        all_messages.append({"role": m["role"], "content": m.get("content", "")})
-
-    # ── 4. Recent window, session summary, previous messages ─────
+    # ── 2. Recent window, session summary, previous messages ─────
     recent, older_start = _build_recent_window(all_messages)
 
     cc.recent_messages = recent
@@ -656,6 +628,128 @@ def _populate_from_session(session, cc) -> None:
             break
     cc.previous_user_message = prev_user
     cc.previous_assistant_message = prev_assistant
+
+
+def build_context_events(session) -> list[dict[str, str]]:
+    """v4 single-source context event builder.
+
+    Reads the in-memory ``session.history`` and the on-disk
+    ``SessionMessageStore`` exactly once each, normalises both
+    into a uniform ``{role, content, created_at}`` shape, sorts
+    by ``created_at`` chronologically, and deduplicates by
+    ``(role, content[:80])``.
+
+    Returns the merged, sorted, deduplicated event list. Every
+    other call site that needs the conversation history MUST
+    go through this builder — manual dual-merge outside the
+    builder is forbidden by the v4
+    ``CONTEXT_EVENT_STREAM_ONLY`` contract.
+
+    Notes:
+      * ``session.history`` entries are objects with ``role`` /
+        ``content`` attributes; ``created_at`` is absent so the
+        builder assigns a sequence-ordered timestamp (current
+        millis + index) to preserve the in-memory ordering.
+      * ``SessionMessageStore.get_messages()`` returns dicts
+        with ``role`` / ``content`` / ``created_at`` keys (or
+        empty string when missing); the builder passes the
+        timestamp through directly.
+      * If the disk read fails (corrupt store, missing dir, etc.)
+        the builder falls back to the in-memory list — the same
+        fallback the v3.10 path used, but now centralised.
+    """
+    ws_id = getattr(session, "workspace_id", "") or "default"
+    sid = getattr(session, "session_id", "")
+
+    # ── 1. Read from SessionMessageStore (disk) ──────────────────
+    disk_events: list[dict[str, str]] = []
+    if sid:
+        try:
+            from workspace.message_store import SessionMessageStore
+            store = SessionMessageStore(session_id=sid, ws_id=ws_id)
+            raw = store.get_messages()
+            for m in raw:
+                role = m.get("role", "")
+                content = m.get("content", "")
+                if role in ("user", "assistant") and content.strip():
+                    disk_events.append({
+                        "role": role,
+                        "content": content,
+                        "created_at": str(m.get("created_at", "") or ""),
+                        "_source": "disk",
+                    })
+        except Exception:
+            # Disk read failure — fall back to in-memory only.
+            # The fallback is contained: the builder returns a
+            # valid event list even if the store is unavailable.
+            disk_events = []
+
+    # ── 2. Read from session.history (in-memory) ─────────────────
+    history_entries = getattr(session, "history", None) or []
+    mem_events: list[dict[str, str]] = []
+    # Use a millis offset that grows per entry so in-memory
+    # events that lack ``created_at`` still get a stable
+    # chronological order. We use the current epoch as the base
+    # so they sort after older disk events from earlier turns.
+    base_ts = _now_ms()
+    for idx, msg in enumerate(history_entries):
+        role = str(getattr(msg, "role", "") or "")
+        content = str(getattr(msg, "content", "") or "")
+        if role in ("user", "assistant") and content.strip():
+            mem_events.append({
+                "role": role,
+                "content": content,
+                "created_at": str(base_ts + idx),
+                "_source": "memory",
+            })
+
+    # ── 3. Merge: disk first, then memory (memory is more recent)─
+    events: list[dict[str, str]] = disk_events + mem_events
+    events.sort(key=_event_sort_key)
+
+    # ── 4. Deduplicate by (role, content[:80]) ───────────────────
+    seen: set[tuple[str, str]] = set()
+    deduped: list[dict[str, str]] = []
+    for ev in events:
+        key = (ev["role"], ev["content"][:80])
+        if key in seen:
+            continue
+        seen.add(key)
+        deduped.append({
+            "role": ev["role"],
+            "content": ev["content"],
+            "created_at": ev["created_at"],
+        })
+
+    return deduped
+
+
+def _now_ms() -> int:
+    """Return the current epoch in milliseconds. Used as a
+    timestamp base for in-memory events that lack ``created_at``."""
+    import time as _time
+    return int(_time.time() * 1000)
+
+
+def _event_sort_key(ev: dict[str, str]) -> tuple:
+    """Sort key for context events.
+
+    Sorts by ``created_at`` ascending. Empty timestamps sort
+    *first* (oldest possible position) so disk events that lost
+    their timestamp don't bunch up at the end. The secondary
+    key is the role so equal timestamps get a stable order
+    (user before assistant for the same turn).
+    """
+    ts = ev.get("created_at", "")
+    # Empty timestamps sort first.
+    if not ts:
+        return (0, 0, ev.get("role", ""))
+    # Numeric ms timestamps sort numerically; ISO strings sort
+    # lexicographically (which is correct for ISO-8601).
+    try:
+        return (1, int(ts), ev.get("role", ""))
+    except (TypeError, ValueError):
+        return (1, ts, ev.get("role", ""))
 
 
 def _build_recent_window(

@@ -106,13 +106,24 @@ def test_handler_ok_true_propagates_to_tool_result():
     assert not result.error_code
 
 
-# ── C: handler success=False + error_code → structured error_code ───────
+# ── C: handler ok=False + error_code → structured error_code ───────
 
 
 def test_handler_structured_error_code_is_propagated():
+    """A handler that returns ``{"ok": False, "error_code": "X",
+    "error": "..."}`` (the modern contract) must produce
+    ``ToolResult(success=False, error_code="X")`` and the error
+    message.
+
+    v4 contract: only the modern ``ok`` key propagates the
+    handler's ``error_code`` into the resolver. The legacy
+    ``success`` key is treated as a boolean verdict only — see
+    ``test_legacy_success_false_does_not_propagate_error_code``
+    in test_speg_v4_tool_truth.py for the asymmetry.
+    """
     def handler(args: dict) -> dict:
         return {
-            "success": False,
+            "ok": False,
             "error_code": "CRED_MISSING",
             "error": "no credentials in vault",
         }

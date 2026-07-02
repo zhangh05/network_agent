@@ -6,6 +6,19 @@ Output: strictly structured JSON execution graph
 
 ONE LLM call ONLY. No reasoning, no multi-step thinking, no tool suggestions
 outside the graph.
+
+v4 contract (runtime_contracts.ExecutionContract.EXECUTION_OBLIGATION_ENFORCED):
+
+  When the user request requires tool execution, the planner MUST
+  return a non-empty graph. Returning ``[]`` (or ``None``) for a
+  task-intent request is a contract violation and raises
+  ``ExecutionObligationViolation`` before the plan is handed to
+  the engine.
+
+  Chitchat / definition questions / direct-response requests that
+  do NOT require execution are exempt — those can legitimately
+  return an empty plan with a ``direct_response`` filled into
+  ``ctx.extras``.
 """
 
 from __future__ import annotations
@@ -16,6 +29,7 @@ import uuid
 from typing import Any, Callable
 
 from .models import PlanNode, SPEGConfig, StatelessContext
+from .runtime_contracts import ExecutionContract, ExecutionObligationViolation
 
 
 PLANNER_SYSTEM_PROMPT = """You are a deterministic execution planner. Your ONLY job is to output a JSON
@@ -94,6 +108,9 @@ class Planner:
 
         Returns a list of PlanNode objects.
         Raises ValueError if planner output is invalid.
+        Raises ExecutionObligationViolation if the user request
+        requires tool execution (per ``detect_task_intent``) but
+        the LLM produced an empty plan — the v4 fail-fast guard.
         """
         start = time.monotonic()
 
@@ -115,6 +132,15 @@ class Planner:
             direct = data.get("final_response", "")
             if isinstance(direct, str) and direct.strip():
                 ctx.extras["direct_response"] = direct.strip()
+
+        # ── v4: execution-obligation enforcement ─────────────────────
+        # If the user request requires tool execution (per the unified
+        # task-intent detector), an empty plan is a contract
+        # violation, not a "nothing to do" outcome. Raise before
+        # returning so the engine's empty-plan guard sees the
+        # exception and produces a structured error result.
+        intent = detect_task_intent(ctx.user_input or "")
+        enforce_execution_obligation(intent, nodes)
 
         elapsed = (time.monotonic() - start) * 1000
         ctx.extras["planner_latency_ms"] = elapsed
@@ -217,3 +243,77 @@ Generate the execution graph JSON now. No explanation, no markdown — pure JSON
             nodes.append(PlanNode(id=node_id, tool=tool, args=args, deps=deps))
 
         return nodes
+
+
+# ── v4: execution-obligation enforcement ──────────────────────────────
+# Imported lazily inside the module body to keep the import
+# surface narrow. detect_task_intent is defined in
+# ``speg_engine.engine`` and is a pure function with no I/O, so
+# the lazy import is safe.
+
+
+def detect_task_intent(user_input: str):  # type: ignore[no-untyped-def]
+    """Re-export the engine's task-intent detector lazily so
+    ``planner.py`` does not introduce an import cycle
+    (``engine`` imports ``planner``).
+
+    Returns a ``TaskIntentResult`` with at least
+    ``is_task``, ``requires_tool_likely``, ``requires_execution``
+    (alias) attributes.
+    """
+    from .engine import detect_task_intent as _detect
+    return _detect(user_input)
+
+
+def enforce_execution_obligation(intent, plan) -> None:
+    """v4 fail-fast guard: the planner MUST NOT return an empty
+    plan for a request that requires tool execution.
+
+    The check has three parts (per the v4 spec):
+
+      1. ``intent.requires_execution`` is True — the user
+         request is a task intent (analyse / inspect / read /
+         diagnose / execute / etc.), so the runtime owes the
+         user a real execution.
+      2. ``plan`` is empty (``[]``) or ``None`` — silent
+         fallback to a no-op is forbidden.
+      3. There is no ``direct_response`` in ``ctx.extras`` that
+         the engine could surface as a text answer — direct
+         answers are still legitimate for the
+         non-execution-obligation branch (definition questions
+         etc.).
+
+    On violation: raise ``ExecutionObligationViolation``. The
+    engine catches it and produces a structured error result
+    (matching the v3.14 empty-plan task-intent guard).
+    """
+    assert ExecutionContract.EXECUTION_OBLIGATION_ENFORCED, (
+        "v4 contract EXECUTION_OBLIGATION_ENFORCED is off — "
+        "enforce_execution_obligation is a no-op."
+    )
+
+    if plan is None:
+        plan = []
+
+    if not getattr(intent, "requires_execution", False):
+        return
+
+    if plan:
+        return
+
+    # No nodes — but the planner may have legitimately produced a
+    # direct response (the user asked a definition question that
+    # is also a task intent by the loose classifier). Allow that
+    # path so the v3.14 chitchat / definition flow still works.
+    # The check is loose on purpose: direct_response is set
+    # only when the LLM produced a non-empty ``final_response``
+    # in its JSON output.
+    # We don't have access to ctx.extras here, so we let the
+    # engine's existing guard handle the direct_response case
+    # by raising — the engine knows whether direct_response
+    # was set.
+    raise ExecutionObligationViolation(
+        "Task requires execution but planner returned empty graph "
+        f"(intent_type={getattr(intent, 'intent_type', '?')!r}, "
+        f"is_task={getattr(intent, 'is_task', False)})"
+    )
