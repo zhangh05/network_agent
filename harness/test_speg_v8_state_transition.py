@@ -191,3 +191,85 @@ class TestStateConsistency:
         ctx = _ctx(execution_state="UNKNOWN")
         with pytest.raises(AssertionError):
             validate_state_consistency(ctx)
+
+from speg_engine.state_transition_guard import (
+    UnknownStateError,
+    StateMutationError,
+    NoOpTransitionError,
+    ExecutionStateManager,
+    ExecutionValidatorPipeline,
+    RetryScope,
+)
+
+
+class TestV9UnknownState:
+    """v9: unknown states are hard errors."""
+
+    def test_unknown_from_state_raises(self):
+        with pytest.raises(UnknownStateError):
+            StateTransitionGuard.validate_transition("MYSTERY", "RUNNING")
+
+    def test_unknown_to_state_raises(self):
+        with pytest.raises(UnknownStateError):
+            StateTransitionGuard.validate_transition("RUNNING", "MYSTERY")
+
+
+class TestV9NoOpTransition:
+    """v9: no-op transitions are detected and rejected."""
+
+    def test_running_to_running_blocked(self):
+        ctx = _ctx()
+        with pytest.raises(NoOpTransitionError):
+            StateTransitionGuard.transition(ctx, "RUNNING")
+
+    def test_terminal_to_terminal_blocked(self):
+        ctx = _ctx(execution_state="TERMINAL",
+                   execution_state_prev="TERMINAL")
+        with pytest.raises(NoOpTransitionError):
+            StateTransitionGuard.transition(ctx, "TERMINAL")
+
+
+class TestV9StateMutationBlock:
+    """v9: finalized state cannot be mutated."""
+
+    def test_finalized_blocks_state_change(self):
+        ctx = _ctx()
+        ExecutionStateManager.finalize(ctx)
+        with pytest.raises(StateMutationError):
+            ExecutionStateManager.set_state(ctx, "DEGRADED")
+
+    def test_finalized_blocks_execution_field(self):
+        ctx = _ctx(execution_state_finalized=True)
+        with pytest.raises(StateMutationError):
+            ExecutionStateManager.set_field(ctx, "execution_state", "DEGRADED")
+
+    def test_non_execution_field_allowed(self):
+        ctx = _ctx(execution_state_finalized=True)
+        ExecutionStateManager.set_field(ctx, "other_field", 42)
+        assert ctx.extras["other_field"] == 42
+
+
+class TestV9ExecutionValidatorPipeline:
+    """v9: single validation entry point."""
+
+    def test_pipeline_passes_on_clean_ctx(self):
+        ctx = _ctx()
+        ExecutionValidatorPipeline.validate(ctx)  # ok
+
+    def test_pipeline_unknown_exec_key_raises(self):
+        ctx = _ctx(execution_invalid=True)
+        with pytest.raises(AssertionError):
+            ExecutionValidatorPipeline.validate(ctx)
+
+
+class TestV9RetryScope:
+    """v9: explicit retry scope, no implicit inference."""
+
+    def test_all_scopes_defined(self):
+        assert RetryScope.PLANNER_ONLY == "PLANNER_ONLY"
+        assert RetryScope.TOOL_ONLY == "TOOL_ONLY"
+        assert RetryScope.FULL_REEXECUTION == "FULL_REEXECUTION"
+
+    def test_scopes_are_valid(self):
+        assert RetryScope.PLANNER_ONLY in RetryScope.VALID
+        assert RetryScope.TOOL_ONLY in RetryScope.VALID

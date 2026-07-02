@@ -1,9 +1,6 @@
 """
-SPEG v8 State Transition Guard — prevents illegal state jumps,
-infinite retry loops, and terminal re-entry.
-
-This is a constraint layer on top of the v7 Failure Execution FSM.
-It does NOT modify existing Policy / Contract / Execution logic.
+SPEG v9 State Transition Guard — hardened with unknown-state
+detection, no-op rejection, and single-write state management.
 """
 
 from __future__ import annotations
@@ -22,11 +19,17 @@ VALID_TRANSITIONS: dict[str, list[str]] = {
     "RUNNING":   ["DEGRADED", "TERMINAL", "RETRYING"],
     "DEGRADED":  ["DEGRADED", "TERMINAL"],
     "RETRYING":  ["RETRYING", "RUNNING", "TERMINAL"],
-    "TERMINAL":  [],   # final state — no outgoing transitions
+    "TERMINAL":  [],
 }
 
 MAX_RETRY_SESSION: int = 1
 MAX_DEGRADE_DEPTH: int = 1
+
+
+class UnknownStateError(Exception):
+    """A state not registered in VALID_TRANSITIONS was referenced."""
+    def __init__(self, state: str):
+        super().__init__(f"Unknown execution state: '{state}'")
 
 
 class InvalidStateTransitionError(Exception):
@@ -49,8 +52,90 @@ class TerminalReEntryError(Exception):
         super().__init__("Terminal re-entry blocked — cannot leave TERMINAL")
 
 
+class StateMutationError(Exception):
+    """Attempted to mutate a finalized execution state."""
+    def __init__(self):
+        super().__init__("Execution state is finalized; no further mutations allowed")
+
+
+class NoOpTransitionError(Exception):
+    """Attempted a no-op state transition (from == to)."""
+    def __init__(self, state: str):
+        super().__init__(f"No-op transition: {state} -> {state}")
+
+
 # ===========================================================================
-# State Transition Guard
+# v9: Single-write ExecutionStateManager
+# ===========================================================================
+
+
+class ExecutionStateManager:
+    """Single-write state manager — prevents multi-module overwrites.
+
+    Once ``finalize()`` is called, no further state changes are allowed.
+    """
+
+    @staticmethod
+    def set_state(ctx: Any, new_state: str) -> None:
+        if ctx.extras.get("execution_state_finalized"):
+            raise StateMutationError()
+        prev = ctx.extras.get("execution_state", "RUNNING")
+        ctx.extras["execution_state_prev"] = prev
+        ctx.extras["execution_state"] = new_state
+        # Record history
+        history = ctx.extras.get("state_history", [])
+        history.append({"from": prev, "to": new_state})
+        ctx.extras["state_history"] = history
+
+    @staticmethod
+    def finalize(ctx: Any) -> None:
+        ctx.extras["execution_state_finalized"] = True
+
+    @staticmethod
+    def set_field(ctx: Any, key: str, value: Any) -> None:
+        """v9: typed context field writer — prevents free-form mutation."""
+        if ctx.extras.get("execution_state_finalized") and key.startswith("execution"):
+            raise StateMutationError()
+        ctx.extras[key] = value
+
+
+# ===========================================================================
+# v9: ExecutionContextSchema — allowed keys
+# ===========================================================================
+
+
+EXECUTION_CONTEXT_KEYS = frozenset({
+    "execution_state",
+    "execution_state_prev",
+    "execution_state_finalized",
+    "dag_execution_allowed",
+    "context_frozen",
+    "session_retry_count",
+    "tool_state_reset",
+    "planner_re_run_required",
+    "degrade_depth",
+    "state_history",
+    "skip_failed_nodes",
+    "context_snapshot_preserved",
+})
+
+
+# ===========================================================================
+# v9: RetryScope
+# ===========================================================================
+
+
+class RetryScope:
+    """Explicit retry scope — no implicit inference."""
+    PLANNER_ONLY = "PLANNER_ONLY"
+    TOOL_ONLY = "TOOL_ONLY"
+    FULL_REEXECUTION = "FULL_REEXECUTION"
+
+    VALID = (PLANNER_ONLY, TOOL_ONLY, FULL_REEXECUTION)
+
+
+# ===========================================================================
+# State Transition Guard (v9 hardened)
 # ===========================================================================
 
 
@@ -59,14 +144,17 @@ class StateTransitionGuard:
 
     @staticmethod
     def validate_transition(from_state: str, to_state: str) -> None:
-        """Raise InvalidStateTransitionError if the transition is illegal."""
-        allowed = VALID_TRANSITIONS.get(from_state, [])
+        """v9: strict — unknown states are hard errors."""
+        if from_state not in VALID_TRANSITIONS:
+            raise UnknownStateError(from_state)
+        if to_state not in VALID_TRANSITIONS:
+            raise UnknownStateError(to_state)
+        allowed = VALID_TRANSITIONS[from_state]
         if to_state not in allowed:
             raise InvalidStateTransitionError(from_state, to_state)
 
     @staticmethod
     def validate_no_terminal_reentry(ctx: Any) -> None:
-        """Block any attempt to leave TERMINAL."""
         prev = ctx.extras.get("execution_state_prev", "")
         curr = ctx.extras.get("execution_state", "")
         if prev == "TERMINAL" and curr != "TERMINAL":
@@ -74,14 +162,12 @@ class StateTransitionGuard:
 
     @staticmethod
     def validate_retry_budget(ctx: Any) -> None:
-        """Block retry if budget exceeded."""
         count = ctx.extras.get("session_retry_count", 0)
         if count > MAX_RETRY_SESSION:
             raise RetryBudgetExceededError(count)
 
     @staticmethod
     def validate_degrade_depth(ctx: Any) -> str | None:
-        """Enforce degrade depth limit; return "TERMINAL" if exceeded."""
         depth = ctx.extras.get("degrade_depth", 0)
         ctx.extras["degrade_depth"] = depth + 1
         if depth >= MAX_DEGRADE_DEPTH:
@@ -90,41 +176,25 @@ class StateTransitionGuard:
 
     @staticmethod
     def transition(ctx: Any, to_state: str) -> None:
-        """Perform a validated state transition.
-
-        Records the previous state, validates the transition,
-        enforces terminal re-entry, retry budget, and degrade depth.
-        Updates ctx.extras atomically.
-        """
+        """v9: atomic state change with full validation chain."""
+        # v9: no-op detection
         prev = ctx.extras.get("execution_state", "RUNNING")
+        if prev == to_state and prev != "DEGRADED" and prev != "RETRYING":
+            raise NoOpTransitionError(prev)
 
-        # Terminal re-entry check
         StateTransitionGuard.validate_no_terminal_reentry(ctx)
-
-        # Retry budget check
         StateTransitionGuard.validate_retry_budget(ctx)
 
-        # Degrade depth check
         if to_state == "DEGRADED":
             forced = StateTransitionGuard.validate_degrade_depth(ctx)
             if forced:
                 to_state = forced
 
-        # Validate the transition
         StateTransitionGuard.validate_transition(prev, to_state)
-
-        # Record history
-        history = ctx.extras.get("state_history", [])
-        history.append({"from": prev, "to": to_state})
-        ctx.extras["state_history"] = history
-
-        # Apply
-        ctx.extras["execution_state_prev"] = prev
-        ctx.extras["execution_state"] = to_state
+        ExecutionStateManager.set_state(ctx, to_state)
 
     @staticmethod
     def validate_chain(history: list[dict]) -> None:
-        """Validate that an entire state history chain is legal."""
         for entry in history:
             StateTransitionGuard.validate_transition(
                 entry["from"], entry["to"]
@@ -132,22 +202,53 @@ class StateTransitionGuard:
 
 
 # ===========================================================================
-# Context State Consistency Check
+# v9: Unified Execution Validator Pipeline
 # ===========================================================================
 
 
-def validate_state_consistency(ctx: Any) -> None:
-    """Final consistency check before the turn result is returned."""
-    state = ctx.extras.get("execution_state", "RUNNING")
-    assert state in VALID_STATES, f"Unknown execution state: {state}"
+class ExecutionValidatorPipeline:
+    """v9: single entry point for all validation — no bypass allowed."""
 
-    if state == "TERMINAL":
-        assert ctx.extras.get("dag_execution_allowed") is False, (
-            "TERMINAL state must not allow DAG execution"
+    @staticmethod
+    def validate(ctx: Any) -> None:
+        """Run the full validation pipeline.  Called once per turn."""
+        _validate_context_schema(ctx)
+        _validate_state_consistency(ctx)
+        StateTransitionGuard.validate_chain(
+            ctx.extras.get("state_history", [])
         )
 
-    # If previous state was TERMINAL, current must also be TERMINAL
+
+def _validate_context_schema(ctx: Any) -> None:
+    """v9: context keys must be in EXECUTION_CONTEXT_KEYS."""
+    unknown = set(ctx.extras.keys()) - EXECUTION_CONTEXT_KEYS
+    # Allow extras that are NOT execution-control keys
+    execution_keys = {k for k in ctx.extras
+                      if k.startswith("execution_")
+                      or k in ("dag_execution_allowed", "context_frozen",
+                               "session_retry_count", "tool_state_reset",
+                               "degrade_depth", "state_history",
+                               "skip_failed_nodes", "context_snapshot_preserved",
+                               "planner_re_run_required")}
+    unknown_exec = unknown & execution_keys
+    if unknown_exec:
+        raise AssertionError(
+            f"Unknown execution context keys: {sorted(unknown_exec)}"
+        )
+
+
+def _validate_state_consistency(ctx: Any) -> None:
+    """v9: terminal consistency check."""
+    state = ctx.extras.get("execution_state", "RUNNING")
+    assert state in VALID_STATES, f"Unknown execution state: {state}"
+    if state == "TERMINAL":
+        assert ctx.extras.get("dag_execution_allowed") is False
     StateTransitionGuard.validate_no_terminal_reentry(ctx)
+
+
+# Keep backward-compatible alias
+def validate_state_consistency(ctx: Any) -> None:
+    _validate_state_consistency(ctx)
 
 
 __all__ = [
@@ -155,9 +256,16 @@ __all__ = [
     "VALID_TRANSITIONS",
     "MAX_RETRY_SESSION",
     "MAX_DEGRADE_DEPTH",
+    "EXECUTION_CONTEXT_KEYS",
     "StateTransitionGuard",
+    "ExecutionStateManager",
+    "ExecutionValidatorPipeline",
+    "RetryScope",
     "InvalidStateTransitionError",
     "RetryBudgetExceededError",
     "TerminalReEntryError",
+    "UnknownStateError",
+    "StateMutationError",
+    "NoOpTransitionError",
     "validate_state_consistency",
 ]

@@ -938,15 +938,13 @@ class SPEGEngine:
 
             result.metadata["stability_report"] = collector.to_dict()
 
-            # ── v8: state consistency gate ───────────────────
+            # ── v9: unified validation pipeline ──────────────
             from .state_transition_guard import (
-                validate_state_consistency,
-                StateTransitionGuard,
+                ExecutionValidatorPipeline,
+                ExecutionStateManager,
             )
-            validate_state_consistency(ctx)
-            history = ctx.extras.get("state_history", [])
-            if history:
-                StateTransitionGuard.validate_chain(history)
+            ExecutionValidatorPipeline.validate(ctx)
+            ExecutionStateManager.finalize(ctx)
 
             return result
 
