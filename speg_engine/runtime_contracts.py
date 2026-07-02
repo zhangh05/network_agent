@@ -325,6 +325,12 @@ class ExecutionSemanticsContract:
     #     path, no silent empty-plan success.
     SCHEMA_EXECUTION_UNIFIED: bool = True
 
+    # [5] Stability termination — system hard-stops when issue
+    #     count exceeds StabilityBoundary. No infinite repair,
+    #     no unbounded retry, no recursive self-healing without
+    #     a termination condition.
+    SYSTEM_STABILITY_ENFORCED: bool = True
+
 
 def assert_error_code_usage(result) -> None:
     """v6: enforce error_code boundary.

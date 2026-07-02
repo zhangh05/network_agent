@@ -924,6 +924,20 @@ class SPEGEngine:
             if ExecutionSemanticsContract.SCHEMA_EXECUTION_UNIFIED:
                 _v6_validate_plan_consistency(ctx)
 
+            # ── Ultimate Stability Gate ─────────────────────────
+            from .runtime_stability import (
+                IssueCollector, Severity, IssueCategory,
+                SystemUnstableError, SYSTEM_MODE,
+                system_acceptance_check,
+            )
+            collector = IssueCollector()
+            _collect_stability_issues(ctx, result, errors, collector)
+
+            if not system_acceptance_check(collector, mode=SYSTEM_MODE):
+                raise SystemUnstableError(collector)
+
+            result.metadata["stability_report"] = collector.to_dict()
+
             return result
 
         except Exception as e:
@@ -1697,6 +1711,58 @@ def _v6_validate_plan_consistency(ctx) -> None:
 
 
 # Backward-compatible aliases
+# ── Ultimate Stability: issue collector ────────────────────────────────────
+
+
+def _collect_stability_issues(ctx, result, errors, collector) -> None:
+    """v6+: collect all runtime issues into a stability report.
+
+    Classifies errors, tool failures, contract violations, and
+    missing context into a single IssueCollector so the terminal
+    stop-condition gate can decide whether the system is stable.
+    """
+    from .runtime_stability import Severity, IssueCategory
+
+    # Tool errors → TOOL category
+    if result.node_results:
+        for nid, tr in result.node_results.items():
+            if not tr.success:
+                collector.add(
+                    Severity.HIGH, IssueCategory.TOOL,
+                    f"tool:{tr.tool}", str(tr.error or ""),
+                    node_id=nid,
+                    error_code_norm=tr.error_code_norm,
+                )
+
+    # Structured errors from pipeline
+    structured = result.metadata.get("structured_errors", [])
+    for se in structured:
+        sev = Severity.HIGH if se.get("risk_level") in ("high", "critical") else Severity.MEDIUM
+        category = IssueCategory.CONTRACT if "CONTRACT" in str(se.get("code", "")) else IssueCategory.EXECUTION
+        collector.add(
+            sev, category,
+            se.get("stage", "engine"),
+            se.get("message", ""),
+            code=se.get("code"),
+        )
+
+    # Context injection failures
+    if ctx.extras.get("conversation_context_error"):
+        collector.add(
+            Severity.MEDIUM, IssueCategory.CONTEXT,
+            "speg_adapter._inject_conversation_context",
+            str(ctx.extras["conversation_context_error"]),
+        )
+
+    # Empty result but had task intent
+    if not result.node_results and not result.final_response:
+        collector.add(
+            Severity.HIGH, IssueCategory.EXECUTION,
+            "engine.run",
+            "no tool results and no final response",
+        )
+
+
 def plan_nodes_empty_for_task(user_input: str) -> bool:
     return detect_task_intent(user_input).is_task
 
