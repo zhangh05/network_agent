@@ -950,6 +950,36 @@ class SPEGEngine:
             ExecutionValidatorPipeline.validate(ctx)
             ExecutionStateManager.finalize(ctx)
 
+            # ── v11: formal closure gate ─────────────────────
+            from .formal_closure import (
+                PolicyFingerprint, CanonicalDAG,
+                ExecutionProofTrace, ExecutionIdentity,
+                ExecutionProofVerifier,
+            )
+            from .decision_graph import DecisionPolicySpec
+            from .context_seal import ContextSeal, canonical_serialize
+
+            # Build proof chain from execution results
+            policy_fp = PolicyFingerprint(DecisionPolicySpec)
+            ctx_seal = ContextSeal.seal(
+                ctx.extras.get("conversation_history", [])
+            )
+            dag_canon = CanonicalDAG.from_dag(dag)
+            proof_trace = ExecutionProofTrace()
+            for nid, tr in sorted(node_results.items()):
+                proof_trace.add(
+                    causal_index=len(proof_trace.proofs) + 1,
+                    pre_state_hash=str(ctx_seal["hash"]),
+                    post_state_hash=str(ctx_seal["hash"]),
+                    decision="RUN",
+                    tool_output=str(tr.data)[:200] if tr.data else "",
+                )
+
+            verif = ExecutionProofVerifier.verify(
+                proof_trace, dag_canon, policy_fp, ctx_seal["hash"]
+            )
+            result.metadata["formal_proof"] = verif
+
             return result
 
         except SystemUnstableError as sue:
