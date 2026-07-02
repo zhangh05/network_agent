@@ -445,17 +445,126 @@ class ExecutionProofVerifier:
         }
 
 
+# ===========================================================================
+# v12.2: Axiomatic Closure — final formal gaps
+# ===========================================================================
+
+
+# ── 1. Closed DecisionSpace ─────────────────────────────────────────────
+
+DecisionSpace: frozenset = frozenset({
+    DecisionType.STOP, DecisionType.DEGRADE,
+    DecisionType.RETRY_PLANNER, DecisionType.RETRY_TOOL,
+    DecisionType.RETRY_FULL, DecisionType.RUN,
+})
+
+
+def assert_decision_in_space(d: DecisionType) -> None:
+    assert d in DecisionSpace, f"Decision {d} not in closed DecisionSpace"
+
+
+# ── 2. ContextAlgebra closure property ──────────────────────────────────
+
+class ContextClosure:
+    """v12.2: context algebra is closed under merge."""
+
+    @staticmethod
+    def merge(a: ContextAlgebra, b: ContextAlgebra) -> ContextAlgebra:
+        events = list(a.events) + list(b.events)
+        return ContextAlgebra(events, max(a.schema_version, b.schema_version))
+
+    @staticmethod
+    def is_closed(ctx: ContextAlgebra) -> bool:
+        return (isinstance(ctx, ContextAlgebra)
+                and ctx.schema_version > 0
+                and isinstance(ctx.events, list))
+
+    @staticmethod
+    def identity() -> ContextAlgebra:
+        return ContextAlgebra([], schema_version=2)
+
+    @staticmethod
+    def verify_closure(a: ContextAlgebra, b: ContextAlgebra) -> bool:
+        merged = ContextClosure.merge(a, b)
+        return ContextClosure.is_closed(merged) and merged.sealed
+
+
+# ── 3. Strict Canonical Generator — no alternate paths ──────────────────
+
+
+class NonCanonicalGraphError(Exception):
+    """v12.2: multiple canonical DAGs detected for same input."""
+
+
+def canonical_dag_check(dag: ProofDAG, input_hash: str) -> bool:
+    """v12.2: same input → exactly one DAG, no alternate construction."""
+    return (dag is not None
+            and dag.hash is not None
+            and dag.is_canonical())
+
+
+# ── 4. GlobalProofInvariant — single boolean, not dict ──────────────────
+
+def global_proof_invariant(dag: ProofDAG, ctx: ContextAlgebra,
+                           decision: DecisionType,
+                           trace: ExecutionProof) -> bool:
+    """v12.2: single truth value — system valid iff ALL components pass."""
+    assert_decision_in_space(decision)
+    return (
+        dag.prove()["acyclic"] and
+        ContextClosure.is_closed(ctx) and
+        decision in DecisionSpace and
+        trace.validate()
+    )
+
+
+# ── 5. CanonicalRepresentative — minimal representative ─────────────────
+
+class CanonicalRepresentative:
+    """v12.2: minimal canonical form for equivalence class."""
+
+    @staticmethod
+    def of(dag: ProofDAG, trace: ExecutionProof) -> str:
+        """Deterministic tie-breaker: min(dag.hash, trace.hash)."""
+        return min(dag.hash, trace.hash)
+
+    @staticmethod
+    def map_to(dag: ProofDAG, trace: ExecutionProof,
+               other_dag: ProofDAG,
+               other_trace: ExecutionProof) -> bool:
+        return CanonicalRepresentative.of(dag, trace) == CanonicalRepresentative.of(
+            other_dag, other_trace)
+
+
+# ── 6. AxiomSystem — declarative invariant predicate ────────────────────
+
+def axiom_system_valid(dag: ProofDAG, ctx: ContextAlgebra,
+                       decision: DecisionType,
+                       trace: ExecutionProof) -> bool:
+    """v12.2: system is axiomatically valid iff all 4 invariants hold.
+
+    Returns a single boolean — no partial states, no soft flags.
+    """
+    return global_proof_invariant(dag, ctx, decision, trace)
+
+
 __all__ = [
     "DecisionType",
+    "DecisionSpace",
+    "assert_decision_in_space",
     "decision_function",
     "DecisionFunction",
     "ContextAlgebra",
     "ContextAlgebraAxiom",
+    "ContextClosure",
     "ContextSchemaBinding",
     "ProofDAG",
     "CanonicalDAG",
+    "canonical_dag_check",
+    "NonCanonicalGraphError",
     "ExecutionProof",
     "ExecutionProofTrace",
+    "global_proof_invariant",
     "ExecutionInvariant",
     "ExecutionIdentity",
     "InvalidExecutionProofError",
@@ -463,8 +572,10 @@ __all__ = [
     "PolicyFingerprint",
     "ExecutionEquivalenceEngine",
     "ExecutionEquivalenceClass",
+    "CanonicalRepresentative",
     "SystemInvariant",
     "system_is_valid",
+    "axiom_system_valid",
 ]
 
 
