@@ -938,6 +938,16 @@ class SPEGEngine:
 
             result.metadata["stability_report"] = collector.to_dict()
 
+            # ── v8: state consistency gate ───────────────────
+            from .state_transition_guard import (
+                validate_state_consistency,
+                StateTransitionGuard,
+            )
+            validate_state_consistency(ctx)
+            history = ctx.extras.get("state_history", [])
+            if history:
+                StateTransitionGuard.validate_chain(history)
+
             return result
 
         except SystemUnstableError as sue:

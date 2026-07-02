@@ -104,6 +104,11 @@ class FailureExecutionContract:
 def apply_stop_contract(ctx: Any) -> dict[str, Any]:
     """Apply STOP contract: terminal, no DAG, frozen context."""
     assert ctx is not None, "STOP contract requires non-null context"
+
+    # v8: validated state transition
+    from .state_transition_guard import StateTransitionGuard
+    StateTransitionGuard.transition(ctx, "TERMINAL")
+
     result = FailureExecutionContract.stop(ctx)
     assert result["dag_executed"] is False, "STOP must not allow DAG execution"
     assert result["context_frozen"] is True, "STOP must freeze context"
@@ -113,6 +118,11 @@ def apply_stop_contract(ctx: Any) -> dict[str, Any]:
 def apply_degrade_contract(ctx: Any, failure_ctx: Any) -> dict[str, Any]:
     """Apply DEGRADE contract: partial DAG, failed nodes skipped."""
     assert ctx is not None, "DEGRADE contract requires non-null context"
+
+    # v8: validated state transition (may be forced to TERMINAL)
+    from .state_transition_guard import StateTransitionGuard
+    StateTransitionGuard.transition(ctx, "DEGRADED")
+
     result = FailureExecutionContract.degrade(ctx, failure_ctx)
     assert result["partial_execution"] is True, "DEGRADE must allow partial execution"
     assert result["skip_failed_nodes"] is True, "DEGRADE must skip failed nodes"
@@ -122,6 +132,12 @@ def apply_degrade_contract(ctx: Any, failure_ctx: Any) -> dict[str, Any]:
 def apply_retry_contract(ctx: Any, failure_ctx: Any) -> dict[str, Any]:
     """Apply RETRY_SESSION contract: reset exec layer, re-plan."""
     assert ctx is not None, "RETRY contract requires non-null context"
+
+    # v8: validated state transition + retry budget check
+    from .state_transition_guard import StateTransitionGuard
+    StateTransitionGuard.transition(ctx, "RETRYING")
+    StateTransitionGuard.validate_retry_budget(ctx)
+
     result = FailureExecutionContract.retry_session(ctx, failure_ctx)
     assert result["planner_re_run"] is True, "RETRY must require planner re-run"
     assert result["tool_state_reset"] is True, "RETRY must reset tool state"
