@@ -31,40 +31,45 @@ from agent.llm.tool_adapter import tool_spec_to_openai_function
 # ── Prompt Cache ────────────────────────────────────────────────────────────
 
 # Static prefix that never changes between turns — cached by the LLM API.
-QUERY_LOOP_SYSTEM_PROMPT = """You are a network operations AI agent. You have access to tools for:
-- Device health inspection (inspection.manage)
-- Remote command execution via SSH/Telnet (exec.run)
-- CMDB device management (device.manage)
-- Web search and information retrieval (web.manage)
-- File reading and workspace operations (workspace.file, workspace.artifact)
-- Network configuration analysis (config.manage)
-- Packet capture analysis (pcap.manage)
-- Knowledge base search (knowledge.manage)
-- Memory and preferences (memory.manage)
-- Report generation (report.manage)
-- Data analysis (data.manage)
-- Text analysis (text.analyze)
-- Code search (code.search)
-- Git operations (git.manage)
-- System diagnostics (system.manage)
-- Browser automation (browser.manage)
-- Skill management (skill.manage)
-- Agent orchestration (agent.manage)
-- Workspace metadata (workspace.metadata.get)
-- PDF extraction (workspace.document.pdf.extract_text)
-- FileStore operations (workspace.filestore)
+QUERY_LOOP_SYSTEM_PROMPT = """You are a network operations AI agent. Use the EXACT function names
+from the tool list provided to you — do NOT shorten, abbreviate, or guess names.
+For example:
+- inspection__manage (device health inspection)
+- exec__run (SSH/Telnet/command execution)
+- device__manage (CMDB device management)
+- web__manage (web search, weather, page fetch)
+- workspace__file, workspace__artifact (file/artifact operations)
+- config__manage (network config analysis)
+- pcap__manage (packet capture analysis)
+- knowledge__manage (knowledge base)
+- memory__manage (memory/preferences)
+- report__manage (report generation)
+- data__manage (data analysis)
+- text__analyze (text analysis)
+- code__search (code search)
+- git__manage (git operations)
+- system__manage (system diagnostics)
+- browser__manage (browser automation)
+- skill__manage (skill management)
+- agent__manage (agent orchestration)
+- workspace__metadata__get (workspace metadata)
+- workspace__document__pdf__extract_text (PDF extraction)
+- workspace__filestore (FileStore)
 
 Work step by step. Call tools to gather information, then reason about the
 results. When you have enough information, provide a final answer directly
 without calling more tools.
 
 RULES:
-1. Use tools to get real data; never fabricate device states or command outputs.
-2. For inspection tasks: use inspection.manage(action="run") to start, then
-   inspection.manage(action="task_get") to check status.
-3. For SSH access: use exec.run(action="shell", target="ssh", asset_id=...).
-4. If a tool returns an error, try an alternative approach before giving up.
-5. After all tool results are in, respond directly without calling more tools."""
+1. Use EXACT function names from the tool list. Never shorten or invent names.
+2. Use tools to get real data; never fabricate device states or command outputs.
+3. For inspection tasks: inspection__manage(action="run") to start, then
+   inspection__manage(action="task_get") to check status.
+4. For SSH access: exec__run(action="shell", target="ssh", asset_id=...).
+5. If a tool returns "Tool not found" error, the name is wrong — look at the
+   available function list and use the EXACT name.
+6. DO NOT repeat the same failing tool+arguments more than 2 times.
+7. After all tool results are in, respond directly without calling more tools."""
 
 
 def _build_cached_tool_definitions(tool_registry: dict) -> List[dict]:
@@ -247,6 +252,8 @@ class QueryLoop:
         all_results: List[StreamingToolResult] = []
         iterations = 0
         llm_calls = 0
+        # Doom-loop detection: key=(tool, args_hash) → consecutive_failures
+        failure_counts: Dict[str, int] = {}
 
         # Build initial messages (cacheable prefix)
         messages = self._build_initial(ctx)
@@ -303,6 +310,22 @@ class QueryLoop:
 
                 # Append assistant message (with tool_calls) + tool results
                 messages = self._append_tool_round(messages, tool_calls, results)
+
+                # ── Doom-loop detection ──
+                for r in results:
+                    if not r.ok and r.error and "not found" in str(r.error).lower():
+                        key = f"{r.tool_name}:{json.dumps(r.output, sort_keys=True)}"
+                        failure_counts[key] = failure_counts.get(key, 0) + 1
+                        if failure_counts[key] >= 3:
+                            return QueryLoopResult(
+                                final_response=f"工具 {r.tool_name} 不存在，已尝试 {failure_counts[key]} 次。请检查工具名称是否正确。",
+                                tool_results=all_results,
+                                iterations=iterations,
+                                total_tool_calls=len(all_results),
+                                llm_calls=llm_calls,
+                                error="doom_loop",
+                            )
+
                 continue
 
             # No tool calls → final response
