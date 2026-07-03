@@ -5,19 +5,20 @@
 // card sits at the top of the workbench message stream and
 // shows the live task state with a cancel button. The backend
 // doesn't push a separate SSE channel for inspection yet
-// (issue #71) — the card polls /api/inspection/tasks every
-// 2 seconds while a task is live, then fades out 8 seconds
-// after the task reaches a terminal state.
+// (issue #71) — the card polls /api/inspection/tasks using
+// the task tracking policy while a task is live, then fades
+// out 8 seconds after the task reaches a terminal state.
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useSessionStore } from "../stores/session";
 import { inspectionApi } from "../api";
 
-const POLL_MS = 2000;
+const DEFAULT_POLL_MS = 2000;
 const FADE_AFTER_MS = 8000;
 
 interface Props {
   taskId: string;
+  pollSeconds?: number;
   onDismiss?: () => void;
 }
 
@@ -49,7 +50,7 @@ const STATUS_COLORS: Record<string, string> = {
   pending: "#64748b",
 };
 
-export function InspectionProgressCard({ taskId, onDismiss }: Props) {
+export function InspectionProgressCard({ taskId, pollSeconds, onDismiss }: Props) {
   const currentWorkspaceId = useSessionStore((s) => s.currentWorkspaceId);
   const [snap, setSnap] = useState<Snapshot | null>(null);
   const [phase, setPhase] = useState<Phase>("live");
@@ -58,6 +59,10 @@ export function InspectionProgressCard({ taskId, onDismiss }: Props) {
   const pollRef = useRef<number | null>(null);
   const settleRef = useRef<number | null>(null);
   const fadeRef = useRef<number | null>(null);
+  const pollMs = Math.max(
+    DEFAULT_POLL_MS,
+    Math.min(60000, Math.round((Number(pollSeconds) || DEFAULT_POLL_MS / 1000) * 1000)),
+  );
 
   const refresh = useCallback(async () => {
     if (!currentWorkspaceId) return;
@@ -106,13 +111,13 @@ export function InspectionProgressCard({ taskId, onDismiss }: Props) {
     refresh();
     pollRef.current = window.setInterval(() => {
       if (phase === "live") refresh();
-    }, POLL_MS);
+    }, pollMs);
     return () => {
       if (pollRef.current) window.clearInterval(pollRef.current);
       if (settleRef.current) window.clearTimeout(settleRef.current);
       if (fadeRef.current) window.clearTimeout(fadeRef.current);
     };
-  }, [refresh, phase]);
+  }, [refresh, phase, pollMs]);
 
   const onCancel = useCallback(async () => {
     if (!currentWorkspaceId) return;

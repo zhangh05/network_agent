@@ -27,8 +27,10 @@ from .runner import (
     create_pending_task as _runner_create_pending,
     list_tasks as _runner_list,
     load_task as _runner_load,
+    record_tracking_poll as _runner_record_poll,
     run_task as _runner_run,
 )
+from .tracking import ensure_tracking
 from . import report as _report
 
 
@@ -166,6 +168,57 @@ def create_pending_task(workspace_id: str, profile_id: str, scope: dict | None =
     )
 
 
+def start_background_task(workspace_id: str, profile_id: str, scope: dict | None = None,
+                          created_by: str = "user", session_id: str = "",
+                          max_concurrency: int = 3, task_id: str = "") -> InspectionTask:
+    """Create a pending task and run it on a daemon worker.
+
+    This is the default LLM/HTTP launch path for inspections. It returns quickly
+    with a real task id so the UI can track/cancel and the LLM can query
+    task_get/report later. It deliberately does not block a tool call for the
+    whole fleet run.
+    """
+    import logging
+    import threading
+
+    pending = create_pending_task(
+        workspace_id=workspace_id,
+        profile_id=profile_id,
+        scope=scope,
+        created_by=created_by,
+        session_id=session_id,
+        max_concurrency=max_concurrency,
+        task_id=task_id,
+    )
+    ensure_tracking(pending, source="background")
+    if pending.status == "failed":
+        return pending
+
+    payload = {
+        "workspace_id": getattr(pending, "workspace_id", "") or _validate_workspace(workspace_id),
+        "profile_id": getattr(pending, "profile_id", "") or str(profile_id or ""),
+        "scope": scope or {},
+        "created_by": created_by,
+        "session_id": session_id,
+        "max_concurrency": getattr(pending, "max_concurrency", max_concurrency),
+        "task_id": getattr(pending, "task_id", task_id),
+    }
+    logger = logging.getLogger("agent.modules.inspection.service")
+
+    def _kick() -> None:
+        try:
+            create_task(**payload)
+        except Exception:
+            logger.exception("inspection background task crashed")
+
+    threading.Thread(
+        target=_kick,
+        name=f"inspection-{pending.task_id}",
+        daemon=True,
+    ).start()
+    return pending
+
+
 def list_tasks(workspace_id: str, *, limit: int = 50) -> list[dict]:
     """List the most recent ``limit`` inspection tasks.
 
@@ -181,7 +234,7 @@ def list_tasks(workspace_id: str, *, limit: int = 50) -> list[dict]:
     return _runner_list(ws, limit=limit)
 
 
-def get_task(workspace_id: str, task_id: str) -> Optional[InspectionTask]:
+def get_task(workspace_id: str, task_id: str, *, record_poll: bool = True) -> Optional[InspectionTask]:
     """Load a task strictly under ``workspace_id``.
 
     A task id from a different workspace returns ``None`` rather
@@ -190,62 +243,12 @@ def get_task(workspace_id: str, task_id: str) -> Optional[InspectionTask]:
     if not task_id:
         return None
     ws = _validate_workspace(workspace_id)
-    return _runner_load(ws, task_id)
-
-
-def wait_task(workspace_id: str,
-              task_id: str,
-              *,
-              timeout_seconds: int = 300,
-              interval_seconds: float = 2.0) -> dict:
-    """Poll an inspection task until it reaches a terminal state.
-
-    The LLM should not invent repeated ``task_get`` calls. This helper gives
-    it one stable, cancellable tracking primitive while the real runner keeps
-    executing asynchronously in the background.
-    """
-    import time
-    from dataclasses import asdict
-
-    task_id = str(task_id or "").strip()
-    if not task_id:
-        return {"ok": False, "error": "task_id_required"}
-    ws = _validate_workspace(workspace_id)
-    try:
-        timeout = int(timeout_seconds)
-    except (TypeError, ValueError):
-        timeout = 300
-    timeout = max(1, min(timeout, 600))
-    try:
-        interval = float(interval_seconds)
-    except (TypeError, ValueError):
-        interval = 2.0
-    interval = max(0.5, min(interval, 10.0))
-
-    terminal = {"succeeded", "partial", "failed", "cancelled", "skipped"}
-    deadline = time.monotonic() + timeout
-    last: Optional[InspectionTask] = None
-    while True:
-        task = _runner_load(ws, task_id)
-        if task is None:
-            return {"ok": False, "error": "task_not_found"}
-        last = task
-        if task.status in terminal:
-            return {
-                "ok": True,
-                "done": True,
-                "status": task.status,
-                "task": asdict(task),
-            }
-        if time.monotonic() >= deadline:
-            return {
-                "ok": True,
-                "done": False,
-                "status": task.status,
-                "task": asdict(last),
-                "error": "wait_timeout",
-            }
-        time.sleep(interval)
+    if record_poll:
+        return _runner_record_poll(ws, task_id, source="task_get")
+    task = _runner_load(ws, task_id)
+    if task is not None:
+        ensure_tracking(task, source="get_task")
+    return task
 
 
 def cancel_task(workspace_id: str, task_id: str) -> dict:
@@ -279,7 +282,7 @@ def render_report(workspace_id: str, task_id: str, fmt: str = "md") -> dict:
     fmt = _normalise_report_fmt(fmt)
     if not fmt:
         return {"ok": False, "error": f"unsupported_format: {fmt!r}"}
-    task = get_task(workspace_id, task_id)
+    task = get_task(workspace_id, task_id, record_poll=False)
     if task is None:
         return {"ok": False, "error": "task_not_found"}
     if fmt == "html":

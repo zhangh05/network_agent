@@ -1115,6 +1115,7 @@ export interface InspectionTaskRecord {
   created_by: string;
   session_id: string;
   max_concurrency: number;
+  tracking?: Record<string, unknown>;
   devices: Record<string, unknown>;
   error: string;
 }
@@ -1126,6 +1127,7 @@ export interface InspectionCreateRequest {
   created_by?: string;
   session_id?: string;
   async_run?: boolean;
+  tracking?: Record<string, unknown>;
 }
 
 export interface InspectionCreateResponse {

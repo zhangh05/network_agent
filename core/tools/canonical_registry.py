@@ -250,7 +250,7 @@ def _handle_inspection_managed(inv: ToolInvocation) -> dict:
                     caller = inv_caller
                 else:
                     caller = "user"
-            task = inspection_service.create_task(
+            task = inspection_service.start_background_task(
                 workspace_id=ws,
                 profile_id="",
                 scope=scope if isinstance(scope, dict) else {},
@@ -289,6 +289,11 @@ def _handle_inspection_managed(inv: ToolInvocation) -> dict:
             },
             "started_at": task.started_at,
             "finished_at": task.finished_at,
+            "tracking": task.tracking,
+            "message": (
+                "巡检任务已创建并在后台运行。请使用 task_get 跟踪状态；"
+                "终态为 succeeded/partial 后再使用 report(format=html) 获取报告链接。"
+            ),
             "error": task.error,
         }
 
@@ -303,18 +308,7 @@ def _handle_inspection_managed(inv: ToolInvocation) -> dict:
         if task is None:
             return {"ok": False, "error": "task_not_found"}
         from dataclasses import asdict
-        return {"ok": True, "task": asdict(task)}
-
-    if action == "wait":
-        task_id = str(args.get("task_id", "") or "")
-        timeout_seconds = args.get("timeout_seconds", 300)
-        interval_seconds = args.get("interval_seconds", 2)
-        return inspection_service.wait_task(
-            ws,
-            task_id,
-            timeout_seconds=timeout_seconds,
-            interval_seconds=interval_seconds,
-        )
+        return {"ok": True, "task": asdict(task), "tracking": task.tracking}
 
     if action == "task_cancel":
         task_id = str(args.get("task_id", "") or "")
@@ -2228,7 +2222,7 @@ _RAW_REGISTRY: list[CanonicalToolEntry] = [
             "workspace_id": _S["workspace_id"],
             "action": {
                 "type": "string",
-                "enum": ["run", "task_list", "task_get", "wait", "task_cancel", "report"],
+                "enum": ["run", "task_list", "task_get", "task_cancel", "report"],
             },
             "scope": {
                 "type": "object",
@@ -2246,15 +2240,14 @@ _RAW_REGISTRY: list[CanonicalToolEntry] = [
             "session_id": {"type": "string", "description": "[run] Session id."},
             "max_concurrency": {"type": "integer", "description": "[run] Per-task device concurrency (default 3)."},
             "task_id": {"type": "string",
-                "description": "[task_get|wait|task_cancel|report] Task id from action=run."},
-            "timeout_seconds": {"type": "integer", "description": "[wait] Max seconds to wait for terminal status (1-600, default 300)."},
-            "interval_seconds": {"type": "number", "description": "[wait] Poll interval seconds (0.5-10, default 2)."},
+                "description": "[task_get|task_cancel|report] Task id from action=run."},
             "limit": {"type": "integer", "description": "[task_list] Max items (default 50)."},
             "format": {"type": "string", "enum": ["md", "json", "html"], "description": "[report] Report format."},
         }, ["action"]),
         description=(
-            "CMDB-driven device health inspection. action=run / task_list / "
-            "task_get / wait / task_cancel / report. The backend chooses scripts "
+            "CMDB-driven device health inspection. action=run creates a background task; "
+            "use task_get to track, task_cancel to stop, and report(format=html) for the final report. "
+            "The backend chooses scripts "
             "from each CMDB asset's vendor and type -- callers do not need "
             "to choose a template. Pass profile_id='auto' (or omit it) "
             "and the runner picks the right profile per device; the five "

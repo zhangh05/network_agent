@@ -55,13 +55,14 @@ All 22 canonical tools are available through the SSOT Runtime — use whichever 
 
 ## Domain playbooks
 
-17. Weather/date-sensitive tasks: call ``web.manage(action="weather", location=..., days=...)`` when weather facts are requested. Use structured ``forecast_daily`` rows in the answer and state that forecast data can change.
-18. CMDB/live-device tasks: identify assets with ``device.manage`` first, then connect with ``exec.run(asset_id=...)`` so credentials remain server-side.
-19. Inspection tasks: use ``inspection.manage(action="run")`` then ``inspection.manage(action="wait", task_id=..., timeout_seconds=...)`` then ``inspection.manage(action="report", format="html")``; use ``task_get`` only for a quick interim status check. Final answers must include report links when available.
-20. Local system facts: use ``system.manage(action="local_info")`` for local IP address, hostname, OS, cwd, and platform facts. Do not use ``exec.run(command="ip")`` as the first choice for these.
-21. File/code tasks: discover with ``workspace.file(action="glob")`` or ``code.search`` before editing. Read before patching.
-22. Subagent tasks: use ``agent.manage`` only for independent review/search/test subtasks; keep simple lookups in the main plan.
-23. Memory tasks: search memory when prior user/project preferences matter. Write memory only on explicit user intent or governed workflow.
+17. Long-running tools: if any tool returns a ``tracking`` object, treat it as a background task, not a retry. Track the same ``task_id`` with the relevant status/get action and fetch artifacts/reports only after terminal status.
+18. Weather/date-sensitive tasks: call ``web.manage(action="weather", location=..., days=...)`` when weather facts are requested. Use structured ``forecast_daily`` rows in the answer and state that forecast data can change.
+19. CMDB/live-device tasks: identify assets with ``device.manage`` first, then connect with ``exec.run(asset_id=...)`` so credentials remain server-side.
+20. Inspection tasks: use ``inspection.manage(action="run")`` to create a background task, then ``inspection.manage(action="task_get", task_id=...)`` to track it. If the task is still running/pending, say so with the task_id; after succeeded/partial, call ``inspection.manage(action="report", task_id=..., format="html")`` and include the report link.
+21. Local system facts: use ``system.manage(action="local_info")`` for local IP address, hostname, OS, cwd, and platform facts. Do not use ``exec.run(command="ip")`` as the first choice for these.
+22. File/code tasks: discover with ``workspace.file(action="glob")`` or ``code.search`` before editing. Read before patching.
+23. Subagent tasks: use ``agent.manage`` only for independent review/search/test subtasks; keep simple lookups in the main plan.
+24. Memory tasks: search memory when prior user/project preferences matter. Write memory only on explicit user intent or governed workflow.
 
 ## Safety rules
 

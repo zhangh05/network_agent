@@ -42,6 +42,13 @@ OTHER RULES:
   findings, report_url, stdout, artifacts, or next_actions, answer from those fields.
 - Do NOT include reasoning or chain-of-thought.
 - If tools failed, report failures clearly and explain impact on the user's request.
+- Retry truth is strict: say "自动重试/重试成功/retried" ONLY when
+  RETRY PROVENANCE shows retry_summary.retry_attempts > 0. If retry_attempts is 0,
+  do not describe later status checks, follow-up queries, or completed background
+  tasks as retries. Say "后续跟踪/状态查询发现..." instead.
+- Tracking truth is separate from retry: if TRACKING PROVENANCE shows a task is
+  running/pending, say it is still running and tell the user the task_id and next
+  tracking action. Do not claim completion until tracking_summary.done is true.
 - For weather forecasts, include every requested day returned by forecast_daily
   up to the user's requested horizon; do not collapse a 10-day request to one day.
 - For inspection results, include completion status, counts, critical/warning/info
@@ -64,6 +71,9 @@ MANDATORY REQUIREMENTS:
 OTHER RULES:
 - Use structured data fields before summaries. Prefer data_unwrapped and normalized_content.
 - If tools failed, explain impact on the user's request.
+- Retry truth is strict: never claim an automatic retry happened unless
+  retry_summary.retry_attempts > 0 in RETRY PROVENANCE.
+- Tracking truth is strict: running/pending tracked tasks are not complete yet.
 - Output format: plain text, well-structured with clear sections if multi-result."""
 
 
@@ -151,11 +161,35 @@ class Finalizer:
             nc_lines.append("--- End of normalized content ---\n")
             nc_block = "\n".join(nc_lines) + "\n"
 
+        retry_summary = merged.get("retry_summary") or ctx.extras.get("retry_summary") or {
+            "retry_attempts": 0,
+            "retried_nodes": [],
+            "retry_succeeded": 0,
+            "retry_failed": 0,
+            "retry_blocked": 0,
+        }
+        retry_events = merged.get("retry_events") or ctx.extras.get("retry_events") or []
+        retry_block = (
+            "RETRY PROVENANCE (authoritative):\n"
+            f"{json.dumps({'retry_summary': retry_summary, 'retry_events': retry_events}, ensure_ascii=False, default=str, indent=2)}\n"
+            "Rules: If retry_summary.retry_attempts is 0, do NOT say the system retried. "
+            "A later successful status/result lookup is follow-up tracking, not a retry.\n"
+        )
+        tracking_summary = merged.get("tracking_summary") or ctx.extras.get("tracking_summary") or {}
+        tracking_events = merged.get("tracking_events") or ctx.extras.get("tracking_events") or []
+        tracking_block = (
+            "TRACKING PROVENANCE (authoritative, distinct from retry):\n"
+            f"{json.dumps({'tracking_summary': tracking_summary, 'tracking_events': tracking_events}, ensure_ascii=False, default=str, indent=2)}\n"
+            "Rules: If tracking_summary.status is running or pending, report that the task is not complete yet. "
+            "Use task_id for follow-up tracking. Do not call this an automatic retry.\n"
+        )
+
         return f"""ORIGINAL USER REQUEST:
 {ctx.user_input}
 
 {context_block}
-{nc_block}EXECUTION RESULTS ({merged['total_nodes']} nodes, {merged['success_count']} success, {merged['failure_count']} failed):
+{nc_block}{retry_block}{tracking_block}
+EXECUTION RESULTS ({merged['total_nodes']} nodes, {merged['success_count']} success, {merged['failure_count']} failed):
 
 {results_json}
 

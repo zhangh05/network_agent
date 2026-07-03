@@ -57,6 +57,7 @@ from .profiles import (
     is_read_only_command,
     default_timeout_for,
 )
+from .tracking import ensure_tracking, record_poll
 
 
 # v3.10 (inspection): caller identifier for the canonical
@@ -194,6 +195,7 @@ def _save_task_unlocked(workspace_id: str, task: InspectionTask) -> None:
     p = _task_path(workspace_id, task.task_id)
     p.parent.mkdir(parents=True, exist_ok=True)
     from dataclasses import asdict
+    ensure_tracking(task, source="runner")
     if task.started_at and task.finished_at:
         try:
             task.duration_ms = int((from_iso(task.finished_at)
@@ -336,6 +338,16 @@ def list_tasks(workspace_id: str, *, limit: int = 50) -> list:
     return out
 
 
+def record_tracking_poll(workspace_id: str, task_id: str, *, source: str = "tool") -> Optional[InspectionTask]:
+    """Load a task, record an observer poll, persist, and return it."""
+    task = load_task(workspace_id, task_id)
+    if task is None:
+        return None
+    record_poll(task, source=source)
+    _save_task(workspace_id, task)
+    return task
+
+
 def _task_from_dict(d: dict) -> InspectionTask:
     """Construct InspectionTask from a serialized dict.
 
@@ -425,9 +437,11 @@ def _task_from_dict(d: dict) -> InspectionTask:
         session_id=d.get("session_id", ""),
         max_concurrency=d.get("max_concurrency", 3),
         cancel_requested_at=d.get("cancel_requested_at", ""),
+        tracking=dict(d.get("tracking") or {}),
         devices=devices,
         error=d.get("error", ""),
     )
+    ensure_tracking(t, source="load")
     return t
 
 
@@ -1041,12 +1055,14 @@ def run_task(workspace_id: str,
     )
     task.total_assets = len(target_assets)
     task.started_at = now_iso()
+    ensure_tracking(task, source="run")
     _save_task(workspace_id, task)
 
     if not target_assets:
         task.status = "failed"
         task.error = "no_assets_matched_scope"
         task.finished_at = now_iso()
+        ensure_tracking(task, source="run")
         _save_task(workspace_id, task)
         return task
 
@@ -1224,6 +1240,7 @@ def run_task(workspace_id: str,
     else:
         task.status = "failed"
     task.finished_at = now_iso()
+    ensure_tracking(task, source="run")
     _save_task(workspace_id, task)
     _release_task_save_lock(task.task_id)
     return task
@@ -1310,6 +1327,7 @@ def create_pending_task(workspace_id: str,
         task.status = "failed"
         task.error = "no_assets_matched_scope"
         task.finished_at = started
+    ensure_tracking(task, source="pending")
     _save_task(workspace_id, task)
     return task
 

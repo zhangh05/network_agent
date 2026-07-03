@@ -208,6 +208,29 @@ export interface AgentResult {
       final_status?: string;
       duration_ms?: number;
     }>;
+    /** Background task tracking surfaced from SSOT Runtime. Distinct from retry. */
+    tracking_summary?: {
+      kind?: string;
+      domain?: string;
+      task_id?: string;
+      status?: string;
+      done?: boolean;
+      terminal?: boolean;
+      mode?: string;
+      poll_count?: number;
+      same_status_count?: number;
+      stall_risk?: boolean;
+      next_poll_seconds?: number;
+      suggested_next_action?: string;
+      progress?: Record<string, unknown>;
+      summary?: Record<string, unknown>;
+      raw?: Record<string, unknown>;
+    };
+    tracking_events?: Array<{
+      node_id?: string;
+      tool?: string;
+      tracking?: Record<string, unknown>;
+    }>;
     rule_tool_scene?: Record<string, unknown>;
     tool_planner?: {
       planner_version?: string;

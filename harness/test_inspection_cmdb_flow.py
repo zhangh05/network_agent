@@ -63,10 +63,11 @@ def test_canonical_inspection_manage_registered():
     assert "profile_id" not in fields, (
         "LLM-visible schema must not expose inspection profile selection"
     )
-    for required_action in ("run", "task_list", "task_get", "wait", "task_cancel", "report"):
+    for required_action in ("run", "task_list", "task_get", "task_cancel", "report"):
         assert required_action in enum_actions, (
             f"missing action={required_action} in inspection.manage schema"
         )
+    assert "wait" not in enum_actions, "LLM-visible inspection schema must not expose blocking wait"
     assert "html" in schema["properties"]["format"].get("enum", [])
     # No raw password / credential field — runner is server-side only
     forbidden = {"password", "credentials", "secret", "token"}
@@ -256,6 +257,10 @@ def test_canonical_run_does_not_require_profile_id():
     result = CANONICAL_REGISTRY["inspection.manage"].handler(inv)
     assert result["ok"] is True
     assert result["profile_id"] == "auto"
+    assert result["tracking"]["task_id"] == result["task_id"]
+    assert result["tracking"]["kind"] == "long_task"
+    assert result["tracking"]["domain"] == "inspection"
+    assert result["message"].startswith("巡检任务已创建")
 
 
 def test_html_report_returns_download_link_and_artifact():
@@ -656,10 +661,8 @@ def test_task_from_dict_does_not_crash_on_disk_round_trip():
     assert loaded2.devices["asset_x"].task_id == task.task_id
 
 
-def test_inspection_wait_action_reaches_terminal_task():
-    """LLM tracking should use one stable wait action instead of inventing
-    repeated task_get loops. A terminal task must return immediately.
-    """
+def test_inspection_task_get_returns_tracking_summary():
+    """LLM tracking uses task_get instead of a blocking wait call."""
     from core.tools.canonical_registry import CANONICAL_REGISTRY
     from core.tools.schemas import ToolInvocation
     from agent.modules.inspection import service as svc
@@ -669,17 +672,16 @@ def test_inspection_wait_action_reaches_terminal_task():
         tool_id="inspection.manage",
         arguments={
             "workspace_id": "ws_wait_action",
-            "action": "wait",
+            "action": "task_get",
             "task_id": task.task_id,
-            "timeout_seconds": 1,
-            "interval_seconds": 0.5,
         },
         requested_by="turn_runner",
     ))
     assert result["ok"] is True
-    assert result["done"] is True
-    assert result["status"] in {"succeeded", "partial", "failed", "cancelled", "skipped"}
     assert result["task"]["task_id"] == task.task_id
+    assert result["tracking"]["task_id"] == task.task_id
+    assert result["tracking"]["status"] in {"succeeded", "partial", "failed", "cancelled", "skipped"}
+    assert result["tracking"]["done"] is True
 
 
 def test_exec_one_command_uses_status_not_ok():

@@ -32,7 +32,7 @@ def test_inspection_contract_exposes_current_runtime_actions():
     from core.runtime_engine.contracts import get_contract
 
     actions = get_contract("inspection.manage").input_schema["properties"]["action"]["enum"]
-    assert actions == ["run", "task_list", "task_get", "wait", "task_cancel", "report"]
+    assert actions == ["run", "task_list", "task_get", "task_cancel", "report"]
 
 
 def test_system_contract_exposes_local_info_action():

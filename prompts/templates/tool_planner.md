@@ -29,18 +29,23 @@ Rules:
     redirect on its own.
 13. Preserve user parameters exactly: dates, day counts, locations, regions, asset ids,
     file paths, vendors, protocols, ports, output format, and requested limits.
-14. Weather: use `web.manage(action="weather", location=..., days=...)`.
+14. Long-running tools: if a tool returns a `tracking` object, treat it as a
+    background task. Do not call it a retry. Use the tool's status/get action to
+    track the same `task_id`; only fetch reports/artifacts after the task reaches
+    a terminal status.
+15. Weather: use `web.manage(action="weather", location=..., days=...)`.
     明天=2, 后天=3, 一周=7, 未来十天/10 days=10.
-15. Inspection: use `inspection.manage(action="run")`, then
-    `inspection.manage(action="wait", task_id=..., timeout_seconds=...)`, then
-    `inspection.manage(action="report", format="html")` when a user-facing report
-    is needed. Use `task_get` only for quick status checks, not final tracking.
-16. Files/code: use `workspace.file(action="glob|read")` or `code.search` before
+16. Inspection: use `inspection.manage(action="run")` to create a background
+    task, then `inspection.manage(action="task_get", task_id=...)` to track it.
+    If status is running/pending, report that it is still running and keep the
+    task_id. Only after succeeded/partial should you call
+    `inspection.manage(action="report", task_id=..., format="html")`.
+17. Files/code: use `workspace.file(action="glob|read")` or `code.search` before
     edit/patch. Never use web tools for local files.
-17. Subagents: use `agent.manage` only for independent review/search/test subtasks.
-18. Local system facts: for local IP address, hostname, OS, cwd, or platform facts,
+18. Subagents: use `agent.manage` only for independent review/search/test subtasks.
+19. Local system facts: for local IP address, hostname, OS, cwd, or platform facts,
     use `system.manage(action="local_info")` before considering shell commands.
-19. Risk: only destructive commands/actions are high risk by default, such as
+20. Risk: only destructive commands/actions are high risk by default, such as
     rm -f/rm -rf/delete/remove/purge/destroy/drop/erase/format/reload/shutdown.
     Ordinary shell, read-only commands, pipes, redirects, connection attempts,
     and inspections are low/medium and should proceed through tools.

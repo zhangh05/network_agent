@@ -107,6 +107,10 @@ const ResultBody: React.FC<{ result: AgentResult }> = React.memo(({ result }) =>
   const retrySummary = result.metadata?.retry_summary || {};
   const retryEvents = result.metadata?.retry_events || [];
   const retryAttempts = Number(retrySummary.retry_attempts || 0);
+  const trackingSummary = (result.metadata?.tracking_summary || {}) as Record<string, any>;
+  const trackingTaskId = String(trackingSummary.task_id || "");
+  const trackingStatus = String(trackingSummary.status || "");
+  const trackingDomain = String(trackingSummary.domain || "");
 
   // Merge tool calls into events
   const toolMap = new Map<string, ToolCallResult>();
@@ -153,6 +157,22 @@ const ResultBody: React.FC<{ result: AgentResult }> = React.memo(({ result }) =>
               </span>
             ))}
           </div>
+        </div>
+      ) : null}
+
+      {trackingTaskId ? (
+        <div className="rt-tracking-summary">
+          <span className="rt-art-label">{trackingDomain ? `${trackingDomain} 跟踪` : "任务跟踪"}</span>
+          <span className={`rt-tracking-chip ${trackingSummary.done ? "ok" : "live"}`}>
+            {trackingStatus || "unknown"}
+          </span>
+          <span className="rt-tracking-id">{trackingTaskId}</span>
+          {trackingSummary.progress?.percent != null && (
+            <span className="rt-tracking-chip">{trackingSummary.progress.percent}%</span>
+          )}
+          {trackingSummary.stall_risk && (
+            <span className="rt-tracking-chip warn">可能停滞</span>
+          )}
         </div>
       ) : null}
 

@@ -263,7 +263,8 @@ NS_DATA = [
     # 22. inspection.manage (CMDB-driven device health inspection)
     ('inspection.manage', 'inspection', 'inspection', 'manage', 'CMDB 巡检任务', 'inspection.manage',
      'CMDB-driven device health inspection. '
-     'Actions: run, task_list, task_get, wait, task_cancel, report. '
+     'Actions: run, task_list, task_get, task_cancel, report. '
+     'run creates a background task; task_get is the tracking path. '
      'Commands come from a fixed per-vendor map (no LLM-typed commands). '
      'Credentials stay server-side via exec.run(asset_id=...).',
      "Don't use raw shell commands -- the runner dispatches a fixed profile. "

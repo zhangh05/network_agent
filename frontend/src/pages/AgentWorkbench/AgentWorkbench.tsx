@@ -19,6 +19,7 @@ import "../../components/RuntimeEventTimeline.css";
 import { formatFileSize } from "../../utils/format";
 import { QUICK_CHIPS } from "./WorkbenchQuickChips";
 import { InspectionProgressCard } from "../../components/InspectionProgressCard";
+import { TaskTrackingCard } from "../../components/TaskTrackingCard";
 import { inspectionApi } from "../../api";
 
 /* ── v3.9 View mode ── */
@@ -66,6 +67,24 @@ function retryStats(result?: AgentResult) {
     succeeded: Number(summary.retry_succeeded || 0),
     failed: Number(summary.retry_failed || 0),
     blocked: Number(summary.retry_blocked || 0),
+  };
+}
+
+function trackingStats(result?: AgentResult) {
+  const summary = (result?.metadata?.tracking_summary || {}) as Record<string, any>;
+  const events = (result?.metadata?.tracking_events || []) as any[];
+  return {
+    summary,
+    events,
+    taskId: String(summary.task_id || ""),
+    status: String(summary.status || ""),
+    done: Boolean(summary.done || summary.terminal),
+    mode: String(summary.mode || ""),
+    nextPollSeconds: Number(summary.next_poll_seconds || 0),
+    suggestedNextAction: String(summary.suggested_next_action || ""),
+    progress: (summary.progress || {}) as Record<string, any>,
+    taskSummary: (summary.summary || {}) as Record<string, any>,
+    stallRisk: Boolean(summary.stall_risk),
   };
 }
 
@@ -269,8 +288,9 @@ export function TaskWorkbench() {
                     prompt,
                     "",
                     `巡检任务已创建，任务 ID：${taskId}。`,
-                    "请不要重复发起新的巡检任务；请等待这个任务进入终态，然后获取 HTML 报告，用用户能看懂的话总结是否完成、异常、失败设备、跳过设备、下一步建议和报告链接。",
-                    "执行要求：使用 inspection.manage(action=\"wait\", task_id=上面的任务ID, timeout_seconds=600) 跟踪已有任务；终态后再使用 inspection.manage(action=\"report\", task_id=上面的任务ID, format=\"html\") 获取报告链接。",
+                    "请不要重复发起新的巡检任务；请使用 inspection.manage(action=\"task_get\", task_id=上面的任务ID) 查询状态。",
+                    "如果任务仍在 running/pending，请明确告诉用户任务还在巡检中，并保留任务 ID 供继续跟踪；如果已经 succeeded/partial，请使用 inspection.manage(action=\"report\", task_id=上面的任务ID, format=\"html\") 获取报告链接。",
+                    "最终答复只用用户能看懂的话说明：是否完成、异常、失败设备、跳过设备、下一步建议和报告链接。不要把状态查询说成自动重试。",
                   ].join("\n");
                   pendingAutoMetadataRef.current = nextMetadata;
                   setInput(nextPrompt);
@@ -1191,11 +1211,12 @@ const ResultInline = React.memo(function ResultInline({
   const hasFailedTool = ((result?.tool_calls) ?? []).some((tc) => !tc.ok);
   const finalText = (result?.final_response || fallbackText || "").trim();
   const retry = retryStats(result);
+  const tracking = trackingStats(result);
   const toolCalls = result?.tool_calls ?? [];
   const actionCount = toolCalls.length;
   const failedToolCount = toolCalls.filter((tc) => !tc.ok).length;
   const successToolCount = toolCalls.filter((tc) => tc.ok).length;
-  const showActionTrace = !!result && (actionCount > 0 || retry.events.length > 0 || isFailed);
+  const showActionTrace = !!result && (actionCount > 0 || retry.events.length > 0 || tracking.taskId || isFailed);
 
   // Nothing to show — no result and no fallback text
   if (!result && !fallbackText) return null;
@@ -1325,6 +1346,29 @@ const ResultInline = React.memo(function ResultInline({
           ) : (
             <div className="action-trace-note">
               本轮失败发生在工具调用前，未触发可重试动作。
+            </div>
+          )}
+          {tracking.taskId && (
+            <div className="action-trace-note">
+              <b>任务跟踪 · {tracking.taskId}</b>
+              <span style={{ marginLeft: 8 }}>
+                状态 {tracking.status || "unknown"}
+                {tracking.mode ? ` · ${tracking.mode}` : ""}
+                {tracking.progress?.percent != null ? ` · ${tracking.progress.percent}%` : ""}
+              </span>
+              {tracking.stallRisk && <span className="action-trace-pill warn" style={{ marginLeft: 8 }}>可能停滞</span>}
+              {!tracking.done && (
+                <div style={{ marginTop: 8 }}>
+                  <TaskTrackingCard tracking={tracking.summary} />
+                </div>
+              )}
+              {tracking.done && (
+                <div style={{ marginTop: 6 }}>
+                  设备 {tracking.taskSummary.succeeded_devices || 0} 成功 / {tracking.taskSummary.failed_devices || 0} 失败 / {tracking.taskSummary.skipped_devices || 0} 跳过；
+                  发现 {tracking.taskSummary.findings_critical || 0} critical · {tracking.taskSummary.findings_warning || 0} warning · {tracking.taskSummary.findings_info || 0} info。
+                  {tracking.suggestedNextAction === "fetch_report" ? " 下一步：获取 HTML 报告。" : ""}
+                </div>
+              )}
             </div>
           )}
         </div>

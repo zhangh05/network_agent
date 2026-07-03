@@ -171,9 +171,8 @@ CANONICAL_ALIASES_BY_TOOL: Final[dict[str, dict[str, tuple[str, str | None]]]] =
         "start_inspection": ("run", None),
         "run_inspection": ("run", None),
         "inspection_status": ("task_get", None),
-        "inspection_result": ("wait", None),
-        "wait_inspection": ("wait", None),
-        "follow_inspection": ("wait", None),
+        "inspection_result": ("task_get", None),
+        "follow_inspection": ("task_get", None),
         "inspection_report": ("report", None),
         "cancel_inspection": ("task_cancel", None),
     },
@@ -235,7 +234,7 @@ _CANONICAL_ACTIONS: Final[dict[str, frozenset[str]]] = {
         "parse", "session", "filter", "align",
     }),
     "inspection.manage": frozenset({
-        "run", "task_list", "task_get", "wait", "task_cancel", "report",
+        "run", "task_list", "task_get", "task_cancel", "report",
     }),
 }
 

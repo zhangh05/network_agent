@@ -15,7 +15,7 @@ Endpoints (all require workspace_id):
 
 from __future__ import annotations
 
-from flask import Response, current_app, jsonify, request
+from flask import Response, jsonify, request
 
 from workspace.ids import validate_workspace_id
 
@@ -109,8 +109,7 @@ def register_inspection_routes(app):
         # complaint.
         async_run = bool(data.get("async_run", False))
         if async_run:
-            import threading as _threading
-            pending = inspection_service.create_pending_task(
+            pending = inspection_service.start_background_task(
                 workspace_id=ws_id,
                 profile_id=str(data.get("profile_id", "") or ""),
                 scope=scope,
@@ -127,32 +126,12 @@ def register_inspection_routes(app):
                     "error": pending.error,
                     "async_run": True,
                 }), status_code
-            payload = {
-                "workspace_id": ws_id,
-                "profile_id": str(data.get("profile_id", "") or ""),
-                "scope": scope,
-                "created_by": str(data.get("created_by", "user") or "user"),
-                "session_id": str(data.get("session_id", "") or ""),
-                "max_concurrency": mc,
-                "task_id": pending.task_id,
-            }
-            logger = current_app.logger
-            def _kick():
-                try:
-                    inspection_service.create_task(**payload)
-                except Exception as exc:
-                    logger.exception(
-                        "[inspection async_run] task failed to start: %s", exc,
-                    )
-            t = _threading.Thread(
-                target=_kick, name="inspection-async-run", daemon=True,
-            )
-            t.start()
             return jsonify({
                 "ok": True,
                 "task_id": pending.task_id,
                 "status": pending.status,
                 "async_run": True,
+                "tracking": pending.tracking,
                 "note": "task running in background; poll /api/inspection/tasks/<task_id>",
             }), 202
 
@@ -197,6 +176,7 @@ def register_inspection_routes(app):
             },
             "started_at": task.started_at,
             "finished_at": task.finished_at,
+            "tracking": task.tracking,
             "error": task.error,
         }), status_code
 

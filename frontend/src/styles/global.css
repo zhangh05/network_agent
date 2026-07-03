@@ -3796,3 +3796,46 @@ details.collapse[open] summary::before {
 .remote-terminal-host .xterm-screen {
   min-height: 100%;
 }
+
+/* ── Generic background task tracking ── */
+.task-tracking-card {
+  border: 1px solid var(--line);
+  border-left: 4px solid var(--accent);
+  border-radius: 6px;
+  background: var(--surface);
+  padding: 8px 10px;
+  font-size: var(--fs-12);
+}
+.task-tracking-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.task-tracking-status {
+  padding: 1px 7px;
+  border-radius: 999px;
+  font-size: var(--fs-11);
+  font-weight: 700;
+}
+.task-tracking-status.live {
+  color: var(--accent);
+  background: var(--accent-soft);
+}
+.task-tracking-status.done {
+  color: var(--ok);
+  background: var(--ok-soft);
+}
+.task-tracking-id {
+  color: var(--text-4);
+  font-family: "SF Mono", Menlo, monospace;
+}
+.task-tracking-body {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin-top: 6px;
+  color: var(--text-3);
+}
+.task-tracking-body .warn {
+  color: var(--warn);
+}

@@ -185,4 +185,5 @@ class InspectionTask:
     session_id: str = ""
     max_concurrency: int = 3
     cancel_requested_at: str = ""  # set when LLM caller requests cancel
+    tracking: dict[str, Any] = field(default_factory=dict)
     devices: dict[str, DeviceResult] = field(default_factory=dict)

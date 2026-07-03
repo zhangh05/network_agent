@@ -13,6 +13,7 @@ import time
 from typing import Any
 
 from .models import ExecutionDAG, ExecutionNode, ExecutionStatus, StatelessContext, ToolResult
+from .tracking import extract_tracking_payload, normalize_tracking_payload
 
 
 class ResultMerger:
@@ -35,6 +36,8 @@ class ResultMerger:
         # Group results by tool category (from tool prefix)
         grouped: dict[str, list[dict[str, Any]]] = {}
         normalized_contents: list[dict[str, Any]] = []
+        tracking_events: list[dict[str, Any]] = []
+        tracking_summary: dict[str, Any] = {}
 
         for node in dag.nodes:
             result = node_results.get(node.id)
@@ -57,6 +60,14 @@ class ResultMerger:
             nc = _extract_normalized_content(node, result)
             if nc:
                 normalized_contents.append(nc)
+            tracking = extract_tracking_payload(result.data)
+            if tracking:
+                tracking_events.append({
+                    "node_id": node.id,
+                    "tool": node.tool,
+                    "tracking": tracking,
+                })
+                tracking_summary = normalize_tracking_payload(tracking)
 
         # Build summary
         success_count = sum(1 for r in node_results.values() if r.success)
@@ -86,7 +97,20 @@ class ResultMerger:
             "normalized_content_texts": [
                 nc.get("content", "") for nc in normalized_contents
             ],
+            "retry_summary": ctx.extras.get("retry_summary", {
+                "retry_attempts": 0,
+                "retried_nodes": [],
+                "retry_succeeded": 0,
+                "retry_failed": 0,
+                "retry_blocked": 0,
+            }),
+            "retry_events": ctx.extras.get("retry_events", []),
+            "tracking_summary": tracking_summary,
+            "tracking_events": tracking_events,
         }
+        if tracking_summary:
+            ctx.extras["tracking_summary"] = tracking_summary
+            ctx.extras["tracking_events"] = tracking_events
 
         elapsed = (time.monotonic() - start) * 1000
         ctx.extras["merge_latency_ms"] = elapsed

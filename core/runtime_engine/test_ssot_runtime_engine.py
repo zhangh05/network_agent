@@ -502,6 +502,80 @@ class TestResultMerger:
         assert "web" in merged["results_by_category"]
         assert merged["all_results"]["n1"]["data"] == "output1"
 
+    def test_merge_preserves_retry_provenance(self, config):
+        merger = ResultMerger()
+        nodes = [
+            ExecutionNode(id="n1", tool="knowledge.manage", args={"action": "search"}, depth=0),
+        ]
+        dag = ExecutionDAG(nodes=nodes, total_nodes=1, max_depth=0)
+        node_results = {
+            "n1": ToolResult(
+                node_id="n1",
+                tool="knowledge.manage",
+                success=True,
+                data={"ok": True},
+                retry_count=1,
+            ),
+        }
+        ctx = StatelessContext(
+            workspace_id="ws",
+            session_id="s1",
+            request_id="r1",
+            user_input="search",
+            extras={
+                "retry_summary": {
+                    "retry_attempts": 1,
+                    "retried_nodes": ["n1"],
+                    "retry_succeeded": 1,
+                    "retry_failed": 0,
+                    "retry_blocked": 0,
+                },
+                "retry_events": [{"tool_id": "knowledge.manage", "retry_allowed": True}],
+            },
+        )
+
+        merged = merger.merge(dag, node_results, ctx)
+
+        assert merged["retry_summary"]["retry_attempts"] == 1
+        assert merged["retry_events"][0]["tool_id"] == "knowledge.manage"
+
+    def test_merge_extracts_tracking_provenance(self, config):
+        merger = ResultMerger()
+        nodes = [
+            ExecutionNode(id="n1", tool="inspection.manage", args={"action": "run"}, depth=0),
+        ]
+        dag = ExecutionDAG(nodes=nodes, total_nodes=1, max_depth=0)
+        tracking = {
+            "kind": "long_task",
+            "domain": "inspection",
+            "task_id": "ins_abc",
+            "status": "running",
+            "done": False,
+            "policy": {"mode": "medium"},
+            "progress": {"done_devices": 2, "total_devices": 6, "percent": 33},
+            "summary": {"task_id": "ins_abc", "status": "running", "succeeded_devices": 2},
+            "next_poll_seconds": 10,
+            "suggested_next_action": "poll_task_get",
+        }
+        node_results = {
+            "n1": ToolResult(
+                node_id="n1",
+                tool="inspection.manage",
+                success=True,
+                data={"ok": True, "output": {"tracking": tracking}},
+            ),
+        }
+        ctx = StatelessContext("ws", "s1", "r1", "巡检")
+
+        merged = merger.merge(dag, node_results, ctx)
+
+        assert merged["tracking_summary"]["task_id"] == "ins_abc"
+        assert merged["tracking_summary"]["kind"] == "long_task"
+        assert merged["tracking_summary"]["domain"] == "inspection"
+        assert merged["tracking_summary"]["status"] == "running"
+        assert merged["tracking_summary"]["progress"]["percent"] == 33
+        assert ctx.extras["tracking_summary"]["task_id"] == "ins_abc"
+
 
 # ============================================================================
 # Planner Tests
@@ -646,6 +720,73 @@ class TestFinalizer:
         response = asyncio.run(finalizer.finalize(ctx, merged))
         assert "exec" in response
         assert "result1" in response
+
+    def test_finalizer_prompt_contains_authoritative_retry_provenance(self, config):
+        finalizer = Finalizer(config, lambda **kw: "unused")
+        ctx = StatelessContext(
+            workspace_id="ws",
+            session_id="s1",
+            request_id="r1",
+            user_input="为啥失败了",
+        )
+        merged = {
+            "total_nodes": 1,
+            "success_count": 1,
+            "failure_count": 0,
+            "results_by_category": {},
+            "all_results": {},
+            "normalized_content": [],
+            "retry_summary": {
+                "retry_attempts": 0,
+                "retried_nodes": [],
+                "retry_succeeded": 0,
+                "retry_failed": 0,
+                "retry_blocked": 1,
+            },
+            "retry_events": [
+                {
+                    "tool_id": "inspection.manage",
+                    "retry_allowed": False,
+                    "reason": "budget_exceeded",
+                    "final_status": "blocked",
+                },
+            ],
+        }
+
+        prompt = finalizer._build_finalizer_prompt(ctx, merged)
+
+        assert "RETRY PROVENANCE" in prompt
+        assert '"retry_attempts": 0' in prompt
+        assert "do NOT say the system retried" in prompt
+
+    def test_finalizer_prompt_contains_tracking_provenance(self, config):
+        finalizer = Finalizer(config, lambda **kw: "unused")
+        ctx = StatelessContext(
+            workspace_id="ws",
+            session_id="s1",
+            request_id="r1",
+            user_input="跟踪巡检",
+        )
+        merged = {
+            "total_nodes": 1,
+            "success_count": 1,
+            "failure_count": 0,
+            "results_by_category": {},
+            "all_results": {},
+            "normalized_content": [],
+            "tracking_summary": {
+                "task_id": "ins_abc",
+                "status": "running",
+                "done": False,
+            },
+            "tracking_events": [{"tool": "inspection.manage"}],
+        }
+
+        prompt = finalizer._build_finalizer_prompt(ctx, merged)
+
+        assert "TRACKING PROVENANCE" in prompt
+        assert '"task_id": "ins_abc"' in prompt
+        assert "running or pending" in prompt
 
 
 # ============================================================================
@@ -944,10 +1085,10 @@ class TestEdgeCases:
         assert any(not n.deps for n in dag.nodes)
 
     def test_planner_system_prompt_conforms_to_spec(self):
-        """Verify planner prompt forbids reasoning and multi-step thinking."""
-        assert "ONLY valid JSON" in PLANNER_SYSTEM_PROMPT
-        assert "no preamble" in PLANNER_SYSTEM_PROMPT
-        assert "no explanation" in PLANNER_SYSTEM_PROMPT
-        assert "WILL execute in parallel" in PLANNER_SYSTEM_PROMPT
-        # Must explicitly forbid reasoning
-        assert "NOT include reasoning" in PLANNER_SYSTEM_PROMPT
+        """Verify planner prompt matches the current function-calling contract."""
+        assert "Invoke ALL independent tools in a single response" in PLANNER_SYSTEM_PROMPT
+        assert "parallel execution" in PLANNER_SYSTEM_PROMPT
+        assert "invoke NO tools" in PLANNER_SYSTEM_PROMPT
+        assert "Preserve user intent in tool arguments" in PLANNER_SYSTEM_PROMPT
+        assert "Never invent aliases" in PLANNER_SYSTEM_PROMPT
+        assert "fewer tools = faster execution" in PLANNER_SYSTEM_PROMPT

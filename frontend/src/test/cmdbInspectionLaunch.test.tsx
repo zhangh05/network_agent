@@ -168,7 +168,8 @@ describe("CMDB inspection launch", () => {
     });
     expect(String(request?.data?.message || "")).toContain("任务 ID：insp-task-1");
     expect(String(request?.data?.message || "")).toContain("请不要重复发起新的巡检任务");
-    expect(String(request?.data?.message || "")).toContain('inspection.manage(action="wait"');
+    expect(String(request?.data?.message || "")).toContain('inspection.manage(action="task_get"');
+    expect(String(request?.data?.message || "")).not.toMatch(/inspection\.manage\(action="wa/);
     expect(String(request?.data?.message || "")).toContain('inspection.manage(action="report"');
     expect(sessionStorage.getItem("workbench_auto_prompt")).toBeNull();
   });

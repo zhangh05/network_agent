@@ -1474,6 +1474,8 @@ class SSOTRuntimeEngine:
                     "retry_blocked": 0,
                 }),
                 "retry_events": ctx.extras.get("retry_events", []),
+                "tracking_summary": ctx.extras.get("tracking_summary", {}),
+                "tracking_events": ctx.extras.get("tracking_events", []),
             },
         )
 

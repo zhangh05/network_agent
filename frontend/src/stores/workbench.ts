@@ -15,13 +15,14 @@
  *  - localStorage key: "na_workbench"
  */
 import { create } from "zustand";
-import { persist } from "zustand/middleware";
+import { createJSONStorage, persist } from "zustand/middleware";
+import type { StateStorage } from "zustand/middleware";
 import type { AgentResult, SessionMessage, MessageStatus, InlineToolCall, RuntimeEvent } from "../types";
 import { sanitizeAssistantText } from "../utils/displayText";
 import { runtimeAuditApi } from "../api";
 
 // ── Debounced localStorage — batched writes to avoid UI stutter ──
-function debouncedStorage(key: string, delayMs = 300) {
+function debouncedStorage(key: string, delayMs = 300): StateStorage {
   let timer: ReturnType<typeof setTimeout> | null = null;
   return {
     getItem: () => localStorage.getItem(key),
@@ -571,7 +572,7 @@ export const useWorkbenchStore = create<WorkbenchState>()(
     {
       name: "na_workbench",
       version: 3,
-      storage: debouncedStorage("na_workbench"),
+      storage: createJSONStorage(() => debouncedStorage("na_workbench")),
       // v3: drop `results` from persistence — Timeline derives runs from
       // bySession now, so we only need to persist bySession + lastUserInput.
       migrate: (persisted: unknown, _version: number) => {
@@ -579,7 +580,7 @@ export const useWorkbenchStore = create<WorkbenchState>()(
         // agent results inside ChatMsg.result, which is what Timeline reads.
         return persisted as WorkbenchState;
       },
-      partialize: (s) => ({
+      partialize: (s): Partial<WorkbenchState> => ({
         bySession: s.bySession,
         lastUserInput: s.lastUserInput,
       }),
