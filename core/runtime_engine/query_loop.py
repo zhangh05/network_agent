@@ -23,6 +23,7 @@ from dataclasses import dataclass, field
 from typing import Any, Dict, List, Optional
 
 from .models import SSOTRuntimeConfig, StatelessContext
+from .tracking import extract_tracking_payload, normalize_tracking_payload
 from agent.llm.schemas import LLMMessage, LLMResponse, LLMToolCall
 from agent.llm.tool_adapter import tool_spec_to_openai_function
 
@@ -294,6 +295,12 @@ class QueryLoop:
                 results = await self._executor.execute(tool_calls)
                 all_results.extend(results)
 
+                # ── Tracking: auto-poll long tasks (e.g. inspection) ──
+                polled_results = await self._settle_tracking(results, messages)
+                if polled_results:
+                    all_results.extend(polled_results)
+                    results = results + polled_results
+
                 # Append assistant message (with tool_calls) + tool results
                 messages = self._append_tool_round(messages, tool_calls, results)
                 continue
@@ -451,3 +458,77 @@ class QueryLoop:
             ))
 
         return new_msgs
+
+    # ── Tracking / Polling ──────────────────────────────────────────────
+
+    async def _settle_tracking(
+        self,
+        results: List[StreamingToolResult],
+        messages: List[LLMMessage],
+    ) -> List[StreamingToolResult]:
+        """After tool execution, auto-poll long tasks (e.g. inspection).
+
+        Mirrors _settle_tracking_tasks from the legacy pipeline.
+        Polls at configured intervals until done, timeout, or max polls.
+        """
+        polled: List[StreamingToolResult] = []
+        tracking_enabled = getattr(self._config, "tracking_enabled", True)
+        if not tracking_enabled:
+            return polled
+
+        max_polls = max(0, int(getattr(self._config, "tracking_max_polls", 8) or 0))
+        cap_seconds = float(getattr(self._config, "tracking_poll_interval_cap_seconds", 2.0))
+        max_seconds = max(0, float(getattr(self._config, "tracking_max_seconds", 60)))
+
+        deadline = time.monotonic() + max_seconds
+
+        for r in results:
+            tracking = extract_tracking_payload(r.output)
+            if not tracking:
+                continue
+            tracking = normalize_tracking_payload(tracking)
+
+            if tracking.get("done"):
+                continue
+
+            task_id = str(tracking.get("task_id") or "").strip()
+            tool_name = str(tracking.get("domain") or r.tool_name or "").strip()
+            if not task_id or not tool_name:
+                continue
+
+            poll_index = 0
+            while poll_index < max_polls and time.monotonic() < deadline:
+                if tracking.get("done"):
+                    break
+
+                wait_s = self._tracking_wait(tracking, cap_seconds, deadline)
+                if wait_s > 0:
+                    await asyncio.sleep(wait_s)
+
+                poll_index += 1
+                poll_call = LLMToolCall(
+                    id=f"{r.call_id}_poll_{poll_index}",
+                    name=tool_name,
+                    arguments={"action": "task_get", "task_id": task_id},
+                )
+                poll_result = await self._executor._execute_one(poll_call)
+                poll_result.call_id = r.call_id  # group under original call
+                polled.append(poll_result)
+
+                tracking = extract_tracking_payload(poll_result.output)
+                if tracking:
+                    tracking = normalize_tracking_payload(tracking)
+
+        return polled
+
+    def _tracking_wait(self, tracking: dict, cap: float, deadline: float) -> float:
+        """Calculate poll wait time, capped and bounded by deadline."""
+        try:
+            requested = float(tracking.get("next_poll_seconds") or 0)
+        except (TypeError, ValueError):
+            requested = 0.0
+        remaining = max(0.0, deadline - time.monotonic())
+        cap = max(0.0, cap)
+        if requested <= 0 or cap <= 0 or remaining <= 0:
+            return 0.0
+        return max(0.0, min(requested, cap, remaining))
