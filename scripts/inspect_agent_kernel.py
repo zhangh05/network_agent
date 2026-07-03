@@ -116,7 +116,7 @@ def main():
                     pass
             if c == "token_limit":
                 try:
-                    from agent.runtime.token_manager import TokenLimitExceeded
+                    from agent.runtime.context_compactor import compact_messages
                     ok += 1
                     continue
                 except Exception:

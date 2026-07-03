@@ -57,13 +57,23 @@ export function ApprovalBubble({ onResolved }: { onResolved?: () => void }) {
     }
   }, []);
 
-  // v3.10: SSE is a realtime invalidation signal; pending API remains
-  // the source of truth because it carries arguments, reason, and risk info.
+  // v3.10: SSE is a realtime invalidation signal; poll only when there's pending work.
   useEffect(() => {
     if (!currentSessionId || !currentWorkspaceId) return;
 
     let cancelled = false;
     let es: EventSource | null = null;
+    let pollTimer: ReturnType<typeof setInterval> | null = null;
+
+    const stopPoll = () => {
+      if (pollTimer) { clearInterval(pollTimer); pollTimer = null; }
+    };
+
+    const startPoll = () => {
+      stopPoll();
+      pollTimer = setInterval(poll, 5000);
+    };
+
     const poll = async () => {
       try {
         const now = Date.now();
@@ -78,6 +88,7 @@ export function ApprovalBubble({ onResolved }: { onResolved?: () => void }) {
             if (!resolvingRef.current) {
               setPending(null);
               setSecondsLeft(60);
+              stopPoll();
             }
             return;
           }
@@ -87,20 +98,22 @@ export function ApprovalBubble({ onResolved }: { onResolved?: () => void }) {
           const secs = Math.max(0, Math.ceil(60 - elapsed));
           if (secs <= 0 || elapsed > 120) {
             try { await approvalApi.resolve(p.approval_id, { decision: "reject", workspace_id: currentWorkspaceId }); } catch { /* ignore */ }
-            if (!resolvingRef.current) { setPending(null); setSecondsLeft(60); }
+            if (!resolvingRef.current) { setPending(null); setSecondsLeft(60); stopPoll(); }
             return;
           }
           setPending(p);
           setSecondsLeft(secs);
+          startPoll(); // keep polling while pending
         } else if (!resolvingRef.current) {
           setPending(null);
           setSecondsLeft(60);
+          stopPoll();
         }
       } catch { /* ignore */ }
     };
 
+    // Initial poll: only continue polling if a pending approval is found
     poll();
-    const interval = setInterval(poll, 5000);
     try {
       es = openApprovalStream(currentWorkspaceId, (event) => {
         if (!resolvingRef.current && event.session_id === currentSessionId && event.workspace_id === currentWorkspaceId) {
@@ -113,7 +126,7 @@ export function ApprovalBubble({ onResolved }: { onResolved?: () => void }) {
 
     return () => {
       cancelled = true;
-      clearInterval(interval);
+      stopPoll();
       es?.close();
     };
   }, [currentSessionId, currentWorkspaceId]);

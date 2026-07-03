@@ -10,6 +10,7 @@ Rules:
 from __future__ import annotations
 
 import time
+import re
 from typing import Any, Callable
 
 from .models import SSOTRuntimeConfig, StatelessContext
@@ -40,7 +41,7 @@ OTHER RULES:
   ``normalized_content`` when present.
 - If a result has content such as forecast_daily, current, results_markdown,
   findings, report_url, stdout, artifacts, or next_actions, answer from those fields.
-- Do NOT include reasoning or chain-of-thought.
+- Do NOT include reasoning, chain-of-thought, <think> blocks, or internal planning.
 - If tools failed, report failures clearly and explain impact on the user's request.
 - Retry truth is strict: say "自动重试/重试成功/retried" ONLY when
   RETRY PROVENANCE shows retry_summary.retry_attempts > 0. If retry_attempts is 0,
@@ -117,7 +118,8 @@ class Finalizer:
             )
             elapsed = (time.monotonic() - start) * 1000
             ctx.extras["finalizer_latency_ms"] = elapsed
-            return response.strip()
+            cleaned = _strip_reasoning_output(response)
+            return cleaned or self._build_default_response(merged_results)
         except Exception:
             elapsed = (time.monotonic() - start) * 1000
             ctx.extras["finalizer_latency_ms"] = elapsed
@@ -245,3 +247,19 @@ def _history_block_without_import(history: list[dict[str, str]]) -> str:
         lines.append(f"  [{i}] {role}: {content}")
     lines.append("")
     return "\n".join(lines)
+
+
+def _strip_reasoning_output(text: str) -> str:
+    """Remove provider reasoning from finalizer output before persistence/UI."""
+    if not text:
+        return ""
+    out = str(text)
+    out = re.sub(r"(?is)<(think|thinking|reasoning)\b[^>]*>.*?</\1>", "", out)
+    out = re.sub(r"(?is)<(think|thinking|reasoning)\b[^>]*>.*\Z", "", out)
+    out = re.sub(r"(?i)</?(think|thinking|reasoning)\b[^>]*>", "", out)
+    out = re.sub(
+        r"(?is)^\s*(reasoning|思考过程)\s*[:：].*?(?=\n\s*(answer|回答|结论)\s*[:：]|\Z)",
+        "",
+        out,
+    )
+    return out.strip()

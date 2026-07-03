@@ -473,6 +473,12 @@ def _invoke_llm_for_ssot_runtime(**kwargs) -> str:
         pass
 
     if resp.error:
+        # If streaming produced partial content before error, return it
+        # instead of failing entirely (common with timeout on slow providers).
+        # v4.1: accept ANY non-empty content — even a single character is
+        # better than a generic fallback.
+        if resp.content and resp.content.strip():
+            return resp.content.strip()
         raise RuntimeError(resp.error)
 
     # Handle tool_calls response (Function Calling mode)
@@ -558,7 +564,8 @@ def _is_bogus_final(text: str) -> bool:
     """Return True when *text* is a placeholder stub rather than
     a real answer produced by the finalizer LLM."""
     t = text.strip()
-    if len(t) <= 10:
+    # Only very short text (≤3 chars) or known placeholder patterns count as bogus.
+    if len(t) <= 3:
         return True
     return any(p in t for p in _BOGUS_FINAL_PATTERNS)
 

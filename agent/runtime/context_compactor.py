@@ -49,7 +49,7 @@ class CompactionStrategy(str, enum.Enum):
     """Strategy used to compact history.
 
     - fast_eviction: replace old messages with deterministic summaries
-                     (no LLM call, ~0ms, used by default in token_manager).
+                     (no LLM call, ~0ms, used by the context pipeline).
     - llm_summary:   call LLM to summarize older messages into a coherent
                      paragraph (slower, higher quality, opt-in).
     """

@@ -226,30 +226,21 @@ def _handle_inspection_managed(inv: ToolInvocation) -> dict:
     if action == "run":
         try:
             scope = args.get("scope") or {}
-            # v3.10: clamp max_concurrency to the same [1, 16] range
-            # the HTTP route uses so tool callers can't bypass the
-            # fleet cap.
             try:
                 _mc = int(args.get("max_concurrency", 3) or 3)
             except (TypeError, ValueError):
                 _mc = 3
             _mc = max(1, min(_mc, 16))
-            # v3.10: prefer the canonical ToolInvocation's caller
-            # identity so the audit trail shows whether the
-            # inspection was started by the user, a subagent, or
-            # a job. Fall back to args.created_by, finally to
-            # ``tool_invocation`` which is always present.
             from_args = str(args.get("created_by", "") or "")
             if from_args and from_args != "user":
                 caller = from_args
             else:
-                # _inv_caller may not be exposed; check the
-                # invocation object directly.
                 inv_caller = getattr(inv, "requested_by", "") or ""
                 if inv_caller and inv_caller != "turn_runner":
                     caller = inv_caller
                 else:
                     caller = "user"
+
             task = inspection_service.start_background_task(
                 workspace_id=ws,
                 profile_id="",
@@ -259,8 +250,6 @@ def _handle_inspection_managed(inv: ToolInvocation) -> dict:
                 max_concurrency=_mc,
             )
         except Exception as exc:
-            # v3.10: don't leak the stack trace to the LLM. Log it
-            # server-side and return a generic error.
             import logging as _il
             _il.getLogger(__name__).exception(
                 "_handle_inspection_managed run failed",
@@ -1508,8 +1497,8 @@ def _schema(properties: dict | None = None, required: list[str] | None = None) -
 
 _S = {
     "workspace_id": {"type": "string", "description": "Workspace id."},
-    "query": {"type": "string", "description": "Natural language query or keyword. Example: OSPF config, VLAN setup, 本机IP地址."},
-    "limit": {"type": "integer", "description": "Max results to return, 1-50.", "default": 10},
+    "query": {"type": "string", "description": "Natural language query or keyword."},
+    "limit": {"type": "integer", "description": "Max results, 1-50.", "default": 10},
     "artifact_id": {"type": "string", "description": "Artifact id."},
     "source_id": {"type": "string", "description": "Knowledge source id."},
     "chunk_id": {"type": "string", "description": "Knowledge chunk id."},
@@ -1519,12 +1508,12 @@ _S = {
     "text": {"type": "string", "description": "Text to inspect or transform."},
     "session_id": {"type": "string", "description": "Session id."},
     "run_id": {"type": "string", "description": "Run id."},
-    "filepath": {"type": "string", "description": "Workspace-relative file path. Example: files/topology.txt. NOT absolute paths."},
+    "filepath": {"type": "string", "description": "Workspace-relative file path, e.g. files/topology.txt."},
     "days": {"type": "integer", "description": "Forecast horizon in days, 1-10.", "default": 3},
     "recency": {"type": "string", "description": "Time filter: day, week, month, year.", "default": "week"},
     "format": {"type": "string", "description": "Output format.", "enum": ["txt", "md"]},
     "language": {"type": "string", "description": "Language code, e.g. zh-CN, en.", "default": "zh-CN"},
-    "command": {"type": "string", "description": "Shell command to run on THIS machine (macOS/Linux). Example: ifconfig, ping -c 3 8.8.8.8, ls -la, whoami. Do NOT use rm -rf, chmod, sudo."},
+    "command": {"type": "string", "description": "Shell command. macOS/Linux. Example: ifconfig, ping -c 3 8.8.8.8, ls -la. NOT destructive commands."},
     "status": {"type": "string", "description": "Filter by status."},
     "location": {"type": "string", "description": "City or location name."},
     "units": {"type": "string", "description": "Temperature units.", "enum": ["metric", "imperial"], "default": "metric"},
@@ -1744,7 +1733,7 @@ _RAW_REGISTRY: list[CanonicalToolEntry] = [
             "command": {"type": "string", "description": "[shell] Shell command to execute."},
             "code": {"type": "string", "description": "[python] Python code (AST-sandboxed)."},
             "host": {"type": "string"}, "port": {"type": "integer"},
-            "asset_id": {"type": "string", "description": "[ssh|telnet] Resolve host/user/password from CMDB asset without exposing credentials."},
+            "asset_id": {"type": "string", "description": "[ssh|telnet] CMDB asset ID — host/user/password resolved server-side."},
             "username": {"type": "string"}, "password": {"type": "string"},
             "vendor": {"type": "string"},
             "session_id": {"type": "string", "description": "[ssh] Reuse existing SSH session."},
@@ -1798,21 +1787,21 @@ _RAW_REGISTRY: list[CanonicalToolEntry] = [
         input_schema=_schema({
             "workspace_id": _S["workspace_id"],
             "action": {"type": "string", "enum": ["list", "get", "add", "delete", "update", "export"]},
-            "search": {"type": "string", "description": "[list] Fuzzy search name/vendor/host/model/region/location."},
+            "search": {"type": "string", "description": "[list] Fuzzy search name/vendor/host/model/region."},
             "filter": {"type": "string", "description": '[list] JSON filter, e.g. {"type":"switch","region":"华东"}.'},
-            "sort_by": {"type": "string", "description": "[list] Sort field: name/type/vendor/region/location/host/updated_at."},
+            "sort_by": {"type": "string", "description": "[list] Sort: name/type/vendor/region/location/host/updated_at."},
             "asset_id": {"type": "string", "description": "[get|delete|update] Asset ID."},
             "name": {"type": "string"}, "host": {"type": "string"},
             "type": {"type": "string", "enum": ["switch", "router", "firewall", "server", "other"],
                      "default": "switch"},
             "vendor": {"type": "string"},
             "model": {"type": "string"},
-            "region": {"type": "string", "description": "[list|add|update] Logical area/region, e.g. 华东, 华南, 核心, 接入."},
-            "location": {"type": "string", "description": "[list|add|update] Physical site/rack/room location."},
+            "region": {"type": "string", "description": "[list|add|update] Region, e.g. 华东, 华南."},
+            "location": {"type": "string", "description": "[list|add|update] Physical site location."},
             "protocol": {"type": "string", "enum": ["ssh", "telnet"], "default": "ssh"},
             "port": {"type": "integer", "default": 22},
             "username": {"type": "string"},
-            "password": {"type": "string", "description": "[add] Optional saved credential; never returned by get/list/export."},
+            "password": {"type": "string", "description": "[add] Saved credential; never returned by reads."},
             "description": {"type": "string"},
             "format": {"type": "string", "enum": ["json", "csv"], "default": "json",
                        "description": "[export] Output format."},
@@ -2223,17 +2212,14 @@ _RAW_REGISTRY: list[CanonicalToolEntry] = [
             "action": {
                 "type": "string",
                 "enum": ["run", "task_list", "task_get", "task_cancel", "report"],
+                "description": "run (async) | task_list | task_get | task_cancel | report.",
             },
             "scope": {
                 "type": "object",
                 "description": (
-                    "[run] CMDB scope filter. Properties: region (string), "
-                    "location (string), type (switch|router|firewall|server|"
-                    "load_balancer|wireless|other), vendor (string), "
-                    "tags (string[]), asset_ids (string[]), "
-                    "limit (int 1-500, default 50). All fields are "
-                    "optional; pass an empty object to inspect every "
-                    "device in the workspace."
+                    "[run] CMDB filter. Keys: region, location, type (switch|router|firewall|server|other), "
+                    "vendor, tags[], asset_ids[], limit (1-500, default 50). "
+                    "All optional; {} = all devices."
                 ),
             },
             "created_by": {"type": "string", "description": "[run] user|job|system."},
@@ -2245,17 +2231,10 @@ _RAW_REGISTRY: list[CanonicalToolEntry] = [
             "format": {"type": "string", "enum": ["md", "json", "html"], "description": "[report] Report format."},
         }, ["action"]),
         description=(
-            "CMDB-driven device health inspection. action=run creates a background task; "
-            "use task_get to track, task_cancel to stop, and report(format=html) for the final report. "
-            "The backend chooses scripts "
-            "from each CMDB asset's vendor and type -- callers do not need "
-            "to choose a template. Pass profile_id='auto' (or omit it) "
-            "and the runner picks the right profile per device; the five "
-            "fixed profiles basic_health / interface_health / routing_health "
-            "/ config_backup / full_basic are also accepted for explicit "
-            "override. Commands come from a fixed per-vendor map -- the LLM "
-            "never assembles them. "
-            "Credentials are resolved server-side via exec.run(asset_id=...)."
+            "CMDB-driven device health inspection. "
+            "action=run creates a background task and returns task_id; "
+            "task_get/cancel/report for tracking. "
+            "Scripts & credentials auto-selected per-device via CMDB — callers do not pick templates."
         ),
     ),
 ]

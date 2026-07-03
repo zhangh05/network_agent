@@ -203,14 +203,21 @@ start_backend() {
         return
     fi
 
+    # Build allowed origins from all local IPs so LAN access works
+    local allowed_origins="http://localhost:$FRONTEND_PORT,http://127.0.0.1:$FRONTEND_PORT,http://[::1]:$FRONTEND_PORT"
+    for ip in $(local_ips); do
+        allowed_origins="$allowed_origins,http://$ip:$FRONTEND_PORT"
+    done
+    export NETWORK_AGENT_ALLOWED_ORIGINS="$allowed_origins"
+
     log "[backend] Starting on $BACKEND_HOST:$BACKEND_PORT..."
     : > "$LOG_DIR/backend-8010.log"
     stop_screen "$BACKEND_SCREEN"
     if command -v screen >/dev/null 2>&1; then
         screen -dmS "$BACKEND_SCREEN" /bin/bash -lc \
-            "cd '$ROOT' && exec '$PYTHON_BIN' backend/main.py --host '$BACKEND_HOST' --port '$BACKEND_PORT' >> '$LOG_DIR/backend-8010.log' 2>&1"
+            "cd '$ROOT' && export NETWORK_AGENT_ALLOWED_ORIGINS='$allowed_origins' && exec '$PYTHON_BIN' backend/main.py --host '$BACKEND_HOST' --port '$BACKEND_PORT' >> '$LOG_DIR/backend-8010.log' 2>&1"
     else
-        (cd "$ROOT" && nohup "$PYTHON_BIN" backend/main.py --host "$BACKEND_HOST" --port "$BACKEND_PORT" >> "$LOG_DIR/backend-8010.log" 2>&1 </dev/null &)
+        (cd "$ROOT" && export NETWORK_AGENT_ALLOWED_ORIGINS="$allowed_origins" && nohup "$PYTHON_BIN" backend/main.py --host "$BACKEND_HOST" --port "$BACKEND_PORT" >> "$LOG_DIR/backend-8010.log" 2>&1 </dev/null &)
     fi
     wait_for_url backend "http://127.0.0.1:$BACKEND_PORT/api/health" || { stop_started_services; fail "Backend failed to start. See $LOG_DIR/backend-8010.log"; }
     write_port_pid "$BACKEND_PORT" "$BACKEND_PID_FILE"

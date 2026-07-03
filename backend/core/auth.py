@@ -122,7 +122,12 @@ def is_allowed_browser_origin(origin: str | None, request_host: str) -> bool:
         origin_url = urlparse(origin)
         origin_root = f"{origin_url.scheme}://{origin_url.netloc}".rstrip("/")
         host = request_host.split("@")[-1]
-        return origin_url.netloc == host or origin_root in _configured_dev_origins()
+        # Same host (any port) = same machine = allow
+        origin_hostname = origin_url.hostname or ""
+        request_hostname = host.split(":")[0]
+        if origin_hostname == request_hostname:
+            return True
+        return origin_root in _configured_dev_origins()
     except Exception:
         return False
 

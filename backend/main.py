@@ -76,6 +76,42 @@ def create_app():
     app = Flask(__name__, static_folder=None)
     app.config["PORT"] = UNIFIED_PORT
 
+    # ── CORS: allow configured workbench origins (Vite / LAN access) ──
+    def _allowed_cors_origin():
+        origin = request.headers.get("Origin")
+        if not origin:
+            return ""
+        try:
+            from backend.core.auth import is_allowed_browser_origin
+            if is_allowed_browser_origin(origin, request.host):
+                return origin
+        except Exception:
+            return ""
+        return ""
+
+    @app.before_request
+    def _cors_preflight():
+        if request.method == "OPTIONS":
+            resp = app.make_default_options_response()
+            origin = _allowed_cors_origin()
+            if origin:
+                resp.headers["Access-Control-Allow-Origin"] = origin
+                resp.headers["Access-Control-Allow-Credentials"] = "true"
+            resp.headers["Access-Control-Allow-Methods"] = "GET, POST, PUT, DELETE, OPTIONS, PATCH"
+            resp.headers["Access-Control-Allow-Headers"] = "Content-Type, Authorization, X-Requested-With"
+            resp.headers["Access-Control-Max-Age"] = "86400"
+            return resp
+
+    @app.after_request
+    def _cors_after(resp):
+        origin = _allowed_cors_origin()
+        if origin:
+            resp.headers["Access-Control-Allow-Origin"] = origin
+            resp.headers["Access-Control-Allow-Credentials"] = "true"
+            resp.headers["Access-Control-Allow-Methods"] = "GET, POST, PUT, DELETE, OPTIONS, PATCH"
+            resp.headers["Access-Control-Allow-Headers"] = "Content-Type, Authorization"
+        return resp
+
     # ── v3.0.0: Register default security hooks ──
     try:
         from agent.runtime.default_hooks import register_default_hooks

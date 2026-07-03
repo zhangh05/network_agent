@@ -122,25 +122,3 @@ def build_tool_registry_for_llm(tools: List[dict]) -> List[dict]:
             continue
         result.append(tool_spec_to_openai_function(tool))
     return result
-
-
-def list_tools_for_orchestrator() -> List[dict]:
-    """Get all enabled, non-forbidden tools as OpenAI function definitions.
-
-    Returns the full list suitable for the LLM orchestrator's system context.
-    """
-    from agent.runtime.services import default_runtime_services
-    services = default_runtime_services()
-    raw = []
-    for spec in services.tool_service.registry.list_model_visible():
-        raw.append({
-            "tool_id": spec.tool_id,
-            "name": spec.name,
-            "description": spec.description,
-            "risk_level": spec.risk_level,
-            "enabled": spec.enabled,
-            "input_schema": spec.input_schema,
-            "metadata": getattr(spec, "metadata", {}) or {},
-            **(getattr(spec, "metadata", {}) or {}),
-        })
-    return build_tool_registry_for_llm(raw)

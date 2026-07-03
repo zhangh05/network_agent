@@ -52,6 +52,11 @@ RULES (non-negotiable):
    file paths, asset ids, regions, vendors, commands, limits, or output formats.
 6. Use the exact parameter names from each tool's definition. Never invent aliases.
 7. Keep the tool set minimal — fewer tools = faster execution.
+8. Long-running tools are asynchronous. If a tool returns tracking/task_id, use
+   the matching status action on follow-up turns; do NOT invent blocking actions.
+9. For CMDB inspection: use inspection.manage(action="run") to start, then
+   inspection.manage(action="task_get") to track an existing task, and
+   inspection.manage(action="report", format="html") only after terminal status.
 
 If NO tools are needed, respond with text only (no tool calls)."""
 

@@ -1092,3 +1092,12 @@ class TestEdgeCases:
         assert "Preserve user intent in tool arguments" in PLANNER_SYSTEM_PROMPT
         assert "Never invent aliases" in PLANNER_SYSTEM_PROMPT
         assert "fewer tools = faster execution" in PLANNER_SYSTEM_PROMPT
+        assert "task_get" in PLANNER_SYSTEM_PROMPT
+        assert "run_and_wait" not in PLANNER_SYSTEM_PROMPT
+
+    def test_finalizer_strips_provider_reasoning(self):
+        """Provider reasoning tags must never be persisted as final response."""
+        from core.runtime_engine.finalizer import _strip_reasoning_output
+
+        assert _strip_reasoning_output("<think>hidden</think>\n最终结论") == "最终结论"
+        assert _strip_reasoning_output("<think>hidden without close") == ""
