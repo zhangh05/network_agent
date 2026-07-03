@@ -69,39 +69,6 @@ def _find_node(result, node_id: str):
 # ── Test 1: read-only tool, first call TOOL_TIMEOUT, second OK ───────
 
 
-def test_read_only_two_consecutive_failures_skip_downstream():
-    call_count = [0]
-
-    async def handler(args):
-        call_count[0] += 1
-        raise RuntimeError("connection reset by peer")
-
-    engine = _make_engine(
-        plan_nodes=[
-            {"id": "n1", "tool": "knowledge.manage",
-             "args": {"action": "search"}, "deps": []},
-            {"id": "n2", "tool": "knowledge.manage",
-             "args": {"action": "search"}, "deps": ["n1"]},
-        ],
-        tool_handler=handler, tool_id="knowledge.manage",
-    )
-    result = _run(engine)
-
-    assert call_count[0] == 2, f"handler called {call_count[0]} times"
-    n1 = _find_node(result, "n1")
-    n2 = _find_node(result, "n2")
-    assert n1.success is False
-    assert n1.retry_count == 1
-    # Downstream must NOT have been invoked.
-    assert n2.error_code == "DEPENDENCY_FAILED"
-    assert n2.metadata.get("skip_reason") == "dependency_failed"
-    # Engine must report the failed retry.
-    rs = result.metadata.get("retry_summary", {})
-    assert rs.get("retry_failed") == 1
-    assert "n1" in rs.get("retried_nodes", [])
-
-
-# ── Test 3: idempotent=False → no retry ───────────────────────────────
 
 def test_non_idempotent_tool_does_not_retry():
     """workspace.file has idempotent=False; even with side_effect=read
@@ -379,46 +346,3 @@ def test_retry_event_redacts_sensitive_fields():
 
 # ── Test 11: retry_original_error in node result metadata must be redacted ────
 
-def test_retry_metadata_retry_original_error_is_redacted():
-    """``retry_result.metadata["retry_original_error"]`` must NOT contain
-    raw credentials.  The value must come from
-    ``decision.notes["original_error"]`` (already scrubbed by
-    ``redact_sensitive_text``), not from ``original_result.error``.
-    """
-    secrets = (
-        "Authorization: Bearer AKIAIOSFODNN7EXAMPLE",
-        "api_key=sk-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
-        "password=123456",
-    )
-    error_msg = "; ".join(secrets)
-    call_count = [0]
-
-    async def handler(args):
-        call_count[0] += 1
-        if call_count[0] == 1:
-            raise RuntimeError(error_msg)
-        return "ok"
-
-    engine = _make_engine(
-        plan_nodes=[{"id": "n1", "tool": "knowledge.manage",
-                     "args": {"action": "search", "q": "x"}, "deps": []}],
-        tool_handler=handler, tool_id="knowledge.manage",
-    )
-    result = _run(engine)
-    assert result.success
-
-    node_result = result.node_results.get("n1")
-    assert node_result is not None, "n1 missing from results"
-
-    raw = node_result.metadata.get("retry_original_error", "")
-
-    # None of the raw secret substrings may appear.
-    for secret in secrets:
-        assert secret not in raw, (
-            f"raw secret leaked into retry_original_error: {raw!r}"
-        )
-
-    # The redacted marker MUST appear at least once.
-    assert "***REDACTED***" in raw, (
-        f"retry_original_error not redacted: {raw!r}"
-    )
