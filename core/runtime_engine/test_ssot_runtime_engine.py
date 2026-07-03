@@ -876,6 +876,45 @@ class TestSSOTRuntimePipeline:
         assert result.metadata["dag_nodes"] == 0
 
     @pytest.mark.asyncio
+    async def test_ambiguous_login_command_asks_clarification_without_planner(self, config):
+        """Underspecified login/command requests should ask, not expose planner internals."""
+        from core.runtime_engine.engine import SSOTRuntimeEngine
+
+        config.enable_finalizer = False
+        llm_calls = 0
+
+        def mock_llm(**kwargs):
+            nonlocal llm_calls
+            llm_calls += 1
+            return '{"nodes": []}'
+
+        engine = SSOTRuntimeEngine(
+            config=config,
+            llm_invoke=mock_llm,
+            tool_registry={"exec.run": {"description": "Run shell", "args_schema": {}}},
+        )
+
+        result = await engine.run("你登录刷命令")
+
+        assert result.success
+        assert llm_calls == 0
+        assert result.node_success_count == 0
+        assert result.metadata["planner_skipped"] is True
+        assert result.metadata["requires_clarification"] is True
+        assert "目标设备" in result.final_response
+        assert "要执行的命令" in result.final_response
+        assert "Planner failed" not in result.final_response
+
+    def test_command_clarification_does_not_block_specific_device_goal(self):
+        from core.runtime_engine.engine import (
+            build_operational_clarification,
+            detect_task_intent,
+        )
+
+        text = "登录并查看测试服务器_1设备的IP地址和内核"
+        assert build_operational_clarification(text, detect_task_intent(text)) is None
+
+    @pytest.mark.asyncio
     async def test_full_pipeline_simple_tools(self, config):
         """End-to-end test with mock LLM and mock tools."""
         from core.runtime_engine.engine import SSOTRuntimeEngine

@@ -394,6 +394,25 @@ class SSOTRuntimeEngine:
                 },
             )
 
+        clarification = build_operational_clarification(ctx.user_input, task_intent)
+        if clarification:
+            self._emit_stage(FINALIZING_STARTED, t_total)
+            self._emit_stage(FINALIZING_COMPLETED, t_total)
+            self._emit_stage(TURN_COMPLETED, t_total)
+            metrics.capture_finalizer(0.0)
+            return self._build_result(
+                ctx, None, node_results, clarification["response"],
+                errors, metrics, budget, t_total, "low", False,
+                extra={
+                    "planner_skipped": True,
+                    "used_tools": False,
+                    "requires_clarification": True,
+                    "clarification_fields": clarification["missing"],
+                    "skip_reason": "ambiguous_operational_request",
+                    "task_intent": task_intent.intent_type,
+                },
+            )
+
         try:
             # Stage 3: Planner (1 LLM call)
             budget_result = budget.check_planner()
@@ -1761,6 +1780,20 @@ _TASK_TO_DEFAULT_TOOL = {
     "report": "data.manage",
 }
 
+_COMMAND_GOAL_HINTS = (
+    "查看", "查询", "获取", "检查", "确认", "采集", "诊断",
+    "ip", "IP", "地址", "内核", "版本", "状态", "接口",
+    "CPU", "cpu", "内存", "磁盘", "路由", "邻居",
+)
+
+_COMMAND_LITERAL_HINTS = (
+    "`", "\n", "uname", "display", "dis ", "show", "ping",
+    "traceroute", "trace ", "df ", "free ", "ip ", "ifconfig",
+    "cat ", "ls ", "pwd", "systemctl", "curl", "netstat", "ss ",
+)
+
+_LOGIN_HINTS = ("登录", "连接", "进入", "ssh", "SSH", "telnet", "Telnet")
+
 
 @dataclass
 class TaskIntentResult:
@@ -1787,6 +1820,56 @@ class TaskIntentResult:
         if self.intent_type == "conversational_followup":
             return False
         return bool(self.requires_tool_likely)
+
+
+def _has_target_hint(text: str) -> bool:
+    if any(ch.isdigit() for ch in text) and any(sep in text for sep in (".", "_", "-", "号")):
+        return True
+    return any(k in text for k in ("服务器", "交换机", "路由器", "防火墙", "资产", "设备"))
+
+
+def build_operational_clarification(
+    user_input: str,
+    intent: TaskIntentResult | None = None,
+) -> dict[str, Any] | None:
+    """Return a user-facing clarification for ambiguous login/command requests.
+
+    Planner empty-node protection is intentionally strict, but a request like
+    "你登录刷命令" is not a planner failure. It is missing product-level
+    inputs: target and command. Handle that before spending an LLM call.
+    """
+    text = (user_input or "").strip()
+    if not text:
+        return None
+    intent = intent or detect_task_intent(text)
+    if intent.intent_type != "command_check":
+        return None
+
+    lower = text.lower()
+    has_login_intent = any(k in text for k in _LOGIN_HINTS) or "ssh" in lower or "telnet" in lower
+    has_command_literal = any(k in text for k in _COMMAND_LITERAL_HINTS)
+    has_goal_hint = any(k in text for k in _COMMAND_GOAL_HINTS)
+    has_target = _has_target_hint(text)
+
+    missing: list[str] = []
+    if has_login_intent and not has_target:
+        missing.append("目标设备")
+    if not has_command_literal and not has_goal_hint:
+        missing.append("要执行的命令或检查目标")
+
+    if not missing:
+        return None
+
+    response = (
+        "我还不能直接执行这个操作，因为缺少关键信息。\n\n"
+        f"需要补充：{'、'.join(missing)}。\n\n"
+        "你可以这样说：\n"
+        "- 登录测试服务器_1，执行 `uname -a`\n"
+        "- 登录 ASBR-PE1，执行 `display version`\n"
+        "- 对测试服务器_1 查看 IP 地址和内核\n\n"
+        "补齐后我会按 CMDB 中保存的连接信息发起只读命令；只有 `rm -f`、`delete` 等破坏性命令才会进入高危审批。"
+    )
+    return {"missing": missing, "response": response}
 
 
 # Meta-questions about past behaviour — these are conversational
