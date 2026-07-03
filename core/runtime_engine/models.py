@@ -162,6 +162,9 @@ class SSOTRuntimeConfig:
     planner_timeout_ms: int = 20_000
     finalizer_timeout_ms: int = 15_000
     enable_finalizer: bool = True
+    use_query_loop: bool = True  # v5.0: iterative LLM+tool loop with all 5 optimisations
+    max_query_loop_iterations: int = 20  # v5.0: max QueryLoop iterations
+    enable_streaming_tool_exec: bool = True  # v5.0: streaming tool execution during LLM output
     max_nodes: int = 30
     max_depth: int = 8
     max_global_concurrency: int = 8

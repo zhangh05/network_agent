@@ -211,6 +211,31 @@ class ToolRuntime:
     def has_tool(self, tool_id: str) -> bool:
         return tool_id in self._handlers
 
+    def invoke_raw(self, tool_id: str, arguments: dict | None = None) -> dict:
+        """Invoke a registered tool handler directly and return a result dict.
+
+        v5.0: Added for QueryLoop integration. Bypasses ExecutionNode/DAG
+        compilation. Handles both sync and async handlers safely from any thread.
+        """
+        arguments = arguments or {}
+        handler = self._handlers.get(tool_id)
+        if handler is None:
+            return {"ok": False, "error": f"Tool not found: {tool_id}"}
+        try:
+            result = handler(arguments)
+            if asyncio.iscoroutine(result):
+                # Handler is async — create a temp event loop (safe in thread pool)
+                loop = asyncio.new_event_loop()
+                try:
+                    result = loop.run_until_complete(result)
+                finally:
+                    loop.close()
+            if isinstance(result, dict):
+                return result
+            return {"ok": True, "data": result}
+        except Exception as e:
+            return {"ok": False, "error": str(e)}
+
     async def execute_node(
         self,
         node: ExecutionNode,

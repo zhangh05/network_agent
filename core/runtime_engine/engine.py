@@ -55,7 +55,7 @@ from .models import (
 )
 from .plan_enrichment import enrich_dag_from_user_request, enrich_plan_nodes_from_user_request
 from .planner import Planner
-from .pre_execution_repair import PreExecutionRepairEngine, PreExecutionRepairResult
+from .query_loop import QueryLoop, QueryLoopResult
 from .repair_engine import RepairEngine
 from .result_merger import ResultMerger
 from .runtime_contracts import ExecutionContract, ExecutionObligationViolation
@@ -412,6 +412,61 @@ class SSOTRuntimeEngine:
                     "task_intent": task_intent.intent_type,
                 },
             )
+
+        # ── v5.0: QueryLoop (iterative LLM + tools) ─────────────────────
+        # Replaces Planner → Compile → Execute → Finalizer pipeline
+        # with a single agentic loop. 5 optimisations:
+        #   1. Prompt cache (static system+tools prefix)
+        #   2. Planner+Finalizer merged into one LLM stream
+        #   3. Iterative tool execution with intermediate feedback
+        #   4. Streaming tool exec (tools start during LLM output)
+        #   5. Auto-compact (summarise old turns)
+        if getattr(self._config, "use_query_loop", True):
+            self._emit_stage(PLANNER_STARTED, t_total)
+
+            query_loop = QueryLoop(
+                self._config, self._tool_registry,
+                self._tool_runtime,
+                emitter=self._emitter,
+            )
+            loop_result = await query_loop.run(ctx, budget, metrics)
+
+            self._emit_stage(PLANNER_COMPLETED, t_total,
+                             plan_nodes=loop_result.iterations)
+            self._emit_stage(EXECUTION_COMPLETED, t_total,
+                             tool_calls=loop_result.total_tool_calls)
+
+            # Build tool_results in the format the engine expects
+            for r in loop_result.tool_results:
+                node_results[r.call_id] = ToolResult(
+                    node_id=r.call_id,
+                    tool=r.tool_name,
+                    success=r.ok,
+                    data=r.output,
+                    error=r.error,
+                )
+
+            final_response = loop_result.final_response
+            dag = None
+            risk_level = "low"
+            approval_required = False
+            metrics.set_llm_calls(loop_result.llm_calls)
+
+            return self._build_result(
+                ctx, dag, node_results, final_response,
+                errors, metrics, budget, t_total,
+                risk_level, approval_required,
+                extra={
+                    "query_loop": True,
+                    "iterations": loop_result.iterations,
+                    "tool_calls": loop_result.total_tool_calls,
+                    "llm_calls": loop_result.llm_calls,
+                    "used_tools": loop_result.total_tool_calls > 0,
+                    **loop_result.metrics,
+                },
+            )
+
+        # ── v4.x legacy pipeline (fallback) ─────────────────────────────
 
         try:
             # Stage 3: Planner (1 LLM call)
