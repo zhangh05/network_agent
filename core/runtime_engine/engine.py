@@ -243,6 +243,7 @@ class SSOTRuntimeEngine:
                 stage="engine",
                 risk_level="high",
             ))
+            await self._stop_heartbeat()
             return self._build_result(
                 ctx, None, node_results, final_response,
                 errors, metrics, budget, t_total,
@@ -334,6 +335,7 @@ class SSOTRuntimeEngine:
             metrics.capture_finalizer(direct_answer_latency_ms)
             metrics.set_llm_calls(budget.llm_calls or 1)
 
+            await self._stop_heartbeat()
             return self._build_result(
                 ctx, None, node_results, final_response,
                 errors, metrics, budget, t_total, "low", False,
@@ -356,6 +358,7 @@ class SSOTRuntimeEngine:
             self._emit_stage(FINALIZING_COMPLETED, t_total)
             self._emit_stage(TURN_COMPLETED, t_total)
             metrics.capture_finalizer(0.0)
+            await self._stop_heartbeat()
             return self._build_result(
                 ctx, None, node_results, clarification["response"],
                 errors, metrics, budget, t_total, "low", False,
@@ -409,16 +412,8 @@ class SSOTRuntimeEngine:
                 "duplicate_tool_call",
             }:
                 first_loop_error = loop_result.errors[0] if loop_result.errors else loop_result.error
-                loop_error_code = (
-                    first_loop_error.split(":", 2)[1]
-                    if loop_result.error == "semantic_validation_failed"
-                    and isinstance(first_loop_error, str)
-                    and len(first_loop_error.split(":", 2)) >= 3
-                    else (
-                        SSOTRuntimeErrorCode.RISK_CRITICAL_DENIED
-                        if loop_result.hard_block
-                        else SSOTRuntimeErrorCode.VALIDATION_UNSAFE_OPERATION
-                    )
+                loop_error_code = self._resolve_loop_error_code(
+                    loop_result.error, first_loop_error, loop_result.hard_block
                 )
                 errors.append(build_error(
                     loop_error_code,
@@ -453,6 +448,7 @@ class SSOTRuntimeEngine:
             "QueryLoop is disabled. QueryLoop is the only supported engine.",
             stage="engine", risk_level="high",
         ))
+        await self._stop_heartbeat()
         return self._build_result(
             ctx, None, node_results, "",
             errors, metrics, budget, t_total,
@@ -619,6 +615,40 @@ class SSOTRuntimeEngine:
 
     def _noop_llm(self, **kwargs) -> str:
         return '{"nodes": []}'
+
+    @staticmethod
+    def _resolve_loop_error_code(error_key: str, first_error: str, hard_block: bool) -> str:
+        """Map QueryLoop error keys to canonical SSOTRuntimeErrorCode values."""
+        from .errors import SSOTRuntimeErrorCode
+
+        # Semantic validation: code is embedded in the error text
+        if error_key == "semantic_validation_failed" and isinstance(first_error, str):
+            parts = first_error.split(":", 2)
+            if len(parts) >= 3:
+                return parts[1]
+
+        # Budget exhaustion
+        if error_key in ("budget_exceeded",):
+            return SSOTRuntimeErrorCode.BUDGET_LLM_EXCEEDED
+
+        # Max iterations / timeout
+        if error_key in ("max_iterations",):
+            return SSOTRuntimeErrorCode.BUDGET_TIME_EXCEEDED
+
+        # No response from LLM
+        if error_key in ("no_response",):
+            return SSOTRuntimeErrorCode.PLANNER_TIMEOUT
+
+        # Doom-loop (repeated failing tool calls)
+        if error_key and error_key.startswith("doom_loop"):
+            return SSOTRuntimeErrorCode.EXECUTION_TOOL_EXCEPTION
+
+        # Hard block from risk policy
+        if hard_block:
+            return SSOTRuntimeErrorCode.RISK_CRITICAL_DENIED
+
+        # Default fallback — keep as a structured code rather than a raw string
+        return SSOTRuntimeErrorCode.VALIDATION_UNSAFE_OPERATION
 
 
 # ── v3.14: Task-intent detection ─────────────────────────────────────────

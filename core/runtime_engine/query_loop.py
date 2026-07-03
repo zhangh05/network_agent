@@ -72,6 +72,8 @@ RULES:
 3. For inspection tasks: inspection__manage(action="run") to start, then
    inspection__manage(action="task_get") to check status.
 4. For SSH access: exec__run(action="shell", target="ssh", asset_id=...).
+   When the device was just queried from CMDB, use the asset_id from the
+   CMDB result — do NOT pass host/username/password separately.
 5. If a tool returns "Tool not found" error, the name is wrong — look at the
    available function list and use the EXACT name.
 6. DO NOT repeat the same failing tool+arguments more than 2 times.
@@ -191,23 +193,38 @@ class StreamingToolExecutor:
         ctx: StatelessContext | None = None,
         budget=None,
     ) -> List[StreamingToolResult]:
-        """Execute tool calls. Read-only parallel, writes serialised."""
-        results: List[StreamingToolResult] = []
+        """Execute tool calls. Read-only parallel, writes serialised.
 
-        # Group: first all read-only (parallel), then writes (serial)
+        Returns results in the ORIGINAL tool_calls order so callers can
+        safely zip(results, tool_calls) for idempotent-key tracking.
+        """
+        # Build result map keyed by call_id so we can return in original order
+        result_by_id: dict[str, StreamingToolResult] = {}
+
+        # --- Parallel read-only ---
         read_only = [tc for tc in tool_calls if self._is_read_only(tc.name)]
-        writes = [tc for tc in tool_calls if not self._is_read_only(tc.name)]
-
-        # Parallel read-only
         if read_only:
             tasks = [self._execute_one(tc, ctx=ctx, budget=budget) for tc in read_only]
-            results.extend(await asyncio.gather(*tasks))
+            # return_exceptions=True: collect every result, even if some fail
+            ro_results = await asyncio.gather(*tasks, return_exceptions=True)
+            for tc, r in zip(read_only, ro_results):
+                if isinstance(r, Exception):
+                    result_by_id[tc.id] = StreamingToolResult(
+                        tool_name=tc.name,
+                        call_id=tc.id,
+                        output={},
+                        ok=False,
+                        error=str(r),
+                    )
+                else:
+                    result_by_id[tc.id] = r
 
-        # Serial writes
-        for tc in writes:
-            results.append(await self._execute_one(tc, ctx=ctx, budget=budget))
+        # --- Serial writes ---
+        for tc in (tc for tc in tool_calls if not self._is_read_only(tc.name)):
+            result_by_id[tc.id] = await self._execute_one(tc, ctx=ctx, budget=budget)
 
-        return results
+        # Return in original order
+        return [result_by_id[tc.id] for tc in tool_calls]
 
     async def _execute_one(
         self,
@@ -527,7 +544,7 @@ class QueryLoop:
                         successful_call_keys.add(self._tool_call_key(tc))
 
                 # ── Tracking: auto-poll long tasks (e.g. inspection) ──
-                polled_results = await self._settle_tracking(ctx, results)
+                polled_results = await self._settle_tracking(ctx, results, budget=budget)
                 if polled_results:
                     all_results.extend(polled_results)
                     results = results + polled_results
@@ -537,18 +554,62 @@ class QueryLoop:
 
                 # ── Doom-loop detection ──
                 for r in results:
-                    if not r.ok and r.error and "not found" in str(r.error).lower():
-                        key = f"{r.tool_name}:{json.dumps(r.output, sort_keys=True)}"
-                        failure_counts[key] = failure_counts.get(key, 0) + 1
-                        if failure_counts[key] >= 3:
+                    if not r.ok and r.error:
+                        err_lower = str(r.error).lower()
+                        # Tool not found (wrong name)
+                        if "not found" in err_lower:
+                            key = f"not_found:{r.tool_name}"
+                            failure_counts[key] = failure_counts.get(key, 0) + 1
+                            if failure_counts[key] >= 3:
+                                return QueryLoopResult(
+                                    final_response=f"工具 {r.tool_name} 不存在，已尝试 {failure_counts[key]} 次。请检查工具名称是否正确。",
+                                    tool_results=all_results,
+                                    iterations=iterations,
+                                    total_tool_calls=len(all_results),
+                                    llm_calls=llm_calls,
+                                    error="doom_loop",
+                                )
+                        # SSH auth failure (credential issue — do NOT retry)
+                        if "ssh 认证失败" in err_lower or "authentication" in err_lower or "password" in err_lower or "permission denied" in err_lower or "auth" in err_lower:
+                            key = f"ssh_auth:{r.tool_name}"
+                            failure_counts[key] = failure_counts.get(key, 0) + 1
+                            if failure_counts[key] >= 2:
+                                return QueryLoopResult(
+                                    final_response=(
+                                        f"SSH 认证已连续失败 {failure_counts[key]} 次。"
+                                        "可能原因：1) 资产未配置密码或密码错误；"
+                                        "2) 未使用 asset_id 导致凭据未解析。"
+                                        "请检查 CMDB 中该设备的密码配置。"
+                                    ),
+                                    tool_results=all_results,
+                                    iterations=iterations,
+                                    total_tool_calls=len(all_results),
+                                    llm_calls=llm_calls,
+                                    error="doom_loop_ssh_auth",
+                                )
+                        # Budget exhaustion — stop immediately
+                        if "budget" in err_lower or "exceeded" in err_lower:
                             return QueryLoopResult(
-                                final_response=f"工具 {r.tool_name} 不存在，已尝试 {failure_counts[key]} 次。请检查工具名称是否正确。",
+                                final_response="已达到 LLM 调用或工具执行预算上限。请简化请求或稍后再试。",
                                 tool_results=all_results,
                                 iterations=iterations,
                                 total_tool_calls=len(all_results),
                                 llm_calls=llm_calls,
-                                error="doom_loop",
+                                error="doom_loop_budget",
                             )
+                        # Timeout / connection — generic doom-loop detection
+                        if "timeout" in err_lower or "timed out" in err_lower or "connection" in err_lower or "network" in err_lower:
+                            key = f"timeout:{r.tool_name}:{json.dumps(r.output, sort_keys=True)}"
+                            failure_counts[key] = failure_counts.get(key, 0) + 1
+                            if failure_counts[key] >= 3:
+                                return QueryLoopResult(
+                                    final_response=f"工具 {r.tool_name} 连续超时 {failure_counts[key]} 次。请检查网络连接或设备可达性。",
+                                    tool_results=all_results,
+                                    iterations=iterations,
+                                    total_tool_calls=len(all_results),
+                                    llm_calls=llm_calls,
+                                    error="doom_loop_timeout",
+                                )
 
                 if not getattr(self._config, "enable_finalizer", True):
                     return QueryLoopResult(
@@ -570,7 +631,12 @@ class QueryLoop:
             # No tool calls → final response
             final_text = response.content or ""
             if not final_text.strip() and all_results:
-                final_text = self._build_tool_result_fallback(ctx, all_results)
+                # Try LLM finalizer first, fall back to static summary
+                final_text = await self._finalize_with_results(
+                    ctx, messages, all_results, budget
+                )
+                # _finalize_with_results consumed one LLM call — update count
+                llm_calls = budget.llm_calls
             elapsed = (time.monotonic() - t_start) * 1000
 
             return QueryLoopResult(
@@ -603,18 +669,30 @@ class QueryLoop:
 
     @staticmethod
     def _should_poll_tracking(user_input: str, tracking: dict) -> bool:
-        """Check if user explicitly requested tracking (keywords like 跟踪/持续)."""
+        """Check if user explicitly requested tracking (keywords like 跟踪/持续).
+
+        IMPORTANT: Only poll when BOTH conditions are true:
+        1. The task is marked as a long_task in the tracking payload
+        2. The user input contains explicit tracking keywords
+
+        v3.16: "巡检" is explicitly included because inspection tasks are
+        inherently long-running and users expect completion reports.
+        """
         if tracking.get("done"):
             return False
         action = str(tracking.get("suggested_next_action") or "").lower()
         if action and action != "poll_task_get":
             return False
+        # Must be a long task to be eligible for polling
+        if str(tracking.get("kind") or "") != "long_task":
+            return False
         text = str(user_input or "").lower()
         explicit = any(w in text for w in (
-            "跟踪", "追踪", "等待", "持续", "结果", "完成", "巡检",
+            "巡检", "跟踪", "追踪", "等待", "持续",
+            "完成后", "完成后请", "汇总", "报告",
             "track", "follow", "wait", "until complete",
         ))
-        return explicit or str(tracking.get("kind") or "") == "long_task"
+        return explicit
 
     def _build_initial(self, ctx: StatelessContext) -> List[LLMMessage]:
         """Build initial messages with cacheable prefix."""
@@ -643,12 +721,20 @@ class QueryLoop:
         ctx: StatelessContext,
     ) -> Optional[LLMResponse]:
         """Call LLM with tools and streaming support.
+
+        v3.17: Removed asyncio.to_thread because it runs the LLM call on a
+        different thread, which loses the StreamEmitter TLS (threading.local)
+        callback.  Without the callback, ``_push_stream_token`` is a no-op
+        and the frontend never sees streaming tokens.
+        
+        We now call directly on the event-loop thread so the TLS callback
+        is preserved.  The minor event-loop blocking (LLM latency) is
+        acceptable for the single-user development loop.
         """
         try:
             system_prompt, stream_scope, stream_to_user = self._llm_call_mode(messages)
             if self._llm_invoke is not None:
-                raw = await asyncio.to_thread(
-                    self._llm_invoke,
+                raw = self._llm_invoke(
                     system=system_prompt,
                     user=self._messages_to_user_text(messages),
                     temperature=0.2,
@@ -672,15 +758,14 @@ class QueryLoop:
                 *messages[1:],
             ] if messages else [LLMMessage(role="system", content=system_prompt)]
             
-            response = await asyncio.to_thread(
-                invoke_llm,
+            response = invoke_llm(
                 task="query_loop",
                 messages=call_messages,
                 tools=self._cached_tools,
                 config_override={
                     "temperature": 0.2,
                     "max_tokens": 4096,
-                    "timeout": 120,  # seconds for HTTP request
+                    "timeout": 120,
                 },
             )
             return response
@@ -723,19 +808,25 @@ class QueryLoop:
         return "\n\n".join(parts)
 
     def _coerce_llm_response(self, raw: Any) -> LLMResponse:
-        """Coerce injected adapter output into QueryLoop's LLMResponse shape."""
+        """Coerce injected adapter output into QueryLoop's LLMResponse shape.
+        
+        Also strips ``<think>...</think>`` tags that some models (MiniMax-M3)
+        leak into visible output — they confuse final_response_summary truncation
+        and make users think the model is talking to itself.
+        """
         if isinstance(raw, LLMResponse):
+            raw.content = self._strip_think_tags(str(raw.content or ""))
             return raw
         if raw is None:
             return LLMResponse(error="empty_llm_response")
         tool_calls = getattr(raw, "tool_calls", None)
         if tool_calls is not None:
             return LLMResponse(
-                content=str(getattr(raw, "content", "") or ""),
+                content=self._strip_think_tags(str(getattr(raw, "content", "") or "")),
                 error=getattr(raw, "error", None),
                 tool_calls=list(tool_calls or []),
             )
-        text = str(raw)
+        text = self._strip_think_tags(str(raw))
         data = self._try_parse_json_object(text)
         if data is not None:
             nodes = data.get("nodes")
@@ -753,10 +844,20 @@ class QueryLoop:
                         arguments=dict(node.get("args") or {}),
                     ))
                 return LLMResponse(
-                    content=str(data.get("final_response") or ""),
+                    content=self._strip_think_tags(str(data.get("final_response") or "")),
                     tool_calls=calls,
                 )
         return LLMResponse(content=text)
+    
+    @staticmethod
+    def _strip_think_tags(text: str) -> str:
+        """Remove ``<think>...</think>`` blocks from LLM output.
+        
+        Some models (MiniMax-M3) emit chain-of-thought reasoning inside XML
+        tags. We strip the tags and their content before passing the text on.
+        """
+        import re
+        return re.sub(r'<think>.*?</think>\s*', '', text, flags=re.DOTALL).strip()
 
     @staticmethod
     def _try_parse_json_object(text: str) -> dict[str, Any] | None:
@@ -1070,6 +1171,7 @@ class QueryLoop:
         self,
         ctx: StatelessContext,
         results: List[StreamingToolResult],
+        budget=None,
     ) -> List[StreamingToolResult]:
         """After tool execution, auto-poll long tasks (e.g. inspection).
 
@@ -1122,6 +1224,7 @@ class QueryLoop:
             ctx.extras["tracking_summary"] = tracking
 
             poll_index = 0
+            last_error_count = 0
             while poll_index < max_polls and time.monotonic() < deadline:
                 if tracking.get("done"):
                     break
@@ -1137,20 +1240,41 @@ class QueryLoop:
                     name=tool_name,
                     arguments={"action": "task_get", "task_id": task_id},
                 )
-                poll_result = await self._executor._execute_one(poll_call)
-                polled.append(poll_result)
+                try:
+                    poll_result = await self._executor._execute_one(
+                        poll_call, ctx=ctx, budget=budget
+                    )
+                    polled.append(poll_result)
 
-                tracking = extract_tracking_payload(poll_result.output)
-                if tracking:
-                    tracking = normalize_tracking_payload(tracking)
-                    ctx.extras["tracking_summary"] = tracking
-                    ctx.extras["tracking_events"].append({
-                        "tool": tool_name,
-                        "call_id": poll_call_id,
-                        "tracking": tracking,
-                        "source": "poll",
-                        "poll_index": poll_index,
-                    })
+                    new_tracking = extract_tracking_payload(poll_result.output)
+                    if new_tracking:
+                        tracking = normalize_tracking_payload(new_tracking)
+                        ctx.extras["tracking_summary"] = tracking
+                        ctx.extras["tracking_events"].append({
+                            "tool": tool_name,
+                            "call_id": poll_call_id,
+                            "tracking": tracking,
+                            "source": "poll",
+                            "poll_index": poll_index,
+                        })
+                    if not poll_result.ok:
+                        # Track consecutive poll failures
+                        last_error_count += 1
+                        if last_error_count >= 3:
+                            # Too many consecutive poll failures — stop
+                            break
+                    else:
+                        last_error_count = 0
+                except Exception as e:
+                    # Poll call crashed — record as error and stop polling
+                    polled.append(StreamingToolResult(
+                        tool_name=tool_name,
+                        call_id=poll_call_id,
+                        output={},
+                        ok=False,
+                        error=f"poll_crash: {str(e)[:200]}",
+                    ))
+                    break
 
         return polled
 
@@ -1166,6 +1290,86 @@ class QueryLoop:
             return 0.0
         return max(0.0, min(requested, cap, remaining))
 
+    async def _finalize_with_results(
+        self,
+        ctx: StatelessContext,
+        messages: List[LLMMessage],
+        results: List[StreamingToolResult],
+        budget,
+    ) -> str:
+        """Call the LLM one final time without tools to produce a natural-language
+        summary from tool execution results.
+
+        Falls back to ``_build_tool_result_fallback`` if the LLM call fails or
+        the budget is exhausted.
+        """
+        # Budget check
+        budget_status = budget.check_llm_call()
+        if not budget_status.ok:
+            return self._build_tool_result_fallback(ctx, results)
+
+        # Build user prompt: original request + tool result summaries
+        tool_summary_parts: list[str] = []
+        for r in results:
+            status = "✅" if r.ok else "❌"
+            tool_summary_parts.append(
+                f"- {status} `{r.tool_name}`: "
+                f"{json.dumps(r.output, ensure_ascii=False, default=str)[:3000]}"
+            )
+        tool_results_block = "\n".join(tool_summary_parts)
+
+        finalizer_user = (
+            f"ORIGINAL REQUEST:\n{ctx.user_input}\n\n"
+            f"TOOL EXECUTION RESULTS:\n{tool_results_block}\n\n"
+            "Please write a clear natural-language summary of what was done, "
+            "what was found, and any next steps. "
+            "DO NOT call any more tools. Respond directly."
+        )
+
+        try:
+            if self._llm_invoke is not None:
+                raw = self._llm_invoke(
+                    system=QUERY_LOOP_FINALIZER_PROMPT,
+                    user=finalizer_user,
+                    temperature=0.2,
+                    timeout=120,
+                    tools=None,  # No tools — force text-only response
+                    workspace_id=ctx.workspace_id,
+                    session_id=ctx.session_id,
+                    extra={
+                        "runtime_engine": "ssot_runtime",
+                        "stream_scope": "finalizer",
+                        "stream_to_user": True,
+                        "workspace_id": ctx.workspace_id,
+                        "session_id": ctx.session_id,
+                    },
+                )
+                resp = self._coerce_llm_response(raw)
+                if resp.content and resp.content.strip():
+                    return resp.content.strip()
+            else:
+                from agent.llm.runtime import invoke_llm
+                resp = invoke_llm(
+                    task="assistant_chat",
+                    messages=[
+                        LLMMessage(role="system", content=QUERY_LOOP_FINALIZER_PROMPT),
+                        LLMMessage(role="user", content=finalizer_user),
+                    ],
+                    tools=None,
+                    user_input=finalizer_user,
+                    extra={
+                        "runtime_engine": "ssot_runtime",
+                        "stream_scope": "finalizer",
+                        "stream_to_user": True,
+                    },
+                )
+                if (resp_content := (resp.content or "").strip()):
+                    return resp_content
+        except Exception:
+            pass
+
+        return self._build_tool_result_fallback(ctx, results)
+
     def _build_tool_result_fallback(
         self,
         ctx: StatelessContext,
@@ -1173,19 +1377,31 @@ class QueryLoop:
     ) -> str:
         """Build a useful final answer when the LLM returns empty text.
 
-        The loop has already executed real tools. Returning an empty string
-        forces upper layers to show a generic "工具执行完成" placeholder, which
-        hides the actual problem from users. This fallback preserves the key
-        facts while keeping canonical-only tool identity intact.
+        This is the *last resort* — ``_finalize_with_results`` is tried first.
+        When we reach here, both the iterative LLM and the dedicated finalizer
+        call failed to produce a summary.  We build a structured report from
+        raw tool outputs so the user still sees useful data.
         """
         ok = [r for r in results if r.ok]
         failed = [r for r in results if not r.ok]
         lines = [
-            "本轮工具已经执行，但模型没有生成最终说明。我先把可确认的结果整理如下：",
+            "工具已执行，以下是原始结果摘要：",
             "",
-            f"- 工具调用：成功 {len(ok)} 个，失败 {len(failed)} 个",
+            f"成功 {len(ok)} 个，失败 {len(failed)} 个",
         ]
 
+        # Include successful tool outputs (truncated)
+        if ok:
+            lines.append("")
+            lines.append("━━━ 成功工具输出 ━━━")
+            for r in ok:
+                output_str = json.dumps(r.output, ensure_ascii=False, default=str)
+                if len(output_str) > 2000:
+                    output_str = output_str[:2000] + "... [truncated]"
+                lines.append(f"\n### {r.tool_name}")
+                lines.append(output_str)
+
+        # Tracking info
         tracking_items: list[dict[str, Any]] = []
         for r in results:
             tracking = extract_tracking_payload(r.output)
@@ -1193,6 +1409,7 @@ class QueryLoop:
                 tracking_items.append(normalize_tracking_payload(tracking))
 
         if tracking_items:
+            lines.append("")
             latest = tracking_items[-1]
             task_id = latest.get("task_id") or ""
             status = latest.get("status") or "unknown"
@@ -1200,32 +1417,27 @@ class QueryLoop:
             progress = latest.get("progress") or {}
             completed = progress.get("completed")
             total = progress.get("total")
-            lines.extend([
-                f"- 跟踪任务：`{task_id}` 当前状态 `{status}`",
-                f"- 是否完成：{'是' if done else '否'}",
-            ])
+            lines.append(f"跟踪任务 `{task_id}`：{status}，{'已完成' if done else '进行中'}")
             if completed is not None and total is not None:
-                lines.append(f"- 进度：{completed}/{total}")
+                lines.append(f"进度：{completed}/{total}")
             report_url = (
                 latest.get("report_url")
                 or latest.get("html_url")
                 or latest.get("artifact_url")
             )
             if report_url:
-                lines.append(f"- 报告链接：{report_url}")
+                lines.append(f"报告链接：{report_url}")
 
+        # Failed items
         if failed:
             lines.append("")
-            lines.append("失败项：")
+            lines.append("━━━ 失败项 ━━━")
             for r in failed[:5]:
                 err = r.error or r.output.get("summary") or r.output.get("error") or "unknown error"
                 hint = self._canonical_tool_hint(r.tool_name)
                 suffix = f"；应使用 `{hint}`" if hint else ""
                 lines.append(f"- `{r.tool_name}`：{err}{suffix}")
 
-        if ctx.user_input:
-            lines.append("")
-            lines.append("如果你要我继续处理，请直接说“继续跟踪”或补充下一步动作。")
         return "\n".join(lines)
 
     def _canonical_tool_hint(self, tool_name: str) -> str:

@@ -1029,6 +1029,8 @@ def _handler_network_ssh(inv: ToolInvocation) -> dict:
         return {"ok": False, "error": "host is required"}
     if not username:
         return {"ok": False, "error": "username is required"}
+    if not password:
+        return {"ok": False, "error": "SSH password is missing. Use asset_id (from CMDB) so credentials are resolved server-side, or provide password explicitly."}
     if not command:
         return {"ok": False, "error": "command is required"}
 
@@ -1733,9 +1735,11 @@ _RAW_REGISTRY: list[CanonicalToolEntry] = [
                       "description": "[shell] Shell type: cmd or powershell.", "default": "cmd"},
             "command": {"type": "string", "description": "[shell] Shell command to execute."},
             "code": {"type": "string", "description": "[python] Python code (AST-sandboxed)."},
-            "host": {"type": "string"}, "port": {"type": "integer"},
-            "asset_id": {"type": "string", "description": "[ssh|telnet] CMDB asset ID — host/user/password resolved server-side."},
-            "username": {"type": "string"}, "password": {"type": "string"},
+            "host": {"type": "string", "description": "[ssh|telnet] Host/IP — only use when asset_id is unavailable."},
+            "port": {"type": "integer", "description": "[ssh|telnet] Port — only use when asset_id is unavailable."},
+            "asset_id": {"type": "string", "description": "[ssh|telnet] PREFERRED. CMDB asset ID — host/user/password auto-resolved server-side from CMDB. When a device was just queried from CMDB, pass its asset_id instead of host/username/password."},
+            "username": {"type": "string", "description": "[ssh|telnet] Fallback username — only use when asset_id is unavailable."},
+            "password": {"type": "string", "description": "[ssh|telnet] Fallback password — only use when asset_id is unavailable."},
             "vendor": {"type": "string"},
             "session_id": {"type": "string", "description": "[ssh] Reuse existing SSH session."},
             "close_session": {"type": "boolean", "description": "[ssh] Close session after execution."},
