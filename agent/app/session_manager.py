@@ -45,7 +45,19 @@ class SessionManager:
                 self._restore(session, sid, workspace_id)
             else:
                 session = self._sessions[sid]
-                self._session_turn_locks.setdefault(sid, threading.RLock())
+                # v3.1: Cross-workspace guard — a session from workspace A
+                # must not be reused in workspace B.  If the workspace_id
+                # does not match, create a new session with a fresh id.
+                existing_ws = getattr(session, "workspace_id", "")
+                if existing_ws and existing_ws != workspace_id:
+                    new_sid = self.new_session_id()
+                    session = AgentSession(session_id=new_sid, workspace_id=workspace_id, services=self.services)
+                    self._sessions[new_sid] = session
+                    self._session_turn_locks[new_sid] = threading.RLock()
+                    self._restore(session, new_sid, workspace_id)
+                    sid = new_sid
+                else:
+                    self._session_turn_locks.setdefault(sid, threading.RLock())
             session._last_access = time.time()
             return sid, session, self._session_turn_locks[sid]
 

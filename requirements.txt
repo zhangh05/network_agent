@@ -1,4 +1,4 @@
-# Network Agent — Python >= 3.10
+# Network Agent — Python >= 3.12
 # Uses system fallback Python 3.12.13 (no Team ID).
 flask>=3.0
 flask-sock>=0.7

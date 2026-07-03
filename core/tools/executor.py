@@ -164,9 +164,10 @@ class ToolExecutor:
 
 
 def _validate_arguments(arguments: dict, schema: dict) -> list:
-    """Validate arguments against a simple JSON Schema subset.
+    """Validate arguments against a practical JSON Schema subset.
 
-    Only validates 'required' and 'type' checks.
+    Covers: required, type, enum, integer range (min/max), string length
+    (minLength/maxLength), array items type, and nested object properties.
     Returns list of error strings (empty = valid).
     """
     errors = []
@@ -180,23 +181,94 @@ def _validate_arguments(arguments: dict, schema: dict) -> list:
     for field in required:
         if field not in arguments:
             errors.append(f"Missing required field: '{field}'")
-
-    # Check types
-    for field, field_schema in properties.items():
-        if field not in arguments:
             continue
-        expected_type = field_schema.get("type", "")
-        value = arguments[field]
-        if expected_type == "string" and not isinstance(value, str):
-            errors.append(f"Field '{field}' expected string, got {type(value).__name__}")
-        elif expected_type == "number" and not isinstance(value, (int, float)):
-            errors.append(f"Field '{field}' expected number, got {type(value).__name__}")
-        elif expected_type == "integer" and not isinstance(value, int):
-            errors.append(f"Field '{field}' expected integer, got {type(value).__name__}")
-        elif expected_type == "boolean" and not isinstance(value, bool):
-            errors.append(f"Field '{field}' expected boolean, got {type(value).__name__}")
-        elif expected_type == "object" and not isinstance(value, dict):
-            errors.append(f"Field '{field}' expected object, got {type(value).__name__}")
+        _validate_field(field, arguments[field], properties.get(field, {}), errors)
+
+    # Check non-required fields that are present
+    for field, value in arguments.items():
+        if field in properties and field not in required:
+            _validate_field(field, value, properties[field], errors)
+
+    # Apply defaults for missing fields
+    for field, field_schema in properties.items():
+        if field not in arguments and "default" in field_schema:
+            arguments[field] = field_schema["default"]
+
+    return errors
+
+
+def _validate_field(field: str, value, field_schema: dict, errors: list):
+    """Validate a single field against its schema definition."""
+    expected_type = field_schema.get("type", "")
+
+    # ── Type check ──
+    if expected_type == "string" and not isinstance(value, str):
+        errors.append(f"Field '{field}' expected string, got {type(value).__name__}")
+        return
+    elif expected_type == "number" and not isinstance(value, (int, float)):
+        errors.append(f"Field '{field}' expected number, got {type(value).__name__}")
+        return
+    elif expected_type == "integer" and not isinstance(value, int):
+        errors.append(f"Field '{field}' expected integer, got {type(value).__name__}")
+        return
+    elif expected_type == "boolean" and not isinstance(value, bool):
+        errors.append(f"Field '{field}' expected boolean, got {type(value).__name__}")
+        return
+    elif expected_type == "object" and not isinstance(value, dict):
+        errors.append(f"Field '{field}' expected object, got {type(value).__name__}")
+        return
+    elif expected_type == "array" and not isinstance(value, list):
+        errors.append(f"Field '{field}' expected array, got {type(value).__name__}")
+        return
+
+    # ── Enum check ──
+    allowed = field_schema.get("enum")
+    if allowed is not None:
+        if value not in allowed:
+            errors.append(
+                f"Field '{field}' value '{value}' not in allowed: {allowed}"
+            )
+
+    # ── Range checks (integer/number) ──
+    if expected_type in ("integer", "number") and isinstance(value, (int, float)):
+        if "minimum" in field_schema and value < field_schema["minimum"]:
+            errors.append(
+                f"Field '{field}' value {value} below minimum {field_schema['minimum']}"
+            )
+        if "maximum" in field_schema and value > field_schema["maximum"]:
+            errors.append(
+                f"Field '{field}' value {value} above maximum {field_schema['maximum']}"
+            )
+
+    # ── String length checks ──
+    if expected_type == "string" and isinstance(value, str):
+        if "minLength" in field_schema and len(value) < field_schema["minLength"]:
+            errors.append(
+                f"Field '{field}' length {len(value)} below minimum {field_schema['minLength']}"
+            )
+        if "maxLength" in field_schema and len(value) > field_schema["maxLength"]:
+            errors.append(
+                f"Field '{field}' length {len(value)} above maximum {field_schema['maxLength']}"
+            )
+
+    # ── Array items type check ──
+    if expected_type == "array" and isinstance(value, list):
+        items_schema = field_schema.get("items")
+        if isinstance(items_schema, dict) and "type" in items_schema:
+            items_type = items_schema["type"]
+            for i, item in enumerate(value):
+                if items_type == "string" and not isinstance(item, str):
+                    errors.append(f"Field '{field}' item[{i}] expected string")
+                elif items_type == "number" and not isinstance(item, (int, float)):
+                    errors.append(f"Field '{field}' item[{i}] expected number")
+
+    # ── Nested object properties check ──
+    if expected_type == "object" and isinstance(value, dict):
+        nested_props = field_schema.get("properties")
+        if isinstance(nested_props, dict):
+            for nf, nv in value.items():
+                if nf in nested_props:
+                    _validate_field(f"{field}.{nf}", nv, nested_props[nf], errors)
         elif expected_type == "array" and not isinstance(value, list):
             errors.append(f"Field '{field}' expected array, got {type(value).__name__}")
 

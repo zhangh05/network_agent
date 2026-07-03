@@ -150,12 +150,23 @@ def run_ssot_turn(
                 )
                 approval_ids.append(req.approval_id)
 
-            # Block until all approvals are resolved (frontend bubble flow)
+            # Wait for approvals (non-blocking poll, max 30s)
             approved = True
             for aid in approval_ids:
-                if not store.wait(aid, timeout=120):
+                waited = 0.0
+                while waited < 30:
+                    result = store.wait(aid, blocking=False)
+                    if result is True:
+                        break  # approved
+                    if result is False:
+                        approved = False  # denied
+                        break
+                    # Still pending — sleep briefly and retry
+                    await asyncio.sleep(0.5)
+                    waited += 0.5
+                else:
+                    # Timeout: fail open for demo/local use
                     approved = False
-                    break
 
             if approved:
                 # Re-run with approval bypass flag

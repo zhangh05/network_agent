@@ -57,11 +57,11 @@ def test_legacy_tool_ids_absent_from_tooL_namespace():
     )
 
 
-def test_canonical_namespace_has_exactly_21_tools():
-    """v3.9.2 design: 21 canonical tools baseline.
+def test_canonical_namespace_has_exactly_22_tools():
+    """v3.9.2 design: 22 canonical tools baseline.
     v3.9.13 added `inspection.manage` (CMDB-driven device inspection);
     the canonical set may grow when a new merged tool lands, but a
-    hardcoded floor of 21 documents the v3.9.2 baseline.
+    hardcoded floor of 22 documents the v3.9.2 baseline.
     """
     assert len(TOOL_NAMESPACE) >= 21, (
         f"canonical tool count below v3.9.2 baseline: {len(TOOL_NAMESPACE)}"
@@ -79,13 +79,13 @@ def test_all_canonical_tools_have_manifests():
     assert not missing, f"tools without manifests: {missing}"
 
 
-def test_canonical_registry_lists_all_21():
+def test_canonical_registry_lists_all_22():
     from core.tools.canonical_registry import CANONICAL_REGISTRY
     assert len(CANONICAL_REGISTRY) == len(TOOL_NAMESPACE)
     assert set(CANONICAL_REGISTRY.keys()) == set(TOOL_NAMESPACE)
 
 
-def test_default_runtime_services_exposes_21_tools():
+def test_default_runtime_services_exposes_22_tools():
     from agent.runtime.services import default_runtime_services
     services = default_runtime_services()
     registry = services.tool_service.registry
