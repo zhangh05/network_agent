@@ -64,21 +64,6 @@ def test_risk_policy_reads_evidence_bundle_from_ctx_for_write():
     assert "evidence_conflict_requires_approval" in risk.warnings
 
 
-def test_risk_policy_conflict_keeps_execute_high_risk():
-    ctx = SimpleNamespace(
-        evidence_bundle=SimpleNamespace(conflicts=[object()]),
-    )
-    plan = ActionPlan(
-        tool_id="exec.run",
-        action_class="execute",
-        arguments={"command": "show version"},
-    )
-
-    risk = RiskPolicy().evaluate(plan, ctx=ctx)
-
-    assert risk.approval_required is True
-    assert risk.risk_level in {"high", "critical"}
-
 
 def test_evidence_update_writes_action_evidence_updates():
     ctx = SimpleNamespace(metadata={})

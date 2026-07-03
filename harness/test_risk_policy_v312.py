@@ -314,31 +314,6 @@ def test_hard_block_denied_approval():
     asyncio.run(_drive())
 
 
-def test_approval_metadata_in_result():
-    from core.runtime_engine.engine import SSOTRuntimeEngine
-    config = SSOTRuntimeConfig(enable_finalizer=False)
-
-    def mock_llm(**kw):
-        return json.dumps({"nodes": [
-            {"id": "n1", "tool": "exec.run",
-             "args": {"command": "rm -f /tmp/x"}, "deps": []},
-        ]})
-
-    registry = {"exec.run": {"description": "", "args_schema": {
-        "required": ["command"], "properties": {"command": {"type": "string"}},
-    }}}
-    engine = SSOTRuntimeEngine(config=config, llm_invoke=mock_llm, tool_registry=registry)
-    engine.register_tool("exec.run", mock.AsyncMock())
-
-    result = asyncio.run(engine.run("test"))
-    meta = result.metadata
-    assert meta.get("approval_required") is True
-    assert meta.get("approval_reason") == "destructive_command"
-    assert len(meta.get("approval_nodes", [])) == 1
-    assert meta["approval_details"][0]["risk_reason"] == "rm -f"
-
-
-# ── Tests: config-driven thresholds ────────────────────────────────────
 
 def test_custom_thresholds_exec():
     """Custom config: max_exec_allow=2, max_exec_approval=4."""

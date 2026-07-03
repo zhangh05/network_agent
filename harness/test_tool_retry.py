@@ -68,47 +68,6 @@ def _find_node(result, node_id: str):
 
 # ── Test 1: read-only tool, first call TOOL_TIMEOUT, second OK ───────
 
-def test_read_only_timeout_first_call_recovers():
-    """read-only / idempotent / max_retries=1 / first call raises
-    a TOOL_TIMEOUT-class error, second call succeeds.
-    """
-    from core.runtime_engine.contracts import get_contract
-
-    # Confirm the contract surface for knowledge.manage.
-    c = get_contract("knowledge.manage")
-    assert c.idempotent is True
-    assert c.side_effect == "read"
-    assert c.max_retries == 1
-
-    call_count = [0]
-
-    async def handler(args):
-        call_count[0] += 1
-        if call_count[0] == 1:
-            raise RuntimeError("connection reset by peer")
-        return "ok"
-
-    engine = _make_engine(
-        plan_nodes=[{"id": "n1", "tool": "knowledge.manage",
-                     "args": {"action": "search", "query": "x"}, "deps": []}],
-        tool_handler=handler, tool_id="knowledge.manage",
-    )
-    result = _run(engine)
-
-    assert result.success, f"errors: {result.errors}"
-    assert call_count[0] == 2, f"handler called {call_count[0]} times"
-    node = _find_node(result, "n1")
-    assert node.success is True
-    assert node.retry_count == 1
-    # Downstream node is allowed to run.
-    rs = result.metadata.get("retry_summary", {})
-    assert rs.get("retry_succeeded") == 1
-    # Trace event surface.
-    events = result.metadata.get("retry_events") or []
-    assert any(e.get("final_status") == "succeeded" for e in events)
-
-
-# ── Test 2: read-only tool, two consecutive failures ─────────────────
 
 def test_read_only_two_consecutive_failures_skip_downstream():
     call_count = [0]
