@@ -91,6 +91,7 @@ def _coerce_scope(scope_in: dict | None) -> InspectionScope:
     return InspectionScope(
         region=str(s.get("region", "") or ""),
         location=str(s.get("location", "") or ""),
+        search=str(s.get("search", "") or ""),
         type=str(s.get("type", "") or ""),
         vendor=str(s.get("vendor", "") or ""),
         tags=_tuple_of_strings(s.get("tags")),

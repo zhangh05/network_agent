@@ -186,13 +186,8 @@ export function CMDBPage() {
       ? `CMDB 区域「${region}」`
       : `CMDB 资产「${scope.label}」`;
     const prompt = [
-      `你将对 ${targetText} 发起自动巡检。`,
-      "",
-      "巡检范围以 CMDB 中的设备信息为准。进入工作台后请帮我跟踪巡检结果，并给出简洁结论：",
-      "- 是否巡检完成",
-      "- 有哪些异常、失败设备或跳过设备",
-      "- 需要我下一步处理什么",
-      "- 如果生成了巡检报告，请给出可打开的报告链接",
+      `对 ${targetText} 发起自动巡检。`,
+      "完成后请汇总是否完成、异常项、失败或跳过设备、下一步建议，并提供报告链接。",
     ].join("\n");
     sessionStorage.setItem("workbench_auto_prompt", JSON.stringify({
       prompt,

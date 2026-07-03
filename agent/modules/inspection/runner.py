@@ -365,6 +365,7 @@ def _task_from_dict(d: dict) -> InspectionTask:
     scope = InspectionScope(
         region=scope_raw.get("region", ""),
         location=scope_raw.get("location", ""),
+        search=scope_raw.get("search", ""),
         type=scope_raw.get("type", ""),
         vendor=scope_raw.get("vendor", ""),
         tags=tuple(scope_raw.get("tags", []) or []),
@@ -989,6 +990,16 @@ def _resolve_target_assets(scope: InspectionScope, workspace_id: str) -> list[di
         if scope.location:
             f["location"] = scope.location
         assets = list_assets(workspace_id, filter=f)
+        if scope.search:
+            q = str(scope.search or "").strip().lower()
+            if q:
+                assets = [
+                    a for a in assets
+                    if q in " ".join(str(a.get(k, "") or "") for k in (
+                        "asset_id", "name", "host", "vendor", "model",
+                        "region", "location", "type",
+                    )).lower()
+                ]
         if scope.tags:
             wanted = {t.strip() for t in scope.tags if t.strip()}
             assets = [

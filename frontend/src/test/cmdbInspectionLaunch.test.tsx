@@ -80,10 +80,11 @@ describe("CMDB inspection launch", () => {
     expect(payload.prompt).toContain("自动巡检");
     expect(payload.prompt).toContain("报告链接");
     expect(payload.prompt).toContain("异常");
-    expect(payload.prompt).toContain("失败设备");
+    expect(payload.prompt).toContain("失败或跳过设备");
     expect(payload.prompt).not.toContain("inspection.manage");
     expect(payload.prompt).not.toContain("device.manage");
     expect(payload.prompt).not.toContain("基础健康检查");
+    expect(payload.prompt.length).toBeLessThan(140);
   });
 
   it("does not expose a standalone inspection page in navigation", async () => {
@@ -167,10 +168,11 @@ describe("CMDB inspection launch", () => {
       },
     });
     expect(String(request?.data?.message || "")).toContain("任务 ID：insp-task-1");
-    expect(String(request?.data?.message || "")).toContain("请不要重复发起新的巡检任务");
-    expect(String(request?.data?.message || "")).toContain('inspection.manage(action="task_get"');
-    expect(String(request?.data?.message || "")).not.toMatch(/inspection\.manage\(action="wa/);
-    expect(String(request?.data?.message || "")).toContain('inspection.manage(action="report"');
+    expect(String(request?.data?.message || "")).toContain("继续跟踪这个任务");
+    expect(String(request?.data?.message || "")).toContain("报告链接");
+    expect(String(request?.data?.message || "")).not.toContain("inspection.manage");
+    expect(String(request?.data?.message || "")).not.toContain("task_get");
+    expect(String(request?.data?.message || "")).not.toContain("device.manage");
     expect(sessionStorage.getItem("workbench_auto_prompt")).toBeNull();
   });
 });

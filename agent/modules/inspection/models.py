@@ -32,6 +32,7 @@ class InspectionScope:
 
     region: str = ""
     location: str = ""
+    search: str = ""
     type: str = ""
     vendor: str = ""
     tags: tuple[str, ...] = ()
@@ -40,7 +41,7 @@ class InspectionScope:
 
     def is_empty(self) -> bool:
         return not any([
-            self.region, self.location, self.type, self.vendor,
+            self.region, self.location, self.search, self.type, self.vendor,
             self.tags, self.asset_ids,
         ])
 

@@ -262,6 +262,7 @@ def _handle_inspection_managed(inv: ToolInvocation) -> dict:
             "profile_id": task.profile_id,
             "scope": {
                 "region": task.scope.region, "location": task.scope.location,
+                "search": getattr(task.scope, "search", ""),
                 "type": task.scope.type, "vendor": task.scope.vendor,
                 "tags": list(task.scope.tags),
                 "asset_ids": list(task.scope.asset_ids), "limit": task.scope.limit,
@@ -2217,7 +2218,7 @@ _RAW_REGISTRY: list[CanonicalToolEntry] = [
             "scope": {
                 "type": "object",
                 "description": (
-                    "[run] CMDB filter. Keys: region, location, type (switch|router|firewall|server|other), "
+                    "[run] CMDB filter. Keys: region, location, search, type (switch|router|firewall|server|other), "
                     "vendor, tags[], asset_ids[], limit (1-500, default 50). "
                     "All optional; {} = all devices."
                 ),

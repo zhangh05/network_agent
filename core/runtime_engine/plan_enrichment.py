@@ -33,6 +33,84 @@ def enrich_dag_from_user_request(dag, user_input: str) -> list[PlanEnrichment]:
     return events
 
 
+def enrich_plan_nodes_from_user_request(nodes: list[Any], user_input: str) -> list[PlanEnrichment]:
+    """Mutate planner nodes before DAG compilation for intent-level repairs.
+
+    This is still deterministic and read/safe: it only corrects weather action
+    selection and adds an inspection launcher when the user explicitly asked for
+    CMDB inspection but the planner stopped at a CMDB lookup.
+    """
+    text = str(user_input or "")
+    events: list[PlanEnrichment] = []
+    if not nodes:
+        return events
+
+    for node in nodes:
+        if getattr(node, "tool", "") == "web.manage":
+            events.extend(_coerce_weather_action(node, text))
+
+    has_inspection = any(getattr(node, "tool", "") == "inspection.manage" for node in nodes)
+    device_lookup_ids = [
+        str(getattr(node, "id", "") or "")
+        for node in nodes
+        if getattr(node, "tool", "") == "device.manage" and str(getattr(node, "id", "") or "")
+    ]
+    has_device_lookup = bool(device_lookup_ids)
+    if _is_inspection_request(text) and not has_inspection:
+        scope = _inspection_scope_from_text(text)
+        node_id = _next_node_id(nodes)
+        from .models import PlanNode
+        nodes.append(PlanNode(
+            id=node_id,
+            tool="inspection.manage",
+            args={"action": "run", "scope": scope},
+            deps=device_lookup_ids,
+        ))
+        events.append(PlanEnrichment(
+            node_id=node_id,
+            tool="inspection.manage",
+            field="node",
+            value={"action": "run", "scope": scope},
+            reason="inspection_request_requires_launcher",
+        ))
+    elif _is_inspection_request(text) and has_device_lookup and has_inspection:
+        events.append(PlanEnrichment(
+            node_id="",
+            tool="inspection.manage",
+            field="node",
+            value="present",
+            reason="inspection_launcher_already_present",
+        ))
+    return events
+
+
+def _coerce_weather_action(node, text: str) -> list[PlanEnrichment]:
+    args = getattr(node, "args", None)
+    if not isinstance(args, dict):
+        return []
+    action = str(args.get("action") or "").lower()
+    if action == "weather":
+        return []
+    if action != "search" or not _mentions_weather(text):
+        return []
+    args["action"] = "weather"
+    location = infer_weather_location(text)
+    days = infer_weather_days(text)
+    if location:
+        args["location"] = location
+    if days:
+        args["days"] = days
+    return [
+        PlanEnrichment(
+            node_id=getattr(node, "id", ""),
+            tool="web.manage",
+            field="action",
+            value="weather",
+            reason="weather_request_should_use_structured_weather",
+        )
+    ]
+
+
 def _enrich_weather_node(node, text: str) -> list[PlanEnrichment]:
     args = getattr(node, "args", None)
     if not isinstance(args, dict):
@@ -64,6 +142,43 @@ def _enrich_weather_node(node, text: str) -> list[PlanEnrichment]:
                 reason="weather_location_from_user_text",
             ))
     return events
+
+
+def _mentions_weather(text: str) -> bool:
+    t = str(text or "").lower()
+    return any(w in t for w in ("天气", "气温", "温度", "预报", "weather", "forecast"))
+
+
+def _is_inspection_request(text: str) -> bool:
+    t = str(text or "").lower()
+    return ("巡检" in t or "inspection" in t) and ("cmdb" in t or "资产" in t or "区域" in t)
+
+
+def _inspection_scope_from_text(text: str) -> dict[str, Any]:
+    raw = str(text or "")
+    m = re.search(r"CMDB\s*区域[「\"']?([^」\"'\\n]+)[」\"']?", raw, flags=re.I)
+    if m:
+        return {"region": _clean_scope_token(m.group(1))}
+    m = re.search(r"CMDB\s*资产[「\"']?([^」\"'\\n]+)[」\"']?", raw, flags=re.I)
+    if m:
+        return {"search": _clean_scope_token(m.group(1)), "limit": 1}
+    return {}
+
+
+def _clean_scope_token(value: str) -> str:
+    token = str(value or "").strip(" ，,。.!！？?：: \t")
+    token = re.split(r"\s+", token)[0] if token else ""
+    return token[:80]
+
+
+def _next_node_id(nodes: list[Any]) -> str:
+    used = {str(getattr(node, "id", "") or "") for node in nodes}
+    i = len(nodes)
+    while True:
+        nid = f"n{i}"
+        if nid not in used:
+            return nid
+        i += 1
 
 
 def infer_weather_days(text: str) -> int | None:

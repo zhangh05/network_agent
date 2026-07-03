@@ -34,6 +34,7 @@ from core.runtime_engine.execution_engine import ExecutionEngine
 from core.runtime_engine.result_merger import ResultMerger
 from core.runtime_engine.finalizer import Finalizer
 from core.runtime_engine.planner import Planner, PLANNER_SYSTEM_PROMPT
+from core.runtime_engine.plan_enrichment import enrich_plan_nodes_from_user_request
 
 
 # ============================================================================
@@ -576,6 +577,33 @@ class TestResultMerger:
         assert merged["tracking_summary"]["progress"]["percent"] == 33
         assert ctx.extras["tracking_summary"]["task_id"] == "ins_abc"
 
+    def test_merge_extracts_web_weather_content(self, config):
+        merger = ResultMerger()
+        nodes = [
+            ExecutionNode(id="n1", tool="web.manage", args={"action": "weather"}, depth=0),
+        ]
+        dag = ExecutionDAG(nodes=nodes, total_nodes=1, max_depth=0)
+        node_results = {
+            "n1": ToolResult(
+                node_id="n1",
+                tool="web.manage",
+                success=True,
+                data={
+                    "ok": True,
+                    "output": {
+                        "results_markdown": "上海未来十天天气\\n- 2026-07-03 晴",
+                        "forecast_daily": [{"date": "2026-07-03"}],
+                    },
+                },
+            )
+        }
+        ctx = StatelessContext("ws", "s1", "r1", "查看未来十天上海天气")
+
+        merged = merger.merge(dag, node_results, ctx)
+
+        assert merged["normalized_content"]
+        assert "上海未来十天" in merged["normalized_content"][0]["content"]
+
 
 # ============================================================================
 # Planner Tests
@@ -613,6 +641,38 @@ class TestPlanner:
         assert nodes[0].id == "n1"
         assert nodes[0].tool == "exec.run"
         assert nodes[1].deps == ["n1"]
+
+    def test_plan_enrichment_converts_weather_search_to_weather(self, config):
+        nodes = [
+            PlanNode(
+                id="n0",
+                tool="web.manage",
+                args={"action": "search", "query": "上海 10 day weather forecast"},
+                deps=[],
+            )
+        ]
+        events = enrich_plan_nodes_from_user_request(nodes, "你好，查看未来十天上海天气")
+
+        assert nodes[0].args["action"] == "weather"
+        assert nodes[0].args["days"] == 10
+        assert nodes[0].args["location"] == "上海"
+        assert events[0].reason == "weather_request_should_use_structured_weather"
+
+    def test_plan_enrichment_adds_inspection_launcher(self, config):
+        nodes = [
+            PlanNode(
+                id="n0",
+                tool="device.manage",
+                args={"action": "list", "search": "ASBR-PE1"},
+                deps=[],
+            )
+        ]
+        events = enrich_plan_nodes_from_user_request(nodes, "你将对 CMDB 资产「ASBR-PE1」 发起自动巡检。")
+
+        assert [n.tool for n in nodes] == ["device.manage", "inspection.manage"]
+        assert nodes[1].args == {"action": "run", "scope": {"search": "ASBR-PE1", "limit": 1}}
+        assert events[-1].reason == "inspection_request_requires_launcher"
+        assert nodes[1].deps == ["n0"]
 
     def test_empty_nodes(self, config):
         """Planner can return empty nodes list for simple questions."""
@@ -970,6 +1030,100 @@ class TestSSOTRuntimePipeline:
         assert llm_call_count[0] == 2
 
     @pytest.mark.asyncio
+    async def test_runtime_polls_long_task_tracking_before_finalizer(self, config):
+        """A long-task tracking payload should trigger bounded task_get polls."""
+        from core.runtime_engine.engine import SSOTRuntimeEngine
+
+        config.enable_finalizer = False
+        config.tracking_max_polls = 3
+        config.tracking_poll_interval_cap_seconds = 0
+
+        plan_json = json.dumps({
+            "nodes": [
+                {
+                    "id": "n0",
+                    "tool": "inspection.manage",
+                    "args": {"action": "run", "scope": {"search": "ASBR-PE1"}},
+                    "deps": [],
+                },
+            ],
+        })
+
+        def mock_llm(**kwargs):
+            return plan_json
+
+        tool_registry = {
+            "inspection.manage": {
+                "description": "Inspection",
+                "args_schema": {
+                    "required": ["action"],
+                    "properties": {
+                        "action": {"type": "string"},
+                        "task_id": {"type": "string"},
+                    },
+                },
+            },
+        }
+        engine = SSOTRuntimeEngine(
+            config=config,
+            llm_invoke=mock_llm,
+            tool_registry=tool_registry,
+        )
+        polls = {"count": 0}
+
+        async def inspection_handler(args):
+            if args.get("action") == "run":
+                return {
+                    "ok": True,
+                    "task_id": "ins_test",
+                    "tracking": {
+                        "kind": "long_task",
+                        "domain": "inspection",
+                        "task_id": "ins_test",
+                        "status": "running",
+                        "done": False,
+                        "next_poll_seconds": 0,
+                        "suggested_next_action": "poll_task_get",
+                        "progress": {"done_devices": 0, "total_devices": 1, "percent": 0},
+                        "summary": {"task_id": "ins_test", "status": "running"},
+                    },
+                }
+            assert args.get("action") == "task_get"
+            polls["count"] += 1
+            done = polls["count"] >= 2
+            status = "succeeded" if done else "running"
+            return {
+                "ok": True,
+                "task": {"task_id": "ins_test", "status": status},
+                "tracking": {
+                    "kind": "long_task",
+                    "domain": "inspection",
+                    "task_id": "ins_test",
+                    "status": status,
+                    "done": done,
+                    "terminal": done,
+                    "next_poll_seconds": 0,
+                    "suggested_next_action": "fetch_report" if done else "poll_task_get",
+                    "progress": {"done_devices": 1 if done else 0, "total_devices": 1, "percent": 100 if done else 0},
+                    "summary": {"task_id": "ins_test", "status": status, "succeeded_devices": 1 if done else 0},
+                },
+            }
+
+        engine.register_tool("inspection.manage", inspection_handler)
+
+        result = await engine.run(
+            "请发起巡检并跟踪结果",
+            extras={"approved_risk": True},
+        )
+
+        assert result.success
+        assert polls["count"] == 2
+        assert "n0_track_1" in result.node_results
+        assert "n0_track_2" in result.node_results
+        assert result.metadata["tracking_summary"]["status"] == "succeeded"
+        assert result.metadata["tracking_summary"]["done"] is True
+
+    @pytest.mark.asyncio
     async def test_dag_validation_rejects_bad_plan(self, config):
         """A plan with non-existent tool should be rejected at validation."""
         from core.runtime_engine.engine import SSOTRuntimeEngine
@@ -1047,6 +1201,19 @@ class TestLatencyModel:
         # execution_latency ≈ 0.04s (two layers: 0.02 + 0.02)
         assert result.max_layer_latency_ms < 200  # < 200ms (with overhead)
         assert result.execution_latency_ms < 400   # < 400ms (two layers + overhead)
+
+    def test_finalizer_budget_not_consumed_by_slow_tools(self, config):
+        """Slow tools must not skip final synthesis by consuming finalizer timeout."""
+        from core.runtime_engine.budget_controller import BudgetController
+
+        cfg = SSOTRuntimeConfig(finalizer_timeout_ms=1000, max_total_seconds=60)
+        budget = BudgetController(cfg)
+        time.sleep(1.05)
+
+        status = budget.check_finalizer()
+
+        assert status.ok
+        assert status.exceeded == ""
 
 
 # ============================================================================

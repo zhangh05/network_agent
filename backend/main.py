@@ -17,7 +17,7 @@ _NETWORK_AGENT_DIR = Path(__file__).resolve().parent.parent
 if str(_NETWORK_AGENT_DIR) not in sys.path:
     sys.path.insert(0, str(_NETWORK_AGENT_DIR))
 
-from flask import Flask, send_from_directory, jsonify, redirect, request
+from flask import Flask, jsonify, request
 
 from backend.api.version import get_version
 from backend.api.modules_translate import handle_module_translate
@@ -54,7 +54,6 @@ from backend.api.cmdb_routes import register_cmdb_routes
 from backend.api.state_routes import register_state_routes
 from backend.api.inspection_routes import register_inspection_routes
 from backend.core.settings import UNIFIED_PORT, API_MODE, BUILD_COMMIT, TRANSLATOR_ENTRY
-from backend.core.paths import FRONTEND_DIR
 from backend.core.rate_limit import rate_limit_middleware
 from workspace.ids import validate_workspace_id
 
@@ -380,49 +379,21 @@ def create_app():
     from backend.core.auth import register_auth_middleware
     register_auth_middleware(app)
 
-    # ── Frontend ──
-    # Allowed frontend file extensions (prevent serving non-frontend files)
-    _ALLOWED_STATIC_EXTENSIONS = frozenset({
-        ".html", ".js", ".css", ".json", ".svg", ".png", ".ico",
-        ".jpg", ".jpeg", ".gif", ".woff", ".woff2", ".ttf", ".txt",
-    })
-
+    # ── Backend-only root ──
+    # The UI is served exclusively by the Vite frontend on 5173. Keeping
+    # 8010 API-only avoids split browser storage between two origins
+    # (8010 and 5173), which made session/local UI state look unsynced.
     @app.route("/")
-    @app.route("/<path:filename>")
-    def serve_frontend(filename="index.html"):
-        from flask import make_response
-        if filename.startswith("api/"):
-            return jsonify({"ok": False, "error": "not_found", "path": f"/{filename}"}), 404
-        frontend_index = Path(FRONTEND_DIR) / "index.html"
-        if not frontend_index.exists():
-            dev_url = os.environ.get("NETWORK_AGENT_FRONTEND_DEV_URL", "").rstrip("/")
-            if not dev_url:
-                host = request.host.split(":", 1)[0] or "127.0.0.1"
-                dev_url = f"{request.scheme}://{host}:5173"
-            target_path = "/" if filename == "index.html" else f"/{filename}"
-            query = request.query_string.decode("utf-8")
-            target = f"{dev_url}{target_path}"
-            if query:
-                target = f"{target}?{query}"
-            return redirect(target, code=302)
-
-        # Security: only serve known frontend file types
-        if filename != "index.html":
-            ext = "." + filename.rsplit(".", 1)[-1].lower() if "." in filename else ""
-            if ext not in _ALLOWED_STATIC_EXTENSIONS:
-                # Unknown extension — serve index.html for SPA routing
-                filename = "index.html"
-        try:
-            resp = make_response(send_from_directory(str(FRONTEND_DIR), filename))
-        except Exception:
-            resp = make_response(send_from_directory(str(FRONTEND_DIR), "index.html"))
-        resp.headers["Cache-Control"] = "no-cache, no-store, must-revalidate"
-        resp.headers["Pragma"] = "no-cache"
-        resp.headers["Expires"] = "0"
-        # Prevent 304 conditional responses — force full re-download every time
-        resp.headers.pop("Last-Modified", None)
-        resp.headers.pop("ETag", None)
-        return resp
+    def backend_root():
+        return jsonify({
+            "ok": True,
+            "service": "network_agent_backend",
+            "api_base": "/api",
+            "frontend_url": os.environ.get(
+                "NETWORK_AGENT_FRONTEND_DEV_URL",
+                "http://127.0.0.1:5173",
+            ),
+        })
 
     return app
 

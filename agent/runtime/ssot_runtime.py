@@ -326,6 +326,9 @@ def _build_engine(
         max_tool_seconds=120,
         single_node_timeout_ms=120_000,
         parallel_layer_timeout_ms=300_000,
+        tracking_max_seconds=150,
+        tracking_max_polls=40,
+        tracking_poll_interval_cap_seconds=5,
     )
     registry = prebuilt_registry or _build_ssot_runtime_tool_registry(allowed_tool_ids)
     engine_kwargs: dict[str, Any] = {
@@ -554,6 +557,7 @@ _BOGUS_FINAL_PATTERNS = (
     "收到",
     "已完成。",
     "工具执行成功",
+    "工具执行完成",
     "No tools were executed",
     "readartifact completed",
     "readartifact succeeded",
@@ -564,8 +568,7 @@ def _is_bogus_final(text: str) -> bool:
     """Return True when *text* is a placeholder stub rather than
     a real answer produced by the finalizer LLM."""
     t = text.strip()
-    # Only very short text (≤3 chars) or known placeholder patterns count as bogus.
-    if len(t) <= 3:
+    if len(t) <= 10:
         return True
     return any(p in t for p in _BOGUS_FINAL_PATTERNS)
 

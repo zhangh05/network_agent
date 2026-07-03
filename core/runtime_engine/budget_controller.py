@@ -119,15 +119,18 @@ class BudgetController:
         return BudgetStatus(ok=True, elapsed_total_ms=elapsed)
 
     def check_finalizer(self) -> BudgetStatus:
-        """Check budget before finalizer call."""
+        """Check budget before starting the finalizer call.
+
+        The per-finalizer timeout is enforced by the LLM invocation itself.
+        This guard must not compare total request elapsed time with the
+        finalizer timeout, otherwise a slow-but-successful tool call would skip
+        synthesis and leak raw tool dictionaries to the user.
+        """
         elapsed = (time.monotonic() - self._start_time) * 1000
         total_limit_ms = self._budget.max_total_seconds * 1000
-        finalizer_limit_ms = self._budget.max_finalizer_seconds * 1000
 
         if elapsed > total_limit_ms:
             return BudgetStatus(ok=False, exceeded="TOTAL_TIME_EXCEEDED", elapsed_total_ms=elapsed)
-        if elapsed > finalizer_limit_ms:
-            return BudgetStatus(ok=False, exceeded="FINALIZER_TIME_EXCEEDED", elapsed_total_ms=elapsed)
 
         # LLM check
         if self._llm_calls >= self._budget.max_llm_calls:

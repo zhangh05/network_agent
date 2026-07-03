@@ -53,7 +53,7 @@ from .models import (
     StatelessContext,
     ToolResult,
 )
-from .plan_enrichment import enrich_dag_from_user_request
+from .plan_enrichment import enrich_dag_from_user_request, enrich_plan_nodes_from_user_request
 from .planner import Planner
 from .pre_execution_repair import PreExecutionRepairEngine, PreExecutionRepairResult
 from .repair_engine import RepairEngine
@@ -86,6 +86,7 @@ from .stage_events import (
 )
 from .tool_runtime import ToolRuntime
 from .trace import SpanClock, TraceCollector
+from .tracking import extract_tracking_payload, normalize_tracking_payload
 
 
 class SSOTRuntimeEngine:
@@ -497,12 +498,25 @@ class SSOTRuntimeEngine:
                 metrics.set_llm_calls(budget.llm_calls)
                 dag = None
             else:
+                pre_compile_enrichment = enrich_plan_nodes_from_user_request(plan_nodes, ctx.user_input)
+                if pre_compile_enrichment:
+                    ctx.extras["plan_enrichment_events"] = [
+                        {
+                            "node_id": ev.node_id,
+                            "tool": ev.tool,
+                            "field": ev.field,
+                            "value": ev.value,
+                            "reason": ev.reason,
+                        }
+                        for ev in pre_compile_enrichment
+                    ]
                 # Stage 4: Compile
                 t_compile = time.monotonic()
                 dag = self._compiler.compile(plan_nodes)
                 enrichment_events = enrich_dag_from_user_request(dag, ctx.user_input)
                 if enrichment_events:
-                    ctx.extras["plan_enrichment_events"] = [
+                    existing = list(ctx.extras.get("plan_enrichment_events") or [])
+                    ctx.extras["plan_enrichment_events"] = existing + [
                         {
                             "node_id": ev.node_id,
                             "tool": ev.tool,
@@ -766,11 +780,10 @@ class SSOTRuntimeEngine:
                     nodes=dag.total_nodes,
                 )
                 node_results = await self._scheduled_execute(dag, ctx, budget)
+                node_results = await self._settle_tracking_tasks(
+                    dag, ctx, node_results, budget, t_total,
+                )
                 execution_ms = (time.monotonic() - t_exec) * 1000
-                execution_span.stop()
-                metrics.capture_execution(execution_ms, node_results, dag)
-                ok = sum(1 for n in node_results.values() if n.success)
-                fail = sum(1 for n in node_results.values() if not n.success)
                 execution_span.stop()
                 metrics.capture_execution(execution_ms, node_results, dag)
                 ok = sum(1 for n in node_results.values() if n.success)
@@ -1176,6 +1189,133 @@ class SSOTRuntimeEngine:
 
         return all_results
 
+    async def _settle_tracking_tasks(
+        self,
+        dag,
+        ctx: StatelessContext,
+        node_results: dict[str, ToolResult],
+        budget: BudgetController,
+        t_total: float,
+    ) -> dict[str, ToolResult]:
+        """Poll standard long-task tracking payloads before final synthesis.
+
+        This is intentionally generic: any tool can return a ``tracking``
+        payload with ``task_id`` and ``suggested_next_action=poll_task_get``.
+        The runtime appends bounded synthetic ``task_get`` nodes using the same
+        tool, so finalizer and frontend see the latest authoritative state.
+        """
+        if not self._config.tracking_enabled or dag is None:
+            return node_results
+
+        tracking_events: list[dict[str, Any]] = list(ctx.extras.get("tracking_events") or [])
+        deadline = time.monotonic() + max(0, float(self._config.tracking_max_seconds))
+        max_polls = max(0, int(self._config.tracking_max_polls or 0))
+        if max_polls <= 0:
+            return node_results
+
+        for source_node in list(getattr(dag, "nodes", []) or []):
+            source_result = node_results.get(source_node.id)
+            tracking = extract_tracking_payload(source_result.data if source_result else None)
+            if not tracking:
+                continue
+            tracking = normalize_tracking_payload(tracking)
+            tracking_events.append({
+                "node_id": source_node.id,
+                "tool": source_node.tool,
+                "tracking": tracking,
+                "source": "initial",
+            })
+            ctx.extras["tracking_summary"] = tracking
+            ctx.extras["tracking_events"] = tracking_events
+
+            if tracking.get("done"):
+                continue
+            if not _should_poll_tracking(ctx.user_input, tracking):
+                continue
+
+            tool_id = source_node.tool
+            task_id = str(tracking.get("task_id") or "").strip()
+            if not tool_id or not task_id:
+                continue
+
+            poll_index = 0
+            poll_base_depth = int(getattr(dag, "max_depth", 0) or 0) + 1
+            last_dep = source_node.id
+            while poll_index < max_polls and time.monotonic() < deadline:
+                if tracking.get("done"):
+                    break
+                if not self._tool_runtime.has_tool(tool_id):
+                    break
+                if not budget.check_execution().ok:
+                    break
+
+                wait_s = _tracking_wait_seconds(
+                    tracking,
+                    cap=float(self._config.tracking_poll_interval_cap_seconds),
+                    remaining=max(0.0, deadline - time.monotonic()),
+                )
+                if wait_s > 0:
+                    await asyncio.sleep(wait_s)
+
+                poll_index += 1
+                poll_node = ExecutionNode(
+                    id=_next_tracking_node_id(dag, source_node.id, poll_index),
+                    tool=tool_id,
+                    args={"action": "task_get", "task_id": task_id},
+                    deps=[last_dep],
+                    depth=poll_base_depth + poll_index - 1,
+                )
+                self._append_tracking_node(dag, poll_node)
+                poll_node.status = ExecutionStatus.RUNNING
+                poll_node.started_at = time.monotonic()
+                result = await self._tool_runtime.execute_node(
+                    poll_node, ctx, node_results,
+                )
+                poll_node.result = result.data
+                poll_node.error = result.error
+                poll_node.status = ExecutionStatus.SUCCESS if result.success else ExecutionStatus.FAILED
+                poll_node.latency_ms = result.latency_ms
+                poll_node.finished_at = time.monotonic()
+                result.metadata = dict(result.metadata or {})
+                result.metadata.update({
+                    "tracking_poll": True,
+                    "tracking_source_node": source_node.id,
+                    "tracking_poll_index": poll_index,
+                })
+                node_results[poll_node.id] = result
+
+                next_tracking = extract_tracking_payload(result.data)
+                if not next_tracking:
+                    break
+                tracking = normalize_tracking_payload(next_tracking)
+                tracking_events.append({
+                    "node_id": poll_node.id,
+                    "tool": poll_node.tool,
+                    "tracking": tracking,
+                    "source": "poll",
+                })
+                ctx.extras["tracking_summary"] = tracking
+                ctx.extras["tracking_events"] = tracking_events
+                self._emit_stage(
+                    "tracking_poll", t_total,
+                    task_id=task_id,
+                    status=tracking.get("status", ""),
+                    done=bool(tracking.get("done")),
+                    poll_count=poll_index,
+                )
+                if tracking.get("done"):
+                    break
+                last_dep = poll_node.id
+
+        return node_results
+
+    @staticmethod
+    def _append_tracking_node(dag, node: ExecutionNode) -> None:
+        dag.nodes.append(node)
+        dag.total_nodes = len(dag.nodes)
+        dag.max_depth = max(int(getattr(dag, "max_depth", 0) or 0), node.depth)
+        dag.layers.setdefault(node.depth, []).append(node)
+
     async def _handle_tool_failure(
         self,
         *,
@@ -1527,6 +1667,48 @@ def _summarize_tools(dag) -> list[str]:
         seen[node.tool] = seen.get(node.tool, 0) + 1
     return [f"{tid} (x{count})" if count > 1 else tid
             for tid, count in sorted(seen.items())]
+
+
+def _should_poll_tracking(user_input: str, tracking: dict[str, Any]) -> bool:
+    if tracking.get("done"):
+        return False
+    action = str(tracking.get("suggested_next_action") or "").lower()
+    if action and action != "poll_task_get":
+        return False
+    text = str(user_input or "").lower()
+    explicit = any(w in text for w in (
+        "跟踪", "追踪", "等待", "持续", "结果", "完成", "巡检",
+        "track", "follow", "wait", "until complete",
+    ))
+    return explicit or str(tracking.get("kind") or "") == "long_task"
+
+
+def _tracking_wait_seconds(
+    tracking: dict[str, Any],
+    *,
+    cap: float,
+    remaining: float,
+) -> float:
+    try:
+        requested = float(tracking.get("next_poll_seconds") or 0)
+    except (TypeError, ValueError):
+        requested = 0.0
+    cap = max(0.0, cap)
+    remaining = max(0.0, remaining)
+    if requested <= 0 or cap <= 0:
+        return 0.0
+    return max(0.0, min(requested, cap, remaining))
+
+
+def _next_tracking_node_id(dag, source_node_id: str, poll_index: int) -> str:
+    used = {str(getattr(n, "id", "") or "") for n in getattr(dag, "nodes", []) or []}
+    base = f"{source_node_id}_track_{poll_index}"
+    if base not in used:
+        return base
+    suffix = 2
+    while f"{base}_{suffix}" in used:
+        suffix += 1
+    return f"{base}_{suffix}"
 
 
 # ── v3.14: Task-intent detection ─────────────────────────────────────────

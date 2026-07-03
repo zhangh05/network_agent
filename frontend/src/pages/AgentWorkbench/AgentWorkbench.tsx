@@ -288,9 +288,7 @@ export function TaskWorkbench() {
                     prompt,
                     "",
                     `巡检任务已创建，任务 ID：${taskId}。`,
-                    "请不要重复发起新的巡检任务；请使用 inspection.manage(action=\"task_get\", task_id=上面的任务ID) 查询状态。",
-                    "如果任务仍在 running/pending，请明确告诉用户任务还在巡检中，并保留任务 ID 供继续跟踪；如果已经 succeeded/partial，请使用 inspection.manage(action=\"report\", task_id=上面的任务ID, format=\"html\") 获取报告链接。",
-                    "最终答复只用用户能看懂的话说明：是否完成、异常、失败设备、跳过设备、下一步建议和报告链接。不要把状态查询说成自动重试。",
+                    "请继续跟踪这个任务，并用简洁的话告诉我巡检是否完成、异常项、失败或跳过设备、下一步建议和报告链接。",
                   ].join("\n");
                   pendingAutoMetadataRef.current = nextMetadata;
                   setInput(nextPrompt);

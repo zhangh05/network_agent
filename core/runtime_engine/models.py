@@ -169,6 +169,10 @@ class SSOTRuntimeConfig:
     max_total_seconds: int = 60
     max_tool_seconds: int = 30
     max_llm_calls: int = 2
+    tracking_enabled: bool = True
+    tracking_max_polls: int = 8
+    tracking_max_seconds: int = 45
+    tracking_poll_interval_cap_seconds: float = 2.0
 
     # v3.12: RiskPolicy thresholds
     # Total tool nodes: <=20 → no approval trigger;
