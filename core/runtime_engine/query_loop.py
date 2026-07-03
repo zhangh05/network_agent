@@ -296,7 +296,7 @@ class QueryLoop:
                 all_results.extend(results)
 
                 # ── Tracking: auto-poll long tasks (e.g. inspection) ──
-                polled_results = await self._settle_tracking(results, messages)
+                polled_results = await self._settle_tracking(ctx, results)
                 if polled_results:
                     all_results.extend(polled_results)
                     results = results + polled_results
@@ -334,6 +334,23 @@ class QueryLoop:
         )
 
     # ── Private helpers ──────────────────────────────────────────────────
+
+    # ── Private helpers ──────────────────────────────────────────────────
+
+    @staticmethod
+    def _should_poll_tracking(user_input: str, tracking: dict) -> bool:
+        """Check if user explicitly requested tracking (keywords like 跟踪/持续)."""
+        if tracking.get("done"):
+            return False
+        action = str(tracking.get("suggested_next_action") or "").lower()
+        if action and action != "poll_task_get":
+            return False
+        text = str(user_input or "").lower()
+        explicit = any(w in text for w in (
+            "跟踪", "追踪", "等待", "持续", "结果", "完成", "巡检",
+            "track", "follow", "wait", "until complete",
+        ))
+        return explicit or str(tracking.get("kind") or "") == "long_task"
 
     def _build_initial(self, ctx: StatelessContext) -> List[LLMMessage]:
         """Build initial messages with cacheable prefix."""
@@ -463,24 +480,27 @@ class QueryLoop:
 
     async def _settle_tracking(
         self,
+        ctx: StatelessContext,
         results: List[StreamingToolResult],
-        messages: List[LLMMessage],
     ) -> List[StreamingToolResult]:
         """After tool execution, auto-poll long tasks (e.g. inspection).
 
         Mirrors _settle_tracking_tasks from the legacy pipeline.
-        Polls at configured intervals until done, timeout, or max polls.
+        Only polls if user explicitly requested tracking (关键词: 跟踪/持续/等待).
+        Uses the tool's canonical name for task_get calls.
         """
         polled: List[StreamingToolResult] = []
-        tracking_enabled = getattr(self._config, "tracking_enabled", True)
-        if not tracking_enabled:
+        if not getattr(self._config, "tracking_enabled", True):
             return polled
 
         max_polls = max(0, int(getattr(self._config, "tracking_max_polls", 8) or 0))
         cap_seconds = float(getattr(self._config, "tracking_poll_interval_cap_seconds", 2.0))
         max_seconds = max(0, float(getattr(self._config, "tracking_max_seconds", 60)))
+        if max_polls <= 0:
+            return polled
 
         deadline = time.monotonic() + max_seconds
+        user_input = ctx.user_input or ""
 
         for r in results:
             tracking = extract_tracking_payload(r.output)
@@ -491,9 +511,16 @@ class QueryLoop:
             if tracking.get("done"):
                 continue
 
+            # Only poll if user explicitly asked for tracking
+            if not self._should_poll_tracking(user_input, tracking):
+                continue
+
             task_id = str(tracking.get("task_id") or "").strip()
-            tool_name = str(tracking.get("domain") or r.tool_name or "").strip()
+            # Use the canonical tool name from result, not domain from tracking
+            tool_name = (r.tool_name or "").strip()
             if not task_id or not tool_name:
+                continue
+            if not self._tool_runtime.has_tool(tool_name):
                 continue
 
             poll_index = 0
@@ -532,3 +559,5 @@ class QueryLoop:
         if requested <= 0 or cap <= 0 or remaining <= 0:
             return 0.0
         return max(0.0, min(requested, cap, remaining))
+
+    # ── Private helpers ──────────────────────────────────────────────────
