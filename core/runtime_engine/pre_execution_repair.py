@@ -169,6 +169,11 @@ class PreExecutionRepairResult:
     unrepairable_reason: str = ""
     repair_attempts: int = 0
 
+    @property
+    def repaired_graph(self) -> Any | None:
+        """Loop-friendly alias for the repaired validation graph."""
+        return self.repaired_dag
+
 
 # ============================================================================
 # PreExecutionRepairEngine

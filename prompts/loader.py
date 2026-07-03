@@ -32,19 +32,15 @@ def _load_registry_data() -> list:
     global _cache
     if _cache is not None:
         return _cache
-    try:
-        import yaml
-        if REGISTRY_PATH.is_file():
-            data = yaml.safe_load(REGISTRY_PATH.read_text()) or {}
-            prompts = []
-            for entry in data.get("prompts", []):
-                prompts.append(_parse_prompt(entry))
-            _cache = prompts
-            return prompts
-    except Exception:
-        pass
-    # Fallback to minimal built-in
-    _cache = _builtin_fallback()
+    if not REGISTRY_PATH.is_file():
+        raise FileNotFoundError(f"prompt registry not found: {REGISTRY_PATH}")
+
+    import yaml
+    data = yaml.safe_load(REGISTRY_PATH.read_text()) or {}
+    prompts = [_parse_prompt(entry) for entry in data.get("prompts", [])]
+    if not prompts:
+        raise RuntimeError(f"prompt registry is empty: {REGISTRY_PATH}")
+    _cache = prompts
     return _cache
 
 
@@ -88,19 +84,6 @@ def _parse_prompt(entry: dict) -> PromptSpec:
             "max_memory_hits": ctx.get("max_memory_hits", 5),
         },
     )
-
-
-def _builtin_fallback() -> list:
-    """Minimal fallback if yaml is unavailable."""
-    return [
-        PromptSpec(prompt_id="response.compose.v1", task="response_compose"),
-        PromptSpec(prompt_id="context.qa.v1", task="context_qa"),
-        PromptSpec(prompt_id="manual_review.explain.v1", task="manual_review_explain"),
-        PromptSpec(prompt_id="result.summarize.v1", task="result_summarize"),
-        PromptSpec(prompt_id="job_failure.explain.v1", task="job_failure_explain"),
-        PromptSpec(prompt_id="report.summary.v1", task="report_summary"),
-        PromptSpec(prompt_id="artifact_summary.explain.v1", task="artifact_summary_explain"),
-    ]
 
 
 def load_prompt_registry() -> list:

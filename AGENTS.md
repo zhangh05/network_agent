@@ -5,7 +5,7 @@ This file is the handoff contract for AI coding agents working in this repositor
 ## Non-Negotiable Rules
 
 1. Keep the current architecture only. Do not add compatibility branches, old tool names, fallback APIs, or historical docs.
-2. All tool invocation goes through registered handlers. For QueryLoop (v5.0), use `ToolRuntime.invoke_raw()`. Legacy DAG execution still uses `ToolRuntimeClient.invoke()`.
+2. All tool invocation goes through the SSOT QueryLoop runtime and registered canonical handlers. Do not add alternate planner, dispatch, or compatibility paths.
 3. All tools must be one of the 22 canonical IDs in `core/tools/tool_namespace.py`.
 4. `workspace_id` must be explicit and validated at API boundaries. Empty values return 400.
 5. Approval is for high-risk/destructive actions, not for ordinary read/list/query operations.
@@ -13,7 +13,7 @@ This file is the handoff contract for AI coding agents working in this repositor
 7. Do not commit runtime data, provider secrets, logs, build output, caches, or workspace contents.
 8. Tool definitions are the single source of truth for tool capabilities — do not hardcode tool lists in prompts.
 
-## Current Main Chain (v5.0)
+## Current Main Chain
 
 ```
 Frontend
@@ -22,16 +22,14 @@ Frontend
   -> SSOTRuntimeEngine
      ├─ Fast-path classifier (greetings/definitions)
      ├─ Pre-planner guard (build_operational_clarification)
-     └─ QueryLoop (v5.0 iterative LLM+tool loop)  ← DEFAULT
-        └─ Fallback: Legacy Planner→Compile→Execute→Finalizer pipeline
-           (set SSOTRuntimeConfig.use_query_loop=False)
+     └─ QueryLoop iterative LLM+tool loop
   -> ToolRuntime.invoke_raw() → registered handlers
   -> durable state, artifacts, memory, trace
 ```
 
-### QueryLoop (v5.0) — `core/runtime_engine/query_loop.py`
+### QueryLoop — `core/runtime_engine/query_loop.py`
 
-Replaces the old Planner→Compile→Execute→Finalizer pipeline with a single iterative agentic loop.
+The single tool-capable runtime loop plans, invokes tools, consumes results, tracks long-running tasks, records retry metadata, and produces the final answer.
 
 **Architecture:**
 ```
@@ -100,7 +98,7 @@ If a change needs a new operation, add it behind an existing canonical tool unle
 
 Before committing:
 
-- Confirm QueryLoop integration: `use_query_loop=True` is default, legacy pipeline is fallback.
+- Confirm QueryLoop is the only active tool-capable runtime path.
 - Verify tool name normalisation: `__` → `.` on parse, `.` → `__` on append.
 - Check `invoke_raw()` handles both sync and async handlers via `asyncio.new_event_loop()`.
 - Ensure compaction is idempotent (no infinite loop on `middle_count <= 1`).

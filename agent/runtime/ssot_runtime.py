@@ -1,8 +1,9 @@
 """SSOT Runtime adapter for the public AgentApp turn contract.
 
 This module is the bridge between the production-facing ``AgentResult``
-contract and the SSOT Runtime execution engine.  SSOT Runtime owns planning, DAG scheduling
-and result synthesis; the actual tool boundary remains ``ToolRuntimeClient``
+contract and the SSOT Runtime execution engine. SSOT Runtime owns QueryLoop
+planning, tool execution, bounded tracking, retry metadata, and result synthesis;
+the actual tool boundary remains ``ToolRuntimeClient``
 so manifest, policy, redaction and audit behavior are unchanged.
 """
 
@@ -433,8 +434,8 @@ def _invoke_llm_for_ssot_runtime(**kwargs) -> str:
     is_planner = "execution planner" in system.lower()
     caller_extra = kwargs.get("extra") or {}
     tools = kwargs.get("tools") or None
-    session_id = kwargs.get("session_id") or "unknown"
-    workspace_id = kwargs.get("workspace_id") or "default"
+    session_id = str(kwargs.get("session_id") or caller_extra.get("session_id") or "").strip()
+    workspace_id = str(kwargs.get("workspace_id") or caller_extra.get("workspace_id") or "").strip()
 
     extra = {
         "runtime_engine": "ssot_runtime",
@@ -463,17 +464,18 @@ def _invoke_llm_for_ssot_runtime(**kwargs) -> str:
     )
 
     # Track token usage
-    try:
-        record_llm_call(
-            input_tokens=resp.usage_input_tokens or 0,
-            output_tokens=resp.usage_output_tokens or 0,
-            session_id=session_id,
-            workspace_id=workspace_id,
-            model=resp.model or "",
-            provider=resp.provider or "",
-        )
-    except Exception:
-        pass
+    if workspace_id:
+        try:
+            record_llm_call(
+                input_tokens=resp.usage_input_tokens or 0,
+                output_tokens=resp.usage_output_tokens or 0,
+                session_id=session_id,
+                workspace_id=workspace_id,
+                model=resp.model or "",
+                provider=resp.provider or "",
+            )
+        except Exception:
+            _LOG.debug("record_llm_call failed", exc_info=True)
 
     if resp.error:
         # If streaming produced partial content before error, return it
@@ -485,9 +487,10 @@ def _invoke_llm_for_ssot_runtime(**kwargs) -> str:
         raise RuntimeError(resp.error)
 
     # Handle tool_calls response (Function Calling mode)
-    if resp.tool_calls:
+    tool_calls = getattr(resp, "tool_calls", []) or []
+    if tool_calls:
         nodes = []
-        for tc in resp.tool_calls:
+        for tc in tool_calls:
             tc_name = tc.get("name", "") if isinstance(tc, dict) else getattr(tc, "name", "")
             tc_args = tc.get("arguments", "{}") if isinstance(tc, dict) else getattr(tc, "arguments", "{}")
             if isinstance(tc_args, str):

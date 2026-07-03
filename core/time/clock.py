@@ -253,7 +253,7 @@ STAGE_ORDER = [
 
 STAGE_DISPLAY: dict[str, str] = {
     "entry": "接收请求", "planner": "生成执行计划",
-    "compile": "编译DAG", "structural_validate": "结构校验",
+    "compile": "编译执行计划", "structural_validate": "结构校验",
     "semantic_validate": "语义校验", "risk_policy": "风险评估",
     "execute": "执行工具", "finalizer": "整理最终回复", "exit": "完成",
 }

@@ -4,6 +4,7 @@ Extracted from loop.py to keep the turn runner focused on the agentic loop.
 """
 
 import json
+from datetime import datetime, timezone
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -44,6 +45,12 @@ def persist_run_record(session, turn, result, context) -> None:
 
         selected_skill = _selected_skill_for_record(context)
         active_module = _active_module_for_record(context, selected_skill)
+        result_metadata = (
+            result.metadata if result and getattr(result, "metadata", None) else {}
+        )
+        context_metadata = context.metadata if context and context.metadata else {}
+        llm_metadata = dict(context_metadata.get("llm", {}) or {})
+        llm_metadata.update(result_metadata.get("llm", {}) or {})
 
         state = SimpleNamespace(
             request_id=turn.turn_id,
@@ -52,8 +59,8 @@ def persist_run_record(session, turn, result, context) -> None:
             user_input=record_user_input,
             intent=(context.metadata.get("intent", "") if context and context.metadata else ""),
             context={
-                "llm": (context.metadata.get("llm", {}) if context and context.metadata else {}),
-                "capability_id": (context.metadata.get("capability_id", "") if context and context.metadata else ""),
+                "llm": llm_metadata,
+                "capability_id": context_metadata.get("capability_id", ""),
                 "memory_written": False,
                 "workspace_updated": False,
             },

@@ -9,14 +9,14 @@ HTTP / WebSocket / SSE / Job entry
   -> AgentApp.submit_user_message
   -> SessionManager + AgentThread
   -> SSOT Runtime adapter
-  -> SSOTRuntimeEngine planner
-  -> Execution DAG
-  -> ToolRuntimeClient.invoke
-  -> ToolExecutor
+  -> SSOTRuntimeEngine
+  -> QueryLoop
+  -> ToolRuntimeClient.invoke / ToolRuntime.invoke_raw
+  -> registered canonical handlers
   -> AgentResult + RuntimeEvent timeline
 ```
 
-There is no public direct handler dispatch path. Any new entrypoint must converge before `ToolRuntimeClient.invoke()`.
+There is no public direct handler dispatch path. Any new entrypoint must converge at the SSOT runtime boundary before tool invocation.
 
 ## Runtime State
 

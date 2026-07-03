@@ -14,6 +14,7 @@ These tests verify:
   4. _merge_result_projection reconciles `status` with the real `ok` field
 """
 from types import SimpleNamespace
+import json
 
 
 def _ctx():
@@ -162,3 +163,65 @@ def test_merge_result_projection_reconciles_status_on_success(monkeypatch, tmp_p
 
     rid = rs.write_run_record(state, "default")
     tp._merge_result_projection(rid, "default", _FakeResult(), context=None)
+
+    rec = json.loads((tmp_path / "default" / "runs" / f"{rid}.json").read_text())
+    assert rec["ok"] is True
+    assert rec["status"] == "ok"
+
+
+def test_persist_run_record_uses_result_llm_metadata(monkeypatch, tmp_path):
+    """Run-store llm_metadata must mirror AgentResult.metadata['llm']."""
+    from agent.runtime.turn_persistence import persist_run_record
+    import workspace.run_store as rs
+
+    monkeypatch.setattr(rs, "WS_ROOT", tmp_path)
+    (tmp_path / "default" / "runs").mkdir(parents=True, exist_ok=True)
+
+    class _Session:
+        session_id = "s-llm"
+        workspace_id = "default"
+        is_sub_agent = False
+
+    class _Turn:
+        turn_id = "r-llm"
+        op = SimpleNamespace(user_input="什么意思？")
+        context = {}
+
+    class _Result:
+        ok = True
+        final_response = "解释上一轮结果"
+        warnings = []
+        errors = []
+        trace_id = "tr-llm"
+        tool_calls = []
+        tool_decision = {}
+        no_tool_reason = ""
+        events = []
+        metadata = {
+            "llm": {
+                "used": True,
+                "provider": "test-provider",
+                "model": "test-model",
+                "task": "assistant_chat",
+            }
+        }
+
+        def to_dict(self):
+            return {
+                "ok": self.ok,
+                "turn_id": _Turn.turn_id,
+                "trace_id": self.trace_id,
+                "tool_calls": [],
+                "tool_decision": {},
+                "no_tool_reason": "",
+                "metadata": self.metadata,
+                "errors": [],
+            }
+
+    context = SimpleNamespace(metadata={})
+    persist_run_record(_Session(), _Turn(), _Result(), context)
+
+    rec = json.loads((tmp_path / "default" / "runs" / "r-llm.json").read_text())
+    assert rec["llm_metadata"]["used"] is True
+    assert rec["llm_metadata"]["provider"] == "test-provider"
+    assert rec["llm_metadata"]["model"] == "test-model"

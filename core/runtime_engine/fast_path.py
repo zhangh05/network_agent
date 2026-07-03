@@ -85,11 +85,20 @@ _TROUBLESHOOTING_KEYWORDS = (
 # history rather than claiming ignorance.
 
 _CONVERSATION_REF_PATTERNS = (
+    # Patterns that literally ask to RECALL previous conversation content:
+    # "what did I just say", "what did you just say", etc.
+    # Comprehension follow-ups like "什么意思" are handled separately below:
+    # they should use recent conversation, but not trigger tools.
     "我上句话说了什么", "上句是什么", "刚才我说了什么",
-    "你还记得我刚才说什么吗", "什么意思", "这是什么意思",
-    "你说了什么还记得吗", "还记得吗",
+    "你还记得我刚才说什么吗",
+    "你说了什么还记得吗",
     "你刚才说什么了", "我刚说了什么",
     "我说了什么", "我说的什么",
+)
+
+_CONVERSATION_COMPREHENSION_PATTERNS = (
+    "什么意思", "什么含义", "啥意思", "这是什么意思",
+    "这句话什么意思", "你刚才是什么意思",
 )
 
 
@@ -105,6 +114,19 @@ def is_conversation_ref(user_input: str) -> bool:
         if pat in text:
             return True
     return False
+
+
+def is_conversation_comprehension_ref(user_input: str) -> bool:
+    """Return True for short follow-ups asking to explain the prior answer.
+
+    These are not recall questions and should not be answered by repeating
+    history. They are still conversation-scoped, so the engine should route
+    them to the direct-answer LLM with history injected and no tools.
+    """
+    text = (user_input or "").strip()
+    if not text or len(text) > 30:
+        return False
+    return any(pat in text for pat in _CONVERSATION_COMPREHENSION_PATTERNS)
 
 
 def _build_conversation_history_block(history: list[dict[str, str]]) -> str:

@@ -873,7 +873,8 @@ class TestSSOTRuntimePipeline:
         assert result.success
         assert result.node_success_count == 0
         assert result.node_failure_count == 0
-        assert result.metadata["dag_nodes"] == 0
+        assert result.metadata["used_tools"] is False
+        assert result.metadata["tool_calls"] == 0
 
     @pytest.mark.asyncio
     async def test_ambiguous_login_command_asks_clarification_without_planner(self, config):
@@ -913,6 +914,188 @@ class TestSSOTRuntimePipeline:
 
         text = "登录并查看测试服务器_1设备的IP地址和内核"
         assert build_operational_clarification(text, detect_task_intent(text)) is None
+
+    def test_query_loop_empty_final_fallback_is_actionable(self, config):
+        from core.runtime_engine.query_loop import QueryLoop, StreamingToolResult
+
+        class RuntimeStub:
+            def has_tool(self, name):
+                return name == "inspection.manage"
+
+        loop = QueryLoop(
+            config=config,
+            tool_registry={"inspection.manage": {"description": "Inspection"}},
+            tool_runtime=RuntimeStub(),
+        )
+        ctx = StatelessContext(
+            workspace_id="default",
+            session_id="s1",
+            request_id="r1",
+            user_input="对 CMDB 资产「CE2」 发起自动巡检。",
+        )
+
+        text = loop._build_tool_result_fallback(ctx, [
+            StreamingToolResult(
+                tool_name="device.manage",
+                call_id="c1",
+                output={"ok": True, "summary": "device found"},
+                ok=True,
+            ),
+            StreamingToolResult(
+                tool_name="inspection",
+                call_id="c2",
+                output={"ok": False, "summary": "Tool not found: inspection"},
+                ok=False,
+                error="Tool not found: inspection",
+            ),
+        ])
+
+        assert "工具调用：成功 1 个，失败 1 个" in text
+        assert "`inspection`" in text
+        assert "应使用 `inspection.manage`" in text
+        assert "工具执行完成" not in text
+
+    @pytest.mark.asyncio
+    async def test_query_loop_uses_injected_llm_and_budget_counter(self, config):
+        """QueryLoop must use the engine-provided LLM adapter and SSOT budget."""
+        from core.runtime_engine.budget_controller import BudgetController
+        from core.runtime_engine.query_loop import QueryLoop
+
+        calls = {"count": 0}
+
+        def fake_llm(**kwargs):
+            calls["count"] += 1
+            assert kwargs["system"]
+            assert "User request: 解释一下" in kwargs["user"]
+            assert kwargs["extra"]["stream_scope"] == "planner"
+            assert kwargs["extra"]["stream_to_user"] is False
+            return "这是直接说明"
+
+        class RuntimeStub:
+            def has_tool(self, name):
+                return False
+
+            def invoke_raw(self, tool_id, args):
+                raise AssertionError("no tools should execute")
+
+        budget = BudgetController(config)
+        loop = QueryLoop(
+            config=config,
+            tool_registry={},
+            tool_runtime=RuntimeStub(),
+            llm_invoke=fake_llm,
+        )
+        ctx = StatelessContext("default", "s1", "r1", "解释一下")
+
+        result = await loop.run(ctx, budget, metrics=None)
+
+        assert result.final_response == "这是直接说明"
+        assert result.llm_calls == 1
+        assert budget.llm_calls == 1
+        assert calls["count"] == 1
+
+    @pytest.mark.asyncio
+    async def test_query_loop_runs_injected_plan_json_without_old_dag(self, config):
+        """Injected legacy planner JSON is absorbed by QueryLoop, not old DAG code."""
+        from core.runtime_engine.budget_controller import BudgetController
+        from core.runtime_engine.query_loop import QueryLoop
+
+        config.enable_finalizer = False
+        calls = {"llm": 0, "tool": 0}
+
+        def fake_llm(**kwargs):
+            calls["llm"] += 1
+            return json.dumps({
+                "nodes": [
+                    {
+                        "id": "read_status",
+                        "tool": "system.manage",
+                        "args": {"action": "health"},
+                    }
+                ]
+            })
+
+        class RuntimeStub:
+            def has_tool(self, name):
+                return name == "system.manage"
+
+            def invoke_raw(self, tool_id, args):
+                calls["tool"] += 1
+                assert tool_id == "system.manage"
+                assert args == {"action": "health"}
+                return {"ok": True, "summary": "healthy"}
+
+        loop = QueryLoop(
+            config=config,
+            tool_registry={
+                "system.manage": {
+                    "description": "System diagnostics",
+                    "args_schema": {
+                        "required": ["action"],
+                        "properties": {"action": {"type": "string"}},
+                    },
+                }
+            },
+            tool_runtime=RuntimeStub(),
+            llm_invoke=fake_llm,
+        )
+
+        result = await loop.run(
+            StatelessContext("default", "s1", "r1", "检查系统健康"),
+            BudgetController(config),
+            metrics=None,
+        )
+
+        assert calls == {"llm": 1, "tool": 1}
+        assert result.llm_calls == 1
+        assert result.total_tool_calls == 1
+        assert result.tool_results[0].ok is True
+        assert "工具调用：成功 1 个，失败 0 个" in result.final_response
+
+    def test_query_loop_tracking_polls_are_not_provider_tool_messages(self, config):
+        """Internal task_get polls must not create unmatched tool_call_id messages."""
+        from agent.llm.schemas import LLMMessage, LLMToolCall
+        from core.runtime_engine.query_loop import QueryLoop, StreamingToolResult
+
+        class RuntimeStub:
+            def has_tool(self, name):
+                return name == "inspection.manage"
+
+        loop = QueryLoop(
+            config=config,
+            tool_registry={"inspection.manage": {"description": "Inspection"}},
+            tool_runtime=RuntimeStub(),
+        )
+        base_messages = [
+            LLMMessage(role="system", content="system"),
+            LLMMessage(role="user", content="run inspection"),
+        ]
+        original_call = LLMToolCall(
+            id="call_1",
+            name="inspection.manage",
+            arguments={"action": "run"},
+        )
+        messages = loop._append_tool_round(base_messages, [original_call], [
+            StreamingToolResult(
+                tool_name="inspection.manage",
+                call_id="call_1",
+                output={"ok": True, "task_id": "ins_1"},
+                ok=True,
+            ),
+            StreamingToolResult(
+                tool_name="inspection.manage",
+                call_id="call_1_poll_1",
+                output={"ok": True, "tracking": {"task_id": "ins_1", "status": "running"}},
+                ok=True,
+            ),
+        ])
+
+        tool_messages = [m for m in messages if m.role == "tool"]
+        assert [m.tool_call_id for m in tool_messages] == ["call_1"]
+        assert any(
+            m.role == "user" and "AUTO TRACKING RESULTS" in (m.content or "")
+            for m in messages
+        )
 
     @pytest.mark.asyncio
     async def test_full_pipeline_simple_tools(self, config):

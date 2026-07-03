@@ -92,6 +92,20 @@ class AuditLogger:
                     failed.append(node_entry)
                 elif node.status == ExecutionStatus.SKIPPED:
                     blocked.append(node_entry)
+        else:
+            for item in ctx.extras.get("audit_blocked_nodes") or []:
+                if not isinstance(item, dict):
+                    continue
+                blocked.append({
+                    "node_id": str(item.get("node_id") or ""),
+                    "tool": str(item.get("tool") or ""),
+                    "node_run_id": str(item.get("node_run_id") or uuid.uuid4().hex[:8]),
+                    "args": self._redact_args(dict(item.get("args") or {})),
+                    "depth": int(item.get("depth") or 0),
+                    "status": str(item.get("status") or "skipped"),
+                    "latency_ms": float(item.get("latency_ms") or 0.0),
+                    "error": str(item.get("error") or "blocked"),
+                })
 
         record = AuditRecord(
             request_id=ctx.request_id,

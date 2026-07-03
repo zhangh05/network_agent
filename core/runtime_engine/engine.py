@@ -1,28 +1,12 @@
 """
-SSOT Runtime Engine — Production-grade 15-stage pipeline.
+SSOT Runtime Engine — production QueryLoop entrypoint.
 
-Bank-grade SSOT Runtime v1:
-  controllable, auditable, recoverable, rate-limited, traceable, verifiable.
+The active runtime has one execution path:
+  request context -> fast/clarification gates -> QueryLoop -> audit/result.
 
-Pipeline stages:
-  1. create_request_context
-  2. build_minimal_context
-  3. planner_generate_graph
-  4. compile_graph
-  5. structural_validate_graph (DAGValidator)
-  6. semantic_validate_graph (SemanticValidator)
-  6b. pre_execution_repair (PreExecutionRepairEngine) — deterministic + LLM
-  7. risk_policy_check (RiskPolicyEngine)
-  8. budget_check (BudgetController)
-  9. schedule_and_execute (Scheduler + ExecutionEngine)
-  10. repair_if_needed (RepairEngine)
-  11. rollback_assessment (RollbackEngine)
-  12. merge_results (ResultMerger)
-  13. finalizer_optional
-  14. audit_write (AuditLogger)
-  15. metrics_emit + return_response
-
-Any stage failure returns structured SSOTRuntimeError — no raw exceptions.
+QueryLoop owns planning, tool execution, bounded tracking, retry metadata,
+and final synthesis. Any stage failure returns structured SSOTRuntimeError
+objects — no raw exceptions cross the engine boundary.
 """
 
 from __future__ import annotations
@@ -30,68 +14,39 @@ from __future__ import annotations
 import asyncio
 import time
 import uuid
-import sys
 from dataclasses import dataclass
 
 from typing import Any, Callable
 
 from .audit import AuditLogger
 from .budget_controller import BudgetController
-from .contracts import BUILTIN_CONTRACTS
-from .dag_validator import DAGValidator
 from .errors import SSOTRuntimeError, SSOTRuntimeErrorCode, build_error
-from .execution_engine import ExecutionEngine
-from .finalizer import Finalizer
 from .fast_path import _build_conversation_history_block
-from .graph_compiler import GraphCompiler
 from .metrics import MetricsCollector
 from .models import (
-    ExecutionNode,
-    ExecutionStatus,
     SSOTRuntimeConfig,
     SSOTRuntimeResult,
     StatelessContext,
     ToolResult,
 )
-from .plan_enrichment import enrich_dag_from_user_request, enrich_plan_nodes_from_user_request
-from .planner import Planner
-from .pre_execution_repair import PreExecutionRepairEngine, PreExecutionRepairResult
 from .query_loop import QueryLoop, QueryLoopResult
-from .repair_engine import RepairEngine
-from .result_merger import ResultMerger
-from .runtime_contracts import ExecutionContract, ExecutionObligationViolation
-from .risk_policy import RiskPolicyEngine
-from .rollback import RollbackEngine
-from .scheduler import ResourceScheduler
-from .semantic_validator import SemanticValidator
+from .runtime_contracts import ExecutionContract
 from .stage_events import (
-    BUDGET_OK,
     EXECUTION_COMPLETED,
-    EXECUTION_STARTED,
     FINALIZING_COMPLETED,
     FINALIZING_STARTED,
-    GRAPH_COMPILED,
     HEARTBEAT,
-    MERGE_COMPLETED,
     PLANNER_COMPLETED,
     PLANNER_STARTED,
-    PRE_REPAIR_COMPLETED,
-    PRE_REPAIR_STARTED,
-    REPAIR_ATTEMPT,
-    RISK_ASSESSED,
-    SEMANTIC_INVALID,
-    SEMANTIC_VALIDATED,
-    STRUCTURAL_VALIDATED,
     TURN_COMPLETED,
     TURN_STARTED,
 )
 from .tool_runtime import ToolRuntime
 from .trace import SpanClock, TraceCollector
-from .tracking import extract_tracking_payload, normalize_tracking_payload
 
 
 class SSOTRuntimeEngine:
-    """Bank-grade Single-pass Execution Graph Engine — production runtime.
+    """Single source of truth runtime facade.
 
     Usage:
         engine = SSOTRuntimeEngine(config, llm_invoke_fn, tool_registry, tool_runtime)
@@ -119,19 +74,6 @@ class SSOTRuntimeEngine:
         self._heartbeat_interval_s = max(0.5, float(heartbeat_interval_s))
         self._heartbeat_task: asyncio.Task | None = None
 
-        # Pipeline modules
-        self._planner = Planner(self._config, self._tool_registry, self._llm_invoke)
-        self._compiler = GraphCompiler(self._config)
-        self._struct_validator = DAGValidator(self._config, self._tool_registry)
-        self._sem_validator = SemanticValidator(self._tool_registry)
-        self._pre_exec_repair = PreExecutionRepairEngine()
-        self._risk_policy = RiskPolicyEngine(self._config)
-        self._scheduler = ResourceScheduler(self._config)
-        self._executor = ExecutionEngine(self._config, self._tool_runtime)
-        self._repair = RepairEngine(self._config)
-        self._rollback = RollbackEngine()
-        self._merger = ResultMerger()
-        self._finalizer = Finalizer(self._config, self._llm_invoke)
         self._audit = AuditLogger()
         self._trace = TraceCollector()
 
@@ -320,21 +262,24 @@ class SSOTRuntimeEngine:
         # first_answer_token_ms dramatically and avoids burning
         # an LLM call just to say "I don't need any tools."
         #
-        # v3.13: conversation-ref queries ("什么意思", "我上句话说了什么"
-        # etc.) inject session.history into the direct-answer prompt so
-        # the LLM can reference the previous turn.  conversation-ref
-        # patterns that do NOT match the narrow classifier are still
-        # fast-pathed when history is available — they're clearly not
-        # tool requests and the planner would waste an LLM call.
+        # v3.13+: conversation-ref queries ("我上句话说了什么") and
+        # comprehension followups ("什么意思") inject session.history into
+        # the direct-answer prompt.  They are conversation-scoped, not new
+        # tool tasks, so the query loop would waste calls and can even
+        # re-run tools unnecessarily.
         from .fast_path import (
             classify_direct_answer,
             is_conversation_ref,
+            is_conversation_comprehension_ref,
             FastPathDecision,
         )
 
         fast = classify_direct_answer(user_input)
         conv_history_block = ctx.extras.get("conversation_history_block") or ""
         is_conv_ref = bool(is_conversation_ref(user_input) and conv_history_block)
+        is_conv_comprehension = bool(
+            is_conversation_comprehension_ref(user_input) and conv_history_block
+        )
 
         # ── v3.14: task-intent override for fast path ────────────
         # If the input has task-intent verbs but the narrow classifier
@@ -357,6 +302,11 @@ class SSOTRuntimeEngine:
                 reason="conversation-ref with history available",
             )
 
+        if is_conv_comprehension and not fast.enabled:
+            fast = FastPathDecision(
+                enabled=True, route="conversation_explain",
+                reason="conversation-comprehension with history available",
+            )
 
         if fast.enabled:
             self._emit_stage(FINALIZING_STARTED, t_total)
@@ -364,8 +314,12 @@ class SSOTRuntimeEngine:
 
             try:
                 direct_resp = await self._generate_direct_answer(
-                    ctx.user_input, budget,
-                    conversation_context=conv_history_block if is_conv_ref else None,
+                    ctx, budget,
+                    conversation_context=(
+                        conv_history_block
+                        if (is_conv_ref or is_conv_comprehension)
+                        else None
+                    ),
                 )
                 final_response = (direct_resp or "").strip()
             except Exception:
@@ -391,7 +345,8 @@ class SSOTRuntimeEngine:
                     "direct_answer_latency_ms": direct_answer_latency_ms,
                     "skip_reason": fast.reason,
                     "conversation_ref": is_conv_ref,
-                    "conversation_history_used": bool(is_conv_ref),
+                    "conversation_comprehension": is_conv_comprehension,
+                    "conversation_history_used": bool(is_conv_ref or is_conv_comprehension),
                 },
             )
 
@@ -414,20 +369,17 @@ class SSOTRuntimeEngine:
                 },
             )
 
-        # ── v5.0: QueryLoop (iterative LLM + tools) ─────────────────────
-        # Replaces Planner → Compile → Execute → Finalizer pipeline
-        # with a single agentic loop. 5 optimisations:
-        #   1. Prompt cache (static system+tools prefix)
-        #   2. Planner+Finalizer merged into one LLM stream
-        #   3. Iterative tool execution with intermediate feedback
-        #   4. Streaming tool exec (tools start during LLM output)
-        #   5. Auto-compact (summarise old turns)
+        # ── QueryLoop: the only tool-capable execution path ──────────────
+        # The loop owns planner LLM calls, tool execution, bounded tracking,
+        # retry metadata, and final synthesis. This keeps active runtime
+        # state in one place instead of splitting it across parallel planners.
         if getattr(self._config, "use_query_loop", True):
             self._emit_stage(PLANNER_STARTED, t_total)
 
             query_loop = QueryLoop(
                 self._config, self._tool_registry,
                 self._tool_runtime,
+                llm_invoke=self._llm_invoke,
                 emitter=self._emitter,
             )
             loop_result = await query_loop.run(ctx, budget, metrics)
@@ -449,8 +401,31 @@ class SSOTRuntimeEngine:
 
             final_response = loop_result.final_response
             dag = None
-            risk_level = "low"
-            approval_required = False
+            risk_level = loop_result.risk_level or "low"
+            approval_required = bool(loop_result.approval_required)
+            if loop_result.error and loop_result.error not in {
+                "approval_required",
+                "duplicate_successful_tool_call",
+                "duplicate_tool_call",
+            }:
+                first_loop_error = loop_result.errors[0] if loop_result.errors else loop_result.error
+                loop_error_code = (
+                    first_loop_error.split(":", 2)[1]
+                    if loop_result.error == "semantic_validation_failed"
+                    and isinstance(first_loop_error, str)
+                    and len(first_loop_error.split(":", 2)) >= 3
+                    else (
+                        SSOTRuntimeErrorCode.RISK_CRITICAL_DENIED
+                        if loop_result.hard_block
+                        else SSOTRuntimeErrorCode.VALIDATION_UNSAFE_OPERATION
+                    )
+                )
+                errors.append(build_error(
+                    loop_error_code,
+                    first_loop_error,
+                    stage="query_loop",
+                    risk_level=risk_level,
+                ))
             metrics.set_llm_calls(loop_result.llm_calls)
             await self._stop_heartbeat()
 
@@ -464,16 +439,18 @@ class SSOTRuntimeEngine:
                     "tool_calls": loop_result.total_tool_calls,
                     "llm_calls": loop_result.llm_calls,
                     "used_tools": loop_result.total_tool_calls > 0,
+                    "approval_required": approval_required,
+                    "approval_nodes": loop_result.approval_nodes,
+                    "approval_details": loop_result.approval_details,
+                    "hard_block": bool(loop_result.hard_block),
                     **loop_result.metrics,
                 },
             )
 
-        # ── Legacy pipeline removed (v5.0) ───────────────────────────────
-        # QueryLoop is the only execution path. If somehow reached here
-        # (use_query_loop=False), return a structured error.
+        # QueryLoop is mandatory. If config disables it, fail closed.
         errors.append(build_error(
             SSOTRuntimeErrorCode.ENGINE_UNREACHABLE,
-            "Legacy pipeline disabled. QueryLoop is the only supported engine.",
+            "QueryLoop is disabled. QueryLoop is the only supported engine.",
             stage="engine", risk_level="high",
         ))
         return self._build_result(
@@ -484,335 +461,12 @@ class SSOTRuntimeEngine:
 
 
     # ========================================================================
-    # Scheduled execution with concurrency control
-    # ========================================================================
-
-    async def _scheduled_execute(
-        self,
-        dag,
-        ctx: StatelessContext,
-        budget: BudgetController,
-    ) -> dict[str, ToolResult]:
-        """Execute DAG layer by layer with ResourceScheduler concurrency control.
-
-        v3.10 (tool retry): each node in a deeper layer is gated by
-        its dep status. If any upstream is FAILED or SKIPPED, the
-        node is marked ``skipped`` with reason ``dependency_failed``
-        and the tool handler is NOT invoked.
-
-        Failed nodes consult ``should_retry_tool_failure`` from
-        :mod:`core.runtime_engine.tool_retry_policy`. The policy is the
-        single source of truth — both this path and the stage-10
-        repair path route through it. We do NOT re-run the layer
-        on a failed node; we re-invoke just the failed node's
-        handler (if the policy allows it).
-        """
-        from .contracts import get_contract
-        from .tool_retry_policy import should_retry_tool_failure
-        from .execution_engine import _dependency_skip_reason
-
-        all_results: dict[str, ToolResult] = {}
-        active_global = 0
-
-        for depth in range(dag.max_depth + 1):
-            layer_nodes = dag.get_layer(depth)
-            if not layer_nodes:
-                continue
-
-            # v3.10: dependency gate. A node whose deps failed or
-            # were skipped is marked SKIPPED here, not run.
-            ready: list = []
-            for node in layer_nodes:
-                skip_reason = _dependency_skip_reason(node, all_results)
-                if skip_reason is not None:
-                    skip_result = ToolResult(
-                        node_id=node.id,
-                        tool=node.tool,
-                        success=False,
-                        error=skip_reason,
-                        error_code="DEPENDENCY_FAILED",
-                        metadata={"skip_reason": "dependency_failed"},
-                    )
-                    node.status = ExecutionStatus.SKIPPED
-                    node.error = skip_reason
-                    node.result = None
-                    node.finished_at = time.monotonic()
-                    all_results[node.id] = skip_result
-                    continue
-                ready.append(node)
-                node.status = ExecutionStatus.PENDING
-
-            if not ready:
-                continue
-
-            # Schedule: apply concurrency limits.
-            scheduled = self._scheduler.schedule_layer(ready, active_global)
-            if not scheduled:
-                scheduled = ready
-
-            # Mark running
-            for node in scheduled:
-                node.status = ExecutionStatus.RUNNING
-                node.started_at = time.monotonic()
-
-            active_global += len(scheduled)
-            layer_results = await self._tool_runtime.execute_layer(
-                scheduled, ctx, all_results
-            )
-            active_global -= len(scheduled)
-
-            # Process results — including v3.10 retry on failure.
-            for node in scheduled:
-                result = layer_results.get(node.id)
-                if result is None:
-                    result = ToolResult(
-                        node_id=node.id,
-                        tool=node.tool,
-                        success=False,
-                        error="No result returned from execution",
-                        error_code="TOOL_EXCEPTION",
-                    )
-
-                if not result.success:
-                    result = await self._handle_tool_failure(
-                        node=node,
-                        ctx=ctx,
-                        all_results=all_results,
-                        original_result=result,
-                        budget=budget,
-                        contract=get_contract(node.tool),
-                        policy=should_retry_tool_failure,
-                    )
-
-                node.result = result.data
-                node.error = result.error
-                node.status = (
-                    ExecutionStatus.SUCCESS if result.success
-                    else ExecutionStatus.FAILED
-                )
-                node.latency_ms = result.latency_ms
-                node.finished_at = time.monotonic()
-                all_results[node.id] = result
-
-            # Budget check between layers
-            b = budget.check_execution()
-            if not b.ok:
-                break
-
-        return all_results
-
-    async def _settle_tracking_tasks(
-        self,
-        dag,
-        ctx: StatelessContext,
-        node_results: dict[str, ToolResult],
-        budget: BudgetController,
-        t_total: float,
-    ) -> dict[str, ToolResult]:
-        """Poll standard long-task tracking payloads before final synthesis.
-
-        This is intentionally generic: any tool can return a ``tracking``
-        payload with ``task_id`` and ``suggested_next_action=poll_task_get``.
-        The runtime appends bounded synthetic ``task_get`` nodes using the same
-        tool, so finalizer and frontend see the latest authoritative state.
-        """
-        if not self._config.tracking_enabled or dag is None:
-            return node_results
-
-        tracking_events: list[dict[str, Any]] = list(ctx.extras.get("tracking_events") or [])
-        deadline = time.monotonic() + max(0, float(self._config.tracking_max_seconds))
-        max_polls = max(0, int(self._config.tracking_max_polls or 0))
-        if max_polls <= 0:
-            return node_results
-
-        for source_node in list(getattr(dag, "nodes", []) or []):
-            source_result = node_results.get(source_node.id)
-            tracking = extract_tracking_payload(source_result.data if source_result else None)
-            if not tracking:
-                continue
-            tracking = normalize_tracking_payload(tracking)
-            tracking_events.append({
-                "node_id": source_node.id,
-                "tool": source_node.tool,
-                "tracking": tracking,
-                "source": "initial",
-            })
-            ctx.extras["tracking_summary"] = tracking
-            ctx.extras["tracking_events"] = tracking_events
-
-            if tracking.get("done"):
-                continue
-            if not _should_poll_tracking(ctx.user_input, tracking):
-                continue
-
-            tool_id = source_node.tool
-            task_id = str(tracking.get("task_id") or "").strip()
-            if not tool_id or not task_id:
-                continue
-
-            poll_index = 0
-            poll_base_depth = int(getattr(dag, "max_depth", 0) or 0) + 1
-            last_dep = source_node.id
-            while poll_index < max_polls and time.monotonic() < deadline:
-                if tracking.get("done"):
-                    break
-                if not self._tool_runtime.has_tool(tool_id):
-                    break
-                if not budget.check_execution().ok:
-                    break
-
-                wait_s = _tracking_wait_seconds(
-                    tracking,
-                    cap=float(self._config.tracking_poll_interval_cap_seconds),
-                    remaining=max(0.0, deadline - time.monotonic()),
-                )
-                if wait_s > 0:
-                    await asyncio.sleep(wait_s)
-
-                poll_index += 1
-                poll_node = ExecutionNode(
-                    id=_next_tracking_node_id(dag, source_node.id, poll_index),
-                    tool=tool_id,
-                    args={"action": "task_get", "task_id": task_id},
-                    deps=[last_dep],
-                    depth=poll_base_depth + poll_index - 1,
-                )
-                self._append_tracking_node(dag, poll_node)
-                poll_node.status = ExecutionStatus.RUNNING
-                poll_node.started_at = time.monotonic()
-                result = await self._tool_runtime.execute_node(
-                    poll_node, ctx, node_results,
-                )
-                poll_node.result = result.data
-                poll_node.error = result.error
-                poll_node.status = ExecutionStatus.SUCCESS if result.success else ExecutionStatus.FAILED
-                poll_node.latency_ms = result.latency_ms
-                poll_node.finished_at = time.monotonic()
-                result.metadata = dict(result.metadata or {})
-                result.metadata.update({
-                    "tracking_poll": True,
-                    "tracking_source_node": source_node.id,
-                    "tracking_poll_index": poll_index,
-                })
-                node_results[poll_node.id] = result
-
-                next_tracking = extract_tracking_payload(result.data)
-                if not next_tracking:
-                    break
-                tracking = normalize_tracking_payload(next_tracking)
-                tracking_events.append({
-                    "node_id": poll_node.id,
-                    "tool": poll_node.tool,
-                    "tracking": tracking,
-                    "source": "poll",
-                })
-                ctx.extras["tracking_summary"] = tracking
-                ctx.extras["tracking_events"] = tracking_events
-                self._emit_stage(
-                    "tracking_poll", t_total,
-                    task_id=task_id,
-                    status=tracking.get("status", ""),
-                    done=bool(tracking.get("done")),
-                    poll_count=poll_index,
-                )
-                if tracking.get("done"):
-                    break
-                last_dep = poll_node.id
-
-        return node_results
-
-    @staticmethod
-    def _append_tracking_node(dag, node: ExecutionNode) -> None:
-        dag.nodes.append(node)
-        dag.total_nodes = len(dag.nodes)
-        dag.max_depth = max(int(getattr(dag, "max_depth", 0) or 0), node.depth)
-        dag.layers.setdefault(node.depth, []).append(node)
-
-    async def _handle_tool_failure(
-        self,
-        *,
-        node,
-        ctx,
-        all_results: dict,
-        original_result: ToolResult,
-        budget: BudgetController,
-        contract,
-        policy,
-    ) -> ToolResult:
-        """Single-source-of-truth retry path. Mirrors
-        ``ExecutionEngine._handle_failure`` but additionally
-        enforces the per-request budget before invoking the policy.
-        """
-        # Best-effort: infer the error code if the handler did not
-        # set one explicitly.
-        error_code = (original_result.error_code or "").strip().upper()
-        if not error_code:
-            err = (original_result.error or "").lower()
-            if "timeout" in err or "timed out" in err:
-                error_code = "TOOL_TIMEOUT"
-            elif "rate" in err and "limit" in err:
-                error_code = "RATE_LIMITED"
-            elif "connection" in err and "reset" in err:
-                error_code = "CONNECTION_RESET"
-            else:
-                error_code = "TOOL_EXCEPTION"
-
-        # Budget gate. The retry duration would push us past the
-        # per-request / per-tool ceiling — refuse.
-        budget_status = budget.check_execution()
-        budget_ok = bool(budget_status.ok)
-
-        decision = policy(
-            node=node,
-            tool_contract=contract,
-            error_code=error_code,
-            error_message=original_result.error or "",
-            config_max_retries=(
-                int(getattr(contract, "max_retries", 0) or 0)
-                if contract is not None else 0
-            ),
-            global_max_retries_per_node=self._config.max_retries_per_node,
-            budget_ok=budget_ok,
-        )
-
-        # Stash the decision for the audit / metadata aggregator.
-        node.last_retry_decision = decision
-
-        if not decision.retry_allowed:
-            return original_result
-
-        # Backoff before the second attempt.
-        await asyncio.sleep(decision.backoff_ms / 1000.0)
-        node.retry_count += 1
-        node.status = ExecutionStatus.RETRYING
-
-        retry_result = await self._tool_runtime.execute_node(
-            node, ctx, all_results
-        )
-        retry_result.retry_count = node.retry_count
-
-        # Annotate the ToolResult with retry provenance.
-        retry_result.metadata = dict(retry_result.metadata or {})
-        retry_result.metadata["retried"] = True
-        retry_result.metadata["retry_count"] = node.retry_count
-        retry_result.metadata["retry_reason"] = decision.reason
-        retry_result.metadata["retry_backoff_ms"] = decision.backoff_ms
-        retry_result.metadata["retry_error_code"] = decision.error_code
-        retry_result.metadata["retry_original_error"] = (
-            decision.notes.get("original_error", "")
-        )
-
-        if retry_result.success:
-            return retry_result
-        return retry_result
-
-    # ========================================================================
     # Direct answer (fast path)
     # ========================================================================
 
     async def _generate_direct_answer(
         self,
-        user_input: str,
+        ctx: StatelessContext,
         budget: BudgetController,
         conversation_context: str | None = None,
     ) -> str:
@@ -835,11 +489,15 @@ class SSOTRuntimeEngine:
             )
         result = self._llm_invoke(
             system=system_msg,
-            user=user_input,
+            user=ctx.user_input,
+            workspace_id=ctx.workspace_id,
+            session_id=ctx.session_id,
             extra={
                 "runtime_engine": "ssot_runtime",
                 "stream_scope": "direct_answer",
                 "stream_to_user": True,
+                "workspace_id": ctx.workspace_id,
+                "session_id": ctx.session_id,
             },
         )
         if isinstance(result, str):
@@ -857,63 +515,6 @@ class SSOTRuntimeEngine:
         keeping the hard_block gate intact.
         """
         return bool(ctx.extras.get("approved_risk") or False)
-
-    # ========================================================================
-    # LLM-based replanning for pre-execution repair
-    # ========================================================================
-
-    async def _try_llm_replan(self, ctx, budget, sem_result, metrics):
-        """Attempt LLM-based replanning when deterministic repair fails.
-
-        Requires: budget.llm_calls < max_llm_calls and hasn't exceeded planner budget.
-
-        Returns:
-            New ExecutionDAG if successful, None otherwise.
-        """
-        from .graph_compiler import GraphCompiler
-
-        llm_budget = budget.check_llm_call()
-        if not llm_budget.ok:
-            return None
-
-        planner_budget = budget.check_planner()
-        if not planner_budget.ok:
-            return None
-
-        self._pre_exec_repair.mark_llm_repair_attempt()
-
-        try:
-            # Re-plan with error context
-            error_summary = "; ".join(e.message[:100] for e in sem_result.errors[:3])
-            contextualized_input = (
-                f"{ctx.user_input}\n\n"
-                f"[PREVIOUS PLAN HAD ERRORS: {error_summary}. "
-                f"Please fix the action names and tool references to match canonical contracts.]"
-            )
-            ctx.user_input = contextualized_input
-
-            t_plan = time.time()
-            plan_nodes = self._planner.plan(ctx)
-            metrics.capture_planner((time.time() - t_plan) * 1000)
-
-            dag = self._compiler.compile(plan_nodes)
-            return dag
-        except Exception:
-            return None
-
-    # ========================================================================
-    # Audit: mark blocked nodes for audit logging
-    # ========================================================================
-
-    def _mark_blocked_nodes_for_audit(self, dag, node_results, errors):
-        """Ensure blocked/failed nodes are tracked in audit."""
-        if dag is None:
-            return
-        for node in dag.nodes:
-            if node.status == ExecutionStatus.PENDING:
-                if not node.error:
-                    node.status = ExecutionStatus.SKIPPED
-                    node.error = "Blocked by policy or validation error"
 
     # ========================================================================
     # Result assembly
@@ -936,7 +537,6 @@ class SSOTRuntimeEngine:
     ) -> SSOTRuntimeResult:
         total_ms = (time.monotonic() - t_total) * 1000
         metrics.capture_total(total_ms)
-        self._mark_blocked_nodes_for_audit(dag, node_results, errors)
         self._audit.create_record(
             ctx, dag, node_results,
             risk_level=risk_level,
@@ -945,19 +545,6 @@ class SSOTRuntimeEngine:
             duration_ms=total_ms,
         )
 
-        # v3.10: collect alias provenance so the SSOTRuntimeResult surface
-        # can show planner terminology drift at a glance (audit /
-        # trace surfaces keep the raw bookkeeping; we just propagate
-        # the per-node summary through metadata).
-        alias_drift_summary = []
-        if dag:
-            for nd in dag.nodes:
-                if nd.action_normalized_from_alias:
-                    alias_drift_summary.append({
-                        "node_id": nd.id,
-                        "action_original": nd.action_original,
-                        "action_normalized": nd.args.get("action", ""),
-                    })
         m = metrics.snapshot()
 
         # v3.11: merge fast-path metadata tags when present.
@@ -966,6 +553,7 @@ class SSOTRuntimeEngine:
             "route": "",
             "planner_skipped": False,
             "used_tools": len(node_results) > 0,
+            "tool_calls": len(node_results),
             "direct_answer_latency_ms": 0.0,
             # v3.12: approval tracking
             "approval_required": False,
@@ -1004,13 +592,11 @@ class SSOTRuntimeEngine:
                 "risk_level": risk_level,
                 "approval_required": approval_required,
                 "llm_calls": budget.llm_calls,
-                "dag_nodes": dag.total_nodes if dag else 0,
-                "dag_depth": dag.max_depth if dag else 0,
                 "structured_errors": [e.to_dict() for e in errors],
                 "metrics": metrics.to_dict(),
                 "rollback_available": rollback_plan.rollback_available if rollback_plan else False,
                 "rollback_recommended": rollback_plan.rollback_recommended if rollback_plan else False,
-                "alias_normalizations": alias_drift_summary,
+                "alias_normalizations": ctx.extras.get("alias_normalizations", []),
                 "plan_enrichment_events": ctx.extras.get("plan_enrichment_events", []),
                 "pre_exec_repair_events": ctx.extras.get("pre_exec_repair_events", []),
                 "pre_exec_repair_applied": ctx.extras.get("pre_exec_repair_applied", False),
@@ -1031,96 +617,8 @@ class SSOTRuntimeEngine:
             },
         )
 
-    @staticmethod
-    def _mark_blocked_nodes_for_audit(
-        dag,
-        node_results: dict[str, ToolResult],
-        errors: list[SSOTRuntimeError],
-    ) -> None:
-        if not dag:
-            return
-        error_node_ids = {e.node_id for e in errors if e.node_id}
-        for node in dag.nodes:
-            if node.id in node_results:
-                continue
-            if node.status in (ExecutionStatus.SUCCESS, ExecutionStatus.FAILED):
-                continue
-            if node.id in error_node_ids:
-                node.status = ExecutionStatus.SKIPPED
-
     def _noop_llm(self, **kwargs) -> str:
         return '{"nodes": []}'
-
-
-# ========================================================================
-# Module-level helpers (used by engine.py and risk_policy)
-# ========================================================================
-
-def _summarize_commands(dag) -> list[dict[str, str]]:
-    """Extract exec.run command summaries for the approval bubble."""
-    if dag is None:
-        return []
-    commands = []
-    for node in dag.nodes:
-        if node.tool != "exec.run":
-            continue
-        cmd = str(node.args.get("command", "")[:200])
-        if cmd:
-            commands.append({"node_id": node.id, "command": cmd})
-    return commands
-
-
-def _summarize_tools(dag) -> list[str]:
-    """List distinct tool IDs in the DAG for the approval bubble."""
-    if dag is None:
-        return []
-    seen = {}
-    for node in dag.nodes:
-        seen[node.tool] = seen.get(node.tool, 0) + 1
-    return [f"{tid} (x{count})" if count > 1 else tid
-            for tid, count in sorted(seen.items())]
-
-
-def _should_poll_tracking(user_input: str, tracking: dict[str, Any]) -> bool:
-    if tracking.get("done"):
-        return False
-    action = str(tracking.get("suggested_next_action") or "").lower()
-    if action and action != "poll_task_get":
-        return False
-    text = str(user_input or "").lower()
-    explicit = any(w in text for w in (
-        "跟踪", "追踪", "等待", "持续", "结果", "完成", "巡检",
-        "track", "follow", "wait", "until complete",
-    ))
-    return explicit or str(tracking.get("kind") or "") == "long_task"
-
-
-def _tracking_wait_seconds(
-    tracking: dict[str, Any],
-    *,
-    cap: float,
-    remaining: float,
-) -> float:
-    try:
-        requested = float(tracking.get("next_poll_seconds") or 0)
-    except (TypeError, ValueError):
-        requested = 0.0
-    cap = max(0.0, cap)
-    remaining = max(0.0, remaining)
-    if requested <= 0 or cap <= 0:
-        return 0.0
-    return max(0.0, min(requested, cap, remaining))
-
-
-def _next_tracking_node_id(dag, source_node_id: str, poll_index: int) -> str:
-    used = {str(getattr(n, "id", "") or "") for n in getattr(dag, "nodes", []) or []}
-    base = f"{source_node_id}_track_{poll_index}"
-    if base not in used:
-        return base
-    suffix = 2
-    while f"{base}_{suffix}" in used:
-        suffix += 1
-    return f"{base}_{suffix}"
 
 
 # ── v3.14: Task-intent detection ─────────────────────────────────────────

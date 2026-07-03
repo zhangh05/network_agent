@@ -99,7 +99,6 @@ def handle_skill_load(inv: ToolInvocation) -> dict:
             return _ok(inv, "", payload)
 
     return _error_inv(inv, f"skill '{skill_name}' not found. Available: {[c['capability_id'] for c in _catalog.list_all()]}")
-    return _error_inv(inv, f"skill '{skill_name}' not found. Available: {[c['capability_id'] for c in _catalog.list_all()]}")
 
 
 def handle_skill_find(inv: ToolInvocation) -> dict:

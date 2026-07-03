@@ -186,6 +186,43 @@ class TestFastPathGenerator:
         assert meta.get("used_tools") is False
         assert meta.get("route") == "simple_question"
 
+    def test_what_does_it_mean_uses_history_without_tools(self):
+        """'什么意思' after a prior result should explain history, not rerun tools."""
+        seen = {}
+
+        def llm_mock(**kwargs):
+            seen["system"] = kwargs.get("system", "")
+            seen["user"] = kwargs.get("user", "")
+            return "上一轮的意思是：巡检工具跑完了，但最终说明不完整。"
+
+        config = SSOTRuntimeConfig()
+        engine = SSOTRuntimeEngine(
+            config=config, llm_invoke=llm_mock,
+            tool_runtime=mock.MagicMock(),
+        )
+
+        result = asyncio.run(engine.run(
+            user_input="什么意思？",
+            workspace_id="test",
+            extras={
+                "conversation_history_block": (
+                    "RECENT CONVERSATION HISTORY:\n"
+                    "  [1] user: 对 CMDB 资产「CE2」 发起自动巡检。\n"
+                    "  [2] assistant: 工具执行完成：成功 1 个，失败 7 个。"
+                )
+            },
+        ))
+
+        assert result.success
+        meta = result.metadata
+        assert meta.get("fast_path") is True
+        assert meta.get("route") == "conversation_explain"
+        assert meta.get("planner_skipped") is True
+        assert meta.get("used_tools") is False
+        assert meta.get("conversation_comprehension") is True
+        assert "RECENT CONVERSATION HISTORY" in seen["system"]
+        assert result.final_response.startswith("上一轮的意思")
+
     def test_ospf_neighbor_down_full_ssot_runtime(self):
         """'OSPF 邻居起不来' rejets fast path — planner must run."""
         planner_called = []

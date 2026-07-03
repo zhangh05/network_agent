@@ -215,24 +215,28 @@ def _validate_catalog() -> None:
 
 _validate_catalog()
 
+# Public immutable catalog export for code that needs a data handle rather
+# than helper functions. Keep helpers as the preferred read API.
+CAPABILITY_CATALOG: tuple[dict, ...] = _CAPABILITIES
+
 
 def list_all() -> list[dict]:
     """Return all business capabilities (enabled + planned)."""
-    return list(_CAPABILITIES)
+    return list(CAPABILITY_CATALOG)
 
 
 def list_enabled() -> list[dict]:
     """Return enabled business capabilities only."""
-    return [c for c in _CAPABILITIES if c["status"] == "enabled"]
+    return [c for c in CAPABILITY_CATALOG if c["status"] == "enabled"]
 
 
 def list_planned() -> list[dict]:
     """Return planned (not yet enabled) business capabilities."""
-    return [c for c in _CAPABILITIES if c["status"] == "planned"]
+    return [c for c in CAPABILITY_CATALOG if c["status"] == "planned"]
 
 
 def get(capability_id: str) -> dict | None:
-    for c in _CAPABILITIES:
+    for c in CAPABILITY_CATALOG:
         if c["capability_id"] == capability_id:
             return c
     return None
@@ -257,12 +261,13 @@ def to_skill_dict(cap: dict) -> dict:
 def all_recommended_tool_ids() -> set[str]:
     """Set of every tool_id that any business capability recommends."""
     out: set[str] = set()
-    for c in _CAPABILITIES:
+    for c in CAPABILITY_CATALOG:
         out.update(c["recommended_tool_ids"])
     return out
 
 
 __all__ = [
+    "CAPABILITY_CATALOG",
     "list_all",
     "list_enabled",
     "list_planned",

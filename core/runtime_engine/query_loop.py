@@ -1,10 +1,9 @@
 """
 QueryLoop — iterative LLM + tool execution engine.
 
-Replaces the Planner → Compile → Execute → Finalizer pipeline with a
-single agentic loop that merges planning and finalization into one
-LLM stream, feeds tool results back for iterative refinement, and
-auto-compacts long conversations.
+The single tool-capable runtime loop merges planning and finalization,
+feeds tool results back for iterative refinement, tracks long tasks,
+records retry metadata, and auto-compacts long conversations.
 
 Optimizations:
   1. Prompt Cache — static system+tools prefix never changes
@@ -19,10 +18,17 @@ from __future__ import annotations
 import asyncio
 import json
 import time
+from dataclasses import asdict
 from dataclasses import dataclass, field
-from typing import Any, Dict, List, Optional
+from typing import Any, Callable, Dict, List, Optional
 
-from .models import SSOTRuntimeConfig, StatelessContext
+from .models import (
+    ExecutionNode,
+    ExecutionStatus,
+    SSOTRuntimeConfig,
+    StatelessContext,
+    ToolResult,
+)
 from .tracking import extract_tracking_payload, normalize_tracking_payload
 from agent.llm.schemas import LLMMessage, LLMResponse, LLMToolCall
 from agent.llm.tool_adapter import tool_spec_to_openai_function
@@ -31,8 +37,8 @@ from agent.llm.tool_adapter import tool_spec_to_openai_function
 # ── Prompt Cache ────────────────────────────────────────────────────────────
 
 # Static prefix that never changes between turns — cached by the LLM API.
-QUERY_LOOP_SYSTEM_PROMPT = """You are a network operations AI agent. Use the EXACT function names
-from the tool list provided to you — do NOT shorten, abbreviate, or guess names.
+QUERY_LOOP_SYSTEM_PROMPT = """You are a deterministic execution planner and network operations AI agent.
+Use the EXACT function names from the tool list provided to you — do NOT shorten, abbreviate, or guess names.
 For example:
 - inspection__manage (device health inspection)
 - exec__run (SSH/Telnet/command execution)
@@ -56,9 +62,9 @@ For example:
 - workspace__document__pdf__extract_text (PDF extraction)
 - workspace__filestore (FileStore)
 
-Work step by step. Call tools to gather information, then reason about the
-results. When you have enough information, provide a final answer directly
-without calling more tools.
+Work step by step. On the first pass, call tools to gather information. After
+tool results are available, reason about the results and provide a final answer
+directly without calling more tools unless one additional fact is truly missing.
 
 RULES:
 1. Use EXACT function names from the tool list. Never shorten or invent names.
@@ -70,6 +76,21 @@ RULES:
    available function list and use the EXACT name.
 6. DO NOT repeat the same failing tool+arguments more than 2 times.
 7. After all tool results are in, respond directly without calling more tools."""
+
+
+QUERY_LOOP_FINALIZER_PROMPT = """You are the final response writer for Network Agent.
+
+Use the provided tool results as facts. Explain the outcome in clear user-facing
+language:
+1. Answer the user's original request directly.
+2. Summarize successful tool results, failures, retries, tracking status, and
+   next actions when relevant.
+3. If a long task is still running, keep the task id and tell the user it is
+   still running; do not start a duplicate task.
+4. If a report or artifact URL is present, include it.
+5. Do not invent device states, command output, weather data, files, or memory.
+6. You may call another tool only when a required follow-up fact is missing.
+7. Never repeat a tool call whose successful result is already shown below."""
 
 
 def _build_cached_tool_definitions(tool_registry: dict) -> List[dict]:
@@ -153,8 +174,9 @@ class StreamingToolExecutor:
         "memory.manage", "system.manage", "git.manage",
     }
 
-    def __init__(self, tool_runtime, emitter=None):
+    def __init__(self, tool_runtime, config: SSOTRuntimeConfig | None = None, emitter=None):
         self._runtime = tool_runtime
+        self._config = config or SSOTRuntimeConfig()
         self._emitter = emitter
 
     def _is_read_only(self, tool_id: str) -> bool:
@@ -162,7 +184,13 @@ class StreamingToolExecutor:
         normalized = tool_id.replace("__", ".")
         return normalized in self._READ_ONLY_TOOLS
 
-    async def execute(self, tool_calls: List[LLMToolCall]) -> List[StreamingToolResult]:
+    async def execute(
+        self,
+        tool_calls: List[LLMToolCall],
+        *,
+        ctx: StatelessContext | None = None,
+        budget=None,
+    ) -> List[StreamingToolResult]:
         """Execute tool calls. Read-only parallel, writes serialised."""
         results: List[StreamingToolResult] = []
 
@@ -172,20 +200,38 @@ class StreamingToolExecutor:
 
         # Parallel read-only
         if read_only:
-            tasks = [self._execute_one(tc) for tc in read_only]
+            tasks = [self._execute_one(tc, ctx=ctx, budget=budget) for tc in read_only]
             results.extend(await asyncio.gather(*tasks))
 
         # Serial writes
         for tc in writes:
-            results.append(await self._execute_one(tc))
+            results.append(await self._execute_one(tc, ctx=ctx, budget=budget))
 
         return results
 
-    async def _execute_one(self, tc: LLMToolCall) -> StreamingToolResult:
+    async def _execute_one(
+        self,
+        tc: LLMToolCall,
+        *,
+        ctx: StatelessContext | None = None,
+        budget=None,
+    ) -> StreamingToolResult:
         """Execute a single tool call via the tool runtime client."""
+        tool_id = tc.name.replace("__", ".")
+        if ctx is not None and hasattr(self._runtime, "execute_node"):
+            node = ExecutionNode(
+                id=tc.id,
+                tool=tool_id,
+                args=dict(tc.arguments or {}),
+                depth=0,
+            )
+            result = await self._runtime.execute_node(node, ctx, {})
+            if not result.success:
+                result = await self._maybe_retry_node(node, ctx, result, budget)
+            return self._from_tool_result(result, fallback_call_id=tc.id)
+
         try:
             # Map LLM name (dots → underscores) back to canonical tool_id
-            tool_id = tc.name.replace("__", ".")
             result = await asyncio.to_thread(
                 self._runtime.invoke_raw, tool_id, tc.arguments
             )
@@ -205,6 +251,121 @@ class StreamingToolExecutor:
                 error=str(e),
             )
 
+    async def _maybe_retry_node(
+        self,
+        node: ExecutionNode,
+        ctx: StatelessContext,
+        original_result: ToolResult,
+        budget,
+    ) -> ToolResult:
+        from .contracts import get_contract
+        from .tool_retry_policy import should_retry_tool_failure
+
+        error_code = (original_result.error_code or "").strip().upper()
+        if not error_code:
+            err = (original_result.error or "").lower()
+            if "timeout" in err or "timed out" in err:
+                error_code = "TOOL_TIMEOUT"
+            elif "rate" in err and "limit" in err:
+                error_code = "RATE_LIMITED"
+            elif "connection" in err and "reset" in err:
+                error_code = "CONNECTION_RESET"
+            else:
+                error_code = "TOOL_EXCEPTION"
+
+        contract = get_contract(node.tool)
+        budget_ok = bool(budget.check_execution().ok) if budget is not None else True
+        decision = should_retry_tool_failure(
+            node=node,
+            tool_contract=contract,
+            error_code=error_code,
+            error_message=original_result.error or "",
+            config_max_retries=(
+                int(getattr(contract, "max_retries", 0) or 0)
+                if contract is not None else 0
+            ),
+            global_max_retries_per_node=self._config.max_retries_per_node,
+            budget_ok=budget_ok,
+        )
+        self._record_retry_decision(ctx, node, decision)
+
+        if not decision.retry_allowed:
+            return original_result
+
+        await asyncio.sleep(decision.backoff_ms / 1000.0)
+        node.retry_count += 1
+        retry_result = await self._runtime.execute_node(node, ctx, {})
+        retry_result.retry_count = node.retry_count
+        retry_result.metadata = dict(retry_result.metadata or {})
+        retry_result.metadata.update({
+            "retried": True,
+            "retry_count": node.retry_count,
+            "retry_reason": decision.reason,
+            "retry_backoff_ms": decision.backoff_ms,
+            "retry_error_code": decision.error_code,
+            "retry_original_error": decision.notes.get("original_error", ""),
+        })
+        self._record_retry_result(ctx, node, retry_result)
+        return retry_result
+
+    @staticmethod
+    def _record_retry_decision(ctx: StatelessContext, node: ExecutionNode, decision) -> None:
+        events = list(ctx.extras.get("retry_events") or [])
+        events.append({
+            **decision.to_dict(),
+            "node_id": node.id,
+            "tool_id": node.tool,
+        })
+        ctx.extras["retry_events"] = events
+        summary = dict(ctx.extras.get("retry_summary") or {
+            "retry_attempts": 0,
+            "retried_nodes": [],
+            "retry_succeeded": 0,
+            "retry_failed": 0,
+            "retry_blocked": 0,
+        })
+        if not decision.retry_allowed:
+            summary["retry_blocked"] = int(summary.get("retry_blocked", 0) or 0) + 1
+        ctx.extras["retry_summary"] = summary
+
+    @staticmethod
+    def _record_retry_result(ctx: StatelessContext, node: ExecutionNode, result: ToolResult) -> None:
+        summary = dict(ctx.extras.get("retry_summary") or {
+            "retry_attempts": 0,
+            "retried_nodes": [],
+            "retry_succeeded": 0,
+            "retry_failed": 0,
+            "retry_blocked": 0,
+        })
+        summary["retry_attempts"] = int(summary.get("retry_attempts", 0) or 0) + 1
+        nodes = list(summary.get("retried_nodes") or [])
+        if node.id not in nodes:
+            nodes.append(node.id)
+        summary["retried_nodes"] = nodes
+        if result.success:
+            summary["retry_succeeded"] = int(summary.get("retry_succeeded", 0) or 0) + 1
+        else:
+            summary["retry_failed"] = int(summary.get("retry_failed", 0) or 0) + 1
+        ctx.extras["retry_summary"] = summary
+
+    @staticmethod
+    def _from_tool_result(result: ToolResult, *, fallback_call_id: str) -> StreamingToolResult:
+        output = result.data if isinstance(result.data, dict) else {"data": result.data}
+        if not result.success and result.error:
+            output = {**(output or {}), "error": result.error}
+        metadata = dict(result.metadata or {})
+        if result.retry_count:
+            metadata["retry_count"] = result.retry_count
+        if metadata:
+            output = {**(output or {}), "metadata": metadata}
+        return StreamingToolResult(
+            tool_name=result.tool,
+            call_id=result.node_id or fallback_call_id,
+            output=output or {},
+            ok=bool(result.success),
+            error=result.error,
+        )
+
 
 # ── QueryLoop ────────────────────────────────────────────────────────────────
 
@@ -216,6 +377,12 @@ class QueryLoopResult:
     total_tool_calls: int = 0
     llm_calls: int = 0
     error: Optional[str] = None
+    errors: list[str] = field(default_factory=list)
+    risk_level: str = "low"
+    approval_required: bool = False
+    approval_nodes: list[str] = field(default_factory=list)
+    approval_details: list[dict[str, Any]] = field(default_factory=list)
+    hard_block: bool = False
     metrics: Dict[str, Any] = field(default_factory=dict)
 
 
@@ -232,13 +399,15 @@ class QueryLoop:
         config: SSOTRuntimeConfig,
         tool_registry: dict[str, dict[str, Any]],
         tool_runtime,
+        llm_invoke: Callable[..., Any] | None = None,
         emitter=None,
     ):
         self._config = config
         self._tool_registry = tool_registry
         self._tool_runtime = tool_runtime
+        self._llm_invoke = llm_invoke
         self._emitter = emitter
-        self._executor = StreamingToolExecutor(tool_runtime, emitter)
+        self._executor = StreamingToolExecutor(tool_runtime, config, emitter)
         self._cached_tools = _build_cached_tool_definitions(tool_registry)
 
     async def run(
@@ -254,6 +423,7 @@ class QueryLoop:
         llm_calls = 0
         # Doom-loop detection: key=(tool, args_hash) → consecutive_failures
         failure_counts: Dict[str, int] = {}
+        successful_call_keys: set[str] = set()
 
         # Build initial messages (cacheable prefix)
         messages = self._build_initial(ctx)
@@ -263,15 +433,21 @@ class QueryLoop:
         while iterations < max_iterations:
             iterations += 1
 
-            # Budget check
-            if llm_calls >= getattr(budget, "max_llm_calls", 30):
+            # Budget check. BudgetController is the SSOT for LLM call count;
+            # local llm_calls mirrors it for QueryLoopResult only.
+            budget_status = budget.check_llm_call()
+            if not budget_status.ok:
                 return QueryLoopResult(
-                    final_response="已达到 LLM 调用上限，请简化请求。",
+                    final_response=(
+                        "已达到 LLM 调用上限，请简化请求。"
+                        if not all_results
+                        else self._build_tool_result_fallback(ctx, all_results)
+                    ),
                     tool_results=all_results,
                     iterations=iterations,
                     total_tool_calls=len(all_results),
-                    llm_calls=llm_calls,
-                    error="budget_exceeded",
+                    llm_calls=budget.llm_calls,
+                    error=budget_status.exceeded or "budget_exceeded",
                 )
 
             # Auto-compact if needed
@@ -279,7 +455,7 @@ class QueryLoop:
                 messages = _compact_messages(messages)
 
             # Call LLM (with streaming for tool exec)
-            response = await self._call_llm(messages)
+            response = await self._call_llm(messages, ctx)
 
             if response is None or response.error:
                 return QueryLoopResult(
@@ -287,20 +463,68 @@ class QueryLoop:
                     tool_results=all_results,
                     iterations=iterations,
                     total_tool_calls=len(all_results),
-                    llm_calls=llm_calls,
+                    llm_calls=budget.llm_calls,
                     error=response.error if response else "no_response",
                 )
 
-            llm_calls += 1
+            llm_calls = budget.llm_calls
 
             # Check for tool calls
             if response.tool_calls:
                 # Convert to LLMToolCall objects
                 tool_calls = self._parse_tool_calls(response.tool_calls)
 
+                duplicate_successes = [
+                    tc for tc in tool_calls
+                    if self._tool_call_key(tc) in successful_call_keys
+                ]
+                if duplicate_successes and len(duplicate_successes) == len(tool_calls):
+                    return QueryLoopResult(
+                        final_response=self._build_tool_result_fallback(ctx, all_results),
+                        tool_results=all_results,
+                        iterations=iterations,
+                        total_tool_calls=len(all_results),
+                        llm_calls=llm_calls,
+                        error="duplicate_successful_tool_call",
+                    )
+                tool_calls = [
+                    tc for tc in tool_calls
+                    if self._tool_call_key(tc) not in successful_call_keys
+                ]
+                if not tool_calls:
+                    return QueryLoopResult(
+                        final_response=self._build_tool_result_fallback(ctx, all_results),
+                        tool_results=all_results,
+                        iterations=iterations,
+                        total_tool_calls=len(all_results),
+                        llm_calls=llm_calls,
+                        error="duplicate_tool_call",
+                    )
+
+                gate = self._prepare_tool_calls(ctx, tool_calls)
+                if not gate["ok"]:
+                    return QueryLoopResult(
+                        final_response=gate["message"],
+                        tool_results=all_results,
+                        iterations=iterations,
+                        total_tool_calls=len(all_results),
+                        llm_calls=llm_calls,
+                        error=gate["error"],
+                        errors=list(gate.get("errors") or []),
+                        risk_level=gate.get("risk_level", "high"),
+                        approval_required=bool(gate.get("approval_required", False)),
+                        approval_nodes=list(gate.get("approval_nodes") or []),
+                        approval_details=list(gate.get("approval_details") or []),
+                        hard_block=bool(gate.get("hard_block", False)),
+                    )
+                tool_calls = gate["tool_calls"]
+
                 # Execute tools (parallel read-only, serial writes)
-                results = await self._executor.execute(tool_calls)
+                results = await self._executor.execute(tool_calls, ctx=ctx, budget=budget)
                 all_results.extend(results)
+                for r, tc in zip(results, tool_calls):
+                    if r.ok:
+                        successful_call_keys.add(self._tool_call_key(tc))
 
                 # ── Tracking: auto-poll long tasks (e.g. inspection) ──
                 polled_results = await self._settle_tracking(ctx, results)
@@ -326,10 +550,27 @@ class QueryLoop:
                                 error="doom_loop",
                             )
 
+                if not getattr(self._config, "enable_finalizer", True):
+                    return QueryLoopResult(
+                        final_response=self._build_tool_result_fallback(ctx, all_results),
+                        tool_results=all_results,
+                        iterations=iterations,
+                        total_tool_calls=len(all_results),
+                        llm_calls=llm_calls,
+                        metrics={
+                            "elapsed_ms": (time.monotonic() - t_start) * 1000,
+                            "iterations": iterations,
+                            "tool_calls": len(all_results),
+                            "llm_calls": llm_calls,
+                        },
+                    )
+
                 continue
 
             # No tool calls → final response
             final_text = response.content or ""
+            if not final_text.strip() and all_results:
+                final_text = self._build_tool_result_fallback(ctx, all_results)
             elapsed = (time.monotonic() - t_start) * 1000
 
             return QueryLoopResult(
@@ -397,21 +638,44 @@ class QueryLoop:
         ]
 
     async def _call_llm(
-        self, messages: List[LLMMessage]
+        self,
+        messages: List[LLMMessage],
+        ctx: StatelessContext,
     ) -> Optional[LLMResponse]:
         """Call LLM with tools and streaming support.
-        
-        Uses agent.llm.runtime.invoke_llm directly — bypasses the
-        Planner-focused wrapper (_invoke_llm_for_ssot_runtime) which
-        converts LLMResponse tool_calls into PlanNode JSON strings.
         """
         try:
+            system_prompt, stream_scope, stream_to_user = self._llm_call_mode(messages)
+            if self._llm_invoke is not None:
+                raw = await asyncio.to_thread(
+                    self._llm_invoke,
+                    system=system_prompt,
+                    user=self._messages_to_user_text(messages),
+                    temperature=0.2,
+                    timeout=120,
+                    tools=self._cached_tools,
+                    workspace_id=ctx.workspace_id,
+                    session_id=ctx.session_id,
+                    extra={
+                        "runtime_engine": "ssot_runtime",
+                        "stream_scope": stream_scope,
+                        "stream_to_user": stream_to_user,
+                        "workspace_id": ctx.workspace_id,
+                        "session_id": ctx.session_id,
+                    },
+                )
+                return self._coerce_llm_response(raw)
+
             from agent.llm.runtime import invoke_llm
+            call_messages = [
+                LLMMessage(role="system", content=system_prompt),
+                *messages[1:],
+            ] if messages else [LLMMessage(role="system", content=system_prompt)]
             
             response = await asyncio.to_thread(
                 invoke_llm,
                 task="query_loop",
-                messages=messages,
+                messages=call_messages,
                 tools=self._cached_tools,
                 config_override={
                     "temperature": 0.2,
@@ -422,6 +686,93 @@ class QueryLoop:
             return response
         except Exception as e:
             return LLMResponse(error=str(e))
+
+    @staticmethod
+    def _llm_call_mode(messages: List[LLMMessage]) -> tuple[str, str, bool]:
+        has_tool_context = any(
+            m.role == "tool"
+            or (m.role == "user" and "AUTO TRACKING RESULTS" in str(m.content or ""))
+            for m in messages
+        )
+        if has_tool_context:
+            return QUERY_LOOP_FINALIZER_PROMPT, "finalizer", True
+        return QUERY_LOOP_SYSTEM_PROMPT, "planner", False
+
+    def _messages_to_user_text(self, messages: List[LLMMessage]) -> str:
+        """Serialize loop messages for injected LLM adapters.
+
+        The production adapter accepts ``system`` + ``user`` strings, while
+        QueryLoop internally keeps OpenAI-style tool messages. This projection
+        preserves the relevant context without bypassing the injected adapter.
+        """
+        parts: list[str] = []
+        for m in messages:
+            if m.role == "system":
+                continue
+            label = m.role.upper()
+            content = m.content
+            if m.tool_calls:
+                parts.append(
+                    f"{label} TOOL_CALLS: "
+                    f"{json.dumps(m.tool_calls, ensure_ascii=False, default=str)}"
+                )
+            if content:
+                parts.append(f"{label}: {content}")
+            if m.tool_call_id:
+                parts[-1:] = [f"{parts[-1]} (tool_call_id={m.tool_call_id})"] if parts else []
+        return "\n\n".join(parts)
+
+    def _coerce_llm_response(self, raw: Any) -> LLMResponse:
+        """Coerce injected adapter output into QueryLoop's LLMResponse shape."""
+        if isinstance(raw, LLMResponse):
+            return raw
+        if raw is None:
+            return LLMResponse(error="empty_llm_response")
+        tool_calls = getattr(raw, "tool_calls", None)
+        if tool_calls is not None:
+            return LLMResponse(
+                content=str(getattr(raw, "content", "") or ""),
+                error=getattr(raw, "error", None),
+                tool_calls=list(tool_calls or []),
+            )
+        text = str(raw)
+        data = self._try_parse_json_object(text)
+        if data is not None:
+            nodes = data.get("nodes")
+            if isinstance(nodes, list):
+                calls: list[LLMToolCall] = []
+                for idx, node in enumerate(nodes):
+                    if not isinstance(node, dict):
+                        continue
+                    tool = str(node.get("tool") or "").strip()
+                    if not tool:
+                        continue
+                    calls.append(LLMToolCall(
+                        id=str(node.get("id") or f"call_{idx}"),
+                        name=tool,
+                        arguments=dict(node.get("args") or {}),
+                    ))
+                return LLMResponse(
+                    content=str(data.get("final_response") or ""),
+                    tool_calls=calls,
+                )
+        return LLMResponse(content=text)
+
+    @staticmethod
+    def _try_parse_json_object(text: str) -> dict[str, Any] | None:
+        cleaned = (text or "").strip()
+        if cleaned.startswith("```"):
+            lines = cleaned.splitlines()
+            if lines and lines[0].startswith("```"):
+                lines = lines[1:]
+            if lines and lines[-1].strip() == "```":
+                lines = lines[:-1]
+            cleaned = "\n".join(lines).strip()
+        try:
+            data = json.loads(cleaned)
+        except Exception:
+            return None
+        return data if isinstance(data, dict) else None
 
     def _parse_tool_calls(self, raw: List[LLMToolCall]) -> List[LLMToolCall]:
         """Normalise raw tool calls from LLM response (may be dict or LLMToolCall)."""
@@ -446,6 +797,8 @@ class QueryLoop:
             
             # Normalise double-underscore to dots
             tname = tname.replace("__", ".")
+            if not tid:
+                tid = f"call_{len(result)}"
             
             result.append(LLMToolCall(
                 id=str(tid),
@@ -453,6 +806,192 @@ class QueryLoop:
                 arguments=args,
             ))
         return result
+
+    @staticmethod
+    def _tool_call_key(tc: LLMToolCall) -> str:
+        return (
+            f"{tc.name}:"
+            f"{json.dumps(tc.arguments or {}, sort_keys=True, ensure_ascii=False, default=str)}"
+        )
+
+    def _prepare_tool_calls(
+        self,
+        ctx: StatelessContext,
+        tool_calls: List[LLMToolCall],
+    ) -> dict[str, Any]:
+        """Run QueryLoop's pre-execution hard boundaries.
+
+        QueryLoop is the execution path. It still keeps semantic repair, risk,
+        and approval boundaries, but does not expose or persist old graph state.
+        """
+        nodes = self._tool_calls_to_nodes(tool_calls)
+        graph = self._validation_graph(nodes)
+
+        from .semantic_validator import SemanticValidator
+        from .pre_execution_repair import PreExecutionRepairEngine
+        from .risk_policy import RiskPolicyEngine
+        from .plan_enrichment import enrich_dag_from_user_request
+
+        enrichment_events = enrich_dag_from_user_request(graph, ctx.user_input)
+        if enrichment_events:
+            ctx.extras.setdefault("plan_enrichment_events", [])
+            ctx.extras["plan_enrichment_events"].extend(
+                asdict(event) for event in enrichment_events
+            )
+
+        validator = SemanticValidator(self._tool_registry)
+        validation = validator.validate(graph)
+        if not validation.valid:
+            repair = PreExecutionRepairEngine().try_repair(graph, validation.errors)
+            self._record_pre_exec_repair(ctx, repair)
+            repaired_graph = getattr(repair, "repaired_graph", None)
+            if repair.repaired and repaired_graph is not None:
+                graph = repaired_graph
+                nodes = list(getattr(graph, "nodes", []) or [])
+                validation = validator.validate(graph)
+
+        if not validation.valid:
+            for node in nodes:
+                if any(e.node_id == node.id for e in validation.errors):
+                    node.status = ExecutionStatus.SKIPPED
+                    node.error = "Blocked by semantic validation"
+            errors = [
+                f"{e.node_id}:{e.code}:{e.message}"
+                for e in validation.errors
+            ]
+            self._record_blocked_audit_nodes(ctx, nodes)
+            return {
+                "ok": False,
+                "error": "semantic_validation_failed",
+                "errors": errors,
+                "hard_block": True,
+                "risk_level": "high",
+                "message": "工具调用被执行前校验拦截：\n" + "\n".join(f"- {e}" for e in errors),
+            }
+
+        risk = RiskPolicyEngine(self._config).assess(graph)
+        ctx.extras.update({
+            "approval_required": bool(risk.requires_approval),
+            "hard_block": bool(risk.hard_block),
+            "approval_reason": risk.approval_reason,
+            "approval_nodes": list(risk.approval_nodes),
+            "approval_details": list(risk.approval_details),
+        })
+
+        if risk.hard_block:
+            for node in nodes:
+                if node.id in risk.blocked_nodes:
+                    node.status = ExecutionStatus.SKIPPED
+                    node.error = risk.blocked_reason or "Blocked by risk policy"
+            reason = risk.blocked_reason or "blocked_by_risk_policy"
+            self._record_blocked_audit_nodes(ctx, nodes)
+            return {
+                "ok": False,
+                "error": "risk_hard_block",
+                "errors": [reason],
+                "hard_block": True,
+                "risk_level": risk.risk_level,
+                "message": f"工具调用被安全策略阻断：{reason}",
+            }
+
+        if risk.requires_approval and not ctx.extras.get("approved_risk"):
+            return {
+                "ok": False,
+                "error": "approval_required",
+                "errors": [],
+                "approval_required": True,
+                "approval_nodes": list(risk.approval_nodes),
+                "approval_details": list(risk.approval_details),
+                "risk_level": risk.risk_level,
+                "message": (
+                    "该操作需要用户审批后才能继续执行。"
+                    f"原因：{risk.approval_reason or 'high_risk_tool_or_command'}"
+                ),
+            }
+
+        repaired_calls = [
+            LLMToolCall(id=n.id, name=n.tool, arguments=dict(n.args or {}))
+            for n in nodes
+        ]
+        return {
+            "ok": True,
+            "tool_calls": repaired_calls,
+            "risk_level": risk.risk_level,
+            "approval_required": False,
+        }
+
+    @staticmethod
+    def _tool_calls_to_nodes(tool_calls: List[LLMToolCall]) -> list[ExecutionNode]:
+        from .action_alias import resolve_action_alias
+
+        nodes: list[ExecutionNode] = []
+        for idx, tc in enumerate(tool_calls):
+            args = dict(tc.arguments or {})
+            action_original = ""
+            action_normalized_from_alias = False
+            raw_action = args.get("action")
+            if isinstance(raw_action, str) and raw_action:
+                resolution = resolve_action_alias(tc.name.replace("__", "."), raw_action)
+                if resolution.matched:
+                    args["action"] = resolution.canonical_action
+                    if resolution.operation:
+                        args["operation"] = resolution.operation
+                    action_original = resolution.original_action
+                    action_normalized_from_alias = True
+            nodes.append(ExecutionNode(
+                id=tc.id or f"call_{idx}",
+                tool=tc.name.replace("__", "."),
+                args=args,
+                depth=0,
+                action_original=action_original,
+                action_normalized_from_alias=action_normalized_from_alias,
+            ))
+        return nodes
+
+    @staticmethod
+    def _validation_graph(nodes: list[ExecutionNode]):
+        """Adapter for validators that still accept a graph-like object."""
+        class _ValidationGraph:
+            def __init__(self, graph_nodes):
+                self.nodes = graph_nodes
+                self.layers = {0: graph_nodes}
+                self.total_nodes = len(graph_nodes)
+                self.max_depth = 0
+
+            def get_layer(self, depth: int):
+                return self.layers.get(depth, [])
+
+        return _ValidationGraph(nodes)
+
+    @staticmethod
+    def _record_blocked_audit_nodes(ctx: StatelessContext, nodes: list[ExecutionNode]) -> None:
+        blocked = []
+        for node in nodes:
+            if node.status != ExecutionStatus.SKIPPED:
+                continue
+            blocked.append({
+                "node_id": node.id,
+                "tool": node.tool,
+                "args": dict(node.args or {}),
+                "depth": node.depth,
+                "status": node.status.value,
+                "latency_ms": node.latency_ms,
+                "error": node.error or "blocked",
+            })
+        if blocked:
+            ctx.extras["audit_blocked_nodes"] = blocked
+
+    @staticmethod
+    def _record_pre_exec_repair(ctx: StatelessContext, repair) -> None:
+        events = []
+        for event in getattr(repair, "repair_events", []) or []:
+            try:
+                events.append(asdict(event))
+            except Exception:
+                events.append(dict(getattr(event, "__dict__", {}) or {}))
+        if events:
+            ctx.extras["pre_exec_repair_events"] = events
+        ctx.extras["pre_exec_repair_applied"] = bool(getattr(repair, "repaired", False))
 
     def _append_tool_round(
         self,
@@ -485,8 +1024,15 @@ class QueryLoop:
             tool_calls=assistant_tool_calls,
         ))
 
-        # Tool result messages
+        original_call_ids = {tc.id for tc in tool_calls}
+        extra_results: list[StreamingToolResult] = []
+
+        # Tool result messages for model-requested calls only. Auto-tracking
+        # polls are internal and do not have matching assistant tool_calls.
         for r in results:
+            if r.call_id not in original_call_ids:
+                extra_results.append(r)
+                continue
             output_str = json.dumps(r.output, ensure_ascii=False, default=str)
             # Truncate large outputs
             if len(output_str) > 8000:
@@ -495,6 +1041,25 @@ class QueryLoop:
                 role="tool",
                 content=output_str,
                 tool_call_id=r.call_id,
+            ))
+
+        if extra_results:
+            payload = [
+                {
+                    "tool": r.tool_name,
+                    "call_id": r.call_id,
+                    "ok": r.ok,
+                    "error": r.error,
+                    "output": r.output,
+                }
+                for r in extra_results
+            ]
+            output_str = json.dumps(payload, ensure_ascii=False, default=str)
+            if len(output_str) > 8000:
+                output_str = output_str[:8000] + "... [truncated]"
+            new_msgs.append(LLMMessage(
+                role="user",
+                content="AUTO TRACKING RESULTS:\n" + output_str,
             ))
 
         return new_msgs
@@ -508,8 +1073,9 @@ class QueryLoop:
     ) -> List[StreamingToolResult]:
         """After tool execution, auto-poll long tasks (e.g. inspection).
 
-        Mirrors _settle_tracking_tasks from the legacy pipeline.
-        Only polls if user explicitly requested tracking (关键词: 跟踪/持续/等待).
+        Polling is generic and bounded. It only runs when the user explicitly
+        requested tracking (关键词: 跟踪/持续/等待) or the tool marks the payload
+        as a long task.
         Uses the tool's canonical name for task_get calls.
         """
         polled: List[StreamingToolResult] = []
@@ -546,6 +1112,15 @@ class QueryLoop:
             if not self._tool_runtime.has_tool(tool_name):
                 continue
 
+            ctx.extras.setdefault("tracking_events", [])
+            ctx.extras["tracking_events"].append({
+                "tool": tool_name,
+                "call_id": r.call_id,
+                "tracking": tracking,
+                "source": "initial",
+            })
+            ctx.extras["tracking_summary"] = tracking
+
             poll_index = 0
             while poll_index < max_polls and time.monotonic() < deadline:
                 if tracking.get("done"):
@@ -556,18 +1131,26 @@ class QueryLoop:
                     await asyncio.sleep(wait_s)
 
                 poll_index += 1
+                poll_call_id = f"{r.call_id}_track_{poll_index}"
                 poll_call = LLMToolCall(
-                    id=f"{r.call_id}_poll_{poll_index}",
+                    id=poll_call_id,
                     name=tool_name,
                     arguments={"action": "task_get", "task_id": task_id},
                 )
                 poll_result = await self._executor._execute_one(poll_call)
-                poll_result.call_id = r.call_id  # group under original call
                 polled.append(poll_result)
 
                 tracking = extract_tracking_payload(poll_result.output)
                 if tracking:
                     tracking = normalize_tracking_payload(tracking)
+                    ctx.extras["tracking_summary"] = tracking
+                    ctx.extras["tracking_events"].append({
+                        "tool": tool_name,
+                        "call_id": poll_call_id,
+                        "tracking": tracking,
+                        "source": "poll",
+                        "poll_index": poll_index,
+                    })
 
         return polled
 
@@ -582,5 +1165,80 @@ class QueryLoop:
         if requested <= 0 or cap <= 0 or remaining <= 0:
             return 0.0
         return max(0.0, min(requested, cap, remaining))
+
+    def _build_tool_result_fallback(
+        self,
+        ctx: StatelessContext,
+        results: List[StreamingToolResult],
+    ) -> str:
+        """Build a useful final answer when the LLM returns empty text.
+
+        The loop has already executed real tools. Returning an empty string
+        forces upper layers to show a generic "工具执行完成" placeholder, which
+        hides the actual problem from users. This fallback preserves the key
+        facts while keeping canonical-only tool identity intact.
+        """
+        ok = [r for r in results if r.ok]
+        failed = [r for r in results if not r.ok]
+        lines = [
+            "本轮工具已经执行，但模型没有生成最终说明。我先把可确认的结果整理如下：",
+            "",
+            f"- 工具调用：成功 {len(ok)} 个，失败 {len(failed)} 个",
+        ]
+
+        tracking_items: list[dict[str, Any]] = []
+        for r in results:
+            tracking = extract_tracking_payload(r.output)
+            if tracking:
+                tracking_items.append(normalize_tracking_payload(tracking))
+
+        if tracking_items:
+            latest = tracking_items[-1]
+            task_id = latest.get("task_id") or ""
+            status = latest.get("status") or "unknown"
+            done = bool(latest.get("done"))
+            progress = latest.get("progress") or {}
+            completed = progress.get("completed")
+            total = progress.get("total")
+            lines.extend([
+                f"- 跟踪任务：`{task_id}` 当前状态 `{status}`",
+                f"- 是否完成：{'是' if done else '否'}",
+            ])
+            if completed is not None and total is not None:
+                lines.append(f"- 进度：{completed}/{total}")
+            report_url = (
+                latest.get("report_url")
+                or latest.get("html_url")
+                or latest.get("artifact_url")
+            )
+            if report_url:
+                lines.append(f"- 报告链接：{report_url}")
+
+        if failed:
+            lines.append("")
+            lines.append("失败项：")
+            for r in failed[:5]:
+                err = r.error or r.output.get("summary") or r.output.get("error") or "unknown error"
+                hint = self._canonical_tool_hint(r.tool_name)
+                suffix = f"；应使用 `{hint}`" if hint else ""
+                lines.append(f"- `{r.tool_name}`：{err}{suffix}")
+
+        if ctx.user_input:
+            lines.append("")
+            lines.append("如果你要我继续处理，请直接说“继续跟踪”或补充下一步动作。")
+        return "\n".join(lines)
+
+    def _canonical_tool_hint(self, tool_name: str) -> str:
+        """Suggest the canonical tool id for a category-like hallucination.
+
+        This is a hint only; it does not execute aliases or widen the public
+        tool namespace.
+        """
+        name = (tool_name or "").strip()
+        if not name or self._tool_runtime.has_tool(name):
+            return ""
+        prefix = name + "."
+        matches = sorted(t for t in self._tool_registry if t.startswith(prefix))
+        return matches[0] if len(matches) == 1 else ""
 
     # ── Private helpers ──────────────────────────────────────────────────
