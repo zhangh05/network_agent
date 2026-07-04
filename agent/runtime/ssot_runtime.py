@@ -334,7 +334,7 @@ def _build_engine(
         enable_finalizer=True,
         max_global_concurrency=8,
         max_layer_concurrency=5,
-        max_llm_calls=4,
+        max_llm_calls=2,
         max_total_seconds=180,
         max_tool_seconds=120,
         single_node_timeout_ms=120_000,

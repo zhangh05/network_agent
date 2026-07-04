@@ -27,17 +27,16 @@ bash stop.sh
 flowchart LR
   UI["React Workbench"] --> API["Flask API / WS / SSE"]
   API --> App["AgentApp"]
-  App --> SSOT Runtime["SSOTRuntimeEngine"]
-  SSOT Runtime --> Planner["Planner LLM"]
-  SSOT Runtime --> DAG["Execution DAG"]
-  DAG --> Client["ToolRuntimeClient"]
-  SSOT Runtime --> Finalizer["Finalizer LLM"]
+  App --> SSOTRuntime["SSOTRuntimeEngine"]
+  SSOTRuntime --> QueryLoop["QueryLoop: LLM + bounded tool loop"]
+  QueryLoop --> Client["ToolRuntimeClient"]
+  SSOTRuntime --> Finalizer["Finalizer / fallback synthesis"]
   Client --> Policy["Manifest + Policy Gate"]
   Policy --> Exec["ToolExecutor"]
   Exec --> Store["Workspace / Artifact / Memory / Trace Stores"]
 ```
 
-核心链路只有一条：`AgentApp -> SSOTRuntimeEngine -> ToolRuntimeClient -> ToolExecutor`。SSOT Runtime 负责单次规划、DAG 并行调度和最终答复；任何工具调用都必须携带 `requested_by`，必须命中 `CapabilityManifest`，并且必须通过 caller gate、风险策略、脱敏和审计。
+核心链路只有一条：`AgentApp -> SSOTRuntimeEngine -> QueryLoop -> ToolRuntimeClient -> ToolExecutor`。SSOT Runtime 负责工具可见性、QueryLoop 迭代、任务跟踪、重试元数据和最终答复；任何工具调用都必须携带 `requested_by`，必须命中 `CapabilityManifest`，并且必须通过 caller gate、风险策略、脱敏和审计。
 
 ## 核心模块
 

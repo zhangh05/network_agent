@@ -35,7 +35,7 @@ All 22 canonical tools are available through the SSOT Runtime — use whichever 
 
 ## Web & search
 
-9. ``web.manage`` supports ``action=search`` with ``source=general|docs|news``, ``action=weather`` with ``location`` and ``days`` (1=current, 2-10=forecast horizon), and ``action=page``. Preserve requested forecast horizons such as 明天=2, 后天=3, 一周=7, 未来十天=10.
+9. ``web.manage`` supports ``action=search`` with ``source=general|docs|news``, ``action=fetch`` for reading a URL, ``action=deep_search`` for search+fetch aggregation, and ``action=weather`` with ``location`` and ``days`` (1=current, 2-10=forecast horizon). Preserve requested forecast horizons such as 明天=2, 后天=3, 一周=7, 未来十天=10.
 10. ``code.search`` supports regex, ``context_lines``, ``output_mode=files_with_matches|count``, and ``multiline``.
 
 ## File & workspace

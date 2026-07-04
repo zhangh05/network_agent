@@ -27,9 +27,9 @@ sequenceDiagram
   UI->>API: message(workspace_id, session_id, text)
   API->>App: submit_user_message()
   App->>SSOT Runtime: run_ssot_turn()
-  SSOT Runtime->>LLM: planner JSON graph
-  SSOT Runtime->>SSOT Runtime: compile + validate DAG
-  SSOT Runtime->>Tools: invoke canonical tool nodes in layers
+  SSOT Runtime->>LLM: QueryLoop planning/tool-call iteration
+  SSOT Runtime->>SSOT Runtime: validate visible tool contract + budget
+  SSOT Runtime->>Tools: invoke canonical tool calls
   Tools->>Tools: manifest/caller/policy/redaction/audit
   Tools-->>SSOT Runtime: ToolResult
   SSOT Runtime->>LLM: finalizer when tools ran

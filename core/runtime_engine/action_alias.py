@@ -159,12 +159,15 @@ CANONICAL_ALIASES_BY_TOOL: Final[dict[str, dict[str, tuple[str, str | None]]]] =
     "web.manage": {
         "search_web": ("search", None),
         "web_search": ("search", None),
-        "fetch_page": ("page", None),
+        "fetch_page": ("fetch", None),
+        "page": ("fetch", None),
+        "deep_web_search": ("deep_search", None),
     },
 
     "report.manage": {
-        "render_report": ("markdown", None),
-        "generate_report": ("markdown", None),
+        "render_report": ("document", None),
+        "generate_report": ("document", None),
+        "save_report": ("save", None),
     },
 
     "inspection.manage": {
@@ -199,36 +202,36 @@ _CANONICAL_ACTIONS: Final[dict[str, frozenset[str]]] = {
         "write_artifact", "glob", "delete",
     }),
     "knowledge.manage": frozenset({
-        "search", "read", "import", "manage",
-        "reindex", "list", "chunk_list",
-        "not_found",
+        "search", "read", "list", "chunk", "import", "manage",
     }),
     "device.manage": frozenset({
         "list", "get", "add", "delete", "update", "export",
     }),
     "agent.manage": frozenset({
-        "list", "spawn", "team_run", "get",
+        "list", "spawn", "get", "cancel", "status",
     }),
     "git.manage": frozenset({
-        "status", "diff", "log", "commit", "push", "branch", "checkout",
+        "status", "log", "diff", "commit", "push",
     }),
     "browser.manage": frozenset({
-        "navigate", "extract", "screenshot", "click", "fill",
+        "navigate", "snapshot", "screenshot", "click", "type", "extract",
+        "scroll", "hover", "press_key", "select_option", "evaluate", "wait",
+        "fill_form", "tabs", "network", "console", "navigate_back", "close",
     }),
-    "web.manage": frozenset({"search", "weather", "page"}),
+    "web.manage": frozenset({"search", "fetch", "weather", "deep_search"}),
     "data.manage": frozenset({
-        "csv_summarize", "table_extract", "table_render", "validate", "filter", "deduplicate",
+        "parse", "stats", "distinct", "aggregate", "filter",
+        "sort", "render", "pivot", "join",
     }),
     "report.manage": frozenset({
-        "markdown_render", "artifact_save", "safe_summary_render", "mermaid_render", "html_render", "diff_report",
+        "save", "diff", "document",
     }),
     "text.analyze": frozenset({
-        "redact", "diff", "keywords", "classify",
-        "extract_entities", "regex",
+        "redact", "extract", "match",
     }),
     "memory.manage": frozenset({
         "search", "create", "update", "confirm", "delete",
-        "profile_get", "profile_set",
+        "review", "profile_get", "profile_set",
     }),
     "session.manage": frozenset({
         "parse", "session", "filter", "align",
