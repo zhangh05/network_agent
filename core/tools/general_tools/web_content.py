@@ -582,3 +582,90 @@ def fetch_and_extract(
     except Exception as e:
         _log.warning("fetch_and_extract error for %s: %s", url, e)
         return {"ok": False, "url": url, "error": str(e)[:200]}
+
+
+# ── Quality-Aware Fetch (for deep_search) ──────────────────────────────
+
+NAVIGATION_KEYWORDS = [
+    "首页", "导航", "登录", "注册", "关于我们", "标签云", "分类目录",
+    "最新文章", "热门文章", "推荐文章", "友链", "归档", "留言板",
+]
+
+NAVIGATION_URL_PATTERNS = [
+    r'/$',                          # root homepage
+    r'/index\.(html|php|htm|jsp)$', # index page
+    r'/(category|tag|label|topic)s?/',  # category/tag pages
+    r'/(archives?|topics?|cates?|catalogs?)/',  # archive pages
+]
+
+MIN_QUALITY_LENGTH = 200        # absolute minimum for usable content
+GOOD_QUALITY_LENGTH = 800       # content is decent
+HIGH_QUALITY_LENGTH = 3000      # content is comprehensive
+
+
+def _is_navigation_page(content: str) -> bool:
+    """Detect whether extracted content looks like a navigation/listing page."""
+    if not content:
+        return True
+    head = content[:800]
+    hits = sum(1 for kw in NAVIGATION_KEYWORDS if kw in head)
+    return hits >= 2
+
+
+def _quality_score(content: str, content_length: int) -> int:
+    """Score extracted content: 0=unusable, 1=marginal, 2=good, 3=excellent."""
+    if not content or content_length < MIN_QUALITY_LENGTH:
+        return 0
+    if _is_navigation_page(content):
+        return 0
+    if content_length >= HIGH_QUALITY_LENGTH:
+        return 3
+    if content_length >= GOOD_QUALITY_LENGTH:
+        return 2
+    return 1
+
+
+def fetch_with_fallback(
+    url: str,
+    workspace_id: str = "",
+    max_length: int = 20000,
+    timeout: int = 15,
+) -> dict:
+    """Fetch a URL for deep_search: try article mode first, fallback to full
+    mode if quality is poor, and attach a quality_score to the result."""
+
+    # Try article extraction
+    result = fetch_and_extract(
+        url=url, extract_mode="article",
+        max_length=max_length, timeout=timeout,
+        workspace_id=workspace_id,
+    )
+    content = result.get("content", "") if result.get("ok") else ""
+    cl = result.get("content_length", 0)
+
+    score = _quality_score(content, cl)
+
+    # Fallback: if article mode produced nothing useful, try full-page mode
+    if score < 2 and cl < GOOD_QUALITY_LENGTH:
+        try:
+            result2 = fetch_and_extract(
+                url=url, extract_mode="full",
+                max_length=max_length, timeout=timeout,
+                workspace_id=workspace_id,
+            )
+            content2 = result2.get("content", "") if result2.get("ok") else ""
+            cl2 = result2.get("content_length", 0)
+            score2 = _quality_score(content2, cl2)
+            if score2 > score or cl2 > cl * 2:
+                result = result2
+                content = content2
+                cl = cl2
+                score = score2
+        except Exception:
+            _log.debug("fetch_with_fallback full-mode retry failed for %s", url, exc_info=True)
+
+    # Attach quality metadata
+    result["quality_score"] = score
+    result["content_length"] = cl
+    result["content"] = content
+    return result

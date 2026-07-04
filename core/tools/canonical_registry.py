@@ -383,8 +383,16 @@ def _handle_web_fetch_v2(inv: ToolInvocation) -> dict:
 
 
 def _handle_web_deep_search(inv: ToolInvocation) -> dict:
-    """action=deep_search — search + auto-fetch + aggregate."""
-    from core.tools.general_tools.web_content import fetch_and_extract
+    """action=deep_search — search + quality-filter + auto-fetch + aggregate.
+
+    Three-layer progression:
+      1. Pre-filter search results (dedup domains, exclude nav pages)
+      2. Fetch with quality-aware fallback (article → full mode retry)
+      3. Deepen search if effective articles < target (switch to depth=deep)
+    """
+    import re as _re
+    from urllib.parse import urlparse as _urlparse
+    from core.tools.general_tools.web_content import fetch_with_fallback
 
     args = inv.arguments or {}
     query = str(args.get("query", "")).strip()
@@ -392,44 +400,131 @@ def _handle_web_deep_search(inv: ToolInvocation) -> dict:
         return {"ok": False, "error": "query is required"}
 
     max_fetch = min(int(args.get("max_fetch", 3) or 3), 5)
+    ws_id = _inv_workspace(inv)
 
-    # Step 1: Search
+    # ── Layer 1: Search + Pre-filter ──────────────────────────────────
     search_result = _handle_web_search_merged(inv)
     if not search_result.get("ok"):
         return search_result
 
-    results = search_result.get("results", [])[:max_fetch]
-    if not results:
+    raw_results = search_result.get("results", [])
+    if not raw_results:
         return {
             "ok": False, "query": query,
             "error": "no search results to fetch",
             "search_results": [],
         }
 
-    # Step 2: Fetch top N results
-    sources = []
-    for r in results:
+    # 1.1: Dedup same-domain (max 2 per domain)
+    domain_count: dict[str, int] = {}
+    deduped: list[dict] = []
+    for r in raw_results:
         url = r.get("url", "")
         if not url:
             continue
-        fetch_result = fetch_and_extract(
-            url=url, extract_mode="article",
-            max_length=20000, timeout=15,
-            workspace_id=_inv_workspace(inv),
+        dom = (_urlparse(url).hostname or "").lower()
+        if dom:
+            domain_count[dom] = domain_count.get(dom, 0) + 1
+            if domain_count[dom] <= 2:
+                deduped.append(r)
+
+    # 1.2: Exclude navigation/landing page URLs
+    NAV_PATTERNS = [
+        r'/$',
+        r'/index\.(html?|php|jsp|asp)$',
+        r'/(category|tag|label|topic)s?/',
+        r'/(archives?|topics?|cates?|catalogs?)/',
+    ]
+    candidates = []
+    for r in deduped:
+        url = r.get("url", "")
+        if any(_re.search(p, url, _re.I) for p in NAV_PATTERNS):
+            continue
+        candidates.append(r)
+    # Keep at least deduped results if all were nav pages
+    if not candidates:
+        candidates = deduped
+
+    # Take enough candidates to fill max_fetch with buffer
+    pool = candidates[: max_fetch * 2]
+
+    # ── Layer 2: Fetch with quality scoring ───────────────────────────
+    sources: list[dict] = []
+    for r in pool:
+        url = r.get("url", "")
+        if not url:
+            continue
+        fetch_result = fetch_with_fallback(
+            url=url, workspace_id=ws_id, max_length=20000, timeout=15,
         )
+        cl = fetch_result.get("content_length", 0)
+        score = fetch_result.get("quality_score", 0)
         sources.append({
             "url": url,
             "title": r.get("title", fetch_result.get("title", "")),
             "snippet": r.get("snippet", ""),
-            "source_quality": r.get("source_quality", "public_web"),
-            "content": fetch_result.get("content", "") if fetch_result.get("ok") else "",
-            "content_length": fetch_result.get("content_length", 0),
-            "fetched": fetch_result.get("ok", False),
+            "content": fetch_result.get("content", "") if cl > 0 else "",
+            "content_length": cl,
+            "fetched": fetch_result.get("ok", False) and cl > 0,
             "fetch_error": fetch_result.get("error", ""),
+            "quality_score": score,
+            "extraction_method": fetch_result.get("extraction_method", ""),
         })
+        # Stop early if we have enough high-quality sources
+        if score >= 2 and len([s for s in sources if s.get("quality_score", 0) >= 2]) >= max_fetch:
+            break
 
+    good_sources = [s for s in sources if s.get("quality_score", 0) >= 2]
+
+    # ── Layer 3: Deepen search if insufficient ───────────────────────
+    if len(good_sources) < max_fetch and len(sources) < max_fetch * 2:
+        inv_deep = ToolInvocation(
+            tool_id=inv.tool_id,
+            arguments={**inv.arguments, "depth": "deep", "max_results": 20},
+            workspace_id=inv.workspace_id,
+            requested_by=inv.requested_by,
+        )
+        try:
+            search2 = _handle_web_search_merged(inv_deep)
+            results2 = search2.get("results", [])
+            seen_urls = {s["url"] for s in sources}
+            for r in results2:
+                if len(good_sources) >= max_fetch:
+                    break
+                url = r.get("url", "")
+                if not url or url in seen_urls:
+                    continue
+                dom = (_urlparse(url).hostname or "").lower()
+                # Quick pre-filter for deep search results too
+                if any(_re.search(p, url, _re.I) for p in NAV_PATTERNS):
+                    continue
+                fetch_result = fetch_with_fallback(
+                    url=url, workspace_id=ws_id, max_length=20000, timeout=15,
+                )
+                cl = fetch_result.get("content_length", 0)
+                score = fetch_result.get("quality_score", 0)
+                seen_urls.add(url)
+                sources.append({
+                    "url": url,
+                    "title": r.get("title", fetch_result.get("title", "")),
+                    "snippet": r.get("snippet", ""),
+                    "content": fetch_result.get("content", "") if cl > 0 else "",
+                    "content_length": cl,
+                    "fetched": fetch_result.get("ok", False) and cl > 0,
+                    "fetch_error": fetch_result.get("error", ""),
+                    "quality_score": score,
+                    "extraction_method": fetch_result.get("extraction_method", ""),
+                    "source": "deepened_search",
+                })
+                if score >= 2:
+                    good_sources = [s for s in sources if s.get("quality_score", 0) >= 2]
+        except Exception:
+            pass
+
+    # ── Build result ─────────────────────────────────────────────────
     fetched_count = sum(1 for s in sources if s["fetched"])
     total_cl = sum(s["content_length"] for s in sources)
+    high_quality_count = len([s for s in sources if s.get("quality_score", 0) >= 2])
 
     return {
         "ok": len(sources) > 0,
@@ -437,21 +532,24 @@ def _handle_web_deep_search(inv: ToolInvocation) -> dict:
         "search_provider": search_result.get("provider", "unknown"),
         "sources": sources,
         "fetched_count": fetched_count,
+        "high_quality_count": high_quality_count,
         "total_content_length": total_cl,
         "search_query": search_result.get("search_query", query),
         "summary": (
             f"Deep search: '{query}', "
-            f"fetched {fetched_count}/{len(results)} pages "
-            f"({total_cl} chars)."
+            f"fetched {fetched_count}/{len(sources)} pages "
+            f"({total_cl} chars, {high_quality_count} high-quality)."
         ),
         "_synthesis_guidance": (
             "综合所有 source 的 content 形成答案。"
+            "优先使用 quality_score>=2 的高质量来源。"
             "对每个关键点注明来源URL。如果多个来源说法一致，可以合并引用。"
-            "如果某篇 fetched=false，说明该源未能读取，不要编造其内容。"
+            "如果某篇 fetched=false 或 quality_score=0，说明该源未能有效读取，不要编造其内容。"
         ),
         "_actions": [
             "综合各 source 的 content 回答，注明引用URL。",
-            "如某篇内容不完整，用 action=fetch 单独抓取。",
+            "优先使用 quality_score>=2 的来源，跳过 quality_score=0 的无用源。",
+            "如某篇关键内容不完整，用 action=fetch 单独抓取。",
         ],
     }
 
