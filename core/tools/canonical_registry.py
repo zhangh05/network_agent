@@ -1705,7 +1705,7 @@ def _handler_network_ssh(inv: ToolInvocation) -> dict:
     is_config = _is_config_command(command)
 
     try:
-        new_sid = session_id or f"ssh_{int(__import__('time').time())}_{host.replace('.', '_')}_{port}"
+        new_sid = session_id or f"ssh_{int(time.time())}_{host.replace('.', '_')}_{port}"
         if sudo and not command.startswith("sudo "):
             command = f"sudo {command}"
         session = ssh_connect(
@@ -1846,7 +1846,7 @@ def _handler_network_telnet(inv: ToolInvocation) -> dict:
         return {"ok": False, "error": reason}
 
     try:
-        new_sid = session_id or f"telnet_{int(__import__('time').time())}_{host.replace('.', '_')}_{port}"
+        new_sid = session_id or f"telnet_{int(time.time())}_{host.replace('.', '_')}_{port}"
         telnet_connect(
             new_sid, host, port, username, password, vendor,
             workspace_id=workspace_id,

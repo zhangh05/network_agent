@@ -468,15 +468,6 @@ def browser_scroll(direction: str = "down", amount: int = 500) -> dict:
     return _run(_scroll())
 
 
-def browser_hover(selector: str) -> dict:
-    """Hover over an element."""
-    async def _hover():
-        page = await _get_page()
-        await page.hover(selector, timeout=5000)
-        return {"ok": True, "hovered": selector}
-    return _run(_hover())
-
-
 def browser_press_key(key: str) -> dict:
     """Press a keyboard key (Enter, Escape, Tab, ArrowDown, etc.)."""
     async def _press():
@@ -484,15 +475,6 @@ def browser_press_key(key: str) -> dict:
         await page.keyboard.press(key)
         return {"ok": True, "pressed": key}
     return _run(_press())
-
-
-def browser_select_option(selector: str, value: str) -> dict:
-    """Select an option in a dropdown/select element."""
-    async def _select():
-        page = await _get_page()
-        await page.select_option(selector, value)
-        return {"ok": True, "selector": selector, "selected": value}
-    return _run(_select())
 
 
 def browser_evaluate(script: str) -> dict:
@@ -525,30 +507,6 @@ def browser_wait(wait_ms: int = 0, wait_text: str = "", timeout: int = 10000) ->
             await asyncio.sleep(ms / 1000.0)
             return {"ok": True, "waited_for": "time", "ms": ms}
     return _run(_wait())
-
-
-def browser_fill_form(fields: dict[str, str]) -> dict:
-    """Fill multiple form fields at once.
-
-    Args:
-        fields: {selector: value, ...} mapping.
-    """
-    async def _fill():
-        page = await _get_page()
-        filled = []
-        for selector, value in fields.items():
-            try:
-                await page.fill(selector, str(value))
-                filled.append(selector)
-            except Exception as e:
-                _log.debug("fill_form failed for %s: %s", selector, e)
-        return {
-            "ok": len(filled) > 0,
-            "filled_count": len(filled),
-            "total_fields": len(fields),
-            "filled_selectors": filled,
-        }
-    return _run(_fill())
 
 
 # ──── Tab Management ────────────────────────────────────────────────

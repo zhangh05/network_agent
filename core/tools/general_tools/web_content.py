@@ -43,6 +43,7 @@ MAX_CACHE_ENTRIES = 500
 CACHE_TTL_SECONDS = 900         # 15 minutes
 FETCH_TIMEOUT = 15
 FETCH_USER_AGENT = "NetworkAgent/2.0 (+https://github.com/zhangh05/network_agent)"
+_MAX_FETCH_BYTES = 5 * 1024 * 1024
 
 # ── Cache ─────────────────────────────────────────────────────────────
 
@@ -458,13 +459,36 @@ def fetch_and_extract(
             if _is_private_ip(resolved_ip):
                 return {"ok": False, "url": url, "error": f"blocked: resolved IP {resolved_ip} is private/loopback"}
 
-        # HTTP request
+        # HTTP request with stream to cap response size (anti-DoS)
         resp = requests.get(
             url,
             timeout=timeout,
             headers={"User-Agent": FETCH_USER_AGENT},
             allow_redirects=True,
+            stream=True,
         )
+
+        # Post-connection DNS rebinding check: validate resolved IP on the
+        # actual connection, not just pre-request DNS lookup.
+        if resp.raw and hasattr(resp.raw, "_connection"):
+            conn = resp.raw._connection
+            if hasattr(conn, "sock") and hasattr(conn.sock, "getpeername"):
+                actual_ip = conn.sock.getpeername()[0]
+                if _is_private_ip(actual_ip):
+                    resp.close()
+                    return {"ok": False, "url": url, "error": f"blocked after connect: {actual_ip} is private"}
+
+        # Stream body with size cap
+        chunks: list[bytes] = []
+        total = 0
+        for chunk in resp.iter_content(chunk_size=8192):
+            if chunk:
+                chunks.append(chunk)
+                total += len(chunk)
+                if total > _MAX_FETCH_BYTES:
+                    resp.close()
+                    return {"ok": False, "url": url, "error": f"response exceeds {_MAX_FETCH_BYTES // 1024 // 1024}MB limit"}
+        resp._content = b"".join(chunks)
 
         # Redirect safety
         redirect_info = _check_cross_domain_redirect(resp.url, url)
