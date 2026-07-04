@@ -428,12 +428,10 @@ def _handle_web_deep_search(inv: ToolInvocation) -> dict:
             if domain_count[dom] <= 2:
                 deduped.append(r)
 
-    # 1.2: Exclude navigation/landing page URLs
+    # 1.2: Exclude navigation/landing page URLs by structural heuristics
     NAV_PATTERNS = [
         r'/$',
         r'/index\.(html?|php|jsp|asp)$',
-        r'/(category|tag|label|topic)s?/',
-        r'/(archives?|topics?|cates?|catalogs?)/',
     ]
     candidates = []
     for r in deduped:
@@ -441,11 +439,9 @@ def _handle_web_deep_search(inv: ToolInvocation) -> dict:
         if any(_re.search(p, url, _re.I) for p in NAV_PATTERNS):
             continue
         candidates.append(r)
-    # Keep at least deduped results if all were nav pages
     if not candidates:
         candidates = deduped
 
-    # Take enough candidates to fill max_fetch with buffer
     pool = candidates[: max_fetch * 2]
 
     # ── Layer 2: Fetch with quality scoring ───────────────────────────

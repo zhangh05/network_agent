@@ -2,8 +2,7 @@
 Web content extraction engine for web.manage action=fetch.
 
 Extract modes:
-    article    — readability-lxml extracts main content, markdownify → MD
-    full       — markdownify converts entire page to MD
+    full       — markdownify converts entire page to MD (default, most reliable)
     structured — trafilatura extracts tables/code/list as JSON
     links      — extract all href links, grouped by domain
 
@@ -12,7 +11,17 @@ Caching:
 
 Truncation:
     Paragraph-boundary-aware: never cuts mid-sentence.
+
+Design note (v3.12): The "article" mode (readability-lxml) was retired as the
+default because reliability < 100% — readability often returned empty content
+for modern SPA pages, navigation pages, and JS-rendered sites.  The "full"
+mode (markdownify) now serves as primary: it converts the entire HTML to
+Markdown (including nav, headers, footers) — "dirty" but never empty.  The
+LLM filters noise more reliably than readability extracts signal.
+
+This mirrors Claude Code's approach: Turndown → Markdown → LLM extraction.
 """
+
 
 from __future__ import annotations
 
@@ -153,67 +162,10 @@ def _html_to_markdown(html: str, **kwargs) -> str:
         return _html_to_text_regex(html)
 
 
-# ── Article Extraction ────────────────────────────────────────────────
-
-def _extract_article(html: str, url: str = "") -> dict:
-    """Extract main article content using readability-lxml."""
-    try:
-        from readability import Document
-        doc = Document(html)
-        title = doc.title() or ""
-        content_html = doc.summary()  # cleaned HTML of main content
-        content_md = _html_to_markdown(content_html)
-        return {
-            "title": title,
-            "content": content_md,
-            "content_type": "article",
-            "extraction_method": "readability-lxml",
-        }
-    except Exception as e:
-        _log.debug("readability-lxml failed: %s", e)
-        # Fallback: trafilatura for article extraction
-        return _extract_article_trafilatura(html)
-
-
-def _extract_article_trafilatura(html: str) -> dict:
-    """Fallback article extraction using trafilatura."""
-    try:
-        import trafilatura
-        result = trafilatura.extract(
-            html,
-            output_format="markdown",
-            include_comments=False,
-            include_tables=True,
-            with_metadata=True,
-        )
-        metadata = trafilatura.extract(html, output_format="metadata") or {}
-        title = ""
-        if isinstance(metadata, dict):
-            title = metadata.get("title", "")
-        if result:
-            return {
-                "title": title,
-                "content": result,
-                "content_type": "article",
-                "extraction_method": "trafilatura",
-            }
-    except Exception as e:
-        _log.debug("trafilatura article fallback failed: %s", e)
-
-    # Last resort: regex-based
-    text = _html_to_text_regex(html)
-    return {
-        "title": _extract_title(html),
-        "content": text,
-        "content_type": "article",
-        "extraction_method": "regex_fallback",
-    }
-
-
-# ── Full Page Extraction ──────────────────────────────────────────────
+# ── Full Page Extraction (primary, markdownify) ──────────────────────
 
 def _extract_full_page(html: str) -> dict:
-    """Convert entire page to Markdown."""
+    """Convert entire page to Markdown. This is the primary extraction mode."""
     content_md = _html_to_markdown(html)
     return {
         "title": _extract_title(html),
@@ -434,11 +386,13 @@ def _smart_truncate(text: str, max_length: int) -> tuple[str, bool, int]:
 # ── Main Entry Point ──────────────────────────────────────────────────
 
 _EXTRACTORS = {
-    "article": _extract_article,
     "full": _extract_full_page,
     "structured": _extract_structured,
     "links": _extract_links,
 }
+
+# Legacy alias — "article" maps to "full" (markdownify) for backward compat
+_EXTRACTORS["article"] = _extract_full_page
 
 
 def fetch_and_extract(
@@ -452,7 +406,7 @@ def fetch_and_extract(
 
     Args:
         url: Fully-qualified HTTP(S) URL.
-        extract_mode: article | full | structured | links
+        extract_mode: full | structured | links. "article" is an alias for "full".
         max_length: Max characters in extracted content (0 = no limit).
         timeout: HTTP request timeout in seconds.
         workspace_id: For cache scoping.
@@ -485,7 +439,7 @@ def fetch_and_extract(
     if _is_private_url(url):
         return {"ok": False, "url": url, "error": "blocked: private/local network URLs not allowed"}
 
-    extract_mode = extract_mode if extract_mode in _EXTRACTORS else "article"
+    extract_mode = extract_mode if extract_mode in _EXTRACTORS else "full"
 
     # Check cache
     ck = _cache_key(workspace_id, url, extract_mode)
@@ -539,7 +493,7 @@ def fetch_and_extract(
 
         # Extract
         extractor = _EXTRACTORS[extract_mode]
-        extracted = extractor(html, url) if extract_mode == "article" else extractor(html)
+        extracted = extractor(html)
 
         content = extracted.get("content", "")
         if isinstance(content, str):
@@ -586,41 +540,18 @@ def fetch_and_extract(
 
 # ── Quality-Aware Fetch (for deep_search) ──────────────────────────────
 
-NAVIGATION_KEYWORDS = [
-    "首页", "导航", "登录", "注册", "关于我们", "标签云", "分类目录",
-    "最新文章", "热门文章", "推荐文章", "友链", "归档", "留言板",
-]
-
-NAVIGATION_URL_PATTERNS = [
-    r'/$',                          # root homepage
-    r'/index\.(html|php|htm|jsp)$', # index page
-    r'/(category|tag|label|topic)s?/',  # category/tag pages
-    r'/(archives?|topics?|cates?|catalogs?)/',  # archive pages
-]
-
-MIN_QUALITY_LENGTH = 200        # absolute minimum for usable content
-GOOD_QUALITY_LENGTH = 800       # content is decent
+MIN_QUALITY_LENGTH = 200        # bare minimum for usable content
+GOOD_QUALITY_LENGTH = 800       # content has substance
 HIGH_QUALITY_LENGTH = 3000      # content is comprehensive
 
 
-def _is_navigation_page(content: str) -> bool:
-    """Detect whether extracted content looks like a navigation/listing page."""
-    if not content:
-        return True
-    head = content[:800]
-    hits = sum(1 for kw in NAVIGATION_KEYWORDS if kw in head)
-    return hits >= 2
-
-
-def _quality_score(content: str, content_length: int) -> int:
-    """Score extracted content: 0=unusable, 1=marginal, 2=good, 3=excellent."""
-    if not content or content_length < MIN_QUALITY_LENGTH:
+def _quality_score(content: str, cl: int) -> int:
+    """Score content: 0=empty, 1=marginal, 2=usable, 3=rich."""
+    if not content or cl < MIN_QUALITY_LENGTH:
         return 0
-    if _is_navigation_page(content):
-        return 0
-    if content_length >= HIGH_QUALITY_LENGTH:
+    if cl >= HIGH_QUALITY_LENGTH:
         return 3
-    if content_length >= GOOD_QUALITY_LENGTH:
+    if cl >= GOOD_QUALITY_LENGTH:
         return 2
     return 1
 
@@ -631,40 +562,41 @@ def fetch_with_fallback(
     max_length: int = 20000,
     timeout: int = 15,
 ) -> dict:
-    """Fetch a URL for deep_search: try article mode first, fallback to full
-    mode if quality is poor, and attach a quality_score to the result."""
+    """Fetch a URL for deep_search.
+    
+    Uses markdownify (full page) as primary — always returns content.
+    Falls back to structured mode only if full mode produces nothing.
+    Attaches quality_score (0–3) to the result.
+    """
 
-    # Try article extraction
+    # Primary: full-page Markdown (most reliable, never empty)
     result = fetch_and_extract(
-        url=url, extract_mode="article",
+        url=url, extract_mode="full",
         max_length=max_length, timeout=timeout,
         workspace_id=workspace_id,
     )
     content = result.get("content", "") if result.get("ok") else ""
     cl = result.get("content_length", 0)
-
     score = _quality_score(content, cl)
 
-    # Fallback: if article mode produced nothing useful, try full-page mode
-    if score < 2 and cl < GOOD_QUALITY_LENGTH:
+    # Fallback: if full mode produced nothing, try structured extraction
+    if score == 0:
         try:
             result2 = fetch_and_extract(
-                url=url, extract_mode="full",
+                url=url, extract_mode="structured",
                 max_length=max_length, timeout=timeout,
                 workspace_id=workspace_id,
             )
-            content2 = result2.get("content", "") if result2.get("ok") else ""
-            cl2 = result2.get("content_length", 0)
+            content2 = str(result2.get("content", "")) if result2.get("ok") else ""
+            cl2 = len(content2)
             score2 = _quality_score(content2, cl2)
-            if score2 > score or cl2 > cl * 2:
+            if score2 > score:
                 result = result2
-                content = content2
                 cl = cl2
                 score = score2
         except Exception:
-            _log.debug("fetch_with_fallback full-mode retry failed for %s", url, exc_info=True)
+            _log.debug("fetch_with_fallback structured retry failed for %s", url, exc_info=True)
 
-    # Attach quality metadata
     result["quality_score"] = score
     result["content_length"] = cl
     result["content"] = content
