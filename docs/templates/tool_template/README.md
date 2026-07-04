@@ -1,6 +1,6 @@
 # Tool Template
 
-Public tools are canonical IDs in `core/tools/tool_namespace.py`. Prefer adding an operation behind an existing canonical tool before creating a new public tool.
+Public tools are canonical IDs in `core/tools/tool_namespace_data.py`. Prefer adding an operation behind an existing canonical tool before creating a new public tool.
 
 ## Change Checklist
 

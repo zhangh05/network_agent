@@ -19,6 +19,7 @@ import asyncio
 import copy
 import hashlib
 import json
+import re
 import time
 from dataclasses import asdict
 from dataclasses import dataclass, field
@@ -206,6 +207,20 @@ def _compact_tool_content(content: Any, *, max_chars: int = TOOL_MESSAGE_MAX_CHA
 
 COMPACT_THRESHOLD_CHARS = 40_000  # ~10K tokens
 COMPACT_KEEP_LAST_N = 6           # Keep last N messages intact
+COMPACT_HEAD_N = 2                # Keep first N (system + user request)
+
+
+@dataclass
+class CompactInfo:
+    """Structured record of a compaction event — surfaced to metrics and LLM."""
+    compacted: bool = False
+    before_chars: int = 0
+    after_chars: int = 0
+    removed: int = 0
+    saved_chars: int = 0
+    tools_used: list[str] = field(default_factory=list)
+    tool_stats: dict[str, dict] = field(default_factory=dict)  # {tool_name: {ok: N, failed: N}}
+    key_hints: list[str] = field(default_factory=list)
 
 
 def _estimate_chars(messages: List[LLMMessage]) -> int:
@@ -217,31 +232,105 @@ def _estimate_chars(messages: List[LLMMessage]) -> int:
             total += sum(len(str(p.get("text", ""))) for p in content if isinstance(p, dict))
         else:
             total += len(str(content or ""))
-        # Count tool_calls JSON for assistant messages
         if m.tool_calls:
             total += len(json.dumps(m.tool_calls, ensure_ascii=False, default=str))
     return total
 
 
-def _compact_messages(messages: List[LLMMessage]) -> List[LLMMessage]:
-    """Keep first 2 (system+tools context) + last N, summarise middle."""
-    if len(messages) <= COMPACT_KEEP_LAST_N + 2:
-        return messages
+def _compact_messages(messages: List[LLMMessage]) -> tuple[List[LLMMessage], CompactInfo]:
+    """Compact old messages. Returns (compacted_messages, CompactInfo)."""
+    info = CompactInfo()
 
-    head = messages[:2]          # system + user request
-    tail = messages[-COMPACT_KEEP_LAST_N:]  # most recent messages
+    if len(messages) <= COMPACT_KEEP_LAST_N + COMPACT_HEAD_N:
+        return messages, info
 
-    # Summarise the middle as a single user message
-    middle_count = len(messages) - len(head) - len(tail)
+    head = messages[:COMPACT_HEAD_N]
+    tail = messages[-COMPACT_KEEP_LAST_N:]
+    middle = messages[len(head):-len(tail) or None]
+
+    middle_count = len(middle)
     if middle_count <= 1:
-        return messages  # 1 msg → 1 summary is a no-op; prevent infinite loop
+        return messages, info
 
-    summary = (
-        f"[{middle_count} earlier messages summarised: "
-        "tools were executed and results collected. "
-        "See the most recent messages below for current context.]"
-    )
-    return head + [LLMMessage(role="user", content=summary)] + tail
+    # ── Collect tool statistics from middle messages ──
+    tool_names: list[str] = []
+    tool_stats: dict[str, dict] = {}
+    for m in middle:
+        if not m.tool_calls:
+            continue
+        for tc in m.tool_calls:
+            name = tc.get("name", tc.get("function", {}).get("name", ""))
+            if not name:
+                continue
+            if name not in tool_names:
+                tool_names.append(name)
+            if name not in tool_stats:
+                tool_stats[name] = {"ok": 0, "failed": 0, "total": 0}
+            tool_stats[name]["total"] += 1
+            result = tc.get("result") or tc.get("output") or {}
+            if isinstance(result, dict):
+                if result.get("ok", True):
+                    tool_stats[name]["ok"] += 1
+                else:
+                    tool_stats[name]["failed"] += 1
+
+    # ── Extract key hints from tool_calls results ──
+    key_hints: list[str] = []
+    for m in middle:
+        if not m.tool_calls:
+            continue
+        # Check tool result dicts for _hint
+        if isinstance(m.content, str):
+            for found in re.findall(r'_hint["\':\s]*["\']([^"\']+)["\']', m.content):
+                key_hints.append(found)
+                if len(key_hints) >= 3:
+                    break
+        if len(key_hints) >= 3:
+            break
+
+    # ── Build compact summary ──
+    before = _estimate_chars(messages)
+    summary = _build_compact_summary(middle_count, tool_names, tool_stats, key_hints)
+    compacted = head + [LLMMessage(role="user", content=summary)] + tail
+    after = _estimate_chars(compacted)
+
+    info.compacted = True
+    info.before_chars = before
+    info.after_chars = after
+    info.removed = middle_count
+    info.saved_chars = before - after
+    info.tools_used = tool_names
+    info.tool_stats = tool_stats
+    info.key_hints = key_hints
+    return compacted, info
+
+
+def _build_compact_summary(
+    turns: int, tools: list[str], tool_stats: dict, hints: list[str],
+) -> str:
+    """Build an LLM-readable compact summary with tool stats and key findings."""
+    parts = [f"[{turns} earlier turns compacted."]
+
+    # Tool usage summary
+    if tool_stats:
+        tool_parts = []
+        for name in tools[:6]:
+            stats = tool_stats.get(name, {})
+            ok = stats.get("ok", 0)
+            failed = stats.get("failed", 0)
+            if failed:
+                tool_parts.append(f"{name}: {ok}✓ {failed}✗")
+            else:
+                tool_parts.append(f"{name}: {ok} calls")
+        if tool_parts:
+            parts.append("Tools: " + ", ".join(tool_parts) + ".")
+
+    # Key findings
+    if hints:
+        parts.append("Key findings: " + "; ".join(hints[:3]) + ".")
+
+    parts.append("Full context in latest messages below.]")
+    return " ".join(parts)
 
 
 # ── Streaming Tool Executor ─────────────────────────────────────────────────
@@ -561,9 +650,14 @@ class QueryLoop:
                     error=budget_status.exceeded or "budget_exceeded",
                 )
 
-            # Auto-compact if needed
-            if _estimate_chars(messages) > COMPACT_THRESHOLD_CHARS:
-                messages = _compact_messages(messages)
+            # Auto-compact with context tracking
+            _before_chars = _estimate_chars(messages)
+            if _before_chars > COMPACT_THRESHOLD_CHARS:
+                messages, _compact_info = _compact_messages(messages)
+                if _compact_info.compacted and metrics is not None:
+                    metrics.mark_compacted(_compact_info)
+            if metrics is not None:
+                metrics.capture_context_usage(_estimate_chars(messages))
 
             # Call LLM (with streaming for tool exec)
             response = await self._call_llm(messages, ctx)
@@ -744,6 +838,8 @@ class QueryLoop:
                     "iterations": iterations,
                     "tool_calls": len(all_results),
                     "llm_calls": llm_calls,
+                    "context_estimated_chars": _estimate_chars(messages),
+                    "context_compacted": metrics.snapshot().context_compacted if metrics else False,
                 },
             )
 
@@ -868,13 +964,8 @@ class QueryLoop:
 
     @staticmethod
     def _llm_call_mode(messages: List[LLMMessage]) -> tuple[str, str, bool]:
-        has_tool_context = any(
-            m.role == "tool"
-            or (m.role == "user" and "AUTO TRACKING RESULTS" in str(m.content or ""))
-            for m in messages
-        )
-        if has_tool_context:
-            return QUERY_LOOP_FINALIZER_PROMPT, "finalizer", True
+        # Always use planner prompt — LLM decides when to summarize vs continue.
+        # Finalizer is reserved for the dedicated _finalize_with_results path.
         return QUERY_LOOP_SYSTEM_PROMPT, "planner", False
 
     def _messages_to_user_text(self, messages: List[LLMMessage]) -> str:
@@ -1241,6 +1332,7 @@ class QueryLoop:
             payload = [
                 {
                     "tool": r.tool_name,
+                    "tool_id": r.tool_name,
                     "call_id": r.call_id,
                     "ok": r.ok,
                     "error": r.error,
@@ -1469,25 +1561,100 @@ class QueryLoop:
         """Build a useful final answer when the LLM returns empty text.
 
         This is the *last resort* — ``_finalize_with_results`` is tried first.
-        When we reach here, both the iterative LLM and the dedicated finalizer
-        call failed to produce a summary.  We build a structured report from
-        raw tool outputs so the user still sees useful data.
+        Produces a human-readable report, not raw JSON dumps.
         """
-        ok = [r for r in results if r.ok]
-        failed = [r for r in results if not r.ok]
-        lines = [
-            f"工具调用：成功 {len(ok)} 个，失败 {len(failed)} 个",
-            "",
-            "以下是原始结果摘要：",
-        ]
+        lines: list[str] = []
+        ok_count = 0
+        warn_count = 0
+        fail_count = 0
 
-        # Include successful tool outputs (truncated)
-        if ok:
-            lines.append("")
-            lines.append("━━━ 成功工具输出 ━━━")
-            for r in ok:
-                lines.append(f"\n### {r.tool_name}")
-                lines.append(_json_compact(r.output, max_chars=FALLBACK_TOOL_MAX_CHARS))
+        for r in results:
+            output = r.output if isinstance(r.output, dict) else {}
+            exit_code = output.get("exit_code")
+
+            # Classify by exit_code for exec.run tools
+            if not r.ok:
+                fail_count += 1
+            elif exit_code is not None and exit_code != 0:
+                warn_count += 1
+            else:
+                ok_count += 1
+
+        lines.append(f"工具调用：成功 {ok_count} 个" +
+                     (f"，警告 {warn_count} 个" if warn_count else "") +
+                     f"，失败 {fail_count} 个")
+
+        for r in results:
+            output = r.output if isinstance(r.output, dict) else {}
+            exit_code = output.get("exit_code")
+            ec_mark = "⚠️ " if (r.ok and exit_code is not None and exit_code != 0) else ""
+            status_mark = "❌" if not r.ok else (ec_mark or "✅")
+
+            lines.append(f"\n### {status_mark} {r.tool_name}")
+
+            # ── exec.run: show command, exit_code, stdout, stderr ──
+            if r.tool_name in ("exec.run", "exec__run", "exec__background"):
+                desc = output.get("description") or output.get("command", "")
+                if desc:
+                    lines.append(f"> `{str(desc)[:120]}`")
+                if exit_code is not None:
+                    ec_str = f"exit_code={exit_code}"
+                    if exit_code != 0:
+                        lines.append(f"Exit code: **{ec_str}**")
+                    else:
+                        lines.append(f"Exit: {ec_str}")
+                stdout = output.get("stdout", "")
+                stderr = output.get("stderr", "")
+                if stdout.strip():
+                    lines.append(f"```\n{str(stdout)[:800]}\n```")
+                if stderr.strip():
+                    lines.append(f"```\n{str(stderr)[:800]}\n```")
+
+            # ── device.manage / cmdb: show count and key fields ──
+            elif r.tool_name in ("device.manage", "device__manage"):
+                assets = output.get("assets", [])
+                if assets:
+                    lines.append(f"找到 {len(assets)} 台设备：")
+                    for a in assets[:10]:
+                        host = a.get("host", "?")
+                        name = a.get("name", "?")
+                        vendor = a.get("vendor", "")
+                        region = a.get("region", "")
+                        lines.append(f"- {name} ({host}) {vendor} {region}".strip())
+                    if len(assets) > 10:
+                        lines.append(f"... 共 {len(assets)} 台，仅展示前 10 台")
+                else:
+                    lines.append("未找到匹配设备。")
+
+            # ── inspection: show task status ──
+            elif r.tool_name in ("inspection.manage", "inspection__manage"):
+                task_id = output.get("task_id", "")
+                status = output.get("status", "")
+                summary = output.get("summary", {})
+                if isinstance(summary, dict):
+                    lines.append(f"任务 `{task_id}` — {status}")
+                    lines.append(f"总计: {summary.get('total_devices','?')} 台, "
+                                 f"成功: {summary.get('succeeded_devices','?')}, "
+                                 f"失败: {summary.get('failed_devices','?')}")
+                else:
+                    lines.append(f"任务 `{task_id}` — {status}")
+
+            # ── other tools: compact summary ──
+            else:
+                summary = output.get("summary") or output.get("message") or ""
+                if summary and len(str(summary)) <= 300:
+                    lines.append(str(summary))
+                else:
+                    ok_mark = "ok" if r.ok else f"error: {r.error}"
+                    lines.append(f"{ok_mark}")
+
+            # Error message if any
+            if r.error:
+                hint = self._canonical_tool_hint(r.tool_name)
+                if hint:
+                    lines.append(f"错误: `{r.tool_name}` 不存在: {r.error}；应使用 `{hint}`")
+                else:
+                    lines.append(f"错误: `{r.tool_name}` 不存在: {r.error}")
 
         # Tracking info
         tracking_items: list[dict[str, Any]] = []
@@ -1515,16 +1682,6 @@ class QueryLoop:
             )
             if report_url:
                 lines.append(f"报告链接：{report_url}")
-
-        # Failed items
-        if failed:
-            lines.append("")
-            lines.append("━━━ 失败项 ━━━")
-            for r in failed[:5]:
-                err = r.error or r.output.get("summary") or r.output.get("error") or "unknown error"
-                hint = self._canonical_tool_hint(r.tool_name)
-                suffix = f"；应使用 `{hint}`" if hint else ""
-                lines.append(f"- `{r.tool_name}`：{err}{suffix}")
 
         return "\n".join(lines)
 

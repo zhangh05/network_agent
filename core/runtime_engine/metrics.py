@@ -69,6 +69,38 @@ class MetricsCollector:
     def set_risk_level(self, level: str) -> None:
         self._snapshot.risk_level = level
 
+    def capture_context_usage(self, estimated_chars: int) -> None:
+        """Record current context size and compute per-turn growth trend."""
+        prev = self._snapshot.context_estimated_chars
+        self._snapshot.context_estimated_chars = estimated_chars
+        # Track growth trend: how many turns until compact threshold
+        from core.runtime_engine.query_loop import COMPACT_THRESHOLD_CHARS
+        if estimated_chars > 0 and prev > 0:
+            growth = estimated_chars - prev
+            if growth > 0:
+                remaining = max(0, COMPACT_THRESHOLD_CHARS - estimated_chars)
+                self._snapshot.compact_detail["turns_until_compact"] = (
+                    remaining // growth if growth > 0 else 999
+                )
+                self._snapshot.compact_detail["growth_per_turn"] = growth
+
+    def mark_compacted(self, info) -> None:
+        """Record a compaction event with full detail."""
+        self._snapshot.context_compacted = True
+        self._snapshot.context_saved_chars = info.saved_chars
+        self._snapshot.compact_detail.update({
+            "trigger": "threshold_exceeded",
+            "turns_removed": info.removed,
+            "tools_affected": info.tools_used,
+            "before_chars": info.before_chars,
+            "after_chars": info.after_chars,
+            "compression_ratio": (
+                f"{info.before_chars / max(info.after_chars, 1):.1f}x"
+            ),
+            "tool_stats": info.tool_stats,
+            "key_hints": info.key_hints,
+        })
+
     def snapshot(self) -> MetricSnapshot:
         return self._snapshot
 
@@ -89,4 +121,8 @@ class MetricsCollector:
             "dag_depth": s.dag_depth,
             "max_parallel_width": s.max_parallel_width,
             "risk_level": s.risk_level,
+            "context_compacted": s.context_compacted,
+            "context_estimated_chars": s.context_estimated_chars,
+            "context_saved_chars": s.context_saved_chars,
+            "compact_detail": s.compact_detail,
         }

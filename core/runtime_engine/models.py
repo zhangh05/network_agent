@@ -171,7 +171,7 @@ class SSOTRuntimeConfig:
     max_layer_concurrency: int = 5
     max_total_seconds: int = 60
     max_tool_seconds: int = 30
-    max_llm_calls: int = 2
+    max_llm_calls: int = 8
     tracking_enabled: bool = True
     tracking_max_polls: int = 8
     tracking_max_seconds: int = 45
@@ -228,7 +228,7 @@ class ExecutionBudget:
     max_nodes: int = 30
     max_depth: int = 8
     max_parallel_width: int = 8
-    max_llm_calls: int = 2
+    max_llm_calls: int = 8
 
 
 @dataclass
@@ -298,6 +298,10 @@ class MetricSnapshot:
     dag_depth: int = 0
     max_parallel_width: int = 0
     risk_level: str = "low"
+    context_compacted: bool = False
+    context_estimated_chars: int = 0
+    context_saved_chars: int = 0
+    compact_detail: dict = field(default_factory=dict)
 
 
 # ============================================================================

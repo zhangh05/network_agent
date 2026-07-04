@@ -5,7 +5,7 @@ Business capabilities describe user-facing outcomes. They are not tool registrat
 ## Add Or Update A Capability
 
 1. Edit `agent/capabilities/catalog.py`.
-2. Reference only canonical tool IDs from `core/tools/tool_namespace.py`.
+2. Reference only canonical tool IDs from `core/tools/tool_namespace_data.py`.
 3. Add the capability only after the runtime path and tests exist; the current catalog contains enabled capabilities only.
 4. Run:
 
