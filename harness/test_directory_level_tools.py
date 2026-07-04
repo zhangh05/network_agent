@@ -48,6 +48,7 @@ def test_pcap_analysis_unsupported_action():
 
 
 def test_pcap_session_returns_protocol_counts(tmp_path):
+    """v3.11: action=summary replaces old action=session."""
     from agent.modules.pcap.core import PCAP_SESSIONS
     from core.tools.canonical_registry import get_entry
 
@@ -64,7 +65,7 @@ def test_pcap_session_returns_protocol_counts(tmp_path):
     }
     try:
         entry = get_entry("pcap.manage")
-        result = entry.handler(_inv("pcap.manage", {"action": "session", "session_id": "sid_proto"}))
+        result = entry.handler(_inv("pcap.manage", {"action": "summary", "session_id": "sid_proto"}))
         assert result["ok"] is True
         assert result["protocol_counts"] == {"TCP": 2, "UDP": 1}
     finally:

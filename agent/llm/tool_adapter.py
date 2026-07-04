@@ -93,19 +93,19 @@ def _build_tool_description(tool: dict, metadata: dict, canonical_tool_id: str) 
     base = str(tool.get("description") or tool.get("name") or canonical_tool_id)
     parts = [
         f"[tool_id={canonical_tool_id}]",
-        base[:360],
+        base[:280],
     ]
     usage_hint = metadata.get("usage_hint") or tool.get("usage_hint")
     not_for = metadata.get("not_for") or tool.get("not_for")
     risk = tool.get("risk_level", "")
     approval = tool.get("requires_approval", False)
-    if risk:
+    if risk and str(risk).lower() not in {"low", "safe"}:
         parts.append(f"Risk: {risk}; approval_required={bool(approval)}.")
     if usage_hint:
-        parts.append(f"Use when: {str(usage_hint)[:260]}")
+        parts.append(f"Use when: {str(usage_hint)[:220]}")
     if not_for:
-        parts.append(f"Do not use for: {str(not_for)[:180]}")
-    return " ".join(p for p in parts if p)[:900]
+        parts.append(f"Do not use for: {str(not_for)[:160]}")
+    return " ".join(p for p in parts if p)[:650]
 
 
 def build_tool_registry_for_llm(tools: List[dict]) -> List[dict]:

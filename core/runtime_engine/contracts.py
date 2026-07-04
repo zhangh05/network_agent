@@ -414,9 +414,9 @@ def _sync_contracts_from_canonical_registry() -> None:
         contract.description = entry.description or contract.description
         contract.input_schema = deepcopy(entry.input_schema or {})
         # Do not copy manifest risk/approval/timeout here. SSOT Runtime owns its
-        # execution risk model separately from LLM visibility. For example,
-        # exec.run remains high-risk in SSOT Runtime even if the runtime manifest
-        # applies more granular command-level policy later.
+        # execution risk model separately from LLM visibility. exec.run has a
+        # medium base risk; destructive command patterns escalate dynamically to
+        # high-risk approval.
 
 
 _sync_contracts_from_canonical_registry()

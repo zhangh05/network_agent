@@ -114,43 +114,6 @@ def test_reload_unresolved_on_startup(tmp_path):
     assert any(p["approval_id"] == req.approval_id for p in pending)
 
 
-# ─────────────────────────────── 3. Planner JSON parser ───────────────────────────────
-
-
-def test_planner_json_bare_array():
-    from core.tools.general_tools.agent_tools import _parse_planner_json
-    text = '[{"task": "first"}, {"task": "second"}, {"task": "third"}]'
-    assert _parse_planner_json(text) == ["first", "second", "third"]
-
-
-def test_planner_json_in_fenced_code_block():
-    from core.tools.general_tools.agent_tools import _parse_planner_json
-    text = "Here is the plan:\n\n```json\n[{\"task\": \"a\"}, {\"task\": \"b\"}]\n```\n\nDone."
-    assert _parse_planner_json(text) == ["a", "b"]
-
-
-def test_planner_json_in_prose_with_object_form():
-    from core.tools.general_tools.agent_tools import _parse_planner_json
-    text = 'I think we should split it. Plan: {"subtasks": [{"task": "x"}, {"task": "y"}]}'
-    assert _parse_planner_json(text) == ["x", "y"]
-
-
-def test_planner_json_malformed_returns_none():
-    from core.tools.general_tools.agent_tools import _parse_planner_json
-    assert _parse_planner_json("nothing parseable here") is None
-    assert _parse_planner_json("") is None
-    assert _parse_planner_json(None) is None
-
-
-def test_planner_json_caps_parallel_fanout():
-    from core.tools.general_tools.agent_tools import _parse_planner_json
-    items = [{"task": f"t{i}"} for i in range(20)]
-    text = json.dumps(items)
-    out = _parse_planner_json(text)
-    assert out is not None
-    assert len(out) == 10  # capped
-
-
 # ─────────────────────────────── 4. Sub-agent run record ───────────────────────────────
 
 

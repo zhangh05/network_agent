@@ -84,7 +84,7 @@ class TestSecretFields:
 class TestIdempotencyAndRetry:
     def test_safe_to_retry_tools_are_retryable(self):
         # v3.9.2: merged tools whose manifest marks safe_to_retry.
-        # git.manage and agent.manage are unsafe_to_retry (contain commit/push/team_run).
+        # agent.manage is unsafe_to_retry (contains spawn/background execution).
         for tid in ("web.manage", "browser.manage", "knowledge.manage", "code.search"):
             assert is_retryable(tid), f"{tid} should be retryable"
 

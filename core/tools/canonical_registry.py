@@ -2198,12 +2198,12 @@ _RAW_REGISTRY: list[CanonicalToolEntry] = [
             "timeout": {"type": "integer", "description": "[action=shell|python|stream] Timeout in seconds (default: shell=120, python=30, stream=30)."},
             "args": {"type": "string", "description": "[action=slash] Slash command arguments."},
         }),
-        risk_level="high", permission_action="exec",
+        risk_level="medium", permission_action="exec",
         description=(
             "Command execution. action=shell (local|ssh|telnet), action=python (AST-sandboxed), "
             "action=slash (registered commands), action=background (async), action=stream (PTY). "
-            "Always provide a `description` field. Requires approval. "
-            "NEVER run destructive commands (rm -rf, reload, format, erase)."
+            "Always provide a `description` field. Read-only commands and connection attempts are medium risk. "
+            "Only destructive commands (rm -f, delete, wipe, format, erase) escalate to high-risk approval."
         ),
     ),
 

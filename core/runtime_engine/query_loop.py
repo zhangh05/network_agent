@@ -16,6 +16,8 @@ Optimizations:
 from __future__ import annotations
 
 import asyncio
+import copy
+import hashlib
 import json
 import time
 from dataclasses import asdict
@@ -37,34 +39,30 @@ from agent.llm.tool_adapter import tool_spec_to_openai_function
 # ── Prompt Cache ────────────────────────────────────────────────────────────
 
 # Static prefix that never changes between turns — cached by the LLM API.
-QUERY_LOOP_SYSTEM_PROMPT = """You are a network operations AI agent. Use EXACT tool names — never abbreviate.
-For example:
-- inspection__manage (device inspection)
-- exec__run (SSH/Telnet/command)   web__manage (search/fetch/weather)
-- device__manage (CMDB)   config__manage (config analysis)   pcap__manage (packet analysis)
-- knowledge__manage (RAG search)   memory__manage   browser__manage (automation)
-- data__manage (CSV/JSON/stats)   report__manage (save/diff/doc)
-- text__analyze (redact/extract)   system__manage (diagnostics)
-- workspace__file / workspace__artifact / workspace__filestore (storage)
-- skill__manage   agent__manage (subagent spawn)   git__manage   code__search
+# Keep this concise: the full tool catalog is already supplied through the
+# function-calling tools field on every planner call.
+QUERY_LOOP_SYSTEM_PROMPT = """You are a network operations AI agent.
 
-Work step by step. Gather data with tools first, then reason and answer.
-Do not fabricate any data — only use what tools return.
+All callable capabilities are provided in the function list. Use the exact
+provided function names and action enums; never invent aliases.
 
-RULES:
-1. Use EXACT tool names — never shorten or invent names.
-2. For SSH: exec__run(action="shell", target="ssh", asset_id=...). Use asset_id
-   from CMDB — never pass host/username/password separately.
-3. If a tool returns "Tool not found", the name is wrong — check the available
-   function list.
-4. Never repeat the same failing tool+arguments more than 2 times.
-5. Weather: web__manage(action="weather", location=..., days=...).
+Work step by step: gather facts with tools, reason from returned data, then
+answer directly. Do not fabricate device state, weather, files, memory, reports,
+or command output.
+
+Operational rules:
+1. SSH/Telnet access must use exec__run(action="shell", target="ssh|telnet",
+   asset_id=...) when a CMDB asset exists. Do not expose or ask for passwords.
+2. Weather uses web__manage(action="weather", location=..., days=...).
    明天=2, 后天=3, 一周=7, 未来十天=10.
-6. Inspection: inspection__manage(action="run") starts a CMDB task; follow the
-   same task with inspection__manage(action="get", task_id=...). Fetch
-   inspection__manage(action="report", task_id=..., format="html") only after
-   status is succeeded/partial.
-7. After all tool results are in, respond directly without calling more tools."""
+3. CMDB inspection starts with inspection__manage(action="run"). Track the same
+   task with action="get"; request action="report", format="html" only after
+   status is succeeded or partial.
+4. Never repeat an identical failing tool call more than twice. If a required
+   fact is missing, try a safer alternative or explain the missing input.
+5. Only destructive commands such as rm -f, delete, wipe, format, or forced
+   removal are high risk. Read-only commands, pipes, redirects, inspection,
+   search, and connection attempts are normal tool use."""
 
 
 QUERY_LOOP_FINALIZER_PROMPT = """You are the final response writer for Network Agent.
@@ -82,17 +80,126 @@ language:
 7. Never repeat a tool call whose successful result is already shown below."""
 
 
+_TOOL_DEFINITION_CACHE: dict[str, List[dict]] = {}
+
+
+def _tool_meta_get(meta: Any, key: str, default: Any = None) -> Any:
+    if isinstance(meta, dict):
+        return meta.get(key, default)
+    return getattr(meta, key, default)
+
+
+def _tool_registry_signature(tool_registry: dict) -> str:
+    """Stable hash for the LLM-visible tool surface."""
+    payload = []
+    for tool_id, meta in sorted(tool_registry.items()):
+        payload.append({
+            "tool_id": tool_id,
+            "description": _tool_meta_get(meta, "description", ""),
+            "args_schema": _tool_meta_get(meta, "args_schema", _tool_meta_get(meta, "input_schema", {})),
+            "risk_level": _tool_meta_get(meta, "risk_level", "low"),
+        })
+    encoded = json.dumps(
+        payload,
+        ensure_ascii=False,
+        sort_keys=True,
+        separators=(",", ":"),
+        default=str,
+    ).encode("utf-8")
+    return hashlib.sha256(encoded).hexdigest()
+
+
 def _build_cached_tool_definitions(tool_registry: dict) -> List[dict]:
     """Build tool definitions with stable ordering for prompt caching."""
+    signature = _tool_registry_signature(tool_registry)
+    cached = _TOOL_DEFINITION_CACHE.get(signature)
+    if cached is not None:
+        return copy.deepcopy(cached)
+
     tools = []
     for tool_id, meta in sorted(tool_registry.items()):
         tools.append(tool_spec_to_openai_function({
             "tool_id": tool_id,
-            "input_schema": meta.get("args_schema", {}),
-            "description": meta.get("description", ""),
-            "risk_level": meta.get("risk_level", "low"),
+            "input_schema": _tool_meta_get(meta, "args_schema", _tool_meta_get(meta, "input_schema", {})),
+            "description": _tool_meta_get(meta, "description", ""),
+            "risk_level": _tool_meta_get(meta, "risk_level", "low"),
         }))
+    _TOOL_DEFINITION_CACHE.clear()
+    _TOOL_DEFINITION_CACHE[signature] = copy.deepcopy(tools)
     return tools
+
+
+TOOL_MESSAGE_MAX_CHARS = 3600
+FINALIZER_TOOL_MAX_CHARS = 1800
+FALLBACK_TOOL_MAX_CHARS = 1600
+MAX_INLINE_STRING_CHARS = 1200
+MAX_INLINE_LIST_ITEMS = 8
+
+_PRIORITY_OUTPUT_KEYS = (
+    "ok", "status", "summary", "message", "error", "reason",
+    "task_id", "task", "tracking", "progress", "done",
+    "report_url", "html_url", "artifact_url", "url",
+    "count", "total", "success", "failed", "skipped",
+    "title", "name", "format",
+)
+
+
+def _compact_value_for_llm(value: Any, *, depth: int = 0) -> Any:
+    """Compact tool outputs while preserving facts the model needs next."""
+    if depth >= 4:
+        text = str(value)
+        return text[:MAX_INLINE_STRING_CHARS] + ("... [truncated]" if len(text) > MAX_INLINE_STRING_CHARS else "")
+    if isinstance(value, str):
+        return value[:MAX_INLINE_STRING_CHARS] + ("... [truncated]" if len(value) > MAX_INLINE_STRING_CHARS else "")
+    if isinstance(value, (int, float, bool)) or value is None:
+        return value
+    if isinstance(value, list):
+        compacted = [
+            _compact_value_for_llm(item, depth=depth + 1)
+            for item in value[:MAX_INLINE_LIST_ITEMS]
+        ]
+        if len(value) > MAX_INLINE_LIST_ITEMS:
+            compacted.append({"_omitted_items": len(value) - MAX_INLINE_LIST_ITEMS})
+        return compacted
+    if isinstance(value, dict):
+        result: dict[str, Any] = {}
+        seen: set[str] = set()
+        for key in _PRIORITY_OUTPUT_KEYS:
+            if key in value:
+                result[key] = _compact_value_for_llm(value[key], depth=depth + 1)
+                seen.add(key)
+        for key, val in value.items():
+            if key in seen:
+                continue
+            result[str(key)] = _compact_value_for_llm(val, depth=depth + 1)
+        return result
+    return str(value)
+
+
+def _json_compact(value: Any, *, max_chars: int = TOOL_MESSAGE_MAX_CHARS) -> str:
+    """JSON serialize compacted output with a hard cap."""
+    compacted = _compact_value_for_llm(value)
+    text = json.dumps(
+        compacted,
+        ensure_ascii=False,
+        sort_keys=True,
+        separators=(",", ":"),
+        default=str,
+    )
+    if len(text) <= max_chars:
+        return text
+    return text[:max_chars] + f"... [truncated {len(text) - max_chars} chars]"
+
+
+def _compact_tool_content(content: Any, *, max_chars: int = TOOL_MESSAGE_MAX_CHARS) -> str:
+    """Compact existing tool-message content without double-encoding JSON."""
+    if isinstance(content, str):
+        try:
+            parsed = json.loads(content)
+        except Exception:
+            parsed = content
+        return _json_compact(parsed, max_chars=max_chars)
+    return _json_compact(content, max_chars=max_chars)
 
 
 # ── Auto-Compact ────────────────────────────────────────────────────────────
@@ -586,7 +693,7 @@ class QueryLoop:
                             )
                         # Timeout / connection — generic doom-loop detection
                         if "timeout" in err_lower or "timed out" in err_lower or "connection" in err_lower or "network" in err_lower:
-                            key = f"timeout:{r.tool_name}:{json.dumps(r.output, sort_keys=True)}"
+                            key = f"timeout:{r.tool_name}:{_json_compact(r.output, max_chars=600)}"
                             failure_counts[key] = failure_counts.get(key, 0) + 1
                             if failure_counts[key] >= 3:
                                 return QueryLoopResult(
@@ -789,6 +896,8 @@ class QueryLoop:
                     f"{json.dumps(m.tool_calls, ensure_ascii=False, default=str)}"
                 )
             if content:
+                if m.role == "tool":
+                    content = _compact_tool_content(content, max_chars=TOOL_MESSAGE_MAX_CHARS)
                 parts.append(f"{label}: {content}")
             if m.tool_call_id:
                 parts[-1:] = [f"{parts[-1]} (tool_call_id={m.tool_call_id})"] if parts else []
@@ -1121,10 +1230,7 @@ class QueryLoop:
             if r.call_id not in original_call_ids:
                 extra_results.append(r)
                 continue
-            output_str = json.dumps(r.output, ensure_ascii=False, default=str)
-            # Truncate large outputs
-            if len(output_str) > 8000:
-                output_str = output_str[:8000] + "... [truncated]"
+            output_str = _json_compact(r.output, max_chars=TOOL_MESSAGE_MAX_CHARS)
             new_msgs.append(LLMMessage(
                 role="tool",
                 content=output_str,
@@ -1142,9 +1248,7 @@ class QueryLoop:
                 }
                 for r in extra_results
             ]
-            output_str = json.dumps(payload, ensure_ascii=False, default=str)
-            if len(output_str) > 8000:
-                output_str = output_str[:8000] + "... [truncated]"
+            output_str = _json_compact(payload, max_chars=TOOL_MESSAGE_MAX_CHARS)
             new_msgs.append(LLMMessage(
                 role="user",
                 content="AUTO TRACKING RESULTS:\n" + output_str,
@@ -1301,7 +1405,7 @@ class QueryLoop:
             status = "✅" if r.ok else "❌"
             tool_summary_parts.append(
                 f"- {status} `{r.tool_name}`: "
-                f"{json.dumps(r.output, ensure_ascii=False, default=str)[:3000]}"
+                f"{_json_compact(r.output, max_chars=FINALIZER_TOOL_MAX_CHARS)}"
             )
         tool_results_block = "\n".join(tool_summary_parts)
 
@@ -1382,11 +1486,8 @@ class QueryLoop:
             lines.append("")
             lines.append("━━━ 成功工具输出 ━━━")
             for r in ok:
-                output_str = json.dumps(r.output, ensure_ascii=False, default=str)
-                if len(output_str) > 2000:
-                    output_str = output_str[:2000] + "... [truncated]"
                 lines.append(f"\n### {r.tool_name}")
-                lines.append(output_str)
+                lines.append(_json_compact(r.output, max_chars=FALLBACK_TOOL_MAX_CHARS))
 
         # Tracking info
         tracking_items: list[dict[str, Any]] = []

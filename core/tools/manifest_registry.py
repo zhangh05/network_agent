@@ -19,7 +19,7 @@ MANIFESTS: dict[str, CapabilityManifest] = {
             "Per-command approval triggered by RiskPolicy for dangerous patterns."
         ),
         action_class="execute",
-        risk_level="medium",  # base level; dangerous patterns escalate to critical
+        risk_level="medium",  # base level; dangerous patterns escalate to high
         side_effects="remote_exec",
         idempotency="unsafe_to_retry", rollback_strategy="none",
         secret_fields=["cmd", "code"], output_sensitivity="secret",

@@ -76,7 +76,7 @@ def handle_command_approved_exec(inv: ToolInvocation) -> dict:
 
     Accepts a shell command string, executes via /bin/bash -c.
     Safety limits: dangerous command detection, configurable timeout, output truncation.
-    Requires approval_id (high risk). Policy blocks destructive patterns.
+    Base risk is medium; destructive patterns escalate to high-risk approval.
     """
     import platform
     if platform.system() == "Windows":
@@ -124,7 +124,7 @@ def handle_powershell_approved_script(inv: ToolInvocation) -> dict:
 
     Accepts a PowerShell command string, executes via powershell -Command.
     Safety limits: dangerous command detection, 15s timeout, output truncation.
-    Requires approval_id (high risk). Policy blocks destructive patterns.
+    Base risk is medium; destructive patterns escalate to high-risk approval.
 
     Security: subprocess uses a minimal safe environment (mirrors
     python_exec's P0-3 model) — no API keys, tokens, or proxy config.

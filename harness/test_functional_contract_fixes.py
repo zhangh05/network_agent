@@ -38,7 +38,7 @@ def test_memory_rest_contracts_are_governed_and_validated(tmp_path, monkeypatch)
     assert created.status_code == 200
     body = created.get_json()
     assert body["ok"] is True
-    assert body["status"] == "active"
+    assert body["status"] == "active"  # REST API path still honors user_confirmed
     visible = client.get("/api/memory/list?workspace_id=contract_ws")
     assert visible.status_code == 200
     visible_body = visible.get_json()

@@ -1097,6 +1097,75 @@ class TestSSOTRuntimePipeline:
             for m in messages
         )
 
+    def test_query_loop_tool_definitions_are_cached_and_isolated(self):
+        """All tools remain visible, but repeated builds reuse a stable cache."""
+        from core.runtime_engine.query_loop import _build_cached_tool_definitions
+
+        registry = {
+            "web.manage": {
+                "description": "Web search and weather",
+                "args_schema": {
+                    "required": ["action"],
+                    "properties": {
+                        "action": {"type": "string", "enum": ["search", "weather"]},
+                        "query": {"type": "string"},
+                    },
+                },
+            }
+        }
+
+        first = _build_cached_tool_definitions(registry)
+        first[0]["function"]["description"] = "mutated by caller"
+        second = _build_cached_tool_definitions(registry)
+
+        assert len(second) == 1
+        assert second[0]["function"]["name"] == "web__manage"
+        assert second[0]["function"]["description"] != "mutated by caller"
+
+    def test_query_loop_compacts_tool_outputs_without_losing_control_fields(self, config):
+        """Large tool payloads should not snowball into the next LLM turn."""
+        from agent.llm.schemas import LLMMessage, LLMToolCall
+        from core.runtime_engine.query_loop import QueryLoop, StreamingToolResult
+
+        class RuntimeStub:
+            def has_tool(self, name):
+                return name == "inspection.manage"
+
+        loop = QueryLoop(
+            config=config,
+            tool_registry={"inspection.manage": {"description": "Inspection"}},
+            tool_runtime=RuntimeStub(),
+        )
+        messages = loop._append_tool_round(
+            [
+                LLMMessage(role="system", content="system"),
+                LLMMessage(role="user", content="run inspection"),
+            ],
+            [LLMToolCall(id="call_big", name="inspection.manage", arguments={"action": "get"})],
+            [
+                StreamingToolResult(
+                    tool_name="inspection.manage",
+                    call_id="call_big",
+                    output={
+                        "ok": True,
+                        "summary": "巡检完成",
+                        "task_id": "ins_123",
+                        "report_url": "/artifacts/report.html",
+                        "stdout": "x" * 20_000,
+                        "rows": [{"name": f"dev-{i}", "status": "ok"} for i in range(50)],
+                    },
+                    ok=True,
+                )
+            ],
+        )
+
+        tool_msg = next(m for m in messages if m.role == "tool")
+        assert len(tool_msg.content or "") < 4200
+        assert "巡检完成" in (tool_msg.content or "")
+        assert "ins_123" in (tool_msg.content or "")
+        assert "/artifacts/report.html" in (tool_msg.content or "")
+        assert "_omitted_items" in (tool_msg.content or "")
+
     @pytest.mark.asyncio
     async def test_full_pipeline_simple_tools(self, config):
         """End-to-end test with mock LLM and mock tools."""
