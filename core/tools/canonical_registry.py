@@ -227,6 +227,53 @@ def _handle_inspection_managed(inv: ToolInvocation) -> dict:
     action = str((inv.arguments or {}).get("action", "") or "").lower()
     args = dict(inv.arguments or {})
 
+    if action == "run_and_wait":
+        # Sync: block until task completes, return devices + report
+        # so LLM can start analysing immediately — no polling loop.
+        try:
+            scope = args.get("scope") or {}
+            _mc = max(1, min(int(args.get("max_concurrency", 3) or 3), 16))
+            task = inspection_service.create_task(
+                workspace_id=ws,
+                profile_id=str(args.get("profile_id", "") or ""),
+                scope=scope if isinstance(scope, dict) else {},
+                created_by=str(args.get("created_by", "user") or "user"),
+                session_id=str(args.get("session_id", "") or ""),
+                max_concurrency=_mc,
+            )
+        except Exception as exc:
+            import logging as _il
+            _il.getLogger(__name__).exception("run_and_wait failed")
+            return {"ok": False, "error": f"inspection_failed: {exc}"}
+
+        if task.status in ("succeeded", "partial"):
+            import asyncio as _asyncio  # noqa
+            report_md = inspection_service.render_report(ws, task.task_id, "md")
+            return {
+                "ok": True, "task_id": task.task_id, "status": task.status,
+                "NEXT": "done",
+                "devices": {
+                    aid: {
+                        "asset_id": dr.asset_id, "asset_name": dr.asset_name,
+                        "host": dr.host, "vendor": dr.vendor, "type": dr.type,
+                        "protocol": dr.protocol, "status": dr.status,
+                    }
+                    for aid, dr in task.devices.items()
+                },
+                "report": report_md.get("content", "") if report_md.get("ok") else "",
+                "summary": {
+                    "total_devices": task.total_assets,
+                    "succeeded_devices": task.succeeded,
+                    "failed_devices": task.failed,
+                    "skipped_devices": task.skipped,
+                },
+            }
+        return {
+            "ok": task.status != "failed",
+            "task_id": task.task_id, "status": task.status, "NEXT": "done",
+            "error": task.error,
+        }
+
     if action == "run":
         try:
             scope = args.get("scope") or {}
@@ -263,6 +310,8 @@ def _handle_inspection_managed(inv: ToolInvocation) -> dict:
             "ok": task.status != "failed" or not task.error.startswith("unknown_profile"),
             "task_id": task.task_id,
             "status": task.status,
+            "NEXT": "report" if task.status in ("succeeded", "partial") else "poll",
+            "wait_seconds": 5 if task.status not in ("succeeded", "partial", "failed", "cancelled") else 0,
             "profile_id": task.profile_id,
             "scope": {
                 "region": task.scope.region, "location": task.scope.location,
@@ -306,10 +355,16 @@ def _handle_inspection_managed(inv: ToolInvocation) -> dict:
         # Full raw output is only available via action=report.
         # Including 15 KB snippets per device multiplied by polling
         # frequency would overflow the LLM context window.
+        # ── NEXT directive — tool guides LLM, not the other way ──
+        done = task.status in ("succeeded", "partial", "failed", "cancelled")
+        tracking = getattr(task, "tracking", {}) or {}
+        next_poll = int((tracking.get("policy") or {}).get("poll_seconds", 5))
         return {
             "ok": True,
             "task_id": task.task_id,
             "status": task.status,
+            "NEXT": "report" if done else "poll",
+            "wait_seconds": 0 if done else next_poll,
             "profile_id": task.profile_id,
             "profile_display_name": task.profile_display_name,
             "scope": {
@@ -357,7 +412,8 @@ def _handle_inspection_managed(inv: ToolInvocation) -> dict:
     if action == "report":
         task_id = str(args.get("task_id", "") or "")
         fmt = str(args.get("format", "md") or "md").lower()
-        return inspection_service.render_report(ws, task_id, fmt)
+        asset_id = str(args.get("asset_id", "") or "")
+        return inspection_service.render_report(ws, task_id, fmt, asset_id=asset_id)
 
     return {"ok": False, "error": f"unknown_action: {action}"}
 
@@ -1748,7 +1804,7 @@ def _handler_network_telnet(inv: ToolInvocation) -> dict:
             sess.send((command + "\n").encode())
             # read all output — keep reading until idle
             buf = b""
-            idle_deadline = _t.time() + 1.0  # 1s idle timeout
+            idle_deadline = _t.time() + 5.0  # 5s idle timeout
             absolute_deadline = _t.time() + max(60, command.count("\n") * 5)
             while _t.time() < absolute_deadline:
                 chunk = sess.recv(timeout=0.3)

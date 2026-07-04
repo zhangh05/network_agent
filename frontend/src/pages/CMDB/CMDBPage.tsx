@@ -1,6 +1,7 @@
 import { useState, useCallback, useEffect, type CSSProperties, type ReactNode } from "react";
 import { useNavigate } from "react-router-dom";
 import { useSessionStore } from "../../stores/session";
+import { useToastStore, type Toast } from "../../stores/toast";
 import { apiRequest } from "../../api/client";
 import { RemoteTerminal } from "../../components/RemoteTerminal/RemoteTerminal";
 import { ScriptManagerModal } from "../../components/ScriptManagerModal";
@@ -52,6 +53,7 @@ function Stat({ label, value, color, sub }: { label: string; value: number | str
 
 export function CMDBPage() {
   const wsId = useSessionStore((s) => s.currentWorkspaceId);
+  const toast = useToastStore((s) => s.show);
   const navigate = useNavigate();
   const [assets, setAssets] = useState<Asset[]>([]);
   const [showForm, setShowForm] = useState(false);
@@ -186,50 +188,50 @@ export function CMDBPage() {
     const targetText = region
       ? `CMDB 区域「${region}」`
       : `CMDB 资产「${scope.label}」(${asset?.host || ""})`;
-
     const profileId = scope.type === "log" ? "log" : "general";
     const typeLabel = scope.type === "log" ? "日志巡检" : "通用巡检";
     const analysisHints = scope.type === "log"
-      ? [
-        `   - 异常告警和错误信息（CRITICAL / ERROR / WARNING 级别）`,
-        `   - 重复出现的错误模式及频次`,
-        `   - 接口 UP/DOWN 变更记录`,
-        `   - 认证失败或安全事件`,
-        `   - 时间分布规律（是否集中在某个时间窗口）`,
-        ]
-      : [
-        `   - 是否完成、异常项、失败或跳过设备`,
-        `   - 关键指标（CPU/内存/接口状态）的健康情况`,
-        `   - 潜在风险或需要关注的告警`,
-        `   - 下一步建议`,
-        ];
+      ? `异常告警和错误信息(CRITICAL/ERROR/WARNING)、重复错误模式及频次、接口UP/DOWN变更、认证失败或安全事件、时间分布规律`
+      : `设备完成情况、关键指标(CPU/内存/接口)健康状态、潜在风险或告警、下一步建议`;
 
-    const scopeLine = region
-      ? `   scope: { region: "${region}" }`
-      : `   scope: { asset_ids: [${assetIds.map(id => `"${id}"`).join(", ")}] }`;
+    // Fire inspection async, frontend polls in background
+    (async () => {
+      try {
+        const scopePayload: Record<string, unknown> = {};
+        if (region) scopePayload.region = region;
+        if (assetIds.length) scopePayload.asset_ids = assetIds;
 
-    const prompt = [
-      `对 ${targetText}${vendorInfo} 发起${typeLabel}。`,
-      `0. 先用 cmdb.assets 查询设备确认资产存在`,
-      `1. 调用 inspection.manage action=run profile_id="${profileId}" 启动巡检${scopeLine.replace('   scope','')}`,
-      `2. 记录返回的 task_id，用 action=get task_id=任务ID 每3秒轮询，直到 status=succeeded 或 partial`,
-      `3. 用 action=report format=md task_id=任务ID 获取报告全文`,
-      `4. 逐一读取报告中每台设备的原始命令输出，按以下维度分析：`,
-      ...analysisHints,
-      `输出结构化的${typeLabel}报告（不要只总结任务状态，要分析设备的具体数据）。`,
-    ].join("\n");
-
-    sessionStorage.setItem("workbench_auto_prompt", JSON.stringify({
-      prompt,
-      metadata: {
-        intent: scope.type === "log" ? "cmdb_log_inspection" : (region ? "cmdb_region_inspection" : "cmdb_asset_inspection"),
-        region,
-        asset_ids: assetIds,
-        source: scope.source,
-      },
-    }));
-    navigate("/workbench");
-  }, [navigate, assets]);
+        const { inspectionApi } = await import("../../api/index");
+        const r = await inspectionApi.createTask({
+          workspace_id: wsId,
+          profile_id: profileId,
+          scope: scopePayload,
+          async_run: true,
+        });
+        if (!r.ok) {
+          toast({ kind: "error", title: "巡检启动失败", body: r.error || "未知错误" });
+          return;
+        }
+        localStorage.setItem("workbench_inspection", JSON.stringify({
+          task_id: r.task_id,
+          metadata: {
+            intent: scope.type === "log" ? "cmdb_log_inspection" : (region ? "cmdb_region_inspection" : "cmdb_asset_inspection"),
+            target: targetText,
+            vendor: vendorInfo.trim(),
+            type: scope.type,
+            typeLabel,
+            analysisHints,
+            region,
+            asset_ids: assetIds,
+            source: scope.source,
+          },
+        }));
+        navigate("/workbench");
+      } catch (e: unknown) {
+        toast({ kind: "error", title: "巡检启动失败", body: e instanceof Error ? e.message : String(e) });
+      }
+    })();
+  }, [navigate, assets, wsId, toast]);
 
   // ── form helpers ──
   const field = (label: string, child: ReactNode, span = 1) => (

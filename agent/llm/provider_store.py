@@ -93,7 +93,7 @@ def _build_provider_config(provider_id: str, data: Optional[dict] = None) -> dic
         "base_url": preset["base_url"],
         "model": preset["model"],
         "temperature": 0.2,
-        "max_tokens": 1200,
+        "max_tokens": 4096,
         "safe_mode": True,
         "api_key": "",
         "hint": preset.get("hint", ""),

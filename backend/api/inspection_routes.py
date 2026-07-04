@@ -305,10 +305,14 @@ def register_inspection_routes(app):
                 vendors.append({
                     "vendor": vkey,
                     "source": "file" if overrides else "builtin",
-                    "command_count": len(overrides) if overrides else 0,
-                    "override_count": len(overrides) if overrides else 0,
-                    "has_pre_commands": bool(vp.pre_commands),
-                    "has_post_commands": bool(vp.post_commands),
+                    "command_count": len(overrides.get("commands", [])) if overrides else 0,
+                    "override_count": len(overrides.get("commands", [])) if overrides else 0,
+                    "has_pre_commands": bool(
+                        overrides.get("pre_commands") if overrides.get("pre_commands") is not None else vp.pre_commands
+                    ) if overrides else bool(vp.pre_commands),
+                    "has_post_commands": bool(
+                        overrides.get("post_commands") if overrides.get("post_commands") is not None else vp.post_commands
+                    ) if overrides else bool(vp.post_commands),
                 })
             return jsonify({"ok": True, "vendors": vendors})
 
@@ -320,7 +324,16 @@ def register_inspection_routes(app):
 
         overrides = load_vendor_commands(ws_id, vkey, script_type=script_type)
         # v4.1: built-in commands are empty — scripts come from workspace overrides
-        effective_commands = list(overrides) if overrides else []
+        effective_commands = list(overrides.get("commands", [])) if overrides else []
+        # pre/post: None means legacy file (missing field) → fall back to builtin defaults
+        if overrides:
+            pre = overrides.get("pre_commands")
+            effective_pre = list(pre if pre is not None else (builtin.pre_commands or []))
+            post = overrides.get("post_commands")
+            effective_post = list(post if post is not None else (builtin.post_commands or []))
+        else:
+            effective_pre = list(builtin.pre_commands) if builtin.pre_commands else []
+            effective_post = list(builtin.post_commands) if builtin.post_commands else []
 
         return jsonify({
             "ok": True,
@@ -328,8 +341,8 @@ def register_inspection_routes(app):
             "source": "file" if overrides else "builtin",
             "commands": effective_commands,
             "builtin_commands": [],  # v4.1: no built-in commands
-            "pre_commands": list(builtin.pre_commands) if builtin.pre_commands else [],
-            "post_commands": list(builtin.post_commands) if builtin.post_commands else [],
+            "pre_commands": effective_pre,
+            "post_commands": effective_post,
         })
 
     @app.route("/api/inspection/scripts/<vendor>", methods=["PUT"])
@@ -357,22 +370,43 @@ def register_inspection_routes(app):
             else:
                 return jsonify({"ok": False, "error": "commands_must_be_list"}), 400
 
+        pre_commands: list[str] = data.get("pre_commands", [])
+        if not isinstance(pre_commands, list):
+            pre_commands = []
+        post_commands: list[str] = data.get("post_commands", [])
+        if not isinstance(post_commands, list):
+            post_commands = []
+
         # v3.11: reasonable upper bound to prevent accidental DoS
         MAX_COMMANDS = 150
         if len(commands) > MAX_COMMANDS:
             return jsonify({"ok": False, "error": f"too_many_commands: max {MAX_COMMANDS}"}), 400
+        if len(pre_commands) > 20:
+            return jsonify({"ok": False, "error": "too_many_pre_commands: max 20"}), 400
+        if len(post_commands) > 20:
+            return jsonify({"ok": False, "error": "too_many_post_commands: max 20"}), 400
 
         # Validate: all commands must be non-empty strings and read-only
+        # v4.3: empty strings in pre/post are allowed (they represent Enter/CR)
         for cmd in commands:
             if not isinstance(cmd, str) or not cmd.strip():
                 return jsonify({"ok": False, "error": "commands_must_be_non_empty_strings"}), 400
         for cmd in commands:
             if not is_read_only_command(cmd):
                 return jsonify({"ok": False, "error": f"blocked_write_command: {cmd[:80]}"}), 400
+        # pre/post commands can be empty strings (Enter) but still must be read-only when non-empty
+        for cmd in pre_commands + post_commands:
+            if isinstance(cmd, str) and cmd.strip() and not is_read_only_command(cmd):
+                return jsonify({"ok": False, "error": f"blocked_write_command: {cmd[:80]}"}), 400
 
-        success = save_vendor_commands(ws_id, vkey, commands, script_type=script_type)
+        success = save_vendor_commands(
+            ws_id, vkey, commands, script_type=script_type,
+            pre_commands=pre_commands, post_commands=post_commands,
+        )
         return jsonify({"ok": success, "vendor": vkey,
-                        "command_count": len(commands)})
+                        "command_count": len(commands),
+                        "pre_command_count": len(pre_commands),
+                        "post_command_count": len(post_commands)})
 
     @app.route("/api/inspection/scripts/<vendor>/upload", methods=["POST"])
     def api_inspection_scripts_upload(vendor):

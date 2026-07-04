@@ -81,7 +81,7 @@ def invoke_llm(
         safe_context=safe_context or {},
         model=cfg.get("model", ""),
         temperature=cfg.get("temperature", 0.2),
-        max_tokens=cfg.get("max_tokens", 1200),
+        max_tokens=cfg.get("max_tokens", 4096),
         tools=tools,
         stream=use_stream,
         metadata=req_metadata,

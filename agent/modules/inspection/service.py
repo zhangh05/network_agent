@@ -293,8 +293,13 @@ def _normalise_report_fmt(fmt: str) -> str:
     return ""
 
 
-def render_report(workspace_id: str, task_id: str, fmt: str = "md") -> dict:
+def render_report(workspace_id: str, task_id: str, fmt: str = "md",
+                  *, asset_id: str = "") -> dict:
     """Render the report in ``fmt`` (``md``, ``json``, or ``html``).
+
+    When ``asset_id`` is provided, only that device's output is
+    rendered — used by the main agent to hand one device's raw
+    output to a sub-agent for isolated analysis.
 
     HTML reports are persisted as artifacts; the second render of
     the same ``task_id`` reuses the existing artifact instead of
@@ -307,6 +312,8 @@ def render_report(workspace_id: str, task_id: str, fmt: str = "md") -> dict:
     task = get_task(workspace_id, task_id, record_poll=False)
     if task is None:
         return {"ok": False, "error": "task_not_found"}
+    if asset_id and asset_id not in task.devices:
+        return {"ok": False, "error": f"asset_not_in_task: {asset_id}"}
     if fmt == "html":
         html = _report.render_html(task)
         existing = _find_existing_report_artifact(workspace_id, task_id, "html")
@@ -360,7 +367,7 @@ def render_report(workspace_id: str, task_id: str, fmt: str = "md") -> dict:
             "filename": "inspection_report.json",
             "content": asdict(task),
         }
-    md = _report.render_markdown(task)
+    md = _report.render_markdown(task, asset_id=asset_id)
     return {
         "ok": True,
         "format": "md",

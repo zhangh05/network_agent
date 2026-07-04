@@ -1122,6 +1122,7 @@ export interface InspectionTaskRecord {
 
 export interface InspectionCreateRequest {
   workspace_id: string;
+  profile_id?: string;
   scope: Partial<InspectionScope>;
   max_concurrency?: number;
   created_by?: string;
@@ -1247,6 +1248,8 @@ export interface VendorScriptUpdateResponse {
   ok: boolean;
   vendor: string;
   command_count: number;
+  pre_command_count: number;
+  post_command_count: number;
 }
 
 export const scriptsApi = {
@@ -1268,11 +1271,13 @@ export const scriptsApi = {
     vendor: string,
     commands: string[],
     script_type: "general" | "log" = "general",
+    pre_commands?: string[],
+    post_commands?: string[],
   ): Promise<VendorScriptUpdateResponse> =>
     apiRequest<VendorScriptUpdateResponse>({
       method: "PUT",
       url: `/inspection/scripts/${encodeURIComponent(vendor)}`,
-      data: { workspace_id, commands, script_type },
+      data: { workspace_id, commands, script_type, pre_commands, post_commands },
     }),
 
   /** POST /api/inspection/scripts/<vendor>/upload */

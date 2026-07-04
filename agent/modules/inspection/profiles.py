@@ -223,10 +223,12 @@ def _scripts_dir(workspace_id: str, script_type: str = "general") -> Path:
     return p
 
 
-def load_vendor_commands(workspace_id: str, vendor: str, *, script_type: str = "general") -> list[str] | None:
+def load_vendor_commands(workspace_id: str, vendor: str, *, script_type: str = "general") -> dict | None:
     """Return workspace-level command overrides for *vendor* and *script_type*, or None.
 
-    v4.2: Returns a flat list of command strings.
+    v4.3: Returns a dict with {commands, pre_commands, post_commands}.
+    pre_commands / post_commands is None when the field is missing in the
+    JSON file (legacy format) — callers should fall back to built-in defaults.
     """
     fp = _scripts_dir(workspace_id, script_type) / f"{vendor}.json"
     if not fp.is_file():
@@ -235,14 +237,22 @@ def load_vendor_commands(workspace_id: str, vendor: str, *, script_type: str = "
         data = json.loads(fp.read_text(encoding="utf-8"))
     except (json.JSONDecodeError, OSError):
         return None
-    if isinstance(data, dict) and isinstance(data.get("commands"), list):
-        return data["commands"]
-    return None
+    if not isinstance(data, dict):
+        return None
+    raw_pre = data.get("pre_commands")
+    raw_post = data.get("post_commands")
+    return {
+        "commands": data.get("commands", []) if isinstance(data.get("commands"), list) else [],
+        "pre_commands": raw_pre if isinstance(raw_pre, list) else None,
+        "post_commands": raw_post if isinstance(raw_post, list) else None,
+    }
 
 
 def save_vendor_commands(workspace_id: str, vendor: str,
-                         commands: list[str], *, script_type: str = "general") -> bool:
-    """Persist a workspace-level vendor command override."""
+                         commands: list[str], *, script_type: str = "general",
+                         pre_commands: list[str] | None = None,
+                         post_commands: list[str] | None = None) -> bool:
+    """Persist a workspace-level vendor command override (including pre/post)."""
     from workspace.atomic_io import atomic_write_json
     fp = _scripts_dir(workspace_id, script_type) / f"{vendor}.json"
     data = {
@@ -251,6 +261,8 @@ def save_vendor_commands(workspace_id: str, vendor: str,
         "updated_at": now_iso(),
         "source": "manual",
         "commands": commands,
+        "pre_commands": pre_commands if pre_commands is not None else [],
+        "post_commands": post_commands if post_commands is not None else [],
     }
     try:
         atomic_write_json(fp, data)
@@ -299,11 +311,13 @@ def load_command_profile(workspace_id: str, vendor: str = "",
     # 1) workspace override for the matched vendor
     overrides = load_vendor_commands(workspace_id, resolved.vendor, script_type=script_type)
     if overrides is not None:
+        pre = overrides.get("pre_commands")
+        post = overrides.get("post_commands")
         return VendorCommandProfile(
             vendor=resolved.vendor,
-            commands=overrides,
-            pre_commands=resolved.pre_commands,
-            post_commands=resolved.post_commands,
+            commands=overrides.get("commands", []),
+            pre_commands=pre if pre is not None else resolved.pre_commands,
+            post_commands=post if post is not None else resolved.post_commands,
             fallback_to_generic=resolved.fallback_to_generic,
             supported_checks=resolved.supported_checks,
         )
@@ -312,11 +326,13 @@ def load_command_profile(workspace_id: str, vendor: str = "",
     if resolved.vendor != "generic":
         generic_overrides = load_vendor_commands(workspace_id, "generic", script_type=script_type)
         if generic_overrides is not None:
+            pre = generic_overrides.get("pre_commands")
+            post = generic_overrides.get("post_commands")
             return VendorCommandProfile(
                 vendor="generic",
-                commands=generic_overrides,
-                pre_commands=resolved.pre_commands,
-                post_commands=resolved.post_commands,
+                commands=generic_overrides.get("commands", []),
+                pre_commands=pre if pre is not None else resolved.pre_commands,
+                post_commands=post if post is not None else resolved.post_commands,
                 fallback_to_generic=True,
                 supported_checks=resolved.supported_checks,
             )

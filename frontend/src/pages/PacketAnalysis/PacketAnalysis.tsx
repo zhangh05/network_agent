@@ -109,9 +109,26 @@ export function PacketAnalysis() {
       setFilename(res.filename || file.name);
       setTotalPackets(res.total_packets || 0);
       setProtocolCounts(res.protocol_counts || {});
-      setConnections(res.connections || []);
+      connections: {
+        const conns = res.connections || [];
+        setConnections(conns);
+        // Don't show recent sessions — session already loaded
+        if (conns.length === 0) {
+          // Fallback: no connections in parse response, try loading session detail
+          try {
+            const detail = await apiRequest<{ ok: boolean; connections: ConnectionGroup[]; total_packets: number; protocol_counts?: ProtocolCounts }>({
+              method: "GET", url: `/pcap/session/${res.session_id}`, params: { workspace_id: wsId },
+            });
+            if (detail.ok) {
+              setConnections(detail.connections || []);
+              if (detail.total_packets) setTotalPackets(detail.total_packets);
+              if (detail.protocol_counts) setProtocolCounts(detail.protocol_counts);
+            }
+          } catch { /* fine, connections already set */ }
+        }
+      }
       setResult(null); setActiveKey("");
-      localStorage.setItem("pcap_session", JSON.stringify({ sessionId: res.session_id, filename: res.filename }));
+      localStorage.setItem("pcap_session", JSON.stringify({ sessionId: res.session_id, filename: res.filename || file.name }));
       loadRecentSessions();
     } catch (e: any) {
       setError(e?.message || "上传失败");
@@ -303,7 +320,7 @@ export function PacketAnalysis() {
                             const res = await apiRequest<{ ok: boolean; session_id: string; filename: string; total_packets: number; protocol_counts?: ProtocolCounts; connections: ConnectionGroup[] }>({
                               method: "GET", url: `/pcap/session/${s.session_id}`, params: { workspace_id: wsId },
                             });
-                            if (!res.ok) { setError("加载失败"); return; }
+                            if (!res.ok) { setError(res.ok === false ? "加载失败：" + (res as any).error || "session not found" : "加载失败"); setLoading(false); return; }
                             setSessionId(res.session_id);
                             setFilename(res.filename);
                             setTotalPackets(res.total_packets);
@@ -311,7 +328,7 @@ export function PacketAnalysis() {
                             setConnections(res.connections || []);
                             setResult(null); setActiveKey("");
                             localStorage.setItem("pcap_session", JSON.stringify({ sessionId: res.session_id, filename: res.filename }));
-                          } catch { setError("加载失败"); }
+                          } catch (e: any) { setError("加载失败：" + (e?.message || "unknown")); }
                           finally { setLoading(false); }
                         }}
                         style={{

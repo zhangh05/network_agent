@@ -18,7 +18,6 @@ import { RuntimeEventTimeline } from "../../components/RuntimeEventTimeline";
 import "../../components/RuntimeEventTimeline.css";
 import { formatFileSize } from "../../utils/format";
 import { QUICK_CHIPS } from "./WorkbenchQuickChips";
-import { InspectionProgressCard } from "../../components/InspectionProgressCard";
 import { TaskTrackingCard } from "../../components/TaskTrackingCard";
 
 /* ── v3.9 View mode ── */
@@ -189,6 +188,8 @@ export function TaskWorkbench() {
   // the task ourselves so the UI has a cancel button + progress
   // without waiting for the LLM to issue the tool call.
   const [inspectionTaskId, setInspectionTaskId] = useState<string | null>(null);
+  const onSendRef = useRef(onSend);
+  useEffect(() => { onSendRef.current = onSend; }, [onSend]);
 
   // Stop generation: abort active request + close WebSocket
   const stopGeneration = useCallback(() => {
@@ -275,7 +276,75 @@ export function TaskWorkbench() {
       const t = setTimeout(() => onSend(prompt, { source: "packet_analysis" }), 500);
       return () => clearTimeout(t);
     }
-  }, [currentWorkspaceId]);
+  }, [currentWorkspaceId, setInput, onSend]);
+
+  // ── Inspection polling: frontend tracks task, LLM only analyses ──
+  useEffect(() => {
+    const raw = localStorage.getItem("workbench_inspection");
+    if (!raw || !currentWorkspaceId) return;
+    let payload: { task_id: string; metadata: Record<string, unknown> };
+    try { payload = JSON.parse(raw); } catch { localStorage.removeItem("workbench_inspection"); return; }
+
+    const { task_id, metadata } = payload;
+    const target = String(metadata.target || "");
+    const vendor = String(metadata.vendor || "");
+    const typeLabel = String(metadata.typeLabel || "巡检");
+    const analysisHints = String(metadata.analysisHints || "");
+
+    // Show bubble via state
+    setInspectionTaskId(task_id);
+    setInput("");
+    let done = false;
+    const ac = new AbortController();
+
+    const poll = async () => {
+      if (done) return;
+      try {
+        const { inspectionApi } = await import("../../api/index");
+        const resp = await inspectionApi.getTask(currentWorkspaceId, task_id, ac.signal) as { ok: boolean; task?: import("../../api/index").InspectionTaskRecord; error?: string };
+        if (!resp.ok || !resp.task) { setTimeout(poll, 3000); return; }
+        const t = resp.task;
+        if (t.status === "succeeded" || t.status === "partial") {
+          done = true;
+          setInspectionTaskId(null);
+          localStorage.removeItem("workbench_inspection"); // clear on success
+          const deviceList = Object.values((t as any).devices || {} as Record<string, any>)
+            .filter((d: any) => d.status === "succeeded")
+            .map((d: any) => `- ${d.asset_name || d.asset_id} (${d.host})`).join("\n");
+          const finalPrompt = [
+            `对 ${target}${vendor} ${typeLabel}已完成。`,
+            ``,
+            `请用 inspection.manage 获取原始命令输出：`,
+            `inspection.manage action=report format=md task_id=${task_id}`,
+            ``,
+            `设备清单：`,
+            deviceList,
+            ``,
+            `拿到输出后逐设备分析，维度：${analysisHints}。`,
+            `输出结构化${typeLabel}报告（概览表 + 逐设备要点）。`,
+            `不要输出任何中间确认或思考过程。直接开始分析。`,
+          ].join("\n");
+          setInput(finalPrompt);
+          pendingAutoMetadataRef.current = metadata;
+          onSendRef.current(finalPrompt, metadata);
+        } else if (t.status === "failed" || t.status === "cancelled") {
+          done = true;
+          setInspectionTaskId(null);
+          localStorage.removeItem("workbench_inspection"); // clear on failure
+        } else {
+          setTimeout(poll, 3000);
+        }
+      } catch (e: unknown) {
+        if (!(e instanceof DOMException && e.name === "AbortError")) {
+          done = true;
+          setInspectionTaskId(null);
+        }
+      }
+    };
+    setTimeout(poll, 2000);
+
+    return () => { done = true; ac.abort(); };
+  }, [currentWorkspaceId]); // only re-run on workspace change
 
   // Session switch + sync
   useEffect(() => {
@@ -948,15 +1017,30 @@ export function TaskWorkbench() {
             aria-live={sending ? "polite" : "off"}
             onScroll={handleChatScroll}
           >
-            {inspectionTaskId && (
-              <InspectionProgressCard
-                taskId={inspectionTaskId}
-                onDismiss={() => setInspectionTaskId(null)}
-              />
-            )}
             {(visibleHistory ?? []).map((m, idx) => (
               <MemoMessageRow key={m.message_id || m.run_id || m.id} m={m} idx={idx} total={(visibleHistory ?? []).length} renderFn={renderMsg} />
             ))}
+          </div>
+        )}
+
+        {/* ── Inspection floating bubble (above input box) ── */}
+        {inspectionTaskId && (
+          <div style={{
+            position: "fixed", bottom: 72, left: "50%", transform: "translateX(-50%)",
+            zIndex: 9999, padding: "10px 20px", borderRadius: 10,
+            background: "var(--surface)", boxShadow: "0 4px 24px rgba(0,0,0,0.15)",
+            border: "1px solid var(--line-2)", display: "flex", alignItems: "center", gap: 10,
+            fontSize: 13, fontWeight: 600, color: "var(--text)",
+          }}>
+            <span style={{ fontSize: 16 }}>⏳</span>
+            <span>巡检进行中…</span>
+            <span style={{ fontSize: 11, fontWeight: 400, color: "var(--text-4)", fontFamily: "var(--font-mono)" }}>
+              {inspectionTaskId}
+            </span>
+            <span style={{
+              width: 8, height: 8, borderRadius: "50%",
+              background: "var(--accent)", animation: "pulse 1.2s infinite",
+            }} />
           </div>
         )}
 

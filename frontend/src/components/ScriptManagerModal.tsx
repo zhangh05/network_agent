@@ -15,6 +15,11 @@ const TYPE_LABELS: Record<string, string> = {
   general: "通用", log: "日志",
 };
 
+/** 将空字符串显示为 "(回车)" */
+function displayCmd(cmd: string): string {
+  return cmd === "" ? "(回车)" : cmd;
+}
+
 export function ScriptManagerModal({ workspaceId, scriptType, onClose }: Props) {
   const [vendors, setVendors] = useState<string[]>([]);
   const [activeVendor, setActiveVendor] = useState("");
@@ -27,8 +32,19 @@ export function ScriptManagerModal({ workspaceId, scriptType, onClose }: Props) 
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
   const [successMsg, setSuccessMsg] = useState("");
+
+  // ── command add state ──
   const [newCmd, setNewCmd] = useState("");
   const [showAddRow, setShowAddRow] = useState(false);
+
+  // ── pre command add state ──
+  const [newPreCmd, setNewPreCmd] = useState("");
+  const [showAddPreRow, setShowAddPreRow] = useState(false);
+
+  // ── post command add state ──
+  const [newPostCmd, setNewPostCmd] = useState("");
+  const [showAddPostRow, setShowAddPostRow] = useState(false);
+
   const [dirty, setDirty] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
@@ -66,15 +82,16 @@ export function ScriptManagerModal({ workspaceId, scriptType, onClose }: Props) 
     }
     setLoading(false);
     setSuccessMsg("");
-    setShowAddRow(false);
-    setNewCmd("");
+    setShowAddRow(false); setNewCmd("");
+    setShowAddPreRow(false); setNewPreCmd("");
+    setShowAddPostRow(false); setNewPostCmd("");
   }, [workspaceId, scriptType]);
 
   useEffect(() => {
     if (activeVendor) loadVendor(activeVendor);
   }, [activeVendor, loadVendor]);
 
-  // ── handlers ──
+  // ── command handlers ──
   const editCmd = (index: number, value: string) => {
     setCommands(prev => { const n = [...prev]; n[index] = value; return n; });
     setDirty(true);
@@ -90,14 +107,60 @@ export function ScriptManagerModal({ workspaceId, scriptType, onClose }: Props) 
     setDirty(true);
     setNewCmd(""); setShowAddRow(false); setError("");
   };
+
+  // ── pre command handlers ──
+  const editPreCmd = (index: number, value: string) => {
+    setPreCommands(prev => { const n = [...prev]; n[index] = value; return n; });
+    setDirty(true);
+  };
+  const deletePreCmd = (index: number) => {
+    setPreCommands(prev => prev.filter((_, i) => i !== index));
+    setDirty(true);
+  };
+  const addPreCmd = () => {
+    const c = newPreCmd.trim();
+    // pre 允许空字符串（表示回车）
+    setPreCommands(prev => [...prev, c]);
+    setDirty(true);
+    setNewPreCmd(""); setShowAddPreRow(false); setError("");
+  };
+  const addPreEnter = () => {
+    setPreCommands(prev => [...prev, ""]);
+    setDirty(true);
+    setError("");
+  };
+
+  // ── post command handlers ──
+  const editPostCmd = (index: number, value: string) => {
+    setPostCommands(prev => { const n = [...prev]; n[index] = value; return n; });
+    setDirty(true);
+  };
+  const deletePostCmd = (index: number) => {
+    setPostCommands(prev => prev.filter((_, i) => i !== index));
+    setDirty(true);
+  };
+  const addPostCmd = () => {
+    const c = newPostCmd.trim();
+    setPostCommands(prev => [...prev, c]);
+    setDirty(true);
+    setNewPostCmd(""); setShowAddPostRow(false); setError("");
+  };
+  const addPostEnter = () => {
+    setPostCommands(prev => [...prev, ""]);
+    setDirty(true);
+    setError("");
+  };
+
   const handleSave = async () => {
     setSaving(true); setError(""); setSuccessMsg("");
     try {
-      const r = await scriptsApi.updateScript(workspaceId, activeVendor, commands, scriptType);
+      const r = await scriptsApi.updateScript(
+        workspaceId, activeVendor, commands, scriptType, preCommands, postCommands,
+      );
       if (r.ok) {
         setSource("file");
         setDirty(false);
-        setSuccessMsg(`已保存 ${r.command_count} 条命令，下次巡检生效`);
+        setSuccessMsg(`已保存 ${r.command_count} 条命令，前置 ${r.pre_command_count} 条，后置 ${r.post_command_count} 条，下次巡检生效`);
       }
     } catch (e: unknown) {
       setError(e instanceof Error ? e.message : "保存失败");
@@ -105,15 +168,17 @@ export function ScriptManagerModal({ workspaceId, scriptType, onClose }: Props) 
     setSaving(false);
   };
   const handleReset = async () => {
-    if (!window.confirm("确认恢复为默认？这将删除所有已保存的自定义命令。")) return;
+    if (!window.confirm("确认恢复为默认？这将删除所有已保存的自定义命令、前置和后置命令。")) return;
     setSaving(true); setError(""); setSuccessMsg("");
     try {
       const r = await scriptsApi.resetScript(workspaceId, activeVendor, scriptType);
       if (r.ok) {
         setCommands([]);
+        setPreCommands([]);
+        setPostCommands([]);
         setSource("builtin");
         setDirty(false);
-        setSuccessMsg("已恢复为默认（命令列表为空）");
+        setSuccessMsg("已恢复为默认（所有脚本为空）");
       }
     } catch (e: unknown) {
       setError(e instanceof Error ? e.message : "重置失败");
@@ -160,6 +225,89 @@ export function ScriptManagerModal({ workspaceId, scriptType, onClose }: Props) 
     ...extra,
   } as const);
 
+  // ── render a single editable list ──
+  const renderCmdList = (
+    items: string[],
+    label: string,
+    color: string,
+    editFn: (i: number, v: string) => void,
+    delFn: (i: number) => void,
+    addRow: boolean,
+    setAddRow: (v: boolean) => void,
+    newVal: string,
+    setNewVal: (v: string) => void,
+    addFn: () => void,
+    addEnterFn: () => void,
+  ) => (
+    <div style={{ marginBottom: 14 }}>
+      <div style={{ fontWeight: 700, fontSize: 12, color: `var(--${color})`, marginBottom: 6 }}>
+        {label}
+      </div>
+      <div style={{ display: "flex", flexDirection: "column", gap: 2 }}>
+        {items.map((cmd, i) => (
+          <div key={`${label}-${i}`} style={{
+            display: "flex", gap: 8, alignItems: "center", padding: "4px 0",
+            borderBottom: i < items.length - 1 ? "1px solid var(--line-2)" : "none",
+          }}>
+            <span style={{
+              fontSize: 11, fontFamily: "var(--font-mono)", color: "var(--text-4)",
+              minWidth: 28, textAlign: "right", flexShrink: 0,
+            }}>{i + 1}</span>
+            <input
+              value={cmd}
+              placeholder={cmd === "" ? "(回车)" : undefined}
+              onChange={e => editFn(i, e.target.value)}
+              style={{
+                ...inputStyle(true),
+                flex: 1,
+                fontStyle: cmd === "" ? "italic" : "normal",
+                color: cmd === "" ? "var(--text-4)" : "var(--text)",
+              }}
+              onFocus={e => e.currentTarget.style.borderColor = "var(--accent)"}
+              onBlur={e => e.currentTarget.style.borderColor = "var(--line)"}
+            />
+            <button className="btn sm ghost" onClick={() => delFn(i)}
+              style={{ fontSize: 11, padding: "2px 6px", color: "var(--text-4)", flexShrink: 0 }}
+              title="删除">×</button>
+          </div>
+        ))}
+        {items.length === 0 && (
+          <div style={{ textAlign: "center", padding: "10px", color: "var(--text-4)", fontSize: 12 }}>
+            暂无{label}，请添加。
+          </div>
+        )}
+      </div>
+      {/* add row */}
+      {addRow ? (
+        <div style={{
+          display: "flex", gap: 8, alignItems: "center", marginTop: 8,
+          padding: "8px 12px", background: "var(--surface-2)", borderRadius: 7,
+        }}>
+          <input
+            placeholder={`输入${label}（留空为回车）`}
+            value={newVal}
+            onChange={e => setNewVal(e.target.value)}
+            style={{ ...inputStyle(true), flex: 1 }}
+            onKeyDown={e => e.key === "Enter" && addFn()}
+          />
+          <button className="btn sm primary" onClick={addFn}
+            style={{ fontSize: 11, padding: "3px 10px" }}>添加</button>
+          <button className="btn sm" onClick={addEnterFn}
+            style={{ fontSize: 11, padding: "3px 8px" }}>插入回车</button>
+          <button className="btn sm ghost" onClick={() => { setAddRow(false); setNewVal(""); setError(""); }}
+            style={{ fontSize: 11, padding: "3px 6px" }}>取消</button>
+        </div>
+      ) : (
+        <div style={{ display: "flex", gap: 6, marginTop: 8 }}>
+          <button className="btn sm" onClick={() => { setAddRow(true); setNewVal(""); }}
+            style={{ fontSize: 12, padding: "4px 12px" }}>+ 添加{label}</button>
+          <button className="btn sm ghost" onClick={addEnterFn}
+            style={{ fontSize: 12, padding: "4px 10px" }}>插入回车</button>
+        </div>
+      )}
+    </div>
+  );
+
   return (
     <div style={{
       position: "fixed", inset: 0, zIndex: 9999,
@@ -182,7 +330,7 @@ export function ScriptManagerModal({ workspaceId, scriptType, onClose }: Props) 
             <div style={{ fontWeight: 800, fontSize: 18, color: "var(--text)" }}>{TYPE_LABELS[scriptType] || scriptType}脚本管理</div>
             <div style={{ marginTop: 5, fontSize: 12, color: "var(--text-4)", lineHeight: 1.5 }}>
               配置各厂商{TYPE_LABELS[scriptType] || scriptType}巡检命令列表。未配置则自动使用「通用」脚本；通用也未配置则该厂商将被跳过。
-              前置/后置命令（screen-length disable 等）为内置脚本，不可修改。
+              空命令表示回车（Enter），用于刷新欢迎横幅或发送确认。
             </div>
           </div>
           <button className="btn sm ghost" onClick={handleClose}
@@ -223,101 +371,36 @@ export function ScriptManagerModal({ workspaceId, scriptType, onClose }: Props) 
                 color: source === "file" ? "var(--ok)" : "var(--warn)",
               }}>{source === "file" ? "已配置" : "未配置"}</span>
               {isModified && <span style={{ fontSize: 11, color: "var(--warn)" }}>已修改，请保存以生效</span>}
-              {source === "builtin" && commands.length === 0 && (
-                <span style={{ fontSize: 11, color: "var(--text-4)" }}>该厂商尚无巡检命令，请添加或上传 .txt</span>
+              {source === "builtin" && commands.length === 0 && preCommands.length === 0 && postCommands.length === 0 && (
+                <span style={{ fontSize: 11, color: "var(--text-4)" }}>该厂商尚无脚本，请添加或上传 .txt</span>
               )}
             </div>
 
-            {/* pre/post commands (read-only display) */}
-            {(preCommands.length > 0 || postCommands.length > 0) && (
-              <div style={{
-                marginBottom: 12, padding: "8px 12px", borderRadius: 6,
-                background: "var(--surface-2)", border: "1px solid var(--line-2)",
-                fontSize: 11, color: "var(--text-4)", lineHeight: 1.6,
-              }}>
-                <div style={{ fontWeight: 600, marginBottom: 4, color: "var(--text-3)" }}>
-                  内置前置/后置命令（不可编辑）
-                </div>
-                {preCommands.map((c, i) => (
-                  <div key={`pre-${i}`} style={{ fontFamily: "var(--font-mono)", color: "var(--info)" }}>
-                    [前置] {c || "(回车)"}
-                  </div>
-                ))}
-                {postCommands.map((c, i) => (
-                  <div key={`post-${i}`} style={{ fontFamily: "var(--font-mono)", color: "var(--ok)" }}>
-                    [后置] {c || "(回车)"}
-                  </div>
-                ))}
-              </div>
+            {/* pre commands */}
+            {renderCmdList(
+              preCommands, "前置命令", "info",
+              editPreCmd, deletePreCmd,
+              showAddPreRow, setShowAddPreRow,
+              newPreCmd, setNewPreCmd,
+              addPreCmd, addPreEnter,
             )}
 
-            {/* command list */}
-            <div style={{ display: "flex", flexDirection: "column", gap: 2 }}>
-              {commands.map((cmd, i) => {
-                const isBuiltin = i < builtinCommands.length;
-                const isChanged = !isBuiltin || builtinCommands[i] !== cmd;
-                return (
-                  <div key={i} style={{
-                    display: "flex", gap: 8, alignItems: "center", padding: "4px 0",
-                    borderBottom: i < commands.length - 1 ? "1px solid var(--line-2)" : "none",
-                  }}>
-                    <span style={{
-                      fontSize: 11, fontFamily: "var(--font-mono)", color: "var(--text-4)",
-                      minWidth: 28, textAlign: "right", flexShrink: 0,
-                    }}>{i + 1}</span>
-                    <input
-                      value={cmd}
-                      onChange={e => editCmd(i, e.target.value)}
-                      style={{
-                        ...inputStyle(true),
-                        flex: 1,
-                        borderColor: isChanged ? "var(--warn)" : "var(--line)",
-                        background: isChanged ? "var(--warn-soft)" : "var(--surface)",
-                      }}
-                      onFocus={e => e.currentTarget.style.borderColor = "var(--accent)"}
-                      onBlur={e => e.currentTarget.style.borderColor = isChanged ? "var(--warn)" : "var(--line)"}
-                    />
-                    {!isBuiltin && (
-                      <span style={{ fontSize: 10, color: "var(--info)", fontWeight: 600, whiteSpace: "nowrap" }}>新增</span>
-                    )}
-                    {isChanged && isBuiltin && (
-                      <span style={{ fontSize: 10, color: "var(--warn)", fontWeight: 600, whiteSpace: "nowrap" }}>已改</span>
-                    )}
-                    <button className="btn sm ghost" onClick={() => deleteCmd(i)}
-                      style={{ fontSize: 11, padding: "2px 6px", color: "var(--text-4)", flexShrink: 0 }}
-                      title="删除">×</button>
-                  </div>
-                );
-              })}
-              {commands.length === 0 && (
-                <div style={{ textAlign: "center", padding: "30px", color: "var(--text-4)", fontSize: 13, lineHeight: 1.6 }}>
-                  {source === "file" ? "脚本为空，请添加命令。" : "尚未配置脚本。添加命令或上传 .txt 文件后，该厂商设备才能参与巡检。"}
-                </div>
-              )}
-            </div>
-
-            {/* add row */}
-            {showAddRow && (
-              <div style={{
-                display: "flex", gap: 8, alignItems: "center", marginTop: 10,
-                padding: "8px 12px", background: "var(--surface-2)", borderRadius: 7,
-              }}>
-                <input
-                  placeholder="输入命令，如 display version"
-                  value={newCmd}
-                  onChange={e => setNewCmd(e.target.value)}
-                  style={{ ...inputStyle(true), flex: 1 }}
-                  onKeyDown={e => e.key === "Enter" && addCmd()}
-                />
-                <button className="btn sm primary" onClick={addCmd}
-                  style={{ fontSize: 11, padding: "3px 10px" }}>添加</button>
-                <button className="btn sm ghost" onClick={() => { setShowAddRow(false); setError(""); }}
-                  style={{ fontSize: 11, padding: "3px 6px" }}>取消</button>
-              </div>
+            {/* commands */}
+            {renderCmdList(
+              commands, "巡检命令", "accent",
+              editCmd, deleteCmd,
+              showAddRow, setShowAddRow,
+              newCmd, setNewCmd,
+              addCmd, () => { /* commands 不单独提供插入回车，因为命令不能是空 */ },
             )}
-            {!showAddRow && (
-              <button className="btn sm" onClick={() => { setShowAddRow(true); setNewCmd(""); }}
-                style={{ marginTop: 10, fontSize: 12, padding: "4px 12px" }}>+ 添加命令</button>
+
+            {/* post commands */}
+            {renderCmdList(
+              postCommands, "后置命令", "ok",
+              editPostCmd, deletePostCmd,
+              showAddPostRow, setShowAddPostRow,
+              newPostCmd, setNewPostCmd,
+              addPostCmd, addPostEnter,
             )}
 
             {/* messages */}

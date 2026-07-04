@@ -61,7 +61,7 @@ def sanitize_llm_settings(data: dict) -> dict:
         "base_url": data.get("base_url", ""),
         "model": data.get("model", ""),
         "temperature": data.get("temperature", 0.2),
-        "max_tokens": data.get("max_tokens", 1200),
+        "max_tokens": data.get("max_tokens", 4096),
         "key_configured": bool(key),
         "key_preview": mask_key(key) if key else None,
         "updated_at": data.get("updated_at"),
