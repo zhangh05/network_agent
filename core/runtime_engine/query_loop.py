@@ -1354,7 +1354,14 @@ class QueryLoop:
             if r.call_id not in original_call_ids:
                 extra_results.append(r)
                 continue
-            output_str = _json_compact(r.output, max_chars=TOOL_MESSAGE_MAX_CHARS)
+            # v3.11: ensure errors are visible to the LLM even when r.output is empty
+            tool_payload = dict(r.output) if r.output else {}
+            if not tool_payload.get("ok", True) and r.errors and not tool_payload.get("errors"):
+                tool_payload["errors"] = r.errors
+            if tool_payload.get("ok", True) and r.errors:
+                tool_payload["ok"] = False
+                tool_payload["errors"] = list(r.errors)
+            output_str = _json_compact(tool_payload, max_chars=TOOL_MESSAGE_MAX_CHARS)
             new_msgs.append(LLMMessage(
                 role="tool",
                 content=output_str,

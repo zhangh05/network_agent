@@ -55,6 +55,7 @@ class ToolExecutor:
                 invocation_id=invocation.invocation_id,
                 tool_id=invocation.tool_id,
                 status="blocked",
+                output={"ok": False, "error": schema_errors[0], "errors": schema_errors},
                 summary=f"Schema validation failed: {', '.join(schema_errors)}",
                 errors=schema_errors,
                 duration_ms=int((time.time() - start_time) * 1000),
