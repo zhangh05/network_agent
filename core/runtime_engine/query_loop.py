@@ -708,20 +708,42 @@ class QueryLoop:
 
                 gate = self._prepare_tool_calls(ctx, tool_calls)
                 if not gate["ok"]:
-                    return QueryLoopResult(
-                        final_response=gate["message"],
-                        tool_results=all_results,
-                        iterations=iterations,
-                        total_tool_calls=len(all_results),
-                        llm_calls=llm_calls,
-                        error=gate["error"],
-                        errors=list(gate.get("errors") or []),
-                        risk_level=gate.get("risk_level", "high"),
-                        approval_required=bool(gate.get("approval_required", False)),
-                        approval_nodes=list(gate.get("approval_nodes") or []),
-                        approval_details=list(gate.get("approval_details") or []),
-                        hard_block=bool(gate.get("hard_block", False)),
-                    )
+                    if gate.get("hard_block") or gate.get("approval_nodes"):
+                        return QueryLoopResult(
+                            final_response=gate["message"],
+                            tool_results=all_results,
+                            iterations=iterations,
+                            total_tool_calls=len(all_results),
+                            llm_calls=llm_calls,
+                            error=gate["error"],
+                            errors=list(gate.get("errors") or []),
+                            risk_level=gate.get("risk_level", "high"),
+                            approval_required=bool(gate.get("approval_required", False)),
+                            approval_nodes=list(gate.get("approval_nodes") or []),
+                            approval_details=list(gate.get("approval_details") or []),
+                            hard_block=bool(gate.get("hard_block", False)),
+                        )
+                    # Soft validation errors (e.g. missing_required_arg) —
+                    # feed back to LLM as tool results so it can correct itself.
+                    if self._emitter:
+                        self._emitter.emit("tool_validation_failed", {
+                            "errors": gate.get("errors", []),
+                            "message": gate["message"],
+                        })
+                    fake_results = [
+                        StreamingToolResult(
+                            tool_name=tc.name,
+                            call_id=tc.id,
+                            output={"ok": False, "error": gate["message"], "errors": gate.get("errors", [])},
+                            ok=False,
+                            error=gate["message"],
+                        )
+                        for tc in tool_calls
+                    ]
+                    all_results.extend(fake_results)
+                    messages = self._append_tool_round(messages, tool_calls, fake_results)
+                    # Don't count these as successful tool calls
+                    continue
                 tool_calls = gate["tool_calls"]
 
                 # Execute tools (parallel read-only, serial writes)
@@ -964,8 +986,13 @@ class QueryLoop:
 
     @staticmethod
     def _llm_call_mode(messages: List[LLMMessage]) -> tuple[str, str, bool]:
-        # Always use planner prompt — LLM decides when to summarize vs continue.
-        # Finalizer is reserved for the dedicated _finalize_with_results path.
+        has_tool_context = any(
+            m.role == "tool"
+            or (m.role == "user" and "AUTO TRACKING RESULTS" in str(m.content or ""))
+            for m in messages
+        )
+        if has_tool_context:
+            return QUERY_LOOP_FINALIZER_PROMPT, "finalizer", True
         return QUERY_LOOP_SYSTEM_PROMPT, "planner", False
 
     def _messages_to_user_text(self, messages: List[LLMMessage]) -> str:
@@ -1148,13 +1175,19 @@ class QueryLoop:
                 for e in validation.errors
             ]
             self._record_blocked_audit_nodes(ctx, nodes)
+            # Soft validation errors (missing args) are recoverable —
+            # let the LLM see the error and retry via the continue path.
+            is_hard = any(
+                e.code not in ("MISSING_REQUIRED_ARG", "INVALID_ARG_TYPE")
+                for e in validation.errors
+            )
             return {
                 "ok": False,
                 "error": "semantic_validation_failed",
                 "errors": errors,
-                "hard_block": True,
-                "risk_level": "high",
-                "message": "工具调用被执行前校验拦截：\n" + "\n".join(f"- {e}" for e in errors),
+                "hard_block": is_hard,
+                "risk_level": "high" if is_hard else "low",
+                "message": "工具调用校验失败：\n" + "\n".join(f"- {e}" for e in errors),
             }
 
         risk = RiskPolicyEngine(self._config).assess(graph)

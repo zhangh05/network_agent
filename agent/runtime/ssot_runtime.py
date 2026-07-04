@@ -334,7 +334,7 @@ def _build_engine(
         enable_finalizer=True,
         max_global_concurrency=8,
         max_layer_concurrency=5,
-        max_llm_calls=2,
+        max_llm_calls=50,
         max_total_seconds=180,
         max_tool_seconds=120,
         single_node_timeout_ms=120_000,
@@ -612,6 +612,23 @@ def _project_tool_calls(runtime_result) -> list[dict[str, Any]]:
     calls = []
     for node_id, tr in (runtime_result.node_results or {}).items():
         data = tr.data if isinstance(tr.data, dict) else {"value": tr.data}
+        raw_ids = list(data.get("artifact_ids") or [])
+        # Normalise artifacts: frontend expects objects, not plain strings.
+        artifacts: list[dict[str, str]] = []
+        for aid in raw_ids:
+            if isinstance(aid, dict):
+                artifacts.append({
+                    "artifact_id": str(aid.get("artifact_id", aid.get("id", ""))),
+                    "artifact_type": str(aid.get("artifact_type", aid.get("type", ""))),
+                    "title": str(aid.get("title", aid.get("name", ""))),
+                })
+            elif isinstance(aid, str):
+                artifacts.append({
+                    "artifact_id": aid,
+                    "artifact_type": "",
+                    "title": aid,
+                })
+
         calls.append({
             "call_id": node_id,
             "tool_id": tr.tool,
@@ -619,9 +636,10 @@ def _project_tool_calls(runtime_result) -> list[dict[str, Any]]:
             "status": "succeeded" if tr.success else "failed",
             "summary": _tool_summary(data, tr),
             "result": data.get("output", data),
+            "duration_ms": tr.latency_ms,
             "errors": list(data.get("errors") or ([tr.error] if tr.error else [])),
             "warnings": list(data.get("warnings") or []),
-            "artifacts": list(data.get("artifact_ids") or []),
+            "artifacts": artifacts,
             "metadata": {
                 "runtime_engine": "ssot_runtime",
                 "node_id": node_id,

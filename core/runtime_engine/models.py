@@ -171,7 +171,7 @@ class SSOTRuntimeConfig:
     max_layer_concurrency: int = 5
     max_total_seconds: int = 60
     max_tool_seconds: int = 30
-    max_llm_calls: int = 8
+    max_llm_calls: int = 50
     tracking_enabled: bool = True
     tracking_max_polls: int = 8
     tracking_max_seconds: int = 45
@@ -228,7 +228,7 @@ class ExecutionBudget:
     max_nodes: int = 30
     max_depth: int = 8
     max_parallel_width: int = 8
-    max_llm_calls: int = 8
+    max_llm_calls: int = 50
 
 
 @dataclass

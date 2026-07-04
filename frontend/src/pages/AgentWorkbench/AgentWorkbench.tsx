@@ -248,65 +248,73 @@ export function TaskWorkbench() {
 
   // Pick up cross-page auto prompts (CMDB inspection, packet analysis, etc.)
   useEffect(() => {
-    let cancelled = false;
     const autoRaw = sessionStorage.getItem("workbench_auto_prompt");
     if (autoRaw && currentWorkspaceId) {
-      sessionStorage.removeItem("workbench_auto_prompt");
+      // Parse before removing — Strict Mode re-runs don't lose data.
+      let payload: WorkbenchAutoPrompt;
       try {
-        const payload = JSON.parse(autoRaw) as WorkbenchAutoPrompt;
-        const prompt = String(payload.prompt || "").trim();
-        if (prompt) {
-          pendingAutoMetadataRef.current = payload.metadata || {};
-          setInput(prompt);
-          const md = (payload.metadata || {}) as Record<string, any>;
-          if (
-            md?.intent === "cmdb_region_inspection" ||
-            md?.intent === "cmdb_asset_inspection"
-          ) {
-            // CMDB inspection launch is single-owner: the frontend creates
-            // exactly one task, then the LLM receives that task_id and must
-            // summarize/track it instead of starting another inspection.
-            const scope: any = {};
-            if (md?.region) scope.region = md.region;
-            if (Array.isArray(md?.asset_ids) && md.asset_ids.length) {
-              scope.asset_ids = md.asset_ids;
-            }
-            inspectionApi
-              .createTask({
-                workspace_id: currentWorkspaceId,
-                scope,
-                async_run: true,
-                created_by: "user",
-              } as any)
-              .then((res) => {
-                if (cancelled) return;
-                if ((res as any).ok && (res as any).task_id) {
-                  const taskId = String((res as any).task_id);
-                  setInspectionTaskId(taskId);
-                  const nextMetadata = { ...md, inspection_task_id: taskId };
-                  const nextPrompt = [
-                    prompt,
-                    "",
-                    `巡检任务已创建，任务 ID：${taskId}。`,
-                    "请继续跟踪这个任务，并用简洁的话告诉我巡检是否完成、异常项、失败或跳过设备、下一步建议和报告链接。",
-                  ].join("\n");
-                  pendingAutoMetadataRef.current = nextMetadata;
-                  setInput(nextPrompt);
-                  onSend(nextPrompt, nextMetadata);
-                }
-              })
-              .catch(() => {
-                if (cancelled) return;
-                onSend(prompt, payload.metadata || {});
-              });
-            return () => { cancelled = true; };
-          }
-          const t = setTimeout(() => onSend(prompt, payload.metadata || {}), 500);
-          return () => clearTimeout(t);
-        }
+        payload = JSON.parse(autoRaw) as WorkbenchAutoPrompt;
       } catch {
-        // Fall through to packet-analysis prompt support below.
+        sessionStorage.removeItem("workbench_auto_prompt");
+        return;
       }
+      const prompt = String(payload.prompt || "").trim();
+      if (!prompt) {
+        sessionStorage.removeItem("workbench_auto_prompt");
+        return;
+      }
+
+      pendingAutoMetadataRef.current = payload.metadata || {};
+      setInput(prompt);
+      const md = (payload.metadata || {}) as Record<string, any>;
+      if (
+        md?.intent === "cmdb_region_inspection" ||
+        md?.intent === "cmdb_asset_inspection"
+      ) {
+        // CMDB inspection launch is single-owner: the frontend creates
+        // exactly one task, then the LLM receives that task_id and must
+        // summarize/track it instead of starting another inspection.
+        const scope: any = {};
+        if (md?.region) scope.region = md.region;
+        if (Array.isArray(md?.asset_ids) && md.asset_ids.length) {
+          scope.asset_ids = md.asset_ids;
+        }
+        inspectionApi
+          .createTask({
+            workspace_id: currentWorkspaceId,
+            scope,
+            async_run: true,
+            created_by: "user",
+          } as any)
+          .then((res) => {
+            if ((res as any).ok && (res as any).task_id) {
+              const taskId = String((res as any).task_id);
+              setInspectionTaskId(taskId);
+              const nextMetadata = { ...md, inspection_task_id: taskId };
+              const nextPrompt = [
+                prompt,
+                "",
+                `巡检任务已创建，任务 ID：${taskId}。`,
+                "请继续跟踪这个任务，并用简洁的话告诉我巡检是否完成、异常项、失败或跳过设备、下一步建议和报告链接。",
+              ].join("\n");
+              pendingAutoMetadataRef.current = nextMetadata;
+              setInput(nextPrompt);
+              onSend(nextPrompt, nextMetadata);
+            } else {
+              // Task creation failed — send original prompt so LLM can retry.
+              onSend(prompt, payload.metadata || {});
+            }
+          })
+          .catch(() => {
+            onSend(prompt, payload.metadata || {});
+          });
+        // Remove only after async call is dispatched — not before.
+        sessionStorage.removeItem("workbench_auto_prompt");
+        return;
+      }
+      sessionStorage.removeItem("workbench_auto_prompt");
+      const t = setTimeout(() => onSend(prompt, payload.metadata || {}), 500);
+      return () => clearTimeout(t);
     }
     const prompt = sessionStorage.getItem("pcap_ai_prompt");
     if (prompt && currentWorkspaceId) {

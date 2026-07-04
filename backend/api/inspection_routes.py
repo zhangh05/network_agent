@@ -85,6 +85,13 @@ def register_inspection_routes(app):
         scope = data.get("scope") or {}
         if not isinstance(scope, dict):
             return jsonify({"ok": False, "error": "scope_must_be_object"}), 400
+        # Require at least one target dimension — prevent accidental full-CMDB scans.
+        if not scope.get("region") and not scope.get("asset_ids"):
+            return jsonify({
+                "ok": False,
+                "error": "scope_required",
+                "message": "巡检任务必须指定范围（region 或 asset_ids），不能对全量 CMDB 发起巡检。",
+            }), 400
 
         # The runner persists / runs synchronously. The frontend polls
         # get once this returns. Status is one of:
