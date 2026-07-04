@@ -1356,11 +1356,11 @@ class QueryLoop:
                 continue
             # v3.11: ensure errors are visible to the LLM even when r.output is empty
             tool_payload = dict(r.output) if r.output else {}
-            if not tool_payload.get("ok", True) and r.errors and not tool_payload.get("errors"):
-                tool_payload["errors"] = r.errors
-            if tool_payload.get("ok", True) and r.errors:
+            if not tool_payload.get("ok", True) and r.error and not tool_payload.get("errors"):
+                tool_payload["errors"] = [r.error]
+            if tool_payload.get("ok", True) and r.error:
                 tool_payload["ok"] = False
-                tool_payload["errors"] = list(r.errors)
+                tool_payload["errors"] = [r.error]
             output_str = _json_compact(tool_payload, max_chars=TOOL_MESSAGE_MAX_CHARS)
             new_msgs.append(LLMMessage(
                 role="tool",
