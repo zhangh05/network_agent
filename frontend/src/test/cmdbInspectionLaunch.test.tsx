@@ -78,7 +78,8 @@ describe("CMDB inspection launch", () => {
     });
     expect(payload.prompt).toContain("CMDB 区域「测试一区」");
     expect(payload.prompt).toContain("通用巡检");
-    expect(payload.prompt).toContain("报告链接");
+    expect(payload.prompt).toContain("action=get");
+    expect(payload.prompt).toContain("action=report");
     expect(payload.prompt).toContain("异常项");
     expect(payload.prompt).toContain("失败或跳过设备");
     expect(payload.prompt).toContain("inspection.manage");
@@ -167,9 +168,8 @@ describe("CMDB inspection launch", () => {
       },
     });
     expect(String(request?.data?.message || "")).toContain("任务 ID：insp-task-1");
-    expect(String(request?.data?.message || "")).toContain("继续跟踪这个任务");
-    expect(String(request?.data?.message || "")).toContain("报告链接");
-    expect(String(request?.data?.message || "")).not.toContain("inspection.manage");
+    expect(String(request?.data?.message || "")).toContain("action=get");
+    expect(String(request?.data?.message || "")).toContain("action=report");
     expect(String(request?.data?.message || "")).not.toContain("task_get");
     expect(String(request?.data?.message || "")).not.toContain("device.manage");
     expect(sessionStorage.getItem("workbench_auto_prompt")).toBeNull();

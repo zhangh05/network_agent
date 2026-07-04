@@ -194,17 +194,20 @@ export function CMDBPage() {
       : `CMDB 资产「${scope.label}」(${asset?.host || ""})`;
 
     if (scope.type === "log") {
-      // 日志巡检：重点采集日志并深度分析异常
+      // 日志巡检：LLM 自己调用 inspection.manage 完成 run→get→report→分析
       const prompt = [
-        `对 ${targetText}${vendorInfo} 发起日志巡检。`,
-        `请调用 inspection.manage 对此设备执行日志相关检查（如 display logbuffer / show logging），`,
-        `采集完成后重点分析：`,
-        `1) 异常告警和错误信息（CRITICAL / ERROR / WARNING 级别）`,
-        `2) 重复出现的错误模式及频次`,
-        `3) 接口 UP/DOWN 变更记录`,
-        `4) 认证失败或安全事件`,
-        `5) 时间分布规律（是否集中在某个时间窗口）`,
-        `然后输出结构化的日志巡检报告，包含异常摘要、根因分析和处置建议。`,
+        `对 ${targetText}${vendorInfo} 发起日志巡检。步骤：`,
+        `1. 调用 inspection.manage action=run 启动巡检`,
+        `   scope: { asset_ids: [${assetIds.map(id => `"${id}"`).join(", ")}] }`,
+        `2. 用 action=get task_id=<返回的ID> 每5秒轮询一次状态，直到 status 为 succeeded 或 partial`,
+        `3. 用 action=report format=md task_id=<任务ID> 获取完整报告`,
+        `4. 重点分析日志相关检查项（如 display logbuffer / show logging），包括：`,
+        `   - 异常告警和错误信息（CRITICAL / ERROR / WARNING 级别）`,
+        `   - 重复出现的错误模式及频次`,
+        `   - 接口 UP/DOWN 变更记录`,
+        `   - 认证失败或安全事件`,
+        `   - 时间分布规律（是否集中在某个时间窗口）`,
+        `最后输出结构化的日志巡检报告，包含异常摘要、根因分析和处置建议。`,
       ].join("\n");
       sessionStorage.setItem("workbench_auto_prompt", JSON.stringify({
         prompt,
@@ -216,11 +219,13 @@ export function CMDBPage() {
         },
       }));
     } else {
-      // 通用巡检：标准健康检查
+      // 通用巡检：任务已由前端创建，LLM 只需跟踪和分析
       const prompt = [
-        `对 ${targetText}${vendorInfo} 发起通用巡检。`,
-        `请调用 inspection.manage 进行基础健康检查（版本、CPU、内存、接口状态、环境告警），`,
-        `完成后请汇总：是否完成、异常项、失败或跳过设备、下一步建议，并提供报告链接。`,
+        `对 ${targetText}${vendorInfo} 发起通用巡检（基础健康检查：版本、CPU、内存、接口状态、环境告警）。`,
+        `巡检任务已由系统自动创建（异步执行），你收到任务ID后只需：`,
+        `1. 用 inspection.manage action=get 轮询任务状态`,
+        `2. 到达终态后调用 action=report format=md 获取报告`,
+        `3. 汇总：是否完成、异常项、失败或跳过设备、下一步建议`,
       ].join("\n");
       sessionStorage.setItem("workbench_auto_prompt", JSON.stringify({
         prompt,

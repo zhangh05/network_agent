@@ -294,8 +294,8 @@ export function TaskWorkbench() {
               const nextPrompt = [
                 prompt,
                 "",
-                `巡检任务已创建，任务 ID：${taskId}。`,
-                "请继续跟踪这个任务，并用简洁的话告诉我巡检是否完成、异常项、失败或跳过设备、下一步建议和报告链接。",
+                `任务 ID：${taskId}`,
+                "请用 action=get 轮询这个任务的执行状态，完成后用 action=report 获取报告并汇总。",
               ].join("\n");
               pendingAutoMetadataRef.current = nextMetadata;
               setInput(nextPrompt);
