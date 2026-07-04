@@ -17,12 +17,12 @@ import uuid
 from pathlib import Path
 from agent.runtime.utils import now_iso
 
-_locks: dict[str, threading.Lock] = {}
+_locks: dict[str, threading.RLock] = {}
 
-def _get_cmdb_lock(path: Path) -> threading.Lock:
+def _get_cmdb_lock(path: Path) -> threading.RLock:
     key = str(path.resolve())
     if key not in _locks:
-        _locks[key] = threading.Lock()
+        _locks[key] = threading.RLock()
     return _locks[key]
 
 
@@ -249,13 +249,20 @@ def _load_all(workspace_id: str) -> list[dict]:
     can flag a corrupted stored password. The check uses
     ``_open_secret_strict`` (which distinguishes a real decrypt
     failure from a missing secret) and runs lazily per asset.
+
+    v3.11: acquires the CMDB lock during read to prevent a
+    read-write race where a concurrent ``save_asset`` appends a
+    partial or interleaved line to the JSONL file.
     """
     path = _db_dir(workspace_id) / "assets.jsonl"
     if not path.exists():
         return []
+    lock = _get_cmdb_lock(path)
+    with lock:
+        raw = path.read_text(encoding="utf-8")
     assets = {}
     deleted = set()
-    for line in path.read_text(encoding="utf-8").strip().split("\n"):
+    for line in raw.strip().split("\n"):
         line = line.strip()
         if not line:
             continue

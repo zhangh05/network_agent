@@ -18,11 +18,15 @@ with the same ``command_key`` keys you used in :mod:`profiles`.
 
 from __future__ import annotations
 
+import json
+from pathlib import Path
+
 from .models import (
     InspectionCheck,
     InspectionProfile,
     VendorCommandProfile,
 )
+from agent.runtime.utils import now_iso
 
 
 # ── command keys (one per inspection check) ───────────────────────────────
@@ -558,6 +562,113 @@ CHECK_TIMEOUT_HINTS: dict[str, int] = {
     # config backups / archives — wide page, slow link
     "current_config": 60,
 }
+
+
+# ── workspace-level script overrides ─────────────────────────────────────
+# Operators can customise per-vendor commands via the frontend
+# ScriptManager modal. Overrides are stored as JSON files under the
+# workspace's ``inspection/scripts/`` directory and loaded first.
+# If no override exists for a vendor the built-in defaults apply.
+
+
+def _scripts_dir(workspace_id: str) -> Path:
+    """Return ``<WS_ROOT>/<ws>/inspection/scripts/``, creating if needed."""
+    from workspace.run_store import WS_ROOT
+    from workspace.ids import validate_workspace_id
+    p = WS_ROOT / validate_workspace_id(workspace_id) / "inspection" / "scripts"
+    p.mkdir(parents=True, exist_ok=True)
+    return p
+
+
+def load_vendor_commands(workspace_id: str, vendor: str) -> dict[str, str] | None:
+    """Return workspace-level command overrides for *vendor*, or None."""
+    fp = _scripts_dir(workspace_id) / f"{vendor}.json"
+    if not fp.is_file():
+        return None
+    try:
+        data = json.loads(fp.read_text(encoding="utf-8"))
+    except (json.JSONDecodeError, OSError):
+        return None
+    if isinstance(data, dict) and isinstance(data.get("commands"), dict):
+        return data["commands"]
+    return None
+
+
+def save_vendor_commands(workspace_id: str, vendor: str,
+                         commands: dict[str, str]) -> bool:
+    """Persist a workspace-level vendor command override."""
+    from workspace.atomic_io import atomic_write_json
+    fp = _scripts_dir(workspace_id) / f"{vendor}.json"
+    data = {
+        "vendor": vendor,
+        "updated_at": now_iso(),
+        "source": "manual",
+        "commands": commands,
+    }
+    try:
+        atomic_write_json(fp, data)
+        return True
+    except OSError:
+        return False
+
+
+def delete_vendor_commands(workspace_id: str, vendor: str) -> bool:
+    """Remove a workspace-level vendor override."""
+    fp = _scripts_dir(workspace_id) / f"{vendor}.json"
+    try:
+        if fp.is_file():
+            fp.unlink()
+            return True
+    except OSError:
+        pass
+    return False
+
+
+def upload_vendor_script_file(workspace_id: str, vendor: str,
+                              file_content: str) -> bool:
+    """Persist a vendor script from an uploaded .txt file.
+    Each non-empty, non-comment line is treated as a command.
+    Lines are deduplicated; the first occurrence wins the key.
+    """
+    lines: list[str] = []
+    for raw in file_content.splitlines():
+        line = raw.strip()
+        if not line or line.startswith("#") or line.startswith("//"):
+            continue
+        lines.append(line)
+    if not lines:
+        return False
+
+    # Map each command line to a key: lowercase, spaces → underscores
+    commands: dict[str, str] = {}
+    for cmd in lines:
+        key = cmd.lower().replace(" ", "_").replace("-", "_").replace("/", "_")
+        # strip repeating underscores
+        while "__" in key:
+            key = key.replace("__", "_")
+        key = key.strip("_")
+        if key not in commands:
+            commands[key] = cmd
+
+    return save_vendor_commands(workspace_id, vendor, commands)
+
+
+def load_command_profile(workspace_id: str, vendor: str = "",
+                         device_type: str = "") -> VendorCommandProfile:
+    """Resolve the vendor command profile, overlaying any workspace-level
+    script customisations on top of the built-in defaults."""
+    base = resolve_command_profile(vendor, device_type)
+    overrides = load_vendor_commands(workspace_id, base.vendor)
+    if overrides is None:
+        return base
+    merged = dict(base.commands)
+    merged.update(overrides)
+    return VendorCommandProfile(
+        vendor=base.vendor,
+        commands=merged,
+        fallback_to_generic=base.fallback_to_generic,
+        supported_checks=base.supported_checks,
+    )
 
 
 def default_timeout_for(command_key: str, profile_default: int = 30) -> int:

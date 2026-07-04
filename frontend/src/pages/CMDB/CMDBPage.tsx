@@ -3,6 +3,7 @@ import { useNavigate } from "react-router-dom";
 import { useSessionStore } from "../../stores/session";
 import { apiRequest } from "../../api/client";
 import { RemoteTerminal } from "../../components/RemoteTerminal/RemoteTerminal";
+import { ScriptManagerModal } from "../../components/ScriptManagerModal";
 
 interface Asset {
   asset_id: string; name: string; type: string; vendor: string;
@@ -60,6 +61,7 @@ export function CMDBPage() {
   const [termAsset, setTermAsset] = useState<Asset | null>(null);
   const [globalTerm, setGlobalTerm] = useState(false);
   const [regionFilter, setRegionFilter] = useState("");
+  const [showScriptManager, setShowScriptManager] = useState(false);
 
   // ── form ──
   const [fv, setFv] = useState<Record<string, string>>({
@@ -179,27 +181,59 @@ export function CMDBPage() {
     vendors: new Set<string>(), regions: new Set<string>(),
   });
 
-  const launchInspection = useCallback((scope: { region?: string; asset_ids?: string[]; label: string; source: string }) => {
+  const launchInspection = useCallback((scope: {
+    region?: string; asset_ids?: string[]; label: string; source: string;
+    type: "general" | "log";
+  }) => {
     const region = (scope.region || "").trim();
     const assetIds = scope.asset_ids || [];
+    const asset = assets.find(a => a.asset_id === assetIds[0]);
+    const vendorInfo = asset?.vendor ? ` ${asset.vendor}` : "";
     const targetText = region
       ? `CMDB 区域「${region}」`
-      : `CMDB 资产「${scope.label}」`;
-    const prompt = [
-      `对 ${targetText} 发起自动巡检。`,
-      "完成后请汇总是否完成、异常项、失败或跳过设备、下一步建议，并提供报告链接。",
-    ].join("\n");
-    sessionStorage.setItem("workbench_auto_prompt", JSON.stringify({
-      prompt,
-      metadata: {
-        intent: region ? "cmdb_region_inspection" : "cmdb_asset_inspection",
-        region,
-        asset_ids: assetIds,
-        source: scope.source,
-      },
-    }));
+      : `CMDB 资产「${scope.label}」(${asset?.host || ""})`;
+
+    if (scope.type === "log") {
+      // 日志巡检：重点采集日志并深度分析异常
+      const prompt = [
+        `对 ${targetText}${vendorInfo} 发起日志巡检。`,
+        `请调用 inspection.manage 对此设备执行日志相关检查（如 display logbuffer / show logging），`,
+        `采集完成后重点分析：`,
+        `1) 异常告警和错误信息（CRITICAL / ERROR / WARNING 级别）`,
+        `2) 重复出现的错误模式及频次`,
+        `3) 接口 UP/DOWN 变更记录`,
+        `4) 认证失败或安全事件`,
+        `5) 时间分布规律（是否集中在某个时间窗口）`,
+        `然后输出结构化的日志巡检报告，包含异常摘要、根因分析和处置建议。`,
+      ].join("\n");
+      sessionStorage.setItem("workbench_auto_prompt", JSON.stringify({
+        prompt,
+        metadata: {
+          intent: "cmdb_log_inspection",
+          region,
+          asset_ids: assetIds,
+          source: scope.source,
+        },
+      }));
+    } else {
+      // 通用巡检：标准健康检查
+      const prompt = [
+        `对 ${targetText}${vendorInfo} 发起通用巡检。`,
+        `请调用 inspection.manage 进行基础健康检查（版本、CPU、内存、接口状态、环境告警），`,
+        `完成后请汇总：是否完成、异常项、失败或跳过设备、下一步建议，并提供报告链接。`,
+      ].join("\n");
+      sessionStorage.setItem("workbench_auto_prompt", JSON.stringify({
+        prompt,
+        metadata: {
+          intent: region ? "cmdb_region_inspection" : "cmdb_asset_inspection",
+          region,
+          asset_ids: assetIds,
+          source: scope.source,
+        },
+      }));
+    }
     navigate("/workbench");
-  }, [navigate]);
+  }, [navigate, assets]);
 
   // ── form helpers ──
   const field = (label: string, child: ReactNode, span = 1) => (
@@ -287,6 +321,10 @@ export function CMDBPage() {
           </p>
         </div>
         <div style={{ display: "flex", gap: 8 }}>
+          <button className="btn" onClick={() => setShowScriptManager(true)}
+            style={{ fontWeight: 600, fontSize: 13, padding: "8px 14px", background: "var(--surface-2)" }}>
+            脚本管理
+          </button>
           <button className="btn" onClick={() => setGlobalTerm(true)}
             style={{ fontWeight: 600, fontSize: 13, padding: "8px 14px", background: "var(--surface-2)" }}>
             终端
@@ -349,11 +387,11 @@ export function CMDBPage() {
             <div style={{ flex: "1 1 160px" }} />
             <button
               type="button"
-              className="btn primary"
-              data-testid="cmdb-inspect-region"
+              className="btn"
+              data-testid="cmdb-inspect-region-general"
               disabled={!activeInspectionRegion}
               title={activeInspectionRegion
-                ? `跳转工作台，让 LLM 对 ${activeInspectionRegion} 的 ${activeInspectionRegionCount} 台设备发起巡检`
+                ? `跳转工作台，让 LLM 对 ${activeInspectionRegion} 的 ${activeInspectionRegionCount} 台设备发起通用巡检`
                 : "选择区域后发起巡检"}
               onClick={() => {
                 if (!activeInspectionRegion) return;
@@ -361,17 +399,49 @@ export function CMDBPage() {
                   region: activeInspectionRegion,
                   label: activeInspectionRegion,
                   source: "cmdb_region_button",
+                  type: "general",
                 });
               }}
               style={{
-                fontWeight: 700,
+                fontWeight: 600,
                 fontSize: 13,
                 padding: "7px 14px",
                 opacity: activeInspectionRegion ? 1 : .55,
                 whiteSpace: "nowrap",
+                background: "var(--surface-2)",
               }}
             >
-              巡检 {activeInspectionRegion || "当前区域"}
+              通用巡检
+            </button>
+            <button
+              type="button"
+              className="btn"
+              data-testid="cmdb-inspect-region-log"
+              disabled={!activeInspectionRegion}
+              title={activeInspectionRegion
+                ? `跳转工作台，让 LLM 对 ${activeInspectionRegion} 的 ${activeInspectionRegionCount} 台设备发起日志巡检`
+                : "选择区域后发起巡检"}
+              onClick={() => {
+                if (!activeInspectionRegion) return;
+                launchInspection({
+                  region: activeInspectionRegion,
+                  label: activeInspectionRegion,
+                  source: "cmdb_region_button",
+                  type: "log",
+                });
+              }}
+              style={{
+                fontWeight: 600,
+                fontSize: 13,
+                padding: "7px 14px",
+                opacity: activeInspectionRegion ? 1 : .55,
+                whiteSpace: "nowrap",
+                background: "var(--info-soft)",
+                color: "var(--info)",
+                border: "1px solid var(--info-soft)",
+              }}
+            >
+              日志巡检
             </button>
           </div>
         )}
@@ -381,6 +451,14 @@ export function CMDBPage() {
         {termAsset && <RemoteTerminal onClose={() => setTermAsset(null)}
           initial={{ asset_id: termAsset.asset_id, host: termAsset.host, port: termAsset.port, protocol: termAsset.protocol,
             vendor: termAsset.vendor, username: termAsset.username, password: "" }} />}
+
+        {/* ── 脚本管理弹窗 ── */}
+        {showScriptManager && (
+          <ScriptManagerModal
+            workspaceId={wsId || ""}
+            onClose={() => setShowScriptManager(false)}
+          />
+        )}
 
         {/* ── 新增/编辑弹窗 ── */}
         {showForm && (
@@ -670,7 +748,7 @@ export function CMDBPage() {
                 {/* 底栏 */}
                 <div style={{
                   padding: "10px 16px", borderTop: "1px solid var(--line-2)",
-                  display: "flex", gap: 8,
+                  display: "flex", gap: 6,
                 }}>
                   <button className="btn primary" onClick={() => canOpenTerminal && setTermAsset(a)}
                     disabled={!canOpenTerminal}
@@ -684,17 +762,42 @@ export function CMDBPage() {
                       asset_ids: [a.asset_id],
                       label: a.name || a.host,
                       source: "cmdb_asset_button",
+                      type: "general",
                     })}
                     style={{
-                      flex: 1,
                       justifyContent: "center",
                       fontWeight: 600,
-                      fontSize: 13,
-                      padding: "7px 0",
+                      fontSize: 12,
+                      padding: "7px 10px",
                       background: "var(--surface-2)",
+                      flex: "0 1 auto",
+                      whiteSpace: "nowrap",
                     }}
                   >
-                    巡检
+                    通用巡检
+                  </button>
+                  <button
+                    className="btn"
+                    type="button"
+                    onClick={() => launchInspection({
+                      asset_ids: [a.asset_id],
+                      label: a.name || a.host,
+                      source: "cmdb_asset_button",
+                      type: "log",
+                    })}
+                    style={{
+                      justifyContent: "center",
+                      fontWeight: 600,
+                      fontSize: 12,
+                      padding: "7px 10px",
+                      background: "var(--info-soft)",
+                      color: "var(--info)",
+                      border: "1px solid var(--info-soft)",
+                      flex: "0 1 auto",
+                      whiteSpace: "nowrap",
+                    }}
+                  >
+                    日志巡检
                   </button>
                 </div>
               </div>

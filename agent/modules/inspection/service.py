@@ -44,7 +44,7 @@ def _validate_workspace(workspace_id: str) -> str:
 def list_profiles() -> list[dict]:
     """Return all builtin profiles as plain dicts."""
     out: list[dict] = []
-    for pid, prof in BUILTIN_PROFILES.items():
+    for prof in BUILTIN_PROFILES.values():
         out.append({
             "profile_id": prof.profile_id,
             "display_name": prof.display_name,
@@ -211,6 +211,26 @@ def start_background_task(workspace_id: str, profile_id: str, scope: dict | None
             create_task(**payload)
         except Exception:
             logger.exception("inspection background task crashed")
+            # Directly mark the pending task as failed on disk
+            try:
+                from dataclasses import asdict
+                from workspace.ids import validate_workspace_id
+                from workspace.run_store import WS_ROOT
+                from workspace.atomic_io import atomic_write_json
+                ws = validate_workspace_id(workspace_id)
+                tid = getattr(pending, "task_id", task_id)
+                p = WS_ROOT / ws / "inspection" / "tasks" / f"{tid}.json"
+                if p.is_file():
+                    existing = _runner_load(ws, tid)
+                    if existing is not None and existing.status == "pending":
+                        existing.status = "failed"
+                        existing.error = "background_worker_crashed"
+                        existing.finished_at = now_iso()
+                        ensure_tracking(existing, source="background_crash")
+                        p.parent.mkdir(parents=True, exist_ok=True)
+                        atomic_write_json(p, asdict(existing))
+            except Exception:
+                logger.exception("inspection: could not mark crashed task as failed")
 
     threading.Thread(
         target=_kick,
@@ -360,7 +380,7 @@ def _find_existing_report_artifact(workspace_id: str, task_id: str, fmt: str):
     """
     try:
         from artifacts.store import list_artifacts
-    except Exception:
+    except ImportError:
         return None
     try:
         items = list_artifacts(
@@ -368,7 +388,7 @@ def _find_existing_report_artifact(workspace_id: str, task_id: str, fmt: str):
             run_id=task_id,
             artifact_type="report",
         )
-    except Exception:
+    except (OSError, ValueError, TypeError):
         return None
     for it in reversed(items or ()):  # newest first
         meta = (it.get("metadata") if isinstance(it, dict) else getattr(it, "metadata", None)) or {}

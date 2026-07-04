@@ -1529,6 +1529,7 @@ def _handler_network_ssh(inv: ToolInvocation) -> dict:
     session_id = str(args.get("session_id", "")).strip()
     close_session = bool(args.get("close_session", False))
     sudo = bool(args.get("sudo", False))
+    timeout = _safe_int(args.get("timeout"), 0)  # 0 = no enforcement
 
     if asset_id:
         try:
@@ -1566,7 +1567,7 @@ def _handler_network_ssh(inv: ToolInvocation) -> dict:
                     return {"ok": True, "session_id": session_id, "session_active": True}
                 if sudo and not command.startswith("sudo "):
                     command = f"sudo {command}"
-                exec_result = exec_command(session_id, command)
+                exec_result = exec_command(session_id, command, timeout=timeout)
                 output_text = _extract_output(exec_result)
                 return {
                     "ok": True, "host": getattr(existing, "host", host), "command": command,
@@ -1611,7 +1612,7 @@ def _handler_network_ssh(inv: ToolInvocation) -> dict:
             new_sid, host, port, username, password, vendor,
             workspace_id=workspace_id,
         )
-        exec_result = exec_command(new_sid, command)
+        exec_result = exec_command(new_sid, command, timeout=timeout)
         if isinstance(exec_result, dict) and not exec_result.get("ok"):
             # Command failed — clean up session
             try:

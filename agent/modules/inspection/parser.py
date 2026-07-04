@@ -13,6 +13,7 @@ manual review is required.
 from __future__ import annotations
 
 import re
+import uuid
 from typing import Any
 
 from .models import Finding
@@ -54,7 +55,6 @@ _RE_HUAWEI_MEM = re.compile(
 def _finding(severity: str, title: str, detail: str,
              asset_id: str = "", check_id: str = "",
              evidence: str = "") -> Finding:
-    import uuid
     return Finding(
         finding_id=f"fdg_{uuid.uuid4().hex[:10]}",
         severity=severity,
@@ -267,13 +267,6 @@ def parse_interface_error(parser_key: str, output: str, *,
 
 
 # ── routing ────────────────────────────────────────────────────────────────
-
-_RE_OSPF_DOWN = re.compile(
-    r"\b(FULL\/[-\w ]*|FULL\s*$|\bInit\b|\b2-Way\b|\bExstart\b|\bExchange\b|\bLoading\b)",
-    re.I | re.M,
-)
-
-_RE_BGP_PREFIX_DOWN = re.compile(r"(\d+)\s+(\d+)\s+(\d+)\s+\d+\s+\d+\s+\d+\s+[A-Z\s]*Idle\s*$", re.M | re.I)
 
 
 def parse_ospf_peer(parser_key: str, output: str, *,

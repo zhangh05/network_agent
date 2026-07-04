@@ -22,6 +22,7 @@ the worker pool never races the same task file.
 
 from __future__ import annotations
 
+import json
 import logging
 import threading
 import time
@@ -53,7 +54,7 @@ from .profiles import (
     AUTO_PROFILE_ID,
     resolve_auto_profile,
     resolve_profile,
-    resolve_command_profile,
+    load_command_profile,
     is_read_only_command,
     default_timeout_for,
 )
@@ -660,7 +661,7 @@ def _run_checks_on_asset(task: InspectionTask,
         dr.finished_at = now_iso()
         return dr
 
-    vendor_profile = resolve_command_profile(dr.vendor, dr.type)
+    vendor_profile = load_command_profile(workspace_id, dr.vendor, dr.type)
     effective_profile = (
         resolve_auto_profile(dr.vendor, dr.type)
         if profile.profile_id == AUTO_PROFILE_ID
@@ -750,8 +751,6 @@ def _run_checks_on_asset(task: InspectionTask,
             # Cooperative cancel: stop dispatching new checks once the
             # task has been flagged. The in-flight command finishes.
             if _cancel_requested(workspace_id, task.task_id):
-                dr.skipped += 1
-                dr.errors.append(f"cancelled_before_check: {check.check_id}")
                 dr.command_results.append(CommandResult(
                     check_id=check.check_id, category=check.category,
                     command_key=cmd_key, command=command, ok=False,
@@ -910,7 +909,7 @@ def _latest_config_snapshot(workspace_id: str, asset_id: str, *,
         if not line.strip():
             continue
         try:
-            rec = __import__("json").loads(line)
+            rec = json.loads(line)
         except Exception:
             # Skip a corrupt row — common when an artifact file got
             # truncated during a previous crash. Continue past it; the
@@ -1095,10 +1094,23 @@ def run_task(workspace_id: str,
         for ``task.devices`` so concurrent device workers can't
         write a stale view. ``_save_task`` also takes the per-task
         save lock; the two together guarantee progress is monotonic.
+
+        v3.11: Also incrementally updates the task-level counters so
+        the frontend progress card shows live numbers, not just 0%.
+        All mutations (dict + counters) happen under the lock to avoid
+        a read/write race between concurrent device workers.
         """
-        outcomes[dr.asset_id] = dr
         with _get_task_save_lock(task.task_id):
-            task.devices = dict(outcomes)  # snapshot under the lock
+            outcomes[dr.asset_id] = dr
+            task.devices = dict(outcomes)
+            # Incrementally update counters for live progress display
+            task.succeeded = sum(1 for d in outcomes.values() if d.status == "succeeded")
+            task.failed    = sum(1 for d in outcomes.values() if d.status == "failed")
+            task.partial   = sum(1 for d in outcomes.values() if d.status == "partial")
+            task.skipped   = sum(1 for d in outcomes.values() if d.status == "skipped")
+            task.criticals = sum(len([f for f in d.findings if f.severity == "critical"]) for d in outcomes.values())
+            task.warnings  = sum(len([f for f in d.findings if f.severity == "warning"]) for d in outcomes.values())
+            task.infos     = sum(len([f for f in d.findings if f.severity == "info"]) for d in outcomes.values())
             _save_task_unlocked(workspace_id, task)
 
     def _run_one_serial(asset_meta: dict) -> DeviceResult:

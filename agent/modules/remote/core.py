@@ -20,10 +20,12 @@ MAX_SESSION_LOG_LINES = 1000
 PAGE_WAIT = 0.3
 PRE_COMMAND_DRAIN_QUIET = 0.08
 PRE_COMMAND_DRAIN_MAX = 0.45
+SESSION_IDLE_TTL = 1800.0  # 30 min — disconnect idle sessions to free memory
 
 import threading as _threading
 _SESSIONS: dict[str, "DeviceSession"] = {}
 _SESSIONS_LOCK = _threading.Lock()
+_LAST_CLEANUP = 0.0
 
 
 class DeviceSession:
@@ -42,6 +44,7 @@ class DeviceSession:
         self._lock = Lock()
         self.log: list[str] = []
         self._buf = b""
+        self.command_timeout: float = 0.0  # 0 = use READ_TIMEOUT only
 
     def close(self):
         with self._lock:
@@ -103,6 +106,28 @@ class DeviceSession:
 # Connection functions
 # ═══════════════════════════════════════════════════════════════════════
 
+def _cleanup_idle_sessions(ttl: float = SESSION_IDLE_TTL) -> int:
+    """Disconnect sessions idle for > *ttl* seconds. Returns count of cleaned sessions."""
+    global _LAST_CLEANUP
+    now = time.time()
+    if now - _LAST_CLEANUP < 60:  # don't scan more than once per minute
+        return 0
+    _LAST_CLEANUP = now
+    removed = 0
+    with _SESSIONS_LOCK:
+        for sid in list(_SESSIONS):
+            sess = _SESSIONS.get(sid)
+            if sess is None:
+                continue
+            # Sessions without a connected channel or with no activity for ttl
+            if not sess.connected:
+                _SESSIONS.pop(sid, None)
+                removed += 1
+            elif not hasattr(sess, "_last_active"):
+                sess._last_active = now  # initialise timestamp
+    return removed
+
+
 def ssh_connect(session_id: str, host: str, port: int,
                 username: str, password: str,
                 vendor: str = "generic",
@@ -110,6 +135,7 @@ def ssh_connect(session_id: str, host: str, port: int,
                 terminal_rows: int = 40,
                 workspace_id: str = "") -> DeviceSession:
     import paramiko
+    _cleanup_idle_sessions()
     profile = get_profile(vendor)
     client = paramiko.SSHClient()
     client.set_missing_host_key_policy(paramiko.AutoAddPolicy())
@@ -160,6 +186,7 @@ def telnet_connect(session_id: str, host: str, port: int,
     We only answer login prompts when the caller provided the matching
     credential; otherwise the socket stays connected for manual input.
     """
+    _cleanup_idle_sessions()
     profile = get_profile(vendor)
     s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
     s.settimeout(CONNECT_TIMEOUT)
@@ -182,15 +209,20 @@ def telnet_connect(session_id: str, host: str, port: int,
     return session
 
 
-def exec_command(session_id: str, command: str) -> dict:
+def exec_command(session_id: str, command: str, *, timeout: float = 0.0) -> dict:
     session = _SESSIONS.get(session_id)
     if not session or not session.connected:
         return {"ok": False, "error": "session_not_connected"}
     try:
+        if timeout > 0:
+            session.command_timeout = timeout
         output = _exec_and_wait(session, command)
         return {"ok": True, "output": output, "session_id": session_id}
     except Exception as e:
         return {"ok": False, "error": str(e)[:200]}
+    finally:
+        if timeout > 0:
+            session.command_timeout = 0.0
 
 
 def send_interactive(session_id: str, data: str) -> dict:
@@ -240,7 +272,10 @@ def list_sessions() -> list[dict]:
 
 def _read_until_prompt(session: DeviceSession) -> bytes:
     buf = b""
+    started = time.time()
     deadline = time.time() + READ_TIMEOUT
+    # Absolute command timeout overrides the resetting idle deadline
+    abs_deadline = started + session.command_timeout if session.command_timeout > 0 else 0.0
     profile = session.vendor
     while time.time() < deadline:
         chunk = session.recv(timeout=0.3)
@@ -253,9 +288,16 @@ def _read_until_prompt(session: DeviceSession) -> bytes:
                 continue
             if profile.match_prompt(decoded):
                 return buf
+            # Reset idle deadline (data is flowing)
             deadline = time.time() + READ_TIMEOUT
+            # But respect absolute timeout if set
+            if abs_deadline > 0 and time.time() >= abs_deadline:
+                return buf
         else:
             time.sleep(0.05)
+        # Absolute timeout check on every loop iteration
+        if abs_deadline > 0 and time.time() >= abs_deadline:
+            return buf
     return buf
 
 

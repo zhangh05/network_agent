@@ -11,6 +11,11 @@ Endpoints (all require workspace_id):
     POST /api/inspection/tasks/<id>/cancel — cancel (MVP: not_supported)
     GET  /api/inspection/tasks/<id>/report — render md|json|html report JSON
     GET  /api/inspection/tasks/<id>/report.html — render viewable HTML report
+    GET  /api/inspection/profiles         — list built-in inspection profiles
+    GET  /api/inspection/scripts          — get vendor command scripts
+    PUT  /api/inspection/scripts/<vendor> — update vendor commands
+    POST /api/inspection/scripts/<vendor>/upload — upload .txt script file
+    DELETE /api/inspection/scripts/<vendor> — reset vendor to defaults
 """
 
 from __future__ import annotations
@@ -20,6 +25,13 @@ from flask import Response, jsonify, request
 from workspace.ids import validate_workspace_id
 
 from agent.modules.inspection import service as inspection_service
+from agent.modules.inspection.profiles import (
+    VENDOR_COMMAND_PROFILES,
+    load_vendor_commands,
+    save_vendor_commands,
+    delete_vendor_commands,
+    upload_vendor_script_file,
+)
 
 
 def _invalid_ws():
@@ -262,3 +274,168 @@ def register_inspection_routes(app):
             mimetype="text/html; charset=utf-8",
             headers=headers,
         )
+
+    # ── script management ──────────────────────────────────────────
+
+    @app.route("/api/inspection/profiles", methods=["GET"])
+    def api_inspection_profiles():
+        """List built-in inspection profiles."""
+        ws_id, err = _validated_ws_id(request.args.get("workspace_id", ""))
+        if err:
+            return err
+        profiles = inspection_service.list_profiles()
+        return jsonify({"ok": True, "profiles": profiles})
+
+    @app.route("/api/inspection/scripts", methods=["GET"])
+    def api_inspection_scripts_get():
+        """Get vendor command scripts (with override status)."""
+        ws_id, err = _validated_ws_id(request.args.get("workspace_id", ""))
+        if err:
+            return err
+        vendor = (request.args.get("vendor") or "").strip()
+        if not vendor:
+            # Return a summary of all vendors (built-in keys)
+            vendors: list[dict] = []
+            for vkey, vp in VENDOR_COMMAND_PROFILES.items():
+                overrides = load_vendor_commands(ws_id, vkey)
+                vendors.append({
+                    "vendor": vkey,
+                    "source": "file" if overrides else "builtin",
+                    "command_count": len(vp.commands),
+                    "override_count": len(overrides) if overrides else 0,
+                })
+            return jsonify({"ok": True, "vendors": vendors})
+
+        vkey = vendor.lower().replace(" ", "_")
+        builtin = VENDOR_COMMAND_PROFILES.get(vkey)
+        if builtin is None:
+            return jsonify({"ok": False, "error": "unknown_vendor",
+                            "available": sorted(VENDOR_COMMAND_PROFILES.keys())}), 404
+
+        overrides = load_vendor_commands(ws_id, vkey)
+        effective_commands = dict(builtin.commands)
+        if overrides:
+            effective_commands.update(overrides)
+
+        return jsonify({
+            "ok": True,
+            "vendor": vkey,
+            "source": "file" if overrides else "builtin",
+            "commands": effective_commands,
+            "builtin_commands": dict(builtin.commands),
+            "supported_checks": list(builtin.supported_checks),
+        })
+
+    @app.route("/api/inspection/scripts/<vendor>", methods=["PUT"])
+    def api_inspection_scripts_update(vendor):
+        """Update vendor command overrides (JSON body)."""
+        ws_id, err = _validated_ws_id(
+            (request.get_json(silent=True) or {}).get("workspace_id", "")
+        )
+        if err:
+            return err
+        vkey = (vendor or "").strip().lower().replace(" ", "_")
+        builtin = VENDOR_COMMAND_PROFILES.get(vkey)
+        if builtin is None:
+            return jsonify({"ok": False, "error": "unknown_vendor",
+                            "available": sorted(VENDOR_COMMAND_PROFILES.keys())}), 404
+
+        data = request.get_json(silent=True) or {}
+        commands: dict[str, str] = data.get("commands", {})
+        if not isinstance(commands, dict):
+            return jsonify({"ok": False, "error": "commands_must_be_object"}), 400
+
+        # v3.11: reasonable upper bound to prevent accidental DoS
+        MAX_COMMANDS = 100
+        if len(commands) > MAX_COMMANDS:
+            return jsonify({"ok": False, "error": f"too_many_commands: max {MAX_COMMANDS}"}), 400
+
+        # Validate: all commands must be read-only
+        for cmd in commands.values():
+            from agent.modules.inspection.profiles import is_read_only_command
+            if not is_read_only_command(str(cmd)):
+                return jsonify({"ok": False, "error": f"blocked_write_command: {cmd[:80]}"}), 400
+
+        success = save_vendor_commands(ws_id, vkey, commands)
+        return jsonify({"ok": success, "vendor": vkey,
+                        "command_count": len(commands)})
+
+    @app.route("/api/inspection/scripts/<vendor>/upload", methods=["POST"])
+    def api_inspection_scripts_upload(vendor):
+        """Upload a raw .txt script file for a vendor."""
+        # Accept workspace_id from JSON body, form data, or query string
+        ws_id_raw = ""
+        if request.is_json:
+            ws_id_raw = (request.get_json(silent=True) or {}).get("workspace_id", "")
+        if not ws_id_raw:
+            ws_id_raw = request.form.get("workspace_id", "") or request.args.get("workspace_id", "")
+        ws_id_v, err = _validated_ws_id(ws_id_raw)
+        if err:
+            return err
+
+        vkey = (vendor or "").strip().lower().replace(" ", "_")
+        builtin = VENDOR_COMMAND_PROFILES.get(vkey)
+        if builtin is None:
+            return jsonify({"ok": False, "error": "unknown_vendor",
+                            "available": sorted(VENDOR_COMMAND_PROFILES.keys())}), 404
+
+        # Accept either a file upload or raw text body
+        if "file" in request.files:
+            f = request.files["file"]
+            content = f.read().decode("utf-8", errors="replace")
+        else:
+            if request.is_json:
+                content = (request.get_json(silent=True) or {}).get("content", "")
+            else:
+                content = (request.get_data(as_text=True) or "").strip()
+
+        if not content:
+            return jsonify({"ok": False, "error": "empty_content"}), 400
+
+        # v3.11: cap upload size (50 KB ≈ 500+ commands)
+        MAX_UPLOAD_CHARS = 50_000
+        if len(content) > MAX_UPLOAD_CHARS:
+            return jsonify({"ok": False, "error": f"content_too_large: max {MAX_UPLOAD_CHARS} chars"}), 400
+
+        # Parse lines from the content first so we can validate
+        lines: list[str] = []
+        for raw in str(content).splitlines():
+            line = raw.strip()
+            if not line or line.startswith("#") or line.startswith("//"):
+                continue
+            lines.append(line)
+        if not lines:
+            return jsonify({"ok": False, "error": "no_valid_commands"}), 400
+
+        # Safety: every command must pass the read-only gate
+        from agent.modules.inspection.profiles import is_read_only_command
+        blocked: list[str] = []
+        for cmd in lines:
+            if not is_read_only_command(cmd):
+                blocked.append(cmd[:80])
+        if blocked:
+            return jsonify({
+                "ok": False,
+                "error": f"blocked_write_commands: {len(blocked)} command(s) rejected",
+                "blocked": blocked,
+            }), 400
+
+        success = upload_vendor_script_file(ws_id_v, vkey, content)
+        if not success:
+            return jsonify({"ok": False, "error": "save_failed"}), 500
+
+        return jsonify({"ok": True, "vendor": vkey,
+                        "note": "script uploaded; will take effect on next inspection"})
+
+    @app.route("/api/inspection/scripts/<vendor>", methods=["DELETE"])
+    def api_inspection_scripts_delete(vendor):
+        """Reset vendor to built-in defaults."""
+        ws_id, err = _validated_ws_id(request.args.get("workspace_id", ""))
+        if err:
+            return err
+        vkey = (vendor or "").strip().lower().replace(" ", "_")
+        if vkey not in VENDOR_COMMAND_PROFILES:
+            return jsonify({"ok": False, "error": "unknown_vendor"}), 404
+        success = delete_vendor_commands(ws_id, vkey)
+        return jsonify({"ok": success, "vendor": vkey,
+                        "note": "reset to defaults"})

@@ -59,8 +59,8 @@ describe("CMDB inspection launch", () => {
       </MemoryRouter>,
     );
 
-    const launch = await screen.findByTestId("cmdb-inspect-region");
-    expect(launch).toHaveTextContent("巡检 测试一区");
+    const launch = await screen.findByTestId("cmdb-inspect-region-general");
+    expect(launch).toHaveTextContent("通用巡检");
 
     fireEvent.click(launch);
 
@@ -77,14 +77,13 @@ describe("CMDB inspection launch", () => {
       source: "cmdb_region_button",
     });
     expect(payload.prompt).toContain("CMDB 区域「测试一区」");
-    expect(payload.prompt).toContain("自动巡检");
+    expect(payload.prompt).toContain("通用巡检");
     expect(payload.prompt).toContain("报告链接");
-    expect(payload.prompt).toContain("异常");
+    expect(payload.prompt).toContain("异常项");
     expect(payload.prompt).toContain("失败或跳过设备");
-    expect(payload.prompt).not.toContain("inspection.manage");
+    expect(payload.prompt).toContain("inspection.manage");
+    expect(payload.prompt).toContain("基础健康检查");
     expect(payload.prompt).not.toContain("device.manage");
-    expect(payload.prompt).not.toContain("基础健康检查");
-    expect(payload.prompt.length).toBeLessThan(140);
   });
 
   it("does not expose a standalone inspection page in navigation", async () => {

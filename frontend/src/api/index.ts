@@ -1218,6 +1218,83 @@ export const inspectionApi = {
     }),
 };
 
+// ── Inspection Script Management ─────────────────────────────────────
+export interface VendorScriptItem {
+  vendor: string;
+  source: "builtin" | "file";
+  command_count: number;
+  override_count: number;
+}
+
+export interface VendorScriptsListResponse {
+  ok: boolean;
+  vendors: VendorScriptItem[];
+}
+
+export interface VendorScriptDetailResponse {
+  ok: boolean;
+  vendor: string;
+  source: "builtin" | "file";
+  commands: Record<string, string>;
+  builtin_commands: Record<string, string>;
+  supported_checks: string[];
+}
+
+export interface VendorScriptUpdateResponse {
+  ok: boolean;
+  vendor: string;
+  command_count: number;
+}
+
+export const scriptsApi = {
+  /** GET /api/inspection/scripts?vendor=... */
+  getScripts: (
+    workspace_id: string,
+    vendor?: string,
+  ): Promise<VendorScriptsListResponse | VendorScriptDetailResponse> =>
+    apiRequest<VendorScriptsListResponse | VendorScriptDetailResponse>({
+      method: "GET",
+      url: `/inspection/scripts`,
+      params: { workspace_id, ...(vendor ? { vendor } : {}) },
+    }),
+
+  /** PUT /api/inspection/scripts/<vendor> */
+  updateScript: (
+    workspace_id: string,
+    vendor: string,
+    commands: Record<string, string>,
+  ): Promise<VendorScriptUpdateResponse> =>
+    apiRequest<VendorScriptUpdateResponse>({
+      method: "PUT",
+      url: `/inspection/scripts/${encodeURIComponent(vendor)}`,
+      data: { workspace_id, commands },
+    }),
+
+  /** POST /api/inspection/scripts/<vendor>/upload */
+  uploadScript: (
+    workspace_id: string,
+    vendor: string,
+    content: string,
+  ): Promise<{ ok: boolean; vendor: string; note: string }> =>
+    apiRequest<{ ok: boolean; vendor: string; note: string }>({
+      method: "POST",
+      url: `/inspection/scripts/${encodeURIComponent(vendor)}/upload`,
+      data: { workspace_id, content },
+      headers: { "Content-Type": "application/json" },
+    }),
+
+  /** DELETE /api/inspection/scripts/<vendor> */
+  resetScript: (
+    workspace_id: string,
+    vendor: string,
+  ): Promise<{ ok: boolean; vendor: string; note: string }> =>
+    apiRequest<{ ok: boolean; vendor: string; note: string }>({
+      method: "DELETE",
+      url: `/inspection/scripts/${encodeURIComponent(vendor)}`,
+      params: { workspace_id },
+    }),
+};
+
 function apiUrl(path: string): string {
   return `${apiBaseURL}${path.startsWith("/") ? path : `/${path}`}`;
 }
