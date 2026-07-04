@@ -46,6 +46,10 @@ export function RemoteTerminal({ onClose, initial }: {
   const [showSave, setShowSave] = useState(false);
   const [deviceName, setDeviceName] = useState("");
 
+  // Auto-connect: when opened from a CMDB asset card, skip the form and connect directly.
+  const autoConnect = !!(initial?.host && initial?.protocol);
+  const xtermReadyRef = useRef(false);
+
   const loadDevices = useCallback(async () => {
     try {
       const res = await apiRequest<{ ok: boolean; devices: SavedDevice[] }>(
@@ -83,7 +87,7 @@ export function RemoteTerminal({ onClose, initial }: {
       const fit = new FitAddon();
       term.loadAddon(fit);
       term.open(termRef.current);
-      term.writeln("Ready. Fill connection settings and click Connect.");
+      term.writeln(autoConnect ? "Connecting..." : "Ready. Fill connection settings and click Connect.");
       xtermRef.current = term;
       fitRef.current = fit;
 
@@ -120,6 +124,9 @@ export function RemoteTerminal({ onClose, initial }: {
           ws.send(JSON.stringify({ type: "input", session_id: sid, data }));
         }
       });
+
+      // Mark xterm fully ready — auto-connect if opened from CMDB asset card
+      xtermReadyRef.current = true;
     };
     initTerm();
     return () => {
@@ -140,6 +147,25 @@ export function RemoteTerminal({ onClose, initial }: {
       }
       wsRef.current = null;
     };
+  }, []);
+
+  // Auto-connect: when opened from a CMDB asset card, connect immediately
+  // once xterm is ready — skip the manual "连接" button.
+  const autoConnectedRef = useRef(false);
+  useEffect(() => {
+    if (!autoConnect || autoConnectedRef.current || connected || connectingRef.current) return;
+    // Poll until xtermRef is ready (import("xterm") is async)
+    const interval = setInterval(() => {
+      if (xtermReadyRef.current && !autoConnectedRef.current) {
+        autoConnectedRef.current = true;
+        clearInterval(interval);
+        doConnect();
+      }
+    }, 100);
+    // Timeout: give up after 3s (xterm import should be fast)
+    const timeout = setTimeout(() => clearInterval(interval), 3000);
+    return () => { clearInterval(interval); clearTimeout(timeout); };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   const doConnect = async () => {
