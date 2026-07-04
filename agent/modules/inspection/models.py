@@ -49,7 +49,7 @@ class InspectionScope:
 
 # ── profile & checks ────────────────────────────────────────────────────────
 
-# Severity buckets the parser / report can produce
+# Severity buckets the report can produce (v4.0: LLM-driven analysis, no parser)
 SEVERITY_LEVELS = ("critical", "warning", "info")
 Severity = str  # union of above; kept loose for JSON friendliness
 
@@ -60,8 +60,8 @@ CheckCategory = str  # health | interface | routing | config | security
 class InspectionCheck:
     """A single read-only command to run against an asset.
 
-    The ``command_key`` is what we look up in ``VendorCommandProfile``;
-    the ``parser_key`` is matched by ``parser.py`` to extract metrics.
+    The ``command_key`` is what we look up in ``VendorCommandProfile``.
+    v4.0: ``parser_key`` is kept for backward compat; analysis is LLM-driven.
     """
 
     check_id: str
@@ -144,7 +144,7 @@ class CommandResult:
 
 @dataclass
 class Finding:
-    """A classified observation produced by a parser."""
+    """A classified observation (v4.0: produced by LLM analysis, not parser)."""
 
     finding_id: str
     severity: Severity  # critical | warning | info

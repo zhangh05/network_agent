@@ -13,7 +13,7 @@ bash start.sh
 默认地址：
 
 - Frontend: `http://localhost:5173`
-- Backend: `http://localhost:8010`
+- Backend: `http://127.0.0.1:8010`（默认绑定 localhost，生产部署时通过 `--host 0.0.0.0` 显式指定）
 
 停止服务：
 
@@ -42,16 +42,40 @@ flowchart LR
 
 | 模块 | 当前职责 |
 | --- | --- |
-| `backend/` | Flask 入口、REST API、WebSocket、SSE |
+| `backend/` | Flask 入口、REST API、WebSocket、SSE、认证 |
 | `frontend/` | React/Vite 工作台、会话、时间线、设置、资产、诊断 |
 | `agent/app/` | AgentApp 门面、SessionManager、AgentThread |
 | `agent/runtime/` | SSOT Runtime 适配、AgentResult 投影、持久化、hook |
+| `agent/modules/` | inspection（巡检）、browser（浏览器操控）、cmdb（资产）、knowledge（知识库）、remote（远程终端） |
 | `core/tools/` | 22 个 canonical tool、manifest、policy、executor、redaction |
 | `agent/capabilities/` | 12 个业务能力目录，只描述能力，不注册工具 |
 | `workspace/` | session/run/message/memory/workspace 数据边界 |
 | `artifacts/` | 制品生命周期与内容存储 |
+| `jobs/` | 作业系统（store/schemas/manager/worker/redaction） |
 | `observability/` | trace/event 记录 |
 | `harness/` | 后端架构和契约测试 |
+
+## 关键设计决策
+
+### 巡检流程（v3.11+）
+- 巡检由**前端驱动**：CMDB 点击按钮 → 异步创建后台任务 → 轮询 task_id → 完成后 auto-send 分析 prompt
+- LLM 只做分析：通过 `inspection.manage action=report` 自行拉取原始输出，不再由前端嵌入大段内容
+- `inspection.manage action=get` 返回 slim 数据（不含 output_snippet），避免轮询撑爆上下文
+
+### LLM 配置
+- 默认 `max_tokens: 4096`（v3.11 从 1200 提升，避免巡检分析输出截断）
+- `config/providers/` 保存每 provider 配置（不入 git），`config/llm.local.yaml` 管理本地覆盖
+- `NETWORK_AGENT_AUTH_ENABLED=true` 时 WebSocket 也需携带 `auth_token`
+
+### 安全
+- 后端默认绑定 `127.0.0.1`（v3.11，从 `0.0.0.0` 改为 localhost-only）
+- SSH/Telnet 密码通过 HMAC + AES-CTR 加密存储，不会明文落盘
+- Web Content Fetch 有 DNS rebinding 二次校验 + 5MB 响应上限
+- 所有 SSH/Telnet 巡检命令强制只读校验
+
+### CMDB
+- JSONL append-only + RLock 并发控制，软删除（tombstone 标记）
+- 密码损坏检测（`password_corrupted` 标记）在列表和单资产查询中生效
 
 ## 22 个 Canonical Tools
 
