@@ -87,15 +87,26 @@ def test_small_payload_renders_normal_json():
 
 def _big_payload() -> dict:
     """Build a safe_context that is large enough to trigger the
-    5000-character truncation branch. Each string value is capped
-    at max_text=600 by _safe_prompt_value, so we use many keys."""
-    payload: dict[str, any] = {
-        "artifact_refs": [{"id": f"a{i}", "summary": "X" * 600} for i in range(20)],
+    5000-character truncation branch. We fill every projected field
+    to its max_items/max_text limit so the JSON serialisation
+    exceeds the 5000-char trigger."""
+    W300 = "W" * 300   # each string truncated to 600 max, but 300 chars gives breathing room
+    return {
+        "workspace_id": W300,
+        "session_id": W300,
+        "intent": W300,
+        "last_result_summary": W300,
+        "capability_id": W300,
+        "job_summary": W300,
+        "artifact_refs": [{"id": f"a{i}", "summary": W300} for i in range(30)],
+        "context_sources": [{"k": f"cs{i}", "v": W300} for i in range(30)],
+        "context_warnings": [{"w": f"w{i}", "msg": W300} for i in range(30)],
+        "citations": [{"c": f"c{i}", "src": W300} for i in range(30)],
+        "memory_hits": [{"id": f"m{i}", "content": W300} for i in range(30)],
+        "knowledge_hits": [{"content": W300} for i in range(30)],
+        "trust_warnings": [W300 for _ in range(30)],
+        "workspace_state": {f"state_{i}": W300 for i in range(20)},
     }
-    # Add enough scalar fields to push past 5000 chars after JSON encoding
-    for i in range(20):
-        payload[f"field_{i:03d}"] = "K" * 2000  # truncated to 600 by _safe_prompt_value
-    return payload
 
 
 def test_large_payload_truncated_to_parseable_json():
