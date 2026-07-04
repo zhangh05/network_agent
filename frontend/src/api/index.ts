@@ -251,8 +251,8 @@ export const jobsApi = {
     apiRequest<{ jobs: JobItem[] }>({ method: "GET", url: "/jobs", params: { workspace_id } }, signal),
 
   /** GET /api/jobs/:id */
-  get: (job_id: string, signal?: AbortSignal) =>
-    apiRequest<{ job: JobItem }>({ method: "GET", url: `/jobs/${job_id}` }, signal),
+  get: (job_id: string, workspace_id: string, signal?: AbortSignal) =>
+    apiRequest<{ ok: boolean; job: JobItem }>({ method: "GET", url: `/jobs/${job_id}`, params: { workspace_id } }, signal),
 
   /** POST /api/jobs/:id/cancel */
   cancel: (job_id: string, workspace_id: string) =>
@@ -263,20 +263,20 @@ export const jobsApi = {
     apiRequest<{ ok: boolean }>({ method: "POST", url: `/jobs/${job_id}/retry`, data: { workspace_id } }),
 
   /** GET /api/jobs/:id/events */
-  events: (job_id: string, signal?: AbortSignal) =>
-    apiRequest<{ events: JobEvent[] }>({ method: "GET", url: `/jobs/${job_id}/events` }, signal),
+  events: (job_id: string, workspace_id: string, signal?: AbortSignal) =>
+    apiRequest<{ events: JobEvent[] }>({ method: "GET", url: `/jobs/${job_id}/events`, params: { workspace_id } }, signal),
 
   /** GET /api/jobs/:id/logs */
-  logs: (job_id: string, signal?: AbortSignal) =>
-    apiRequest<{ logs: string }>({ method: "GET", url: `/jobs/${job_id}/logs` }, signal),
+  logs: (job_id: string, workspace_id: string, signal?: AbortSignal) =>
+    apiRequest<{ logs: string }>({ method: "GET", url: `/jobs/${job_id}/logs`, params: { workspace_id } }, signal),
 
   /** GET /api/jobs/:id/artifacts */
-  artifacts: (job_id: string, signal?: AbortSignal) =>
+  artifacts: (job_id: string, workspace_id: string, signal?: AbortSignal) =>
     apiRequest<{
       input_artifacts: string[];
       output_artifacts: string[];
       report_artifacts: string[];
-    }>({ method: "GET", url: `/jobs/${job_id}/artifacts` }, signal),
+    }>({ method: "GET", url: `/jobs/${job_id}/artifacts`, params: { workspace_id } }, signal),
 };
 
 export const capabilitiesApi = {
@@ -1135,13 +1135,17 @@ export interface InspectionCreateResponse {
   ok: boolean;
   task_id: string;
   status: string;
-  profile_id: string;
-  scope: InspectionScope;
-  summary: InspectionTaskSummary;
-  started_at: string;
-  finished_at: string;
-  error: string;
+  // Fields below are only present for sync runs (async_run=false),
+  // not for async background tasks.
+  profile_id?: string;
+  scope?: InspectionScope;
+  summary?: InspectionTaskSummary;
+  started_at?: string;
+  finished_at?: string;
+  error?: string;
   async_run?: boolean;
+  tracking?: Record<string, unknown>;
+  note?: string;
 }
 
 export interface InspectionListResponse {

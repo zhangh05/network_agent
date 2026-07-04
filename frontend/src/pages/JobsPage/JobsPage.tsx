@@ -177,7 +177,7 @@ export function JobsPage() {
     // Load artifacts
     setArtsLoading(true);
     try {
-      const a = await jobsApi.artifacts(job.job_id);
+      const a = await jobsApi.artifacts(job.job_id, wsId);
       setArtifacts({
         input: a.input_artifacts ?? [],
         output: a.output_artifacts ?? [],
