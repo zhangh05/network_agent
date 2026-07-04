@@ -130,8 +130,8 @@ def _build_cached_tool_definitions(tool_registry: dict) -> List[dict]:
     return tools
 
 
-TOOL_MESSAGE_MAX_CHARS = 3600
-FINALIZER_TOOL_MAX_CHARS = 1800
+TOOL_MESSAGE_MAX_CHARS = 6000     # Per-tool output cap fed to LLM; balances article coverage vs context pressure
+FINALIZER_TOOL_MAX_CHARS = 3000
 FALLBACK_TOOL_MAX_CHARS = 1600
 MAX_INLINE_STRING_CHARS = 1200
 MAX_INLINE_LIST_ITEMS = 8

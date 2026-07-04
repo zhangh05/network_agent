@@ -29,7 +29,7 @@ _log = logging.getLogger(__name__)
 
 # ── Constants ─────────────────────────────────────────────────────────
 
-DEFAULT_MAX_LENGTH = 15000      # default max chars for extracted content
+DEFAULT_MAX_LENGTH = 8000       # default max chars for extracted content; covers most Chinese news articles
 MAX_CACHE_ENTRIES = 500
 CACHE_TTL_SECONDS = 900         # 15 minutes
 FETCH_TIMEOUT = 15
