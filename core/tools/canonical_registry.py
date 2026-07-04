@@ -25,7 +25,6 @@ import time
 
 from agent.runtime.utils import now_iso
 from core.tools.schemas import ToolSpec, ToolInvocation
-from core.tools.registry_helpers import tool_keyword_score
 
 
 def _inv_workspace(inv: ToolInvocation) -> str:
@@ -1854,7 +1853,7 @@ def _handler_network_telnet(inv: ToolInvocation) -> dict:
         exec_result = exec_command(new_sid, command)
         return {
             "ok": True, "host": host, "command": command,
-            "output": _extract_output(exec_result)[:8000],
+            "output": _extract_output(exec_result)[:_OUTPUT_TRUNCATE],
             "session_id": new_sid,
         }
     except Exception as e:

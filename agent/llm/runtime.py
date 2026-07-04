@@ -9,7 +9,7 @@ Design:
 """
 
 import re
-from typing import Optional, List
+from typing import List
 from agent.state import NetworkAgentState
 from agent.llm.schemas import LLMRequest, LLMMessage, SafeLLMOutput, PolicyDecision, LLMResponse
 import logging

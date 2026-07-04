@@ -1,7 +1,6 @@
 # jobs/manager.py
 """Job manager — strict state machine, lifecycle operations."""
 
-import traceback
 from agent.runtime.utils import now_iso
 from jobs.schemas import JobRecord, JobEvent, JobProgress, ENABLED_JOB_TYPES
 from jobs.store import create_job as _create, get_job, update_job, append_event, append_log
