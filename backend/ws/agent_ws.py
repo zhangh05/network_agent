@@ -44,6 +44,9 @@ def register_ws_routes(app):
             ws.send(json.dumps({"type": "error", "message": "csrf_origin_denied"}))
             return
 
+        # When auth is enabled, enforce token on the first message
+        _auth_checked = False
+
         try:
             while True:
                 raw = ws.receive(timeout=300)
@@ -59,6 +62,16 @@ def register_ws_routes(app):
                 if msg.get("type") != "message":
                     ws.send(json.dumps({"type": "error", "message": f"Unknown type: {msg.get('type')}"}, ensure_ascii=True))
                     continue
+
+                # Auth token enforcement for WS (token auth bypasses Origin check for non-browser clients)
+                if not _auth_checked:
+                    from backend.core.auth import _is_auth_enabled, _get_api_token
+                    import hmac as _hmac
+                    if _is_auth_enabled() and _get_api_token():
+                        if not _hmac.compare_digest(str(msg.get("auth_token", "")), _get_api_token()):
+                            ws.send(json.dumps({"type": "error", "message": "unauthorized"}, ensure_ascii=True))
+                            return
+                    _auth_checked = True
 
                 user_input = msg.get("user_input", msg.get("message", ""))
                 if not user_input:
@@ -268,13 +281,6 @@ def _run_agent_thread(user_input, session_id, workspace_id, metadata, event_queu
             "capability": result_payload.get("capability", ""),
             "error_type": result_payload.get("error_type", ""),
         })
-
-        # Now apply sanitize (regex processing) — it won't delay the done event
-        if result_payload.get("final_response"):
-            from agent.llm.runtime import sanitize_provider_output
-            result_payload["final_response"], stripped = sanitize_provider_output(result_payload["final_response"])
-            if stripped:
-                result_payload.setdefault("metadata", {})["reasoning_stripped"] = True
 
     except Exception as e:
         traceback.print_exc()

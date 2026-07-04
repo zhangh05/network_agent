@@ -559,7 +559,7 @@ export const useWorkbenchStore = create<WorkbenchState>()(
           }
 
           // Sort by created_at ascending
-          combined.sort((a, b) => a.created_at.localeCompare(b.created_at));
+          combined.sort((a, b) => (a.created_at || "").localeCompare(b.created_at || ""));
           const cleaned = dedupeMessages(combined);
           const next = capHistory(
             { ...s.bySession, [session_id]: cleaned },

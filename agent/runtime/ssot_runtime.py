@@ -478,9 +478,10 @@ def _invoke_llm_for_ssot_runtime(**kwargs) -> str:
     # Track token usage
     if workspace_id:
         try:
+            usage = resp.usage or {}
             record_llm_call(
-                input_tokens=resp.usage_input_tokens or 0,
-                output_tokens=resp.usage_output_tokens or 0,
+                input_tokens=usage.get("prompt_tokens", 0),
+                output_tokens=usage.get("completion_tokens", 0),
                 session_id=session_id,
                 workspace_id=workspace_id,
                 model=resp.model or "",

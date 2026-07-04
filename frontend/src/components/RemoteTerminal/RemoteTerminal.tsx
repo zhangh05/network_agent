@@ -189,7 +189,8 @@ export function RemoteTerminal({ onClose, initial }: {
         asset_id: assetId, device_id: deviceId, cols, rows }));
     };
     ws.onmessage = (e) => {
-      const msg = JSON.parse(e.data);
+      let msg: any;
+      try { msg = JSON.parse(e.data); } catch { return; }
       if (msg.type === "connected") {
         sessionIdRef.current = msg.session_id;
         setSessionId(msg.session_id); setConnected(true); setConnecting(false); connectingRef.current = false;

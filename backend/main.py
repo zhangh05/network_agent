@@ -405,7 +405,7 @@ def main():
     import argparse
     parser = argparse.ArgumentParser(description="Network Agent — Unified Backend")
     parser.add_argument("--port", type=int, default=UNIFIED_PORT, help="Port to listen on (default: 8010)")
-    parser.add_argument("--host", type=str, default="0.0.0.0", help="Host to bind to")
+    parser.add_argument("--host", type=str, default="127.0.0.1", help="Host to bind to")
     args = parser.parse_args()
 
     port = args.port
