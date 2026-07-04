@@ -299,7 +299,7 @@ class TestProviderErrorReturnsRedactedRealError:
         with patch("prompts.loader.get_prompt_by_task",
                    side_effect=Exception("fb")):
             with patch("agent.llm.provider.generate",
-                       side_effect=RuntimeError(
+                       side_effect=ConnectionError(
                            "Connection refused: api.minimax.chat:443"
                        )):
                 from agent.llm.runtime import safe_generate
@@ -336,7 +336,7 @@ class TestProviderErrorReturnsRedactedRealError:
         with patch("prompts.loader.get_prompt_by_task",
                    side_effect=Exception("fb")):
             with patch("agent.llm.provider.generate",
-                       side_effect=RuntimeError(
+                       side_effect=OSError(
                            "Authorization failed: Bearer sk-1234567890abcdef"
                        )):
                 from agent.llm.runtime import safe_generate

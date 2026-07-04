@@ -129,7 +129,7 @@ def test_run_shell_redacts_before_truncating():
 
     from core.tools.general_tools import shared
     src = Path(shared.__file__).read_text(encoding="utf-8")
-    stdout_redact_idx = src.index('stdout = redact_tool_output(result.stdout or "")')
+    stdout_redact_idx = src.index('stdout = redact_tool_output(stdout or "")')
     stdout_truncate_idx = src.index('[:_SHELL_MAX_OUTPUT]', stdout_redact_idx)
     assert stdout_redact_idx < stdout_truncate_idx
 

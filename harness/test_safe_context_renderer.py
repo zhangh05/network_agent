@@ -87,26 +87,15 @@ def test_small_payload_renders_normal_json():
 
 def _big_payload() -> dict:
     """Build a safe_context that is large enough to trigger the
-    5000-character truncation branch. We use multiple list-shaped
-    fields, each holding enough items to push the projection past
-    the limit after key sorting and JSON dumping."""
-    return {
-        "artifact_refs": [
-            {"id": f"a{i}", "summary": "X" * 200} for i in range(200)
-        ],
-        "memory_hits": [
-            {"id": f"m{i}", "text": "Y" * 200} for i in range(200)
-        ],
-        "context_sources": [
-            {"k": f"cs{i}", "v": "Z" * 200} for i in range(200)
-        ],
-        "context_warnings": [
-            {"w": f"w{i}", "msg": "W" * 200} for i in range(200)
-        ],
-        "citations": [
-            {"c": f"c{i}", "src": "C" * 200} for i in range(200)
-        ],
+    5000-character truncation branch. Each string value is capped
+    at max_text=600 by _safe_prompt_value, so we use many keys."""
+    payload: dict[str, any] = {
+        "artifact_refs": [{"id": f"a{i}", "summary": "X" * 600} for i in range(20)],
     }
+    # Add enough scalar fields to push past 5000 chars after JSON encoding
+    for i in range(20):
+        payload[f"field_{i:03d}"] = "K" * 2000  # truncated to 600 by _safe_prompt_value
+    return payload
 
 
 def test_large_payload_truncated_to_parseable_json():
