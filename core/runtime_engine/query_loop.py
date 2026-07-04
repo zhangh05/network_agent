@@ -37,46 +37,33 @@ from agent.llm.tool_adapter import tool_spec_to_openai_function
 # ── Prompt Cache ────────────────────────────────────────────────────────────
 
 # Static prefix that never changes between turns — cached by the LLM API.
-QUERY_LOOP_SYSTEM_PROMPT = """You are a deterministic execution planner and network operations AI agent.
-Use the EXACT function names from the tool list provided to you — do NOT shorten, abbreviate, or guess names.
+QUERY_LOOP_SYSTEM_PROMPT = """You are a network operations AI agent. Use EXACT tool names — never abbreviate.
 For example:
-- inspection__manage (device health inspection)
-- exec__run (SSH/Telnet/command execution)
-- device__manage (CMDB device management)
-- web__manage (web search, weather, page fetch)
-- workspace__file, workspace__artifact (file/artifact operations)
-- config__manage (network config analysis)
-- pcap__manage (packet capture analysis)
-- knowledge__manage (knowledge base)
-- memory__manage (memory/preferences)
-- report__manage (report generation)
-- data__manage (data analysis)
-- text__analyze (text analysis)
-- code__search (code search)
-- git__manage (git operations)
-- system__manage (system diagnostics)
-- browser__manage (browser automation)
-- skill__manage (skill management)
-- agent__manage (agent orchestration)
-- workspace__metadata__get (workspace metadata)
-- workspace__document__pdf__extract_text (PDF extraction)
-- workspace__filestore (FileStore)
+- inspection__manage (device inspection)
+- exec__run (SSH/Telnet/command)   web__manage (search/fetch/weather)
+- device__manage (CMDB)   config__manage (config analysis)   pcap__manage (packet analysis)
+- knowledge__manage (RAG search)   memory__manage   browser__manage (automation)
+- data__manage (CSV/JSON/stats)   report__manage (save/diff/doc)
+- text__analyze (redact/extract)   system__manage (diagnostics)
+- workspace__file / workspace__artifact / workspace__filestore (storage)
+- skill__manage   agent__manage (subagent spawn)   git__manage   code__search
 
-Work step by step. On the first pass, call tools to gather information. After
-tool results are available, reason about the results and provide a final answer
-directly without calling more tools unless one additional fact is truly missing.
+Work step by step. Gather data with tools first, then reason and answer.
+Do not fabricate any data — only use what tools return.
 
 RULES:
-1. Use EXACT function names from the tool list. Never shorten or invent names.
-2. Use tools to get real data; never fabricate device states or command outputs.
-3. For inspection tasks: inspection__manage(action="run") to start, then
-   inspection__manage(action="task_get") to check status.
-4. For SSH access: exec__run(action="shell", target="ssh", asset_id=...).
-   When the device was just queried from CMDB, use the asset_id from the
-   CMDB result — do NOT pass host/username/password separately.
-5. If a tool returns "Tool not found" error, the name is wrong — look at the
-   available function list and use the EXACT name.
-6. DO NOT repeat the same failing tool+arguments more than 2 times.
+1. Use EXACT tool names — never shorten or invent names.
+2. For SSH: exec__run(action="shell", target="ssh", asset_id=...). Use asset_id
+   from CMDB — never pass host/username/password separately.
+3. If a tool returns "Tool not found", the name is wrong — check the available
+   function list.
+4. Never repeat the same failing tool+arguments more than 2 times.
+5. Weather: web__manage(action="weather", location=..., days=...).
+   明天=2, 后天=3, 一周=7, 未来十天=10.
+6. Inspection: inspection__manage(action="run") starts a CMDB task; follow the
+   same task with inspection__manage(action="get", task_id=...). Fetch
+   inspection__manage(action="report", task_id=..., format="html") only after
+   status is succeeded/partial.
 7. After all tool results are in, respond directly without calling more tools."""
 
 
@@ -681,7 +668,7 @@ class QueryLoop:
         if tracking.get("done"):
             return False
         action = str(tracking.get("suggested_next_action") or "").lower()
-        if action and action != "poll_task_get":
+        if action and action != "poll_get":
             return False
         # Must be a long task to be eligible for polling
         if str(tracking.get("kind") or "") != "long_task":
@@ -1178,7 +1165,7 @@ class QueryLoop:
         Polling is generic and bounded. It only runs when the user explicitly
         requested tracking (关键词: 跟踪/持续/等待) or the tool marks the payload
         as a long task.
-        Uses the tool's canonical name for task_get calls.
+        Uses the tool's canonical name for get calls.
         """
         polled: List[StreamingToolResult] = []
         if not getattr(self._config, "tracking_enabled", True):
@@ -1238,7 +1225,7 @@ class QueryLoop:
                 poll_call = LLMToolCall(
                     id=poll_call_id,
                     name=tool_name,
-                    arguments={"action": "task_get", "task_id": task_id},
+                    arguments={"action": "get", "task_id": task_id},
                 )
                 try:
                     poll_result = await self._executor._execute_one(
@@ -1385,9 +1372,9 @@ class QueryLoop:
         ok = [r for r in results if r.ok]
         failed = [r for r in results if not r.ok]
         lines = [
-            "工具已执行，以下是原始结果摘要：",
+            f"工具调用：成功 {len(ok)} 个，失败 {len(failed)} 个",
             "",
-            f"成功 {len(ok)} 个，失败 {len(failed)} 个",
+            "以下是原始结果摘要：",
         ]
 
         # Include successful tool outputs (truncated)

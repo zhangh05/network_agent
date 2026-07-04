@@ -87,7 +87,7 @@ def register_inspection_routes(app):
             return jsonify({"ok": False, "error": "scope_must_be_object"}), 400
 
         # The runner persists / runs synchronously. The frontend polls
-        # task_get once this returns. Status is one of:
+        # get once this returns. Status is one of:
         #   pending → running → succeeded | failed | partial
         # v3.9.14 — clamp to the same range the service layer enforces
         # so callers see consistent behaviour regardless of which

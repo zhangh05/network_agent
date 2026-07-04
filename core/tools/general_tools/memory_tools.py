@@ -27,17 +27,17 @@ def _get_store(ws_id: str):
 
 def _via_gate(title: str, content: str, ws_id: str, source: str = "llm_tool",
               memory_type: str = "knowledge_note", scope: str = "workspace",
-              session_id: str = "", task_id: str = "", user_confirmed: bool = False,
+              session_id: str = "", task_id: str = "",
               citations: list = None, tags: list = None) -> dict:
-    """Write memory through MemoryWriteGate (governed path only)."""
+    """Write memory through MemoryWriteGate. Gate decides status."""
     from workspace.memory_governance import MemoryRecord, MemoryWriteGate
     rec = MemoryRecord(
         workspace_id=ws_id, session_id=session_id, task_id=task_id,
         scope=scope, memory_type=memory_type,
-        status="active" if user_confirmed else "pending",
-        source="user" if user_confirmed else ("subagent" if source == "subagent" else "agent_suggestion"),
+        status="pending",  # Gate decides final status
+        source="subagent" if source == "subagent" else "agent_suggestion",
         content=content[:2000], summary=title[:200],
-        confidence=1.0 if user_confirmed else 0.5,
+        confidence=0.5,  # Neutral default; gate adjusts via _auto_confirm
         citations=citations or [], created_by=source,
         redacted=True,
     )
@@ -48,32 +48,44 @@ def _via_gate(title: str, content: str, ws_id: str, source: str = "llm_tool",
 
 
 def handle_memory_search(inv: ToolInvocation) -> dict:
+    """Search stored memories by keyword. Auto-injection happens at session start."""
     query = (inv.arguments.get("query") or "").strip()
     try:
         ws = _caller_workspace(inv)
         store = _get_store(ws)
-        results = store.list_retrievable(ws, limit=10)
-        if query:
-            q = query.lower()
-            results = [r for r in results if q in (r.get("content", "") + r.get("summary", "")).lower()]
+        # Try store-level search first, fall back to list+filter
+        try:
+            results = store.search(ws, query, limit=10)
+        except (AttributeError, NotImplementedError):
+            results = store.list_retrievable(ws, limit=30)
+            if query:
+                q = query.lower()
+                results = [r for r in results if q in (r.get("content", "") + r.get("summary", "")).lower()]
         safe = [{
             "memory_id": r.get("memory_id", ""),
             "title": r.get("title", ""),
             "summary": r.get("summary", "")[:200],
-        } for r in results]
-        return _ok(inv, "", {"results": safe, "count": len(safe)})
+            "content": r.get("content", "")[:300],
+            "status": r.get("status", ""),
+            "memory_type": r.get("memory_type", ""),
+        } for r in results[:10]]
+        return _ok(inv, "", {
+            "results": safe, "count": len(safe),
+            "_hint": f"找到 {len(safe)} 条相关记忆。记忆在会话启动时自动注入，search 用于精确查询。",
+        })
     except Exception as e:
         return _error_inv(inv, str(e)[:200])
 
 
 def handle_memory_create(inv: ToolInvocation) -> dict:
+    """Create a memory. All tool-created memories go through gate as pending."""
     args = inv.arguments
     title = str(args.get("title", "")).strip()
     content = str(args.get("content", "")).strip()
     if not content:
         return _error_inv(inv, "content is required")
     if not title:
-        title = str(args.get("summary", "")).strip() or content[:80]
+        title = content[:80]
     try:
         ws = _caller_workspace(inv)
         sid = str(args.get("session_id", ""))
@@ -85,17 +97,58 @@ def handle_memory_create(inv: ToolInvocation) -> dict:
             memory_type=str(args.get("memory_type", "knowledge_note")),
             scope=str(args.get("scope", "workspace")),
             session_id=sid,
-            user_confirmed=bool(args.get("user_confirmed", False)),
             tags=list(args.get("tags") or []),
         )
         memory_id = result.get("memory_id", "")
+        status = result.get("status", "pending")
         if not memory_id:
             return _error_inv(inv, "memory write blocked by policy")
         if result.get("rejected"):
-            return _error_inv(inv, f"memory rejected: {result.get('summary', 'secret content')}")
+            reason = result.get("error", result.get("summary", "unknown"))
+            return _ok(inv, "", {
+                "ok": False, "memory_id": memory_id, "status": "rejected",
+                "_hint": f"记忆被门控拒绝：{reason}。不要包含密码/密钥/API Key，确保内容有价值。",
+            })
         return _ok(inv, "", {
-            "memory_id": memory_id,
-            "status": result.get("status", "pending"),
+            "memory_id": memory_id, "status": status,
+            "_hint": (
+                f"记忆已记录（{status}状态）。"
+                + ("待用户确认后生效。" if status == "pending" else "")
+            ),
+        })
+    except Exception as e:
+        return _error_inv(inv, str(e)[:200])
+
+
+def handle_memory_review(inv: ToolInvocation) -> dict:
+    """Review pending memories — those waiting for user confirmation."""
+    limit = int((inv.arguments.get("limit") or 10))
+    try:
+        ws = _caller_workspace(inv)
+        store = _get_store(ws)
+        all_recs = store.list_all(ws)
+        pending = [
+            r for r in all_recs
+            if getattr(r, "status", "") == "pending"
+        ]
+        pending.sort(key=lambda r: getattr(r, "created_at", ""), reverse=True)
+        items = [{
+            "memory_id": getattr(r, "memory_id", ""),
+            "title": getattr(r, "title", "") or getattr(r, "summary", ""),
+            "content": (getattr(r, "content", "") or "")[:200],
+            "confidence": getattr(r, "confidence", 0.5),
+            "source": getattr(r, "source", ""),
+            "memory_type": getattr(r, "memory_type", ""),
+            "created_at": getattr(r, "created_at", ""),
+        } for r in pending[:limit]]
+        return _ok(inv, "", {
+            "ok": True, "items": items, "total_pending": len(pending),
+            "returned": len(items),
+            "_hint": (
+                f"有 {len(pending)} 条待确认记忆。"
+                + (f" 已返回 {len(items)} 条。" if len(pending) > limit else "")
+                + " 高 confidence 的建议更可靠。用 confirm 激活，delete 移除。"
+            ) if items else "没有待确认的记忆。",
         })
     except Exception as e:
         return _error_inv(inv, str(e)[:200])
@@ -116,18 +169,22 @@ def handle_memory_list(inv: ToolInvocation) -> dict:
                 "memory_id": r.get("memory_id", ""),
                 "title": r.get("title", ""),
                 "summary": r.get("summary", "")[:200],
-                "status": r.get("status", "confirmed"),
+                "status": r.get("status", ""),
                 "memory_type": r.get("memory_type", ""),
                 "scope": r.get("scope", ""),
                 "created_at": r.get("created_at", ""),
                 "tags": (r.get("tags") or [])[:5],
             })
-        return _ok(inv, "", {"results": summaries, "count": len(summaries)})
+        return _ok(inv, "", {
+            "results": summaries, "count": len(summaries),
+            "_hint": f"列出 {len(summaries)} 条记忆。用 confirm 激活 pending 状态记忆。",
+        })
     except Exception as e:
         return _error_inv(inv, str(e)[:200])
 
 
 def handle_memory_confirm(inv: ToolInvocation) -> dict:
+    """Confirm a pending memory (typically from frontend approval UI)."""
     args = inv.arguments
     memory_id = str(args.get("memory_id", "")).strip()
     if not memory_id:
@@ -173,8 +230,6 @@ def handle_memory_set_profile(inv: ToolInvocation) -> dict:
         return _error_inv(inv, "field is required")
     try:
         ws = _caller_workspace(inv)
-        import time
-        # Build profile content as memory record
         from workspace.memory_governance import MemoryRecord, MemoryWriteGate
         existing = {}
         store = _get_store(ws)
@@ -217,6 +272,7 @@ def handle_memory_profile_merged(inv: ToolInvocation) -> dict:
 
 
 def handle_memory_update(inv: ToolInvocation) -> dict:
+    """Update memory content. Applies redaction but skips full gating."""
     args = inv.arguments
     memory_id = str(args.get("memory_id", "")).strip()
     content = str(args.get("content", "")).strip()
@@ -230,15 +286,14 @@ def handle_memory_update(inv: ToolInvocation) -> dict:
         rec = store.get(ws, memory_id)
         if not rec:
             return _error_inv(inv, f"memory_id not found: {memory_id}")
-        rec.content = content[:2000]
-        import time
+        from workspace.memory_governance import _redact
+        rec.content = _redact(content[:2000])
         rec.updated_at = now_iso()
-        from workspace.memory_governance import MemoryWriteGate
-        gate = MemoryWriteGate()
-        result = gate.write(rec)
-        if not result.get("ok", False):
-            return _error_inv(inv, result.get("rejected") or result.get("error", "gate rejected update"))
-        return _ok(inv, "", {"memory_id": memory_id, "updated": True})
+        store.save(rec)
+        return _ok(inv, "", {
+            "memory_id": memory_id, "updated": True,
+            "_hint": "记忆已更新。",
+        })
     except Exception as e:
         return _error_inv(inv, str(e)[:200])
 
@@ -252,6 +307,9 @@ def handle_memory_delete_soft(inv: ToolInvocation) -> dict:
         ws = _caller_workspace(inv)
         from workspace.memory_governance import reject_memory
         result = reject_memory(ws, memory_id)
-        return _ok(inv, "", {"memory_id": memory_id, "deleted": True, **result})
+        return _ok(inv, "", {
+            "memory_id": memory_id, "deleted": True, **result,
+            "_hint": "记忆已软删除。",
+        })
     except Exception as e:
         return _error_inv(inv, str(e)[:200])

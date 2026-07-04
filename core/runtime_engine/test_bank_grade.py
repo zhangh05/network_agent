@@ -1217,14 +1217,14 @@ class TestPreExecutionRepairPipeline:
         assert result.success
 
     @pytest.mark.asyncio
-    async def test_task_get_auto_fixed(self, config):
-        """task_get → action=tasks (NOT in action_alias.py → caught by repair)"""
+    async def test_get_auto_fixed(self, config):
+        """get → action=tasks (caught by repair for system task lookup intent)"""
         from core.runtime_engine.engine import SSOTRuntimeEngine
         import json
 
         plan_json = json.dumps({"nodes": [
             {"id": "n1", "tool": "system.manage",
-             "args": {"action": "task_get"}, "deps": []}
+             "args": {"action": "get"}, "deps": []}
         ]})
 
         def mock_llm(**kw):

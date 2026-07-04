@@ -556,7 +556,7 @@ class TestResultMerger:
             "progress": {"done_devices": 2, "total_devices": 6, "percent": 33},
             "summary": {"task_id": "ins_abc", "status": "running", "succeeded_devices": 2},
             "next_poll_seconds": 10,
-            "suggested_next_action": "poll_task_get",
+            "suggested_next_action": "poll_get",
         }
         node_results = {
             "n1": ToolResult(
@@ -1053,7 +1053,7 @@ class TestSSOTRuntimePipeline:
         assert "工具调用：成功 1 个，失败 0 个" in result.final_response
 
     def test_query_loop_tracking_polls_are_not_provider_tool_messages(self, config):
-        """Internal task_get polls must not create unmatched tool_call_id messages."""
+        """Internal get polls must not create unmatched tool_call_id messages."""
         from agent.llm.schemas import LLMMessage, LLMToolCall
         from core.runtime_engine.query_loop import QueryLoop, StreamingToolResult
 
@@ -1253,7 +1253,7 @@ class TestSSOTRuntimePipeline:
 
     @pytest.mark.asyncio
     async def test_runtime_polls_long_task_tracking_before_finalizer(self, config):
-        """A long-task tracking payload should trigger bounded task_get polls."""
+        """A long-task tracking payload should trigger bounded get polls."""
         from core.runtime_engine.engine import SSOTRuntimeEngine
 
         config.enable_finalizer = False
@@ -1305,12 +1305,12 @@ class TestSSOTRuntimePipeline:
                         "status": "running",
                         "done": False,
                         "next_poll_seconds": 0,
-                        "suggested_next_action": "poll_task_get",
+            "suggested_next_action": "poll_get",
                         "progress": {"done_devices": 0, "total_devices": 1, "percent": 0},
                         "summary": {"task_id": "ins_test", "status": "running"},
                     },
                 }
-            assert args.get("action") == "task_get"
+            assert args.get("action") == "get"
             polls["count"] += 1
             done = polls["count"] >= 2
             status = "succeeded" if done else "running"
@@ -1325,7 +1325,7 @@ class TestSSOTRuntimePipeline:
                     "done": done,
                     "terminal": done,
                     "next_poll_seconds": 0,
-                    "suggested_next_action": "fetch_report" if done else "poll_task_get",
+                    "suggested_next_action": "fetch_report" if done else "poll_get",
                     "progress": {"done_devices": 1 if done else 0, "total_devices": 1, "percent": 100 if done else 0},
                     "summary": {"task_id": "ins_test", "status": status, "succeeded_devices": 1 if done else 0},
                 },
@@ -1481,7 +1481,7 @@ class TestEdgeCases:
         assert "Preserve user intent in tool arguments" in PLANNER_SYSTEM_PROMPT
         assert "Never invent aliases" in PLANNER_SYSTEM_PROMPT
         assert "fewer tools = faster execution" in PLANNER_SYSTEM_PROMPT
-        assert "task_get" in PLANNER_SYSTEM_PROMPT
+        assert 'action="get"' in PLANNER_SYSTEM_PROMPT
         assert "run_and_wait" not in PLANNER_SYSTEM_PROMPT
 
     def test_finalizer_strips_provider_reasoning(self):

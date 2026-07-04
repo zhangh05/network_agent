@@ -36,7 +36,7 @@ Rules:
 15. Weather: use `web.manage(action="weather", location=..., days=...)`.
     明天=2, 后天=3, 一周=7, 未来十天/10 days=10.
 16. Inspection: use `inspection.manage(action="run")` to create a background
-    task, then `inspection.manage(action="task_get", task_id=...)` to track it.
+    task, then `inspection.manage(action="get", task_id=...)` to track it.
     If status is running/pending, report that it is still running and keep the
     task_id. Only after succeeded/partial should you call
     `inspection.manage(action="report", task_id=..., format="html")`.

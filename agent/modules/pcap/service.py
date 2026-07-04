@@ -298,7 +298,8 @@ def align_pcap_tcp(session_id: str, src: str = "", sport: int = 0,
 def run_pcap_analysis(
     action: str, *, workspace_id: str = "", filepath: str = "",
     file_id: str = "", session_id: str = "", src: str = "", sport: int = 0,
-    dst: str = "", dport: int = 0, use_filter: bool = False,
+    dst: str = "", dport: int = 0, protocol: str = "",
+    use_filter: bool = False,
     run_id: str = "", agent_session_id: str = "", **kwargs,
 ) -> dict:
     """Unified PCAP analysis dispatcher."""
@@ -306,13 +307,251 @@ def run_pcap_analysis(
     if action == "parse":
         return parse_pcap_file(workspace_id, filepath=filepath, file_id=file_id,
                                run_id=run_id, session_id=agent_session_id)
-    if action == "session":
-        return get_pcap_session(session_id, workspace_id=workspace_id)
+    if action == "summary":
+        return _pcap_summary(session_id, workspace_id=workspace_id)
     if action == "filter":
-        return filter_pcap_session(session_id, src=src, sport=sport, dst=dst, dport=dport, workspace_id=workspace_id)
+        return _pcap_filter(session_id, src=src, sport=sport, dst=dst, dport=dport,
+                            protocol=protocol, workspace_id=workspace_id)
+    if action == "protocol":
+        return _pcap_protocol(session_id, workspace_id=workspace_id)
     if action == "align":
         return align_pcap_tcp(session_id, src=src, sport=sport, dst=dst, dport=dport, use_filter=use_filter, workspace_id=workspace_id)
+    if action == "scan":
+        return _pcap_scan(session_id, src=src, dst=dst, workspace_id=workspace_id)
     return {
         "ok": False, "tool_id": "pcap.manage", "status": "failed",
         "summary": f"unsupported pcap action: {action}", "errors": ["unsupported_action"],
     }
+
+
+def _get_session(session_id: str, workspace_id: str) -> dict | None:
+    """Get or recover a PCAP session."""
+    session = PCAP_SESSIONS.get(session_id)
+    if not session:
+        get_pcap_session(session_id, workspace_id=workspace_id)
+        session = PCAP_SESSIONS.get(session_id)
+    return session
+
+
+def _pcap_summary(session_id: str, workspace_id: str = "") -> dict:
+    """Overview statistics for a PCAP session."""
+    session = _get_session(session_id, workspace_id)
+    if not session:
+        return {"ok": False, "tool_id": "pcap.manage", "status": "failed",
+                "summary": "未找到 PCAP session。", "errors": ["session_not_found"]}
+    packets = session.get("packets", [])
+    groups = session.get("groups", [])
+    proto_counts = _protocol_counts(groups)
+
+    # Time range
+    times = []
+    for pkt in packets:
+        if hasattr(pkt, 'time'):
+            times.append(float(pkt.time))
+    time_range = f"{min(times):.1f}s - {max(times):.1f}s" if len(times) >= 2 else "unknown"
+
+    # Unique IPs
+    ips = set()
+    for pkt in packets:
+        if hasattr(pkt, '__getitem__'):
+            try:
+                if 'IP' in pkt:
+                    ips.add(pkt['IP'].src)
+                    ips.add(pkt['IP'].dst)
+            except Exception:
+                pass
+
+    return {
+        "ok": True, "tool_id": "pcap.manage", "status": "succeeded",
+        "summary": f"PCAP总览: {len(packets)}报文, {len(groups)}连接, {len(ips)}个IP。",
+        "total_packets": len(packets),
+        "connections": len(groups),
+        "protocol_counts": proto_counts,
+        "unique_ips": len(ips),
+        "time_range": time_range,
+        "filename": Path(session.get("filepath", "")).name,
+        "top_protocol": max(proto_counts, key=proto_counts.get) if proto_counts else "N/A",
+    }
+
+
+def _pcap_filter(session_id: str, src: str = "", sport: int = 0,
+                  dst: str = "", dport: int = 0,
+                  protocol: str = "", workspace_id: str = "") -> dict:
+    """Multi-dimensional PCAP filtering."""
+    session = _get_session(session_id, workspace_id)
+    if not session:
+        return {"ok": False, "tool_id": "pcap.manage", "status": "failed",
+                "summary": "未找到 PCAP session。", "errors": ["session_not_found"]}
+    packets = session.get("packets", [])
+
+    # Apply 5-tuple filter
+    if src or sport or dst or dport:
+        packets = filter_by_5tuple(packets, src, sport, dst, dport)
+
+    # Apply protocol filter
+    if protocol:
+        proto = protocol.upper()
+        packets = [p for p in packets if _pkt_proto(p) == proto]
+
+    filtered_groups = get_connection_groups(packets) if packets else []
+    result = {
+        "ok": True, "tool_id": "pcap.manage", "status": "succeeded",
+        "summary": f"匹配 {len(packets)} 报文, {len(filtered_groups)} 条连接。",
+        "total_packets": len(packets),
+        "connections": filtered_groups,
+        "connection_count": len(filtered_groups),
+        "truncated": len(packets) > 500,
+    }
+    if protocol:
+        result["protocol"] = protocol
+    return result
+
+
+def _pkt_proto(pkt) -> str:
+    """Extract protocol name from a packet."""
+    try:
+        if hasattr(pkt, '__contains__'):
+            if 'TCP' in pkt: return 'TCP'
+            if 'UDP' in pkt: return 'UDP'
+            if 'ICMP' in pkt: return 'ICMP'
+        if hasattr(pkt, 'proto'):
+            return {6: 'TCP', 17: 'UDP', 1: 'ICMP'}.get(pkt.proto, f"IP/{pkt.proto}")
+        return 'UNKNOWN'
+    except Exception:
+        return 'UNKNOWN'
+
+
+def _pcap_protocol(session_id: str, workspace_id: str = "") -> dict:
+    """Per-protocol breakdown analysis."""
+    session = _get_session(session_id, workspace_id)
+    if not session:
+        return {"ok": False, "tool_id": "pcap.manage", "status": "failed",
+                "summary": "未找到 PCAP session。", "errors": ["session_not_found"]}
+    packets = session.get("packets", [])
+
+    breakdown: dict[str, dict] = {}
+    for pkt in packets:
+        proto = _pkt_proto(pkt)
+        if proto not in breakdown:
+            breakdown[proto] = {"packet_count": 0, "total_bytes": 0}
+        breakdown[proto]["packet_count"] += 1
+        try:
+            if hasattr(pkt, '__len__') and hasattr(pkt, '__bytes__'):
+                breakdown[proto]["total_bytes"] += len(pkt)
+        except Exception:
+            pass
+
+    # Calculate percentages
+    total = len(packets)
+    for proto in breakdown:
+        breakdown[proto]["percentage"] = round(breakdown[proto]["packet_count"] / total * 100, 1)
+
+    return {
+        "ok": True, "tool_id": "pcap.manage", "status": "succeeded",
+        "summary": f"协议分布: {list(breakdown.keys())}。",
+        "protocols": list(breakdown.keys()),
+        "breakdown": breakdown,
+        "total_packets": total,
+        "dominant_protocol": max(breakdown, key=lambda k: breakdown[k]["packet_count"]) if breakdown else "N/A",
+    }
+
+
+def _pcap_scan(session_id: str, src: str = "", dst: str = "",
+                workspace_id: str = "") -> dict:
+    """Security scan: port scanning detection, SYN flood, anomalies."""
+    session = _get_session(session_id, workspace_id)
+    if not session:
+        return {"ok": False, "tool_id": "pcap.manage", "status": "failed",
+                "summary": "未找到 PCAP session。", "errors": ["session_not_found"]}
+
+    packets = session.get("packets", [])
+    if src:
+        packets = [p for p in packets if _pkt_has_ip(p, src)]
+    if dst:
+        packets = [p for p in packets if _pkt_has_ip(p, dst, key='dst')]
+
+    findings = []
+
+    # 1. Port scanning detection — one IP → many ports
+    src_ports: dict[str, set] = {}
+    for pkt in packets:
+        src_ip, pkt_sport, pkt_dport = _pkt_5tuple(pkt)
+        if src_ip:
+            src_ports.setdefault(src_ip, set()).add(pkt_dport)
+    for ip, ports in src_ports.items():
+        if len(ports) >= 10:
+            findings.append({
+                "type": "port_scan",
+                "source": ip,
+                "ports_scanned": len(ports),
+                "severity": "high" if len(ports) >= 50 else "medium",
+            })
+
+    # 2. SYN flood detection — many SYNs without ACK
+    syn_count = 0
+    ack_count = 0
+    for pkt in packets:
+        try:
+            if hasattr(pkt, '__contains__') and 'TCP' in pkt:
+                flags = pkt['TCP'].flags if 'TCP' in pkt else ''
+                if flags & 0x02:
+                    syn_count += 1
+                if flags & 0x10:
+                    ack_count += 1
+        except Exception:
+            pass
+    if syn_count > 0 and ack_count == 0 and syn_count > 100:
+        findings.append({
+            "type": "syn_flood",
+            "syn_count": syn_count,
+            "ack_count": ack_count,
+            "severity": "high",
+        })
+
+    # 3. Failed connections — RST or ICMP unreachable
+    reset_count = 0
+    for pkt in packets:
+        try:
+            if hasattr(pkt, '__contains__') and 'TCP' in pkt:
+                flags = pkt['TCP'].flags if 'TCP' in pkt else ''
+                if flags & 0x04:
+                    reset_count += 1
+        except Exception:
+            pass
+    if reset_count > 10:
+        findings.append({
+            "type": "connection_resets",
+            "reset_count": reset_count,
+            "severity": "medium",
+        })
+
+    return {
+        "ok": True, "tool_id": "pcap.manage", "status": "succeeded",
+        "summary": f"安全扫描完成，发现 {len(findings)} 个可疑模式。" if findings else "未发现可疑模式。",
+        "findings": findings,
+        "finding_count": len(findings),
+        "safe": len(findings) == 0,
+        "total_packets_analyzed": len(packets),
+    }
+
+
+def _pkt_5tuple(pkt) -> tuple:
+    """Extract (src_ip, sport, dst_ip, dport) from a packet."""
+    try:
+        if hasattr(pkt, '__contains__') and 'IP' in pkt:
+            ip = pkt['IP']
+            sport = dport = 0
+            if 'TCP' in pkt: sport, dport = pkt['TCP'].sport, pkt['TCP'].dport
+            elif 'UDP' in pkt: sport, dport = pkt['UDP'].sport, pkt['UDP'].dport
+            return (ip.src, sport, ip.dst, dport)
+    except Exception:
+        pass
+    return ("", 0, "", 0)
+
+
+def _pkt_has_ip(pkt, ip: str, key: str = 'src') -> bool:
+    try:
+        s, _, d, _ = _pkt_5tuple(pkt)
+        return (s == ip if key == 'src' else d == ip)
+    except Exception:
+        return False

@@ -69,24 +69,6 @@ def _handle_web_search_merged(inv: ToolInvocation) -> dict:
         return handle_web_search(inv)
 
 
-def _handle_web_page_merged(inv: ToolInvocation) -> dict:
-    args = inv.arguments or {}
-    action = str(args.get("action", "")).lower()
-    if action == "extract_links":
-        return handle_web_extract_links(inv)
-    elif action == "save_artifact":
-        return handle_web_save_to_artifact(inv)
-    else:
-        return handle_web_fetch_summary(inv)
-
-
-def _handle_data_validate_merged(inv: ToolInvocation) -> dict:
-    args = inv.arguments or {}
-    fmt = str(args.get("format", "")).lower()
-    if fmt == "yaml":
-        return handle_yaml_validate(inv)
-    else:
-        return handle_json_validate(inv)
 
 
 def _handle_knowledge_read_merged(inv: ToolInvocation) -> dict:
@@ -109,25 +91,47 @@ def _handle_memory_manage_merged(inv: ToolInvocation) -> dict:
         return handle_memory_confirm(inv)
     elif action == "delete":
         return handle_memory_delete_soft(inv)
+    elif action == "review":
+        return handle_memory_review(inv)
     else:
         return handle_memory_create(inv)
 
 
 def _handle_text_analyze_merged(inv: ToolInvocation) -> dict:
+    """text.analyze — action=extract|redact|match."""
     args = inv.arguments or {}
     action = str(args.get("action", "")).lower()
-    if action == "diff":
-        return handle_text_diff(inv)
-    elif action == "keywords":
-        return handle_text_extract_keywords(inv)
-    elif action == "classify":
-        return handle_text_classify(inv)
-    elif action == "extract_entities":
+    if action == "extract":
         return handle_text_extract_entities(inv)
-    elif action == "regex":
-        return handle_text_regex(inv)
+    elif action == "match":
+        return _handle_text_match(inv)
     else:
         return handle_text_redact(inv)
+
+
+def _handle_text_match(inv: ToolInvocation) -> dict:
+    """action=match — regex pattern match."""
+    import re
+    args = inv.arguments or {}
+    text = str(args.get("text", ""))
+    pattern = str(args.get("pattern", ""))
+    if not pattern:
+        return {"ok": False, "error": "pattern is required"}
+    if len(text) > 100000:
+        return {"ok": False, "error": "text too large (max 100K)"}
+    try:
+        matches = re.findall(pattern, text, re.MULTILINE | re.DOTALL)
+    except re.error as e:
+        return {"ok": False, "error": f"invalid regex: {e}"}
+    unique = list(dict.fromkeys(matches))
+    return {
+        "ok": True,
+        "matches": unique[:100],
+        "match_count": len(matches),
+        "unique_count": len(unique),
+        "pattern": pattern[:200],
+        "_hint": f"找到 {len(matches)} 处匹配（{len(unique)} 个唯一值）。用 extract 提取结构化实体。",
+    }
 
 
 def _handle_session_snapshot_merged(inv: ToolInvocation) -> dict:
@@ -281,18 +285,18 @@ def _handle_inspection_managed(inv: ToolInvocation) -> dict:
             "finished_at": task.finished_at,
             "tracking": task.tracking,
             "message": (
-                "巡检任务已创建并在后台运行。请使用 task_get 跟踪状态；"
-                "终态为 succeeded/partial 后再使用 report(format=html) 获取报告链接。"
+                "巡检任务已创建并在后台运行。用 get(task_id) 跟踪进度，"
+                "到达 succeeded/partial 终态后，用 report 获取详细报告。"
             ),
             "error": task.error,
         }
 
-    if action == "task_list":
+    if action == "list":
         limit = int(args.get("limit", 50) or 50)
         items = inspection_service.list_tasks(ws, limit=limit)
         return {"ok": True, "items": items, "count": len(items)}
 
-    if action == "task_get":
+    if action == "get":
         task_id = str(args.get("task_id", "") or "")
         task = inspection_service.get_task(ws, task_id)
         if task is None:
@@ -300,7 +304,7 @@ def _handle_inspection_managed(inv: ToolInvocation) -> dict:
         from dataclasses import asdict
         return {"ok": True, "task": asdict(task), "tracking": task.tracking}
 
-    if action == "task_cancel":
+    if action == "cancel":
         task_id = str(args.get("task_id", "") or "")
         return inspection_service.cancel_task(ws, task_id)
 
@@ -313,101 +317,459 @@ def _handle_inspection_managed(inv: ToolInvocation) -> dict:
 
 
 def _handle_browser_merged(inv: ToolInvocation) -> dict:
+    """browser.manage — 16 action dispatcher."""
     action, _ = _action(inv)
-    return {
+    handlers = {
         "navigate": _handler_browser_navigate,
-        "extract": _handler_browser_extract,
+        "snapshot": _handler_browser_snapshot,
         "screenshot": _handler_browser_screenshot,
         "click": _handler_browser_click,
-    }.get(action, _handler_browser_navigate)(inv)
+        "type": _handler_browser_type,
+        "extract": _handler_browser_extract,
+        "scroll": _handler_browser_scroll,
+        "hover": _handler_browser_hover,
+        "press_key": _handler_browser_press_key,
+        "select_option": _handler_browser_select_option,
+        "evaluate": _handler_browser_evaluate,
+        "wait": _handler_browser_wait,
+        "fill_form": _handler_browser_fill_form,
+        "tabs": _handler_browser_tabs,
+        "network": _handler_browser_network,
+        "console": _handler_browser_console,
+        "navigate_back": _handler_browser_navigate_back,
+        "close": _handler_browser_close,
+    }
+    return handlers.get(action, _handler_browser_navigate)(inv)
 
 
 def _handle_web_merged(inv: ToolInvocation) -> dict:
-    """web.manage — action=search|weather|page."""
+    """web.manage — action=search|fetch|weather|deep_search."""
     action, _ = _action(inv)
     if action == "weather":
         return _weather_merged(inv)
-    if action == "page":
-        return _handle_web_page_merged(inv)
+    if action == "fetch":
+        return _handle_web_fetch_v2(inv)
+    if action == "deep_search":
+        return _handle_web_deep_search(inv)
     # default: search (respects source=general|docs|news)
     return _handle_web_search_merged(inv)
 
 
-def _handle_data_merged(inv: ToolInvocation) -> dict:
-    """data.manage — action=csv_summarize|table_extract|table_render|validate|filter|deduplicate."""
-    action, _ = _action(inv)
+def _handle_web_fetch_v2(inv: ToolInvocation) -> dict:
+    """action=fetch — extract clean content from a URL."""
+    from core.tools.general_tools.web_content import fetch_and_extract
+
+    args = inv.arguments or {}
+    url = str(args.get("url", "")).strip()
+    if not url:
+        return {"ok": False, "error": "url is required"}
+
+    extract_mode = str(args.get("extract_mode", "article")).strip()
+    max_length = int(args.get("max_length", 15000) or 15000)
+    timeout = int(args.get("timeout", 15) or 15)
+    ws_id = _inv_workspace(inv)
+
+    result = fetch_and_extract(
+        url=url,
+        extract_mode=extract_mode,
+        max_length=max_length,
+        timeout=timeout,
+        workspace_id=ws_id,
+    )
+    description = str(args.get("description", "")).strip()
+    if description:
+        result["description"] = description
+    return result
+
+
+def _handle_web_deep_search(inv: ToolInvocation) -> dict:
+    """action=deep_search — search + auto-fetch + aggregate."""
+    from core.tools.general_tools.web_content import fetch_and_extract
+
+    args = inv.arguments or {}
+    query = str(args.get("query", "")).strip()
+    if not query:
+        return {"ok": False, "error": "query is required"}
+
+    max_fetch = min(int(args.get("max_fetch", 3) or 3), 5)
+
+    # Step 1: Search
+    search_result = _handle_web_search_merged(inv)
+    if not search_result.get("ok"):
+        return search_result
+
+    results = search_result.get("results", [])[:max_fetch]
+    if not results:
+        return {
+            "ok": False, "query": query,
+            "error": "no search results to fetch",
+            "search_results": [],
+        }
+
+    # Step 2: Fetch top N results
+    sources = []
+    for r in results:
+        url = r.get("url", "")
+        if not url:
+            continue
+        fetch_result = fetch_and_extract(
+            url=url, extract_mode="article",
+            max_length=20000, timeout=15,
+            workspace_id=_inv_workspace(inv),
+        )
+        sources.append({
+            "url": url,
+            "title": r.get("title", fetch_result.get("title", "")),
+            "snippet": r.get("snippet", ""),
+            "source_quality": r.get("source_quality", "public_web"),
+            "content": fetch_result.get("content", "") if fetch_result.get("ok") else "",
+            "content_length": fetch_result.get("content_length", 0),
+            "fetched": fetch_result.get("ok", False),
+            "fetch_error": fetch_result.get("error", ""),
+        })
+
+    fetched_count = sum(1 for s in sources if s["fetched"])
+    total_cl = sum(s["content_length"] for s in sources)
+
     return {
-        "csv_summarize": handle_csv_summarize,
-        "table_extract": handle_table_extract,
-        "table_render": handle_table_render_markdown,
-        "validate": _handle_data_validate_merged,
-        "filter": handle_data_filter,
-        "deduplicate": handle_data_deduplicate,
-    }.get(action, handle_csv_summarize)(inv)
+        "ok": len(sources) > 0,
+        "query": query,
+        "search_provider": search_result.get("provider", "unknown"),
+        "sources": sources,
+        "fetched_count": fetched_count,
+        "total_content_length": total_cl,
+        "search_query": search_result.get("search_query", query),
+        "summary": (
+            f"Deep search: '{query}', "
+            f"fetched {fetched_count}/{len(results)} pages "
+            f"({total_cl} chars)."
+        ),
+        "_synthesis_guidance": (
+            "综合所有 source 的 content 形成答案。"
+            "对每个关键点注明来源URL。如果多个来源说法一致，可以合并引用。"
+            "如果某篇 fetched=false，说明该源未能读取，不要编造其内容。"
+        ),
+        "_actions": [
+            "综合各 source 的 content 回答，注明引用URL。",
+            "如某篇内容不完整，用 action=fetch 单独抓取。",
+        ],
+    }
+
+
+def _handle_data_merged(inv: ToolInvocation) -> dict:
+    """data.manage — action=parse|stats|distinct|aggregate|filter|sort|render|pivot|join."""
+    from core.tools.general_tools.data_engine import (
+        data_parse, data_stats, data_distinct, data_aggregate,
+        data_filter, data_sort, data_render, data_pivot, data_join,
+    )
+    action, args = _action(inv)
+    text = str(args.get("text", ""))
+    rows = args.get("rows")
+
+    if action == "parse":
+        return data_parse(text=text, rows=rows)
+    if action == "stats":
+        return data_stats(text=text, rows=rows)
+    if action == "distinct":
+        return data_distinct(text=text, rows=rows, column=str(args.get("column", "")))
+    if action == "aggregate":
+        return data_aggregate(
+            text=text, rows=rows,
+            group_by=args.get("group_by"),
+            metrics=args.get("metrics"),
+        )
+    if action == "filter":
+        return data_filter(
+            text=text, rows=rows,
+            conditions=args.get("conditions"),
+            max_rows=int(args.get("max_rows", 50) or 50),
+        )
+    if action == "sort":
+        return data_sort(
+            text=text, rows=rows,
+            by=args.get("by", ""),
+            order=str(args.get("order", "asc")),
+            max_rows=int(args.get("max_rows", 50) or 50),
+        )
+    if action == "render":
+        return data_render(
+            text=text, rows=rows,
+            output=str(args.get("output", "markdown")),
+            max_rows=int(args.get("max_rows", 50) or 50),
+        )
+    if action == "pivot":
+        return data_pivot(
+            text=text, rows=rows,
+            index=str(args.get("index", "")),
+            columns=str(args.get("pivot_columns", "")),
+            values=str(args.get("pivot_values", "")),
+            aggfunc=str(args.get("aggfunc", "sum")),
+        )
+    if action == "join":
+        return data_join(
+            text=text, rows=rows,
+            right_text=str(args.get("right_text", "")),
+            right_rows=args.get("right_rows"),
+            on=str(args.get("on", "")),
+            how=str(args.get("how", "inner")),
+        )
+    # default: parse
+    return data_parse(text=text, rows=rows)
 
 
 def _handle_report_merged(inv: ToolInvocation) -> dict:
-    """report.manage — action=markdown_render|artifact_save|safe_summary_render|mermaid_render|html_render|diff_report."""
+    """report.manage — action=save|diff|document."""
     action, _ = _action(inv)
+    if action == "diff":
+        return _handle_report_diff(inv)
+    if action == "document":
+        return _handle_report_document(inv)
+    # default: save
+    return _handle_report_save(inv)
+
+
+def _handle_report_save(inv: ToolInvocation) -> dict:
+    """action=save — persist content as artifact."""
+    ws = _inv_workspace(inv)
+    args = inv.arguments or {}
+    title = str(args.get("title", "report"))
+    content = str(args.get("content", ""))
+    artifact_type = str(args.get("artifact_type", "report"))
+    if not content.strip():
+        return {"ok": False, "error": "content is required"}
+    try:
+        from artifacts.store import save_artifact
+        rec = save_artifact(
+            workspace_id=ws, content=content, title=title,
+            artifact_type=artifact_type, sensitivity="internal",
+        )
+        if not rec:
+            return {"ok": False, "error": "artifact save blocked or failed"}
+        return {
+            "ok": True, "artifact_id": rec.artifact_id,
+            "title": title, "artifact_type": artifact_type,
+            "_hint": f"已保存为 artifact {rec.artifact_id}。用 system.manage 查询，或用 diff 对比。",
+        }
+    except Exception as e:
+        return {"ok": False, "error": str(e)[:200]}
+
+
+def _handle_report_diff(inv: ToolInvocation) -> dict:
+    """action=diff — compare texts or artifacts."""
+    args = inv.arguments or {}
+    text_a = str(args.get("text_a", "")).strip()
+    text_b = str(args.get("text_b", "")).strip()
+    aid_a = str(args.get("artifact_id_a", "")).strip()
+    aid_b = str(args.get("artifact_id_b", "")).strip()
+
+    # If artifact IDs provided, read their content
+    if aid_a and not text_a:
+        try:
+            from core.tools.general_tools.file_tools import handle_artifact_read_content_safe
+            res = handle_artifact_read_content_safe(ToolInvocation(
+                arguments={"workspace_id": _inv_workspace(inv), "artifact_id": aid_a},
+            ))
+            text_a = res.get("content", "") if isinstance(res, dict) else ""
+        except Exception:
+            pass
+    if aid_b and not text_b:
+        try:
+            from core.tools.general_tools.file_tools import handle_artifact_read_content_safe
+            res = handle_artifact_read_content_safe(ToolInvocation(
+                arguments={"workspace_id": _inv_workspace(inv), "artifact_id": aid_b},
+            ))
+            text_b = res.get("content", "") if isinstance(res, dict) else ""
+        except Exception:
+            pass
+
+    if not text_a and not text_b:
+        return {"ok": False, "error": "text_a/text_b or artifact_id_a/artifact_id_b required"}
+
+    import difflib
+    differ = difflib.unified_diff(
+        text_a.splitlines(keepends=True),
+        text_b.splitlines(keepends=True),
+        fromfile=aid_a or "left",
+        tofile=aid_b or "right",
+        n=3,
+    )
+    diff_lines = list(differ)[:200]
+    diff_text = "".join(diff_lines)
+
+    added = sum(1 for l in diff_lines if l.startswith("+") and not l.startswith("+++"))
+    removed = sum(1 for l in diff_lines if l.startswith("-") and not l.startswith("---"))
+
     return {
-        "markdown_render": handle_report_render_markdown,
-        "artifact_save": handle_report_save_artifact,
-        "safe_summary_render": handle_doc_render_from_safe_summary,
-        "mermaid_render": handle_diagram_render_mermaid,
-        "html_render": handle_report_render_html,
-        "diff_report": handle_report_diff,
-    }.get(action, handle_report_render_markdown)(inv)
+        "ok": True,
+        "diff": diff_text[:10000],
+        "lines_added": added,
+        "lines_removed": removed,
+        "total_diff_lines": len(diff_lines),
+        "_hint": f"差异：+{added}行 -{removed}行。",
+    }
+
+
+def _handle_report_document(inv: ToolInvocation) -> dict:
+    """action=document — generate complete HTML document with TOC + styling."""
+    args = inv.arguments or {}
+    title = str(args.get("title", "Document"))
+    sections = args.get("sections", [])
+    style = str(args.get("style", "default"))
+
+    if not sections:
+        return {"ok": False, "error": "sections is required: [{heading, content}, ...]"}
+
+    # Build TOC
+    toc_items = []
+    body_items = []
+    for i, sec in enumerate(sections):
+        h = str(sec.get("heading", f"Section {i+1}"))
+        c = str(sec.get("content", ""))
+        anchor = f"s{i}"
+        toc_items.append(f'<li><a href="#{anchor}">{h}</a></li>')
+        body_items.append(f'<section id="{anchor}"><h2>{h}</h2>\n{_md_to_html(c)}</section>')
+
+    # CSS themes
+    themes = {
+        "default": "body{font:16px/1.6 system-ui,sans-serif;max-width:800px;margin:40px auto;color:#222}"
+                   "h1{border-bottom:2px solid #0052d9;padding-bottom:12px}"
+                   "h2{color:#0052d9;margin-top:32px}"
+                   "pre,code{background:#f5f5f5;padding:2px 6px;border-radius:4px}"
+                   "pre{padding:16px;overflow-x:auto}"
+                   "table{border-collapse:collapse;width:100%}th,td{border:1px solid #ddd;padding:8px}"
+                   "#toc{background:#f9f9f9;padding:16px 24px;border-radius:8px;margin-bottom:32px}",
+        "dark": "body{font:16px/1.6 system-ui,sans-serif;max-width:800px;margin:40px auto;background:#1a1a2e;color:#e0e0e0}"
+                  "h1{color:#7c9fff;border-bottom:2px solid #7c9fff;padding-bottom:12px}"
+                  "h2{color:#7c9fff;margin-top:32px}"
+                  "pre,code{background:#16213e;padding:2px 6px;border-radius:4px;color:#a8d8ff}"
+                  "pre{padding:16px;overflow-x:auto}"
+                  "table{border-collapse:collapse;width:100%}th,td{border:1px solid #444;padding:8px}"
+                  "#toc{background:#16213e;padding:16px 24px;border-radius:8px;margin-bottom:32px}",
+        "minimal": "body{font:15px/1.5 system-ui,sans-serif;max-width:720px;margin:32px auto;color:#333}"
+                   "h1{font-size:1.8em}h2{font-size:1.3em;margin-top:24px}"
+                   "pre,code{font-size:0.9em;background:#f8f8f8;padding:2px 4px}"
+                   "table{border-collapse:collapse;width:100%}th,td{border:1px solid #ccc;padding:6px}"
+                   "#toc{border-left:3px solid #999;padding-left:16px;margin-bottom:24px}",
+    }
+    css = themes.get(style, themes["default"])
+
+    html = (
+        "<!DOCTYPE html>\n<html lang='zh-CN'>\n<head>\n"
+        "<meta charset='utf-8'>\n"
+        f"<meta name='viewport' content='width=device-width,initial-scale=1'>\n"
+        f"<title>{_html_escape(title)}</title>\n"
+        f"<style>{css}</style>\n"
+        "</head>\n<body>\n"
+        f"<h1>{_html_escape(title)}</h1>\n"
+        f"<nav id='toc'><h3>目录</h3><ul>{''.join(toc_items)}</ul></nav>\n"
+        f"{''.join(body_items)}\n"
+        "</body>\n</html>"
+    )
+
+    # Save as artifact
+    ws = _inv_workspace(inv)
+    try:
+        from artifacts.store import save_artifact
+        rec = save_artifact(
+            workspace_id=ws, content=html, title=title,
+            artifact_type="document", sensitivity="internal",
+        )
+        return {
+            "ok": True,
+            "artifact_id": rec.artifact_id,
+            "title": title,
+            "section_count": len(sections),
+            "format": "html",
+            "style": style,
+            "html_preview": html[:2000],
+            "_hint": f"文档已生成并保存为 artifact {rec.artifact_id}。{len(sections)} 个章节，含目录。",
+        }
+    except Exception as e:
+        # Fallback: return raw HTML without saving
+        return {
+            "ok": True, "title": title, "section_count": len(sections),
+            "format": "html", "html": html[:50000],
+            "_hint": "已生成 HTML 文档（未保存为 artifact）。",
+            "save_note": str(e)[:100],
+        }
+
+
+def _html_escape(s: str) -> str:
+    import html
+    return html.escape(s, quote=False)
+
+
+def _md_to_html(text: str) -> str:
+    """Convert basic Markdown to HTML inline."""
+    import re
+    text = re.sub(r'\*\*(.+?)\*\*', r'<strong>\1</strong>', text)
+    text = re.sub(r'\*(.+?)\*', r'<em>\1</em>', text)
+    text = re.sub(r'`(.+?)`', r'<code>\1</code>', text)
+    # Code blocks
+    text = re.sub(r'```(\w*)\n(.*?)```', r'<pre><code>\2</code></pre>', text, flags=re.S)
+    # Paragraphs
+    paras = text.split('\n\n')
+    result = []
+    for p in paras:
+        p = p.strip()
+        if not p:
+            continue
+        if p.startswith('<pre') or p.startswith('<table'):
+            result.append(p)
+        else:
+            result.append(f'<p>{p.replace(chr(10), "<br>")}</p>')
+    return '\n'.join(result) + "\n"
 
 
 def _handle_knowledge_merged(inv: ToolInvocation) -> dict:
-    """knowledge.manage — action=search|read|source_list|chunk_list|source_manage|source_reindex|import|not_found_explain."""
+    """knowledge.manage — action=search|read|list|chunk|import|manage."""
     action, _ = _action(inv)
     return {
         "search": handle_knowledge_search,
         "read": _handle_knowledge_read_merged,
-        "source_list": _k_source_list,
-        "chunk_list": _k_chunk_list,
-        "source_manage": _k_source_manage,
-        "source_reindex": _handle_knowledge_reindex_merged,
+        "list": _k_source_list,
+        "chunk": _k_chunk_list,
+        "manage": _k_source_manage,
         "import": _handle_knowledge_import_merged,
-        "not_found_explain": handle_knowledge_explain_not_found,
     }.get(action, handle_knowledge_search)(inv)
 
 
 def _handle_memory_merged(inv: ToolInvocation) -> dict:
-    """memory.manage — action=search|create|update|confirm|delete|profile_get|profile_set."""
+    """memory.manage — action=search|create|update|confirm|delete|review|profile_get|profile_set."""
     action, _ = _action(inv)
     return {
         "search": handle_memory_search_merged,
-        "create": _handle_memory_manage_merged,  # create is the manage-merged default
+        "create": _handle_memory_manage_merged,
         "update": _handle_memory_manage_merged,
         "confirm": _handle_memory_manage_merged,
         "delete": _handle_memory_manage_merged,
+        "review": _handle_memory_manage_merged,
         "profile_get": handle_memory_profile_merged,
         "profile_set": handle_memory_profile_merged,
     }.get(action, _handle_memory_manage_merged)(inv)
 
 
 def _handle_skill_merged(inv: ToolInvocation) -> dict:
-    """skill.manage — action=list|find|load|inspect."""
+    """skill.manage — action=list|search|load|inspect."""
     action, _ = _action(inv)
     return {
         "list": handle_skill_list,
-        "find": handle_skill_find,
+        "search": handle_skill_find,
         "load": handle_skill_load,
         "inspect": handle_skill_inspect,
     }.get(action, handle_skill_list)(inv)
 
 
 def _handle_agent_merged(inv: ToolInvocation) -> dict:
-    """agent.manage — action=role_list|spawn|team_run|result_get."""
+    """agent.manage — action=list|spawn|get|cancel|status."""
     action, _ = _action(inv)
     return {
-        "role_list": handle_agent_list_roles,
+        "list": handle_agent_list,
         "spawn": handle_agent_spawn,
-        "team_run": handle_agent_team,
-        "result_get": handle_agent_get_result,
-    }.get(action, handle_agent_list_roles)(inv)
+        "get": handle_agent_get_result,
+        "cancel": handle_agent_cancel,
+        "status": handle_agent_status,
+    }.get(action, handle_agent_list)(inv)
 
 
 def _handle_system_merged(inv: ToolInvocation) -> dict:
@@ -432,7 +794,7 @@ def _handle_system_merged(inv: ToolInvocation) -> dict:
 
 
 # ─── workspace.file merged handler ─────────────────────────────────────
-# action=list|read|read_image|edit|patch|write_artifact|glob|delete_file
+# action=list|read|read_image|edit|patch|write_artifact|glob|delete
 # Removed tool IDs are intentionally absent from the LLM namespace.
 def _handle_workspace_file_merged(inv: ToolInvocation) -> dict:
     """Route workspace.file(action=X) to the right sub-handler."""
@@ -453,13 +815,13 @@ def _handle_workspace_file_merged(inv: ToolInvocation) -> dict:
         return handle_ws_write_artifact_file(inv)
     elif action == "glob":
         return handle_file_glob(inv)
-    elif action == "delete_file":
+    elif action == "delete":
         return handle_file_delete(inv)
     else:
         return {
             "ok": False,
             "error": f"workspace.file: unknown action={action!r}. "
-                     f"Valid actions: list, read, read_image, edit, patch, write_artifact, glob, delete_file",
+                     f"Valid actions: list, read, read_image, edit, patch, write_artifact, glob, delete",
         }
 
 
@@ -481,15 +843,11 @@ def _handle_workspace_artifact_merged(inv: ToolInvocation) -> dict:
         return handle_artifact_tag(inv)
     elif action == "delete":
         return handle_artifact_delete_soft(inv)
-    elif action == "diff":
-        return handle_text_diff(inv)
-    elif action == "export":
-        return handle_report_save_artifact(inv)
     else:
         return {
             "ok": False,
             "error": f"workspace.artifact: unknown action={action!r}. "
-                     f"Valid actions: list, read, save, tag, delete, diff, export",
+                     f"Valid actions: list, read, save, tag, delete",
         }
 
 
@@ -558,14 +916,6 @@ def _handle_memory_search_merged(inv: ToolInvocation) -> dict:
         return handle_memory_search(inv)
 
 
-def _handle_knowledge_reindex_merged(inv: ToolInvocation) -> dict:
-    """Route knowledge.manage(action=source_reindex, source_id=ALL) to reindex_all handler."""
-    args = inv.arguments or {}
-    sid = str(args.get("source_id", "")).upper()
-    if sid == "ALL":
-        return handle_knowledge_reindex_all(inv)
-    else:
-        return handle_knowledge_source_reindex(inv)
 
 
 def _handle_knowledge_import_merged(inv: ToolInvocation) -> dict:
@@ -624,10 +974,7 @@ from core.tools.general_tools.web_tools import (
     handle_weather_current,
     handle_weather_forecast,
     handle_news_search,
-    handle_web_fetch_summary,
     handle_web_official_doc_search,
-    handle_web_extract_links,
-    handle_web_save_to_artifact,
 )
 from core.tools.general_tools.session_tools import (
     handle_session_list,
@@ -648,6 +995,7 @@ from core.tools.general_tools.memory_tools import (
     handle_memory_create,
     handle_memory_list,
     handle_memory_confirm,
+    handle_memory_review,
     handle_memory_get_profile,
     handle_memory_set_profile,
     handle_memory_profile_merged,
@@ -671,36 +1019,23 @@ from core.tools.general_tools.command_tools import (
 )
 from core.tools.general_tools.agent_tools import (
     handle_agent_spawn,
-    handle_agent_list_roles,
-    handle_agent_team,
+    handle_agent_list,
     handle_agent_get_result,
+    handle_agent_cancel,
+    handle_agent_status,
 )
 from core.tools.general_tools.runtime_tools import (
-    handle_knowledge_index_artifact,
-    handle_knowledge_reindex,
     handle_knowledge_search,
     handle_knowledge_get_source,
     handle_knowledge_get_chunk_summary,
-    handle_knowledge_explain_not_found,
     handle_runtime_health,
     handle_runtime_selfcheck,
     handle_runtime_diagnostics,
     handle_runtime_local_info,
     handle_runtime_retention_preview,
     handle_runtime_archive_preview,
-    handle_report_render_markdown,
-    handle_report_save_artifact,
-    handle_doc_render_from_safe_summary,
-    handle_table_render_markdown,
-    handle_diagram_render_mermaid,
-    handle_text_redact,
     handle_text_diff,
-    handle_text_extract_keywords,
-    handle_text_classify,
-    handle_json_validate,
-    handle_yaml_validate,
-    handle_csv_summarize,
-    handle_table_extract,
+    handle_text_redact,
 )
 from core.tools.builtins import (
     _handler_artifact_list,
@@ -710,6 +1045,9 @@ import logging
 
 
 logger = logging.getLogger(__name__)
+
+# ── Output truncation (max chars per execution result) ─────────────
+_OUTPUT_TRUNCATE = 10000  # matches _SHELL_MAX_OUTPUT in shared.py
 
 def _safe_int(value, default: int = 0) -> int:
     """Convert value to int safely, returning default on failure."""
@@ -765,25 +1103,155 @@ def _handler_code_search(inv: ToolInvocation) -> dict:
         _safe_int(args.get("max_results"), 50),
     )
 
+# ── Browser action handlers ──────────────────────────────────────────
+
 def _handler_browser_navigate(inv: ToolInvocation) -> dict:
     from agent.modules.browser.core import browser_navigate
     args = inv.arguments or {}
-    return browser_navigate(str(args.get("url", "")), str(args.get("wait_selector", "")))
+    return browser_navigate(
+        str(args.get("url", "")),
+        str(args.get("wait_selector", "")),
+        int(args.get("timeout", 30000) or 30000),
+    )
 
-def _handler_browser_extract(inv: ToolInvocation) -> dict:
-    from agent.modules.browser.core import browser_extract
+
+def _handler_browser_snapshot(inv: ToolInvocation) -> dict:
+    from agent.modules.browser.core import browser_snapshot
     args = inv.arguments or {}
-    return browser_extract(str(args.get("url", "")), str(args.get("selector", "body")))
+    return browser_snapshot(
+        str(args.get("selector", "body")),
+        bool(args.get("compact", True)),
+        int(args.get("max_elements", 50) or 50),
+    )
+
 
 def _handler_browser_screenshot(inv: ToolInvocation) -> dict:
     from agent.modules.browser.core import browser_screenshot
     args = inv.arguments or {}
-    return browser_screenshot(str(args.get("url", "")), bool(args.get("full_page", False)))
+    return browser_screenshot(
+        str(args.get("url", "")),
+        bool(args.get("full_page", False)),
+        as_file=bool(args.get("save_to_file", True)),
+        workspace_id=_inv_workspace(inv),
+    )
+
 
 def _handler_browser_click(inv: ToolInvocation) -> dict:
     from agent.modules.browser.core import browser_click
     args = inv.arguments or {}
-    return browser_click(str(args.get("selector", "")))
+    return browser_click(
+        str(args.get("selector", "")),
+        str(args.get("ref", "")),
+    )
+
+
+def _handler_browser_type(inv: ToolInvocation) -> dict:
+    from agent.modules.browser.core import browser_type
+    args = inv.arguments or {}
+    return browser_type(
+        str(args.get("text", "")),
+        str(args.get("selector", "")),
+        str(args.get("ref", "")),
+        bool(args.get("clear_first", True)),
+    )
+
+
+def _handler_browser_extract(inv: ToolInvocation) -> dict:
+    from agent.modules.browser.core import browser_extract
+    args = inv.arguments or {}
+    return browser_extract(
+        str(args.get("url", "")),
+        str(args.get("selector", "body")),
+    )
+
+
+def _handler_browser_scroll(inv: ToolInvocation) -> dict:
+    from agent.modules.browser.core import browser_scroll
+    args = inv.arguments or {}
+    return browser_scroll(
+        str(args.get("direction", "down")),
+        int(args.get("amount", 500) or 500),
+    )
+
+
+def _handler_browser_hover(inv: ToolInvocation) -> dict:
+    from agent.modules.browser.core import browser_hover
+    args = inv.arguments or {}
+    return browser_hover(
+        str(args.get("selector", "")),
+        str(args.get("ref", "")),
+    )
+
+
+def _handler_browser_press_key(inv: ToolInvocation) -> dict:
+    from agent.modules.browser.core import browser_press_key
+    args = inv.arguments or {}
+    return browser_press_key(str(args.get("key", "")))
+
+
+def _handler_browser_select_option(inv: ToolInvocation) -> dict:
+    from agent.modules.browser.core import browser_select_option
+    args = inv.arguments or {}
+    return browser_select_option(
+        str(args.get("value", "")),
+        str(args.get("selector", "")),
+        str(args.get("ref", "")),
+    )
+
+
+def _handler_browser_evaluate(inv: ToolInvocation) -> dict:
+    from agent.modules.browser.core import browser_evaluate
+    args = inv.arguments or {}
+    return browser_evaluate(str(args.get("script", "")))
+
+
+def _handler_browser_wait(inv: ToolInvocation) -> dict:
+    from agent.modules.browser.core import browser_wait
+    args = inv.arguments or {}
+    return browser_wait(
+        int(args.get("wait_ms", 0) or 0),
+        str(args.get("wait_text", "")),
+        int(args.get("timeout", 10000) or 10000),
+    )
+
+
+def _handler_browser_fill_form(inv: ToolInvocation) -> dict:
+    from agent.modules.browser.core import browser_fill_form
+    args = inv.arguments or {}
+    fields = args.get("fields", {})
+    if isinstance(fields, dict):
+        return browser_fill_form({str(k): str(v) for k, v in fields.items()})
+    return {"ok": False, "error": "fields must be a dict of {selector: value}"}
+
+
+def _handler_browser_tabs(inv: ToolInvocation) -> dict:
+    from agent.modules.browser.core import browser_tabs
+    args = inv.arguments or {}
+    return browser_tabs(
+        str(args.get("tab_action", "list")),
+        int(args.get("tab_index", 0) or 0),
+        str(args.get("url", "")),
+    )
+
+
+def _handler_browser_network(inv: ToolInvocation) -> dict:
+    from agent.modules.browser.core import browser_network
+    return browser_network()
+
+
+def _handler_browser_console(inv: ToolInvocation) -> dict:
+    from agent.modules.browser.core import browser_console
+    return browser_console()
+
+
+def _handler_browser_navigate_back(inv: ToolInvocation) -> dict:
+    from agent.modules.browser.core import browser_navigate_back
+    return browser_navigate_back()
+
+
+def _handler_browser_close(inv: ToolInvocation) -> dict:
+    from agent.modules.browser.core import browser_close
+    return browser_close()
 
 
 def _handler_config_analysis_run(inv: ToolInvocation) -> dict:
@@ -815,6 +1283,7 @@ def _handler_pcap_analysis_run(inv: ToolInvocation) -> dict:
         sport=_safe_int(args.get("sport", 0)),
         dst=str(args.get("dst", "")),
         dport=_safe_int(args.get("dport", 0)),
+        protocol=str(args.get("protocol", "")),
         use_filter=bool(args.get("use_filter", False)),
         run_id=inv.run_id or "",
         agent_session_id=str(args.get("agent_session_id", "")),
@@ -922,17 +1391,16 @@ _CONFIG_COMMAND_PATTERNS = [
 def _is_dangerous_command(command: str) -> tuple[bool, str]:
     """Check if a command matches a destructive pattern.
 
-    v3.10 (inspection): delegates to ``core.tools.dangerous_patterns``
-    so the SSH / Telnet handlers and the ToolPolicy check use the
-    same pattern set. Earlier versions carried their own
-    ``_DANGEROUS_COMMAND_PATTERNS`` here which drifted behind the
-    canonical 30+ pattern table.
+    Delegates to ``core.tools.general_tools.dangerous_commands`` for
+    tiered detection (BLOCK vs WARN vs SUSPICIOUS) covering both
+    Linux/Windows and network-device commands.
     """
     if not command:
         return False, ""
-    from core.tools.dangerous_patterns import is_destructive_command
-    if is_destructive_command(command):
-        return True, "dangerous command blocked (policy violation)"
+    from core.tools.general_tools.dangerous_commands import check_dangerous
+    is_dangerous, reason = check_dangerous(command)
+    if is_dangerous:
+        return True, reason or "dangerous command blocked (policy violation)"
     return False, ""
 
 
@@ -1008,7 +1476,7 @@ def _handler_network_ssh(inv: ToolInvocation) -> dict:
                 output_text = _extract_output(exec_result)
                 return {
                     "ok": True, "host": getattr(existing, "host", host), "command": command,
-                    "output": output_text[:8000], "session_id": session_id,
+                    "output": output_text[:_OUTPUT_TRUNCATE], "session_id": session_id,
                 }
             # Session expired — auto-reconnect using stored info
             if existing and not host:
@@ -1060,7 +1528,7 @@ def _handler_network_ssh(inv: ToolInvocation) -> dict:
         output_text = _extract_output(exec_result)
         return {
             "ok": True, "host": host, "command": command,
-            "output": output_text[:8000], "session_id": new_sid,
+            "output": output_text[:_OUTPUT_TRUNCATE], "session_id": new_sid,
             "is_config": is_config,
         }
     except Exception as e:
@@ -1132,7 +1600,7 @@ def _handler_network_telnet(inv: ToolInvocation) -> dict:
                 exec_result = exec_command(session_id, command)
                 return {
                     "ok": True, "host": host, "command": command,
-                    "output": _extract_output(exec_result)[:8000],
+                    "output": _extract_output(exec_result)[:_OUTPUT_TRUNCATE],
                     "session_id": session_id,
                 }
         except Exception:
@@ -1252,20 +1720,6 @@ def handle_text_extract_entities(inv: ToolInvocation) -> dict:
     return {"ok": True, "entities": result, "total": sum(len(v) for v in result.values())}
 
 
-def handle_text_regex(inv: ToolInvocation) -> dict:
-    """Apply a regex pattern to text and return matches."""
-    import re
-    args = inv.arguments or {}
-    text = str(args.get("text", ""))
-    pattern = str(args.get("pattern", ""))
-    if not pattern:
-        return {"ok": False, "error": "pattern is required"}
-    try:
-        matches = re.findall(pattern, text[:50000])
-        return {"ok": True, "matches": [str(m) for m in matches[:100]], "count": len(matches)}
-    except re.error as e:
-        return {"ok": False, "error": f"Invalid regex: {e}"}
-
 
 def handle_background_exec(inv: ToolInvocation) -> dict:
     """Launch a background command and return a job_id for polling."""
@@ -1274,6 +1728,12 @@ def handle_background_exec(inv: ToolInvocation) -> dict:
     command = str(args.get("command", ""))
     if not command:
         return {"ok": False, "error": "command is required"}
+
+    # ── Safety: dangerous command detection ──
+    from core.tools.general_tools.dangerous_commands import check_dangerous
+    is_dangerous, reason = check_dangerous(command)
+    if is_dangerous:
+        return {"ok": False, "error": reason, "blocked": True}
     job_id = f"bg_{uuid.uuid4().hex[:8]}"
     try:
         proc = subprocess.Popen(
@@ -1297,6 +1757,7 @@ def handle_background_exec(inv: ToolInvocation) -> dict:
             "ok": True, "job_id": job_id, "command": command[:200],
             "pid": proc.pid, "status": "started",
             "hint": "Use system.manage action=tasks to check status.",
+            "description": str(args.get("description", "")).strip() or "background command",
         }
     except Exception as e:
         return {"ok": False, "error": str(e)[:200]}
@@ -1309,6 +1770,12 @@ def handle_stream_exec(inv: ToolInvocation) -> dict:
     command = str(args.get("command", ""))
     if not command:
         return {"ok": False, "error": "command is required"}
+
+    # ── Safety: dangerous command detection ──
+    from core.tools.general_tools.dangerous_commands import check_dangerous
+    is_dangerous, reason = check_dangerous(command)
+    if is_dangerous:
+        return {"ok": False, "error": reason, "blocked": True}
     timeout = args.get("timeout", 30)
     try:
         result = subprocess.run(
@@ -1317,9 +1784,10 @@ def handle_stream_exec(inv: ToolInvocation) -> dict:
         )
         return {
             "ok": result.returncode == 0,
-            "stdout": result.stdout[:10000],
+            "stdout": result.stdout[:_OUTPUT_TRUNCATE],
             "stderr": result.stderr[:5000],
             "exit_code": result.returncode,
+            "description": str(args.get("description", "")).strip() or "stream output",
         }
     except subprocess.TimeoutExpired:
         return {"ok": False, "error": f"Command timed out after {timeout}s"}
@@ -1370,59 +1838,9 @@ def handle_file_delete(inv: ToolInvocation) -> dict:
         return {"ok": False, "error": str(e)[:200]}
 
 
-def handle_data_filter(inv: ToolInvocation) -> dict:
-    """Filter rows by column conditions."""
-    import json
-    args = inv.arguments or {}
-    rows = args.get("rows", [])
-    conditions = args.get("conditions", {})
-    if not rows:
-        return {"ok": False, "error": "rows array is required"}
-    try:
-        cond = conditions if isinstance(conditions, dict) else json.loads(str(conditions))
-    except Exception:
-        return {"ok": False, "error": "conditions must be a JSON object"}
-    result = []
-    for row in rows:
-        if not isinstance(row, dict):
-            continue
-        match = all(str(row.get(k, "")) == str(v) for k, v in cond.items())
-        if match:
-            result.append(row)
-    return {"ok": True, "rows": result[:100], "filtered": len(rows) - len(result), "total": len(rows)}
 
 
-def handle_data_deduplicate(inv: ToolInvocation) -> dict:
-    """Deduplicate rows by a key column."""
-    args = inv.arguments or {}
-    rows = args.get("rows", [])
-    key = str(args.get("key", ""))
-    if not rows:
-        return {"ok": False, "error": "rows array is required"}
-    seen = set()
-    result = []
-    for row in rows:
-        if not isinstance(row, dict):
-            continue
-        k = str(row.get(key, "")) if key else str(row)
-        if k not in seen:
-            seen.add(k)
-            result.append(row)
-    return {"ok": True, "rows": result[:100], "removed": len(rows) - len(result), "total": len(rows)}
 
-
-def handle_report_render_html(inv: ToolInvocation) -> dict:
-    """Render content as basic HTML."""
-    import html
-    args = inv.arguments or {}
-    content = str(args.get("content", ""))[:20000]
-    title = str(args.get("title", "Report"))
-    body = html.escape(content).replace("\n", "<br>\n")
-    page = (
-        "<html><head><meta charset='utf-8'>"
-        f"<title>{html.escape(title)}</title></head><body>{body}</body></html>"
-    )
-    return {"ok": True, "html": page[:25000], "title": title}
 
 
 def handle_report_diff(inv: ToolInvocation) -> dict:
@@ -1491,11 +1909,41 @@ def _handler_cmdb_export_assets(inv: ToolInvocation) -> dict:
 
 
 def _schema(properties: dict | None = None, required: list[str] | None = None) -> dict:
-    return {
+    """Build JSON Schema, then strip bloat for token efficiency."""
+    raw = {
         "type": "object",
         "properties": properties or {},
         "required": required or [],
     }
+    return _strip_schema_bloat(raw)
+
+
+# Fields that need descriptions — everything else is self-documenting
+_KEEP_DESC = {
+    "ref", "script", "selector", "scope", "use_filter",
+    "expression", "agent_type", "extract_mode", "gate_mode",
+    "background", "merge", "page_range", "created_by",
+    "days", "max_results", "allowed_domains", "blocked_domains",
+    "depth", "max_fetch", "location", "url",
+}
+
+
+def _strip_schema_bloat(schema: dict) -> dict:
+    """Remove default values and verbose field descriptions to save ~3K tokens."""
+    props = schema.get("properties", {})
+    for key, val in list(props.items()):
+        if not isinstance(val, dict):
+            continue
+        # 1. Drop action enum description (main tool desc covers it)
+        if key == "action":
+            val.pop("description", None)
+        # 2. Drop default values (handlers have code defaults)
+        val.pop("default", None)
+        val.pop("default_strategy", None)
+        # 3. Drop field descriptions unless ambiguous
+        if "description" in val and key not in _KEEP_DESC:
+            val.pop("description")
+    return schema
 
 
 _S = {
@@ -1728,34 +2176,34 @@ _RAW_REGISTRY: list[CanonicalToolEntry] = [
                        "enum": ["shell", "python", "slash", "background", "stream"],
                        "description": "shell (default) | python | slash | background | stream.",
                        "default": "shell"},
+            "description": {"type": "string",
+                            "description": "Short description (5-10 words) of what this command does. Required for safety auditing."},
             "target": {"type": "string", "enum": ["local", "ssh", "telnet"],
                        "default": "local",
-                       "description": "[shell] Execution target."},
+                       "description": "[action=shell] Execution target: local (default) | ssh | telnet."},
             "shell": {"type": "string",
-                      "description": "[shell] Shell type: cmd or powershell.", "default": "cmd"},
-            "command": {"type": "string", "description": "[shell] Shell command to execute."},
-            "code": {"type": "string", "description": "[python] Python code (AST-sandboxed)."},
-            "host": {"type": "string", "description": "[ssh|telnet] Host/IP — only use when asset_id is unavailable."},
-            "port": {"type": "integer", "description": "[ssh|telnet] Port — only use when asset_id is unavailable."},
-            "asset_id": {"type": "string", "description": "[ssh|telnet] PREFERRED. CMDB asset ID — host/user/password auto-resolved server-side from CMDB. When a device was just queried from CMDB, pass its asset_id instead of host/username/password."},
-            "username": {"type": "string", "description": "[ssh|telnet] Fallback username — only use when asset_id is unavailable."},
-            "password": {"type": "string", "description": "[ssh|telnet] Fallback password — only use when asset_id is unavailable."},
-            "vendor": {"type": "string"},
-            "session_id": {"type": "string", "description": "[ssh] Reuse existing SSH session."},
-            "close_session": {"type": "boolean", "description": "[ssh] Close session after execution."},
-            "working_dir": {"type": "string"},
-            "env_vars": {"type": "object"},
-            "timeout": {"type": "integer"},
-            "command_name": {"type": "string", "description": "[slash] Slash command name."},
-            "args": {"type": "string", "description": "[slash] Slash command args."},
+                      "description": "[action=shell] Shell type: cmd (bash) or powershell.", "default": "cmd"},
+            "command": {"type": "string", "description": "[action=shell|background|stream] Shell command to execute."},
+            "code": {"type": "string", "description": "[action=python] Python code to execute (AST-sandboxed, imports restricted)."},
+            "host": {"type": "string", "description": "[target=ssh|telnet] Host/IP — only use when asset_id is unavailable."},
+            "port": {"type": "integer", "description": "[target=ssh|telnet] Port — only use when asset_id is unavailable."},
+            "asset_id": {"type": "string", "description": "[target=ssh|telnet] PREFERRED. CMDB asset ID — host/user/password auto-resolved server-side. When a device was just queried from CMDB, pass its asset_id."},
+            "username": {"type": "string", "description": "[target=ssh|telnet] Fallback username — only use when asset_id is unavailable."},
+            "password": {"type": "string", "description": "[target=ssh|telnet] Fallback password — only use when asset_id is unavailable."},
+            "vendor": {"type": "string", "description": "[target=ssh|telnet] Device vendor hint for command adaptation."},
+            "session_id": {"type": "string", "description": "[target=ssh] Reuse existing SSH session (faster)."},
+            "close_session": {"type": "boolean", "description": "[target=ssh] Close SSH session after execution."},
+            "working_dir": {"type": "string", "description": "[action=shell] Working directory for command execution."},
+            "env_vars": {"type": "object", "description": "[action=shell] Environment variables (PATH/LD_PRELOAD blocked)."},
+            "timeout": {"type": "integer", "description": "[action=shell|python|stream] Timeout in seconds (default: shell=120, python=30, stream=30)."},
+            "args": {"type": "string", "description": "[action=slash] Slash command arguments."},
         }),
         risk_level="high", permission_action="exec",
         description=(
-            "Unified exec tool. action=shell (default; target=local|ssh|telnet, "
-            "shell=cmd|powershell), action=python (AST-sandboxed), action=slash (registered slash command), "
-            "action=background (async, returns job_id), action=stream (PTY streaming). "
-            "All require approval. NEVER use for destructive commands (reload/erase/format/rm -rf). "
-            "Do NOT store or expose credentials in output."
+            "Command execution. action=shell (local|ssh|telnet), action=python (AST-sandboxed), "
+            "action=slash (registered commands), action=background (async), action=stream (PTY). "
+            "Always provide a `description` field. Requires approval. "
+            "NEVER run destructive commands (rm -rf, reload, format, erase)."
         ),
     ),
 
@@ -1809,97 +2257,240 @@ _RAW_REGISTRY: list[CanonicalToolEntry] = [
             "password": {"type": "string", "description": "[add] Saved credential; never returned by reads."},
             "description": {"type": "string"},
             "format": {"type": "string", "enum": ["json", "csv"], "default": "json",
-                       "description": "[export] Output format."},
+                       "description": "[export] Output format (json recommended)."},
         }, ["action"]),
         risk_level="medium", requires_approval=False,  # add/delete require approval at runtime
         description=(
-            "Unified CMDB device tool. action=list, get (reads); "
-            "action=add, delete, update (writes, require approval); action=export (read). "
-            "Do not fabricate assets; do not expose credentials."
+            "CMDB device inventory. Use list to search/filter by type/vendor/region, "
+            "get to view details (including SSH credentials), "
+            "add/update/delete for management (requires approval). "
+            "export for CSV backup. Never fabricate asset data."
         ),
     ),
 
-    # 4. browser.manage — navigate / extract / screenshot / click
+    # 4. browser.manage — 16 browser automation actions
     CanonicalToolEntry(
         canonical_tool_id="browser.manage",
         handler=_adapt(_handle_browser_merged),
         input_schema=_schema({
-            "action": {"type": "string", "enum": ["navigate", "extract", "screenshot", "click"]},
-            "url": {"type": "string", "description": "[navigate|extract|screenshot] URL."},
-            "wait_selector": {"type": "string", "default": "", "description": "[navigate] Wait for CSS selector."},
+            "action": {
+                "type": "string",
+                "enum": [
+                    "navigate", "snapshot", "screenshot", "click",
+                    "type", "extract", "scroll", "hover",
+                    "press_key", "select_option", "evaluate", "wait",
+                    "fill_form", "tabs", "network", "console",
+                    "navigate_back", "close",
+                ],
+                "description": (
+                    "navigate (load URL) | snapshot (accessibility tree — use first to see page structure) | "
+                    "screenshot (capture page as image) | click | type (input text) | "
+                    "extract (get element text) | scroll | hover | press_key (Enter/Escape/Tab/ArrowDown) | "
+                    "select_option | evaluate (run JavaScript) | wait (time or text) | "
+                    "fill_form (batch fill) | tabs (manage tabs) | network (list requests) | "
+                    "console (view messages) | navigate_back | close"
+                ),
+                "default": "navigate",
+            },
+            "url": {"type": "string", "description": "[navigate|screenshot|extract|tabs] URL to load or tab target."},
             "selector": {"type": "string", "default": "body",
-                         "description": "[extract] CSS selector; [click] selector of element."},
-            "full_page": {"type": "boolean", "default": False, "description": "[screenshot] Capture full page."},
+                         "description": "[click|type|extract|hover|select_option] CSS selector. Prefer ref over selector."},
+            "ref": {"type": "string", "description": "[click|type|hover|select_option|fill_form] Element ref from snapshot (e.g. e1, e2). Use this instead of selector for precision."},
+            "text": {"type": "string", "description": "[type] Text to type into the element."},
+            "value": {"type": "string", "description": "[select_option] Option value to select."},
+            "script": {"type": "string", "description": "[evaluate] JavaScript code to execute in page context."},
+            "direction": {"type": "string", "enum": ["up", "down"], "default": "down",
+                          "description": "[scroll] Scroll direction."},
+            "amount": {"type": "integer", "default": 500,
+                       "description": "[scroll] Pixels to scroll."},
+            "key": {"type": "string", "description": "[press_key] Key name (Enter, Escape, Tab, ArrowDown, F5, etc.)."},
+            "fields": {"type": "object", "description": "[fill_form] Dict of {selector_or_ref: value}. Keys can be CSS selectors or snapshot ref IDs (e1, e2)."},
+            "clear_first": {"type": "boolean", "default": True,
+                            "description": "[type] Clear existing content before typing."},
+            "wait_ms": {"type": "integer", "default": 0,
+                        "description": "[wait] Milliseconds to wait."},
+            "wait_text": {"type": "string", "description": "[wait] Wait until this text appears on page."},
+            "compact": {"type": "boolean", "default": True,
+                        "description": "[snapshot] Only show interactive elements (buttons/inputs/links)."},
+            "max_elements": {"type": "integer", "default": 50,
+                             "description": "[snapshot] Max elements to return (prevents context overflow)."},
+            "full_page": {"type": "boolean", "default": False,
+                          "description": "[screenshot] Capture full scrollable page."},
+            "save_to_file": {"type": "boolean", "default": True,
+                             "description": "[screenshot] Save to workspace file (True) or return base64 (False)."},
+            "tab_action": {"type": "string", "enum": ["list", "new", "close", "select"],
+                           "description": "[tabs] list | new | close | select."},
+            "tab_index": {"type": "integer", "description": "[tabs] Tab index."},
+            "timeout": {"type": "integer", "default": 30000,
+                        "description": "[navigate|wait] Timeout in milliseconds."},
         }, ["action"]),
         description=(
-            "Unified Playwright browser tool. action=navigate, extract, screenshot (reads); "
-            "action=click (write). Do not access private/login-walled URLs without permission."
+            "Headless Chromium browser. "
+            "WORKFLOW: navigate → snapshot (get ref IDs) → interact via ref=e1. "
+            "Core actions: click, type, scroll, hover, press_key, select_option. "
+            "Advanced: extract, evaluate, fill_form, wait, screenshot, tabs, network, console. "
+            "Use ref over CSS selectors for precision. navigate_back/close for nav."
         ),
     ),
 
-    # 5. web.manage — search / weather / page
+    # 5. web.manage — search / fetch / weather / deep_search / monitor
     CanonicalToolEntry(
         canonical_tool_id="web.manage",
         handler=_adapt(_handle_web_merged),
         input_schema=_schema({
-            "action": {"type": "string", "enum": ["search", "weather", "page"]},
-            "query": {"type": "string", "description": "[search] Search query."},
+            "action": {
+                "type": "string",
+                "enum": ["search", "fetch", "weather", "deep_search"],
+                "description": "search (web search) | fetch (read a URL) | weather (forecast) | deep_search (search+fetch+aggregate).",
+                "default": "search",
+            },
+            # ── search / deep_search ──
+            "query": {"type": "string", "description": "[search|deep_search] Search query."},
             "source": {"type": "string", "enum": ["general", "docs", "news"],
                        "default": "general",
-                       "description": "[search] Search source: general web, vendor docs, or news."},
-            "limit": _S["limit"],
+                       "description": "[search|deep_search] Search source."},
+            "allowed_domains": {"type": "array", "items": {"type": "string"},
+                                "description": "[search] Only include results from these domains."},
+            "blocked_domains": {"type": "array", "items": {"type": "string"},
+                                "description": "[search] Exclude results from these domains."},
+            "depth": {"type": "string", "enum": ["fast", "balanced", "deep"],
+                      "default": "balanced",
+                      "description": "[search] fast (one backend, quick) | balanced (default) | deep (all backends, comprehensive)."},
+            "max_results": {"type": "integer", "default": 8, "minimum": 1, "maximum": 30,
+                            "description": "[search] Max results to return."},
             "recency": _S["recency"],
             "language": _S["language"],
+            # ── fetch ──
+            "url": _S["url"],
+            "extract_mode": {"type": "string", "enum": ["article", "full", "structured", "links"],
+                             "default": "article",
+                             "description": "[fetch] article (main content, best for reading) | full (entire page as Markdown) | structured (tables/code/lists as JSON) | links (extract all links)."},
+            "max_length": {"type": "integer", "default": 15000, "minimum": 1000, "maximum": 200000,
+                           "description": "[fetch] Max chars in content (default=15000, 0=no limit). Set higher for full pages, lower for summaries."},
+            "timeout": {"type": "integer", "default": 15, "minimum": 5, "maximum": 60,
+                        "description": "[fetch] Request timeout in seconds."},
+            # ── deep_search ──
+            "max_fetch": {"type": "integer", "default": 3, "minimum": 1, "maximum": 5,
+                          "description": "[deep_search] Max pages to fetch after searching."},
+            # ── weather ──
             "location": _S["location"],
             "days": {"type": "integer", "default": 1,
-                     "description": "[weather] 1=current, 2-10=forecast."},
+                     "description": "[weather] 1=current conditions, 2-10=forecast."},
             "units": _S["units"],
-            "url": _S["url"],
+            # ── common ──
             "workspace_id": _S["workspace_id"],
-            "title": _S["title"],
         }, ["action"]),
         description=(
-            "Unified web tool. action=search (source=general|docs|news), action=weather (forecast), "
-            "action=page (summarize/extract_links/save_artifact)."
+            "Web knowledge. search: find info/docs/news. "
+            "fetch: read a URL (article/full/structured/links). "
+            "weather: forecast. deep_search: search+fetch in one call."
         ),
     ),
 
-    # 6. data.manage — csv / table / validate
+    # 6. data.manage — parse / stats / distinct / aggregate / filter / sort / render / pivot / join
     CanonicalToolEntry(
         canonical_tool_id="data.manage",
         handler=_adapt(_handle_data_merged),
         input_schema=_schema({
-            "action": {"type": "string", "enum": ["csv_summarize", "table_extract", "table_render", "validate", "filter", "deduplicate"]},
+            "action": {
+                "type": "string",
+                "enum": ["parse", "stats", "distinct", "aggregate", "filter", "sort", "render", "pivot", "join"],
+                "description": (
+                    "parse (auto-detect schema) | stats (describe numerical columns) | "
+                    "distinct (unique values + frequency) | aggregate (group by + metrics) | "
+                    "filter (eq/neq/gt/lt/contains/in) | sort (multi-column) | "
+                    "render (Markdown/JSON output) | pivot (cross tabulation) | "
+                    "join (merge two datasets). Start with parse to understand data shape."
+                ),
+                "default": "parse",
+            },
             "text": _S["text"],
-            "rows": {"type": "array"}, "headers": {"type": "array"},
-            "format": {"type": "string", "enum": ["json", "yaml"], "default": "json",
-                       "description": "[validate] Data format."},
-            "conditions": {"type": "object", "description": "[filter] Filter criteria, e.g. {\"column\":\"value\"}."},
-            "key": {"type": "string", "description": "[deduplicate] Column name to deduplicate by."},
+            "rows": {"type": "array", "description": "Pre-parsed rows from previous action."},
+            # ── distinct ──
+            "column": {"type": "string", "description": "[distinct] Column to analyze."},
+            # ── aggregate ──
+            "group_by": {"type": "array", "items": {"type": "string"},
+                         "description": "[aggregate] Column(s) to group by."},
+            "metrics": {
+                "type": "array", "items": {"type": "object"},
+                "description": "[aggregate] [{column, func}] — func: count|sum|avg|min|max."
+            },
+            # ── filter ──
+            "conditions": {
+                "type": "array", "items": {"type": "object"},
+                "description": "[filter] [{column, op, value}] — op: eq|neq|gt|lt|gte|lte|contains|in."
+            },
+            # ── sort ──
+            "by": {"type": "array", "items": {"type": "string"},
+                   "description": "[sort] Column(s) to sort by."},
+            "order": {"type": "string", "enum": ["asc", "desc"], "default": "asc",
+                      "description": "[sort] Sort order."},
+            # ── render / common ──
+            "output": {"type": "string", "enum": ["markdown", "json"], "default": "markdown",
+                       "description": "[render] Output format."},
+            "max_rows": {"type": "integer", "default": 50, "minimum": 1, "maximum": 200,
+                         "description": "[render|filter|sort] Max rows to return."},
+            # ── pivot ──
+            "index": {"type": "string", "description": "[pivot] Column for row labels."},
+            "pivot_columns": {"type": "string", "description": "[pivot] Column for column labels."},
+            "pivot_values": {"type": "string", "description": "[pivot] Column to aggregate."},
+            "aggfunc": {"type": "string", "enum": ["sum", "count", "avg"], "default": "sum",
+                        "description": "[pivot] Aggregate function."},
+            # ── join ──
+            "right_text": {"type": "string", "description": "[join] Right-side data (CSV/JSON/Markdown)."},
+            "right_rows": {"type": "array", "description": "[join] Right-side pre-parsed rows."},
+            "on": {"type": "string", "description": "[join] Join column (must exist in both datasets)."},
+            "how": {"type": "string", "enum": ["inner", "left"], "default": "inner",
+                    "description": "[join] Join type: inner (matching only) or left (all left rows)."},
         }, ["action"]),
         description=(
-            "Unified data tool. action=csv_summarize, table_extract, table_render, validate, filter, deduplicate. "
-            "Do not execute embedded code in user-supplied data."
+            "CSV/JSON/Markdown table data engine. "
+            "WORKFLOW: parse → stats/distinct → filter/sort → aggregate/pivot/join → render. "
+            "Use aggregate for GROUP BY (COUNT/SUM/AVG). Use join to merge datasets."
         ),
     ),
 
-    # 7. report.manage — markdown / safe_summary / mermaid / artifact.save
+    # 7. report.manage — save / diff / document
     CanonicalToolEntry(
         canonical_tool_id="report.manage",
         handler=_adapt(_handle_report_merged),
         input_schema=_schema({
-            "action": {"type": "string", "enum": ["markdown_render", "artifact_save", "safe_summary_render", "mermaid_render", "html_render", "diff_report"]},
+            "action": {
+                "type": "string",
+                "enum": ["save", "diff", "document"],
+                "description": (
+                    "save (persist content as artifact) | "
+                    "diff (compare two texts or artifacts) | "
+                    "document (generate complete HTML document with TOC + styling)"
+                ),
+                "default": "save",
+            },
             "content": _S["content"],
             "title": _S["title"],
-            "summary": {"type": "string", "description": "[safe_summary_render] Redacted summary."},
-            "mermaid": {"type": "string", "description": "[mermaid_render] Mermaid source."},
+            # ── save ──
+            "artifact_type": {"type": "string", "default": "report",
+                              "description": "[save] Artifact type tag."},
+            # ── diff ──
+            "text_a": {"type": "string", "description": "[diff] First text to compare."},
+            "text_b": {"type": "string", "description": "[diff] Second text to compare."},
+            "artifact_id_a": {"type": "string", "description": "[diff] First artifact ID (alternative to text_a)."},
+            "artifact_id_b": {"type": "string", "description": "[diff] Second artifact ID (alternative to text_b)."},
+            # ── document ──
+            "sections": {
+                "type": "array",
+                "items": {"type": "object"},
+                "description": "[document] [{heading, content}, ...] — each section becomes a chapter with anchor."
+            },
+            "style": {"type": "string", "enum": ["default", "minimal", "dark"], "default": "default",
+                      "description": "[document] CSS theme."},
+            # ── common ──
             "workspace_id": _S["workspace_id"],
-            "artifact_id_a": {"type": "string", "description": "[diff_report] First artifact ID to compare."},
-            "artifact_id_b": {"type": "string", "description": "[diff_report] Second artifact ID to compare."},
         }, ["action"]),
         description=(
-            "Unified report tool. action=markdown_render, safe_summary_render, mermaid_render, "
-            "html_render (reads); action=artifact_save (write); action=diff_report (compare)."
+            "Persist and compare documents. "
+            "save: persist text as artifact (use for 'save/保存'). "
+            "diff: unified diff of two texts or artifacts (use for 'compare/对比'). "
+            "document: generate HTML doc with TOC from structured sections."
         ),
     ),
 
@@ -1917,48 +2508,69 @@ _RAW_REGISTRY: list[CanonicalToolEntry] = [
             "source_vendor": {"type": "string"},
             "target_vendor": {"type": "string"},
         }, ["action"]),
-        description="Unified config analysis: parse, translate, extract, diff, summarize.",
+        description="Config analysis: parse, translate, extract interfaces/routes, diff, summarize.",
     ),
 
-    # 9. pcap.manage — unified packet capture analysis
+    # 9. pcap.manage — parse / summary / filter / protocol / align / scan
     CanonicalToolEntry(
         canonical_tool_id="pcap.manage",
         handler=_adapt(_handler_pcap_analysis_run),
         input_schema=_schema({
-            "action": {"type": "string", "enum": ["parse", "session", "filter", "align"]},
+            "action": {
+                "type": "string",
+                "enum": ["parse", "summary", "filter", "protocol", "align", "scan"],
+                "description": (
+                    "parse (load+analyze PCAP) | summary (overview stats) | "
+                    "filter (by port/IP/protocol) | protocol (per-protocol breakdown) | "
+                    "align (TCP sequence/gap analysis) | scan (security/threat detection)"
+                ),
+            },
             "workspace_id": _S["workspace_id"],
             "filepath": _S["filepath"],
+            "file_id": {"type": "string", "description": "[parse] FileStore file_id (alternative to filepath)."},
             "session_id": _S["session_id"],
-            "src": {"type": "string"}, "sport": {"type": "integer"},
-            "dst": {"type": "string"}, "dport": {"type": "integer"},
+            "src": {"type": "string", "description": "[filter|align|scan] Source IP."},
+            "sport": {"type": "integer", "description": "[filter|align] Source port."},
+            "dst": {"type": "string", "description": "[filter|align|scan] Destination IP."},
+            "dport": {"type": "integer", "description": "[filter|align] Destination port."},
+            "protocol": {"type": "string", "description": "[protocol|filter] Protocol: TCP/UDP/HTTP/HTTPS/QUIC/DNS."},
         }, ["action"]),
-        description="Unified PCAP analysis: parse, session, filter, align.",
+        description=(
+            "PCAP packet capture analysis. First parse a file to create a session, "
+            "then use summary (overview), filter (by port/IP/protocol), "
+            "protocol (per-protocol stats), align (TCP sequence), scan (security)."
+        ),
     ),
 
-    # 10. knowledge.manage — 8 KB tools merged
+    # 10. knowledge.manage — search / read / list / chunk / import / manage
     CanonicalToolEntry(
         canonical_tool_id="knowledge.manage",
         handler=_adapt(_handle_knowledge_merged),
         input_schema=_schema({
             "workspace_id": _S["workspace_id"],
-            "action": {"type": "string",
-                       "enum": ["search", "read", "source_list", "chunk_list",
-                                "source_manage", "source_reindex", "import", "not_found_explain"]},
+            "action": {
+                "type": "string",
+                "enum": ["search", "read", "list", "chunk", "import", "manage"],
+                "description": "search (find docs) | read (view chunk) | list (browse sources) | chunk (list chunks) | import (add docs) | manage (disable/delete/reindex).",
+            },
             "query": _S["query"],
             "limit": _S["limit"],
             "level": {"type": "string", "enum": ["chunk", "source", "parent"], "default": "chunk"},
             "chunk_id": _S["chunk_id"],
             "source_id": _S["source_id"],
-            "action_source": {"type": "string",
-                              "description": "[source_manage] disable|delete|reindex.",
-                              "enum": ["disable", "delete", "reindex"]},
+            "action_source": {
+                "type": "string", "enum": ["disable", "delete", "reindex"],
+                "description": "[manage] disable|delete|reindex.",
+            },
             "filepath": _S["filepath"],
             "artifact_id": _S["artifact_id"],
             "title": {"type": "string", "description": "[import] Document title."},
         }, ["action"]),
         description=(
-            "Unified knowledge tool. action=search, read, source_list, chunk_list, not_found_explain (reads); "
-            "action=source_manage, source_reindex, import (writes). Do not return unredacted full text."
+            "RAG knowledge base. search: find relevant documents via BM25. "
+            "read: view a chunk. list: browse indexed sources. "
+            "chunk: list chunks for a source. import: add markdown/pdf/docx/txt. "
+            "manage: disable/delete/reindex sources."
         ),
     ),
 
@@ -1970,7 +2582,7 @@ _RAW_REGISTRY: list[CanonicalToolEntry] = [
             "workspace_id": _S["workspace_id"],
             "action": {"type": "string",
                        "enum": ["search", "create", "update", "confirm", "delete",
-                                "profile_get", "profile_set"]},
+                                "review", "profile_get", "profile_set"]},
             "query": _S["query"],
             "scope": {"type": "string", "enum": ["short_term", "project", "long_term"],
                       "default": "long_term"},
@@ -1982,16 +2594,16 @@ _RAW_REGISTRY: list[CanonicalToolEntry] = [
             "content": _S["content"],
             "memory_id": _S["memory_id"],
             "tags": {"type": "array", "items": {"type": "string"}},
-            "summary": {"type": "string"},
-            "metadata": {"type": "object"},
             "field": {"type": "string", "description": "[profile_set] Profile field name."},
             "value": {"type": "string", "description": "[profile_set] Field value."},
             "merge": {"type": "boolean", "default": True, "description": "[profile_set] Merge with existing."},
         }, ["action"]),
         risk_level="medium",
         description=(
-            "Unified memory tool. action=search, profile_get (reads); "
-            "action=create, update, confirm, delete, profile_set (writes). Do not store secrets."
+            "Memory store with auto-injection. Memories auto-loaded at session start. "
+            "search/list: find memories. create/update: record facts. "
+            "review: show pending confirmations. confirm/delete: manage. "
+            "profile_get/set: user preferences. NEVER store passwords/keys."
         ),
     ),
 
@@ -2000,9 +2612,9 @@ _RAW_REGISTRY: list[CanonicalToolEntry] = [
         canonical_tool_id="skill.manage",
         handler=_adapt(_handle_skill_merged),
         input_schema=_schema({
-            "action": {"type": "string", "enum": ["list", "find", "load", "inspect"],
+            "action": {"type": "string", "enum": ["list", "search", "load", "inspect"],
                        "default": "list",
-                       "description": "list (default) | find | load | inspect."},
+                       "description": "list (default) | search | load | inspect."},
             "query": _S["query"],
             "limit": {"type": "integer", "default": 10, "minimum": 1, "maximum": 20},
             "skill_name": _S["skill_name"],
@@ -2013,30 +2625,51 @@ _RAW_REGISTRY: list[CanonicalToolEntry] = [
         ),
     ),
 
-    # 13. agent.manage — role_list / spawn / team_run / result_get
+    # 13. agent.manage — list / spawn / get / cancel / status
     CanonicalToolEntry(
         canonical_tool_id="agent.manage",
         handler=_adapt(_handle_agent_merged),
         input_schema=_schema({
             "workspace_id": _S["workspace_id"],
-            "action": {"type": "string", "enum": ["role_list", "spawn", "team_run", "result_get"]},
+            "action": {
+                "type": "string",
+                "enum": ["list", "spawn", "get", "cancel", "status"],
+                "description": (
+                    "list (show agent profiles) | spawn (launch subagent) | "
+                    "get (fetch subagent result) | cancel (stop subagent) | "
+                    "status (view all subagent tasks)"
+                ),
+                "default": "list",
+            },
             "session_id": _S["session_id"],
-            "instruction": {"type": "string",
-                            "description": "[spawn|team_run] Task instruction."},
-            "allowed_tools": {"type": "array", "items": {"type": "string"},
-                              "description": "[spawn] Sub-agent allowed tools."},
-            "max_turns": {"type": "integer", "default": 1, "minimum": 1, "maximum": 3,
-                          "description": "[spawn] Sub-agent max turns."},
-            "roles": {"type": "array", "items": {"type": "string", "enum": ["planner", "worker", "reviewer"]},
-                      "description": "[team_run] Roles."},
-            "parallel": {"type": "boolean", "description": "[team_run] Run up to 3 workers in parallel."},
+            "agent_type": {
+                "type": "string",
+                "enum": ["explore", "research", "worker", "review"],
+                "description": "[spawn] Subagent profile. explore=code search, research=web lookup, worker=full access, review=code check.",
+                "default": "explore",
+            },
+            "instruction": {
+                "type": "string",
+                "description": "[spawn] Task description for the subagent.",
+            },
+            "max_turns": {
+                "type": "integer", "default": 3, "minimum": 1, "maximum": 10,
+                "description": "[spawn] Max tool-call turns for subagent.",
+            },
+            "background": {
+                "type": "boolean", "default": False,
+                "description": "[spawn] Run in background (async).",
+            },
             "child_session_id": _S["session_id"],
+            "subtask_id": {"type": "string", "description": "[cancel] Subagent task ID to cancel."},
         }, ["action"]),
         risk_level="medium",
         description=(
-            "Unified agent tool. action=role_list, result_get (reads); "
-            "action=spawn, team_run (execute). max_turns enforced; "
-            "do not return unredacted child payloads."
+            "Delegates tasks to subagents. Use when: search multiple codebases, "
+            "parallel research, independent subtasks. "
+            "list: show 4 profiles (explore=code, research=web, worker=full, review=check). "
+            "spawn: launch subagent with agent_type+instruction. "
+            "get: fetch result. cancel: stop running. status: view all."
         ),
     ),
 
@@ -2065,10 +2698,11 @@ _RAW_REGISTRY: list[CanonicalToolEntry] = [
         }, ["action"]),
         risk_level="medium",
         description=(
-            "Unified system introspection. action=diagnostics, health, selfcheck, local_info, tasks, "
-            "audit_log, run_get, session_get, session_snapshot (reads); "
-            "action=review_update, session_checkpoint, session_export (writes); "
-            "action=session_rewind (destructive, requires approval)."
+            "System introspection and session management. "
+            "diagnostics/health/selfcheck/local_info/tasks/audit_log for monitoring. "
+            "run_get/session_get/session_snapshot/review_list for inspection. "
+            "session_checkpoint/rewind/export for recovery. "
+            "review_update for annotation. session_rewind requires approval."
         ),
     ),
 
@@ -2078,15 +2712,23 @@ _RAW_REGISTRY: list[CanonicalToolEntry] = [
         handler=_adapt(_handle_text_analyze_merged),
         input_schema=_schema({
             "text": _S["text"],
-            "action": {"type": "string", "enum": ["redact", "diff", "keywords", "classify", "extract_entities", "regex"],
-                       "default": "redact"},
-            "text_b": {"type": "string", "description": "Second text for diff."},
-            "pattern": {"type": "string", "description": "[regex] Regular expression pattern."},
-            "limit": _S["limit"],
+            "action": {
+                "type": "string",
+                "enum": ["redact", "extract", "match"],
+                "description": (
+                    "extract (IP/MAC/VLAN/subnet/ASN/hostname from network text) | "
+                    "redact (remove passwords/keys/internal IPs) | "
+                    "match (regex pattern matching)"
+                ),
+                "default": "redact",
+            },
+            "pattern": {"type": "string", "description": "[match] Python regex pattern."},
         }, ["text"]),
         description=(
-            "Analyze text. action=redact, diff, keywords, classify, extract_entities (IP/MAC/VLAN), "
-            "regex (pattern match)."
+            "Text analysis for network ops. "
+            "extract: find IPs/MACs/VLANs in device output. "
+            "redact: remove passwords/keys before sharing. "
+            "match: regex pattern matching. Extract first, redact before external use."
         ),
     ),
 
@@ -2122,7 +2764,7 @@ _RAW_REGISTRY: list[CanonicalToolEntry] = [
             "workspace_id": _S["workspace_id"],
             "action": {"type": "string", "enum": ["list", "read", "read_image",
                                                   "edit", "patch", "write_artifact",
-                                                  "glob", "delete_file"]},
+                                                  "glob", "delete"]},
             "subdir": {"type": "string", "description": "[list|glob] Workspace-relative subdirectory."},
             "filepath": _S["filepath"],
             "pattern": {"type": "string", "description": "[glob] File pattern, e.g. **/*.py."},
@@ -2142,7 +2784,7 @@ _RAW_REGISTRY: list[CanonicalToolEntry] = [
         permission_action="",
         description=(
             "Unified workspace file tool. action=list, read, read_image, glob (reads); "
-            "action=edit, patch, write_artifact (writes); action=delete_file (delete)."
+            "action=edit, patch, write_artifact (writes); action=delete (delete)."
         ),
     ),
 
@@ -2152,8 +2794,7 @@ _RAW_REGISTRY: list[CanonicalToolEntry] = [
         handler=_adapt(_handle_workspace_artifact_merged),
         input_schema=_schema({
             "workspace_id": _S["workspace_id"],
-            "action": {"type": "string", "enum": ["list", "read", "save", "tag",
-                                                  "delete", "diff", "export"]},
+            "action": {"type": "string", "enum": ["list", "read", "save", "tag", "delete"]},
             "status": _S["status"],
             "query": _S["query"],
             "limit": _S["limit"],
@@ -2164,14 +2805,14 @@ _RAW_REGISTRY: list[CanonicalToolEntry] = [
             "sensitivity": {"type": "string", "enum": ["internal", "sensitive"],
                             "default": "internal"},
             "tags": {"type": "array", "items": {"type": "string"}},
-            "artifact_a": {"type": "string", "description": "[diff] First artifact id."},
-            "artifact_b": {"type": "string", "description": "[diff] Second artifact id."},
-            "destination": {"type": "string", "description": "[export] Destination path."},
         }, ["action"]),
         permission_action="",
         description=(
-            "Unified workspace artifact tool. action=list, read, diff, export (reads); "
-            "action=save, tag, delete (writes, delete requires approval)."
+            "Workspace artifact management. "
+            "action=list (list all), read (view content), save (create), "
+            "tag (label), delete (soft-delete, requires approval). "
+            "For diff/comparison use report.manage(action=diff). "
+            "For saving reports use report.manage(action=save)."
         ),
     ),
 
@@ -2196,6 +2837,7 @@ _RAW_REGISTRY: list[CanonicalToolEntry] = [
         canonical_tool_id="workspace.metadata.get",
         handler=_adapt(handle_ws_get_metadata),
         input_schema=_schema({"workspace_id": _S["workspace_id"]}),
+        description="Get workspace metadata: name, owner, quota, stats.",
     ),
 
     # 21. workspace.document.pdf.extract_text
@@ -2206,6 +2848,7 @@ _RAW_REGISTRY: list[CanonicalToolEntry] = [
             "workspace_id": _S["workspace_id"], "filepath": _S["filepath"],
             "page_range": _S["page_range"],
         }, ["filepath"]),
+        description="Extract text from PDF files in workspace.",
     ),
 
     # 22. inspection.manage (CMDB-driven device health inspection)
@@ -2216,8 +2859,8 @@ _RAW_REGISTRY: list[CanonicalToolEntry] = [
             "workspace_id": _S["workspace_id"],
             "action": {
                 "type": "string",
-                "enum": ["run", "task_list", "task_get", "task_cancel", "report"],
-                "description": "run (async) | task_list | task_get | task_cancel | report.",
+                "enum": ["run", "list", "get", "cancel", "report"],
+                "description": "run (start inspection, returns task_id) | list (history) | get (status) | cancel | report.",
             },
             "scope": {
                 "type": "object",
@@ -2231,15 +2874,15 @@ _RAW_REGISTRY: list[CanonicalToolEntry] = [
             "session_id": {"type": "string", "description": "[run] Session id."},
             "max_concurrency": {"type": "integer", "description": "[run] Per-task device concurrency (default 3)."},
             "task_id": {"type": "string",
-                "description": "[task_get|task_cancel|report] Task id from action=run."},
-            "limit": {"type": "integer", "description": "[task_list] Max items (default 50)."},
+                "description": "[get|cancel|report] Task id from action=run."},
+            "limit": {"type": "integer", "description": "[list] Max items (default 50)."},
             "format": {"type": "string", "enum": ["md", "json", "html"], "description": "[report] Report format."},
         }, ["action"]),
         description=(
-            "CMDB-driven device health inspection. "
-            "action=run creates a background task and returns task_id; "
-            "task_get/cancel/report for tracking. "
-            "Scripts & credentials auto-selected per-device via CMDB — callers do not pick templates."
+            "Device health inspection via CMDB. run starts background check "
+            "(scope by type/vendor/region), returns task_id. get polls status "
+            "(wait for succeeded/partial before report). cancel stops a task. "
+            "list shows history. Credentials auto-selected via CMDB."
         ),
     ),
 ]

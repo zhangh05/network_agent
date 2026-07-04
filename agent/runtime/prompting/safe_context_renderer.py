@@ -20,6 +20,9 @@ INTERNAL_TOOL_SCENE_KEYS = {
     "governance",
 }
 
+MAX_MEMORY_HITS = 3
+MAX_MEMORY_PREVIEW_CHARS = 120
+
 
 def render_safe_context(safe_context: dict | None) -> str:
     """Project safe_context into a compact evidence block.
@@ -40,10 +43,27 @@ def render_safe_context(safe_context: dict | None) -> str:
         if key in safe_context and safe_context[key] not in (None, "", [], {}):
             projected[key] = _safe_prompt_value(safe_context[key])
 
-    for key in ("artifact_refs", "memory_hits", "context_sources", "context_warnings", "citations"):
+    for key in ("artifact_refs", "context_sources", "context_warnings", "citations"):
         value = safe_context.get(key)
         if value:
             projected[key] = _safe_prompt_value(value, max_items=5)
+
+    # ── Memory hits: structured rendering (like knowledge) ──
+    memory_hits = safe_context.get("memory_hits")
+    if memory_hits:
+        lines = ["## Relevant Memories"]
+        for i, hit in enumerate(list(memory_hits)[:MAX_MEMORY_HITS]):
+            if isinstance(hit, dict):
+                mem_type = hit.get("memory_type") or hit.get("type") or ""
+                title = hit.get("title") or hit.get("summary") or f"Memory {i+1}"
+                content = (hit.get("content") or hit.get("content_preview") or "")[:MAX_MEMORY_PREVIEW_CHARS]
+                line = f"[{mem_type}] {title}"
+                if content:
+                    line += f"\n  {content}"
+                lines.append(line)
+            elif isinstance(hit, str):
+                lines.append(f"[Memory {i+1}]: {hit[:MAX_MEMORY_PREVIEW_CHARS]}")
+        projected["memory_hits_text"] = "\n".join(lines)
 
     knowledge_hits = safe_context.get("knowledge_hits")
     if knowledge_hits:

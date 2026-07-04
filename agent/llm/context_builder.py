@@ -5,6 +5,8 @@ from agent.state import NetworkAgentState
 from agent.llm.policy import SECRET_PATTERNS
 
 MAX_SAMPLES = 5
+MAX_MEMORY_HITS = 3
+MAX_MEMORY_PREVIEW_CHARS = 120
 
 
 def build_safe_context(state: NetworkAgentState) -> dict:
@@ -38,8 +40,16 @@ def build_safe_context(state: NetworkAgentState) -> dict:
         audit = result.get("audit", {})
         ctx["audit_summary"] = audit.get("counts", {})
 
-    # Memory hits summary
-    ctx["memory_hits_summary"] = [h.get("title", "") for h in (state.memory_hits or [])[:3]]
+    # Memory hits summary — compact preview only. Detailed recall should go
+    # through memory.manage(search) so prompt input stays bounded.
+    ctx["memory_hits_summary"] = [
+        {
+            "title": h.get("title", ""),
+            "content_preview": (h.get("content", "") or "")[:MAX_MEMORY_PREVIEW_CHARS],
+            "type": h.get("memory_type", ""),
+        }
+        for h in (state.memory_hits or [])[:MAX_MEMORY_HITS]
+    ]
 
     # Module status
     ctx["module_status"] = state.context.get("modules", {})

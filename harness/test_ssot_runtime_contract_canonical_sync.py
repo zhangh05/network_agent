@@ -22,7 +22,7 @@ def test_web_weather_contract_exposes_forecast_arguments():
 
     schema = get_contract("web.manage").input_schema
     props = schema["properties"]
-    assert props["action"]["enum"] == ["search", "weather", "page"]
+    assert props["action"]["enum"] == ["search", "fetch", "weather", "deep_search"]
     assert "location" in props
     assert "days" in props
     assert props["days"]["description"].lower().find("forecast") >= 0
@@ -32,7 +32,7 @@ def test_inspection_contract_exposes_current_runtime_actions():
     from core.runtime_engine.contracts import get_contract
 
     actions = get_contract("inspection.manage").input_schema["properties"]["action"]["enum"]
-    assert actions == ["run", "task_list", "task_get", "task_cancel", "report"]
+    assert actions == ["run", "list", "get", "cancel", "report"]
 
 
 def test_system_contract_exposes_local_info_action():

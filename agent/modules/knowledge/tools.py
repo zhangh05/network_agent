@@ -3,7 +3,7 @@
 
 Source tools:
   - knowledge.import.document
-  - knowledge.manage(action=source_list)
+  - knowledge.manage(action=list)
   - knowledge.manage(action=read)
   - knowledge.manage(action=source_disable)
   - knowledge.manage(action=source_delete)
@@ -13,7 +13,7 @@ Retrieval tools:
   - knowledge.manage(action=chunk_list)
   - knowledge.manage(action=search)
   - knowledge.manage(action=read)
-  - knowledge.manage(action=source_reindex)
+  - knowledge.manage(action=reindex)
 
 All handlers use the v0.8.2 ToolResult.from_module_result projection.
 """
@@ -50,7 +50,7 @@ TOOL_KNOWLEDGE_IMPORT = ToolSpec(
 
 
 TOOL_KNOWLEDGE_LIST = ToolSpec(
-    tool_id="knowledge.manage.source_list",
+    tool_id="knowledge.manage.list",
     name="list_sources",
     category="knowledge",
     description=(
@@ -316,7 +316,7 @@ TOOL_KNOWLEDGE_READ_PARENT = ToolSpec(
 
 
 TOOL_KNOWLEDGE_REINDEX = ToolSpec(
-    tool_id="knowledge.manage.source_reindex",
+    tool_id="knowledge.manage.reindex",
     name="reindex_source",
     category="knowledge",
     description=(
@@ -411,7 +411,7 @@ tool_handler_import = _build_handler(
     passthrough_keys=("workspace_id", "title", "content", "source", "metadata"),
 )
 tool_handler_list = _build_handler(
-    _knowledge_service.list_sources, "knowledge.manage.source_list",
+    _knowledge_service.list_sources, "knowledge.manage.list",
     passthrough_keys=("workspace_id", "include_disabled", "include_deleted"),
 )
 tool_handler_read = _build_handler(
@@ -470,6 +470,6 @@ tool_handler_read_parent = _build_handler(
     passthrough_keys=("workspace_id", "child_chunk_id"),
 )
 tool_handler_reindex = _build_handler(
-    _knowledge_service.reindex_source, "knowledge.manage.source_reindex",
+    _knowledge_service.reindex_source, "knowledge.manage.reindex",
     passthrough_keys=("workspace_id", "source_id"),
 )

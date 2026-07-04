@@ -4,6 +4,9 @@ from core.tools.schemas import ToolInvocation
 from workspace.ids import validate_workspace_id
 
 from core.tools.general_tools.shared import _caller_workspace, _contract, _error, _error_inv, _ok, _result, _unavailable, _workspace_path
+
+import json
+import re
 """Split general tool handlers."""
 
 def handle_knowledge_index_artifact(inv: ToolInvocation) -> dict:
@@ -295,6 +298,7 @@ def handle_diagram_render_mermaid(inv: ToolInvocation) -> dict:
     return _ok(inv, "", {"mermaid": mermaid, "format": "text"})
 
 def handle_text_redact(inv: ToolInvocation) -> dict:
+    from core.tools.redaction import redact_tool_output
     text = str(inv.arguments.get("text", ""))
     redacted = redact_tool_output({"text": text})
     return _ok(inv, "", {"redacted": redacted.get("text", ""), "original_length": len(text)})
@@ -334,36 +338,6 @@ def handle_text_classify(inv: ToolInvocation) -> dict:
     best = max(scores, key=scores.get) if scores else "unknown"
     return _ok(inv, "", {"classification": best, "scores": scores})
 
-def handle_json_validate(inv: ToolInvocation) -> dict:
-    text = str(inv.arguments.get("text", ""))
-    try:
-        data = json.loads(text)
-        return _ok(inv, "", {"valid": True, "type": type(data).__name__, "keys_count": len(data) if isinstance(data, dict) else 0})
-    except json.JSONDecodeError as e:
-        return _ok(inv, "", {"valid": False, "error": str(e)})
 
-def handle_yaml_validate(inv: ToolInvocation) -> dict:
-    text = str(inv.arguments.get("text", ""))
-    try:
-        import yaml
-        data = yaml.safe_load(text)
-        return _ok(inv, "", {"valid": True, "type": type(data).__name__})
-    except Exception as e:
-        return _ok(inv, "", {"valid": False, "error": str(e)[:200]})
 
-def handle_csv_summarize(inv: ToolInvocation) -> dict:
-    text = str(inv.arguments.get("text", ""))
-    lines = [l for l in text.splitlines() if l.strip()][:1000]
-    if not lines:
-        return _ok(inv, "", {"rows": 0, "columns": 0})
-    cols = len(lines[0].split(","))
-    return _ok(inv, "", {"rows": len(lines), "columns": cols, "header": lines[0][:200]})
-
-def handle_table_extract(inv: ToolInvocation) -> dict:
-    text = str(inv.arguments.get("text", ""))
-    # Simple table extraction from markdown-like tables
-    rows = re.findall(r'\|(.+)\|', text)
-    data = [[c.strip() for c in r.split("|")] for r in rows]
-    return _ok(inv, "", {"rows": len(data), "columns": len(data[0]) if data else 0, "extracted": data[:20]})
-
-__all__ = ['handle_knowledge_index_artifact', 'handle_knowledge_reindex', 'handle_knowledge_search', 'handle_knowledge_get_source', 'handle_knowledge_get_chunk_summary', 'handle_knowledge_explain_not_found', 'handle_runtime_health', 'handle_runtime_selfcheck', 'handle_runtime_diagnostics', 'handle_runtime_retention_preview', 'handle_runtime_archive_preview', 'handle_report_render_markdown', 'handle_report_save_artifact', 'handle_doc_render_from_safe_summary', 'handle_table_render_markdown', 'handle_diagram_render_mermaid', 'handle_text_redact', 'handle_text_diff', 'handle_text_extract_keywords', 'handle_text_classify', 'handle_json_validate', 'handle_yaml_validate', 'handle_csv_summarize', 'handle_table_extract']
+__all__ = ['handle_knowledge_index_artifact', 'handle_knowledge_reindex', 'handle_knowledge_search', 'handle_knowledge_get_source', 'handle_knowledge_get_chunk_summary', 'handle_knowledge_explain_not_found', 'handle_runtime_health', 'handle_runtime_selfcheck', 'handle_runtime_diagnostics', 'handle_runtime_retention_preview', 'handle_runtime_archive_preview', 'handle_report_render_markdown', 'handle_report_save_artifact', 'handle_doc_render_from_safe_summary', 'handle_table_render_markdown', 'handle_diagram_render_mermaid', 'handle_text_redact', 'handle_text_diff', 'handle_text_extract_keywords', 'handle_text_classify']

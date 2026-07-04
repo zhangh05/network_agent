@@ -90,8 +90,8 @@ MANIFESTS: dict[str, CapabilityManifest] = {
     "data.manage": CapabilityManifest(
         tool_id="data.manage", category="data", display_name="Data (unified)",
         description=(
-            "Unified data tool. action=csv_summarize, table_extract, table_render, validate. "
-            "All sub-actions are read-only."
+            "Data processing engine. action=parse, stats, distinct, aggregate, "
+            "filter, sort, render, pivot, join. All sub-actions are read-only."
         ),
         action_class="read",
         risk_level="low", side_effects="none", idempotency="safe_to_retry",
@@ -289,7 +289,7 @@ MANIFESTS: dict[str, CapabilityManifest] = {
             "action=run creates a task from a CMDB scope and runs it "
             "through exec.run with asset_id resolution — credentials "
             "stay server-side. "
-            "action=task_list / task_get / task_cancel / report. "
+            "action=list / get / cancel / report. "
             "All commands come from a per-vendor/type fixed map (H3C / "
             "Huawei / Cisco / Ruijie / Hillstone / Linux server / "
             "generic-fallback). The runner does NOT accept raw "
@@ -308,7 +308,7 @@ MANIFESTS: dict[str, CapabilityManifest] = {
         reads_artifact=True, writes_artifact=True,
         # v3.9.14: cap at 600s — covers a fleet-wide run with the
         # per-check timeout hints (max 120s) at the top end. Per-check
-        # cancellation is handled via task_cancel; the runner itself
+        # cancellation is handled via cancel; the runner itself
         # reports partial results on cancel instead of dragging the
         # whole task out for 20 minutes.
         timeout_seconds=600,

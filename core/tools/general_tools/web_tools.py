@@ -11,9 +11,6 @@ from core.tools.general_tools.shared_web import *  # has __all__ — 21 function
 
 
 
-_fetch_summary_cache_lock = threading.Lock()
-_fetch_summary_cache: dict[str, tuple[float, dict]] = {}
-
 
 def _ddgs_to_results(raw: list, domains: list, limit: int) -> list:
     """Convert ddgs raw results to standard web-result format."""
@@ -44,44 +41,66 @@ def _ddgs_to_results(raw: list, domains: list, limit: int) -> list:
 def handle_web_search(inv: ToolInvocation) -> dict:
     args = inv.arguments
     query = (args.get("query") or "").strip()
-    limit = _coerce_int(args.get("top_k", args.get("limit", 5)), default=5, min_value=1, max_value=10)
+    count = _coerce_int(args.get("max_results", args.get("limit", 8)), default=8, min_value=1, max_value=30)
     domains = _normalize_search_domains(args)
+    blocked = _normalize_blocked_domains(args)
+    depth = str(args.get("depth", "balanced")).strip().lower()
     recency = (args.get("recency") or "").strip().lower()
     language = (args.get("language") or "").strip() or "zh-CN"
     safe_search = (args.get("safe_search") or "moderate").strip().lower()
     if not query:
         return _error_inv(inv, "query is required")
+
+    # Validate: can't specify both allowed_domains and blocked_domains
+    if domains and blocked:
+        return _error_inv(inv, "Cannot specify both allowed_domains and blocked_domains")
+
     search_query = _build_web_search_query(query, domains)
 
-    # ── v3.2.1 Primary: ddgs multi-backend search (Google → Bing → DDG → Brave) ──
+    # ── Depth-based backend selection ──
+    if depth == "fast":
+        backends = "google"
+        backend_limit = min(count, 5)
+    elif depth == "deep":
+        backends = "google,bing,duckduckgo,brave"
+        backend_limit = min(count * 4, 30)
+    else:  # balanced (default)
+        backends = "google,bing,duckduckgo,brave"
+        backend_limit = min(count * 3, 15)
+
+    # ── Primary: ddgs multi-backend search ──
     try:
         from ddgs import DDGS
         timelimit_map = {"day": "d", "week": "w", "month": "m", "year": "y"}
-        backends = "google,bing,duckduckgo,brave"
         with DDGS(timeout=10) as ddgs:
             raw = ddgs.text(
                 query=search_query,
                 region="cn-zh" if language.startswith("zh") else "us-en",
                 safesearch=safe_search,
                 timelimit=timelimit_map.get(recency),
-                max_results=min(limit * 3, 15),
+                max_results=backend_limit,
                 backend=backends,
             )
         if raw:
-            results = _ddgs_to_results(raw, domains, limit)
+            results = _ddgs_to_results(raw, domains, count)
+            # Filter out blocked domains
+            if blocked:
+                results = [r for r in results if r.get("domain", "") not in blocked]
             if results:
                 guidance = _web_search_guidance(query, results, domains)
                 return _ok(inv, "", {
                     "ok": True, "status": "succeeded",
                     "query": query, "search_query": search_query,
-                    "results": results, "count": len(results),
-                    "answer_hint": guidance["answer_hint"],
+                    "results": results,
                     "results_markdown": _web_results_markdown(results),
+                    "count": len(results),
+                    "answer_hint": guidance["answer_hint"],
                     "next_actions": guidance["next_actions"],
-                    "summary": f"Found {len(results)} public web result(s) for '{query}'",
+                    "summary": f"Found {len(results)} result(s) for '{query}'",
                     "provider": "ddgs",
                     "filters": {
-                        "domains": domains, "recency": recency or "any",
+                        "domains": domains, "blocked_domains": blocked,
+                        "depth": depth, "recency": recency or "any",
                         "language": language, "safe_search": safe_search,
                     },
                 })
@@ -104,7 +123,10 @@ def handle_web_search(inv: ToolInvocation) -> dict:
             },
         )
         if html_resp.status_code == 200:
-            results = _filter_web_results(_parse_duckduckgo_html(html_resp.text, limit * 2), domains, limit)
+            results = _filter_web_results(_parse_duckduckgo_html(html_resp.text, count * 2), domains, count)
+            # Filter out blocked domains
+            if blocked:
+                results = [r for r in results if r.get("domain", "") not in blocked]
             if results:
                 guidance = _web_search_guidance(query, results, domains)
                 return _ok(inv, "", {
@@ -113,17 +135,16 @@ def handle_web_search(inv: ToolInvocation) -> dict:
                     "query": query,
                     "search_query": search_query,
                     "results": results,
+                    "results_markdown": _web_results_markdown(results),
                     "count": len(results),
                     "answer_hint": guidance["answer_hint"],
-                    "results_markdown": _web_results_markdown(results),
                     "next_actions": guidance["next_actions"],
-                    "summary": f"Found {len(results)} public web result(s) for '{query}'",
+                    "summary": f"Found {len(results)} result(s) for '{query}'",
                     "provider": "duckduckgo_html",
                     "filters": {
-                        "domains": domains,
-                        "recency": recency or "any",
-                        "language": language,
-                        "safe_search": safe_search,
+                        "domains": domains, "blocked_domains": blocked,
+                        "depth": depth, "recency": recency or "any",
+                        "language": language, "safe_search": safe_search,
                     },
                 })
 
@@ -146,7 +167,9 @@ def handle_web_search(inv: ToolInvocation) -> dict:
                 source="duckduckgo_instant_answer",
                 rank=len(ia_results) + 1,
             ))
-        ia_results = _filter_web_results(ia_results, domains, limit)
+        ia_results = _filter_web_results(ia_results, domains, count)
+        if blocked:
+            ia_results = [r for r in ia_results if r.get("domain", "") not in blocked]
         if ia_results:
             guidance = _web_search_guidance(query, ia_results, domains)
             return _ok(inv, "", {
@@ -155,17 +178,16 @@ def handle_web_search(inv: ToolInvocation) -> dict:
                 "query": query,
                 "search_query": search_query,
                 "results": ia_results,
+                "results_markdown": _web_results_markdown(ia_results),
                 "count": len(ia_results),
                 "answer_hint": guidance["answer_hint"],
-                "results_markdown": _web_results_markdown(ia_results),
                 "next_actions": guidance["next_actions"],
-                "summary": f"Found {len(ia_results)} public web result(s) for '{query}'",
+                "summary": f"Found {len(ia_results)} result(s) for '{query}'",
                 "provider": "duckduckgo_instant_answer",
                 "filters": {
-                    "domains": domains,
-                    "recency": recency or "any",
-                    "language": language,
-                    "safe_search": safe_search,
+                    "domains": domains, "blocked_domains": blocked,
+                    "depth": depth, "recency": recency or "any",
+                    "language": language, "safe_search": safe_search,
                 },
             })
 
@@ -182,7 +204,7 @@ def handle_web_search(inv: ToolInvocation) -> dict:
             "provider": "none",
             "hint": _web_no_results_hint(query),
             "next_actions": _web_no_results_actions(query, domains),
-            "filters": {"domains": domains, "recency": recency or "any"},
+            "filters": {"domains": domains, "blocked_domains": blocked, "depth": depth, "recency": recency or "any"},
         })
     except Exception as e:
         return _result(inv, False, {
@@ -196,6 +218,7 @@ def handle_web_search(inv: ToolInvocation) -> dict:
             "warnings": ["web_search_provider_error"],
             "provider": "error",
             "next_actions": _web_no_results_actions(query, domains),
+            "filters": {"domains": domains, "blocked_domains": blocked, "depth": depth},
         })
 
 
@@ -341,112 +364,6 @@ def handle_news_search(inv: ToolInvocation) -> dict:
         extra={"recency": recency, "language": language},
     )
 
-def handle_web_fetch_summary(inv: ToolInvocation) -> dict:
-    args = inv.arguments
-    url = (args.get("url") or "").strip()
-    if not url:
-        return _error_inv(inv, "url is required")
-    if _is_private_url(url):
-        return _error_inv(inv, "blocked: private/local network URLs not allowed")
-
-    # ── DNS resolution safety check ──
-    try:
-        from urllib.parse import urlparse
-        import socket
-        parsed = urlparse(url)
-        hostname = parsed.hostname
-        if hostname:
-            resolved_ip = socket.gethostbyname(hostname)
-            if _is_private_ip(resolved_ip):
-                return _error_inv(inv, f"blocked: resolved IP {resolved_ip} is private/loopback")
-    except Exception:
-        pass  # DNS resolution failure doesn't block; proceed
-
-    # ── Workspace-aware cache: same URL within 60s, workspace-scoped ──
-    ws_id = inv.workspace_id or ""
-    cache_key = f"{ws_id}::{url.lower().strip()}"
-    _now = time.time()
-    # P1 fix (round 7): cache lookups / writes now happen under a lock so
-    # concurrent fetches don't race on dict mutation (RuntimeError on
-    # "dictionary changed size during iteration") or duplicate the
-    # oldest-entry eviction.
-    with _fetch_summary_cache_lock:
-        _cache = _fetch_summary_cache
-        # Clean stale entries (60s TTL)
-        for k in list(_cache.keys()):
-            if _now - _cache[k][0] >= 60:
-                del _cache[k]
-        if cache_key in _cache:
-            cached_at, cached_result = _cache[cache_key]
-            if _now - cached_at < 60:
-                return {
-                    **cached_result,
-                    "cached": True,
-                    "cached_at": cached_at,
-                }
-
-    try:
-        import requests
-        headers = {
-            "User-Agent": "NetworkAgent/0.2",
-            "Accept-Language": "zh-CN,zh;q=0.9,en;q=0.8",
-        }
-        resp = requests.get(url, timeout=10, headers=headers, allow_redirects=True)
-
-        # ── Redirect re-validation ──
-        redirect_url = url
-        if resp.history:
-            final_url = resp.url
-            redirect_url = final_url
-            if _is_private_url(final_url):
-                return _error_inv(inv, "blocked: redirect target is private/local network URL")
-            try:
-                final_host = urlparse(final_url).hostname
-                if final_host:
-                    final_ip = socket.gethostbyname(final_host)
-                    if _is_private_ip(final_ip):
-                        return _error_inv(inv, f"blocked: redirect target resolved to private IP {final_ip}")
-            except Exception:
-                pass
-
-        if resp.status_code != 200:
-            return _error_inv(inv, f"HTTP {resp.status_code}")
-        _fix_encoding(resp)
-        html = resp.text
-        text = _html_to_text(html)
-        if not text:
-            return _result(inv, False, {
-                "status": "empty_readable_text",
-                "url": url,
-                "status_code": resp.status_code,
-                "source_type": "web_fetch",
-                "summary": "网页可访问，但没有抽取到可读正文。",
-                "warnings": ["web_fetch_empty_readable_text"],
-                "next_actions": ["换用更具体的公开网页 URL，或先用 web.extract_links 找正文页面。"],
-            })
-        result = _ok(inv, "", {
-            "url": url,
-            "title": _extract_title(html),
-            "summary": _safe_preview(text, 800),
-            "text_length": len(html),
-            "status_code": resp.status_code,
-            "source_type": "web_fetch",
-            "redirected": url != redirect_url,
-            "final_url": redirect_url if url != redirect_url else "",
-        })
-        # Cache the result under the same lock.
-        with _fetch_summary_cache_lock:
-            _fetch_summary_cache[cache_key] = (_now, result)
-            if len(_fetch_summary_cache) > 100:
-                oldest = min(
-                    _fetch_summary_cache,
-                    key=lambda k: _fetch_summary_cache[k][0],
-                )
-                del _fetch_summary_cache[oldest]
-        return result
-    except Exception as e:
-        return _error_inv(inv, str(e)[:200])
-
 def handle_web_official_doc_search(inv: ToolInvocation) -> dict:
     args = inv.arguments
     query = (args.get("query") or "").strip()
@@ -485,7 +402,7 @@ def handle_web_official_doc_search(inv: ToolInvocation) -> dict:
     result["doc_base_url"] = base
     result.setdefault("next_actions", [])
     result["next_actions"] = list(result["next_actions"]) + [
-        "优先引用 official_or_primary 结果；如需要正文细节，再调用 web.manage(action=page)。",
+        "优先引用 official_or_primary 结果；如需要正文细节，再调用 web.manage(action=fetch)。",
     ]
     if not result.get("ok") and base:
         result["status"] = "fallback_doc_index"
@@ -503,54 +420,4 @@ def handle_web_official_doc_search(inv: ToolInvocation) -> dict:
         result["results_markdown"] = f"[1] {vendor} documentation index: {base}"
     return _result(inv, bool(result.get("results")), result)
 
-def handle_web_extract_links(inv: ToolInvocation) -> dict:
-    args = inv.arguments
-    url = (args.get("url") or "").strip()
-    if not url:
-        return _error_inv(inv, "url is required")
-    if _is_private_url(url):
-        return _error_inv(inv, "blocked: private/local network URLs not allowed")
-    try:
-        import requests
-        headers = {
-            "User-Agent": "NetworkAgent/0.2",
-            "Accept-Language": "zh-CN,zh;q=0.9,en;q=0.8",
-        }
-        resp = requests.get(url, timeout=10, headers=headers)
-        if resp.status_code != 200:
-            return _error_inv(inv, f"HTTP {resp.status_code}")
-        _fix_encoding(resp)
-        links = re.findall(r'href=["\'](https?://[^"\'\s]+)', resp.text)
-        unique = list(dict.fromkeys(links))[:20]
-        return _ok(inv, "", {"url": url, "links": unique, "count": len(unique)})
-    except Exception as e:
-        return _error_inv(inv, str(e)[:200])
-
-def handle_web_save_to_artifact(inv: ToolInvocation) -> dict:
-    args = inv.arguments
-    ws = _caller_workspace(inv)
-    url = (args.get("url") or "").strip()
-    title = args.get("title", "web_save")
-    if _is_private_url(url):
-        return _error_inv(inv, "blocked: private/local network URLs not allowed")
-    try:
-        import requests
-        headers = {
-            "User-Agent": "NetworkAgent/0.2",
-            "Accept-Language": "zh-CN,zh;q=0.9,en;q=0.8",
-        }
-        resp = requests.get(url, timeout=10, headers=headers)
-        if resp.status_code != 200:
-            return _error_inv(inv, f"HTTP {resp.status_code}")
-        _fix_encoding(resp)
-        content = f"# {title}\n\nSource: {url}\n\n{_html_to_text(resp.text)}"
-        from artifacts.store import save_artifact
-        rec = save_artifact(workspace_id=ws, content=content, title=title,
-                            artifact_type="knowledge_doc", sensitivity="internal")
-        if not rec:
-            return _error_inv(inv, "artifact save blocked or failed")
-        return _ok(inv, "", {"artifact_id": rec.artifact_id, "title": title, "source_url": url})
-    except Exception as e:
-        return _error_inv(inv, str(e)[:200])
-
-__all__ = ['handle_web_search', 'handle_weather_current', 'handle_weather_forecast', 'handle_news_search', 'handle_web_fetch_summary', 'handle_web_official_doc_search', 'handle_web_extract_links', 'handle_web_save_to_artifact']
+__all__ = ['handle_web_search', 'handle_weather_current', 'handle_weather_forecast', 'handle_news_search', 'handle_web_official_doc_search']

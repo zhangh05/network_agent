@@ -176,7 +176,7 @@ def start_background_task(workspace_id: str, profile_id: str, scope: dict | None
 
     This is the default LLM/HTTP launch path for inspections. It returns quickly
     with a real task id so the UI can track/cancel and the LLM can query
-    task_get/report later. It deliberately does not block a tool call for the
+    get/report later. It deliberately does not block a tool call for the
     whole fleet run.
     """
     import logging
@@ -245,7 +245,7 @@ def get_task(workspace_id: str, task_id: str, *, record_poll: bool = True) -> Op
         return None
     ws = _validate_workspace(workspace_id)
     if record_poll:
-        return _runner_record_poll(ws, task_id, source="task_get")
+        return _runner_record_poll(ws, task_id, source="get")
     task = _runner_load(ws, task_id)
     if task is not None:
         ensure_tracking(task, source="get_task")

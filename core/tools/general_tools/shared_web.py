@@ -17,6 +17,7 @@ __all__ = [
     "_parse_duckduckgo_html",
     "_coerce_int",
     "_normalize_search_domains",
+    "_normalize_blocked_domains",
     "_domain_from_url_or_host",
     "_build_web_search_query",
     "_duckduckgo_search_params",
@@ -110,6 +111,8 @@ def _coerce_int(value: Any, *, default: int, min_value: int, max_value: int) -> 
 def _normalize_search_domains(args: dict) -> list[str]:
     raw = args.get("domains", None)
     if raw is None:
+        raw = args.get("allowed_domains", None)
+    if raw is None:
         raw = args.get("site", "")
     if isinstance(raw, str):
         values = [v.strip() for v in raw.split(",") if v.strip()]
@@ -123,6 +126,25 @@ def _normalize_search_domains(args: dict) -> list[str]:
         if dom and dom not in domains:
             domains.append(dom)
     return domains[:5]
+
+
+def _normalize_blocked_domains(args: dict) -> list[str]:
+    """Extract blocked_domains from args."""
+    raw = args.get("blocked_domains", None)
+    if raw is None:
+        return []
+    if isinstance(raw, str):
+        values = [v.strip() for v in raw.split(",") if v.strip()]
+    elif isinstance(raw, list):
+        values = [str(v).strip() for v in raw if str(v).strip()]
+    else:
+        return []
+    blocked = []
+    for item in values:
+        dom = _domain_from_url_or_host(item)
+        if dom and dom not in blocked:
+            blocked.append(dom)
+    return blocked[:10]
 def _domain_from_url_or_host(value: str) -> str:
     from urllib.parse import urlparse
     value = value.strip().lower()
@@ -243,10 +265,10 @@ def _web_search_guidance(query: str, results: list[dict], domains: list[str]) ->
     )
     next_actions = [
         "用结果的 title/snippet 先回答用户问题，不要编造网页未给出的细节。",
-        "如果需要精确引用或正文细节，再调用 web.manage(action=page) 读取具体 URL。",
+        "如果需要精确引用或正文细节，再调用 web.manage(action=fetch) 读取具体 URL。",
     ]
     if not domains:
-        next_actions.append("如用户要求厂商文档，下一次搜索加 domains/site 限定官方站点。")
+        next_actions.append("如用户要求厂商文档，下一次搜索加 allowed_domains 限定官方站点。")
     return {"answer_hint": answer_hint, "next_actions": next_actions}
 def _web_no_results_actions(query: str, domains: list[str]) -> list[str]:
     actions = ["换 2-4 个更具体关键词重试。"]
@@ -258,7 +280,7 @@ def _web_no_results_hint(query: str) -> str:
     """Return a user-friendly hint when no web results are found."""
     q = query.lower()
     if any(w in q for w in ("天气", "weather", "气温", "温度")):
-        return "天气类查询可改用 weather.current / weather.forecast，或换更具体的城市和日期重试。"
+        return "天气类查询可改用 web.manage(action=weather)，或换更具体的城市和日期重试。"
     if any(w in q for w in ("新闻", "news", "最新", "今日")):
         return "实时新闻可改用 news.search，或加入来源/时间/领域关键词重试。"
     return "搜索服务没有返回可用结果。我可以基于通用知识回答；如需实时内容，请更换搜索源或尝试更具体的关键词。"
@@ -507,7 +529,7 @@ def _weather_structured_result(*, tool_id: str, location: str, units: str,
     result["answer_hint"] = "直接使用 current/forecast_daily 里的结构化天气字段回答；引用 [1] open-meteo.com，并说明天气预报会变化。"
     result["next_actions"] = [
         "用 current 或 forecast_daily 的温度、降水概率/降水量、风速字段直接回答用户。",
-        "如果用户要求官方气象台口径，再用 web.manage(action=search/page) 交叉验证气象局页面。",
+        "如果用户要求官方气象台口径，再用 web.manage(action=search/fetch) 交叉验证气象局页面。",
     ]
     return _result(_DummyInv(tool_id), True, result)
 def _weather_summary(result: dict) -> str:

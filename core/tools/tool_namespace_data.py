@@ -120,16 +120,15 @@ NS_DATA = [
      'source=docs searches vendor documentation (Cisco/Huawei/H3C); source=news for recent news.',
      'web search weather page news docs', 'web.manage'),
 
-    # 6. data.manage — unifies csv + table + validate + filter + deduplicate
+    # 6. data.manage — 9-action data engine (parse, stats, distinct, aggregate, filter, sort, render, pivot, join)
     ('data.manage', 'data', 'data', 'multi', '数据处理', 'data.manage',
-     'Unified data tool. action=csv_summarize (column stats), '
-     'action=table_extract (extract table from text/markdown), '
-     'action=table_render (rows+headers to markdown table), '
-     'action=validate (JSON/YAML structure check), '
-     'action=filter (filter rows by column conditions), '
-     'action=deduplicate (remove duplicate rows by key column). '
-     'Do not execute embedded code in user-supplied data.',
-     'data csv table validate filter deduplicate json yaml', 'data.manage'),
+     'Data processing engine. action=parse (auto-detect CSV/JSON/Markdown table), '
+     'action=stats (describe numerical columns), '
+     'action=distinct (unique values + frequency), '
+     'action=aggregate (COUNT/SUM/AVG/MIN/MAX + GROUP BY), '
+     'action=filter (eq/neq/gt/lt/contains/in), '
+     'action=sort, action=render, action=pivot, action=join.',
+     'data csv table parse aggregate filter sort pivot join', 'data.manage'),
 
     # 7. report.manage — unifies markdown + safe_summary + mermaid + html + diff + artifact.save
     ('report.manage', 'data', 'report', 'multi', '报告渲染', 'report.manage',
@@ -263,8 +262,8 @@ NS_DATA = [
     # 22. inspection.manage (CMDB-driven device health inspection)
     ('inspection.manage', 'inspection', 'inspection', 'manage', 'CMDB 巡检任务', 'inspection.manage',
      'CMDB-driven device health inspection. '
-     'Actions: run, task_list, task_get, task_cancel, report. '
-     'run creates a background task; task_get is the tracking path. '
+     'Actions: run, list, get, cancel, report. '
+     'run creates a background task; get is the tracking path. '
      'Commands come from a fixed per-vendor map (no LLM-typed commands). '
      'Credentials stay server-side via exec.run(asset_id=...).',
      "Don't use raw shell commands -- the runner dispatches a fixed profile. "

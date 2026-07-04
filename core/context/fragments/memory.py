@@ -1,14 +1,21 @@
 # context/fragments/memory.py
-"""Memory hits fragment — retrieves relevant past interactions via UnifiedRetriever."""
+"""Memory hits fragment — retrieves relevant past memories for auto-injection."""
 
 import logging
 from .base import ContextFragment, FragmentPriority
 
 logger = logging.getLogger(__name__)
 
+_CONTENT_PREVIEW = 120  # chars per memory content in auto-injection
+_MAX_MEMORIES = 3       # max memories to auto-inject
+
 
 class MemoryHitsFragment(ContextFragment):
-    """Retrieves memory hits from unified ContextStore for context injection."""
+    """Retrieves memory hits from unified ContextStore for auto-injection.
+
+    Renders titles AND content previews so the LLM can act on stored
+    knowledge without needing an explicit memory.manage(search) call.
+    """
 
     priority = FragmentPriority.MEMORY
     token_budget = 2048
@@ -29,8 +36,17 @@ class MemoryHitsFragment(ContextFragment):
         hits = data.get("hits", [])
         if not hits:
             return ""
-        summaries = [h.get("summary", "")[:120] for h in hits[:3]]
+        lines = []
+        for h in hits[:_MAX_MEMORIES]:
+            mem_type = h.get("memory_type", "")
+            title = h.get("title", h.get("summary", ""))
+            content = (h.get("content_preview") or h.get("content", "") or "")[:_CONTENT_PREVIEW]
+            if content:
+                lines.append(f"[{mem_type}] {title}")
+                lines.append(f"  {content}")
+            else:
+                lines.append(f"[{mem_type}] {title}")
         return self.cap(
-            f"[memory] {len(hits)} hits\n" +
-            "\n".join(f"  - {s}" for s in summaries)
+            f"[memory] {len(hits)} relevant memories (compact preview; use memory.manage(search) for full recall)\n"
+            + "\n".join(lines)
         )

@@ -63,7 +63,7 @@ def test_canonical_inspection_manage_registered():
     assert "profile_id" not in fields, (
         "LLM-visible schema must not expose inspection profile selection"
     )
-    for required_action in ("run", "task_list", "task_get", "task_cancel", "report"):
+    for required_action in ("run", "list", "get", "cancel", "report"):
         assert required_action in enum_actions, (
             f"missing action={required_action} in inspection.manage schema"
         )
@@ -600,7 +600,7 @@ def test_backend_routes_return_400_for_empty_profile_id():
 def test_task_from_dict_does_not_crash_on_disk_round_trip():
     """v3.9.14 follow-up: ``_task_from_dict`` must construct DeviceResult
     with both required fields (task_id, asset_id). Otherwise a
-    list_tasks / task_get cycle on a real task raises
+    list/get cycle on a real task raises
     ``DeviceResult.__init__() missing 1 required positional argument:
     'asset_id'`` instead of returning the task.
     """
@@ -661,8 +661,8 @@ def test_task_from_dict_does_not_crash_on_disk_round_trip():
     assert loaded2.devices["asset_x"].task_id == task.task_id
 
 
-def test_inspection_task_get_returns_tracking_summary():
-    """LLM tracking uses task_get instead of a blocking wait call."""
+def test_inspection_get_returns_tracking_summary():
+    """LLM tracking uses get instead of a blocking wait call."""
     from core.tools.canonical_registry import CANONICAL_REGISTRY
     from core.tools.schemas import ToolInvocation
     from agent.modules.inspection import service as svc
@@ -672,7 +672,7 @@ def test_inspection_task_get_returns_tracking_summary():
         tool_id="inspection.manage",
         arguments={
             "workspace_id": "ws_wait_action",
-            "action": "task_get",
+            "action": "get",
             "task_id": task.task_id,
         },
         requested_by="turn_runner",

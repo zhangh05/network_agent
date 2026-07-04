@@ -164,4 +164,4 @@ def _suggested_next_action(task: InspectionTask) -> str:
         return "summarize_failure"
     if getattr(task, "cancel_requested_at", ""):
         return "wait_for_cancel_drain"
-    return "poll_task_get"
+    return "poll_get"

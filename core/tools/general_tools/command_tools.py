@@ -75,7 +75,7 @@ def handle_command_approved_exec(inv: ToolInvocation) -> dict:
     """Shell command execution on Linux/macOS.
 
     Accepts a shell command string, executes via /bin/bash -c.
-    Safety limits: configurable timeout, 10000 chars output.
+    Safety limits: dangerous command detection, configurable timeout, output truncation.
     Requires approval_id (high risk). Policy blocks destructive patterns.
     """
     import platform
@@ -85,6 +85,13 @@ def handle_command_approved_exec(inv: ToolInvocation) -> dict:
     command = (inv.arguments.get("command") or "").strip()
     if not command:
         return _unavailable(inv, "command is required")
+
+    # ── Safety: dangerous command detection ──
+    from core.tools.general_tools.dangerous_commands import full_check
+    safety = full_check(command)
+    if safety["blocked"]:
+        return {"ok": False, "error": safety["reason"],
+                "warnings": safety["warnings"], "suspicious": safety["suspicious"]}
 
     # v3.7: pass through cwd, env_vars, timeout
     cwd = (inv.arguments.get("working_dir") or "").strip() or None
@@ -102,13 +109,21 @@ def handle_command_approved_exec(inv: ToolInvocation) -> dict:
         }
 
     result = _run_shell(command, cwd=cwd, env=env_vars, timeout=timeout)
+    # Attach safety metadata + description to result
+    if safety["warnings"]:
+        result["warnings"] = safety["warnings"]
+    if safety["suspicious"]:
+        result["suspicious"] = safety["suspicious"]
+    description = (inv.arguments.get("description") or "").strip()
+    if description:
+        result["description"] = description
     return _result(inv, result.pop("ok", False), result)
 
 def handle_powershell_approved_script(inv: ToolInvocation) -> dict:
     """PowerShell script execution on Windows.
 
     Accepts a PowerShell command string, executes via powershell -Command.
-    Safety limits: 15s timeout, 10000 chars output.
+    Safety limits: dangerous command detection, 15s timeout, output truncation.
     Requires approval_id (high risk). Policy blocks destructive patterns.
 
     Security: subprocess uses a minimal safe environment (mirrors
@@ -120,6 +135,13 @@ def handle_powershell_approved_script(inv: ToolInvocation) -> dict:
     command = (inv.arguments.get("command") or "").strip()
     if not command:
         return _unavailable(inv, "command is required")
+
+    # ── Safety: dangerous command detection ──
+    from core.tools.general_tools.dangerous_commands import full_check
+    safety = full_check(command)
+    if safety["blocked"]:
+        return {"ok": False, "error": safety["reason"],
+                "warnings": safety["warnings"], "suspicious": safety["suspicious"]}
     import subprocess
     try:
         safe_env = _build_safe_env() if platform.system() == "Windows" else None
@@ -130,11 +152,16 @@ def handle_powershell_approved_script(inv: ToolInvocation) -> dict:
         )
         stdout = (result.stdout or "")[:_SHELL_MAX_OUTPUT]
         stderr = (result.stderr or "")[:_SHELL_MAX_OUTPUT]
-        return _ok(inv, f"PowerShell command finished (exit={result.returncode}).", {
+        output = {
             "exit_code": result.returncode,
             "stdout": stdout,
             "stderr": stderr,
-        })
+        }
+        if safety["warnings"]:
+            output["warnings"] = safety["warnings"]
+        if safety["suspicious"]:
+            output["suspicious"] = safety["suspicious"]
+        return _ok(inv, f"PowerShell command finished (exit={result.returncode}).", output)
     except subprocess.TimeoutExpired:
         return _error_inv(inv, "command timed out after 15s")
     except FileNotFoundError:
@@ -184,6 +211,9 @@ def handle_python_exec(inv: ToolInvocation) -> dict:
             run_id=run_id,
             timeout=timeout,
         )
+        description = (inv.arguments.get("description") or "").strip()
+        if description:
+            result["description"] = description
         return _result(inv, result.pop("ok", False), result)
     except Exception as e:
         return _error_inv(inv, str(e)[:200])

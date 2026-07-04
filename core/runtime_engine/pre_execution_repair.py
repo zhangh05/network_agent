@@ -62,8 +62,8 @@ EXTENDED_RUNTIME_ALIAS_MAP: dict[str, tuple[str, str | None]] = {
     "write_file": ("write_artifact", None),
     "file_list": ("list", None),
     "list_files": ("list", None),
-    "file_delete": ("delete_file", None),
-    "delete_file_obj": ("delete_file", None),
+    "file_delete": ("delete", None),
+    "delete_file_obj": ("delete", None),
 
     # Git aliases — transient.
     "git_status": ("status", None),

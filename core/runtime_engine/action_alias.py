@@ -99,7 +99,7 @@ CANONICAL_ALIASES_BY_TOOL: Final[dict[str, dict[str, tuple[str, str | None]]]] =
         # review / audit / tasks
         "review_get": ("review_list", "get"),
         "audit_get": ("audit_log", "get"),
-        "task_get": ("tasks", "get"),
+        "get": ("tasks", "get"),
         "tasks_get": ("tasks", "get"),
 
         # run history
@@ -144,7 +144,7 @@ CANONICAL_ALIASES_BY_TOOL: Final[dict[str, dict[str, tuple[str, str | None]]]] =
 
     "agent.manage": {
         "agent_spawn": ("spawn", None),
-        "agent_list": ("role_list", None),
+        "agent_list": ("list", None),
     },
 
     "memory.manage": {
@@ -170,11 +170,11 @@ CANONICAL_ALIASES_BY_TOOL: Final[dict[str, dict[str, tuple[str, str | None]]]] =
     "inspection.manage": {
         "start_inspection": ("run", None),
         "run_inspection": ("run", None),
-        "inspection_status": ("task_get", None),
-        "inspection_result": ("task_get", None),
-        "follow_inspection": ("task_get", None),
+        "inspection_status": ("get", None),
+        "inspection_result": ("get", None),
+        "follow_inspection": ("get", None),
         "inspection_report": ("report", None),
-        "cancel_inspection": ("task_cancel", None),
+        "cancel_inspection": ("cancel", None),
     },
 }
 
@@ -196,18 +196,18 @@ _CANONICAL_ACTIONS: Final[dict[str, frozenset[str]]] = {
     }),
     "workspace.file": frozenset({
         "list", "read", "read_image", "edit", "patch",
-        "write_artifact", "glob", "delete_file",
+        "write_artifact", "glob", "delete",
     }),
     "knowledge.manage": frozenset({
-        "search", "read", "import", "source_manage",
-        "source_reindex", "source_list", "chunk_list",
-        "not_found_explain",
+        "search", "read", "import", "manage",
+        "reindex", "list", "chunk_list",
+        "not_found",
     }),
     "device.manage": frozenset({
         "list", "get", "add", "delete", "update", "export",
     }),
     "agent.manage": frozenset({
-        "role_list", "spawn", "team_run", "result_get",
+        "list", "spawn", "team_run", "get",
     }),
     "git.manage": frozenset({
         "status", "diff", "log", "commit", "push", "branch", "checkout",
@@ -234,7 +234,7 @@ _CANONICAL_ACTIONS: Final[dict[str, frozenset[str]]] = {
         "parse", "session", "filter", "align",
     }),
     "inspection.manage": frozenset({
-        "run", "task_list", "task_get", "task_cancel", "report",
+        "run", "list", "get", "cancel", "report",
     }),
 }
 

@@ -161,8 +161,9 @@ def run_ssot_turn(
                     if result is False:
                         approved = False  # denied
                         break
-                    # Still pending — sleep briefly and retry
-                    await asyncio.sleep(0.5)
+                    # Still pending. This adapter is synchronous; the async
+                    # QueryLoop has already completed before approval replay.
+                    time.sleep(0.5)
                     waited += 0.5
                 else:
                     # Timeout: fail open for demo/local use

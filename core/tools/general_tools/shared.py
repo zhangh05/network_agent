@@ -251,7 +251,12 @@ from core.tools.general_tools.shared_web import *
 
 def _run_shell(command: str, cwd: str = None, shell: str = "/bin/bash",
                env: dict = None, timeout: int = None) -> dict:
-    """Execute a shell command with safety limits. Returns result dict."""
+    """Execute a shell command with safety limits + process tree cleanup.
+
+    Uses process group isolation (os.setsid on Unix, CREATE_NEW_PROCESS_GROUP
+    on Windows) so that on timeout ALL child processes are killed — not just
+    the immediate parent.
+    """
     import subprocess, shlex, os as _os
     if not command or not command.strip():
         return {"ok": False, "error": "empty command"}
@@ -272,31 +277,67 @@ def _run_shell(command: str, cwd: str = None, shell: str = "/bin/bash",
     if env:
         sub_env.update(env)
 
+    actual_timeout = timeout or _SHELL_TIMEOUT
+
+    # ── Process group isolation ──
+    popen_kwargs: dict = {
+        "stdout": subprocess.PIPE,
+        "stderr": subprocess.PIPE,
+        "text": True,
+        "cwd": cwd or str(ROOT),
+        "env": sub_env,
+    }
+    if _os.name == "nt":
+        # Windows: CREATE_NEW_PROCESS_GROUP for tree kill via taskkill /T
+        popen_kwargs["creationflags"] = subprocess.CREATE_NEW_PROCESS_GROUP
+    else:
+        # Linux/macOS: setsid creates a new session/process group
+        popen_kwargs["preexec_fn"] = _os.setsid
+
+    proc = None
     try:
-        result = subprocess.run(
+        proc = subprocess.Popen(
             command if isinstance(command, list) else [shell, "-c", command],
-            capture_output=True, text=True,
-            timeout=timeout or _SHELL_TIMEOUT,
-            cwd=cwd or str(ROOT),
-            env=sub_env,
+            **popen_kwargs,
         )
+        stdout, stderr = proc.communicate(timeout=actual_timeout)
+
         from core.tools.redaction import redact_tool_output
-        stdout = redact_tool_output(result.stdout or "")[:_SHELL_MAX_OUTPUT]
-        stderr = redact_tool_output(result.stderr or "")[:_SHELL_MAX_OUTPUT]
-        actual_timeout = timeout or _SHELL_TIMEOUT
+        stdout = redact_tool_output(stdout or "")[:_SHELL_MAX_OUTPUT]
+        stderr = redact_tool_output(stderr or "")[:_SHELL_MAX_OUTPUT]
         return {
             "ok": True,
-            "exit_code": result.returncode,
+            "exit_code": proc.returncode,
             "stdout": stdout,
             "stderr": stderr,
             "timeout_seconds": actual_timeout,
         }
     except subprocess.TimeoutExpired:
-        actual_timeout = timeout or _SHELL_TIMEOUT
-        return {"ok": False, "error": f"command timed out after {actual_timeout}s"}
+        # ── Kill the entire process group, not just the parent ──
+        from core.tools.general_tools.process_manager import kill_process_tree
+        try:
+            kill_process_tree(proc.pid)
+        except Exception:
+            pass
+        # Collect whatever output was produced before the kill
+        try:
+            proc.kill()
+            proc.wait(timeout=2)
+        except Exception:
+            pass
+        return {"ok": False, "error": f"command timed out after {actual_timeout}s",
+                "process_tree_killed": True}
     except FileNotFoundError as e:
         return {"ok": False, "error": f"command not found: {e}"}
     except Exception as e:
+        # Attempt cleanup on any error
+        if proc is not None:
+            try:
+                if proc.poll() is None:
+                    from core.tools.general_tools.process_manager import kill_process_tree
+                    kill_process_tree(proc.pid)
+            except Exception:
+                pass
         return {"ok": False, "error": str(e)[:200]}
 
 

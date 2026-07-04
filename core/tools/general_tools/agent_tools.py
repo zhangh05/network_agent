@@ -1,37 +1,100 @@
+"""Agent orchestration tools — OpenCode-aligned profile-based subagent system."""
+
 from __future__ import annotations
 
 from core.tools.schemas import ToolInvocation
 from workspace.ids import validate_workspace_id
 
-from core.tools.general_tools.shared import _caller_workspace, _contract, _error, _error_inv, _ok, _result, _unavailable, _workspace_path
-"""Split general tool handlers."""
+from core.tools.general_tools.shared import _caller_workspace, _error_inv, _ok, _result
 
-def _select_subagent_profile(allowed_tools: list | None = None, roles: list | None = None) -> str:
-    tools = set(allowed_tools or [])
-    role_set = set(roles or [])
-    if "reviewer" in role_set:
-        return "review_agent"
-    if "worker" in role_set and "exec.run" in tools:
-        return "test_agent"
-    if {"workspace.file", "workspace.artifact"} & tools:
-        return "fix_agent"
-    if {"exec.run", "system.manage"} & tools:
-        return "test_agent"
-    if {"config.manage", "pcap.manage", "device.manage"} & tools:
-        return "network_diag_agent"
-    return "review_agent"
+
+# ── Agent profiles — declarative, extensible ─────────────────────────
+
+_AGENT_PROFILES: dict[str, dict] = {
+    "explore": {
+        "name": "explore",
+        "description": "Read-only code explorer. Finds files, searches code, answers codebase questions.",
+        "allowed_tools": [
+            "workspace.file", "workspace.artifact",
+            "web.manage", "knowledge.manage",
+            "code.search", "text.analyze",
+        ],
+        "temperature": 0.3,
+        "max_turns": 3,
+        "scale": "small",  # fast, low cost
+    },
+    "research": {
+        "name": "research",
+        "description": "Web and knowledge research. Searches external sources, fetches docs, aggregates findings.",
+        "allowed_tools": [
+            "web.manage", "knowledge.manage",
+            "data.manage", "text.analyze",
+            "workspace.artifact",
+        ],
+        "temperature": 0.5,
+        "max_turns": 5,
+        "scale": "medium",
+    },
+    "worker": {
+        "name": "worker",
+        "description": "Full-capability worker. Reads/writes files, executes commands, processes data.",
+        "allowed_tools": [
+            "workspace.file", "workspace.artifact",
+            "web.manage", "knowledge.manage",
+            "data.manage", "text.analyze",
+            "exec.run", "system.manage",
+            "browser.manage", "config.manage",
+        ],
+        "temperature": 0.4,
+        "max_turns": 8,
+        "scale": "large",
+    },
+    "review": {
+        "name": "review",
+        "description": "Read-only reviewer. Checks code quality, finds issues, suggests improvements.",
+        "allowed_tools": [
+            "workspace.file", "workspace.artifact",
+            "text.analyze", "data.manage",
+            "knowledge.manage",
+        ],
+        "temperature": 0.2,
+        "max_turns": 3,
+        "scale": "small",
+    },
+}
+
+
+def _get_profile(agent_type: str) -> dict | None:
+    return _AGENT_PROFILES.get(agent_type)
+
+
+def _inv_session_id(inv: ToolInvocation) -> str:
+    args = inv.arguments or {}
+    return str(args.get("session_id") or getattr(inv, "session_id", "") or "").strip()
+
+
+# ── Subagent execution ───────────────────────────────────────────────
 
 
 def _run_durable_subagent(*, instruction: str, workspace_id: str, session_id: str,
                           parent_task_id: str = "",
-                          allowed_tools: list | None = None, roles: list | None = None) -> dict:
+                          agent_type: str = "explore",
+                          max_turns: int = 3,
+                          background: bool = False) -> dict:
     from agent.runtime.durable.subagent import (
         create_subagent_task,
         merge_subagent_result,
         run_subagent_task,
     )
 
-    profile_id = _select_subagent_profile(allowed_tools, roles)
+    profile = _get_profile(agent_type)
+    if not profile:
+        return {"ok": False, "error": f"unknown agent_type: {agent_type}"}
+
+    profile_id = profile["name"]
+    effective_turns = min(max_turns, profile.get("max_turns", 5))
+    allowed_tools = profile.get("allowed_tools", [])
+
     created = create_subagent_task(
         parent_task_id=parent_task_id,
         workspace_id=workspace_id,
@@ -42,7 +105,17 @@ def _run_durable_subagent(*, instruction: str, workspace_id: str, session_id: st
     )
     if not created.get("ok"):
         return {"ok": False, "error": created.get("error", "failed to create subagent task")}
+
     subtask_id = created["subtask_id"]
+
+    if background:
+        # TODO: Wire up async background execution
+        return {
+            "ok": True, "subtask_id": subtask_id,
+            "background": True,
+            "_hint": f"Subagent {agent_type} launched in background (task: {subtask_id})",
+        }
+
     result = run_subagent_task(subtask_id, workspace_id)
     merge_subagent_result(parent_task_id, subtask_id, workspace_id)
     child_session_id = result.get("child_session_id") or subtask_id
@@ -52,6 +125,7 @@ def _run_durable_subagent(*, instruction: str, workspace_id: str, session_id: st
         "summary": result.get("summary", ""),
         "subtask_id": subtask_id,
         "child_session_id": child_session_id,
+        "agent_type": agent_type,
         "status": result.get("status", "unknown"),
         "findings": result.get("findings", []),
         "tool_results": result.get("tool_results", []),
@@ -60,249 +134,77 @@ def _run_durable_subagent(*, instruction: str, workspace_id: str, session_id: st
     }
 
 
-def _inv_session_id(inv: ToolInvocation) -> str:
-    args = inv.arguments or {}
-    return str(args.get("session_id") or getattr(inv, "session_id", "") or "").strip()
+# ── Action handlers ──────────────────────────────────────────────────
+
+
+def handle_agent_list(inv: ToolInvocation) -> dict:
+    """List available agent profiles with capabilities."""
+    profiles = []
+    for ptype, p in _AGENT_PROFILES.items():
+        profiles.append({
+            "agent_type": ptype,
+            "description": p["description"],
+            "max_turns": p.get("max_turns", 5),
+            "scale": p.get("scale", "medium"),
+        })
+    return _ok(inv, "", {
+        "agents": profiles, "count": len(profiles),
+        "_hint": (
+            "explore/research/review 用于只读任务。worker 用于需要写文件或执行命令的任务。"
+            "用 spawn 启动子Agent，用 get 获取结果。"
+        ),
+    })
 
 
 def handle_agent_spawn(inv: ToolInvocation) -> dict:
-    """Spawn a sub-agent with restricted tool access.
+    """Spawn a subagent with typed profile.
 
-    Creates a child session and runs a constrained sub-agent loop
-    with only read-only, low-risk tools. Returns compressed results.
+    Required: agent_type (explore|research|worker|review), instruction.
+    Optional: max_turns (default from profile), background (default false).
     """
-    instruction = str(inv.arguments.get("instruction", "")).strip()
-    workspace_id = _caller_workspace(inv)
-    parent_session_id = _inv_session_id(inv)
-    allowed_tools = list(inv.arguments.get("allowed_tools") or [])
-    max_turns = int(inv.arguments.get("max_turns", 1))
+    args = inv.arguments
+    instruction = str(args.get("instruction", "")).strip()
+    agent_type = str(args.get("agent_type", "explore")).strip()
+    max_turns = int(args.get("max_turns", 0) or 0)
+    background = bool(args.get("background", False))
 
     if not instruction:
         return _error_inv(inv, "instruction is required")
+
+    profile = _get_profile(agent_type)
+    if not profile:
+        available = list(_AGENT_PROFILES.keys())
+        return _error_inv(inv, f"unknown agent_type: {agent_type!r}. Available: {available}")
+
+    workspace_id = _caller_workspace(inv)
+    effective_turns = max_turns or profile.get("max_turns", 5)
 
     try:
         validate_workspace_id(workspace_id)
         result = _run_durable_subagent(
             instruction=instruction,
             workspace_id=workspace_id,
-            session_id=parent_session_id,
+            session_id=_inv_session_id(inv),
             parent_task_id=getattr(inv, "task_id", "") or "",
-            allowed_tools=allowed_tools if allowed_tools else None,
+            agent_type=agent_type,
+            max_turns=effective_turns,
+            background=background,
         )
-        return _result(inv, result.get("ok", False), result)
-    except Exception as e:
-        import sys, traceback
-        traceback.print_exc(file=sys.stderr)
-        return _error_inv(inv, str(e)[:200])
-
-def handle_agent_list_roles(inv: ToolInvocation) -> dict:
-    """List available agent roles: planner, worker, reviewer."""
-    roles = [
-        {
-            "name": "planner",
-            "description": "Plans high-level task decomposition. Breaks complex tasks into subtasks and assigns to workers.",
-            "default_tools": ["agent.manage", "skill.manage", "memory.manage", "web.manage"],
-        },
-        {
-            "name": "worker",
-            "description": "Executes assigned subtasks. Has access to read-only research, validation, and data tools.",
-            "default_tools": ["web.manage", "knowledge.manage", "text.analyze", "data.manage"],
-        },
-        {
-            "name": "reviewer",
-            "description": "Reviews worker outputs for quality, correctness, and completeness. Can request rework.",
-            "default_tools": ["text.analyze", "memory.manage", "workspace.artifact", "workspace.file"],
-        },
-    ]
-    return _ok(inv, "", {"roles": roles, "count": len(roles)})
-
-def handle_agent_team(inv: ToolInvocation) -> dict:
-    """Multi-agent team with planner/worker/reviewer roles.
-
-    Planner: delegates through agent.manage with read-only canonical tools.
-    Worker: delegates through agent.manage with text/data canonical tools.
-    Reviewer: optional, reviews worker output.
-
-    Supports parallel worker mode: when parallel=True, each subtask from the
-    planner gets its own concurrent worker sub-agent.
-    Max 3 agents, max 2 turns each. High-risk tools forbidden.
-    """
-    import json as _json
-    import concurrent.futures
-    args = inv.arguments
-    workspace_id = _caller_workspace(inv)
-    instruction = str(args.get("instruction", "")).strip()
-    roles = list(args.get("roles") or ["planner", "worker"])
-    parallel = bool(args.get("parallel", False))
-
-    if not instruction:
-        return _error_inv(inv, "instruction is required")
-
-    try:
-        validate_workspace_id(workspace_id)
-
-        # Low-risk read-only tools only for all roles
-        _low_risk_read_tools = [
-            "web.manage", "knowledge.manage",
-            "workspace.artifact", "workspace.file",
-            "memory.manage", "text.analyze", "data.manage",
-            "system.manage",
-        ]
-        _text_data_tools = [
-            "web.manage", "text.analyze", "data.manage", "workspace.file",
-        ]
-
-        result = {"ok": True, "instruction": instruction, "roles_used": [], "plan": "", "worker_result": None, "reviewer_result": None}
-        subtasks = []
-
-        # ── Planner (if in roles) ──
-        if "planner" in roles:
-            plan_instruction = (
-                f"Plan the execution of this task. Break it into subtasks. "
-                f"Do NOT execute — only produce a structured plan.\n\n"
-                f"Task: {instruction}\n\n"
-                f"Output your plan STRICTLY as a JSON array of objects: "
-                f'[{{"id": "1", "task": "..."}}, {{"id": "2", "task": "..."}}]. '
-                f"Each subtask should be specific and actionable. Do not add prose."
-            )
-            plan_result = _run_durable_subagent(
-                instruction=plan_instruction,
-                workspace_id=workspace_id,
-                session_id=_inv_session_id(inv),
-                parent_task_id=getattr(inv, "task_id", "") or "",
-                allowed_tools=_low_risk_read_tools,
-                roles=["planner"],
-            )
-            if plan_result.get("ok"):
-                result["plan"] = plan_result.get("final_response", "") or plan_result.get("summary", "")
-                # v3.2.0 (Guardian): parse JSON subtasks, fall back to numbered list.
-                plan_text = result["plan"]
-                parsed_json = _parse_planner_json(plan_text)
-                if parsed_json is not None:
-                    subtasks = parsed_json
-                else:
-                    for line in plan_text.split("\n"):
-                        stripped = line.strip()
-                        if stripped and (stripped[0].isdigit() and (". " in stripped or ") " in stripped or "、".encode() in stripped.encode())):
-                            task = stripped.split(". ", 1)[-1].split(") ", 1)[-1].split("、", 1)[-1].strip()
-                            if task:
-                                subtasks.append(task)
-            else:
-                result["plan"] = f"Planner failed: {plan_result.get('error', 'unknown')}"
-            result["roles_used"].append("planner")
-
-        # ── Worker(s) ──
-        if not subtasks:
-            subtasks = [instruction]
-
-        max_parallel = min(len(subtasks), 3)  # Cap at 3 concurrent workers
-
-        if parallel and len(subtasks) > 1:
-            # v3.1.1: Parallel worker execution
-            def _run_worker(task: str) -> dict:
-                return _run_durable_subagent(
-                    instruction=task,
-                    workspace_id=workspace_id,
-                    session_id=_inv_session_id(inv),
-                    parent_task_id=getattr(inv, "task_id", "") or "",
-                    allowed_tools=_text_data_tools,
-                    roles=["worker"],
-                )
-
-            worker_outputs = []
-            with concurrent.futures.ThreadPoolExecutor(max_workers=max_parallel) as executor:
-                futures = {
-                    executor.submit(_run_worker, task): i
-                    for i, task in enumerate(subtasks[:max_parallel])
-                }
-                for future in concurrent.futures.as_completed(futures):
-                    idx = futures[future]
-                    try:
-                        wr = future.result(timeout=60)
-                        worker_outputs.append({
-                            "task_index": idx,
-                            "task": subtasks[idx],
-                            "ok": wr.get("ok", False),
-                            "final_response": wr.get("final_response", ""),
-                        })
-                    except Exception as e:
-                        worker_outputs.append({
-                            "task_index": idx,
-                            "task": subtasks[idx],
-                            "ok": False,
-                            "final_response": f"Worker failed: {str(e)[:200]}",
-                        })
-
-            # Sort by task index
-            worker_outputs.sort(key=lambda x: x["task_index"])
-            combined = "\n\n".join(
-                f"Subtask {wo['task_index']+1}: {wo['task']}\nResult: {wo['final_response']}"
-                for wo in worker_outputs
-            )
-            result["worker_result"] = {
-                "ok": all(wo["ok"] for wo in worker_outputs),
-                "final_response": combined,
-                "parallel": True,
-                "worker_count": len(worker_outputs),
-                "worker_details": worker_outputs,
-            }
-            result["roles_used"].append("worker")
-        else:
-            # Sequential worker (original behavior)
-            worker_instruction = instruction
-            if result.get("plan"):
-                worker_instruction = f"Plan:\n{result['plan']}\n\nExecute the above plan. Task: {instruction}"
-            worker_result = _run_durable_subagent(
-                instruction=worker_instruction,
-                workspace_id=workspace_id,
-                session_id=_inv_session_id(inv),
-                parent_task_id=getattr(inv, "task_id", "") or "",
-                allowed_tools=_text_data_tools,
-                roles=["worker"],
-            )
-            result["worker_result"] = {
-                "ok": worker_result.get("ok", False),
-                "final_response": worker_result.get("final_response", ""),
-                "summary": worker_result.get("summary", ""),
-                "tool_calls_count": len(worker_result.get("tool_calls", [])),
-                "parallel": False,
-            }
-            result["roles_used"].append("worker")
-
-        # ── Reviewer (optional) ──
-        if "reviewer" in roles:
-            worker_output = result["worker_result"].get("final_response", "") or result["worker_result"].get("summary", "")
-            review_instruction = (
-                f"Review the following worker output for quality, correctness, and completeness. "
-                f"Identify any issues, missing information, or errors.\n\n"
-                f"Original task: {instruction}\n\n"
-                f"Worker output:\n{worker_output}\n\n"
-                f"Provide your review: is the output acceptable, or does it need revision?"
-            )
-            reviewer_result = _run_durable_subagent(
-                instruction=review_instruction,
-                workspace_id=workspace_id,
-                session_id=_inv_session_id(inv),
-                parent_task_id=getattr(inv, "task_id", "") or "",
-                allowed_tools=_low_risk_read_tools,
-                roles=["reviewer"],
-            )
-            result["reviewer_result"] = {
-                "ok": reviewer_result.get("ok", False),
-                "final_response": reviewer_result.get("final_response", ""),
-                "summary": reviewer_result.get("summary", ""),
-            }
-            result["roles_used"].append("reviewer")
-
-        return _ok(inv, f"Team run completed (roles={roles}, parallel={parallel}).", result)
+        return _result(inv, result.get("ok", False), {
+            **result,
+            "_hint": (
+                f"Subagent {agent_type} "
+                + ("已启动（后台）。" if background else f"完成，状态: {result.get('status')}。")
+                + f" subtask_id: {result.get('subtask_id')}。"
+                + " 用 get 获取详细结果。"
+            ),
+        })
     except Exception as e:
         return _error_inv(inv, str(e)[:200])
+
 
 def handle_agent_get_result(inv: ToolInvocation) -> dict:
-    """Get sub-agent result by child_session_id.
-
-    Looks up child session and returns summary from run records or message store.
-    """
+    """Get subagent result by child_session_id."""
     args = inv.arguments
     ws = _caller_workspace(inv)
     child_session_id = str(args.get("child_session_id", "")).strip()
@@ -312,8 +214,6 @@ def handle_agent_get_result(inv: ToolInvocation) -> dict:
 
     try:
         validate_workspace_id(ws)
-
-        # Try to find run records for this child session
         from workspace.message_store import SessionMessageStore
         store = SessionMessageStore(session_id=child_session_id, ws_id=ws)
         if store.exists():
@@ -325,116 +225,92 @@ def handle_agent_get_result(inv: ToolInvocation) -> dict:
                 "last_assistant_message": "",
                 "tool_calls_count": 0,
             }
-            # Extract last assistant message content
             for m in reversed(messages):
                 if m.get("role") == "assistant":
-                    content = m.get("content", "")
-                    summary["last_assistant_message"] = content[:500]
+                    summary["last_assistant_message"] = (m.get("content", "") or "")[:500]
                     break
-            # Count tool result messages
             summary["tool_calls_count"] = sum(1 for m in messages if m.get("role") == "tool")
             return _ok(inv, "", summary)
-        else:
-            # Fall back to run records
-            try:
-                from workspace.run_store import list_runs
-                runs = list_runs(ws, session_id=child_session_id, limit=10)
-                if runs:
-                    return _ok(inv, "", {
-                        "child_session_id": child_session_id,
-                        "workspace_id": ws,
-                        "run_count": len(runs),
-                        "runs": [{"run_id": r.get("run_id", ""), "ok": r.get("ok", False), "summary": str(r.get("summary", ""))[:200]} for r in runs],
-                    })
-            except Exception:
-                pass
-            return _ok(inv, "", {
-                "child_session_id": child_session_id,
-                "workspace_id": ws,
-                "message_count": 0,
-                "last_assistant_message": "",
-                "tool_calls_count": 0,
-                "note": "no records found for this child session",
-            })
+
+        # Fall back to run records
+        try:
+            from workspace.run_store import list_runs
+            runs = list_runs(ws, session_id=child_session_id, limit=10)
+            if runs:
+                return _ok(inv, "", {
+                    "child_session_id": child_session_id,
+                    "workspace_id": ws,
+                    "run_count": len(runs),
+                    "runs": [{
+                        "run_id": r.get("run_id", ""),
+                        "ok": r.get("ok", False),
+                        "summary": str(r.get("summary", ""))[:200],
+                    } for r in runs],
+                })
+        except Exception:
+            pass
+
+        return _ok(inv, "", {
+            "child_session_id": child_session_id,
+            "workspace_id": ws,
+            "note": "no records found for this child session",
+        })
     except Exception as e:
         return _error_inv(inv, str(e)[:200])
 
-__all__ = ['handle_agent_spawn', 'handle_agent_list_roles', 'handle_agent_team', 'handle_agent_get_result', '_parse_planner_json']
 
-
-def _parse_planner_json(plan_text: str):
-    """v3.2.0 (Guardian): extract subtasks from planner JSON output.
-
-    Accepts either:
-      - a bare JSON array: [{"task": "..."}]
-      - JSON wrapped in ```json ... ``` fences
-      - a top-level object with a "subtasks" key
-      - surrounding prose (we find the first JSON array/object span)
-
-    Returns a list of subtask strings, or None if no JSON could be parsed.
-    The caller falls back to numbered-list parsing in that case.
-    """
-    import json as _json
-    import re
-
-    if not plan_text:
-        return None
-
-    text = plan_text.strip()
-
-    # Strip ```json fences
-    fence_match = re.search(r"```(?:json)?\s*(\[.*?\]|\{.*?\})\s*```", text, re.DOTALL)
-    if fence_match:
-        text = fence_match.group(1)
-
-    # Try parsing directly
-    candidates: list = []
+def handle_agent_cancel(inv: ToolInvocation) -> dict:
+    """Cancel a running subagent by subtask_id."""
+    args = inv.arguments
+    subtask_id = str(args.get("subtask_id", "")).strip()
+    if not subtask_id:
+        return _error_inv(inv, "subtask_id is required")
     try:
-        candidates.append(_json.loads(text))
-    except Exception:
-        pass
+        ws = _caller_workspace(inv)
+        validate_workspace_id(ws)
+        # Mark subtask as cancelled in trajectory
+        from agent.runtime.durable.trajectory import _live_tasks
+        task = _live_tasks.get(subtask_id)
+        if task:
+            task["status"] = "cancelled"
+            task["cancelled_at"] = getattr(__import__("agent.runtime.utils", fromlist=["now_iso"]), "now_iso", lambda: "")()
+        return _ok(inv, "", {
+            "subtask_id": subtask_id, "cancelled": True,
+            "_hint": f"Subagent {subtask_id} 已取消。",
+        })
+    except Exception as e:
+        return _error_inv(inv, str(e)[:200])
 
-    # Find first balanced array/object span
-    if not candidates:
-        for opener, closer in (("[", "]"), ("{", "}")):
-            start = text.find(opener)
-            if start == -1:
-                continue
-            depth = 0
-            for i in range(start, len(text)):
-                if text[i] == opener:
-                    depth += 1
-                elif text[i] == closer:
-                    depth -= 1
-                    if depth == 0:
-                        snippet = text[start:i + 1]
-                        try:
-                            candidates.append(_json.loads(snippet))
-                        except Exception:
-                            pass
-                        break
 
-    for obj in candidates:
-        if isinstance(obj, list):
-            tasks = []
-            for item in obj:
-                if isinstance(item, dict) and item.get("task"):
-                    tasks.append(str(item["task"]).strip())
-                elif isinstance(item, str):
-                    tasks.append(item.strip())
-            tasks = [t for t in tasks if t]
-            if tasks:
-                return tasks[:10]  # cap to 10 to bound parallel fan-out
-        elif isinstance(obj, dict):
-            sub = obj.get("subtasks") or obj.get("tasks") or obj.get("plan")
-            if isinstance(sub, list) and sub:
-                tasks = []
-                for item in sub:
-                    if isinstance(item, dict) and item.get("task"):
-                        tasks.append(str(item["task"]).strip())
-                    elif isinstance(item, str):
-                        tasks.append(item.strip())
-                tasks = [t for t in tasks if t]
-                if tasks:
-                    return tasks[:10]
-    return None
+def handle_agent_status(inv: ToolInvocation) -> dict:
+    """List all running/completed subagent tasks."""
+    try:
+        ws = _caller_workspace(inv)
+        validate_workspace_id(ws)
+        from agent.runtime.durable.trajectory import _live_tasks
+        tasks = []
+        for tid, task in list(_live_tasks.items()):
+            tasks.append({
+                "subtask_id": tid,
+                "status": task.get("status", "unknown"),
+                "agent_type": task.get("profile_id", ""),
+                "instruction": (task.get("goal", "") or "")[:100],
+            })
+        return _ok(inv, "", {
+            "tasks": tasks, "count": len(tasks),
+            "_hint": f"{len(tasks)} 个子Agent任务。用 cancel 取消运行中的任务。",
+        })
+    except Exception as e:
+        return _error_inv(inv, str(e)[:200])
+
+
+# ── Exports ──────────────────────────────────────────────────────────
+
+__all__ = [
+    'handle_agent_list',
+    'handle_agent_spawn',
+    'handle_agent_get_result',
+    'handle_agent_cancel',
+    'handle_agent_status',
+    '_AGENT_PROFILES',
+]

@@ -40,7 +40,7 @@ SPEC_STABLE_ALIASES: list[tuple[str, str, str, str | None]] = [
     ("system.manage", "get_session", "session_get", "get_history"),
     ("system.manage", "review_get", "review_list", "get"),
     ("system.manage", "audit_get", "audit_log", "get"),
-    ("system.manage", "task_get", "tasks", "get"),
+    ("system.manage", "get", "tasks", "get"),
 ]
 
 
