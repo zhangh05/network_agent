@@ -515,7 +515,7 @@ def _handle_web_deep_search(inv: ToolInvocation) -> dict:
                 if score >= 2:
                     good_sources = [s for s in sources if s.get("quality_score", 0) >= 2]
         except Exception:
-            pass
+            logger.debug("deep_search deepen retry failed", exc_info=True)
 
     # ── Build result ─────────────────────────────────────────────────
     fetched_count = sum(1 for s in sources if s["fetched"])

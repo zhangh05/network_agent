@@ -231,11 +231,11 @@ class TestJobAPI:
         assert data["error"] == "invalid_workspace_id"
 
     def test_list_jobs_api(self, client):
-        resp = client.get("/api/jobs")
+        resp = client.get("/api/jobs?workspace_id=default")
         assert resp.status_code == 200
 
     def test_list_jobs_rejects_invalid_limit(self, client):
-        resp = client.get("/api/jobs?limit=abc")
+        resp = client.get("/api/jobs?limit=abc&workspace_id=default")
         assert resp.status_code == 400
         data = resp.get_json()
         assert data["ok"] is False

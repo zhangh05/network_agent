@@ -150,7 +150,7 @@ class TestAPI:
         assert "hostname" not in raw
 
     def test_list_jobs_sanitized(self, client):
-        resp = client.get("/api/jobs")
+        resp = client.get("/api/jobs?workspace_id=jh_api")
         assert resp.status_code == 200
 
     def test_no_api_translate(self, client):

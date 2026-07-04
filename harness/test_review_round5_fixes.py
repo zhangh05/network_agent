@@ -13,6 +13,7 @@ import os
 import sys
 import threading
 import time
+from collections import OrderedDict
 from pathlib import Path
 
 import pytest
@@ -217,10 +218,9 @@ class TestStreamEmitterTimestamp:
 # ─────────────────────────────────────────────────────────────────────
 
 class TestRuntimeRoutesAtomicWrite:
-    """_persist_history must use atomic_write_json."""
+    """_persist_history must use atomic_write_json (now per-workspace)."""
 
     def test_persist_history_uses_atomic_write(self, monkeypatch, tmp_path):
-        # Patch atomic_write_json and confirm it's invoked by _persist_history.
         from backend.api import runtime_routes
         captured = {}
         def fake_atomic_write_json(path, obj, indent=None):
@@ -228,37 +228,55 @@ class TestRuntimeRoutesAtomicWrite:
             captured["obj"] = obj
             captured["indent"] = indent
         monkeypatch.setattr("workspace.atomic_io.atomic_write_json", fake_atomic_write_json)
-        # Add something to history
-        runtime_routes._tool_exec_history.clear()
-        runtime_routes._tool_exec_history["inv-1"] = {"invocation_id": "inv-1", "ok": True}
-        runtime_routes._persist_history()
+        ws = "adhoc_ws_atomic"
+        runtime_routes._tool_exec_history.pop(ws, None)
+        runtime_routes._tool_exec_history[ws] = OrderedDict()
+        runtime_routes._tool_exec_history[ws]["inv-1"] = {"invocation_id": "inv-1", "ok": True}
+        runtime_routes._persist_history(ws)
         assert captured["indent"] == 2
         assert len(captured["obj"]) == 1
         assert captured["obj"][0]["invocation_id"] == "inv-1"
 
     def test_load_persisted_uses_safe_read_json(self, monkeypatch, tmp_path):
         from backend.api import runtime_routes
-        hist_path = tmp_path / "tool_history.json"
+        hist_path = tmp_path / "tool_history_default.json"
         hist_path.write_text(json.dumps([{"invocation_id": "inv-99"}]))
 
-        monkeypatch.setattr(runtime_routes, "_HISTORY_FILE", hist_path)
-        runtime_routes._tool_exec_history.clear()
-        runtime_routes._load_persisted()
-        assert "inv-99" in runtime_routes._tool_exec_history
+        def fake_history_path(ws_id):
+            return hist_path
+        monkeypatch.setattr(runtime_routes, "_history_path", fake_history_path)
+        runtime_routes._tool_exec_history.pop("default", None)
+        runtime_routes._tool_exec_history["default"] = OrderedDict()
+        # Monkeypatch safe_read_json to read from our test file
+        real_safe = __import__("workspace.atomic_io", fromlist=["safe_read_json"]).safe_read_json
+        def fake_safe_read_json(path, default=None):
+            if path == hist_path:
+                return json.loads(hist_path.read_text())
+            return real_safe(path, default=default)
+        monkeypatch.setattr("workspace.atomic_io.safe_read_json", fake_safe_read_json)
+
+        runtime_routes._ensure_ws_history("default")
+        assert "inv-99" in runtime_routes._tool_exec_history["default"]
 
     def test_load_persisted_handles_missing_file(self, monkeypatch, tmp_path):
         from backend.api import runtime_routes
-        monkeypatch.setattr(runtime_routes, "_HISTORY_FILE", tmp_path / "missing1.json")
-        runtime_routes._tool_exec_history.clear()
-        runtime_routes._load_persisted()
-        assert len(runtime_routes._tool_exec_history) == 0
+        missing = tmp_path / "missing1.json"
+        def fake_history_path(ws_id):
+            return missing
+        monkeypatch.setattr(runtime_routes, "_history_path", fake_history_path)
+        runtime_routes._tool_exec_history.pop("default", None)
+        runtime_routes._tool_exec_history["default"] = OrderedDict()
+        runtime_routes._ensure_ws_history("default")
+        assert len(runtime_routes._tool_exec_history["default"]) == 0
 
     def test_load_persisted_handles_corrupt_json(self, monkeypatch, tmp_path):
         from backend.api import runtime_routes
         bad = tmp_path / "bad.json"
         bad.write_text("{this is not json")
-        monkeypatch.setattr(runtime_routes, "_HISTORY_FILE", bad)
-        runtime_routes._tool_exec_history.clear()
-        # Should swallow JSONDecodeError gracefully
-        runtime_routes._load_persisted()
-        assert len(runtime_routes._tool_exec_history) == 0
+        def fake_history_path(ws_id):
+            return bad
+        monkeypatch.setattr(runtime_routes, "_history_path", fake_history_path)
+        runtime_routes._tool_exec_history.pop("default", None)
+        runtime_routes._tool_exec_history["default"] = OrderedDict()
+        runtime_routes._ensure_ws_history("default")
+        assert len(runtime_routes._tool_exec_history["default"]) == 0
