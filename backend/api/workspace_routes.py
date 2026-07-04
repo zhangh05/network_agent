@@ -464,6 +464,7 @@ def register_workspace_routes(app):
             format=data.get("format", "markdown"),
             include_deployable_config=data.get("include_deployable_config", False),
             sensitivity=data.get("sensitivity", "internal"),
+            content=data.get("content", ""),
         )
         result = svc_create_report(req)
         return jsonify(result.as_dict())

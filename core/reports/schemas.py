@@ -23,6 +23,7 @@ class ReportRequest:
     include_sections: list = field(default_factory=list)
     include_deployable_config: bool = False
     options: dict = field(default_factory=dict)
+    content: str = ""
     created_by: str = "agent"
 
 

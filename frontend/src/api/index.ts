@@ -500,7 +500,7 @@ export const memoryApi = {
     ),
 
   setProfile: (
-    data: { scope?: string; memory_type?: string; source?: string },
+    data: { scope?: string; memory_type?: string; source?: string; title?: string; content?: string },
     signal?: AbortSignal,
   ): Promise<{ ok: boolean }> =>
     apiRequest<{ ok: boolean }>(
@@ -847,11 +847,13 @@ export const approvalApi = {
   resolve: (
     approvalId: string,
     body: { decision: string; workspace_id: string; edited_args?: Record<string, unknown>; feedback?: string; reason?: string },
+    adminToken?: string,
   ): Promise<{ ok: boolean; approval_id: string; decision: string }> =>
     apiRequest({
       method: "POST",
       url: `/agent/approvals/${approvalId}/resolve`,
       data: body,
+      headers: adminToken ? { "X-Admin-Token": adminToken } : {},
     }),
 
   history: (params: { workspaceId: string; sessionId?: string; toolId?: string; limit?: number }): Promise<{
