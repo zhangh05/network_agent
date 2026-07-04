@@ -69,7 +69,7 @@ def sanitize_llm_settings(data: dict) -> dict:
     }
 
 
-def mask_key(key: str) -> str:
+def mask_key(key: str) -> Optional[str]:
     if not key or len(key) < 8:
         return None
     return key[:4] + "****" + key[-4:]

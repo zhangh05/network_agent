@@ -270,8 +270,10 @@ def _validate_field(field: str, value, field_schema: dict, errors: list):
             for nf, nv in value.items():
                 if nf in nested_props:
                     _validate_field(f"{field}.{nf}", nv, nested_props[nf], errors)
-        elif expected_type == "array" and not isinstance(value, list):
-            errors.append(f"Field '{field}' expected array, got {type(value).__name__}")
+
+    # ── Array type check ──
+    if expected_type == "array" and not isinstance(value, list):
+        errors.append(f"Field '{field}' expected array, got {type(value).__name__}")
 
     return errors
 

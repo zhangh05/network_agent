@@ -26,7 +26,10 @@ query_knowledge flow:
 
 from __future__ import annotations
 
+import logging
 from typing import List, Optional, Union
+
+logger = logging.getLogger("knowledge.service")
 
 
 # ── Source service functions ──
@@ -299,7 +302,13 @@ def query_knowledge(
     enabled_source_ids = {s["source_id"] for s in _sources_list
                           if s.get("enabled", True)
                           and not s.get("deleted", False)}
-    children = [c for c in load_all_chunks(workspace_id)
+    # Load chunks with a sane safety limit; large knowledge bases should use
+    # source-level scoping instead of loading every chunk into memory.
+    all_chunks = load_all_chunks(workspace_id)
+    if len(all_chunks) > 50_000:
+        logger.warning("query_knowledge: too many chunks (%d), truncating to 50000", len(all_chunks))
+        all_chunks = all_chunks[:50_000]
+    children = [c for c in all_chunks
                 if c.chunk_type == "child"
                 and c.source_id in enabled_source_ids]
     if children:

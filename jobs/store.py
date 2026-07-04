@@ -2,6 +2,7 @@
 """Job store — CRUD for jobs, events, logs in workspace directories."""
 
 import json, os, time, shutil
+import logging
 from pathlib import Path
 from typing import Optional
 
@@ -12,6 +13,8 @@ from jobs.redaction import (
     sanitize_job_log_for_storage, sanitize_job_log_for_api,
 )
 from agent.runtime.utils import now_iso
+
+_LOG = logging.getLogger("jobs.store")
 
 ROOT = Path(__file__).resolve().parent.parent
 
