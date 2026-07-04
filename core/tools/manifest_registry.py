@@ -74,13 +74,14 @@ MANIFESTS: dict[str, CapabilityManifest] = {
         timeout_seconds=60,
     ),
 
-    # ═══ 5. web.manage (merged: search+fetch+weather+deep_search) ═══
+    # ═══ 5. web.manage (merged: search+fetch+weather+deep_search+list) ═══
     "web.manage": CapabilityManifest(
         tool_id="web.manage", category="web", display_name="Web (unified)",
         description=(
             "Unified web tool. action=search (web/docs/news), "
             "action=fetch (read a URL), action=weather (forecast), "
-            "action=deep_search (search+fetch+aggregate)."
+            "action=deep_search (search+fetch+aggregate), "
+            "action=list (alias for search, no-op)."
         ),
         action_class="network",
         risk_level="low", side_effects="none", idempotency="safe_to_retry",

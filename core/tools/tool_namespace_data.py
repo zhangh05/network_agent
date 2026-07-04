@@ -112,7 +112,7 @@ NS_DATA = [
      'Do not access private/login-walled URLs without permission.',
      'browser navigate click screenshot extract playwright', 'browser.manage'),
 
-    # 5. web.manage — unifies search + fetch + weather + deep_search
+    # 5. web.manage — unifies search + fetch + weather + deep_search + list
     ('web.manage', 'web', 'web_search', 'multi', 'Web 搜索/天气/网页', 'web.manage',
      'Unified web tool. action=search (source=general|docs|news; recency+language+limit params), '
      'action=weather (current or N-day forecast for a location), '

@@ -343,7 +343,7 @@ def _handle_browser_merged(inv: ToolInvocation) -> dict:
 
 
 def _handle_web_merged(inv: ToolInvocation) -> dict:
-    """web.manage — action=search|fetch|weather|deep_search."""
+    """web.manage — action=search|fetch|weather|deep_search. list is a synonym for search."""
     action, _ = _action(inv)
     if action == "weather":
         return _weather_merged(inv)
@@ -351,7 +351,7 @@ def _handle_web_merged(inv: ToolInvocation) -> dict:
         return _handle_web_fetch_v2(inv)
     if action == "deep_search":
         return _handle_web_deep_search(inv)
-    # default: search (respects source=general|docs|news)
+    # default: search (respects source=general|docs|news; also covers list)
     return _handle_web_search_merged(inv)
 
 
@@ -2367,8 +2367,8 @@ _RAW_REGISTRY: list[CanonicalToolEntry] = [
         input_schema=_schema({
             "action": {
                 "type": "string",
-                "enum": ["search", "fetch", "weather", "deep_search"],
-                "description": "search (web search) | fetch (read a URL) | weather (forecast) | deep_search (search+fetch+aggregate).",
+                "enum": ["search", "fetch", "weather", "deep_search", "list"],
+                "description": "search (web search) | fetch (read a URL) | weather (forecast) | deep_search (search+fetch+aggregate) | list (alias for search, no-op).",
                 "default": "search",
             },
             # ── search / deep_search ──
