@@ -81,7 +81,8 @@ def write_trace(trace, ws_id: str = "default") -> str:
     data = redact_trace(trace.as_dict())
 
     path = runs_dir / f"{run_id}.trace.json"
-    _atomic_write_json(path, data)
+    with _locked_trace(path):
+        _atomic_write_json(path, data)
 
     return trace_id
 

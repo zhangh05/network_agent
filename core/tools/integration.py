@@ -43,8 +43,12 @@ def get_default_tool_runtime_client() -> ToolRuntimeClient:
         return _default_client
     with _default_client_lock:
         if _default_client is None:
-            registry = register_builtin_tools(ToolRegistry())
-            registry = register_all_general_tools(registry)
+            # v3.11: canonical tools MUST register first so their
+            # authoritative handlers are not silently shadowed by
+            # builtin stubs (e.g. workspace.artifact with 7 actions
+            # vs the list-only builtin version).
+            registry = register_all_general_tools(ToolRegistry())
+            registry = register_builtin_tools(registry)
             policy = ToolPolicy()
             _default_client = ToolRuntimeClient(registry, policy)
             _default_client_build_count += 1

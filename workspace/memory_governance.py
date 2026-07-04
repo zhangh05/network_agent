@@ -93,7 +93,8 @@ class MemoryStore:
     def _path(self, ws_id: str, memory_id: str) -> Path:
         return self._dir(ws_id) / f"{memory_id}.json"
 
-    def save(self, record: MemoryRecord):
+    def _save(self, record: MemoryRecord):
+        """Internal write — gate checks are enforced by MemoryWriteGate."""
         record.workspace_id = self._validated_ws_id(record.workspace_id)
         d = self._dir(record.workspace_id); d.mkdir(parents=True, exist_ok=True)
         from core.graph.projection_events import append_memory_written
@@ -194,7 +195,7 @@ class MemoryWriteGate:
         if _is_low_value_memory(candidate):
             candidate.status = "rejected"
             candidate.redacted = True
-            self.store.save(candidate)
+            self.store._save(candidate)
             return {"ok": False, "status": "rejected", "memory_id": candidate.memory_id,
                     "rejected": True, "error": "low_value_memory",
                     "gate_mode": gate_mode}
@@ -251,7 +252,7 @@ class MemoryWriteGate:
 
         # 9. Persist
         candidate.redacted = True
-        self.store.save(candidate)
+        self.store._save(candidate)
         result = {"ok": True, "status": candidate.status, "memory_id": candidate.memory_id,
                   "rejected": False, "conflict": candidate.status == "conflict",
                   "gate_mode": gate_mode}
@@ -272,9 +273,9 @@ def confirm_memory(ws_id: str, memory_id: str) -> dict:
     if rec.conflict_group:
         for r in store.list_all(ws_id):
             if r.conflict_group == rec.conflict_group and r.memory_id != rec.memory_id and r.status == "active":
-                r.status = "expired"; store.save(r)
+                r.status = "expired"; store._save(r)
     rec.status = "active"; rec.updated_at = _now()
-    store.save(rec)
+    store._save(rec)
     _emit_event(ws_id, rec, "memory_confirmed")
     return {"ok": True, "status": "active"}
 
@@ -283,7 +284,7 @@ def reject_memory(ws_id: str, memory_id: str) -> dict:
     rec = store.get(ws_id, memory_id)
     if not rec: return {"ok": False, "error": "not found"}
     rec.status = "rejected"; rec.updated_at = _now()
-    store.save(rec)
+    store._save(rec)
     _emit_event(ws_id, rec, "memory_rejected")
     return {"ok": True, "status": "rejected"}
 
@@ -292,7 +293,7 @@ def expire_memory(ws_id: str, memory_id: str) -> dict:
     rec = store.get(ws_id, memory_id)
     if not rec: return {"ok": False, "error": "not found"}
     rec.status = "expired"; rec.updated_at = _now()
-    store.save(rec)
+    store._save(rec)
     _emit_event(ws_id, rec, "memory_expired")
     return {"ok": True, "status": "expired"}
 

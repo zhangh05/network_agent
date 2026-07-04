@@ -98,7 +98,9 @@ class Kernel:
         """Execute task — pure forwarding, no business logic."""
         store = self._store
         tools = tools or {}
-        run_id = f"run_{task_input[:20].replace(' ', '_')}"
+        import hashlib, uuid
+        safe_prefix = hashlib.sha256(task_input.encode()).hexdigest()[:12]
+        run_id = f"run_{safe_prefix}_{uuid.uuid4().hex[:8]}"
 
         def emit(et: str, rid: str, payload: dict | None = None) -> None:
             store.append(et, rid, payload)
@@ -230,15 +232,17 @@ def _build_default_final(results: dict[str, ToolResult]) -> str:
 
 
 def _run_async(coro):
-    """Run coroutine. If already in async context, delegate to caller (return coroutine).
-    Otherwise execute via asyncio.run.
+    """Run coroutine. If already in async context, raise — the caller
+    MUST use ``await kernel.async_execute(...)`` directly to get a
+    KernelResult.  Returning the unconsumed coroutine would silently
+    break every caller that expects a synchronous KernelResult.
     """
     try:
         asyncio.get_running_loop()
-        in_loop = True
     except RuntimeError:
-        in_loop = False
-    if in_loop:
-        # Caller must await; we return the coroutine unchanged.
-        return coro
-    return asyncio.run(coro)
+        # No running loop — safe to run synchronously.
+        return asyncio.run(coro)
+    raise RuntimeError(
+        "Kernel.execute() called from within an async event loop. "
+        "Use `await kernel.async_execute(...)` instead."
+    )

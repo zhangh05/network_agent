@@ -6,6 +6,8 @@ Each provider has its own config file: config/providers/<provider>.json
 Active provider is tracked in: config/providers/_active
 """
 
+import logging
+
 from flask import request, jsonify
 from agent.llm.client import LLMClient
 from agent.llm.settings import (

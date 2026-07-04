@@ -452,7 +452,7 @@ def _api_generate_stream(url: str, body_dict: dict, cfg: dict, req: "LLMRequest"
             error=None if text else "timeout",
             provider=cfg.get("provider", ""),
             model=provider_model,
-            finish_reason=finish_reason,
+            finish_reason=finish_reason or "stream_truncated",
             metadata={"stream_truncated": True, "error_detail": "stream timeout"},
         ) if text else LLMResponse(
             error="provider_timeout: stream timed out",

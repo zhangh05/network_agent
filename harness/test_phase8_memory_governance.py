@@ -139,7 +139,7 @@ class TestRetrieval:
         store = MemoryStore()
         rec = MemoryRecord(workspace_id=ws, status="pending", content="test",
                            scope="workspace")
-        store.save(rec)
+        store._save(rec)
         results = store.list_retrievable(ws)
         assert not any(r["memory_id"] == rec.memory_id for r in results)
 
@@ -148,7 +148,7 @@ class TestRetrieval:
         store = MemoryStore()
         rec = MemoryRecord(workspace_id=ws, status="active", content="test",
                            scope="workspace")
-        store.save(rec)
+        store._save(rec)
         results = store.list_retrievable(ws)
         assert any(r["memory_id"] == rec.memory_id for r in results)
 
@@ -159,7 +159,7 @@ class TestRetrieval:
         store = MemoryStore()
 
         with pytest.raises(ValueError):
-            store.save(MemoryRecord(workspace_id="../x", status="active", content="bad"))
+            store._save(MemoryRecord(workspace_id="../x", status="active", content="bad"))
 
         assert not (tmp_path.parent / "x").exists()
 
@@ -168,7 +168,7 @@ class TestRetrieval:
         ws_b = f"ws_mb_{uuid.uuid4().hex[:8]}"
         store = MemoryStore()
         rec = MemoryRecord(workspace_id=ws_a, status="active", scope="workspace")
-        store.save(rec)
+        store._save(rec)
         results = store.list_retrievable(ws_b)
         assert not any(r["memory_id"] == rec.memory_id for r in results)
 
@@ -180,7 +180,7 @@ class TestRetrieval:
                            content="test", scope="workspace",
                            expires_at=time.strftime("%Y-%m-%dT%H:%M:%S",
                                                     time.localtime(time.time() - 3600)))
-        store.save(rec)
+        store._save(rec)
         results = store.list_retrievable(ws)
         assert not any(r["memory_id"] == rec.memory_id for r in results)
 

@@ -17,35 +17,47 @@ _LOG = logging.getLogger(__name__)
 
 # ── In-memory state for execution history ──
 _TOOL_HISTORY_MAX = 200
-_tool_exec_history = OrderedDict()
+_tool_exec_history: dict[str, OrderedDict] = {}  # ws_id -> OrderedDict
 _lock = threading.Lock()
 
-_HISTORY_FILE = Path(__file__).resolve().parent.parent.parent / 'data' / 'tool_history.json'
+
+def _history_path(ws_id: str) -> Path:
+    from workspace.ids import validate_workspace_id
+    safe_ws = validate_workspace_id(ws_id)
+    return Path(__file__).resolve().parent.parent.parent / 'data' / f'tool_history_{safe_ws}.json'
 
 
-def _persist_history():
+def _persist_history(ws_id: str):
     # v5.0.0: write through workspace.atomic_io for crash-safe persistence
     # (was a non-atomic open(...).write(...), which could leave the JSON
     # half-written if the process was killed mid-flush).
     with _lock:
-        snapshot = list(_tool_exec_history.values())
+        snapshot = list(_tool_exec_history.get(ws_id, OrderedDict()).values())
     try:
         from workspace.atomic_io import atomic_write_json
-        atomic_write_json(_HISTORY_FILE, snapshot, indent=2)
+        atomic_write_json(_history_path(ws_id), snapshot, indent=2)
     except Exception:
         _LOG.warning("_persist_history atomic write failed (non-fatal)", exc_info=True)
 
 
-def _load_persisted():
+def _ensure_ws_history(ws_id: str) -> OrderedDict:
+    """Lazily initialise per-workspace history (in-memory + load from disk)."""
+    with _lock:
+        if ws_id not in _tool_exec_history:
+            _tool_exec_history[ws_id] = OrderedDict()
+    # Load persisted entries (outside lock — only reads)
     from workspace.atomic_io import safe_read_json
-    items = safe_read_json(_HISTORY_FILE, default=[]) or []
+    hp = _history_path(ws_id)
+    items = safe_read_json(hp, default=[]) or []
     if isinstance(items, list):
-        for item in items:
-            if isinstance(item, dict):
-                _tool_exec_history[item.get('invocation_id', '')] = item
-
-
-_load_persisted()
+        with _lock:
+            ws_hist = _tool_exec_history[ws_id]
+            for item in items:
+                if isinstance(item, dict):
+                    inv_id = item.get('invocation_id', '')
+                    if inv_id and inv_id not in ws_hist:
+                        ws_hist[inv_id] = item
+    return _tool_exec_history[ws_id]
 
 
 def _invalid_ws():
@@ -123,10 +135,11 @@ def _blocked_tool_response(invocation, ws_id: str, risk_level: str, reason: str)
         "risk_level": risk_level,
     }
     with _lock:
-        _tool_exec_history[invocation.invocation_id] = hist_entry
-        while len(_tool_exec_history) > _TOOL_HISTORY_MAX:
-            _tool_exec_history.popitem(last=False)
-    _persist_history()
+        ws_hist = _ensure_ws_history(ws_id)
+        ws_hist[invocation.invocation_id] = hist_entry
+        while len(ws_hist) > _TOOL_HISTORY_MAX:
+            ws_hist.popitem(last=False)
+    _persist_history(ws_id)
 
     return jsonify({
         "ok": False,
@@ -310,7 +323,7 @@ def register_runtime_routes(app):
         try:
             policy_decision = client._policy.check(spec, invocation)
         except Exception as policy_exc:
-            app._LOG.warning(
+            _LOG.warning(
                 "policy_check_failed tool_id=%s err=%s",
                 requested_tool_id, policy_exc,
             )
@@ -442,15 +455,17 @@ def register_runtime_routes(app):
         except (ValueError, TypeError):
             limit = 50
 
-        with _lock:
-            all_records = list(_tool_exec_history.values())
+        ws_id, err = _validated_ws_id(ws_id)
+        if err:
+            return err
 
-        # Filter by workspace
-        records = [r for r in all_records if r.get("workspace_id", "") == ws_id]
+        with _lock:
+            ws_hist = _tool_exec_history.get(ws_id, OrderedDict())
+            records = list(reversed(list(ws_hist.values())))
+
         if status_filter:
             records = [r for r in records if r.get("status", "") == status_filter]
-        # Latest first
-        records = list(reversed(records))[:limit]
+        records = records[:limit]
 
         return jsonify({
             "records": records,
@@ -603,11 +618,20 @@ def register_runtime_routes(app):
         except Exception as e:
             return jsonify({"ok": False, "error": str(e)[:200]}), 500
 
+    # Per-workspace dynamic breakpoints (thread-safe, replaces os.environ)
+    _breakpoints: dict[str, list[str]] = {}
+    _breakpoints_lock = threading.Lock()
+
     @app.route("/api/agent/breakpoints", methods=["GET", "POST", "DELETE"])
     def api_agent_breakpoints():
+        ws_id_raw = request.args.get("workspace_id", "")
+        ws_id, err = _validated_ws_id(ws_id_raw)
+        if err:
+            return err
         if request.method == "GET":
-            from agent.runtime.auto_checkpoint import get_dynamic_breakpoints
-            return jsonify({"ok": True, "breakpoints": list(get_dynamic_breakpoints())})
+            with _breakpoints_lock:
+                tools = _breakpoints.get(ws_id, [])
+            return jsonify({"ok": True, "breakpoints": tools})
         elif request.method == "POST":
             data = request.get_json(silent=True) or {}
             tools = data.get("tools", [])
@@ -616,10 +640,12 @@ def register_runtime_routes(app):
                 tools = [t.strip() for t in tools.split(",") if t.strip()]
             elif not isinstance(tools, list):
                 tools = [str(tools)]
-            os.environ["AGENT_BREAKPOINT_TOOLS"] = ",".join(tools)
+            with _breakpoints_lock:
+                _breakpoints[ws_id] = tools
             return jsonify({"ok": True, "tools": tools})
         else:
-            os.environ.pop("AGENT_BREAKPOINT_TOOLS", None)
+            with _breakpoints_lock:
+                _breakpoints.pop(ws_id, None)
             return jsonify({"ok": True, "breakpoints": []})
 
     @app.route("/api/agent/runtime-mode")

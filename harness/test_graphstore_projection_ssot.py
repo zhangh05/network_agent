@@ -65,7 +65,7 @@ def test_artifact_and_memory_projection_write_graph_events(temp_dirs):
         content="BGP peer ASBR-PE1 belongs to WAN",
         summary="ASBR-PE1 WAN",
     )
-    MemoryStore().save(rec)
+    MemoryStore()._save(rec)
 
     run_events = get_graph_store().get_events("run_projection_2")
     memory_events = get_graph_store().get_events(rec.memory_id)
@@ -108,7 +108,7 @@ def test_projection_write_fails_closed_when_graphstore_unavailable(temp_dirs, mo
     )
 
     try:
-        MemoryStore().save(rec)
+        MemoryStore()._save(rec)
         raise AssertionError("MemoryStore.save should fail when GraphStore append fails")
     except RuntimeError as exc:
         assert "graph unavailable" in str(exc)

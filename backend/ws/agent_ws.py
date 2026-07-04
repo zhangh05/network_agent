@@ -23,7 +23,9 @@ import logging
 import queue
 import threading
 import traceback
+from flask import request
 from flask_sock import Sock
+from backend.core.auth import is_allowed_browser_origin
 
 sock = Sock()
 _log = logging.getLogger("ws.agent")
@@ -38,6 +40,10 @@ def register_ws_routes(app):
     @sock.route("/ws/agent")
     def ws_agent(ws):
         """WebSocket endpoint for agent message streaming."""
+        if not _same_origin_ws_request():
+            ws.send(json.dumps({"type": "error", "message": "csrf_origin_denied"}))
+            return
+
         try:
             while True:
                 raw = ws.receive(timeout=300)
@@ -145,6 +151,11 @@ def register_ws_routes(app):
                     pass
 
     return app
+
+
+def _same_origin_ws_request() -> bool:
+    origin = request.headers.get("Origin")
+    return is_allowed_browser_origin(origin, request.host)
 
 
 def _run_agent_thread(user_input, session_id, workspace_id, metadata, event_queue, error_holder, stats):

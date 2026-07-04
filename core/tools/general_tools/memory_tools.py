@@ -289,7 +289,7 @@ def handle_memory_update(inv: ToolInvocation) -> dict:
         from workspace.memory_governance import _redact
         rec.content = _redact(content[:2000])
         rec.updated_at = now_iso()
-        store.save(rec)
+        store._save(rec)
         return _ok(inv, "", {
             "memory_id": memory_id, "updated": True,
             "_hint": "记忆已更新。",

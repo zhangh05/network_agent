@@ -75,7 +75,7 @@ def test_memory_delete_uses_reject_transition_not_write_gate(tmp_path, monkeypat
         content="delete me",
         summary="delete me",
     )
-    store.save(rec)
+    store._save(rec)
 
     def fail_write(self, candidate, gate_mode="rule_only"):
         raise AssertionError("delete must not re-enter MemoryWriteGate.write")
@@ -96,7 +96,7 @@ def test_memory_list_redacts_legacy_secret_records(tmp_path, monkeypatch):
     from backend.main import create_app
 
     monkeypatch.setattr(mg, "WS_ROOT", tmp_path)
-    MemoryStore().save(MemoryRecord(
+    MemoryStore()._save(MemoryRecord(
         workspace_id="list_redact_ws",
         status="pending",
         source="agent_suggestion",
@@ -142,7 +142,7 @@ def test_slash_memory_uses_governed_store(tmp_path, monkeypatch):
     from agent.runtime.command_system import execute_command
 
     monkeypatch.setattr(mg, "WS_ROOT", tmp_path)
-    MemoryStore().save(MemoryRecord(
+    MemoryStore()._save(MemoryRecord(
         workspace_id="slash_ws",
         status="active",
         source="user",
@@ -258,7 +258,7 @@ def test_task_scope_memory_requires_session_filter(tmp_path, monkeypatch):
 
     monkeypatch.setattr(mg, "WS_ROOT", tmp_path)
     store = MemoryStore()
-    store.save(MemoryRecord(
+    store._save(MemoryRecord(
         workspace_id="ws_a",
         session_id="sess_a",
         scope="task",

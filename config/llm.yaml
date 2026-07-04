@@ -1,7 +1,7 @@
 llm:
   enabled: true
   default_provider: minimax
-  safe_mode: false  # Disabled - user requires LLM always works
+  safe_mode: true  # Default safe; overridable via llm.local.yaml
   timeout_seconds: 30
   providers:
     minimax:

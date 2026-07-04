@@ -102,7 +102,12 @@ export function Settings() {
 
         if (list.length === 0) {
           // Fallback: build provider list from presets if API returns empty/malformed
-          throw new Error("未获取到厂商列表，请检查 LLM 服务是否正常启动");
+          // Don't throw — show empty state with presets available for adding.
+          setProviders([]);
+          setActiveId("");
+          setSelectedId("");
+          setLoading(false);
+          return;
         }
 
         setProviders(list);

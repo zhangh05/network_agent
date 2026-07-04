@@ -60,9 +60,8 @@ class BudgetController:
         return BudgetStatus(ok=True, elapsed_total_ms=elapsed)
 
     def check_llm_call(self) -> BudgetStatus:
-        """Check budget before an LLM call."""
-        self._llm_calls += 1
-
+        """Check budget before an LLM call. Inspect limits first, only
+        increment the counter when the call is permitted."""
         elapsed = (time.monotonic() - self._start_time) * 1000
         total_limit_ms = self._budget.max_total_seconds * 1000
 
@@ -72,12 +71,13 @@ class BudgetController:
                 elapsed_total_ms=elapsed, llm_calls_used=self._llm_calls,
             )
 
-        if self._llm_calls > self._budget.max_llm_calls:
+        if self._llm_calls >= self._budget.max_llm_calls:
             return BudgetStatus(
                 ok=False, exceeded="LLM_CALLS_EXCEEDED",
                 elapsed_total_ms=elapsed, llm_calls_used=self._llm_calls,
             )
 
+        self._llm_calls += 1
         return BudgetStatus(ok=True, elapsed_total_ms=elapsed, llm_calls_used=self._llm_calls)
 
     def check_dag(self, dag: ExecutionDAG) -> BudgetStatus:

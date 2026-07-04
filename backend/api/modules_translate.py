@@ -12,6 +12,7 @@ from flask import request, jsonify
 from backend.core.limits import source_config_too_large
 from modules.config_translation.backend.schemas import TranslateRequest
 from modules.config_translation.backend.service import translate_config
+from workspace.ids import validate_workspace_id
 
 logger = logging.getLogger(__name__)
 
@@ -19,6 +20,13 @@ logger = logging.getLogger(__name__)
 def handle_module_translate():
     """Handle POST /api/modules/config-translation/translate."""
     data = request.get_json(silent=True) or {}
+
+    ws_id = data.get("workspace_id", "")
+    if ws_id:
+        try:
+            ws_id = validate_workspace_id(ws_id)
+        except ValueError:
+            return jsonify({"ok": False, "error": "invalid_workspace_id"}), 400
 
     source_config = (data.get("source_config") or data.get("config_text") or "").strip()
     if not source_config:

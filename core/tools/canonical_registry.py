@@ -571,7 +571,7 @@ def _handle_report_diff(inv: ToolInvocation) -> dict:
             ))
             text_a = res.get("content", "") if isinstance(res, dict) else ""
         except Exception:
-            pass
+            logger.debug("artifact diff: failed to read artifact_id_a=%s", aid_a, exc_info=True)
     if aid_b and not text_b:
         try:
             from core.tools.general_tools.file_tools import handle_artifact_read_content_safe
@@ -580,7 +580,7 @@ def _handle_report_diff(inv: ToolInvocation) -> dict:
             ))
             text_b = res.get("content", "") if isinstance(res, dict) else ""
         except Exception:
-            pass
+            logger.debug("artifact diff: failed to read artifact_id_b=%s", aid_b, exc_info=True)
 
     if not text_a and not text_b:
         return {"ok": False, "error": "text_a/text_b or artifact_id_a/artifact_id_b required"}
@@ -843,6 +843,9 @@ def _handle_workspace_artifact_merged(inv: ToolInvocation) -> dict:
         return handle_artifact_tag(inv)
     elif action == "delete":
         return handle_artifact_delete_soft(inv)
+    elif not action:
+        # Default to list when no explicit action is provided
+        return _ws_artifact_list_merged(inv)
     else:
         return {
             "ok": False,
@@ -1036,9 +1039,6 @@ from core.tools.general_tools.runtime_tools import (
     handle_runtime_archive_preview,
     handle_text_diff,
     handle_text_redact,
-)
-from core.tools.builtins import (
-    _handler_artifact_list,
 )
 import logging
 
@@ -2154,10 +2154,37 @@ def _ws_artifact_list_merged(inv: ToolInvocation) -> dict:
     if inv.arguments.get("query", "").strip():
         result = handle_artifact_search(inv)
     else:
-        result = _handler_artifact_list(inv)
+        result = _ws_artifact_list_basic(inv)
     if isinstance(result, dict):
         return result
     return {"ok": False, "error": "unexpected result type"}
+
+
+def _ws_artifact_list_basic(inv: ToolInvocation) -> dict:
+    """List artifact metadata for a workspace (simple list, no full content)."""
+    workspace_id = inv.arguments.get("workspace_id", inv.workspace_id or "")
+    try:
+        from workspace.manager import get_workspace_state
+        state = get_workspace_state(workspace_id)
+        art_refs = state.get("artifact_refs", []) if isinstance(state, dict) else []
+        return {
+            "ok": True,
+            "tool_id": "workspace.artifact",
+            "status": "ok",
+            "summary": f"Listed {len(art_refs)} artifact references",
+            "artifacts": art_refs[:50],
+            "workspace_id": workspace_id,
+            "warnings": ["Artifact list is metadata-only; no full content returned"] if art_refs else [],
+        }
+    except Exception as exc:
+        return {
+            "ok": False,
+            "tool_id": "workspace.artifact",
+            "status": "failed",
+            "summary": f"Failed to list artifacts: {str(exc)[:100]}",
+            "artifacts": [],
+            "warnings": [f"workspace.artifact failed: {str(exc)[:100]}"],
+        }
 
 
 # canonical_tool_id -> CanonicalToolEntry

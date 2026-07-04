@@ -112,11 +112,14 @@ def _build_provider_config(provider_id: str, data: Optional[dict] = None) -> dic
 def _write_json(path: Path, data: dict):
     _ensure_dir()
     data["updated_at"] = now_iso()
-    path.write_text(json.dumps(data, indent=2, ensure_ascii=False))
+    # Atomic write: tmp + rename to prevent corruption on crash.
+    tmp = path.with_suffix(path.suffix + ".tmp")
+    tmp.write_text(json.dumps(data, indent=2, ensure_ascii=False))
     try:
-        os.chmod(str(path), stat.S_IRUSR | stat.S_IWUSR)
+        os.chmod(str(tmp), stat.S_IRUSR | stat.S_IWUSR)
     except Exception:
         pass
+    tmp.replace(path)
 
 
 def _write_active(provider_id: str):

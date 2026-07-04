@@ -127,7 +127,9 @@ class Planner:
         )
         return self._parse(raw)
 
-    def _parse(self, raw_output: str) -> PlannerOutput:
+    def _parse(self, raw_output: str | None) -> PlannerOutput:
+        if not raw_output:
+            return PlannerOutput(final_response="", raw_llm_output="")
         cleaned = raw_output.strip()
         if cleaned.startswith("```"):
             lines = cleaned.split("\n")

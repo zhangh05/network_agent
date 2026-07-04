@@ -57,11 +57,14 @@ def register_job_routes(app):
 
     @app.route("/api/jobs")
     def api_jobs_list():
-        ws = request.args.get("workspace_id")
-        if ws:
-            ws, err = _validated_ws_id(ws)
-            if err:
-                return err
+        ws = request.args.get("workspace_id", "")
+        if not ws:
+            return jsonify(
+                {"ok": False, "error": "workspace_id is required"}
+            ), 400
+        ws, err = _validated_ws_id(ws)
+        if err:
+            return err
         status = request.args.get("status")
         jtype = request.args.get("job_type")
         lim, err = _validated_limit(default=100, max_value=500)
@@ -73,24 +76,18 @@ def register_job_routes(app):
     @app.route("/api/jobs/<job_id>")
     def api_job_detail(job_id):
         ws = request.args.get("workspace_id", "")
-        if ws:
-            ws, err = _validated_ws_id(ws)
-            if err:
-                return err
-        from jobs.store import get_job, list_jobs
-        if ws:
-            rec = get_job(ws, job_id)
-            if not rec:
-                return jsonify({"ok": False, "error": "job not found"}), 404
-            return jsonify({"ok": True, "job": sanitize_job_record_for_api(rec.as_dict())})
-        try:
-            jobs = list_jobs()
-        except Exception:
-            return jsonify({"ok": False, "error": "failed to list jobs"}), 500
-        for j in jobs:
-            if j.get("job_id") == job_id:
-                return jsonify({"ok": True, "job": j})
-        return jsonify({"ok": False, "error": "job not found"}), 404
+        if not ws:
+            return jsonify(
+                {"ok": False, "error": "workspace_id is required for job lookup"}
+            ), 400
+        ws, err = _validated_ws_id(ws)
+        if err:
+            return err
+        from jobs.store import get_job
+        rec = get_job(ws, job_id)
+        if not rec:
+            return jsonify({"ok": False, "error": "job not found"}), 404
+        return jsonify({"ok": True, "job": sanitize_job_record_for_api(rec.as_dict())})
 
     @app.route("/api/workspaces/<ws_id>/jobs")
     def api_workspace_jobs(ws_id):

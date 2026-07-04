@@ -629,8 +629,16 @@ export function TaskWorkbench() {
           } catch { /* ignore parse errors */ }
         };
 
-        ws!.onclose = () => resolve();
-        ws!.onerror = () => resolve();
+        ws!.onclose = () => {
+          clearInterval(flushTimer);
+          flushTokenBuffer();
+          resolve();
+        };
+        ws!.onerror = () => {
+          clearInterval(flushTimer);
+          flushTokenBuffer();
+          resolve();
+        };
       });
 
       try { ws.close(); } catch { /* already closed */ }

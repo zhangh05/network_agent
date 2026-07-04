@@ -95,14 +95,21 @@ def invoke_llm(
     for attempt in range(max_retries + 1):
         try:
             resp = generate(req, cfg)
-        except Exception as e:
+        except (OSError, TimeoutError, ConnectionError) as e:
+            # Transport-level errors: retry if attempts remain.
+            error_msg = _redact(str(e))
+            if attempt < max_retries:
+                wait = min(2 ** attempt * 0.5, 8)
+                time.sleep(wait)
+                continue
             return LLMResponse(
-                error=_redact(str(e)),
+                error=error_msg,
                 metadata={
-                    "error_type": ERROR_TYPE_PROVIDER_UNKNOWN,
-                    "error_detail": _redact(str(e))[:200],
+                    "error_type": ERROR_TYPE_PROVIDER_TIMEOUT,
+                    "error_detail": error_msg[:200],
                     "http_status": None,
-                    "retryable": False,
+                    "retryable": True,
+                    "retries_exhausted": True,
                 },
             )
 

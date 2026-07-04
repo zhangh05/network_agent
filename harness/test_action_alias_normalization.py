@@ -61,7 +61,7 @@ def test_unrelated_aliases_normalize_for_other_tools():
     assert normalize_action_alias("knowledge_search")[:2] == ("search", "knowledge_search")
     # agent.manage
     assert normalize_action_alias("agent_spawn")[:2] == ("spawn", "agent_spawn")
-    assert normalize_action_alias("agent_list")[:2] == ("role_list", "agent_list")
+    assert normalize_action_alias("agent_list")[:2] == ("list", "agent_list")
 
 
 def test_unknown_action_returns_none_canonical():
