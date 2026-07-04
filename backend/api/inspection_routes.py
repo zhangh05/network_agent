@@ -31,6 +31,7 @@ from agent.modules.inspection.profiles import (
     save_vendor_commands,
     delete_vendor_commands,
     upload_vendor_script_file,
+    is_read_only_command,
 )
 
 
@@ -293,16 +294,21 @@ def register_inspection_routes(app):
         if err:
             return err
         vendor = (request.args.get("vendor") or "").strip()
+        script_type = (request.args.get("script_type") or "general").strip()
+        if script_type not in ("general", "log"):
+            return jsonify({"ok": False, "error": "invalid_script_type", "expected": "general|log"}), 400
         if not vendor:
             # Return a summary of all vendors (built-in keys)
             vendors: list[dict] = []
             for vkey, vp in VENDOR_COMMAND_PROFILES.items():
-                overrides = load_vendor_commands(ws_id, vkey)
+                overrides = load_vendor_commands(ws_id, vkey, script_type=script_type)
                 vendors.append({
                     "vendor": vkey,
                     "source": "file" if overrides else "builtin",
-                    "command_count": len(vp.commands),
+                    "command_count": len(overrides) if overrides else 0,
                     "override_count": len(overrides) if overrides else 0,
+                    "has_pre_commands": bool(vp.pre_commands),
+                    "has_post_commands": bool(vp.post_commands),
                 })
             return jsonify({"ok": True, "vendors": vendors})
 
@@ -312,26 +318,25 @@ def register_inspection_routes(app):
             return jsonify({"ok": False, "error": "unknown_vendor",
                             "available": sorted(VENDOR_COMMAND_PROFILES.keys())}), 404
 
-        overrides = load_vendor_commands(ws_id, vkey)
-        effective_commands = dict(builtin.commands)
-        if overrides:
-            effective_commands.update(overrides)
+        overrides = load_vendor_commands(ws_id, vkey, script_type=script_type)
+        # v4.1: built-in commands are empty — scripts come from workspace overrides
+        effective_commands = list(overrides) if overrides else []
 
         return jsonify({
             "ok": True,
             "vendor": vkey,
             "source": "file" if overrides else "builtin",
             "commands": effective_commands,
-            "builtin_commands": dict(builtin.commands),
-            "supported_checks": list(builtin.supported_checks),
+            "builtin_commands": [],  # v4.1: no built-in commands
+            "pre_commands": list(builtin.pre_commands) if builtin.pre_commands else [],
+            "post_commands": list(builtin.post_commands) if builtin.post_commands else [],
         })
 
     @app.route("/api/inspection/scripts/<vendor>", methods=["PUT"])
     def api_inspection_scripts_update(vendor):
         """Update vendor command overrides (JSON body)."""
-        ws_id, err = _validated_ws_id(
-            (request.get_json(silent=True) or {}).get("workspace_id", "")
-        )
+        data = request.get_json(silent=True) or {}
+        ws_id, err = _validated_ws_id(data.get("workspace_id", ""))
         if err:
             return err
         vkey = (vendor or "").strip().lower().replace(" ", "_")
@@ -340,23 +345,32 @@ def register_inspection_routes(app):
             return jsonify({"ok": False, "error": "unknown_vendor",
                             "available": sorted(VENDOR_COMMAND_PROFILES.keys())}), 404
 
-        data = request.get_json(silent=True) or {}
-        commands: dict[str, str] = data.get("commands", {})
-        if not isinstance(commands, dict):
-            return jsonify({"ok": False, "error": "commands_must_be_object"}), 400
+        script_type = (data.get("script_type") or "general").strip()
+        if script_type not in ("general", "log"):
+            return jsonify({"ok": False, "error": "invalid_script_type", "expected": "general|log"}), 400
+
+        commands: list[str] = data.get("commands", [])
+        if not isinstance(commands, list):
+            # v4.0: also accept old dict format for backward compat
+            if isinstance(commands, dict):
+                commands = list(commands.values())
+            else:
+                return jsonify({"ok": False, "error": "commands_must_be_list"}), 400
 
         # v3.11: reasonable upper bound to prevent accidental DoS
-        MAX_COMMANDS = 100
+        MAX_COMMANDS = 150
         if len(commands) > MAX_COMMANDS:
             return jsonify({"ok": False, "error": f"too_many_commands: max {MAX_COMMANDS}"}), 400
 
-        # Validate: all commands must be read-only
-        for cmd in commands.values():
-            from agent.modules.inspection.profiles import is_read_only_command
-            if not is_read_only_command(str(cmd)):
+        # Validate: all commands must be non-empty strings and read-only
+        for cmd in commands:
+            if not isinstance(cmd, str) or not cmd.strip():
+                return jsonify({"ok": False, "error": "commands_must_be_non_empty_strings"}), 400
+        for cmd in commands:
+            if not is_read_only_command(cmd):
                 return jsonify({"ok": False, "error": f"blocked_write_command: {cmd[:80]}"}), 400
 
-        success = save_vendor_commands(ws_id, vkey, commands)
+        success = save_vendor_commands(ws_id, vkey, commands, script_type=script_type)
         return jsonify({"ok": success, "vendor": vkey,
                         "command_count": len(commands)})
 
@@ -378,6 +392,16 @@ def register_inspection_routes(app):
         if builtin is None:
             return jsonify({"ok": False, "error": "unknown_vendor",
                             "available": sorted(VENDOR_COMMAND_PROFILES.keys())}), 404
+
+        # script_type from body, form, or query
+        script_type = ""
+        if request.is_json:
+            script_type = (request.get_json(silent=True) or {}).get("script_type", "")
+        if not script_type:
+            script_type = request.form.get("script_type", "") or request.args.get("script_type", "")
+        script_type = (script_type or "general").strip()
+        if script_type not in ("general", "log"):
+            return jsonify({"ok": False, "error": "invalid_script_type", "expected": "general|log"}), 400
 
         # Accept either a file upload or raw text body
         if "file" in request.files:
@@ -420,7 +444,7 @@ def register_inspection_routes(app):
                 "blocked": blocked,
             }), 400
 
-        success = upload_vendor_script_file(ws_id_v, vkey, content)
+        success = upload_vendor_script_file(ws_id_v, vkey, content, script_type=script_type)
         if not success:
             return jsonify({"ok": False, "error": "save_failed"}), 500
 
@@ -436,6 +460,9 @@ def register_inspection_routes(app):
         vkey = (vendor or "").strip().lower().replace(" ", "_")
         if vkey not in VENDOR_COMMAND_PROFILES:
             return jsonify({"ok": False, "error": "unknown_vendor"}), 404
-        success = delete_vendor_commands(ws_id, vkey)
+        script_type = (request.args.get("script_type") or "general").strip()
+        if script_type not in ("general", "log"):
+            return jsonify({"ok": False, "error": "invalid_script_type", "expected": "general|log"}), 400
+        success = delete_vendor_commands(ws_id, vkey, script_type=script_type)
         return jsonify({"ok": success, "vendor": vkey,
                         "note": "reset to defaults"})

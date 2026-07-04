@@ -247,7 +247,7 @@ def _handle_inspection_managed(inv: ToolInvocation) -> dict:
 
             task = inspection_service.start_background_task(
                 workspace_id=ws,
-                profile_id="",
+                profile_id=str(args.get("profile_id", "") or ""),
                 scope=scope if isinstance(scope, dict) else {},
                 created_by=caller,
                 session_id=str(args.get("session_id", "") or ""),
@@ -268,6 +268,7 @@ def _handle_inspection_managed(inv: ToolInvocation) -> dict:
                 "region": task.scope.region, "location": task.scope.location,
                 "search": getattr(task.scope, "search", ""),
                 "type": task.scope.type, "vendor": task.scope.vendor,
+                "protocol": getattr(task.scope, "protocol", ""),
                 "tags": list(task.scope.tags),
                 "asset_ids": list(task.scope.asset_ids), "limit": task.scope.limit,
             },
@@ -301,8 +302,53 @@ def _handle_inspection_managed(inv: ToolInvocation) -> dict:
         task = inspection_service.get_task(ws, task_id)
         if task is None:
             return {"ok": False, "error": "task_not_found"}
-        from dataclasses import asdict
-        return {"ok": True, "task": asdict(task), "tracking": task.tracking}
+        # Return slim status — do NOT include command output_snippets.
+        # Full raw output is only available via action=report.
+        # Including 15 KB snippets per device multiplied by polling
+        # frequency would overflow the LLM context window.
+        return {
+            "ok": True,
+            "task_id": task.task_id,
+            "status": task.status,
+            "profile_id": task.profile_id,
+            "profile_display_name": task.profile_display_name,
+            "scope": {
+                "region": task.scope.region,
+                "type": task.scope.type,
+                "vendor": task.scope.vendor,
+                "protocol": str(getattr(task.scope, "protocol", "") or ""),
+                "tags": list(task.scope.tags),
+                "asset_ids": list(task.scope.asset_ids),
+            },
+            "summary": {
+                "total_devices": task.total_assets,
+                "succeeded_devices": task.succeeded,
+                "failed_devices": task.failed,
+                "skipped_devices": task.skipped,
+                "findings_total": task.warnings + task.criticals + task.infos,
+                "findings_critical": task.criticals,
+                "findings_warning": task.warnings,
+                "findings_info": task.infos,
+            },
+            "devices": {
+                asset_id: {
+                    "asset_id": dr.asset_id,
+                    "asset_name": dr.asset_name,
+                    "host": dr.host,
+                    "vendor": dr.vendor,
+                    "type": dr.type,
+                    "protocol": dr.protocol,
+                    "status": dr.status,
+                    "supported": dr.supported,
+                    "errors": dr.errors,
+                }
+                for asset_id, dr in task.devices.items()
+            },
+            "started_at": task.started_at,
+            "finished_at": task.finished_at,
+            "duration_ms": task.duration_ms,
+            "error": task.error,
+        }
 
     if action == "cancel":
         task_id = str(args.get("task_id", "") or "")
@@ -1605,7 +1651,7 @@ def _handler_network_ssh(inv: ToolInvocation) -> dict:
     is_config = _is_config_command(command)
 
     try:
-        new_sid = session_id or f"ssh_{int(__import__('time').time())}_{host.replace('.', '_')}"
+        new_sid = session_id or f"ssh_{int(__import__('time').time())}_{host.replace('.', '_')}_{port}"
         if sudo and not command.startswith("sudo "):
             command = f"sudo {command}"
         session = ssh_connect(
@@ -1645,7 +1691,8 @@ def _extract_output(exec_result) -> str:
 
 
 def _handler_network_telnet(inv: ToolInvocation) -> dict:
-    """Telnet into a device, execute a command, return output. v3.3: session reuse."""
+    """Telnet into a device, execute a command, return output. v3.3: session reuse.
+    v4.2: batch flag — send all commands at once, read full output."""
     from agent.modules.remote.core import telnet_connect, exec_command, disconnect, get_session
 
     args = inv.arguments or {}
@@ -1659,6 +1706,7 @@ def _handler_network_telnet(inv: ToolInvocation) -> dict:
     vendor = str(args.get("vendor", "generic")).strip()
     session_id = str(args.get("session_id", "")).strip()
     close_session = bool(args.get("close_session", False))
+    batch = bool(args.get("batch", False))
 
     if asset_id:
         try:
@@ -1684,6 +1732,39 @@ def _handler_network_telnet(inv: ToolInvocation) -> dict:
         except Exception:
             logger.debug("_handler_network_telnet: <pass>", exc_info=True)
         return {"ok": True, "session_closed": True, "session_id": session_id}
+
+    # v4.2: batch mode — send all commands at once, read all output
+    if batch and session_id:
+        import time as _t
+        from agent.modules.remote.core import _drain_available
+        try:
+            sess = get_session(session_id)
+            if not sess or not getattr(sess, "connected", False):
+                return {"ok": False, "error": "session_not_connected"}
+            if getattr(sess, "workspace_id", "") != workspace_id:
+                return {"ok": False, "error": "session_workspace_mismatch"}
+            # drain residual, send batch, then read until idle
+            _drain_available(sess)
+            sess.send((command + "\n").encode())
+            # read all output — keep reading until idle
+            buf = b""
+            idle_deadline = _t.time() + 1.0  # 1s idle timeout
+            absolute_deadline = _t.time() + max(60, command.count("\n") * 5)
+            while _t.time() < absolute_deadline:
+                chunk = sess.recv(timeout=0.3)
+                if chunk:
+                    buf += chunk
+                    idle_deadline = _t.time() + 1.0  # reset idle timer
+                elif _t.time() >= idle_deadline:
+                    break
+            output = buf.decode("utf-8", errors="replace")[:100000]
+            return {
+                "ok": True, "host": host,
+                "output": output,
+                "session_id": session_id,
+            }
+        except Exception:
+            logger.debug("_handler_network_telnet: <pass>", exc_info=True)
 
     # Reuse existing session
     if session_id:
@@ -1711,7 +1792,7 @@ def _handler_network_telnet(inv: ToolInvocation) -> dict:
         return {"ok": False, "error": reason}
 
     try:
-        new_sid = session_id or f"telnet_{int(__import__('time').time())}_{host.replace('.', '_')}"
+        new_sid = session_id or f"telnet_{int(__import__('time').time())}_{host.replace('.', '_')}_{port}"
         telnet_connect(
             new_sid, host, port, username, password, vendor,
             workspace_id=workspace_id,
@@ -2995,6 +3076,7 @@ _RAW_REGISTRY: list[CanonicalToolEntry] = [
             "created_by": {"type": "string", "description": "[run] user|job|system."},
             "session_id": {"type": "string", "description": "[run] Session id."},
             "max_concurrency": {"type": "integer", "description": "[run] Per-task device concurrency (default 3)."},
+            "profile_id": {"type": "string", "description": "[run] Inspection profile: general (default, full HW+protocol+env) | log (log-only)."},
             "task_id": {"type": "string",
                 "description": "[get|cancel|report] Task id from action=run."},
             "limit": {"type": "integer", "description": "[list] Max items (default 50)."},

@@ -46,17 +46,13 @@ from .models import (
     InspectionScope,
     InspectionTask,
 )
-from .parser import run_parser, parse_current_config
 from .profiles import (
     BUILTIN_PROFILES,
-    CK_CURRENT_CONFIG,
-    CK_VERSION,
     AUTO_PROFILE_ID,
     resolve_auto_profile,
     resolve_profile,
     load_command_profile,
     is_read_only_command,
-    default_timeout_for,
 )
 from .tracking import ensure_tracking, record_poll
 
@@ -539,7 +535,7 @@ def _parse_tool_result(result) -> dict:
 
 def _exec_one_command(workspace_id: str, asset_id: str, protocol: str,
                       command: str, timeout: int,
-                      session_id: str = "") -> dict:
+                      session_id: str = "", *, batch: bool = False) -> dict:
     """Run a single read-only command through ``exec.run`` over SSH/Telnet.
 
     ``session_id`` (optional): if a previous call on the same asset
@@ -548,6 +544,7 @@ def _exec_one_command(workspace_id: str, asset_id: str, protocol: str,
     ``get_session(session_id)`` instead of opening a fresh one.
     v3.9.14: per-asset session reuse cuts a 6-check run from 132s
     to ~30s by avoiding 5 redundant SSH connects.
+    v4.2: ``batch=True`` sends all commands at once and reads full output.
 
     Returns a dict-shaped result (not ToolResult) so the runner can
     consume it directly. Network/protocol resolution is up to
@@ -572,6 +569,8 @@ def _exec_one_command(workspace_id: str, asset_id: str, protocol: str,
     }
     if session_id:
         inv_args["session_id"] = session_id
+    if batch:
+        inv_args["batch"] = True
     # v3.10: surface the inspection call to the audit trail with
     # caller = INSPECTION_CALLER + asset + command key. The canonical
     # runtime records the call regardless; this logger entry
@@ -627,10 +626,17 @@ def _close_registered_remote_sessions(workspace_id: str, task_id: str) -> None:
 
 # ── one asset's checks ───────────────────────────────────────────────────
 
+
 def _run_checks_on_asset(task: InspectionTask,
                          profile: InspectionProfile,
                          asset_meta: dict,
                          workspace_id: str) -> DeviceResult:
+    """v4.0: flat command-list execution with pre/post commands.
+
+    No more command_key lookups — the vendor profile carries an
+    ordered list of raw commands.  LLM analyses the raw output
+    directly so the runner doesn't parse or classify findings.
+    """
     asset_id = str(asset_meta.get("asset_id") or "")
     dr = DeviceResult(task_id=task.task_id, asset_id=asset_id)
     if not asset_id:
@@ -651,9 +657,6 @@ def _run_checks_on_asset(task: InspectionTask,
 
     protocol = dr.protocol
     if protocol not in {"ssh", "telnet"}:
-        # HTTPS / SNMP assets are kept out of inspection for now;
-        # this is a real-supported-yes command catalogue limitation,
-        # not a silent skip.
         dr.supported = False
         dr.limited_support = False
         dr.status = "skipped"
@@ -661,7 +664,9 @@ def _run_checks_on_asset(task: InspectionTask,
         dr.finished_at = now_iso()
         return dr
 
-    vendor_profile = load_command_profile(workspace_id, dr.vendor, dr.type)
+    is_log = profile.profile_id == "log"
+
+    vendor_profile = load_command_profile(workspace_id, dr.vendor, dr.type, script_type="log" if is_log else "general")
     effective_profile = (
         resolve_auto_profile(dr.vendor, dr.type)
         if profile.profile_id == AUTO_PROFILE_ID
@@ -670,303 +675,176 @@ def _run_checks_on_asset(task: InspectionTask,
     dr.script_profile_id = vendor_profile.vendor
     dr.script_profile_name = effective_profile.display_name
     if vendor_profile.vendor == "generic":
-        # Only if the asset's vendor doesn't have a profile we mark
-        # ``limited_support``; the runner will still try the safe
-        # subset (version + interface brief) for any device so the
-        # report is never totally blank.
         dr.limited_support = True
 
-    # Sort checks deterministically (task_id prefix keeps order stable)
-    checks = list(effective_profile.checks)
-    checks.sort(key=lambda c: c.check_id)
+    # ── v4.1: commands from workspace overrides only ────────────────────
+    # Both general and log inspection use vendor_profile.commands (which
+    # comes from workspace script overrides).  No more built-in command
+    # lists — script management is the sole source.
+    raw_commands: list[str] = list(vendor_profile.commands)
 
-    # ── Filter out vendor-missing / non-read-only checks up front ──
-    #    so the worker pool only handles the checks we'll actually
-    #    dispatch against the device. Reasons for exclusion get
-    #    their own synthetic CommandResult so the report is honest.
-    eligible: list = []
-    for check in checks:
-        cmd_key = check.command_key
-        if not cmd_key:
-            # Defensive: a profile check with empty command_key would
-            # match every vendor command via dict lookup; never let it
-            # through silently — emit a synthetic failure finding
-            # so the operator can fix the profile.
-            dr.command_results.append(CommandResult(
-                check_id=check.check_id,
-                category=check.category,
-                command_key="",
-                command="",
-                ok=False,
-                error=f"profile check {check.check_id!r} has empty command_key",
-            ))
-            continue
-        if cmd_key not in vendor_profile.commands:
-            dr.command_results.append(CommandResult(
-                check_id=check.check_id,
-                category=check.category,
-                command_key=cmd_key,
-                command="",
-                ok=False,
-                error=f"vendor {dr.vendor or 'unknown'} does not support check {cmd_key!r}",
-            ))
-            continue
-        command = vendor_profile.commands[cmd_key]
-        if not is_read_only_command(command):
-            dr.command_results.append(CommandResult(
-                check_id=check.check_id,
-                category=check.category,
-                command_key=cmd_key,
-                command=command,
-                ok=False,
-                error="command failed static read-only check",
-            ))
-            dr.errors.append(
-                f"refused to run non-read-only command at check {check.check_id}"
-            )
-            continue
-        eligible.append((check, cmd_key, command))
+    pre_commands = list(vendor_profile.pre_commands) if vendor_profile.pre_commands else []
+    post_commands = list(vendor_profile.post_commands) if vendor_profile.post_commands else []
 
-    # ── v3.9.14: per-check timeout hint (profiles.default_timeout_for) ──
-    #     The profile's per-check ``timeout_seconds`` is now a soft upper
-    #     bound — we take the smaller of (profile value, hint value) so a
-    #     tight default like ``uname -a`` doesn't sit on a 60s timeout
-    #     waiting for nothing.
-    def _timeout_for(check, cmd_key: str) -> int:
-        hint = default_timeout_for(cmd_key, profile_default=check.timeout_seconds or 30)
-        return min(int(check.timeout_seconds or hint), int(hint))
+    # ── empty commands → skip ─────────────────────────────────────────
+    if not raw_commands:
+        dr.status = "skipped"
+        ds = "log" if is_log else "general"
+        dr.errors.append(
+            f"no_{ds}_script: vendor={vendor_profile.vendor} — "
+            "请在脚本管理中为该厂商配置巡检命令"
+        )
+        dr.finished_at = now_iso()
+        return dr
 
-    # ── per-asset session reuse ──────────────────────────────────────
-    # Interactive devices are single-channel systems from the runner's
-    # perspective. Even when a router accepts multiple SSH/Telnet
-    # sessions, running checks for the same asset in parallel makes the
-    # report harder to trust: prompts, paging, and delayed output can be
-    # attributed to the wrong command. Device-level concurrency still
-    # happens in ``run_task``; inside one device we keep one ordered
-    # command stream and one reusable session_id.
-    all_bucket_results: list[tuple[InspectionCheck, str, str, dict, int]] = []
+    # ── safety gate ────────────────────────────────────────────────────
+    for cmd in raw_commands + pre_commands + post_commands:
+        if not is_read_only_command(cmd):
+            dr.status = "failed"
+            dr.errors.append(f"blocked_write_command: {cmd[:80]}")
+            dr.finished_at = now_iso()
+            return dr
+
+    # ── per-asset session reuse ────────────────────────────────────────
     bucket_session_id = ""
-    try:
-        for check, cmd_key, command in eligible:
-            # Cooperative cancel: stop dispatching new checks once the
-            # task has been flagged. The in-flight command finishes.
-            if _cancel_requested(workspace_id, task.task_id):
-                dr.command_results.append(CommandResult(
-                    check_id=check.check_id, category=check.category,
-                    command_key=cmd_key, command=command, ok=False,
-                    error="cancelled_before_dispatch",
-                ))
-                continue
-            if bucket_session_id:
+    batch_output = ""
+    all_outputs: list[dict] = []
+
+    def run_one(cmd: str, timeout: int = 30) -> None:
+        nonlocal bucket_session_id
+        if bucket_session_id:
+            _register_task_session(workspace_id, task.task_id, dr.protocol, bucket_session_id)
+        try:
+            run_result = _exec_one_command(
+                workspace_id, asset_id, dr.protocol, cmd,
+                timeout=timeout,
+                session_id=bucket_session_id,
+            )
+            new_sid = run_result.get("session_id", "") or ""
+            if new_sid:
+                bucket_session_id = new_sid
                 _register_task_session(workspace_id, task.task_id, dr.protocol, bucket_session_id)
+        except Exception:
+            pass
+
+    try:
+        # ── pre_commands (welcome-banner flush + screen-length disable) ──
+        for cmd in pre_commands:
+            if _cancel_requested(workspace_id, task.task_id):
+                break
+            run_one(cmd, timeout=5)
+
+        # ── v4.2: batch — send all commands at once ─────────────────
+        if not _cancel_requested(workspace_id, task.task_id) and raw_commands:
             t0 = time.time()
+            batch_payload = "\n".join(raw_commands) + "\n"
             try:
                 run_result = _exec_one_command(
-                    workspace_id, asset_id, dr.protocol, command,
-                    timeout=_timeout_for(check, cmd_key),
-                    session_id=bucket_session_id,
+                    workspace_id, asset_id, dr.protocol, batch_payload,
+                    timeout=max(60, len(raw_commands) * 5),
+                    session_id=bucket_session_id, batch=True,
                 )
             except Exception as exc:
                 run_result = {
-                    "ok": False,
-                    "output": "",
-                    "error": f"inspection_run_failed: {type(exc).__name__}: {str(exc)[:160]}",
+                    "ok": False, "output": "",
+                    "error": f"batch_failed: {type(exc).__name__}: {str(exc)[:160]}",
                     "session_id": bucket_session_id,
-                    "elapsed_ms": int((time.time() - t0) * 1000),
                 }
             elapsed = int((time.time() - t0) * 1000)
             new_sid = run_result.get("session_id", "") or ""
             if new_sid:
                 bucket_session_id = new_sid
                 _register_task_session(workspace_id, task.task_id, dr.protocol, bucket_session_id)
-            all_bucket_results.append((check, cmd_key, command, run_result, elapsed))
+            batch_output = run_result.get("output", "") if run_result.get("ok") else ""
+            all_outputs.append({
+                "command": "batch",
+                "ok": bool(run_result.get("ok")),
+                "output": batch_output,
+                "error": run_result.get("error", ""),
+                "elapsed_ms": elapsed,
+                "session_id": bucket_session_id,
+            })
+
+        # ── post_commands (undo screen-length disable) ──────────────────
+        for cmd in post_commands:
+            run_one(cmd, timeout=5)
+
     finally:
         _close_remote_session(workspace_id, dr.protocol, bucket_session_id)
         _forget_task_session(workspace_id, task.task_id, bucket_session_id)
 
-    # ── Persist results + parse + attach findings ──
-    # Keep the profile's order so the report is stable.
-    by_check_id = {r[0].check_id: r for r in all_bucket_results}
-    for check, cmd_key, command in eligible:
-        rec = by_check_id.get(check.check_id)
-        if rec is None:
-            # Worker thread died before producing this record
-            dr.command_results.append(CommandResult(
-                check_id=check.check_id, category=check.category,
-                command_key=cmd_key, command=command, ok=False,
-                error="worker_thread_silent_failure",
-            ))
-            continue
-        _check, _ck, _cmd, run_result, elapsed = rec
-        output = run_result["output"]
-        ok = run_result["ok"]
-
-        # Persist raw output as an artifact (config backup reads
-        # back the same artifact later in the task for diffing).
-        artifact_id = ""
-        snippet = redact_string(output[:800]) if output else ""
-        if output and cmd_key == CK_CURRENT_CONFIG and ok:
+    # ── populate CommandResult list ─────────────────────────────────────
+    for i, rec in enumerate(all_outputs):
+        cmd = rec["command"]
+        ok = rec["ok"]
+        is_batch = cmd == "batch"
+        max_snippet = 15000 if is_batch else 2000
+        snippet = redact_string(str(rec["output"])[:max_snippet]) if rec["output"] else ""
+        cr = CommandResult(
+            check_id=f"cmd_{i:03d}",
+            category="raw",
+            command_key="",
+            command=cmd,
+            ok=ok,
+            output_snippet=snippet,
+            elapsed_ms=rec["elapsed_ms"],
+            error=rec.get("error", "") if not ok else "",
+        )
+        # Raw output saved as artifact for LLM consumption
+        if ok and rec["output"]:
             art = save_artifact(
                 workspace_id=workspace_id,
-                content=output,
-                artifact_type="config_backup",
-                title=f"{asset_meta.get('name') or asset_id} current-config",
+                content=rec["output"],
+                artifact_type="inspection_raw",
+                title=f"{dr.asset_name or asset_id} — 巡检输出",
                 sensitivity="sensitive",
                 run_id=task.task_id,
                 capability_id="inspection",
                 metadata={
                     "inspection_task_id": task.task_id,
                     "asset_id": asset_id,
-                    "vendor": dr.vendor,
-                    "command_key": cmd_key,
+                    "command_count": len(raw_commands) if is_batch else 1,
+                    "index": i,
                 },
             )
             if art is not None:
-                artifact_id = getattr(art, "artifact_id", "")
-            snippet = (
-                "[current configuration saved as sensitive artifact"
-                + (f" {artifact_id}" if artifact_id else "")
-                + "]"
-            )
-
-        # Parser
-        parser_kwargs: dict = {"asset_id": asset_id, "check_id": check.check_id}
-        if check.command_key == CK_CURRENT_CONFIG:
-            prev = _latest_config_snapshot(workspace_id, asset_id, exclude_task_id=task.task_id)
-            if prev:
-                parser_kwargs["previous_output"] = prev.get("content", "")
-
-        metric, findings = run_parser(
-            check.parser_key or cmd_key,
-            output,
-            **parser_kwargs,
-        )
-
-        cr = CommandResult(
-            check_id=check.check_id,
-            category=check.category,
-            command_key=cmd_key,
-            command=command,
-            ok=ok,
-            output_snippet=snippet,
-            artifact_id=artifact_id,
-            elapsed_ms=elapsed,
-            error=run_result.get("error", "") if not ok else "",
-            parsed_metric=metric,
-        )
+                cr.artifact_id = getattr(art, "artifact_id", "")
         dr.command_results.append(cr)
 
-        # Attach findings + count
-        for f in findings:
-            if not f.asset_id:
-                f.asset_id = asset_id
-            dr.findings.append(f)
-
-    # Status roll-up. We distinguish three different failure modes
-    # because they have different operational meaning:
-    #   - ``succeeded``: every check we *attempted* returned ok
-    #   - ``partial``:   some checks succeeded, others failed (SSH
-    #                   timeout, command error, vendor unsupported)
-    #   - ``failed``:    every attempted check failed
-    #   - ``skipped``:   we never attempted any check (e.g. protocol
-    #                   unsupported, asset_id missing)
+    # Status
     dr.finished_at = now_iso()
-    attempted = [cr for cr in dr.command_results if cr.command]
-    succeeded = [cr for cr in attempted if cr.ok]
-    failed = [cr for cr in attempted if not cr.ok]
-    if attempted and not failed:
-        dr.status = "succeeded"
-    elif attempted and succeeded:
-        dr.status = "partial"
-    elif attempted:
-        dr.status = "failed"
+    if all_outputs:
+        ok_count = sum(1 for r in all_outputs if r["ok"])
+        if ok_count == len(all_outputs):
+            dr.status = "succeeded"
+        elif ok_count > 0:
+            dr.status = "partial"
+        else:
+            dr.status = "failed"
     else:
         dr.status = "skipped"
     return dr
 
 
-def _latest_config_snapshot(workspace_id: str, asset_id: str, *,
-                             exclude_task_id: str = "") -> dict | None:
-    """Find the most recent prior current-config artifact for the asset.
-
-    Bypass can_save_artifact indexes for the live write path; we
-    scan on disk via the artifact records jsonl instead.
-    """
-    from workspace.ids import validate_workspace_id
-    from workspace.run_store import WS_ROOT
-    from workspace.atomic_io import safe_read_text
-    p = (WS_ROOT / validate_workspace_id(workspace_id)
-         / "index" / "artifacts.jsonl")
-    if not p.is_file():
-        return None
-    try:
-        text = safe_read_text(p, default="")
-    except Exception:
-        return None
-    target_type = "config_backup"
-    candidates: list[dict] = []
-    for line in text.splitlines():
-        if not line.strip():
-            continue
-        try:
-            rec = json.loads(line)
-        except Exception:
-            # Skip a corrupt row — common when an artifact file got
-            # truncated during a previous crash. Continue past it; the
-            # neighbouring rows still give us the latest snapshot.
-            continue
-        if rec.get("artifact_type") != target_type:
-            continue
-        meta = rec.get("metadata") or {}
-        if meta.get("asset_id") != asset_id:
-            continue
-        if exclude_task_id and meta.get("inspection_task_id") == exclude_task_id:
-            continue
-        candidates.append(rec)
-    if not candidates:
-        return None
-    candidates.sort(key=lambda r: r.get("created_at", ""), reverse=True)
-    # Read the file payload (we keep the jsonl metadata only — actual
-    # content lives under workspaces/<ws>/sys/.../<id>.txt).
-    return _read_artifact_content(workspace_id, candidates[0])
-
-
-def _read_artifact_content(workspace_id: str, rec: dict) -> dict | None:
-    """Materialize an artifact record's ``content`` (best effort).
-
-    v3.10: read through the secure ``read_artifact_content`` API
-    instead of a raw ``Path(file_path).read_text()``. The path
-    stored on a record is operator-controlled (artifact write can
-    take ``source_path``) so a path-traversal or cross-workspace
-    substitution would otherwise be possible. The secure path
-    validates the file is under the workspace root before reading
-    and respects the record's sensitivity scope.
-    """
-    if not rec:
-        return None
-    aid = rec.get("artifact_id") or ""
-    if aid:
-        try:
-            from artifacts.store import read_artifact_content
-            # Inspection's config_backup is sensitivity="sensitive";
-            # we need the actual content to diff, so opt-in. The
-            # helper still blocks "secret" sensitivity.
-            text = read_artifact_content(workspace_id, aid, allow_sensitive=True)
-        except Exception:
-            logger.debug(
-                "inspection: read_artifact_content(%s) failed", aid,
-                exc_info=True,
-            )
-            text = None
-        if text is not None:
-            return {"content": text, "metadata": rec}
-    return {"content": "", "metadata": rec}
 
 
 # ── top-level runner ───────────────────────────────────────────────────
 
 def _resolve_target_assets(scope: InspectionScope, workspace_id: str) -> list[dict]:
-    """Resolve the scope against CMDB. Returns a list of asset dicts."""
+    """Resolve the scope against CMDB. Returns a list of asset dicts.
+
+    When ``asset_ids`` are provided, only those assets are returned.
+    When filters (region/type/vendor/location/protocol/search/tags)
+    are provided, those are applied to the CMDB list.
+
+    **Safety gate**: if *no* criteria are specified at all — no
+    asset_ids, no region, no type, no vendor, no location, no
+    protocol, no search, no tags — the function returns an empty
+    list instead of sweeping every asset.  An inspection with no
+    target is almost certainly a caller bug (e.g. LLM forgot to
+    pass the scope parameter); silently running against the entire
+    fleet would be surprising and destructive.
+    """
     from agent.modules.cmdb.service import list_assets
     if scope.asset_ids:
         all_assets = list_assets(workspace_id, filter={})
@@ -978,6 +856,15 @@ def _resolve_target_assets(scope: InspectionScope, workspace_id: str) -> list[di
                 logger.info(
                     "inspection: explicit asset_id %s not found in CMDB", mid,
                 )
+    elif scope.is_empty():
+        # Safety gate — no criteria at all means the caller almost
+        # certainly forgot to pass a scope.  Return empty instead of
+        # silently sweeping the entire CMDB.
+        logger.warning(
+            "inspection: empty scope — no asset_ids and no filters. "
+            "Refusing to sweep all assets. Is the caller missing a scope parameter?"
+        )
+        return []
     else:
         f: dict[str, str] = {}
         if scope.region:
@@ -988,6 +875,8 @@ def _resolve_target_assets(scope: InspectionScope, workspace_id: str) -> list[di
             f["vendor"] = scope.vendor
         if scope.location:
             f["location"] = scope.location
+        if scope.protocol:
+            f["protocol"] = scope.protocol
         assets = list_assets(workspace_id, filter=f)
         if scope.search:
             q = str(scope.search or "").strip().lower()
@@ -1108,9 +997,7 @@ def run_task(workspace_id: str,
             task.failed    = sum(1 for d in outcomes.values() if d.status == "failed")
             task.partial   = sum(1 for d in outcomes.values() if d.status == "partial")
             task.skipped   = sum(1 for d in outcomes.values() if d.status == "skipped")
-            task.criticals = sum(len([f for f in d.findings if f.severity == "critical"]) for d in outcomes.values())
-            task.warnings  = sum(len([f for f in d.findings if f.severity == "warning"]) for d in outcomes.values())
-            task.infos     = sum(len([f for f in d.findings if f.severity == "info"]) for d in outcomes.values())
+            # v4.0: findings not generated — keep at 0
             _save_task_unlocked(workspace_id, task)
 
     def _run_one_serial(asset_meta: dict) -> DeviceResult:
@@ -1235,16 +1122,11 @@ def run_task(workspace_id: str,
         elif dr.status == "partial":
             task.partial += 1
         elif dr.status == "cancelled":
-            pass  # counted under skipped; task-level handled below
+            pass
         else:
             task.failed += 1
-        for f in dr.findings:
-            if f.severity == "critical":
-                task.criticals += 1
-            elif f.severity == "warning":
-                task.warnings += 1
-            elif f.severity == "info":
-                task.infos += 1
+    # v4.0: findings are not generated — LLM does the analysis.
+    # Keep counters at 0; the progress card still shows device-level stats.
 
     # Status roll-up at task level. Cancel precedence: if the user
     # asked to stop, the task is cancelled (we keep any succeeded

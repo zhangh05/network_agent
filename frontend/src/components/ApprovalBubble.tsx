@@ -155,15 +155,20 @@ export function ApprovalBubble({ onResolved }: { onResolved?: () => void }) {
     if (!p || resolvingRef.current) return;
     resolvingRef.current = true;
     try {
-      await approvalApi.resolve(p.approval_id, { decision, workspace_id: currentWorkspaceId });
+      const res = await approvalApi.resolve(p.approval_id, { decision, workspace_id: currentWorkspaceId });
+      if (!res.ok) {
+        console.warn("[Approval] resolve returned not ok:", res);
+        // Keep showing the bubble so user can retry
+        resolvingRef.current = false;
+        return;
+      }
       resolvedIdsRef.current.set(p.approval_id, Date.now());
       setPending(null);
       setSecondsLeft(60);
       onResolvedRef.current?.();
-    } catch {
-      resolvedIdsRef.current.set(p.approval_id, Date.now());
-      setPending(null);
-      setSecondsLeft(60);
+    } catch (err) {
+      console.error("[Approval] resolve failed:", err);
+      // Keep bubble visible so user can retry
     } finally {
       resolvingRef.current = false;
     }

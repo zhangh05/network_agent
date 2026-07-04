@@ -1224,6 +1224,8 @@ export interface VendorScriptItem {
   source: "builtin" | "file";
   command_count: number;
   override_count: number;
+  has_pre_commands: boolean;
+  has_post_commands: boolean;
 }
 
 export interface VendorScriptsListResponse {
@@ -1235,9 +1237,10 @@ export interface VendorScriptDetailResponse {
   ok: boolean;
   vendor: string;
   source: "builtin" | "file";
-  commands: Record<string, string>;
-  builtin_commands: Record<string, string>;
-  supported_checks: string[];
+  commands: string[];           // v4.1: from workspace overrides only
+  builtin_commands: string[];   // v4.1: always empty
+  pre_commands: string[];
+  post_commands: string[];
 }
 
 export interface VendorScriptUpdateResponse {
@@ -1247,27 +1250,29 @@ export interface VendorScriptUpdateResponse {
 }
 
 export const scriptsApi = {
-  /** GET /api/inspection/scripts?vendor=... */
+  /** GET /api/inspection/scripts?vendor=...&script_type=... */
   getScripts: (
     workspace_id: string,
     vendor?: string,
+    script_type: "general" | "log" = "general",
   ): Promise<VendorScriptsListResponse | VendorScriptDetailResponse> =>
     apiRequest<VendorScriptsListResponse | VendorScriptDetailResponse>({
       method: "GET",
       url: `/inspection/scripts`,
-      params: { workspace_id, ...(vendor ? { vendor } : {}) },
+      params: { workspace_id, script_type, ...(vendor ? { vendor } : {}) },
     }),
 
   /** PUT /api/inspection/scripts/<vendor> */
   updateScript: (
     workspace_id: string,
     vendor: string,
-    commands: Record<string, string>,
+    commands: string[],
+    script_type: "general" | "log" = "general",
   ): Promise<VendorScriptUpdateResponse> =>
     apiRequest<VendorScriptUpdateResponse>({
       method: "PUT",
       url: `/inspection/scripts/${encodeURIComponent(vendor)}`,
-      data: { workspace_id, commands },
+      data: { workspace_id, commands, script_type },
     }),
 
   /** POST /api/inspection/scripts/<vendor>/upload */
@@ -1275,11 +1280,12 @@ export const scriptsApi = {
     workspace_id: string,
     vendor: string,
     content: string,
+    script_type: "general" | "log" = "general",
   ): Promise<{ ok: boolean; vendor: string; note: string }> =>
     apiRequest<{ ok: boolean; vendor: string; note: string }>({
       method: "POST",
       url: `/inspection/scripts/${encodeURIComponent(vendor)}/upload`,
-      data: { workspace_id, content },
+      data: { workspace_id, content, script_type },
       headers: { "Content-Type": "application/json" },
     }),
 
@@ -1287,11 +1293,12 @@ export const scriptsApi = {
   resetScript: (
     workspace_id: string,
     vendor: string,
+    script_type: "general" | "log" = "general",
   ): Promise<{ ok: boolean; vendor: string; note: string }> =>
     apiRequest<{ ok: boolean; vendor: string; note: string }>({
       method: "DELETE",
       url: `/inspection/scripts/${encodeURIComponent(vendor)}`,
-      params: { workspace_id },
+      params: { workspace_id, script_type },
     }),
 };
 

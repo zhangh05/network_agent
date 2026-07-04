@@ -16,8 +16,8 @@ const TYPE_LABEL: Record<string, string> = {
   load_balancer: "负载均衡", wireless: "无线", other: "其他",
 };
 const VENDOR_STRIP: Record<string, string> = {
-  H3C: "var(--info)", Huawei: "#cf0a2c", Cisco: "#049fd9", Ruijie: "#0077be",
-  Juniper: "#7e22ce", Arista: "#be123c", Dell: "#0076ce", Fortinet: "#cc0000",
+  H3C: "var(--info)", HuaWei: "#cf0a2c", Cisco: "#049fd9", Hillstone: "#0077be",
+  Ruijie: "#0077be", Dipu: "#7e22ce",
 };
 const REGION_PRESETS = ["华东", "华南", "华北", "华西", "华东-核心", "华东-汇聚", "华东-接入",
                           "华南-核心", "华北-核心", "海外"];
@@ -36,9 +36,7 @@ const REGION_TEXT: Record<string, string> = {
 // (``<datalist>``) lets the operator pick a preset or type anything
 // for a custom entry — no more "select + extra input field" ceremony.
 const VENDOR_PRESETS_LIST = [
-  "H3C", "Huawei", "Cisco", "Ruijie", "Juniper", "Arista", "Dell",
-  "Mellanox", "MikroTik", "Ubiquiti", "Fortinet", "Hillstone", "Sangfor",
-  "锐讯", "Aruba", "Palo Alto", "F5", "Check Point", "A10",
+  "H3C", "HuaWei", "Cisco", "Hillstone", "Ruijie", "Dipu",
 ];
 
 // ── compact stat pill ──
@@ -61,7 +59,7 @@ export function CMDBPage() {
   const [termAsset, setTermAsset] = useState<Asset | null>(null);
   const [globalTerm, setGlobalTerm] = useState(false);
   const [regionFilter, setRegionFilter] = useState("");
-  const [showScriptManager, setShowScriptManager] = useState(false);
+  const [scriptManagerType, setScriptManagerType] = useState<"general" | "log" | null>(null);
 
   // ── form ──
   const [fv, setFv] = useState<Record<string, string>>({
@@ -90,11 +88,7 @@ export function CMDBPage() {
       if (r.ok) {
         const list = r.assets || [];
         setAssets(list);
-        // Fold any user-typed values that already exist into the
-        // combobox so future entries get autocomplete for them.
-        const typedVendors = [...new Set(list.map(a => a.vendor).filter(Boolean))] as string[];
         const typedRegions = [...new Set(list.map(a => a.region).filter(Boolean))] as string[];
-        setSavedVendors([...new Set([...VENDOR_PRESETS_LIST, ...typedVendors])]);
         setSavedRegions([...new Set([...REGION_PRESETS, ...typedRegions])]);
       }
     } catch { /* */ }
@@ -193,50 +187,47 @@ export function CMDBPage() {
       ? `CMDB 区域「${region}」`
       : `CMDB 资产「${scope.label}」(${asset?.host || ""})`;
 
-    if (scope.type === "log") {
-      // 日志巡检：LLM 自己调用 inspection.manage 完成 run→get→report→分析
-      const prompt = [
-        `对 ${targetText}${vendorInfo} 发起日志巡检。步骤：`,
-        `1. 调用 inspection.manage action=run 启动巡检`,
-        `   scope: { asset_ids: [${assetIds.map(id => `"${id}"`).join(", ")}] }`,
-        `2. 用 action=get task_id=<返回的ID> 每5秒轮询一次状态，直到 status 为 succeeded 或 partial`,
-        `3. 用 action=report format=md task_id=<任务ID> 获取完整报告`,
-        `4. 重点分析日志相关检查项（如 display logbuffer / show logging），包括：`,
+    const profileId = scope.type === "log" ? "log" : "general";
+    const typeLabel = scope.type === "log" ? "日志巡检" : "通用巡检";
+    const analysisHints = scope.type === "log"
+      ? [
         `   - 异常告警和错误信息（CRITICAL / ERROR / WARNING 级别）`,
         `   - 重复出现的错误模式及频次`,
         `   - 接口 UP/DOWN 变更记录`,
         `   - 认证失败或安全事件`,
         `   - 时间分布规律（是否集中在某个时间窗口）`,
-        `最后输出结构化的日志巡检报告，包含异常摘要、根因分析和处置建议。`,
-      ].join("\n");
-      sessionStorage.setItem("workbench_auto_prompt", JSON.stringify({
-        prompt,
-        metadata: {
-          intent: "cmdb_log_inspection",
-          region,
-          asset_ids: assetIds,
-          source: scope.source,
-        },
-      }));
-    } else {
-      // 通用巡检：任务已由前端创建，LLM 只需跟踪和分析
-      const prompt = [
-        `对 ${targetText}${vendorInfo} 发起通用巡检（基础健康检查：版本、CPU、内存、接口状态、环境告警）。`,
-        `巡检任务已由系统自动创建（异步执行），你收到任务ID后只需：`,
-        `1. 用 inspection.manage action=get 轮询任务状态`,
-        `2. 到达终态后调用 action=report format=md 获取报告`,
-        `3. 汇总：是否完成、异常项、失败或跳过设备、下一步建议`,
-      ].join("\n");
-      sessionStorage.setItem("workbench_auto_prompt", JSON.stringify({
-        prompt,
-        metadata: {
-          intent: region ? "cmdb_region_inspection" : "cmdb_asset_inspection",
-          region,
-          asset_ids: assetIds,
-          source: scope.source,
-        },
-      }));
-    }
+        ]
+      : [
+        `   - 是否完成、异常项、失败或跳过设备`,
+        `   - 关键指标（CPU/内存/接口状态）的健康情况`,
+        `   - 潜在风险或需要关注的告警`,
+        `   - 下一步建议`,
+        ];
+
+    const scopeLine = region
+      ? `   scope: { region: "${region}" }`
+      : `   scope: { asset_ids: [${assetIds.map(id => `"${id}"`).join(", ")}] }`;
+
+    const prompt = [
+      `对 ${targetText}${vendorInfo} 发起${typeLabel}。`,
+      `0. 先用 cmdb.assets 查询设备确认资产存在`,
+      `1. 调用 inspection.manage action=run profile_id="${profileId}" 启动巡检${scopeLine.replace('   scope','')}`,
+      `2. 记录返回的 task_id，用 action=get task_id=任务ID 每3秒轮询，直到 status=succeeded 或 partial`,
+      `3. 用 action=report format=md task_id=任务ID 获取报告全文`,
+      `4. 逐一读取报告中每台设备的原始命令输出，按以下维度分析：`,
+      ...analysisHints,
+      `输出结构化的${typeLabel}报告（不要只总结任务状态，要分析设备的具体数据）。`,
+    ].join("\n");
+
+    sessionStorage.setItem("workbench_auto_prompt", JSON.stringify({
+      prompt,
+      metadata: {
+        intent: scope.type === "log" ? "cmdb_log_inspection" : (region ? "cmdb_region_inspection" : "cmdb_asset_inspection"),
+        region,
+        asset_ids: assetIds,
+        source: scope.source,
+      },
+    }));
     navigate("/workbench");
   }, [navigate, assets]);
 
@@ -326,9 +317,13 @@ export function CMDBPage() {
           </p>
         </div>
         <div style={{ display: "flex", gap: 8 }}>
-          <button className="btn" onClick={() => setShowScriptManager(true)}
+          <button className="btn" onClick={() => setScriptManagerType("general")}
             style={{ fontWeight: 600, fontSize: 13, padding: "8px 14px", background: "var(--surface-2)" }}>
-            脚本管理
+            通用脚本管理
+          </button>
+          <button className="btn" onClick={() => setScriptManagerType("log")}
+            style={{ fontWeight: 600, fontSize: 13, padding: "8px 14px", background: "var(--surface-2)" }}>
+            日志脚本管理
           </button>
           <button className="btn" onClick={() => setGlobalTerm(true)}
             style={{ fontWeight: 600, fontSize: 13, padding: "8px 14px", background: "var(--surface-2)" }}>
@@ -458,10 +453,11 @@ export function CMDBPage() {
             vendor: termAsset.vendor, username: termAsset.username, password: "" }} />}
 
         {/* ── 脚本管理弹窗 ── */}
-        {showScriptManager && (
+        {scriptManagerType && (
           <ScriptManagerModal
             workspaceId={wsId || ""}
-            onClose={() => setShowScriptManager(false)}
+            scriptType={scriptManagerType}
+            onClose={() => setScriptManagerType(null)}
           />
         )}
 

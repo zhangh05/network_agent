@@ -94,6 +94,7 @@ def _coerce_scope(scope_in: dict | None) -> InspectionScope:
         search=str(s.get("search", "") or ""),
         type=str(s.get("type", "") or ""),
         vendor=str(s.get("vendor", "") or ""),
+        protocol=str(s.get("protocol", "") or ""),
         tags=_tuple_of_strings(s.get("tags")),
         asset_ids=_tuple_of_strings(s.get("asset_ids")),
         limit=_coerce_limit(s.get("limit", 50)),

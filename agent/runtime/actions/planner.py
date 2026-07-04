@@ -32,6 +32,22 @@ def _classify_action(tool_id: str, arguments: dict | None = None) -> str:
     """
     args = arguments or {}
     action = str(args.get("action", "")).lower().strip()
+
+    # For merged tools (those with an action param), check the capability
+    # manifest first.  The manifest's ``action_class`` is the canonical
+    # declaration and must take precedence over heuristic regex matching.
+    # This prevents false classification — e.g. ``inspection.manage run``
+    # contains the substring "run" but the manifest correctly declares
+    # ``action_class="read"`` (all inspection commands are read-only).
+    if action:
+        try:
+            from core.tools.manifest_registry import get_manifest  # noqa: F811
+            manifest = get_manifest(tool_id)
+            if manifest and getattr(manifest, "action_class", ""):
+                return manifest.action_class
+        except Exception:
+            pass
+
     pseudo = f"{tool_id} {action}".strip()
     for pattern, cls in _CLASS_PATTERNS:
         if pattern.search(pseudo):

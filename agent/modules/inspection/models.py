@@ -35,6 +35,7 @@ class InspectionScope:
     search: str = ""
     type: str = ""
     vendor: str = ""
+    protocol: str = ""
     tags: tuple[str, ...] = ()
     asset_ids: tuple[str, ...] = ()
     limit: int = 50
@@ -42,7 +43,7 @@ class InspectionScope:
     def is_empty(self) -> bool:
         return not any([
             self.region, self.location, self.search, self.type, self.vendor,
-            self.tags, self.asset_ids,
+            self.protocol, self.tags, self.asset_ids,
         ])
 
 
@@ -88,19 +89,39 @@ class InspectionProfile:
 
 @dataclass
 class VendorCommandProfile:
-    """Vendor-specific command templates for an inspection check.
+    """Vendor-specific command templates for an inspection.
 
-    ``commands`` is keyed by ``check.command_key``. Missing keys
-    mean the vendor doesn't support that check — the runner
-    will record the check as ``skipped`` with ``not_supported``.
+    ``commands`` is an ordered list of command strings executed in
+    sequence.  ``pre_commands`` runs once after SSH login (typically
+    empty lines to flush the welcome banner + ``screen-length
+    disable``).  ``post_commands`` runs after all inspection
+    commands finish (typically ``undo screen-length disable``).
     """
 
     vendor: str
-    commands: dict[str, str]
+    commands: list[str]
+    pre_commands: list[str] = ()
+    post_commands: list[str] = ()
     # When a vendor doesn't fully support a check, fall back to the
     # commands here and mark the run ``limited_support``.
     fallback_to_generic: bool = False
     supported_checks: tuple[str, ...] = ()
+
+
+@dataclass
+class InspectionCommandSet:
+    """Flat list of commands for one inspection run (no parser keys).
+
+    v4.0: Replaces the old InspectionCheck + command_key indirection.
+    Each entry is a raw command string; the LLM analyses the raw
+    output directly.  pre_commands/post_commands wrap the session.
+    """
+
+    display_name: str
+    description: str
+    commands: list[str]
+    pre_commands: list[str] = ()
+    post_commands: list[str] = ()
 
 
 # ── run state ─────────────────────────────────────────────────────────────

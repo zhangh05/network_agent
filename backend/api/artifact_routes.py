@@ -261,6 +261,7 @@ def register_artifact_routes(app):
             "translated_config",
             "output_config",
             "report",
+            "inspection_raw",
         }
         content = read_artifact_content(ws_id, artifact_id, allow_sensitive=allow_sensitive)
         if content is None:

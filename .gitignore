@@ -46,3 +46,4 @@ reports/tool_catalog.json
 .AppleDouble
 .LSOverride
 ._*
+.playwright-cli/
