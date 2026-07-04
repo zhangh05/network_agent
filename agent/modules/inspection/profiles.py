@@ -14,7 +14,10 @@ commands in a profile.
 from __future__ import annotations
 
 import json
+import logging
 from pathlib import Path
+
+logger = logging.getLogger(__name__)
 
 from .models import (
     InspectionCheck,
@@ -292,6 +295,10 @@ def upload_vendor_script_file(workspace_id: str, vendor: str,
     for raw in file_content.splitlines():
         line = raw.strip()
         if not line or line.startswith("#") or line.startswith("//"):
+            continue
+        # Safety: disallow write commands even via file upload path
+        if not is_read_only_command(line):
+            logger.warning("upload_vendor_script_file: blocked write command %r for vendor=%s", line, vendor)
             continue
         lines.append(line)
     if not lines:

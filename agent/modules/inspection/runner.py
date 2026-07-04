@@ -470,9 +470,11 @@ def _get_asset_meta(workspace_id: str, asset_id: str) -> dict | None:
         )
     except Exception as exc:  # canonical runtime returns ToolResult; this is belt-and-braces
         return None
-    if getattr(result, "status", "") == "blocked":
+    if not hasattr(result, "status") or getattr(result, "status", "") == "blocked":
         return None
     output = getattr(result, "output", None) or {}
+    if not isinstance(output, dict):
+        return None
     asset = output.get("asset") if isinstance(output, dict) else None
     if not asset:
         # Some dispatchers return as plain dict or shape with 'assets'
@@ -1112,19 +1114,10 @@ def run_task(workspace_id: str,
         task.error = f"runner_internal: {type(exc).__name__}: {str(exc)[:160]}"
         logger.exception("inspection: run_task executor crashed")
 
-    # Finalize
+    # Finalize: _record_device() already keeps counters accurate via sum(),
+    # so task.succeeded/failed/partial/skipped are already correct here.
+    # Do NOT re-accumulate — that would double the counts.
     task.devices = outcomes
-    for dr in outcomes.values():
-        if dr.status == "succeeded":
-            task.succeeded += 1
-        elif dr.status == "skipped":
-            task.skipped += 1
-        elif dr.status == "partial":
-            task.partial += 1
-        elif dr.status == "cancelled":
-            pass
-        else:
-            task.failed += 1
     # v4.0: findings are not generated — LLM does the analysis.
     # Keep counters at 0; the progress card still shows device-level stats.
 
@@ -1146,8 +1139,10 @@ def run_task(workspace_id: str,
         task.status = "failed"
     task.finished_at = now_iso()
     ensure_tracking(task, source="run")
-    _save_task(workspace_id, task)
-    _release_task_save_lock(task.task_id)
+    try:
+        _save_task(workspace_id, task)
+    finally:
+        _release_task_save_lock(task.task_id)
     return task
 
 

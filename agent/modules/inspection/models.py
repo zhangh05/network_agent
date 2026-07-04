@@ -100,8 +100,8 @@ class VendorCommandProfile:
 
     vendor: str
     commands: list[str]
-    pre_commands: list[str] = ()
-    post_commands: list[str] = ()
+    pre_commands: list[str] = field(default_factory=list)
+    post_commands: list[str] = field(default_factory=list)
     # When a vendor doesn't fully support a check, fall back to the
     # commands here and mark the run ``limited_support``.
     fallback_to_generic: bool = False
@@ -120,8 +120,8 @@ class InspectionCommandSet:
     display_name: str
     description: str
     commands: list[str]
-    pre_commands: list[str] = ()
-    post_commands: list[str] = ()
+    pre_commands: list[str] = field(default_factory=list)
+    post_commands: list[str] = field(default_factory=list)
 
 
 # ── run state ─────────────────────────────────────────────────────────────

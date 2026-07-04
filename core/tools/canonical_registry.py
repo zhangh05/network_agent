@@ -247,7 +247,6 @@ def _handle_inspection_managed(inv: ToolInvocation) -> dict:
             return {"ok": False, "error": f"inspection_failed: {exc}"}
 
         if task.status in ("succeeded", "partial"):
-            import asyncio as _asyncio  # noqa
             report_md = inspection_service.render_report(ws, task.task_id, "md")
             return {
                 "ok": True, "task_id": task.task_id, "status": task.status,
@@ -1278,7 +1277,6 @@ def _handler_git_commit(inv: ToolInvocation) -> dict:
     msg = str(args.get("message", ""))
     if not msg:
         return {"ok": False, "error": "message is required"}
-    files = args.get("files")
     files = args.get("files")
     if isinstance(files, list):
         return git_commit(str(args.get("repo_path", ".")), msg, files)

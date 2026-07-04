@@ -28,6 +28,23 @@ interface WorkbenchAutoPrompt {
   metadata?: Record<string, unknown>;
 }
 
+/* ── safe storage wrappers ── */
+function safeGetLocal(key: string): string | null {
+  try { return typeof localStorage !== "undefined" ? localStorage.getItem(key) : null; } catch { return null; }
+}
+function safeSetLocal(key: string, val: string): void {
+  try { if (typeof localStorage !== "undefined") localStorage.setItem(key, val); } catch { /* noop */ }
+}
+function safeRemoveLocal(key: string): void {
+  try { if (typeof localStorage !== "undefined") safeRemoveLocal(key); } catch { /* noop */ }
+}
+function safeGetSession(key: string): string | null {
+  try { return typeof sessionStorage !== "undefined" ? sessionStorage.getItem(key) : null; } catch { return null; }
+}
+function safeRemoveSession(key: string): void {
+  try { if (typeof sessionStorage !== "undefined") sessionStorage.removeItem(key); } catch { /* noop */ }
+}
+
 /** Enhanced error classification with recovery hints.
  *  Now uses error_type from AgentResult for precise messaging. */
 function _humanFailure(errorType: string | undefined, errorText: string): { msg: string; retryable: boolean } {
@@ -224,18 +241,18 @@ export function TaskWorkbench() {
   // Input draft persistence: save to localStorage debounced, restore on mount
   const draftKey = `draft-${currentSessionId ?? "_scratch"}`;
   useEffect(() => {
-    const saved = typeof localStorage !== "undefined" ? localStorage.getItem(draftKey) : null;
+    const saved = safeGetLocal(draftKey);
     if (saved) setInput(saved);
   }, [currentSessionId]);  // eslint-disable-line
 
   const handleInputChange = useCallback((val: string) => {
     setInput(val);
-    if (typeof localStorage !== "undefined") localStorage.setItem(draftKey, val);
+    safeSetLocal(draftKey, val);
   }, [draftKey]);
 
   // Clear draft after successful send
   const clearDraft = useCallback(() => {
-    if (typeof localStorage !== "undefined") localStorage.removeItem(draftKey);
+    safeRemoveLocal(draftKey);
   }, [draftKey]);
 
   // Auto-grow input
@@ -248,42 +265,42 @@ export function TaskWorkbench() {
 
   // Pick up cross-page auto prompts (CMDB inspection, etc.)
   useEffect(() => {
-    const autoRaw = sessionStorage.getItem("workbench_auto_prompt");
+    const autoRaw = safeGetSession("workbench_auto_prompt");
     if (autoRaw && currentWorkspaceId) {
       let payload: WorkbenchAutoPrompt;
       try {
         payload = JSON.parse(autoRaw) as WorkbenchAutoPrompt;
       } catch {
-        sessionStorage.removeItem("workbench_auto_prompt");
+        safeRemoveSession("workbench_auto_prompt");
         return;
       }
       const prompt = String(payload.prompt || "").trim();
       if (!prompt) {
-        sessionStorage.removeItem("workbench_auto_prompt");
+        safeRemoveSession("workbench_auto_prompt");
         return;
       }
       pendingAutoMetadataRef.current = payload.metadata || {};
       setInput(prompt);
-      sessionStorage.removeItem("workbench_auto_prompt");
+      safeRemoveSession("workbench_auto_prompt");
       return;
     }
-    const prompt = sessionStorage.getItem("pcap_ai_prompt");
+    const prompt = safeGetSession("pcap_ai_prompt");
     if (prompt && currentWorkspaceId) {
-      sessionStorage.removeItem("pcap_ai_prompt");
+      safeRemoveSession("pcap_ai_prompt");
       pendingAutoMetadataRef.current = { source: "packet_analysis" };
       setInput(prompt);
-      // Auto-send after a short delay to let UI settle
-      const t = setTimeout(() => onSend(prompt, { source: "packet_analysis" }), 500);
+      // Auto-send after a short delay; use ref to avoid stale-closure/cleanup race
+      const t = setTimeout(() => onSendRef.current(prompt, { source: "packet_analysis" }), 500);
       return () => clearTimeout(t);
     }
-  }, [currentWorkspaceId, setInput, onSend]);
+  }, [currentWorkspaceId]); // do NOT include onSend — use ref to avoid re-render killing timeout
 
   // ── Inspection polling: frontend tracks task, LLM only analyses ──
   useEffect(() => {
-    const raw = localStorage.getItem("workbench_inspection");
+    const raw = safeGetLocal("workbench_inspection");
     if (!raw || !currentWorkspaceId) return;
     let payload: { task_id: string; metadata: Record<string, unknown> };
-    try { payload = JSON.parse(raw); } catch { localStorage.removeItem("workbench_inspection"); return; }
+    try { payload = JSON.parse(raw); } catch { safeRemoveLocal("workbench_inspection"); return; }
 
     const { task_id, metadata } = payload;
     const target = String(metadata.target || "");
@@ -307,7 +324,7 @@ export function TaskWorkbench() {
         if (t.status === "succeeded" || t.status === "partial") {
           done = true;
           setInspectionTaskId(null);
-          localStorage.removeItem("workbench_inspection"); // clear on success
+          safeRemoveLocal("workbench_inspection"); // clear on success
           const deviceList = Object.values((t as any).devices || {} as Record<string, any>)
             .filter((d: any) => d.status === "succeeded")
             .map((d: any) => `- ${d.asset_name || d.asset_id} (${d.host})`).join("\n");
@@ -330,7 +347,7 @@ export function TaskWorkbench() {
         } else if (t.status === "failed" || t.status === "cancelled") {
           done = true;
           setInspectionTaskId(null);
-          localStorage.removeItem("workbench_inspection"); // clear on failure
+          safeRemoveLocal("workbench_inspection"); // clear on failure
         } else {
           setTimeout(poll, 3000);
         }
@@ -359,8 +376,8 @@ export function TaskWorkbench() {
 
   // Retry: resend last user input (used by error inline retry and regenerate)
   const retryLast = useCallback(() => {
-    if (lastUserInput && !sending) onSend(lastUserInput);
-  }, [lastUserInput, sending]);  // eslint-disable-line
+    if (lastUserInput && !sending) onSendRef.current(lastUserInput);
+  }, [lastUserInput, sending]);
 
   // v3.9: SSE real-time timeline updates
   useEffect(() => {
@@ -929,8 +946,8 @@ export function TaskWorkbench() {
               <ResultInline
                 result={m.result}
                 fallbackText={sanitizeAssistantText(m.text)}
-                onRetryOriginal={idx === total - 1 && lastUserInput ? () => onSend(lastUserInput) : undefined}
-                onRetryAlternative={idx === total - 1 && lastUserInput ? () => onSend(buildAlternativePrompt(lastUserInput)) : undefined}
+                onRetryOriginal={idx === total - 1 && lastUserInput ? () => onSendRef.current(lastUserInput) : undefined}
+                onRetryAlternative={idx === total - 1 && lastUserInput ? () => onSendRef.current(buildAlternativePrompt(lastUserInput)) : undefined}
               />
             </>
           )}
@@ -943,7 +960,7 @@ export function TaskWorkbench() {
             </div>
           )}
           {!sending && idx === total - 1 && lastUserInput && (
-            <button className="regenerate-btn" onClick={() => onSend(lastUserInput)} title="重新生成" type="button">🔄 重新生成</button>
+            <button className="regenerate-btn" onClick={() => onSendRef.current(lastUserInput)} title="重新生成" type="button">🔄 重新生成</button>
           )}
         </div>
       </div>
@@ -969,6 +986,7 @@ export function TaskWorkbench() {
             a.href = URL.createObjectURL(blob);
             a.download = `session-${currentSessionId.slice(0, 8)}-${new Date().toISOString().slice(0, 10)}.md`;
             a.click();
+            setTimeout(() => URL.revokeObjectURL(a.href), 100);
           }}>📥 导出</button>
         )}
       </div>
@@ -1018,7 +1036,7 @@ export function TaskWorkbench() {
             onScroll={handleChatScroll}
           >
             {(visibleHistory ?? []).map((m, idx) => (
-              <MemoMessageRow key={m.message_id || m.run_id || m.id} m={m} idx={idx} total={(visibleHistory ?? []).length} renderFn={renderMsg} />
+              <MemoMessageRow key={m.message_id || m.run_id || `local-${m.id}`} m={m} idx={idx} total={(visibleHistory ?? []).length} renderFn={renderMsg} />
             ))}
           </div>
         )}

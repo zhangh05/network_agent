@@ -43,7 +43,7 @@ def _classify_action(tool_id: str, arguments: dict | None = None) -> str:
         try:
             from core.tools.manifest_registry import get_manifest  # noqa: F811
             manifest = get_manifest(tool_id)
-            if manifest and getattr(manifest, "action_class", ""):
+            if manifest and isinstance(getattr(manifest, "action_class", ""), str) and manifest.action_class:
                 return manifest.action_class
         except Exception:
             pass

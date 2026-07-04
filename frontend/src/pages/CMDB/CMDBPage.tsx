@@ -3,6 +3,7 @@ import { useNavigate } from "react-router-dom";
 import { useSessionStore } from "../../stores/session";
 import { useToastStore, type Toast } from "../../stores/toast";
 import { apiRequest } from "../../api/client";
+import { isApiError } from "../../types";
 import { RemoteTerminal } from "../../components/RemoteTerminal/RemoteTerminal";
 import { ScriptManagerModal } from "../../components/ScriptManagerModal";
 
@@ -93,7 +94,7 @@ export function CMDBPage() {
         const typedRegions = [...new Set(list.map(a => a.region).filter(Boolean))] as string[];
         setSavedRegions([...new Set([...REGION_PRESETS, ...typedRegions])]);
       }
-    } catch { /* */ }
+    } catch { toast({ kind: "error", title: "资产加载失败", body: "无法加载 CMDB 资产列表" }); }
   }, [wsId]);
 
   useEffect(() => { load(); }, [load]);
@@ -133,16 +134,24 @@ export function CMDBPage() {
       tags: fv.tags.split(/[,，\s]+/).map(t => t.trim()).filter(Boolean),
     };
     if (fv.password) payload.password = fv.password;
-    await apiRequest({
-      method: "POST", url: "/cmdb/assets",
-      data: payload,
-    });
-    setShowForm(false); load();
+    try {
+      await apiRequest({
+        method: "POST", url: "/cmdb/assets",
+        data: payload,
+      });
+      setShowForm(false); load();
+    } catch (e: unknown) {
+      ufv("err", isApiError(e) ? e.message : "保存失败");
+    }
   };
 
   const doDelete = async (aid: string) => {
-    await apiRequest({ method: "DELETE", url: `/cmdb/assets/${aid}`, params: { workspace_id: wsId } });
-    load();
+    try {
+      await apiRequest({ method: "DELETE", url: `/cmdb/assets/${aid}`, params: { workspace_id: wsId } });
+      load();
+    } catch (e: unknown) {
+      toast({ kind: "error", title: "删除失败", body: isApiError(e) ? e.message : "未知错误" });
+    }
   };
 
   const filtered = regionFilter
