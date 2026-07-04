@@ -146,6 +146,7 @@ export function CMDBPage() {
   };
 
   const doDelete = async (aid: string) => {
+    if (!window.confirm("确认删除此资产？")) return;
     try {
       await apiRequest({ method: "DELETE", url: `/cmdb/assets/${aid}`, params: { workspace_id: wsId } });
       load();

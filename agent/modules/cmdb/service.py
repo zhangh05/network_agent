@@ -65,45 +65,49 @@ def save_asset(workspace_id: str, asset: dict) -> dict:
 
     # 冲突检测：IP + 端口一致则拒绝添加
     incoming_asset_id = str(asset.get("asset_id") or "")
-    for existing in _load_all(workspace_id):
-        existing_port, _ = _parse_port(existing.get("port", 22))
-        if str(existing.get("host", "")).strip() == host and existing_port == port:
-            if incoming_asset_id and existing.get("asset_id") == incoming_asset_id:
-                continue  # 编辑自己，不冲突
-            return {"ok": False, "error": f"资产冲突：{host}:{port} 已存在 ({existing.get('name', 'unknown')})"}
 
-    existing_asset = get_asset(workspace_id, incoming_asset_id, safe=False) if incoming_asset_id else None
-
-    created_at = (
-        str(existing_asset.get("created_at") or "").strip()
-        if existing_asset else ""
-    ) or str(asset.get("created_at") or _now())
-
-    record = {
-        "asset_id": str(asset.get("asset_id") or str(uuid.uuid4())[:12]),
-        "name": name,
-        "type": device_type,
-        "vendor": str(asset.get("vendor", "")).strip(),
-        "model": str(asset.get("model", "")).strip(),
-        "host": str(asset.get("host", "")).strip(),
-        "port": port,
-        "protocol": protocol,
-        "username": str(asset.get("username", "")).strip(),
-        "region": str(asset.get("region", "")).strip(),
-        "location": str(asset.get("location", "")).strip(),
-        "description": str(asset.get("description", "")).strip(),
-        "tags": [str(t).strip() for t in (asset.get("tags") or []) if str(t).strip()],
-        "created_at": created_at,
-        "updated_at": _now(),
-    }
-    raw_password = str(asset.get("password") or "")
-    if raw_password:
-        record["password_secret"] = _seal_secret(workspace_id, raw_password)
-    elif existing_asset and existing_asset.get("password"):
-        record["password_secret"] = _seal_secret(workspace_id, str(existing_asset["password"]))
     path = _db_dir(workspace_id) / "assets.jsonl"
     _cmdb_lock = _get_cmdb_lock(path)
     with _cmdb_lock:
+        # TOCTOU fix: hold lock during conflict detection AND write
+        # so two concurrent saves can't both pass the check.
+        for existing in _load_all(workspace_id):
+            existing_port, _ = _parse_port(existing.get("port", 22))
+            if str(existing.get("host", "")).strip() == host and existing_port == port:
+                if incoming_asset_id and existing.get("asset_id") == incoming_asset_id:
+                    continue  # 编辑自己，不冲突
+                return {"ok": False, "error": f"资产冲突：{host}:{port} 已存在 ({existing.get('name', 'unknown')})"}
+
+        existing_asset = get_asset(workspace_id, incoming_asset_id, safe=False) if incoming_asset_id else None
+
+        created_at = (
+            str(existing_asset.get("created_at") or "").strip()
+            if existing_asset else ""
+        ) or str(asset.get("created_at") or _now())
+
+        record = {
+            "asset_id": str(asset.get("asset_id") or str(uuid.uuid4())[:12]),
+            "name": name,
+            "type": device_type,
+            "vendor": str(asset.get("vendor", "")).strip(),
+            "model": str(asset.get("model", "")).strip(),
+            "host": str(asset.get("host", "")).strip(),
+            "port": port,
+            "protocol": protocol,
+            "username": str(asset.get("username", "")).strip(),
+            "region": str(asset.get("region", "")).strip(),
+            "location": str(asset.get("location", "")).strip(),
+            "description": str(asset.get("description", "")).strip(),
+            "tags": [str(t).strip() for t in (asset.get("tags") or []) if str(t).strip()],
+            "created_at": created_at,
+            "updated_at": _now(),
+        }
+        raw_password = str(asset.get("password") or "")
+        if raw_password:
+            record["password_secret"] = _seal_secret(workspace_id, raw_password)
+        elif existing_asset and existing_asset.get("password"):
+            record["password_secret"] = _seal_secret(workspace_id, str(existing_asset["password"]))
+
         with open(path, "a", encoding="utf-8") as f:
             f.write(json.dumps(record, ensure_ascii=False) + "\n")
     return {"ok": True, "asset_id": record["asset_id"], "name": record["name"]}
@@ -276,15 +280,16 @@ def _load_all(workspace_id: str) -> list[dict]:
                 assets.pop(aid, None)  # Remove tombstoned asset
                 continue
             if aid not in deleted:
+                # Save secret before popping — password_corrupted check
+                # must happen first, not after d.pop() (P1-1 fix).
+                secret = d.get("password_secret")
                 d.pop("password", None)
                 d.pop("password_secret", None)
                 # Surface corrupted-password flag without leaking the
                 # secret. We do the open check *only* if a secret
                 # existed on the latest revision of the row.
-                if d.get("password_secret"):
-                    if _open_secret_strict(
-                        workspace_id, d.get("password_secret", "")
-                    ) == _OPEN_SECRET_FAIL:
+                if secret:
+                    if _open_secret_strict(workspace_id, secret) == _OPEN_SECRET_FAIL:
                         d["password_corrupted"] = True
                 assets[aid] = d
         except json.JSONDecodeError:
