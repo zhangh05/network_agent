@@ -52,6 +52,23 @@ def persist_run_record(session, turn, result, context) -> None:
         llm_metadata = dict(context_metadata.get("llm", {}) or {})
         llm_metadata.update(result_metadata.get("llm", {}) or {})
 
+        # Extract artifact refs from tool_calls for run_store persistence
+        artifact_refs = []
+        if result and getattr(result, "tool_calls", None):
+            for tc in result.tool_calls:
+                if not isinstance(tc, dict):
+                    continue
+                arts = tc.get("artifacts", [])
+                for a in arts:
+                    if isinstance(a, dict) and a.get("artifact_id"):
+                        artifact_refs.append({
+                            "artifact_id": a["artifact_id"],
+                            "artifact_type": a.get("artifact_type", ""),
+                            "title": a.get("title", ""),
+                        })
+                    elif isinstance(a, str):
+                        artifact_refs.append({"artifact_id": a})
+
         state = SimpleNamespace(
             request_id=turn.turn_id,
             session_id=session.session_id,
@@ -63,6 +80,7 @@ def persist_run_record(session, turn, result, context) -> None:
                 "capability_id": context_metadata.get("capability_id", ""),
                 "memory_written": False,
                 "workspace_updated": False,
+                "artifact_refs": artifact_refs,
             },
             active_module=active_module,
             selected_skill=selected_skill,
