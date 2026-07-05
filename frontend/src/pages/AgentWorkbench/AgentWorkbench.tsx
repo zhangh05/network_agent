@@ -298,7 +298,10 @@ export function TaskWorkbench() {
   // ── Inspection polling: frontend tracks task, LLM only analyses ──
   useEffect(() => {
     const raw = safeGetLocal("workbench_inspection");
-    if (!raw || !currentWorkspaceId) return;
+    if (!raw || !currentWorkspaceId || !currentSessionId) {
+      safeRemoveLocal("workbench_inspection");
+      return;
+    }
     let payload: { task_id: string; metadata: Record<string, unknown> };
     try { payload = JSON.parse(raw); } catch { safeRemoveLocal("workbench_inspection"); return; }
 
