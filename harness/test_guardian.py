@@ -138,9 +138,9 @@ def test_sub_agent_run_record_written(tmp_path, monkeypatch):
         steps=3,
         visible_tool_ids=["web.manage", "text.analyze"],
     )
-    assert rid == "run_parent_001"
+    assert rid == "run_child_002"  # P1-19: child_run_id used as filename to prevent overwrites
 
-    path = ws_root / "ws_sub" / "runs" / "run_parent_001.json"
+    path = ws_root / "ws_sub" / "runs" / "run_child_002.json"
     assert path.is_file()
     rec = json.loads(path.read_text())
     assert rec["is_sub_agent"] is True
