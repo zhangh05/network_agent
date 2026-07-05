@@ -826,6 +826,7 @@ def _run_checks_on_asset(task: InspectionTask,
             except Exception as exc:
                 dr.errors.append(f"artifact_save_failed: {type(exc).__name__}: {str(exc)[:120]}")
                 logger.warning("inspection: artifact save failed for %s: %s", asset_id, exc)
+        dr.command_results.append(cr)
 
     # Status
     dr.finished_at = now_iso()
