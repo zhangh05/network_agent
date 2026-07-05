@@ -234,9 +234,9 @@ MANIFESTS: dict[str, CapabilityManifest] = {
             "Unified workspace file tool. action=list, read, read_image (reads); "
             "action=edit, patch, write_artifact (writes)."
         ),
-        action_class="write",
-        risk_level="medium",
-        reads_artifact=True, writes_artifact=True, side_effects="write",
+        action_class="read",
+        risk_level="low",
+        reads_artifact=True, writes_artifact=True, side_effects="none",
         idempotency="unsafe_to_retry", timeout_seconds=30,
     ),
 
