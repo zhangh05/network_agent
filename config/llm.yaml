@@ -10,4 +10,4 @@ llm:
       api_key_env: MINIMAX_API_KEY
       model: MiniMax-M3
       temperature: 0.2
-      max_tokens: 5000
+      max_tokens: 50000
