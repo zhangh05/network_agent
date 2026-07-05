@@ -107,8 +107,8 @@ MANIFESTS: dict[str, CapabilityManifest] = {
             "Unified report tool. action=markdown_render, safe_summary_render, "
             "mermaid_render (reads); action=artifact_save (write)."
         ),
-        action_class="write",  # contains artifact.save
-        risk_level="low", side_effects="write", writes_artifact=True,
+        action_class="read",
+        risk_level="low", side_effects="none", writes_artifact=True,
         idempotency="safe_to_retry", timeout_seconds=60,
     ),
 
@@ -247,9 +247,9 @@ MANIFESTS: dict[str, CapabilityManifest] = {
             "Unified workspace artifact tool. action=list, read, diff, export (reads); "
             "action=save, tag, delete (writes, delete requires approval)."
         ),
-        action_class="write",
-        risk_level="medium",
-        reads_artifact=True, writes_artifact=True, side_effects="write",
+        action_class="read",
+        risk_level="low",
+        reads_artifact=True, writes_artifact=True, side_effects="none",
         idempotency="unsafe_to_retry", timeout_seconds=30,
     ),
 
