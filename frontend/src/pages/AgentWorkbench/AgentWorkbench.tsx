@@ -333,19 +333,50 @@ export function TaskWorkbench() {
           done = true;
           setInspectionTaskId(null);
           safeRemoveLocal("workbench_inspection"); // clear on success
-          const deviceList = Object.values((t as any).devices || {} as Record<string, any>)
-            .filter((d: any) => d.status === "succeeded")
-            .map((d: any) => `- ${d.asset_name || d.asset_id} (${d.host})`).join("\n");
+
+          // v4.3: fetch artifact content directly and inject into prompt
+          // instead of asking LLM to call inspection.manage tool.
+          const { artifactsApi } = await import("../../api/index");
+          const devices = Object.values((t as any).devices || {} as Record<string, any>)
+            .filter((d: any) => d.status === "succeeded");
+          const deviceList = devices.map((d: any) => `- ${d.asset_name || d.asset_id} (${d.host})`).join("\n");
+
+          const MAX_CONTENT_PER_DEVICE = 12000; // ~3K tokens per device
+          const deviceOutputs: string[] = [];
+          for (const d of devices) {
+            const results: any[] = d.command_results || [];
+            for (const cr of results) {
+              const artId = cr?.artifact_id;
+              if (!artId) continue;
+              try {
+                const artResp = await artifactsApi.content(currentWorkspaceId, artId, ac.signal) as { content?: string; ok?: boolean };
+                if (artResp?.content) {
+                  const text = String(artResp.content);
+                  const truncated = text.length > MAX_CONTENT_PER_DEVICE
+                    ? text.slice(0, MAX_CONTENT_PER_DEVICE) + "\n\n[...内容已截断]"
+                    : text;
+                  deviceOutputs.push(
+                    `--- ${d.asset_name || d.asset_id} 原始命令输出 ---\n${truncated}\n---`
+                  );
+                }
+              } catch (e) {
+                // silently skip artifacts that can't be read
+              }
+            }
+          }
+
+          const rawOutputBlock = deviceOutputs.length
+            ? `\n原始命令输出：\n${deviceOutputs.join("\n\n")}`
+            : "\n暂无原始命令输出可读。";
+
           const finalPrompt = [
             `对 ${target}${vendor} ${typeLabel}已完成。`,
             ``,
-            `请用 inspection.manage 获取原始命令输出：`,
-            `inspection.manage action=report format=md task_id=${task_id}`,
-            ``,
             `设备清单：`,
             deviceList,
+            rawOutputBlock,
             ``,
-            `拿到输出后逐设备分析，维度：${analysisHints}。`,
+            `请逐设备分析，维度：${analysisHints}。`,
             `输出结构化${typeLabel}报告（概览表 + 逐设备要点）。`,
             `不要输出任何中间确认或思考过程。直接开始分析。`,
           ].join("\n");
