@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import pytest
+
 
 def test_agent_app_submit_uses_ssot_runtime(monkeypatch, temp_dirs):
     from agent.app.facade import AgentApp
