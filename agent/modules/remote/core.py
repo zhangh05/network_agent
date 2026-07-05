@@ -65,10 +65,10 @@ class DeviceSession:
                     elif hasattr(self._chan, "write"):
                         self._chan.write(data)
                 except Exception:
-                    _log.debug("remote: send to device channel failed",
-                               exc_info=True)
+                    _log.warning("remote: send to device channel failed — re-raising", exc_info=True)
                     self.connected = False
                     self._chan = None
+                    raise
 
     def resize(self, cols: int, rows: int) -> None:
         cols = max(20, min(int(cols or 160), 240))
@@ -98,8 +98,9 @@ class DeviceSession:
                         return b""
                     return self._chan.recv(4096)
                 except Exception:
-                    _log.debug("remote: paramiko recv_ready / recv failed",
-                               exc_info=True)
+                    _log.warning("remote: paramiko recv_ready / recv failed", exc_info=True)
+                    self.connected = False
+                    self._chan = None
                     return b""
             return b""
 
@@ -121,12 +122,18 @@ def _cleanup_idle_sessions(ttl: float = SESSION_IDLE_TTL) -> int:
             sess = _SESSIONS.get(sid)
             if sess is None:
                 continue
-            # Sessions without a connected channel or with no activity for ttl
             if not sess.connected:
                 _SESSIONS.pop(sid, None)
                 removed += 1
             elif not hasattr(sess, "_last_active"):
-                sess._last_active = now  # initialise timestamp
+                sess._last_active = now
+            elif now - sess._last_active > ttl:
+                try:
+                    sess.close()
+                except Exception:
+                    pass
+                _SESSIONS.pop(sid, None)
+                removed += 1
     return removed
 
 
@@ -140,7 +147,7 @@ def ssh_connect(session_id: str, host: str, port: int,
     _cleanup_idle_sessions()
     profile = get_profile(vendor)
     client = paramiko.SSHClient()
-    client.set_missing_host_key_policy(paramiko.AutoAddPolicy())
+    client.set_missing_host_key_policy(paramiko.WarningPolicy())
 
     try:
         client.connect(hostname=host, port=port, username=username, password=password,

@@ -166,7 +166,7 @@ def run_ssot_turn(
                     time.sleep(0.5)
                     waited += 0.5
                 else:
-                    # Timeout: fail open for demo/local use
+                    # Timeout: fail closed — deny execution when approval does not arrive in time
                     approved = False
 
             if approved:

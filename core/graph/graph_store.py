@@ -411,8 +411,16 @@ class GraphStore:
         return count
 
     def truncate(self) -> None:
+        """Soft-truncate: append a TRUNCATE event and filter on projection.
+        Maintains the append-only invariant — events are never deleted,
+        but a truncation marker stops projections beyond this point."""
+        import time
         with self._lock:
-            self._events.clear()
+            self._events.append({
+                "type": "_internal_truncate",
+                "timestamp": time.time(),
+                "causal_index": len(self._events),
+            })
 
 
 # ── Invariant checks ───────────────────────────────────────────────────

@@ -116,9 +116,12 @@ def resolve_tool_outcome(result: Any) -> tuple[str, str | None, Any]:
             norm = raw if raw else _code_val(_LEGACY_FAIL_DEFAULT)
             return _STATUS_FAIL, norm, result
 
-        # Dict with no ok/success keys — treat as success (the
-        # absence of an error declaration is the legacy convention).
-        return _STATUS_SUCCESS, None, result
+        # Dict with no ok/success keys — treat as failure (safety default).
+        # Legacy code that relied on implicit success must now explicitly
+        # return {"ok": True} or {"success": True}.
+        raw = result.get("error_code") or result.get("code") or ""
+        norm = raw if raw else _code_val(_LEGACY_FAIL_DEFAULT)
+        return _STATUS_FAIL, norm, result
 
     # Non-dict return (str, int, list, custom object, ...). The
     # v4 contract treats this as success — the previous v3.10
@@ -386,34 +389,6 @@ class ToolRuntime:
 
 
 # ── Module-level result normalizer ──────────────────────────────────────
-
-
-def _resolve_success_flag(handler_result: Any) -> bool:
-    """v3.10 thin compatibility shim around ``resolve_tool_outcome``.
-
-    New code MUST call ``resolve_tool_outcome`` directly. This
-    wrapper exists only so that any test or external caller that
-    imports the v3.10 name keeps working. It deliberately does
-    not preserve ``error_code`` / ``error`` semantics — those
-    require the full resolver.
-    """
-    status, _code, _normalized = resolve_tool_outcome(handler_result)
-    return status == _STATUS_SUCCESS
-
-
-def _resolve_error_code(handler_result: Any) -> str:
-    """v3.10 thin compatibility shim — returns the v4 error_code or
-    empty string. Prefer ``resolve_tool_outcome`` for new code.
-    """
-    _status, code, _normalized = resolve_tool_outcome(handler_result)
-    return code or ""
-
-
-def _resolve_error_message(handler_result: Any) -> str:
-    """v3.10 thin compatibility shim — returns the v4 error string.
-    Prefer ``extract_error`` for new code.
-    """
-    return extract_error(handler_result)
 
 
 def _normalize_result(

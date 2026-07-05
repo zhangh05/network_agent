@@ -58,7 +58,7 @@ V02_FORBIDDEN_PATTERNS = [
 
 _DESTRUCTIVE_ACTIONS = {
     "delete", "remove", "purge", "destroy", "drop",
-    "delete", "session_rewind", "rewind",
+    "session_rewind", "rewind",
 }
 
 

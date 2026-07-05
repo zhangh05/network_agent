@@ -30,7 +30,7 @@ ROOT = Path(__file__).resolve().parent.parent
 WS_ROOT = ROOT / "workspaces"
 
 # Content > this value is stored as an artifact, not inline.
-ARTIFACT_THRESHOLD = 50_000  # 50 KB
+ARTIFACT_THRESHOLD = 50_000  # characters, not bytes — 50K chars ≈ 150KB for CJK  # 50 KB
 
 # Stable message_id shape. Pinned so the frontend dedup contract is
 # invariant across reads.
