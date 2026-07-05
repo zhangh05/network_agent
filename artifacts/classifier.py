@@ -42,7 +42,7 @@ def classify_file(path: str = "", content: str = "") -> dict:
             result["tags"].append("config")
 
         # Topology JSON
-        if re.search(r'"[nodes"]\s*:\s*\[', content) or re.search(r'"[links"]\s*:\s*\[', content):
+        if re.search(r'"nodes"\s*:\s*\[', content) or re.search(r'"links"\s*:\s*\[', content):
             result["artifact_type"] = "topology_json"
             result["tags"].append("topology")
 

@@ -13,7 +13,7 @@ Current runtime storage model:
   read model carrying ssot_event_id
 """
 
-import json, hashlib, os, re, time, shutil, uuid
+import json, hashlib, os, re, time, shutil, uuid, threading
 from pathlib import Path
 from typing import Optional
 
@@ -22,6 +22,10 @@ from artifacts.redaction import redact_artifact_content, contains_secret, redact
 from artifacts.classifier import classify_file
 import logging
 from agent.runtime.utils import now_iso
+
+# Per-workspace locks for artifact record writes (read-modify-write protection)
+_AREC_LOCKS: dict[str, threading.Lock] = {}
+_AREC_LOCKS_GUARD = threading.Lock()
 _LOG = logging.getLogger(__name__)
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -155,15 +159,23 @@ def _save_artifact_record(rec: ArtifactRecord) -> None:
     ws_id = validate_workspace_id(rec.workspace_id)
     p = _artifact_records_path(ws_id)
     p.parent.mkdir(parents=True, exist_ok=True)
-    records = [
-        r for r in _read_artifact_record_dicts(ws_id)
-        if r.get("artifact_id") != rec.artifact_id
-    ]
-    records.append(_record_meta_dict(rec))
-    p.write_text(
-        "\n".join(json.dumps(r, ensure_ascii=False, default=str) for r in records) + "\n",
-        encoding="utf-8",
-    )
+
+    with _AREC_LOCKS_GUARD:
+        lock = _AREC_LOCKS.get(ws_id)
+        if lock is None:
+            lock = threading.Lock()
+            _AREC_LOCKS[ws_id] = lock
+
+    with lock:
+        records = [
+            r for r in _read_artifact_record_dicts(ws_id)
+            if r.get("artifact_id") != rec.artifact_id
+        ]
+        records.append(_record_meta_dict(rec))
+        p.write_text(
+            "\n".join(json.dumps(r, ensure_ascii=False, default=str) for r in records) + "\n",
+            encoding="utf-8",
+        )
 
 
 def _logical_type_for_artifact(artifact_type: str) -> str:

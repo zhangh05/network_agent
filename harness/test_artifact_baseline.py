@@ -248,16 +248,6 @@ class TestArtifactStore:
         assert r1.artifact_id != r2.artifact_id, f"IDs should differ: {r1.artifact_id} vs {r2.artifact_id}"
         assert r1.sha256 == r2.sha256
 
-    def test_unique_artifact_ids(self, temp_dirs):
-        from artifacts.store import save_artifact
-        from workspace.manager import ensure_workspace
-        ws = "st_uniq"
-        ensure_workspace(ws)
-        r1 = save_artifact(ws, content="hostname R1", artifact_type="input_config", scope="run")
-        r2 = save_artifact(ws, content="hostname R1", artifact_type="input_config", scope="run")
-        assert r1.artifact_id != r2.artifact_id
-        assert r1.sha256 == r2.sha256
-
     def test_source_path_rejected(self):
         from artifacts.store import _validate_source_path
         assert not _validate_source_path("/etc/passwd")
@@ -272,13 +262,6 @@ class TestArtifactAPI:
         assert (p / "sys").is_dir()
         assert (p / "files" / "user_upload" / "original").is_dir()
         assert (p / "files" / "agent_output" / "export").is_dir()
-
-    def test_workspace_dirs(self, temp_dirs):
-        from workspace.manager import ensure_workspace
-        ensure_workspace("api_dir")
-        p = Path(str(temp_dirs["workspace_dir"])) / "api_dir"
-        assert (p / "sys").is_dir()
-        assert (p / "sys").is_dir()
 
 
 class TestRegression:
