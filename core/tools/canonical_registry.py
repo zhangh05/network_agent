@@ -237,7 +237,7 @@ def _handle_inspection_managed(inv: ToolInvocation) -> dict:
                 profile_id=str(args.get("profile_id", "") or ""),
                 scope=scope if isinstance(scope, dict) else {},
                 created_by=str(args.get("created_by", "user") or "user"),
-                session_id=str(getattr(inv.context, "session_id", "") or ""),
+                session_id=str(inv.session_id or ""),
                 max_concurrency=_mc,
             )
         except Exception as exc:
@@ -305,7 +305,7 @@ def _handle_inspection_managed(inv: ToolInvocation) -> dict:
                 profile_id=str(args.get("profile_id", "") or ""),
                 scope=scope if isinstance(scope, dict) else {},
                 created_by=caller,
-                session_id=str(getattr(inv.context, "session_id", "") or ""),
+                session_id=str(inv.session_id or ""),
                 max_concurrency=_mc,
             )
         except Exception as exc:
