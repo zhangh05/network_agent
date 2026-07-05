@@ -212,7 +212,11 @@ def start_background_task(workspace_id: str, profile_id: str, scope: dict | None
             create_task(**payload)
         except Exception:
             logger.exception("inspection background task crashed")
-            # Directly mark the pending task as failed on disk
+            # Directly mark the crashed task as failed on disk.
+            # Must handle BOTH "pending" (never started) and "running"
+            # (devices ran but finalize _save_task crashed). Without the
+            # "running" branch, a task whose counter updates succeeded
+            # but whose terminal-status save failed is stuck forever.
             try:
                 from dataclasses import asdict
                 from workspace.ids import validate_workspace_id
@@ -223,7 +227,7 @@ def start_background_task(workspace_id: str, profile_id: str, scope: dict | None
                 p = WS_ROOT / ws / "inspection" / "tasks" / f"{tid}.json"
                 if p.is_file():
                     existing = _runner_load(ws, tid)
-                    if existing is not None and existing.status == "pending":
+                    if existing is not None and existing.status in ("pending", "running"):
                         existing.status = "failed"
                         existing.error = "background_worker_crashed"
                         existing.finished_at = now_iso()
