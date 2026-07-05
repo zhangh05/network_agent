@@ -69,7 +69,7 @@ flowchart LR
 
 ### 安全
 - 后端默认绑定 `127.0.0.1`（v3.11，从 `0.0.0.0` 改为 localhost-only）
-- SSH/Telnet 密码通过 HMAC + AES-CTR 加密存储，不会明文落盘
+- SSH/Telnet 密码通过 HMAC + XOR stream cipher with HMAC 加密存储，不会明文落盘
 - Web Content Fetch 有 DNS rebinding 二次校验 + 5MB 响应上限
 - 所有 SSH/Telnet 巡检命令强制只读校验
 
