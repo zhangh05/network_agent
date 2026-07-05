@@ -399,8 +399,8 @@ class GraphStore:
                         continue
         if max_causal_index:
             try:
-                # The event clock is process-local; after replay it must continue
-                # from the durable log's highest causal index.
+                # P0-13: GraphStore._lock guards EventClock._global_index mutation.
+                # Multi-process Flask + shared persist_dir can cause causal_index drift.
                 with self._clock._lock:  # type: ignore[attr-defined]
                     self._clock._global_index = max(  # type: ignore[attr-defined]
                         self._clock._global_index,  # type: ignore[attr-defined]

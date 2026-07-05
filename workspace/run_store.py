@@ -113,14 +113,16 @@ def write_run_record(state, ws_id: str = "default") -> str:
     record["ssot_event_id"] = event_id
     record["projection_of"] = "GraphStore"
 
-    # ── Atomic write: tmp → rename (P2-A: crash-safe) ──
+    # ── Atomic write (P1-18): UUID tmp + fsync before rename ──
+    import uuid as _uuid
     from pathlib import Path
     record_path = run_dir / f"{run_id}.json"
-    tmp_path = record_path.with_suffix(".tmp")
+    tmp_path = record_path.with_name(f"{run_id}.{_uuid.uuid4().hex[:8]}.tmp")
     tmp_path.write_text(
         json.dumps(record, indent=2, ensure_ascii=False),
         encoding="utf-8",
     )
+    os.fsync(tmp_path.open("r+").fileno())
     tmp_path.rename(record_path)
 
     # Associate run with session if session_id is present
@@ -367,13 +369,15 @@ def write_sub_agent_run(
     }
 
     run_dir.mkdir(parents=True, exist_ok=True)
-    # ── Atomic write: tmp → rename (P2-A: crash-safe) ──
-    from pathlib import Path
-    record_path = run_dir / f"{run_id}.json"
-    tmp_path = record_path.with_suffix(".tmp")
+    # P1-19: use child_run_id for filename so children don't overwrite each other
+    import uuid as _uuid
+    write_id = child_run_id or f"{parent_run_id}.sub.{_uuid.uuid4().hex[:8]}"
+    record_path = run_dir / f"{write_id}.json"
+    tmp_path = record_path.with_name(f"{write_id}.{_uuid.uuid4().hex[:8]}.tmp")
     tmp_path.write_text(
         json.dumps(record, indent=2, ensure_ascii=False),
         encoding="utf-8",
     )
+    os.fsync(tmp_path.open("r+").fileno())
     tmp_path.rename(record_path)
-    return run_id
+    return write_id

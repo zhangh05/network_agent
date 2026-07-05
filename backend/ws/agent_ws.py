@@ -63,7 +63,8 @@ def register_ws_routes(app):
                     ws.send(json.dumps({"type": "error", "message": f"Unknown type: {msg.get('type')}"}, ensure_ascii=True))
                     continue
 
-                # Auth token enforcement for WS (token auth bypasses Origin check for non-browser clients)
+                # P0-16: token in message field (not header), checked once per connection.
+                # Origin check bypassed when token is valid (CSRF double-track).
                 if not _auth_checked:
                     from backend.core.auth import _is_auth_enabled, _get_api_token
                     import hmac as _hmac
