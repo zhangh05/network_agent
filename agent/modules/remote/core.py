@@ -131,7 +131,7 @@ def _cleanup_idle_sessions(ttl: float = SESSION_IDLE_TTL) -> int:
                 try:
                     sess.close()
                 except Exception:
-                    pass
+                    _log.debug("remote: session close during cleanup failed", exc_info=True)
                 _SESSIONS.pop(sid, None)
                 removed += 1
     return removed

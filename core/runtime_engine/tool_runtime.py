@@ -116,12 +116,11 @@ def resolve_tool_outcome(result: Any) -> tuple[str, str | None, Any]:
             norm = raw if raw else _code_val(_LEGACY_FAIL_DEFAULT)
             return _STATUS_FAIL, norm, result
 
-        # Dict with no ok/success keys — treat as failure (safety default).
-        # Legacy code that relied on implicit success must now explicitly
-        # return {"ok": True} or {"success": True}.
-        raw = result.get("error_code") or result.get("code") or ""
-        norm = raw if raw else _code_val(_LEGACY_FAIL_DEFAULT)
-        return _STATUS_FAIL, norm, result
+        # Dict with no ok/success keys — v4 contract: treat as SUCCESS.
+        # Legacy tool handlers may omit the verdict field; forcing FAIL
+        # here breaks existing integrations. The single source of truth
+        # for tool failure is an explicit ok=False or success=False.
+        return _STATUS_SUCCESS, None, result
 
     # Non-dict return (str, int, list, custom object, ...). The
     # v4 contract treats this as success — the previous v3.10

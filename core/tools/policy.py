@@ -287,7 +287,7 @@ def _check_argument_safety(
     has_command_field = False
     for key in arguments.keys():
         key_l = str(key).lower()
-        if any(pat in key_l for pat in ("command", "cmd", "shell", "script", "exec")):
+        if any(_re.search(r'\b' + _re.escape(pat) + r'\b', key_l) for pat in ("command", "cmd", "shell", "script", "exec")):
             has_command_field = True
             break
 

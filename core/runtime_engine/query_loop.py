@@ -609,6 +609,7 @@ class QueryLoop:
         self._emitter = emitter
         self._executor = StreamingToolExecutor(tool_runtime, config, emitter)
         self._cached_tools = _build_cached_tool_definitions(tool_registry)
+        self._llm_call_count = 0
 
     async def run(
         self,
