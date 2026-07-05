@@ -58,19 +58,22 @@ class ContextBudget:
     def as_dict(self): return self.__dict__.copy()
 
 
-# Model context window sizes (approximate, in chars — roughly 4 chars per token)
+# Model context window sizes (in chars, roughly 4 chars per token).
+# Updated 2026-07 — MiniMax M3 API supports 1M, guaranteed 512K;
+# DeepSeek V3/V4 support 1M; GPT-4o supports 128K.
 MODEL_CONTEXT_WINDOWS = {
-    "minimax-m3": 245_000,
+    "minimax-m3": 512_000,           # API 1M, guaranteed minimum 512K
     "minimax-m1": 245_000,
-    "gpt-4o": 100_000,
-    "gpt-4-turbo": 100_000,
-    "gpt-3.5-turbo": 12_000,
-    "claude-3.5-sonnet": 140_000,
-    "claude-3-opus": 140_000,
-    "deepseek-chat": 100_000,
-    "deepseek-v3": 100_000,
-    "qwen-max": 24_000,
-    "glm-4": 100_000,
+    "gpt-4o": 128_000,
+    "gpt-4-turbo": 128_000,
+    "gpt-3.5-turbo": 16_000,
+    "claude-3.5-sonnet": 200_000,
+    "claude-3-opus": 200_000,
+    "deepseek-chat": 1_000_000,
+    "deepseek-v3": 1_000_000,
+    "deepseek-v4": 1_000_000,
+    "qwen-max": 128_000,
+    "glm-4": 128_000,
 }
 
 

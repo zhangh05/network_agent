@@ -553,7 +553,7 @@ def _summarize_tool_content(content: str) -> str:
     return content[:80]
 
 
-def should_compact(messages: list, max_context_tokens: int = 128000,
+def should_compact(messages: list, max_context_tokens: int = 512000,
                    threshold: float = 0.75) -> bool:
     """Check if compaction is needed."""
     est = estimate_context_size(messages)
