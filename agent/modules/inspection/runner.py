@@ -728,6 +728,8 @@ def _run_checks_on_asset(task: InspectionTask,
                 bucket_session_id = new_sid
                 _register_task_session(workspace_id, task.task_id, dr.protocol, bucket_session_id)
         except Exception:
+            if logger:
+                logger.warning("inspection: session registration failed", exc_info=True)
             pass
 
     try:

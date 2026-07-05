@@ -182,7 +182,10 @@ def _run_agent_thread(user_input, session_id, workspace_id, metadata, event_queu
             seq = int(stats.get("event_seq", 0)) + 1
             stats["event_seq"] = seq
             if isinstance(event, dict) and event.get("type") == "token":
-                event_queue.put({"type": "token", "content": event.get("content", ""), "seq": seq}, timeout=0.2)
+                try:
+                    event_queue.put({"type": "token", "content": event.get("content", ""), "seq": seq}, timeout=0.2)
+                except queue.Full:
+                    pass
             else:
                 name = event.get("type", event.get("name", "event")) if isinstance(event, dict) else "event"
                 # v3.10: Surface tool calls as live events for inline display

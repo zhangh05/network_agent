@@ -458,8 +458,10 @@ def _auth_key(workspace_id: str) -> bytes:
 def _workspace_secret_key(workspace_id: str) -> bytes:
     path = _db_dir(workspace_id) / ".cmdb_secret_key"
     if not path.exists():
-        path.write_text(secrets.token_urlsafe(48), encoding="utf-8")
+        key_data = secrets.token_urlsafe(48)
+        path.write_text(key_data, encoding="utf-8")
         try:
+            os.fsync(path.open("r+").fileno())  # P1-26: fsync before chmod to prevent corruption on crash
             os.chmod(path, 0o600)
         except OSError:
             pass
