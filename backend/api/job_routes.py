@@ -166,7 +166,7 @@ def register_job_routes(app):
 
         # Also aggregate from per-run artifact indexes
         try:
-            from artifacts.store import get_run_artifacts
+            from artifacts.store import get_run_artifacts, list_artifacts, get_artifact
             for rid in (rec.run_ids or []):
                 ra = get_run_artifacts(ws, rid)
                 for a in ra.get("input_artifacts", []):
@@ -186,25 +186,17 @@ def register_job_routes(app):
                     if art_id and art_id not in output_arts:
                         output_arts.append(art_id)
 
-            # v4.1: inspection tasks use `ins_<task_id>` as run_id in artifact
-            # indexes, but agent jobs only track agent run_ids. Scan all
-            # inspection artifact indexes so artifacts produced by background
-            # inspections show up in the job "产出制品" tab.
-            from pathlib import Path
-            runs_dir = Path(__file__).resolve().parent.parent.parent / "workspaces" / ws / "runs"
-            for p in runs_dir.glob("ins_*.artifacts.json"):
-                try:
-                    ra = json.loads(p.read_text())
-                    for a in ra.get("temp_artifacts", []):
-                        art_id = a.get("artifact_id") if isinstance(a, dict) else a
-                        if art_id and art_id not in output_arts:
-                            output_arts.append(art_id)
-                    for a in ra.get("output_artifacts", []):
-                        art_id = a.get("artifact_id") if isinstance(a, dict) else a
-                        if art_id and art_id not in output_arts:
-                            output_arts.append(art_id)
-                except Exception:
-                    pass
+            # v4.1: inspection artifacts carry session_id so we can filter
+            # by session instead of globally scanning all indexes.
+            session_id = (rec.payload or {}).get("session_id", "")
+            if session_id:
+                for art_summary in list_artifacts(ws, include_deleted=False, limit=500):
+                    art_id = art_summary.get("artifact_id")
+                    if not art_id or art_id in output_arts:
+                        continue
+                    art_rec = get_artifact(ws, art_id)
+                    if art_rec and art_rec.session_id == session_id:
+                        output_arts.append(art_id)
         except Exception:
             pass
 

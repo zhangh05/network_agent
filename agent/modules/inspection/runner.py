@@ -813,6 +813,7 @@ def _run_checks_on_asset(task: InspectionTask,
                     title=f"{dr.asset_name or asset_id} — 巡检输出",
                     sensitivity="sensitive",
                     run_id=task.task_id,
+                    session_id=task.session_id,
                     capability_id="inspection",
                     metadata={
                         "inspection_task_id": task.task_id,
