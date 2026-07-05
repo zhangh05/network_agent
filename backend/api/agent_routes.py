@@ -150,7 +150,7 @@ def agent_message():
                 attach_run_to_session_job(
                     ws_id=ws_id,
                     session_id=effective_session_id,
-                    run_id=result_payload.get("run_id", ""),
+                    run_id=result_payload.get("turn_id", ""),
                     tool_call_count=len(result_payload.get("tool_calls", [])),
                     user_input=user_input,
                 )
