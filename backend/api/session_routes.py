@@ -271,7 +271,7 @@ def handle_session_soft_delete(session_id):
     if err:
         return err
 
-    session = soft_delete_session(session_id, ws_id)
+    session = delete_session_permanently(session_id, ws_id)
     if not session:
         return jsonify({"ok": False, "error": "session_not_found"}), 404
 

@@ -108,6 +108,14 @@ class MemoryStore:
         record.metadata["projection_of"] = "GraphStore"
         atomic_write_json(self._path(record.workspace_id, record.memory_id), record.to_dict())
 
+    def delete_file(self, ws_id: str, memory_id: str) -> bool:
+        """Physically delete a memory record file."""
+        p = self._path(ws_id, memory_id)
+        if p.exists():
+            p.unlink()
+            return True
+        return False
+
     def get(self, ws_id: str, memory_id: str) -> Optional[MemoryRecord]:
         p = self._path(ws_id, memory_id)
         if not p.exists(): return None
@@ -283,8 +291,7 @@ def reject_memory(ws_id: str, memory_id: str) -> dict:
     store = MemoryStore()
     rec = store.get(ws_id, memory_id)
     if not rec: return {"ok": False, "error": "not found"}
-    rec.status = "rejected"; rec.updated_at = _now()
-    store._save(rec)
+    store.delete_file(ws_id, memory_id)
     _emit_event(ws_id, rec, "memory_rejected")
     return {"ok": True, "status": "rejected"}
 
