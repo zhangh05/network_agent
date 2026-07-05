@@ -41,6 +41,7 @@ def get_task(ws_id: str, task_id: str) -> Optional[TaskState]:
     except Exception: return None
 
 def list_tasks(ws_id: str, session_id="", limit=50) -> list[TaskState]:
+    """List tasks. P1-22: full dir scan + sort, no cache — pagination at app level."""
     d = _task_dir(ws_id)
     if not d.exists() or limit <= 0: return []
     tasks = []

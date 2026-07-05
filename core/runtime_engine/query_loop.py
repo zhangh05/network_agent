@@ -1528,9 +1528,8 @@ class QueryLoop:
         Falls back to ``_build_tool_result_fallback`` if the LLM call fails or
         the budget is exhausted.
         """
-        # Budget check
-        budget_status = budget.check_llm_call()
-        if not budget_status.ok:
+        # P2-2: budget already checked in main loop; skip duplicate check here
+        if budget.llm_calls >= budget.max_llm_calls:
             return self._build_tool_result_fallback(ctx, results)
 
         # Build user prompt: original request + tool result summaries

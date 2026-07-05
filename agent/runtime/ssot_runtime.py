@@ -161,8 +161,8 @@ def run_ssot_turn(
                     if result is False:
                         approved = False  # denied
                         break
-                    # Still pending. This adapter is synchronous; the async
-                    # QueryLoop has already completed before approval replay.
+                    # P2-1: synchronous poll blocks facade thread up to 30s.
+                    # Consider async approval with threading.Event or asyncio.
                     time.sleep(0.5)
                     waited += 0.5
                 else:
