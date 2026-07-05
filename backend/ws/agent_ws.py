@@ -102,14 +102,14 @@ def register_ws_routes(app):
                 if not isinstance(metadata, dict):
                     metadata = {}
                 try:
-                    from backend.api.agent_contract import metadata_size, normalize_metadata
+                    from backend.core.agent_contract import metadata_size, normalize_metadata
                     if metadata_size(metadata) > _MAX_WS_METADATA_JSON:
                         ws.send(json.dumps({"type": "error", "message": "metadata too large (max 16KB)"}, ensure_ascii=True))
                         continue
                 except Exception:
                     _log.warning("WS metadata normalize failed, resetting to {}", exc_info=True)
                     metadata = {}
-                from backend.api.agent_contract import normalize_metadata
+                from backend.core.agent_contract import normalize_metadata
                 metadata = normalize_metadata(metadata, transport="websocket", stream_mode="live")
 
                 # Event queue for thread-safe communication

@@ -27,7 +27,7 @@ def _validated_ws_id(raw="default"):
 
 
 def _validated_limit(default=100, max_value=500):
-    from backend.api.params import parse_limit
+    from backend.core.params import parse_limit
     try:
         return parse_limit(request.args, default=default, max_value=max_value), None
     except ValueError:

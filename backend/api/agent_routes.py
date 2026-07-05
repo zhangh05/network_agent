@@ -33,7 +33,7 @@ def _validated_session_id(sid: str):
 
 
 def _json_len(value) -> int:
-    from backend.api.agent_contract import metadata_size
+    from backend.core.agent_contract import metadata_size
     return metadata_size(value)
 
 
@@ -57,13 +57,13 @@ def _result_status(result: dict) -> int:
 
 def _resolve_stream_mode(data: dict) -> tuple[bool, str]:
     """Delegate to shared agent_contract helper."""
-    from backend.api.agent_contract import resolve_stream_mode
+    from backend.core.agent_contract import resolve_stream_mode
     return resolve_stream_mode(data)
 
 
 def _normalize_agent_result(result: dict, ws_id: str) -> dict:
     """Delegate to shared agent_contract helper."""
-    from backend.api.agent_contract import normalize_agent_result
+    from backend.core.agent_contract import normalize_agent_result
     return normalize_agent_result(result, ws_id)
 
 
@@ -116,7 +116,7 @@ def agent_message():
         metadata = {}
     if not isinstance(metadata, dict):
         metadata = {}
-    from backend.api.agent_contract import normalize_metadata
+    from backend.core.agent_contract import normalize_metadata
     metadata = normalize_metadata(metadata, transport="http", stream_mode=stream_mode)
 
     try:
