@@ -1667,6 +1667,8 @@ def _handler_network_ssh(inv: ToolInvocation) -> dict:
                 if sudo and not command.startswith("sudo "):
                     command = f"sudo {command}"
                 exec_result = exec_command(session_id, command, timeout=timeout)
+                if isinstance(exec_result, dict) and not exec_result.get("ok"):
+                    return {"ok": False, "error": f"exec_failed: {exec_result.get('error', '')[:160]}"}
                 output_text = _extract_output(exec_result)
                 return {
                     "ok": True, "host": getattr(existing, "host", host), "command": command,

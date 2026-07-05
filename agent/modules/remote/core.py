@@ -65,8 +65,10 @@ class DeviceSession:
                     elif hasattr(self._chan, "write"):
                         self._chan.write(data)
                 except Exception:
-                    _log.debug("remote: send data to device channel failed",
+                    _log.debug("remote: send to device channel failed",
                                exc_info=True)
+                    self.connected = False
+                    self._chan = None
 
     def resize(self, cols: int, rows: int) -> None:
         cols = max(20, min(int(cols or 160), 240))
@@ -217,6 +219,10 @@ def exec_command(session_id: str, command: str, *, timeout: float = 0.0) -> dict
         if timeout > 0:
             session.command_timeout = timeout
         output = _exec_and_wait(session, command)
+        # Post-send check: if the channel died during send(), _exec_and_wait
+        # returns empty; connected flag is now False.
+        if not output and not session.connected:
+            return {"ok": False, "error": "session_lost_during_execution", "output": output, "session_id": session_id}
         return {"ok": True, "output": output, "session_id": session_id}
     except Exception as e:
         return {"ok": False, "error": str(e)[:200]}
