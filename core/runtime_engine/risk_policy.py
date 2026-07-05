@@ -217,11 +217,20 @@ class RiskPolicyEngine:
                             )
 
             # ── Side-effect counts for combo escalation ──
+            # v4.5: action-aware counting — a mixed tool (workspace.file,
+            # workspace.artifact, report.manage) that supports both read and
+            # write sub-actions should only increment write_count for the
+            # write actions. Previously the hard-coded contract side_effect
+            # counted every call as a write, triggering multiple_writes
+            # when the LLM simply read 3+ files.
             se = contract.side_effect
+            action = str(node.args.get("action", "")).lower()
+            is_read_action = action in ("read", "list", "glob", "read_image", "diff", "export", "references", "status", "log", "get")
             if se == "execute_command":
                 exec_count += 1
             elif se in ("write_file", "mutate_local"):
-                write_count += 1
+                if not is_read_action:
+                    write_count += 1
             elif se == "external_request":
                 external_count += 1
             elif se == "credential_access":
@@ -280,9 +289,11 @@ class RiskPolicyEngine:
             # Populate approval_nodes so downstream gates can detect approval
             for node in dag.nodes:
                 contract = get_contract(node.tool)
+                action = str(node.args.get("action", "")).lower()
                 if contract and contract.side_effect in ("write_file", "mutate_local"):
-                    if node.id not in assessment.approval_nodes:
-                        assessment.approval_nodes.append(node.id)
+                    if action not in ("read", "list", "glob", "read_image", "diff", "export", "references", "status", "log", "get"):
+                        if node.id not in assessment.approval_nodes:
+                            assessment.approval_nodes.append(node.id)
 
         # exec.run tiers (config-driven)
         if exec_count > self._max_exec_approval and not assessment.hard_block:
