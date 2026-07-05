@@ -1,8 +1,9 @@
-/** Shared event helpers — used by RunsPage & RuntimeAudit */
+import { formatDate } from "./format";
 
 export function formatEventTime(ev: any): string {
   const v = ev.occurred_at || ev.timestamp;
-  return v == null ? "—" : String(v);
+  if (v == null) return "—";
+  return formatDate(v, "compact");
 }
 
 export function formatEventDetail(ev: any): Record<string, unknown> {

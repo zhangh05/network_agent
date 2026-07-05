@@ -702,10 +702,10 @@ function TabStats({
         display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(160px, 1fr))",
         gap: "8px", fontSize: "var(--fs-12)", color: "var(--text-3)", marginBottom: 20,
       }}>
-        <div>创建：{job.created_at || "-"}</div>
-        <div>开始：{job.started_at || "-"}</div>
-        <div>结束：{job.finished_at || "-"}</div>
-        <div>更新：{job.updated_at || "-"}</div>
+        <div>创建：{formatCompactDate(job.created_at) || "-"}</div>
+        <div>开始：{formatCompactDate(job.started_at) || "-"}</div>
+        <div>结束：{formatCompactDate(job.finished_at) || "-"}</div>
+        <div>更新：{formatCompactDate(job.updated_at) || "-"}</div>
       </div>
 
       {/* Per-run breakdown */}

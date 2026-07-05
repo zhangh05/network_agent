@@ -338,9 +338,9 @@ export function RunsPage() {
                       <span style={{ fontSize: 11, color: "var(--text-4)", fontWeight: 680 }}>能力</span>
                       <span style={{ fontSize: 13 }}>{sel.capability || "—"}</span>
                       <span style={{ fontSize: 11, color: "var(--text-4)", fontWeight: 680 }}>开始</span>
-                      <span style={{ fontSize: 13 }}>{selectedStats.startedAt || "—"}</span>
+                      <span style={{ fontSize: 13 }}>{formatDate(selectedStats.startedAt, "compact") || "—"}</span>
                       <span style={{ fontSize: 11, color: "var(--text-4)", fontWeight: 680 }}>结束</span>
-                      <span style={{ fontSize: 13 }}>{selectedStats.finishedAt || "—"}</span>
+                      <span style={{ fontSize: 13 }}>{formatDate(selectedStats.finishedAt, "compact") || "—"}</span>
                       <span style={{ fontSize: 11, color: "var(--text-4)", fontWeight: 680 }}>工具调用</span>
                       <span style={{ fontSize: 13 }}>{selectedStats.toolCallCount || 0}</span>
                       <span style={{ fontSize: 11, color: "var(--text-4)", fontWeight: 680 }}>状态</span>
