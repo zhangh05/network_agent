@@ -111,10 +111,29 @@ def _merge_run_id(ws_id: str, job_id: str, session_id: str, run_id: str, tool_ca
     if run_id not in new_ids:
         new_ids.append(run_id)
 
-    update_job(ws_id, job_id, {"run_ids": new_ids})
+    # ── Merge artifact refs from run records ───────────────────────────
+    # Agent turns (via run_store) carry artifact_refs in their context.
+    # Inspection tasks and other tools write artifacts via save_artifact
+    # with a run_id that may differ from the agent turn_id.  We pull
+    # artifact_refs from the run record so the job "Artifacts" tab is
+    # populated even when the artifact store run index uses a different id.
+    output_arts = list(getattr(rec, "output_artifacts", None) or [])
+    try:
+        from workspace.run_store import get_run
+        for rid in new_ids:
+            run_rec = get_run(rid, ws_id)
+            if run_rec:
+                for ref in (run_rec.get("artifact_refs") or []):
+                    art_id = ref.get("artifact_id") if isinstance(ref, dict) else ref
+                    if art_id and art_id not in output_arts:
+                        output_arts.append(art_id)
+    except Exception:
+        _log.debug("artifact_refs merge failed job=%s", job_id, exc_info=True)
+
+    update_job(ws_id, job_id, {"run_ids": new_ids, "output_artifacts": output_arts})
     update_progress(
         ws_id, job_id,
         current=len(new_ids),
         message=f"{len(new_ids)}轮 | {tool_call_count}工具调用",
     )
-    _log.info("job updated: %s runs=%d tools=%d", job_id, len(new_ids), tool_call_count)
+    _log.info("job updated: %s runs=%d tools=%d artifacts=%d", job_id, len(new_ids), tool_call_count, len(output_arts))

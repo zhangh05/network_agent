@@ -245,6 +245,14 @@ def _handle_inspection_managed(inv: ToolInvocation) -> dict:
             _il.getLogger(__name__).exception("run_and_wait failed")
             return {"ok": False, "error": f"inspection_failed: {exc}"}
 
+        # Collect artifact_ids from all device command results
+        artifact_ids = []
+        for dr in (getattr(task, "devices", {}) or {}).values():
+            for cr in (getattr(dr, "command_results", []) or []):
+                aid = getattr(cr, "artifact_id", "")
+                if aid:
+                    artifact_ids.append(aid)
+
         if task.status in ("succeeded", "partial"):
             report_md = inspection_service.render_report(ws, task.task_id, "md")
             return {
@@ -265,11 +273,13 @@ def _handle_inspection_managed(inv: ToolInvocation) -> dict:
                     "failed_devices": task.failed,
                     "skipped_devices": task.skipped,
                 },
+                "artifact_ids": artifact_ids,
             }
         return {
             "ok": task.status != "failed",
             "task_id": task.task_id, "status": task.status, "NEXT": "done",
             "error": task.error,
+            "artifact_ids": artifact_ids,
         }
 
     if action == "run":

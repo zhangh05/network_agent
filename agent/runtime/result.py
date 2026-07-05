@@ -34,6 +34,13 @@ class AgentResult:
     _finalization_ctx: object = None
 
     def to_dict(self) -> dict:
+        # Collect artifact_ids from tool_calls for job/artifact tracking
+        output_artifacts = []
+        for tc in (self.tool_calls or []):
+            if isinstance(tc, dict):
+                for art in (tc.get("artifacts") or []):
+                    if isinstance(art, dict) and art.get("artifact_id"):
+                        output_artifacts.append(art["artifact_id"])
         return {
             "ok": self.ok,
             "final_response": self.final_response,
@@ -50,4 +57,5 @@ class AgentResult:
             "no_tool_reason": self.no_tool_reason,
             "timeline_summary": self.metadata.get("timeline_summary", {}),
             "content_parts": self.content_parts,
+            "output_artifacts": output_artifacts,
         }
