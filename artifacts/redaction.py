@@ -5,7 +5,7 @@ import re
 
 SECRET_PATTERNS = [
     r'(password\s+\S+|[Pp]assword[=:]\s*\S+)',
-    r'(secret\s+\S+|[Ss]ecret[=:]\\s*\\S+)',
+    r'(secret\s+\S+|[Ss]ecret[=:]\s*\S+)',
     r'(community\s+\S+)',
     r'sk-[A-Za-z0-9]{20,}',
     r'(api[_-]?key[=:]\s*\S{8,})',
@@ -16,6 +16,11 @@ SECRET_PATTERNS = [
     r'(DEEPSEEK_API_KEY[=:]\s*\S+)',
     r'(private[_-]?key[=:]\s*\S+)',
     r'(token[=:]\s*\S{8,})',
+    # v3.12: added patterns previously missing from this module
+    r'eyJ[A-Za-z0-9+/=]{20,}',                        # JWT tokens
+    r'-----BEGIN\s.*PRIVATE KEY-----',                 # SSH private key headers
+    r'AKIA[0-9A-Z]{16}',                               # AWS Access Key ID
+    r'snmp-server\s+community\s+\S+',                  # SNMP community strings
 ]
 MASK = "[REDACTED_SECRET]"
 
