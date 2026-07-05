@@ -226,6 +226,17 @@ def _handle_inspection_managed(inv: ToolInvocation) -> dict:
     action = str((inv.arguments or {}).get("action", "") or "").lower()
     args = dict(inv.arguments or {})
 
+    # session_id: try inv.session_id first; fallback to run record
+    session_id = str(inv.session_id or "")
+    if not session_id and inv.run_id:
+        try:
+            from workspace.run_store import get_run
+            run_rec = get_run(str(inv.run_id), ws)
+            if run_rec:
+                session_id = run_rec.get("session_id", "") or ""
+        except Exception:
+            pass
+
     if action == "run_and_wait":
         # Sync: block until task completes, return devices + report
         # so LLM can start analysing immediately — no polling loop.
