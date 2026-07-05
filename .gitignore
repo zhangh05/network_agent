@@ -16,7 +16,7 @@ minimax_api_key
 .frontend.pid
 data/
 artifacts/
-!artifacts/*.py
+!artifacts/**/*.py
 !artifacts/__init__.py
 logs/
 memory/data/
@@ -34,15 +34,13 @@ API_key.txt
 # Generated audit/planning output
 reports/
 
-node_modules/.vite/
-node_modules/**/*.results.json
-.superpowers/
 node_modules/
+*.tsbuildinfo
 
 reports/tool_catalog.json
 
-# macOS system files (v3.9.1)
-.DS_Store
+# macOS system files
+**/.DS_Store
 .AppleDouble
 .LSOverride
 ._*
