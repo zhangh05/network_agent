@@ -277,6 +277,12 @@ class RiskPolicyEngine:
             assessment.requires_approval = True
             if not assessment.approval_reason:
                 assessment.approval_reason = "multiple_writes"
+            # Populate approval_nodes so downstream gates can detect approval
+            for node in dag.nodes:
+                contract = get_contract(node.tool)
+                if contract and contract.side_effect in ("write_file", "mutate_local"):
+                    if node.id not in assessment.approval_nodes:
+                        assessment.approval_nodes.append(node.id)
 
         # exec.run tiers (config-driven)
         if exec_count > self._max_exec_approval and not assessment.hard_block:
