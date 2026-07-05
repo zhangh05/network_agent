@@ -45,3 +45,4 @@ reports/tool_catalog.json
 .LSOverride
 ._*
 .playwright-cli/
+.graph/events.jsonl
