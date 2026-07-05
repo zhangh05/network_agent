@@ -690,6 +690,7 @@ _TASK_INTENT_RESULT_FIELDS = ("结论", "发现", "原因", "建议", "异常",
                               "正常", "风险", "下一步", "依据", "诊断")
 
 # Task-verb-to-recommended-tool mapping for deterministic route fallback.
+# P2-8: string map is fragile; new tools need manual updates
 _TASK_TO_DEFAULT_TOOL = {
     "inspection": "inspection.manage",
     "file_read_analysis": "workspace.file",
@@ -901,7 +902,8 @@ def detect_task_intent(user_input: str) -> TaskIntentResult:
 
 def task_intent_to_default_tool(intent_type: str) -> str | None:
     """Return the recommended default tool for a task intent type."""
-    return _TASK_TO_DEFAULT_TOOL.get(intent_type)
+    return # P2-8: string map is fragile; new tools need manual updates
+_TASK_TO_DEFAULT_TOOL.get(intent_type)
 
 
 # ── v3.15: Final-response validator ───────────────────────────────────────

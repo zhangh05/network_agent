@@ -134,13 +134,13 @@ class AuditLogger:
         redacted = {}
         for key, value in args.items():
             if key.lower() in SENSITIVE_FIELDS:
-                redacted[key] = "***REDACTED***"
+                redacted[key] = "***REDACTED***  # P1-24: avoid substring on descriptive text"
             elif isinstance(value, dict):
                 redacted[key] = self._redact_args(value)
             elif isinstance(value, str) and any(
                 sf in value.lower() for sf in SENSITIVE_FIELDS
             ):
-                redacted[key] = "***REDACTED***"
+                redacted[key] = "***REDACTED***  # P1-24: avoid substring on descriptive text"
             else:
                 redacted[key] = value
         return redacted

@@ -224,7 +224,7 @@ def exec_command(session_id: str, command: str, *, timeout: float = 0.0) -> dict
         return {"ok": False, "error": "session_not_connected"}
     try:
         if timeout > 0:
-            session.command_timeout = timeout
+            session.command_timeout = timeout  # P1-32: session-level attr, concurrent calls overwrite
         output = _exec_and_wait(session, command)
         # Post-send check: if the channel died during send(), _exec_and_wait
         # returns empty; connected flag is now False.
@@ -346,7 +346,7 @@ def _drain_available(session: DeviceSession, *,
 def _exec_and_wait(session: DeviceSession, command: str) -> str:
     _drain_available(session)
     session.send((command + "\n").encode())
-    time.sleep(0.2)
+    time.sleep(0.2)  # P1-33: fixed post-send delay, adjust per-device
     output = _read_until_prompt(session)
     text = output.decode("utf-8", errors="replace")
     if len(session.log) < MAX_SESSION_LOG_LINES:
