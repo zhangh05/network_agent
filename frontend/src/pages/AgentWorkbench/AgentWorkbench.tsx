@@ -334,30 +334,28 @@ export function TaskWorkbench() {
           setInspectionTaskId(null);
           safeRemoveLocal("workbench_inspection"); // clear on success
 
-          // v4.3: fetch artifact content directly and inject into prompt
-          // instead of asking LLM to call inspection.manage tool.
+          // v4.4: reference artifact by path instead of injecting content
+          // so the LLM reads the artifact itself (like pcap analysis).
           const { artifactsApi } = await import("../../api/index");
           const devices = Object.values((t as any).devices || {} as Record<string, any>)
             .filter((d: any) => d.status === "succeeded");
           const deviceList = devices.map((d: any) => `- ${d.asset_name || d.asset_id} (${d.host})`).join("\n");
 
-          const MAX_CONTENT_PER_DEVICE = 12000; // ~3K tokens per device
-          const deviceOutputs: string[] = [];
+          const artifactRefs: string[] = [];
           for (const d of devices) {
             const results: any[] = d.command_results || [];
             for (const cr of results) {
               const artId = cr?.artifact_id;
               if (!artId) continue;
               try {
-                const artResp = await artifactsApi.content(currentWorkspaceId, artId, ac.signal) as { content?: string; ok?: boolean };
-                if (artResp?.content) {
-                  const text = String(artResp.content);
-                  const truncated = text.length > MAX_CONTENT_PER_DEVICE
-                    ? text.slice(0, MAX_CONTENT_PER_DEVICE) + "\n\n[...内容已截断]"
-                    : text;
-                  deviceOutputs.push(
-                    `--- ${d.asset_name || d.asset_id} 原始命令输出 ---\n${truncated}\n---`
-                  );
+                const artResp = await artifactsApi.get(currentWorkspaceId, artId, ac.signal) as { artifact?: any };
+                if (artResp?.artifact) {
+                  const art = artResp.artifact;
+                  const title = art.title || art.artifact_id || artId;
+                  const path = art.relative_path || art.file_id || "";
+                  if (path) {
+                    artifactRefs.push(`制品 "${title}"，文件路径 "${path}"`);
+                  }
                 }
               } catch (e) {
                 // silently skip artifacts that can't be read
@@ -365,9 +363,9 @@ export function TaskWorkbench() {
             }
           }
 
-          const rawOutputBlock = deviceOutputs.length
-            ? `\n原始命令输出：\n${deviceOutputs.join("\n\n")}`
-            : "\n暂无原始命令输出可读。";
+          const rawOutputBlock = artifactRefs.length
+            ? `\n巡检原始数据已保存为以下制品：\n${artifactRefs.map(s => `- ${s}`).join("\n")}\n\n请先读取各制品内容，然后逐设备分析。`
+            : "\n暂无制品。";
 
           const finalPrompt = [
             `对 ${target}${vendor} ${typeLabel}已完成。`,
@@ -376,7 +374,7 @@ export function TaskWorkbench() {
             deviceList,
             rawOutputBlock,
             ``,
-            `请逐设备分析，维度：${analysisHints}。`,
+            `分析维度：${analysisHints}。`,
             `输出结构化${typeLabel}报告（概览表 + 逐设备要点）。`,
             `不要输出任何中间确认或思考过程。直接开始分析。`,
           ].join("\n");
