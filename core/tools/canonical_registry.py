@@ -1241,7 +1241,7 @@ import logging
 logger = logging.getLogger(__name__)
 
 # ── Output truncation (max chars per execution result) ─────────────
-_OUTPUT_TRUNCATE = 10000  # matches _SHELL_MAX_OUTPUT in shared.py
+_OUTPUT_TRUNCATE = 10000  # shared with _SHELL_MAX_OUTPUT; consider extracting as constant (P3-3)  # matches _SHELL_MAX_OUTPUT in shared.py
 
 def _safe_int(value, default: int = 0) -> int:
     """Convert value to int safely, returning default on failure."""
