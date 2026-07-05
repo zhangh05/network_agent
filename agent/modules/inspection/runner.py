@@ -798,24 +798,29 @@ def _run_checks_on_asset(task: InspectionTask,
         # reuse race) is a legitimate result that still needs an
         # artifact record for the LLM analysis phase.
         if ok and rec.get("output") is not None:
-            art = save_artifact(
-                workspace_id=workspace_id,
-                content=rec["output"],
-                artifact_type="inspection_raw",
-                title=f"{dr.asset_name or asset_id} — 巡检输出",
-                sensitivity="sensitive",
-                run_id=task.task_id,
-                capability_id="inspection",
-                metadata={
-                    "inspection_task_id": task.task_id,
-                    "asset_id": asset_id,
-                    "command_count": len(raw_commands) if is_batch else 1,
-                    "index": i,
-                },
-            )
-            if art is not None:
-                cr.artifact_id = getattr(art, "artifact_id", "")
-        dr.command_results.append(cr)
+            try:
+                art = save_artifact(
+                    workspace_id=workspace_id,
+                    content=rec["output"],
+                    artifact_type="inspection_raw",
+                    title=f"{dr.asset_name or asset_id} — 巡检输出",
+                    sensitivity="sensitive",
+                    run_id=task.task_id,
+                    capability_id="inspection",
+                    metadata={
+                        "inspection_task_id": task.task_id,
+                        "asset_id": asset_id,
+                        "command_count": len(raw_commands) if is_batch else 1,
+                        "index": i,
+                    },
+                )
+                if art is not None:
+                    cr.artifact_id = getattr(art, "artifact_id", "")
+                else:
+                    dr.errors.append(f"artifact_not_saved: save_artifact returned None (possibly secret in output or empty)")
+            except Exception as exc:
+                dr.errors.append(f"artifact_save_failed: {type(exc).__name__}: {str(exc)[:120]}")
+                logger.warning("inspection: artifact save failed for %s: %s", asset_id, exc)
 
     # Status
     dr.finished_at = now_iso()
