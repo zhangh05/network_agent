@@ -125,7 +125,7 @@ def handle_artifact_delete_soft(inv: ToolInvocation) -> dict:
     try:
         validate_workspace_id(ws)
         from artifacts.store import delete_artifact
-        ok = delete_artifact(ws, art_id)
+        ok = delete_artifact(ws, art_id, hard=True)
         return _ok(inv, f"Artifact {art_id} deleted={ok}.", {"deleted": ok}) if ok else _error_inv(inv, "delete failed")
     except Exception as e:
         return _error_inv(inv, str(e)[:200])

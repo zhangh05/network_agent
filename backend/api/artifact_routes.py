@@ -276,7 +276,7 @@ def register_artifact_routes(app):
             return err
         if not _confirmed():
             return _confirm_required()
-        ok = delete_artifact(ws_id, artifact_id)
+        ok = delete_artifact(ws_id, artifact_id, hard=True)
         return jsonify({"ok": ok})
 
     @app.route("/api/workspaces/<ws_id>/artifacts/<artifact_id>/promote", methods=["POST"])
