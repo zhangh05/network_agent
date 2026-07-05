@@ -946,8 +946,7 @@ class QueryLoop:
         try:
             system_prompt, stream_scope, stream_to_user = self._llm_call_mode(messages)
             if self._llm_invoke is not None:
-                raw = # NOTE: sync function in async context — see P3-2
-        self._llm_invoke(
+                raw = self._llm_invoke(
                     system=system_prompt,
                     user=self._messages_to_user_text(messages),
                     temperature=0.2,
@@ -1552,8 +1551,7 @@ class QueryLoop:
 
         try:
             if self._llm_invoke is not None:
-                raw = # NOTE: sync function in async context — see P3-2
-        self._llm_invoke(
+                raw = self._llm_invoke(
                     system=QUERY_LOOP_FINALIZER_PROMPT,
                     user=finalizer_user,
                     temperature=0.2,
