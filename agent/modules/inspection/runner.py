@@ -33,6 +33,7 @@ from typing import Optional
 
 from agent.runtime.utils import now_iso, from_iso, duration_ms
 from artifacts.store import save_artifact
+from artifacts.redaction import redact_artifact_content
 from core.tools.redaction import redact_string
 from core.tools.context import ToolRuntimeContext
 from core.tools.integration import get_default_tool_runtime_client
@@ -799,9 +800,13 @@ def _run_checks_on_asset(task: InspectionTask,
         # artifact record for the LLM analysis phase.
         if ok and rec.get("output") is not None:
             try:
+                # Pre-redact raw output so network-device config fields
+                # (password, community, etc.) don't trigger the artifact
+                # store's secret-detection refusal.
+                content_to_save = redact_artifact_content(rec["output"])
                 art = save_artifact(
                     workspace_id=workspace_id,
-                    content=rec["output"],
+                    content=content_to_save,
                     artifact_type="inspection_raw",
                     title=f"{dr.asset_name or asset_id} — 巡检输出",
                     sensitivity="sensitive",
