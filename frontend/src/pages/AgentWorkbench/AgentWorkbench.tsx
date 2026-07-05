@@ -355,6 +355,7 @@ export function TaskWorkbench() {
         if (!(e instanceof DOMException && e.name === "AbortError")) {
           done = true;
           setInspectionTaskId(null);
+          safeRemoveLocal("workbench_inspection"); // clear on error too
         }
       }
     };
