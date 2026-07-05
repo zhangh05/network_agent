@@ -123,7 +123,8 @@ def write_run_record(state, ws_id: str = "default") -> str:
         json.dumps(record, indent=2, ensure_ascii=False),
         encoding="utf-8",
     )
-    os.fsync(tmp_path.open("r+").fileno())
+    with tmp_path.open("r+") as _f:
+        os.fsync(_f.fileno())
     tmp_path.rename(record_path)
 
     # Associate run with session if session_id is present
@@ -379,6 +380,7 @@ def write_sub_agent_run(
         json.dumps(record, indent=2, ensure_ascii=False),
         encoding="utf-8",
     )
-    os.fsync(tmp_path.open("r+").fileno())
+    with tmp_path.open("r+") as _f:
+        os.fsync(_f.fileno())
     tmp_path.rename(record_path)
     return write_id
