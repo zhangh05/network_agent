@@ -792,8 +792,12 @@ def _run_checks_on_asset(task: InspectionTask,
             elapsed_ms=rec["elapsed_ms"],
             error=rec.get("error", "") if not ok else "",
         )
-        # Raw output saved as artifact for LLM consumption
-        if ok and rec["output"]:
+        # Raw output saved as artifact for LLM consumption.
+        # Use `is not None` instead of truthiness check: a successful
+        # command with empty output (e.g. stdout consumed by session
+        # reuse race) is a legitimate result that still needs an
+        # artifact record for the LLM analysis phase.
+        if ok and rec.get("output") is not None:
             art = save_artifact(
                 workspace_id=workspace_id,
                 content=rec["output"],
