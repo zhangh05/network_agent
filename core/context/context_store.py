@@ -202,6 +202,63 @@ class ContextStore:
 
     # ---- Garbage Collection ----
 
+    def purge(self, item_ids: set[str]) -> int:
+        """Physically remove items from items.jsonl by rewriting the file
+        without the given item_ids. Returns count of removed items."""
+        if not item_ids:
+            return 0
+        removed = 0
+        with self._lock:
+            kept: list[dict] = []
+            for item in self._iter_raw():
+                if item.get("item_id") in item_ids or item.get("deleted"):
+                    removed += 1
+                    continue
+                kept.append(item)
+
+            # Atomic rewrite (same pattern as compact)
+            tmp = self._items_path.with_name(
+                self._items_path.name + f".tmp.{os.getpid()}.{uuid.uuid4().hex[:8]}"
+            )
+            fd = os.open(
+                str(tmp), os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o644
+            )
+            try:
+                with os.fdopen(fd, "w", encoding="utf-8") as f:
+                    for item in kept:
+                        f.write(json.dumps(item, ensure_ascii=False, default=str) + "\n")
+                    f.flush()
+                    try:
+                        os.fsync(f.fileno())
+                    except OSError:
+                        pass
+            except Exception:
+                try:
+                    tmp.unlink()
+                except OSError:
+                    pass
+                raise
+
+            if self._items_path.exists():
+                bak = self._items_path.with_suffix(
+                    f".bak.{time.strftime('%Y%m%d%H%M%S')}"
+                )
+                try:
+                    import shutil
+                    shutil.copy2(self._items_path, bak)
+                except OSError:
+                    pass
+
+            try:
+                os.replace(tmp, self._items_path)
+            except Exception:
+                try:
+                    tmp.unlink()
+                except OSError:
+                    pass
+                raise
+        return removed
+
     def compact(self) -> dict:
         """Rewrite items.jsonl, removing tombstones and superseded versions."""
         with self._lock:

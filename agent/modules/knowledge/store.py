@@ -205,15 +205,14 @@ def disable_source(
 
 
 def delete_source(workspace_id: str, source_id: str) -> bool:
-    """Soft-delete a source and its chunks."""
+    """Physically delete a source and its chunks — purge from ContextStore."""
     store = get_context_store(workspace_id)
-    store.delete(source_id)
-
-    # Also delete associated chunks
-    chunks = store.list_items(item_type="knowledge_chunk", source_id=source_id, limit=999)
+    # Collect source + all associated chunk IDs
+    ids_to_purge = {source_id}
+    chunks = store.list_items(item_type="knowledge_chunk", source_id=source_id, include_deleted=True, limit=999_999)
     for chunk in chunks:
-        store.delete(chunk["item_id"])
-
+        ids_to_purge.add(chunk["item_id"])
+    store.purge(ids_to_purge)
     return True
 
 

@@ -196,16 +196,31 @@ def get_asset(workspace_id: str, asset_id: str, *, safe: bool = True) -> dict | 
 
 
 def delete_asset(workspace_id: str, asset_id: str) -> dict:
-    """Soft-delete an asset."""
+    """Physically delete an asset — remove from JSONL completely."""
     existing = get_asset(workspace_id, asset_id, safe=False)
     if not existing:
         return {"ok": False, "error": f"asset '{asset_id}' not found"}
     path = _db_dir(workspace_id) / "assets.jsonl"
-    record = {"asset_id": asset_id, "deleted": True, "deleted_at": _now()}
     with _get_cmdb_lock(path):
-        with open(path, "a", encoding="utf-8") as f:
-            f.write(json.dumps(record, ensure_ascii=False) + "\n")
-    return {"ok": True, "name": existing.get("name", "")}
+        # Read all, filter out the target asset and its tombstones
+        lines = path.read_text().strip().split("\n") if path.is_file() else []
+        name = existing.get("name", "")
+        kept = []
+        for line in lines:
+            if not line.strip():
+                continue
+            try:
+                rec = json.loads(line)
+            except json.JSONDecodeError:
+                kept.append(line)
+                continue
+            if rec.get("asset_id") == asset_id:
+                continue  # remove this asset record
+            if rec.get("deleted") and rec.get("asset_id") == asset_id:
+                continue  # remove tombstone
+            kept.append(line)
+        path.write_text("\n".join(kept) + ("\n" if kept else ""))
+    return {"ok": True, "name": name}
 
 
 def get_stats(workspace_id: str) -> dict:

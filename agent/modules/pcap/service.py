@@ -135,19 +135,30 @@ def parse_pcap_file(workspace_id: str, filepath: str = "", file_id: str = "",
 
 
 def delete_pcap_session(session_id: str, workspace_id: str = "") -> dict:
-    """Remove a PCAP session from memory and persistent index."""
+    """Physically remove a PCAP session from memory and persistent index."""
     # Remove from in-memory cache
     PCAP_SESSIONS.pop(session_id, None)
 
-    # Mark as deleted in index (tombstone record)
+    # Physically remove from index (rewrite JSONL without the session)
     try:
         from storage.paths import workspace_root
         import json
         idx_path = workspace_root(workspace_id) / "index" / "pcap_sessions.jsonl"
         if idx_path.exists():
-            tombstone = {"session_id": session_id, "deleted": True, "deleted_at": now_iso()}
-            with open(idx_path, "a", encoding="utf-8") as f:
-                f.write(json.dumps(tombstone, ensure_ascii=False) + "\n")
+            lines = idx_path.read_text().strip().split("\n")
+            kept = []
+            for line in lines:
+                if not line.strip():
+                    continue
+                try:
+                    rec = json.loads(line)
+                except json.JSONDecodeError:
+                    kept.append(line)
+                    continue
+                if rec.get("session_id") == session_id:
+                    continue
+                kept.append(line)
+            idx_path.write_text("\n".join(kept) + ("\n" if kept else ""))
     except Exception:
         pass
 

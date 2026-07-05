@@ -204,13 +204,24 @@ def list_devices(workspace_id: str) -> list[dict]:
 
 
 def delete_device(workspace_id: str, device_id: str) -> dict:
-    """Delete a saved device (tombstone)."""
+    """Physically delete a saved device from JSONL."""
     path = _remote_dir(workspace_id) / "connections.jsonl"
     if not path.exists():
         return {"ok": False, "error": "not_found"}
-    record = {"device_id": device_id, "deleted": True, "deleted_at": now_iso()}
-    with open(path, "a", encoding="utf-8") as f:
-        f.write(json.dumps(record, ensure_ascii=False) + "\n")
+    lines = path.read_text(encoding="utf-8").strip().split("\n")
+    kept = []
+    for line in lines:
+        if not line.strip():
+            continue
+        try:
+            rec = json.loads(line)
+        except json.JSONDecodeError:
+            kept.append(line)
+            continue
+        if rec.get("device_id") == device_id:
+            continue
+        kept.append(line)
+    path.write_text("\n".join(kept) + ("\n" if kept else ""))
     return {"ok": True}
 
 
