@@ -902,8 +902,8 @@ def detect_task_intent(user_input: str) -> TaskIntentResult:
 
 def task_intent_to_default_tool(intent_type: str) -> str | None:
     """Return the recommended default tool for a task intent type."""
-    return # P2-8: string map is fragile; new tools need manual updates
-_TASK_TO_DEFAULT_TOOL.get(intent_type)
+    # P2-8: string map is fragile; new tools need manual updates
+    return _TASK_TO_DEFAULT_TOOL.get(intent_type)
 
 
 # ── v3.15: Final-response validator ───────────────────────────────────────
