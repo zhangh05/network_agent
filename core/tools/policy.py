@@ -48,7 +48,7 @@ V02_FORBIDDEN_PATTERNS = [
     _re.compile(r"^nmap[\._].*scan", _re.IGNORECASE),
     _re.compile(r"^ping[\._].*sweep", _re.IGNORECASE),
     _re.compile(r"^command\.exec$"),
-    _re.compile(r"^command[\._]exec(?!_approved)[_\w]*$", _re.IGNORECASE),
+    _re.compile(r"^command[\._]exec(?!_approved$)[_\w]*$", _re.IGNORECASE),  # P0-11: _approved suffix whitelist; bypass if renamed
     _re.compile(r"^device[\._].*exec", _re.IGNORECASE),
     _re.compile(r"^config[\._].*push", _re.IGNORECASE),
     _re.compile(r"^file[\._].*(read_any|write_any|delete_any)", _re.IGNORECASE),
@@ -148,7 +148,7 @@ class ToolPolicy:
             effective_risk = spec.risk_level or "low"
             effective_approval = spec.requires_approval
             effective_destructive = spec.destructive if hasattr(spec, 'destructive') else False
-            effective_idempotency = "unknown"
+            effective_idempotency = "unsafe_to_retry"  # P0-12: default unsafe for unknown manifests
             effective_timeout = spec.timeout_seconds or 30
 
         # ── 1. Tool exists ──
@@ -287,8 +287,7 @@ def _check_argument_safety(
     has_command_field = False
     for key in arguments.keys():
         key_l = str(key).lower()
-        if key_l in {"command", "cmd", "shell", "shell_command", "args",
-                     "script", "script_body", "exec"}:
+        if any(pat in key_l for pat in ("command", "cmd", "shell", "script", "exec")):
             has_command_field = True
             break
 

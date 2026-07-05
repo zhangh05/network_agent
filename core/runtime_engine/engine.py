@@ -651,8 +651,8 @@ class SSOTRuntimeEngine:
         return SSOTRuntimeErrorCode.VALIDATION_UNSAFE_OPERATION
 
 
-# ── v3.14: Task-intent detection ─────────────────────────────────────────
-
+# ── v3.14: Task-intent detection (P3-8: constants defined at file bottom-half, scattered) ──
+#
 _TASK_INTENT_VERBS = (
     # Explicit action verbs
     "读取", "分析", "巡检", "检查", "生成",

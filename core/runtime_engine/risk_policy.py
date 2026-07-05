@@ -206,7 +206,7 @@ class RiskPolicyEngine:
                     # combos like "rm -rf /tmp && cat ~/.ssh/id_rsa" where
                     # command_policy short-circuits on the destructive
                     # pattern and never reaches the credential check.
-                    if dest_label and _has_credential_pattern(cmd):
+                    if dest_label and _has_credential_pattern(cmd, node.args):
                         if not assessment.hard_block:
                             assessment.blocked_nodes.append(node.id)
                             assessment.hard_block = True
@@ -362,6 +362,7 @@ class RiskPolicyEngine:
 def _check_destructive_command(cmd: str) -> str:
     """Return a human-readable label if ``cmd`` matches a destructive
     pattern that should trigger an approval gate (NOT hard block)."""
+    # P3-5: consider precompiling union regex instead of list traversal
     for pattern, label in _DESTRUCTIVE_COMMAND_PATTERNS:
         if re.search(pattern, cmd, re.IGNORECASE):
             return label
@@ -372,7 +373,7 @@ def _check_system_destroy(cmd: str) -> str:
     """Return a human-readable label if ``cmd`` matches a system-destroy
     pattern that should be hard-blocked. None if safe from that perspective."""
     cmd_norm = cmd.replace("\\", "/")
-    for pattern, label in _SYSTEM_DESTROY_PATTERNS:
+    for pattern, label in _SYSTEM_DESTROY_PATTERNS:  # P3-5: same precompile concern
         # Use re.IGNORECASE instead of .lower() on the pattern —
         # .replace('\\','/') would destroy regex metacharacters like \s.
         if re.search(pattern, cmd_norm, re.IGNORECASE):
@@ -415,6 +416,12 @@ _CREDENTIAL_SCAN_RE = re.compile(
 )
 
 
-def _has_credential_pattern(cmd: str) -> bool:
-    """Quick scan for credential/private-key patterns in a command string."""
-    return bool(_CREDENTIAL_SCAN_RE.search(cmd))
+def _has_credential_pattern(cmd: str, node_args: dict = None) -> bool:
+    """Quick scan for credential/private-key patterns in command and related fields."""
+    fields_to_scan = [cmd]
+    if node_args:
+        for field in ("script", "script_body", "args", "env", "password", "secret"):
+            val = node_args.get(field, "")
+            if isinstance(val, str) and val:
+                fields_to_scan.append(val)
+    return bool(_CREDENTIAL_SCAN_RE.search("|".join(fields_to_scan)))

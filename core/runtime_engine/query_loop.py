@@ -982,6 +982,7 @@ class QueryLoop:
             )
             return response
         except Exception as e:
+            self._llm_call_count += 1  # P1-7: count against budget even on error
             return LLMResponse(error=str(e))
 
     @staticmethod
@@ -1018,7 +1019,8 @@ class QueryLoop:
                     content = _compact_tool_content(content, max_chars=TOOL_MESSAGE_MAX_CHARS)
                 parts.append(f"{label}: {content}")
             if m.tool_call_id:
-                parts[-1:] = [f"{parts[-1]} (tool_call_id={m.tool_call_id})"] if parts else []
+                if parts:
+                    parts[-1] = f"{parts[-1]} (tool_call_id={m.tool_call_id})"  # P2-3: simpler than slice assignment
         return "\n\n".join(parts)
 
     def _coerce_llm_response(self, raw: Any) -> LLMResponse:

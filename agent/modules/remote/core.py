@@ -287,8 +287,8 @@ def _read_until_prompt(session: DeviceSession) -> bytes:
     buf = b""
     started = time.time()
     deadline = time.time() + READ_TIMEOUT
-    # Absolute command timeout overrides the resetting idle deadline
-    abs_deadline = started + session.command_timeout if session.command_timeout > 0 else 0.0
+    # P1-34: always set a safety cap; command_timeout=0 means no explicit cap
+    abs_deadline = started + max(session.command_timeout, 180.0) if session.command_timeout > 0 else started + 300.0
     profile = session.vendor
     while time.time() < deadline:
         chunk = session.recv(timeout=0.3)
@@ -406,11 +406,12 @@ def _telnet_maybe_login(session: DeviceSession, *, username: str = "", password:
 
 
 def _looks_like_telnet_username_prompt(text: str) -> bool:
-    return bool(re.search(r"(username|login|user name|用户名|登录名)\s*[:：]?\s*$", text, re.I))
+    # P2-19: EN+ZH only; missing ES(usuario), JP(ユーザー), etc.
+    return bool(re.search(r"(username|login|user name|usuario|用户名|登录名|ユーザー)\s*[:：]?\s*$", text, re.I))
 
 
 def _looks_like_telnet_password_prompt(text: str) -> bool:
-    return bool(re.search(r"(password|passcode|密码|口令)\s*[:：]?\s*$", text, re.I))
+    return bool(re.search(r"(password|passcode|contraseña|密码|口令|パスワード)\s*[:：]?\s*$", text, re.I))
 
 
 # ═══════════════════════════════════════════════════════════════════════
