@@ -2381,11 +2381,14 @@ def _module_result_to_dict(r: dict) -> dict:
 
 
 def _ws_artifact_list_merged(inv: ToolInvocation) -> dict:
-    """Merged handler for workspace.artifact — dispatches to list or search."""
-    if inv.arguments.get("query", "").strip():
-        result = handle_artifact_search(inv)
-    else:
-        result = _ws_artifact_list_basic(inv)
+    """Merged handler for workspace.artifact — queries artifact store.
+
+    Baseline behaviour: always read from artifacts.store (the single
+    source of truth).  _ws_artifact_list_basic only looks at
+    workspace.state.artifact_refs which is never populated by
+    save_artifact / write_agent_output, so it permanently returns [].
+    """
+    result = handle_artifact_search(inv)
     if isinstance(result, dict):
         return result
     return {"ok": False, "error": "unexpected result type"}
