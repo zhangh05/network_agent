@@ -653,7 +653,6 @@ class SSOTRuntimeEngine:
 
 # ── v3.14: Task-intent detection ─────────────────────────────────────────
 
-# P3-8: constants defined at end of file, should be near top
 _TASK_INTENT_VERBS = (
     # Explicit action verbs
     "读取", "分析", "巡检", "检查", "生成",
@@ -862,8 +861,7 @@ def detect_task_intent(user_input: str) -> TaskIntentResult:
         return result  # Pure definition → not task
 
     # Step 2: Check for task verbs and patterns
-    matched = [v for v in # P3-8: constants defined at end of file, should be near top
-_TASK_INTENT_VERBS if v in text]
+    matched = [v for v in _TASK_INTENT_VERBS if v in text]
     if matched:
         result.is_task = True
         result.evidence = matched

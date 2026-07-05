@@ -124,8 +124,7 @@ def list_assets(workspace_id: str, *, filter: dict | None = None, sort_by: str =
     return _sort_assets(filtered, sort_by)
 
 
-# P2-21: simple heuristic scoring (no BM25/fuzzy), long queries degrade
-    def search_assets(workspace_id: str, query: str) -> list[dict]:
+def search_assets(workspace_id: str, query: str) -> list[dict]:
     """Fuzzy search assets by name, vendor, host, model, region, location, description."""
     q = (query or "").strip().lower()
     if not q:
