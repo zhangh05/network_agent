@@ -308,11 +308,12 @@ export function TaskWorkbench() {
     const typeLabel = String(metadata.typeLabel || "巡检");
     const analysisHints = String(metadata.analysisHints || "");
 
-    // Show bubble via state
-    setInspectionTaskId(task_id);
-    setInput("");
     let done = false;
     const ac = new AbortController();
+
+    // First poll: if task already terminal, clean up silently without
+    // ever showing the "in progress" bubble (prevents refresh-stuck-loop).
+    let firstPoll = true;
 
     const poll = async () => {
       if (done) return;
@@ -321,6 +322,13 @@ export function TaskWorkbench() {
         const resp = await inspectionApi.getTask(currentWorkspaceId, task_id, ac.signal) as { ok: boolean; task?: import("../../api/index").InspectionTaskRecord; error?: string };
         if (!resp.ok || !resp.task) { setTimeout(poll, 3000); return; }
         const t = resp.task;
+        // If first poll and task is already terminal, silently clean up
+        if (firstPoll && (t.status === "succeeded" || t.status === "failed" || t.status === "cancelled" || t.status === "partial")) {
+          safeRemoveLocal("workbench_inspection");
+          return;
+        }
+        firstPoll = false;
+        setInspectionTaskId(task_id); // show bubble now — task is genuinely in progress
         if (t.status === "succeeded" || t.status === "partial") {
           done = true;
           setInspectionTaskId(null);
