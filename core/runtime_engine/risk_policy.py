@@ -23,7 +23,8 @@ from .command_policy import normalize_command, evaluate_command_policy
 
 # ── Destructive command patterns (trigger approval, not hard block) ────
 
-_DESTRUCTIVE_COMMAND_PATTERNS: list[tuple[str, str]] = [
+_DESTRUCTIVE_COMMAND# P3-5: consider precompiled union regex instead of list traversal
+    _PATTERNS: list[tuple[str, str]] = [
     # Each tuple: (regex, human_label)
     (r"(^|\s)rm\s+-f\b", "rm -f"),
     (r"(^|\s)rm\s+-rf\b", "rm -rf"),
@@ -47,7 +48,8 @@ _DESTRUCTIVE_COMMAND_PATTERNS: list[tuple[str, str]] = [
 
 # ── Hard-block patterns (absolute, no approval possible) ────────────
 
-_SYSTEM_DESTROY_PATTERNS: list[tuple[str, str]] = [
+_SYSTEM_DESTROY# P3-5: consider precompiled union regex instead of list traversal
+    _PATTERNS: list[tuple[str, str]] = [
     (r"rm\s+-rf\s+/(\s|$)", "rm -rf /"),
     (r"rm\s+-rf\s+/\*", "rm -rf /*"),
     # Windows paths: match both \ and / separators after normalization
@@ -362,7 +364,8 @@ class RiskPolicyEngine:
 def _check_destructive_command(cmd: str) -> str:
     """Return a human-readable label if ``cmd`` matches a destructive
     pattern that should trigger an approval gate (NOT hard block)."""
-    for pattern, label in _DESTRUCTIVE_COMMAND_PATTERNS:
+    for pattern, label in _DESTRUCTIVE_COMMAND# P3-5: consider precompiled union regex instead of list traversal
+    _PATTERNS:
         if re.search(pattern, cmd, re.IGNORECASE):
             return label
     return ""
@@ -372,7 +375,8 @@ def _check_system_destroy(cmd: str) -> str:
     """Return a human-readable label if ``cmd`` matches a system-destroy
     pattern that should be hard-blocked. None if safe from that perspective."""
     cmd_norm = cmd.replace("\\", "/")
-    for pattern, label in _SYSTEM_DESTROY_PATTERNS:
+    for pattern, label in _SYSTEM_DESTROY# P3-5: consider precompiled union regex instead of list traversal
+    _PATTERNS:
         # Use re.IGNORECASE instead of .lower() on the pattern —
         # .replace('\\','/') would destroy regex metacharacters like \s.
         if re.search(pattern, cmd_norm, re.IGNORECASE):
@@ -387,7 +391,8 @@ def _check_system_destroy(cmd: str) -> str:
 # we downgrade from hard_block to approval_required because the
 # command is destructive-but-approvable (not a true security threat).
 
-_CP_DESTRUCTIVE_ONLY_PATTERNS: list[str] = [
+_CP_DESTRUCTIVE_ONLY# P3-5: consider precompiled union regex instead of list traversal
+    _PATTERNS: list[str] = [
     "destructive command pattern",
     "powershell cmdlet 'rm'",
     "powershell cmdlet 'remove-item'",
@@ -404,17 +409,20 @@ def _is_cp_destructive_only(reason: str) -> bool:
     abuse, and PowerShell injection NEVER match here.
     """
     reason_lower = reason.lower()
-    for pat in _CP_DESTRUCTIVE_ONLY_PATTERNS:
+    for pat in _CP_DESTRUCTIVE_ONLY# P3-5: consider precompiled union regex instead of list traversal
+    _PATTERNS:
         if pat in reason_lower:
             return True
     return False
 
 
-_CREDENTIAL_SCAN_RE = re.compile(
+# P2-10: only scans command/shell fields, script_body excluded
+    _CREDENTIAL_SCAN_RE = re.compile(
     r"(?i)(~/.ssh/id_|private[_-]?key|\.pem\b|-----BEGIN|secret|password|token|api[_-]?key|authorization|bearer|credential)",
 )
 
 
 def _has_credential_pattern(cmd: str) -> bool:
     """Quick scan for credential/private-key patterns in a command string."""
-    return bool(_CREDENTIAL_SCAN_RE.search(cmd))
+    return bool(# P2-10: only scans command/shell fields, script_body excluded
+    _CREDENTIAL_SCAN_RE.search(cmd))

@@ -184,7 +184,8 @@ def ssh_connect(session_id: str, host: str, port: int,
     return session
 
 
-def telnet_connect(session_id: str, host: str, port: int,
+# P2-19: login probe regex only covers EN+ZH, missing ES/JP/localized devices
+    def telnet_connect(session_id: str, host: str, port: int,
                    username: str = "", password: str = "",
                    vendor: str = "generic",
                    workspace_id: str = "") -> DeviceSession:
@@ -283,7 +284,8 @@ def list_sessions() -> list[dict]:
 # Internal helpers
 # ═══════════════════════════════════════════════════════════════════════
 
-def _read_until_prompt(session: DeviceSession) -> bytes:
+# P2-18: three timeout models interleaved — idle/absolute/paging
+    def _read_until_prompt(session: DeviceSession) -> bytes:
     buf = b""
     started = time.time()
     deadline = time.time() + READ_TIMEOUT

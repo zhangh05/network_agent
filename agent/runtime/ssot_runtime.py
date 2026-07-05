@@ -1,1037 +1,1745 @@
-"""SSOT Runtime adapter for the public AgentApp turn contract.
+"""
+QueryLoop — iterative LLM + tool execution engine.
 
-This module is the bridge between the production-facing ``AgentResult``
-contract and the SSOT Runtime execution engine. SSOT Runtime owns QueryLoop
-planning, tool execution, bounded tracking, retry metadata, and result synthesis;
-the actual tool boundary remains ``ToolRuntimeClient``
-so manifest, policy, redaction and audit behavior are unchanged.
+The single tool-capable runtime loop merges planning and finalization,
+feeds tool results back for iterative refinement, tracks long tasks,
+records retry metadata, and auto-compacts long conversations.
+
+Optimizations:
+  1. Prompt Cache — static system+tools prefix never changes
+  2. Planner+Finalizer merge — one LLM call per iteration
+  3. Iterative execution — tool results feed back for dynamic decisions
+  4. Streaming tool exec — tools start during LLM output
+  5. Auto-compact — summarise old turns when context grows
 """
 
 from __future__ import annotations
 
 import asyncio
+import copy
+import hashlib
 import json
-import logging
+import re
 import time
-from types import SimpleNamespace
-from typing import Any
+from dataclasses import asdict
+from dataclasses import dataclass, field
+from typing import Any, Callable, Dict, List, Optional
 
-from agent.llm.schemas import LLMMessage
-from agent.runtime.result import AgentResult
-from agent.runtime.turn_persistence import persist_run_record
-from agent.runtime.query_engine import build_trace_id
-from agent.runtime.utils import now_iso
-from agent.approval import get_approval_store
-from core.runtime_engine.runtime_contracts import ExecutionContract
-
-_LOG = logging.getLogger(__name__)
-
-
-def run_ssot_turn(
-    session,
-    turn,
-    services=None,
-    *,
-    allowed_tool_ids: set[str] | list[str] | tuple[str, ...] | None = None,
-    requested_by: str = "turn_runner",
-    emitter: Any | None = None,
-) -> AgentResult:
-    """Run one user turn through SSOT Runtime and return the stable AgentResult.
-
-    Args:
-        emitter: Optional StreamEmitter (or any object exposing ``emit(event_type, payload)``)
-            used by SSOT Runtime to publish per-stage progress events to the WebSocket
-            real-time callback. When omitted, SSOT Runtime runs without progress signals
-            (used by offline tests / replay tools).
-    """
-    started = time.monotonic()
-    trace_id = build_trace_id()
-    workspace_id = getattr(session, "workspace_id", "") or getattr(turn.op, "workspace_id", "")
-    session_id = getattr(session, "session_id", "") or getattr(turn.op, "session_id", "")
-    user_input = (getattr(turn.op, "user_input", "") or "").strip()
-    metadata_in = dict(getattr(turn.op, "metadata", {}) or {})
-    _graph_run_started(
-        run_id=turn.turn_id,
-        workspace_id=workspace_id,
-        session_id=session_id,
-        trace_id=trace_id,
-        user_input=user_input,
-    )
-
-    # ── Build canonical conversation context for prompt injection ──
-    metadata_in["__raw_user_input"] = user_input
-    history_block = _build_history_block(session, user_input=user_input)
-    if history_block:
-        metadata_in["conversation_history_block"] = history_block
-
-    # Build tool registry once — used for both metadata and engine
-    ssot_registry = _build_ssot_runtime_tool_registry(allowed_tool_ids)
-
-    context = SimpleNamespace(
-        workspace_id=workspace_id,
-        session_id=session_id,
-        turn_id=turn.turn_id,
-        trace_id=trace_id,
-        requested_by=requested_by,
-        metadata={
-            "runtime_engine": "ssot_runtime",
-            "transport": metadata_in.get("transport", ""),
-            "stream_mode": metadata_in.get("stream_mode", ""),
-            "intent": "assistant_chat",
-            "visible_tools": sorted(ssot_registry.keys()),
-            "requested_by": requested_by,
-        },
-    )
-
-    events: list[dict[str, Any]] = [
-        _event("turn_start", "轮次开始", trace_id, turn.turn_id, started_at=started),
-        _event("model", "model", trace_id, turn.turn_id, started_at=started),
-    ]
-
-    try:
-        engine = _build_engine(
-            workspace_id=workspace_id,
-            session_id=session_id,
-            run_id=turn.turn_id,
-            trace_id=trace_id,
-            allowed_tool_ids=allowed_tool_ids,
-            requested_by=requested_by,
-            emitter=emitter,
-            prebuilt_registry=ssot_registry,
-        )
-        runtime_result = _run_async(
-            engine.run(
-                user_input=user_input,
-                workspace_id=workspace_id,
-                session_id=session_id,
-                extras=metadata_in,
-            )
-        )
-
-        # ── v3.17: SSOT Runtime approval gate → ApprovalStore → frontend bubble ──
-        # When the risk policy requires approval (e.g. destructive commands),
-        # create ApprovalStore entries so the frontend ApprovalBubble detects
-        # them, then block until the user approves/denies.
-        runtime_meta = runtime_result.metadata or {}
-        if runtime_meta.get("approval_required") and runtime_meta.get("approval_nodes"):
-            store = get_approval_store()
-            approval_ids: list[str] = []
-            approval_details = runtime_meta.get("approval_details") or []
-            for detail in approval_details:
-                tool_id = detail.get("tool", "unknown")
-                reason = detail.get("risk_reason", "高危操作需要确认")
-                cmd = detail.get("command", "")
-                desc = f"{reason}: {tool_id}"
-                if cmd:
-                    desc += f" → {cmd[:120]}"
-                req = store.create(
-                    session_id=session_id,
-                    tool_id=tool_id,
-                    arguments=detail,
-                    description=desc,
-                    risk_level=runtime_meta.get("risk_level", "high"),
-                    workspace_id=workspace_id,
-                    run_id=turn.turn_id,
-                )
-                approval_ids.append(req.approval_id)
-
-            # If no approval_details, create one entry for all nodes
-            if not approval_details:
-                nodes = runtime_meta["approval_nodes"]
-                tools = runtime_meta.get("tool_summary", [])
-                req = store.create(
-                    session_id=session_id,
-                    tool_id=", ".join(tools) if tools else ", ".join(nodes),
-                    arguments={"nodes": nodes},
-                    description=runtime_meta.get("approval_reason", "高危操作需要确认"),
-                    risk_level=runtime_meta.get("risk_level", "high"),
-                    workspace_id=workspace_id,
-                    run_id=turn.turn_id,
-                )
-                approval_ids.append(req.approval_id)
-
-            # Wait for approvals (non-blocking poll, max 30s)
-            approved = True
-            for aid in approval_ids:
-                waited = 0.0
-                while waited < 30:
-                    result = store.wait(aid, blocking=False)
-                    if result is True:
-                        break  # approved
-                    if result is False:
-                        approved = False  # denied
-                        break
-                    # Still pending. This adapter is synchronous; the async
-                    # QueryLoop has already completed before approval replay.
-                    time.sleep(0.5)
-                    waited += 0.5
-                else:
-                    # Timeout: fail closed — deny execution when approval does not arrive in time
-                    approved = False
-
-            if approved:
-                # Re-run with approval bypass flag
-                metadata_in["approved_risk"] = True
-                engine2 = _build_engine(
-                    workspace_id=workspace_id,
-                    session_id=session_id,
-                    run_id=turn.turn_id,
-                    trace_id=trace_id,
-                    allowed_tool_ids=allowed_tool_ids,
-                    requested_by=requested_by,
-                    emitter=emitter,
-                )
-                runtime_result = _run_async(
-                    engine2.run(
-                        user_input=user_input,
-                        workspace_id=workspace_id,
-                        session_id=session_id,
-                        extras=metadata_in,
-                    )
-                )
-            else:
-                # User denied — return rejection result
-                denied_result = AgentResult(
-                    ok=True,
-                    final_response="操作已取消（审批未通过）。",
-                    events=events,
-                    trace_id=trace_id,
-                    session_id=session_id,
-                    turn_id=turn.turn_id,
-                    tool_calls=[],
-                    metadata={
-                        **context.metadata,
-                        "runtime_engine": "ssot_runtime",
-                        "ssot_runtime": runtime_meta,
-                        "approval_denied": True,
-                    },
-                )
-                _graph_run_finished(
-                    run_id=turn.turn_id,
-                    result=denied_result,
-                    runtime_result=None,
-                    user_input=user_input,
-                )
-                _sync_session_history(session, user_input, denied_result.final_response)
-                persist_run_record(session, turn, denied_result, context)
-                return denied_result
-
-        final_response = _final_response(runtime_result)
-        tool_calls = _project_tool_calls(runtime_result)
-        events.extend(_project_events(runtime_result, trace_id, turn.turn_id))
-        events.append(_event("final", "final", trace_id, turn.turn_id, started_at=started))
-
-        timeline_summary = _timeline_summary(
-            started=started,
-            events=events,
-            tool_calls=tool_calls,
-            runtime_result=runtime_result,
-        )
-        metadata = {
-            **context.metadata,
-            "runtime_engine": "ssot_runtime",
-            "ssot_runtime": runtime_result.metadata,
-            "timeline_summary": timeline_summary,
-            "steps": 1,
-            "model": _current_model_name(),
-            "llm": {
-                "used": True,
-                "provider": _current_provider_name(),
-                "model": _current_model_name(),
-                "task": "assistant_chat",
-            },
-            # v3.10 (tool retry): top-level projections so the
-            # frontend / API consumers don't have to walk through
-            # ``metadata.runtime.*`` to find the retry surface. The
-            # canonical source stays inside ``metadata.runtime``; the
-            # top-level fields are read-only mirrors maintained for
-            # convenience. If both fields are present they MUST be
-            # byte-identical.
-            "retry_summary": dict(
-                (runtime_result.metadata or {}).get("retry_summary")
-                or {
-                    "retry_attempts": 0,
-                    "retried_nodes": [],
-                    "retry_succeeded": 0,
-                    "retry_failed": 0,
-                    "retry_blocked": 0,
-                },
-            ),
-            "retry_events": list(
-                (runtime_result.metadata or {}).get("retry_events") or []
-            ),
-        }
-        result = AgentResult(
-            ok=bool(runtime_result.success),
-            final_response=final_response,
-            events=events,
-            trace_id=trace_id,
-            session_id=session_id,
-            turn_id=turn.turn_id,
-            tool_calls=tool_calls,
-            warnings=[],
-            errors=list(runtime_result.errors or []),
-            metadata=metadata,
-            error_type="" if runtime_result.success else "ssot_runtime_error",
-            tool_decision=_tool_decision(runtime_result, tool_calls),
-            no_tool_reason="" if tool_calls else "SSOT Runtime planner selected no tools.",
-        )
-
-    except Exception as exc:
-        _LOG.exception("SSOT Runtime turn failed")
-        elapsed_ms = int((time.monotonic() - started) * 1000)
-        events.append(_event("error", "SSOT Runtime error", trace_id, turn.turn_id, started_at=started))
-        result = AgentResult(
-            ok=False,
-            final_response=f"SSOT Runtime failed: {str(exc)[:300]}",
-            events=events,
-            trace_id=trace_id,
-            session_id=session_id,
-            turn_id=turn.turn_id,
-            errors=[str(exc)[:500]],
-            metadata={
-                **context.metadata,
-                "runtime_engine": "ssot_runtime",
-                "timeline_summary": {
-                    "node_count": len(events),
-                    "total_duration_ms": elapsed_ms,
-                    "artifact_saved_count": 0,
-                },
-            },
-            error_type="ssot_runtime_error",
-            tool_decision={"needed": False, "reason": "SSOT Runtime failed before execution."},
-            no_tool_reason="ssot_runtime_error",
-        )
-
-    # ── Section 2: unified exit — sync session.history for both success
-    #    and exception paths so the next turn always has context.
-    _graph_run_finished(
-        run_id=turn.turn_id,
-        result=result,
-        runtime_result=locals().get("runtime_result"),
-        user_input=user_input,
-    )
-    _sync_session_history(session, user_input, result.final_response)
-
-    persist_run_record(session, turn, result, context)
-    return result
+from .models import (
+    ExecutionNode,
+    ExecutionStatus,
+    SSOTRuntimeConfig,
+    StatelessContext,
+    ToolResult,
+)
+from .tracking import extract_tracking_payload, normalize_tracking_payload
+from agent.llm.schemas import LLMMessage, LLMResponse, LLMToolCall
+from agent.llm.tool_adapter import tool_spec_to_openai_function
 
 
-def _build_engine(
-    *,
-    workspace_id: str,
-    session_id: str,
-    run_id: str,
-    trace_id: str,
-    allowed_tool_ids=None,
-    requested_by: str,
-    emitter: Any | None = None,
-    prebuilt_registry: dict[str, dict[str, Any]] | None = None,
-):
-    from core.runtime_engine import SSOTRuntimeConfig, SSOTRuntimeEngine
+# ── Prompt Cache ────────────────────────────────────────────────────────────
 
-    config = SSOTRuntimeConfig(
-        enable_finalizer=True,
-        max_global_concurrency=8,
-        max_layer_concurrency=5,
-        max_llm_calls=50,
-        max_total_seconds=180,
-        max_tool_seconds=120,
-        single_node_timeout_ms=120_000,
-        parallel_layer_timeout_ms=300_000,
-        tracking_max_seconds=150,
-        tracking_max_polls=40,
-        tracking_poll_interval_cap_seconds=5,
-    )
-    registry = prebuilt_registry or _build_ssot_runtime_tool_registry(allowed_tool_ids)
-    engine_kwargs: dict[str, Any] = {
-        "config": config,
-        "llm_invoke": _invoke_llm_for_ssot_runtime,
-        "tool_registry": registry,
-    }
-    if emitter is not None:
-        engine_kwargs["emitter"] = emitter
-    engine = SSOTRuntimeEngine(**engine_kwargs)
-    client = _tool_runtime_client()
+# Static prefix that never changes between turns — cached by the LLM API.
+# Keep this concise: the full tool catalog is already supplied through the
+# function-calling tools field on every planner call.
+QUERY_LOOP_SYSTEM_PROMPT = """You are a network operations AI agent.
 
-    for tool_id in registry:
-        engine.register_tool(
-            tool_id,
-            _make_tool_handler(
-                client=client,
-                tool_id=tool_id,
-                workspace_id=workspace_id,
-                session_id=session_id,
-                run_id=run_id,
-                trace_id=trace_id,
-                requested_by=requested_by,
-            ),
-            description=registry[tool_id].get("description", ""),
-            args_schema=registry[tool_id].get("args_schema", {}),
-        )
-    return engine
+All callable capabilities are provided in the function list. Use the exact
+provided function names and action enums; never invent aliases.
+
+Work step by step: gather facts with tools, reason from returned data, then
+answer directly. Do not fabricate device state, weather, files, memory, reports,
+or command output.
+
+Operational rules:
+1. SSH/Telnet access must use exec__run(action="shell", target="ssh|telnet",
+   asset_id=...) when a CMDB asset exists. Do not expose or ask for passwords.
+2. Weather uses web__manage(action="weather", location=..., days=...).
+   明天=2, 后天=3, 一周=7, 未来十天=10.
+3. CMDB inspection starts with inspection__manage(action="run"). Track the same
+   task with action="get"; request action="report", format="html" only after
+   status is succeeded or partial.
+4. Never repeat an identical failing tool call more than twice. If a required
+   fact is missing, try a safer alternative or explain the missing input.
+5. Only destructive commands such as rm -f, delete, wipe, format, or forced
+   removal are high risk. Read-only commands, pipes, redirects, inspection,
+   search, and connection attempts are normal tool use."""
 
 
-def _build_ssot_runtime_tool_registry(allowed_tool_ids=None) -> dict[str, dict[str, Any]]:
-    client = _tool_runtime_client()
-    tools = {}
-    allowed = set(allowed_tool_ids or []) if allowed_tool_ids else None
-    for item in client.list_tools():
-        tool_id = str(item.get("tool_id") or "")
-        if not tool_id:
-            continue
-        if allowed is not None and tool_id not in allowed:
-            continue
-        if item.get("enabled") is False or item.get("callable_by_llm") is False:
-            continue
-        if item.get("forbidden") is True:
-            continue
-        tools[tool_id] = {
-            "description": str(item.get("description") or tool_id),
-            "args_schema": item.get("input_schema") or {},
-            "category": item.get("category") or "",
-            "risk_level": item.get("risk_level") or "low",
-        }
+QUERY_LOOP_FINALIZER_PROMPT = """You are the final response writer for Network Agent.
+
+Use the provided tool results as facts. Explain the outcome in clear user-facing
+language:
+1. Answer the user's original request directly.
+2. Summarize successful tool results, failures, retries, tracking status, and
+   next actions when relevant.
+3. If a long task is still running, keep the task id and tell the user it is
+   still running; do not start a duplicate task.
+4. If a report or artifact URL is present, include it.
+5. Do not invent device states, command output, weather data, files, or memory.
+6. You may call another tool only when a required follow-up fact is missing.
+7. Never repeat a tool call whose successful result is already shown below."""
+
+
+_TOOL_DEFINITION_CACHE: dict[str, List[dict]] = {}
+
+
+def _tool_meta_get(meta: Any, key: str, default: Any = None) -> Any:
+    if isinstance(meta, dict):
+        return meta.get(key, default)
+    return getattr(meta, key, default)
+
+
+def _tool_registry_signature(tool_registry: dict) -> str:
+    """Stable hash for the LLM-visible tool surface."""
+    payload = []
+    for tool_id, meta in sorted(tool_registry.items()):
+        payload.append({
+            "tool_id": tool_id,
+            "description": _tool_meta_get(meta, "description", ""),
+            "args_schema": _tool_meta_get(meta, "args_schema", _tool_meta_get(meta, "input_schema", {})),
+            "risk_level": _tool_meta_get(meta, "risk_level", "low"),
+        })
+    encoded = json.dumps(
+        payload,
+        ensure_ascii=False,
+        sort_keys=True,
+        separators=(",", ":"),
+        default=str,
+    ).encode("utf-8")
+    return hashlib.sha256(encoded).hexdigest()
+
+
+def _build_cached_tool_definitions(tool_registry: dict) -> List[dict]:
+    """Build tool definitions with stable ordering for prompt caching."""
+    signature = _tool_registry_signature(tool_registry)
+    cached = _TOOL_DEFINITION_CACHE.get(signature)
+    if cached is not None:
+        return copy.deepcopy(cached)
+
+    tools = []
+    for tool_id, meta in sorted(tool_registry.items()):
+        tools.append(tool_spec_to_openai_function({
+            "tool_id": tool_id,
+            "input_schema": _tool_meta_get(meta, "args_schema", _tool_meta_get(meta, "input_schema", {})),
+            "description": _tool_meta_get(meta, "description", ""),
+            "risk_level": _tool_meta_get(meta, "risk_level", "low"),
+        }))
+    _TOOL_DEFINITION_CACHE.clear()
+    _TOOL_DEFINITION_CACHE[signature] = copy.deepcopy(tools)
     return tools
 
 
-def _tool_runtime_client():
-    from core.tools.integration import get_default_tool_runtime_client
-    return get_default_tool_runtime_client()
+TOOL_MESSAGE_MAX_CHARS = 6000     # Per-tool output cap fed to LLM; balances article coverage vs context pressure
+FINALIZER_TOOL_MAX_CHARS = 3000
+FALLBACK_TOOL_MAX_CHARS = 1600
+MAX_INLINE_STRING_CHARS = 4000    # Per-string-value cap in compacted output; must leave room for JSON overhead within TOOL_MESSAGE_MAX_CHARS
+MAX_INLINE_LIST_ITEMS = 8
+
+_PRIORITY_OUTPUT_KEYS = (
+    "ok", "status", "summary", "message", "error", "reason",
+    "task_id", "task", "tracking", "progress", "done",
+    "report_url", "html_url", "artifact_url", "url",
+    "count", "total", "success", "failed", "skipped",
+    "title", "name", "format",
+)
 
 
-def _make_tool_handler(
-    *,
-    client,
-    tool_id: str,
-    workspace_id: str,
-    session_id: str,
-    run_id: str,
-    trace_id: str,
-    requested_by: str,
-):
-    async def _handler(args: dict[str, Any]) -> dict[str, Any]:
-        from core.tools.context import ToolRuntimeContext
+def _compact_value_for_llm(value: Any, *, depth: int = 0) -> Any:
+    """Compact tool outputs while preserving facts the model needs next."""
+    if depth >= 4:
+        text = str(value)
+        return text[:MAX_INLINE_STRING_CHARS] + ("... [truncated]" if len(text) > MAX_INLINE_STRING_CHARS else "")
+    if isinstance(value, str):
+        return value[:MAX_INLINE_STRING_CHARS] + ("... [truncated]" if len(value) > MAX_INLINE_STRING_CHARS else "")
+    if isinstance(value, (int, float, bool)) or value is None:
+        return value
+    if isinstance(value, list):
+        compacted = [
+            _compact_value_for_llm(item, depth=depth + 1)
+            for item in value[:MAX_INLINE_LIST_ITEMS]
+        ]
+        if len(value) > MAX_INLINE_LIST_ITEMS:
+            compacted.append({"_omitted_items": len(value) - MAX_INLINE_LIST_ITEMS})
+        return compacted
+    if isinstance(value, dict):
+        result: dict[str, Any] = {}
+        seen: set[str] = set()
+        for key in _PRIORITY_OUTPUT_KEYS:
+            if key in value:
+                result[key] = _compact_value_for_llm(value[key], depth=depth + 1)
+                seen.add(key)
+        for key, val in value.items():
+            if key in seen:
+                continue
+            result[str(key)] = _compact_value_for_llm(val, depth=depth + 1)
+        return result
+    return str(value)
 
-        ctx = ToolRuntimeContext(
-            workspace_id=workspace_id,
-            session_id=session_id,
-            run_id=run_id,
-            trace_id=trace_id,
-            requested_by=requested_by,
-            module="ssot_runtime",
+
+def _json_compact(value: Any, *, max_chars: int = TOOL_MESSAGE_MAX_CHARS) -> str:
+    """JSON serialize compacted output with a hard cap."""
+    compacted = _compact_value_for_llm(value)
+    text = json.dumps(
+        compacted,
+        ensure_ascii=False,
+        sort_keys=True,
+        separators=(",", ":"),
+        default=str,
+    )
+    if len(text) <= max_chars:
+        return text
+    return text[:max_chars] + f"... [truncated {len(text) - max_chars} chars]"
+
+
+def _compact_tool_content(content: Any, *, max_chars: int = TOOL_MESSAGE_MAX_CHARS) -> str:
+    """Compact existing tool-message content without double-encoding JSON."""
+    if isinstance(content, str):
+        try:
+            parsed = json.loads(content)
+        except Exception:
+            parsed = content
+        return _json_compact(parsed, max_chars=max_chars)
+    return _json_compact(content, max_chars=max_chars)
+
+
+# ── Auto-Compact ────────────────────────────────────────────────────────────
+
+COMPACT_THRESHOLD_CHARS = 40_000  # ~10K tokens
+COMPACT_KEEP_LAST_N = 6           # Keep last N messages intact
+COMPACT_HEAD_N = 2                # Keep first N (system + user request)
+
+
+@dataclass
+class CompactInfo:
+    """Structured record of a compaction event — surfaced to metrics and LLM."""
+    compacted: bool = False
+    before_chars: int = 0
+    after_chars: int = 0
+    removed: int = 0
+    saved_chars: int = 0
+    tools_used: list[str] = field(default_factory=list)
+    tool_stats: dict[str, dict] = field(default_factory=dict)  # {tool_name: {ok: N, failed: N}}
+    key_hints: list[str] = field(default_factory=list)
+
+
+def _estimate_chars(messages: List[LLMMessage]) -> int:
+    """Rough character count of all messages, including tool_call JSON."""
+    total = 0
+    for m in messages:
+        content = m.content
+        if isinstance(content, list):
+            total += sum(len(str(p.get("text", ""))) for p in content if isinstance(p, dict))
+        else:
+            total += len(str(content or ""))
+        if m.tool_calls:
+            total += len(json.dumps(m.tool_calls, ensure_ascii=False, default=str))
+    return total
+
+
+def _compact_messages(messages: List[LLMMessage]) -> tuple[List[LLMMessage], CompactInfo]:
+    """Compact old messages. Returns (compacted_messages, CompactInfo)."""
+    info = CompactInfo()
+
+    if len(messages) <= COMPACT_KEEP_LAST_N + COMPACT_HEAD_N:
+        return messages, info
+
+    head = messages[:COMPACT_HEAD_N]
+    tail = messages[-COMPACT_KEEP_LAST_N:]
+    middle = messages[len(head):-len(tail) or None]
+
+    middle_count = len(middle)
+    if middle_count <= 1:
+        return messages, info
+
+    # ── Collect tool statistics from middle messages ──
+    tool_names: list[str] = []
+    tool_stats: dict[str, dict] = {}
+    for m in middle:
+        if not m.tool_calls:
+            continue
+        for tc in m.tool_calls:
+            name = tc.get("name", tc.get("function", {}).get("name", ""))
+            if not name:
+                continue
+            if name not in tool_names:
+                tool_names.append(name)
+            if name not in tool_stats:
+                tool_stats[name] = {"ok": 0, "failed": 0, "total": 0}
+            tool_stats[name]["total"] += 1
+            result = tc.get("result") or tc.get("output") or {}
+            if isinstance(result, dict):
+                if result.get("ok", True):
+                    tool_stats[name]["ok"] += 1
+                else:
+                    tool_stats[name]["failed"] += 1
+
+    # ── Extract key hints from tool_calls results ──
+    key_hints: list[str] = []
+    for m in middle:
+        if not m.tool_calls:
+            continue
+        # Check tool result dicts for _hint
+        if isinstance(m.content, str):
+            for found in re.findall(r'_hint["\':\s]*["\']([^"\']+)["\']', m.content):
+                key_hints.append(found)
+                if len(key_hints) >= 3:
+                    break
+        if len(key_hints) >= 3:
+            break
+
+    # ── Build compact summary ──
+    before = _estimate_chars(messages)
+    summary = _build_compact_summary(middle_count, tool_names, tool_stats, key_hints)
+    compacted = head + [LLMMessage(role="user", content=summary)] + tail
+    after = _estimate_chars(compacted)
+
+    info.compacted = True
+    info.before_chars = before
+    info.after_chars = after
+    info.removed = middle_count
+    info.saved_chars = before - after
+    info.tools_used = tool_names
+    info.tool_stats = tool_stats
+    info.key_hints = key_hints
+    return compacted, info
+
+
+def _build_compact_summary(
+    turns: int, tools: list[str], tool_stats: dict, hints: list[str],
+) -> str:
+    """Build an LLM-readable compact summary with tool stats and key findings."""
+    parts = [f"[{turns} earlier turns compacted."]
+
+    # Tool usage summary
+    if tool_stats:
+        tool_parts = []
+        for name in tools[:6]:
+            stats = tool_stats.get(name, {})
+            ok = stats.get("ok", 0)
+            failed = stats.get("failed", 0)
+            if failed:
+                tool_parts.append(f"{name}: {ok}✓ {failed}✗")
+            else:
+                tool_parts.append(f"{name}: {ok} calls")
+        if tool_parts:
+            parts.append("Tools: " + ", ".join(tool_parts) + ".")
+
+    # Key findings
+    if hints:
+        parts.append("Key findings: " + "; ".join(hints[:3]) + ".")
+
+    parts.append("Full context in latest messages below.]")
+    return " ".join(parts)
+
+
+# ── Streaming Tool Executor ─────────────────────────────────────────────────
+
+@dataclass
+class StreamingToolResult:
+    tool_name: str
+    call_id: str
+    output: dict
+    ok: bool
+    error: Optional[str] = None
+
+
+class StreamingToolExecutor:
+    """Execute tools as they arrive from the LLM stream.
+
+    Read-only tools run in parallel; write tools serialised.
+    """
+
+    _READ_ONLY_TOOLS = {
+        "device.manage", "web.manage", "knowledge.manage",
+        "workspace.file", "workspace.artifact", "workspace.metadata.get",
+        "workspace.document.pdf.extract_text", "code.search",
+        "report.manage", "text.analyze", "config.manage", "pcap.manage",
+        "data.manage", "browser.manage", "skill.manage",
+        "memory.manage", "system.manage", "git.manage",
+    }
+
+    def __init__(self, tool_runtime, config: SSOTRuntimeConfig | None = None, emitter=None):
+        self._runtime = tool_runtime
+        self._config = config or SSOTRuntimeConfig()
+        self._emitter = emitter
+
+    def _is_read_only(self, tool_id: str) -> bool:
+        # LLM emits double-underscore names (device__manage); normalize to dots
+        normalized = tool_id.replace("__", ".")
+        return normalized in self._READ_ONLY_TOOLS
+
+    async def execute(
+        self,
+        tool_calls: List[LLMToolCall],
+        *,
+        ctx: StatelessContext | None = None,
+        budget=None,
+    ) -> List[StreamingToolResult]:
+        """Execute tool calls. Read-only parallel, writes serialised.
+
+        Returns results in the ORIGINAL tool_calls order so callers can
+        safely zip(results, tool_calls) for idempotent-key tracking.
+        """
+        # Build result map keyed by call_id so we can return in original order
+        result_by_id: dict[str, StreamingToolResult] = {}
+
+        # --- Parallel read-only ---
+        read_only = [tc for tc in tool_calls if self._is_read_only(tc.name)]
+        if read_only:
+            tasks = [self._execute_one(tc, ctx=ctx, budget=budget) for tc in read_only]
+            # return_exceptions=True: collect every result, even if some fail
+            ro_results = await asyncio.gather(*tasks, return_exceptions=True)
+            for tc, r in zip(read_only, ro_results):
+                if isinstance(r, Exception):
+                    result_by_id[tc.id] = StreamingToolResult(
+                        tool_name=tc.name,
+                        call_id=tc.id,
+                        output={},
+                        ok=False,
+                        error=str(r),
+                    )
+                else:
+                    result_by_id[tc.id] = r
+
+        # --- Serial writes ---
+        for tc in (tc for tc in tool_calls if not self._is_read_only(tc.name)):
+            result_by_id[tc.id] = await self._execute_one(tc, ctx=ctx, budget=budget)
+
+        # Return in original order
+        return [result_by_id[tc.id] for tc in tool_calls]
+
+    async def _execute_one(
+        self,
+        tc: LLMToolCall,
+        *,
+        ctx: StatelessContext | None = None,
+        budget=None,
+    ) -> StreamingToolResult:
+        """Execute a single tool call via the tool runtime client."""
+        tool_id = tc.name.replace("__", ".")
+        if ctx is not None and hasattr(self._runtime, "execute_node"):
+            node = ExecutionNode(
+                id=tc.id,
+                tool=tool_id,
+                args=dict(tc.arguments or {}),
+                depth=0,
+            )
+            result = await self._runtime.execute_node(node, ctx, {})
+            if not result.success:
+                result = await self._maybe_retry_node(node, ctx, result, budget)
+            return self._from_tool_result(result, fallback_call_id=tc.id)
+
+        try:
+            # Map LLM name (dots → underscores) back to canonical tool_id
+            result = await asyncio.to_thread(
+                self._runtime.invoke_raw, tool_id, tc.arguments
+            )
+            return StreamingToolResult(
+                tool_name=tool_id,
+                call_id=tc.id,
+                output=result,
+                ok=result.get("ok", False),
+                error=result.get("error"),
+            )
+        except Exception as e:
+            return StreamingToolResult(
+                tool_name=tc.name,
+                call_id=tc.id,
+                output={},
+                ok=False,
+                error=str(e),
+            )
+
+    async def _maybe_retry_node(
+        self,
+        node: ExecutionNode,
+        ctx: StatelessContext,
+        original_result: ToolResult,
+        budget,
+    ) -> ToolResult:
+        from .contracts import get_contract
+        from .tool_retry_policy import should_retry_tool_failure
+
+        error_code = (original_result.error_code or "").strip().upper()
+        if not error_code:
+            err = (original_result.error or "").lower()
+            if "timeout" in err or "timed out" in err:
+                error_code = "TOOL_TIMEOUT"
+            elif "rate" in err and "limit" in err:
+                error_code = "RATE_LIMITED"
+            elif "connection" in err and "reset" in err:
+                error_code = "CONNECTION_RESET"
+            else:
+                error_code = "TOOL_EXCEPTION"
+
+        contract = get_contract(node.tool)
+        budget_ok = bool(budget.check_execution().ok) if budget is not None else True
+        decision = should_retry_tool_failure(
+            node=node,
+            tool_contract=contract,
+            error_code=error_code,
+            error_message=original_result.error or "",
+            config_max_retries=(
+                int(getattr(contract, "max_retries", 0) or 0)
+                if contract is not None else 0
+            ),
+            global_max_retries_per_node=self._config.max_retries_per_node,
+            budget_ok=budget_ok,
         )
-        result = await asyncio.to_thread(client.invoke, tool_id, args or {}, context=ctx)
+        self._record_retry_decision(ctx, node, decision)
+
+        if not decision.retry_allowed:
+            return original_result
+
+        await asyncio.sleep(decision.backoff_ms / 1000.0)
+        node.retry_count += 1
+        retry_result = await self._runtime.execute_node(node, ctx, {})
+        retry_result.retry_count = node.retry_count
+        retry_result.metadata = dict(retry_result.metadata or {})
+        retry_result.metadata.update({
+            "retried": True,
+            "retry_count": node.retry_count,
+            "retry_reason": decision.reason,
+            "retry_backoff_ms": decision.backoff_ms,
+            "retry_error_code": decision.error_code,
+            "retry_original_error": decision.notes.get("original_error", ""),
+        })
+        self._record_retry_result(ctx, node, retry_result)
+        return retry_result
+
+    @staticmethod
+    def _record_retry_decision(ctx: StatelessContext, node: ExecutionNode, decision) -> None:
+        events = list(ctx.extras.get("retry_events") or [])
+        events.append({
+            **decision.to_dict(),
+            "node_id": node.id,
+            "tool_id": node.tool,
+        })
+        ctx.extras["retry_events"] = events
+        summary = dict(ctx.extras.get("retry_summary") or {
+            "retry_attempts": 0,
+            "retried_nodes": [],
+            "retry_succeeded": 0,
+            "retry_failed": 0,
+            "retry_blocked": 0,
+        })
+        if not decision.retry_allowed:
+            summary["retry_blocked"] = int(summary.get("retry_blocked", 0) or 0) + 1
+        ctx.extras["retry_summary"] = summary
+
+    @staticmethod
+    def _record_retry_result(ctx: StatelessContext, node: ExecutionNode, result: ToolResult) -> None:
+        summary = dict(ctx.extras.get("retry_summary") or {
+            "retry_attempts": 0,
+            "retried_nodes": [],
+            "retry_succeeded": 0,
+            "retry_failed": 0,
+            "retry_blocked": 0,
+        })
+        summary["retry_attempts"] = int(summary.get("retry_attempts", 0) or 0) + 1
+        nodes = list(summary.get("retried_nodes") or [])
+        if node.id not in nodes:
+            nodes.append(node.id)
+        summary["retried_nodes"] = nodes
+        if result.success:
+            summary["retry_succeeded"] = int(summary.get("retry_succeeded", 0) or 0) + 1
+        else:
+            summary["retry_failed"] = int(summary.get("retry_failed", 0) or 0) + 1
+        ctx.extras["retry_summary"] = summary
+
+    @staticmethod
+    def _from_tool_result(result: ToolResult, *, fallback_call_id: str) -> StreamingToolResult:
+        output = result.data if isinstance(result.data, dict) else {"data": result.data}
+        if not result.success and result.error:
+            output = {**(output or {}), "error": result.error}
+        metadata = dict(result.metadata or {})
+        if result.retry_count:
+            metadata["retry_count"] = result.retry_count
+        if metadata:
+            output = {**(output or {}), "metadata": metadata}
+        return StreamingToolResult(
+            tool_name=result.tool,
+            call_id=result.node_id or fallback_call_id,
+            output=output or {},
+            ok=bool(result.success),
+            error=result.error,
+        )
+
+
+# ── QueryLoop ────────────────────────────────────────────────────────────────
+
+@dataclass
+class QueryLoopResult:
+    final_response: str
+    tool_results: List[StreamingToolResult] = field(default_factory=list)
+    iterations: int = 0
+    total_tool_calls: int = 0
+    llm_calls: int = 0
+    error: Optional[str] = None
+    errors: list[str] = field(default_factory=list)
+    risk_level: str = "low"
+    approval_required: bool = False
+    approval_nodes: list[str] = field(default_factory=list)
+    approval_details: list[dict[str, Any]] = field(default_factory=list)
+    hard_block: bool = False
+    metrics: Dict[str, Any] = field(default_factory=dict)
+
+
+class QueryLoop:
+    """Iterative LLM + tool execution loop.
+
+    Usage:
+        loop = QueryLoop(config, tool_registry, tool_runtime, llm_invoke, emitter)
+        result = await loop.run(ctx, budget, metrics)
+    """
+
+    def __init__(
+        self,
+        config: SSOTRuntimeConfig,
+        tool_registry: dict[str, dict[str, Any]],
+        tool_runtime,
+        llm_invoke: Callable[..., Any] | None = None,
+        emitter=None,
+    ):
+        self._config = config
+        self._tool_registry = tool_registry
+        self._tool_runtime = tool_runtime
+        self._llm_invoke = llm_invoke
+        self._emitter = emitter
+        self._executor = StreamingToolExecutor(tool_runtime, config, emitter)
+        self._cached_tools = _build_cached_tool_definitions(tool_registry)
+
+    async def run(
+        self,
+        ctx: StatelessContext,
+        budget,
+        metrics,
+    ) -> QueryLoopResult:
+        """Run the full query loop."""
+        t_start = time.monotonic()
+        all_results: List[StreamingToolResult] = []
+        iterations = 0
+        llm_calls = 0
+        # Doom-loop detection: key=(tool, args_hash) → consecutive_failures
+        failure_counts: Dict[str, int] = {}
+        successful_call_keys: set[str] = set()
+
+        # Build initial messages (cacheable prefix)
+        messages = self._build_initial(ctx)
+
+        max_iterations = getattr(self._config, "max_query_loop_iterations", 20)
+
+        while iterations < max_iterations:
+            iterations += 1
+
+            # Budget check. BudgetController is the SSOT for LLM call count;
+            # local llm_calls mirrors it for QueryLoopResult only.
+            budget_status = budget.check_llm_call()
+            if not budget_status.ok:
+                return QueryLoopResult(
+                    final_response=(
+                        "已达到 LLM 调用上限，请简化请求。"
+                        if not all_results
+                        else self._build_tool_result_fallback(ctx, all_results)
+                    ),
+                    tool_results=all_results,
+                    iterations=iterations,
+                    total_tool_calls=len(all_results),
+                    llm_calls=budget.llm_calls,
+                    error=budget_status.exceeded or "budget_exceeded",
+                )
+
+            # Auto-compact with context tracking
+            _before_chars = _estimate_chars(messages)
+            if _before_chars > COMPACT_THRESHOLD_CHARS:
+                messages, _compact_info = _compact_messages(messages)
+                if _compact_info.compacted and metrics is not None:
+                    metrics.mark_compacted(_compact_info)
+            if metrics is not None:
+                metrics.capture_context_usage(_estimate_chars(messages))
+
+            # Call LLM (with streaming for tool exec)
+            response = await self._call_llm(messages, ctx)
+
+            if response is None or response.error:
+                return QueryLoopResult(
+                    final_response=response.content if response else "LLM 调用失败",
+                    tool_results=all_results,
+                    iterations=iterations,
+                    total_tool_calls=len(all_results),
+                    llm_calls=budget.llm_calls,
+                    error=response.error if response else "no_response",
+                )
+
+            llm_calls = budget.llm_calls
+
+            # Check for tool calls
+            if response.tool_calls:
+                # Convert to LLMToolCall objects
+                tool_calls = self._parse_tool_calls(response.tool_calls)
+
+                duplicate_successes = [
+                    tc for tc in tool_calls
+                    if self._tool_call_key(tc) in successful_call_keys
+                ]
+                if duplicate_successes and len(duplicate_successes) == len(tool_calls):
+                    return QueryLoopResult(
+                        final_response=self._build_tool_result_fallback(ctx, all_results),
+                        tool_results=all_results,
+                        iterations=iterations,
+                        total_tool_calls=len(all_results),
+                        llm_calls=llm_calls,
+                        error="duplicate_successful_tool_call",
+                    )
+                tool_calls = [
+                    tc for tc in tool_calls
+                    if self._tool_call_key(tc) not in successful_call_keys
+                ]
+                if not tool_calls:
+                    return QueryLoopResult(
+                        final_response=self._build_tool_result_fallback(ctx, all_results),
+                        tool_results=all_results,
+                        iterations=iterations,
+                        total_tool_calls=len(all_results),
+                        llm_calls=llm_calls,
+                        error="duplicate_tool_call",
+                    )
+
+                gate = self._prepare_tool_calls(ctx, tool_calls)
+                if not gate["ok"]:
+                    if gate.get("hard_block") or gate.get("approval_nodes"):
+                        return QueryLoopResult(
+                            final_response=gate["message"],
+                            tool_results=all_results,
+                            iterations=iterations,
+                            total_tool_calls=len(all_results),
+                            llm_calls=llm_calls,
+                            error=gate["error"],
+                            errors=list(gate.get("errors") or []),
+                            risk_level=gate.get("risk_level", "high"),
+                            approval_required=bool(gate.get("approval_required", False)),
+                            approval_nodes=list(gate.get("approval_nodes") or []),
+                            approval_details=list(gate.get("approval_details") or []),
+                            hard_block=bool(gate.get("hard_block", False)),
+                        )
+                    # Soft validation errors (e.g. missing_required_arg) —
+                    # feed back to LLM as tool results so it can correct itself.
+                    if self._emitter:
+                        self._emitter.emit("tool_validation_failed", {
+                            "errors": gate.get("errors", []),
+                            "message": gate["message"],
+                        })
+                    fake_results = [
+                        StreamingToolResult(
+                            tool_name=tc.name,
+                            call_id=tc.id,
+                            output={"ok": False, "error": gate["message"], "errors": gate.get("errors", [])},
+                            ok=False,
+                            error=gate["message"],
+                        )
+                        for tc in tool_calls
+                    ]
+                    all_results.extend(fake_results)
+                    messages = self._append_tool_round(messages, tool_calls, fake_results)
+                    # Don't count these as successful tool calls
+                    continue
+                tool_calls = gate["tool_calls"]
+
+                # Execute tools (parallel read-only, serial writes)
+                results = await self._executor.execute(tool_calls, ctx=ctx, budget=budget)
+                all_results.extend(results)
+                for r, tc in zip(results, tool_calls):
+                    if r.ok:
+                        successful_call_keys.add(self._tool_call_key(tc))
+
+                # ── Tracking: auto-poll long tasks (e.g. inspection) ──
+                polled_results = await self._settle_tracking(ctx, results, budget=budget)
+                if polled_results:
+                    all_results.extend(polled_results)
+                    results = results + polled_results
+
+                # Append assistant message (with tool_calls) + tool results
+                messages = self._append_tool_round(messages, tool_calls, results)
+
+                # ── Doom-loop detection ──
+                for r in results:
+                    if not r.ok and r.error:
+                        err_lower = str(r.error).lower()
+                        # Tool not found (wrong name)
+                        if "not found" in err_lower:
+                            key = f"not_found:{r.tool_name}"
+                            failure_counts[key] = failure_counts.get(key, 0) + 1
+                            if failure_counts[key] >= 3:
+                                return QueryLoopResult(
+                                    final_response=f"工具 {r.tool_name} 不存在，已尝试 {failure_counts[key]} 次。请检查工具名称是否正确。",
+                                    tool_results=all_results,
+                                    iterations=iterations,
+                                    total_tool_calls=len(all_results),
+                                    llm_calls=llm_calls,
+                                    error="doom_loop",
+                                )
+                        # SSH auth failure (credential issue — do NOT retry)
+                        if "ssh 认证失败" in err_lower or "authentication" in err_lower or "password" in err_lower or "permission denied" in err_lower or "auth" in err_lower:
+                            key = f"ssh_auth:{r.tool_name}"
+                            failure_counts[key] = failure_counts.get(key, 0) + 1
+                            if failure_counts[key] >= 2:
+                                return QueryLoopResult(
+                                    final_response=(
+                                        f"SSH 认证已连续失败 {failure_counts[key]} 次。"
+                                        "可能原因：1) 资产未配置密码或密码错误；"
+                                        "2) 未使用 asset_id 导致凭据未解析。"
+                                        "请检查 CMDB 中该设备的密码配置。"
+                                    ),
+                                    tool_results=all_results,
+                                    iterations=iterations,
+                                    total_tool_calls=len(all_results),
+                                    llm_calls=llm_calls,
+                                    error="doom_loop_ssh_auth",
+                                )
+                        # Budget exhaustion — stop immediately
+                        if "budget" in err_lower or "exceeded" in err_lower:
+                            return QueryLoopResult(
+                                final_response="已达到 LLM 调用或工具执行预算上限。请简化请求或稍后再试。",
+                                tool_results=all_results,
+                                iterations=iterations,
+                                total_tool_calls=len(all_results),
+                                llm_calls=llm_calls,
+                                error="doom_loop_budget",
+                            )
+                        # Timeout / connection — generic doom-loop detection
+                        if "timeout" in err_lower or "timed out" in err_lower or "connection" in err_lower or "network" in err_lower:
+                            key = f"timeout:{r.tool_name}:{_json_compact(r.output, max_chars=600)}"
+                            failure_counts[key] = failure_counts.get(key, 0) + 1
+                            if failure_counts[key] >= 3:
+                                return QueryLoopResult(
+                                    final_response=f"工具 {r.tool_name} 连续超时 {failure_counts[key]} 次。请检查网络连接或设备可达性。",
+                                    tool_results=all_results,
+                                    iterations=iterations,
+                                    total_tool_calls=len(all_results),
+                                    llm_calls=llm_calls,
+                                    error="doom_loop_timeout",
+                                )
+
+                if not getattr(self._config, "enable_finalizer", True):
+                    return QueryLoopResult(
+                        final_response=self._build_tool_result_fallback(ctx, all_results),
+                        tool_results=all_results,
+                        iterations=iterations,
+                        total_tool_calls=len(all_results),
+                        llm_calls=llm_calls,
+                        metrics={
+                            "elapsed_ms": (time.monotonic() - t_start) * 1000,
+                            "iterations": iterations,
+                            "tool_calls": len(all_results),
+                            "llm_calls": llm_calls,
+                        },
+                    )
+
+                continue
+
+            # No tool calls → final response
+            final_text = response.content or ""
+            if not final_text.strip() and all_results:
+                # Try LLM finalizer first, fall back to static summary
+                final_text = await self.# P2-2: verify budget consumption in finalizer — may double-spend
+            _finalize_with_results(
+                    ctx, messages, all_results, budget
+                )
+                # _finalize_with_results consumed one LLM call — update count
+                llm_calls = budget.llm_calls
+            elapsed = (time.monotonic() - t_start) * 1000
+
+            return QueryLoopResult(
+                final_response=final_text,
+                tool_results=all_results,
+                iterations=iterations,
+                total_tool_calls=len(all_results),
+                llm_calls=llm_calls,
+                metrics={
+                    "elapsed_ms": elapsed,
+                    "iterations": iterations,
+                    "tool_calls": len(all_results),
+                    "llm_calls": llm_calls,
+                    "context_estimated_chars": _estimate_chars(messages),
+                    "context_compacted": metrics.snapshot().context_compacted if metrics else False,
+                },
+            )
+
+        # Max iterations exhausted
+        return QueryLoopResult(
+            final_response="已达到最大迭代次数，请检查结果。",
+            tool_results=all_results,
+            iterations=iterations,
+            total_tool_calls=len(all_results),
+            llm_calls=llm_calls,
+            error="max_iterations",
+        )
+
+    # ── Private helpers ──────────────────────────────────────────────────
+
+    # ── Private helpers ──────────────────────────────────────────────────
+
+    @staticmethod
+    def _should_poll_tracking(user_input: str, tracking: dict) -> bool:
+        """Check if user explicitly requested tracking (keywords like 跟踪/持续).
+
+        IMPORTANT: Only poll when BOTH conditions are true:
+        1. The task is marked as a long_task in the tracking payload
+        2. The user input contains explicit tracking keywords
+
+        v3.16: "巡检" is explicitly included because inspection tasks are
+        inherently long-running and users expect completion reports.
+        """
+        if tracking.get("done"):
+            return False
+        action = str(tracking.get("suggested_next_action") or "").lower()
+        if action and action != "poll_get":
+            return False
+        # Must be a long task to be eligible for polling
+        if str(tracking.get("kind") or "") != "long_task":
+            return False
+        text = str(user_input or "").lower()
+        explicit = any(w in text for w in (
+            "巡检", "跟踪", "追踪", "等待", "持续",
+            "完成后", "完成后请", "汇总", "报告",
+            "track", "follow", "wait", "until complete",
+        ))
+        return explicit
+
+    def _build_initial(self, ctx: StatelessContext) -> List[LLMMessage]:
+        """Build initial messages with cacheable prefix."""
+        conversation_block = ctx.extras.get("conversation_history_block") or ""
+
+        user_content = (
+            f"Workspace: {ctx.workspace_id}\n"
+            f"Session: {ctx.session_id}\n\n"
+            f"User request: {ctx.user_input}"
+        )
+
+        if conversation_block.strip():
+            user_content = (
+                f"Recent conversation:\n{conversation_block}\n\n"
+                f"{user_content}"
+            )
+
+        return [
+            LLMMessage(role="system", content=QUERY_LOOP_SYSTEM_PROMPT),
+            LLMMessage(role="user", content=user_content),
+        ]
+
+    async def _call_llm(
+        self,
+        messages: List[LLMMessage],
+        ctx: StatelessContext,
+    ) -> Optional[LLMResponse]:
+        """Call LLM with tools and streaming support.
+
+        v3.17: Removed asyncio.to_thread because it runs the LLM call on a
+        different thread, which loses the StreamEmitter TLS (threading.local)
+        callback.  Without the callback, ``_push_stream_token`` is a no-op
+        and the frontend never sees streaming tokens.
+        
+        We now call directly on the event-loop thread so the TLS callback
+        is preserved.  The minor event-loop blocking (LLM latency) is
+        acceptable for the single-user development loop.
+        """
+        try:
+            system_prompt, stream_scope, stream_to_user = self._llm_call_mode(messages)
+            if self._llm_invoke is not None:
+                raw = # NOTE: sync function in async context — see P3-2
+        self._llm_invoke(
+                    system=system_prompt,
+                    user=self._messages_to_user_text(messages),
+                    temperature=0.2,
+                    timeout=120,
+                    tools=self._cached_tools,
+                    workspace_id=ctx.workspace_id,
+                    session_id=ctx.session_id,
+                    extra={
+                        "runtime_engine": "ssot_runtime",
+                        "stream_scope": stream_scope,
+                        "stream_to_user": stream_to_user,
+                        "workspace_id": ctx.workspace_id,
+                        "session_id": ctx.session_id,
+                    },
+                )
+                return self._coerce_llm_response(raw)
+
+            from agent.llm.runtime import invoke_llm
+            call_messages = [
+                LLMMessage(role="system", content=system_prompt),
+                *messages[1:],
+            ] if messages else [LLMMessage(role="system", content=system_prompt)]
+            
+            response = invoke_llm(
+                task="query_loop",
+                messages=call_messages,
+                tools=self._cached_tools,
+                config_override={
+                    "temperature": 0.2,
+                    "max_tokens": 4096,
+                    "timeout": 120,
+                },
+            )
+            return response
+        except Exception as e:
+            return LLMResponse(error=str(e))
+
+    @staticmethod
+    def _llm_call_mode(messages: List[LLMMessage]) -> tuple[str, str, bool]:
+        has_tool_context = any(
+            m.role == "tool"
+            or (m.role == "user" and "AUTO TRACKING RESULTS" in str(m.content or ""))
+            for m in messages
+        )
+        if has_tool_context:
+            return QUERY_LOOP_FINALIZER_PROMPT, "finalizer", True
+        return QUERY_LOOP_SYSTEM_PROMPT, "planner", False
+
+    def _messages_to_user_text(self, messages: List[LLMMessage]) -> str:
+        """Serialize loop messages for injected LLM adapters.
+
+        The production adapter accepts ``system`` + ``user`` strings, while
+        QueryLoop internally keeps OpenAI-style tool messages. This projection
+        preserves the relevant context without bypassing the injected adapter.
+        """
+        parts: list[str] = []
+        for m in messages:
+            if m.role == "system":
+                continue
+            label = m.role.upper()
+            content = m.content
+            if m.tool_calls:
+                parts.append(
+                    f"{label} TOOL_CALLS: "
+                    f"{json.dumps(m.tool_calls, ensure_ascii=False, default=str)}"
+                )
+            if content:
+                if m.role == "tool":
+                    content = _compact_tool_content(content, max_chars=TOOL_MESSAGE_MAX_CHARS)
+                parts.append(f"{label}: {content}")
+            if m.tool_call_id:
+                parts[-1:] =   # P2-3: list slice assignment, empty parts = no-op[f"{parts[-1]} (tool_call_id={m.tool_call_id})"] if parts else []
+        return "\n\n".join(parts)
+
+    def _coerce_llm_response(self, raw: Any) -> LLMResponse:
+        """Coerce injected adapter output into QueryLoop's LLMResponse shape.
+        
+        Also strips ``<think>...</think>`` tags that some models (MiniMax-M3)
+        leak into visible output — they confuse final_response_summary truncation
+        and make users think the model is talking to itself.
+        """
+        if isinstance(raw, LLMResponse):
+            raw.content = self._strip_think_tags(str(raw.content or ""))
+            return raw
+        if raw is None:
+            return LLMResponse(error="empty_llm_response")
+        tool_calls = getattr(raw, "tool_calls", None)
+        if tool_calls is not None:
+            return LLMResponse(
+                content=self._strip_think_tags(str(getattr(raw, "content", "") or "")),
+                error=getattr(raw, "error", None),
+                tool_calls=list(tool_calls or []),
+            )
+        text = self._strip_think_tags(str(raw))
+        data = self._try_parse_json_object(text)
+        if data is not None:
+            nodes = data.get("nodes")
+            if isinstance(nodes, list):
+                calls: list[LLMToolCall] = []
+                for idx, node in enumerate(nodes):
+                    if not isinstance(node, dict):
+                        continue
+                    tool = str(node.get("tool") or "").strip()
+                    if not tool:
+                        continue
+                    calls.append(LLMToolCall(
+                        id=str(node.get("id") or f"call_{idx}"),
+                        name=tool,
+                        arguments=dict(node.get("args") or {}),
+                    ))
+                return LLMResponse(
+                    content=self._strip_think_tags(str(data.get("final_response") or "")),
+                    tool_calls=calls,
+                )
+        return LLMResponse(content=text)
+    
+    @staticmethod
+    def _strip_think_tags(text: str) -> str:
+        """Remove ``<think>...</think>`` blocks from LLM output.
+        
+        Some models (MiniMax-M3) emit chain-of-thought reasoning inside XML
+        tags. We strip the tags and their content before passing the text on.
+        """
+        import re
+        return re.sub(r'<think>.*?</think>\s*', '', text, flags=re.DOTALL).strip()
+
+    @staticmethod
+    def _try_parse_json_object(text: str) -> dict[str, Any] | None:
+        cleaned = (text or "").strip()
+        if cleaned.startswith("```"):
+            lines = cleaned.splitlines()
+            if lines and lines[0].startswith("```"):
+                lines = lines[1:]
+            if lines and lines[-1].strip() == "```":
+                lines = lines[:-1]
+            cleaned = "\n".join(lines).strip()
+        try:
+            data = json.loads(cleaned)
+        except Exception:
+            return None
+        return data if isinstance(data, dict) else None
+
+    def _parse_tool_calls(self, raw: List[LLMToolCall]) -> List[LLMToolCall]:
+        """Normalise raw tool calls from LLM response (may be dict or LLMToolCall)."""
+        result = []
+        for tc in raw:
+            if isinstance(tc, dict):
+                # Raw dict from provider
+                args = tc.get("arguments", {})
+                tid = tc.get("id", "")
+                tname = tc.get("name", "")
+            else:
+                # LLMToolCall dataclass
+                args = getattr(tc, "arguments", {})
+                tid = getattr(tc, "id", "")
+                tname = getattr(tc, "name", "")
+            
+            if isinstance(args, str):
+                try:
+                    args = json.loads(args)
+                except json.JSONDecodeError:
+                    args = {}
+            
+            # Normalise double-underscore to dots
+            tname = tname.replace("__", ".")
+            if not tid:
+                tid = f"call_{len(result)}"
+            
+            result.append(LLMToolCall(
+                id=str(tid),
+                name=tname,
+                arguments=args,
+            ))
+        return result
+
+    @staticmethod
+    def _tool_call_key(tc: LLMToolCall) -> str:
+        return (
+            f"{tc.name}:"
+            f"{json.dumps(tc.arguments or {}, sort_keys=True, ensure_ascii=False, default=str)}"
+        )
+
+    def _prepare_tool_calls(
+        self,
+        ctx: StatelessContext,
+        tool_calls: List[LLMToolCall],
+    ) -> dict[str, Any]:
+        """Run QueryLoop's pre-execution hard boundaries.
+
+        QueryLoop is the execution path. It still keeps semantic repair, risk,
+        and approval boundaries, but does not expose or persist old graph state.
+        """
+        nodes = self._tool_calls_to_nodes(tool_calls)
+        graph = self._validation_graph(nodes)
+
+        from .semantic_validator import SemanticValidator
+        from .pre_execution_repair import PreExecutionRepairEngine
+        from .risk_policy import RiskPolicyEngine
+        from .plan_enrichment import enrich_dag_from_user_request
+
+        enrichment_events = enrich_dag_from_user_request(graph, ctx.user_input)
+        if enrichment_events:
+            ctx.extras.setdefault("plan_enrichment_events", [])
+            ctx.extras["plan_enrichment_events"].extend(
+                asdict(event) for event in enrichment_events
+            )
+
+        validator = SemanticValidator(self._tool_registry)
+        validation = validator.validate(graph)
+        if not validation.valid:
+            repair = PreExecutionRepairEngine().try_repair(graph, validation.errors)
+            self._record_pre_exec_repair(ctx, repair)
+            repaired_graph = getattr(repair, "repaired_graph", None)
+            if repair.repaired and repaired_graph is not None:
+                graph = repaired_graph
+                nodes = list(getattr(graph, "nodes", []) or [])
+                validation = validator.validate(graph)
+
+        if not validation.valid:
+            for node in nodes:
+                if any(e.node_id == node.id for e in validation.errors):
+                    node.status = ExecutionStatus.SKIPPED
+                    node.error = "Blocked by semantic validation"
+            errors = [
+                f"{e.node_id}:{e.code}:{e.message}"
+                for e in validation.errors
+            ]
+            self._record_blocked_audit_nodes(ctx, nodes)
+            # Soft validation errors (missing args) are recoverable —
+            # let the LLM see the error and retry via the continue path.
+            is_hard = any(
+                e.code not in ("MISSING_REQUIRED_ARG", "INVALID_ARG_TYPE")
+                for e in validation.errors
+            )
+            return {
+                "ok": False,
+                "error": "semantic_validation_failed",
+                "errors": errors,
+                "hard_block": is_hard,
+                "risk_level": "high" if is_hard else "low",
+                "message": "工具调用校验失败：\n" + "\n".join(f"- {e}" for e in errors),
+            }
+
+        risk = RiskPolicyEngine(self._config).assess(graph)
+        ctx.extras.update({
+            "approval_required": bool(risk.requires_approval),
+            "hard_block": bool(risk.hard_block),
+            "approval_reason": risk.approval_reason,
+            "approval_nodes": list(risk.approval_nodes),
+            "approval_details": list(risk.approval_details),
+        })
+
+        if risk.hard_block:
+            for node in nodes:
+                if node.id in risk.blocked_nodes:
+                    node.status = ExecutionStatus.SKIPPED
+                    node.error = risk.blocked_reason or "Blocked by risk policy"
+            reason = risk.blocked_reason or "blocked_by_risk_policy"
+            self._record_blocked_audit_nodes(ctx, nodes)
+            return {
+                "ok": False,
+                "error": "risk_hard_block",
+                "errors": [reason],
+                "hard_block": True,
+                "risk_level": risk.risk_level,
+                "message": f"工具调用被安全策略阻断：{reason}",
+            }
+
+        if risk.requires_approval and not ctx.extras.get("approved_risk"):
+            return {
+                "ok": False,
+                "error": "approval_required",
+                "errors": [],
+                "approval_required": True,
+                "approval_nodes": list(risk.approval_nodes),
+                "approval_details": list(risk.approval_details),
+                "risk_level": risk.risk_level,
+                "message": (
+                    "该操作需要用户审批后才能继续执行。"
+                    f"原因：{risk.approval_reason or 'high_risk_tool_or_command'}"
+                ),
+            }
+
+        repaired_calls = [
+            LLMToolCall(id=n.id, name=n.tool, arguments=dict(n.args or {}))
+            for n in nodes
+        ]
         return {
-            "status": result.status,
-            "ok": result.status in ("succeeded", "dry_run"),
-            "summary": result.summary or "",
-            "output": result.output or {},
-            "artifact_ids": list(result.artifact_ids or []),
-            "warnings": list(result.warnings or []),
-            "errors": list(result.errors or []),
-            "duration_ms": result.duration_ms,
-            "redacted": bool(result.redacted),
+            "ok": True,
+            "tool_calls": repaired_calls,
+            "risk_level": risk.risk_level,
+            "approval_required": False,
         }
 
-    return _handler
+    @staticmethod
+    def _tool_calls_to_nodes(tool_calls: List[LLMToolCall]) -> list[ExecutionNode]:
+        from .action_alias import resolve_action_alias
 
+        nodes: list[ExecutionNode] = []
+        for idx, tc in enumerate(tool_calls):
+            args = dict(tc.arguments or {})
+            action_original = ""
+            action_normalized_from_alias = False
+            raw_action = args.get("action")
+            if isinstance(raw_action, str) and raw_action:
+                resolution = resolve_action_alias(tc.name.replace("__", "."), raw_action)
+                if resolution.matched:
+                    args["action"] = resolution.canonical_action
+                    if resolution.operation:
+                        args["operation"] = resolution.operation
+                    action_original = resolution.original_action
+                    action_normalized_from_alias = True
+            nodes.append(ExecutionNode(
+                id=tc.id or f"call_{idx}",
+                tool=tc.name.replace("__", "."),
+                args=args,
+                depth=0,
+                action_original=action_original,
+                action_normalized_from_alias=action_normalized_from_alias,
+            ))
+        return nodes
 
-def _invoke_llm_for_ssot_runtime(**kwargs) -> str:
-    from agent.llm.runtime import invoke_llm
-    from agent.runtime.token_tracker import record_llm_call
+    @staticmethod
+    def _validation_graph(nodes: list[ExecutionNode]):
+        """Adapter for validators that still accept a graph-like object."""
+        class _ValidationGraph:
+            def __init__(self, graph_nodes):
+                self.nodes = graph_nodes
+                self.layers = {0: graph_nodes}
+                self.total_nodes = len(graph_nodes)
+                self.max_depth = 0
 
-    system = str(kwargs.get("system") or "")
-    user = str(kwargs.get("user") or "")
-    is_planner = "execution planner" in system.lower()
-    caller_extra = kwargs.get("extra") or {}
-    tools = kwargs.get("tools") or None
-    session_id = str(kwargs.get("session_id") or caller_extra.get("session_id") or "").strip()
-    workspace_id = str(kwargs.get("workspace_id") or caller_extra.get("workspace_id") or "").strip()
+            def get_layer(self, depth: int):
+                return self.layers.get(depth, [])
 
-    extra = {
-        "runtime_engine": "ssot_runtime",
-        "planner": is_planner,
-        "stream_to_user": not is_planner,
-        "stream_scope": "planner" if is_planner else "finalizer",
-    }
-    if caller_extra:
-        extra.update(caller_extra)
+        return _ValidationGraph(nodes)
 
-    config_override = None
-    timeout = kwargs.get("timeout")
-    if timeout is not None:
-        config_override = {"timeout": int(timeout)}
-
-    resp = invoke_llm(
-        task="assistant_chat",
-        messages=[
-            LLMMessage(role="system", content=system),
-            LLMMessage(role="user", content=user),
-        ],
-        tools=tools,
-        user_input=user,
-        extra=extra,
-        config_override=config_override,
-    )
-
-    # Track token usage
-    if workspace_id:
-        try:
-            usage = resp.usage or {}
-            record_llm_call(
-                input_tokens=usage.get("prompt_tokens", 0),
-                output_tokens=usage.get("completion_tokens", 0),
-                session_id=session_id,
-                workspace_id=workspace_id,
-                model=resp.model or "",
-                provider=resp.provider or "",
-            )
-        except Exception:
-            _LOG.debug("record_llm_call failed", exc_info=True)
-
-    if resp.error:
-        # If streaming produced partial content before error, return it
-        # instead of failing entirely (common with timeout on slow providers).
-        # v4.1: accept ANY non-empty content — even a single character is
-        # better than a generic fallback.
-        if resp.content and resp.content.strip():
-            return resp.content.strip()
-        raise RuntimeError(resp.error)
-
-    # Handle tool_calls response (Function Calling mode)
-    tool_calls = getattr(resp, "tool_calls", []) or []
-    if tool_calls:
-        nodes = []
-        for tc in tool_calls:
-            tc_name = tc.get("name", "") if isinstance(tc, dict) else getattr(tc, "name", "")
-            tc_args = tc.get("arguments", "{}") if isinstance(tc, dict) else getattr(tc, "arguments", "{}")
-            if isinstance(tc_args, str):
-                try:
-                    tc_args = json.loads(tc_args)
-                except json.JSONDecodeError:
-                    tc_args = {}
-            nodes.append({
-                "id": f"n{len(nodes)}",
-                "tool": tc_name.replace("__", "."),
-                "args": tc_args,
-                "deps": [],
-            })
-        return json.dumps({"nodes": nodes, "final_response": ""}, ensure_ascii=False)
-
-    content = (resp.content or "").strip()
-    if is_planner and not _looks_like_plan_json(content):
-        return json.dumps({"nodes": [], "final_response": content}, ensure_ascii=False)
-    return content
-
-
-def _looks_like_plan_json(text: str) -> bool:
-    try:
-        data = json.loads(_strip_fences(text))
-    except Exception:
-        return False
-    return isinstance(data, dict) and isinstance(data.get("nodes", []), list)
-
-
-def _strip_fences(text: str) -> str:
-    text = text.strip()
-    if text.startswith("```"):
-        lines = text.splitlines()
-        if lines:
-            lines = lines[1:]
-        if lines and lines[-1].strip() == "```":
-            lines = lines[:-1]
-        return "\n".join(lines).strip()
-    return text
-
-
-def _run_async(awaitable):
-    try:
-        asyncio.get_running_loop()
-    except RuntimeError:
-        return asyncio.run(awaitable)
-
-    box: dict[str, Any] = {}
-
-    def _target():
-        try:
-            box["result"] = asyncio.run(awaitable)
-        except Exception as exc:  # pragma: no cover - defensive branch
-            box["error"] = exc
-
-    import threading
-
-    thread = threading.Thread(target=_target, daemon=True)
-    thread.start()
-    thread.join()
-    if "error" in box:
-        raise box["error"]
-    return box.get("result")
-
-
-_BOGUS_FINAL_PATTERNS = (
-    "收到",
-    "已完成。",
-    "工具执行成功",
-    "工具执行完成",
-    "No tools were executed",
-    "readartifact completed",
-    "readartifact succeeded",
-)
-
-
-def _is_bogus_final(text: str) -> bool:
-    """Return True when *text* is a placeholder stub rather than
-    a real answer produced by the finalizer LLM."""
-    t = text.strip()
-    if len(t) <= 10:
-        return True
-    return any(p in t for p in _BOGUS_FINAL_PATTERNS)
-
-
-def _final_response(runtime_result) -> str:
-    text = str(getattr(runtime_result, "final_response", "") or "").strip()
-
-    # v3.16: if the final response is a known placeholder but we
-    # have actual tool results, degrade gracefully instead of
-    # returning a useless stub like "收到。".
-    if text and _is_bogus_final(text):
-        text = ""  # fall through to meaningful defaults
-
-    if text:
-        return text
-    if runtime_result.node_results:
-        ok = runtime_result.node_success_count
-        failed = runtime_result.node_failure_count
-        return f"工具执行完成：成功 {ok} 个，失败 {failed} 个。"
-    if runtime_result.errors:
-        return "任务执行失败：" + "; ".join(str(e) for e in runtime_result.errors[:3])
-    return "收到。"
-
-
-def _project_tool_calls(runtime_result) -> list[dict[str, Any]]:
-    calls = []
-    for node_id, tr in (runtime_result.node_results or {}).items():
-        data = tr.data if isinstance(tr.data, dict) else {"value": tr.data}
-        raw_ids = list(data.get("artifact_ids") or [])
-        # Normalise artifacts: frontend expects objects, not plain strings.
-        artifacts: list[dict[str, str]] = []
-        for aid in raw_ids:
-            if isinstance(aid, dict):
-                artifacts.append({
-                    "artifact_id": str(aid.get("artifact_id", aid.get("id", ""))),
-                    "artifact_type": str(aid.get("artifact_type", aid.get("type", ""))),
-                    "title": str(aid.get("title", aid.get("name", ""))),
-                })
-            elif isinstance(aid, str):
-                artifacts.append({
-                    "artifact_id": aid,
-                    "artifact_type": "",
-                    "title": aid,
-                })
-
-        calls.append({
-            "call_id": node_id,
-            "tool_id": tr.tool,
-            "ok": bool(tr.success),
-            "status": "succeeded" if tr.success else "failed",
-            "summary": _tool_summary(data, tr),
-            "result": data.get("output", data),
-            "duration_ms": tr.latency_ms,
-            "errors": list(data.get("errors") or ([tr.error] if tr.error else [])),
-            "warnings": list(data.get("warnings") or []),
-            "artifacts": artifacts,
-            "metadata": {
-                "runtime_engine": "ssot_runtime",
-                "node_id": node_id,
-                "duration_ms": tr.latency_ms,
-                "redacted": bool(data.get("redacted", True)),
-            },
-        })
-    return calls
-
-
-def _tool_summary(data: dict[str, Any], tr) -> str:
-    for key in ("summary", "message", "error"):
-        value = data.get(key)
-        if value:
-            return str(value)[:500]
-    if tr.error:
-        return str(tr.error)[:500]
-    return "Tool completed" if tr.success else "Tool failed"
-
-
-def _project_events(runtime_result, trace_id: str, turn_id: str) -> list[dict[str, Any]]:
-    events = []
-    for node_id, tr in (runtime_result.node_results or {}).items():
-        events.append({
-            "type": "tool_call",
-            "name": "tool_call",
-            "tool_id": tr.tool,
-            "node_id": node_id,
-            "trace_id": trace_id,
-            "run_id": turn_id,
-            "timestamp": time.time(),
-            "status": "started",
-        })
-        events.append({
-            "type": "tool_result",
-            "name": "tool_result",
-            "tool_id": tr.tool,
-            "node_id": node_id,
-            "trace_id": trace_id,
-            "run_id": turn_id,
-            "timestamp": time.time(),
-            "status": "success" if tr.success else "failed",
-            "ok": bool(tr.success),
-            "summary": _tool_summary(tr.data if isinstance(tr.data, dict) else {}, tr),
-            "duration_ms": tr.latency_ms,
-        })
-    for idx, ev in enumerate((runtime_result.metadata or {}).get("retry_events") or []):
-        if not isinstance(ev, dict):
-            continue
-        events.append({
-            "event_id": f"retry-{turn_id}-{idx}",
-            "event_type": "tool_retry",
-            "type": "tool_retry",
-            "name": "工具自动重试",
-            "status": ev.get("final_status") or ("succeeded" if ev.get("retry_allowed") else "blocked"),
-            "summary": _retry_event_summary(ev),
-            "tool_id": ev.get("tool_id", ""),
-            "node_id": ev.get("node_id", ""),
-            "trace_id": trace_id,
-            "run_id": turn_id,
-            "timestamp": time.time(),
-            "duration_ms": ev.get("duration_ms", 0),
-            "metadata": ev,
-        })
-    return events
-
-
-def _retry_event_summary(ev: dict[str, Any]) -> str:
-    tool_id = str(ev.get("tool_id") or ev.get("node_id") or "tool")
-    reason = str(ev.get("reason") or ev.get("error_code") or "")
-    if ev.get("retry_allowed"):
-        if str(ev.get("final_status") or "") == "succeeded":
-            return f"{tool_id} 首次失败后已自动重试并恢复"
-        return f"{tool_id} 已按策略重试，但仍未完成"
-    if ev.get("blocked_by_policy"):
-        return f"{tool_id} 未重试：{reason or '策略禁止重试'}"
-    return f"{tool_id} 未触发重试：{reason or '不满足重试条件'}"
-
-
-def _event(event_type: str, name: str, trace_id: str, turn_id: str, *, started_at: float) -> dict[str, Any]:
-    return {
-        "type": event_type,
-        "name": name,
-        "trace_id": trace_id,
-        "run_id": turn_id,
-        "timestamp": time.time(),
-        "duration_ms": int((time.monotonic() - started_at) * 1000),
-    }
-
-
-def _timeline_summary(*, started: float, events: list, tool_calls: list, runtime_result) -> dict[str, Any]:
-    return {
-        "node_count": max(len(events), 1),
-        "total_duration_ms": int((time.monotonic() - started) * 1000),
-        "artifact_saved_count": sum(len(c.get("artifacts") or []) for c in tool_calls),
-        "execution_duration_ms": int(getattr(runtime_result, "execution_latency_ms", 0) or 0),
-        "llm_calls": int((runtime_result.metadata or {}).get("llm_calls", 0) or 0),
-        "tool_calls": len(tool_calls),
-        "max_parallel_width": int((runtime_result.metadata or {}).get("metrics", {}).get("max_parallel_width", 0) or 0),
-    }
-
-
-def _tool_decision(runtime_result, tool_calls: list) -> dict[str, Any]:
-    if not tool_calls:
-        return {"needed": False, "reason": "SSOT Runtime planner selected no tools.", "selected_tools": []}
-    return {
-        "needed": True,
-        "reason": "SSOT Runtime execution graph selected tool nodes.",
-        "selected_tools": [c["tool_id"] for c in tool_calls],
-        "tool_count": len(tool_calls),
-    }
-
-
-def _current_provider_name() -> str:
-    try:
-        from agent.llm.config import resolve_provider_config
-        return str(resolve_provider_config().get("provider") or "")
-    except Exception:
-        return ""
-
-
-def _current_model_name() -> str:
-    try:
-        from agent.llm.config import resolve_provider_config
-        return str(resolve_provider_config().get("model") or "")
-    except Exception:
-        return ""
-
-
-# ── GraphStore SSOT projection ─────────────────────────────────────
-
-def _graph_run_started(
-    *,
-    run_id: str,
-    workspace_id: str,
-    session_id: str,
-    trace_id: str,
-    user_input: str,
-) -> None:
-    """Append the production turn boundary to the canonical GraphStore."""
-    try:
-        from core.graph.graph_store import EventType, get_graph_store
-
-        store = get_graph_store()
-        store.append(EventType.RUN_CREATED, run_id, {
-            "workspace_id": workspace_id,
-            "session_id": session_id,
-            "trace_id": trace_id,
-            "input": user_input,
-        })
-        store.append(EventType.RUN_STARTED, run_id, {
-            "workspace_id": workspace_id,
-            "session_id": session_id,
-            "trace_id": trace_id,
-        })
-    except Exception:
-        _LOG.debug("GraphStore run-start append failed for %s", run_id, exc_info=True)
-
-
-def _graph_run_finished(
-    *,
-    run_id: str,
-    result: AgentResult,
-    runtime_result: Any | None,
-    user_input: str,
-) -> None:
-    """Append planner/tool/final projections for a completed public turn."""
-    try:
-        from core.graph.graph_store import EventType, get_graph_store
-
-        store = get_graph_store()
-        tool_calls = list(getattr(result, "tool_calls", []) or [])
-        nodes = [
-            {
-                "id": str(tc.get("node_id") or tc.get("tool_call_id") or f"node_{i}"),
-                "tool": str(tc.get("tool_id") or tc.get("tool") or ""),
-                "args": dict(tc.get("arguments") or {}),
-                "deps": [],
-            }
-            for i, tc in enumerate(tool_calls)
-            if isinstance(tc, dict)
-        ]
-        store.append(EventType.PLAN_GENERATED, run_id, {
-            "nodes": nodes,
-            "node_count": len(nodes),
-            "user_input": user_input,
-        })
-        for node, tc in zip(nodes, tool_calls):
-            node_id = node["id"]
-            if not isinstance(tc, dict):
+    @staticmethod
+    def _record_blocked_audit_nodes(ctx: StatelessContext, nodes: list[ExecutionNode]) -> None:
+        blocked = []
+        for node in nodes:
+            if node.status != ExecutionStatus.SKIPPED:
                 continue
-            ok = bool(tc.get("ok", tc.get("success", True)))
-            payload = {
-                "node_id": node_id,
-                "tool": node["tool"],
-                "result": {
-                    "ok": ok,
-                    "summary": tc.get("summary") or tc.get("content") or "",
-                    "latency_ms": tc.get("latency_ms", 0),
-                    "artifacts": tc.get("artifacts") or [],
+            blocked.append({
+                "node_id": node.id,
+                "tool": node.tool,
+                "args": dict(node.args or {}),
+                "depth": node.depth,
+                "status": node.status.value,
+                "latency_ms": node.latency_ms,
+                "error": node.error or "blocked",
+            })
+        if blocked:
+            ctx.extras["audit_blocked_nodes"] = blocked
+
+    @staticmethod
+    def _record_pre_exec_repair(ctx: StatelessContext, repair) -> None:
+        events = []
+        for event in getattr(repair, "repair_events", []) or []:
+            try:
+                events.append(asdict(event))
+            except Exception:
+                events.append(dict(getattr(event, "__dict__", {}) or {}))
+        if events:
+            ctx.extras["pre_exec_repair_events"] = events
+        ctx.extras["pre_exec_repair_applied"] = bool(getattr(repair, "repaired", False))
+
+    def _append_tool_round(
+        self,
+        messages: List[LLMMessage],
+        tool_calls: List[LLMToolCall],
+        results: List[StreamingToolResult],
+    ) -> List[LLMMessage]:
+        """Append assistant tool_calls + tool results to messages.
+        
+        IMPORTANT: assistant message uses __ names (LLM format), tool results
+        use cross-referenced call_id to match tool definitions.
+        """
+        new_msgs = list(messages)
+
+        # Assistant message with tool calls (MUST use __ names to match tool defs)
+        assistant_tool_calls = [
+            {
+                "id": tc.id,
+                "type": "function",
+                "function": {
+                    "name": (tc.name or "").replace(".", "__"),  # dots → __ for API
+                    "arguments": json.dumps(tc.arguments, ensure_ascii=False),
                 },
             }
-            store.append(EventType.NODE_STARTED, run_id, {
-                "node_id": node_id,
-                "tool": node["tool"],
-            })
-            if ok:
-                store.append(EventType.NODE_COMPLETED, run_id, payload)
-            else:
-                store.append(EventType.NODE_FAILED, run_id, {
-                    **payload,
-                    "error": tc.get("error") or tc.get("summary") or "tool failed",
-                })
-        store.append(EventType.FINAL_RESPONSE, run_id, {
-            "text": getattr(result, "final_response", "") or "",
-        })
-        if getattr(result, "ok", False):
-            store.append(EventType.RUN_COMPLETED, run_id, {})
-        else:
-            store.append(EventType.RUN_FAILED, run_id, {
-                "errors": list(getattr(result, "errors", []) or []),
-                "runtime_errors": list(getattr(runtime_result, "errors", []) or []) if runtime_result else [],
-            })
-    except Exception:
-        _LOG.debug("GraphStore run-finish append failed for %s", run_id, exc_info=True)
+            for tc in tool_calls
+        ]
+        new_msgs.append(LLMMessage(
+            role="assistant",
+            content="",
+            tool_calls=assistant_tool_calls,
+        ))
 
+        original_call_ids = {tc.id for tc in tool_calls}
+        extra_results: list[StreamingToolResult] = []
 
-# ── Conversation history block builder ──────────────────────────────
-
-_HISTORY_MAX_CHARS = 12000
-_HISTORY_RECENT_MESSAGES = 30
-_HISTORY_MESSAGE_MAX_CHARS = 1200
-_HISTORY_SUMMARY_MAX_CHARS = 2500
-_HISTORY_REFERENCE_PATTERNS = (
-    "前面", "之前", "上次", "刚才", "继续", "还记得", "记得",
-    "那个", "上一轮", "前一轮", "前面的", "之前的", "刚才的",
-)
-
-
-def _build_history_block(session, *, user_input: str = "") -> str:
-    """Build prompt-ready conversation context from the session message SSOT.
-
-    Source order:
-      1. ``SessionMessageStore`` full persisted messages
-      2. in-memory ``session.history`` entries not yet flushed
-
-    The block keeps recent messages verbatim, summarizes older turns, and
-    pulls a small retrieved-history section when the current input references
-    earlier conversation. This preserves long-session entities without reviving
-    a second runtime path.
-    """
-    try:
-        messages = _load_context_messages(session)
-        if not messages:
-            return ""
-
-        recent = messages[-_HISTORY_RECENT_MESSAGES:]
-        older = messages[:-_HISTORY_RECENT_MESSAGES]
-        parts: list[str] = []
-        if older:
-            summary = _summarize_older_messages(older)
-            if summary:
-                parts.append("SESSION SUMMARY:\n" + summary)
-        retrieved = _retrieve_history_references(messages, user_input)
-        if retrieved:
-            parts.append("RETRIEVED HISTORY:\n" + "\n".join(
-                f"  [{m['role']}] {_truncate(m['content'], _HISTORY_MESSAGE_MAX_CHARS)}"
-                for m in retrieved
+        # Tool result messages for model-requested calls only. Auto-tracking
+        # polls are internal and do not have matching assistant tool_calls.
+        for r in results:
+            if r.call_id not in original_call_ids:
+                extra_results.append(r)
+                continue
+            # v3.11: ensure errors are visible to the LLM even when r.output is empty
+            tool_payload = dict(r.output) if r.output else {}
+            if not tool_payload.get("ok", True) and r.error and not tool_payload.get("errors"):
+                tool_payload["errors"] = [r.error]
+            if tool_payload.get("ok", True) and r.error:
+                tool_payload["ok"] = False
+                tool_payload["errors"] = [r.error]
+            output_str = _json_compact(tool_payload, max_chars=TOOL_MESSAGE_MAX_CHARS)
+            new_msgs.append(LLMMessage(
+                role="tool",
+                content=output_str,
+                tool_call_id=r.call_id,
             ))
-        if recent:
-            parts.append("RECENT CONVERSATION HISTORY:\n" + "\n".join(
-                f"  [{m['role']}] {_truncate(m['content'], _HISTORY_MESSAGE_MAX_CHARS)}"
-                for m in recent
+
+        if extra_results:
+            payload = [
+                {
+                    "tool": r.tool_name,
+                    "tool_id": r.tool_name,
+                    "call_id": r.call_id,
+                    "ok": r.ok,
+                    "error": r.error,
+                    "output": r.output,
+                }
+                for r in extra_results
+            ]
+            output_str = _json_compact(payload, max_chars=TOOL_MESSAGE_MAX_CHARS)
+            new_msgs.append(LLMMessage(
+                role="user",
+                content="AUTO TRACKING RESULTS:\n" + output_str,
             ))
-        block = "\n\n".join(parts)
-        return _truncate(block, _HISTORY_MAX_CHARS)
-    except Exception:
-        _LOG.debug("conversation history block build failed", exc_info=True)
-        return ""
 
+        return new_msgs
 
-def _load_context_messages(session) -> list[dict[str, str]]:
-    messages: list[dict[str, str]] = []
-    seen: set[str] = set()
-    ws_id = str(getattr(session, "workspace_id", "") or "")
-    session_id = str(getattr(session, "session_id", "") or "")
-    if ws_id and session_id:
+    # ── Tracking / Polling ──────────────────────────────────────────────
+
+    async def _settle_tracking(
+        self,
+        ctx: StatelessContext,
+        results: List[StreamingToolResult],
+        budget=None,
+    ) -> List[StreamingToolResult]:
+        """After tool execution, auto-poll long tasks (e.g. inspection).
+
+        Polling is generic and bounded. It only runs when the user explicitly
+        requested tracking (关键词: 跟踪/持续/等待) or the tool marks the payload
+        as a long task.
+        Uses the tool's canonical name for get calls.
+        """
+        polled: List[StreamingToolResult] = []
+        if not getattr(self._config, "tracking_enabled", True):
+            return polled
+
+        max_polls = max(0, int(getattr(self._config, "tracking_max_polls", 8) or 0))
+        cap_seconds = float(getattr(self._config, "tracking_poll_interval_cap_seconds", 2.0))
+        max_seconds = max(0, float(getattr(self._config, "tracking_max_seconds", 60)))
+        if max_polls <= 0:
+            return polled
+
+        deadline = time.monotonic() + max_seconds
+        user_input = ctx.user_input or ""
+
+        for r in results:
+            tracking = extract_tracking_payload(r.output)
+            if not tracking:
+                continue
+            tracking = normalize_tracking_payload(tracking)
+
+            if tracking.get("done"):
+                continue
+
+            # Only poll if user explicitly asked for tracking
+            if not self._should_poll_tracking(user_input, tracking):
+                continue
+
+            task_id = str(tracking.get("task_id") or "").strip()
+            # Use the canonical tool name from result, not domain from tracking
+            tool_name = (r.tool_name or "").strip()
+            if not task_id or not tool_name:
+                continue
+            if not self._tool_runtime.has_tool(tool_name):
+                continue
+
+            ctx.extras.setdefault("tracking_events", [])
+            ctx.extras["tracking_events"].append({
+                "tool": tool_name,
+                "call_id": r.call_id,
+                "tracking": tracking,
+                "source": "initial",
+            })
+            ctx.extras["tracking_summary"] = tracking
+
+            poll_index = 0
+            last_error_count = 0
+            while poll_index < max_polls and time.monotonic() < deadline:
+                if tracking.get("done"):
+                    break
+
+                wait_s = self._tracking_wait(tracking, cap_seconds, deadline)
+                if wait_s > 0:
+                    await asyncio.sleep(wait_s)
+
+                poll_index += 1
+                poll_call_id = f"{r.call_id}_track_{poll_index}"
+                poll_call = LLMToolCall(
+                    id=poll_call_id,
+                    name=tool_name,
+                    arguments={"action": "get", "task_id": task_id},
+                )
+                try:
+                    poll_result = await self._executor._execute_one(
+                        poll_call, ctx=ctx, budget=budget
+                    )
+                    polled.append(poll_result)
+
+                    new_tracking = extract_tracking_payload(poll_result.output)
+                    if new_tracking:
+                        tracking = normalize_tracking_payload(new_tracking)
+                        ctx.extras["tracking_summary"] = tracking
+                        ctx.extras["tracking_events"].append({
+                            "tool": tool_name,
+                            "call_id": poll_call_id,
+                            "tracking": tracking,
+                            "source": "poll",
+                            "poll_index": poll_index,
+                        })
+                    if not poll_result.ok:
+                        # Track consecutive poll failures
+                        last_error_count += 1
+                        if last_error_count >= 3:
+                            # Too many consecutive poll failures — stop
+                            break
+                    else:
+                        last_error_count = 0
+                except Exception as e:
+                    # Poll call crashed — record as error and stop polling
+                    polled.append(StreamingToolResult(
+                        tool_name=tool_name,
+                        call_id=poll_call_id,
+                        output={},
+                        ok=False,
+                        error=f"poll_crash: {str(e)[:200]}",
+                    ))
+                    break
+
+        return polled
+
+    def _tracking_wait(self, tracking: dict, cap: float, deadline: float) -> float:
+        """Calculate poll wait time, capped and bounded by deadline."""
         try:
-            from workspace.message_store import SessionMessageStore
+            requested = float(tracking.get("next_poll_seconds") or 0)
+        except (TypeError, ValueError):
+            requested = 0.0
+        remaining = max(0.0, deadline - time.monotonic())
+        cap = max(0.0, cap)
+        if requested <= 0 or cap <= 0 or remaining <= 0:
+            return 0.0
+        return max(0.0, min(requested, cap, remaining))
 
-            for m in SessionMessageStore(session_id=session_id, ws_id=ws_id).get_messages():
-                _append_context_message(messages, seen, m)
+    async def # P2-2: verify budget consumption in finalizer — may double-spend
+            _finalize_with_results(
+        self,
+        ctx: StatelessContext,
+        messages: List[LLMMessage],
+        results: List[StreamingToolResult],
+        budget,
+    ) -> str:
+        """Call the LLM one final time without tools to produce a natural-language
+        summary from tool execution results.
+
+        Falls back to ``_build_tool_result_fallback`` if the LLM call fails or
+        the budget is exhausted.
+        """
+        # Budget check
+        budget_status = budget.check_llm_call()
+        if not budget_status.ok:
+            return self._build_tool_result_fallback(ctx, results)
+
+        # Build user prompt: original request + tool result summaries
+        tool_summary_parts: list[str] = []
+        for r in results:
+            status = "✅" if r.ok else "❌"
+            tool_summary_parts.append(
+                f"- {status} `{r.tool_name}`: "
+                f"{_json_compact(r.output, max_chars=FINALIZER_TOOL_MAX_CHARS)}"
+            )
+        tool_results_block = "\n".join(tool_summary_parts)
+
+        finalizer_user = (
+            f"ORIGINAL REQUEST:\n{ctx.user_input}\n\n"
+            f"TOOL EXECUTION RESULTS:\n{tool_results_block}\n\n"
+            "Please write a clear natural-language summary of what was done, "
+            "what was found, and any next steps. "
+            "DO NOT call any more tools. Respond directly."
+        )
+
+        try:
+            if self._llm_invoke is not None:
+                raw = # NOTE: sync function in async context — see P3-2
+        self._llm_invoke(
+                    system=QUERY_LOOP_FINALIZER_PROMPT,
+                    user=finalizer_user,
+                    temperature=0.2,
+                    timeout=120,
+                    tools=None,  # No tools — force text-only response
+                    workspace_id=ctx.workspace_id,
+                    session_id=ctx.session_id,
+                    extra={
+                        "runtime_engine": "ssot_runtime",
+                        "stream_scope": "finalizer",
+                        "stream_to_user": True,
+                        "workspace_id": ctx.workspace_id,
+                        "session_id": ctx.session_id,
+                    },
+                )
+                resp = self._coerce_llm_response(raw)
+                if resp.content and resp.content.strip():
+                    return resp.content.strip()
+            else:
+                from agent.llm.runtime import invoke_llm
+                resp = invoke_llm(
+                    task="assistant_chat",
+                    messages=[
+                        LLMMessage(role="system", content=QUERY_LOOP_FINALIZER_PROMPT),
+                        LLMMessage(role="user", content=finalizer_user),
+                    ],
+                    tools=None,
+                    user_input=finalizer_user,
+                    extra={
+                        "runtime_engine": "ssot_runtime",
+                        "stream_scope": "finalizer",
+                        "stream_to_user": True,
+                    },
+                )
+                if (resp_content := (resp.content or "").strip()):
+                    return resp_content
         except Exception:
-            _LOG.debug("SessionMessageStore history read failed for %s", session_id, exc_info=True)
+            pass
 
-    for i, msg in enumerate(list(getattr(session, "history", None) or [])):
-        role = str(getattr(msg, "role", "") or "")
-        content = str(getattr(msg, "content", "") or "")
-        _append_context_message(messages, seen, {
-            "message_id": getattr(msg, "id", "") or getattr(msg, "message_id", "") or f"mem:{i}:{role}:{content[:40]}",
-            "role": role,
-            "content": content,
-        })
-    return messages
+        return self._build_tool_result_fallback(ctx, results)
 
+    def _build_tool_result_fallback(
+        self,
+        ctx: StatelessContext,
+        results: List[StreamingToolResult],
+    ) -> str:
+        """Build a useful final answer when the LLM returns empty text.
 
-def _append_context_message(messages: list[dict[str, str]], seen: set[str], raw: Any) -> None:
-    if not isinstance(raw, dict):
-        return
-    role = str(raw.get("role") or "")
-    content = str(raw.get("content") or "").strip()
-    if role not in ("user", "assistant") or not content:
-        return
-    key = str(raw.get("message_id") or raw.get("id") or raw.get("run_id") or f"{role}:{content[:80]}")
-    if key in seen:
-        return
-    seen.add(key)
-    messages.append({"role": role, "content": content})
+        This is the *last resort* — ``_finalize_with_results`` is tried first.
+        Produces a human-readable report, not raw JSON dumps.
+        """
+        lines: list[str] = []
+        ok_count = 0
+        warn_count = 0
+        fail_count = 0
 
+        for r in results:
+            output = r.output if isinstance(r.output, dict) else {}
+            exit_code = output.get("exit_code")
 
-def _summarize_older_messages(messages: list[dict[str, str]]) -> str:
-    lines: list[str] = []
-    for m in messages:
-        content = m["content"]
-        if _looks_context_important(content):
-            lines.append(f"  [{m['role']}] {_truncate(content, 350)}")
-        if len("\n".join(lines)) >= _HISTORY_SUMMARY_MAX_CHARS:
-            break
-    if not lines and messages:
-        sample = messages[:3] + messages[-3:]
-        for m in sample:
-            lines.append(f"  [{m['role']}] {_truncate(m['content'], 220)}")
-    if not lines:
-        return ""
-    return _truncate("\n".join(lines), _HISTORY_SUMMARY_MAX_CHARS)
+            # Classify by exit_code for exec.run tools
+            if not r.ok:
+                fail_count += 1
+            elif exit_code is not None and exit_code != 0:
+                warn_count += 1
+            else:
+                ok_count += 1
 
+        lines.append(f"工具调用：成功 {ok_count} 个" +
+                     (f"，警告 {warn_count} 个" if warn_count else "") +
+                     f"，失败 {fail_count} 个")
 
-def _retrieve_history_references(messages: list[dict[str, str]], user_input: str) -> list[dict[str, str]]:
-    text = (user_input or "").strip()
-    if not text or not any(p in text for p in _HISTORY_REFERENCE_PATTERNS):
-        return []
-    terms = {
-        token.strip("，。,.、：:；;（）()[]【】\"'")
-        for token in text.replace("/", " ").replace("-", " ").split()
-        if len(token.strip()) >= 2
-    }
-    important: list[dict[str, str]] = []
-    for m in messages[:-_HISTORY_RECENT_MESSAGES]:
-        content = m["content"]
-        if (terms and any(t in content for t in terms)) or _looks_context_important(content):
-            important.append(m)
-    return important[-8:]
+        for r in results:
+            output = r.output if isinstance(r.output, dict) else {}
+            exit_code = output.get("exit_code")
+            ec_mark = "⚠️ " if (r.ok and exit_code is not None and exit_code != 0) else ""
+            status_mark = "❌" if not r.ok else (ec_mark or "✅")
 
+            lines.append(f"\n### {status_mark} {r.tool_name}")
 
-def _looks_context_important(text: str) -> bool:
-    markers = (
-        "ASBR", "BGP", "OSPF", "IP", "设备", "巡检", "区域", "CMDB",
-        "报告", "资产", "故障", "异常", "配置", "记住", "总结", "结论",
-    )
-    return any(m in text for m in markers)
+            # ── exec.run: show command, exit_code, stdout, stderr ──
+            if r.tool_name in ("exec.run", "exec__run", "exec__background"):
+                desc = output.get("description") or output.get("command", "")
+                if desc:
+                    lines.append(f"> `{str(desc)[:120]}`")
+                if exit_code is not None:
+                    ec_str = f"exit_code={exit_code}"
+                    if exit_code != 0:
+                        lines.append(f"Exit code: **{ec_str}**")
+                    else:
+                        lines.append(f"Exit: {ec_str}")
+                stdout = output.get("stdout", "")
+                stderr = output.get("stderr", "")
+                if stdout.strip():
+                    lines.append(f"```\n{str(stdout)[:800]}\n```")
+                if stderr.strip():
+                    lines.append(f"```\n{str(stderr)[:800]}\n```")
 
+            # ── device.manage / cmdb: show count and key fields ──
+            elif r.tool_name in ("device.manage", "device__manage"):
+                assets = output.get("assets", [])
+                if assets:
+                    lines.append(f"找到 {len(assets)} 台设备：")
+                    for a in assets[:10]:
+                        host = a.get("host", "?")
+                        name = a.get("name", "?")
+                        vendor = a.get("vendor", "")
+                        region = a.get("region", "")
+                        lines.append(f"- {name} ({host}) {vendor} {region}".strip())
+                    if len(assets) > 10:
+                        lines.append(f"... 共 {len(assets)} 台，仅展示前 10 台")
+                else:
+                    lines.append("未找到匹配设备。")
 
-def _truncate(text: str, limit: int) -> str:
-    if len(text) <= limit:
-        return text
-    return text[: max(0, limit - 1)] + "…"
+            # ── inspection: show task status ──
+            elif r.tool_name in ("inspection.manage", "inspection__manage"):
+                task_id = output.get("task_id", "")
+                status = output.get("status", "")
+                summary = output.get("summary", {})
+                if isinstance(summary, dict):
+                    lines.append(f"任务 `{task_id}` — {status}")
+                    lines.append(f"总计: {summary.get('total_devices','?')} 台, "
+                                 f"成功: {summary.get('succeeded_devices','?')}, "
+                                 f"失败: {summary.get('failed_devices','?')}")
+                else:
+                    lines.append(f"任务 `{task_id}` — {status}")
 
+            # ── other tools: compact summary ──
+            else:
+                summary = output.get("summary") or output.get("message") or ""
+                if summary and len(str(summary)) <= 300:
+                    lines.append(str(summary))
+                else:
+                    ok_mark = "ok" if r.ok else f"error: {r.error}"
+                    lines.append(f"{ok_mark}")
 
-# ── Session history sync ──────────────────────────────────────
+            # Error message if any
+            if r.error:
+                hint = self._canonical_tool_hint(r.tool_name)
+                if hint:
+                    lines.append(f"错误: `{r.tool_name}` 不存在: {r.error}；应使用 `{hint}`")
+                else:
+                    lines.append(f"错误: `{r.tool_name}` 不存在: {r.error}")
 
-def _sync_session_history(session, user_input: str, final_response: str) -> None:
-    """Append current turn to session.history for context in next turns."""
-    try:
-        from agent.protocol.message import UserMessage, AssistantMessage
+        # Tracking info
+        tracking_items: list[dict[str, Any]] = []
+        for r in results:
+            tracking = extract_tracking_payload(r.output)
+            if tracking:
+                tracking_items.append(normalize_tracking_payload(tracking))
 
-        history = getattr(session, "history", None)
-        if history is None:
-            history = []
-            session.history = history
+        if tracking_items:
+            lines.append("")
+            latest = tracking_items[-1]
+            task_id = latest.get("task_id") or ""
+            status = latest.get("status") or "unknown"
+            done = bool(latest.get("done"))
+            progress = latest.get("progress") or {}
+            completed = progress.get("completed")
+            total = progress.get("total")
+            lines.append(f"跟踪任务 `{task_id}`：{status}，{'已完成' if done else '进行中'}")
+            if completed is not None and total is not None:
+                lines.append(f"进度：{completed}/{total}")
+            report_url = (
+                latest.get("report_url")
+                or latest.get("html_url")
+                or latest.get("artifact_url")
+            )
+            if report_url:
+                lines.append(f"报告链接：{report_url}")
 
-        # Dedup check: skip if last entries already match
-        if len(history) >= 2:
-            last_user = history[-2]
-            last_asst = history[-1]
-            if (getattr(last_user, "role", "") == "user"
-                and getattr(last_asst, "role", "") == "assistant"
-                and getattr(last_user, "content", "") == user_input
-                and getattr(last_asst, "content", "") == final_response):
-                return
+        return "\n".join(lines)
 
-        history.append(UserMessage(content=user_input))
-        history.append(AssistantMessage(content=final_response))
-    except Exception:
-        pass
+    def _canonical_tool_hint(self, tool_name: str) -> str:
+        """Suggest the canonical tool id for a category-like hallucination.
+
+        This is a hint only; it does not execute aliases or widen the public
+        tool namespace.
+        """
+        name = (tool_name or "").strip()
+        if not name or self._tool_runtime.has_tool(name):
+            return ""
+        prefix = name + "."
+        matches = sorted(t for t in self._tool_registry if t.startswith(prefix))
+        return matches[0] if len(matches) == 1 else ""
+
+    # ── Private helpers ──────────────────────────────────────────────────

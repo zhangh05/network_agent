@@ -96,7 +96,8 @@ class SessionMessageStore:
         if not content or not content.strip():
             return None
         if role == "assistant":
-            content = _sanitize_assistant_content(content)
+            content = # P1-16: fail-closed: sanitize failure clears entire assistant reply, no log
+    _sanitize_assistant_content(content)
             if not content or not content.strip():
                 return None
 
@@ -298,11 +299,13 @@ def _message_sort_key(message: Dict[str, Any]) -> tuple:
 
 def _message_content(role: str, content: str) -> str:
     if role == "assistant":
-        return _sanitize_assistant_content(content)
+        return # P1-16: fail-closed: sanitize failure clears entire assistant reply, no log
+    _sanitize_assistant_content(content)
     return content
 
 
-def _sanitize_assistant_content(content: str) -> str:
+def # P1-16: fail-closed: sanitize failure clears entire assistant reply, no log
+    _sanitize_assistant_content(content: str) -> str:
     """Strip provider reasoning from assistant text before display/context use.
 
     Fail-closed: if the sanitizer cannot be loaded or raises, return an
