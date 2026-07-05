@@ -63,6 +63,7 @@ export function CMDBPage() {
   const [globalTerm, setGlobalTerm] = useState(false);
   const [regionFilter, setRegionFilter] = useState("");
   const [scriptManagerType, setScriptManagerType] = useState<"general" | "log" | null>(null);
+  const [inspectionLoading, setInspectionLoading] = useState(false); // guard against double-click
 
   // ── form ──
   const [fv, setFv] = useState<Record<string, string>>({
@@ -191,6 +192,9 @@ export function CMDBPage() {
     region?: string; asset_ids?: string[]; label: string; source: string;
     type: "general" | "log";
   }) => {
+    if (inspectionLoading) return; // guard double-click
+    setInspectionLoading(true);
+
     const region = (scope.region || "").trim();
     const assetIds = scope.asset_ids || [];
     const asset = assets.find(a => a.asset_id === assetIds[0]);
@@ -220,28 +224,33 @@ export function CMDBPage() {
         });
         if (!r.ok) {
           toast({ kind: "error", title: "巡检启动失败", body: r.error || "未知错误" });
+          setInspectionLoading(false);
           return;
         }
-        localStorage.setItem("workbench_inspection", JSON.stringify({
-          task_id: r.task_id,
-          metadata: {
-            intent: scope.type === "log" ? "cmdb_log_inspection" : (region ? "cmdb_region_inspection" : "cmdb_asset_inspection"),
-            target: targetText,
-            vendor: vendorInfo.trim(),
-            type: scope.type,
-            typeLabel,
-            analysisHints,
-            region,
-            asset_ids: assetIds,
-            source: scope.source,
-          },
-        }));
+        // Use safe wrapper to avoid silent failures on localStorage
+        try {
+          localStorage.setItem("workbench_inspection", JSON.stringify({
+            task_id: r.task_id,
+            metadata: {
+              intent: scope.type === "log" ? "cmdb_log_inspection" : (region ? "cmdb_region_inspection" : "cmdb_asset_inspection"),
+              target: targetText,
+              vendor: vendorInfo.trim(),
+              type: scope.type,
+              typeLabel,
+              analysisHints,
+              region,
+              asset_ids: assetIds,
+              source: scope.source,
+            },
+          }));
+        } catch { /* localStorage unavailable — workbench won't auto-poll but task is running */ }
         navigate("/workbench");
       } catch (e: unknown) {
         toast({ kind: "error", title: "巡检启动失败", body: e instanceof Error ? e.message : String(e) });
+        setInspectionLoading(false);
       }
     })();
-  }, [navigate, assets, wsId, toast]);
+  }, [navigate, assets, wsId, toast, inspectionLoading]);
 
   // ── form helpers ──
   const field = (label: string, child: ReactNode, span = 1) => (
