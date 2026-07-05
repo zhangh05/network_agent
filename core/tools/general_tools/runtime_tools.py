@@ -115,7 +115,7 @@ def _import_artifact_as_knowledge(workspace_id: str, artifact_id: str) -> dict:
         return {"ok": False, "error": f"artifact_{lifecycle}"}
     if art.get("sensitivity") == "secret":
         return {"ok": False, "error": "secret_artifact_not_indexable"}
-    content = read_artifact_content(workspace_id, artifact_id)
+    content = read_artifact_content(workspace_id, artifact_id, allow_sensitive=True)
     if not content:
         return {"ok": False, "error": "artifact_empty"}
     result = import_document(
