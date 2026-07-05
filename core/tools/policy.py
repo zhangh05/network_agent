@@ -78,6 +78,7 @@ import logging
 _log = logging.getLogger(__name__)
 
 
+# NOTE: mid-module definition — P2-16
 def _warn(msg: str):
     _log.warning(msg)
 from core.tools.schemas import V02_ALLOWED_CATEGORIES

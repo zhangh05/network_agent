@@ -68,7 +68,7 @@ def save_asset(workspace_id: str, asset: dict) -> dict:
 
     path = _db_dir(workspace_id) / "assets.jsonl"
     _cmdb_lock = _get_cmdb_lock(path)
-    with _cmdb_lock:
+    with _cmdb_lock:  # RLock re-entry from get_asset doubles IO — P1-27
         # TOCTOU fix: hold lock during conflict detection AND write
         # so two concurrent saves can't both pass the check.
         for existing in _load_all(workspace_id):
@@ -361,6 +361,7 @@ def _record_password(workspace_id: str, record: dict) -> str:
 
 
 def _seal_secret(workspace_id: str, value: str) -> str:
+    """Seal a value using XOR stream cipher with HMAC. Not AES-CTR — P1-25."""
     if not value:
         return ""
     nonce = secrets.token_bytes(16)

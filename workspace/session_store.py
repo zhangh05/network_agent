@@ -497,6 +497,7 @@ def auto_title_from_input(session_id: str, user_input: str, ws_id: str = "defaul
 # ─── Internal helpers ───
 
 
+# NOTE: fixed .tmp filename (message_store uses UUID) — P2-13
 def _write_session(session: Dict[str, Any], ws_id: str):
     """Persist session to disk atomically to prevent corruption on concurrent writes."""
     _session_dir(ws_id).mkdir(parents=True, exist_ok=True)

@@ -513,6 +513,6 @@ def _default_persist_dir() -> Path:
     root = Path(
         os.environ.get("NA_WORKSPACE_ROOT")
         or os.environ.get("NETWORK_AGENT_WORKSPACE_DIR")
-        or Path(__file__).resolve().parents[2] / "workspaces"
+        or Path(__file__).resolve().parents[2]  # fragile relative path — P2-15 / "workspaces"
     )
     return root / ".graph"

@@ -38,6 +38,7 @@ USER_MSG_ID = "{run_id}:user"
 ASSISTANT_MSG_ID = "{run_id}:assistant"
 
 
+# NOTE: raises ValueError vs _safe_rid silently strips — P2-12
 def _safe_run_id(run_id: str) -> str:
     """Return a run_id with only path-safe chars; raises if empty."""
     safe = re.sub(r'[^a-zA-Z0-9_:.-]', '', str(run_id))

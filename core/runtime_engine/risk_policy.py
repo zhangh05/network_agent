@@ -332,7 +332,8 @@ class RiskPolicyEngine:
                 f"Large tool batch: {total_nodes} total nodes"
             )
 
-        # exec + external + credential → approval
+        # NOTE: exec+external+credential combo triggers false-positives in production — P2-9
+            # exec + external + credential → approval
         if exec_count and external_count and cred_count and not assessment.hard_block:
             assessment.combo_reasons.append(
                 "exec + external + credential_access combo"
