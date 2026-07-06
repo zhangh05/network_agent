@@ -187,10 +187,6 @@ export function JobsPage() {
   );
 
   // ── Cancel / Retry ──
-  const handleCancel = async (job_id: string) => {
-    try { await jobsApi.cancel(job_id, wsId); toast({ kind: "success", title: "已取消" }); loadJobs(); }
-    catch (e: unknown) { toast({ kind: "error", title: "取消失败", body: isApiError(e) ? e.message : String(e) }); }
-  };
   const handleRetry = async (job_id: string) => {
     try { await jobsApi.retry(job_id, wsId); toast({ kind: "success", title: "已重试" }); loadJobs(); }
     catch (e: unknown) { toast({ kind: "error", title: "重试失败", body: isApiError(e) ? e.message : String(e) }); }
@@ -298,9 +294,6 @@ export function JobsPage() {
 
                   {/* Actions */}
                   <div className="job-card-actions">
-                    {(job.status === "running" || job.status === "pending" || job.status === "queued") && (
-                      <button className="btn sm danger-ghost" onClick={(e) => { e.stopPropagation(); handleCancel(job.job_id); }} type="button">取消</button>
-                    )}
                     {(job.status === "failed" || job.status === "error") && (
                       <button className="btn sm" onClick={(e) => { e.stopPropagation(); handleRetry(job.job_id); }} type="button">重试</button>
                     )}
@@ -320,7 +313,6 @@ export function JobsPage() {
             stats={stats}
             duration={duration}
             onOpenRun={openRun}
-            onCancel={handleCancel}
             onRetry={handleRetry}
           />
         </div>
@@ -354,7 +346,7 @@ function PageHeader({ count, onRefresh }: { count: number; onRefresh: () => void
 
 function DetailPanel({
   job, tab, setTab, runs, runsLoading, artifacts, artsLoading, stats, duration,
-  onOpenRun, onCancel, onRetry,
+  onOpenRun, onRetry,
 }: {
   job: JobItem | null;
   tab: "overview" | "stats";
@@ -364,7 +356,6 @@ function DetailPanel({
   stats: { runCount: number; totalTools: number; totalErrors: number };
   duration: string | null;
   onOpenRun: (r: RunSummary) => void;
-  onCancel: (id: string) => void;
   onRetry: (id: string) => void;
 }) {
   if (!job) {
@@ -415,14 +406,9 @@ function DetailPanel({
       )}
 
       {/* ── Actions ── */}
-      {(job.status === "running" || job.status === "pending" || job.status === "queued") && (
-        <div style={{ marginBottom: 14 }}>
-          <button className="btn sm danger-ghost" onClick={() => onCancel(job.job_id)}>取消作业</button>
-        </div>
-      )}
       {(job.status === "failed" || job.status === "error") && (
         <div style={{ marginBottom: 14 }}>
-          <button className="btn sm" onClick={() => onRetry(job.job_id)}>重试作业</button>
+          <button className="btn sm" onClick={() => onRetry(job.job_id)}>重试</button>
         </div>
       )}
 
