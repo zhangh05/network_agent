@@ -10,7 +10,7 @@ interface PendingApproval {
   risk_level: string;
   arguments_preview?: Record<string, unknown>;
   arguments_summary?: string;
-  created_at: number;
+  created_at: string;
   created_at_iso?: string;
   /** v2.3.1-p1: risk source information */
   argument_source?: string;
@@ -82,7 +82,7 @@ export function ApprovalBubble({ onResolved }: { onResolved?: () => void }) {
         const data = await approvalApi.pending(currentSessionId, currentWorkspaceId);
         if (cancelled) return;
         if (data.ok && data.pending?.length > 0) {
-          const p = (data.pending as PendingApproval[]).find((item) => !resolvedIdsRef.current.has(item.approval_id));
+          const p = (data.pending as unknown as PendingApproval[]).find((item) => !resolvedIdsRef.current.has(item.approval_id));
           if (!p) {
             if (!resolvingRef.current) {
               setPending(null);
@@ -91,8 +91,8 @@ export function ApprovalBubble({ onResolved }: { onResolved?: () => void }) {
             }
             return;
           }
-          const rawCreated = Number(p.created_at || 0);
-          const created = rawCreated > 10_000_000_000 ? rawCreated : rawCreated * 1000;
+          // created_at is ISO-8601 string (v3.9.8+). Date.parse handles both.
+          const created = p.created_at ? Date.parse(p.created_at) : Date.now();
           const elapsed = (Date.now() - created) / 1000;
           const secs = Math.max(0, Math.ceil(60 - elapsed));
           if (secs <= 0 || elapsed > 120) {

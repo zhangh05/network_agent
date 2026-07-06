@@ -14,12 +14,11 @@ import { useWorkbenchStore } from "../../stores/workbench";
 import { Badge, StatusDot, EmptyState, LoadingState, CodeBlock } from "../../components/common";
 import { IconRefresh, IconAlert } from "../../components/Icon";
 import { TraceDetailPanel } from "../../components/TraceDetailPanel";
-import { DecisionReportPanel } from "../../components/DecisionReportPanel";
 import { APP_EVENTS } from "../../utils/appEvents";
 import { deriveRunTraceStats } from "../../utils/runTraceStats";
 import { formatEventTime, formatEventDetail, formatEventLabel } from "../../utils/runEvent";
 import { formatDate } from "../../utils/format";
-import type { DecisionReport, RuntimeAuditTurn, AgentResult } from "../../types";
+import type { RuntimeAuditTurn, AgentResult } from "../../types";
 
 /* ── Status helpers ── */
 
@@ -74,10 +73,7 @@ export function RunsPage() {
   const [error, setError] = useState<string | null>(null);
   const [sel, setSel] = useState<RuntimeAuditTurn | null>(null);
   const [trace, setTrace] = useState<any[] | null>(null);
-  const [decision, setDecision] = useState<DecisionReport | null>(null);
-  const [decisionLoading, setDecisionLoading] = useState(false);
-  const [decisionError, setDecisionError] = useState("");
-  const [tab, setTab] = useState<"overview" | "events" | "decision">("overview");
+  const [tab, setTab] = useState<"overview" | "events">("overview");
 
   const load = useCallback(async () => {
     if (!wsId) {
@@ -101,22 +97,6 @@ export function RunsPage() {
     catch { setTrace(null); }
   };
 
-  const loadDecision = async (run: RuntimeAuditTurn) => {
-    const rid = run.run_id || run.turn_id;
-    if (!rid) return;
-    setDecisionLoading(true);
-    setDecisionError("");
-    try {
-      const response = await runtimeAuditApi.decision(wsId, rid);
-      setDecision(response.item || null);
-    } catch (error: any) {
-      setDecision(null);
-      setDecisionError(error?.message || "该运行没有可读取的决策报告");
-    } finally {
-      setDecisionLoading(false);
-    }
-  };
-
   useEffect(() => { load(); }, [load]);
   useEffect(() => {
     const h = () => load();
@@ -134,34 +114,26 @@ export function RunsPage() {
     if (target) {
       setSel(target);
       setTrace(null);
-      setDecision(null);
-      setDecisionError("");
       setTab("overview");
       void loadTrace(target);
-      void loadDecision(target);
       setLatestResult(buildAgentResult(target, wsId));
     }
   }, [focusRunId, runs]);
 
   // Clear selection when session changes
   useEffect(() => {
-    setSel(null); setTrace(null); setDecision(null); setDecisionError("");
+    setSel(null); setTrace(null);
   }, [currentSessionId]);
 
   const pick = (run: RuntimeAuditTurn) => {
     if (sel?.run_id === run.run_id) {
       setSel(null);
       setTrace(null);
-      setDecision(null);
-      setDecisionError("");
     } else {
       setSel(run);
       setTrace(null);
-      setDecision(null);
-      setDecisionError("");
       setTab("overview");
       void loadTrace(run);
-      void loadDecision(run);
       setLatestResult(buildAgentResult(run, wsId));
       // Persist via URL for F5 survival
       const url = new URL(window.location.href);
@@ -253,7 +225,7 @@ export function RunsPage() {
           <h1>运行记录<span style={{ color: "var(--ink-mute)", fontWeight: 400, fontSize: 14, marginLeft: 6 }}>· Runs</span></h1>
           <p className="subtitle">
             {currentSessionId
-              ? `会话 ${currentSessionId.slice(0, 12)} · 运行详情 · Trace 时间线 · 决策报告`
+              ? `会话 ${currentSessionId.slice(0, 12)} · 运行详情 · Trace 时间线`
               : "请先在左侧选择一个会话"}
           </p>
         </div>
@@ -306,7 +278,7 @@ export function RunsPage() {
                 </svg>
               </div>
               <div className="empty-text" style={{ fontSize: "var(--fs-13)" }}>选择一条运行记录</div>
-              <p className="empty-hint">点击左侧列表中的记录查看 trace 事件时间线与决策报告</p>
+              <p className="empty-hint">点击左侧列表中的记录查看 trace 事件时间线</p>
               <p style={{ fontSize: "var(--fs-11)", color: "var(--text-4)", marginTop: 16 }}>
                 想看任务全貌？去 <Link to="/jobs" style={{ color: "var(--accent)" }}>作业管理 →</Link>
               </p>
@@ -322,7 +294,6 @@ export function RunsPage() {
               <div className="tabs" style={{ marginBottom: 16 }}>
                 <button className={"tab" + (tab === "overview" ? " active" : "")} onClick={() => setTab("overview")}>概览</button>
                 <button className={"tab" + (tab === "events" ? " active" : "")} onClick={() => setTab("events")}>事件时间线</button>
-                <button className={"tab" + (tab === "decision" ? " active" : "")} onClick={() => setTab("decision")}>决策</button>
               </div>
 
               {tab === "overview" && (
@@ -400,13 +371,6 @@ export function RunsPage() {
                 </>
               )}
 
-              {tab === "decision" && (
-                <DecisionReportPanel
-                  report={decision}
-                  loading={decisionLoading}
-                  error={decisionError}
-                />
-              )}
             </div>
           )}
         </div>

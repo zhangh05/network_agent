@@ -63,7 +63,8 @@ def _get_ws_root():
 
 
 def _safe_name(name: str) -> str:
-    return re.sub(r'[^a-zA-Z0-9_.-]', '_', name or "artifact")[:120]
+    # Allow ASCII, Chinese (CJK), digits, and safe punctuation in filenames.
+    return re.sub(r'[^a-zA-Z0-9_.\-\u4e00-\u9fff\u3400-\u4dbf\U00020000-\U0002a6df\U0002a700-\U0002ebef]', '_', name or "artifact")[:120]
 
 
 def _new_artifact_id() -> str:

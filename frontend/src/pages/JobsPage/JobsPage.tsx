@@ -9,7 +9,7 @@
  */
 import { useEffect, useState, useCallback, useMemo } from "react";
 import { useNavigate } from "react-router-dom";
-import { jobsApi, workspacesApi } from "../../api";
+import { jobsApi, workspacesApi, sessionExtApi } from "../../api";
 import { useSessionStore } from "../../stores/session";
 import { useToastStore } from "../../stores/toast";
 import { Badge, StatusDot, EmptyState, LoadingState } from "../../components/common";
@@ -186,10 +186,29 @@ export function JobsPage() {
     [selectedJob],
   );
 
-  // ── Cancel / Retry ──
+  // ── Cancel / Retry / Restore ──
   const handleRetry = async (job_id: string) => {
     try { await jobsApi.retry(job_id, wsId); toast({ kind: "success", title: "已重试" }); loadJobs(); }
     catch (e: unknown) { toast({ kind: "error", title: "重试失败", body: isApiError(e) ? e.message : String(e) }); }
+  };
+
+  const handleRestore = async (job: JobItem) => {
+    const sid = getSessionId(job);
+    if (!sid) return;
+    try {
+      await sessionExtApi.restore(sid, wsId);
+      toast({ kind: "success", title: "会话已恢复" });
+      loadJobs();
+    } catch (e: unknown) {
+      toast({ kind: "error", title: "恢复失败", body: isApiError(e) ? e.message : String(e) });
+    }
+  };
+
+  /** Whether a job's backing session can be restored (has session_id + terminal status). */
+  const canRestore = (job: JobItem): boolean => {
+    const sid = getSessionId(job);
+    if (!sid) return false;
+    return job.status === "succeeded" || job.status === "completed" || job.status === "failed" || job.status === "cancelled";
   };
 
   // Navigate to Runs page with a specific run
@@ -297,6 +316,9 @@ export function JobsPage() {
                     {(job.status === "failed" || job.status === "error") && (
                       <button className="btn sm" onClick={(e) => { e.stopPropagation(); handleRetry(job.job_id); }} type="button">重试</button>
                     )}
+                    {canRestore(job) && (
+                      <button className="btn sm ghost" onClick={(e) => { e.stopPropagation(); handleRestore(job); }} type="button">恢复</button>
+                    )}
                   </div>
                 </button>
               );
@@ -314,6 +336,7 @@ export function JobsPage() {
             duration={duration}
             onOpenRun={openRun}
             onRetry={handleRetry}
+            onRestore={handleRestore}
           />
         </div>
       )}
@@ -345,8 +368,8 @@ function PageHeader({ count, onRefresh }: { count: number; onRefresh: () => void
 /* ── Detail Panel ── */
 
 function DetailPanel({
-  job, tab, setTab, runs, runsLoading, artifacts, artsLoading, stats, duration,
-  onOpenRun, onRetry,
+  job, tab, setTab, runs, runsLoading, stats, duration,
+  onOpenRun, onRetry, onRestore,
 }: {
   job: JobItem | null;
   tab: "overview" | "stats";
@@ -357,6 +380,7 @@ function DetailPanel({
   duration: string | null;
   onOpenRun: (r: RunSummary) => void;
   onRetry: (id: string) => void;
+  onRestore: (job: JobItem) => void;
 }) {
   if (!job) {
     return (
@@ -406,9 +430,14 @@ function DetailPanel({
       )}
 
       {/* ── Actions ── */}
-      {(job.status === "failed" || job.status === "error") && (
-        <div style={{ marginBottom: 14 }}>
-          <button className="btn sm" onClick={() => onRetry(job.job_id)}>重试</button>
+      {((job.status === "failed" || job.status === "error") || (getSessionId(job) && (job.status === "succeeded" || job.status === "completed" || job.status === "cancelled"))) && (
+        <div style={{ marginBottom: 14, display: "flex", gap: 8 }}>
+          {(job.status === "failed" || job.status === "error") && (
+            <button className="btn sm" onClick={() => onRetry(job.job_id)}>重试</button>
+          )}
+          {getSessionId(job) && (job.status === "succeeded" || job.status === "completed" || job.status === "cancelled") && (
+            <button className="btn sm ghost" onClick={() => onRestore(job)}>恢复</button>
+          )}
         </div>
       )}
 

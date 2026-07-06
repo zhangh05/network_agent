@@ -56,8 +56,9 @@ def handle_artifact_read_content_safe(inv: ToolInvocation) -> dict:
         content = read_artifact_content(ws, art_id, allow_sensitive=allow)
         if content is None:
             return _error_inv(inv, "content not accessible")
-        if art_type in ("translated_config", "output_config"):
-            preview_len = min(len(str(content)), 8000)
+        if art_type in ("translated_config", "output_config", "inspection_raw"):
+            # inspection_raw is raw command output the LLM must analyze in full.
+            preview_len = len(str(content))
         elif sensitivity == "confidential":
             preview_len = 200
         else:

@@ -824,11 +824,13 @@ def _run_checks_on_asset(task: InspectionTask,
                 # (password, community, etc.) don't trigger the artifact
                 # store's secret-detection refusal.
                 content_to_save = redact_artifact_content(rec["output"])
+                profile_label = task.profile_display_name or ("日志巡检" if is_log else "通用巡检")
+                tid_short = task.task_id.split("_", 1)[-1][:8] if "_" in (task.task_id or "") else (task.task_id or "")[:8]
                 art = save_artifact(
                     workspace_id=workspace_id,
                     content=content_to_save,
                     artifact_type="inspection_raw",
-                    title=f"{dr.asset_name or asset_id} — 巡检输出",
+                    title=f"{dr.asset_name or asset_id} — {profile_label}输出 — {tid_short}",
                     sensitivity="sensitive",
                     run_id=task.task_id,
                     session_id=task.session_id,

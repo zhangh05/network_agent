@@ -36,7 +36,7 @@ function safeSetLocal(key: string, val: string): void {
   try { if (typeof localStorage !== "undefined") localStorage.setItem(key, val); } catch { /* noop */ }
 }
 function safeRemoveLocal(key: string): void {
-  try { if (typeof localStorage !== "undefined") safeRemoveLocal(key); } catch { /* noop */ }
+  try { if (typeof localStorage !== "undefined") localStorage.removeItem(key); } catch { /* noop */ }
 }
 function safeGetSession(key: string): string | null {
   try { return typeof sessionStorage !== "undefined" ? sessionStorage.getItem(key) : null; } catch { return null; }
@@ -103,14 +103,6 @@ function trackingStats(result?: AgentResult) {
   };
 }
 
-function buildAlternativePrompt(lastUserInput: string): string {
-  return [
-    lastUserInput,
-    "",
-    "上一次执行未完全成功。请先复盘失败原因，再换一种等价方案继续完成任务。",
-    "要求：不要重复同一个失败命令或同一组失败参数；如果工具失败是环境缺失，请选择可用的替代命令或说明需要用户补充的信息。",
-  ].join("\n");
-}
 
 // ── Memoized message row — skips re-render when store updates unrelated messages ──
 const MemoMessageRow = memo(function MemoMessageRow({ m, idx, total, renderFn }: {
@@ -205,6 +197,7 @@ export function TaskWorkbench() {
   // the task ourselves so the UI has a cancel button + progress
   // without waiting for the LLM to issue the tool call.
   const [inspectionTaskId, setInspectionTaskId] = useState<string | null>(null);
+  const [inspectionStatus, setInspectionStatus] = useState<string>("running");
   const onSendRef = useRef(onSend);
   useEffect(() => { onSendRef.current = onSend; }, [onSend]);
 
@@ -240,12 +233,19 @@ export function TaskWorkbench() {
     let reconnectTimer: ReturnType<typeof setTimeout> | null = null;
     let ws: WebSocket | null = null;
     let closed = false;
+    let retryDelay = 1000; // start at 1s, exponential backoff capped at 30s
 
     const connect = () => {
       if (closed) return;
-      ws = new WebSocket(wsUrl);
+      try {
+        ws = new WebSocket(wsUrl);
+      } catch {
+        // constructor can throw (e.g. invalid URL); schedule reconnect
+        if (!closed) reconnectTimer = setTimeout(connect, 5000);
+        return;
+      }
       ws.onopen = () => {
-        // Send a lightweight ping to register for system broadcasts
+        retryDelay = 1000; // reset on successful connection
         try { ws?.send(JSON.stringify({ type: "ping", workspace_id: currentWorkspaceId || "default" })); } catch {}
       };
       ws.onmessage = (event) => {
@@ -257,11 +257,16 @@ export function TaskWorkbench() {
         } catch {}
       };
       ws.onclose = () => {
+        ws = null;
         if (!closed) {
-          reconnectTimer = setTimeout(connect, 5000);
+          reconnectTimer = setTimeout(connect, retryDelay);
+          retryDelay = Math.min(retryDelay * 2, 30000);
         }
       };
-      ws.onerror = () => { ws?.close(); };
+      ws.onerror = () => {
+        // Browser will fire onclose after this; don't force-close.
+        // Just null the reference so onclose doesn't double-handle.
+      };
     };
 
     connect();
@@ -329,10 +334,12 @@ export function TaskWorkbench() {
     }
   }, [currentWorkspaceId]); // do NOT include onSend — use ref to avoid re-render killing timeout
 
-  // ── Inspection: WS-driven instead of polling ──
+  // ── Inspection: pure API polling ──
+  // Polls task status every 3s. Bubble shows real status (running/failed/...).
+  // On terminal state, fetches artifacts and auto-sends analysis prompt.
   useEffect(() => {
     const raw = safeGetLocal("workbench_inspection");
-    if (!raw || !currentWorkspaceId || !currentSessionId) {
+    if (!raw || !currentWorkspaceId) {
       safeRemoveLocal("workbench_inspection");
       return;
     }
@@ -346,30 +353,99 @@ export function TaskWorkbench() {
     const analysisHints = String(metadata.analysisHints || "");
 
     let done = false;
-    const handleEvent = (e: Event) => {
-      const detail = (e as CustomEvent).detail;
-      if (detail?.name !== "inspection_progress" || detail?.data?.task_id !== task_id) return;
-      if (done) return;
-      const t = detail.data;
-      setInspectionTaskId(task_id);
-      if (t.status === "succeeded" || t.status === "partial") {
-        done = true;
-        setInspectionTaskId(null);
-        safeRemoveLocal("workbench_inspection");
-        const deviceList = `CMDB 资产「${target}」${vendor} ${typeLabel}已完成。\n分析要点：${analysisHints}`;
-        const prompt = `${deviceList}\n\n请引用制品的文件路径进行分析。`;
-        setInput(prompt);
-        pendingAutoMetadataRef.current = metadata;
-        onSendRef.current(prompt, metadata);
-      } else if (t.status === "failed" || t.status === "cancelled") {
-        done = true;
-        setInspectionTaskId(null);
-        safeRemoveLocal("workbench_inspection");
-      }
+    let pollTimer: ReturnType<typeof setTimeout> | null = null;
+
+    const handleCompletion = async () => {
+      done = true;
+      setInspectionTaskId(null);
+      safeRemoveLocal("workbench_inspection");
+
+      const { inspectionApi, artifactsApi } = await import("../../api/index");
+      let artifactRefs: string[] = [];
+      let deviceList = "";
+      try {
+        const resp = await inspectionApi.getTask(currentWorkspaceId, task_id);
+        if ("ok" in resp && resp.ok && "task" in resp && resp.task) {
+          const task = resp.task as any;
+          const devices = (Object.values(task.devices || {}) as any[])
+            .filter((d: any) => d.status === "succeeded");
+          deviceList = devices.map((d: any) => `- ${d.asset_name || d.asset_id} (${d.host || ""})`).join("\n");
+          for (const d of devices) {
+            for (const cr of (d.command_results || []) as any[]) {
+              const artId = cr?.artifact_id;
+              if (!artId) continue;
+              try {
+                const artResp = await artifactsApi.get(currentWorkspaceId, artId);
+                const art = (artResp as any).artifact;
+                if (art) {
+                  const title = art.title || art.artifact_id || artId;
+                  const path = art.relative_path || art.file_id || "";
+                  if (path) artifactRefs.push(`制品 "${title}"，文件路径 "${path}"`);
+                }
+              } catch { /* skip */ }
+            }
+          }
+        }
+      } catch { /* best-effort */ }
+
+      const rawOutputBlock = artifactRefs.length
+        ? `\n巡检原始数据已保存为以下制品：\n${artifactRefs.map(s => `- ${s}`).join("\n")}\n\n请先读取各制品内容，然后逐设备分析。`
+        : "\n暂无制品。";
+      const deviceBlock = deviceList ? `\n设备清单：\n${deviceList}\n` : "";
+
+      const prompt = [
+        `${target}${vendor} ${typeLabel}已完成。`,
+        deviceBlock,
+        rawOutputBlock,
+        ``,
+        `分析维度：${analysisHints}。`,
+        `输出结构化${typeLabel}报告（概览表 + 逐设备要点）。`,
+        `不要输出任何中间确认或思考过程。直接开始分析。`,
+      ].join("\n");
+      setInput(prompt);
+      pendingAutoMetadataRef.current = metadata;
+      onSendRef.current(prompt, metadata);
     };
-    window.addEventListener("ws-event", handleEvent);
-    return () => { done = true; window.removeEventListener("ws-event", handleEvent); };
-  }, [currentWorkspaceId, currentSessionId]);
+
+    const poll = async () => {
+      if (done) return;
+      try {
+        const { inspectionApi } = await import("../../api/index");
+        const resp = await inspectionApi.getTask(currentWorkspaceId, task_id);
+        if (done) return;
+        if ("ok" in resp && resp.ok && "task" in resp && resp.task) {
+          const t = resp.task as any;
+          setInspectionTaskId(task_id);
+          setInspectionStatus(t.status);
+          if (t.status === "succeeded" || t.status === "partial") {
+            handleCompletion();
+            return;
+          }
+          if (t.status === "failed" || t.status === "cancelled") {
+            // Show failure in bubble for 6s then dismiss
+            setInspectionStatus(t.status);
+            done = true;
+            setTimeout(() => {
+              setInspectionTaskId(null);
+              safeRemoveLocal("workbench_inspection");
+            }, 6000);
+            return;
+          }
+          // Still running — poll again
+        }
+      } catch { /* best-effort */ }
+      if (!done) pollTimer = setTimeout(poll, 3000);
+    };
+
+    setInspectionTaskId(task_id);
+    setInspectionStatus("pending");
+    poll();
+
+    return () => {
+      done = true;
+      if (pollTimer) clearTimeout(pollTimer);
+    };
+  }, [currentWorkspaceId]);
 
   // Session switch + sync
   useEffect(() => {
@@ -381,11 +457,6 @@ export function TaskWorkbench() {
       .catch(() => {});
     return () => ctrl.abort();
   }, [currentSessionId, currentWorkspaceId]);
-
-  // Retry: resend last user input (used by error inline retry and regenerate)
-  const retryLast = useCallback(() => {
-    if (lastUserInput && !sending) onSendRef.current(lastUserInput);
-  }, [lastUserInput, sending]);
 
   // v3.9: SSE real-time timeline updates
   useEffect(() => {
@@ -870,7 +941,7 @@ export function TaskWorkbench() {
   ]);
 
   // Message row renderer for the chat list
-  const renderMsg = useCallback((m: any, idx: number, total: number) => {
+  const renderMsg = useCallback((m: any, _idx: number, _total: number) => {
     if (m.role === "user") {
       return (
         <div className="message-row user" data-testid="chat-user">
@@ -954,26 +1025,18 @@ export function TaskWorkbench() {
               <ResultInline
                 result={m.result}
                 fallbackText={sanitizeAssistantText(m.text)}
-                onRetryOriginal={idx === total - 1 && lastUserInput ? () => onSendRef.current(lastUserInput) : undefined}
-                onRetryAlternative={idx === total - 1 && lastUserInput ? () => onSendRef.current(buildAlternativePrompt(lastUserInput)) : undefined}
               />
             </>
           )}
           {m.status === "error" && m.error && (
             <div className="msg-error-box">
               <span>⚠️ {_humanFailure(m.result?.error_type, m.error ?? "").msg}</span>
-              {_humanFailure(m.result?.error_type, m.error ?? "").retryable && (
-                <button onClick={retryLast}>🔄 重试</button>
-              )}
             </div>
-          )}
-          {!sending && idx === total - 1 && lastUserInput && (
-            <button className="regenerate-btn" onClick={() => onSendRef.current(lastUserInput)} title="重新生成" type="button">🔄 重新生成</button>
           )}
         </div>
       </div>
     );
-  }, [sending, lastUserInput, retryLast, handleCodeCopyClick]);  // eslint-disable-line
+  }, [sending, lastUserInput, handleCodeCopyClick]);  // eslint-disable-line
 
   return (
     <div className="wb-shell">
@@ -1055,18 +1118,21 @@ export function TaskWorkbench() {
             position: "fixed", bottom: 72, left: "50%", transform: "translateX(-50%)",
             zIndex: 9999, padding: "10px 20px", borderRadius: 10,
             background: "var(--surface)", boxShadow: "0 4px 24px rgba(0,0,0,0.15)",
-            border: "1px solid var(--line-2)", display: "flex", alignItems: "center", gap: 10,
+            border: `1px solid ${inspectionStatus === "failed" || inspectionStatus === "cancelled" ? "var(--danger)" : "var(--line-2)"}`,
+            display: "flex", alignItems: "center", gap: 10,
             fontSize: 13, fontWeight: 600, color: "var(--text)",
           }}>
-            <span style={{ fontSize: 16 }}>⏳</span>
-            <span>巡检进行中…</span>
+            <span style={{ fontSize: 16 }}>{inspectionStatus === "failed" || inspectionStatus === "cancelled" ? "❌" : "⏳"}</span>
+            <span>{inspectionStatus === "failed" ? "巡检失败" : inspectionStatus === "cancelled" ? "巡检已取消" : "巡检进行中…"}</span>
             <span style={{ fontSize: 11, fontWeight: 400, color: "var(--text-4)", fontFamily: "var(--font-mono)" }}>
               {inspectionTaskId}
             </span>
-            <span style={{
-              width: 8, height: 8, borderRadius: "50%",
-              background: "var(--accent)", animation: "pulse 1.2s infinite",
-            }} />
+            {(inspectionStatus === "running" || inspectionStatus === "pending") && (
+              <span style={{
+                width: 8, height: 8, borderRadius: "50%",
+                background: "var(--accent)", animation: "pulse 1.2s infinite",
+              }} />
+            )}
           </div>
         )}
 
@@ -1090,13 +1156,8 @@ export function TaskWorkbench() {
             <IconAlert size={11} />
             <span>{_humanFailure(lastResult.error_type, lastResult.errors?.[0] ?? "请求失败").msg}</span>
             {_humanFailure(lastResult.error_type, lastResult.errors?.[0] ?? "").retryable && (
-              <button type="button" onClick={() => onSend(lastUserInput)} data-testid="retry-btn">
-                重试原任务
-              </button>
-            )}
-            {_humanFailure(lastResult.error_type, lastResult.errors?.[0] ?? "").retryable && (
-              <button type="button" onClick={() => onSend(buildAlternativePrompt(lastUserInput))} data-testid="retry-alt-btn">
-                换方案继续
+              <button type="button" onClick={() => onSendRef.current(lastUserInput)} data-testid="retry-btn">
+                🔄 重试
               </button>
             )}
           </div>

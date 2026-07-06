@@ -34,8 +34,12 @@ def _gen_file_id() -> str:
 
 
 def _safe_name(name: str, max_len: int = 80) -> str:
-    """Sanitize a filename for safe filesystem use."""
-    safe = re.sub(r"[^a-zA-Z0-9_.-]", "_", name or "unnamed")
+    """Sanitize a filename for safe filesystem use while preserving CJK chars."""
+    safe = re.sub(
+        r"[^a-zA-Z0-9_.\-\u4e00-\u9fff\u3400-\u4dbf\U00020000-\U0002a6df\U0002a700-\U0002ebef]",
+        "_",
+        name or "unnamed",
+    )
     return safe[:max_len] or "unnamed"
 
 
