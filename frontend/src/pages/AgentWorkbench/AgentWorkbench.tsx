@@ -238,6 +238,45 @@ export function TaskWorkbench() {
     return () => window.clearInterval(id);
   }, []);
 
+  // ── Persistent system WebSocket — replaces all polling ──
+  useEffect(() => {
+    const protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
+    const wsUrl = `${protocol}//${window.location.host}/ws/agent`;
+    let reconnectTimer: ReturnType<typeof setTimeout> | null = null;
+    let ws: WebSocket | null = null;
+    let closed = false;
+
+    const connect = () => {
+      if (closed) return;
+      ws = new WebSocket(wsUrl);
+      ws.onopen = () => {
+        // Send a lightweight ping to register for system broadcasts
+        try { ws?.send(JSON.stringify({ type: "ping", workspace_id: currentWorkspaceId || "default" })); } catch {}
+      };
+      ws.onmessage = (event) => {
+        try {
+          const msg = JSON.parse(event.data);
+          if (msg.type === "event") {
+            window.dispatchEvent(new CustomEvent("ws-event", { detail: msg }));
+          }
+        } catch {}
+      };
+      ws.onclose = () => {
+        if (!closed) {
+          reconnectTimer = setTimeout(connect, 5000);
+        }
+      };
+      ws.onerror = () => { ws?.close(); };
+    };
+
+    connect();
+    return () => {
+      closed = true;
+      if (reconnectTimer) clearTimeout(reconnectTimer);
+      try { ws?.close(); } catch {}
+    };
+  }, [currentWorkspaceId]);
+
   // Input draft persistence: save to localStorage debounced, restore on mount
   const draftKey = `draft-${currentSessionId ?? "_scratch"}`;
   useEffect(() => {

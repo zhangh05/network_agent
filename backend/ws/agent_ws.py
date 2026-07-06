@@ -79,6 +79,14 @@ def register_ws_routes(app):
                     ws.send(json.dumps({"type": "error", "message": "Invalid JSON"}, ensure_ascii=True))
                     continue
 
+                # System WebSocket — register for broadcasts, skip agent turn
+                if msg.get("type") == "ping":
+                    ws_key = f"{id(ws)}_{threading.current_thread().ident}"
+                    with _active_ws_lock:
+                        _active_ws_connections[ws_key] = ws
+                    ws.send(json.dumps({"type": "pong", "message": "connected"}, ensure_ascii=True))
+                    continue
+
                 if msg.get("type") != "message":
                     ws.send(json.dumps({"type": "error", "message": f"Unknown type: {msg.get('type')}"}, ensure_ascii=True))
                     continue

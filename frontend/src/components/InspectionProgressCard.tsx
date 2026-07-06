@@ -13,7 +13,6 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { useSessionStore } from "../stores/session";
 import { inspectionApi } from "../api";
 
-const DEFAULT_POLL_MS = 2000;
 const FADE_AFTER_MS = 8000;
 
 interface Props {
@@ -109,15 +108,19 @@ export function InspectionProgressCard({ taskId, pollSeconds, onDismiss }: Props
 
   useEffect(() => {
     refresh();
-    pollRef.current = window.setInterval(() => {
-      if (phase === "live") refresh();
-    }, pollMs);
+    const handler = (e: Event) => {
+      const detail = (e as CustomEvent).detail;
+      if (detail?.name === "inspection_progress" && detail?.data?.task_id === taskId) {
+        refresh();
+      }
+    };
+    window.addEventListener("ws-event", handler);
     return () => {
-      if (pollRef.current) window.clearInterval(pollRef.current);
+      window.removeEventListener("ws-event", handler);
       if (settleRef.current) window.clearTimeout(settleRef.current);
       if (fadeRef.current) window.clearTimeout(fadeRef.current);
     };
-  }, [refresh, phase, pollMs]);
+  }, [refresh, taskId]);
 
   const onCancel = useCallback(async () => {
     if (!currentWorkspaceId) return;
