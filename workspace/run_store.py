@@ -138,6 +138,20 @@ def write_run_record(state, ws_id: str = "default") -> str:
         except Exception:
             pass
 
+    # Broadcast run status update to WebSocket clients
+    try:
+        from backend.ws.agent_ws import broadcast_ws_event
+        broadcast_ws_event({
+            "name": "run_status",
+            "data": {
+                "run_id": run_id, "workspace_id": ws_id,
+                "session_id": state.session_id or "",
+                "status": record.get("status", ""),
+            },
+        })
+    except Exception:
+        pass
+
     return run_id
 
 

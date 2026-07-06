@@ -222,6 +222,24 @@ def _save_task(workspace_id: str, task: InspectionTask) -> None:
     """
     with _get_task_save_lock(task.task_id):
         _save_task_unlocked(workspace_id, task)
+    # Broadcast inspection progress to WebSocket clients
+    try:
+        from backend.ws.agent_ws import broadcast_ws_event
+        broadcast_ws_event({
+            "name": "inspection_progress",
+            "data": {
+                "task_id": task.task_id,
+                "workspace_id": workspace_id,
+                "session_id": task.session_id or "",
+                "status": task.status,
+                "total_assets": task.total_assets,
+                "succeeded": task.succeeded,
+                "failed": task.failed,
+                "skipped": task.skipped,
+            },
+        })
+    except Exception:
+        pass
 
 
 def _task_duration_ms(task: InspectionTask) -> int:

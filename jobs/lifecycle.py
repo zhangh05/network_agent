@@ -17,6 +17,26 @@ from jobs.manager import create_job, mark_running, update_progress
 _log = logging.getLogger("jobs.lifecycle")
 
 
+def _broadcast_job(job_id: str, ws_id: str, session_id: str = "") -> None:
+    """Push job_updated event with full artifact info to all WebSocket clients."""
+    try:
+        from jobs.store import get_job
+        rec = get_job(ws_id, job_id)
+        if not rec:
+            return
+        data = {
+            "job_id": job_id, "workspace_id": ws_id, "session_id": session_id,
+            "status": rec.status, "title": rec.title,
+            "run_ids": getattr(rec, "run_ids", []) or [],
+            "output_artifacts": getattr(rec, "output_artifacts", []) or [],
+            "progress": (rec.progress or {}).get("current", 0) if hasattr(rec, "progress") else 0,
+        }
+        from backend.ws.agent_ws import broadcast_ws_event
+        broadcast_ws_event({"name": "job_updated", "data": data})
+    except Exception:
+        pass
+
+
 def attach_run_to_session_job(
     ws_id: str,
     session_id: str,
@@ -63,8 +83,9 @@ def _find_or_create_job(ws_id: str, session_id: str, user_input: str) -> str | N
             workspace_id=ws_id, job_type="agent_run", title=title,
             payload={"session_id": session_id}, created_by="api",
         )
-        job_id = j.job_id
-        _log.info("job created: %s for session=%s title=%.40s", job_id, session_id, title)
+    job_id = j.job_id
+    _log.info("job created: %s for session=%s title=%.40s", job_id, session_id, title)
+    _broadcast_job(job_id, ws_id, session_id)
 
     return job_id
 
@@ -81,6 +102,7 @@ def _ensure_running(ws_id: str, job_id: str):
     if rec.status in ("created", "queued", "succeeded", "cancelled"):
         try:
             mark_running(ws_id, job_id)
+            _broadcast_job(job_id, ws_id)
             _log.debug("job marked running: %s (was %s)", job_id, rec.status)
         except ValueError as e:
             _log.warning("mark_running failed for job=%s status=%s: %s", job_id, rec.status, e)
@@ -137,3 +159,4 @@ def _merge_run_id(ws_id: str, job_id: str, session_id: str, run_id: str, tool_ca
         message=f"{len(new_ids)}轮 | {tool_call_count}工具调用",
     )
     _log.info("job updated: %s runs=%d tools=%d artifacts=%d", job_id, len(new_ids), tool_call_count, len(output_arts))
+    _broadcast_job(job_id, ws_id, session_id)
