@@ -1149,42 +1149,44 @@ export function TaskWorkbench() {
             ))}
           </div>
         )}
-        <div className="wb-input-row">
-          <input ref={fileInputRef} type="file" multiple accept=".txt,.pdf,.md,.json,.csv,.log,.conf,.cfg,.yaml,.yml,.png,.jpg,.jpeg,.gif,.webp" onChange={(e) => { if (e.target.files) { addFiles(e.target.files); e.target.value = ""; } }} style={{ display: "none" }} />
-          <button className="wb-attach-btn" onClick={pickFile} disabled={sending} title="上传文件 (Ctrl+V 粘贴图片 / 拖拽)" type="button">
-            <svg width="14" height="14" viewBox="0 0 16 16" fill="none"><path d="M8.5 1.5v9M5 5l3.5-3.5L12 5M2.5 10v2.5a1 1 0 001 1h9a1 1 0 001-1V10" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/></svg>
-          </button>
-          <textarea
-            ref={inputRef}
-            className="wb-input"
-            placeholder="输入主机名、IP 或排查目标… (Enter 发送, Shift+Enter 换行)"
-            value={input}
-            onChange={(e) => handleInputChange(e.target.value)}
-            onKeyDown={(e) => { if (e.key === "Enter" && !e.shiftKey && !e.nativeEvent.isComposing) { e.preventDefault(); onSend(); } }}
-            disabled={sending}
-            rows={1}
-            data-testid="chat-input"
-            spellCheck={false}
-            style={{ fieldSizing: "content" }}
-          />
-          {sending ? (
-            <button className="wb-stop" onClick={stopGeneration} title="停止生成" type="button" data-testid="btn-stop">
-              <svg width="12" height="12" viewBox="0 0 12 12"><rect x="1" y="1" width="10" height="10" rx="2" fill="currentColor"/></svg>
+        {currentSessionId && (
+          <div className="wb-input-row">
+            <input ref={fileInputRef} type="file" multiple accept=".txt,.pdf,.md,.json,.csv,.log,.conf,.cfg,.yaml,.yml,.png,.jpg,.jpeg,.gif,.webp" onChange={(e) => { if (e.target.files) { addFiles(e.target.files); e.target.value = ""; } }} style={{ display: "none" }} />
+            <button className="wb-attach-btn" onClick={pickFile} disabled={sending} title="上传文件 (Ctrl+V 粘贴图片 / 拖拽)" type="button">
+              <svg width="14" height="14" viewBox="0 0 16 16" fill="none"><path d="M8.5 1.5v9M5 5l3.5-3.5L12 5M2.5 10v2.5a1 1 0 001 1h9a1 1 0 001-1V10" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/></svg>
             </button>
-          ) : (
-            <button
-              className="wb-send"
-              onClick={() => onSend()}
-              disabled={!input.trim() && attachments.length === 0}
-              data-testid="btn-send"
-              type="button"
-              aria-label="发送"
-              title="Enter 发送"
-            >
-              <IconSend size={14} />
-            </button>
-          )}
-        </div>
+            <textarea
+              ref={inputRef}
+              className="wb-input"
+              placeholder="输入主机名、IP 或排查目标… (Enter 发送, Shift+Enter 换行)"
+              value={input}
+              onChange={(e) => handleInputChange(e.target.value)}
+              onKeyDown={(e) => { if (e.key === "Enter" && !e.shiftKey && !e.nativeEvent.isComposing) { e.preventDefault(); onSend(); } }}
+              disabled={sending}
+              rows={1}
+              data-testid="chat-input"
+              spellCheck={false}
+              style={{ fieldSizing: "content" }}
+            />
+            {sending ? (
+              <button className="wb-stop" onClick={stopGeneration} title="停止生成" type="button" data-testid="btn-stop">
+                <svg width="12" height="12" viewBox="0 0 12 12"><rect x="1" y="1" width="10" height="10" rx="2" fill="currentColor"/></svg>
+              </button>
+            ) : (
+              <button
+                className="wb-send"
+                onClick={() => onSend()}
+                disabled={!input.trim() && attachments.length === 0}
+                data-testid="btn-send"
+                type="button"
+                aria-label="发送"
+                title="Enter 发送"
+              >
+                <IconSend size={14} />
+              </button>
+            )}
+          </div>
+        )}
       </div>
 
       {/* ── Inline approval bubble for high-risk tools ── */}
