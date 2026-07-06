@@ -164,14 +164,31 @@ export function Sidebar() {
       toast({ kind: "warning", title: "未选择 workspace" });
       return;
     }
+    // Optimistic: add placeholder session immediately
+    const optimisticSid = `opt-${Date.now().toString(36)}`;
+    const optimistic: Session = { session_id: optimisticSid, workspace_id: currentWorkspaceId, title: "新会话", created_at: new Date().toISOString(), status: "active", run_ids: [], metadata: {} } as Session;
+    setCurrentSession(optimisticSid);
+    // Prepend to local store state
+    const prev = useSessionStore.getState().sessions;
+    useSessionStore.getState().setSessions([optimistic, ...prev]);
     try {
       const res = await sessionsApi.create(currentWorkspaceId, "");
       if (res?.session) {
-        setCurrentSession(res.session.session_id);
+        // Replace optimistic with real session
+        const realSid = res.session.session_id;
+        setCurrentSession(realSid);
+        const sessions = useSessionStore.getState().sessions
+          .filter(s => s.session_id !== optimisticSid);
+        useSessionStore.getState().setSessions([res.session, ...sessions]);
         sessList.reload();
-        toast({ kind: "success", title: "新会话已创建", body: res.session.session_id });
+        toast({ kind: "success", title: "新会话已创建", body: realSid });
       }
     } catch (e: unknown) {
+      // Rollback optimistic
+      const sessions = useSessionStore.getState().sessions
+        .filter(s => s.session_id !== optimisticSid);
+      useSessionStore.getState().setSessions(sessions);
+      setCurrentSession(null);
       toast({
         kind: "error",
         title: "创建会话失败",
@@ -280,6 +297,7 @@ export function Sidebar() {
         <AsyncView
           state={sessList.state}
           onRetry={sessList.reload}
+          skeleton="list"
           emptyText="暂无活跃会话"
           emptyHint="点击 + 新建"
         >

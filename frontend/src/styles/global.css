@@ -3839,3 +3839,9 @@ details.collapse[open] summary::before {
 .task-tracking-body .warn {
   color: var(--warn);
 }
+
+/* ── Skeleton animation ── */
+@keyframes sk-pulse {
+  0%, 100% { opacity: 0.4; }
+  50% { opacity: 0.8; }
+}

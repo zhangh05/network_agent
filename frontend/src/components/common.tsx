@@ -11,6 +11,7 @@ export interface AsyncViewProps<T> {
   emptyHint?: string;
   loadingText?: string;
   onRetry?: () => void;
+  skeleton?: "list" | "table";
 }
 
 export function AsyncView<T>({
@@ -20,8 +21,11 @@ export function AsyncView<T>({
   emptyHint,
   loadingText = "加载中…",
   onRetry,
+  skeleton,
 }: AsyncViewProps<T>) {
   if (isLoading(state)) {
+    if (skeleton === "list") return <SkeletonList />;
+    if (skeleton === "table") return <SkeletonTable />;
     return (
       <div className="empty" data-testid="loading-state">
         <div className="empty-icon">
@@ -53,18 +57,18 @@ export function ErrorState({
   onRetry?: () => void;
 }) {
   return (
-    <div className="empty" data-testid="error-state">
-      <div className="empty-icon">
+    <div className="empty" style={{ padding: "24px" }} data-testid="error-state">
+      <div className="empty-icon" style={{ background: "var(--danger-bg, rgba(185,28,28,.08))", borderRadius: 8, width: 40, height: 40, display: "flex", alignItems: "center", justifyContent: "center" }}>
         <span style={{ fontSize: 20, color: "var(--danger)" }}>⚠</span>
       </div>
-      <div className="empty-text" style={{ color: "var(--danger)" }}>{error.message}</div>
-      <div className="empty-hint">
+      <div className="empty-text" style={{ color: "var(--danger)", fontWeight: 600, marginTop: 8 }}>{error.message}</div>
+      <div className="empty-hint" style={{ fontSize: 11, marginTop: 4 }}>
         {error.code} · {error.status > 0 ? `HTTP ${error.status}` : "无响应"}
         {error.request_id ? ` · ${error.request_id}` : ""}
       </div>
       {onRetry && (
-        <button className="btn sm mt-2" onClick={onRetry} type="button">
-          重试
+        <button className="btn sm" onClick={onRetry} type="button" style={{ marginTop: 12 }}>
+          重新加载
         </button>
       )}
     </div>
@@ -94,9 +98,61 @@ export function EmptyState({
   );
 }
 
-/* ── Loading state ── */
+/* ── Skeleton loading placeholders ── */
 
-export function LoadingState({ text = "加载中…" }: { text?: string }) {
+function sk(w: string, h: number) {
+  return (
+    <span
+      className="skeleton"
+      style={{
+        width: w, height: h, borderRadius: 4,
+        background: "var(--surface-2)", display: "inline-block",
+        animation: "sk-pulse 1.4s ease-in-out infinite",
+      }}
+    />
+  );
+}
+
+export function SkeletonLine({ w = "60%", h = 14 }: { w?: string; h?: number }) {
+  return sk(w, h);
+}
+
+export function SkeletonBlock({ h = 120, w = "100%" }: { h?: number; w?: string }) {
+  return sk(w, h);
+}
+
+export function SkeletonList({ rows = 5, gap = 10 }: { rows?: number; gap?: number }) {
+  return (
+    <div style={{ display: "flex", flexDirection: "column", gap }}>
+      {Array.from({ length: rows }, (_, i) => (
+        <div key={i} style={{ display: "flex", gap: 8, alignItems: "center" }}>
+          <span className="skeleton" style={{ width: 28, height: 28, borderRadius: 6, background: "var(--surface-2)", animation: "sk-pulse 1.4s ease-in-out infinite", animationDelay: `${i * 0.1}s` }} />
+          <span className="skeleton" style={{ flex: 1, height: 14, borderRadius: 4, background: "var(--surface-2)", animation: "sk-pulse 1.4s ease-in-out infinite", animationDelay: `${i * 0.1}s` }} />
+        </div>
+      ))}
+    </div>
+  );
+}
+
+export function SkeletonTable({ rows = 4, cols = 3 }: { rows?: number; cols?: number }) {
+  return (
+    <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+      {Array.from({ length: rows }, (_, r) => (
+        <div key={r} style={{ display: "flex", gap: 8 }}>
+          {Array.from({ length: cols }, (_, c) => (
+            <span key={c} className="skeleton" style={{ flex: 1, height: 14, borderRadius: 4, background: "var(--surface-2)", animation: "sk-pulse 1.4s ease-in-out infinite", animationDelay: `${(r * cols + c) * 0.08}s` }} />
+          ))}
+        </div>
+      ))}
+    </div>
+  );
+}
+
+/* ── Skeleton replace LoadingState ── */
+
+export function LoadingState({ text = "加载中…", skeleton }: { text?: string; skeleton?: "list" | "table" }) {
+  if (skeleton === "list") return <SkeletonList />;
+  if (skeleton === "table") return <SkeletonTable />;
   return (
     <div className="empty" data-testid="loading-state">
       <div className="empty-icon">
