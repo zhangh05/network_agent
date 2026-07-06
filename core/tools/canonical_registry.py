@@ -254,7 +254,8 @@ def _handle_inspection_managed(inv: ToolInvocation) -> dict:
                             session_id = sid
                             break
                     except Exception:
-                        pass
+                        import logging as _sj
+                        _sj.getLogger(__name__).debug("inspection session_id trace read failed for %s", p, exc_info=True)
         except Exception:
             import logging as _sil
             _sil.getLogger(__name__).warning(
