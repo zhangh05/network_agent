@@ -127,13 +127,11 @@ export function JobsPage() {
   const [error, setError] = useState<string | null>(null);
 
   const [selectedJob, setSelectedJob] = useState<JobItem | null>(null);
-  const [tab, setTab] = useState<"overview" | "artifacts" | "stats">("overview");
+  const [tab, setTab] = useState<"overview" | "stats">("overview");
 
   // Per-tab loading states
   const [runs, setRuns] = useState<RunSummary[] | null>(null);
   const [runsLoading, setRunsLoading] = useState(false);
-  const [artifacts, setArtifacts] = useState<ArtifactGroup | null>(null);
-  const [artsLoading, setArtsLoading] = useState(false);
 
   const loadJobs = useCallback(async () => {
     if (!wsId) {
@@ -156,10 +154,10 @@ export function JobsPage() {
   /* ── Select job → load runs & artifacts ── */
   const selectJob = useCallback(async (job: JobItem) => {
     if (selectedJob?.job_id === job.job_id) {
-      setSelectedJob(null); setRuns(null); setArtifacts(null); return;
+      setSelectedJob(null); setRuns(null); return;
     }
     setSelectedJob(job);
-    setTab("overview"); setRuns(null); setArtifacts(null);
+    setTab("overview"); setRuns(null);
 
     // Load runs for this session (session_id in payload)
     const sid = getSessionId(job);
@@ -173,18 +171,6 @@ export function JobsPage() {
     } else {
       setRuns([]);
     }
-
-    // Load artifacts
-    setArtsLoading(true);
-    try {
-      const a = await jobsApi.artifacts(job.job_id, wsId);
-      setArtifacts({
-        input: a.input_artifacts ?? [],
-        output: a.output_artifacts ?? [],
-        report: a.report_artifacts ?? [],
-      });
-    } catch { setArtifacts(null); }
-    setArtsLoading(false);
   }, [selectedJob, wsId]);
 
   /* ── Aggregated stats ── */
@@ -331,8 +317,6 @@ export function JobsPage() {
             setTab={setTab}
             runs={runs}
             runsLoading={runsLoading}
-            artifacts={artifacts}
-            artsLoading={artsLoading}
             stats={stats}
             duration={duration}
             onOpenRun={openRun}
@@ -373,12 +357,10 @@ function DetailPanel({
   onOpenRun, onCancel, onRetry,
 }: {
   job: JobItem | null;
-  tab: "overview" | "artifacts" | "stats";
-  setTab: (t: "overview" | "artifacts" | "stats") => void;
+  tab: "overview" | "stats";
+  setTab: (t: "overview" | "stats") => void;
   runs: RunSummary[] | null;
   runsLoading: boolean;
-  artifacts: ArtifactGroup | null;
-  artsLoading: boolean;
   stats: { runCount: number; totalTools: number; totalErrors: number };
   duration: string | null;
   onOpenRun: (r: RunSummary) => void;
@@ -396,7 +378,7 @@ function DetailPanel({
           </div>
           <div className="empty-text" style={{ fontSize: "var(--fs-14)", fontWeight: 680 }}>选择一个作业</div>
           <p className="empty-hint" style={{ maxWidth: 280 }}>
-            点击左侧列表中的作业，查看会话内的运行记录、产出制品和数据统计。
+            点击左侧列表中的作业，查看会话内的运行记录和数据统计。
           </p>
         </div>
       </div>
@@ -449,9 +431,6 @@ function DetailPanel({
         <button className={"tab" + (tab === "overview" ? " active" : "")} onClick={() => setTab("overview")}>
           运行记录 {stats.runCount > 0 && <span style={{ opacity: 0.5, marginLeft: 4 }}>{stats.runCount}</span>}
         </button>
-        <button className={"tab" + (tab === "artifacts" ? " active" : "")} onClick={() => setTab("artifacts")}>
-          产出制品 {artifacts && (artifacts.input.length + artifacts.output.length + artifacts.report.length) > 0 && <span style={{ opacity: 0.5, marginLeft: 4 }}>{artifacts.input.length + artifacts.output.length + artifacts.report.length}</span>}
-        </button>
         <button className={"tab" + (tab === "stats" ? " active" : "")} onClick={() => setTab("stats")}>
           统计
         </button>
@@ -465,11 +444,6 @@ function DetailPanel({
           runsLoading={runsLoading}
           onOpenRun={onOpenRun}
         />
-      )}
-
-      {/* ── Tab: 产出制品 ── */}
-      {tab === "artifacts" && (
-        <TabArtifacts artifacts={artifacts} artsLoading={artsLoading} />
       )}
 
       {/* ── Tab: 统计 ── */}
@@ -578,73 +552,6 @@ function TabOverview({
 
 /* ── Tab: 产出制品 ── */
 
-function TabArtifacts({
-  artifacts, artsLoading,
-}: {
-  artifacts: ArtifactGroup | null;
-  artsLoading: boolean;
-}) {
-  if (artsLoading) return <LoadingState text="加载制品…" />;
-  if (!artifacts) return <EmptyState text="加载失败" />;
-
-  const total = artifacts.input.length + artifacts.output.length + artifacts.report.length;
-  if (total === 0) return <EmptyState text="此作业暂无产出制品" />;
-
-  return (
-    <div>
-      {artifacts.input.length > 0 && (
-        <ArtifactSection
-          icon={<IconDocument size={14} />}
-          label="输入制品"
-          count={artifacts.input.length}
-          ids={artifacts.input}
-        />
-      )}
-      {artifacts.output.length > 0 && (
-        <ArtifactSection
-          icon={<IconBolt size={14} />}
-          label="输出制品"
-          count={artifacts.output.length}
-          ids={artifacts.output}
-        />
-      )}
-      {artifacts.report.length > 0 && (
-        <ArtifactSection
-          icon={<IconLayers size={14} />}
-          label="报告制品"
-          count={artifacts.report.length}
-          ids={artifacts.report}
-        />
-      )}
-      <div style={{ fontSize: "var(--fs-11)", color: "var(--text-4)", marginTop: 12 }}>
-        制品详情请前往 <Link to="/artifacts" style={{ color: "var(--accent)" }}>制品中心</Link> 查看
-      </div>
-    </div>
-  );
-}
-
-function ArtifactSection({
-  icon, label, count, ids,
-}: {
-  icon: React.ReactNode; label: string; count: number; ids: string[];
-}) {
-  return (
-    <div style={{ marginBottom: 16 }}>
-      <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 6, fontSize: "var(--fs-12)", fontWeight: 680, color: "var(--text-2)" }}>
-        {icon}
-        {label}
-        <Badge kind="muted">{count}</Badge>
-      </div>
-      <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
-        {ids.map((id) => (
-          <span key={id} className="tag" style={{ fontSize: "var(--fs-11)", fontFamily: "var(--font-mono)" }}>
-            {id.length > 24 ? id.slice(0, 24) + "…" : id}
-          </span>
-        ))}
-      </div>
-    </div>
-  );
-}
 
 /* ── Tab: 统计 ── */
 
